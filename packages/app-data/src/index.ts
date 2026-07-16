@@ -111,6 +111,12 @@ export {
   type NotionQueryResult,
 } from "./notion";
 
+export {
+  usePostgresMutations,
+  type PostgresQueryResult,
+  type PostgresTableRef,
+} from "./postgres";
+
 export { DatabaseProvider, useDatabase } from "./compat";
 
 // Preview batch — SPLIT-TIER: returns metadata only, no row data over the wire.

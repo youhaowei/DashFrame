@@ -6,8 +6,7 @@
  * in VisualizationDisplay.
  *
  * Mutations:
- * - Filter overrides → `updateItem(dashboardId, item.id, { overrides: … })`
- * - Sort / limit   → `updateItem(...)` with updated sorts / limit
+ * - Filter / sort / limit overrides → server-applied intent patches
  * - Bind to control → `updateControls(dashboardId, newControls)` (replace whole array)
  * - Unbind         → `updateControls(...)` removing item.id from boundInstances
  *
@@ -29,7 +28,7 @@ import {
 import type {
   DashboardControl,
   DashboardItem,
-  DashboardItemOverrides,
+  DashboardItemOverridePatch,
   InsightFilter,
   InsightFilterOverride,
   InsightSort,
@@ -52,12 +51,9 @@ import {
 } from "@wystack/ui";
 import { SettingsIcon } from "@wystack/ui-icons";
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 import {
   computeNewOverridesOnClear,
-  computeNewOverridesOnInherit,
-  computeNewOverridesOnLimitChange,
-  computeNewOverridesOnPin,
-  computeNewOverridesOnSortChange,
   deriveFieldState,
   hasOverrides,
 } from "./override-field-row-utils";
@@ -275,7 +271,7 @@ export function OverridePopover({
   dashboardId,
   controls,
 }: OverridePopoverProps) {
-  const { updateItem, updateControls } = useDashboardMutations();
+  const { patchItemOverride, updateControls } = useDashboardMutations();
 
   // Self-fetch visualization → insight → data table (same pattern as VisualizationDisplay).
   const { data: visualizations = [] } = useVisualizations();
@@ -364,39 +360,52 @@ export function OverridePopover({
   // Mutation handlers
   // ---------------------------------------------------------------------------
 
-  function saveOverrides(next: DashboardItemOverrides) {
-    if (hasOverrides(next)) {
-      updateItem(dashboardId, item.id, { overrides: next });
-    } else {
-      // Explicit clear: send null so JSON.stringify preserves the key.
-      // `undefined` would be dropped by JSON.stringify → the server's
-      // `"overrides" in input` gate never fires → clear is silently skipped.
-      // null is already handled: sanitizeItemOverrides(null) → undefined → JSONB cleared.
-      // Empty-bag check is delegated to hasOverrides (tested in override-field-row-utils.test.ts).
-      updateItem(dashboardId, item.id, {
-        overrides: null as unknown as undefined,
-      });
-    }
+  function persistOverride(patch: DashboardItemOverridePatch) {
+    patchItemOverride(dashboardId, item.id, patch).catch((error: unknown) => {
+      console.error("Failed to save dashboard override:", error);
+      toast.error("Failed to save dashboard override");
+    });
   }
 
   function handlePin(fieldName: string, filter: InsightFilterOverride) {
-    saveOverrides(computeNewOverridesOnPin(fieldName, filter, item.overrides));
+    persistOverride({
+      kind: "filter",
+      field: fieldName,
+      value: filter,
+    });
   }
 
   function handleClear(fieldName: string) {
-    saveOverrides(computeNewOverridesOnClear(fieldName, item.overrides));
+    const next = computeNewOverridesOnClear(fieldName, item.overrides);
+    const value =
+      next.filters?.find((filter) => filter.field === fieldName) ?? null;
+    persistOverride({
+      kind: "filter",
+      field: fieldName,
+      value,
+    });
   }
 
   function handleInherit(fieldName: string) {
-    saveOverrides(computeNewOverridesOnInherit(fieldName, item.overrides));
+    persistOverride({
+      kind: "filter",
+      field: fieldName,
+      value: null,
+    });
   }
 
   function handleSortChange(sorts: InsightSort[] | undefined) {
-    saveOverrides(computeNewOverridesOnSortChange(sorts, item.overrides));
+    persistOverride({
+      kind: "sorts",
+      value: sorts ?? null,
+    });
   }
 
   function handleLimitChange(limit: number | undefined) {
-    saveOverrides(computeNewOverridesOnLimitChange(limit, item.overrides));
+    persistOverride({
+      kind: "limit",
+      value: limit ?? null,
+    });
   }
 
   function handleBind(controlId: string) {

@@ -28,7 +28,9 @@ test("auto-pins a chart when landing with visualize intent", async ({
 
   // The pinned metric carries the field's display name, not the raw
   // UUID column alias.
-  await expect(page.getByRole("button", { name: "Metrics 1" })).toBeVisible();
+  const metricsSection = page.getByRole("button", { name: "Metrics 1" });
+  await expect(metricsSection).toBeVisible();
+  await metricsSection.click();
   await expect(page.getByText("sum(Quantity)").first()).toBeVisible();
   await expect(page.getByText(/field_[0-9a-f]{8}/).first()).not.toBeVisible();
 });

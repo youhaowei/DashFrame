@@ -5,8 +5,9 @@ import type {
   DashboardItemOverrides,
   InsightFilter,
 } from "@dashframe/types";
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Responsive, WidthProvider, type Layout } from "react-grid-layout";
+import { toast } from "sonner";
 import { DashboardItem } from "./DashboardItem";
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
@@ -22,17 +23,13 @@ interface DashboardGridProps {
   controlTransientValues?: Map<string, InsightFilter["value"]>;
 }
 
-/** Debounce delay in ms for layout changes during drag/resize */
-const LAYOUT_DEBOUNCE_MS = 150;
-
 export function DashboardGrid({
   dashboard,
   isEditable,
   controlTransientValues,
 }: DashboardGridProps) {
-  const { updateItem } = useDashboardMutations();
-  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingLayoutRef = useRef<Layout[] | null>(null);
+  const { updateItems } = useDashboardMutations();
+  const [activeBreakpoint, setActiveBreakpoint] = useState("lg");
 
   const layouts = useMemo(() => {
     // Base layout from stored positions (designed for lg: 12 cols)
@@ -84,70 +81,43 @@ export function DashboardGrid({
     };
   }, [dashboard.items]);
 
-  /**
-   * Persists pending layout changes to the store.
-   * Called after debounce delay or on drag/resize stop.
-   */
-  const flushLayoutChanges = useCallback(() => {
-    const currentLayout = pendingLayoutRef.current;
-    if (!currentLayout) return;
-
-    currentLayout.forEach((l) => {
-      const item = dashboard.items.find((i) => i.id === l.i);
-      if (item) {
-        // Only update if changed
-        if (
-          item.x !== l.x ||
-          item.y !== l.y ||
-          item.width !== l.w ||
-          item.height !== l.h
-        ) {
-          updateItem(dashboard.id, item.id, {
-            x: l.x,
-            y: l.y,
-            width: l.w,
-            height: l.h,
-          });
-        }
-      }
-    });
-
-    pendingLayoutRef.current = null;
-  }, [dashboard.id, dashboard.items, updateItem]);
-
-  /**
-   * Debounced handler for layout changes during drag/resize.
-   * Stores pending changes and schedules a flush after delay.
-   */
-  const handleLayoutChange = useCallback(
+  const persistCanonicalLayout = useCallback(
     (currentLayout: Layout[]) => {
-      if (!isEditable) return;
-
-      // Store the latest layout for deferred processing
-      pendingLayoutRef.current = currentLayout;
-
-      // Clear existing timer and schedule new flush
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current);
+      if (!isEditable || activeBreakpoint !== "lg") return;
+      const patches = currentLayout.flatMap((layoutItem) => {
+        const item = dashboard.items.find(
+          (candidate) => candidate.id === layoutItem.i,
+        );
+        if (
+          !item ||
+          (item.x === layoutItem.x &&
+            item.y === layoutItem.y &&
+            item.width === layoutItem.w &&
+            item.height === layoutItem.h)
+        ) {
+          return [];
+        }
+        return [
+          {
+            itemId: item.id,
+            updates: {
+              x: layoutItem.x,
+              y: layoutItem.y,
+              width: layoutItem.w,
+              height: layoutItem.h,
+            },
+          },
+        ];
+      });
+      if (patches.length > 0) {
+        updateItems(dashboard.id, patches).catch((error: unknown) => {
+          console.error("Failed to save dashboard layout:", error);
+          toast.error("Failed to save dashboard layout");
+        });
       }
-      debounceTimerRef.current = setTimeout(
-        flushLayoutChanges,
-        LAYOUT_DEBOUNCE_MS,
-      );
     },
-    [isEditable, flushLayoutChanges],
+    [activeBreakpoint, dashboard.id, dashboard.items, isEditable, updateItems],
   );
-
-  /**
-   * Immediately flush on drag/resize stop for responsiveness.
-   */
-  const handleDragStop = useCallback(() => {
-    if (debounceTimerRef.current) {
-      clearTimeout(debounceTimerRef.current);
-      debounceTimerRef.current = null;
-    }
-    flushLayoutChanges();
-  }, [flushLayoutChanges]);
 
   // Pre-compute effective overrides for every item.  Merges the item's own
   // saved overrides with any active dashboard controls.  Controls that target
@@ -182,12 +152,12 @@ export function DashboardGrid({
       breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 }}
       cols={{ lg: 12, md: 10, sm: 6, xs: 4, xxs: 2 }}
       rowHeight={60}
-      isDraggable={isEditable}
-      isResizable={isEditable}
+      isDraggable={isEditable && activeBreakpoint === "lg"}
+      isResizable={isEditable && activeBreakpoint === "lg"}
       draggableHandle=".grid-drag-handle"
-      onLayoutChange={handleLayoutChange}
-      onDragStop={handleDragStop}
-      onResizeStop={handleDragStop}
+      onBreakpointChange={setActiveBreakpoint}
+      onDragStop={persistCanonicalLayout}
+      onResizeStop={persistCanonicalLayout}
       margin={[16, 16]}
       resizeHandle={
         isEditable ? (

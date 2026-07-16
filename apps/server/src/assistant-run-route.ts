@@ -417,7 +417,11 @@ export async function handleAssistantRunRequest(
           terminationReason: result.terminationReason,
         });
       } catch (error) {
-        send({ type: "error", message: errorMessage(error) });
+        console.error("[assistant/run] run failed", error);
+        send({
+          type: "error",
+          message: "The assistant couldn't complete this request. Try again.",
+        });
       } finally {
         try {
           controller.close();

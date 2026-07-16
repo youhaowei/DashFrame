@@ -168,6 +168,25 @@ export interface CreateItemInput {
   position: { x: number; y: number; width: number; height: number };
 }
 
+/** A server-applied patch for one dashboard item. */
+export interface DashboardItemPatch {
+  itemId: UUID;
+  updates: Partial<Omit<DashboardItem, "id" | "type" | "overrides">>;
+}
+
+/**
+ * Intent-level override edits. The server applies these against its current
+ * dashboard state so callers never have to replace a stale override bag.
+ */
+export type DashboardItemOverridePatch =
+  | {
+      kind: "filter";
+      field: string;
+      value: InsightFilterOverride | null;
+    }
+  | { kind: "sorts"; value: InsightSort[] | null }
+  | { kind: "limit"; value: number | null };
+
 /**
  * Mutation methods for dashboards.
  */
@@ -178,7 +197,7 @@ export interface DashboardMutations {
   /** Update a dashboard */
   update: (
     id: UUID,
-    updates: Partial<Omit<Dashboard, "id" | "createdAt">>,
+    updates: Pick<Partial<Dashboard>, "name" | "description">,
   ) => Promise<void>;
 
   /** Remove a dashboard */
@@ -191,7 +210,20 @@ export interface DashboardMutations {
   updateItem: (
     dashboardId: UUID,
     itemId: UUID,
-    updates: Partial<Omit<DashboardItem, "id" | "type">>,
+    updates: Partial<Omit<DashboardItem, "id" | "type" | "overrides">>,
+  ) => Promise<void>;
+
+  /** Atomically apply several item patches to one authoritative layout. */
+  updateItems: (
+    dashboardId: UUID,
+    patches: DashboardItemPatch[],
+  ) => Promise<void>;
+
+  /** Apply one override intent against the latest server-owned item state. */
+  patchItemOverride: (
+    dashboardId: UUID,
+    itemId: UUID,
+    patch: DashboardItemOverridePatch,
   ) => Promise<void>;
 
   /** Remove an item */

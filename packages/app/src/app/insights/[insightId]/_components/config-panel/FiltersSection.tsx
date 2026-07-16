@@ -43,6 +43,7 @@ interface FiltersSectionProps {
   onEditClick: (filter: FilterWithId) => void;
   onAddClick: () => void;
   defaultOpen?: boolean;
+  embedded?: boolean;
 }
 
 // ============================================================================
@@ -94,6 +95,7 @@ export function FiltersSection({
   onEditClick,
   onAddClick,
   defaultOpen = true,
+  embedded = false,
 }: FiltersSectionProps) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
@@ -108,6 +110,49 @@ export function FiltersSection({
     },
     [onReorder],
   );
+
+  const content = (
+    <div className={embedded ? "p-4" : "overflow-hidden px-4 pb-4"}>
+      {embedded && (
+        <div className="mb-3 flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-neutral-fg">Filters</h3>
+            <p className="text-xs text-neutral-fg-subtle">
+              Limit the rows included in this insight.
+            </p>
+          </div>
+          <Button
+            label="Add"
+            icon={PlusIcon}
+            variant="outline"
+            size="sm"
+            onClick={onAddClick}
+          />
+        </div>
+      )}
+      {sortableItems.length > 0 ? (
+        <SortableList
+          items={sortableItems}
+          onReorder={handleReorder}
+          gap={6}
+          renderItem={(item) => (
+            <FilterItemContent
+              filter={item.filter as FilterWithId}
+              combinedFields={combinedFields}
+              onRemove={() => onRemove(item.id)}
+              onEditClick={() => onEditClick(item.filter as FilterWithId)}
+            />
+          )}
+        />
+      ) : (
+        <p className="py-2 text-sm text-neutral-fg-subtle">
+          No filters configured.
+        </p>
+      )}
+    </div>
+  );
+
+  if (embedded) return content;
 
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
@@ -143,29 +188,7 @@ export function FiltersSection({
             onClick={onAddClick}
           />
         </div>
-        <CollapsibleContent>
-          <div className="overflow-hidden px-4 pb-4">
-            {sortableItems.length > 0 ? (
-              <SortableList
-                items={sortableItems}
-                onReorder={handleReorder}
-                gap={6}
-                renderItem={(item) => (
-                  <FilterItemContent
-                    filter={item.filter as FilterWithId}
-                    combinedFields={combinedFields}
-                    onRemove={() => onRemove(item.id)}
-                    onEditClick={() => onEditClick(item.filter as FilterWithId)}
-                  />
-                )}
-              />
-            ) : (
-              <p className="py-2 text-sm text-neutral-fg-subtle">
-                No filters configured.
-              </p>
-            )}
-          </div>
-        </CollapsibleContent>
+        <CollapsibleContent>{content}</CollapsibleContent>
       </div>
     </Collapsible>
   );

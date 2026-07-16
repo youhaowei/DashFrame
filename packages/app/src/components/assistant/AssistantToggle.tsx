@@ -1,4 +1,5 @@
 import { useAssistantStore } from "@/lib/stores/assistant-store";
+import { useAssistantProviderConfigs } from "@dashframe/core";
 import { Button, cn } from "@wystack/ui";
 import { SparklesIcon } from "@wystack/ui-icons";
 
@@ -10,19 +11,40 @@ import { SparklesIcon } from "@wystack/ui-icons";
  */
 export function AssistantToggle({ className }: { className?: string }) {
   const isOpen = useAssistantStore((s) => s.isOpen);
+  const close = useAssistantStore((s) => s.close);
   const toggle = useAssistantStore((s) => s.toggle);
+  const setSetupOpen = useAssistantStore((s) => s.setSetupOpen);
+  const configsResult = useAssistantProviderConfigs();
+  const configsLoaded =
+    configsResult.data !== undefined && !configsResult.isLoading;
+  const assistantAvailable = (configsResult.data?.length ?? 0) > 0;
+  const assistantOpen = isOpen && assistantAvailable;
+  let label = "Set up assistant";
+  if (assistantAvailable) {
+    label = assistantOpen ? "Hide assistant" : "Open assistant";
+  }
+
+  function handleClick() {
+    if (!assistantAvailable) {
+      close();
+      setSetupOpen(true);
+      return;
+    }
+    toggle();
+  }
 
   return (
     <Button
       variant="ghost"
       icon={SparklesIcon}
       iconOnly
-      label={isOpen ? "Hide assistant" : "Open assistant"}
-      tooltip={isOpen ? "Hide assistant (⌘J)" : "Open assistant (⌘J)"}
-      onClick={toggle}
-      active={isOpen}
+      label={label}
+      tooltip={assistantAvailable ? `${label} (⌘J)` : label}
+      disabled={!configsLoaded}
+      onClick={handleClick}
+      active={assistantOpen}
       className={cn(
-        !isOpen && "text-neutral-fg-subtle hover:text-neutral-fg",
+        !assistantOpen && "text-neutral-fg-subtle hover:text-neutral-fg",
         className,
       )}
     />

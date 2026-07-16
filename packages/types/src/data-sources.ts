@@ -1,4 +1,4 @@
-import type { UseQueryResult } from "./repository-base";
+import type { UseRetryableQueryResult } from "./repository-base";
 import type { UUID } from "./uuid";
 
 // ============================================================================
@@ -53,6 +53,13 @@ export interface CreateDataSourceInput {
   name: string;
   apiKey?: string;
   connectionString?: string;
+  /** Connector-specific, non-credential settings accepted by the server. */
+  config?: CreateDataSourceConfig;
+}
+
+/** Allowlisted public configuration accepted when creating a data source. */
+export interface CreateDataSourceConfig {
+  defaultSchema?: string;
 }
 
 // ============================================================================
@@ -62,7 +69,7 @@ export interface CreateDataSourceInput {
 /**
  * Result type for useDataSources hook.
  */
-export type UseDataSourcesResult = UseQueryResult<DataSource[]>;
+export type UseDataSourcesResult = UseRetryableQueryResult<DataSource[]>;
 
 /**
  * Mutation methods for data sources - pure CRUD operations.

@@ -68,6 +68,7 @@ interface FieldsSectionProps {
   onRenameClick: (field: CombinedField) => void;
   onAddClick: () => void;
   defaultOpen?: boolean;
+  embedded?: boolean;
 }
 
 /**
@@ -83,6 +84,7 @@ export function FieldsSection({
   onRenameClick,
   onAddClick,
   defaultOpen = true,
+  embedded = false,
 }: FieldsSectionProps) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
@@ -99,6 +101,48 @@ export function FieldsSection({
     },
     [onReorder],
   );
+
+  const content = (
+    <div className={embedded ? "p-4" : "px-4 pb-4"}>
+      {embedded && (
+        <div className="mb-3 flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-neutral-fg">Fields</h3>
+            <p className="text-xs text-neutral-fg-subtle">
+              Choose and order the columns in the result.
+            </p>
+          </div>
+          <Button
+            label="Add"
+            icon={PlusIcon}
+            variant="outline"
+            size="sm"
+            onClick={onAddClick}
+          />
+        </div>
+      )}
+      {sortableItems.length > 0 ? (
+        <SortableList
+          items={sortableItems}
+          onReorder={handleReorder}
+          gap={6}
+          renderItem={(item) => (
+            <FieldItemContent
+              field={item.field}
+              onRemove={() => onRemove(item.id)}
+              onRenameClick={() => onRenameClick(item.field)}
+            />
+          )}
+        />
+      ) : (
+        <p className="py-2 text-sm text-neutral-fg-subtle">
+          No fields selected.
+        </p>
+      )}
+    </div>
+  );
+
+  if (embedded) return content;
 
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
@@ -132,28 +176,7 @@ export function FieldsSection({
             onClick={onAddClick}
           />
         </div>
-        <CollapsibleContent>
-          <div className="px-4 pb-4">
-            {sortableItems.length > 0 ? (
-              <SortableList
-                items={sortableItems}
-                onReorder={handleReorder}
-                gap={6}
-                renderItem={(item) => (
-                  <FieldItemContent
-                    field={item.field}
-                    onRemove={() => onRemove(item.id)}
-                    onRenameClick={() => onRenameClick(item.field)}
-                  />
-                )}
-              />
-            ) : (
-              <p className="py-2 text-sm text-neutral-fg-subtle">
-                No fields selected.
-              </p>
-            )}
-          </div>
-        </CollapsibleContent>
+        <CollapsibleContent>{content}</CollapsibleContent>
       </div>
     </Collapsible>
   );

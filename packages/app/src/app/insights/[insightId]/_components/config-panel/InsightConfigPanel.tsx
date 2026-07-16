@@ -3,6 +3,7 @@ import {
   computeFilterableFields,
   type CombinedField,
 } from "@/lib/insights/compute-combined-fields";
+import { reorderVisibleMetrics } from "@/lib/insights/reorder-visible-metrics";
 import {
   useDataTableMutations,
   useInsightMutations,
@@ -14,10 +15,19 @@ import type {
   Insight,
   InsightFilter,
   InsightMetric,
+  InsightSort,
 } from "@dashframe/types";
 import { InputField } from "@dashframe/ui";
-import { Panel } from "@wystack/ui";
-import { useCallback, useMemo, useState } from "react";
+import { Badge, Panel, cn } from "@wystack/ui";
+import {
+  ArrowUpDown,
+  Columns3,
+  ListFilter,
+  Sigma,
+  Workflow,
+} from "lucide-react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { DataModelSection } from "../sections/DataModelSection";
 import {
   DeleteConfirmDialog,
   findVisualizationsUsingField,
@@ -34,6 +44,7 @@ import { InsightFieldEditorModal } from "./InsightFieldEditorModal";
 import { InsightMetricEditorModal } from "./InsightMetricEditorModal";
 import { MetricEditDialog } from "./MetricEditDialog";
 import { MetricsSection } from "./MetricsSection";
+import { SortSection } from "./SortSection";
 
 interface InsightConfigPanelProps {
   insight: Insight;
@@ -67,6 +78,49 @@ const initialDeleteDialogState: DeleteDialogState = {
   itemType: "field",
 };
 
+type ConfigSection = "model" | "fields" | "metrics" | "filters" | "sort";
+
+interface ConfigSectionButtonProps {
+  active: boolean;
+  count: number;
+  icon: ReactNode;
+  label: string;
+  onClick: () => void;
+}
+
+function ConfigSectionButton({
+  active,
+  count,
+  icon,
+  label,
+  onClick,
+}: ConfigSectionButtonProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex h-9 min-w-0 w-full items-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors",
+        "focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none",
+        active
+          ? "bg-neutral-bg-emphasis text-neutral-fg shadow-sm"
+          : "text-neutral-fg-subtle hover:bg-neutral-bg-muted hover:text-neutral-fg",
+      )}
+      aria-pressed={active}
+      title={label}
+    >
+      {icon}
+      <span className="min-w-0 flex-1 truncate text-left">{label}</span>
+      <Badge
+        variant="soft"
+        className="h-4 min-w-4 px-1 text-[10px] leading-none tabular-nums"
+      >
+        {count}
+      </Badge>
+    </button>
+  );
+}
+
 export function InsightConfigPanel({
   insight,
   dataTable,
@@ -74,6 +128,7 @@ export function InsightConfigPanel({
   name,
   onNameChange,
 }: InsightConfigPanelProps) {
+  const [activeSection, setActiveSection] = useState<ConfigSection>("model");
   // Modal states
   const [isFieldEditorOpen, setIsFieldEditorOpen] = useState(false);
   const [isMetricEditorOpen, setIsMetricEditorOpen] = useState(false);
@@ -169,6 +224,15 @@ export function InsightConfigPanel({
     [insight.filters],
   );
 
+  const sorts = insight.sorts ?? [];
+
+  const handleSortsChange = useCallback(
+    (nextSorts: InsightSort[]) => {
+      updateInsight(insight.id, { sorts: nextSorts });
+    },
+    [insight.id, updateInsight],
+  );
+
   // --- Field handlers ---
   const handleFieldsReorder = useCallback(
     (newOrder: string[]) => {
@@ -219,9 +283,11 @@ export function InsightConfigPanel({
   // --- Metric handlers ---
   const handleMetricsReorder = useCallback(
     (newOrder: InsightMetric[]) => {
-      updateInsight(insight.id, { metrics: newOrder });
+      updateInsight(insight.id, {
+        metrics: reorderVisibleMetrics(insight.metrics ?? [], newOrder),
+      });
     },
-    [insight.id, updateInsight],
+    [insight.id, insight.metrics, updateInsight],
   );
 
   const handleRemoveMetric = useCallback(
@@ -366,46 +432,111 @@ export function InsightConfigPanel({
   return (
     <Panel
       header={
-        <div className="p-4">
-          <InputField
-            label="Name"
-            value={name}
-            onChange={onNameChange}
-            placeholder="Insight name"
-            className="text-lg font-semibold"
-          />
+        <div>
+          <div className="p-4 pb-3">
+            <InputField
+              label="Name"
+              value={name}
+              onChange={onNameChange}
+              placeholder="Insight name"
+              className="text-lg font-semibold"
+            />
+          </div>
+          <div
+            className="grid grid-cols-2 gap-1 px-2 pb-2"
+            aria-label="Data model sections"
+          >
+            <ConfigSectionButton
+              active={activeSection === "model"}
+              count={(insight.joins?.length ?? 0) + 1}
+              icon={<Workflow className="h-3.5 w-3.5" />}
+              label="Model"
+              onClick={() => setActiveSection("model")}
+            />
+            <ConfigSectionButton
+              active={activeSection === "fields"}
+              count={selectedFields.length}
+              icon={<Columns3 className="h-3.5 w-3.5" />}
+              label="Fields"
+              onClick={() => setActiveSection("fields")}
+            />
+            <ConfigSectionButton
+              active={activeSection === "metrics"}
+              count={visibleMetrics.length}
+              icon={<Sigma className="h-3.5 w-3.5" />}
+              label="Metrics"
+              onClick={() => setActiveSection("metrics")}
+            />
+            <ConfigSectionButton
+              active={activeSection === "filters"}
+              count={filtersWithIds.length}
+              icon={<ListFilter className="h-3.5 w-3.5" />}
+              label="Filters"
+              onClick={() => setActiveSection("filters")}
+            />
+            <ConfigSectionButton
+              active={activeSection === "sort"}
+              count={sorts.length}
+              icon={<ArrowUpDown className="h-3.5 w-3.5" />}
+              label="Sort"
+              onClick={() => setActiveSection("sort")}
+            />
+          </div>
         </div>
       }
     >
-      <div className="space-y-0">
-        {/* Fields Section */}
-        <FieldsSection
-          selectedFields={selectedFields}
-          baseTableId={dataTable.id}
-          onReorder={handleFieldsReorder}
-          onRemove={handleRemoveField}
-          onRenameClick={setFieldToRename}
-          onAddClick={() => setIsFieldEditorOpen(true)}
-        />
-
-        {/* Metrics Section */}
-        <MetricsSection
-          metrics={visibleMetrics}
-          onReorder={handleMetricsReorder}
-          onRemove={handleRemoveMetric}
-          onEditClick={setMetricToEdit}
-          onAddClick={() => setIsMetricEditorOpen(true)}
-        />
-
-        {/* Filters Section */}
-        <FiltersSection
-          filters={filtersWithIds}
-          combinedFields={combinedFields}
-          onReorder={handleFiltersReorder}
-          onRemove={handleRemoveFilter}
-          onEditClick={setFilterToEdit}
-          onAddClick={() => setFilterToEdit("new")}
-        />
+      <div>
+        {activeSection === "model" && (
+          <div className="p-4">
+            <DataModelSection
+              insight={insight}
+              dataTable={dataTable}
+              allDataTables={allDataTables}
+              combinedFieldCount={combinedFields.length}
+              compact
+            />
+          </div>
+        )}
+        {activeSection === "fields" && (
+          <FieldsSection
+            selectedFields={selectedFields}
+            baseTableId={dataTable.id}
+            onReorder={handleFieldsReorder}
+            onRemove={handleRemoveField}
+            onRenameClick={setFieldToRename}
+            onAddClick={() => setIsFieldEditorOpen(true)}
+            embedded
+          />
+        )}
+        {activeSection === "metrics" && (
+          <MetricsSection
+            metrics={visibleMetrics}
+            onReorder={handleMetricsReorder}
+            onRemove={handleRemoveMetric}
+            onEditClick={setMetricToEdit}
+            onAddClick={() => setIsMetricEditorOpen(true)}
+            embedded
+          />
+        )}
+        {activeSection === "filters" && (
+          <FiltersSection
+            filters={filtersWithIds}
+            combinedFields={combinedFields}
+            onReorder={handleFiltersReorder}
+            onRemove={handleRemoveFilter}
+            onEditClick={setFilterToEdit}
+            onAddClick={() => setFilterToEdit("new")}
+            embedded
+          />
+        )}
+        {activeSection === "sort" && (
+          <SortSection
+            sorts={sorts}
+            fields={selectedFields}
+            metrics={visibleMetrics}
+            onChange={handleSortsChange}
+          />
+        )}
       </div>
 
       <InsightFieldEditorModal

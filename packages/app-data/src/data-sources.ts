@@ -16,12 +16,15 @@ export function useDataSources(): UseDataSourcesResult {
   const result = useQuery(api.listDataSources);
   return {
     data: result.data as DataSource[] | undefined,
+    error: result.error,
+    isError: result.isError,
     isLoading: result.isLoading,
     // Forward the in-flight refetch flag so consumers can distinguish "no data
     // yet" (isLoading) from "cached data, but a background refetch is running"
     // (isFetching) — the latter must not flash a not-found state for a source
     // an in-flight invalidation is about to return.
     isFetching: result.isFetching,
+    refetch: result.refetch,
   };
 }
 

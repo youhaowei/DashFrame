@@ -67,6 +67,8 @@ export type AssistantRunTerminationReason =
 interface AssistantState {
   /** Whether the assistant panel is visible. */
   isOpen: boolean;
+  /** Whether provider setup is visible. Transient shell UI state. */
+  isSetupOpen: boolean;
   /**
    * A draft the assistant has queued for user review. When non-null the
    * assistant panel shows the DraftReviewPanel instead of the empty state.
@@ -86,6 +88,7 @@ interface AssistantActions {
   open: () => void;
   close: () => void;
   toggle: () => void;
+  setSetupOpen: (open: boolean) => void;
   /** Set (or clear) a draft waiting for review. Opens the panel when non-null. */
   setPendingDraft: (id: string | null) => void;
   setSelectedModel: (providerConfigId: string, modelId: string) => void;
@@ -147,6 +150,7 @@ export const useAssistantStore = create<AssistantState & AssistantActions>()(
   persist(
     (set) => ({
       isOpen: false,
+      isSetupOpen: false,
       // Transient — not persisted. A stale draftId across a server restart
       // would surface a "draft not found" error in the review panel.
       pendingDraftId: null,
@@ -161,6 +165,7 @@ export const useAssistantStore = create<AssistantState & AssistantActions>()(
       open: () => set({ isOpen: true }),
       close: () => set({ isOpen: false }),
       toggle: () => set((s) => ({ isOpen: !s.isOpen })),
+      setSetupOpen: (isSetupOpen) => set({ isSetupOpen }),
       setPendingDraft: (id) =>
         set((s) => ({
           pendingDraftId: id,
@@ -407,21 +412,26 @@ function applyAssistantEvent(
           : flushStreamingTurn(state),
       };
     }
-    case "error":
+    case "error": {
+      // Treat the server event as untrusted: runtime/provider details belong in
+      // logs, never in the user-visible timeline.
+      const assistantError =
+        "The assistant couldn't complete this request. Try again.";
       return {
         ...state,
         runStatus: "error",
         streamingText: "",
-        error: event.message,
+        error: assistantError,
         turns: [
           ...flushStreamingTurn(state),
           {
             id: makeTurnId("error"),
             kind: "status",
-            text: event.message,
+            text: assistantError,
             status: "error",
           },
         ],
       };
+    }
   }
 }

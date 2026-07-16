@@ -125,10 +125,8 @@ export function useConnectorForm<T extends BaseConnector>(connector: T) {
       try {
         const result = await action(values);
         return result;
-      } catch (err) {
-        const errorMessage =
-          err instanceof Error ? err.message : "Operation failed";
-        setSubmitError(errorMessage);
+      } catch {
+        setSubmitError("Couldn't connect. Check your settings and try again.");
         return null;
       } finally {
         setIsSubmitting(false);

@@ -54,6 +54,40 @@ interface DashboardControl {
   boundInstances: string[];
 }
 
+type DashboardOverridePatch =
+  | { kind: "filter"; field: string; value: unknown | null }
+  | { kind: "sorts"; value: unknown[] | null }
+  | { kind: "limit"; value: number | null };
+
+// DashFrame has one local server process per project. Serialize item writes by
+// dashboard so every mutation reads the latest committed layout before it
+// applies user intent. This is the server-authoritative seam; callers do not
+// coordinate through stale subscription snapshots.
+const dashboardWriteTails = new Map<string, Promise<void>>();
+
+async function withDashboardWrite<T>(
+  dashboardId: string,
+  write: () => Promise<T>,
+): Promise<T> {
+  const previous = dashboardWriteTails.get(dashboardId) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const tail = previous.then(() => current);
+  dashboardWriteTails.set(dashboardId, tail);
+
+  await previous;
+  try {
+    return await write();
+  } finally {
+    release();
+    if (dashboardWriteTails.get(dashboardId) === tail) {
+      dashboardWriteTails.delete(dashboardId);
+    }
+  }
+}
+
 /** Domain `Dashboard` shape returned to the client (matches @dashframe/types). */
 export interface DashboardResult {
   id: string;
@@ -123,12 +157,17 @@ function parsePosition(
 
 function sanitizeDashboardUpdates(
   updates: unknown,
-): Partial<Omit<DashboardItem, "id" | "type">> {
+): Partial<Omit<DashboardItem, "id" | "type" | "overrides">> {
   if (!isRecord(updates)) {
     throw new Error("Dashboard item updates must be an object");
   }
   const input = updates;
-  const next: Partial<Omit<DashboardItem, "id" | "type">> = {};
+  if ("overrides" in updates) {
+    throw new Error(
+      "Dashboard item overrides require patchDashboardItemOverride",
+    );
+  }
+  const next: Partial<Omit<DashboardItem, "id" | "type" | "overrides">> = {};
   if (typeof input.visualizationId === "string") {
     next.visualizationId = input.visualizationId;
   }
@@ -137,11 +176,6 @@ function sanitizeDashboardUpdates(
   if (typeof input.y === "number") next.y = input.y;
   if (typeof input.width === "number") next.width = input.width;
   if (typeof input.height === "number") next.height = input.height;
-
-  // Per-cell override bag — sanitized by the helper below.
-  if ("overrides" in input) {
-    next.overrides = sanitizeItemOverrides(input.overrides);
-  }
 
   return next;
 }
@@ -173,6 +207,76 @@ function sanitizeItemOverrides(
   )
     return undefined;
   return { filters, sorts, limit };
+}
+
+function parseItemPatches(
+  value: unknown,
+): Array<{ itemId: string; updates: unknown }> {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error("Dashboard item patches must be a non-empty array");
+  }
+  const seen = new Set<string>();
+  return value.map((entry) => {
+    if (!isRecord(entry) || typeof entry.itemId !== "string") {
+      throw new Error("Each dashboard item patch requires an itemId");
+    }
+    if (seen.has(entry.itemId)) {
+      throw new Error(`Duplicate dashboard item patch ${entry.itemId}`);
+    }
+    seen.add(entry.itemId);
+    return { itemId: entry.itemId, updates: entry.updates };
+  });
+}
+
+function parseOverridePatch(value: unknown): DashboardOverridePatch {
+  if (!isRecord(value)) {
+    throw new Error("Dashboard override patch must be an object");
+  }
+  if (value.kind === "filter") {
+    if (typeof value.field !== "string" || value.field.length === 0) {
+      throw new Error("Filter override patch requires a field");
+    }
+    if (value.value !== null && !isRecord(value.value)) {
+      throw new Error("Filter override patch value must be an object or null");
+    }
+    return { kind: "filter", field: value.field, value: value.value ?? null };
+  }
+  if (value.kind === "sorts") {
+    if (value.value !== null && !Array.isArray(value.value)) {
+      throw new Error("Sort override patch value must be an array or null");
+    }
+    return { kind: "sorts", value: value.value as unknown[] | null };
+  }
+  if (value.kind === "limit") {
+    if (
+      value.value !== null &&
+      (typeof value.value !== "number" || value.value <= 0)
+    ) {
+      throw new Error("Limit override patch value must be positive or null");
+    }
+    return { kind: "limit", value: value.value as number | null };
+  }
+  throw new Error("Unsupported dashboard override patch kind");
+}
+
+function applyOverridePatch(
+  current: DashboardItem["overrides"],
+  patch: DashboardOverridePatch,
+): DashboardItem["overrides"] {
+  const next = { ...(current ?? {}) };
+  if (patch.kind === "filter") {
+    const filters = (next.filters ?? []).filter((candidate) => {
+      return !isRecord(candidate) || candidate.field !== patch.field;
+    });
+    if (patch.value !== null) filters.push(patch.value);
+    next.filters = filters.length > 0 ? filters : undefined;
+  } else if (patch.kind === "sorts") {
+    next.sorts =
+      patch.value && patch.value.length > 0 ? patch.value : undefined;
+  } else {
+    next.limit = patch.value ?? undefined;
+  }
+  return sanitizeItemOverrides(next);
 }
 
 const listDashboards = query({
@@ -212,16 +316,11 @@ const updateDashboard = mutation({
     id: uuid,
     name: text.optional(),
     description: text.optional(),
-    items: jsonb.optional(),
   },
-  handler: async (
-    ctx,
-    { id, name, description, items },
-  ): Promise<{ ok: true }> => {
+  handler: async (ctx, { id, name, description }): Promise<{ ok: true }> => {
     const patch: Partial<DashboardRow> = {};
     if (name !== undefined) patch.name = name;
     if (description !== undefined) patch.description = description;
-    if (items !== undefined) patch.layout = items as DashboardItem[];
     await ctx.db.from(dashboards).where(eq("id", id)).update(patch);
     return { ok: true };
   },
@@ -256,19 +355,23 @@ const addDashboardItem = mutation({
     position: jsonb,
   },
   handler: async (ctx, args): Promise<{ itemId: string }> => {
-    const items = await loadItems(ctx, args.dashboardId);
     const itemId = crypto.randomUUID();
-    items.push({
-      id: itemId,
-      type: parseDashboardType(args.type),
-      visualizationId: args.visualizationId,
-      content: args.content,
-      ...parsePosition(args.position),
+    await withDashboardWrite(args.dashboardId, async () => {
+      await ctx.db.transaction(async (tx) => {
+        const items = await loadItems({ db: tx }, args.dashboardId);
+        items.push({
+          id: itemId,
+          type: parseDashboardType(args.type),
+          visualizationId: args.visualizationId,
+          content: args.content,
+          ...parsePosition(args.position),
+        });
+        await tx
+          .from(dashboards)
+          .where(eq("id", args.dashboardId))
+          .update({ layout: items });
+      });
     });
-    await ctx.db
-      .from(dashboards)
-      .where(eq("id", args.dashboardId))
-      .update({ layout: items });
     return { itemId };
   },
 });
@@ -279,18 +382,79 @@ const updateDashboardItem = mutation({
     ctx,
     { dashboardId, itemId, updates },
   ): Promise<{ ok: true }> => {
-    const items = await loadItems(ctx, dashboardId);
-    const patch = sanitizeDashboardUpdates(updates);
-    if (!items.some((it) => it.id === itemId)) {
-      throw new Error(`Dashboard item ${itemId} not found`);
-    }
-    const next = items.map((it) =>
-      it.id === itemId ? { ...it, ...patch } : it,
-    );
-    await ctx.db
-      .from(dashboards)
-      .where(eq("id", dashboardId))
-      .update({ layout: next });
+    await withDashboardWrite(dashboardId, async () => {
+      await ctx.db.transaction(async (tx) => {
+        const items = await loadItems({ db: tx }, dashboardId);
+        const patch = sanitizeDashboardUpdates(updates);
+        if (!items.some((it) => it.id === itemId)) {
+          throw new Error(`Dashboard item ${itemId} not found`);
+        }
+        const next = items.map((it) =>
+          it.id === itemId ? { ...it, ...patch } : it,
+        );
+        await tx
+          .from(dashboards)
+          .where(eq("id", dashboardId))
+          .update({ layout: next });
+      });
+    });
+    return { ok: true };
+  },
+});
+
+const updateDashboardItems = mutation({
+  args: { dashboardId: uuid, patches: jsonb },
+  handler: async (ctx, { dashboardId, patches }): Promise<{ ok: true }> => {
+    const parsed = parseItemPatches(patches);
+    await withDashboardWrite(dashboardId, async () => {
+      await ctx.db.transaction(async (tx) => {
+        const items = await loadItems({ db: tx }, dashboardId);
+        const byId = new Map(parsed.map((patch) => [patch.itemId, patch]));
+        for (const { itemId } of parsed) {
+          if (!items.some((item) => item.id === itemId)) {
+            throw new Error(`Dashboard item ${itemId} not found`);
+          }
+        }
+        const next = items.map((item) => {
+          const patch = byId.get(item.id);
+          return patch
+            ? { ...item, ...sanitizeDashboardUpdates(patch.updates) }
+            : item;
+        });
+        await tx
+          .from(dashboards)
+          .where(eq("id", dashboardId))
+          .update({ layout: next });
+      });
+    });
+    return { ok: true };
+  },
+});
+
+const patchDashboardItemOverride = mutation({
+  args: { dashboardId: uuid, itemId: uuid, patch: jsonb },
+  handler: async (
+    ctx,
+    { dashboardId, itemId, patch },
+  ): Promise<{ ok: true }> => {
+    const parsed = parseOverridePatch(patch);
+    await withDashboardWrite(dashboardId, async () => {
+      await ctx.db.transaction(async (tx) => {
+        const items = await loadItems({ db: tx }, dashboardId);
+        if (!items.some((item) => item.id === itemId)) {
+          throw new Error(`Dashboard item ${itemId} not found`);
+        }
+        const next = items.map((item) =>
+          item.id === itemId
+            ? { ...item, overrides: applyOverridePatch(item.overrides, parsed) }
+            : item,
+        );
+        await tx
+          .from(dashboards)
+          .where(eq("id", dashboardId))
+          .update({ layout: next });
+      });
+    });
     return { ok: true };
   },
 });
@@ -298,11 +462,15 @@ const updateDashboardItem = mutation({
 const removeDashboardItem = mutation({
   args: { dashboardId: uuid, itemId: uuid },
   handler: async (ctx, { dashboardId, itemId }): Promise<{ ok: true }> => {
-    const items = await loadItems(ctx, dashboardId);
-    await ctx.db
-      .from(dashboards)
-      .where(eq("id", dashboardId))
-      .update({ layout: items.filter((it) => it.id !== itemId) });
+    await withDashboardWrite(dashboardId, async () => {
+      await ctx.db.transaction(async (tx) => {
+        const items = await loadItems({ db: tx }, dashboardId);
+        await tx
+          .from(dashboards)
+          .where(eq("id", dashboardId))
+          .update({ layout: items.filter((it) => it.id !== itemId) });
+      });
+    });
     return { ok: true };
   },
 });
@@ -327,6 +495,8 @@ export const dashboardFunctions = {
   removeDashboard,
   addDashboardItem,
   updateDashboardItem,
+  updateDashboardItems,
+  patchDashboardItemOverride,
   removeDashboardItem,
   updateDashboardControls,
 };

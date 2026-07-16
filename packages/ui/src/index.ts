@@ -40,6 +40,11 @@ export {
   type SelectableItem,
 } from "./components/ItemSelector";
 
+export {
+  ControlTooltip,
+  type ControlTooltipProps,
+} from "./components/ControlTooltip";
+
 // Chart icons (static SVG representations of chart types)
 // NOTE: DotIcon is renamed to ChartDotIcon to avoid conflict with @wystack/ui-icons DotIcon
 export {

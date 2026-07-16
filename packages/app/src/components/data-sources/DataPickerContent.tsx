@@ -1,15 +1,35 @@
 import { getConnectorById } from "@/lib/connectors/registry";
 import { handleFileConnectorResult } from "@/lib/local-csv-handler";
 import {
+  connectRemoteSource,
+  type RemoteResource,
+  type SupportedRemoteConnectorId,
+} from "@/lib/remote-connector-onboarding";
+import {
+  reviewUnclassifiedRemoteFields,
+  type RemoteFieldReviewRequest,
+} from "@/lib/remote-field-review";
+import {
+  materializeRemoteTable,
+  RemoteTableReplacementError,
+} from "@/lib/remote-table-materialization";
+import { useConfirmDialogStore, type ConfirmDialogConfig } from "@/lib/stores";
+import {
+  removeDataFrame,
   useDataFrames,
+  useDataSourceMutations,
   useDataSources,
+  useDataTableMutations,
   useDataTables,
   useInsights,
+  useNotionMutations,
+  usePostgresMutations,
 } from "@dashframe/core";
 import type {
   FileSourceConnector,
   RemoteApiConnector,
 } from "@dashframe/engine";
+import { getFieldSensitivity, type UUID } from "@dashframe/types";
 import { Button, SectionList } from "@wystack/ui";
 import { ArrowLeftIcon } from "@wystack/ui-icons";
 import { useCallback, useMemo, useState } from "react";
@@ -17,6 +37,23 @@ import { AddConnectionPanel } from "./AddConnectionPanel";
 import { DataSourceList, type DataSourceInfo } from "./DataSourceList";
 import { DataTableList } from "./DataTableList";
 import { InsightList, type InsightDisplayInfo } from "./InsightList";
+
+function requestRemoteFieldReview(
+  confirm: (config: ConfirmDialogConfig) => void,
+  resourceTitle: string,
+  { field, position, total }: RemoteFieldReviewRequest,
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    confirm({
+      title: `Review column ${position} of ${total}`,
+      description: `DashFrame will store “${field.name}” from ${resourceTitle} locally. Confirm that this specific column contains no sensitive data.`,
+      confirmLabel: "Clear this column",
+      cancelLabel: "Cancel import",
+      onConfirm: () => resolve(true),
+      onCancel: () => resolve(false),
+    });
+  });
+}
 
 export interface DataPickerContentProps {
   /**
@@ -42,12 +79,12 @@ export interface DataPickerContentProps {
   onCancel?: () => void;
   /**
    * Whether to show Notion connection option
-   * @default false
+   * @default true
    */
   showNotion?: boolean;
   /**
-   * Whether to show Postgres connection option (connect UI not yet wired)
-   * @default false
+   * Whether to show Postgres connection option
+   * @default true
    */
   showPostgres?: boolean;
   /**
@@ -55,6 +92,12 @@ export interface DataPickerContentProps {
    * @default true
    */
   showInsights?: boolean;
+}
+
+interface RemoteResourceState {
+  connectorId: SupportedRemoteConnectorId;
+  sourceId: UUID;
+  resources: RemoteResource[];
 }
 
 /**
@@ -73,18 +116,28 @@ export function DataPickerContent({
   excludeInsightIds = [],
   excludeTableIds = [],
   onCancel,
-  showNotion = false,
-  showPostgres = false,
+  showNotion = true,
+  showPostgres = true,
   showInsights = true,
 }: DataPickerContentProps) {
   const { data: dataSources = [] } = useDataSources();
   const { data: allDataTables = [] } = useDataTables();
   const { data: allInsights = [] } = useInsights();
   const { data: dataFrames = [] } = useDataFrames();
+  const dataSourceMutations = useDataSourceMutations();
+  const tableMutations = useDataTableMutations();
+  const notionMutations = useNotionMutations();
+  const postgresMutations = usePostgresMutations();
+  const confirm = useConfirmDialogStore((state) => state.confirm);
 
   // Local state
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [remoteResourceState, setRemoteResourceState] =
+    useState<RemoteResourceState | null>(null);
+  const [materializingResourceId, setMaterializingResourceId] = useState<
+    string | null
+  >(null);
 
   // Transform sources for DataSourceList
   const dataSourcesInfo: DataSourceInfo[] = useMemo(() => {
@@ -126,6 +179,23 @@ export function DataPickerContent({
       };
     });
   }, [allDataTables, selectedSourceId, excludeTableIds, dataSources]);
+
+  const excludedRemoteResourceIds = useMemo(
+    () =>
+      new Set(
+        allDataTables
+          .filter((table) => excludeTableIds.includes(table.id))
+          .map((table) => table.table),
+      ),
+    [allDataTables, excludeTableIds],
+  );
+  const selectableRemoteResources = useMemo(
+    () =>
+      (remoteResourceState?.resources ?? []).filter(
+        (resource) => !excludedRemoteResourceIds.has(resource.id),
+      ),
+    [excludedRemoteResourceIds, remoteResourceState],
+  );
 
   // Build DataFrame lookup by insight ID
   const dataFrameByInsightId = useMemo(() => {
@@ -215,15 +285,109 @@ export function DataPickerContent({
     [onTableSelect, allDataTables],
   );
 
-  // Handle remote connector form submission (Notion, Airtable, etc.).
-  // The renderer never calls connector.connect(); the credential is resolved
-  // server-side. Full implementation: create the DataSource, then list databases
-  // via the listNotionDatabases mutation. Stubbed pending the add-remote flow.
   const handleConnect = useCallback(
-    (connector: RemoteApiConnector, _credentials: Record<string, unknown>) => {
-      console.log(`Connector form submitted: ${connector.name}`);
+    async (
+      connector: RemoteApiConnector,
+      credentials: Record<string, unknown>,
+    ) => {
+      if (connector.id !== "notion" && connector.id !== "postgres") {
+        throw new Error(`${connector.name} onboarding is not supported yet`);
+      }
+
+      setError(null);
+      setRemoteResourceState(
+        await connectRemoteSource({
+          connectorId: connector.id,
+          connectorName: connector.name,
+          credentials,
+          addSource: dataSourceMutations.add,
+          removeSource: dataSourceMutations.remove,
+          listNotionDatabases: notionMutations.listDatabases,
+          listPostgresTables: postgresMutations.listTables,
+        }),
+      );
     },
-    [],
+    [dataSourceMutations, notionMutations, postgresMutations],
+  );
+
+  const handleRemoteResourceSelect = useCallback(
+    async (resource: { id: string; title: string }) => {
+      if (!remoteResourceState) return;
+      setMaterializingResourceId(resource.id);
+      setError(null);
+      let tableId: UUID | null = null;
+      let dataFrameId: UUID | null = null;
+      try {
+        tableId = await tableMutations.add(
+          remoteResourceState.sourceId,
+          resource.title,
+          resource.id,
+        );
+        const result =
+          remoteResourceState.connectorId === "notion"
+            ? await notionMutations.queryDatabase(
+                remoteResourceState.sourceId,
+                resource.id,
+                tableId,
+              )
+            : await postgresMutations.queryTable(
+                remoteResourceState.sourceId,
+                resource.id,
+                tableId,
+              );
+        const explicitlySensitive = result.fields.some(
+          (field) => getFieldSensitivity(field) === "sensitive",
+        );
+        if (explicitlySensitive) {
+          throw new Error("Sensitive remote columns cannot be cached locally");
+        }
+
+        const reviewedFields = await reviewUnclassifiedRemoteFields(
+          result.fields,
+          (request) =>
+            requestRemoteFieldReview(confirm, resource.title, request),
+        );
+        if (!reviewedFields) {
+          await tableMutations.remove(tableId);
+          tableId = null;
+          return;
+        }
+
+        const materialized = await materializeRemoteTable(
+          { id: tableId },
+          { ...result, fields: reviewedFields },
+          resource.title,
+        );
+        dataFrameId = materialized.dataFrameId;
+        onTableSelect(tableId, resource.title);
+      } catch (cause) {
+        const preserveTable = cause instanceof RemoteTableReplacementError;
+        const cleanupResults = await Promise.allSettled([
+          ...(dataFrameId ? [removeDataFrame(dataFrameId)] : []),
+          ...(tableId && !preserveTable
+            ? [tableMutations.remove(tableId)]
+            : []),
+        ]);
+        const cleanupFailed = cleanupResults.some(
+          ({ status }) => status === "rejected",
+        );
+        setError(
+          cleanupFailed
+            ? "The import failed and cleanup could not finish. Remove the partial table from Data Sources before retrying."
+            : "Couldn't import this table. Check the connection and try again.",
+        );
+      } finally {
+        setMaterializingResourceId(null);
+      }
+    },
+    [
+      notionMutations,
+      onTableSelect,
+      postgresMutations,
+      confirm,
+      remoteResourceState,
+      tableMutations,
+    ],
   );
 
   const hasInsights =
@@ -273,7 +437,7 @@ export function DataPickerContent({
         )}
 
         {/* Section: Add New Source */}
-        {!selectedSourceId && (
+        {!selectedSourceId && !remoteResourceState && (
           <SectionList title="Add New Data">
             <AddConnectionPanel
               error={error}
@@ -283,6 +447,44 @@ export function DataPickerContent({
               showPostgres={showPostgres}
             />
           </SectionList>
+        )}
+
+        {remoteResourceState && !selectedSourceId && (
+          <>
+            <Button
+              label="Choose another connection"
+              variant="ghost"
+              size="sm"
+              onClick={() => setRemoteResourceState(null)}
+              icon={ArrowLeftIcon}
+            />
+            <SectionList title="Choose data to import">
+              <div className="space-y-2">
+                {error && (
+                  <p role="alert" className="text-sm text-danger-fg">
+                    {error}
+                  </p>
+                )}
+                {selectableRemoteResources.length === 0 ? (
+                  <p className="text-sm text-neutral-fg-subtle">
+                    The connection succeeded, but no databases or tables were
+                    found.
+                  </p>
+                ) : (
+                  selectableRemoteResources.map((resource) => (
+                    <Button
+                      key={resource.id}
+                      label={resource.title}
+                      variant="outline"
+                      className="w-full justify-start"
+                      disabled={materializingResourceId !== null}
+                      onClick={() => handleRemoteResourceSelect(resource)}
+                    />
+                  ))
+                )}
+              </div>
+            </SectionList>
+          </>
         )}
       </div>
 

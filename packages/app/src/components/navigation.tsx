@@ -1,6 +1,7 @@
 import { ThemeToggle } from "@/components/theme-toggle";
 import { PerfHud } from "@/lib/perf";
 import { useToastStore } from "@/lib/stores";
+import { useAssistantStore } from "@/lib/stores/assistant-store";
 import { useShellStore } from "@/lib/stores/shell-store";
 import { clearAllData } from "@dashframe/core";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
@@ -34,7 +35,6 @@ import {
 } from "@wystack/ui-icons";
 import { type ReactNode, useState } from "react";
 
-import { AssistantProviderSettingsDialog } from "./assistant/AssistantProviderSettingsDialog";
 import {
   DESKTOP_NAV_BREAKPOINT_CLASS,
   DESKTOP_NAV_WIDTH,
@@ -186,7 +186,7 @@ export function Navigation() {
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
-  const [showAssistantProviders, setShowAssistantProviders] = useState(false);
+  const setAssistantSetupOpen = useAssistantStore((s) => s.setSetupOpen);
 
   const leftNavOpen = useShellStore((s) => s.leftNavOpen);
 
@@ -225,7 +225,7 @@ export function Navigation() {
         >
           <SidebarContent
             onClearData={() => setShowClearConfirm(true)}
-            onAssistantProviders={() => setShowAssistantProviders(true)}
+            onAssistantProviders={() => setAssistantSetupOpen(true)}
             footerSlot={<PerfHud />}
           />
         </div>
@@ -258,7 +258,7 @@ export function Navigation() {
             <div className="flex-1 overflow-y-auto">
               <SidebarContent
                 onClearData={() => setShowClearConfirm(true)}
-                onAssistantProviders={() => setShowAssistantProviders(true)}
+                onAssistantProviders={() => setAssistantSetupOpen(true)}
               />
             </div>
           </div>
@@ -289,10 +289,6 @@ export function Navigation() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <AssistantProviderSettingsDialog
-        open={showAssistantProviders}
-        onOpenChange={setShowAssistantProviders}
-      />
     </>
   );
 }

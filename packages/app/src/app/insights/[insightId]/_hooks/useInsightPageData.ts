@@ -8,12 +8,13 @@ import {
   useInsights,
   useVisualizations,
 } from "@dashframe/core";
-import type {
-  DataSource,
-  DataTable,
-  Field,
-  Insight,
-  Metric,
+import {
+  isUnmodifiedDraft,
+  type DataSource,
+  type DataTable,
+  type Field,
+  type Insight,
+  type Metric,
 } from "@dashframe/types";
 import { useMemo } from "react";
 
@@ -129,10 +130,11 @@ export function useInsightPageData(insightId: string): InsightPageData {
         })
         .filter((t): t is JoinedTableInfo => t !== null);
 
-  // Determine if insight is configured (has selected fields)
+  // The shared domain predicate includes metric-only insights and keeps this
+  // page aligned with draft classification and cleanup behavior.
   const isConfigured = useMemo(() => {
     if (!insight) return false;
-    return (insight.selectedFields?.length ?? 0) > 0;
+    return !isUnmodifiedDraft(insight);
   }, [insight]);
 
   // Load source data for preview computation (async from IndexedDB)

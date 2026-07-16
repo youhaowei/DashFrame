@@ -9,6 +9,8 @@
 # State dir: CLAWPATCH_STATE_DIR → XDG_STATE_HOME → ~/.local/state → /tmp fallback.
 set -euo pipefail
 
+original_args=("$@")
+
 repo_root="$(git rev-parse --show-toplevel)"
 git_dir=$(git rev-parse --path-format=absolute --git-common-dir)
 main_root=$(dirname "$git_dir")
@@ -118,9 +120,43 @@ if [[ "${1:-}" == "review" ]]; then
     && grep -Fq "no features touched by diff" <<<"${review_stdout}${review_stderr}"; then
     changed_files="$(git diff --name-only "$since_base" -- || true)"
     if [[ -n "$changed_files" ]]; then
-      echo "ERROR [clawpatch]: stale map / unmapped files: review reported no features touched by diff, but git diff --name-only '$since_base' is non-empty." >&2
-      echo "ERROR [clawpatch]: run scripts/clawpatch.sh map --source heuristic and check whether changed files are mapped to features." >&2
-      exit 1
+      status_json="$(clawpatch --state-dir "$state_dir" status --json 2>/dev/null || true)"
+      if [[ "${CLAWPATCH_STALE_LOCK_RETRY:-0}" != "1" ]] \
+        && grep -Eq '"activeLocks"[[:space:]]*:[[:space:]]*[1-9][0-9]*' <<<"$status_json" \
+        && grep -Eq '"lockFiles"[[:space:]]*:[[:space:]]*0' <<<"$status_json"; then
+        echo "WARN [clawpatch]: clearing orphaned feature locks and retrying review once." >&2
+        clawpatch --state-dir "$state_dir" clean-locks --json >&2
+        CLAWPATCH_STALE_LOCK_RETRY=1 exec "$0" "${original_args[@]}"
+      fi
+
+      unmapped_reviewable_files=""
+      feature_files=("$state_dir"/features/*.json)
+      while IFS= read -r changed_file; do
+        [[ -e "$changed_file" ]] || continue
+        case "$changed_file" in
+          *.ts|*.tsx|*.js|*.jsx|*.mjs|*.cjs|*.go|*.py|*.rb|*.ex|*.exs|*.rs|*.cs|*.cpp|*.cc|*.c|*.h|*.hpp|*.swift|*.java|*.kt|*.kts|*.php|*.vue|*.svelte)
+            mapped_file="$changed_file"
+            case "$changed_file" in
+              *.test.*) mapped_file="${changed_file/.test./.}" ;;
+              *.spec.*) mapped_file="${changed_file/.spec./.}" ;;
+            esac
+            if [[ ! -e "${feature_files[0]:-}" ]] \
+              || { ! grep -Fq -- "\"path\": \"$changed_file\"" "${feature_files[@]}" 2>/dev/null \
+                && ! grep -Fq -- "\"path\": \"$mapped_file\"" "${feature_files[@]}" 2>/dev/null; }; then
+              unmapped_reviewable_files+="${unmapped_reviewable_files:+$'\n'}$changed_file"
+            fi
+            ;;
+        esac
+      done <<<"$changed_files"
+
+      if [[ -n "$unmapped_reviewable_files" ]]; then
+        echo "ERROR [clawpatch]: reviewable files are missing from the feature map:" >&2
+        printf '%s\n' "$unmapped_reviewable_files" >&2
+        echo "ERROR [clawpatch]: run scripts/clawpatch.sh map --source heuristic and inspect the missing ownership." >&2
+        exit 1
+      fi
+
+      echo "INFO [clawpatch]: diff is mapped; no eligible features remain to review." >&2
     fi
   fi
 

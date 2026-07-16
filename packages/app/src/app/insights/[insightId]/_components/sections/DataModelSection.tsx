@@ -22,13 +22,14 @@ import {
   ExternalLinkIcon,
   PlusIcon,
 } from "@wystack/ui-icons";
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState, type ReactNode } from "react";
 
 interface DataModelSectionProps {
   insight: Insight;
   dataTable: DataTable;
   allDataTables: DataTable[];
   combinedFieldCount: number;
+  compact?: boolean;
 }
 
 /**
@@ -48,7 +49,8 @@ interface DataModelSectionProps {
  * any unregistered type. `size` controls the rendered dimensions.
  */
 function getSourceTypeIcon(type: string, size: "sm" | "xs") {
-  const className = size === "sm" ? "h-4 w-4" : "h-3 w-3";
+  const className =
+    size === "sm" ? "inline-block h-4 w-4" : "inline-block h-3 w-3";
   const connector = getConnectorById(type);
   if (connector) {
     return <ConnectorIcon svg={connector.icon} className={className} />;
@@ -93,11 +95,59 @@ function getDisplayFileName(table: DataTable, maxLength = 24): string {
   return fullName.slice(0, startLength) + "..." + fullName.slice(-endLength);
 }
 
+function CompactDataModelItem({ item }: { item: ListItem }) {
+  const ItemIcon = typeof item.icon === "function" ? item.icon : null;
+  const iconNode: ReactNode = ItemIcon ? (
+    <ItemIcon className="h-4 w-4" />
+  ) : (
+    (item.icon as ReactNode)
+  );
+
+  return (
+    <div className="rounded-lg border border-neutral-border/70 bg-neutral-bg px-3 py-3">
+      <div className="flex items-start gap-2">
+        <div className="shrink-0 rounded bg-neutral-bg-dim p-1.5 text-neutral-fg-subtle">
+          {iconNode}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <p className="min-w-0 flex-1 truncate text-sm font-medium text-neutral-fg">
+              {item.title}
+            </p>
+            {item.badge && (
+              <span className="shrink-0 rounded-full bg-neutral-bg-muted px-1.5 py-0.5 text-[10px] text-neutral-fg-subtle">
+                {item.badge}
+              </span>
+            )}
+          </div>
+          <div className="mt-1">{item.content}</div>
+        </div>
+        {item.actions?.map((action) => {
+          const ActionIcon = action.icon;
+          return (
+            <button
+              key={action.label}
+              type="button"
+              onClick={action.onClick}
+              className="shrink-0 rounded-md p-1.5 text-neutral-fg-subtle hover:bg-neutral-bg-muted hover:text-neutral-fg"
+              aria-label={action.label}
+              title={action.label}
+            >
+              {ActionIcon && <ActionIcon className="h-3.5 w-3.5" />}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export const DataModelSection = memo(function DataModelSection({
   insight,
   dataTable,
   allDataTables,
   combinedFieldCount,
+  compact = false,
 }: DataModelSectionProps) {
   const navigate = useNavigate();
   const [isJoinFlowOpen, setIsJoinFlowOpen] = useState(false);
@@ -281,9 +331,12 @@ export const DataModelSection = memo(function DataModelSection({
       >
         <ItemList
           items={tableItems}
-          orientation="horizontal"
-          gap={12}
-          itemWidth={320}
+          orientation={compact ? "vertical" : "horizontal"}
+          gap={compact ? 8 : 12}
+          itemWidth={compact ? undefined : 320}
+          renderItem={
+            compact ? (item) => <CompactDataModelItem item={item} /> : undefined
+          }
           emptyMessage="No data sources"
           emptyIcon={<DatabaseIcon className="h-8 w-8" />}
         />

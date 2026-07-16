@@ -14,3 +14,13 @@ export interface UseQueryResult<T> {
    */
   isFetching?: boolean;
 }
+
+/** Query result for remote reads that can fail and be retried by the UI. */
+export interface UseRetryableQueryResult<T> extends UseQueryResult<T> {
+  /** True when the latest initial query attempt failed. */
+  isError: boolean;
+  /** The query failure, or null when the query is healthy. */
+  error: Error | null;
+  /** Retry the query using its existing cache key and arguments. */
+  refetch: () => Promise<unknown>;
+}
