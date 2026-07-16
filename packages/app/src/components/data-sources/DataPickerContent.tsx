@@ -6,10 +6,14 @@ import {
   type SupportedRemoteConnectorId,
 } from "@/lib/remote-connector-onboarding";
 import {
+  reviewUnclassifiedRemoteFields,
+  type RemoteFieldReviewRequest,
+} from "@/lib/remote-field-review";
+import {
   materializeRemoteTable,
   RemoteTableReplacementError,
 } from "@/lib/remote-table-materialization";
-import { useConfirmDialogStore } from "@/lib/stores";
+import { useConfirmDialogStore, type ConfirmDialogConfig } from "@/lib/stores";
 import {
   removeDataFrame,
   useDataFrames,
@@ -33,6 +37,23 @@ import { AddConnectionPanel } from "./AddConnectionPanel";
 import { DataSourceList, type DataSourceInfo } from "./DataSourceList";
 import { DataTableList } from "./DataTableList";
 import { InsightList, type InsightDisplayInfo } from "./InsightList";
+
+function requestRemoteFieldReview(
+  confirm: (config: ConfirmDialogConfig) => void,
+  resourceTitle: string,
+  { field, position, total }: RemoteFieldReviewRequest,
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    confirm({
+      title: `Review column ${position} of ${total}`,
+      description: `DashFrame will store “${field.name}” from ${resourceTitle} locally. Confirm that this specific column contains no sensitive data.`,
+      confirmLabel: "Clear this column",
+      cancelLabel: "Cancel import",
+      onConfirm: () => resolve(true),
+      onCancel: () => resolve(false),
+    });
+  });
+}
 
 export interface DataPickerContentProps {
   /**
@@ -321,40 +342,20 @@ export function DataPickerContent({
           throw new Error("Sensitive remote columns cannot be cached locally");
         }
 
-        const hasUnclassifiedFields = result.fields.some(
-          (field) => getFieldSensitivity(field) === "unclassified",
+        const reviewedFields = await reviewUnclassifiedRemoteFields(
+          result.fields,
+          (request) =>
+            requestRemoteFieldReview(confirm, resource.title, request),
         );
-        const mayStoreLocally = hasUnclassifiedFields
-          ? await new Promise<boolean>((resolve) => {
-              confirm({
-                title: "Review data privacy",
-                description: `DashFrame will store a local copy of ${resource.title}. Confirm that all ${result.fields.length} columns contain no sensitive data. If you are unsure, cancel and review the source first.`,
-                confirmLabel: "Mark all safe and import",
-                cancelLabel: "Cancel",
-                onConfirm: () => resolve(true),
-                onCancel: () => resolve(false),
-              });
-            })
-          : true;
-        if (!mayStoreLocally) {
+        if (!reviewedFields) {
           await tableMutations.remove(tableId);
           tableId = null;
           return;
         }
 
-        const reviewedResult = hasUnclassifiedFields
-          ? {
-              ...result,
-              fields: result.fields.map((field) => ({
-                ...field,
-                sensitivity: "cleared" as const,
-                sensitivityReason: "Reviewed before remote import",
-              })),
-            }
-          : result;
         const materialized = await materializeRemoteTable(
           { id: tableId },
-          reviewedResult,
+          { ...result, fields: reviewedFields },
           resource.title,
         );
         dataFrameId = materialized.dataFrameId;
