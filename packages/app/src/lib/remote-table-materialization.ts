@@ -1,5 +1,6 @@
 import {
   addDataFrameEntry,
+  getDataFrameEntry,
   getDataTable,
   removeDataFrame,
   updateDataTable,
@@ -18,6 +19,82 @@ export interface MaterializedRemoteTable {
   dataFrameId: UUID;
   rowCount: number;
   columnCount: number;
+}
+
+export class RemoteTableReplacementError extends AggregateError {
+  readonly preserveTable = true;
+}
+
+async function cleanupCreatedDataFrame(
+  dataFrame: InstanceType<typeof DataFrame>,
+  metadataAdded: boolean,
+): Promise<unknown[]> {
+  const cleanupErrors: unknown[] = [];
+
+  try {
+    // Keep the metadata entry as a cleanup handle if durable row deletion fails.
+    await deleteArrowData(dataFrame.storage.key);
+  } catch (cleanupCause) {
+    cleanupErrors.push(cleanupCause);
+    return cleanupErrors;
+  }
+
+  if (metadataAdded) {
+    await removeDataFrame(dataFrame.id as UUID).catch((cleanupCause) => {
+      cleanupErrors.push(cleanupCause);
+    });
+  }
+  return cleanupErrors;
+}
+
+async function removeReplacedDataFrame(frameId: UUID): Promise<void> {
+  const frame = await getDataFrameEntry(frameId);
+  if (frame?.storage.type !== "indexeddb") {
+    await removeDataFrame(frameId);
+    return;
+  }
+
+  await deleteArrowData(frame.storage.key);
+  try {
+    await removeDataFrame(frameId);
+  } catch (cleanupCause) {
+    // The sensitive payload is gone and the replacement is valid. A stale
+    // metadata record is safe to leave for a later maintenance pass.
+    console.error(
+      "[DashFrame] Removed replaced remote rows but not their metadata:",
+      cleanupCause,
+    );
+  }
+}
+
+async function restorePreviousTable(
+  tableId: UUID,
+  previous: {
+    dataFrameId: UUID;
+    fields: Field[];
+    lastFetchedAt?: number;
+  },
+  replacement: InstanceType<typeof DataFrame>,
+  replacementMetadataAdded: boolean,
+): Promise<unknown[]> {
+  const recoveryErrors: unknown[] = [];
+  try {
+    await updateDataTable(tableId, {
+      fields: previous.fields,
+      dataFrameId: previous.dataFrameId,
+      ...(previous.lastFetchedAt === undefined
+        ? {}
+        : { lastFetchedAt: previous.lastFetchedAt }),
+    });
+  } catch (recoveryCause) {
+    recoveryErrors.push(recoveryCause);
+    return recoveryErrors;
+  }
+
+  recoveryErrors.push(
+    ...(await cleanupCreatedDataFrame(replacement, replacementMetadataAdded)),
+  );
+  return recoveryErrors;
 }
 
 function decodeBase64ToBytes(base64: string): Uint8Array {
@@ -69,15 +146,10 @@ export async function materializeRemoteTable(
       lastFetchedAt: Date.now(),
     });
   } catch (cause) {
-    const cleanupErrors: unknown[] = [];
-    if (metadataAdded) {
-      await removeDataFrame(dataFrame.id as UUID).catch((cleanupCause) => {
-        cleanupErrors.push(cleanupCause);
-      });
-    }
-    await deleteArrowData(dataFrame.storage.key).catch((cleanupCause) => {
-      cleanupErrors.push(cleanupCause);
-    });
+    const cleanupErrors = await cleanupCreatedDataFrame(
+      dataFrame,
+      metadataAdded,
+    );
     if (cleanupErrors.length > 0) {
       throw new AggregateError(
         [cause, ...cleanupErrors],
@@ -88,14 +160,19 @@ export async function materializeRemoteTable(
   }
 
   if (existing?.dataFrameId && existing.dataFrameId !== dataFrame.id) {
+    const previousFrameId = existing.dataFrameId;
     try {
-      await removeDataFrame(existing.dataFrameId);
+      await removeReplacedDataFrame(previousFrameId);
     } catch (cleanupCause) {
-      // The replacement is already committed. Failing the operation here would
-      // make callers roll back the new frame while the table points at it.
-      console.error(
-        "[DashFrame] Failed to remove the replaced remote DataFrame:",
-        cleanupCause,
+      const recoveryErrors = await restorePreviousTable(
+        table.id as UUID,
+        { ...existing, dataFrameId: previousFrameId },
+        dataFrame,
+        metadataAdded,
+      );
+      throw new RemoteTableReplacementError(
+        [cleanupCause, ...recoveryErrors],
+        "Failed to replace the remote table safely",
       );
     }
   }

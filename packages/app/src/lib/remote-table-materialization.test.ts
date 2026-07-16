@@ -5,6 +5,7 @@ const {
   addDataFrameEntry,
   createDataFrame,
   deleteArrowData,
+  getDataFrameEntry,
   getDataTable,
   removeDataFrame,
   updateDataTable,
@@ -12,6 +13,7 @@ const {
   addDataFrameEntry: vi.fn(),
   createDataFrame: vi.fn(),
   deleteArrowData: vi.fn(),
+  getDataFrameEntry: vi.fn(),
   getDataTable: vi.fn(),
   removeDataFrame: vi.fn(),
   updateDataTable: vi.fn(),
@@ -19,6 +21,7 @@ const {
 
 vi.mock("@dashframe/core", () => ({
   addDataFrameEntry,
+  getDataFrameEntry,
   getDataTable,
   removeDataFrame,
   updateDataTable,
@@ -29,7 +32,10 @@ vi.mock("@dashframe/engine-browser", () => ({
   deleteArrowData,
 }));
 
-import { materializeRemoteTable } from "./remote-table-materialization";
+import {
+  materializeRemoteTable,
+  RemoteTableReplacementError,
+} from "./remote-table-materialization";
 
 const TABLE_ID = "11111111-1111-4111-8111-111111111111" as UUID;
 const FRAME_ID = "22222222-2222-4222-8222-222222222222" as UUID;
@@ -58,6 +64,7 @@ describe("materializeRemoteTable", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getDataTable.mockResolvedValue({ id: TABLE_ID, fields: [] });
+    getDataFrameEntry.mockResolvedValue(undefined);
     addDataFrameEntry.mockResolvedValue(FRAME_ID);
     updateDataTable.mockResolvedValue(undefined);
     removeDataFrame.mockResolvedValue(undefined);
@@ -135,6 +142,9 @@ describe("materializeRemoteTable", () => {
 
     expect(removeDataFrame).toHaveBeenCalledWith(FRAME_ID);
     expect(deleteArrowData).toHaveBeenCalledWith("arrow:new");
+    expect(deleteArrowData.mock.invocationCallOrder[0]).toBeLessThan(
+      removeDataFrame.mock.invocationCallOrder[0],
+    );
   });
 
   it("surfaces an incomplete IndexedDB rollback", async () => {
@@ -153,16 +163,67 @@ describe("materializeRemoteTable", () => {
       message: "Failed to materialize and clean up the remote table",
       errors: [linkError, cleanupError],
     });
+    expect(removeDataFrame).not.toHaveBeenCalled();
   });
 
-  it("keeps a committed replacement when old-frame cleanup fails", async () => {
+  it("restores the previous link when old row deletion fails", async () => {
+    const previousFrameId = "33333333-3333-4333-8333-333333333333" as UUID;
+    const previousFields = [field("cleared")];
+    getDataTable.mockResolvedValue({
+      id: TABLE_ID,
+      fields: previousFields,
+      dataFrameId: previousFrameId,
+      lastFetchedAt: 123,
+    });
+    getDataFrameEntry.mockResolvedValue({
+      id: previousFrameId,
+      fieldIds: previousFields.map(({ id }) => id),
+      storage: { type: "indexeddb", key: "arrow:old" },
+      createdAt: 1,
+      name: "Old leads",
+    });
+    const cleanupError = new Error("cleanup failed");
+    deleteArrowData.mockImplementation(async (key: string) => {
+      if (key === "arrow:old") throw cleanupError;
+    });
+
+    await expect(
+      materializeRemoteTable(
+        { id: TABLE_ID },
+        result([field("cleared")]),
+        "Leads",
+      ),
+    ).rejects.toBeInstanceOf(RemoteTableReplacementError);
+
+    expect(updateDataTable).toHaveBeenLastCalledWith(TABLE_ID, {
+      fields: previousFields,
+      dataFrameId: previousFrameId,
+      lastFetchedAt: 123,
+    });
+    expect(deleteArrowData).toHaveBeenCalledWith("arrow:new");
+    expect(removeDataFrame).toHaveBeenCalledWith(FRAME_ID);
+    expect(removeDataFrame).not.toHaveBeenCalledWith(previousFrameId);
+  });
+
+  it("keeps the replacement after old rows are deleted", async () => {
     const previousFrameId = "33333333-3333-4333-8333-333333333333" as UUID;
     getDataTable.mockResolvedValue({
       id: TABLE_ID,
       fields: [],
       dataFrameId: previousFrameId,
     });
-    removeDataFrame.mockRejectedValue(new Error("cleanup failed"));
+    getDataFrameEntry.mockResolvedValue({
+      id: previousFrameId,
+      fieldIds: [],
+      storage: { type: "indexeddb", key: "arrow:old" },
+      createdAt: 1,
+      name: "Old leads",
+    });
+    const cleanupError = new Error("metadata cleanup failed");
+    removeDataFrame.mockRejectedValue(cleanupError);
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
 
     await expect(
       materializeRemoteTable(
@@ -172,6 +233,12 @@ describe("materializeRemoteTable", () => {
       ),
     ).resolves.toMatchObject({ dataFrameId: FRAME_ID });
 
+    expect(deleteArrowData).toHaveBeenCalledWith("arrow:old");
     expect(removeDataFrame).toHaveBeenCalledWith(previousFrameId);
+    expect(consoleError).toHaveBeenCalledWith(
+      "[DashFrame] Removed replaced remote rows but not their metadata:",
+      cleanupError,
+    );
+    consoleError.mockRestore();
   });
 });

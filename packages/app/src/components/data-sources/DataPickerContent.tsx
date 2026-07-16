@@ -5,7 +5,10 @@ import {
   type RemoteResource,
   type SupportedRemoteConnectorId,
 } from "@/lib/remote-connector-onboarding";
-import { materializeRemoteTable } from "@/lib/remote-table-materialization";
+import {
+  materializeRemoteTable,
+  RemoteTableReplacementError,
+} from "@/lib/remote-table-materialization";
 import { useConfirmDialogStore } from "@/lib/stores";
 import {
   removeDataFrame,
@@ -356,10 +359,13 @@ export function DataPickerContent({
         );
         dataFrameId = materialized.dataFrameId;
         onTableSelect(tableId, resource.title);
-      } catch {
+      } catch (cause) {
+        const preserveTable = cause instanceof RemoteTableReplacementError;
         const cleanupResults = await Promise.allSettled([
           ...(dataFrameId ? [removeDataFrame(dataFrameId)] : []),
-          ...(tableId ? [tableMutations.remove(tableId)] : []),
+          ...(tableId && !preserveTable
+            ? [tableMutations.remove(tableId)]
+            : []),
         ]);
         const cleanupFailed = cleanupResults.some(
           ({ status }) => status === "rejected",
