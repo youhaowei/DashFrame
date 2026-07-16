@@ -11,7 +11,6 @@
     "@dashframe/types": "workspace:*",
     "@dashframe/ui": "workspace:*",
     "@dashframe/visualization": "workspace:*",
-    "@wystack/ui-icons": "workspace:*",
     "@wystack/ui-core": "workspace:*",
     "@wystack/ui-react": "workspace:*",
     "@duckdb/duckdb-wasm": "1.32.0",
