@@ -156,6 +156,23 @@ export function DataPickerContent({
     });
   }, [allDataTables, selectedSourceId, excludeTableIds, dataSources]);
 
+  const excludedRemoteResourceIds = useMemo(
+    () =>
+      new Set(
+        allDataTables
+          .filter((table) => excludeTableIds.includes(table.id))
+          .map((table) => table.table),
+      ),
+    [allDataTables, excludeTableIds],
+  );
+  const selectableRemoteResources = useMemo(
+    () =>
+      (remoteResourceState?.resources ?? []).filter(
+        (resource) => !excludedRemoteResourceIds.has(resource.id),
+      ),
+    [excludedRemoteResourceIds, remoteResourceState],
+  );
+
   // Build DataFrame lookup by insight ID
   const dataFrameByInsightId = useMemo(() => {
     return new Map(
@@ -436,13 +453,18 @@ export function DataPickerContent({
             />
             <SectionList title="Choose data to import">
               <div className="space-y-2">
-                {remoteResourceState.resources.length === 0 ? (
+                {error && (
+                  <p role="alert" className="text-sm text-danger-fg">
+                    {error}
+                  </p>
+                )}
+                {selectableRemoteResources.length === 0 ? (
                   <p className="text-sm text-neutral-fg-subtle">
                     The connection succeeded, but no databases or tables were
                     found.
                   </p>
                 ) : (
-                  remoteResourceState.resources.map((resource) => (
+                  selectableRemoteResources.map((resource) => (
                     <Button
                       key={resource.id}
                       label={resource.title}

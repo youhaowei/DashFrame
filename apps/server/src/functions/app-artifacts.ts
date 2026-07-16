@@ -490,15 +490,22 @@ const addDataSource = mutation({
     if (rawConfig !== undefined && !isRecord(rawConfig)) {
       throw new Error("Data source config must be an object");
     }
-    if (
-      rawConfig &&
-      ("apiKey" in rawConfig || "connectionString" in rawConfig)
-    ) {
+    const rawConfigKeys = Object.keys(rawConfig ?? {});
+    if (rawConfigKeys.some((key) => key !== "defaultSchema")) {
       throw new Error(
-        "Data source credentials must use typed credential fields, not config",
+        "Data source credentials and unknown fields are not allowed in config",
       );
     }
-    const config: DataSourceConfig = { ...(rawConfig ?? {}) };
+    if (
+      rawConfig?.defaultSchema !== undefined &&
+      typeof rawConfig.defaultSchema !== "string"
+    ) {
+      throw new Error("Data source defaultSchema must be a string");
+    }
+    const config: DataSourceConfig =
+      rawConfig?.defaultSchema !== undefined
+        ? { defaultSchema: rawConfig.defaultSchema }
+        : {};
     // Refs minted in THIS call only — a fresh insert has no pre-existing config,
     // so every ref that lands in `config` here was just minted by this operation.
     const minted: SecretRef[] = [];

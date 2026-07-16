@@ -747,7 +747,35 @@ describe("addDataSource / updateDataSource — same-operation minted-ref rollbac
         name: "Unsafe",
         config: { connectionString: "postgres://plaintext" },
       }),
-    ).rejects.toThrow(/typed credential fields/);
+    ).rejects.toThrow(/not allowed in config/);
+
+    await expect(
+      call("addDataSource", {
+        type: "postgres",
+        name: "Nested unsafe",
+        config: { nested: { connectionString: "postgres://plaintext" } },
+      }),
+    ).rejects.toThrow(/not allowed in config/);
+
+    await expect(
+      call("addDataSource", {
+        type: "postgres",
+        name: "Alternate unsafe",
+        config: { dsn: "postgres://plaintext" },
+      }),
+    ).rejects.toThrow(/not allowed in config/);
+
+    expect(await db.select().from(dataSources)).toHaveLength(0);
+  });
+
+  it("rejects invalid values for allowlisted connector config", async () => {
+    await expect(
+      call("addDataSource", {
+        type: "postgres",
+        name: "Invalid schema",
+        config: { defaultSchema: { nested: true } },
+      }),
+    ).rejects.toThrow(/defaultSchema must be a string/);
 
     expect(await db.select().from(dataSources)).toHaveLength(0);
   });

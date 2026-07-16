@@ -1,7 +1,7 @@
 /**
  * CSV to Chart Workflow
  *
- * Core user journey: Upload CSV -> Table-first Insight -> Pin Chart View
+ * Core user journey: Upload CSV -> Data-first Insight -> Save Chart View
  */
 import { expect, test } from "../lib/test-fixtures";
 
@@ -23,24 +23,25 @@ test.describe("CSV to Chart", () => {
       timeout: 15_000,
     });
 
-    // Verify the insight opens table-first.
-    await expect(page.getByRole("button", { name: "Table" })).toBeVisible({
+    // Verify the insight opens data-first.
+    await expect(page.getByRole("button", { name: "Data" })).toBeVisible({
       timeout: 30_000,
     });
     await expect(page.getByText(/5 rows/).first()).toBeVisible();
 
-    // Switch to an ephemeral chart view, then pin it into a Visualization.
+    // Switch to an ephemeral chart view, then save it as a Visualization.
     // `exact: true` avoids matching "Horizontal bar" / "Hide sidebar", which
     // both contain "bar" as a substring under Playwright's default name match.
+    await page.getByRole("button", { name: "Visualize" }).click();
     await page.getByRole("button", { name: "Bar", exact: true }).click();
-    // "Pin view" appears once chart suggestions are computed (DuckDB init +
+    // "Save chart" appears once chart suggestions are computed (DuckDB init +
     // column analysis run after the table loads), so allow a generous wait.
-    await expect(page.getByRole("button", { name: "Pin view" })).toBeVisible({
+    await expect(page.getByRole("button", { name: "Save chart" })).toBeVisible({
       timeout: 30_000,
     });
-    await page.getByRole("button", { name: "Pin view" }).click();
+    await page.getByRole("button", { name: "Save chart" }).click();
 
-    // Pinning keeps the user on the insight canvas.
+    // Saving keeps the user on the insight canvas.
     await expect(page).toHaveURL(/\/insights\/[a-zA-Z0-9-]+/);
 
     // Verify chart renders

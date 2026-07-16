@@ -101,3 +101,41 @@ fi
 
 grep -Fq 'unmapped.ts' "$scratch/unmapped.out"
 printf 'clawpatch wrapper unmapped-file guard: pass\n'
+
+rm -f "$scratch/state/features/feature.json"
+if (
+  cd "$scratch/repo"
+  PATH="$scratch/bin:$PATH" \
+    CLAWPATCH_STATE_DIR="$scratch/state" \
+    "$repo_root/scripts/clawpatch.sh" review --since origin/main --json --no-input --limit 1
+) >"$scratch/missing-map.out" 2>&1; then
+  printf 'expected a missing feature map to fail\n' >&2
+  exit 1
+fi
+grep -Fq 'file.ts' "$scratch/missing-map.out"
+printf 'clawpatch wrapper missing-map guard: pass\n'
+
+cat >"$scratch/state/features/feature.json" <<'EOF'
+{"ownedFiles":[{"path": "file.ts"}]}
+EOF
+printf 'test\n' >"$scratch/repo/file.test.ts"
+git -C "$scratch/repo" add file.test.ts
+git -C "$scratch/repo" rm --quiet --force unmapped.ts
+output="$(
+  cd "$scratch/repo"
+  PATH="$scratch/bin:$PATH" \
+    CLAWPATCH_STATE_DIR="$scratch/state" \
+    "$repo_root/scripts/clawpatch.sh" review --since origin/main --json --no-input --limit 1 2>&1
+)"
+grep -Fq 'diff is mapped; no eligible features remain to review' <<<"$output"
+printf 'clawpatch wrapper colocated-test mapping: pass\n'
+
+git -C "$scratch/repo" rm --quiet --force file.ts file.test.ts
+output="$(
+  cd "$scratch/repo"
+  PATH="$scratch/bin:$PATH" \
+    CLAWPATCH_STATE_DIR="$scratch/state" \
+    "$repo_root/scripts/clawpatch.sh" review --since origin/main --json --no-input --limit 1 2>&1
+)"
+grep -Fq 'diff is mapped; no eligible features remain to review' <<<"$output"
+printf 'clawpatch wrapper deleted-file handling: pass\n'

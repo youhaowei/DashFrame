@@ -15,20 +15,21 @@ test.describe("Chart Editing", () => {
       timeout: 15_000,
     });
 
-    // Start from the table-first canvas and pin one chart view.
+    // Start from the data canvas and save one chart view.
     // `exact: true` disambiguates against the view switcher's other buttons —
     // "Horizontal bar" and "Hide sidebar" both contain "bar" as a substring,
     // which Playwright's default (non-exact) name matching would also match.
-    await expect(page.getByRole("button", { name: "Table" })).toBeVisible({
+    await expect(page.getByRole("button", { name: "Data" })).toBeVisible({
       timeout: 30_000,
     });
+    await page.getByRole("button", { name: "Visualize" }).click();
     await page.getByRole("button", { name: "Bar", exact: true }).click();
-    // "Pin view" appears once chart suggestions are computed (DuckDB init +
+    // "Save chart" appears once chart suggestions are computed (DuckDB init +
     // column analysis run after the table loads), so allow a generous wait.
-    await expect(page.getByRole("button", { name: "Pin view" })).toBeVisible({
+    await expect(page.getByRole("button", { name: "Save chart" })).toBeVisible({
       timeout: 30_000,
     });
-    await page.getByRole("button", { name: "Pin view" }).click();
+    await page.getByRole("button", { name: "Save chart" }).click();
     await expect(page).toHaveURL(/\/insights\/[a-zA-Z0-9-]+/);
   });
 
@@ -36,20 +37,25 @@ test.describe("Chart Editing", () => {
     // Wait for initial pinned chart.
     await waitForChart();
 
-    // Pinning wrote the chart's config (Product + sum(Quantity)) into the
+    // Saving wrote the chart's config (Product + sum(Quantity)) into the
     // insight, so the table view now runs query mode: 4 distinct products
     // grouped from the 5 source rows, dimension + metric = 2 fields.
-    await page.getByRole("button", { name: "Table", exact: true }).click();
+    await page.getByRole("button", { name: "Data", exact: true }).click();
     await expect(page.getByText("4 rows • 2 fields")).toBeVisible();
 
-    // Each unpinned chart view renders and offers "Pin view"; switching views
-    // does NOT mint a new Visualization (only pinning does).
+    // Each unsaved chart view renders and offers "Save chart"; switching views
+    // does NOT mint a new Visualization (only saving does).
+    await page.getByRole("button", { name: "Visualize" }).click();
     await page.getByRole("button", { name: "Line", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Pin view" })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Save chart" }),
+    ).toBeVisible();
     await waitForChart();
 
     await page.getByRole("button", { name: "Area", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Pin view" })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Save chart" }),
+    ).toBeVisible();
     await waitForChart();
   });
 });

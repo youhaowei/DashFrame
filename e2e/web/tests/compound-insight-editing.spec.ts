@@ -26,6 +26,15 @@
 import { expect, test } from "../lib/test-fixtures";
 
 test.describe("compound-insight field/metric editing", () => {
+  async function openSection(
+    page: import("@playwright/test").Page,
+    section: "Fields" | "Metrics",
+  ) {
+    await page
+      .getByRole("button", { name: new RegExp(`^${section}\\b`) })
+      .click();
+  }
+
   /**
    * Upload CSV and wait for the insight page to finish loading.
    * Creating an insight from a table produces an empty draft, so each test
@@ -40,7 +49,9 @@ test.describe("compound-insight field/metric editing", () => {
       timeout: 15_000,
     });
 
-    // Wait for the config panel to be rendered — the Fields empty state
+    // The model section is selected by default. Open Fields and wait for its
+    // empty state to confirm the fresh draft has loaded.
+    await openSection(page, "Fields");
     // confirms the panel loaded with the fresh draft's empty selection.
     await expect(page.getByText("No fields selected.")).toBeVisible({
       timeout: 20_000,
@@ -49,8 +60,8 @@ test.describe("compound-insight field/metric editing", () => {
 
   /** Add a field by name via the Add Field dialog and confirm persistence. */
   async function addField(page: import("@playwright/test").Page, name: string) {
-    // Open the Add Field dialog (first "Add" button = Fields section)
-    await page.getByRole("button", { name: "Add" }).first().click();
+    await openSection(page, "Fields");
+    await page.getByRole("button", { name: "Add", exact: true }).click();
     await expect(page.getByRole("dialog", { name: "Add field" })).toBeVisible({
       timeout: 10_000,
     });
@@ -87,6 +98,7 @@ test.describe("compound-insight field/metric editing", () => {
 
     // Reload the page to get fresh server state — confirms server persisted correctly
     await page.reload();
+    await openSection(page, "Fields");
 
     // Observable: "Product" field item appears in the Fields section,
     // confirming definition.selectedFields includes <productFieldId>
@@ -113,6 +125,7 @@ test.describe("compound-insight field/metric editing", () => {
 
     // Reload to verify removal was persisted — back to the empty state
     await page.reload();
+    await openSection(page, "Fields");
     await expect(page.getByText("No fields selected.")).toBeVisible({
       timeout: 20_000,
     });
@@ -127,13 +140,14 @@ test.describe("compound-insight field/metric editing", () => {
   test("addMetric: adding a Count metric adds it to the Metrics section", async ({
     page,
   }) => {
+    await openSection(page, "Metrics");
     // Initial: Metrics section shows "No metrics configured."
     await expect(page.getByText("No metrics configured.")).toBeVisible({
       timeout: 10_000,
     });
 
-    // Open the Add Metric dialog (second "Add" button = Metrics section)
-    await page.getByRole("button", { name: "Add" }).nth(1).click();
+    // Open the Add Metric dialog.
+    await page.getByRole("button", { name: "Add", exact: true }).click();
     await expect(page.getByRole("dialog", { name: "Add metric" })).toBeVisible({
       timeout: 10_000,
     });
@@ -161,9 +175,7 @@ test.describe("compound-insight field/metric editing", () => {
 
     // Reload the page to get fresh server state — confirms server persisted correctly
     await page.reload();
-    await expect(page.getByRole("button", { name: "Add" }).first()).toBeVisible(
-      { timeout: 20_000 },
-    );
+    await openSection(page, "Metrics");
 
     // Observable: "Count" metric item now appears in the Metrics section,
     // confirming definition.metrics = [{ name: "Count", aggregation: "count" }]
@@ -197,9 +209,7 @@ test.describe("compound-insight field/metric editing", () => {
 
     // Reload to verify field was persisted
     await page.reload();
-    await expect(page.getByRole("button", { name: "Add" }).first()).toBeVisible(
-      { timeout: 20_000 },
-    );
+    await openSection(page, "Fields");
 
     // ✓ field is persisted and re-rendered
     await expect(
@@ -209,7 +219,8 @@ test.describe("compound-insight field/metric editing", () => {
     // ── 2. addMetric ────────────────────────────────────────────────────────
     // Cause: open metric editor, save Count aggregation
     // Effect: "Count" appears in the Metrics item list; empty-state gone
-    await page.getByRole("button", { name: "Add" }).nth(1).click();
+    await openSection(page, "Metrics");
+    await page.getByRole("button", { name: "Add", exact: true }).click();
     await expect(page.getByRole("dialog", { name: "Add metric" })).toBeVisible({
       timeout: 10_000,
     });
@@ -229,9 +240,7 @@ test.describe("compound-insight field/metric editing", () => {
 
     // Reload to verify metric was persisted
     await page.reload();
-    await expect(page.getByRole("button", { name: "Add" }).first()).toBeVisible(
-      { timeout: 20_000 },
-    );
+    await openSection(page, "Metrics");
 
     // ✓ metric is persisted and re-rendered
     await expect(page.getByRole("button", { name: "Edit Count" })).toBeVisible({
@@ -262,9 +271,7 @@ test.describe("compound-insight field/metric editing", () => {
 
     // Reload to verify metric rename was persisted
     await page.reload();
-    await expect(page.getByRole("button", { name: "Add" }).first()).toBeVisible(
-      { timeout: 20_000 },
-    );
+    await openSection(page, "Metrics");
 
     // ✓ updated metric name is persisted and re-rendered
     await expect(
@@ -278,6 +285,7 @@ test.describe("compound-insight field/metric editing", () => {
     // Cause: click Remove on "Product", confirm deletion
     // Effect: "Product" disappears from the Fields section — back to the
     // empty state, since it was the only selected field.
+    await openSection(page, "Fields");
     await page.getByRole("button", { name: "Remove Product" }).click();
     await expect(
       page.getByRole("dialog", { name: "Delete field" }),
@@ -295,9 +303,7 @@ test.describe("compound-insight field/metric editing", () => {
 
     // Reload to verify field removal was persisted
     await page.reload();
-    await expect(page.getByRole("button", { name: "Add" }).first()).toBeVisible(
-      { timeout: 20_000 },
-    );
+    await openSection(page, "Fields");
 
     // ✓ definition.selectedFields no longer includes Product — the Fields
     // section is back to its empty state (Product was the only field).
@@ -311,6 +317,7 @@ test.describe("compound-insight field/metric editing", () => {
     // ── 5. removeMetric ─────────────────────────────────────────────────────
     // Cause: click Remove on "Row Count", confirm deletion
     // Effect: "Row Count" disappears; Metrics section shows empty state
+    await openSection(page, "Metrics");
     await page.getByRole("button", { name: "Remove Row Count" }).click();
     await expect(
       page.getByRole("dialog", { name: "Delete metric" }),
@@ -328,9 +335,7 @@ test.describe("compound-insight field/metric editing", () => {
 
     // Reload to verify metric removal was persisted
     await page.reload();
-    await expect(page.getByRole("button", { name: "Add" }).first()).toBeVisible(
-      { timeout: 20_000 },
-    );
+    await openSection(page, "Metrics");
 
     // ✓ definition.metrics = [] is persisted and re-rendered
     await expect(

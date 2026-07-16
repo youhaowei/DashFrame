@@ -155,7 +155,7 @@ describe("materializeRemoteTable", () => {
     });
   });
 
-  it("surfaces failure to clean up a replaced frame", async () => {
+  it("keeps a committed replacement when old-frame cleanup fails", async () => {
     const previousFrameId = "33333333-3333-4333-8333-333333333333" as UUID;
     getDataTable.mockResolvedValue({
       id: TABLE_ID,
@@ -170,7 +170,7 @@ describe("materializeRemoteTable", () => {
         result([field("cleared")]),
         "Leads",
       ),
-    ).rejects.toThrow("cleanup failed");
+    ).resolves.toMatchObject({ dataFrameId: FRAME_ID });
 
     expect(removeDataFrame).toHaveBeenCalledWith(previousFrameId);
   });

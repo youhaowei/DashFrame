@@ -130,10 +130,19 @@ if [[ "${1:-}" == "review" ]]; then
       fi
 
       unmapped_reviewable_files=""
+      feature_files=("$state_dir"/features/*.json)
       while IFS= read -r changed_file; do
+        [[ -e "$changed_file" ]] || continue
         case "$changed_file" in
           *.ts|*.tsx|*.js|*.jsx|*.mjs|*.cjs|*.go|*.py|*.rb|*.ex|*.exs|*.rs|*.cs|*.cpp|*.cc|*.c|*.h|*.hpp|*.swift|*.java|*.kt|*.kts|*.php|*.vue|*.svelte)
-            if ! grep -Fq -- "\"path\": \"$changed_file\"" "$state_dir"/features/*.json 2>/dev/null; then
+            mapped_file="$changed_file"
+            case "$changed_file" in
+              *.test.*) mapped_file="${changed_file/.test./.}" ;;
+              *.spec.*) mapped_file="${changed_file/.spec./.}" ;;
+            esac
+            if [[ ! -e "${feature_files[0]:-}" ]] \
+              || { ! grep -Fq -- "\"path\": \"$changed_file\"" "${feature_files[@]}" 2>/dev/null \
+                && ! grep -Fq -- "\"path\": \"$mapped_file\"" "${feature_files[@]}" 2>/dev/null; }; then
               unmapped_reviewable_files+="${unmapped_reviewable_files:+$'\n'}$changed_file"
             fi
             ;;

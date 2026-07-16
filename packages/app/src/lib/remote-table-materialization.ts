@@ -88,7 +88,16 @@ export async function materializeRemoteTable(
   }
 
   if (existing?.dataFrameId && existing.dataFrameId !== dataFrame.id) {
-    await removeDataFrame(existing.dataFrameId);
+    try {
+      await removeDataFrame(existing.dataFrameId);
+    } catch (cleanupCause) {
+      // The replacement is already committed. Failing the operation here would
+      // make callers roll back the new frame while the table points at it.
+      console.error(
+        "[DashFrame] Failed to remove the replaced remote DataFrame:",
+        cleanupCause,
+      );
+    }
   }
 
   return {
