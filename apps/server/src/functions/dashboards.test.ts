@@ -128,7 +128,7 @@ describe("addDashboardItem — markdown widget persistence", () => {
   });
 });
 
-describe("updateDashboardItem — sanitizeItemOverrides contracts", () => {
+describe("patchDashboardItemOverride contracts", () => {
   let dir: string;
   let db: Awaited<ReturnType<typeof openArtifactDb>>;
   let app: WyStackApp;
@@ -177,10 +177,10 @@ describe("updateDashboardItem — sanitizeItemOverrides contracts", () => {
     })) as { id: string };
     const itemId = await addVisualizationItem(dashboardId);
 
-    await call("updateDashboardItem", {
+    await call("patchDashboardItemOverride", {
       dashboardId,
       itemId,
-      updates: { overrides: { limit: 50 } },
+      patch: { kind: "limit", value: 50 },
     });
 
     const item = await getItem(dashboardId, itemId);
@@ -197,10 +197,10 @@ describe("updateDashboardItem — sanitizeItemOverrides contracts", () => {
     const itemId = await addVisualizationItem(dashboardId);
 
     // First pin a limit.
-    await call("updateDashboardItem", {
+    await call("patchDashboardItemOverride", {
       dashboardId,
       itemId,
-      updates: { overrides: { limit: 25 } },
+      patch: { kind: "limit", value: 25 },
     });
     expect(
       ((await getItem(dashboardId, itemId)).overrides as { limit?: number })
@@ -208,10 +208,10 @@ describe("updateDashboardItem — sanitizeItemOverrides contracts", () => {
     ).toBe(25);
 
     // Now clear via null sentinel.
-    await call("updateDashboardItem", {
+    await call("patchDashboardItemOverride", {
       dashboardId,
       itemId,
-      updates: { overrides: null },
+      patch: { kind: "limit", value: null },
     });
 
     const item = await getItem(dashboardId, itemId);
@@ -219,49 +219,158 @@ describe("updateDashboardItem — sanitizeItemOverrides contracts", () => {
     expect(item.overrides).toBeUndefined();
   });
 
-  it("should treat all-invalid-fields payload as a clear (not {} in JSONB)", async () => {
-    // Regression for the Greptile P1: sanitizeItemOverrides can produce a
-    // truthy empty object {filters:undefined,sorts:undefined,limit:undefined}
-    // when all three fields fail validation. JSON.stringify drops undefined
-    // values → stored as {} → engine reads non-null overrides field.
-    // The fix adds an all-undefined emptiness check that returns undefined.
+  it("rejects whole override-bag replacement through updateDashboardItem", async () => {
     const { id: dashboardId } = (await call("createDashboard", {
-      name: "All-Invalid Test",
+      name: "Authoritative Override Test",
     })) as { id: string };
     const itemId = await addVisualizationItem(dashboardId);
 
-    await call("updateDashboardItem", {
-      dashboardId,
-      itemId,
-      // All fields fail validation: filters wrong type, sorts wrong type,
-      // limit is negative (rejected by the > 0 guard).
-      updates: { overrides: { filters: "invalid", sorts: null, limit: -5 } },
-    });
-
-    const item = await getItem(dashboardId, itemId);
-    // Must not be persisted as {} — that would mean the engine reads a non-null
-    // overrides field and may create a per-cell DuckDB view for no reason.
-    // With the emptiness check, sanitizeItemOverrides returns undefined, the
-    // key is dropped from JSONB, and the read-back item has no overrides field.
-    expect(item.overrides).toBeUndefined();
+    await expect(
+      call("updateDashboardItem", {
+        dashboardId,
+        itemId,
+        updates: { overrides: { limit: 5 } },
+      }),
+    ).rejects.toThrow(
+      "Dashboard item overrides require patchDashboardItemOverride",
+    );
   });
 
-  it("should treat empty filters array as a clear ([] is truthy but ![] is false)", async () => {
-    // Guards the empty-array bypass: ![] is false, so a naive !filters check
-    // passes through {filters: []} as a non-empty bag. The fix uses .length.
+  it("normalizes an empty sorts intent to no override bag", async () => {
     const { id: dashboardId } = (await call("createDashboard", {
       name: "Empty-Array Test",
     })) as { id: string };
     const itemId = await addVisualizationItem(dashboardId);
 
-    await call("updateDashboardItem", {
+    await call("patchDashboardItemOverride", {
       dashboardId,
       itemId,
-      updates: { overrides: { filters: [], sorts: null, limit: -5 } },
+      patch: { kind: "sorts", value: [] },
     });
 
     const item = await getItem(dashboardId, itemId);
-    // filters: [] with no valid sorts/limit must also be cleared.
     expect(item.overrides).toBeUndefined();
+  });
+});
+
+describe("server-authoritative dashboard item mutations", () => {
+  let dir: string;
+  let db: Awaited<ReturnType<typeof openArtifactDb>>;
+  let app: WyStackApp;
+
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), "dashframe-authoritative-"));
+    db = await openArtifactDb({ path: join(dir, "artifacts.db") });
+    app = await createWyStack({ db, functions });
+  });
+
+  afterEach(async () => {
+    await db.$client.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  async function call(path: string, args: unknown): Promise<unknown> {
+    const { result } = await app.call(path, args);
+    return result;
+  }
+
+  async function createDashboardWithItems(): Promise<{
+    dashboardId: string;
+    firstId: string;
+    secondId: string;
+  }> {
+    const { id: dashboardId } = (await call("createDashboard", {
+      name: "Authoritative Dashboard",
+    })) as { id: string };
+    const { itemId: firstId } = (await call("addDashboardItem", {
+      dashboardId,
+      type: "visualization",
+      visualizationId: crypto.randomUUID(),
+      position: { x: 0, y: 0, width: 4, height: 4 },
+    })) as { itemId: string };
+    const { itemId: secondId } = (await call("addDashboardItem", {
+      dashboardId,
+      type: "visualization",
+      visualizationId: crypto.randomUUID(),
+      position: { x: 4, y: 0, width: 4, height: 4 },
+    })) as { itemId: string };
+    return { dashboardId, firstId, secondId };
+  }
+
+  async function getItems(dashboardId: string) {
+    const dashboards = (await call("listDashboards", {})) as Array<{
+      id: string;
+      items: Array<{
+        id: string;
+        x: number;
+        y: number;
+        overrides?: {
+          filters?: Array<{ field: string }>;
+          sorts?: unknown[];
+          limit?: number;
+        };
+      }>;
+    }>;
+    return dashboards.find((dashboard) => dashboard.id === dashboardId)!.items;
+  }
+
+  it("applies a compacted layout as one atomic server mutation", async () => {
+    const { dashboardId, firstId, secondId } = await createDashboardWithItems();
+
+    await call("updateDashboardItems", {
+      dashboardId,
+      patches: [
+        { itemId: firstId, updates: { x: 1, y: 2 } },
+        { itemId: secondId, updates: { x: 7, y: 3 } },
+      ],
+    });
+
+    const items = await getItems(dashboardId);
+    expect(items.find((item) => item.id === firstId)).toMatchObject({
+      x: 1,
+      y: 2,
+    });
+    expect(items.find((item) => item.id === secondId)).toMatchObject({
+      x: 7,
+      y: 3,
+    });
+  });
+
+  it("serializes concurrent override intents without dropping sibling fields", async () => {
+    const { dashboardId, firstId } = await createDashboardWithItems();
+
+    await Promise.all([
+      call("patchDashboardItemOverride", {
+        dashboardId,
+        itemId: firstId,
+        patch: {
+          kind: "sorts",
+          value: [{ field: "revenue", direction: "desc" }],
+        },
+      }),
+      call("patchDashboardItemOverride", {
+        dashboardId,
+        itemId: firstId,
+        patch: { kind: "limit", value: 25 },
+      }),
+      call("patchDashboardItemOverride", {
+        dashboardId,
+        itemId: firstId,
+        patch: {
+          kind: "filter",
+          field: "region",
+          value: { field: "region", operator: "eq", value: "West" },
+        },
+      }),
+    ]);
+
+    const item = (await getItems(dashboardId)).find(
+      (candidate) => candidate.id === firstId,
+    );
+    expect(item?.overrides).toMatchObject({
+      limit: 25,
+      sorts: [{ field: "revenue", direction: "desc" }],
+      filters: [{ field: "region", operator: "eq", value: "West" }],
+    });
   });
 });

@@ -25,23 +25,22 @@ import {
   PlusIcon,
   RefreshIcon,
 } from "@wystack/ui-icons";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 
 // Ticks once a minute on the client so relative-time strings refresh
 // without calling Date.now() during render.
+let currentNowSnapshot = Date.now();
 const subscribeNow = (notify: () => void) => {
-  const id = setInterval(notify, 60_000);
+  currentNowSnapshot = Date.now();
+  notify();
+  const id = setInterval(() => {
+    currentNowSnapshot = Date.now();
+    notify();
+  }, 60_000);
   return () => clearInterval(id);
 };
-const getNowSnapshot = () => Date.now();
+const getNowSnapshot = () => currentNowSnapshot;
 const getNowServerSnapshot = () => 0;
 
 interface CollapsibleSectionProps {
@@ -96,6 +95,19 @@ type CachedDatabases = {
   timestamp: number;
 };
 
+interface SourceScopedDatabaseCache {
+  dataSourceId: string;
+  cache: CachedDatabases;
+}
+
+export function selectDatabaseCache(
+  dataSourceId: string | null,
+  override: SourceScopedDatabaseCache | null,
+  cached: CachedDatabases | null,
+): CachedDatabases | null {
+  return override?.dataSourceId === dataSourceId ? override.cache : cached;
+}
+
 const cacheKeyFor = (dataSourceId: string) =>
   `dashframe:notion-databases:${dataSourceId}`;
 
@@ -121,16 +133,11 @@ const subscribeStorage = (callback: () => void) => {
 };
 
 export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
-  // Local override — set after a fresh fetch — wins over the cached read.
-  const [override, setOverride] = useState<CachedDatabases | null>(null);
-  const prevDataSourceIdRef = useRef(dataSourceId);
-  // Reset override when the data source changes.
-  useEffect(() => {
-    if (prevDataSourceIdRef.current !== dataSourceId) {
-      prevDataSourceIdRef.current = dataSourceId;
-      setOverride(null);
-    }
-  }, [dataSourceId]);
+  // Fresh results are keyed to the source that requested them. A late response
+  // for source A can never become the effective list for source B.
+  const [override, setOverride] = useState<SourceScopedDatabaseCache | null>(
+    null,
+  );
 
   const cachedSnapshot = useSyncExternalStore(
     subscribeStorage,
@@ -147,19 +154,22 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
       cachedSnapshot ? (JSON.parse(cachedSnapshot) as CachedDatabases) : null,
     [cachedSnapshot],
   );
-  const effective = override ?? cached;
+  const effective = selectDatabaseCache(dataSourceId, override, cached);
   const availableDatabases = useMemo<NotionDatabaseRef[]>(
     () => effective?.databases ?? [],
     [effective],
   );
   const lastFetchTime: number | null = effective?.timestamp ?? null;
-  const setAvailableDatabases = (databases: NotionDatabaseRef[]) => {
+  const setAvailableDatabases = (
+    requestDataSourceId: string,
+    databases: NotionDatabaseRef[],
+  ) => {
     const next = { databases, timestamp: Date.now() };
-    setOverride(next);
-    if (dataSourceId && typeof window !== "undefined") {
+    setOverride({ dataSourceId: requestDataSourceId, cache: next });
+    if (typeof window !== "undefined") {
       try {
         window.localStorage.setItem(
-          cacheKeyFor(dataSourceId),
+          cacheKeyFor(requestDataSourceId),
           JSON.stringify(next),
         );
       } catch (error) {
@@ -167,7 +177,10 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
       }
     }
   };
-  const [isLoadingDatabases, setIsLoadingDatabases] = useState(false);
+  const [loadingDataSourceId, setLoadingDataSourceId] = useState<string | null>(
+    null,
+  );
+  const isLoadingDatabases = loadingDataSourceId === dataSourceId;
   const [isDataTablesOpen, setIsDataTablesOpen] = useState(true);
   // The stored API key is write-only and never returned to the renderer, so the
   // field cannot be seeded from the data source. It holds only what the user
@@ -225,20 +238,23 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
       return; // Already have cached data, don't refetch
     }
 
-    setIsLoadingDatabases(true);
+    const requestDataSourceId = dataSource.id;
+    setLoadingDataSourceId(requestDataSourceId);
 
     try {
       // The stored API key is resolved server-side by data-source id (the
       // listNotionDatabases mutation mints a one-secret bound resolver); the
       // secret is never read back into the renderer.
-      const result = await notionMutations.listDatabases(dataSource.id);
+      const result = await notionMutations.listDatabases(requestDataSourceId);
       // Updates state and persists to localStorage in one go.
-      setAvailableDatabases(result);
+      setAvailableDatabases(requestDataSourceId, result);
     } catch (error) {
       console.error("Failed to fetch Notion databases:", error);
       toast.error("Failed to load databases from Notion");
     } finally {
-      setIsLoadingDatabases(false);
+      setLoadingDataSourceId((current) =>
+        current === requestDataSourceId ? null : current,
+      );
     }
   };
 

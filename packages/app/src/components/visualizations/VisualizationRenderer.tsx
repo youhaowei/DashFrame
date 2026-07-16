@@ -1,56 +1,23 @@
-import { useDataFramePagination } from "@/hooks/useDataFramePagination";
-import { useDataTables, useInsights, useVisualizations } from "@dashframe/core";
-import { resolveEncodingToSql } from "@dashframe/engine";
-import type { ChartEncoding, UUID } from "@dashframe/types";
-import { Chart } from "@dashframe/visualization";
+import { useVisualizations } from "@dashframe/core";
+import type { UUID } from "@dashframe/types";
 import { Spinner } from "@wystack/ui";
 import { useMemo } from "react";
 
+import { VisualizationDisplay } from "./VisualizationDisplay";
+import { VisualizationPreview } from "./VisualizationPreview";
+
 interface VisualizationRendererProps {
-  /** The visualization ID to render */
   visualizationId: UUID;
-
-  /** Optional className for styling */
   className?: string;
-
-  /** Chart width */
   width?: number | "container";
-
-  /** Chart height */
   height?: number | "container";
-
-  /** Enable preview mode */
   preview?: boolean;
 }
 
 /**
- * VisualizationRenderer - Single source of truth for rendering charts
- *
- * This component encapsulates all logic for:
- * 1. Resolving the entity chain (Visualization → Insight → DataTable → DataFrame)
- * 2. Waiting for base table to be ready in DuckDB
- * 3. Rendering the Chart component with correct table name and encoding
- *
- * ## Usage
- *
- * ```tsx
- * <VisualizationRenderer
- *   visualizationId={vizId}
- *   width="container"
- *   height={400}
- * />
- * ```
- *
- * ## Architecture
- *
- * This component ensures chart rendering is consistent across:
- * - Insight suggestions (preview)
- * - Visualization page (full view)
- * - Dashboard cards (thumbnails)
- *
- * Charts query the base DataFrame table directly. The encoding contains
- * aggregation functions (e.g., "sum(revenue)") that vgplot converts to
- * DuckDB queries, enabling query pushdown without loading data into memory.
+ * Compatibility adapter for callers that need a visualization by id.
+ * Rendering is delegated to the canonical insight-aware modules so this path
+ * cannot bypass filters, joins, sorts, or instance-qualified fields.
  */
 export function VisualizationRenderer({
   visualizationId,
@@ -60,91 +27,36 @@ export function VisualizationRenderer({
   preview = false,
 }: VisualizationRendererProps) {
   const { data: visualizations = [] } = useVisualizations();
-  const { data: insights = [] } = useInsights();
-  const { data: dataTables = [] } = useDataTables();
-
-  // Resolve the entity chain
   const visualization = useMemo(
-    () => visualizations.find((v) => v.id === visualizationId),
-    [visualizations, visualizationId],
+    () => visualizations.find((candidate) => candidate.id === visualizationId),
+    [visualizationId, visualizations],
   );
+  const style = {
+    width: width === "container" ? "100%" : width,
+    height: height === "container" ? "100%" : height,
+  };
 
-  const insight = useMemo(
-    () => insights.find((i) => i.id === visualization?.insightId),
-    [insights, visualization?.insightId],
-  );
-
-  const dataTable = useMemo(
-    () => dataTables.find((dt) => dt.id === insight?.baseTableId),
-    [dataTables, insight?.baseTableId],
-  );
-
-  const dataFrameId = dataTable?.dataFrameId;
-
-  // Compute base table name from DataFrame ID
-  const tableName = useMemo(() => {
-    if (!dataFrameId) return null;
-    return `df_${dataFrameId.replace(/-/g, "_")}`;
-  }, [dataFrameId]);
-
-  // Resolve encoding from EncodingValue (field:uuid/metric:uuid) to SQL expressions
-  // This is needed because persisted visualizations store prefixed IDs, but
-  // the Chart component expects SQL expressions like "category" or "sum(revenue)"
-  const resolvedEncoding = useMemo((): ChartEncoding => {
-    if (!visualization?.encoding || !dataTable || !insight) {
-      return {};
-    }
-
-    // Build resolution context with fields and metrics
-    const context = {
-      fields: dataTable.fields ?? [],
-      metrics: insight.metrics ?? [],
-    };
-
-    // Resolve prefixed IDs to SQL expressions
-    const resolved = resolveEncodingToSql(visualization.encoding, context);
-
-    // Merge with axis types and transforms (passed through for renderer)
-    // xTransform/yTransform tell the renderer this is temporal data with aggregation,
-    // allowing it to use band scale for bar charts (suppresses vgplot warning)
-    return {
-      ...resolved,
-      xType: visualization.encoding.xType,
-      yType: visualization.encoding.yType,
-      xTransform: visualization.encoding.xTransform,
-      yTransform: visualization.encoding.yTransform,
-    };
-  }, [visualization, dataTable, insight]);
-
-  // Use pagination hook to ensure table is loaded in DuckDB
-  const { isReady: isTableReady } = useDataFramePagination(dataFrameId);
-
-  // Loading state
-  if (!isTableReady || !tableName || !visualization) {
+  if (!visualization) {
     return (
-      <div className={className} style={{ width, height }}>
+      <div className={className} style={style}>
         <div className="flex h-full items-center justify-center">
-          <div className="flex items-center gap-2 text-neutral-fg-subtle">
-            <Spinner size="sm" />
-            <span className="text-sm">Loading visualization...</span>
-          </div>
+          <Spinner size="sm" />
         </div>
       </div>
     );
   }
 
-  // Render chart - vgplot will handle aggregations via encoding
-  // Use key to force remount when visualization changes
+  if (preview) {
+    return (
+      <div className={className} style={style}>
+        <VisualizationPreview visualization={visualization} height={height} />
+      </div>
+    );
+  }
+
   return (
-    <Chart
-      key={visualizationId}
-      tableName={tableName}
-      visualizationType={visualization.visualizationType}
-      encoding={resolvedEncoding}
-      className={className}
-      width={width}
-      height={height}
-      preview={preview}
-    />
+    <div className={className} style={style}>
+      <VisualizationDisplay visualizationId={visualizationId} />
+    </div>
   );
 }

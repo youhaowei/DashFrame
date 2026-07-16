@@ -11,6 +11,8 @@ import type {
   Dashboard,
   DashboardControl,
   DashboardItem,
+  DashboardItemOverridePatch,
+  DashboardItemPatch,
   DashboardMutations,
   UseDashboardsResult,
   UUID,
@@ -46,6 +48,8 @@ export function useDashboardMutations(): DashboardMutations {
   const remove = useMutation(api.removeDashboard);
   const addItem = useMutation(api.addDashboardItem);
   const updateItem = useMutation(api.updateDashboardItem);
+  const updateItems = useMutation(api.updateDashboardItems);
+  const patchItemOverride = useMutation(api.patchDashboardItemOverride);
   const removeItem = useMutation(api.removeDashboardItem);
   const updateControlsMutation = useMutation(api.updateDashboardControls);
 
@@ -58,14 +62,13 @@ export function useDashboardMutations(): DashboardMutations {
 
       update: async (
         id: UUID,
-        updates: Partial<Omit<Dashboard, "id" | "createdAt">>,
+        updates: Pick<Partial<Dashboard>, "name" | "description">,
       ): Promise<void> => {
         await update.mutateAsync(
           loose({
             id,
             name: updates.name,
             description: updates.description,
-            items: updates.items,
           }),
         );
       },
@@ -93,9 +96,24 @@ export function useDashboardMutations(): DashboardMutations {
       updateItem: async (
         dashboardId: UUID,
         itemId: UUID,
-        updates: Partial<Omit<DashboardItem, "id" | "type">>,
+        updates: Partial<Omit<DashboardItem, "id" | "type" | "overrides">>,
       ): Promise<void> => {
         await updateItem.mutateAsync({ dashboardId, itemId, updates });
+      },
+
+      updateItems: async (
+        dashboardId: UUID,
+        patches: DashboardItemPatch[],
+      ): Promise<void> => {
+        await updateItems.mutateAsync({ dashboardId, patches });
+      },
+
+      patchItemOverride: async (
+        dashboardId: UUID,
+        itemId: UUID,
+        patch: DashboardItemOverridePatch,
+      ): Promise<void> => {
+        await patchItemOverride.mutateAsync({ dashboardId, itemId, patch });
       },
 
       removeItem: async (dashboardId: UUID, itemId: UUID): Promise<void> => {
@@ -118,6 +136,8 @@ export function useDashboardMutations(): DashboardMutations {
       remove,
       addItem,
       updateItem,
+      updateItems,
+      patchItemOverride,
       removeItem,
       updateControlsMutation,
     ],

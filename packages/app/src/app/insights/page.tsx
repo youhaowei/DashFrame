@@ -6,7 +6,12 @@ import {
   useInsights,
   useVisualizations,
 } from "@dashframe/core";
-import type { DataTable, Insight, UUID } from "@dashframe/types";
+import {
+  isUnmodifiedDraft,
+  type DataTable,
+  type Insight,
+  type UUID,
+} from "@dashframe/types";
 import { useNavigate } from "@tanstack/react-router";
 import {
   Badge,
@@ -121,7 +126,7 @@ export default function InsightsPage() {
   const insights = useMemo((): InsightItem[] => {
     return insightsData.map((item): InsightItem => {
       // Determine state
-      const isConfigured = (item.insight.selectedFields?.length ?? 0) > 0;
+      const isConfigured = !isUnmodifiedDraft(item.insight);
       const hasVisualizations = item.visualizationCount > 0;
 
       return {

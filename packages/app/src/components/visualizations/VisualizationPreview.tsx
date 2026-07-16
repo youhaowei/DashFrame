@@ -20,8 +20,8 @@ function PreviewLoading() {
 interface VisualizationPreviewProps {
   /** The visualization to preview */
   visualization: Visualization;
-  /** Height of the preview in pixels (default: 200) */
-  height?: number;
+  /** Height of the preview in pixels, or fill its container (default: 200) */
+  height?: number | "container";
   /** Fallback element to show when data can't be loaded */
   fallback?: React.ReactNode;
 }
@@ -154,7 +154,10 @@ export function VisualizationPreview({
   }
 
   return (
-    <div className="h-full w-full overflow-hidden" style={{ height }}>
+    <div
+      className="h-full w-full overflow-hidden"
+      style={{ height: height === "container" ? "100%" : height }}
+    >
       <Chart
         tableName={viewName}
         visualizationType={visualization.visualizationType}

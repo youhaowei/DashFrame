@@ -3,6 +3,7 @@ import {
   computeFilterableFields,
   type CombinedField,
 } from "@/lib/insights/compute-combined-fields";
+import { reorderVisibleMetrics } from "@/lib/insights/reorder-visible-metrics";
 import {
   useDataTableMutations,
   useInsightMutations,
@@ -282,9 +283,11 @@ export function InsightConfigPanel({
   // --- Metric handlers ---
   const handleMetricsReorder = useCallback(
     (newOrder: InsightMetric[]) => {
-      updateInsight(insight.id, { metrics: newOrder });
+      updateInsight(insight.id, {
+        metrics: reorderVisibleMetrics(insight.metrics ?? [], newOrder),
+      });
     },
-    [insight.id, updateInsight],
+    [insight.id, insight.metrics, updateInsight],
   );
 
   const handleRemoveMetric = useCallback(
