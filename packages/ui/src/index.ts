@@ -47,7 +47,7 @@ export {
 } from "./components/ControlTooltip";
 
 // Chart icons (static SVG representations of chart types)
-// NOTE: DotIcon is renamed to ChartDotIcon to avoid conflict with @wystack/ui-icons DotIcon
+// NOTE: DotIcon is renamed to ChartDotIcon to avoid conflict with @wystack/ui-react/icons DotIcon
 export {
   AreaYIcon,
   BarXIcon,

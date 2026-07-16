@@ -8,7 +8,7 @@
  *
  * Design constraints (from DESIGN.md):
  * - Surface system: no borders — uses shadow-lifted `bg-neutral-bg` strip.
- * - Off-token color forbidden — only `@wystack/ui` tokens.
+ * - Off-token color forbidden — only `@wystack/ui-core` tokens.
  * - A signal earns its surface: the bar is only rendered when controls exist.
  */
 

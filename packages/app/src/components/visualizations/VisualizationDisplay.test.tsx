@@ -92,7 +92,7 @@ vi.mock("@wystack/ui-react", () => ({
   Toggle: () => null,
 }));
 
-vi.mock("@wystack/ui-icons", () => ({
+vi.mock("@wystack/ui-react/icons", () => ({
   ChartIcon: () => null,
   LayersIcon: () => null,
   TableIcon: () => null,

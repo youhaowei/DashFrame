@@ -7,8 +7,8 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@wystack/ui";
-import { CloseIcon, PlusIcon } from "@wystack/ui-icons";
+} from "@wystack/ui-react";
+import { CloseIcon, PlusIcon } from "@wystack/ui-react/icons";
 
 interface SortSectionProps {
   sorts: InsightSort[];

@@ -25,7 +25,7 @@ import { describe, expect, it, vi } from "vitest";
 import { PreviewDiffRenderer } from "./PreviewDiffRenderer";
 
 // ---------------------------------------------------------------------------
-// Lightweight @wystack/ui stub — avoids pulling in the full component library.
+// Lightweight @wystack/ui-react stub — avoids pulling in the full component library.
 // ---------------------------------------------------------------------------
 
 vi.mock("@wystack/ui-react", () => ({

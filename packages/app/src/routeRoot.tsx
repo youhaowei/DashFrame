@@ -47,7 +47,7 @@ export interface AppRouterContext {
 const PassThrough: ProviderWrapper = ({ children }) => <>{children}</>;
 
 /**
- * The chrome layout, built on the @wystack/ui layout shell:
+ * The chrome layout, built on the @wystack/ui-react layout shell:
  *
  *   TopBar  (full-width window chrome)
  *   ├── Dock side=left   — Navigation (flat, on the canvas)

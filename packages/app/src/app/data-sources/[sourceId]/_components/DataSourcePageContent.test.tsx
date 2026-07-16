@@ -178,7 +178,7 @@ vi.mock("@wystack/ui-react", () => ({
   }) => <button onClick={onClick}>{title}</button>,
 }));
 
-vi.mock("@wystack/ui-icons", () => ({
+vi.mock("@wystack/ui-react/icons", () => ({
   DatabaseIcon: () => <span data-testid="db-icon" />,
   DeleteIcon: () => <span />,
   ChevronLeftIcon: () => <span />,

@@ -100,7 +100,7 @@ vi.mock("@wystack/ui-react", () => ({
   TooltipTrigger: ({ render: r }: { render: React.ReactNode }) => r,
 }));
 
-vi.mock("@wystack/ui-icons", () => ({
+vi.mock("@wystack/ui-react/icons", () => ({
   AlertCircleIcon: () => null,
   ArrowUpDownIcon: () => null,
 }));
