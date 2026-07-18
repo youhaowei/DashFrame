@@ -38,7 +38,7 @@ import {
   createArrowDataPath,
   type ArrowQueryRunner,
 } from "@dashframe/engine-server/arrow-data-path";
-import { schema } from "@dashframe/server-core";
+import { schema, type HarnessCredentialStore } from "@dashframe/server-core";
 import { serve as nodeServe } from "@hono/node-server";
 import { createNodeWebSocket } from "@hono/node-ws";
 import type { DraftDrizzleTracker, DrizzleTracker } from "@wystack/db";
@@ -232,6 +232,13 @@ export interface DashframeServerOptions {
    * the credential boundary). Desktop always injects the keychain vault.
    */
   vault?: SecretVault;
+  /**
+   * Host-local named credentials for external harnesses. The host chooses the
+   * persistence location so verifiers remain outside the shareable project.
+   */
+  harnessCredentialStore?: HarnessCredentialStore;
+  /** Current project identity used to authenticate the agent endpoint. */
+  projectId?: string;
 }
 
 export interface DashframeServer {
@@ -517,6 +524,11 @@ export async function createDashframeServer(
         "instance when using vault-backed auth.",
     );
   }
+  if (Boolean(opts.harnessCredentialStore) !== Boolean(opts.projectId)) {
+    throw new Error(
+      "createDashframeServer: harnessCredentialStore and projectId must be supplied together",
+    );
+  }
   let resolveContext:
     | ((req: Request) => Promise<Record<string, unknown>>)
     | undefined;
@@ -620,6 +632,7 @@ export async function createDashframeServer(
   // gate (publishDraft / discardDraft / direct canonical credential writes) to
   // guarantee the snapshot dropping a ref is on disk before the ref is deleted.
   serverContext.flushSnapshot = opts.flushSnapshot;
+  serverContext.harnessCredentialStore = opts.harnessCredentialStore;
 
   // Mirror @wystack/server/node's serve() composition, adding CORS in front.
   const honoApp = new Hono();
@@ -660,16 +673,51 @@ export async function createDashframeServer(
     }),
   );
 
+  // External harnesses authenticate independently from the renderer's
+  // per-launch token, including on loopback. This initial 0.3A seam exposes a
+  // health/identity check only; application tools will be added behind the same
+  // credential-derived caller identity rather than exposing the broad UI RPC
+  // surface prematurely.
+  if (opts.harnessCredentialStore && opts.projectId) {
+    honoApp.get("/agent/health", async (c) => {
+      const identity = await authenticateHarnessRequest(
+        c.req.raw,
+        opts.projectId as string,
+        opts.harnessCredentialStore as HarnessCredentialStore,
+      );
+      if (!identity) return c.json({ error: "Unauthorized" }, 401);
+      return c.json({
+        ok: true,
+        projectId: opts.projectId,
+        caller: { kind: "agent", id: identity.id, name: identity.name },
+      });
+    });
+  }
+
   honoApp.route("/", createRoutes({ app, resolveContext }, upgradeWebSocket));
 
   const { port, server } = await listen(honoApp, hostname, requestedPort);
   injectWebSocket(server);
+  serverContext.agentEndpoint = `http://${hostname}:${port}/agent`;
 
   return {
     url: `http://${hostname}:${port}`,
     port,
     stop: () => server.close(),
   };
+}
+
+async function authenticateHarnessRequest(
+  request: Request,
+  projectId: string,
+  store: HarnessCredentialStore,
+) {
+  const authorization = request.headers.get("authorization") ?? "";
+  const token = authorization.startsWith("Bearer ")
+    ? authorization.slice("Bearer ".length)
+    : "";
+  if (!token) return null;
+  return store.authenticate(projectId, token);
 }
 
 /**
