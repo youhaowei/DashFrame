@@ -5,6 +5,7 @@ import {
 import {
   ARTIFACTS_DB_FILENAME,
   DrizzleMappingStore,
+  FileHarnessCredentialStore,
   openProject,
   type ProjectHandle,
 } from "@dashframe/server-core";
@@ -340,6 +341,10 @@ app
 
       server = await createDashframeServer({
         db: project.db,
+        projectId: project.meta.projectId,
+        harnessCredentialStore: new FileHarnessCredentialStore(
+          path.join(app.getPath("userData"), "harness-access"),
+        ),
         corsOrigin,
         // Vault path passes a ref (no plaintext at the server); the
         // keychain-unavailable fallback passes the plaintext token directly

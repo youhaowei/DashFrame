@@ -9,7 +9,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { openProject, type ProjectHandle } from "@dashframe/server-core";
+import {
+  FileHarnessCredentialStore,
+  openProject,
+  type ProjectHandle,
+} from "@dashframe/server-core";
 import {
   InMemoryMappingStore,
   makeSecretRef,
@@ -209,6 +213,76 @@ describe("createDashframeServer", () => {
       expect(body.data.name).toBe("Smoke Co");
       expect(body.data.projectId).toBe(project.meta.projectId);
       expect(body.data.version).toBe(project.meta.version);
+    });
+
+    it("issues, authenticates, and revokes a project-scoped harness credential", async () => {
+      project = await openProject({
+        dir: join(root, "proj"),
+        name: "Harness Co",
+      });
+      const store = new FileHarnessCredentialStore(
+        join(root, "harness-access"),
+      );
+      server = await createDashframeServer({
+        db: project.db,
+        projectId: project.meta.projectId,
+        harnessCredentialStore: store,
+      });
+
+      const connectionResponse = await fetch(
+        `${server.url}/api/getHarnessConnectionInfo?args=${encodeURIComponent("{}")}`,
+      );
+      expect(connectionResponse.status).toBe(200);
+      const connection = (await connectionResponse.json()) as {
+        data: { endpoint: string; projectId: string };
+      };
+      expect(connection.data).toMatchObject({
+        endpoint: `${server.url}/agent`,
+        projectId: project.meta.projectId,
+      });
+
+      const issueResponse = await fetch(
+        `${server.url}/api/issueHarnessAccessCredential`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: "Codex test" }),
+        },
+      );
+      expect(issueResponse.status).toBe(200);
+      const issued = (await issueResponse.json()) as {
+        data: {
+          credential: { id: string; name: string };
+          accessCredential: string;
+        };
+      };
+      expect(issued.data.credential.name).toBe("Codex test");
+
+      expect((await fetch(`${server.url}/agent/health`)).status).toBe(401);
+      expect(
+        (
+          await fetch(`${server.url}/agent/health`, {
+            headers: bearer(issued.data.accessCredential),
+          })
+        ).status,
+      ).toBe(200);
+
+      const revokeResponse = await fetch(
+        `${server.url}/api/revokeHarnessAccessCredential`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: issued.data.credential.id }),
+        },
+      );
+      expect(revokeResponse.status).toBe(200);
+      expect(
+        (
+          await fetch(`${server.url}/agent/health`, {
+            headers: bearer(issued.data.accessCredential),
+          })
+        ).status,
+      ).toBe(401);
     });
 
     it("rejects a non-object JSON body on /assistant/run with 400, not a crash", async () => {

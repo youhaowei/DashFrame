@@ -46,6 +46,12 @@ export {
 } from "./assistant-provider-configs";
 
 export {
+  useHarnessAccessCredentials,
+  useHarnessAccessMutations,
+  useHarnessConnectionInfo,
+} from "./harness-access";
+
+export {
   addDataSource,
   getAllDataSources,
   getDataSource,

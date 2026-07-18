@@ -17,6 +17,7 @@ import { commandFunctions } from "./functions/commands";
 import { dashboardFunctions } from "./functions/dashboards";
 import { draftLifecycleFunctions } from "./functions/draft-lifecycle";
 import { draftFunctions } from "./functions/drafts";
+import { harnessAccessFunctions } from "./functions/harness-access";
 import { previewDiffFunctions } from "./functions/preview-diff";
 
 const { projectMeta } = schema;
@@ -66,6 +67,7 @@ export const functions = {
   ...dashboardFunctions,
   ...draftLifecycleFunctions,
   ...draftFunctions,
+  ...harnessAccessFunctions,
   ...previewDiffFunctions,
 };
 

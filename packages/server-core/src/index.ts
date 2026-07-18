@@ -35,6 +35,13 @@ export {
   type SnapshotMeta,
 } from "./snapshots";
 
+export {
+  FileHarnessCredentialStore,
+  type HarnessCredentialIdentity,
+  type HarnessCredentialRecord,
+  type HarnessCredentialStore,
+  type IssuedHarnessCredential,
+} from "./harness-credentials";
 export { DrizzleMappingStore } from "./mapping-store";
 export {
   DASHFRAME_HOME_DIRNAME,

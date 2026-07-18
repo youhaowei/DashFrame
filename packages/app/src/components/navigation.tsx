@@ -1,3 +1,4 @@
+import { HarnessAccessDialog } from "@/components/harness-access/HarnessAccessDialog";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { PerfHud } from "@/lib/perf";
 import { useToastStore } from "@/lib/stores";
@@ -77,6 +78,7 @@ const navItems: NavItem[] = [
 interface SidebarContentProps {
   onClearData?: () => void;
   onAssistantProviders?: () => void;
+  onHarnessAccess?: () => void;
   /**
    * Extra rows for the footer, below Settings/Open source — dev tooling like
    * the perf HUD. Supplied only by the desktop nav so the mobile dialog doesn't
@@ -88,6 +90,7 @@ interface SidebarContentProps {
 function SidebarContent({
   onClearData,
   onAssistantProviders,
+  onHarnessAccess,
   footerSlot,
 }: SidebarContentProps) {
   const pathname = useLocation({ select: (l) => l.pathname });
@@ -158,6 +161,10 @@ function SidebarContent({
               <SparklesIcon className="mr-2 h-4 w-4" />
               Assistant providers
             </DropdownMenuItem>
+            <DropdownMenuItem onClick={onHarnessAccess}>
+              <DatabaseIcon className="mr-2 h-4 w-4" />
+              Agent harness access
+            </DropdownMenuItem>
             <DropdownMenuItem
               onClick={onClearData}
               className="text-palette-danger focus:text-palette-danger"
@@ -186,6 +193,7 @@ export function Navigation() {
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [showHarnessAccess, setShowHarnessAccess] = useState(false);
   const setAssistantSetupOpen = useAssistantStore((s) => s.setSetupOpen);
 
   const leftNavOpen = useShellStore((s) => s.leftNavOpen);
@@ -226,6 +234,7 @@ export function Navigation() {
           <SidebarContent
             onClearData={() => setShowClearConfirm(true)}
             onAssistantProviders={() => setAssistantSetupOpen(true)}
+            onHarnessAccess={() => setShowHarnessAccess(true)}
             footerSlot={<PerfHud />}
           />
         </div>
@@ -259,11 +268,17 @@ export function Navigation() {
               <SidebarContent
                 onClearData={() => setShowClearConfirm(true)}
                 onAssistantProviders={() => setAssistantSetupOpen(true)}
+                onHarnessAccess={() => setShowHarnessAccess(true)}
               />
             </div>
           </div>
         </DialogContent>
       </Dialog>
+
+      <HarnessAccessDialog
+        open={showHarnessAccess}
+        onOpenChange={setShowHarnessAccess}
+      />
 
       {/* Clear Data Confirmation Dialog */}
       <Dialog open={showClearConfirm} onOpenChange={setShowClearConfirm}>

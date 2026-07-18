@@ -56,6 +56,15 @@ export type {
 } from "./assistant-provider-configs";
 
 export type {
+  HarnessAccessCredential,
+  HarnessAccessMutations,
+  HarnessConnectionInfo,
+  IssuedHarnessAccessCredential,
+  UseHarnessAccessCredentialsResult,
+  UseHarnessConnectionInfoResult,
+} from "./harness-access";
+
+export type {
   ConnectorConfig,
   CreateDataSourceInput,
   DataSource,
