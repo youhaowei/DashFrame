@@ -1,8 +1,9 @@
 import type {
   AccessCredentialRecord,
-  AccessCredentials,
+  ApiAccessCredentials,
 } from "@dashframe/server-core";
 import type {
+  AccessCapabilities,
   AccessConnectionInfo,
   AccessCredential,
   IssuedAccessCredential,
@@ -11,7 +12,8 @@ import { text, uuid } from "@wystack/db";
 import { mutation, query } from "@wystack/server";
 
 interface AccessFunctionContext {
-  accessCredentials?: AccessCredentials;
+  accessCredentials?: ApiAccessCredentials;
+  canManageApiAccess?: boolean;
   serverEndpoint?: string;
 }
 
@@ -19,12 +21,19 @@ function context(ctx: unknown): AccessFunctionContext {
   return ctx as AccessFunctionContext;
 }
 
-function requireAccessCredentials(ctx: unknown): AccessCredentials {
+function requireAccessCredentials(ctx: unknown): ApiAccessCredentials {
   const credentials = context(ctx).accessCredentials;
   if (!credentials) {
     throw new Error("Access credentials are unavailable in this host");
   }
   return credentials;
+}
+
+function requireManagementAccess(ctx: unknown): ApiAccessCredentials {
+  if (!context(ctx).canManageApiAccess) {
+    throw new Error("API access credential management is owner-only");
+  }
+  return requireAccessCredentials(ctx);
 }
 
 function toDto(record: AccessCredentialRecord): AccessCredential {
@@ -53,10 +62,19 @@ const getAccessConnectionInfo = query({
   },
 });
 
+const getAccessCapabilities = query({
+  args: {},
+  handler: async (ctx): Promise<AccessCapabilities> => ({
+    canManageCredentials: Boolean(
+      context(ctx).accessCredentials && context(ctx).canManageApiAccess,
+    ),
+  }),
+});
+
 const listAccessCredentials = query({
   args: {},
   handler: async (ctx): Promise<AccessCredential[]> => {
-    const credentials = requireAccessCredentials(ctx);
+    const credentials = requireManagementAccess(ctx);
     return (await credentials.list()).map(toDto);
   },
 });
@@ -64,7 +82,7 @@ const listAccessCredentials = query({
 const issueAccessCredential = mutation({
   args: { name: text },
   handler: async (ctx, { name }): Promise<IssuedAccessCredential> => {
-    const credentials = requireAccessCredentials(ctx);
+    const credentials = requireManagementAccess(ctx);
     const issued = await credentials.issue(name);
     return {
       credential: toDto(issued.credential),
@@ -76,13 +94,14 @@ const issueAccessCredential = mutation({
 const revokeAccessCredential = mutation({
   args: { id: uuid },
   handler: async (ctx, { id }): Promise<{ ok: true }> => {
-    const credentials = requireAccessCredentials(ctx);
+    const credentials = requireManagementAccess(ctx);
     await credentials.revoke(id);
     return { ok: true };
   },
 });
 
 export const accessCredentialFunctions = {
+  getAccessCapabilities,
   getAccessConnectionInfo,
   listAccessCredentials,
   issueAccessCredential,

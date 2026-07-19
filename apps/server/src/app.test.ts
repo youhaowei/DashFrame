@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
-  AccessCredentials,
+  ApiAccessCredentials,
   openProject,
   type ProjectHandle,
 } from "@dashframe/server-core";
@@ -35,12 +35,12 @@ function bearer(token: string): { Authorization: string } {
   return { Authorization: `Bearer ${token}` };
 }
 
-function makeAccessCredentials(rootDir: string): AccessCredentials {
+function makeAccessCredentials(rootDir: string): ApiAccessCredentials {
   const backend = new TestBackend();
   const registry = new SecretRegistry();
   registry.register("test", backend, { fallback: true });
   registry.setClassDefault("serve-token", "test");
-  return new AccessCredentials(
+  return new ApiAccessCredentials(
     new SecretVault(registry, new InMemoryMappingStore()),
     rootDir,
   );
@@ -224,6 +224,13 @@ describe("createDashframeServer", () => {
       expect(body.data.name).toBe("Smoke Co");
       expect(body.data.projectId).toBe(project.meta.projectId);
       expect(body.data.version).toBe(project.meta.version);
+
+      const capabilitiesResponse = await fetch(
+        `${server.url}/api/getAccessCapabilities?args=${encodeURIComponent("{}")}`,
+      );
+      expect(await capabilitiesResponse.json()).toMatchObject({
+        data: { canManageCredentials: false },
+      });
     });
 
     it("issues, authenticates, and revokes a workspace access credential", async () => {
@@ -272,6 +279,14 @@ describe("createDashframeServer", () => {
       };
       expect(issued.data.credential.name).toBe("Codex test");
 
+      const ownerCapabilities = await fetch(
+        `${server.url}/api/getAccessCapabilities?args=${encodeURIComponent("{}")}`,
+        { headers: bearer("renderer-token") },
+      );
+      expect(await ownerCapabilities.json()).toMatchObject({
+        data: { canManageCredentials: true },
+      });
+
       const projectInfoUrl = `${server.url}/api/projectInfo?args=${encodeURIComponent("{}")}`;
       expect((await fetch(projectInfoUrl)).status).toBe(401);
       expect(
@@ -281,6 +296,27 @@ describe("createDashframeServer", () => {
           })
         ).status,
       ).toBe(200);
+
+      const externalCapabilities = await fetch(
+        `${server.url}/api/getAccessCapabilities?args=${encodeURIComponent("{}")}`,
+        { headers: bearer(issued.data.accessCredential) },
+      );
+      expect(await externalCapabilities.json()).toMatchObject({
+        data: { canManageCredentials: false },
+      });
+
+      const externalIssueResponse = await fetch(
+        `${server.url}/api/issueAccessCredential`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...bearer(issued.data.accessCredential),
+          },
+          body: JSON.stringify({ name: "Unauthorized successor" }),
+        },
+      );
+      expect(externalIssueResponse.status).not.toBe(200);
 
       const revokeResponse = await fetch(
         `${server.url}/api/revokeAccessCredential`,

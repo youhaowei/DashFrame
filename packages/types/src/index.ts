@@ -56,10 +56,12 @@ export type {
 } from "./assistant-provider-configs";
 
 export type {
+  AccessCapabilities,
   AccessConnectionInfo,
   AccessCredential,
   AccessCredentialMutations,
   IssuedAccessCredential,
+  UseAccessCapabilitiesResult,
   UseAccessConnectionInfoResult,
   UseAccessCredentialsResult,
 } from "./access-credentials";

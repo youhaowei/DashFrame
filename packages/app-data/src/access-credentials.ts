@@ -1,8 +1,10 @@
 import type {
+  AccessCapabilities,
   AccessConnectionInfo,
   AccessCredential,
   AccessCredentialMutations,
   IssuedAccessCredential,
+  UseAccessCapabilitiesResult,
   UseAccessConnectionInfoResult,
   UseAccessCredentialsResult,
 } from "@dashframe/types";
@@ -15,6 +17,15 @@ export function useAccessConnectionInfo(): UseAccessConnectionInfoResult {
   const result = useQuery(api.getAccessConnectionInfo);
   return {
     data: result.data as AccessConnectionInfo | undefined,
+    isLoading: result.isLoading,
+    isFetching: result.isFetching,
+  };
+}
+
+export function useAccessCapabilities(): UseAccessCapabilitiesResult {
+  const result = useQuery(api.getAccessCapabilities);
+  return {
+    data: result.data as AccessCapabilities | undefined,
     isLoading: result.isLoading,
     isFetching: result.isFetching,
   };

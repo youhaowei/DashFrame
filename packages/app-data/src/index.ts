@@ -46,6 +46,7 @@ export {
 } from "./assistant-provider-configs";
 
 export {
+  useAccessCapabilities,
   useAccessConnectionInfo,
   useAccessCredentialMutations,
   useAccessCredentials,

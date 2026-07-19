@@ -60,7 +60,7 @@ function publicRecord(
  * SecretVault owns verifier persistence. The host-local file is only the
  * listable inventory that SecretVault intentionally does not provide.
  */
-export class AccessCredentials {
+export class ApiAccessCredentials {
   private queue: Promise<void> = Promise.resolve();
 
   constructor(
@@ -116,9 +116,9 @@ export class AccessCredentials {
         (candidate) => candidate.id === credentialId,
       );
       if (!credential || credential.revokedAt) return false;
-      await this.vault.delete(credential.verifierRef);
       credential.revokedAt = new Date().toISOString();
       await this.write(file);
+      await this.vault.delete(credential.verifierRef).catch(() => undefined);
       return true;
     });
   }

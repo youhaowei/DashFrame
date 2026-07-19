@@ -1,5 +1,4 @@
 import {
-  InMemoryMappingStore,
   SecretRegistry,
   SecretVault,
   TestBackend,
@@ -9,20 +8,23 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { AccessCredentials } from "./access-credentials";
+import { ApiAccessCredentials } from "./api-access-credentials";
+import { FileMappingStore } from "./mapping-store";
 
-function makeVault(): { vault: SecretVault; backend: TestBackend } {
-  const backend = new TestBackend();
+function makeVault(
+  mappingPath: string,
+  backend = new TestBackend(),
+): { vault: SecretVault; backend: TestBackend } {
   const registry = new SecretRegistry();
   registry.register("test", backend, { fallback: true });
   registry.setClassDefault("serve-token", "test");
   return {
-    vault: new SecretVault(registry, new InMemoryMappingStore()),
+    vault: new SecretVault(registry, new FileMappingStore(mappingPath)),
     backend,
   };
 }
 
-describe("AccessCredentials", () => {
+describe("ApiAccessCredentials", () => {
   let rootDir: string;
 
   beforeEach(async () => {
@@ -34,8 +36,8 @@ describe("AccessCredentials", () => {
   });
 
   it("keeps the verifier in SecretVault and only inventory metadata on disk", async () => {
-    const { vault, backend } = makeVault();
-    const credentials = new AccessCredentials(vault, rootDir);
+    const { vault, backend } = makeVault(path.join(rootDir, "mappings.json"));
+    const credentials = new ApiAccessCredentials(vault, rootDir);
     const issued = await credentials.issue("Codex workstation");
 
     expect(issued.token).toMatch(/^dfa_[A-Za-z0-9_-]{43}$/);
@@ -54,8 +56,8 @@ describe("AccessCredentials", () => {
   });
 
   it("lists safe metadata and blocks a revoked credential", async () => {
-    const { vault } = makeVault();
-    const credentials = new AccessCredentials(vault, rootDir);
+    const { vault } = makeVault(path.join(rootDir, "mappings.json"));
+    const credentials = new ApiAccessCredentials(vault, rootDir);
     const issued = await credentials.issue("Claude Code");
 
     expect(await credentials.list()).toEqual([issued.credential]);
@@ -68,12 +70,34 @@ describe("AccessCredentials", () => {
   });
 
   it("keeps one workspace credential inventory across module instances", async () => {
-    const { vault } = makeVault();
-    const first = new AccessCredentials(vault, rootDir);
+    const mappingPath = path.join(rootDir, "mappings.json");
+    const backend = new TestBackend();
+    const { vault } = makeVault(mappingPath, backend);
+    const first = new ApiAccessCredentials(vault, rootDir);
     const issued = await first.issue("Codex");
-    const reopened = new AccessCredentials(vault, rootDir);
+    const { vault: reopenedVault } = makeVault(mappingPath, backend);
+    const reopened = new ApiAccessCredentials(reopenedVault, rootDir);
 
     expect(await reopened.authenticate(issued.token)).toBe(true);
     expect(await reopened.list()).toEqual([issued.credential]);
+  });
+
+  it("persists revocation before best-effort secret cleanup", async () => {
+    class DeleteFailingBackend extends TestBackend {
+      override async delete(): Promise<void> {
+        throw new Error("keychain unavailable");
+      }
+    }
+
+    const { vault } = makeVault(
+      path.join(rootDir, "mappings.json"),
+      new DeleteFailingBackend(),
+    );
+    const credentials = new ApiAccessCredentials(vault, rootDir);
+    const issued = await credentials.issue("Codex");
+
+    expect(await credentials.revoke(issued.credential.id)).toBe(true);
+    expect(await credentials.authenticate(issued.token)).toBe(false);
+    expect((await credentials.list())[0]?.revokedAt).toBeTruthy();
   });
 });
