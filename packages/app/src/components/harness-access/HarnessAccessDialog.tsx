@@ -86,7 +86,7 @@ export function HarnessAccessDialog({
         <DialogHeader>
           <DialogTitle>Agent harness access</DialogTitle>
           <DialogDescription>
-            Issue named, revocable credentials for this DashFrame project.
+            Issue named, revocable credentials for this DashFrame workspace.
           </DialogDescription>
         </DialogHeader>
 
