@@ -38,7 +38,7 @@ import {
   createArrowDataPath,
   type ArrowQueryRunner,
 } from "@dashframe/engine-server/arrow-data-path";
-import { schema, type AccessCredentials } from "@dashframe/server-core";
+import { schema, type ApiAccessCredentials } from "@dashframe/server-core";
 import { serve as nodeServe } from "@hono/node-server";
 import { createNodeWebSocket } from "@hono/node-ws";
 import type { DraftDrizzleTracker, DrizzleTracker } from "@wystack/db";
@@ -233,7 +233,7 @@ export interface DashframeServerOptions {
    */
   vault?: SecretVault;
   /** Generic external-access credentials backed by the injected SecretVault. */
-  accessCredentials?: AccessCredentials;
+  accessCredentials?: ApiAccessCredentials;
 }
 
 export interface DashframeServer {
@@ -716,12 +716,12 @@ function createTokenResolver(
     if (!tokenMatches(token, expectedToken)) {
       throw new Error("Unauthorized");
     }
-    return {};
+    return { canManageApiAccess: true };
   };
 }
 
 function createAccessCredentialResolver(
-  credentials: AccessCredentials,
+  credentials: ApiAccessCredentials,
 ): (req: Request) => Promise<Record<string, unknown>> {
   return async (req) => {
     const auth = req.headers.get("authorization") ?? "";
@@ -731,7 +731,7 @@ function createAccessCredentialResolver(
     if (!token || !(await credentials.authenticate(token))) {
       throw new Error("Unauthorized");
     }
-    return {};
+    return { canManageApiAccess: false };
   };
 }
 
@@ -780,7 +780,7 @@ function createVaultTokenResolver(
     if (!authorized) {
       throw new Error("Unauthorized");
     }
-    return {};
+    return { canManageApiAccess: true };
   };
 }
 

@@ -36,11 +36,11 @@ export {
 } from "./snapshots";
 
 export {
-  AccessCredentials,
+  ApiAccessCredentials,
   type AccessCredentialRecord,
   type IssuedAccessCredential,
-} from "./access-credentials";
-export { DrizzleMappingStore } from "./mapping-store";
+} from "./api-access-credentials";
+export { DrizzleMappingStore, FileMappingStore } from "./mapping-store";
 export {
   DASHFRAME_HOME_DIRNAME,
   DEFAULT_PROJECT_DIRNAME,

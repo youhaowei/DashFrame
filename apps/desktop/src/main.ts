@@ -3,9 +3,10 @@ import {
   selectEngineBinding,
 } from "@dashframe/engine-server";
 import {
-  AccessCredentials,
+  ApiAccessCredentials,
   ARTIFACTS_DB_FILENAME,
   DrizzleMappingStore,
+  FileMappingStore,
   openProject,
   type ProjectHandle,
 } from "@dashframe/server-core";
@@ -339,12 +340,32 @@ app
         authToken,
       );
 
+      // API access belongs to the current single-user Workspace, not to the
+      // copiable Project. Keep both the keychain blobs and SecretVault's opaque
+      // ref mappings in app data so switching or copying a Project cannot move
+      // or invalidate Workspace access credentials.
+      const accessRoot = path.join(
+        app.getPath("userData"),
+        "access-credentials",
+      );
+      const accessRegistry = new SecretRegistry();
+      accessRegistry.register(
+        "electron-keychain",
+        new ElectronKeychainBackend(
+          path.join(accessRoot, "keychain"),
+          safeStorage,
+        ),
+        { fallback: true },
+      );
+      accessRegistry.setClassDefault("serve-token", "electron-keychain");
+      const accessVault = new SecretVault(
+        accessRegistry,
+        new FileMappingStore(path.join(accessRoot, "mappings.json")),
+      );
+
       server = await createDashframeServer({
         db: project.db,
-        accessCredentials: new AccessCredentials(
-          secretVault as SecretVault,
-          path.join(app.getPath("userData"), "access-credentials"),
-        ),
+        accessCredentials: new ApiAccessCredentials(accessVault, accessRoot),
         corsOrigin,
         // Vault path passes a ref (no plaintext at the server); the
         // keychain-unavailable fallback passes the plaintext token directly

@@ -21,6 +21,10 @@ export interface AccessConnectionInfo {
   authentication: "Bearer";
 }
 
+export interface AccessCapabilities {
+  canManageCredentials: boolean;
+}
+
 export interface AccessCredentialMutations {
   issue: (name: string) => Promise<IssuedAccessCredential>;
   revoke: (id: UUID) => Promise<void>;
@@ -33,3 +37,4 @@ export interface UseAccessCredentialsResult extends UseQueryResult<
 }
 export type UseAccessConnectionInfoResult =
   UseQueryResult<AccessConnectionInfo>;
+export type UseAccessCapabilitiesResult = UseQueryResult<AccessCapabilities>;
