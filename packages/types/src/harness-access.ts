@@ -16,8 +16,6 @@ export interface IssuedHarnessAccessCredential {
 }
 
 export interface HarnessConnectionInfo {
-  projectId: UUID;
-  projectName: string;
   endpoint: string;
   transport: "dashframe-http";
   authentication: "Bearer";
@@ -28,8 +26,10 @@ export interface HarnessAccessMutations {
   revoke: (id: UUID) => Promise<void>;
 }
 
-export type UseHarnessAccessCredentialsResult = UseQueryResult<
+export interface UseHarnessAccessCredentialsResult extends UseQueryResult<
   HarnessAccessCredential[]
->;
+> {
+  refetch: () => Promise<unknown>;
+}
 export type UseHarnessConnectionInfoResult =
   UseQueryResult<HarnessConnectionInfo>;

@@ -26,6 +26,7 @@ export function useHarnessAccessCredentials(): UseHarnessAccessCredentialsResult
     data: result.data as HarnessAccessCredential[] | undefined,
     isLoading: result.isLoading,
     isFetching: result.isFetching,
+    refetch: result.refetch,
   };
 }
 

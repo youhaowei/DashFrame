@@ -237,8 +237,6 @@ export interface DashframeServerOptions {
    * persistence location so verifiers remain outside the shareable project.
    */
   harnessCredentialStore?: HarnessCredentialStore;
-  /** Current project identity used to authenticate the agent endpoint. */
-  projectId?: string;
 }
 
 export interface DashframeServer {
@@ -524,11 +522,6 @@ export async function createDashframeServer(
         "instance when using vault-backed auth.",
     );
   }
-  if (Boolean(opts.harnessCredentialStore) !== Boolean(opts.projectId)) {
-    throw new Error(
-      "createDashframeServer: harnessCredentialStore and projectId must be supplied together",
-    );
-  }
   let resolveContext:
     | ((req: Request) => Promise<Record<string, unknown>>)
     | undefined;
@@ -678,17 +671,15 @@ export async function createDashframeServer(
   // health/identity check only; application tools will be added behind the same
   // credential-derived caller identity rather than exposing the broad UI RPC
   // surface prematurely.
-  if (opts.harnessCredentialStore && opts.projectId) {
+  if (opts.harnessCredentialStore) {
     honoApp.get("/agent/health", async (c) => {
       const identity = await authenticateHarnessRequest(
         c.req.raw,
-        opts.projectId as string,
         opts.harnessCredentialStore as HarnessCredentialStore,
       );
       if (!identity) return c.json({ error: "Unauthorized" }, 401);
       return c.json({
         ok: true,
-        projectId: opts.projectId,
         caller: { kind: "agent", id: identity.id, name: identity.name },
       });
     });
@@ -709,7 +700,6 @@ export async function createDashframeServer(
 
 async function authenticateHarnessRequest(
   request: Request,
-  projectId: string,
   store: HarnessCredentialStore,
 ) {
   const authorization = request.headers.get("authorization") ?? "";
@@ -717,7 +707,7 @@ async function authenticateHarnessRequest(
     ? authorization.slice("Bearer ".length)
     : "";
   if (!token) return null;
-  return store.authenticate(projectId, token);
+  return store.authenticate(token);
 }
 
 /**

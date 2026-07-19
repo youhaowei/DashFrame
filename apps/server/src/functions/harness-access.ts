@@ -1,7 +1,6 @@
-import {
-  schema,
-  type HarnessCredentialRecord,
-  type HarnessCredentialStore,
+import type {
+  HarnessCredentialRecord,
+  HarnessCredentialStore,
 } from "@dashframe/server-core";
 import type {
   HarnessAccessCredential,
@@ -9,10 +8,7 @@ import type {
   IssuedHarnessAccessCredential,
 } from "@dashframe/types";
 import { text, uuid } from "@wystack/db";
-import { mutation, query, type FunctionContext } from "@wystack/server";
-
-const { projectMeta } = schema;
-const PROJECT_META_TABLE = "project_meta";
+import { mutation, query } from "@wystack/server";
 
 interface HarnessFunctionContext {
   harnessCredentialStore?: HarnessCredentialStore;
@@ -38,13 +34,6 @@ function requireUserCaller(ctx: unknown): void {
   }
 }
 
-async function project(ctx: FunctionContext) {
-  const [row] = await ctx.db.from(projectMeta).all();
-  if (!row)
-    throw new Error("project_meta row missing — project not initialized");
-  return row as { projectId: string; name: string };
-}
-
 function toDto(record: HarnessCredentialRecord): HarnessAccessCredential {
   return {
     id: record.id,
@@ -62,12 +51,9 @@ const getHarnessConnectionInfo = query({
   handler: async (ctx): Promise<HarnessConnectionInfo> => {
     requireUserCaller(ctx);
     requireStore(ctx);
-    const meta = await project(ctx);
     const endpoint = context(ctx).agentEndpoint;
     if (!endpoint) throw new Error("Harness endpoint is not ready");
     return {
-      projectId: meta.projectId,
-      projectName: meta.name,
       endpoint,
       transport: "dashframe-http",
       authentication: "Bearer",
@@ -80,42 +66,30 @@ const listHarnessAccessCredentials = query({
   handler: async (ctx): Promise<HarnessAccessCredential[]> => {
     requireUserCaller(ctx);
     const store = requireStore(ctx);
-    const meta = await project(ctx);
-    return (await store.list(meta.projectId)).map(toDto);
+    return (await store.list()).map(toDto);
   },
 });
 
 const issueHarnessAccessCredential = mutation({
   args: { name: text },
-  handler: async (
-    ctx,
-    { name },
-  ): Promise<
-    IssuedHarnessAccessCredential & { __extraTablesWritten: string[] }
-  > => {
+  handler: async (ctx, { name }): Promise<IssuedHarnessAccessCredential> => {
     requireUserCaller(ctx);
     const store = requireStore(ctx);
-    const meta = await project(ctx);
-    const issued = await store.issue(meta.projectId, name);
+    const issued = await store.issue(name);
     return {
       credential: toDto(issued.credential),
       accessCredential: issued.token,
-      __extraTablesWritten: [PROJECT_META_TABLE],
     };
   },
 });
 
 const revokeHarnessAccessCredential = mutation({
   args: { id: uuid },
-  handler: async (
-    ctx,
-    { id },
-  ): Promise<{ ok: true; __extraTablesWritten: string[] }> => {
+  handler: async (ctx, { id }): Promise<{ ok: true }> => {
     requireUserCaller(ctx);
     const store = requireStore(ctx);
-    const meta = await project(ctx);
-    await store.revoke(meta.projectId, id);
-    return { ok: true, __extraTablesWritten: [PROJECT_META_TABLE] };
+    await store.revoke(id);
+    return { ok: true };
   },
 });
 

@@ -341,7 +341,6 @@ app
 
       server = await createDashframeServer({
         db: project.db,
-        projectId: project.meta.projectId,
         harnessCredentialStore: new FileHarnessCredentialStore(
           path.join(app.getPath("userData"), "harness-access"),
         ),
