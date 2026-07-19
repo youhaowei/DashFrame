@@ -3,9 +3,9 @@ import {
   selectEngineBinding,
 } from "@dashframe/engine-server";
 import {
+  AccessCredentials,
   ARTIFACTS_DB_FILENAME,
   DrizzleMappingStore,
-  FileHarnessCredentialStore,
   openProject,
   type ProjectHandle,
 } from "@dashframe/server-core";
@@ -341,8 +341,9 @@ app
 
       server = await createDashframeServer({
         db: project.db,
-        harnessCredentialStore: new FileHarnessCredentialStore(
-          path.join(app.getPath("userData"), "harness-access"),
+        accessCredentials: new AccessCredentials(
+          secretVault as SecretVault,
+          path.join(app.getPath("userData"), "access-credentials"),
         ),
         corsOrigin,
         // Vault path passes a ref (no plaintext at the server); the

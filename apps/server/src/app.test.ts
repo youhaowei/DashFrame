@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
-  FileHarnessCredentialStore,
+  AccessCredentials,
   openProject,
   type ProjectHandle,
 } from "@dashframe/server-core";
@@ -33,6 +33,17 @@ import type { ProjectInfoResult } from "./functions";
 
 function bearer(token: string): { Authorization: string } {
   return { Authorization: `Bearer ${token}` };
+}
+
+function makeAccessCredentials(rootDir: string): AccessCredentials {
+  const backend = new TestBackend();
+  const registry = new SecretRegistry();
+  registry.register("test", backend, { fallback: true });
+  registry.setClassDefault("serve-token", "test");
+  return new AccessCredentials(
+    new SecretVault(registry, new InMemoryMappingStore()),
+    rootDir,
+  );
 }
 
 function waitForWsAuth(
@@ -215,35 +226,40 @@ describe("createDashframeServer", () => {
       expect(body.data.version).toBe(project.meta.version);
     });
 
-    it("issues, authenticates, and revokes a workspace-scoped harness credential", async () => {
+    it("issues, authenticates, and revokes a workspace access credential", async () => {
       project = await openProject({
         dir: join(root, "proj"),
-        name: "Harness Co",
+        name: "Access Co",
       });
-      const store = new FileHarnessCredentialStore(
-        join(root, "harness-access"),
+      const accessCredentials = makeAccessCredentials(
+        join(root, "access-credentials"),
       );
       server = await createDashframeServer({
         db: project.db,
-        harnessCredentialStore: store,
+        accessCredentials,
+        authToken: "renderer-token",
       });
 
       const connectionResponse = await fetch(
-        `${server.url}/api/getHarnessConnectionInfo?args=${encodeURIComponent("{}")}`,
+        `${server.url}/api/getAccessConnectionInfo?args=${encodeURIComponent("{}")}`,
+        { headers: bearer("renderer-token") },
       );
       expect(connectionResponse.status).toBe(200);
       const connection = (await connectionResponse.json()) as {
         data: { endpoint: string };
       };
       expect(connection.data).toMatchObject({
-        endpoint: `${server.url}/agent`,
+        endpoint: `${server.url}/api`,
       });
 
       const issueResponse = await fetch(
-        `${server.url}/api/issueHarnessAccessCredential`,
+        `${server.url}/api/issueAccessCredential`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...bearer("renderer-token"),
+          },
           body: JSON.stringify({ name: "Codex test" }),
         },
       );
@@ -256,27 +272,31 @@ describe("createDashframeServer", () => {
       };
       expect(issued.data.credential.name).toBe("Codex test");
 
-      expect((await fetch(`${server.url}/agent/health`)).status).toBe(401);
+      const projectInfoUrl = `${server.url}/api/projectInfo?args=${encodeURIComponent("{}")}`;
+      expect((await fetch(projectInfoUrl)).status).toBe(401);
       expect(
         (
-          await fetch(`${server.url}/agent/health`, {
+          await fetch(projectInfoUrl, {
             headers: bearer(issued.data.accessCredential),
           })
         ).status,
       ).toBe(200);
 
       const revokeResponse = await fetch(
-        `${server.url}/api/revokeHarnessAccessCredential`,
+        `${server.url}/api/revokeAccessCredential`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...bearer("renderer-token"),
+          },
           body: JSON.stringify({ id: issued.data.credential.id }),
         },
       );
       expect(revokeResponse.status).toBe(200);
       expect(
         (
-          await fetch(`${server.url}/agent/health`, {
+          await fetch(projectInfoUrl, {
             headers: bearer(issued.data.accessCredential),
           })
         ).status,

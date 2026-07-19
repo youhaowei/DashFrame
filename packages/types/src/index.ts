@@ -56,13 +56,13 @@ export type {
 } from "./assistant-provider-configs";
 
 export type {
-  HarnessAccessCredential,
-  HarnessAccessMutations,
-  HarnessConnectionInfo,
-  IssuedHarnessAccessCredential,
-  UseHarnessAccessCredentialsResult,
-  UseHarnessConnectionInfoResult,
-} from "./harness-access";
+  AccessConnectionInfo,
+  AccessCredential,
+  AccessCredentialMutations,
+  IssuedAccessCredential,
+  UseAccessConnectionInfoResult,
+  UseAccessCredentialsResult,
+} from "./access-credentials";
 
 export type {
   ConnectorConfig,

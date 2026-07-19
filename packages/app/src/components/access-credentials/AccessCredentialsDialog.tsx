@@ -1,9 +1,9 @@
 import {
-  useHarnessAccessCredentials,
-  useHarnessAccessMutations,
-  useHarnessConnectionInfo,
+  useAccessConnectionInfo,
+  useAccessCredentialMutations,
+  useAccessCredentials,
 } from "@dashframe/core";
-import type { IssuedHarnessAccessCredential, UUID } from "@dashframe/types";
+import type { IssuedAccessCredential, UUID } from "@dashframe/types";
 import {
   Badge,
   Button,
@@ -17,22 +17,20 @@ import {
 } from "@wystack/ui-react";
 import { useState } from "react";
 
-interface HarnessAccessDialogProps {
+interface AccessCredentialsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
-export function HarnessAccessDialog({
+export function AccessCredentialsDialog({
   open,
   onOpenChange,
-}: HarnessAccessDialogProps) {
-  const connection = useHarnessConnectionInfo();
-  const credentials = useHarnessAccessCredentials();
-  const { issue, revoke } = useHarnessAccessMutations();
+}: AccessCredentialsDialogProps) {
+  const connection = useAccessConnectionInfo();
+  const credentials = useAccessCredentials();
+  const { issue, revoke } = useAccessCredentialMutations();
   const [name, setName] = useState("");
-  const [issued, setIssued] = useState<IssuedHarnessAccessCredential | null>(
-    null,
-  );
+  const [issued, setIssued] = useState<IssuedAccessCredential | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<"endpoint" | "credential" | null>(null);
@@ -84,9 +82,10 @@ export function HarnessAccessDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Agent harness access</DialogTitle>
+          <DialogTitle>Access credentials</DialogTitle>
           <DialogDescription>
-            Issue named, revocable credentials for this DashFrame workspace.
+            Issue named, revocable credentials for applications that connect to
+            DashFrame.
           </DialogDescription>
         </DialogHeader>
 
@@ -110,7 +109,7 @@ export function HarnessAccessDialog({
                   {connection.data.transport} · Bearer authentication
                 </p>
                 <p className="mt-2 text-neutral-fg-subtle">
-                  Health check: <code>{connection.data.endpoint}/health</code>
+                  WebSocket: <code>{connection.data.endpoint}/ws</code>
                 </p>
               </div>
             </section>
@@ -120,14 +119,14 @@ export function HarnessAccessDialog({
             <div>
               <h3 className="text-sm font-semibold">Issue credential</h3>
               <p className="text-xs text-neutral-fg-subtle">
-                Use a name that identifies the harness and machine.
+                Use a name that identifies the client and machine.
               </p>
             </div>
             <div className="flex gap-2">
               <Input
                 value={name}
                 onChange={(event) => setName(event.target.value)}
-                placeholder="Codex on MacBook"
+                placeholder="Reporting client on MacBook"
                 maxLength={80}
               />
               <Button
@@ -144,8 +143,8 @@ export function HarnessAccessDialog({
                 Copy this credential now
               </h3>
               <p className="text-xs text-neutral-fg-subtle">
-                DashFrame stores only its verifier. This value cannot be shown
-                again.
+                DashFrame stores its verifier in the secret vault. This value
+                cannot be shown again.
               </p>
               <div className="flex items-center gap-2">
                 <code className="min-w-0 flex-1 break-all rounded bg-neutral-bg px-2 py-2 text-xs">
@@ -205,7 +204,7 @@ export function HarnessAccessDialog({
             )}
             {!credentials.isLoading && issuedCredentials.length === 0 && (
               <p className="text-xs text-neutral-fg-subtle">
-                No harness credentials issued.
+                No access credentials issued.
               </p>
             )}
           </section>

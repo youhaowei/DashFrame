@@ -6,11 +6,7 @@
  * by an on-disk DashFrame project. Web dev can point `VITE_WYSTACK_URL` at the
  * printed URL.
  */
-import {
-  FileHarnessCredentialStore,
-  openProject,
-  type ProjectHandle,
-} from "@dashframe/server-core";
+import { openProject, type ProjectHandle } from "@dashframe/server-core";
 import { homedir } from "node:os";
 import path from "node:path";
 
@@ -32,8 +28,6 @@ const DEFAULT_WEB_PROJECT_DIR = path.join(
   ".DashFrame",
   "web-project",
 );
-const HARNESS_ACCESS_DIR = path.join(homedir(), ".DashFrame", "harness-access");
-
 export function printHelp(): void {
   console.log(`dashframe serve
 
@@ -283,7 +277,6 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
 
   const server = await createDashframeServer({
     db: project.db,
-    harnessCredentialStore: new FileHarnessCredentialStore(HARNESS_ACCESS_DIR),
     hostname: opts.hostname,
     port: opts.port,
     corsOrigin: opts.corsOrigin,

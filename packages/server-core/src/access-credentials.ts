@@ -1,3 +1,4 @@
+import type { SecretRef, SecretVault } from "@wystack/secret-vault";
 import {
   createHash,
   randomBytes,
@@ -7,7 +8,7 @@ import {
 import fs from "node:fs/promises";
 import path from "node:path";
 
-export interface HarnessCredentialRecord {
+export interface AccessCredentialRecord {
   id: string;
   name: string;
   tokenPrefix: string;
@@ -15,34 +16,22 @@ export interface HarnessCredentialRecord {
   revokedAt?: string;
 }
 
-export interface IssuedHarnessCredential {
-  credential: HarnessCredentialRecord;
+export interface IssuedAccessCredential {
+  credential: AccessCredentialRecord;
   token: string;
 }
 
-export interface HarnessCredentialIdentity {
-  id: string;
-  name: string;
-}
-
-export interface HarnessCredentialStore {
-  issue(name: string): Promise<IssuedHarnessCredential>;
-  list(): Promise<HarnessCredentialRecord[]>;
-  revoke(credentialId: string): Promise<boolean>;
-  authenticate(token: string): Promise<HarnessCredentialIdentity | null>;
-}
-
-interface PersistedHarnessCredential extends HarnessCredentialRecord {
-  verifier: string;
+interface PersistedAccessCredential extends AccessCredentialRecord {
+  verifierRef: SecretRef;
 }
 
 interface PersistedFile {
   version: 1;
-  credentials: PersistedHarnessCredential[];
+  credentials: PersistedAccessCredential[];
 }
 
 const EMPTY_FILE: PersistedFile = { version: 1, credentials: [] };
-const TOKEN_PREFIX = "dfh_";
+const TOKEN_PREFIX = "dfa_";
 
 function verifier(token: string): string {
   return createHash("sha256").update(token).digest("hex");
@@ -55,8 +44,8 @@ function matchesVerifier(token: string, expectedHex: string): boolean {
 }
 
 function publicRecord(
-  record: PersistedHarnessCredential,
-): HarnessCredentialRecord {
+  record: PersistedAccessCredential,
+): AccessCredentialRecord {
   return {
     id: record.id,
     name: record.name,
@@ -67,38 +56,51 @@ function publicRecord(
 }
 
 /**
- * Host-local credential persistence for the current single-user workspace.
- * Only SHA-256 verifiers of 256-bit random bearer credentials are written to
- * disk; plaintext credentials are returned once and never persisted.
+ * Named access-credential workflows for the current single-user workspace.
+ * SecretVault owns verifier persistence. The host-local file is only the
+ * listable inventory that SecretVault intentionally does not provide.
  */
-export class FileHarnessCredentialStore implements HarnessCredentialStore {
+export class AccessCredentials {
   private queue: Promise<void> = Promise.resolve();
 
-  constructor(private readonly rootDir: string) {}
+  constructor(
+    private readonly vault: SecretVault,
+    private readonly rootDir: string,
+  ) {}
 
-  issue(name: string): Promise<IssuedHarnessCredential> {
+  issue(name: string): Promise<IssuedAccessCredential> {
     return this.exclusive(async () => {
       const normalizedName = name.trim();
       if (!normalizedName || normalizedName.length > 80) {
-        throw new Error("Harness name must be between 1 and 80 characters");
+        throw new Error("Credential name must be between 1 and 80 characters");
       }
 
       const file = await this.read();
       const token = `${TOKEN_PREFIX}${randomBytes(32).toString("base64url")}`;
-      const credential: PersistedHarnessCredential = {
-        id: randomUUID(),
+      const id = randomUUID();
+      const verifierRef = await this.vault.store(verifier(token), {
+        class: "serve-token",
+        locatorHint: `access-${id}`,
+      });
+      const credential: PersistedAccessCredential = {
+        id,
         name: normalizedName,
         tokenPrefix: token.slice(0, 12),
-        verifier: verifier(token),
+        verifierRef,
         createdAt: new Date().toISOString(),
       };
       file.credentials.push(credential);
-      await this.write(file);
+      try {
+        await this.write(file);
+      } catch (error) {
+        await this.vault.delete(verifierRef).catch(() => undefined);
+        throw error;
+      }
       return { credential: publicRecord(credential), token };
     });
   }
 
-  list(): Promise<HarnessCredentialRecord[]> {
+  list(): Promise<AccessCredentialRecord[]> {
     return this.exclusive(async () => {
       const file = await this.read();
       return file.credentials
@@ -114,26 +116,28 @@ export class FileHarnessCredentialStore implements HarnessCredentialStore {
         (candidate) => candidate.id === credentialId,
       );
       if (!credential || credential.revokedAt) return false;
+      await this.vault.delete(credential.verifierRef);
       credential.revokedAt = new Date().toISOString();
       await this.write(file);
       return true;
     });
   }
 
-  authenticate(token: string): Promise<HarnessCredentialIdentity | null> {
+  authenticate(token: string): Promise<boolean> {
     return this.exclusive(async () => {
-      if (!token.startsWith(TOKEN_PREFIX)) return null;
+      if (!token.startsWith(TOKEN_PREFIX)) return false;
       const file = await this.read();
-      const credential = file.credentials.find(
-        (candidate) =>
-          !candidate.revokedAt && matchesVerifier(token, candidate.verifier),
-      );
-      return credential
-        ? {
-            id: credential.id,
-            name: credential.name,
-          }
-        : null;
+      for (const credential of file.credentials) {
+        if (credential.revokedAt) continue;
+        if (!token.startsWith(credential.tokenPrefix)) continue;
+        if (!(await this.vault.has(credential.verifierRef))) continue;
+        const matches = await this.vault.withSecret(
+          credential.verifierRef,
+          async (expected) => matchesVerifier(token, expected),
+        );
+        if (matches) return true;
+      }
+      return false;
     });
   }
 
@@ -146,7 +150,7 @@ export class FileHarnessCredentialStore implements HarnessCredentialStore {
       const raw = await fs.readFile(this.filePath(), "utf8");
       const parsed = JSON.parse(raw) as PersistedFile;
       if (parsed.version !== 1 || !Array.isArray(parsed.credentials)) {
-        throw new Error("Unsupported harness credential file");
+        throw new Error("Unsupported access credential file");
       }
       return parsed;
     } catch (error) {

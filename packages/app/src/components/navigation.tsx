@@ -1,4 +1,4 @@
-import { HarnessAccessDialog } from "@/components/harness-access/HarnessAccessDialog";
+import { AccessCredentialsDialog } from "@/components/access-credentials/AccessCredentialsDialog";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { PerfHud } from "@/lib/perf";
 import { useToastStore } from "@/lib/stores";
@@ -78,7 +78,7 @@ const navItems: NavItem[] = [
 interface SidebarContentProps {
   onClearData?: () => void;
   onAssistantProviders?: () => void;
-  onHarnessAccess?: () => void;
+  onAccessCredentials?: () => void;
   /**
    * Extra rows for the footer, below Settings/Open source — dev tooling like
    * the perf HUD. Supplied only by the desktop nav so the mobile dialog doesn't
@@ -90,7 +90,7 @@ interface SidebarContentProps {
 function SidebarContent({
   onClearData,
   onAssistantProviders,
-  onHarnessAccess,
+  onAccessCredentials,
   footerSlot,
 }: SidebarContentProps) {
   const pathname = useLocation({ select: (l) => l.pathname });
@@ -161,9 +161,9 @@ function SidebarContent({
               <SparklesIcon className="mr-2 h-4 w-4" />
               Assistant providers
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={onHarnessAccess}>
+            <DropdownMenuItem onClick={onAccessCredentials}>
               <DatabaseIcon className="mr-2 h-4 w-4" />
-              Agent harness access
+              Access credentials
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={onClearData}
@@ -193,7 +193,7 @@ export function Navigation() {
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
-  const [showHarnessAccess, setShowHarnessAccess] = useState(false);
+  const [showAccessCredentials, setShowAccessCredentials] = useState(false);
   const setAssistantSetupOpen = useAssistantStore((s) => s.setSetupOpen);
 
   const leftNavOpen = useShellStore((s) => s.leftNavOpen);
@@ -234,7 +234,7 @@ export function Navigation() {
           <SidebarContent
             onClearData={() => setShowClearConfirm(true)}
             onAssistantProviders={() => setAssistantSetupOpen(true)}
-            onHarnessAccess={() => setShowHarnessAccess(true)}
+            onAccessCredentials={() => setShowAccessCredentials(true)}
             footerSlot={<PerfHud />}
           />
         </div>
@@ -268,16 +268,16 @@ export function Navigation() {
               <SidebarContent
                 onClearData={() => setShowClearConfirm(true)}
                 onAssistantProviders={() => setAssistantSetupOpen(true)}
-                onHarnessAccess={() => setShowHarnessAccess(true)}
+                onAccessCredentials={() => setShowAccessCredentials(true)}
               />
             </div>
           </div>
         </DialogContent>
       </Dialog>
 
-      <HarnessAccessDialog
-        open={showHarnessAccess}
-        onOpenChange={setShowHarnessAccess}
+      <AccessCredentialsDialog
+        open={showAccessCredentials}
+        onOpenChange={setShowAccessCredentials}
       />
 
       {/* Clear Data Confirmation Dialog */}
