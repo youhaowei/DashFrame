@@ -283,7 +283,6 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
 
   const server = await createDashframeServer({
     db: project.db,
-    projectId: project.meta.projectId,
     harnessCredentialStore: new FileHarnessCredentialStore(HARNESS_ACCESS_DIR),
     hostname: opts.hostname,
     port: opts.port,

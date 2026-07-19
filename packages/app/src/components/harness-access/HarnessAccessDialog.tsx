@@ -49,6 +49,7 @@ export function HarnessAccessDialog({
     setError(null);
     try {
       setIssued(await issue(name));
+      await credentials.refetch();
       setName("");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Issue failed");
@@ -62,6 +63,7 @@ export function HarnessAccessDialog({
     setError(null);
     try {
       await revoke(id);
+      await credentials.refetch();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Revoke failed");
     } finally {
@@ -105,8 +107,7 @@ export function HarnessAccessDialog({
                   />
                 </div>
                 <p className="text-neutral-fg-subtle">
-                  {connection.data.transport} · Bearer authentication · project{" "}
-                  {connection.data.projectId}
+                  {connection.data.transport} · Bearer authentication
                 </p>
                 <p className="mt-2 text-neutral-fg-subtle">
                   Health check: <code>{connection.data.endpoint}/health</code>

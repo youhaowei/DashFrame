@@ -215,7 +215,7 @@ describe("createDashframeServer", () => {
       expect(body.data.version).toBe(project.meta.version);
     });
 
-    it("issues, authenticates, and revokes a project-scoped harness credential", async () => {
+    it("issues, authenticates, and revokes a workspace-scoped harness credential", async () => {
       project = await openProject({
         dir: join(root, "proj"),
         name: "Harness Co",
@@ -225,7 +225,6 @@ describe("createDashframeServer", () => {
       );
       server = await createDashframeServer({
         db: project.db,
-        projectId: project.meta.projectId,
         harnessCredentialStore: store,
       });
 
@@ -234,11 +233,10 @@ describe("createDashframeServer", () => {
       );
       expect(connectionResponse.status).toBe(200);
       const connection = (await connectionResponse.json()) as {
-        data: { endpoint: string; projectId: string };
+        data: { endpoint: string };
       };
       expect(connection.data).toMatchObject({
         endpoint: `${server.url}/agent`,
-        projectId: project.meta.projectId,
       });
 
       const issueResponse = await fetch(
