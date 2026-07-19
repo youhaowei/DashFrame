@@ -38,7 +38,7 @@ import {
   createArrowDataPath,
   type ArrowQueryRunner,
 } from "@dashframe/engine-server/arrow-data-path";
-import { schema, type HarnessCredentialStore } from "@dashframe/server-core";
+import { schema, type AccessCredentials } from "@dashframe/server-core";
 import { serve as nodeServe } from "@hono/node-server";
 import { createNodeWebSocket } from "@hono/node-ws";
 import type { DraftDrizzleTracker, DrizzleTracker } from "@wystack/db";
@@ -232,11 +232,8 @@ export interface DashframeServerOptions {
    * the credential boundary). Desktop always injects the keychain vault.
    */
   vault?: SecretVault;
-  /**
-   * Host-local named credentials for external harnesses. The host chooses the
-   * persistence location so verifiers remain outside the shareable project.
-   */
-  harnessCredentialStore?: HarnessCredentialStore;
+  /** Generic external-access credentials backed by the injected SecretVault. */
+  accessCredentials?: AccessCredentials;
 }
 
 export interface DashframeServer {
@@ -530,6 +527,14 @@ export async function createDashframeServer(
   } else if (opts.authToken) {
     resolveContext = createTokenResolver(opts.authToken);
   }
+  if (opts.accessCredentials) {
+    const accessResolver = createAccessCredentialResolver(
+      opts.accessCredentials,
+    );
+    resolveContext = resolveContext
+      ? combineResolvers(resolveContext, accessResolver)
+      : accessResolver;
+  }
 
   // Wrap the WyStack app to inject the vault into every handler context and
   // to fire `opts.onWrite` after every successful mutation.
@@ -625,7 +630,7 @@ export async function createDashframeServer(
   // gate (publishDraft / discardDraft / direct canonical credential writes) to
   // guarantee the snapshot dropping a ref is on disk before the ref is deleted.
   serverContext.flushSnapshot = opts.flushSnapshot;
-  serverContext.harnessCredentialStore = opts.harnessCredentialStore;
+  serverContext.accessCredentials = opts.accessCredentials;
 
   // Mirror @wystack/server/node's serve() composition, adding CORS in front.
   const honoApp = new Hono();
@@ -666,48 +671,17 @@ export async function createDashframeServer(
     }),
   );
 
-  // External harnesses authenticate independently from the renderer's
-  // per-launch token, including on loopback. This initial 0.3A seam exposes a
-  // health/identity check only; application tools will be added behind the same
-  // credential-derived caller identity rather than exposing the broad UI RPC
-  // surface prematurely.
-  if (opts.harnessCredentialStore) {
-    honoApp.get("/agent/health", async (c) => {
-      const identity = await authenticateHarnessRequest(
-        c.req.raw,
-        opts.harnessCredentialStore as HarnessCredentialStore,
-      );
-      if (!identity) return c.json({ error: "Unauthorized" }, 401);
-      return c.json({
-        ok: true,
-        caller: { kind: "agent", id: identity.id, name: identity.name },
-      });
-    });
-  }
-
   honoApp.route("/", createRoutes({ app, resolveContext }, upgradeWebSocket));
 
   const { port, server } = await listen(honoApp, hostname, requestedPort);
   injectWebSocket(server);
-  serverContext.agentEndpoint = `http://${hostname}:${port}/agent`;
+  serverContext.serverEndpoint = `http://${hostname}:${port}/api`;
 
   return {
     url: `http://${hostname}:${port}`,
     port,
     stop: () => server.close(),
   };
-}
-
-async function authenticateHarnessRequest(
-  request: Request,
-  store: HarnessCredentialStore,
-) {
-  const authorization = request.headers.get("authorization") ?? "";
-  const token = authorization.startsWith("Bearer ")
-    ? authorization.slice("Bearer ".length)
-    : "";
-  if (!token) return null;
-  return store.authenticate(token);
 }
 
 /**
@@ -743,6 +717,34 @@ function createTokenResolver(
       throw new Error("Unauthorized");
     }
     return {};
+  };
+}
+
+function createAccessCredentialResolver(
+  credentials: AccessCredentials,
+): (req: Request) => Promise<Record<string, unknown>> {
+  return async (req) => {
+    const auth = req.headers.get("authorization") ?? "";
+    const token = auth.startsWith("Bearer ")
+      ? auth.slice("Bearer ".length)
+      : "";
+    if (!token || !(await credentials.authenticate(token))) {
+      throw new Error("Unauthorized");
+    }
+    return {};
+  };
+}
+
+function combineResolvers(
+  primary: (req: Request) => Promise<Record<string, unknown>>,
+  alternative: (req: Request) => Promise<Record<string, unknown>>,
+): (req: Request) => Promise<Record<string, unknown>> {
+  return async (req) => {
+    try {
+      return await primary(req);
+    } catch {
+      return alternative(req);
+    }
   };
 }
 

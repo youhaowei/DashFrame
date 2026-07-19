@@ -46,10 +46,10 @@ export {
 } from "./assistant-provider-configs";
 
 export {
-  useHarnessAccessCredentials,
-  useHarnessAccessMutations,
-  useHarnessConnectionInfo,
-} from "./harness-access";
+  useAccessConnectionInfo,
+  useAccessCredentialMutations,
+  useAccessCredentials,
+} from "./access-credentials";
 
 export {
   addDataSource,
