@@ -243,7 +243,7 @@ export interface DashframeServerOptions {
   vault?: SecretVault;
   /** Generic external-access credentials backed by the injected SecretVault. */
   accessCredentials?: ApiAccessCredentials;
-  /** User resolved by this single-user host for any accepted credential. */
+  /** User ID assigned to the local operator principal. */
   userId?: string;
   /** Application-owned permission lookup used by WyStack dispatch. */
   checkPermission?: CheckPermission;
@@ -546,23 +546,23 @@ export async function createDashframeServer(
         "instance when using vault-backed auth.",
     );
   }
-  let resolveContext:
-    | ((req: Request) => Promise<Record<string, unknown>>)
-    | undefined;
+  const credentialResolvers: CredentialResolver[] = [];
   if (opts.authRef && opts.vault) {
-    resolveContext = createVaultTokenResolver(opts.authRef, opts.vault, userId);
+    credentialResolvers.push(
+      createVaultTokenResolver(opts.authRef, opts.vault, userId),
+    );
   } else if (opts.authToken) {
-    resolveContext = createTokenResolver(opts.authToken, userId);
+    credentialResolvers.push(createTokenResolver(opts.authToken, userId));
   }
   if (opts.accessCredentials) {
-    const accessResolver = createAccessCredentialResolver(
-      opts.accessCredentials,
-      userId,
+    credentialResolvers.push(
+      createAccessCredentialResolver(opts.accessCredentials),
     );
-    resolveContext = resolveContext
-      ? combineResolvers(resolveContext, accessResolver)
-      : accessResolver;
   }
+  const resolveContext =
+    credentialResolvers.length > 0
+      ? combineResolvers(...credentialResolvers)
+      : undefined;
 
   // Wrap the WyStack app to inject the vault into every handler context and
   // to fire `opts.onWrite` after every successful mutation.
@@ -735,48 +735,48 @@ function listen(
   });
 }
 
+type ResolverContext = Record<string, unknown>;
+type CredentialResolver = (req: Request) => Promise<ResolverContext | null>;
+
+function bearerToken(req: Request): string {
+  const auth = req.headers.get("authorization") ?? "";
+  return auth.startsWith("Bearer ") ? auth.slice("Bearer ".length) : "";
+}
+
 function createTokenResolver(
   expectedToken: string,
   userId: string,
-): (req: Request) => Promise<Record<string, unknown>> {
+): CredentialResolver {
   return async (req) => {
-    const auth = req.headers.get("authorization") ?? "";
-    const token = auth.startsWith("Bearer ")
-      ? auth.slice("Bearer ".length)
-      : "";
+    const token = bearerToken(req);
     if (!tokenMatches(token, expectedToken)) {
-      throw new Error("Unauthorized");
+      return null;
     }
-    return { userId };
+    return { principal: { kind: "user", userId } };
   };
 }
 
 function createAccessCredentialResolver(
   credentials: ApiAccessCredentials,
-  userId: string,
-): (req: Request) => Promise<Record<string, unknown>> {
+): CredentialResolver {
   return async (req) => {
-    const auth = req.headers.get("authorization") ?? "";
-    const token = auth.startsWith("Bearer ")
-      ? auth.slice("Bearer ".length)
-      : "";
-    if (!token || !(await credentials.authenticate(token))) {
-      throw new Error("Unauthorized");
-    }
-    return { userId };
+    const token = bearerToken(req);
+    if (!token) return null;
+    const credentialId = await credentials.authenticate(token);
+    if (!credentialId) return null;
+    return { principal: { kind: "service", credentialId } };
   };
 }
 
 function combineResolvers(
-  primary: (req: Request) => Promise<Record<string, unknown>>,
-  alternative: (req: Request) => Promise<Record<string, unknown>>,
-): (req: Request) => Promise<Record<string, unknown>> {
+  ...resolvers: CredentialResolver[]
+): (req: Request) => Promise<ResolverContext> {
   return async (req) => {
-    try {
-      return await primary(req);
-    } catch {
-      return alternative(req);
+    for (const resolver of resolvers) {
+      const context = await resolver(req);
+      if (context !== null) return context;
     }
+    throw new Error("Unauthorized");
   };
 }
 
@@ -785,35 +785,25 @@ function combineResolvers(
  * each request — no plaintext is held in a server field. Returned resolver has
  * the same signature as the one returned by `createTokenResolver`.
  *
- * FAIL-CLOSED: any failure to resolve the expected token (missing/corrupt
- * keychain blob, vault error) denies the request. The throw propagates to
- * WyStack's route handler, which maps it to 401 — never a 500 that would leak
- * the vault state, and never an allow.
+ * FAIL-CLOSED: a token mismatch returns null so another credential family can
+ * authenticate it. Any failure to resolve the expected token (missing/corrupt
+ * keychain blob, vault error) throws and propagates immediately, so no weaker
+ * resolver gets a turn.
  */
 function createVaultTokenResolver(
   authRef: SecretRef,
   vault: SecretVault,
   userId: string,
-): (req: Request) => Promise<Record<string, unknown>> {
+): CredentialResolver {
   return async (req) => {
-    const auth = req.headers.get("authorization") ?? "";
-    const token = auth.startsWith("Bearer ")
-      ? auth.slice("Bearer ".length)
-      : "";
-    let authorized = false;
-    try {
-      authorized = await vault.withSecret(authRef, async (expected) =>
-        tokenMatches(token, expected),
-      );
-    } catch {
-      // Resolution failed — cannot confirm the token, so deny. Fall through to
-      // the Unauthorized throw below (→ 401), never surface a 500 or allow.
-      authorized = false;
-    }
+    const token = bearerToken(req);
+    const authorized = await vault.withSecret(authRef, async (expected) =>
+      tokenMatches(token, expected),
+    );
     if (!authorized) {
-      throw new Error("Unauthorized");
+      return null;
     }
-    return { userId };
+    return { principal: { kind: "user", userId } };
   };
 }
 

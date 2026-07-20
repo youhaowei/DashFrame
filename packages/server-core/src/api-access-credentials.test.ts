@@ -42,7 +42,9 @@ describe("ApiAccessCredentials", () => {
 
     expect(issued.token).toMatch(/^dfa_[A-Za-z0-9_-]{43}$/);
     expect(issued.credential.name).toBe("Codex workstation");
-    expect(await credentials.authenticate(issued.token)).toBe(true);
+    expect(await credentials.authenticate(issued.token)).toBe(
+      issued.credential.id,
+    );
     expect(backend.resolveCallCount).toBe(1);
 
     const persisted = await fs.readFile(
@@ -62,7 +64,7 @@ describe("ApiAccessCredentials", () => {
 
     expect(await credentials.list()).toEqual([issued.credential]);
     expect(await credentials.revoke(issued.credential.id)).toBe(true);
-    expect(await credentials.authenticate(issued.token)).toBe(false);
+    expect(await credentials.authenticate(issued.token)).toBeNull();
 
     const [revoked] = await credentials.list();
     expect(revoked?.revokedAt).toBeTruthy();
@@ -78,7 +80,9 @@ describe("ApiAccessCredentials", () => {
     const { vault: reopenedVault } = makeVault(mappingPath, backend);
     const reopened = new ApiAccessCredentials(reopenedVault, rootDir);
 
-    expect(await reopened.authenticate(issued.token)).toBe(true);
+    expect(await reopened.authenticate(issued.token)).toBe(
+      issued.credential.id,
+    );
     expect(await reopened.list()).toEqual([issued.credential]);
   });
 
@@ -97,7 +101,7 @@ describe("ApiAccessCredentials", () => {
     const issued = await credentials.issue("Codex");
 
     expect(await credentials.revoke(issued.credential.id)).toBe(true);
-    expect(await credentials.authenticate(issued.token)).toBe(false);
+    expect(await credentials.authenticate(issued.token)).toBeNull();
     expect((await credentials.list())[0]?.revokedAt).toBeTruthy();
   });
 });
