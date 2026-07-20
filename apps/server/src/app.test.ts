@@ -30,6 +30,7 @@ import {
   type DashframeServer,
 } from "./app";
 import type { ProjectInfoResult } from "./functions";
+import { checkPermission, LOCAL_USER_ID, permission } from "./permissions";
 
 function bearer(token: string): { Authorization: string } {
   return { Authorization: `Bearer ${token}` };
@@ -241,10 +242,18 @@ describe("createDashframeServer", () => {
       const accessCredentials = makeAccessCredentials(
         join(root, "access-credentials"),
       );
+      const observedChecks: Array<{
+        principal: Parameters<typeof checkPermission>[0];
+        required: string;
+      }> = [];
       server = await createDashframeServer({
         db: project.db,
         accessCredentials,
         authToken: "renderer-token",
+        checkPermission: async (principal, required) => {
+          observedChecks.push({ principal, required });
+          return checkPermission(principal, required);
+        },
       });
 
       const connectionResponse = await fetch(
@@ -302,7 +311,14 @@ describe("createDashframeServer", () => {
         { headers: bearer(issued.data.accessCredential) },
       );
       expect(await externalCapabilities.json()).toMatchObject({
-        data: { canManageCredentials: true },
+        data: { canManageCredentials: false },
+      });
+      expect(observedChecks).toContainEqual({
+        principal: {
+          kind: "service",
+          credentialId: issued.data.credential.id,
+        },
+        required: permission.manageAccessCredentials,
       });
 
       const externalIssueResponse = await fetch(
@@ -316,7 +332,7 @@ describe("createDashframeServer", () => {
           body: JSON.stringify({ name: "API-issued successor" }),
         },
       );
-      expect(externalIssueResponse.status).toBe(200);
+      expect(externalIssueResponse.status).toBe(403);
 
       const revokeResponse = await fetch(
         `${server.url}/api/revokeAccessCredential`,
@@ -337,6 +353,60 @@ describe("createDashframeServer", () => {
           })
         ).status,
       ).toBe(401);
+    });
+
+    it("denies a legacy userId context on a protected function", async () => {
+      project = await openProject({ dir: join(root, "proj") });
+      const app = await buildDashframeApp({
+        db: project.db,
+        accessCredentials: makeAccessCredentials(
+          join(root, "access-credentials"),
+        ),
+        getServerEndpoint: () => "http://127.0.0.1:4000/api",
+        checkPermission,
+      });
+
+      await expect(
+        app.call("getAccessConnectionInfo", {}, { userId: LOCAL_USER_ID }),
+      ).rejects.toMatchObject({ name: "PermissionDeniedError" });
+    });
+
+    it("falls through a non-matching operator token to a valid access credential", async () => {
+      project = await openProject({ dir: join(root, "proj") });
+      const accessCredentials = makeAccessCredentials(
+        join(root, "access-credentials"),
+      );
+      const issued = await accessCredentials.issue("Automation client");
+      server = await createDashframeServer({
+        db: project.db,
+        accessCredentials,
+        authToken: "renderer-token",
+      });
+
+      const response = await fetch(
+        `${server.url}/api/projectInfo?args=${encodeURIComponent("{}")}`,
+        { headers: bearer(issued.token) },
+      );
+
+      expect(response.status).toBe(200);
+    });
+
+    it("denies when every configured credential resolver returns null", async () => {
+      project = await openProject({ dir: join(root, "proj") });
+      server = await createDashframeServer({
+        db: project.db,
+        accessCredentials: makeAccessCredentials(
+          join(root, "access-credentials"),
+        ),
+        authToken: "renderer-token",
+      });
+
+      const response = await fetch(
+        `${server.url}/api/projectInfo?args=${encodeURIComponent("{}")}`,
+        { headers: bearer("not-any-configured-credential") },
+      );
+
+      expect(response.status).toBe(401);
     });
 
     it("rejects a non-object JSON body on /assistant/run with 400, not a crash", async () => {
@@ -889,5 +959,28 @@ describe("vault-backed serve-token auth", () => {
       const res = await fetch(url, { headers: bearer(plaintext) });
       expect(res.status).toBe(200);
     }
+  });
+
+  it("denies a vault failure without falling through to a valid access credential", async () => {
+    const accessCredentials = makeAccessCredentials(
+      join(root, "access-credentials"),
+    );
+    const issued = await accessCredentials.issue("Automation client");
+    const unresolvedAuthRef = makeSecretRef();
+
+    project = await openProject({ dir: join(root, "proj") });
+    server = await createDashframeServer({
+      db: project.db,
+      authRef: unresolvedAuthRef,
+      vault,
+      accessCredentials,
+    });
+
+    const response = await fetch(
+      `${server.url}/api/projectInfo?args=${encodeURIComponent("{}")}`,
+      { headers: bearer(issued.token) },
+    );
+
+    expect(response.status).toBe(401);
   });
 });

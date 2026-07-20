@@ -11,5 +11,7 @@ const localUserPermissions = new Set<string>([
 ]);
 
 /** Current single-user permission lookup. Replace the adapter when users persist. */
-export const checkPermission: CheckPermission = async (userId, required) =>
-  userId === LOCAL_USER_ID && localUserPermissions.has(required);
+export const checkPermission: CheckPermission = async (principal, required) =>
+  principal.kind === "user" &&
+  principal.userId === LOCAL_USER_ID &&
+  localUserPermissions.has(required);

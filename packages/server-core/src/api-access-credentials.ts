@@ -123,9 +123,9 @@ export class ApiAccessCredentials {
     });
   }
 
-  authenticate(token: string): Promise<boolean> {
+  authenticate(token: string): Promise<string | null> {
     return this.exclusive(async () => {
-      if (!token.startsWith(TOKEN_PREFIX)) return false;
+      if (!token.startsWith(TOKEN_PREFIX)) return null;
       const file = await this.read();
       for (const credential of file.credentials) {
         if (credential.revokedAt) continue;
@@ -135,9 +135,9 @@ export class ApiAccessCredentials {
           credential.verifierRef,
           async (expected) => matchesVerifier(token, expected),
         );
-        if (matches) return true;
+        if (matches) return credential.id;
       }
-      return false;
+      return null;
     });
   }
 
