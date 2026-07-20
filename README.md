@@ -16,7 +16,7 @@ DashFrame is a local-first business intelligence tool focused on the data → ch
 
 ## Project Layout
 
-```
+```text
 apps/
   desktop/          # Electron shell (main process + packaging)
   renderer/         # Electron renderer entry
@@ -75,8 +75,8 @@ depends on.
 
 Each package is a TypeScript-first workspace member that exposes its source through
 `src/`. Turbo treats `build` / `lint` / `typecheck` / `test` as common tasks
-(`bun build`, `bun lint`, `bun typecheck`, `bun test`). See **Project Layout** above
-for what each package owns.
+(`bun run build`, `bun run lint`, `bun run typecheck`, `bun run test`). See
+**Project Layout** above for what each package owns.
 
 ## Using Notion Integration
 
