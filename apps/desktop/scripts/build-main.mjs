@@ -33,6 +33,7 @@
  * packages TS-main: no per-package dist is needed for the Electron bundle.
  */
 import esbuild from "esbuild";
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const externalizeNpm = {
@@ -52,7 +53,7 @@ const externalizeNpm = {
   },
 };
 
-await esbuild.build({
+const result = await esbuild.build({
   entryPoints: [path.resolve(import.meta.dirname, "..", "src", "main.ts")],
   bundle: true,
   platform: "node",
@@ -60,4 +61,14 @@ await esbuild.build({
   conditions: ["bun"],
   outfile: path.resolve(import.meta.dirname, "..", "dist", "main.js"),
   plugins: [externalizeNpm],
+  // Emitted so the bundle's module graph is inspectable. `main-bundle.test.ts`
+  // asserts no browser-only code reached this Node process — see #228, where a
+  // value import of the @dashframe/engine-browser barrel pulled IndexedDB
+  // storage into main.js and Electron failed to boot on an undeclared dep.
+  metafile: true,
 });
+
+await writeFile(
+  path.resolve(import.meta.dirname, "..", "dist", "metafile.json"),
+  JSON.stringify(result.metafile),
+);

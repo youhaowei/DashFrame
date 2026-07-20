@@ -1,9 +1,5 @@
-import type {
-  ColumnType,
-  DataFrameColumn,
-  DataFrameRow,
-  Field,
-} from "@dashframe/engine-browser";
+import type { ColumnType, Field } from "@dashframe/engine";
+import type { DataFrameColumn, DataFrameRow } from "@dashframe/types";
 import type {
   PageObjectResponse,
   QueryDatabaseResponse,

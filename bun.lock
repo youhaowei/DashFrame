@@ -496,7 +496,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@dashframe/engine": "workspace:*",
-        "@dashframe/engine-browser": "workspace:*",
+        "@dashframe/types": "workspace:*",
         "@notionhq/client": "^2.2.0",
         "apache-arrow": "^21.1.0",
       },
