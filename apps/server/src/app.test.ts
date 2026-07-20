@@ -313,7 +313,7 @@ describe("createDashframeServer", () => {
             "Content-Type": "application/json",
             ...bearer(issued.data.accessCredential),
           },
-          body: JSON.stringify({ name: "Unauthorized successor" }),
+          body: JSON.stringify({ name: "API-issued successor" }),
         },
       );
       expect(externalIssueResponse.status).toBe(200);
