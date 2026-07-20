@@ -2,102 +2,81 @@
 
 [![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/youhaowei/DashFrame)](https://coderabbit.ai)
 
-DashFrame is a business intelligence playground focused on the DataFrame → chart journey. This MVP supports importing data from CSV files and Notion databases, and provides a builder shell to iterate on visuals. Architecture and design docs are maintained separately (not in this repo).
+DashFrame is a local-first business intelligence tool focused on the data → chart journey: import data, query it with DuckDB, and build visualizations. It ships as **two surfaces of the same UI** (`packages/app`) — an Electron **desktop** app and a browser **web** app — both backed by the same Hono HTTP+WS server. Architecture and design docs are maintained separately (not in this repo).
 
 ## Stack
 
-- **Next.js 16** (App Router) + React 19
-- **Bun** for package management and runtime
-- **Dexie (IndexedDB)** for client-side data persistence
-- **DuckDB-WASM** for in-browser data processing
-- **Tailwind CSS v4** (via PostCSS) — shadcn components
-- **Turborepo** for workspace orchestration
-- **Vega-Lite** for declarative chart rendering
-- **Papaparse** for CSV ingest, **@notionhq/client** for Notion
+- **Electron** desktop app + **Vite/React 19** web app — one shared UI (`packages/app`)
+- **Hono** HTTP+WS server (`apps/server`, `packages/server-core`) — the web app is _not_ purely client-side; it talks to this backend
+- **DuckDB** for query — native (`@duckdb/node-api`) on desktop, **DuckDB-WASM** in the browser
+- **WyStack** (`libs/wystack`) — the RPC/data substrate; **stdui** (`libs/stdui`) — the `@wystack/ui-*` design system (both git submodules)
+- **Bun** for package management and runtime, **Turborepo** for workspace orchestration
+- **Tailwind CSS v4**, **Vega-Lite** for declarative chart rendering
+- Connectors for CSV, Notion, Postgres, and REST sources
 
 ## Project Layout
 
-```
+```text
 apps/
-  web/              # Next.js app (App Router)
+  desktop/          # Electron shell (main process + packaging)
+  renderer/         # Electron renderer entry
+  web/              # Vite web app
+  server/           # Standalone Hono server (`dashframe serve`)
 packages/
+  app/              # The shared React UI (desktop + web render the same code)
   types/            # Pure type contracts
-  core/             # Backend selector
-  core-dexie/       # Dexie/IndexedDB backend
-  engine/           # Abstract engine interfaces
+  core/             # Client data layer / hooks
+  engine/           # Abstract engine interfaces (TS-only)
   engine-browser/   # DuckDB-WASM implementation
-  connector-csv/    # CSV file connector
+  engine-server/    # Native DuckDB implementation
+  server-core/      # Server runtime shared by apps/server and the Electron main
+  connector-local/  # Local file (CSV/JSON) connector
   connector-notion/ # Notion API connector
+  connector-postgres/ # Postgres connector
+  connector-rest/   # REST connector
   visualization/    # Chart rendering system
-  ui/               # Shared UI primitives/components
+  ui/               # App-local UI primitives
+libs/
+  wystack/          # RPC/data substrate (submodule)
+  stdui/            # @wystack/ui-* design system (submodule)
 ```
 
 ## Naming Conventions
 
 - Use `DashFrame` for user-facing copy, branding, React components, and TypeScript types.
-- Use `dashframe` for package names, config identifiers, workspace scopes (e.g. `@dashframe/dataframe`), directories, and persisted storage keys.
+- Use `dashframe` for package names, config identifiers, workspace scopes (e.g. `@dashframe/core`), directories, and persisted storage keys.
 - Keep new packages under the `@dashframe/*` scope so tooling and imports remain consistent.
 
 ### Quick start
 
 ```bash
-bun run setup
-bun dev
-bun check
-bun run test
-bun dev:desktop
+bun run setup     # init submodules, install deps, build the vendored @wystack/* packages
+bun dev           # launch the Electron desktop app (embeds the server; renderer on Vite)
+bun check         # lint + typecheck + tests (the project gate)
+bun run test      # run all tests
 ```
+
+`bun run setup` is required on a fresh clone — it initializes the `libs/wystack`
+and `libs/stdui` git submodules and builds the `@wystack/*` packages the app
+depends on.
+
+### Running the app
+
+- **Desktop (default):** `bun dev` runs `@dashframe/desktop` — the Electron shell with
+  the server embedded in-process and native DuckDB.
+- **Web + server:** the web app needs the backend API running, or data import fails
+  with `404` on `/api/*`. Start the server on a fixed port
+  (`cd apps/server && bun run src/index.ts --host 127.0.0.1 --port 4000`) and point
+  the web app at it
+  (`cd apps/web && VITE_WYSTACK_URL=http://127.0.0.1:4000 bun run dev:direct`).
+  See [`AGENTS.md`](AGENTS.md) for the full headless recipe.
 
 ### Packages
 
-Each package is a TypeScript-first workspace member that exposes its source through `src/` and ships declarations from `dist/`. Every package follows the same `package.json` script contract:
-
-- `build`: `tsc`
-- `dev`: `tsc --watch`
-- `lint`: `eslint src`
-- `typecheck`: `tsc --noEmit`
-
-Turbo treats these as common tasks (`bun build`, `bun lint`, `bun typecheck`, `bun dev`). When you run `bun dev`, it launches `next dev` for the app and puts all library packages into TypeScript watch mode so changes flow through immediately.
-
-Package responsibilities:
-
-- `@dashframe/dataframe`: DataFrame is a snapshot of the data in columns and rows, inspired by pandas, representing a table of data at a point in time. This package defines the DataFrame type and the functions to manipulate it.
-- `@dashframe/csv`: This package is for handling CSV files and converting them to a DataFrame.
-- `@dashframe/notion`: This package integrates with Notion databases via the official Notion API client, fetching database schemas and data, and converting them to a DataFrame.
-- `@dashframe/ui`: This package is for shared UI primitives and components.
-
-## Getting Started
-
-1. Install dependencies (requires Bun 1.x):
-
-   ```bash
-   bun install
-   ```
-
-2. Start the workspace in development mode:
-
-   ```bash
-   bun dev
-   ```
-
-   This single command starts:
-   - **Next.js web app** at `http://localhost:3000`
-   - TypeScript watch mode for all packages
-   - Hot-reload with instant feedback
-
-   Need a single package? Target explicitly: `bun dev --filter @dashframe/web`
-
-3. Optional scripts:
-   ```bash
-   bun dev           # turbo dev (runs all dev targets)
-   bun build         # turbo build
-   bun format        # prettier --check with shared config
-   bun format:write  # prettier --write with shared config
-   bun check         # lint + typecheck + prettier check
-   bun lint          # workspace linting (eslint 9)
-   bun typecheck     # TypeScript checks for all packages
-   bun test          # run all tests
-   ```
+Each package is a TypeScript-first workspace member that exposes its source through
+`src/`. Turbo treats `build` / `lint` / `typecheck` / `test` as common tasks
+(`bun run build`, `bun run lint`, `bun run typecheck`, `bun run test`). See
+**Project Layout** above for what each package owns.
 
 ## Using Notion Integration
 
@@ -127,20 +106,18 @@ DashFrame supports importing data directly from Notion databases:
 
 ## Current Status
 
-- ✅ **Client-side persistence** with Dexie (IndexedDB)
-- ✅ **In-browser query engine** with DuckDB-WASM
-- ✅ **Route-based architecture** - `/data-sources`, `/insights`, `/visualizations` pages
-- ✅ CSV upload → DataFrame → Vega-Lite charts
-- ✅ Notion database integration with property selection
-- ✅ Pluggable backend architecture for custom implementations
-- ✅ Real-time reactive updates with useLiveQuery
+- ✅ **Electron desktop app** with native DuckDB and an in-process server
+- ✅ **Web app** backed by the same Hono server (shared `packages/app` UI)
+- ✅ **Query engine** over DuckDB — native on desktop, WASM in the browser
+- ✅ Route-based shell — `/data-sources`, `/insights`, `/visualizations`, `/dashboards`
+- ✅ Data → Vega-Lite charts
+- ✅ Connectors for CSV/JSON, Notion, Postgres, and REST sources
 
 ## Roadmap
 
-- Add richer chart customization (mark type, color palettes, formatting)
-- Implement cross-source joins (CSV + Notion)
-- Add automated tests (unit, Playwright)
-- OAuth authentication (currently using anonymous auth)
+- Richer chart customization (mark type, color palettes, formatting)
+- Cross-source joins
+- Named, revocable API access credentials for external clients
 
 ## Contributing
 
