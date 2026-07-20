@@ -1,13 +1,5 @@
-import type {
-  Field,
-  SourceSchema,
-  TableColumn,
-  UUID,
-} from "@dashframe/engine-browser";
-import {
-  createFieldsFromColumns,
-  createSourceSchema,
-} from "@dashframe/engine-browser";
+import type { Field, SourceSchema, TableColumn, UUID } from "@dashframe/engine";
+import { createFieldsFromColumns, createSourceSchema } from "@dashframe/engine";
 import {
   createNotionClient,
   getDatabaseSchema,

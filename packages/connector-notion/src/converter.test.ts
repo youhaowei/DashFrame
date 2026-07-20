@@ -6,7 +6,7 @@
  * - Type mapping from Notion to DataFrame
  * - Data conversion from Notion to DataFrame format
  */
-import type { Field } from "@dashframe/engine-browser";
+import type { Field } from "@dashframe/engine";
 import type { PageObjectResponse } from "@notionhq/client/build/src/api-endpoints";
 import { tableFromIPC } from "apache-arrow";
 import { beforeEach, describe, expect, it } from "vitest";

@@ -11,6 +11,12 @@
  * factory lives in the server layer and binds the resolver before construction.
  */
 
+// Imported from the runtime-neutral engine, NOT @dashframe/engine-browser.
+// engine-browser has no subpath exports, so a value import of it pulls the
+// whole browser barrel — IndexedDB storage and DuckDB-WASM — into whatever
+// bundles this connector. That includes the Electron main process, which is
+// Node and cannot resolve them. RemoteApiConnector is defined in
+// @dashframe/engine and touches no browser API, so take it from the source.
 import {
   RemoteApiConnector,
   type ConnectorQueryResult,
@@ -20,7 +26,7 @@ import {
   type SecretResolver,
   type UUID,
   type ValidationResult,
-} from "@dashframe/engine-browser";
+} from "@dashframe/engine";
 import {
   createNotionClient,
   getDatabaseSchema,
