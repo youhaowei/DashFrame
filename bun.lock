@@ -312,6 +312,13 @@
         "postgres",
       ],
     },
+    "libs/wystack/packages/identity": {
+      "name": "@wystack/identity",
+      "version": "0.0.1",
+      "devDependencies": {
+        "typescript": "^5.8.3",
+      },
+    },
     "libs/wystack/packages/log": {
       "name": "@wystack/log",
       "version": "0.1.0",
@@ -344,6 +351,7 @@
         "@hono/node-server": "^1.19.12",
         "@hono/node-ws": "^1.3.0",
         "@wystack/db": "workspace:*",
+        "@wystack/identity": "workspace:*",
         "@wystack/transport": "workspace:*",
         "hono": "^4.12.9",
         "zod": "^4.3.6",
@@ -1832,6 +1840,8 @@
     "@wystack/client": ["@wystack/client@workspace:libs/wystack/packages/client"],
 
     "@wystack/db": ["@wystack/db@workspace:libs/wystack/packages/db"],
+
+    "@wystack/identity": ["@wystack/identity@workspace:libs/wystack/packages/identity"],
 
     "@wystack/log": ["@wystack/log@workspace:libs/wystack/packages/log"],
 
@@ -3856,6 +3866,8 @@
     "@wystack/client/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
     "@wystack/db/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
+
+    "@wystack/identity/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
     "@wystack/log/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
