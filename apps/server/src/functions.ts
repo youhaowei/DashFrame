@@ -11,7 +11,10 @@
 import { schema } from "@dashframe/server-core";
 import { query } from "@wystack/server";
 
-import { accessCredentialFunctions } from "./functions/access-credentials";
+import {
+  createAccessCredentialFunctions,
+  type AccessCredentialFunctionDependencies,
+} from "./functions/access-credentials";
 import { appArtifactFunctions } from "./functions/app-artifacts";
 import { assistantProviderConfigFunctions } from "./functions/assistant-provider-configs";
 import { commandFunctions } from "./functions/commands";
@@ -59,17 +62,27 @@ const projectInfo = query<Record<string, never>, ProjectInfoResult>({
  * The registry. Add functions here; the key is the wire path the client calls
  * (`api.projectInfo`). Keep this object the single source of truth for the API.
  */
-export const functions = {
-  projectInfo,
-  ...appArtifactFunctions,
-  ...assistantProviderConfigFunctions,
-  ...commandFunctions,
-  ...dashboardFunctions,
-  ...draftLifecycleFunctions,
-  ...draftFunctions,
-  ...accessCredentialFunctions,
-  ...previewDiffFunctions,
-};
+export function createFunctions(
+  dependencies: AccessCredentialFunctionDependencies,
+) {
+  return {
+    projectInfo,
+    ...appArtifactFunctions,
+    ...assistantProviderConfigFunctions,
+    ...commandFunctions,
+    ...dashboardFunctions,
+    ...draftLifecycleFunctions,
+    ...draftFunctions,
+    ...createAccessCredentialFunctions(dependencies),
+    ...previewDiffFunctions,
+  };
+}
+
+/** Dependency-free registry used by function-level tests. */
+export const functions = createFunctions({
+  getServerEndpoint: () => undefined,
+  checkPermission: async () => false,
+});
 
 /** Public type surface — what the renderer imports to type its client. */
-export type Functions = typeof functions;
+export type Functions = ReturnType<typeof createFunctions>;

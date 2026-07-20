@@ -9,31 +9,15 @@ import type {
   IssuedAccessCredential,
 } from "@dashframe/types";
 import { text, uuid } from "@wystack/db";
+import type { CheckPermission } from "@wystack/server";
 import { mutation, query } from "@wystack/server";
 
-interface AccessFunctionContext {
+import { permission } from "../permissions";
+
+export interface AccessCredentialFunctionDependencies {
   accessCredentials?: ApiAccessCredentials;
-  canManageApiAccess?: boolean;
-  serverEndpoint?: string;
-}
-
-function context(ctx: unknown): AccessFunctionContext {
-  return ctx as AccessFunctionContext;
-}
-
-function requireAccessCredentials(ctx: unknown): ApiAccessCredentials {
-  const credentials = context(ctx).accessCredentials;
-  if (!credentials) {
-    throw new Error("Access credentials are unavailable in this host");
-  }
-  return credentials;
-}
-
-function requireManagementAccess(ctx: unknown): ApiAccessCredentials {
-  if (!context(ctx).canManageApiAccess) {
-    throw new Error("API access credential management is owner-only");
-  }
-  return requireAccessCredentials(ctx);
+  getServerEndpoint: () => string | undefined;
+  checkPermission: CheckPermission;
 }
 
 function toDto(record: AccessCredentialRecord): AccessCredential {
@@ -48,62 +32,78 @@ function toDto(record: AccessCredentialRecord): AccessCredential {
   };
 }
 
-const getAccessConnectionInfo = query({
-  args: {},
-  handler: async (ctx): Promise<AccessConnectionInfo> => {
-    requireAccessCredentials(ctx);
-    const endpoint = context(ctx).serverEndpoint;
-    if (!endpoint) throw new Error("Server endpoint is not ready");
-    return {
-      endpoint,
-      transport: "dashframe-http",
-      authentication: "Bearer",
-    };
-  },
-});
+export function createAccessCredentialFunctions(
+  dependencies: AccessCredentialFunctionDependencies,
+) {
+  const credentials = (): ApiAccessCredentials => {
+    if (!dependencies.accessCredentials) {
+      throw new Error("Access credentials are unavailable in this host");
+    }
+    return dependencies.accessCredentials;
+  };
 
-const getAccessCapabilities = query({
-  args: {},
-  handler: async (ctx): Promise<AccessCapabilities> => ({
-    canManageCredentials: Boolean(
-      context(ctx).accessCredentials && context(ctx).canManageApiAccess,
-    ),
-  }),
-});
+  const getAccessConnectionInfo = query({
+    permission: permission.manageAccessCredentials,
+    args: {},
+    handler: async (): Promise<AccessConnectionInfo> => {
+      credentials();
+      const endpoint = dependencies.getServerEndpoint();
+      if (!endpoint) throw new Error("Server endpoint is not ready");
+      return {
+        endpoint,
+        transport: "dashframe-http",
+        authentication: "Bearer",
+      };
+    },
+  });
 
-const listAccessCredentials = query({
-  args: {},
-  handler: async (ctx): Promise<AccessCredential[]> => {
-    const credentials = requireManagementAccess(ctx);
-    return (await credentials.list()).map(toDto);
-  },
-});
+  const getAccessCapabilities = query({
+    args: {},
+    handler: async (ctx): Promise<AccessCapabilities> => ({
+      canManageCredentials: Boolean(
+        dependencies.accessCredentials &&
+        ctx.userId &&
+        (await dependencies.checkPermission(
+          ctx.userId,
+          permission.manageAccessCredentials,
+        )),
+      ),
+    }),
+  });
 
-const issueAccessCredential = mutation({
-  args: { name: text },
-  handler: async (ctx, { name }): Promise<IssuedAccessCredential> => {
-    const credentials = requireManagementAccess(ctx);
-    const issued = await credentials.issue(name);
-    return {
-      credential: toDto(issued.credential),
-      accessCredential: issued.token,
-    };
-  },
-});
+  const listAccessCredentials = query({
+    permission: permission.manageAccessCredentials,
+    args: {},
+    handler: async (): Promise<AccessCredential[]> =>
+      (await credentials().list()).map(toDto),
+  });
 
-const revokeAccessCredential = mutation({
-  args: { id: uuid },
-  handler: async (ctx, { id }): Promise<{ ok: true }> => {
-    const credentials = requireManagementAccess(ctx);
-    await credentials.revoke(id);
-    return { ok: true };
-  },
-});
+  const issueAccessCredential = mutation({
+    permission: permission.manageAccessCredentials,
+    args: { name: text },
+    handler: async (_ctx, { name }): Promise<IssuedAccessCredential> => {
+      const issued = await credentials().issue(name);
+      return {
+        credential: toDto(issued.credential),
+        accessCredential: issued.token,
+      };
+    },
+  });
 
-export const accessCredentialFunctions = {
-  getAccessCapabilities,
-  getAccessConnectionInfo,
-  listAccessCredentials,
-  issueAccessCredential,
-  revokeAccessCredential,
-};
+  const revokeAccessCredential = mutation({
+    permission: permission.manageAccessCredentials,
+    args: { id: uuid },
+    handler: async (_ctx, { id }): Promise<{ ok: true }> => {
+      await credentials().revoke(id);
+      return { ok: true };
+    },
+  });
+
+  return {
+    getAccessCapabilities,
+    getAccessConnectionInfo,
+    listAccessCredentials,
+    issueAccessCredential,
+    revokeAccessCredential,
+  };
+}
