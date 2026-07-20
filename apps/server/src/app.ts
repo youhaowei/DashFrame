@@ -47,7 +47,12 @@ import {
   type SecretRef,
   type SecretVault,
 } from "@wystack/secret-vault";
-import { createRoutes, createWyStack, type WyStackApp } from "@wystack/server";
+import {
+  createRoutes,
+  createWyStack,
+  type CheckPermission,
+  type WyStackApp,
+} from "@wystack/server";
 import type { Table } from "drizzle-orm";
 import { getTableName } from "drizzle-orm";
 import { Hono, type Context } from "hono";
@@ -63,7 +68,11 @@ import {
   type DraftController,
 } from "./draft-controller";
 import { assertPublishLogHasNoLateBound } from "./draft-late-bound";
-import { functions } from "./functions";
+import { createFunctions } from "./functions";
+import {
+  checkPermission as checkLocalUserPermission,
+  LOCAL_USER_ID,
+} from "./permissions";
 
 type CorsOrigin =
   | string
@@ -234,6 +243,10 @@ export interface DashframeServerOptions {
   vault?: SecretVault;
   /** Generic external-access credentials backed by the injected SecretVault. */
   accessCredentials?: ApiAccessCredentials;
+  /** User resolved by this single-user host for any accepted credential. */
+  userId?: string;
+  /** Application-owned permission lookup used by WyStack dispatch. */
+  checkPermission?: CheckPermission;
 }
 
 export interface DashframeServer {
@@ -428,8 +441,19 @@ export async function buildDashframeApp(opts: {
   db: object;
   vault?: SecretVault;
   onWrite?: () => void;
+  accessCredentials?: ApiAccessCredentials;
+  getServerEndpoint?: () => string | undefined;
+  checkPermission?: CheckPermission;
 }): Promise<WyStackApp> {
-  const rawApp = await createWyStack({ db: opts.db, functions });
+  const rawApp = await createWyStack({
+    db: opts.db,
+    functions: createFunctions({
+      accessCredentials: opts.accessCredentials,
+      getServerEndpoint: opts.getServerEndpoint ?? (() => undefined),
+      checkPermission: opts.checkPermission ?? (async () => false),
+    }),
+    checkPermission: opts.checkPermission,
+  });
 
   const { vault, onWrite } = opts;
 
@@ -506,6 +530,9 @@ export async function createDashframeServer(
   });
 
   const corsOrigin = opts.corsOrigin ?? allowLocalhostOrigin;
+  const userId = opts.userId ?? LOCAL_USER_ID;
+  const checkPermission = opts.checkPermission ?? checkLocalUserPermission;
+  const serverState: { endpoint?: string } = {};
 
   // Resolve the auth context builder: vault-backed ref takes priority over
   // plaintext token. Both produce the same (req) → context shape for WyStack.
@@ -523,13 +550,14 @@ export async function createDashframeServer(
     | ((req: Request) => Promise<Record<string, unknown>>)
     | undefined;
   if (opts.authRef && opts.vault) {
-    resolveContext = createVaultTokenResolver(opts.authRef, opts.vault);
+    resolveContext = createVaultTokenResolver(opts.authRef, opts.vault, userId);
   } else if (opts.authToken) {
-    resolveContext = createTokenResolver(opts.authToken);
+    resolveContext = createTokenResolver(opts.authToken, userId);
   }
   if (opts.accessCredentials) {
     const accessResolver = createAccessCredentialResolver(
       opts.accessCredentials,
+      userId,
     );
     resolveContext = resolveContext
       ? combineResolvers(resolveContext, accessResolver)
@@ -542,6 +570,9 @@ export async function createDashframeServer(
     db: opts.db,
     vault: opts.vault,
     onWrite: opts.onWrite,
+    accessCredentials: opts.accessCredentials,
+    getServerEndpoint: () => serverState.endpoint,
+    checkPermission,
   });
 
   // Inject server-level references needed by the previewDiff query handler
@@ -630,7 +661,6 @@ export async function createDashframeServer(
   // gate (publishDraft / discardDraft / direct canonical credential writes) to
   // guarantee the snapshot dropping a ref is on disk before the ref is deleted.
   serverContext.flushSnapshot = opts.flushSnapshot;
-  serverContext.accessCredentials = opts.accessCredentials;
 
   // Mirror @wystack/server/node's serve() composition, adding CORS in front.
   const honoApp = new Hono();
@@ -675,7 +705,7 @@ export async function createDashframeServer(
 
   const { port, server } = await listen(honoApp, hostname, requestedPort);
   injectWebSocket(server);
-  serverContext.serverEndpoint = `http://${hostname}:${port}/api`;
+  serverState.endpoint = `http://${hostname}:${port}/api`;
 
   return {
     url: `http://${hostname}:${port}`,
@@ -707,6 +737,7 @@ function listen(
 
 function createTokenResolver(
   expectedToken: string,
+  userId: string,
 ): (req: Request) => Promise<Record<string, unknown>> {
   return async (req) => {
     const auth = req.headers.get("authorization") ?? "";
@@ -716,12 +747,13 @@ function createTokenResolver(
     if (!tokenMatches(token, expectedToken)) {
       throw new Error("Unauthorized");
     }
-    return { canManageApiAccess: true };
+    return { userId };
   };
 }
 
 function createAccessCredentialResolver(
   credentials: ApiAccessCredentials,
+  userId: string,
 ): (req: Request) => Promise<Record<string, unknown>> {
   return async (req) => {
     const auth = req.headers.get("authorization") ?? "";
@@ -731,7 +763,7 @@ function createAccessCredentialResolver(
     if (!token || !(await credentials.authenticate(token))) {
       throw new Error("Unauthorized");
     }
-    return { canManageApiAccess: false };
+    return { userId };
   };
 }
 
@@ -761,6 +793,7 @@ function combineResolvers(
 function createVaultTokenResolver(
   authRef: SecretRef,
   vault: SecretVault,
+  userId: string,
 ): (req: Request) => Promise<Record<string, unknown>> {
   return async (req) => {
     const auth = req.headers.get("authorization") ?? "";
@@ -780,7 +813,7 @@ function createVaultTokenResolver(
     if (!authorized) {
       throw new Error("Unauthorized");
     }
-    return { canManageApiAccess: true };
+    return { userId };
   };
 }
 

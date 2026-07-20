@@ -302,7 +302,7 @@ describe("createDashframeServer", () => {
         { headers: bearer(issued.data.accessCredential) },
       );
       expect(await externalCapabilities.json()).toMatchObject({
-        data: { canManageCredentials: false },
+        data: { canManageCredentials: true },
       });
 
       const externalIssueResponse = await fetch(
@@ -316,7 +316,7 @@ describe("createDashframeServer", () => {
           body: JSON.stringify({ name: "Unauthorized successor" }),
         },
       );
-      expect(externalIssueResponse.status).not.toBe(200);
+      expect(externalIssueResponse.status).toBe(200);
 
       const revokeResponse = await fetch(
         `${server.url}/api/revokeAccessCredential`,
