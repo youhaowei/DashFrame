@@ -18,8 +18,9 @@ import { describe, expect, it } from "vitest";
  *    died on load. Guarded by "pulls in no browser-only code".
  *
  * 2. An externalized dep undeclared where main.js resolves it. build-main.mjs
- *    externalizes every npm bare specifier; each must then resolve at runtime
- *    from apps/desktop. `typebox`, `pg`, `@notionhq/client`, and the pi-ai
+ *    externalizes every npm bare specifier; each exact specifier (including
+ *    subpaths like `typebox/value`) must then resolve at runtime from
+ *    apps/desktop. `typebox`, `pg`, `@notionhq/client`, and the pi-ai
  *    packages were only declared on the workspace packages that use them, not on
  *    apps/desktop, and weren't hoisted — the loader halted on the first one.
  *    Guarded by "resolves every externalized dependency".
@@ -52,21 +53,17 @@ function buildAndReadMetafile(): Metafile {
   ) as Metafile;
 }
 
-/** The bare-specifier npm packages esbuild left external in the bundle. */
-function externalPackages(metafile: Metafile): string[] {
-  const pkgs = new Set<string>();
+/** Exact bare specifiers esbuild left external in the bundle (incl. subpaths). */
+function externalSpecifiers(metafile: Metafile): string[] {
+  const specs = new Set<string>();
   for (const meta of Object.values(metafile.inputs)) {
     for (const imp of meta.imports) {
       if (!imp.external) continue;
       if (imp.path.startsWith("node:") || imp.path.startsWith(".")) continue;
-      // Reduce a subpath import ("typebox/value") to its package name.
-      const name = imp.path.startsWith("@")
-        ? imp.path.split("/").slice(0, 2).join("/")
-        : (imp.path.split("/")[0] ?? imp.path);
-      pkgs.add(name);
+      specs.add(imp.path);
     }
   }
-  return [...pkgs].sort();
+  return [...specs].sort();
 }
 
 describe("electron main bundle", () => {
@@ -93,20 +90,22 @@ describe("electron main bundle", () => {
   });
 
   it("resolves every externalized dependency from apps/desktop", () => {
-    const packages = externalPackages(buildAndReadMetafile());
+    const specifiers = externalSpecifiers(buildAndReadMetafile());
 
-    // Resolve each with Node's real ESM resolver from the apps/desktop base —
-    // the exact algorithm Electron's main process runs. `import.meta.resolve`
-    // (not require.resolve, which can false-green on an exports-only package)
-    // throws ERR_MODULE_NOT_FOUND when the specifier is undeclared or unhoisted.
-    const unresolved = packages.filter((pkg) => {
+    // Resolve each exact specifier with Node's real ESM resolver from the
+    // apps/desktop base — the exact algorithm Electron's main process runs.
+    // `import.meta.resolve` (not require.resolve, which can false-green on an
+    // exports-only package) throws ERR_MODULE_NOT_FOUND when the specifier is
+    // undeclared or unhoisted. Package-root resolution alone would miss a
+    // de-hoisted subpath (e.g. `typebox/value`) that still externalizes.
+    const unresolved = specifiers.filter((specifier) => {
       try {
         execFileSync(
           process.execPath,
           [
             "--input-type=module",
             "-e",
-            `await import.meta.resolve(${JSON.stringify(pkg)})`,
+            `await import.meta.resolve(${JSON.stringify(specifier)})`,
           ],
           { cwd: desktopRoot, stdio: "pipe" },
         );
@@ -116,7 +115,8 @@ describe("electron main bundle", () => {
       }
     });
 
-    // A failure names the package to declare in apps/desktop/package.json.
+    // A failure names the specifier (or its package) to declare in
+    // apps/desktop/package.json.
     expect(unresolved).toEqual([]);
   });
 });
