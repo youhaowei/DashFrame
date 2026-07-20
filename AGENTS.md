@@ -54,6 +54,42 @@ ticket references.
 - Test: `bunx turbo test --filter='!@wystack/*'`
 - Build: `bunx turbo build --filter='!@wystack/*'`
 
+## Git submodules (`libs/wystack`, `libs/stdui`)
+
+Two vendored dependencies are **git submodules**, each with its own GitHub repo:
+
+- `libs/wystack` → `youhaowei/wystack` — the RPC/data substrate (`@wystack/*`).
+- `libs/stdui` → `youhaowei/stdui` — the `@wystack/ui-*` design system.
+
+The `@dashframe/*` packages consume their **built** output, so `bun run setup`
+(and CI) init the submodules and run `bun run build:wystack` before anything
+else. If imports from `@wystack/*` fail to resolve, the submodule is
+uninitialized or unbuilt — run `git submodule update --init --recursive && bun run build:wystack`.
+
+**Changing submodule code is a two-repo change — never edit in place and commit
+only the pin.** The parent repo records a submodule as a pinned commit SHA; a
+bare pin bump merges even when the submodule code it points at was never
+reviewed. The workflow:
+
+1. **Land the submodule change first, in its own repo.** Open and merge a PR in
+   `youhaowei/wystack` (or `youhaowei/stdui`) against that repo's default branch.
+   Run its own gate there — the parent's `bun check` filters `@wystack/*` out
+   (`--filter=!@wystack/*`), so it does **not** cover submodule code.
+2. **Then bump the pin in DashFrame.** In the submodule dir, check out the merged
+   commit; from the repo root, `git add libs/wystack` (or `libs/stdui`) and commit
+   the new SHA. Rebuild: `bun run build:wystack`, then run the full `bun check` so
+   the parent is verified against the new substrate — a pin that merges is not the
+   same as a submodule that is compatible.
+3. **Re-point after the submodule merges.** If the submodule PR merged with a
+   squash/rebase, the pin must point at the merged commit on the default branch,
+   not the pre-merge feature SHA.
+
+**Worktree isolation applies to submodules too.** Parallel agents that both touch
+`libs/wystack` need their **own** wystack worktree each — two agents sharing one
+submodule checkout revert each other exactly like the parent repo (`CLAUDE.md` →
+worktree isolation). Trust the submodule PR's own remote state as the source of
+truth for what has landed.
+
 ## Cursor Cloud specific instructions
 
 Dependency refresh (submodules + install + build of the vendored `@wystack/*`
@@ -62,9 +98,9 @@ packages) is handled by the startup update script; see root `package.json`
 
 ### Running for browser/headless testing (recommended in the cloud VM)
 
-The web app is **not** purely client-side despite the stale `README.md`. It
-needs the backend API, or data import fails with `404` on `/api/*` and a failed
-`/api/ws` WebSocket. Run two processes:
+The web app is **not** purely client-side — it needs the backend API, or data
+import fails with `404` on `/api/*` and a failed `/api/ws` WebSocket. Run two
+processes:
 
 1. API server (fixed loopback port; loopback needs no token):
    `cd apps/server && bun run src/index.ts --host 127.0.0.1 --port 4000`
