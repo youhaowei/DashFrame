@@ -16,7 +16,7 @@ export interface AccessCredentialRecord {
   revokedAt?: string;
 }
 
-export interface IssuedAccessCredential {
+export interface IssuedAccessCredentialRecord {
   credential: AccessCredentialRecord;
   token: string;
 }
@@ -68,7 +68,7 @@ export class ApiAccessCredentials {
     private readonly rootDir: string,
   ) {}
 
-  issue(name: string): Promise<IssuedAccessCredential> {
+  issue(name: string): Promise<IssuedAccessCredentialRecord> {
     return this.exclusive(async () => {
       const normalizedName = name.trim();
       if (!normalizedName || normalizedName.length > 80) {

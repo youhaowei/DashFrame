@@ -86,6 +86,24 @@ describe("ApiAccessCredentials", () => {
     expect(await reopened.list()).toEqual([issued.credential]);
   });
 
+  it("rejects an empty, whitespace-only, or over-long credential name", async () => {
+    const { vault } = makeVault(path.join(rootDir, "mappings.json"));
+    const credentials = new ApiAccessCredentials(vault, rootDir);
+
+    await expect(credentials.issue("")).rejects.toThrow(
+      "Credential name must be between 1 and 80 characters",
+    );
+    await expect(credentials.issue("   ")).rejects.toThrow(
+      "Credential name must be between 1 and 80 characters",
+    );
+    await expect(credentials.issue("x".repeat(81))).rejects.toThrow(
+      "Credential name must be between 1 and 80 characters",
+    );
+
+    const issued = await credentials.issue(`  ${"x".repeat(80)}  `);
+    expect(issued.credential.name).toBe("x".repeat(80));
+  });
+
   it("persists revocation before best-effort secret cleanup", async () => {
     class DeleteFailingBackend extends TestBackend {
       override async delete(): Promise<void> {

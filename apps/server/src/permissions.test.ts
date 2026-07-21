@@ -33,4 +33,25 @@ describe("permissions", () => {
       evaluate(ctx.principal, permissions.accessCredentials.manage, ctx),
     ).resolves.toBe(false);
   });
+
+  it("denies a well-formed user principal whose userId is not the local operator", async () => {
+    const ctx = context({ kind: "user", userId: "someone-else" });
+    await expect(
+      evaluate(ctx.principal, permissions.accessCredentials.manage, ctx),
+    ).resolves.toBe(false);
+  });
+
+  it("denies an absent or malformed principal", async () => {
+    for (const malformed of [
+      undefined,
+      {},
+      { kind: "user" },
+      { kind: "bogus", userId: LOCAL_USER_ID },
+    ]) {
+      const ctx = context(malformed as AppContext["principal"]);
+      await expect(
+        evaluate(ctx.principal, permissions.accessCredentials.manage, ctx),
+      ).resolves.toBe(false);
+    }
+  });
 });

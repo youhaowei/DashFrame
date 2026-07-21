@@ -38,7 +38,7 @@ export {
 export {
   ApiAccessCredentials,
   type AccessCredentialRecord,
-  type IssuedAccessCredential,
+  type IssuedAccessCredentialRecord,
 } from "./api-access-credentials";
 export { DrizzleMappingStore, FileMappingStore } from "./mapping-store";
 export {

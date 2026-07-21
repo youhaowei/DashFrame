@@ -318,6 +318,37 @@ describe("createDashframeServer", () => {
       );
       expect(externalIssueResponse.status).toBe(403);
 
+      const externalListResponse = await fetch(
+        `${server.url}/api/listAccessCredentials?args=${encodeURIComponent("{}")}`,
+        { headers: bearer(issued.data.accessCredential) },
+      );
+      expect(externalListResponse.status).toBe(403);
+
+      const externalRevokeResponse = await fetch(
+        `${server.url}/api/revokeAccessCredential`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...bearer(issued.data.accessCredential),
+          },
+          body: JSON.stringify({ id: issued.data.credential.id }),
+        },
+      );
+      expect(externalRevokeResponse.status).toBe(403);
+
+      const ownerListResponse = await fetch(
+        `${server.url}/api/listAccessCredentials?args=${encodeURIComponent("{}")}`,
+        { headers: bearer("renderer-token") },
+      );
+      expect(ownerListResponse.status).toBe(200);
+      const listed = (await ownerListResponse.json()) as {
+        data: { id: string }[];
+      };
+      expect(listed.data.some((c) => c.id === issued.data.credential.id)).toBe(
+        true,
+      );
+
       const revokeResponse = await fetch(
         `${server.url}/api/revokeAccessCredential`,
         {
