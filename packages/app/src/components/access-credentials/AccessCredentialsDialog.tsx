@@ -55,15 +55,24 @@ export function AccessCredentialsDialog({
     if (!name.trim()) return;
     setBusyId("issue");
     setError(null);
+    let credential: IssuedAccessCredential;
     try {
-      const credential = await issue(name);
-      await credentials.refetch();
-      setName("");
-      // If the dialog was closed while issuance was in flight, honor that
-      // discard rather than resurfacing the one-time secret on reopen.
-      if (openRef.current) setIssued(credential);
+      credential = await issue(name);
     } catch {
       setError("Couldn't issue the credential. Please try again.");
+      setBusyId(null);
+      return;
+    }
+    // Issuance succeeded: surface the one-time secret and clear the input now,
+    // so a failed list refresh can neither mask the success nor lose the
+    // secret. If the dialog was closed mid-issue, honor that discard rather
+    // than resurfacing the secret on reopen.
+    setName("");
+    if (openRef.current) setIssued(credential);
+    try {
+      await credentials.refetch();
+    } catch {
+      setError("The credential was issued, but the list couldn't refresh.");
     } finally {
       setBusyId(null);
     }
@@ -74,9 +83,17 @@ export function AccessCredentialsDialog({
     setError(null);
     try {
       await revoke(id);
-      await credentials.refetch();
     } catch {
       setError("Couldn't revoke the credential. Please try again.");
+      setBusyId(null);
+      return;
+    }
+    // Revocation succeeded: a failed refresh only leaves the list stale, so
+    // don't report it as a revoke failure and invite a pointless retry.
+    try {
+      await credentials.refetch();
+    } catch {
+      setError("The credential was revoked, but the list couldn't refresh.");
     } finally {
       setBusyId(null);
     }
