@@ -15,7 +15,7 @@ import {
   DialogTitle,
   Input,
 } from "@wystack/ui-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 interface AccessCredentialsDialogProps {
   open: boolean;
@@ -35,10 +35,18 @@ export function AccessCredentialsDialog({
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<"endpoint" | "credential" | null>(null);
   const issuedCredentials = credentials.data ?? [];
+  // Live mirror of `open` so an in-flight issuance can tell whether the dialog
+  // was closed before it resolved (the async closure captures a stale `open`).
+  const openRef = useRef(open);
+  openRef.current = open;
 
   const copy = async (kind: "endpoint" | "credential", value: string) => {
-    await navigator.clipboard.writeText(value);
-    setCopied(kind);
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(kind);
+    } catch {
+      setError("Couldn't copy to the clipboard. Select and copy it manually.");
+    }
   };
 
   const handleIssue = async () => {
@@ -46,9 +54,12 @@ export function AccessCredentialsDialog({
     setBusyId("issue");
     setError(null);
     try {
-      setIssued(await issue(name));
+      const credential = await issue(name);
       await credentials.refetch();
       setName("");
+      // If the dialog was closed while issuance was in flight, honor that
+      // discard rather than resurfacing the one-time secret on reopen.
+      if (openRef.current) setIssued(credential);
     } catch {
       setError("Couldn't issue the credential. Please try again.");
     } finally {
