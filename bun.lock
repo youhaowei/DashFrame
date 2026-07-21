@@ -319,6 +319,17 @@
         "typescript": "^5.8.3",
       },
     },
+    "libs/wystack/packages/identity-workos": {
+      "name": "@wystack/identity-workos",
+      "version": "0.0.1",
+      "dependencies": {
+        "@wystack/identity": "workspace:*",
+        "jose": "^6.1.3",
+      },
+      "devDependencies": {
+        "typescript": "^5.8.3",
+      },
+    },
     "libs/wystack/packages/log": {
       "name": "@wystack/log",
       "version": "0.1.0",
@@ -337,6 +348,16 @@
         "pino-pretty",
       ],
     },
+    "libs/wystack/packages/permissions": {
+      "name": "@wystack/permissions",
+      "version": "0.0.1",
+      "dependencies": {
+        "@wystack/identity": "workspace:*",
+      },
+      "devDependencies": {
+        "typescript": "^5.8.3",
+      },
+    },
     "libs/wystack/packages/secret-vault": {
       "name": "@wystack/secret-vault",
       "version": "0.0.1",
@@ -352,6 +373,7 @@
         "@hono/node-ws": "^1.3.0",
         "@wystack/db": "workspace:*",
         "@wystack/identity": "workspace:*",
+        "@wystack/permissions": "workspace:*",
         "@wystack/transport": "workspace:*",
         "hono": "^4.12.9",
         "zod": "^4.3.6",
@@ -1843,7 +1865,11 @@
 
     "@wystack/identity": ["@wystack/identity@workspace:libs/wystack/packages/identity"],
 
+    "@wystack/identity-workos": ["@wystack/identity-workos@workspace:libs/wystack/packages/identity-workos"],
+
     "@wystack/log": ["@wystack/log@workspace:libs/wystack/packages/log"],
+
+    "@wystack/permissions": ["@wystack/permissions@workspace:libs/wystack/packages/permissions"],
 
     "@wystack/secret-vault": ["@wystack/secret-vault@workspace:libs/wystack/packages/secret-vault"],
 
@@ -3869,7 +3895,11 @@
 
     "@wystack/identity/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
+    "@wystack/identity-workos/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
+
     "@wystack/log/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
+
+    "@wystack/permissions/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
     "@wystack/secret-vault/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
