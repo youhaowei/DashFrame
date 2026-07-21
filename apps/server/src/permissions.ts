@@ -1,3 +1,4 @@
+import { isPrincipal } from "@wystack/identity";
 import { definePermissions } from "@wystack/permissions";
 
 import type { AppContext } from "./app-context";
@@ -9,11 +10,8 @@ export const permissions = definePermissions<AppContext>()({
     manage: {
       description: "Manage API access credentials",
       check: (ctx) =>
-        typeof ctx.principal === "object" &&
-        ctx.principal !== null &&
-        "kind" in ctx.principal &&
+        isPrincipal(ctx.principal) &&
         ctx.principal.kind === "user" &&
-        "userId" in ctx.principal &&
         ctx.principal.userId === LOCAL_USER_ID,
     },
   },

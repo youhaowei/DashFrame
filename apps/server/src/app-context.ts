@@ -1,4 +1,5 @@
 import type { ApiAccessCredentials, ArtifactDb } from "@dashframe/server-core";
+import type { Principal } from "@wystack/identity";
 import type { SecretVault } from "@wystack/secret-vault";
 import type { FunctionContext, WyStackApp } from "@wystack/server";
 
@@ -6,7 +7,7 @@ import type { DraftController } from "./draft-controller";
 
 /** Host capabilities and request identity available to every WyStack procedure. */
 export interface AppContext {
-  principal?: unknown;
+  principal?: Principal;
   accessCredentials?: ApiAccessCredentials;
   getServerEndpoint: () => string | undefined;
   vault?: SecretVault;
