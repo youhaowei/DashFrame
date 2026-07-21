@@ -49,8 +49,8 @@ export function AccessCredentialsDialog({
       setIssued(await issue(name));
       await credentials.refetch();
       setName("");
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Issue failed");
+    } catch {
+      setError("Couldn't issue the credential. Please try again.");
     } finally {
       setBusyId(null);
     }
@@ -62,8 +62,8 @@ export function AccessCredentialsDialog({
     try {
       await revoke(id);
       await credentials.refetch();
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Revoke failed");
+    } catch {
+      setError("Couldn't revoke the credential. Please try again.");
     } finally {
       setBusyId(null);
     }
