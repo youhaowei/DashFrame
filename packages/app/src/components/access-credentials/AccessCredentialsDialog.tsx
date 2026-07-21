@@ -15,7 +15,7 @@ import {
   DialogTitle,
   Input,
 } from "@wystack/ui-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface AccessCredentialsDialogProps {
   open: boolean;
@@ -38,7 +38,9 @@ export function AccessCredentialsDialog({
   // Live mirror of `open` so an in-flight issuance can tell whether the dialog
   // was closed before it resolved (the async closure captures a stale `open`).
   const openRef = useRef(open);
-  openRef.current = open;
+  useEffect(() => {
+    openRef.current = open;
+  }, [open]);
 
   const copy = async (kind: "endpoint" | "credential", value: string) => {
     try {
