@@ -109,7 +109,10 @@ export function AccessCredentialsDialog({
                   {connection.data.transport} · Bearer authentication
                 </p>
                 <p className="mt-2 text-neutral-fg-subtle">
-                  WebSocket: <code>{connection.data.endpoint}/ws</code>
+                  WebSocket:{" "}
+                  <code>
+                    {connection.data.endpoint.replace(/^http/, "ws")}/ws
+                  </code>
                 </p>
               </div>
             </section>
