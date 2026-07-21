@@ -12,13 +12,14 @@
  * 'should ...' names.
  */
 import { openArtifactDb } from "@dashframe/server-core";
-import { createWyStack, type WyStackApp } from "@wystack/server";
+import type { WyStackApp } from "@wystack/server";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { functions } from "../functions";
+import { wy } from "../wystack";
 
 describe("addDashboardItem — markdown widget persistence", () => {
   let dir: string;
@@ -28,7 +29,7 @@ describe("addDashboardItem — markdown widget persistence", () => {
   beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), "dashframe-dash-"));
     db = await openArtifactDb({ path: join(dir, "artifacts.db") });
-    app = await createWyStack({ db, functions });
+    app = await wy.build({ db, functions });
   });
 
   afterEach(async () => {
@@ -136,7 +137,7 @@ describe("patchDashboardItemOverride contracts", () => {
   beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), "dashframe-ov-"));
     db = await openArtifactDb({ path: join(dir, "artifacts.db") });
-    app = await createWyStack({ db, functions });
+    app = await wy.build({ db, functions });
   });
 
   afterEach(async () => {
@@ -261,7 +262,7 @@ describe("server-authoritative dashboard item mutations", () => {
   beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), "dashframe-authoritative-"));
     db = await openArtifactDb({ path: join(dir, "artifacts.db") });
-    app = await createWyStack({ db, functions });
+    app = await wy.build({ db, functions });
   });
 
   afterEach(async () => {

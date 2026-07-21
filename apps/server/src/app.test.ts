@@ -30,7 +30,7 @@ import {
   type DashframeServer,
 } from "./app";
 import type { ProjectInfoResult } from "./functions";
-import { checkPermission, LOCAL_USER_ID, permission } from "./permissions";
+import { LOCAL_USER_ID } from "./permissions";
 
 function bearer(token: string): { Authorization: string } {
   return { Authorization: `Bearer ${token}` };
@@ -242,18 +242,10 @@ describe("createDashframeServer", () => {
       const accessCredentials = makeAccessCredentials(
         join(root, "access-credentials"),
       );
-      const observedChecks: Array<{
-        principal: Parameters<typeof checkPermission>[0];
-        required: string;
-      }> = [];
       server = await createDashframeServer({
         db: project.db,
         accessCredentials,
         authToken: "renderer-token",
-        checkPermission: async (principal, required) => {
-          observedChecks.push({ principal, required });
-          return checkPermission(principal, required);
-        },
       });
 
       const connectionResponse = await fetch(
@@ -313,14 +305,6 @@ describe("createDashframeServer", () => {
       expect(await externalCapabilities.json()).toMatchObject({
         data: { canManageCredentials: false },
       });
-      expect(observedChecks).toContainEqual({
-        principal: {
-          kind: "service",
-          credentialId: issued.data.credential.id,
-        },
-        required: permission.manageAccessCredentials,
-      });
-
       const externalIssueResponse = await fetch(
         `${server.url}/api/issueAccessCredential`,
         {
@@ -363,7 +347,6 @@ describe("createDashframeServer", () => {
           join(root, "access-credentials"),
         ),
         getServerEndpoint: () => "http://127.0.0.1:4000/api",
-        checkPermission,
       });
 
       await expect(
@@ -714,8 +697,8 @@ describe("buildDashframeApp — vault injection seam", () => {
    *    `context.vault` cannot shadow the server-level vault — staticContext is
    *    spread LAST.
    *
-   * 2. No-injection short-circuit: when vault and onWrite are both omitted, the
-   *    factory returns the raw unwrapped app.
+   * 2. Optional-capability omission: when vault and onWrite are omitted, the
+   *    required host context still assembles and ordinary calls keep working.
    *
    * 3. Vault threads into handlers: the injected vault is visible to handlers
    *    (via `vaultFromCtx`), enabling credential writes that the no-vault path
@@ -819,15 +802,13 @@ describe("buildDashframeApp — vault injection seam", () => {
   });
 
   // ---------------------------------------------------------------------------
-  // AC2 — No-injection short-circuit: omitting vault+onWrite returns raw app
+  // AC2 — Optional host capabilities may be omitted
   // ---------------------------------------------------------------------------
 
-  it("no-injection short-circuit: buildDashframeApp({db}) returns raw unwrapped app", async () => {
-    // When neither vault nor onWrite is supplied, buildDashframeApp returns the
-    // raw WyStack app (the short-circuit branch `vault == null && onWrite == null
-    // → rawApp`). createDashframeServer delegates to buildDashframeApp with the
-    // same opts, so this exercises the shared unwrapped path. A read-only call
-    // must still work.
+  it("assembles host context when optional vault and onWrite capabilities are omitted", async () => {
+    // createDashframeServer delegates to buildDashframeApp with the same opts,
+    // so this exercises the shared host-context path without optional
+    // capabilities. An ordinary artifact call must still work.
     const app = await buildDashframeApp({ db: project.db });
 
     // No credential write — doesn't require vault.

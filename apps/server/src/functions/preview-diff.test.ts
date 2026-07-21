@@ -22,13 +22,14 @@ import {
   SecretVault,
   TestBackend,
 } from "@wystack/secret-vault";
-import { createWyStack, type WyStackApp } from "@wystack/server";
+import type { WyStackApp } from "@wystack/server";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { functions } from "../functions";
+import { wy } from "../wystack";
 import { cmd } from "./commands";
 import { buildPreviewDiff } from "./preview-diff";
 
@@ -60,7 +61,7 @@ describe("PreviewDiff builder", () => {
   beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), "dashframe-preview-"));
     db = await openArtifactDb({ path: join(dir, "artifacts.db") });
-    app = await createWyStack({ db, functions });
+    app = await wy.build({ db, functions });
     vault = makeTestVault();
   });
 

@@ -20,7 +20,7 @@ import {
   SecretVault,
   TestBackend,
 } from "@wystack/secret-vault";
-import { createWyStack, type WyStackApp } from "@wystack/server";
+import type { WyStackApp } from "@wystack/server";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -54,6 +54,7 @@ vi.mock("@dashframe/connector-notion", () => ({
 }));
 
 import { functions } from "../functions";
+import { wy } from "../wystack";
 
 function makeTestVault(): { vault: SecretVault; backend: TestBackend } {
   const backend = new TestBackend();
@@ -76,7 +77,7 @@ describe("Notion data-plane routes — happy path (mocked connector)", () => {
     dir = mkdtempSync(join(tmpdir(), "dashframe-notion-routes-"));
     db = await openArtifactDb({ path: join(dir, "artifacts.db") });
     ({ vault, backend } = makeTestVault());
-    const rawApp = await createWyStack({ db, functions });
+    const rawApp = await wy.build({ db, functions });
     app = {
       ...rawApp,
       async call(path, args, ctx) {

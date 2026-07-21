@@ -14,10 +14,10 @@ import type {
 } from "@dashframe/types";
 import { eq, jsonb, uuid } from "@wystack/db";
 import { isSecretRef, type SecretRef } from "@wystack/secret-vault";
-import { mutation, query } from "@wystack/server";
 import { spawn } from "node:child_process";
 import { z } from "zod";
 
+import { wy } from "../wystack";
 import { flushThenReleaseRefs, vaultFromCtx } from "./utils";
 
 function flushSnapshotFromCtx(ctx: unknown): (() => Promise<void>) | undefined {
@@ -155,25 +155,25 @@ async function deleteRef(
   await vault.delete(ref);
 }
 
-const listAssistantProviderCatalog = query({
-  args: {},
-  handler: async (): Promise<AssistantProviderCatalogEntry[]> =>
-    getAssistantProviderCatalog(),
-});
+const listAssistantProviderCatalog = wy.procedure
+  .input({})
+  .query(
+    async (): Promise<AssistantProviderCatalogEntry[]> =>
+      getAssistantProviderCatalog(),
+  );
 
-const listAssistantProviderConfigs = query({
-  args: {},
-  handler: async (ctx): Promise<AssistantProviderConfig[]> => {
+const listAssistantProviderConfigs = wy.procedure
+  .input({})
+  .query(async (ctx): Promise<AssistantProviderConfig[]> => {
     const rows = (await ctx.db
       .from(assistantProviderConfigs)
       .all()) as AssistantProviderConfigRow[];
     return rows.map(rowToDto);
-  },
-});
+  });
 
-const saveAssistantProviderConfig = mutation({
-  args: { input: jsonb },
-  handler: async (ctx, { input }): Promise<AssistantProviderConfig> => {
+const saveAssistantProviderConfig = wy.procedure
+  .input({ input: jsonb })
+  .mutation(async (ctx, { input }): Promise<AssistantProviderConfig> => {
     const parsed = saveInputSchema.parse(input);
     // The schema keeps providerId a plain string (the catalog is runtime
     // data); reject unknown providers here so a bad id can never reach the
@@ -270,12 +270,11 @@ const saveAssistantProviderConfig = mutation({
       );
     }
     return rowToDto(row);
-  },
-});
+  });
 
-const removeAssistantProviderConfig = mutation({
-  args: { id: uuid },
-  handler: async (ctx, { id }): Promise<{ ok: true }> => {
+const removeAssistantProviderConfig = wy.procedure
+  .input({ id: uuid })
+  .mutation(async (ctx, { id }): Promise<{ ok: true }> => {
     const vault = vaultFromCtx(ctx);
     // The vault release stays OUTSIDE the transaction: it is not rolled back
     // with the DB, so releasing inside could leave a surviving row with a
@@ -299,24 +298,22 @@ const removeAssistantProviderConfig = mutation({
       );
     }
     return { ok: true };
-  },
-});
+  });
 
-const setAssistantDefaultModel = mutation({
-  args: { input: jsonb },
-  handler: async (ctx, { input }): Promise<{ ok: true }> => {
+const setAssistantDefaultModel = wy.procedure
+  .input({ input: jsonb })
+  .mutation(async (ctx, { input }): Promise<{ ok: true }> => {
     const parsed = setDefaultModelSchema.parse(input);
     await ctx.db
       .from(assistantProviderConfigs)
       .where(eq("id", parsed.id))
       .update({ defaultModel: parsed.defaultModel });
     return { ok: true };
-  },
-});
+  });
 
-const startAssistantOAuthLogin = mutation({
-  args: { id: uuid },
-  handler: async (ctx, { id }): Promise<AssistantProviderConfig> => {
+const startAssistantOAuthLogin = wy.procedure
+  .input({ id: uuid })
+  .mutation(async (ctx, { id }): Promise<AssistantProviderConfig> => {
     const vault = vaultFromCtx(ctx);
     const row = (await ctx.db
       .from(assistantProviderConfigs)
@@ -387,8 +384,7 @@ const startAssistantOAuthLogin = mutation({
       );
     }
     return rowToDto(updated ?? { ...row, credentialRef: ref });
-  },
-});
+  });
 
 export async function resolveAssistantProviderConfigForRun(args: {
   row: AssistantProviderConfigRow;

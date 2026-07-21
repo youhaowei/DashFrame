@@ -6,7 +6,8 @@
 import type { ArtifactProvenance } from "@dashframe/server-core";
 import type { SecretRef, SecretVault } from "@wystack/secret-vault";
 import { isSecretRef } from "@wystack/secret-vault";
-import type { FunctionContext } from "@wystack/server";
+
+import type { DashframeFunctionContext } from "../app-context";
 
 /**
  * The shape of the `config` jsonb column on `data_sources`.
@@ -33,8 +34,10 @@ export type DataSourceConfig = {
  * would violate the plaintext-never-at-rest invariant. A write that sets no
  * credential does not consult the vault and is unaffected by its absence.
  */
-export function vaultFromCtx(ctx: FunctionContext): SecretVault | undefined {
-  return ctx.vault as SecretVault | undefined;
+export function vaultFromCtx(
+  ctx: DashframeFunctionContext,
+): SecretVault | undefined {
+  return ctx.vault;
 }
 
 /**
@@ -50,7 +53,7 @@ export function vaultFromCtx(ctx: FunctionContext): SecretVault | undefined {
  * Returns `"commit"` (or `undefined`) for normal mutations.
  */
 export function modeFromCtx(
-  ctx: FunctionContext,
+  ctx: DashframeFunctionContext,
 ): "commit" | "preview" | undefined {
   const m = ctx.mode;
   if (m === "preview" || m === "commit") return m;
@@ -78,13 +81,13 @@ export const PUBLISH_REPLAY_CONTEXT_KEY = "__publishReplay";
  * captured to refs BEFORE the log snapshot and their release is deferred to the
  * publish/discard transition, so synchronous release must NOT fire here.
  */
-export function inDraftContext(ctx: FunctionContext): boolean {
-  return (ctx as Record<string, unknown>).draftId != null;
+export function inDraftContext(ctx: DashframeFunctionContext): boolean {
+  return ctx.draftId != null;
 }
 
 /** True when the handler is running as the publish replay of a draft log. */
-export function isPublishReplay(ctx: FunctionContext): boolean {
-  return (ctx as Record<string, unknown>)[PUBLISH_REPLAY_CONTEXT_KEY] === true;
+export function isPublishReplay(ctx: DashframeFunctionContext): boolean {
+  return ctx.__publishReplay === true;
 }
 
 /**
@@ -97,7 +100,7 @@ export function isPublishReplay(ctx: FunctionContext): boolean {
  * A DIRECT canonical call is neither, so it keeps synchronous release (the prior
  * ref is released inline — no transition will run to clean it up).
  */
-export function shouldDeferRelease(ctx: FunctionContext): boolean {
+export function shouldDeferRelease(ctx: DashframeFunctionContext): boolean {
   return inDraftContext(ctx) || isPublishReplay(ctx);
 }
 

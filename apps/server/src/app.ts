@@ -47,12 +47,7 @@ import {
   type SecretRef,
   type SecretVault,
 } from "@wystack/secret-vault";
-import {
-  createRoutes,
-  createWyStack,
-  type CheckPermission,
-  type WyStackApp,
-} from "@wystack/server";
+import { createRoutes, type WyStackApp } from "@wystack/server";
 import type { Table } from "drizzle-orm";
 import { getTableName } from "drizzle-orm";
 import { Hono, type Context } from "hono";
@@ -61,6 +56,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 
 import { type ArtifactDb } from "@dashframe/server-core";
 
+import type { AppContext } from "./app-context";
 import { handleAssistantRunRequest } from "./assistant-run-route";
 import { captureCommandCredentials } from "./credential-release";
 import {
@@ -68,11 +64,9 @@ import {
   type DraftController,
 } from "./draft-controller";
 import { assertPublishLogHasNoLateBound } from "./draft-late-bound";
-import { createFunctions } from "./functions";
-import {
-  checkPermission as checkLocalUserPermission,
-  LOCAL_USER_ID,
-} from "./permissions";
+import { functions } from "./functions";
+import { expectedPermissionIds, LOCAL_USER_ID } from "./permissions";
+import { wy } from "./wystack";
 
 type CorsOrigin =
   | string
@@ -245,8 +239,6 @@ export interface DashframeServerOptions {
   accessCredentials?: ApiAccessCredentials;
   /** User ID assigned to the local operator principal. */
   userId?: string;
-  /** Application-owned permission lookup used by WyStack dispatch. */
-  checkPermission?: CheckPermission;
 }
 
 export interface DashframeServer {
@@ -443,24 +435,24 @@ export async function buildDashframeApp(opts: {
   onWrite?: () => void;
   accessCredentials?: ApiAccessCredentials;
   getServerEndpoint?: () => string | undefined;
-  checkPermission?: CheckPermission;
 }): Promise<WyStackApp> {
-  const rawApp = await createWyStack({
+  const rawApp = await wy.build({
     db: opts.db,
-    functions: createFunctions({
-      accessCredentials: opts.accessCredentials,
-      getServerEndpoint: opts.getServerEndpoint ?? (() => undefined),
-      checkPermission: opts.checkPermission ?? (async () => false),
-    }),
-    checkPermission: opts.checkPermission,
+    functions,
+    expectedPermissionIds,
   });
 
   const { vault, onWrite } = opts;
 
   // Build the static context additions once so every call shares the same object
   // reference (vault identity is stable for the server lifetime).
-  const staticContext: Record<string, unknown> = vault != null ? { vault } : {};
-  const hasStaticContext = Object.keys(staticContext).length > 0;
+  const staticContext: AppContext = {
+    getServerEndpoint: opts.getServerEndpoint ?? (() => undefined),
+    ...(opts.accessCredentials != null
+      ? { accessCredentials: opts.accessCredentials }
+      : {}),
+    ...(vault != null ? { vault } : {}),
+  };
 
   // The draft seam wraps `call` itself (not just runHandler): `rawApp.call`
   // mints its own fresh DrizzleTracker internally, so a draftId-bearing `call` would
@@ -481,9 +473,7 @@ export async function buildDashframeApp(opts: {
     async call(path, args, context) {
       // Static context wins over per-request context: spread per-request first
       // so static keys (vault) cannot be shadowed by a crafted request context.
-      const merged = hasStaticContext
-        ? { ...(context ?? {}), ...staticContext }
-        : (context ?? {});
+      const merged = { ...(context ?? {}), ...staticContext };
       const tracked = rawApp.createTracked();
       const effective = withDraftSeam(tracked, merged);
       const result = await rawApp.runHandler(path, args, effective, merged);
@@ -504,9 +494,7 @@ export async function buildDashframeApp(opts: {
       };
     },
     async runHandler(path, args, tracked, context) {
-      const merged = hasStaticContext
-        ? { ...(context ?? {}), ...staticContext }
-        : (context ?? {});
+      const merged = { ...(context ?? {}), ...staticContext };
       const effective = withDraftSeam(tracked, merged);
       return rawApp.runHandler(path, args, effective, merged);
     },
@@ -531,7 +519,6 @@ export async function createDashframeServer(
 
   const corsOrigin = opts.corsOrigin ?? allowLocalhostOrigin;
   const userId = opts.userId ?? LOCAL_USER_ID;
-  const checkPermission = opts.checkPermission ?? checkLocalUserPermission;
   const serverState: { endpoint?: string } = {};
 
   // Resolve the auth context builder: vault-backed ref takes priority over
@@ -572,7 +559,6 @@ export async function createDashframeServer(
     onWrite: opts.onWrite,
     accessCredentials: opts.accessCredentials,
     getServerEndpoint: () => serverState.endpoint,
-    checkPermission,
   });
 
   // Inject server-level references needed by the previewDiff query handler

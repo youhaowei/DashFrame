@@ -59,8 +59,9 @@ import type {
 } from "@dashframe/types";
 import { jsonb } from "@wystack/db";
 import type { Command, CommandResult } from "@wystack/server";
-import { applyCommands, query, type WyStackApp } from "@wystack/server";
+import { applyCommands, type WyStackApp } from "@wystack/server";
 
+import { wy } from "../wystack";
 import { commandFunctions } from "./commands";
 
 const {
@@ -1165,9 +1166,9 @@ function dashboardVisRefs(layout: unknown): string[] {
  * partial/failed one. Infrastructure failures (missing context keys) do throw
  * and surface as RPC errors.
  */
-const previewDiff = query({
-  args: { commands: jsonb },
-  handler: async (ctx, { commands }): Promise<PreviewDiff> => {
+const previewDiff = wy.procedure
+  .input({ commands: jsonb })
+  .query(async (ctx, { commands }): Promise<PreviewDiff> => {
     const wyStackApp = ctx.wyStackApp as WyStackApp | undefined;
     const artifactDb = ctx.artifactDb as ArtifactDb | undefined;
     if (!wyStackApp || !artifactDb) {
@@ -1193,8 +1194,7 @@ const previewDiff = query({
       commands as Command[],
       handlerContext,
     );
-  },
-});
+  });
 
 export const previewDiffFunctions = {
   previewDiff,

@@ -111,6 +111,7 @@
         "@hono/node-ws": "^1.3.0",
         "@wystack/db": "workspace:*",
         "@wystack/identity": "workspace:*",
+        "@wystack/permissions": "workspace:*",
         "@wystack/secret-vault": "workspace:*",
         "@wystack/server": "workspace:*",
         "drizzle-orm": "^0.45.1",

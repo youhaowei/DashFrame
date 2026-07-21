@@ -2,11 +2,11 @@ import type { ArtifactDb } from "@dashframe/server-core";
 import type { PreviewDiff } from "@dashframe/types";
 import { text } from "@wystack/db";
 import type { Command, WyStackApp } from "@wystack/server";
-import { query } from "@wystack/server";
 
 import { createDraftController } from "../draft-controller";
 import { findLateBound, type LateBoundOperandRef } from "../draft-late-bound";
 import { computeLogSignature } from "../draft-log-signature";
+import { wy } from "../wystack";
 import { buildPreviewDiff } from "./preview-diff";
 
 export { findLateBound };
@@ -84,9 +84,9 @@ function handlerContext(ctx: unknown): Record<string, unknown> {
   return draftCtx.vault !== undefined ? { vault: draftCtx.vault } : {};
 }
 
-const draftPublishReview = query({
-  args: { draftId: text },
-  handler: async (ctx, { draftId }): Promise<DraftPublishReview> => {
+const draftPublishReview = wy.procedure
+  .input({ draftId: text })
+  .query(async (ctx, { draftId }): Promise<DraftPublishReview> => {
     const { app, db } = requireServerContext(ctx);
     const controller = createDraftController(app, db);
     const commands = await controller.getDraftLog(draftId);
@@ -101,8 +101,7 @@ const draftPublishReview = query({
       lateBound,
       publishBlocked: lateBound.length > 0 || diff.error !== undefined,
     };
-  },
-});
+  });
 
 export const draftFunctions = {
   draftPublishReview,

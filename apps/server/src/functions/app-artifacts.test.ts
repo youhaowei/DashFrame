@@ -24,13 +24,14 @@ import {
   isSecretRef,
   type SecretRef,
 } from "@wystack/secret-vault";
-import { createWyStack, type WyStackApp } from "@wystack/server";
+import type { WyStackApp } from "@wystack/server";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { functions } from "../functions";
+import { wy } from "../wystack";
 
 const { dataFrames, dataSources } = schema;
 
@@ -102,7 +103,7 @@ describe("privacy floor — no raw sampleValues persist in artifact DB", () => {
   beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), "dashframe-artifacts-"));
     db = await openArtifactDb({ path: join(dir, "artifacts.db") });
-    app = await createWyStack({ db, functions });
+    app = await wy.build({ db, functions });
   });
 
   afterEach(async () => {
@@ -230,7 +231,7 @@ describe("createInsight — atomic auto-draft dedup", () => {
   beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), "dashframe-dedup-"));
     db = await openArtifactDb({ path: join(dir, "artifacts.db") });
-    app = await createWyStack({ db, functions });
+    app = await wy.build({ db, functions });
   });
 
   afterEach(async () => {
@@ -434,7 +435,7 @@ describe("patchDataTableArray — Zod guard rejects malformed inputs", () => {
   beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), "dashframe-patch-dt-"));
     db = await openArtifactDb({ path: join(dir, "artifacts.db") });
-    app = await createWyStack({ db, functions });
+    app = await wy.build({ db, functions });
   });
 
   afterEach(async () => {
@@ -531,7 +532,7 @@ describe("patchInsight — Zod guard rejects malformed inputs", () => {
   beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), "dashframe-patch-insight-"));
     db = await openArtifactDb({ path: join(dir, "artifacts.db") });
-    app = await createWyStack({ db, functions });
+    app = await wy.build({ db, functions });
   });
 
   afterEach(async () => {
@@ -615,7 +616,7 @@ describe("addDataSource / updateDataSource — same-operation minted-ref rollbac
     dir = mkdtempSync(join(tmpdir(), "dashframe-cred-rollback-"));
     db = await openArtifactDb({ path: join(dir, "artifacts.db") });
     ({ vault } = makeTestVault());
-    app = await createWyStack({ db, functions });
+    app = await wy.build({ db, functions });
   });
 
   afterEach(async () => {

@@ -3,7 +3,6 @@ import {
   openArtifactDb,
   schema,
 } from "@dashframe/server-core";
-import { createWyStack } from "@wystack/server";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,6 +15,7 @@ import {
   type DashframeServer,
 } from "../app";
 import { functions } from "../functions";
+import { wy } from "../wystack";
 import { cmd } from "./commands";
 import type { DraftPublishReview } from "./drafts";
 
@@ -169,7 +169,7 @@ describe("draft publish functions", () => {
   });
 
   it("blocks publish when the durable log contains late-bound operands", async () => {
-    const app = await createWyStack({ db, functions });
+    const app = await wy.build({ db, functions });
     const draftId = "text-draft-id";
     await db.insert(draftCommandLog).values({
       draftId,
