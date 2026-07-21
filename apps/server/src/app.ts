@@ -237,8 +237,6 @@ export interface DashframeServerOptions {
   vault?: SecretVault;
   /** Generic external-access credentials backed by the injected SecretVault. */
   accessCredentials?: ApiAccessCredentials;
-  /** User ID assigned to the local operator principal. */
-  userId?: string;
 }
 
 export interface DashframeServer {
@@ -518,7 +516,11 @@ export async function createDashframeServer(
   });
 
   const corsOrigin = opts.corsOrigin ?? allowLocalhostOrigin;
-  const userId = opts.userId ?? LOCAL_USER_ID;
+  // Single local operator: the operator principal is always LOCAL_USER_ID.
+  // Configurable operator identity is a non-goal until a real multi-operator
+  // consumer exists — a settable option here would authenticate but be denied
+  // by the accessCredentials.manage check, a typed lie.
+  const userId = LOCAL_USER_ID;
   const serverState: { endpoint?: string } = {};
 
   // Resolve the auth context builder: vault-backed ref takes priority over
