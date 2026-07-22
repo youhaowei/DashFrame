@@ -9,7 +9,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { openProject, type ProjectHandle } from "@dashframe/server-core";
+import {
+  ApiAccessCredentials,
+  openProject,
+  type ProjectHandle,
+} from "@dashframe/server-core";
 import {
   InMemoryMappingStore,
   makeSecretRef,
@@ -26,9 +30,21 @@ import {
   type DashframeServer,
 } from "./app";
 import type { ProjectInfoResult } from "./functions";
+import { LOCAL_USER_ID } from "./permissions";
 
 function bearer(token: string): { Authorization: string } {
   return { Authorization: `Bearer ${token}` };
+}
+
+function makeAccessCredentials(rootDir: string): ApiAccessCredentials {
+  const backend = new TestBackend();
+  const registry = new SecretRegistry();
+  registry.register("test", backend, { fallback: true });
+  registry.setClassDefault("serve-token", "test");
+  return new ApiAccessCredentials(
+    new SecretVault(registry, new InMemoryMappingStore()),
+    rootDir,
+  );
 }
 
 function waitForWsAuth(
@@ -209,6 +225,202 @@ describe("createDashframeServer", () => {
       expect(body.data.name).toBe("Smoke Co");
       expect(body.data.projectId).toBe(project.meta.projectId);
       expect(body.data.version).toBe(project.meta.version);
+
+      const capabilitiesResponse = await fetch(
+        `${server.url}/api/getAccessCapabilities?args=${encodeURIComponent("{}")}`,
+      );
+      expect(await capabilitiesResponse.json()).toMatchObject({
+        data: { canManageCredentials: false },
+      });
+    });
+
+    it("issues, authenticates, and revokes a workspace access credential", async () => {
+      project = await openProject({
+        dir: join(root, "proj"),
+        name: "Access Co",
+      });
+      const accessCredentials = makeAccessCredentials(
+        join(root, "access-credentials"),
+      );
+      server = await createDashframeServer({
+        db: project.db,
+        accessCredentials,
+        authToken: "renderer-token",
+      });
+
+      const connectionResponse = await fetch(
+        `${server.url}/api/getAccessConnectionInfo?args=${encodeURIComponent("{}")}`,
+        { headers: bearer("renderer-token") },
+      );
+      expect(connectionResponse.status).toBe(200);
+      const connection = (await connectionResponse.json()) as {
+        data: { endpoint: string };
+      };
+      expect(connection.data).toMatchObject({
+        endpoint: `${server.url}/api`,
+      });
+
+      const issueResponse = await fetch(
+        `${server.url}/api/issueAccessCredential`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...bearer("renderer-token"),
+          },
+          body: JSON.stringify({ name: "Codex test" }),
+        },
+      );
+      expect(issueResponse.status).toBe(200);
+      const issued = (await issueResponse.json()) as {
+        data: {
+          credential: { id: string; name: string };
+          accessCredential: string;
+        };
+      };
+      expect(issued.data.credential.name).toBe("Codex test");
+
+      const ownerCapabilities = await fetch(
+        `${server.url}/api/getAccessCapabilities?args=${encodeURIComponent("{}")}`,
+        { headers: bearer("renderer-token") },
+      );
+      expect(await ownerCapabilities.json()).toMatchObject({
+        data: { canManageCredentials: true },
+      });
+
+      const projectInfoUrl = `${server.url}/api/projectInfo?args=${encodeURIComponent("{}")}`;
+      expect((await fetch(projectInfoUrl)).status).toBe(401);
+      expect(
+        (
+          await fetch(projectInfoUrl, {
+            headers: bearer(issued.data.accessCredential),
+          })
+        ).status,
+      ).toBe(200);
+
+      const externalCapabilities = await fetch(
+        `${server.url}/api/getAccessCapabilities?args=${encodeURIComponent("{}")}`,
+        { headers: bearer(issued.data.accessCredential) },
+      );
+      expect(await externalCapabilities.json()).toMatchObject({
+        data: { canManageCredentials: false },
+      });
+      const externalIssueResponse = await fetch(
+        `${server.url}/api/issueAccessCredential`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...bearer(issued.data.accessCredential),
+          },
+          body: JSON.stringify({ name: "API-issued successor" }),
+        },
+      );
+      expect(externalIssueResponse.status).toBe(403);
+
+      const externalListResponse = await fetch(
+        `${server.url}/api/listAccessCredentials?args=${encodeURIComponent("{}")}`,
+        { headers: bearer(issued.data.accessCredential) },
+      );
+      expect(externalListResponse.status).toBe(403);
+
+      const externalRevokeResponse = await fetch(
+        `${server.url}/api/revokeAccessCredential`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...bearer(issued.data.accessCredential),
+          },
+          body: JSON.stringify({ id: issued.data.credential.id }),
+        },
+      );
+      expect(externalRevokeResponse.status).toBe(403);
+
+      const ownerListResponse = await fetch(
+        `${server.url}/api/listAccessCredentials?args=${encodeURIComponent("{}")}`,
+        { headers: bearer("renderer-token") },
+      );
+      expect(ownerListResponse.status).toBe(200);
+      const listed = (await ownerListResponse.json()) as {
+        data: { id: string }[];
+      };
+      expect(listed.data.some((c) => c.id === issued.data.credential.id)).toBe(
+        true,
+      );
+
+      const revokeResponse = await fetch(
+        `${server.url}/api/revokeAccessCredential`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...bearer("renderer-token"),
+          },
+          body: JSON.stringify({ id: issued.data.credential.id }),
+        },
+      );
+      expect(revokeResponse.status).toBe(200);
+      expect(
+        (
+          await fetch(projectInfoUrl, {
+            headers: bearer(issued.data.accessCredential),
+          })
+        ).status,
+      ).toBe(401);
+    });
+
+    it("denies a legacy userId context on a protected function", async () => {
+      project = await openProject({ dir: join(root, "proj") });
+      const app = await buildDashframeApp({
+        db: project.db,
+        accessCredentials: makeAccessCredentials(
+          join(root, "access-credentials"),
+        ),
+        getServerEndpoint: () => "http://127.0.0.1:4000/api",
+      });
+
+      await expect(
+        app.call("getAccessConnectionInfo", {}, { userId: LOCAL_USER_ID }),
+      ).rejects.toMatchObject({ name: "PermissionDeniedError" });
+    });
+
+    it("falls through a non-matching operator token to a valid access credential", async () => {
+      project = await openProject({ dir: join(root, "proj") });
+      const accessCredentials = makeAccessCredentials(
+        join(root, "access-credentials"),
+      );
+      const issued = await accessCredentials.issue("Automation client");
+      server = await createDashframeServer({
+        db: project.db,
+        accessCredentials,
+        authToken: "renderer-token",
+      });
+
+      const response = await fetch(
+        `${server.url}/api/projectInfo?args=${encodeURIComponent("{}")}`,
+        { headers: bearer(issued.token) },
+      );
+
+      expect(response.status).toBe(200);
+    });
+
+    it("denies when every configured credential resolver returns null", async () => {
+      project = await openProject({ dir: join(root, "proj") });
+      server = await createDashframeServer({
+        db: project.db,
+        accessCredentials: makeAccessCredentials(
+          join(root, "access-credentials"),
+        ),
+        authToken: "renderer-token",
+      });
+
+      const response = await fetch(
+        `${server.url}/api/projectInfo?args=${encodeURIComponent("{}")}`,
+        { headers: bearer("not-any-configured-credential") },
+      );
+
+      expect(response.status).toBe(401);
     });
 
     it("rejects a non-object JSON body on /assistant/run with 400, not a crash", async () => {
@@ -516,8 +728,8 @@ describe("buildDashframeApp — vault injection seam", () => {
    *    `context.vault` cannot shadow the server-level vault — staticContext is
    *    spread LAST.
    *
-   * 2. No-injection short-circuit: when vault and onWrite are both omitted, the
-   *    factory returns the raw unwrapped app.
+   * 2. Optional-capability omission: when vault and onWrite are omitted, the
+   *    required host context still assembles and ordinary calls keep working.
    *
    * 3. Vault threads into handlers: the injected vault is visible to handlers
    *    (via `vaultFromCtx`), enabling credential writes that the no-vault path
@@ -621,15 +833,13 @@ describe("buildDashframeApp — vault injection seam", () => {
   });
 
   // ---------------------------------------------------------------------------
-  // AC2 — No-injection short-circuit: omitting vault+onWrite returns raw app
+  // AC2 — Optional host capabilities may be omitted
   // ---------------------------------------------------------------------------
 
-  it("no-injection short-circuit: buildDashframeApp({db}) returns raw unwrapped app", async () => {
-    // When neither vault nor onWrite is supplied, buildDashframeApp returns the
-    // raw WyStack app (the short-circuit branch `vault == null && onWrite == null
-    // → rawApp`). createDashframeServer delegates to buildDashframeApp with the
-    // same opts, so this exercises the shared unwrapped path. A read-only call
-    // must still work.
+  it("assembles host context when optional vault and onWrite capabilities are omitted", async () => {
+    // createDashframeServer delegates to buildDashframeApp with the same opts,
+    // so this exercises the shared host-context path without optional
+    // capabilities. An ordinary artifact call must still work.
     const app = await buildDashframeApp({ db: project.db });
 
     // No credential write — doesn't require vault.
@@ -761,5 +971,28 @@ describe("vault-backed serve-token auth", () => {
       const res = await fetch(url, { headers: bearer(plaintext) });
       expect(res.status).toBe(200);
     }
+  });
+
+  it("denies a vault failure without falling through to a valid access credential", async () => {
+    const accessCredentials = makeAccessCredentials(
+      join(root, "access-credentials"),
+    );
+    const issued = await accessCredentials.issue("Automation client");
+    const unresolvedAuthRef = makeSecretRef();
+
+    project = await openProject({ dir: join(root, "proj") });
+    server = await createDashframeServer({
+      db: project.db,
+      authRef: unresolvedAuthRef,
+      vault,
+      accessCredentials,
+    });
+
+    const response = await fetch(
+      `${server.url}/api/projectInfo?args=${encodeURIComponent("{}")}`,
+      { headers: bearer(issued.token) },
+    );
+
+    expect(response.status).toBe(401);
   });
 });

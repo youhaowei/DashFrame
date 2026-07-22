@@ -96,9 +96,10 @@ import type {
 import { eq, jsonb, text, uuid } from "@wystack/db";
 import { isSecretRef, type SecretRef } from "@wystack/secret-vault";
 import type { Command } from "@wystack/server";
-import { mutation } from "@wystack/server";
 import { z } from "zod";
 
+import type { DashframeFunctionContext } from "../app-context";
+import { wy } from "../wystack";
 import {
   applyCredentialField,
   coerceProvenance,
@@ -326,9 +327,9 @@ async function wouldCreateCycle(
  * constraint is the backstop (the loser's insert conflicts and its batch rolls
  * back — one source, never two).
  */
-const getOrCreateDataSource = mutation({
-  args: { id: uuid, type: text, name: text },
-  handler: async (ctx, { id, type, name }): Promise<{ id: string }> => {
+const getOrCreateDataSource = wy.procedure
+  .input({ id: uuid, type: text, name: text })
+  .mutation(async (ctx, { id, type, name }): Promise<{ id: string }> => {
     const existing = (await ctx.db
       .from(dataSources)
       .where(eq("id", id))
@@ -349,12 +350,11 @@ const getOrCreateDataSource = mutation({
     })) as DataSourceRow[];
     if (!row) throw new Error("insert returned no row");
     return { id: row.id };
-  },
-});
+  });
 
 /** CreateDataSource — mints a DataSource with a client-supplied id + config. */
-const createDataSource = mutation({
-  args: {
+const createDataSource = wy.procedure
+  .input({
     id: uuid,
     type: text,
     name: text,
@@ -362,57 +362,58 @@ const createDataSource = mutation({
     connectionString: text.optional(),
     /** Artifact provenance carried by the emitter (agent vs user). */
     createdBy: jsonb.optional(),
-  },
-  handler: async (
-    ctx,
-    { id, type, name, apiKey, connectionString, createdBy },
-  ): Promise<{ id: string }> => {
-    const vault = vaultFromCtx(ctx);
-    const preview = modeFromCtx(ctx) === "preview";
-    // On the draft / publish-replay path, a captured credential arrives here AS a
-    // ref (pass-through, no re-store) and the prior-ref release is deferred to the
-    // lifecycle transition; on a direct canonical call, release is synchronous.
-    // (A fresh create has no prior ref, so deferral only matters for symmetry.)
-    const deferRelease = shouldDeferRelease(ctx);
-    const config: DataSourceConfig = {};
-    // store non-empty / skip-on-empty (applyCredentialField). On a fresh config an
-    // empty string is a no-op. A real store fails closed when no vault is injected.
-    // In preview mode the vault write is skipped — the DB transaction rolls back
-    // anyway, but vault.store() is a keychain side-effect outside the transaction
-    // that would survive the rollback and permanently orphan a secret.
-    await applyCredentialField(
-      config,
-      "apiKey",
-      apiKey,
-      vault,
-      `apiKey-${id}`,
-      preview,
-      deferRelease,
-    );
-    await applyCredentialField(
-      config,
-      "connectionString",
-      connectionString,
-      vault,
-      `connectionString-${id}`,
-      preview,
-      deferRelease,
-    );
-    const [row] = (await ctx.db.into(dataSources).insert({
-      id,
-      name,
-      kind: type,
-      storage: "live",
-      // Agent-emitted creates carry agent provenance (in the command, so it
-      // survives the publish log replay) so agent-authored sources are auditably
-      // distinct; an absent/malformed value defaults to user.
-      createdBy: coerceProvenance(createdBy),
-      config,
-    })) as DataSourceRow[];
-    if (!row) throw new Error("insert returned no row");
-    return { id: row.id };
-  },
-});
+  })
+  .mutation(
+    async (
+      ctx,
+      { id, type, name, apiKey, connectionString, createdBy },
+    ): Promise<{ id: string }> => {
+      const vault = vaultFromCtx(ctx);
+      const preview = modeFromCtx(ctx) === "preview";
+      // On the draft / publish-replay path, a captured credential arrives here AS a
+      // ref (pass-through, no re-store) and the prior-ref release is deferred to the
+      // lifecycle transition; on a direct canonical call, release is synchronous.
+      // (A fresh create has no prior ref, so deferral only matters for symmetry.)
+      const deferRelease = shouldDeferRelease(ctx);
+      const config: DataSourceConfig = {};
+      // store non-empty / skip-on-empty (applyCredentialField). On a fresh config an
+      // empty string is a no-op. A real store fails closed when no vault is injected.
+      // In preview mode the vault write is skipped — the DB transaction rolls back
+      // anyway, but vault.store() is a keychain side-effect outside the transaction
+      // that would survive the rollback and permanently orphan a secret.
+      await applyCredentialField(
+        config,
+        "apiKey",
+        apiKey,
+        vault,
+        `apiKey-${id}`,
+        preview,
+        deferRelease,
+      );
+      await applyCredentialField(
+        config,
+        "connectionString",
+        connectionString,
+        vault,
+        `connectionString-${id}`,
+        preview,
+        deferRelease,
+      );
+      const [row] = (await ctx.db.into(dataSources).insert({
+        id,
+        name,
+        kind: type,
+        storage: "live",
+        // Agent-emitted creates carry agent provenance (in the command, so it
+        // survives the publish log replay) so agent-authored sources are auditably
+        // distinct; an absent/malformed value defaults to user.
+        createdBy: coerceProvenance(createdBy),
+        config,
+      })) as DataSourceRow[];
+      if (!row) throw new Error("insert returned no row");
+      return { id: row.id };
+    },
+  );
 
 /**
  * SetDataSourceConfig — replaces the config slice of a DataSource (the connector
@@ -431,115 +432,116 @@ const createDataSource = mutation({
  * (inert orphan rather than dangling live reference).
  */
 async function flushAndReleaseRefs(
-  ctx: import("@wystack/server").FunctionContext,
+  ctx: DashframeFunctionContext,
   supersededRefs: SecretRef[],
   vault: import("@wystack/secret-vault").SecretVault | undefined,
   label: string,
 ): Promise<void> {
-  const flushSnapshot = (ctx as Record<string, unknown>).flushSnapshot as
-    | (() => Promise<void>)
-    | undefined;
-  await flushThenReleaseRefs(flushSnapshot, supersededRefs, vault, label);
+  await flushThenReleaseRefs(ctx.flushSnapshot, supersededRefs, vault, label);
 }
 
-const setDataSourceConfig = mutation({
-  args: {
+const setDataSourceConfig = wy.procedure
+  .input({
     id: uuid,
     apiKey: text.optional(),
     connectionString: text.optional(),
     extra: jsonb.optional(),
-  },
-  handler: async (
-    ctx,
-    { id, apiKey, connectionString, extra },
-  ): Promise<{ ok: true }> => {
-    const vault = vaultFromCtx(ctx);
-    const preview = modeFromCtx(ctx) === "preview";
-    // Defer prior-ref release to the publish/discard transition on the draft path;
-    // release synchronously on a direct canonical call (see createDataSource).
-    const deferRelease = shouldDeferRelease(ctx);
-    const current = (await ctx.db
-      .from(dataSources)
-      .where(eq("id", id))
-      .first()) as DataSourceRow | undefined;
-    if (!current) throw new Error(`Data source ${id} not found`);
-    const config = { ...((current.config ?? {}) as DataSourceConfig) };
-    // Sink guard FIRST: callers may not sneak credential keys in via `extra`.
-    // This validation must run BEFORE applyCredentialField, because a rotate stores
-    // a NEW vault ref (an irreversible keychain side-effect). If the guard threw
-    // after the store, a rejected request would have already minted an orphan
-    // secret. Validation before side-effects keeps a rejected write fully consistent.
-    // (Prior-ref release is deferred to the publish transition, not run here.)
-    if (isRecord(extra) && ("apiKey" in extra || "connectionString" in extra)) {
-      throw new Error(
-        "SetDataSourceConfig: 'apiKey' and 'connectionString' must use the typed credential fields, not extra",
-      );
-    }
-    // store non-empty (replaces any existing ref with a fresh one) / clear-on-empty
-    // (releases the prior vault ref + deletes the config key so hasApiKey reads false)
-    // / leave-on-undefined.
-    // applyCredentialField is the single choke point; a real store fails closed when
-    // no vault is injected. A captured/replayed ref passes through verbatim (no
-    // re-store, no plaintext in the log). On the draft path the prior canonical ref
-    // is NOT released here (deferRelease): release is the publish transition's job
-    // (it releases the replaced canonical ref post-commit, with a cross-draft-
-    // reference check) so a rolled-back publish never deletes a still-live secret.
-    // On a direct canonical call, the prior ref is collected here and released AFTER
-    // the canonical write is committed AND a snapshot is flushed to disk, so the
-    // snapshot capturing the new config is durable before the old ref is removed.
-    // In preview mode vault writes are skipped (keychain is not transactional).
-    //
-    // PRE-RELEASE FLUSH GATE (direct canonical path, !deferRelease, !preview):
-    //   store-new → canonical-write → flush-snapshot → release-old
-    // The superseded collector captures the old ref inside applyCredentialField
-    // instead of releasing it immediately, so the canonical write and snapshot
-    // flush can happen first.
-    const supersededRefs: SecretRef[] = [];
-    await applyCredentialField(
-      config,
-      "apiKey",
-      apiKey,
-      vault,
-      `apiKey-${id}`,
-      preview,
-      deferRelease,
-      supersededRefs,
-    );
-    await applyCredentialField(
-      config,
-      "connectionString",
-      connectionString,
-      vault,
-      `connectionString-${id}`,
-      preview,
-      deferRelease,
-      supersededRefs,
-    );
-    // Merge non-credential keys from `extra` into the config (guarded above).
-    if (isRecord(extra)) {
-      Object.assign(config, extra);
-    }
-    // PHASE 2: canonical write — new config (with new ref) is now committed.
-    await ctx.db.from(dataSources).where(eq("id", id)).update({ config });
-
-    // PHASE 3: flush snapshot then release old refs (direct canonical path only).
-    // Only relevant when the direct call actually superseded credential refs
-    // (!deferRelease is implied — deferRelease callers pass an empty superseded
-    // because applyCredentialField skips the collector on those paths).
-    // Fail-closed: `flushAndReleaseRefs` skips release when flushSnapshot is absent
-    // or throws — inert orphan rather than dangling live reference.
-    if (supersededRefs.length > 0 && !preview) {
-      await flushAndReleaseRefs(
-        ctx,
-        supersededRefs,
+  })
+  .mutation(
+    async (
+      ctx,
+      { id, apiKey, connectionString, extra },
+    ): Promise<{ ok: true }> => {
+      const vault = vaultFromCtx(ctx);
+      const preview = modeFromCtx(ctx) === "preview";
+      // Defer prior-ref release to the publish/discard transition on the draft path;
+      // release synchronously on a direct canonical call (see createDataSource).
+      const deferRelease = shouldDeferRelease(ctx);
+      const current = (await ctx.db
+        .from(dataSources)
+        .where(eq("id", id))
+        .first()) as DataSourceRow | undefined;
+      if (!current) throw new Error(`Data source ${id} not found`);
+      const config = { ...((current.config ?? {}) as DataSourceConfig) };
+      // Sink guard FIRST: callers may not sneak credential keys in via `extra`.
+      // This validation must run BEFORE applyCredentialField, because a rotate stores
+      // a NEW vault ref (an irreversible keychain side-effect). If the guard threw
+      // after the store, a rejected request would have already minted an orphan
+      // secret. Validation before side-effects keeps a rejected write fully consistent.
+      // (Prior-ref release is deferred to the publish transition, not run here.)
+      if (
+        isRecord(extra) &&
+        ("apiKey" in extra || "connectionString" in extra)
+      ) {
+        throw new Error(
+          "SetDataSourceConfig: 'apiKey' and 'connectionString' must use the typed credential fields, not extra",
+        );
+      }
+      // store non-empty (replaces any existing ref with a fresh one) / clear-on-empty
+      // (releases the prior vault ref + deletes the config key so hasApiKey reads false)
+      // / leave-on-undefined.
+      // applyCredentialField is the single choke point; a real store fails closed when
+      // no vault is injected. A captured/replayed ref passes through verbatim (no
+      // re-store, no plaintext in the log). On the draft path the prior canonical ref
+      // is NOT released here (deferRelease): release is the publish transition's job
+      // (it releases the replaced canonical ref post-commit, with a cross-draft-
+      // reference check) so a rolled-back publish never deletes a still-live secret.
+      // On a direct canonical call, the prior ref is collected here and released AFTER
+      // the canonical write is committed AND a snapshot is flushed to disk, so the
+      // snapshot capturing the new config is durable before the old ref is removed.
+      // In preview mode vault writes are skipped (keychain is not transactional).
+      //
+      // PRE-RELEASE FLUSH GATE (direct canonical path, !deferRelease, !preview):
+      //   store-new → canonical-write → flush-snapshot → release-old
+      // The superseded collector captures the old ref inside applyCredentialField
+      // instead of releasing it immediately, so the canonical write and snapshot
+      // flush can happen first.
+      const supersededRefs: SecretRef[] = [];
+      await applyCredentialField(
+        config,
+        "apiKey",
+        apiKey,
         vault,
-        "setDataSourceConfig",
+        `apiKey-${id}`,
+        preview,
+        deferRelease,
+        supersededRefs,
       );
-    }
+      await applyCredentialField(
+        config,
+        "connectionString",
+        connectionString,
+        vault,
+        `connectionString-${id}`,
+        preview,
+        deferRelease,
+        supersededRefs,
+      );
+      // Merge non-credential keys from `extra` into the config (guarded above).
+      if (isRecord(extra)) {
+        Object.assign(config, extra);
+      }
+      // PHASE 2: canonical write — new config (with new ref) is now committed.
+      await ctx.db.from(dataSources).where(eq("id", id)).update({ config });
 
-    return { ok: true };
-  },
-});
+      // PHASE 3: flush snapshot then release old refs (direct canonical path only).
+      // Only relevant when the direct call actually superseded credential refs
+      // (!deferRelease is implied — deferRelease callers pass an empty superseded
+      // because applyCredentialField skips the collector on those paths).
+      // Fail-closed: `flushAndReleaseRefs` skips release when flushSnapshot is absent
+      // or throws — inert orphan rather than dangling live reference.
+      if (supersededRefs.length > 0 && !preview) {
+        await flushAndReleaseRefs(
+          ctx,
+          supersededRefs,
+          vault,
+          "setDataSourceConfig",
+        );
+      }
+
+      return { ok: true };
+    },
+  );
 
 // ---------------------------------------------------------------------------
 // DataTable commands
@@ -550,8 +552,8 @@ const setDataSourceConfig = mutation({
  * DataSource (which an earlier command in the same batch may have created — the
  * shared tx handle makes that insert visible here).
  */
-const createDataTable = mutation({
-  args: {
+const createDataTable = wy.procedure
+  .input({
     id: uuid,
     dataSourceId: uuid,
     name: text,
@@ -560,8 +562,8 @@ const createDataTable = mutation({
     fields: jsonb.optional(),
     metrics: jsonb.optional(),
     dataFrameId: uuid.optional(),
-  },
-  handler: async (ctx, args): Promise<{ id: string }> => {
+  })
+  .mutation(async (ctx, args): Promise<{ id: string }> => {
     const [row] = (await ctx.db.into(dataTables).insert({
       id: args.id,
       dataSourceId: args.dataSourceId,
@@ -574,8 +576,7 @@ const createDataTable = mutation({
     })) as DataTableRow[];
     if (!row) throw new Error("insert returned no row");
     return { id: row.id };
-  },
-});
+  });
 
 /**
  * Throw if no DataTable with `id` exists. An UPDATE on a missing id touches 0
@@ -592,30 +593,28 @@ async function requireDataTable(
 }
 
 /** SetDataTableSchema — replaces the discovered source schema slice. */
-const setDataTableSchema = mutation({
-  args: { id: uuid, sourceSchema: jsonb },
-  handler: async (ctx, { id, sourceSchema }): Promise<{ ok: true }> => {
+const setDataTableSchema = wy.procedure
+  .input({ id: uuid, sourceSchema: jsonb })
+  .mutation(async (ctx, { id, sourceSchema }): Promise<{ ok: true }> => {
     await requireDataTable(ctx, id);
     await ctx.db
       .from(dataTables)
       .where(eq("id", id))
       .update({ sourceSchema: sourceSchema as SourceSchema });
     return { ok: true };
-  },
-});
+  });
 
 /** RefreshDataTable — points the table at a new DataFrame and stamps the fetch. */
-const refreshDataTable = mutation({
-  args: { id: uuid, dataFrameId: uuid },
-  handler: async (ctx, { id, dataFrameId }): Promise<{ ok: true }> => {
+const refreshDataTable = wy.procedure
+  .input({ id: uuid, dataFrameId: uuid })
+  .mutation(async (ctx, { id, dataFrameId }): Promise<{ ok: true }> => {
     await requireDataTable(ctx, id);
     await ctx.db
       .from(dataTables)
       .where(eq("id", id))
       .update({ dataFrameId, lastFetchedAt: new Date() });
     return { ok: true };
-  },
-});
+  });
 
 // ---------------------------------------------------------------------------
 // Insight commands
@@ -629,15 +628,15 @@ const refreshDataTable = mutation({
  * carries the upstream insight id; consumers resolving the structural source
  * read `source.sourceType` to disambiguate.
  */
-const createInsight = mutation({
-  args: {
+const createInsight = wy.procedure
+  .input({
     id: uuid,
     name: text,
     source: jsonb,
     selectedFields: jsonb.optional(),
     metrics: jsonb.optional(),
-  },
-  handler: async (ctx, args): Promise<{ id: string }> => {
+  })
+  .mutation(async (ctx, args): Promise<{ id: string }> => {
     const parsedSource = insightSourceSchema.safeParse(args.source);
     if (!parsedSource.success) {
       throw new Error(
@@ -672,8 +671,7 @@ const createInsight = mutation({
     })) as InsightRow[];
     if (!row) throw new Error("insert returned no row");
     return { id: row.id };
-  },
-});
+  });
 
 /**
  * SetInsightSource — re-points an Insight's input to a DataTable or another
@@ -681,9 +679,9 @@ const createInsight = mutation({
  * would create a cycle — i.e. if the proposed source already depends on this
  * Insight transitively.
  */
-const setInsightSource = mutation({
-  args: { id: uuid, source: jsonb },
-  handler: async (ctx, { id, source: rawSource }): Promise<{ ok: true }> => {
+const setInsightSource = wy.procedure
+  .input({ id: uuid, source: jsonb })
+  .mutation(async (ctx, { id, source: rawSource }): Promise<{ ok: true }> => {
     const parsedSource = insightSourceSchema.safeParse(rawSource);
     if (!parsedSource.success) {
       throw new Error(
@@ -718,17 +716,16 @@ const setInsightSource = mutation({
       .where(eq("id", id))
       .update({ definition: next });
     return { ok: true };
-  },
-});
+  });
 
 /**
  * SelectFields — replace-all set of selected dimension field ids on an Insight.
  * Replace-all semantics: the caller supplies the desired final set; incremental
  * add/remove is done client-side before calling this command.
  */
-const selectFields = mutation({
-  args: { id: uuid, fieldIds: jsonb },
-  handler: async (ctx, { id, fieldIds }): Promise<{ ok: true }> => {
+const selectFields = wy.procedure
+  .input({ id: uuid, fieldIds: jsonb })
+  .mutation(async (ctx, { id, fieldIds }): Promise<{ ok: true }> => {
     const { definition } = await requireInsightDefinition(ctx, id);
     const next: StoredInsightDefinition = {
       ...definition,
@@ -739,8 +736,7 @@ const selectFields = mutation({
       .where(eq("id", id))
       .update({ definition: next });
     return { ok: true };
-  },
-});
+  });
 
 /**
  * SetInsightFilter — replace-all filter predicates. Each filter value operand
@@ -749,9 +745,9 @@ const selectFields = mutation({
  * The command stores operands opaquely — validation of the union discriminant
  * is shape-only here; unknown handles fail at publish binding (Draft spec).
  */
-const setInsightFilter = mutation({
-  args: { id: uuid, filters: jsonb },
-  handler: async (ctx, { id, filters }): Promise<{ ok: true }> => {
+const setInsightFilter = wy.procedure
+  .input({ id: uuid, filters: jsonb })
+  .mutation(async (ctx, { id, filters }): Promise<{ ok: true }> => {
     const { definition } = await requireInsightDefinition(ctx, id);
     const next: StoredInsightDefinition = {
       ...definition,
@@ -762,16 +758,15 @@ const setInsightFilter = mutation({
       .where(eq("id", id))
       .update({ definition: next });
     return { ok: true };
-  },
-});
+  });
 
 /**
  * SetInsightSort — replace-all sort order. Replace-all semantics mirror
  * SetInsightFilter: the complete desired sort list replaces the existing one.
  */
-const setInsightSort = mutation({
-  args: { id: uuid, sorts: jsonb },
-  handler: async (ctx, { id, sorts }): Promise<{ ok: true }> => {
+const setInsightSort = wy.procedure
+  .input({ id: uuid, sorts: jsonb })
+  .mutation(async (ctx, { id, sorts }): Promise<{ ok: true }> => {
     const { definition } = await requireInsightDefinition(ctx, id);
     const next: StoredInsightDefinition = {
       ...definition,
@@ -782,8 +777,7 @@ const setInsightSort = mutation({
       .where(eq("id", id))
       .update({ definition: next });
     return { ok: true };
-  },
-});
+  });
 
 /**
  * Apply one incremental edit to the `joins` collection in an Insight definition.
@@ -853,9 +847,9 @@ function requireJoinShape(value: unknown): InsightJoinConfig {
 }
 
 /** AddJoin — append an inline join to an Insight. */
-const addJoin = mutation({
-  args: { id: uuid, join: jsonb },
-  handler: async (ctx, { id, join }): Promise<{ ok: true }> => {
+const addJoin = wy.procedure
+  .input({ id: uuid, join: jsonb })
+  .mutation(async (ctx, { id, join }): Promise<{ ok: true }> => {
     const validated = requireJoinShape(join);
     // The rightTableId has no stored FK (joins live in jsonb), so verify it
     // resolves to an existing DataTable — an unresolved join table is silently
@@ -882,13 +876,12 @@ const addJoin = mutation({
       .where(eq("id", id))
       .update({ definition: next });
     return { ok: true };
-  },
-});
+  });
 
 /** UpdateJoin — edit a join's keys/type at the given array index. */
-const updateJoin = mutation({
-  args: { id: uuid, joinIndex: jsonb, updates: jsonb },
-  handler: async (ctx, { id, joinIndex, updates }): Promise<{ ok: true }> => {
+const updateJoin = wy.procedure
+  .input({ id: uuid, joinIndex: jsonb, updates: jsonb })
+  .mutation(async (ctx, { id, joinIndex, updates }): Promise<{ ok: true }> => {
     if (!isRecord(updates) || Object.keys(updates).length === 0) {
       throw new Error("updates are required for UpdateJoin");
     }
@@ -915,13 +908,12 @@ const updateJoin = mutation({
       .where(eq("id", id))
       .update({ definition: next });
     return { ok: true };
-  },
-});
+  });
 
 /** RemoveJoin — drop the join at the given array index. */
-const removeJoin = mutation({
-  args: { id: uuid, joinIndex: jsonb },
-  handler: async (ctx, { id, joinIndex }): Promise<{ ok: true }> => {
+const removeJoin = wy.procedure
+  .input({ id: uuid, joinIndex: jsonb })
+  .mutation(async (ctx, { id, joinIndex }): Promise<{ ok: true }> => {
     if (
       typeof joinIndex !== "number" ||
       !Number.isInteger(joinIndex) ||
@@ -944,8 +936,7 @@ const removeJoin = mutation({
       .where(eq("id", id))
       .update({ definition: next });
     return { ok: true };
-  },
-});
+  });
 
 // ---------------------------------------------------------------------------
 // Fields & Metrics commands — target a DataFrame-producing node via {nodeId}
@@ -1177,49 +1168,45 @@ function applyCollectionOp(
   }
 }
 
-const addField = mutation({
-  args: { nodeId: uuid, field: jsonb },
-  handler: async (ctx, { nodeId, field }): Promise<FieldMetricResult> => {
+const addField = wy.procedure
+  .input({ nodeId: uuid, field: jsonb })
+  .mutation(async (ctx, { nodeId, field }): Promise<FieldMetricResult> => {
     const kind = await patchDataTableCollection(ctx, nodeId, "fields", {
       mode: "add",
       item: requireRecordWithId(field, "field") as unknown as Field,
     });
     return { ok: true, target: { kind, id: nodeId } };
-  },
-});
+  });
 
-const updateField = mutation({
-  args: { nodeId: uuid, fieldId: uuid, updates: jsonb },
-  handler: async (
-    ctx,
-    { nodeId, fieldId, updates },
-  ): Promise<FieldMetricResult> => {
-    if (!isRecord(updates) || Object.keys(updates).length === 0) {
-      throw new Error("updates are required for UpdateField");
-    }
-    const kind = await patchDataTableCollection(ctx, nodeId, "fields", {
-      mode: "update",
-      itemId: fieldId,
-      updates,
-    });
-    return { ok: true, target: { kind, id: nodeId } };
-  },
-});
+const updateField = wy.procedure
+  .input({ nodeId: uuid, fieldId: uuid, updates: jsonb })
+  .mutation(
+    async (ctx, { nodeId, fieldId, updates }): Promise<FieldMetricResult> => {
+      if (!isRecord(updates) || Object.keys(updates).length === 0) {
+        throw new Error("updates are required for UpdateField");
+      }
+      const kind = await patchDataTableCollection(ctx, nodeId, "fields", {
+        mode: "update",
+        itemId: fieldId,
+        updates,
+      });
+      return { ok: true, target: { kind, id: nodeId } };
+    },
+  );
 
-const removeField = mutation({
-  args: { nodeId: uuid, fieldId: uuid },
-  handler: async (ctx, { nodeId, fieldId }): Promise<FieldMetricResult> => {
+const removeField = wy.procedure
+  .input({ nodeId: uuid, fieldId: uuid })
+  .mutation(async (ctx, { nodeId, fieldId }): Promise<FieldMetricResult> => {
     const kind = await patchDataTableCollection(ctx, nodeId, "fields", {
       mode: "remove",
       itemId: fieldId,
     });
     return { ok: true, target: { kind, id: nodeId } };
-  },
-});
+  });
 
-const addMetric = mutation({
-  args: { nodeId: uuid, metric: jsonb },
-  handler: async (ctx, { nodeId, metric }): Promise<FieldMetricResult> => {
+const addMetric = wy.procedure
+  .input({ nodeId: uuid, metric: jsonb })
+  .mutation(async (ctx, { nodeId, metric }): Promise<FieldMetricResult> => {
     const kind = await patchDataTableCollection(ctx, nodeId, "metrics", {
       mode: "add",
       // Cast as Metric | InsightMetric — the insight branch validates sourceTable
@@ -1230,37 +1217,33 @@ const addMetric = mutation({
         | InsightMetric,
     });
     return { ok: true, target: { kind, id: nodeId } };
-  },
-});
+  });
 
-const updateMetric = mutation({
-  args: { nodeId: uuid, metricId: uuid, updates: jsonb },
-  handler: async (
-    ctx,
-    { nodeId, metricId, updates },
-  ): Promise<FieldMetricResult> => {
-    if (!isRecord(updates) || Object.keys(updates).length === 0) {
-      throw new Error("updates are required for UpdateMetric");
-    }
-    const kind = await patchDataTableCollection(ctx, nodeId, "metrics", {
-      mode: "update",
-      itemId: metricId,
-      updates,
-    });
-    return { ok: true, target: { kind, id: nodeId } };
-  },
-});
+const updateMetric = wy.procedure
+  .input({ nodeId: uuid, metricId: uuid, updates: jsonb })
+  .mutation(
+    async (ctx, { nodeId, metricId, updates }): Promise<FieldMetricResult> => {
+      if (!isRecord(updates) || Object.keys(updates).length === 0) {
+        throw new Error("updates are required for UpdateMetric");
+      }
+      const kind = await patchDataTableCollection(ctx, nodeId, "metrics", {
+        mode: "update",
+        itemId: metricId,
+        updates,
+      });
+      return { ok: true, target: { kind, id: nodeId } };
+    },
+  );
 
-const removeMetric = mutation({
-  args: { nodeId: uuid, metricId: uuid },
-  handler: async (ctx, { nodeId, metricId }): Promise<FieldMetricResult> => {
+const removeMetric = wy.procedure
+  .input({ nodeId: uuid, metricId: uuid })
+  .mutation(async (ctx, { nodeId, metricId }): Promise<FieldMetricResult> => {
     const kind = await patchDataTableCollection(ctx, nodeId, "metrics", {
       mode: "remove",
       itemId: metricId,
     });
     return { ok: true, target: { kind, id: nodeId } };
-  },
-});
+  });
 
 // ---------------------------------------------------------------------------
 // Visualization commands
@@ -1283,16 +1266,16 @@ function stripDataFromSpec(spec: VegaLiteSpec): VegaLiteSpec {
  * the UI creates a 1:1 feel by batching CreateInsight + CreateVisualization in
  * one envelope, but the model keeps one-query-many-charts open.
  */
-const createVisualization = mutation({
-  args: {
+const createVisualization = wy.procedure
+  .input({
     id: uuid,
     name: text,
     insightId: uuid,
     visualizationType: text,
     spec: jsonb,
     encoding: jsonb.optional(),
-  },
-  handler: async (ctx, args): Promise<{ id: string }> => {
+  })
+  .mutation(async (ctx, args): Promise<{ id: string }> => {
     const [row] = (await ctx.db.into(visualizations).insert({
       id: args.id,
       name: args.name,
@@ -1304,8 +1287,7 @@ const createVisualization = mutation({
     })) as VisualizationRow[];
     if (!row) throw new Error("insert returned no row");
     return { id: row.id };
-  },
-});
+  });
 
 async function requireVisualization(
   ctx: { db: import("@wystack/db").DrizzleTracker },
@@ -1319,26 +1301,25 @@ async function requireVisualization(
  * SetChartType — change the chart type for an existing Visualization.
  * Decomposed out of the coarse `updateVisualization` blob handler.
  */
-const setChartType = mutation({
-  args: { id: uuid, visualizationType: text },
-  handler: async (ctx, { id, visualizationType }): Promise<{ ok: true }> => {
+const setChartType = wy.procedure
+  .input({ id: uuid, visualizationType: text })
+  .mutation(async (ctx, { id, visualizationType }): Promise<{ ok: true }> => {
     await requireVisualization(ctx, id);
     await ctx.db
       .from(visualizations)
       .where(eq("id", id))
       .update({ chartType: visualizationType });
     return { ok: true };
-  },
-});
+  });
 
 /**
  * SetChartEncoding — set the field→channel encoding (and resulting Vega-Lite
  * spec) for a Visualization. `spec` is optional — omitting it leaves the
  * existing spec untouched.
  */
-const setChartEncoding = mutation({
-  args: { id: uuid, encoding: jsonb, spec: jsonb.optional() },
-  handler: async (ctx, { id, encoding, spec }): Promise<{ ok: true }> => {
+const setChartEncoding = wy.procedure
+  .input({ id: uuid, encoding: jsonb, spec: jsonb.optional() })
+  .mutation(async (ctx, { id, encoding, spec }): Promise<{ ok: true }> => {
     await requireVisualization(ctx, id);
     const patch: Partial<VisualizationRow> = {
       encoding: encoding as VisualizationEncoding,
@@ -1348,8 +1329,7 @@ const setChartEncoding = mutation({
     }
     await ctx.db.from(visualizations).where(eq("id", id)).update(patch);
     return { ok: true };
-  },
-});
+  });
 
 // ---------------------------------------------------------------------------
 // Dashboard commands
@@ -1468,9 +1448,9 @@ function sanitizeDashboardItemUpdates(
 /**
  * CreateDashboard — mints an empty dashboard with a client-supplied id.
  */
-const createDashboard = mutation({
-  args: { id: uuid, name: text, description: text.optional() },
-  handler: async (ctx, { id, name, description }): Promise<{ id: string }> => {
+const createDashboard = wy.procedure
+  .input({ id: uuid, name: text, description: text.optional() })
+  .mutation(async (ctx, { id, name, description }): Promise<{ id: string }> => {
     const [row] = (await ctx.db.into(dashboards).insert({
       id,
       name,
@@ -1480,8 +1460,7 @@ const createDashboard = mutation({
     })) as DashboardRow[];
     if (!row) throw new Error("insert returned no row");
     return { id: row.id };
-  },
-});
+  });
 
 /**
  * AddDashboardItem — place a viz panel or markdown block on a dashboard.
@@ -1490,25 +1469,23 @@ const createDashboard = mutation({
  * client-id invariant as every Create command). Duplicate ids are rejected so
  * UpdateDashboardItem and RemoveDashboardItem always address exactly one item.
  */
-const addDashboardItem = mutation({
-  args: { dashboardId: uuid, item: jsonb },
-  handler: async (
-    ctx,
-    { dashboardId, item: rawItem },
-  ): Promise<{ ok: true }> => {
-    const item = requireDashboardItem(rawItem);
-    const items = await requireDashboardItems(ctx, dashboardId);
-    if (items.some((it) => it.id === item.id)) {
-      throw new Error(`Dashboard item ${item.id} already exists`);
-    }
-    items.push(item);
-    await ctx.db
-      .from(dashboards)
-      .where(eq("id", dashboardId))
-      .update({ layout: items });
-    return { ok: true };
-  },
-});
+const addDashboardItem = wy.procedure
+  .input({ dashboardId: uuid, item: jsonb })
+  .mutation(
+    async (ctx, { dashboardId, item: rawItem }): Promise<{ ok: true }> => {
+      const item = requireDashboardItem(rawItem);
+      const items = await requireDashboardItems(ctx, dashboardId);
+      if (items.some((it) => it.id === item.id)) {
+        throw new Error(`Dashboard item ${item.id} already exists`);
+      }
+      items.push(item);
+      await ctx.db
+        .from(dashboards)
+        .where(eq("id", dashboardId))
+        .update({ layout: items });
+      return { ok: true };
+    },
+  );
 
 /**
  * UpdateDashboardItem — move/resize/edit one item.
@@ -1516,42 +1493,40 @@ const addDashboardItem = mutation({
  * Guard: rejects a missing itemId. Pins `id` and `type` so updates cannot
  * change structural container keys (mirrors UpdateField's id-pin contract).
  */
-const updateDashboardItem = mutation({
-  args: { dashboardId: uuid, itemId: uuid, updates: jsonb },
-  handler: async (
-    ctx,
-    { dashboardId, itemId, updates },
-  ): Promise<{ ok: true }> => {
-    if (!isRecord(updates) || Object.keys(updates).length === 0) {
-      throw new Error("updates are required for UpdateDashboardItem");
-    }
-    const items = await requireDashboardItems(ctx, dashboardId);
-    if (!items.some((it) => it.id === itemId)) {
-      throw new Error(`Dashboard item ${itemId} not found`);
-    }
-    // Filter `updates` to recognized fields with correct primitive types before
-    // merging — the raw command path would otherwise write `{ x: "left" }` into
-    // layout coordinates consumers assume are numeric. Pin `id` and `type` last —
-    // type is a structural key (determines which optional fields are valid), so
-    // callers cannot rebind it via updates.
-    const sanitized = sanitizeDashboardItemUpdates(updates);
-    const next = items.map((it) =>
-      it.id === itemId
-        ? {
-            ...it,
-            ...sanitized,
-            id: it.id,
-            type: it.type,
-          }
-        : it,
-    );
-    await ctx.db
-      .from(dashboards)
-      .where(eq("id", dashboardId))
-      .update({ layout: next });
-    return { ok: true };
-  },
-});
+const updateDashboardItem = wy.procedure
+  .input({ dashboardId: uuid, itemId: uuid, updates: jsonb })
+  .mutation(
+    async (ctx, { dashboardId, itemId, updates }): Promise<{ ok: true }> => {
+      if (!isRecord(updates) || Object.keys(updates).length === 0) {
+        throw new Error("updates are required for UpdateDashboardItem");
+      }
+      const items = await requireDashboardItems(ctx, dashboardId);
+      if (!items.some((it) => it.id === itemId)) {
+        throw new Error(`Dashboard item ${itemId} not found`);
+      }
+      // Filter `updates` to recognized fields with correct primitive types before
+      // merging — the raw command path would otherwise write `{ x: "left" }` into
+      // layout coordinates consumers assume are numeric. Pin `id` and `type` last —
+      // type is a structural key (determines which optional fields are valid), so
+      // callers cannot rebind it via updates.
+      const sanitized = sanitizeDashboardItemUpdates(updates);
+      const next = items.map((it) =>
+        it.id === itemId
+          ? {
+              ...it,
+              ...sanitized,
+              id: it.id,
+              type: it.type,
+            }
+          : it,
+      );
+      await ctx.db
+        .from(dashboards)
+        .where(eq("id", dashboardId))
+        .update({ layout: next });
+      return { ok: true };
+    },
+  );
 
 /**
  * SetDashboardLayout — replace the whole layout at once (bulk drag-rearrange).
@@ -1560,9 +1535,9 @@ const updateDashboardItem = mutation({
  * UpdateDashboardItem and RemoveDashboardItem both rely on id uniqueness, so a
  * duplicate in the incoming list would corrupt those operations. Guard it.
  */
-const setDashboardLayout = mutation({
-  args: { dashboardId: uuid, items: jsonb },
-  handler: async (ctx, { dashboardId, items }): Promise<{ ok: true }> => {
+const setDashboardLayout = wy.procedure
+  .input({ dashboardId: uuid, items: jsonb })
+  .mutation(async (ctx, { dashboardId, items }): Promise<{ ok: true }> => {
     // Guard existence first — a missing dashboard would silently do nothing.
     await requireDashboardItems(ctx, dashboardId);
     const parsed = items as DashboardItem[];
@@ -1575,16 +1550,15 @@ const setDashboardLayout = mutation({
       .where(eq("id", dashboardId))
       .update({ layout: parsed });
     return { ok: true };
-  },
-});
+  });
 
 /**
  * RemoveDashboardItem — remove one panel by id.
  * Guard: rejects a missing itemId (no silent no-op).
  */
-const removeDashboardItem = mutation({
-  args: { dashboardId: uuid, itemId: uuid },
-  handler: async (ctx, { dashboardId, itemId }): Promise<{ ok: true }> => {
+const removeDashboardItem = wy.procedure
+  .input({ dashboardId: uuid, itemId: uuid })
+  .mutation(async (ctx, { dashboardId, itemId }): Promise<{ ok: true }> => {
     const items = await requireDashboardItems(ctx, dashboardId);
     if (!items.some((it) => it.id === itemId)) {
       throw new Error(`Dashboard item ${itemId} not found`);
@@ -1594,8 +1568,7 @@ const removeDashboardItem = mutation({
       .where(eq("id", dashboardId))
       .update({ layout: items.filter((it) => it.id !== itemId) });
     return { ok: true };
-  },
-});
+  });
 
 /**
  * FanOutDashboardItems — batch-clone a source viz item N times, each pinning
@@ -1616,129 +1589,130 @@ const removeDashboardItem = mutation({
  *     replaces an existing filter on the same field (in-place) or appends.
  *   - The source item itself and the insight definition are never mutated.
  */
-const fanOutDashboardItems = mutation({
-  args: {
+const fanOutDashboardItems = wy.procedure
+  .input({
     dashboardId: uuid,
     sourceItemId: uuid,
     field: text,
     placements: jsonb,
-  },
-  handler: async (
-    ctx,
-    { dashboardId, sourceItemId, field, placements: rawPlacements },
-  ): Promise<{ ok: true; created: string[] }> => {
-    // Validate placements shape.
-    if (!Array.isArray(rawPlacements) || rawPlacements.length === 0) {
-      throw new Error(
-        "FanOutDashboardItems: placements must be a non-empty array",
-      );
-    }
-    type Placement = {
-      id: string;
-      value: unknown;
-      x: number;
-      y: number;
-      width?: number;
-      height?: number;
-    };
-    const placements = rawPlacements as Placement[];
-    for (const p of placements) {
-      if (typeof p.id !== "string") {
+  })
+  .mutation(
+    async (
+      ctx,
+      { dashboardId, sourceItemId, field, placements: rawPlacements },
+    ): Promise<{ ok: true; created: string[] }> => {
+      // Validate placements shape.
+      if (!Array.isArray(rawPlacements) || rawPlacements.length === 0) {
         throw new Error(
-          "FanOutDashboardItems: each placement must have a string id",
+          "FanOutDashboardItems: placements must be a non-empty array",
         );
       }
-      if (typeof p.x !== "number" || typeof p.y !== "number") {
-        throw new Error(
-          "FanOutDashboardItems: each placement must have numeric x and y",
-        );
-      }
-      // Reject missing `value` key explicitly (use `in` not truthiness so that
-      // null and false are valid pin values — only absent-key is an error).
-      if (!("value" in p)) {
-        throw new Error(
-          "FanOutDashboardItems: each placement must include a value key",
-        );
-      }
-    }
-
-    const items = await requireDashboardItems(ctx, dashboardId);
-
-    // Locate the source item.
-    const source = items.find((it) => it.id === sourceItemId);
-    if (!source) {
-      throw new Error(
-        `FanOutDashboardItems: source item ${sourceItemId} not found`,
-      );
-    }
-    if (source.type !== "visualization" || !source.visualizationId) {
-      throw new Error(
-        "FanOutDashboardItems: source item must be a visualization with a visualizationId",
-      );
-    }
-
-    // Guard: all clone ids must be unique against each other AND the existing
-    // layout (the client-id invariant).
-    const existingIds = new Set(items.map((it) => it.id));
-    const newIds = placements.map((p) => p.id);
-    if (new Set(newIds).size !== newIds.length) {
-      throw new Error(
-        "FanOutDashboardItems: placements contains duplicate ids",
-      );
-    }
-    for (const newId of newIds) {
-      if (existingIds.has(newId)) {
-        throw new Error(
-          `FanOutDashboardItems: clone id ${newId} already exists in the dashboard`,
-        );
-      }
-    }
-
-    // Build N clones. Each clone inherits the source's overrides.filters (and
-    // sorts/limit) then replaces/appends the pin for `field`.
-    const sourceFilters: DashboardItemOverrides["filters"] =
-      source.overrides?.filters ?? [];
-    // Spread to avoid sharing the same array reference across all N clones —
-    // the serialization collapses the alias today, but explicit isolation makes
-    // any future per-clone mutation safe.
-    const sourceSorts = source.overrides?.sorts
-      ? [...source.overrides.sorts]
-      : undefined;
-    const sourceLimit = source.overrides?.limit;
-
-    const clones: DashboardItem[] = placements.map((p) => {
-      // Clone the source filters array; replace the filter for `field` in-place
-      // if one exists, otherwise append. Stable ordering for reproducibility.
-      const baseFilters = sourceFilters.filter((f) => f.field !== field);
-      const pin = { field, operator: "eq" as const, value: p.value };
-      const filters = [...baseFilters, pin];
-
-      const overrides: DashboardItemOverrides = { filters };
-      if (sourceSorts) overrides.sorts = sourceSorts;
-      if (sourceLimit !== undefined) overrides.limit = sourceLimit;
-
-      return {
-        id: p.id,
-        type: "visualization",
-        visualizationId: source.visualizationId,
-        x: p.x,
-        y: p.y,
-        width: typeof p.width === "number" ? p.width : source.width,
-        height: typeof p.height === "number" ? p.height : source.height,
-        overrides,
+      type Placement = {
+        id: string;
+        value: unknown;
+        x: number;
+        y: number;
+        width?: number;
+        height?: number;
       };
-    });
+      const placements = rawPlacements as Placement[];
+      for (const p of placements) {
+        if (typeof p.id !== "string") {
+          throw new Error(
+            "FanOutDashboardItems: each placement must have a string id",
+          );
+        }
+        if (typeof p.x !== "number" || typeof p.y !== "number") {
+          throw new Error(
+            "FanOutDashboardItems: each placement must have numeric x and y",
+          );
+        }
+        // Reject missing `value` key explicitly (use `in` not truthiness so that
+        // null and false are valid pin values — only absent-key is an error).
+        if (!("value" in p)) {
+          throw new Error(
+            "FanOutDashboardItems: each placement must include a value key",
+          );
+        }
+      }
 
-    // Write all clones into the layout in one read-modify-write.
-    const next = [...items, ...clones];
-    await ctx.db
-      .from(dashboards)
-      .where(eq("id", dashboardId))
-      .update({ layout: next });
+      const items = await requireDashboardItems(ctx, dashboardId);
 
-    return { ok: true, created: newIds };
-  },
-});
+      // Locate the source item.
+      const source = items.find((it) => it.id === sourceItemId);
+      if (!source) {
+        throw new Error(
+          `FanOutDashboardItems: source item ${sourceItemId} not found`,
+        );
+      }
+      if (source.type !== "visualization" || !source.visualizationId) {
+        throw new Error(
+          "FanOutDashboardItems: source item must be a visualization with a visualizationId",
+        );
+      }
+
+      // Guard: all clone ids must be unique against each other AND the existing
+      // layout (the client-id invariant).
+      const existingIds = new Set(items.map((it) => it.id));
+      const newIds = placements.map((p) => p.id);
+      if (new Set(newIds).size !== newIds.length) {
+        throw new Error(
+          "FanOutDashboardItems: placements contains duplicate ids",
+        );
+      }
+      for (const newId of newIds) {
+        if (existingIds.has(newId)) {
+          throw new Error(
+            `FanOutDashboardItems: clone id ${newId} already exists in the dashboard`,
+          );
+        }
+      }
+
+      // Build N clones. Each clone inherits the source's overrides.filters (and
+      // sorts/limit) then replaces/appends the pin for `field`.
+      const sourceFilters: DashboardItemOverrides["filters"] =
+        source.overrides?.filters ?? [];
+      // Spread to avoid sharing the same array reference across all N clones —
+      // the serialization collapses the alias today, but explicit isolation makes
+      // any future per-clone mutation safe.
+      const sourceSorts = source.overrides?.sorts
+        ? [...source.overrides.sorts]
+        : undefined;
+      const sourceLimit = source.overrides?.limit;
+
+      const clones: DashboardItem[] = placements.map((p) => {
+        // Clone the source filters array; replace the filter for `field` in-place
+        // if one exists, otherwise append. Stable ordering for reproducibility.
+        const baseFilters = sourceFilters.filter((f) => f.field !== field);
+        const pin = { field, operator: "eq" as const, value: p.value };
+        const filters = [...baseFilters, pin];
+
+        const overrides: DashboardItemOverrides = { filters };
+        if (sourceSorts) overrides.sorts = sourceSorts;
+        if (sourceLimit !== undefined) overrides.limit = sourceLimit;
+
+        return {
+          id: p.id,
+          type: "visualization",
+          visualizationId: source.visualizationId,
+          x: p.x,
+          y: p.y,
+          width: typeof p.width === "number" ? p.width : source.width,
+          height: typeof p.height === "number" ? p.height : source.height,
+          overrides,
+        };
+      });
+
+      // Write all clones into the layout in one read-modify-write.
+      const next = [...items, ...clones];
+      await ctx.db
+        .from(dashboards)
+        .where(eq("id", dashboardId))
+        .update({ layout: next });
+
+      return { ok: true, created: newIds };
+    },
+  );
 
 // ---------------------------------------------------------------------------
 // Cross-cutting: RenameNode (one polymorphic rename)
@@ -1763,9 +1737,9 @@ export interface RenameNodeResult {
  * is identical across them. The result reports the resolved target so the
  * preview reads the decision rather than re-deriving it.
  */
-const renameNode = mutation({
-  args: { id: uuid, name: text },
-  handler: async (ctx, { id, name }): Promise<RenameNodeResult> => {
+const renameNode = wy.procedure
+  .input({ id: uuid, name: text })
+  .mutation(async (ctx, { id, name }): Promise<RenameNodeResult> => {
     // Probe order (dataTables → dataSources → insights) is load-bearing: the
     // preview builder reads `renamed` to learn which artifact this rename hit
     // rather than re-deriving the resolution (public issue #64). The reported
@@ -1797,8 +1771,7 @@ const renameNode = mutation({
       return { ok: true, renamed: { kind: "dashboard", id } };
     }
     throw new Error(`Node ${id} not found`);
-  },
-});
+  });
 
 // ---------------------------------------------------------------------------
 // Cross-cutting: DeleteNode (one polymorphic delete — typed-edge cascade rule)
@@ -1994,7 +1967,7 @@ async function deleteDataSourceDependents(
  * inert orphan, never a dangling live reference.
  */
 async function releaseDataSourceCredentials(
-  ctx: import("@wystack/server").FunctionContext,
+  ctx: DashframeFunctionContext,
   sourceConfig: DataSourceConfig,
 ): Promise<void> {
   const vault = vaultFromCtx(ctx);
@@ -2005,9 +1978,7 @@ async function releaseDataSourceCredentials(
   // (a) preview, (b) no refs, (c) deferred path — all skip.
   if (preview || !hasCredentialRefs || shouldDeferRelease(ctx)) return;
 
-  const flushSnapshot = (ctx as Record<string, unknown>).flushSnapshot as
-    | (() => Promise<void>)
-    | undefined;
+  const flushSnapshot = ctx.flushSnapshot;
   if (flushSnapshot == null) {
     // Fail-closed: no durable-flush hook → cannot prove snapshot precedes
     // release → skip to avoid a dangling live reference on a stale snapshot.
@@ -2048,7 +2019,7 @@ async function releaseDataSourceCredentials(
  * collects the refs via `collectDeletedSourceRefs` before the transaction.
  */
 function assertVaultPresentForCredentialDelete(
-  ctx: import("@wystack/server").FunctionContext,
+  ctx: DashframeFunctionContext,
   sourceConfig: DataSourceConfig,
 ): void {
   if (shouldDeferRelease(ctx)) return; // deferred path: vault check is not this fn's job
@@ -2103,9 +2074,9 @@ function assertVaultPresentForCredentialDelete(
  * repair target is TBD.
  * Nothing is silently orphaned and no authored artifact is silently destroyed.
  */
-const deleteNode = mutation({
-  args: { id: uuid },
-  handler: async (ctx, { id }): Promise<DeleteNodeResult> => {
+const deleteNode = wy.procedure
+  .input({ id: uuid })
+  .mutation(async (ctx, { id }): Promise<DeleteNodeResult> => {
     // --- Visualization -------------------------------------------------------
     // No owned children. Reference boundary: Dashboards that contain this
     // visualization via a layout item's `visualizationId` are orphaned when the
@@ -2263,8 +2234,7 @@ const deleteNode = mutation({
     }
 
     throw new Error(`Node ${id} not found`);
-  },
-});
+  });
 
 /**
  * The command-backing mutation registry. Spread into the app's `functions` so

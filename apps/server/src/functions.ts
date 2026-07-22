@@ -3,14 +3,14 @@
  *
  * Defined once here, consumed two ways (the tRPC pattern):
  *   - runtime: the server app (`createDashframeServer`) mounts these defs.
- *   - type-only: the renderer imports `type { Functions }` for `createWyStack<Functions>`.
+ *   - type-only: the renderer imports `type { Functions }` for the typed client.
  *
  * Handlers read/write artifacts through `ctx.db` — WyStack's DrizzleTracker
  * over the project's PGLite Drizzle instance — so reactive invalidation works.
  */
 import { schema } from "@dashframe/server-core";
-import { query } from "@wystack/server";
 
+import { accessCredentialFunctions } from "./functions/access-credentials";
 import { appArtifactFunctions } from "./functions/app-artifacts";
 import { assistantProviderConfigFunctions } from "./functions/assistant-provider-configs";
 import { commandFunctions } from "./functions/commands";
@@ -18,6 +18,7 @@ import { dashboardFunctions } from "./functions/dashboards";
 import { draftLifecycleFunctions } from "./functions/draft-lifecycle";
 import { draftFunctions } from "./functions/drafts";
 import { previewDiffFunctions } from "./functions/preview-diff";
+import { wy } from "./wystack";
 
 const { projectMeta } = schema;
 
@@ -35,23 +36,20 @@ export interface ProjectInfoResult {
  * projectInfo — read the singleton `project_meta` row. No args; one project
  * per database (v0.2 single-project), so the first row is the project.
  */
-const projectInfo = query<Record<string, never>, ProjectInfoResult>({
-  args: {},
-  handler: async (ctx) => {
-    const rows = await ctx.db.from(projectMeta).all();
-    const meta = rows[0];
-    if (!meta) {
-      throw new Error("project_meta row missing — project not initialized");
-    }
-    return {
-      projectId: meta.projectId,
-      name: meta.name,
-      version: meta.version,
-      schemaVersion: meta.schemaVersion,
-      createdAt: meta.createdAt.toISOString(),
-      createdBy: meta.createdBy,
-    };
-  },
+const projectInfo = wy.procedure.input({}).query(async (ctx) => {
+  const rows = await ctx.db.from(projectMeta).all();
+  const meta = rows[0];
+  if (!meta) {
+    throw new Error("project_meta row missing — project not initialized");
+  }
+  return {
+    projectId: meta.projectId,
+    name: meta.name,
+    version: meta.version,
+    schemaVersion: meta.schemaVersion,
+    createdAt: meta.createdAt.toISOString(),
+    createdBy: meta.createdBy,
+  };
 });
 
 /**
@@ -66,6 +64,7 @@ export const functions = {
   ...dashboardFunctions,
   ...draftLifecycleFunctions,
   ...draftFunctions,
+  ...accessCredentialFunctions,
   ...previewDiffFunctions,
 };
 

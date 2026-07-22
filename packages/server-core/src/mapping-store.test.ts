@@ -20,7 +20,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { openArtifactDb, type ArtifactDb } from "./db";
-import { DrizzleMappingStore } from "./mapping-store";
+import { DrizzleMappingStore, FileMappingStore } from "./mapping-store";
 import { secretMappings } from "./schema";
 
 describe("DrizzleMappingStore", () => {
@@ -149,6 +149,41 @@ describe("DrizzleMappingStore", () => {
     expect(await vaultAfter.has(ref)).toBe(true);
     expect(await vaultAfter.withSecret(ref, async (pt) => pt)).toBe(
       "durable-token",
+    );
+  });
+});
+
+describe("FileMappingStore", () => {
+  let dir: string;
+  let mappingPath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "dashframe-file-mapping-store-"));
+    mappingPath = join(dir, "mappings.json");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("persists a vault mapping independently of the project database", async () => {
+    const backend = new TestBackend();
+    const registry = new SecretRegistry();
+    registry.register("test", backend, { fallback: true });
+    registry.setClassDefault("serve-token", "test");
+
+    const ref = await new SecretVault(
+      registry,
+      new FileMappingStore(mappingPath),
+    ).store("workspace-token", { class: "serve-token" });
+
+    const reopened = new SecretVault(
+      registry,
+      new FileMappingStore(mappingPath),
+    );
+    expect(await reopened.has(ref)).toBe(true);
+    expect(await reopened.withSecret(ref, async (value) => value)).toBe(
+      "workspace-token",
     );
   });
 });

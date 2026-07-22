@@ -35,7 +35,12 @@ export {
   type SnapshotMeta,
 } from "./snapshots";
 
-export { DrizzleMappingStore } from "./mapping-store";
+export {
+  ApiAccessCredentials,
+  type AccessCredentialRecord,
+  type IssuedAccessCredentialRecord,
+} from "./api-access-credentials";
+export { DrizzleMappingStore, FileMappingStore } from "./mapping-store";
 export {
   DASHFRAME_HOME_DIRNAME,
   DEFAULT_PROJECT_DIRNAME,

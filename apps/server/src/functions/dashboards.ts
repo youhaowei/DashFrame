@@ -19,8 +19,8 @@
  */
 import { schema } from "@dashframe/server-core";
 import { eq, jsonb, text, uuid } from "@wystack/db";
-import { mutation, query } from "@wystack/server";
 
+import { wy } from "../wystack";
 import { tsToMillis } from "./app-artifacts";
 
 const { dashboards } = schema;
@@ -279,27 +279,25 @@ function applyOverridePatch(
   return sanitizeItemOverrides(next);
 }
 
-const listDashboards = query({
-  args: {},
-  handler: async (ctx): Promise<DashboardResult[]> => {
+const listDashboards = wy.procedure
+  .input({})
+  .query(async (ctx): Promise<DashboardResult[]> => {
     const rows = (await ctx.db.from(dashboards).all()) as DashboardRow[];
     return rows.map(rowToDashboard);
-  },
-});
+  });
 
-const getDashboard = query({
-  args: { id: uuid },
-  handler: async (ctx, { id }): Promise<DashboardResult | null> => {
+const getDashboard = wy.procedure
+  .input({ id: uuid })
+  .query(async (ctx, { id }): Promise<DashboardResult | null> => {
     const row = (await ctx.db.from(dashboards).where(eq("id", id)).first()) as
       | DashboardRow
       | undefined;
     return row ? rowToDashboard(row) : null;
-  },
-});
+  });
 
-const createDashboard = mutation({
-  args: { name: text, description: text.optional() },
-  handler: async (ctx, { name, description }): Promise<{ id: string }> => {
+const createDashboard = wy.procedure
+  .input({ name: text, description: text.optional() })
+  .mutation(async (ctx, { name, description }): Promise<{ id: string }> => {
     const [row] = (await ctx.db.into(dashboards).insert({
       name,
       description: description ?? null,
@@ -308,31 +306,28 @@ const createDashboard = mutation({
     })) as DashboardRow[];
     if (!row) throw new Error("insert returned no row");
     return { id: row.id };
-  },
-});
+  });
 
-const updateDashboard = mutation({
-  args: {
+const updateDashboard = wy.procedure
+  .input({
     id: uuid,
     name: text.optional(),
     description: text.optional(),
-  },
-  handler: async (ctx, { id, name, description }): Promise<{ ok: true }> => {
+  })
+  .mutation(async (ctx, { id, name, description }): Promise<{ ok: true }> => {
     const patch: Partial<DashboardRow> = {};
     if (name !== undefined) patch.name = name;
     if (description !== undefined) patch.description = description;
     await ctx.db.from(dashboards).where(eq("id", id)).update(patch);
     return { ok: true };
-  },
-});
+  });
 
-const removeDashboard = mutation({
-  args: { id: uuid },
-  handler: async (ctx, { id }): Promise<{ ok: true }> => {
+const removeDashboard = wy.procedure
+  .input({ id: uuid })
+  .mutation(async (ctx, { id }): Promise<{ ok: true }> => {
     await ctx.db.from(dashboards).where(eq("id", id)).delete();
     return { ok: true };
-  },
-});
+  });
 
 /** Load a dashboard's items for read-modify-write, or throw if missing. */
 async function loadItems(
@@ -346,15 +341,15 @@ async function loadItems(
   return ((row.layout as DashboardItem[]) ?? []).slice();
 }
 
-const addDashboardItem = mutation({
-  args: {
+const addDashboardItem = wy.procedure
+  .input({
     dashboardId: uuid,
     type: text,
     visualizationId: uuid.optional(),
     content: text.optional(),
     position: jsonb,
-  },
-  handler: async (ctx, args): Promise<{ itemId: string }> => {
+  })
+  .mutation(async (ctx, args): Promise<{ itemId: string }> => {
     const itemId = crypto.randomUUID();
     await withDashboardWrite(args.dashboardId, async () => {
       await ctx.db.transaction(async (tx) => {
@@ -373,38 +368,35 @@ const addDashboardItem = mutation({
       });
     });
     return { itemId };
-  },
-});
+  });
 
-const updateDashboardItem = mutation({
-  args: { dashboardId: uuid, itemId: uuid, updates: jsonb },
-  handler: async (
-    ctx,
-    { dashboardId, itemId, updates },
-  ): Promise<{ ok: true }> => {
-    await withDashboardWrite(dashboardId, async () => {
-      await ctx.db.transaction(async (tx) => {
-        const items = await loadItems({ db: tx }, dashboardId);
-        const patch = sanitizeDashboardUpdates(updates);
-        if (!items.some((it) => it.id === itemId)) {
-          throw new Error(`Dashboard item ${itemId} not found`);
-        }
-        const next = items.map((it) =>
-          it.id === itemId ? { ...it, ...patch } : it,
-        );
-        await tx
-          .from(dashboards)
-          .where(eq("id", dashboardId))
-          .update({ layout: next });
+const updateDashboardItem = wy.procedure
+  .input({ dashboardId: uuid, itemId: uuid, updates: jsonb })
+  .mutation(
+    async (ctx, { dashboardId, itemId, updates }): Promise<{ ok: true }> => {
+      await withDashboardWrite(dashboardId, async () => {
+        await ctx.db.transaction(async (tx) => {
+          const items = await loadItems({ db: tx }, dashboardId);
+          const patch = sanitizeDashboardUpdates(updates);
+          if (!items.some((it) => it.id === itemId)) {
+            throw new Error(`Dashboard item ${itemId} not found`);
+          }
+          const next = items.map((it) =>
+            it.id === itemId ? { ...it, ...patch } : it,
+          );
+          await tx
+            .from(dashboards)
+            .where(eq("id", dashboardId))
+            .update({ layout: next });
+        });
       });
-    });
-    return { ok: true };
-  },
-});
+      return { ok: true };
+    },
+  );
 
-const updateDashboardItems = mutation({
-  args: { dashboardId: uuid, patches: jsonb },
-  handler: async (ctx, { dashboardId, patches }): Promise<{ ok: true }> => {
+const updateDashboardItems = wy.procedure
+  .input({ dashboardId: uuid, patches: jsonb })
+  .mutation(async (ctx, { dashboardId, patches }): Promise<{ ok: true }> => {
     const parsed = parseItemPatches(patches);
     await withDashboardWrite(dashboardId, async () => {
       await ctx.db.transaction(async (tx) => {
@@ -428,40 +420,40 @@ const updateDashboardItems = mutation({
       });
     });
     return { ok: true };
-  },
-});
+  });
 
-const patchDashboardItemOverride = mutation({
-  args: { dashboardId: uuid, itemId: uuid, patch: jsonb },
-  handler: async (
-    ctx,
-    { dashboardId, itemId, patch },
-  ): Promise<{ ok: true }> => {
-    const parsed = parseOverridePatch(patch);
-    await withDashboardWrite(dashboardId, async () => {
-      await ctx.db.transaction(async (tx) => {
-        const items = await loadItems({ db: tx }, dashboardId);
-        if (!items.some((item) => item.id === itemId)) {
-          throw new Error(`Dashboard item ${itemId} not found`);
-        }
-        const next = items.map((item) =>
-          item.id === itemId
-            ? { ...item, overrides: applyOverridePatch(item.overrides, parsed) }
-            : item,
-        );
-        await tx
-          .from(dashboards)
-          .where(eq("id", dashboardId))
-          .update({ layout: next });
+const patchDashboardItemOverride = wy.procedure
+  .input({ dashboardId: uuid, itemId: uuid, patch: jsonb })
+  .mutation(
+    async (ctx, { dashboardId, itemId, patch }): Promise<{ ok: true }> => {
+      const parsed = parseOverridePatch(patch);
+      await withDashboardWrite(dashboardId, async () => {
+        await ctx.db.transaction(async (tx) => {
+          const items = await loadItems({ db: tx }, dashboardId);
+          if (!items.some((item) => item.id === itemId)) {
+            throw new Error(`Dashboard item ${itemId} not found`);
+          }
+          const next = items.map((item) =>
+            item.id === itemId
+              ? {
+                  ...item,
+                  overrides: applyOverridePatch(item.overrides, parsed),
+                }
+              : item,
+          );
+          await tx
+            .from(dashboards)
+            .where(eq("id", dashboardId))
+            .update({ layout: next });
+        });
       });
-    });
-    return { ok: true };
-  },
-});
+      return { ok: true };
+    },
+  );
 
-const removeDashboardItem = mutation({
-  args: { dashboardId: uuid, itemId: uuid },
-  handler: async (ctx, { dashboardId, itemId }): Promise<{ ok: true }> => {
+const removeDashboardItem = wy.procedure
+  .input({ dashboardId: uuid, itemId: uuid })
+  .mutation(async (ctx, { dashboardId, itemId }): Promise<{ ok: true }> => {
     await withDashboardWrite(dashboardId, async () => {
       await ctx.db.transaction(async (tx) => {
         const items = await loadItems({ db: tx }, dashboardId);
@@ -472,19 +464,17 @@ const removeDashboardItem = mutation({
       });
     });
     return { ok: true };
-  },
-});
+  });
 
-const updateDashboardControls = mutation({
-  args: { dashboardId: uuid, controls: jsonb },
-  handler: async (ctx, { dashboardId, controls }): Promise<{ ok: true }> => {
+const updateDashboardControls = wy.procedure
+  .input({ dashboardId: uuid, controls: jsonb })
+  .mutation(async (ctx, { dashboardId, controls }): Promise<{ ok: true }> => {
     await ctx.db
       .from(dashboards)
       .where(eq("id", dashboardId))
       .update({ controls: controls as DashboardControl[] });
     return { ok: true };
-  },
-});
+  });
 
 /** Dashboard slice of the registry. Spread into the root `functions` object. */
 export const dashboardFunctions = {

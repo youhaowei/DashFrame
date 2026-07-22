@@ -1,9 +1,10 @@
+import { AccessCredentialsDialog } from "@/components/access-credentials/AccessCredentialsDialog";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { PerfHud } from "@/lib/perf";
 import { useToastStore } from "@/lib/stores";
 import { useAssistantStore } from "@/lib/stores/assistant-store";
 import { useShellStore } from "@/lib/stores/shell-store";
-import { clearAllData } from "@dashframe/core";
+import { clearAllData, useAccessCapabilities } from "@dashframe/core";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import {
   Button,
@@ -77,6 +78,7 @@ const navItems: NavItem[] = [
 interface SidebarContentProps {
   onClearData?: () => void;
   onAssistantProviders?: () => void;
+  onAccessCredentials?: () => void;
   /**
    * Extra rows for the footer, below Settings/Open source — dev tooling like
    * the perf HUD. Supplied only by the desktop nav so the mobile dialog doesn't
@@ -88,6 +90,7 @@ interface SidebarContentProps {
 function SidebarContent({
   onClearData,
   onAssistantProviders,
+  onAccessCredentials,
   footerSlot,
 }: SidebarContentProps) {
   const pathname = useLocation({ select: (l) => l.pathname });
@@ -158,6 +161,12 @@ function SidebarContent({
               <SparklesIcon className="mr-2 h-4 w-4" />
               Assistant providers
             </DropdownMenuItem>
+            {onAccessCredentials ? (
+              <DropdownMenuItem onClick={onAccessCredentials}>
+                <DatabaseIcon className="mr-2 h-4 w-4" />
+                Access credentials
+              </DropdownMenuItem>
+            ) : null}
             <DropdownMenuItem
               onClick={onClearData}
               className="text-palette-danger focus:text-palette-danger"
@@ -186,7 +195,11 @@ export function Navigation() {
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [showAccessCredentials, setShowAccessCredentials] = useState(false);
   const setAssistantSetupOpen = useAssistantStore((s) => s.setSetupOpen);
+  const accessCapabilities = useAccessCapabilities();
+  const canManageAccessCredentials =
+    accessCapabilities.data?.canManageCredentials === true;
 
   const leftNavOpen = useShellStore((s) => s.leftNavOpen);
 
@@ -226,6 +239,11 @@ export function Navigation() {
           <SidebarContent
             onClearData={() => setShowClearConfirm(true)}
             onAssistantProviders={() => setAssistantSetupOpen(true)}
+            onAccessCredentials={
+              canManageAccessCredentials
+                ? () => setShowAccessCredentials(true)
+                : undefined
+            }
             footerSlot={<PerfHud />}
           />
         </div>
@@ -259,11 +277,23 @@ export function Navigation() {
               <SidebarContent
                 onClearData={() => setShowClearConfirm(true)}
                 onAssistantProviders={() => setAssistantSetupOpen(true)}
+                onAccessCredentials={
+                  canManageAccessCredentials
+                    ? () => setShowAccessCredentials(true)
+                    : undefined
+                }
               />
             </div>
           </div>
         </DialogContent>
       </Dialog>
+
+      {canManageAccessCredentials ? (
+        <AccessCredentialsDialog
+          open={showAccessCredentials}
+          onOpenChange={setShowAccessCredentials}
+        />
+      ) : null}
 
       {/* Clear Data Confirmation Dialog */}
       <Dialog open={showClearConfirm} onOpenChange={setShowClearConfirm}>

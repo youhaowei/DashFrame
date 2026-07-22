@@ -28,7 +28,6 @@ const DEFAULT_WEB_PROJECT_DIR = path.join(
   ".DashFrame",
   "web-project",
 );
-
 export function printHelp(): void {
   console.log(`dashframe serve
 

@@ -23,7 +23,7 @@ import {
   SecretVault,
   TestBackend,
 } from "@wystack/secret-vault";
-import { createWyStack, type WyStackApp } from "@wystack/server";
+import type { WyStackApp } from "@wystack/server";
 import { eq } from "drizzle-orm";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -31,6 +31,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { functions } from "../functions";
+import { wy } from "../wystack";
 import { cmd, storedInsightDefinitionSchema } from "./commands";
 
 /** Compose a SecretVault backed by TestBackend. ONLY for test setup. */
@@ -56,7 +57,7 @@ describe("command vocabulary", () => {
   beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), "dashframe-cmd-"));
     db = await openArtifactDb({ path: join(dir, "artifacts.db") });
-    app = await createWyStack({ db, functions });
+    app = await wy.build({ db, functions });
     vault = makeTestVault();
     ({ applyCommands } = await import("@wystack/server"));
   });

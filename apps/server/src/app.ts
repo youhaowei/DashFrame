@@ -38,7 +38,7 @@ import {
   createArrowDataPath,
   type ArrowQueryRunner,
 } from "@dashframe/engine-server/arrow-data-path";
-import { schema } from "@dashframe/server-core";
+import { schema, type ApiAccessCredentials } from "@dashframe/server-core";
 import { serve as nodeServe } from "@hono/node-server";
 import { createNodeWebSocket } from "@hono/node-ws";
 import type { DraftDrizzleTracker, DrizzleTracker } from "@wystack/db";
@@ -47,7 +47,7 @@ import {
   type SecretRef,
   type SecretVault,
 } from "@wystack/secret-vault";
-import { createRoutes, createWyStack, type WyStackApp } from "@wystack/server";
+import { createRoutes, type WyStackApp } from "@wystack/server";
 import type { Table } from "drizzle-orm";
 import { getTableName } from "drizzle-orm";
 import { Hono, type Context } from "hono";
@@ -56,6 +56,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 
 import { type ArtifactDb } from "@dashframe/server-core";
 
+import type { AppContext } from "./app-context";
 import { handleAssistantRunRequest } from "./assistant-run-route";
 import { captureCommandCredentials } from "./credential-release";
 import {
@@ -64,6 +65,8 @@ import {
 } from "./draft-controller";
 import { assertPublishLogHasNoLateBound } from "./draft-late-bound";
 import { functions } from "./functions";
+import { expectedPermissionIds, LOCAL_USER_ID } from "./permissions";
+import { wy } from "./wystack";
 
 type CorsOrigin =
   | string
@@ -232,6 +235,8 @@ export interface DashframeServerOptions {
    * the credential boundary). Desktop always injects the keychain vault.
    */
   vault?: SecretVault;
+  /** Generic external-access credentials backed by the injected SecretVault. */
+  accessCredentials?: ApiAccessCredentials;
 }
 
 export interface DashframeServer {
@@ -426,15 +431,26 @@ export async function buildDashframeApp(opts: {
   db: object;
   vault?: SecretVault;
   onWrite?: () => void;
+  accessCredentials?: ApiAccessCredentials;
+  getServerEndpoint?: () => string | undefined;
 }): Promise<WyStackApp> {
-  const rawApp = await createWyStack({ db: opts.db, functions });
+  const rawApp = await wy.build({
+    db: opts.db,
+    functions,
+    expectedPermissionIds,
+  });
 
   const { vault, onWrite } = opts;
 
   // Build the static context additions once so every call shares the same object
   // reference (vault identity is stable for the server lifetime).
-  const staticContext: Record<string, unknown> = vault != null ? { vault } : {};
-  const hasStaticContext = Object.keys(staticContext).length > 0;
+  const staticContext: AppContext = {
+    getServerEndpoint: opts.getServerEndpoint ?? (() => undefined),
+    ...(opts.accessCredentials != null
+      ? { accessCredentials: opts.accessCredentials }
+      : {}),
+    ...(vault != null ? { vault } : {}),
+  };
 
   // The draft seam wraps `call` itself (not just runHandler): `rawApp.call`
   // mints its own fresh DrizzleTracker internally, so a draftId-bearing `call` would
@@ -455,9 +471,7 @@ export async function buildDashframeApp(opts: {
     async call(path, args, context) {
       // Static context wins over per-request context: spread per-request first
       // so static keys (vault) cannot be shadowed by a crafted request context.
-      const merged = hasStaticContext
-        ? { ...(context ?? {}), ...staticContext }
-        : (context ?? {});
+      const merged = { ...(context ?? {}), ...staticContext };
       const tracked = rawApp.createTracked();
       const effective = withDraftSeam(tracked, merged);
       const result = await rawApp.runHandler(path, args, effective, merged);
@@ -478,9 +492,7 @@ export async function buildDashframeApp(opts: {
       };
     },
     async runHandler(path, args, tracked, context) {
-      const merged = hasStaticContext
-        ? { ...(context ?? {}), ...staticContext }
-        : (context ?? {});
+      const merged = { ...(context ?? {}), ...staticContext };
       const effective = withDraftSeam(tracked, merged);
       return rawApp.runHandler(path, args, effective, merged);
     },
@@ -504,6 +516,12 @@ export async function createDashframeServer(
   });
 
   const corsOrigin = opts.corsOrigin ?? allowLocalhostOrigin;
+  // Single local operator: the operator principal is always LOCAL_USER_ID.
+  // Configurable operator identity is a non-goal until a real multi-operator
+  // consumer exists — a settable option here would authenticate but be denied
+  // by the accessCredentials.manage check, a typed lie.
+  const userId = LOCAL_USER_ID;
+  const serverState: { endpoint?: string } = {};
 
   // Resolve the auth context builder: vault-backed ref takes priority over
   // plaintext token. Both produce the same (req) → context shape for WyStack.
@@ -517,14 +535,23 @@ export async function createDashframeServer(
         "instance when using vault-backed auth.",
     );
   }
-  let resolveContext:
-    | ((req: Request) => Promise<Record<string, unknown>>)
-    | undefined;
+  const credentialResolvers: CredentialResolver[] = [];
   if (opts.authRef && opts.vault) {
-    resolveContext = createVaultTokenResolver(opts.authRef, opts.vault);
+    credentialResolvers.push(
+      createVaultTokenResolver(opts.authRef, opts.vault, userId),
+    );
   } else if (opts.authToken) {
-    resolveContext = createTokenResolver(opts.authToken);
+    credentialResolvers.push(createTokenResolver(opts.authToken, userId));
   }
+  if (opts.accessCredentials) {
+    credentialResolvers.push(
+      createAccessCredentialResolver(opts.accessCredentials),
+    );
+  }
+  const resolveContext =
+    credentialResolvers.length > 0
+      ? combineResolvers(...credentialResolvers)
+      : undefined;
 
   // Wrap the WyStack app to inject the vault into every handler context and
   // to fire `opts.onWrite` after every successful mutation.
@@ -532,6 +559,8 @@ export async function createDashframeServer(
     db: opts.db,
     vault: opts.vault,
     onWrite: opts.onWrite,
+    accessCredentials: opts.accessCredentials,
+    getServerEndpoint: () => serverState.endpoint,
   });
 
   // Inject server-level references needed by the previewDiff query handler
@@ -664,6 +693,7 @@ export async function createDashframeServer(
 
   const { port, server } = await listen(honoApp, hostname, requestedPort);
   injectWebSocket(server);
+  serverState.endpoint = `http://${hostname}:${port}/api`;
 
   return {
     url: `http://${hostname}:${port}`,
@@ -693,18 +723,48 @@ function listen(
   });
 }
 
+type ResolverContext = Record<string, unknown>;
+type CredentialResolver = (req: Request) => Promise<ResolverContext | null>;
+
+function bearerToken(req: Request): string {
+  const auth = req.headers.get("authorization") ?? "";
+  return auth.startsWith("Bearer ") ? auth.slice("Bearer ".length) : "";
+}
+
 function createTokenResolver(
   expectedToken: string,
-): (req: Request) => Promise<Record<string, unknown>> {
+  userId: string,
+): CredentialResolver {
   return async (req) => {
-    const auth = req.headers.get("authorization") ?? "";
-    const token = auth.startsWith("Bearer ")
-      ? auth.slice("Bearer ".length)
-      : "";
+    const token = bearerToken(req);
     if (!tokenMatches(token, expectedToken)) {
-      throw new Error("Unauthorized");
+      return null;
     }
-    return {};
+    return { principal: { kind: "user", userId } };
+  };
+}
+
+function createAccessCredentialResolver(
+  credentials: ApiAccessCredentials,
+): CredentialResolver {
+  return async (req) => {
+    const token = bearerToken(req);
+    if (!token) return null;
+    const credentialId = await credentials.authenticate(token);
+    if (!credentialId) return null;
+    return { principal: { kind: "service", credentialId } };
+  };
+}
+
+function combineResolvers(
+  ...resolvers: CredentialResolver[]
+): (req: Request) => Promise<ResolverContext> {
+  return async (req) => {
+    for (const resolver of resolvers) {
+      const context = await resolver(req);
+      if (context !== null) return context;
+    }
+    throw new Error("Unauthorized");
   };
 }
 
@@ -713,34 +773,25 @@ function createTokenResolver(
  * each request — no plaintext is held in a server field. Returned resolver has
  * the same signature as the one returned by `createTokenResolver`.
  *
- * FAIL-CLOSED: any failure to resolve the expected token (missing/corrupt
- * keychain blob, vault error) denies the request. The throw propagates to
- * WyStack's route handler, which maps it to 401 — never a 500 that would leak
- * the vault state, and never an allow.
+ * FAIL-CLOSED: a token mismatch returns null so another credential family can
+ * authenticate it. Any failure to resolve the expected token (missing/corrupt
+ * keychain blob, vault error) throws and propagates immediately, so no weaker
+ * resolver gets a turn.
  */
 function createVaultTokenResolver(
   authRef: SecretRef,
   vault: SecretVault,
-): (req: Request) => Promise<Record<string, unknown>> {
+  userId: string,
+): CredentialResolver {
   return async (req) => {
-    const auth = req.headers.get("authorization") ?? "";
-    const token = auth.startsWith("Bearer ")
-      ? auth.slice("Bearer ".length)
-      : "";
-    let authorized = false;
-    try {
-      authorized = await vault.withSecret(authRef, async (expected) =>
-        tokenMatches(token, expected),
-      );
-    } catch {
-      // Resolution failed — cannot confirm the token, so deny. Fall through to
-      // the Unauthorized throw below (→ 401), never surface a 500 or allow.
-      authorized = false;
-    }
+    const token = bearerToken(req);
+    const authorized = await vault.withSecret(authRef, async (expected) =>
+      tokenMatches(token, expected),
+    );
     if (!authorized) {
-      throw new Error("Unauthorized");
+      return null;
     }
-    return {};
+    return { principal: { kind: "user", userId } };
   };
 }
 

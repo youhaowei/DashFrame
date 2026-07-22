@@ -46,6 +46,13 @@ export {
 } from "./assistant-provider-configs";
 
 export {
+  useAccessCapabilities,
+  useAccessConnectionInfo,
+  useAccessCredentialMutations,
+  useAccessCredentials,
+} from "./access-credentials";
+
+export {
   addDataSource,
   getAllDataSources,
   getDataSource,
