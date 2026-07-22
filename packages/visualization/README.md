@@ -141,10 +141,10 @@ const renderer = createVgplotRenderer(api);
 
 ## Adding Custom Renderers
 
-Implement the `ChartRenderer` interface from `@dashframe/core`:
+Implement the `ChartRenderer` interface from `@dashframe/visualization`:
 
 ```tsx
-import type { ChartRenderer, ChartConfig } from "@dashframe/core";
+import type { ChartRenderer, ChartConfig } from "@dashframe/visualization";
 import { registerRenderer } from "@dashframe/visualization";
 
 const myRenderer: ChartRenderer = {
@@ -185,7 +185,7 @@ registerRenderer(myRenderer);
 
 ## Dependencies
 
-- `@dashframe/core` - Types and interfaces
+- `@dashframe/types` - Shared type contracts
 - `@uwdata/vgplot` - Mosaic visualization library
 - `@duckdb/duckdb-wasm` - DuckDB WebAssembly
 - `react` - React 18+
