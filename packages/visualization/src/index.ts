@@ -107,14 +107,14 @@ export { VGPLOT_SUPPORTED_TYPES, createVgplotRenderer } from "./renderers";
 // Re-export Types
 // ============================================================================
 
-// Chart renderer types from @dashframe/core
+// Chart renderer plugin contract — defined here, re-exported as public API
 export type {
   ChartCleanup,
   ChartConfig,
   ChartRenderer,
   ChartRendererRegistry,
   ChartTheme,
-} from "@dashframe/core";
+} from "./chart-renderers";
 
 // Visualization types from @dashframe/types
 export type {

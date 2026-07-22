@@ -1,6 +1,5 @@
 "use client";
 
-import type { ChartRenderer } from "@dashframe/core";
 import type * as duckdb from "@duckdb/duckdb-wasm";
 import {
   createContext,
@@ -9,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import type { ChartRenderer } from "./chart-renderers";
 import { createVgplotRenderer } from "./renderers";
 
 /**

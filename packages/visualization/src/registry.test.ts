@@ -10,10 +10,10 @@
  * - getRegistryVersion() - Getting registry version counter
  * - useRegistryVersion() - React hook for subscribing to registry changes
  */
-import type { ChartRenderer } from "@dashframe/core";
 import type { VisualizationType } from "@dashframe/types";
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ChartRenderer } from "./chart-renderers";
 import {
   clearRegistry,
   getRegisteredTypes,
