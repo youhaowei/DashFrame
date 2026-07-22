@@ -28,7 +28,7 @@
     "dev": "bun --filter @dashframe/desktop dev",
     "dev:web": "turbo dev --filter=@dashframe/web... --filter=!@dashframe/server",
     "dev:web:fresh": "DASHFRAME_PROJECT_DIR=\"$(mktemp -d)\" bun run dev:web",
-    "dev:all": "turbo dev",
+    "dev:all": "turbo dev --filter=!@dashframe/server",
     "build": "turbo build",
     "lint": "turbo lint",
     "format": "prettier --write .",
