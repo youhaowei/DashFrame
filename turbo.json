@@ -1,13 +1,17 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "ui": "stream",
-  "concurrency": "15",
+  "concurrency": "25",
+  "globalPassThroughEnv": ["DASHFRAME_PROJECT_DIR"],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
       "outputs": ["dist/**", "build/**"]
     },
     "dev": {
+      // Packages consume each other's built `dist`, so a fresh checkout has
+      // nothing to import until its dependencies are built once.
+      "dependsOn": ["^build"],
       "cache": false,
       "persistent": true
     },
