@@ -4,7 +4,6 @@
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
-      "@dashframe/core": ["../core/src"],
       "@dashframe/engine-browser": ["../engine-browser/src"]
     },
     "declaration": true,

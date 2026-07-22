@@ -16,7 +16,6 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@dashframe/core": "workspace:*",
     "@dashframe/engine": "workspace:*",
     "@dashframe/engine-browser": "workspace:*",
     "apache-arrow": "^21.1.0"
