@@ -27,7 +27,6 @@ export default defineConfig({
   resolve: {
     alias: {
       "@dashframe/types": path.resolve(__dirname, "../types/src"),
-      "@dashframe/core": path.resolve(__dirname, "../core/src"),
       "@dashframe/ui": path.resolve(__dirname, "../ui/src"),
     },
   },

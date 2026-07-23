@@ -1,7 +1,7 @@
-import type { ChartConfig, ChartRenderer } from "@dashframe/core";
 import type { VisualizationType } from "@dashframe/types";
 import { render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ChartConfig, ChartRenderer } from "../chart-renderers";
 import { clearRegistry, registerRenderer } from "../registry";
 
 // Mock the provider context so we can drive `renderer` / `isReady` directly

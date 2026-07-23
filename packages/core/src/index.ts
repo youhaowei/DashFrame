@@ -12,15 +12,3 @@
 // ============================================================================
 
 export * from "@dashframe/app-data";
-
-// ============================================================================
-// Chart Renderer Types (Defined in Core)
-// ============================================================================
-
-export type {
-  ChartCleanup,
-  ChartConfig,
-  ChartRenderer,
-  ChartRendererRegistry,
-  ChartTheme,
-} from "./chart-renderers";
