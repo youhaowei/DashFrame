@@ -244,22 +244,7 @@ export async function openProject(
     });
   } catch (err) {
     await db.$client.close().catch(() => {});
-    // If we got here via recovery, the original datadir is already quarantined
-    // aside and the restored one just failed its metadata check (e.g. an
-    // unsupported-schema snapshot after a downgrade, or a tarball that loaded
-    // but is partially corrupt). A bare throw would leave the next startup
-    // seeing only the bad restored datadir, with the user never told where their
-    // preserved data is. Surface the quarantine path, same as the recovery
-    // catch above.
-    if (recovery) {
-      throw new Error(
-        `[dashframe] recovery restored a snapshot but it failed metadata validation. ` +
-          `Your previous data has been preserved at: ${recovery.quarantinedPath}. ` +
-          `Validation error: ${err instanceof Error ? err.message : String(err)}`,
-        { cause: err },
-      );
-    }
-    throw err;
+    throw describeMetaFailure(err, dir, recovery?.quarantinedPath);
   }
 
   const scheduler = new SnapshotScheduler(
@@ -387,6 +372,52 @@ function isEnoent(err: unknown): boolean {
   );
 }
 
+/**
+ * Turn a metadata-check failure into something the reader can act on: which
+ * project is at fault, and where their data went if it was quarantined.
+ */
+function describeMetaFailure(
+  err: unknown,
+  dir: string,
+  quarantinedPath: string | undefined,
+): unknown {
+  // Recovery already moved the original datadir aside, so the restored copy is
+  // what failed here. A bare throw would leave the next startup seeing only the
+  // bad restored datadir, with the user never told where their data is.
+  if (quarantinedPath) {
+    return new Error(
+      `[dashframe] recovery restored a snapshot but it failed metadata validation. ` +
+        `Your previous data has been preserved at: ${quarantinedPath}. ` +
+        `Validation error: ${err instanceof Error ? err.message : String(err)}`,
+      { cause: err },
+    );
+  }
+  // A bare rethrow names neither the project that is stale nor a way out.
+  if (err instanceof UnsupportedProjectSchemaError) {
+    return new Error(
+      `[dashframe] cannot open the project at ${dir}: ${err.message} ` +
+        `It was written by a different build. Point DASHFRAME_PROJECT_DIR at ` +
+        `another project, or move this one aside to start fresh.`,
+      { cause: err },
+    );
+  }
+  return err;
+}
+
+/**
+ * A project directory whose schema this build cannot open. Typed so the caller
+ * can name the offending directory, which it knows and this function does not.
+ */
+export class UnsupportedProjectSchemaError extends Error {
+  constructor(
+    readonly found: number,
+    readonly expected: number,
+  ) {
+    super(`Unsupported project schema version ${found}; expected ${expected}.`);
+    this.name = "UnsupportedProjectSchemaError";
+  }
+}
+
 async function ensureProjectMeta(
   db: ArtifactDb,
   seed: { name: string; createdBy: string; version: string },
@@ -432,8 +463,9 @@ async function ensureProjectMeta(
         .returning();
       meta = updated!;
     } else if (meta.schemaVersion !== ARTIFACT_DB_SCHEMA_VERSION) {
-      throw new Error(
-        `Unsupported project schema version ${meta.schemaVersion}; expected ${ARTIFACT_DB_SCHEMA_VERSION}.`,
+      throw new UnsupportedProjectSchemaError(
+        meta.schemaVersion,
+        ARTIFACT_DB_SCHEMA_VERSION,
       );
     }
     return meta;

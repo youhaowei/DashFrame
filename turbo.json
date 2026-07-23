@@ -1,13 +1,14 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "ui": "stream",
-  "concurrency": "15",
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
       "outputs": ["dist/**", "build/**"]
     },
     "dev": {
+      "dependsOn": ["^build"],
+      "passThroughEnv": ["DASHFRAME_PROJECT_DIR"],
       "cache": false,
       "persistent": true
     },
