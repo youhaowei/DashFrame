@@ -1,4 +1,3 @@
-import type { UseQueryResult } from "./repository-base";
 import type { UUID } from "./uuid";
 
 export type AssistantProviderAuthKind = "api-key" | "local" | "oauth";
@@ -46,19 +45,3 @@ export interface SetAssistantDefaultModelInput {
   id: UUID;
   defaultModel: string;
 }
-
-export interface AssistantProviderConfigMutations {
-  save: (
-    input: SaveAssistantProviderConfigInput,
-  ) => Promise<AssistantProviderConfig>;
-  remove: (id: UUID) => Promise<void>;
-  setDefaultModel: (input: SetAssistantDefaultModelInput) => Promise<void>;
-  startOAuthLogin: (id: UUID) => Promise<void>;
-}
-
-export type UseAssistantProviderConfigsResult = UseQueryResult<
-  AssistantProviderConfig[]
->;
-export type UseAssistantProviderCatalogResult = UseQueryResult<
-  AssistantProviderCatalogEntry[]
->;

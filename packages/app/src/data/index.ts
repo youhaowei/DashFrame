@@ -26,12 +26,6 @@ export {
 } from "../wystack/assistant-run";
 
 export {
-  useAssistantProviderCatalog,
-  useAssistantProviderConfigMutations,
-  useAssistantProviderConfigs,
-} from "./assistant-provider-configs";
-
-export {
   useAccessCapabilities,
   useAccessConnectionInfo,
   useAccessCredentialMutations,

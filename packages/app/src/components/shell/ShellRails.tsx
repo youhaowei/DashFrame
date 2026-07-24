@@ -1,4 +1,8 @@
-import { useAssistantProviderConfigs } from "@/data";
+import { useQuery } from "@wystack/client";
+import { Dock, cn } from "@wystack/ui-react";
+import { ThemePanel } from "@wystack/ui-react/views";
+import { useEffect, useState } from "react";
+
 import { useAssistantStore } from "@/lib/stores/assistant-store";
 import {
   ASSISTANT_RAIL_MAX_WIDTH,
@@ -7,9 +11,7 @@ import {
   CONTEXT_PANEL_MIN_WIDTH,
   useShellStore,
 } from "@/lib/stores/shell-store";
-import { Dock, cn } from "@wystack/ui-react";
-import { ThemePanel } from "@wystack/ui-react/views";
-import { useEffect, useState } from "react";
+import { api } from "@/wystack/api";
 
 import { AssistantSidebar } from "../assistant/AssistantSidebar";
 import {
@@ -78,7 +80,7 @@ export function ShellRails({ shellWidth }: ShellRailsProps) {
   const assistantWidth = useShellStore((s) => s.assistantRailWidth);
   const setAssistantWidth = useShellStore((s) => s.setAssistantRailWidth);
   const assistantIntentOpen = useAssistantStore((s) => s.isOpen);
-  const assistantConfigs = useAssistantProviderConfigs();
+  const assistantConfigs = useQuery(api.listAssistantProviderConfigs);
   const assistantAvailable = (assistantConfigs.data?.length ?? 0) > 0;
   const assistantOpen = assistantIntentOpen && assistantAvailable;
 

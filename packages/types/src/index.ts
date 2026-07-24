@@ -47,12 +47,9 @@ export type {
   AssistantProviderAuthKind,
   AssistantProviderCatalogEntry,
   AssistantProviderConfig,
-  AssistantProviderConfigMutations,
   AssistantProviderModelOption,
   SaveAssistantProviderConfigInput,
   SetAssistantDefaultModelInput,
-  UseAssistantProviderCatalogResult,
-  UseAssistantProviderConfigsResult,
 } from "./assistant-provider-configs";
 
 export type {
