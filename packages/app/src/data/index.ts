@@ -90,6 +90,3 @@ export {
 } from "./data-frames";
 
 export { DatabaseProvider, useDatabase } from "../wystack/compat";
-
-// Preview batch — SPLIT-TIER: returns metadata only, no row data over the wire.
-export { previewBatch, type PreviewCommand } from "./preview-diff";
