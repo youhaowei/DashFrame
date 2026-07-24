@@ -825,7 +825,14 @@ export function InsightView({
       // Set new timeout to save after 500ms of no typing
       saveTimeoutRef.current = setTimeout(() => {
         if (newName !== insight.name) {
-          updateInsight({ id: insightId, updates: { name: newName } });
+          // Fire-and-forget from a debounce: surface a failure but leave the
+          // field on the user's latest input. We deliberately don't roll the
+          // field back — with overlapping debounced renames a rollback would
+          // race (clobbering newer input, or restoring a pre-edit name over a
+          // partial success); the next keystroke's debounce simply retries.
+          updateInsight({ id: insightId, updates: { name: newName } }).catch(
+            () => toast.error("Couldn't rename the insight"),
+          );
         }
       }, 500);
     },

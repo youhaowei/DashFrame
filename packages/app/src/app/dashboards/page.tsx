@@ -26,6 +26,14 @@ export default function DashboardsPage() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [newDashboardName, setNewDashboardName] = useState("");
 
+  const handleDelete = async (id: string) => {
+    try {
+      await removeDashboard.mutateAsync({ id });
+    } catch {
+      showError("Failed to delete dashboard. Please try again.");
+    }
+  };
+
   const handleCreate = async () => {
     if (!newDashboardName.trim()) return;
 
@@ -127,9 +135,7 @@ export default function DashboardsPage() {
                         label="Delete dashboard"
                         color="danger"
                         className="-mt-2 -mr-2 text-neutral-fg-subtle opacity-0 transition-opacity group-hover:opacity-100 hover:text-palette-danger"
-                        onClick={() =>
-                          removeDashboard.mutateAsync({ id: dashboard.id })
-                        }
+                        onClick={() => handleDelete(dashboard.id)}
                       />
                     </div>
                   </div>

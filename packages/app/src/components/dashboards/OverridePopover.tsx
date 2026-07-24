@@ -409,7 +409,7 @@ export function OverridePopover({
     });
   }
 
-  function handleBind(controlId: string) {
+  async function handleBind(controlId: string) {
     // Add item.id to the control's boundInstances.  Replaces the whole controls array.
     // fieldName is not needed here — control→field routing is already encoded in
     // the control record (`c.field`); we look up by controlId directly.
@@ -418,10 +418,14 @@ export function OverridePopover({
         ? { ...c, boundInstances: [...c.boundInstances, item.id] }
         : c,
     );
-    updateControls.mutateAsync({ dashboardId, controls: next });
+    try {
+      await updateControls.mutateAsync({ dashboardId, controls: next });
+    } catch {
+      toast.error("Couldn't bind the control");
+    }
   }
 
-  function handleUnbind(controlId: string) {
+  async function handleUnbind(controlId: string) {
     // Remove item.id from the control's boundInstances.
     const next = controls.map((c) =>
       c.id === controlId
@@ -431,7 +435,11 @@ export function OverridePopover({
           }
         : c,
     );
-    updateControls.mutateAsync({ dashboardId, controls: next });
+    try {
+      await updateControls.mutateAsync({ dashboardId, controls: next });
+    } catch {
+      toast.error("Couldn't unbind the control");
+    }
   }
 
   // Available field names for the sort row (fields in the data table).
