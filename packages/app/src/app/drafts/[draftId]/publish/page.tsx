@@ -1,7 +1,7 @@
 import { PreviewDiffRenderer } from "@/components/preview-diff/PreviewDiffRenderer";
 import { usePreviewComputeFill } from "@/components/preview-diff/usePreviewComputeFill";
 import { draftLifecycleErrorDescription } from "@/components/preview-diff/user-facing-errors";
-import { useDraftMutations, useDraftPublishReview } from "@dashframe/core";
+import { useDraftMutations, useDraftPublishReview } from "@/data";
 import { useNavigate } from "@tanstack/react-router";
 import { Badge, Button, cn, ErrorState } from "@wystack/ui-react";
 import {

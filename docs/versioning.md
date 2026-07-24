@@ -17,7 +17,6 @@ _\* v0 exception: breaking changes allowed in minor versions during pre-stable p
 Library packages follow [Semantic Versioning 2.0.0](https://semver.org/):
 
 - `@dashframe/types`
-- `@dashframe/core`
 - `@dashframe/core-dexie`
 - `@dashframe/engine`
 - `@dashframe/engine-browser`

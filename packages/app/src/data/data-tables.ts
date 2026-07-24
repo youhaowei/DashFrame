@@ -10,13 +10,12 @@ import type {
 import { useMutation, useQuery } from "@wystack/client";
 import { useMemo } from "react";
 
-import { api } from "./api";
-import { getWyStackClient } from "./client";
-import { loose } from "./wystack-args";
+import { api } from "../wystack/api";
+import { getWyStackClient } from "../wystack/client";
 
 export function useDataTables(dataSourceId?: UUID): UseDataTablesResult {
   const result = useQuery(api.listDataTables, {
-    args: loose({ dataSourceId }),
+    args: { dataSourceId },
   });
   return {
     data: result.data as DataTable[] | undefined,
@@ -49,9 +48,12 @@ export function useDataTableMutations(): DataTableMutations {
           dataFrameId?: UUID;
         },
       ): Promise<UUID> => {
-        const { id } = await addMutation.mutateAsync(
-          loose({ dataSourceId, name, table, options }),
-        );
+        const { id } = await addMutation.mutateAsync({
+          dataSourceId,
+          name,
+          table,
+          options,
+        });
         return id;
       },
       update: async (
@@ -67,67 +69,65 @@ export function useDataTableMutations(): DataTableMutations {
         await removeMutation.mutateAsync({ id });
       },
       addField: async (dataTableId: UUID, field: Field): Promise<void> => {
-        await patchArrayMutation.mutateAsync(
-          loose({ dataTableId, kind: "fields", mode: "add", value: field }),
-        );
+        await patchArrayMutation.mutateAsync({
+          dataTableId,
+          kind: "fields",
+          mode: "add",
+          value: field,
+        });
       },
       updateField: async (
         dataTableId: UUID,
         fieldId: UUID,
         updates: Partial<Field>,
       ): Promise<void> => {
-        await patchArrayMutation.mutateAsync(
-          loose({
-            dataTableId,
-            kind: "fields",
-            mode: "update",
-            itemId: fieldId,
-            value: updates,
-          }),
-        );
+        await patchArrayMutation.mutateAsync({
+          dataTableId,
+          kind: "fields",
+          mode: "update",
+          itemId: fieldId,
+          value: updates,
+        });
       },
       deleteField: async (dataTableId: UUID, fieldId: UUID): Promise<void> => {
-        await patchArrayMutation.mutateAsync(
-          loose({
-            dataTableId,
-            kind: "fields",
-            mode: "delete",
-            itemId: fieldId,
-          }),
-        );
+        await patchArrayMutation.mutateAsync({
+          dataTableId,
+          kind: "fields",
+          mode: "delete",
+          itemId: fieldId,
+        });
       },
       addMetric: async (dataTableId: UUID, metric: Metric): Promise<void> => {
-        await patchArrayMutation.mutateAsync(
-          loose({ dataTableId, kind: "metrics", mode: "add", value: metric }),
-        );
+        await patchArrayMutation.mutateAsync({
+          dataTableId,
+          kind: "metrics",
+          mode: "add",
+          value: metric,
+        });
       },
       updateMetric: async (
         dataTableId: UUID,
         metricId: UUID,
         updates: Partial<Metric>,
       ): Promise<void> => {
-        await patchArrayMutation.mutateAsync(
-          loose({
-            dataTableId,
-            kind: "metrics",
-            mode: "update",
-            itemId: metricId,
-            value: updates,
-          }),
-        );
+        await patchArrayMutation.mutateAsync({
+          dataTableId,
+          kind: "metrics",
+          mode: "update",
+          itemId: metricId,
+          value: updates,
+        });
       },
       deleteMetric: async (
         dataTableId: UUID,
         metricId: UUID,
       ): Promise<void> => {
-        await patchArrayMutation.mutateAsync(
-          loose({
-            dataTableId,
-            kind: "metrics",
-            mode: "delete",
-            itemId: metricId,
-          }),
-        );
+        await patchArrayMutation.mutateAsync({
+          dataTableId,
+          kind: "metrics",
+          mode: "delete",
+          itemId: metricId,
+        });
       },
       updateSourceSchema: async (
         dataTableId: UUID,
@@ -161,10 +161,12 @@ export async function addDataTable(
     dataFrameId?: UUID;
   },
 ): Promise<UUID> {
-  const { id } = await getWyStackClient().mutate(
-    api.addDataTable,
-    loose({ dataSourceId, name, table, options }),
-  );
+  const { id } = await getWyStackClient().mutate(api.addDataTable, {
+    dataSourceId,
+    name,
+    table,
+    options,
+  });
   return id;
 }
 
@@ -189,10 +191,7 @@ export async function createDataTable(args: {
   metrics?: Metric[];
   dataFrameId?: UUID;
 }): Promise<UUID> {
-  const { id } = await getWyStackClient().mutate(
-    api.createDataTable,
-    loose(args),
-  );
+  const { id } = await getWyStackClient().mutate(api.createDataTable, args);
   return id as UUID;
 }
 
@@ -211,14 +210,13 @@ export async function getDataTable(id: UUID): Promise<DataTable | undefined> {
 export async function getDataTablesBySource(
   dataSourceId: UUID,
 ): Promise<DataTable[]> {
-  const result = await getWyStackClient().query(
-    api.listDataTables,
-    loose({ dataSourceId }),
-  );
+  const result = await getWyStackClient().query(api.listDataTables, {
+    dataSourceId,
+  });
   return result as DataTable[];
 }
 
 export async function getAllDataTables(): Promise<DataTable[]> {
-  const result = await getWyStackClient().query(api.listDataTables, loose({}));
+  const result = await getWyStackClient().query(api.listDataTables, {});
   return result as DataTable[];
 }

@@ -1,8 +1,11 @@
 import "@dashframe/app/globals.css";
 
 import type { AppRouterContext, ProviderWrapper } from "@dashframe/app";
-import { ChartEngineProvider } from "@dashframe/app";
-import { createWyStackRuntime, resolveWyStackConfig } from "@dashframe/core";
+import {
+  ChartEngineProvider,
+  createWyStackRuntime,
+  resolveWyStackConfig,
+} from "@dashframe/app";
 import { createRouter, RouterProvider } from "@tanstack/react-router";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";

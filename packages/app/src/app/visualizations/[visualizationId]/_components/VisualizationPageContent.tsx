@@ -4,6 +4,14 @@ import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import { useContextPanelSection } from "@/components/shell/context-panel-outlet";
 import { AxisSelectField } from "@/components/visualizations/AxisSelectField";
 import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
+import {
+  getDataFrame,
+  useCompiledInsight,
+  useDataTables,
+  useInsights,
+  useVisualizationMutations,
+  useVisualizations,
+} from "@/data";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
@@ -18,14 +26,6 @@ import {
   validateEncoding,
 } from "@/lib/visualizations/encoding-enforcer";
 import { getAlternativeChartTypes } from "@/lib/visualizations/suggest-charts";
-import {
-  getDataFrame,
-  useCompiledInsight,
-  useDataTables,
-  useInsights,
-  useVisualizationMutations,
-  useVisualizations,
-} from "@dashframe/core";
 import {
   extractColumnAliasComponents,
   fieldIdToColumnAlias,

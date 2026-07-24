@@ -62,7 +62,7 @@ import { captureCommandCredentials } from "../credential-release";
 import type { Functions } from "../functions";
 import { cmd } from "./commands";
 
-/** Mirrors packages/app-data/src/api.ts's module-scope api object. */
+/** Mirrors packages/app/src/wystack/api.ts's module-scope api object. */
 const api: ApiFromFunctions<Functions> = createApi<Functions>();
 
 const { dataSources } = schema;
@@ -502,11 +502,8 @@ describe("draft lifecycle RPCs (publishDraft, discardDraft, getDraftLog)", () =>
     try {
       await client.mutate(
         api.publishDraft,
-        // WyStack's InferArg discards a column's `.optional()` flag, so the
-        // generated arg type demands `expectedLogSignature` even though the
-        // handler treats it as optional (see packages/app-data/src/
-        // wystack-args.ts's `loose` helper, which documents and works around
-        // the same upstream gap for the app's own publishDraft caller).
+        // Keep this direct generic test call explicitly cast so the assertion
+        // remains focused on HTTP error propagation.
         {
           draftId,
           // A count that can never match the seeded log's length forces the

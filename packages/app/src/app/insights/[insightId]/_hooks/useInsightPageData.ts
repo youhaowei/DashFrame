@@ -1,13 +1,13 @@
-import { useDataFrameData } from "@/hooks/useDataFrameData";
-import type { PreviewResult } from "@/lib/insights/compute-preview";
-import { computeInsightPreview } from "@/lib/insights/compute-preview";
 import {
   useDataSources,
   useDataTables,
   useInsightMutations,
   useInsights,
   useVisualizations,
-} from "@dashframe/core";
+} from "@/data";
+import { useDataFrameData } from "@/hooks/useDataFrameData";
+import type { PreviewResult } from "@/lib/insights/compute-preview";
+import { computeInsightPreview } from "@/lib/insights/compute-preview";
 import {
   isUnmodifiedDraft,
   type DataSource,

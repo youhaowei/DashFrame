@@ -8,9 +8,8 @@ import type {
 import { useMutation, useQuery } from "@wystack/client";
 import { useMemo } from "react";
 
-import { api } from "./api";
-import { getWyStackClient } from "./client";
-import { loose } from "./wystack-args";
+import { api } from "../wystack/api";
+import { getWyStackClient } from "../wystack/client";
 
 export function useDataSources(): UseDataSourcesResult {
   const result = useQuery(api.listDataSources);
@@ -36,7 +35,7 @@ export function useDataSourceMutations(): DataSourceMutations {
   return useMemo(
     () => ({
       add: async (input: CreateDataSourceInput): Promise<UUID> => {
-        const { id } = await addMutation.mutateAsync(loose(input));
+        const { id } = await addMutation.mutateAsync(input);
         return id;
       },
       update: async (
@@ -44,7 +43,7 @@ export function useDataSourceMutations(): DataSourceMutations {
         updates: Partial<Pick<DataSource, "name">> &
           Pick<CreateDataSourceInput, "apiKey" | "connectionString">,
       ): Promise<void> => {
-        await updateMutation.mutateAsync(loose({ id, ...updates }));
+        await updateMutation.mutateAsync({ id, ...updates });
       },
       remove: async (id: UUID): Promise<void> => {
         await removeMutation.mutateAsync({ id });
@@ -57,10 +56,7 @@ export function useDataSourceMutations(): DataSourceMutations {
 export async function addDataSource(
   input: CreateDataSourceInput,
 ): Promise<UUID> {
-  const { id } = await getWyStackClient().mutate(
-    api.addDataSource,
-    loose(input),
-  );
+  const { id } = await getWyStackClient().mutate(api.addDataSource, input);
   return id;
 }
 
@@ -69,10 +65,7 @@ export async function updateDataSource(
   updates: Partial<Pick<DataSource, "name">> &
     Pick<CreateDataSourceInput, "apiKey" | "connectionString">,
 ): Promise<void> {
-  await getWyStackClient().mutate(
-    api.updateDataSource,
-    loose({ id, ...updates }),
-  );
+  await getWyStackClient().mutate(api.updateDataSource, { id, ...updates });
 }
 
 export async function removeDataSource(id: UUID): Promise<void> {

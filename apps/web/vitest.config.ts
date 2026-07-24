@@ -35,7 +35,6 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "../../packages/app/src"),
       "@dashframe/ui": path.resolve(__dirname, "../../packages/ui/src"),
-      "@dashframe/core": path.resolve(__dirname, "../../packages/core/src"),
       "@dashframe/engine": path.resolve(__dirname, "../../packages/engine/src"),
       "@dashframe/engine-browser": path.resolve(
         __dirname,

@@ -31,7 +31,7 @@ import type {
   ExecutionPlan,
 } from "@dashframe/engine";
 
-// Also re-exports all @dashframe/core types
+// Also re-exports all @dashframe/types
 import type { UUID, Field, Metric } from "@dashframe/engine";
 ```
 

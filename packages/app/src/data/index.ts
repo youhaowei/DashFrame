@@ -1,11 +1,5 @@
 /**
- * @dashframe/app-data
- *
- * WyStack implementation of the app's data-hook surface. Re-exports the exact
- * hook names and shapes the components import from `@dashframe/core`,
- * backed by the WyStack client (HTTP + WS live-invalidation).
- * `@dashframe/core` re-exports from here, so components stay
- * backend-agnostic and untouched.
+ * WyStack implementation of the app's data-hook surface.
  *
  * The host wires the runtime seam once at startup:
  *   - render `<Provider>` (from `createWyStack`) above the app, and
@@ -14,14 +8,14 @@
  */
 
 // Runtime client seam (host wires this once).
-export { getWyStackClient, setWyStackClient } from "./client";
+export { getWyStackClient, setWyStackClient } from "../wystack/client";
 export {
   createWyStackRuntime,
   getWyStackRuntimeConfig,
   resolveWyStackConfig,
   type WyStackRuntime,
   type WyStackRuntimeConfig,
-} from "./runtime";
+} from "../wystack/runtime";
 
 export {
   parseAssistantSseChunk,
@@ -29,7 +23,7 @@ export {
   type AssistantRunRequest,
   type AssistantSidebarEvent,
   type RunAssistantPromptOptions,
-} from "./assistant-run";
+} from "../wystack/assistant-run";
 
 // Dashboards
 export {
@@ -124,7 +118,7 @@ export {
   type PostgresTableRef,
 } from "./postgres";
 
-export { DatabaseProvider, useDatabase } from "./compat";
+export { DatabaseProvider, useDatabase } from "../wystack/compat";
 
 // Preview batch — SPLIT-TIER: returns metadata only, no row data over the wire.
 export { previewBatch, type PreviewCommand } from "./preview-diff";

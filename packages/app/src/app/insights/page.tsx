@@ -5,7 +5,7 @@ import {
   useInsightMutations,
   useInsights,
   useVisualizations,
-} from "@dashframe/core";
+} from "@/data";
 import {
   isUnmodifiedDraft,
   type DataTable,

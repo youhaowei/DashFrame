@@ -1,5 +1,5 @@
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
-import { getDataFrame, getDataTable } from "@dashframe/core";
+import { getDataFrame, getDataTable } from "@/data";
 import type { EffectiveParams } from "@dashframe/engine";
 import {
   buildInsightAvailableFields,

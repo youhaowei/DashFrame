@@ -1,15 +1,15 @@
 import {
+  useDataTableMutations,
+  useInsightMutations,
+  useVisualizationMutations,
+  useVisualizations,
+} from "@/data";
+import {
   computeCombinedFields,
   computeFilterableFields,
   type CombinedField,
 } from "@/lib/insights/compute-combined-fields";
 import { reorderVisibleMetrics } from "@/lib/insights/reorder-visible-metrics";
-import {
-  useDataTableMutations,
-  useInsightMutations,
-  useVisualizationMutations,
-  useVisualizations,
-} from "@dashframe/core";
 import type {
   DataTable,
   Insight,

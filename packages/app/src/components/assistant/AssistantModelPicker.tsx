@@ -2,7 +2,7 @@ import {
   useAssistantProviderCatalog,
   useAssistantProviderConfigMutations,
   useAssistantProviderConfigs,
-} from "@dashframe/core";
+} from "@/data";
 import {
   Select,
   SelectContent,

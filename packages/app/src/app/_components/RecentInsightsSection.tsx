@@ -2,7 +2,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { SparklesIcon } from "@wystack/ui-react/icons";
 import { useMemo } from "react";
 
-import { useInsights } from "@dashframe/core";
+import { useInsights } from "@/data";
 import { DashboardSection } from "./DashboardSection";
 
 /**

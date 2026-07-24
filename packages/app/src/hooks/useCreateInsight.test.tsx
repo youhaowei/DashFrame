@@ -31,7 +31,7 @@ const {
   };
 });
 
-vi.mock("@dashframe/core", () => ({
+vi.mock("@/data", () => ({
   useInsightMutations: () => mockMutations,
   getInsight: mockGetInsight,
   getAllInsights: mockGetAllInsights,

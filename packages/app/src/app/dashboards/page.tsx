@@ -1,5 +1,5 @@
+import { useDashboardMutations, useDashboards } from "@/data";
 import { useToastStore } from "@/lib/stores";
-import { useDashboardMutations, useDashboards } from "@dashframe/core";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
   Button,

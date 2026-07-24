@@ -4,7 +4,7 @@ import {
   getDataTable,
   removeDataFrame,
   updateDataTable,
-} from "@dashframe/core";
+} from "@/data";
 import { DataFrame, deleteArrowData } from "@dashframe/engine-browser";
 import { getFieldSensitivity, type Field, type UUID } from "@dashframe/types";
 

@@ -46,7 +46,7 @@ DataSource → DataTable → Field/Metric
 ## Dexie Query Patterns
 
 ```typescript
-// Reactive hooks from @dashframe/core-dexie
+// Reactive hooks from @/data
 const { data: sources, isLoading } = useDataSources();
 const { addLocal, setNotion, remove } = useDataSourceMutations();
 
@@ -60,10 +60,10 @@ if (!sources?.length) return <EmptyState />;
 
 ## Stores
 
-| Store                   | Status     | Purpose                                          |
-| ----------------------- | ---------- | ------------------------------------------------ |
-| `@dashframe/core-dexie` | **Active** | Entity persistence (DataSources, Insights, etc.) |
-| `dataframes-store.ts`   | **Legacy** | DataFrame metadata (migrating to Dexie)          |
+| Store                 | Status     | Purpose                                          |
+| --------------------- | ---------- | ------------------------------------------------ |
+| `@/data`              | **Active** | Entity persistence (DataSources, Insights, etc.) |
+| `dataframes-store.ts` | **Legacy** | DataFrame metadata (migrating to Dexie)          |
 
 **Class Serialization Pattern:**
 

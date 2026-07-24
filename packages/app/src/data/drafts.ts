@@ -3,9 +3,8 @@ import type { RefReturn } from "@wystack/client";
 import { useMutation, useQuery } from "@wystack/client";
 import { useMemo } from "react";
 
-import { api } from "./api";
-import { getWyStackClient } from "./client";
-import { loose } from "./wystack-args";
+import { api } from "../wystack/api";
+import { getWyStackClient } from "../wystack/client";
 
 // Derive review types directly from the server RPC contract (via the typed api)
 // so the client shape cannot drift or mask the real return type. This eliminates
@@ -46,16 +45,14 @@ export function useDraftMutations(): DraftMutations {
           expectedLogSignature?: string;
         },
       ): Promise<void> => {
-        await publishMutation.mutateAsync(
-          loose({
-            draftId,
-            expectedCommandCount:
-              options?.expectedCommandCount !== undefined
-                ? String(options.expectedCommandCount)
-                : undefined,
-            expectedLogSignature: options?.expectedLogSignature,
-          }),
-        );
+        await publishMutation.mutateAsync({
+          draftId,
+          expectedCommandCount:
+            options?.expectedCommandCount !== undefined
+              ? String(options.expectedCommandCount)
+              : undefined,
+          expectedLogSignature: options?.expectedLogSignature,
+        });
       },
       discard: async (draftId: string): Promise<void> => {
         await discardMutation.mutateAsync({ draftId });

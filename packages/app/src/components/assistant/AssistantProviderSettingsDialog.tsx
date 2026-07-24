@@ -1,9 +1,9 @@
-import { useToastStore } from "@/lib/stores";
 import {
   useAssistantProviderCatalog,
   useAssistantProviderConfigMutations,
   useAssistantProviderConfigs,
-} from "@dashframe/core";
+} from "@/data";
+import { useToastStore } from "@/lib/stores";
 import type {
   AssistantProviderAuthKind,
   AssistantProviderCatalogEntry,

@@ -2,7 +2,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
 
 import { VisualizationPreview } from "@/components/visualizations/VisualizationPreview";
-import { useVisualizations } from "@dashframe/core";
+import { useVisualizations } from "@/data";
 import { ChartIcon } from "@wystack/ui-react/icons";
 import { DashboardSection } from "./DashboardSection";
 

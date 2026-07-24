@@ -1,9 +1,5 @@
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
-import {
-  getDataFrame,
-  useDataFrames,
-  type DataFrameEntry,
-} from "@dashframe/core";
+import { getDataFrame, useDataFrames, type DataFrameEntry } from "@/data";
 import type {
   ColumnType,
   DataFrameColumn,

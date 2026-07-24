@@ -1,8 +1,4 @@
-import {
-  useDataSources,
-  useInsights,
-  useVisualizations,
-} from "@dashframe/core";
+import { useDataSources, useInsights, useVisualizations } from "@/data";
 import { useNavigate } from "@tanstack/react-router";
 import { ItemList } from "@wystack/ui-react";
 import { ChartIcon, DatabaseIcon, SparklesIcon } from "@wystack/ui-react/icons";

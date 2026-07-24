@@ -1,14 +1,14 @@
 import { useBindArtifact } from "@/components/assistant/artifact-context";
 import { DashboardControlBar } from "@/components/dashboards/DashboardControlBar";
 import { DashboardGrid } from "@/components/dashboards/DashboardGrid";
-import type { CombinedField } from "@/lib/insights/compute-combined-fields";
 import {
   useDashboardMutations,
   useDashboards,
   useDataTables,
   useInsights,
   useVisualizations,
-} from "@dashframe/core";
+} from "@/data";
+import type { CombinedField } from "@/lib/insights/compute-combined-fields";
 import type { DashboardItemType, InsightFilter } from "@dashframe/types";
 import { useNavigate } from "@tanstack/react-router";
 import {

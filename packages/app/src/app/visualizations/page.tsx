@@ -5,7 +5,7 @@ import {
   useInsights,
   useVisualizationMutations,
   useVisualizations,
-} from "@dashframe/core";
+} from "@/data";
 import type { Insight, UUID, Visualization } from "@dashframe/types";
 import { useNavigate } from "@tanstack/react-router";
 import {

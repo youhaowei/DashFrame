@@ -1,3 +1,4 @@
+import { useAssistantProviderConfigs } from "@/data";
 import { useAssistantStore } from "@/lib/stores/assistant-store";
 import {
   ASSISTANT_RAIL_MAX_WIDTH,
@@ -6,7 +7,6 @@ import {
   CONTEXT_PANEL_MIN_WIDTH,
   useShellStore,
 } from "@/lib/stores/shell-store";
-import { useAssistantProviderConfigs } from "@dashframe/core";
 import { Dock, cn } from "@wystack/ui-react";
 import { ThemePanel } from "@wystack/ui-react/views";
 import { useEffect, useState } from "react";

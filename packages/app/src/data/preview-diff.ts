@@ -10,8 +10,8 @@
  */
 import type { PreviewDiff } from "@dashframe/types";
 
-import { api } from "./api";
-import { getWyStackClient } from "./client";
+import { api } from "../wystack/api";
+import { getWyStackClient } from "../wystack/client";
 
 /**
  * One command envelope, mirroring `@wystack/server`'s `Command` type without

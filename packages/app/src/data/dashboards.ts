@@ -20,9 +20,8 @@ import type {
 import { useMutation, useQuery } from "@wystack/client";
 import { useMemo } from "react";
 
-import { api } from "./api";
-import { getWyStackClient } from "./client";
-import { loose } from "./wystack-args";
+import { api } from "../wystack/api";
+import { getWyStackClient } from "../wystack/client";
 
 /**
  * Hook to read all dashboards. Live-updates via WS invalidation whenever any
@@ -56,7 +55,7 @@ export function useDashboardMutations(): DashboardMutations {
   return useMemo(
     () => ({
       create: async (name: string, description?: string): Promise<UUID> => {
-        const { id } = await create.mutateAsync(loose({ name, description }));
+        const { id } = await create.mutateAsync({ name, description });
         return id;
       },
 
@@ -64,13 +63,11 @@ export function useDashboardMutations(): DashboardMutations {
         id: UUID,
         updates: Pick<Partial<Dashboard>, "name" | "description">,
       ): Promise<void> => {
-        await update.mutateAsync(
-          loose({
-            id,
-            name: updates.name,
-            description: updates.description,
-          }),
-        );
+        await update.mutateAsync({
+          id,
+          name: updates.name,
+          description: updates.description,
+        });
       },
 
       remove: async (id: UUID): Promise<void> => {
@@ -81,15 +78,13 @@ export function useDashboardMutations(): DashboardMutations {
         dashboardId: UUID,
         input: CreateItemInput,
       ): Promise<UUID> => {
-        const { itemId } = await addItem.mutateAsync(
-          loose({
-            dashboardId,
-            type: input.type,
-            visualizationId: input.visualizationId,
-            content: input.content,
-            position: input.position,
-          }),
-        );
+        const { itemId } = await addItem.mutateAsync({
+          dashboardId,
+          type: input.type,
+          visualizationId: input.visualizationId,
+          content: input.content,
+          position: input.position,
+        });
         return itemId;
       },
 

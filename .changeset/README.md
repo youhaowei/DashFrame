@@ -24,7 +24,7 @@ The CLI will prompt you:
 
 ### 2. Choosing Version Bump Type
 
-**Library Packages** (`@dashframe/types`, `@dashframe/core`, `@dashframe/core-dexie`, `@dashframe/engine`, `@dashframe/engine-browser`, `@dashframe/connector-csv`, `@dashframe/connector-notion`, `@dashframe/visualization`, `@dashframe/ui`, `@dashframe/eslint-config`):
+**Library Packages** (`@dashframe/types`, `@dashframe/core-dexie`, `@dashframe/engine`, `@dashframe/engine-browser`, `@dashframe/connector-csv`, `@dashframe/connector-notion`, `@dashframe/visualization`, `@dashframe/ui`, `@dashframe/eslint-config`):
 
 **While in v0.x (pre-stable):**
 

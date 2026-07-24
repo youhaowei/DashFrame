@@ -1,5 +1,5 @@
+import { useDashboardMutations } from "@/data";
 import { computeItemOverrides } from "@/lib/dashboards/controls";
-import { useDashboardMutations } from "@dashframe/core";
 import type {
   Dashboard,
   DashboardItemOverrides,

@@ -1,8 +1,8 @@
 import { useChartEngine } from "@/components/providers/ChartEngineProvider";
 import { useDuckDBContext } from "@/components/providers/DuckDBProvider";
+import { useDataTables, useInsights, useVisualizations } from "@/data";
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
-import { useDataTables, useInsights, useVisualizations } from "@dashframe/core";
 import {
   getMetricDisplayLabel,
   resolveEffectiveParams,

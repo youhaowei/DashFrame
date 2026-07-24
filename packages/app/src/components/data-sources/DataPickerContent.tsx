@@ -1,3 +1,14 @@
+import {
+  removeDataFrame,
+  useDataFrames,
+  useDataSourceMutations,
+  useDataSources,
+  useDataTableMutations,
+  useDataTables,
+  useInsights,
+  useNotionMutations,
+  usePostgresMutations,
+} from "@/data";
 import { getConnectorById } from "@/lib/connectors/registry";
 import { handleFileConnectorResult } from "@/lib/local-csv-handler";
 import {
@@ -14,17 +25,6 @@ import {
   RemoteTableReplacementError,
 } from "@/lib/remote-table-materialization";
 import { useConfirmDialogStore, type ConfirmDialogConfig } from "@/lib/stores";
-import {
-  removeDataFrame,
-  useDataFrames,
-  useDataSourceMutations,
-  useDataSources,
-  useDataTableMutations,
-  useDataTables,
-  useInsights,
-  useNotionMutations,
-  usePostgresMutations,
-} from "@dashframe/core";
 import type {
   FileSourceConnector,
   RemoteApiConnector,

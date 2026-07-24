@@ -1,5 +1,5 @@
+import { useAssistantProviderConfigs } from "@/data";
 import { useAssistantStore } from "@/lib/stores/assistant-store";
-import { useAssistantProviderConfigs } from "@dashframe/core";
 import { Button, cn } from "@wystack/ui-react";
 import { SparklesIcon } from "@wystack/ui-react/icons";
 

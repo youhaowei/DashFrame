@@ -93,12 +93,12 @@ export interface DataSourceMutations {
 
 /**
  * Hook type for reading data sources.
- * Implemented by @dashframe/app-data (WyStack server path).
+ * Implemented by the app's WyStack data layer.
  */
 export type UseDataSources = () => UseDataSourcesResult;
 
 /**
  * Hook type for data source mutations.
- * Implemented by @dashframe/app-data (WyStack server path).
+ * Implemented by the app's WyStack data layer.
  */
 export type UseDataSourceMutations = () => DataSourceMutations;

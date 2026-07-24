@@ -1,4 +1,3 @@
-import { getConnectorById } from "@/lib/connectors/registry";
 import {
   useDataSourceMutations,
   useDataSources,
@@ -6,7 +5,8 @@ import {
   useDataTables,
   useNotionMutations,
   type NotionDatabaseRef,
-} from "@dashframe/core";
+} from "@/data";
+import { getConnectorById } from "@/lib/connectors/registry";
 import { InputField } from "@dashframe/ui";
 import {
   Button,

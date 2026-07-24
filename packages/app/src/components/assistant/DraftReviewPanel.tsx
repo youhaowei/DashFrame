@@ -15,11 +15,7 @@
  */
 import { useCallback, useState } from "react";
 
-import {
-  discardDraft,
-  getDraftPublishReview,
-  publishDraft,
-} from "@dashframe/core";
+import { discardDraft, getDraftPublishReview, publishDraft } from "@/data";
 import type { PreviewDiff } from "@dashframe/types";
 import { useNavigate } from "@tanstack/react-router";
 import { Button, cn } from "@wystack/ui-react";

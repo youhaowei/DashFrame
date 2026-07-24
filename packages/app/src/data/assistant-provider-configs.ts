@@ -9,8 +9,7 @@ import type {
 import { useMutation, useQuery } from "@wystack/client";
 import { useMemo } from "react";
 
-import { api } from "./api";
-import { loose } from "./wystack-args";
+import { api } from "../wystack/api";
 
 export function useAssistantProviderCatalog(): UseAssistantProviderCatalogResult {
   const result = useQuery(api.listAssistantProviderCatalog);
@@ -39,14 +38,12 @@ export function useAssistantProviderConfigMutations(): AssistantProviderConfigMu
   return useMemo(
     () => ({
       save: async (input: SaveAssistantProviderConfigInput) =>
-        (await saveMutation.mutateAsync(
-          loose({ input }),
-        )) as AssistantProviderConfig,
+        (await saveMutation.mutateAsync({ input })) as AssistantProviderConfig,
       remove: async (id) => {
         await removeMutation.mutateAsync({ id });
       },
       setDefaultModel: async (input) => {
-        await setDefaultModelMutation.mutateAsync(loose({ input }));
+        await setDefaultModelMutation.mutateAsync({ input });
       },
       startOAuthLogin: async (id) => {
         await startOAuthLoginMutation.mutateAsync({ id });

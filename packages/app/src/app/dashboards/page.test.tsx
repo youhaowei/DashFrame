@@ -31,7 +31,7 @@ const { mockCreate, mockMutations } = vi.hoisted(() => {
   };
 });
 
-vi.mock("@dashframe/core", () => ({
+vi.mock("@/data", () => ({
   useDashboards: () => ({ data: [], isLoading: false }),
   useDashboardMutations: () => mockMutations,
 }));

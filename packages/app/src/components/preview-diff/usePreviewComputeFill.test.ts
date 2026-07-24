@@ -45,7 +45,7 @@ const { mockGetDataFrame, mockGetDataTable } = vi.hoisted(() => ({
   mockGetDataTable: vi.fn(),
 }));
 
-vi.mock("@dashframe/core", () => ({
+vi.mock("@/data", () => ({
   getDataFrame: mockGetDataFrame,
   getDataTable: mockGetDataTable,
 }));

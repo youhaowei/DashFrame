@@ -5,17 +5,17 @@ import {
 import { ConnectorIcon } from "@/components/data-sources/renderers/ConnectorIcon";
 import { SensitivityBadge } from "@/components/data-sources/SensitivityBadge";
 import { AppLayout } from "@/components/layouts/AppLayout";
-import { useCreateInsight } from "@/hooks/useCreateInsight";
-import { useDataFrameData } from "@/hooks/useDataFrameData";
-import { getConnectorById } from "@/lib/connectors/registry";
-import { PerfStage, withPerfAsync } from "@/lib/perf";
 import {
   useDataFrames,
   useDataSourceMutations,
   useDataSources,
   useDataTableMutations,
   useDataTables,
-} from "@dashframe/core";
+} from "@/data";
+import { useCreateInsight } from "@/hooks/useCreateInsight";
+import { useDataFrameData } from "@/hooks/useDataFrameData";
+import { getConnectorById } from "@/lib/connectors/registry";
+import { PerfStage, withPerfAsync } from "@/lib/perf";
 import { extractColumnAliasComponents } from "@dashframe/engine";
 import type { ColumnAnalysis, FieldSensitivity, UUID } from "@dashframe/types";
 import {

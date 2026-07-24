@@ -33,8 +33,8 @@ const rootDir = join(__dirname, "..");
 // Package paths to detect changes
 const PACKAGE_PATHS = {
   "apps/web": "@dashframe/web",
+  "packages/app": "@dashframe/app",
   "packages/types": "@dashframe/types",
-  "packages/core": "@dashframe/core",
   "packages/core-dexie": "@dashframe/core-dexie",
   "packages/core-store": "@dashframe/core-store",
   "packages/engine": "@dashframe/engine",
@@ -211,7 +211,7 @@ Note: All DashFrame packages are currently v0.x (pre-stable), so breaking change
 
 ## Examples
 - Bug fix in @dashframe/ui (v0.1.0) → patch
-- New feature in @dashframe/core (v0.2.0) → minor
+- New feature in @dashframe/app (v0.2.0) → minor
 - Breaking API change in @dashframe/types (v0.1.5) → minor (v0.x allows breaking in minor)
 - Breaking change in hypothetical @dashframe/ui (v1.2.0) → major (v1.0+ requires major for breaking)
 

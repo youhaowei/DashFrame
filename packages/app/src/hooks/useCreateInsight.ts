@@ -1,8 +1,4 @@
-import {
-  getAllInsights,
-  getInsight,
-  useInsightMutations,
-} from "@dashframe/core";
+import { getAllInsights, getInsight, useInsightMutations } from "@/data";
 import { isUnmodifiedDraft } from "@dashframe/types";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";

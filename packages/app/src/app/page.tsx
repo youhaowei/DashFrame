@@ -1,4 +1,4 @@
-import { useVisualizations } from "@dashframe/core";
+import { useVisualizations } from "@/data";
 import { Spinner } from "@wystack/ui-react";
 import { HomeView } from "./_components/HomeView";
 import { OnboardingView } from "./_components/OnboardingView";

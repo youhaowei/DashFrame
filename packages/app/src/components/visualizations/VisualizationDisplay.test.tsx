@@ -54,7 +54,7 @@ const { mockUseVisualizations, mockUseInsights, mockUseDataTables } =
     mockUseDataTables: vi.fn(),
   }));
 
-vi.mock("@dashframe/core", () => ({
+vi.mock("@/data", () => ({
   useVisualizations: () => mockUseVisualizations(),
   useInsights: () => mockUseInsights(),
   useDataTables: () => mockUseDataTables(),
