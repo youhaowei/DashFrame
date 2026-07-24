@@ -1,20 +1,10 @@
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import { VisualizationPreview } from "@/components/visualizations/VisualizationPreview";
-import {
-  getDataFrame,
-  useDashboardMutations,
-  useDashboards,
-  useDataFrameMutations,
-  useDataFrames,
-  useDataTables,
-  useInsightMutations,
-  useVisualizationMutations,
-  useVisualizations,
-} from "@/data";
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
 import { formatCellValue } from "@/lib/cell-formatter";
+import { getDataFrame } from "@/lib/data-access/data-frames";
 import {
   TABLE_CANVAS_VIEW,
   canvasViewsEqual,
@@ -28,6 +18,7 @@ import {
   suggestByChartType,
   type ChartSuggestion,
 } from "@/lib/visualizations/suggest-charts";
+import { api } from "@/wystack/api";
 import {
   extractUUIDFromColumnAlias,
   fieldIdToColumnAlias,
@@ -53,6 +44,7 @@ import {
 } from "@dashframe/ui";
 import { Chart } from "@dashframe/visualization";
 import { useNavigate } from "@tanstack/react-router";
+import { useMutation, useQuery } from "@wystack/client";
 import { Button, cn } from "@wystack/ui-react";
 import {
   DashboardIcon,
@@ -802,10 +794,22 @@ export function InsightView({
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   // Mutations
-  const { update: updateInsight } = useInsightMutations();
-  const { create: createVisualizationLocal, remove: removeVisualization } =
-    useVisualizationMutations();
-  const { updateAnalysis } = useDataFrameMutations();
+  const { mutateAsync: updateInsight } = useMutation(api.updateInsight);
+  const { mutateAsync: createVisualizationLocal } = useMutation(
+    api.createVisualization,
+  );
+  const { mutateAsync: removeVisualizationMutation } = useMutation(
+    api.removeVisualization,
+  );
+  const { mutateAsync: updateDataFrameEntry } = useMutation(
+    api.updateDataFrameEntry,
+  );
+  const updateAnalysis = useCallback(
+    async (id: UUID, analysis: DataFrameAnalysis): Promise<void> => {
+      await updateDataFrameEntry({ id, updates: { analysis } });
+    },
+    [updateDataFrameEntry],
+  );
   const { confirm } = useConfirmDialogStore();
 
   // Debounced save for insight name (500ms after typing stops)
@@ -821,7 +825,7 @@ export function InsightView({
       // Set new timeout to save after 500ms of no typing
       saveTimeoutRef.current = setTimeout(() => {
         if (newName !== insight.name) {
-          updateInsight(insightId, { name: newName });
+          updateInsight({ id: insightId, updates: { name: newName } });
         }
       }, 500);
     },
@@ -838,12 +842,16 @@ export function InsightView({
   }, []);
 
   // Fetch related data
-  const { data: allDataTables = [] } = useDataTables();
-  const { data: allDataFrameEntries = [] } = useDataFrames();
-  const { data: allVisualizations = [] } = useVisualizations();
-  const { data: dashboards = [] } = useDashboards();
-  const { create: createDashboard, addItem: addDashboardItem } =
-    useDashboardMutations();
+  const { data: allDataTables = [] } = useQuery(api.listDataTables, {
+    args: {},
+  });
+  const { data: allDataFrameEntries = [] } = useQuery(api.listDataFrames);
+  const { data: allVisualizations = [] } = useQuery(api.listVisualizations, {
+    args: {},
+  });
+  const { data: dashboards = [] } = useQuery(api.listDashboards);
+  const createDashboard = useMutation(api.createDashboard);
+  const addDashboardItem = useMutation(api.addDashboardItem);
   const persistedActiveView = useInsightCanvasStore(
     (s) => s.activeViewByInsight[insightId],
   );
@@ -1297,9 +1305,12 @@ export function InsightView({
 
       // Update insight with merged fields and metrics
       // IMPORTANT: Must await to ensure fields/metrics are saved before navigation
-      await updateInsight(insightId, {
-        selectedFields: mergedFieldIds,
-        metrics: mergedMetrics,
+      await updateInsight({
+        id: insightId,
+        updates: {
+          selectedFields: mergedFieldIds,
+          metrics: mergedMetrics,
+        },
       });
 
       // Convert ChartEncoding (SQL expressions) to VisualizationEncoding (prefixed IDs)
@@ -1325,13 +1336,13 @@ export function InsightView({
         return matchingVisualization.id;
       }
 
-      const vizId = await createVisualizationLocal(
-        suggestion.title,
+      const { id: vizId } = await createVisualizationLocal({
+        name: suggestion.title,
         insightId,
-        suggestion.chartType,
-        {} as VegaLiteSpec, // Deprecated: rendering now uses encoding
-        visualizationEncoding,
-      );
+        visualizationType: suggestion.chartType,
+        spec: {} as VegaLiteSpec, // Deprecated: rendering now uses encoding
+        encoding: visualizationEncoding,
+      });
 
       handleSetActiveView(visualizationView(vizId));
       return vizId;
@@ -1403,14 +1414,20 @@ export function InsightView({
 
       const dashboard = dashboards[0];
       const dashboardId =
-        dashboard?.id ?? (await createDashboard(`${insight.name} dashboard`));
+        dashboard?.id ??
+        (
+          await createDashboard.mutateAsync({
+            name: `${insight.name} dashboard`,
+          })
+        ).id;
       const bottomY =
         dashboard?.items.reduce(
           (max, item) => Math.max(max, item.y + item.height),
           0,
         ) ?? 0;
 
-      await addDashboardItem(dashboardId, {
+      await addDashboardItem.mutateAsync({
+        dashboardId,
         type: "visualization",
         visualizationId,
         position: {
@@ -1439,13 +1456,13 @@ export function InsightView({
       const viz = insightVisualizations.find((v) => v.id === vizId);
       if (!viz) return;
 
-      const newVizId = await createVisualizationLocal(
-        `${viz.name} (copy)`,
+      const { id: newVizId } = await createVisualizationLocal({
+        name: `${viz.name} (copy)`,
         insightId,
-        viz.visualizationType,
-        viz.spec,
-        viz.encoding,
-      );
+        visualizationType: viz.visualizationType,
+        spec: viz.spec,
+        encoding: viz.encoding,
+      });
 
       navigate({ to: `/visualizations/${newVizId}` } as never);
     },
@@ -1461,11 +1478,11 @@ export function InsightView({
         confirmLabel: "Delete",
         variant: "destructive",
         onConfirm: async () => {
-          await removeVisualization(vizId);
+          await removeVisualizationMutation({ id: vizId });
         },
       });
     },
-    [confirm, removeVisualization],
+    [confirm, removeVisualizationMutation],
   );
 
   const handleSelectVisualMode = useCallback(() => {

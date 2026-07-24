@@ -1,8 +1,4 @@
-import {
-  useAssistantProviderCatalog,
-  useAssistantProviderConfigMutations,
-  useAssistantProviderConfigs,
-} from "@/data";
+import { useMutation, useQuery } from "@wystack/client";
 import {
   Select,
   SelectContent,
@@ -14,11 +10,17 @@ import { useEffect, useMemo } from "react";
 
 import { useToastStore } from "@/lib/stores";
 import { useAssistantStore } from "@/lib/stores/assistant-store";
+import { api } from "@/wystack/api";
 
 export function AssistantModelPicker() {
-  const configsResult = useAssistantProviderConfigs();
-  const catalogResult = useAssistantProviderCatalog();
-  const mutations = useAssistantProviderConfigMutations();
+  const configsResult = useQuery(api.listAssistantProviderConfigs);
+  const catalogResult = useQuery(api.listAssistantProviderCatalog);
+  const { mutateAsync: saveConfigMutation } = useMutation(
+    api.saveAssistantProviderConfig,
+  );
+  const { mutateAsync: setDefaultModelMutation } = useMutation(
+    api.setAssistantDefaultModel,
+  );
   const selectedProviderConfigId = useAssistantStore(
     (s) => s.selectedProviderConfigId,
   );
@@ -81,12 +83,16 @@ export function AssistantModelPicker() {
             setSelectedModel(next.id, next.defaultModel);
             // Selecting a provider also persists it as the default — the
             // picker is the "active provider" control, not a per-run choice.
-            mutations.save({ ...next, isDefault: true }).catch((error) => {
-              showError("Failed to switch assistant provider", {
-                description:
-                  error instanceof Error ? error.message : "Please try again.",
-              });
-            });
+            saveConfigMutation({ input: { ...next, isDefault: true } }).catch(
+              (error) => {
+                showError("Failed to switch assistant provider", {
+                  description:
+                    error instanceof Error
+                      ? error.message
+                      : "Please try again.",
+                });
+              },
+            );
           }
         }}
       >
@@ -106,14 +112,14 @@ export function AssistantModelPicker() {
         onValueChange={(defaultModel) => {
           if (!defaultModel) return;
           setSelectedModel(selected.id, defaultModel);
-          mutations
-            .setDefaultModel({ id: selected.id, defaultModel })
-            .catch((error) => {
-              showError("Failed to set assistant model", {
-                description:
-                  error instanceof Error ? error.message : "Please try again.",
-              });
+          setDefaultModelMutation({
+            input: { id: selected.id, defaultModel },
+          }).catch((error) => {
+            showError("Failed to set assistant model", {
+              description:
+                error instanceof Error ? error.message : "Please try again.",
             });
+          });
         }}
       >
         <SelectTrigger className="h-7 w-32 px-2 text-[11px]">

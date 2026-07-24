@@ -1,15 +1,5 @@
-import {
-  removeDataFrame,
-  useDataFrames,
-  useDataSourceMutations,
-  useDataSources,
-  useDataTableMutations,
-  useDataTables,
-  useInsights,
-  useNotionMutations,
-  usePostgresMutations,
-} from "@/data";
 import { getConnectorById } from "@/lib/connectors/registry";
+import { removeDataFrame } from "@/lib/data-access/data-frames";
 import { handleFileConnectorResult } from "@/lib/local-csv-handler";
 import {
   connectRemoteSource,
@@ -25,11 +15,13 @@ import {
   RemoteTableReplacementError,
 } from "@/lib/remote-table-materialization";
 import { useConfirmDialogStore, type ConfirmDialogConfig } from "@/lib/stores";
+import { api } from "@/wystack/api";
 import type {
   FileSourceConnector,
   RemoteApiConnector,
 } from "@dashframe/engine";
 import { getFieldSensitivity, type UUID } from "@dashframe/types";
+import { useMutation, useQuery } from "@wystack/client";
 import { Button, SectionList } from "@wystack/ui-react";
 import { ArrowLeftIcon } from "@wystack/ui-react/icons";
 import { useCallback, useMemo, useState } from "react";
@@ -120,14 +112,28 @@ export function DataPickerContent({
   showPostgres = true,
   showInsights = true,
 }: DataPickerContentProps) {
-  const { data: dataSources = [] } = useDataSources();
-  const { data: allDataTables = [] } = useDataTables();
-  const { data: allInsights = [] } = useInsights();
-  const { data: dataFrames = [] } = useDataFrames();
-  const dataSourceMutations = useDataSourceMutations();
-  const tableMutations = useDataTableMutations();
-  const notionMutations = useNotionMutations();
-  const postgresMutations = usePostgresMutations();
+  const { data: dataSources = [] } = useQuery(api.listDataSources);
+  const { data: allDataTables = [] } = useQuery(api.listDataTables, {
+    args: {},
+  });
+  const { data: allInsights = [] } = useQuery(api.listInsights, { args: {} });
+  const { data: dataFrames = [] } = useQuery(api.listDataFrames);
+  const { mutateAsync: addDataSource } = useMutation(api.addDataSource);
+  const { mutateAsync: removeDataSource } = useMutation(api.removeDataSource);
+  const { mutateAsync: addDataTable } = useMutation(api.addDataTable);
+  const { mutateAsync: removeDataTable } = useMutation(api.removeDataTable);
+  const { mutateAsync: listNotionDatabasesMutation } = useMutation(
+    api.listNotionDatabases,
+  );
+  const { mutateAsync: queryNotionDatabaseMutation } = useMutation(
+    api.queryNotionDatabase,
+  );
+  const { mutateAsync: listPostgresTablesMutation } = useMutation(
+    api.listPostgresTables,
+  );
+  const { mutateAsync: queryPostgresTableMutation } = useMutation(
+    api.queryPostgresTable,
+  );
   const confirm = useConfirmDialogStore((state) => state.confirm);
 
   // Local state
@@ -300,14 +306,23 @@ export function DataPickerContent({
           connectorId: connector.id,
           connectorName: connector.name,
           credentials,
-          addSource: dataSourceMutations.add,
-          removeSource: dataSourceMutations.remove,
-          listNotionDatabases: notionMutations.listDatabases,
-          listPostgresTables: postgresMutations.listTables,
+          addSource: async (input) => (await addDataSource(input)).id,
+          removeSource: async (id) => {
+            await removeDataSource({ id });
+          },
+          listNotionDatabases: (id) =>
+            listNotionDatabasesMutation({ dataSourceId: id }),
+          listPostgresTables: (id) =>
+            listPostgresTablesMutation({ dataSourceId: id }),
         }),
       );
     },
-    [dataSourceMutations, notionMutations, postgresMutations],
+    [
+      addDataSource,
+      listNotionDatabasesMutation,
+      listPostgresTablesMutation,
+      removeDataSource,
+    ],
   );
 
   const handleRemoteResourceSelect = useCallback(
@@ -318,23 +333,25 @@ export function DataPickerContent({
       let tableId: UUID | null = null;
       let dataFrameId: UUID | null = null;
       try {
-        tableId = await tableMutations.add(
-          remoteResourceState.sourceId,
-          resource.title,
-          resource.id,
-        );
+        tableId = (
+          await addDataTable({
+            dataSourceId: remoteResourceState.sourceId,
+            name: resource.title,
+            table: resource.id,
+          })
+        ).id;
         const result =
           remoteResourceState.connectorId === "notion"
-            ? await notionMutations.queryDatabase(
-                remoteResourceState.sourceId,
-                resource.id,
+            ? await queryNotionDatabaseMutation({
+                dataSourceId: remoteResourceState.sourceId,
+                databaseId: resource.id,
                 tableId,
-              )
-            : await postgresMutations.queryTable(
-                remoteResourceState.sourceId,
-                resource.id,
+              })
+            : await queryPostgresTableMutation({
+                dataSourceId: remoteResourceState.sourceId,
+                databaseId: resource.id,
                 tableId,
-              );
+              });
         const explicitlySensitive = result.fields.some(
           (field) => getFieldSensitivity(field) === "sensitive",
         );
@@ -348,7 +365,7 @@ export function DataPickerContent({
             requestRemoteFieldReview(confirm, resource.title, request),
         );
         if (!reviewedFields) {
-          await tableMutations.remove(tableId);
+          await removeDataTable({ id: tableId });
           tableId = null;
           return;
         }
@@ -365,7 +382,7 @@ export function DataPickerContent({
         const cleanupResults = await Promise.allSettled([
           ...(dataFrameId ? [removeDataFrame(dataFrameId)] : []),
           ...(tableId && !preserveTable
-            ? [tableMutations.remove(tableId)]
+            ? [removeDataTable({ id: tableId })]
             : []),
         ]);
         const cleanupFailed = cleanupResults.some(
@@ -381,12 +398,13 @@ export function DataPickerContent({
       }
     },
     [
-      notionMutations,
+      queryNotionDatabaseMutation,
+      addDataTable,
       onTableSelect,
-      postgresMutations,
+      queryPostgresTableMutation,
       confirm,
       remoteResourceState,
-      tableMutations,
+      removeDataTable,
     ],
   );
 

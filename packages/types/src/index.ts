@@ -47,12 +47,9 @@ export type {
   AssistantProviderAuthKind,
   AssistantProviderCatalogEntry,
   AssistantProviderConfig,
-  AssistantProviderConfigMutations,
   AssistantProviderModelOption,
   SaveAssistantProviderConfigInput,
   SetAssistantDefaultModelInput,
-  UseAssistantProviderCatalogResult,
-  UseAssistantProviderConfigsResult,
 } from "./assistant-provider-configs";
 
 export type {
@@ -70,19 +67,9 @@ export type {
   ConnectorConfig,
   CreateDataSourceInput,
   DataSource,
-  DataSourceMutations,
-  UseDataSourceMutations,
-  UseDataSources,
-  UseDataSourcesResult,
 } from "./data-sources";
 
-export type {
-  DataTable,
-  DataTableMutations,
-  UseDataTableMutations,
-  UseDataTables,
-  UseDataTablesResult,
-} from "./data-tables";
+export type { DataTable } from "./data-tables";
 
 export type {
   CompiledInsight,
@@ -91,10 +78,7 @@ export type {
   InsightFilter,
   InsightFilterBetweenValue,
   InsightJoinConfig,
-  InsightMutations,
   InsightSort,
-  UseInsightMutations,
-  UseInsights,
 } from "./insights";
 
 export { isUnmodifiedDraft } from "./insights";
@@ -103,13 +87,9 @@ export type {
   AxisType,
   ChartTag,
   ChartTypeMetadata,
-  UseVisualizationMutations,
-  UseVisualizations,
-  UseVisualizationsResult,
   VegaLiteSpec,
   Visualization,
   VisualizationEncoding,
-  VisualizationMutations,
   VisualizationType,
 } from "./visualizations";
 
@@ -157,11 +137,7 @@ export type {
   DashboardItemOverrides,
   DashboardItemPatch,
   DashboardItemType,
-  DashboardMutations,
   InsightFilterOverride,
-  UseDashboardMutations,
-  UseDashboards,
-  UseDashboardsResult,
 } from "./dashboards";
 
 // =============================================================================

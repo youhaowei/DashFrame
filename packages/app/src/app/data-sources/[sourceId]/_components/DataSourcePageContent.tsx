@@ -5,17 +5,11 @@ import {
 import { ConnectorIcon } from "@/components/data-sources/renderers/ConnectorIcon";
 import { SensitivityBadge } from "@/components/data-sources/SensitivityBadge";
 import { AppLayout } from "@/components/layouts/AppLayout";
-import {
-  useDataFrames,
-  useDataSourceMutations,
-  useDataSources,
-  useDataTableMutations,
-  useDataTables,
-} from "@/data";
 import { useCreateInsight } from "@/hooks/useCreateInsight";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import { getConnectorById } from "@/lib/connectors/registry";
 import { PerfStage, withPerfAsync } from "@/lib/perf";
+import { api } from "@/wystack/api";
 import { extractColumnAliasComponents } from "@dashframe/engine";
 import type { ColumnAnalysis, FieldSensitivity, UUID } from "@dashframe/types";
 import {
@@ -25,6 +19,7 @@ import {
 } from "@dashframe/types";
 import { Breadcrumb, VirtualTable } from "@dashframe/ui";
 import { Link, useNavigate } from "@tanstack/react-router";
+import { useMutation, useQuery } from "@wystack/client";
 import {
   Badge,
   Button,
@@ -157,15 +152,24 @@ export default function DataSourcePageContent({
   const navigate = useNavigate();
   const { createInsightFromTable } = useCreateInsight();
 
-  const { data: allDataSources = [], isLoading, isFetching } = useDataSources();
-  const { update: updateDataSource } = useDataSourceMutations();
-  const { remove: removeDataTable, updateField } = useDataTableMutations();
-  const { data: allDataFrames = [] } = useDataFrames();
+  const {
+    data: allDataSources = [],
+    isLoading,
+    isFetching,
+  } = useQuery(api.listDataSources);
+  const { mutateAsync: updateDataSource } = useMutation(api.updateDataSource);
+  const { mutateAsync: removeDataTable } = useMutation(api.removeDataTable);
+  const { mutateAsync: patchDataTableArray } = useMutation(
+    api.patchDataTableArray,
+  );
+  const { data: allDataFrames = [] } = useQuery(api.listDataFrames);
 
   // Find the data source
   const dataSource = allDataSources.find((s) => s.id === sourceId);
 
-  const { data: dataTables = [] } = useDataTables(sourceId);
+  const { data: dataTables = [] } = useQuery(api.listDataTables, {
+    args: { dataSourceId: sourceId },
+  });
 
   // Local state for selected table - use null to indicate "not yet selected by user"
   const [selectedTableId, setSelectedTableId] = useState<UUID | null>(null);
@@ -220,7 +224,7 @@ export default function DataSourcePageContent({
     try {
       await withPerfAsync(
         PerfStage.CommandApply,
-        () => updateDataSource(sourceId, { name: newName }),
+        () => updateDataSource({ id: sourceId, name: newName }),
         `data-source:${sourceId}`,
       );
     } catch {
@@ -252,11 +256,13 @@ export default function DataSourcePageContent({
   ) => {
     if (!effectiveSelectedTableId) return;
     try {
-      await updateField(
-        effectiveSelectedTableId,
-        fieldId,
-        buildSensitivityUpdate(sensitivity, reasons),
-      );
+      await patchDataTableArray({
+        dataTableId: effectiveSelectedTableId,
+        kind: "fields",
+        mode: "update",
+        itemId: fieldId,
+        value: buildSensitivityUpdate(sensitivity, reasons),
+      });
     } catch {
       toast.error("Failed to update field sensitivity");
       return;
@@ -281,7 +287,7 @@ export default function DataSourcePageContent({
 
     try {
       // Delete from local store
-      await removeDataTable(deleteConfirmState.tableId);
+      await removeDataTable({ id: deleteConfirmState.tableId });
 
       // Clear selection and close dialog
       setSelectedTableId(null);

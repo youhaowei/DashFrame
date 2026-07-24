@@ -1,13 +1,8 @@
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
-import {
-  useDataSources,
-  useDataTables,
-  useInsights,
-  useVisualizationMutations,
-  useVisualizations,
-} from "@/data";
+import { api } from "@/wystack/api";
 import type { Insight, UUID, Visualization } from "@dashframe/types";
 import { useNavigate } from "@tanstack/react-router";
+import { useMutation, useQuery } from "@wystack/client";
 import {
   Badge,
   Button,
@@ -47,12 +42,16 @@ type VisualizationWithDetails = {
 export default function VisualizationsPage() {
   const navigate = useNavigate();
 
-  const { data: visualizations = [], isLoading: isLoadingViz } =
-    useVisualizations();
-  const { data: insights = [] } = useInsights();
-  const { data: dataSources = [] } = useDataSources();
-  const { data: dataTables = [] } = useDataTables();
-  const { remove: removeVisualization } = useVisualizationMutations();
+  const { data: visualizations = [], isLoading: isLoadingViz } = useQuery(
+    api.listVisualizations,
+    { args: {} },
+  );
+  const { data: insights = [] } = useQuery(api.listInsights, { args: {} });
+  const { data: dataSources = [] } = useQuery(api.listDataSources);
+  const { data: dataTables = [] } = useQuery(api.listDataTables, { args: {} });
+  const { mutateAsync: removeVisualization } = useMutation(
+    api.removeVisualization,
+  );
 
   // Local state
   const [searchQuery, setSearchQuery] = useState("");
@@ -148,7 +147,7 @@ export default function VisualizationsPage() {
   ) => {
     e.stopPropagation();
     e.preventDefault();
-    await removeVisualization(visualizationId);
+    await removeVisualization({ id: visualizationId });
   };
 
   // Render visualization card

@@ -27,7 +27,8 @@
  */
 
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
-import { getDataFrame, getDataTable } from "@/data";
+import { getDataFrame } from "@/lib/data-access/data-frames";
+import { getDataTable } from "@/lib/data-access/data-tables";
 import { buildInsightSQL, ensureTableLoaded } from "@dashframe/engine-browser";
 import type {
   DataTable,

@@ -1,8 +1,8 @@
 import { PreviewDiffRenderer } from "@/components/preview-diff/PreviewDiffRenderer";
 import { usePreviewComputeFill } from "@/components/preview-diff/usePreviewComputeFill";
 import { draftLifecycleErrorDescription } from "@/components/preview-diff/user-facing-errors";
-import { useDraftMutations, useDraftPublishReview } from "@/data";
 import { useNavigate } from "@tanstack/react-router";
+import { useMutation, useQuery } from "@wystack/client";
 import { Badge, Button, cn, ErrorState } from "@wystack/ui-react";
 import {
   AlertCircleIcon,
@@ -14,6 +14,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { useAssistantStore } from "@/lib/stores/assistant-store";
+import { api } from "@/wystack/api";
 
 interface DraftPublishPageProps {
   draftId: string;
@@ -69,17 +70,19 @@ export default function DraftPublishPage({ draftId }: DraftPublishPageProps) {
     isLoading,
     isError,
     refetch,
-  } = useDraftPublishReview(draftId);
+  } = useQuery(api.draftPublishReview, { args: { draftId } });
   const { diff: filledDiff } = usePreviewComputeFill(review?.diff ?? null);
-  const { publish, discard } = useDraftMutations();
+  const { mutateAsync: publish } = useMutation(api.publishDraft);
+  const { mutateAsync: discard } = useMutation(api.discardDraft);
   const [busy, setBusy] = useState<"publish" | "discard" | null>(null);
 
   const handlePublish = async () => {
     if (!review || review.publishBlocked) return;
     setBusy("publish");
     try {
-      await publish(draftId, {
-        expectedCommandCount: review.commandCount,
+      await publish({
+        draftId,
+        expectedCommandCount: String(review.commandCount),
         expectedLogSignature: review.logSignature,
       });
       if (useAssistantStore.getState().pendingDraftId === draftId) {
@@ -104,7 +107,7 @@ export default function DraftPublishPage({ draftId }: DraftPublishPageProps) {
   const handleDiscard = async () => {
     setBusy("discard");
     try {
-      await discard(draftId);
+      await discard({ draftId });
       if (useAssistantStore.getState().pendingDraftId === draftId) {
         setPendingDraft(null);
       }

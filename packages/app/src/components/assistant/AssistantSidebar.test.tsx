@@ -11,13 +11,24 @@ const { runAssistantPrompt } = vi.hoisted(() => ({
 
 vi.mock("@/data", () => ({
   runAssistantPrompt,
-  useAssistantProviderCatalog: () => ({ data: [], isLoading: false }),
-  useAssistantProviderConfigs: () => ({ data: [], isLoading: false }),
-  useAssistantProviderConfigMutations: () => ({
-    save: vi.fn(),
-    setDefaultModel: vi.fn(),
-  }),
 }));
+
+vi.mock("@wystack/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@wystack/client")>();
+  return {
+    ...actual,
+    useQuery: (ref: { _path: string }) => {
+      if (ref._path === "listAssistantProviderCatalog") {
+        return { data: [], isLoading: false };
+      }
+      if (ref._path === "listAssistantProviderConfigs") {
+        return { data: [], isLoading: false };
+      }
+      return { data: undefined, isLoading: false };
+    },
+    useMutation: () => ({ mutateAsync: vi.fn() }),
+  };
+});
 
 describe("AssistantSidebar", () => {
   beforeEach(() => {

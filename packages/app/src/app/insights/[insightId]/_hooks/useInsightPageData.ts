@@ -1,13 +1,7 @@
-import {
-  useDataSources,
-  useDataTables,
-  useInsightMutations,
-  useInsights,
-  useVisualizations,
-} from "@/data";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import type { PreviewResult } from "@/lib/insights/compute-preview";
 import { computeInsightPreview } from "@/lib/insights/compute-preview";
+import { api } from "@/wystack/api";
 import {
   isUnmodifiedDraft,
   type DataSource,
@@ -15,8 +9,11 @@ import {
   type Field,
   type Insight,
   type Metric,
+  type UUID,
+  type Visualization,
 } from "@dashframe/types";
-import { useMemo } from "react";
+import { useMutation, useQuery } from "@wystack/client";
+import { useCallback, useMemo } from "react";
 
 /**
  * Data table info derived from insight's baseTableId
@@ -48,7 +45,7 @@ export interface InsightPageData {
   // Core entities
   insight: Insight | undefined;
   dataTableInfo: DataTableInfo | null;
-  visualizations: ReturnType<typeof useVisualizations>["data"];
+  visualizations: Visualization[];
 
   // Joined tables (resolved from insight.joins)
   joinedTables: JoinedTableInfo[];
@@ -62,7 +59,10 @@ export interface InsightPageData {
   aggregatedPreview: PreviewResult | null;
 
   // Mutations
-  updateInsight: ReturnType<typeof useInsightMutations>["update"];
+  updateInsight: (
+    id: UUID,
+    updates: Partial<Omit<Insight, "id" | "createdAt">>,
+  ) => Promise<void>;
 }
 
 /**
@@ -73,13 +73,31 @@ export interface InsightPageData {
  * used by the home page's clean architecture.
  */
 export function useInsightPageData(insightId: string): InsightPageData {
-  const { data: insights, isLoading: isInsightsLoading } = useInsights();
-  const { update: updateInsight } = useInsightMutations();
-  const { data: dataSources, isLoading: isSourcesLoading } = useDataSources();
-  const { data: allDataTables = [], isLoading: isTablesLoading } =
-    useDataTables();
-  const { data: visualizations = [], isLoading: isVizLoading } =
-    useVisualizations(insightId);
+  const { data: insights, isLoading: isInsightsLoading } = useQuery(
+    api.listInsights,
+    { args: {} },
+  );
+  const { mutateAsync: updateInsightMutation } = useMutation(api.updateInsight);
+  const updateInsight = useCallback(
+    async (
+      id: UUID,
+      updates: Partial<Omit<Insight, "id" | "createdAt">>,
+    ): Promise<void> => {
+      await updateInsightMutation({ id, updates });
+    },
+    [updateInsightMutation],
+  );
+  const { data: dataSources, isLoading: isSourcesLoading } = useQuery(
+    api.listDataSources,
+  );
+  const { data: allDataTables = [], isLoading: isTablesLoading } = useQuery(
+    api.listDataTables,
+    { args: {} },
+  );
+  const { data: visualizations = [], isLoading: isVizLoading } = useQuery(
+    api.listVisualizations,
+    { args: { insightId } },
+  );
 
   // Find the insight from the list
   const insight = useMemo(

@@ -29,28 +29,40 @@ vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mockNavigate,
 }));
 
-vi.mock("@/data", () => ({
-  useInsights: () => ({
-    data: [
-      {
-        id: "ins-1",
-        name: "Revenue Trend",
-        createdAt: 1000,
-        metrics: [{ id: "m1" }],
-        selectedFields: ["field1", "field2"],
-      },
-    ],
-  }),
-  useVisualizations: () => ({
-    data: [
-      {
-        id: "viz-1",
-        name: "Bar Chart",
-        createdAt: 1000,
-      },
-    ],
-  }),
-}));
+vi.mock("@wystack/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@wystack/client")>();
+  return {
+    ...actual,
+    useQuery: (ref: { _path: string }) => {
+      if (ref._path === "listVisualizations") {
+        return {
+          data: [
+            {
+              id: "viz-1",
+              name: "Bar Chart",
+              createdAt: 1000,
+            },
+          ],
+        };
+      }
+      if (ref._path === "listInsights") {
+        return {
+          data: [
+            {
+              id: "ins-1",
+              name: "Revenue Trend",
+              createdAt: 1000,
+              metrics: [{ id: "m1" }],
+              selectedFields: ["field1", "field2"],
+            },
+          ],
+        };
+      }
+      return { data: [] };
+    },
+    useMutation: () => ({ mutateAsync: vi.fn() }),
+  };
+});
 
 // VisualizationPreview is a heavy component — stub it to avoid pulling in
 // chart renderer dependencies.

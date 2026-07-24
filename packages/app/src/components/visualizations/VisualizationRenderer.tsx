@@ -1,5 +1,6 @@
-import { useVisualizations } from "@/data";
+import { api } from "@/wystack/api";
 import type { UUID } from "@dashframe/types";
+import { useQuery } from "@wystack/client";
 import { Spinner } from "@wystack/ui-react";
 import { useMemo } from "react";
 
@@ -26,7 +27,9 @@ export function VisualizationRenderer({
   height = "container",
   preview = false,
 }: VisualizationRendererProps) {
-  const { data: visualizations = [] } = useVisualizations();
+  const { data: visualizations = [] } = useQuery(api.listVisualizations, {
+    args: {},
+  });
   const visualization = useMemo(
     () => visualizations.find((candidate) => candidate.id === visualizationId),
     [visualizationId, visualizations],

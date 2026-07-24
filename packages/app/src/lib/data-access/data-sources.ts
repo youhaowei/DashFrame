@@ -1,89 +1,11 @@
-import type {
-  CreateDataSourceInput,
-  DataSource,
-  DataSourceMutations,
-  UseDataSourcesResult,
-  UUID,
-} from "@dashframe/types";
-import { useMutation, useQuery } from "@wystack/client";
-import { useMemo } from "react";
+import type { DataSource, UUID } from "@dashframe/types";
 
-import { api } from "../wystack/api";
-import { getWyStackClient } from "../wystack/client";
-
-export function useDataSources(): UseDataSourcesResult {
-  const result = useQuery(api.listDataSources);
-  return {
-    data: result.data as DataSource[] | undefined,
-    error: result.error,
-    isError: result.isError,
-    isLoading: result.isLoading,
-    // Forward the in-flight refetch flag so consumers can distinguish "no data
-    // yet" (isLoading) from "cached data, but a background refetch is running"
-    // (isFetching) — the latter must not flash a not-found state for a source
-    // an in-flight invalidation is about to return.
-    isFetching: result.isFetching,
-    refetch: result.refetch,
-  };
-}
-
-export function useDataSourceMutations(): DataSourceMutations {
-  const addMutation = useMutation(api.addDataSource);
-  const updateMutation = useMutation(api.updateDataSource);
-  const removeMutation = useMutation(api.removeDataSource);
-
-  return useMemo(
-    () => ({
-      add: async (input: CreateDataSourceInput): Promise<UUID> => {
-        const { id } = await addMutation.mutateAsync(input);
-        return id;
-      },
-      update: async (
-        id: UUID,
-        updates: Partial<Pick<DataSource, "name">> &
-          Pick<CreateDataSourceInput, "apiKey" | "connectionString">,
-      ): Promise<void> => {
-        await updateMutation.mutateAsync({ id, ...updates });
-      },
-      remove: async (id: UUID): Promise<void> => {
-        await removeMutation.mutateAsync({ id });
-      },
-    }),
-    [addMutation, removeMutation, updateMutation],
-  );
-}
-
-export async function addDataSource(
-  input: CreateDataSourceInput,
-): Promise<UUID> {
-  const { id } = await getWyStackClient().mutate(api.addDataSource, input);
-  return id;
-}
-
-export async function updateDataSource(
-  id: UUID,
-  updates: Partial<Pick<DataSource, "name">> &
-    Pick<CreateDataSourceInput, "apiKey" | "connectionString">,
-): Promise<void> {
-  await getWyStackClient().mutate(api.updateDataSource, { id, ...updates });
-}
-
-export async function removeDataSource(id: UUID): Promise<void> {
-  await getWyStackClient().mutate(api.removeDataSource, { id });
-}
+import { api } from "../../wystack/api";
+import { getWyStackClient } from "../../wystack/client";
 
 export async function getDataSource(id: UUID): Promise<DataSource | undefined> {
   const result = await getWyStackClient().query(api.getDataSource, { id });
   return (result as DataSource | null) ?? undefined;
-}
-
-export async function getDataSourceByType(
-  type: string,
-): Promise<DataSource | null> {
-  const result = await getWyStackClient().query(api.getDataSourceByType, {
-    type,
-  });
-  return result as DataSource | null;
 }
 
 /**
@@ -138,9 +60,4 @@ export async function getOrCreateDataSourceByType(
   const source = await getDataSource(id);
   if (!source) throw new Error(`Data source ${id} missing after get-or-create`);
   return source;
-}
-
-export async function getAllDataSources(): Promise<DataSource[]> {
-  const result = await getWyStackClient().query(api.listDataSources, {});
-  return result as DataSource[];
 }

@@ -1,13 +1,7 @@
-import {
-  useDataSourceMutations,
-  useDataSources,
-  useDataTableMutations,
-  useDataTables,
-  useNotionMutations,
-  type NotionDatabaseRef,
-} from "@/data";
 import { getConnectorById } from "@/lib/connectors/registry";
+import { api } from "@/wystack/api";
 import { InputField } from "@dashframe/ui";
+import { useMutation, useQuery } from "@wystack/client";
 import {
   Button,
   cn,
@@ -88,6 +82,11 @@ function CollapsibleSection({
 
 interface DataSourceControlsProps {
   dataSourceId: string | null;
+}
+
+interface NotionDatabaseRef {
+  id: string;
+  title: string;
 }
 
 type CachedDatabases = {
@@ -193,10 +192,13 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
     getNowServerSnapshot,
   );
 
-  const { data: dataSources } = useDataSources();
-  const { data: allTables } = useDataTables(dataSourceId ?? undefined);
-  const dataSourceMutations = useDataSourceMutations();
-  const tableMutations = useDataTableMutations();
+  const { data: dataSources } = useQuery(api.listDataSources);
+  const { data: allTables } = useQuery(api.listDataTables, {
+    args: { dataSourceId: dataSourceId ?? undefined },
+  });
+  const { mutateAsync: updateDataSource } = useMutation(api.updateDataSource);
+  const { mutateAsync: removeDataSource } = useMutation(api.removeDataSource);
+  const { mutateAsync: addDataTable } = useMutation(api.addDataTable);
 
   const dataSource = useMemo(
     () => dataSources?.find((s) => s.id === dataSourceId) ?? null,
@@ -214,7 +216,9 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
   const isNotionSource = connector?.id === "notion";
 
   // Notion data-plane mutations — resolved server-side via the bound resolver.
-  const notionMutations = useNotionMutations();
+  const { mutateAsync: listNotionDatabasesMutation } = useMutation(
+    api.listNotionDatabases,
+  );
 
   // Get configured DataTables (only meaningful for remote-api connectors)
   const dataTables = useMemo(() => {
@@ -245,7 +249,9 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
       // The stored API key is resolved server-side by data-source id (the
       // listNotionDatabases mutation mints a one-secret bound resolver); the
       // secret is never read back into the renderer.
-      const result = await notionMutations.listDatabases(requestDataSourceId);
+      const result = await listNotionDatabasesMutation({
+        dataSourceId: requestDataSourceId,
+      });
       // Updates state and persists to localStorage in one go.
       setAvailableDatabases(requestDataSourceId, result);
     } catch (error) {
@@ -266,7 +272,11 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
     if (!dataSource || !isRemoteApi) return;
 
     try {
-      await tableMutations.add(dataSource.id, database.title, database.id);
+      await addDataTable({
+        dataSourceId: dataSource.id,
+        name: database.title,
+        table: database.id,
+      });
       toast.success(`Added "${database.title}"`);
     } catch (error) {
       console.error("Failed to add database:", error);
@@ -295,19 +305,19 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
         `Are you sure you want to delete "${dataSource.name}"? This will remove all associated data.`,
       )
     ) {
-      await dataSourceMutations.remove(dataSource.id);
+      await removeDataSource({ id: dataSource.id });
       toast.success("Data source deleted");
     }
   };
 
   const handleNameChange = async (newName: string) => {
-    await dataSourceMutations.update(dataSource.id, { name: newName });
+    await updateDataSource({ id: dataSource.id, name: newName });
   };
 
   const handleApiKeyChange = async (newApiKey: string) => {
     setApiKeyInput(newApiKey);
     if (isRemoteApi) {
-      await dataSourceMutations.update(dataSource.id, { apiKey: newApiKey });
+      await updateDataSource({ id: dataSource.id, apiKey: newApiKey });
     }
   };
 

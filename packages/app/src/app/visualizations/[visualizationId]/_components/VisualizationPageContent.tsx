@@ -4,17 +4,10 @@ import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import { useContextPanelSection } from "@/components/shell/context-panel-outlet";
 import { AxisSelectField } from "@/components/visualizations/AxisSelectField";
 import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
-import {
-  getDataFrame,
-  useCompiledInsight,
-  useDataTables,
-  useInsights,
-  useVisualizationMutations,
-  useVisualizations,
-} from "@/data";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
+import { getDataFrame } from "@/lib/data-access/data-frames";
 import {
   computeInsightPreview,
   type PreviewResult,
@@ -26,6 +19,7 @@ import {
   validateEncoding,
 } from "@/lib/visualizations/encoding-enforcer";
 import { getAlternativeChartTypes } from "@/lib/visualizations/suggest-charts";
+import { api } from "@/wystack/api";
 import {
   extractColumnAliasComponents,
   fieldIdToColumnAlias,
@@ -46,6 +40,7 @@ import type {
 import { CHART_TYPE_METADATA, parseEncoding } from "@dashframe/types";
 import { SelectField } from "@dashframe/ui";
 import { useNavigate } from "@tanstack/react-router";
+import { useMutation, useQuery } from "@wystack/client";
 import {
   Badge,
   Button,
@@ -63,6 +58,7 @@ import {
   DeleteIcon,
 } from "@wystack/ui-react/icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCompiledInsight } from "../_hooks/useCompiledInsight";
 
 interface VisualizationPageContentProps {
   visualizationId: string;
@@ -141,15 +137,18 @@ export default function VisualizationPageContent({
 }: VisualizationPageContentProps) {
   const navigate = useNavigate();
 
-  const { data: visualizations = [], isLoading: isVizLoading } =
-    useVisualizations();
-  const { data: insights = [] } = useInsights();
-  const { data: dataTables = [] } = useDataTables();
-  const {
-    update: updateVisualization,
-    updateEncoding,
-    remove: removeVisualization,
-  } = useVisualizationMutations();
+  const { data: visualizations = [], isLoading: isVizLoading } = useQuery(
+    api.listVisualizations,
+    { args: {} },
+  );
+  const { data: insights = [] } = useQuery(api.listInsights, { args: {} });
+  const { data: dataTables = [] } = useQuery(api.listDataTables, { args: {} });
+  const { mutateAsync: updateVisualizationMutation } = useMutation(
+    api.updateVisualization,
+  );
+  const { mutateAsync: removeVisualizationMutation } = useMutation(
+    api.removeVisualization,
+  );
 
   // Find the visualization
   const visualization = useMemo(
@@ -618,7 +617,10 @@ export default function VisualizationPageContent({
   // Handle name change
   const handleNameChange = async (newName: string) => {
     setVizName(newName);
-    await updateVisualization(visualizationId as UUID, { name: newName });
+    await updateVisualizationMutation({
+      id: visualizationId as UUID,
+      updates: { name: newName },
+    });
   };
 
   // Infer axis type from column analysis semantic type
@@ -672,12 +674,15 @@ export default function VisualizationPageContent({
     clearInvalidDateTransform("y");
 
     if (changed) {
-      void updateEncoding(visualizationId as UUID, nextEncoding);
+      void updateVisualizationMutation({
+        id: visualizationId as UUID,
+        updates: { encoding: nextEncoding },
+      });
     }
   }, [
     columnAnalysis,
     resolveEncodingAnalysisAlias,
-    updateEncoding,
+    updateVisualizationMutation,
     visualization,
     visualizationId,
   ]);
@@ -722,11 +727,14 @@ export default function VisualizationPageContent({
 
       applyAxisAnalysisToEncoding(newEncoding, field, value);
 
-      await updateEncoding(visualizationId as UUID, newEncoding);
+      await updateVisualizationMutation({
+        id: visualizationId as UUID,
+        updates: { encoding: newEncoding },
+      });
     },
     [
       applyAxisAnalysisToEncoding,
-      updateEncoding,
+      updateVisualizationMutation,
       visualization,
       visualizationId,
     ],
@@ -756,18 +764,23 @@ export default function VisualizationPageContent({
         };
 
         // Update both type and encoding together
-        await updateVisualization(visualizationId as UUID, {
-          visualizationType: newType,
+        await updateVisualizationMutation({
+          id: visualizationId as UUID,
+          updates: { visualizationType: newType },
         });
-        await updateEncoding(visualizationId as UUID, newEncoding);
+        await updateVisualizationMutation({
+          id: visualizationId as UUID,
+          updates: { encoding: newEncoding },
+        });
       } else {
         // Just update the type
-        await updateVisualization(visualizationId as UUID, {
-          visualizationType: newType,
+        await updateVisualizationMutation({
+          id: visualizationId as UUID,
+          updates: { visualizationType: newType },
         });
       }
     },
-    [updateEncoding, updateVisualization, visualization, visualizationId],
+    [updateVisualizationMutation, visualization, visualizationId],
   );
 
   const hasNumericColumns = dataFrame?.columns?.some(
@@ -850,14 +863,20 @@ export default function VisualizationPageContent({
     const newChartType = getSwappedChartType(visualization.visualizationType);
 
     if (newChartType !== visualization.visualizationType) {
-      await updateVisualization(visualizationId as UUID, {
-        visualizationType: newChartType,
-        encoding: newEncoding,
+      await updateVisualizationMutation({
+        id: visualizationId as UUID,
+        updates: {
+          visualizationType: newChartType,
+          encoding: newEncoding,
+        },
       });
     } else {
-      await updateEncoding(visualizationId as UUID, newEncoding);
+      await updateVisualizationMutation({
+        id: visualizationId as UUID,
+        updates: { encoding: newEncoding },
+      });
     }
-  }, [updateEncoding, updateVisualization, visualization, visualizationId]);
+  }, [updateVisualizationMutation, visualization, visualizationId]);
 
   const canSwap = visualization
     ? isSwapAllowed(visualization.visualizationType)
@@ -866,7 +885,7 @@ export default function VisualizationPageContent({
   // Handle delete
   const handleDelete = async () => {
     if (confirm(`Are you sure you want to delete "${visualization?.name}"?`)) {
-      await removeVisualization(visualizationId as UUID);
+      await removeVisualizationMutation({ id: visualizationId as UUID });
       navigate({ to: "/insights" });
     }
   };

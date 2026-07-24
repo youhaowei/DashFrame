@@ -1,11 +1,5 @@
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
-import {
-  useDataSources,
-  useDataTables,
-  useInsightMutations,
-  useInsights,
-  useVisualizations,
-} from "@/data";
+import { api } from "@/wystack/api";
 import {
   isUnmodifiedDraft,
   type DataTable,
@@ -13,6 +7,7 @@ import {
   type UUID,
 } from "@dashframe/types";
 import { useNavigate } from "@tanstack/react-router";
+import { useMutation, useQuery } from "@wystack/client";
 import {
   Badge,
   Button,
@@ -77,12 +72,16 @@ function getInsightState(
 export default function InsightsPage() {
   const navigate = useNavigate();
 
-  const { data: allInsights = [] } = useInsights();
-  const { remove: removeInsightLocal } = useInsightMutations();
+  const { data: allInsights = [] } = useQuery(api.listInsights, { args: {} });
+  const { mutateAsync: removeInsight } = useMutation(api.removeInsight);
   const clearActiveView = useInsightCanvasStore((s) => s.clearActiveView);
-  const { data: visualizations = [] } = useVisualizations();
-  const { data: dataSources = [] } = useDataSources();
-  const { data: allDataTables = [] } = useDataTables();
+  const { data: visualizations = [] } = useQuery(api.listVisualizations, {
+    args: {},
+  });
+  const { data: dataSources = [] } = useQuery(api.listDataSources);
+  const { data: allDataTables = [] } = useQuery(api.listDataTables, {
+    args: {},
+  });
 
   // Local state
   const [searchQuery, setSearchQuery] = useState("");
@@ -205,7 +204,7 @@ export default function InsightsPage() {
   const handleDeleteInsight = async (insightId: UUID, e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
-    await removeInsightLocal(insightId);
+    await removeInsight({ id: insightId });
     // Drop the persisted canvas-view entry so deleted insights don't
     // accumulate stale keys in localStorage.
     clearActiveView(insightId);
@@ -214,7 +213,7 @@ export default function InsightsPage() {
   // Handle delete all drafts
   const handleDeleteAllDrafts = async () => {
     for (const item of groupedInsights.drafts) {
-      await removeInsightLocal(item.insight.id);
+      await removeInsight({ id: item.insight.id });
       clearActiveView(item.insight.id);
     }
   };

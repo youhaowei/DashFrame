@@ -3,7 +3,6 @@ import type {
   ChannelTransform,
   EncodingValue,
 } from "./encoding-helpers";
-import type { UseQueryResult } from "./repository-base";
 import type { UUID } from "./uuid";
 
 // Re-export AxisType for convenience
@@ -257,51 +256,3 @@ export interface Visualization {
   createdAt: number;
   updatedAt?: number;
 }
-
-// ============================================================================
-// Repository Hook Types
-// ============================================================================
-
-/**
- * Result type for useVisualizations hook.
- */
-export type UseVisualizationsResult = UseQueryResult<Visualization[]>;
-
-/**
- * Mutation methods for visualizations.
- */
-export interface VisualizationMutations {
-  /** Create a new visualization */
-  create: (
-    name: string,
-    insightId: UUID,
-    visualizationType: VisualizationType,
-    spec: VegaLiteSpec,
-    encoding?: VisualizationEncoding,
-  ) => Promise<UUID>;
-
-  /** Update a visualization */
-  update: (
-    id: UUID,
-    updates: Partial<Omit<Visualization, "id" | "createdAt" | "insightId">>,
-  ) => Promise<void>;
-
-  /** Remove a visualization */
-  remove: (id: UUID) => Promise<void>;
-
-  /** Update the Vega-Lite spec */
-  updateSpec: (id: UUID, spec: VegaLiteSpec) => Promise<void>;
-
-  /** Update the column encoding */
-  updateEncoding: (id: UUID, encoding: VisualizationEncoding) => Promise<void>;
-}
-
-/**
- * Hook type for reading visualizations.
- */
-export type UseVisualizations = (insightId?: UUID) => UseVisualizationsResult;
-
-/**
- * Hook type for visualization mutations.
- */
-export type UseVisualizationMutations = () => VisualizationMutations;

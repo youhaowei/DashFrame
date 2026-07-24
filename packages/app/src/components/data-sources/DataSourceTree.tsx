@@ -1,5 +1,6 @@
-import { useDataFrames, useDataSources, useDataTables } from "@/data";
 import { getConnectorById } from "@/lib/connectors/registry";
+import { api } from "@/wystack/api";
+import { useQuery } from "@wystack/client";
 import { Button, EmptyState, Panel, cn } from "@wystack/ui-react";
 import { DeleteIcon, FileIcon } from "@wystack/ui-react/icons";
 import { useMemo } from "react";
@@ -17,9 +18,11 @@ export function DataSourceTree({
   onTableSelect,
   onDeleteTable,
 }: DataSourceTreeProps) {
-  const { data: dataSources } = useDataSources();
-  const { data: tables } = useDataTables(dataSourceId);
-  const { data: dataFrames } = useDataFrames();
+  const { data: dataSources } = useQuery(api.listDataSources);
+  const { data: tables } = useQuery(api.listDataTables, {
+    args: { dataSourceId },
+  });
+  const { data: dataFrames } = useQuery(api.listDataFrames);
 
   const dataSource = useMemo(
     () => dataSources?.find((s) => s.id === dataSourceId),

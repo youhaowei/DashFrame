@@ -1,9 +1,10 @@
 import { ConnectorIcon } from "@/components/data-sources/renderers/ConnectorIcon";
-import { useDataSources, useDataTables } from "@/data";
 import { getConnectorById } from "@/lib/connectors/registry";
+import { api } from "@/wystack/api";
 import type { AnyConnector } from "@dashframe/engine";
 import { ItemSelector, type SelectableItem } from "@dashframe/ui";
 import { Link } from "@tanstack/react-router";
+import { useQuery } from "@wystack/client";
 import { Button, Surface, type ItemAction } from "@wystack/ui-react";
 import { ChartIcon, DatabaseIcon, PlusIcon } from "@wystack/ui-react/icons";
 import { useMemo } from "react";
@@ -50,8 +51,8 @@ export function DataSourceSelector({
   onSelect,
   onCreateClick,
 }: DataSourceSelectorProps) {
-  const { data: dataSources, isLoading } = useDataSources();
-  const { data: allTables } = useDataTables();
+  const { data: dataSources, isLoading } = useQuery(api.listDataSources);
+  const { data: allTables } = useQuery(api.listDataTables, { args: {} });
 
   // Sort data sources by creation time (newest first)
   const sortedSources = useMemo(

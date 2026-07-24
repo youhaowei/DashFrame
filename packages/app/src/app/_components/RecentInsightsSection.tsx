@@ -1,8 +1,9 @@
+import { api } from "@/wystack/api";
 import { useNavigate } from "@tanstack/react-router";
+import { useQuery } from "@wystack/client";
 import { SparklesIcon } from "@wystack/ui-react/icons";
 import { useMemo } from "react";
 
-import { useInsights } from "@/data";
 import { DashboardSection } from "./DashboardSection";
 
 /**
@@ -13,7 +14,7 @@ import { DashboardSection } from "./DashboardSection";
 export function RecentInsightsSection() {
   const navigate = useNavigate();
 
-  const { data: insights = [] } = useInsights();
+  const { data: insights = [] } = useQuery(api.listInsights, { args: {} });
 
   const recentInsights = useMemo(() => {
     return [...insights]

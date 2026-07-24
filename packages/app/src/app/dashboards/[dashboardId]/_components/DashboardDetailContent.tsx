@@ -1,16 +1,11 @@
 import { useBindArtifact } from "@/components/assistant/artifact-context";
 import { DashboardControlBar } from "@/components/dashboards/DashboardControlBar";
 import { DashboardGrid } from "@/components/dashboards/DashboardGrid";
-import {
-  useDashboardMutations,
-  useDashboards,
-  useDataTables,
-  useInsights,
-  useVisualizations,
-} from "@/data";
 import type { CombinedField } from "@/lib/insights/compute-combined-fields";
+import { api } from "@/wystack/api";
 import type { DashboardItemType, InsightFilter } from "@dashframe/types";
 import { useNavigate } from "@tanstack/react-router";
+import { useMutation, useQuery } from "@wystack/client";
 import {
   Button,
   Dialog,
@@ -47,12 +42,14 @@ export default function DashboardDetailContent({
   const {
     data: dashboards = [],
     isLoading,
-    isFetching = false,
-  } = useDashboards();
-  const { data: visualizations = [] } = useVisualizations();
-  const { data: insights = [] } = useInsights();
-  const { data: dataTables = [] } = useDataTables();
-  const { addItem } = useDashboardMutations();
+    isFetching,
+  } = useQuery(api.listDashboards);
+  const { data: visualizations = [] } = useQuery(api.listVisualizations, {
+    args: {},
+  });
+  const { data: insights = [] } = useQuery(api.listInsights, { args: {} });
+  const { data: dataTables = [] } = useQuery(api.listDataTables, { args: {} });
+  const addItem = useMutation(api.addDashboardItem);
 
   // Find the dashboard
   const dashboard = useMemo(
@@ -163,7 +160,8 @@ export default function DashboardDetailContent({
 
     setIsAddPending(true);
     try {
-      await addItem(dashboardId, {
+      await addItem.mutateAsync({
+        dashboardId,
         type: addType,
         position: {
           x: 0,

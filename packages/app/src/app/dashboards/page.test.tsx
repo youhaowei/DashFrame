@@ -2,12 +2,14 @@
  * Tests for the DashboardsPage create-dashboard handler.
  *
  * Contracts:
- * - When createDashboard rejects, navigation must NOT occur and the user
+ * - When the create mutation rejects, navigation must NOT occur and the user
  *   must see an error toast. The dialog must remain open.
- * - When createDashboard resolves undefined, navigation must NOT occur and
- *   the user must see an error toast. The dialog must remain open.
- * - On success the dialog closes, the input resets, and navigate is called
- *   with the returned id.
+ * - When the create mutation resolves without an id, navigation must NOT occur
+ *   and the user must see an error toast. The dialog must remain open.
+ * - On success the dialog closes, the input resets, navigate is called with
+ *   the returned id, and create receives the reshaped `{ name }` arg object.
+ * - The registry mints bare-name branded paths, so the partial-mock's
+ *   `ref._path` discrimination stays valid (guards the fan-out template).
  */
 import {
   act,
@@ -22,19 +24,25 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // Hoisted mocks (vi.mock hoisting requires these to be declared with vi.hoisted)
 // ---------------------------------------------------------------------------
 
-const { mockCreate, mockMutations } = vi.hoisted(() => {
-  const create = vi.fn();
-  const remove = vi.fn();
+const { mockCreate, mockRemove } = vi.hoisted(() => ({
+  mockCreate: vi.fn(),
+  mockRemove: vi.fn(),
+}));
+
+// Partial-mock the WyStack client: keep `createApi` real (so `api` builds real
+// refs) and replace the hooks. `useMutation` discriminates by `ref._path` —
+// `createApi` caches refs, so the branded path is stable per function.
+vi.mock("@wystack/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@wystack/client")>();
   return {
-    mockCreate: create,
-    mockMutations: { create, remove },
+    ...actual,
+    useQuery: () => ({ data: [], isLoading: false }),
+    useMutation: (ref: { _path: string }) =>
+      ref._path === "removeDashboard"
+        ? { mutateAsync: mockRemove }
+        : { mutateAsync: mockCreate },
   };
 });
-
-vi.mock("@/data", () => ({
-  useDashboards: () => ({ data: [], isLoading: false }),
-  useDashboardMutations: () => mockMutations,
-}));
 
 const { mockNavigate } = vi.hoisted(() => {
   const navigate = vi.fn();
@@ -108,8 +116,8 @@ describe("DashboardsPage – handleCreate failure paths", () => {
     screen.getByPlaceholderText(/sales overview/i);
   });
 
-  it("shows error toast and does NOT navigate when createDashboard resolves undefined", async () => {
-    mockCreate.mockResolvedValue(undefined);
+  it("shows error toast and does NOT navigate when the create mutation resolves without an id", async () => {
+    mockCreate.mockResolvedValue({ id: undefined });
 
     render(<DashboardsPage />);
     openCreateDialog();
@@ -128,7 +136,7 @@ describe("DashboardsPage – handleCreate failure paths", () => {
   });
 
   it("navigates to the dashboard and closes the dialog on success", async () => {
-    mockCreate.mockResolvedValue("dash-abc");
+    mockCreate.mockResolvedValue({ id: "dash-abc" });
 
     render(<DashboardsPage />);
     openCreateDialog();
@@ -140,9 +148,22 @@ describe("DashboardsPage – handleCreate failure paths", () => {
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith({ to: "/dashboards/dash-abc" });
     });
+    // Assert the reshaped registry-object arg, not just that create fired —
+    // a dropped/misnamed key (`title` vs `name`) must fail here.
+    expect(mockCreate).toHaveBeenCalledWith({ name: "Success Board" });
     expect(mockShowError).not.toHaveBeenCalled();
 
     // Dialog is closed — the input is no longer in the document
     expect(screen.queryByPlaceholderText(/sales overview/i)).toBeNull();
+  });
+
+  it("mints bare-name branded paths the mock discriminates on", async () => {
+    // The partial-mock routes useMutation by ref._path. This guards the
+    // invariant that keeps that routing valid: the registry mints bare
+    // function names, so a future dotted/namespaced path would fail loudly
+    // here instead of silently aliasing every mutation to mockCreate.
+    const { api } = await import("@/wystack/api");
+    expect(api.createDashboard._path).toBe("createDashboard");
+    expect(api.removeDashboard._path).toBe("removeDashboard");
   });
 });

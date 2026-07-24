@@ -54,11 +54,19 @@ const { mockUseVisualizations, mockUseInsights, mockUseDataTables } =
     mockUseDataTables: vi.fn(),
   }));
 
-vi.mock("@/data", () => ({
-  useVisualizations: () => mockUseVisualizations(),
-  useInsights: () => mockUseInsights(),
-  useDataTables: () => mockUseDataTables(),
-}));
+vi.mock("@wystack/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@wystack/client")>();
+  return {
+    ...actual,
+    useQuery: (ref: { _path: string }) => {
+      if (ref._path === "listVisualizations") return mockUseVisualizations();
+      if (ref._path === "listInsights") return mockUseInsights();
+      if (ref._path === "listDataTables") return mockUseDataTables();
+      throw new Error(`Unexpected query: ${ref._path}`);
+    },
+    useMutation: () => ({ mutateAsync: vi.fn() }),
+  };
+});
 
 vi.mock("@dashframe/engine", () => ({
   resolveEffectiveParams: vi.fn((filters, sorts, _limit, overrides) => ({

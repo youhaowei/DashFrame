@@ -1,11 +1,12 @@
 import { ConnectorIcon } from "@/components/data-sources/renderers/ConnectorIcon";
 import { JoinFlowModal } from "@/components/visualizations/JoinFlowModal";
-import { useDataFrames, useDataSources, useInsightMutations } from "@/data";
 import { getConnectorById } from "@/lib/connectors/registry";
 import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
+import { api } from "@/wystack/api";
 import type { DataTable, Insight } from "@dashframe/types";
 import { JoinTypeIcon } from "@dashframe/ui";
 import { useNavigate } from "@tanstack/react-router";
+import { useMutation, useQuery } from "@wystack/client";
 import {
   ItemList,
   Section,
@@ -147,9 +148,9 @@ export const DataModelSection = memo(function DataModelSection({
 }: DataModelSectionProps) {
   const navigate = useNavigate();
   const [isJoinFlowOpen, setIsJoinFlowOpen] = useState(false);
-  const { data: allDataFrameEntries = [] } = useDataFrames();
-  const { data: allDataSources = [] } = useDataSources();
-  const { update: updateInsight } = useInsightMutations();
+  const { data: allDataFrameEntries = [] } = useQuery(api.listDataFrames);
+  const { data: allDataSources = [] } = useQuery(api.listDataSources);
+  const { mutateAsync: updateInsight } = useMutation(api.updateInsight);
   const { confirm } = useConfirmDialogStore();
 
   // Remove join handler - shows confirmation then removes
@@ -165,7 +166,10 @@ export const DataModelSection = memo(function DataModelSection({
           const updatedJoins = insight.joins.filter(
             (_, idx) => idx !== joinIndex,
           );
-          await updateInsight(insight.id, { joins: updatedJoins });
+          await updateInsight({
+            id: insight.id,
+            updates: { joins: updatedJoins },
+          });
         },
       });
     },

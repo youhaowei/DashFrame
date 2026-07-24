@@ -1,15 +1,10 @@
 import {
-  useDataTableMutations,
-  useInsightMutations,
-  useVisualizationMutations,
-  useVisualizations,
-} from "@/data";
-import {
   computeCombinedFields,
   computeFilterableFields,
   type CombinedField,
 } from "@/lib/insights/compute-combined-fields";
 import { reorderVisibleMetrics } from "@/lib/insights/reorder-visible-metrics";
+import { api } from "@/wystack/api";
 import type {
   DataTable,
   Insight,
@@ -18,6 +13,7 @@ import type {
   InsightSort,
 } from "@dashframe/types";
 import { InputField } from "@dashframe/ui";
+import { useMutation, useQuery } from "@wystack/client";
 import { Badge, Panel, cn } from "@wystack/ui-react";
 import {
   ArrowUpDown,
@@ -146,13 +142,31 @@ export function InsightConfigPanel({
   const [processingVizId, setProcessingVizId] = useState<string | null>(null);
 
   // Mutations
-  const { update: updateInsight } = useInsightMutations();
-  const { updateField } = useDataTableMutations();
-  const { updateEncoding, remove: removeVisualization } =
-    useVisualizationMutations();
+  const { mutateAsync: updateInsightMutation } = useMutation(api.updateInsight);
+  const updateInsight = useCallback(
+    async (
+      id: Insight["id"],
+      updates: Partial<Omit<Insight, "id" | "createdAt">>,
+    ): Promise<void> => {
+      await updateInsightMutation({ id, updates });
+    },
+    [updateInsightMutation],
+  );
+  const { mutateAsync: patchDataTableArray } = useMutation(
+    api.patchDataTableArray,
+  );
+  const { mutateAsync: updateVisualizationMutation } = useMutation(
+    api.updateVisualization,
+  );
+  const { mutateAsync: removeVisualizationMutation } = useMutation(
+    api.removeVisualization,
+  );
 
   // Get visualizations for this insight to check dependencies
-  const { data: insightVisualizations = [] } = useVisualizations(insight.id);
+  const { data: insightVisualizations = [] } = useQuery(
+    api.listVisualizations,
+    { args: { insightId: insight.id } },
+  );
 
   // Compute affected visualizations reactively based on current visualization state
   // This avoids race conditions where stale state was stored in the dialog
@@ -271,13 +285,19 @@ export function InsightConfigPanel({
       // Update the display name in the source DataTable
       // This only changes the user-facing name, not the underlying columnName
       try {
-        await updateField(field.sourceTableId, field.id, { name: newName });
+        await patchDataTableArray({
+          dataTableId: field.sourceTableId,
+          kind: "fields",
+          mode: "update",
+          itemId: field.id,
+          value: { name: newName },
+        });
       } catch (error) {
         console.error("Failed to rename field:", error);
         alert("Failed to rename field. Please try again.");
       }
     },
-    [updateField],
+    [patchDataTableArray],
   );
 
   // --- Metric handlers ---
@@ -375,7 +395,10 @@ export function InsightConfigPanel({
           deleteDialog.itemId,
           deleteDialog.itemType,
         );
-        await updateEncoding(vizId, newEncoding);
+        await updateVisualizationMutation({
+          id: vizId,
+          updates: { encoding: newEncoding },
+        });
         // No need to update state - affectedVisualizations is computed reactively
       } catch (error) {
         console.error("Failed to remove from visualization:", error);
@@ -388,7 +411,7 @@ export function InsightConfigPanel({
       insightVisualizations,
       deleteDialog.itemId,
       deleteDialog.itemType,
-      updateEncoding,
+      updateVisualizationMutation,
     ],
   );
 
@@ -396,7 +419,7 @@ export function InsightConfigPanel({
     async (vizId: string) => {
       setProcessingVizId(vizId);
       try {
-        await removeVisualization(vizId);
+        await removeVisualizationMutation({ id: vizId });
         // No need to update state - affectedVisualizations is computed reactively
       } catch (error) {
         console.error("Failed to delete visualization:", error);
@@ -405,7 +428,7 @@ export function InsightConfigPanel({
         setProcessingVizId(null);
       }
     },
-    [removeVisualization],
+    [removeVisualizationMutation],
   );
 
   const handleConfirmDelete = useCallback(() => {

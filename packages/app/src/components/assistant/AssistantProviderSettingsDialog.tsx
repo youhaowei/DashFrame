@@ -1,13 +1,8 @@
-import {
-  useAssistantProviderCatalog,
-  useAssistantProviderConfigMutations,
-  useAssistantProviderConfigs,
-} from "@/data";
-import { useToastStore } from "@/lib/stores";
 import type {
   AssistantProviderAuthKind,
   AssistantProviderCatalogEntry,
 } from "@dashframe/types";
+import { useMutation, useQuery } from "@wystack/client";
 import {
   Button,
   Dialog,
@@ -32,6 +27,9 @@ import {
   PlusIcon,
 } from "@wystack/ui-react/icons";
 import { useMemo, useState, type Dispatch, type SetStateAction } from "react";
+
+import { useToastStore } from "@/lib/stores";
+import { api } from "@/wystack/api";
 
 interface AssistantProviderSettingsDialogProps {
   open: boolean;
@@ -69,9 +67,17 @@ export function AssistantProviderSettingsDialog({
   open,
   onOpenChange,
 }: AssistantProviderSettingsDialogProps) {
-  const catalogResult = useAssistantProviderCatalog();
-  const configsResult = useAssistantProviderConfigs();
-  const mutations = useAssistantProviderConfigMutations();
+  const catalogResult = useQuery(api.listAssistantProviderCatalog);
+  const configsResult = useQuery(api.listAssistantProviderConfigs);
+  const { mutateAsync: saveConfigMutation } = useMutation(
+    api.saveAssistantProviderConfig,
+  );
+  const { mutateAsync: removeConfigMutation } = useMutation(
+    api.removeAssistantProviderConfig,
+  );
+  const { mutateAsync: startOAuthLoginMutation } = useMutation(
+    api.startAssistantOAuthLogin,
+  );
   const { showError, showSuccess } = useToastStore();
   const catalog = useMemo(() => catalogResult.data ?? [], [catalogResult.data]);
   const configs = useMemo(() => configsResult.data ?? [], [configsResult.data]);
@@ -115,14 +121,16 @@ export function AssistantProviderSettingsDialog({
   async function save() {
     setSaving(true);
     try {
-      await mutations.save({
-        providerId: form.providerId,
-        displayLabel: form.displayLabel,
-        authKind: form.authKind,
-        baseUrl: form.baseUrl || undefined,
-        credential: form.credential || undefined,
-        defaultModel: form.defaultModel,
-        isDefault: configs.length === 0,
+      await saveConfigMutation({
+        input: {
+          providerId: form.providerId,
+          displayLabel: form.displayLabel,
+          authKind: form.authKind,
+          baseUrl: form.baseUrl || undefined,
+          credential: form.credential || undefined,
+          defaultModel: form.defaultModel,
+          isDefault: configs.length === 0,
+        },
       });
       setForm((current) => ({ ...current, credential: "" }));
       showSuccess("Assistant provider saved");
@@ -139,7 +147,7 @@ export function AssistantProviderSettingsDialog({
   async function login(id: string) {
     setSaving(true);
     try {
-      await mutations.startOAuthLogin(id);
+      await startOAuthLoginMutation({ id });
       showSuccess("Assistant provider connected");
     } catch (error) {
       showError("Failed to connect assistant provider", {
@@ -153,7 +161,7 @@ export function AssistantProviderSettingsDialog({
 
   async function removeProvider(id: string) {
     try {
-      await mutations.remove(id);
+      await removeConfigMutation({ id });
     } catch (error) {
       showError("Failed to remove assistant provider", {
         description:

@@ -1,6 +1,7 @@
-import { useDashboardMutations, useDashboards } from "@/data";
 import { useToastStore } from "@/lib/stores";
+import { api } from "@/wystack/api";
 import { Link, useNavigate } from "@tanstack/react-router";
+import { useMutation, useQuery } from "@wystack/client";
 import {
   Button,
   Dialog,
@@ -17,9 +18,9 @@ import { useState } from "react";
 
 export default function DashboardsPage() {
   const navigate = useNavigate();
-  const { data: dashboards = [], isLoading } = useDashboards();
-  const { create: createDashboard, remove: removeDashboard } =
-    useDashboardMutations();
+  const { data: dashboards = [], isLoading } = useQuery(api.listDashboards);
+  const createDashboard = useMutation(api.createDashboard);
+  const removeDashboard = useMutation(api.removeDashboard);
   const { showError } = useToastStore();
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -30,7 +31,7 @@ export default function DashboardsPage() {
 
     let id: string | undefined;
     try {
-      id = await createDashboard(newDashboardName);
+      id = (await createDashboard.mutateAsync({ name: newDashboardName })).id;
     } catch {
       showError("Failed to create dashboard. Please try again.");
       return;
@@ -126,7 +127,9 @@ export default function DashboardsPage() {
                         label="Delete dashboard"
                         color="danger"
                         className="-mt-2 -mr-2 text-neutral-fg-subtle opacity-0 transition-opacity group-hover:opacity-100 hover:text-palette-danger"
-                        onClick={() => removeDashboard(dashboard.id)}
+                        onClick={() =>
+                          removeDashboard.mutateAsync({ id: dashboard.id })
+                        }
                       />
                     </div>
                   </div>

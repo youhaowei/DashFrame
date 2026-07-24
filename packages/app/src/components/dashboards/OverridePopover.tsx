@@ -17,14 +17,9 @@
  *   • (Additive "add filter" row for other eligible fields — not in this PR)
  */
 
-import {
-  useDashboardMutations,
-  useDataTables,
-  useInsights,
-  useVisualizations,
-} from "@/data";
 import { isControlEligible } from "@/lib/dashboards/controls";
 import { computeCombinedFields } from "@/lib/insights/compute-combined-fields";
+import { api } from "@/wystack/api";
 import type {
   DashboardControl,
   DashboardItem,
@@ -33,6 +28,7 @@ import type {
   InsightFilterOverride,
   InsightSort,
 } from "@dashframe/types";
+import { useMutation, useQuery } from "@wystack/client";
 import {
   Badge,
   Button,
@@ -271,12 +267,15 @@ export function OverridePopover({
   dashboardId,
   controls,
 }: OverridePopoverProps) {
-  const { patchItemOverride, updateControls } = useDashboardMutations();
+  const patchItemOverride = useMutation(api.patchDashboardItemOverride);
+  const updateControls = useMutation(api.updateDashboardControls);
 
   // Self-fetch visualization → insight → data table (same pattern as VisualizationDisplay).
-  const { data: visualizations = [] } = useVisualizations();
-  const { data: insights = [] } = useInsights();
-  const { data: dataTables = [] } = useDataTables();
+  const { data: visualizations = [] } = useQuery(api.listVisualizations, {
+    args: {},
+  });
+  const { data: insights = [] } = useQuery(api.listInsights, { args: {} });
+  const { data: dataTables = [] } = useQuery(api.listDataTables, { args: {} });
 
   const visualization = useMemo(
     () =>
@@ -361,10 +360,12 @@ export function OverridePopover({
   // ---------------------------------------------------------------------------
 
   function persistOverride(patch: DashboardItemOverridePatch) {
-    patchItemOverride(dashboardId, item.id, patch).catch((error: unknown) => {
-      console.error("Failed to save dashboard override:", error);
-      toast.error("Failed to save dashboard override");
-    });
+    patchItemOverride
+      .mutateAsync({ dashboardId, itemId: item.id, patch })
+      .catch((error: unknown) => {
+        console.error("Failed to save dashboard override:", error);
+        toast.error("Failed to save dashboard override");
+      });
   }
 
   function handlePin(fieldName: string, filter: InsightFilterOverride) {
@@ -417,7 +418,7 @@ export function OverridePopover({
         ? { ...c, boundInstances: [...c.boundInstances, item.id] }
         : c,
     );
-    updateControls(dashboardId, next);
+    updateControls.mutateAsync({ dashboardId, controls: next });
   }
 
   function handleUnbind(controlId: string) {
@@ -430,7 +431,7 @@ export function OverridePopover({
           }
         : c,
     );
-    updateControls(dashboardId, next);
+    updateControls.mutateAsync({ dashboardId, controls: next });
   }
 
   // Available field names for the sort row (fields in the data table).

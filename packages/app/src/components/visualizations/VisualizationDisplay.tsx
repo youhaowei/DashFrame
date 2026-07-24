@@ -1,8 +1,8 @@
 import { useChartEngine } from "@/components/providers/ChartEngineProvider";
 import { useDuckDBContext } from "@/components/providers/DuckDBProvider";
-import { useDataTables, useInsights, useVisualizations } from "@/data";
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
+import { api } from "@/wystack/api";
 import {
   getMetricDisplayLabel,
   resolveEffectiveParams,
@@ -21,6 +21,7 @@ import {
   VisualizationProvider,
   useVisualization,
 } from "@dashframe/visualization";
+import { useQuery } from "@wystack/client";
 import { ErrorState, Spinner, Surface, Toggle } from "@wystack/ui-react";
 import { ChartIcon, LayersIcon, TableIcon } from "@wystack/ui-react/icons";
 import {
@@ -102,10 +103,12 @@ export function VisualizationDisplay({
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  const { data: visualizations = [], isLoading: isVizLoading } =
-    useVisualizations();
-  const { data: insights = [] } = useInsights();
-  const { data: dataTables = [] } = useDataTables();
+  const { data: visualizations = [], isLoading: isVizLoading } = useQuery(
+    api.listVisualizations,
+    { args: {} },
+  );
+  const { data: insights = [] } = useQuery(api.listInsights, { args: {} });
+  const { data: dataTables = [] } = useQuery(api.listDataTables, { args: {} });
 
   // Get the visualization
   const activeViz = useMemo((): Visualization | null => {

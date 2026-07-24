@@ -1,10 +1,11 @@
 import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
-import { useDashboardMutations } from "@/data";
+import { api } from "@/wystack/api";
 import type {
   DashboardControl,
   DashboardItemOverrides,
   DashboardItem as DashboardItemType,
 } from "@dashframe/types";
+import { useMutation } from "@wystack/client";
 import { Button, cn, Surface } from "@wystack/ui-react";
 import { DeleteIcon, DragHandleIcon, EditIcon } from "@wystack/ui-react/icons";
 import { useState } from "react";
@@ -49,7 +50,8 @@ export function DashboardItem({
   ...props
 }: DashboardItemProps) {
   const [isEditingContent, setIsEditingContent] = useState(false);
-  const { updateItem, removeItem } = useDashboardMutations();
+  const updateItem = useMutation(api.updateDashboardItem);
+  const removeItem = useMutation(api.removeDashboardItem);
 
   return (
     <div
@@ -89,7 +91,9 @@ export function DashboardItem({
               variant="ghost"
               size="sm"
               className="h-6 w-6 text-palette-danger hover:bg-palette-danger/10 hover:text-palette-danger"
-              onClick={() => removeItem(dashboardId, item.id)}
+              onClick={() =>
+                removeItem.mutateAsync({ dashboardId, itemId: item.id })
+              }
             >
               <DeleteIcon className="h-3.5 w-3.5" />
             </Button>
@@ -107,7 +111,11 @@ export function DashboardItem({
               content={item.content || ""}
               isEditing={isEditingContent}
               onSave={(content) => {
-                updateItem(dashboardId, item.id, { content });
+                updateItem.mutateAsync({
+                  dashboardId,
+                  itemId: item.id,
+                  updates: { content },
+                });
                 setIsEditingContent(false);
               }}
               onCancel={() => setIsEditingContent(false)}

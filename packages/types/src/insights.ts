@@ -1,6 +1,5 @@
 import type { Field } from "./field";
 import type { InsightMetric } from "./metric";
-import type { UseQueryResult } from "./repository-base";
 import type { UUID } from "./uuid";
 
 // ============================================================================
@@ -148,71 +147,3 @@ export interface CompiledInsight {
   /** Optional sorts */
   sorts?: InsightSort[];
 }
-
-// ============================================================================
-// Repository Hook Types
-// ============================================================================
-
-/**
- * Mutation methods for insights.
- */
-export interface InsightMutations {
-  /** Create a new insight.
-   *
-   *  Inserts a new row by default. The auto-draft entry point (creating an
-   *  insight straight from a table) opts into `reuseUnmodifiedDraft` so a
-   *  rapid second click lands on the existing empty draft for that table
-   *  rather than accumulating duplicates. */
-  create: (
-    name: string,
-    baseTableId: UUID,
-    options?: {
-      selectedFields?: UUID[];
-      metrics?: InsightMetric[];
-      /** When true, and this would be an unmodified draft, reuse an existing
-       *  unmodified draft for the same `baseTableId` instead of inserting a
-       *  duplicate. Default (false) always inserts a new row. */
-      reuseUnmodifiedDraft?: boolean;
-    },
-  ) => Promise<UUID>;
-
-  /** Update an insight */
-  update: (
-    id: UUID,
-    updates: Partial<Omit<Insight, "id" | "createdAt">>,
-  ) => Promise<void>;
-
-  /** Remove an insight */
-  remove: (id: UUID) => Promise<void>;
-
-  /** Add a field to insight */
-  addField: (insightId: UUID, fieldId: UUID) => Promise<void>;
-
-  /** Remove a field from insight */
-  removeField: (insightId: UUID, fieldId: UUID) => Promise<void>;
-
-  /** Add a metric to insight */
-  addMetric: (insightId: UUID, metric: InsightMetric) => Promise<void>;
-
-  /** Update a metric */
-  updateMetric: (
-    insightId: UUID,
-    metricId: UUID,
-    updates: Partial<InsightMetric>,
-  ) => Promise<void>;
-
-  /** Remove a metric */
-  removeMetric: (insightId: UUID, metricId: UUID) => Promise<void>;
-}
-
-/**
- * Hook type for reading insights.
- */
-export type UseInsights = (options?: {
-  excludeIds?: UUID[];
-}) => UseQueryResult<Insight[]>;
-
-/**
- * Hook type for insight mutations.
- */
-export type UseInsightMutations = () => InsightMutations;

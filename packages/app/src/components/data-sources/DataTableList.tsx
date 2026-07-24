@@ -32,7 +32,9 @@ export interface DataTableListProps {
  *
  * @example
  * ```tsx
- * const { allDataTables } = useDataTables(localSources);
+ * const { data: allDataTables = [] } = useQuery(api.listDataTables, {
+ *   args: { dataSourceId },
+ * });
  * const { createInsightFromTable } = useCreateInsight();
  *
  * <DataTableList

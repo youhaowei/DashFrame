@@ -1,10 +1,11 @@
 import { DataGrid } from "@/components/data-grid";
 import {
-  useDataFrameMutations,
-  useDataFrames,
+  removeDataFrame,
   type DataFrameEntry,
-} from "@/data";
+} from "@/lib/data-access/data-frames";
+import { api } from "@/wystack/api";
 import type { ColumnDef } from "@tanstack/react-table";
+import { useMutation, useQuery } from "@wystack/client";
 import {
   Button,
   Dialog,
@@ -20,8 +21,10 @@ import { ArrowUpDownIcon } from "@wystack/ui-react/icons";
 import { useMemo, useState } from "react";
 
 export default function DataFramesPage() {
-  const { data: dataFrames, isLoading } = useDataFrames();
-  const mutations = useDataFrameMutations();
+  const { data: dataFrames, isLoading } = useQuery(api.listDataFrames);
+  const { mutateAsync: updateDataFrameEntry } = useMutation(
+    api.updateDataFrameEntry,
+  );
 
   const [editingFrame, setEditingFrame] = useState<DataFrameEntry | null>(null);
   const [editedName, setEditedName] = useState("");
@@ -112,14 +115,17 @@ export default function DataFramesPage() {
 
   const handleSaveEdit = async () => {
     if (editingFrame) {
-      await mutations.updateMetadata(editingFrame.id, { name: editedName });
+      await updateDataFrameEntry({
+        id: editingFrame.id,
+        updates: { name: editedName },
+      });
     }
     setEditingFrame(null);
   };
 
   const handleDelete = async (entry: DataFrameEntry) => {
     if (confirm(`Delete "${entry.name}"? This cannot be undone.`)) {
-      await mutations.removeDataFrame(entry.id);
+      await removeDataFrame(entry.id);
     }
   };
 

@@ -1,8 +1,9 @@
-import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
 
 import { VisualizationPreview } from "@/components/visualizations/VisualizationPreview";
-import { useVisualizations } from "@/data";
+import { api } from "@/wystack/api";
+import { useNavigate } from "@tanstack/react-router";
+import { useQuery } from "@wystack/client";
 import { ChartIcon } from "@wystack/ui-react/icons";
 import { DashboardSection } from "./DashboardSection";
 
@@ -14,7 +15,9 @@ import { DashboardSection } from "./DashboardSection";
 export function RecentVisualizationsSection() {
   const navigate = useNavigate();
 
-  const { data: visualizations = [] } = useVisualizations();
+  const { data: visualizations = [] } = useQuery(api.listVisualizations, {
+    args: {},
+  });
 
   const recentVisualizations = useMemo(() => {
     return [...visualizations]

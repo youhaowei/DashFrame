@@ -1,9 +1,10 @@
-import { useDataTables, useInsight } from "@/data";
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
+import { api } from "@/wystack/api";
 import { resolveEncodingToSql } from "@dashframe/engine";
 import type { ChartEncoding, Insight, Visualization } from "@dashframe/types";
 import { Chart } from "@dashframe/visualization";
+import { useQuery } from "@wystack/client";
 import { Spinner } from "@wystack/ui-react";
 import { useMemo } from "react";
 
@@ -42,12 +43,13 @@ export function VisualizationPreview({
   fallback = null,
 }: VisualizationPreviewProps) {
   // Fetch the insight for this visualization
-  const { data: insight, isLoading: isLoadingInsight } = useInsight(
-    visualization.insightId,
+  const { data: insight, isLoading: isLoadingInsight } = useQuery(
+    api.getInsight,
+    { args: { id: visualization.insightId } },
   );
 
   // Fetch data tables for encoding resolution
-  const { data: dataTables = [] } = useDataTables();
+  const { data: dataTables = [] } = useQuery(api.listDataTables, { args: {} });
 
   // Find the data table for this insight (React Compiler memoizes this).
   const dataTable = !insight?.baseTableId

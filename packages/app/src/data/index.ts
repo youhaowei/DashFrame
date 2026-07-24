@@ -25,20 +25,6 @@ export {
   type RunAssistantPromptOptions,
 } from "../wystack/assistant-run";
 
-// Dashboards
-export {
-  getAllDashboards,
-  getDashboard,
-  useDashboardMutations,
-  useDashboards,
-} from "./dashboards";
-
-export {
-  useAssistantProviderCatalog,
-  useAssistantProviderConfigMutations,
-  useAssistantProviderConfigs,
-} from "./assistant-provider-configs";
-
 export {
   useAccessCapabilities,
   useAccessConnectionInfo,
@@ -46,92 +32,4 @@ export {
   useAccessCredentials,
 } from "./access-credentials";
 
-export {
-  addDataSource,
-  getAllDataSources,
-  getDataSource,
-  getDataSourceByType,
-  getOrCreateDataSourceByType,
-  removeDataSource,
-  updateDataSource,
-  useDataSourceMutations,
-  useDataSources,
-} from "./data-sources";
-
-export {
-  addDataTable,
-  createDataTable,
-  getAllDataTables,
-  getDataTable,
-  getDataTablesBySource,
-  updateDataTable,
-  useDataTableMutations,
-  useDataTables,
-} from "./data-tables";
-
-export {
-  getAllInsights,
-  getInsight,
-  useCompiledInsight,
-  useInsight,
-  useInsightMutations,
-  useInsights,
-} from "./insights";
-
-export {
-  getAllVisualizations,
-  getVisualization,
-  getVisualizationsByInsight,
-  useVisualizationMutations,
-  useVisualizations,
-} from "./visualizations";
-
-export {
-  addDataFrameEntry,
-  clearAllData,
-  getAllDataFrames,
-  getDataFrame,
-  getDataFrameByInsight,
-  getDataFrameEntry,
-  removeDataFrame,
-  replaceDataFrame,
-  updateDataFrameAnalysis,
-  updateDataFrameEntry,
-  updateMetadata,
-  useDataFrameMutations,
-  useDataFrames,
-  type DataFrameEntry,
-  type DataFrameMutations,
-  type UseDataFramesResult,
-} from "./data-frames";
-
-export {
-  listNotionDatabases,
-  useNotionMutations,
-  type NotionDatabaseRef,
-  type NotionQueryResult,
-} from "./notion";
-
-export {
-  usePostgresMutations,
-  type PostgresQueryResult,
-  type PostgresTableRef,
-} from "./postgres";
-
 export { DatabaseProvider, useDatabase } from "../wystack/compat";
-
-// Preview batch — SPLIT-TIER: returns metadata only, no row data over the wire.
-export { previewBatch, type PreviewCommand } from "./preview-diff";
-
-// Draft lifecycle — publish, discard, and log-read RPCs.
-export { discardDraft, getDraftLog, publishDraft } from "./draft-lifecycle";
-
-export {
-  getDraftPublishReview,
-  useDraftMutations,
-  useDraftPublishReview,
-  type DraftMutations,
-  type DraftPublishReview,
-  type LateBoundOperandRef,
-  type UseDraftPublishReviewResult,
-} from "./drafts";

@@ -33,10 +33,20 @@ vi.mock("@/components/providers/DuckDBProvider", () => ({
   useDuckDB: () => mockUseDuckDB(),
 }));
 
-vi.mock("@/data", () => ({
+vi.mock("@/lib/data-access/data-frames", () => ({
   getDataFrame: (...args: unknown[]) => mockGetDataFrame(...args),
-  useDataFrames: () => mockUseDataFrames(),
 }));
+
+vi.mock("@wystack/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@wystack/client")>();
+  return {
+    ...actual,
+    useQuery: (ref: { _path: string }) => {
+      if (ref._path === "listDataFrames") return mockUseDataFrames();
+      throw new Error(`Unexpected query: ${ref._path}`);
+    },
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Helpers

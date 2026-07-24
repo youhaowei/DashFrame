@@ -1,13 +1,9 @@
 /* eslint-disable sonarjs/cognitive-complexity */
 
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
-import {
-  getDataFrame,
-  useDataTables,
-  useInsightMutations,
-  useInsights,
-} from "@/data";
 import { useDataFramePagination } from "@/hooks/useDataFramePagination";
+import { getDataFrame } from "@/lib/data-access/data-frames";
+import { api } from "@/wystack/api";
 import {
   joinTypeToSQL,
   quoteIdentifier,
@@ -25,6 +21,7 @@ import {
   type VirtualTableColumnConfig,
 } from "@dashframe/ui";
 import { useNavigate } from "@tanstack/react-router";
+import { useMutation, useQuery } from "@wystack/client";
 import {
   Alert,
   AlertDescription,
@@ -82,9 +79,15 @@ export default function JoinConfigureContent({
 }: JoinConfigureContentProps) {
   const navigate = useNavigate();
 
-  const { data: allInsights, isLoading: isInsightsLoading } = useInsights();
-  const { data: allDataTables, isLoading: isTablesLoading } = useDataTables();
-  const { update: updateInsight } = useInsightMutations();
+  const { data: allInsights, isLoading: isInsightsLoading } = useQuery(
+    api.listInsights,
+    { args: {} },
+  );
+  const { data: allDataTables, isLoading: isTablesLoading } = useQuery(
+    api.listDataTables,
+    { args: {} },
+  );
+  const { mutateAsync: updateInsight } = useMutation(api.updateInsight);
 
   const isLoading = isInsightsLoading || isTablesLoading;
 
@@ -834,8 +837,9 @@ export default function JoinConfigureContent({
 
         // Add join to existing insight (append to existing joins if any)
         const existingJoins = insight.joins ?? [];
-        await updateInsight(insightId, {
-          joins: [...existingJoins, joinConfig],
+        await updateInsight({
+          id: insightId,
+          updates: { joins: [...existingJoins, joinConfig] },
         });
 
         // Note: We intentionally do NOT store a pre-computed joined DataFrame here.

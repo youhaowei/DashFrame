@@ -1,10 +1,9 @@
 import {
   addDataFrameEntry,
   getDataFrameEntry,
-  getDataTable,
   removeDataFrame,
-  updateDataTable,
-} from "@/data";
+} from "@/lib/data-access/data-frames";
+import { getDataTable, updateDataTable } from "@/lib/data-access/data-tables";
 import { DataFrame, deleteArrowData } from "@dashframe/engine-browser";
 import { getFieldSensitivity, type Field, type UUID } from "@dashframe/types";
 

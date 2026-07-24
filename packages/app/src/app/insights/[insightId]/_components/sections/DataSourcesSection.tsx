@@ -1,7 +1,8 @@
 import { JoinFlowModal } from "@/components/visualizations/JoinFlowModal";
-import { useDataFrames, useInsightMutations } from "@/data";
+import { api } from "@/wystack/api";
 import type { DataTable, Field, Insight } from "@dashframe/types";
 import { JoinTypeIcon } from "@dashframe/ui";
+import { useMutation, useQuery } from "@wystack/client";
 import {
   ItemList,
   Section,
@@ -31,15 +32,18 @@ export const DataSourcesSection = memo(function DataSourcesSection({
   allTableFields,
 }: DataSourcesSectionProps) {
   const [isJoinFlowOpen, setIsJoinFlowOpen] = useState(false);
-  const { data: allDataFrameEntries = [] } = useDataFrames();
-  const { update: updateInsight } = useInsightMutations();
+  const { data: allDataFrameEntries = [] } = useQuery(api.listDataFrames);
+  const { mutateAsync: updateInsight } = useMutation(api.updateInsight);
 
   // Remove join handler
   const handleRemoveJoin = useCallback(
     async (joinIndex: number) => {
       if (!insight.joins) return;
       const updatedJoins = insight.joins.filter((_, idx) => idx !== joinIndex);
-      await updateInsight(insight.id, { joins: updatedJoins });
+      await updateInsight({
+        id: insight.id,
+        updates: { joins: updatedJoins },
+      });
     },
     [insight.joins, insight.id, updateInsight],
   );

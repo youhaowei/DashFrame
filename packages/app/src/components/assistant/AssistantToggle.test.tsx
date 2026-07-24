@@ -12,9 +12,17 @@ const { configsResult } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("@/data", () => ({
-  useAssistantProviderConfigs: () => configsResult,
-}));
+vi.mock("@wystack/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@wystack/client")>();
+  return {
+    ...actual,
+    useQuery: (ref: { _path: string }) => {
+      if (ref._path === "listAssistantProviderConfigs") return configsResult;
+      return { data: undefined, isLoading: false };
+    },
+    useMutation: () => ({ mutateAsync: vi.fn() }),
+  };
+});
 
 describe("AssistantToggle", () => {
   beforeEach(() => {
