@@ -1,4 +1,3 @@
-import { useInsights } from "@/data";
 import { getConnectorById } from "@/lib/connectors/registry";
 import { removeDataFrame } from "@/lib/data-access/data-frames";
 import { handleFileConnectorResult } from "@/lib/local-csv-handler";
@@ -117,7 +116,7 @@ export function DataPickerContent({
   const { data: allDataTables = [] } = useQuery(api.listDataTables, {
     args: {},
   });
-  const { data: allInsights = [] } = useInsights();
+  const { data: allInsights = [] } = useQuery(api.listInsights, { args: {} });
   const { data: dataFrames = [] } = useQuery(api.listDataFrames);
   const { mutateAsync: addDataSource } = useMutation(api.addDataSource);
   const { mutateAsync: removeDataSource } = useMutation(api.removeDataSource);

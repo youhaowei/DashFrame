@@ -1,4 +1,3 @@
-import { useInsightMutations } from "@/data";
 import {
   computeCombinedFields,
   computeFilterableFields,
@@ -143,7 +142,16 @@ export function InsightConfigPanel({
   const [processingVizId, setProcessingVizId] = useState<string | null>(null);
 
   // Mutations
-  const { update: updateInsight } = useInsightMutations();
+  const { mutateAsync: updateInsightMutation } = useMutation(api.updateInsight);
+  const updateInsight = useCallback(
+    async (
+      id: Insight["id"],
+      updates: Partial<Omit<Insight, "id" | "createdAt">>,
+    ): Promise<void> => {
+      await updateInsightMutation({ id, updates });
+    },
+    [updateInsightMutation],
+  );
   const { mutateAsync: patchDataTableArray } = useMutation(
     api.patchDataTableArray,
   );

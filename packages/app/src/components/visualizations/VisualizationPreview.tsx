@@ -1,4 +1,3 @@
-import { useInsight } from "@/data";
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
 import { api } from "@/wystack/api";
@@ -44,8 +43,9 @@ export function VisualizationPreview({
   fallback = null,
 }: VisualizationPreviewProps) {
   // Fetch the insight for this visualization
-  const { data: insight, isLoading: isLoadingInsight } = useInsight(
-    visualization.insightId,
+  const { data: insight, isLoading: isLoadingInsight } = useQuery(
+    api.getInsight,
+    { args: { id: visualization.insightId } },
   );
 
   // Fetch data tables for encoding resolution

@@ -78,10 +78,7 @@ export type {
   InsightFilter,
   InsightFilterBetweenValue,
   InsightJoinConfig,
-  InsightMutations,
   InsightSort,
-  UseInsightMutations,
-  UseInsights,
 } from "./insights";
 
 export { isUnmodifiedDraft } from "./insights";

@@ -30,15 +30,12 @@ const { mockUseInsight, mockUseDataTables } = vi.hoisted(() => ({
   mockUseDataTables: vi.fn(),
 }));
 
-vi.mock("@/data", () => ({
-  useInsight: () => mockUseInsight(),
-}));
-
 vi.mock("@wystack/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@wystack/client")>();
   return {
     ...actual,
     useQuery: (ref: { _path: string }) => {
+      if (ref._path === "getInsight") return mockUseInsight();
       if (ref._path === "listDataTables") return mockUseDataTables();
       throw new Error(`Unexpected query: ${ref._path}`);
     },

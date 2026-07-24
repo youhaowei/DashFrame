@@ -1,6 +1,5 @@
 import { useChartEngine } from "@/components/providers/ChartEngineProvider";
 import { useDuckDBContext } from "@/components/providers/DuckDBProvider";
-import { useInsights } from "@/data";
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
 import { api } from "@/wystack/api";
@@ -108,7 +107,7 @@ export function VisualizationDisplay({
     api.listVisualizations,
     { args: {} },
   );
-  const { data: insights = [] } = useInsights();
+  const { data: insights = [] } = useQuery(api.listInsights, { args: {} });
   const { data: dataTables = [] } = useQuery(api.listDataTables, { args: {} });
 
   // Get the visualization

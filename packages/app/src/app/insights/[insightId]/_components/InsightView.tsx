@@ -1,7 +1,6 @@
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import { VisualizationPreview } from "@/components/visualizations/VisualizationPreview";
-import { useInsightMutations } from "@/data";
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
 import { formatCellValue } from "@/lib/cell-formatter";
@@ -795,7 +794,7 @@ export function InsightView({
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   // Mutations
-  const { update: updateInsight } = useInsightMutations();
+  const { mutateAsync: updateInsight } = useMutation(api.updateInsight);
   const { mutateAsync: createVisualizationLocal } = useMutation(
     api.createVisualization,
   );
@@ -826,7 +825,7 @@ export function InsightView({
       // Set new timeout to save after 500ms of no typing
       saveTimeoutRef.current = setTimeout(() => {
         if (newName !== insight.name) {
-          updateInsight(insightId, { name: newName });
+          updateInsight({ id: insightId, updates: { name: newName } });
         }
       }, 500);
     },
@@ -1306,9 +1305,12 @@ export function InsightView({
 
       // Update insight with merged fields and metrics
       // IMPORTANT: Must await to ensure fields/metrics are saved before navigation
-      await updateInsight(insightId, {
-        selectedFields: mergedFieldIds,
-        metrics: mergedMetrics,
+      await updateInsight({
+        id: insightId,
+        updates: {
+          selectedFields: mergedFieldIds,
+          metrics: mergedMetrics,
+        },
       });
 
       // Convert ChartEncoding (SQL expressions) to VisualizationEncoding (prefixed IDs)

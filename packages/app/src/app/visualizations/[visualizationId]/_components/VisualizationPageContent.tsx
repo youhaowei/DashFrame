@@ -4,7 +4,6 @@ import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import { useContextPanelSection } from "@/components/shell/context-panel-outlet";
 import { AxisSelectField } from "@/components/visualizations/AxisSelectField";
 import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
-import { useCompiledInsight, useInsights } from "@/data";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
@@ -59,6 +58,7 @@ import {
   DeleteIcon,
 } from "@wystack/ui-react/icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCompiledInsight } from "../_hooks/useCompiledInsight";
 
 interface VisualizationPageContentProps {
   visualizationId: string;
@@ -141,7 +141,7 @@ export default function VisualizationPageContent({
     api.listVisualizations,
     { args: {} },
   );
-  const { data: insights = [] } = useInsights();
+  const { data: insights = [] } = useQuery(api.listInsights, { args: {} });
   const { data: dataTables = [] } = useQuery(api.listDataTables, { args: {} });
   const { mutateAsync: updateVisualizationMutation } = useMutation(
     api.updateVisualization,

@@ -1,5 +1,4 @@
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
-import { useInsights } from "@/data";
 import { api } from "@/wystack/api";
 import type { Insight, UUID, Visualization } from "@dashframe/types";
 import { useNavigate } from "@tanstack/react-router";
@@ -47,7 +46,7 @@ export default function VisualizationsPage() {
     api.listVisualizations,
     { args: {} },
   );
-  const { data: insights = [] } = useInsights();
+  const { data: insights = [] } = useQuery(api.listInsights, { args: {} });
   const { data: dataSources = [] } = useQuery(api.listDataSources);
   const { data: dataTables = [] } = useQuery(api.listDataTables, { args: {} });
   const { mutateAsync: removeVisualization } = useMutation(

@@ -16,27 +16,49 @@ import { useCreateInsight } from "./useCreateInsight";
 // Mock functions must be hoisted with vi.mock
 const {
   mockCreateInsight,
+  mockCreateInsightMutation,
   mockGetInsight,
   mockGetAllInsights,
-  mockGetDataTable,
-  mockMutations,
 } = vi.hoisted(() => {
   const create = vi.fn();
+  const createMutation = vi.fn(
+    async ({
+      name,
+      baseTableId,
+      options,
+    }: {
+      name: string;
+      baseTableId: string;
+      options?: unknown;
+    }) => ({
+      id: await create(name, baseTableId, options),
+    }),
+  );
   return {
     mockCreateInsight: create,
+    mockCreateInsightMutation: createMutation,
     mockGetInsight: vi.fn(),
     mockGetAllInsights: vi.fn(),
-    mockGetDataTable: vi.fn(),
-    mockMutations: { create },
   };
 });
 
-vi.mock("@/data", () => ({
-  useInsightMutations: () => mockMutations,
+vi.mock("@/lib/data-access/insights", () => ({
   getInsight: mockGetInsight,
   getAllInsights: mockGetAllInsights,
-  getDataTable: mockGetDataTable,
 }));
+
+vi.mock("@wystack/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@wystack/client")>();
+  return {
+    ...actual,
+    useMutation: (ref: { _path: string }) => {
+      if (ref._path === "createInsight") {
+        return { mutateAsync: mockCreateInsightMutation };
+      }
+      throw new Error(`Unexpected mutation: ${ref._path}`);
+    },
+  };
+});
 
 const { mockPush, mockNavigate } = vi.hoisted(() => {
   const push = vi.fn();
@@ -84,10 +106,6 @@ describe("useCreateInsight", () => {
     vi.clearAllMocks();
     // Default: no pre-existing insights.
     mockGetAllInsights.mockResolvedValue([]);
-    mockGetDataTable.mockResolvedValue({
-      id: "table-abc",
-      fields: SELECTED_FIELD_IDS.map((id) => ({ id, name: id })),
-    });
   });
 
   describe("createInsightFromTable", () => {
@@ -105,6 +123,11 @@ describe("useCreateInsight", () => {
         "table-abc", // baseTableId
         { selectedFields: [], reuseUnmodifiedDraft: true },
       );
+      expect(mockCreateInsightMutation).toHaveBeenCalledWith({
+        name: "Sales Data",
+        baseTableId: "table-abc",
+        options: { selectedFields: [], reuseUnmodifiedDraft: true },
+      });
     });
 
     it("should navigate to the new insight page", async () => {

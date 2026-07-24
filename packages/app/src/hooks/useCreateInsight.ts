@@ -1,6 +1,12 @@
-import { getAllInsights, getInsight, useInsightMutations } from "@/data";
-import { isUnmodifiedDraft } from "@dashframe/types";
+import { getAllInsights, getInsight } from "@/lib/data-access/insights";
+import { api } from "@/wystack/api";
+import {
+  isUnmodifiedDraft,
+  type InsightMetric,
+  type UUID,
+} from "@dashframe/types";
 import { useNavigate } from "@tanstack/react-router";
+import { useMutation } from "@wystack/client";
 import { useCallback } from "react";
 import { toast } from "sonner";
 
@@ -46,7 +52,26 @@ import { toast } from "sonner";
  */
 export function useCreateInsight() {
   const navigate = useNavigate();
-  const { create: createInsight } = useInsightMutations();
+  const { mutateAsync: createInsightMutation } = useMutation(api.createInsight);
+  const createInsight = useCallback(
+    async (
+      name: string,
+      baseTableId: UUID,
+      options?: {
+        selectedFields?: UUID[];
+        metrics?: InsightMetric[];
+        reuseUnmodifiedDraft?: boolean;
+      },
+    ): Promise<UUID> => {
+      const { id } = await createInsightMutation({
+        name,
+        baseTableId,
+        options,
+      });
+      return id as UUID;
+    },
+    [createInsightMutation],
+  );
 
   /**
    * Creates a draft insight from a data table and navigates to it.

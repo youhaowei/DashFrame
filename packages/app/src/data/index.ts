@@ -32,13 +32,4 @@ export {
   useAccessCredentials,
 } from "./access-credentials";
 
-export {
-  getAllInsights,
-  getInsight,
-  useCompiledInsight,
-  useInsight,
-  useInsightMutations,
-  useInsights,
-} from "./insights";
-
 export { DatabaseProvider, useDatabase } from "../wystack/compat";

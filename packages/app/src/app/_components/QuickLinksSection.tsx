@@ -1,4 +1,3 @@
-import { useInsights } from "@/data";
 import { api } from "@/wystack/api";
 import { useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@wystack/client";
@@ -17,7 +16,7 @@ export function QuickLinksSection() {
   const { data: visualizations = [] } = useQuery(api.listVisualizations, {
     args: {},
   });
-  const { data: insights = [] } = useInsights();
+  const { data: insights = [] } = useQuery(api.listInsights, { args: {} });
   const { data: dataSources = [] } = useQuery(api.listDataSources);
 
   const quickLinks = useMemo(

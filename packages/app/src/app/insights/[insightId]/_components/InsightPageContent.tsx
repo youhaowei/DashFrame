@@ -1,6 +1,7 @@
 import { useBindArtifact } from "@/components/assistant/artifact-context";
-import { useInsight } from "@/data";
 import { useRenderPerf } from "@/lib/perf";
+import { api } from "@/wystack/api";
+import { useQuery } from "@wystack/client";
 import { Spinner } from "@wystack/ui-react";
 import { InsightView } from "./InsightView";
 import { NotFoundView } from "./NotFoundView";
@@ -20,7 +21,9 @@ export default function InsightPageContent({
   insightId,
   visualizeIntent = false,
 }: InsightPageContentProps) {
-  const { data: insight, isLoading } = useInsight(insightId);
+  const { data: insight, isLoading } = useQuery(api.getInsight, {
+    args: { id: insightId },
+  });
 
   // Instrument the artifact render boundary and bind the assistant to this
   // insight (cleared on unmount). Both run unconditionally — hooks before the
