@@ -5,10 +5,9 @@
  * These parallel the pattern in data-sources.ts / preview-diff.ts: imperative
  * helpers for direct async calls.
  */
-import { api } from "./api";
-import { getWyStackClient } from "./client";
+import { api } from "../wystack/api";
+import { getWyStackClient } from "../wystack/client";
 import type { PreviewCommand } from "./preview-diff";
-import { loose } from "./wystack-args";
 
 /**
  * Publish a draft: replay its command log onto canonical tables, then clean up
@@ -22,17 +21,14 @@ export async function publishDraft(
   draftId: string,
   options?: { expectedCommandCount?: number; expectedLogSignature?: string },
 ): Promise<{ tablesWritten: string[] }> {
-  return getWyStackClient().mutate(
-    api.publishDraft,
-    loose({
-      draftId,
-      expectedCommandCount:
-        options?.expectedCommandCount !== undefined
-          ? String(options.expectedCommandCount)
-          : undefined,
-      expectedLogSignature: options?.expectedLogSignature,
-    }),
-  );
+  return getWyStackClient().mutate(api.publishDraft, {
+    draftId,
+    expectedCommandCount:
+      options?.expectedCommandCount !== undefined
+        ? String(options.expectedCommandCount)
+        : undefined,
+    expectedLogSignature: options?.expectedLogSignature,
+  });
 }
 
 /**

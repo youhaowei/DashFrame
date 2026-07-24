@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("@dashframe/core", () => ({
+vi.mock("@/data", () => ({
   useVisualizations: () => ({
     data: [{ id: "viz", insightId: "insight", visualizationType: "bar" }],
   }),

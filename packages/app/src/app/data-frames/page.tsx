@@ -3,7 +3,7 @@ import {
   useDataFrameMutations,
   useDataFrames,
   type DataFrameEntry,
-} from "@dashframe/core";
+} from "@/data";
 import type { ColumnDef } from "@tanstack/react-table";
 import {
   Button,

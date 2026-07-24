@@ -29,7 +29,7 @@ vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mockNavigate,
 }));
 
-vi.mock("@dashframe/core", () => ({
+vi.mock("@/data", () => ({
   useInsights: () => ({
     data: [
       {

@@ -5,7 +5,7 @@ import {
   getOrCreateDataSourceByType,
   replaceDataFrame,
   updateDataTable,
-} from "@dashframe/core";
+} from "@/data";
 import { csvToDataFrame } from "@dashframe/csv";
 import type { FileParseResult } from "@dashframe/engine";
 import type { BrowserDataFrame } from "@dashframe/engine-browser";

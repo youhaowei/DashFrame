@@ -28,7 +28,7 @@ const { mockCreateInsightFromTable } = vi.hoisted(() => ({
   mockCreateInsightFromTable: vi.fn(),
 }));
 
-vi.mock("@dashframe/core", () => ({
+vi.mock("@/data", () => ({
   useDataSources: () => mockUseDataSources(),
   useDataSourceMutations: () => ({ update: vi.fn() }),
   useDataFrames: () => ({ data: [] }),

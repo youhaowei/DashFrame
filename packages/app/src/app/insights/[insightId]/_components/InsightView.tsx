@@ -1,6 +1,17 @@
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import { VisualizationPreview } from "@/components/visualizations/VisualizationPreview";
+import {
+  getDataFrame,
+  useDashboardMutations,
+  useDashboards,
+  useDataFrameMutations,
+  useDataFrames,
+  useDataTables,
+  useInsightMutations,
+  useVisualizationMutations,
+  useVisualizations,
+} from "@/data";
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
 import { formatCellValue } from "@/lib/cell-formatter";
@@ -17,17 +28,6 @@ import {
   suggestByChartType,
   type ChartSuggestion,
 } from "@/lib/visualizations/suggest-charts";
-import {
-  getDataFrame,
-  useDashboardMutations,
-  useDashboards,
-  useDataFrameMutations,
-  useDataFrames,
-  useDataTables,
-  useInsightMutations,
-  useVisualizationMutations,
-  useVisualizations,
-} from "@dashframe/core";
 import {
   extractUUIDFromColumnAlias,
   fieldIdToColumnAlias,

@@ -2,7 +2,7 @@ import {
   useAccessConnectionInfo,
   useAccessCredentialMutations,
   useAccessCredentials,
-} from "@dashframe/core";
+} from "@/data";
 import type { IssuedAccessCredential, UUID } from "@dashframe/types";
 import {
   Badge,

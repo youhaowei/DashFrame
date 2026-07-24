@@ -30,7 +30,7 @@ const { mockUseInsight, mockUseDataTables } = vi.hoisted(() => ({
   mockUseDataTables: vi.fn(),
 }));
 
-vi.mock("@dashframe/core", () => ({
+vi.mock("@/data", () => ({
   useInsight: () => mockUseInsight(),
   useDataTables: () => mockUseDataTables(),
 }));

@@ -9,15 +9,14 @@ import type {
 import { useMutation, useQuery } from "@wystack/client";
 import { useMemo } from "react";
 
-import { api } from "./api";
-import { getWyStackClient } from "./client";
-import { loose } from "./wystack-args";
+import { api } from "../wystack/api";
+import { getWyStackClient } from "../wystack/client";
 
 export function useInsights(options?: {
   excludeIds?: UUID[];
 }): UseQueryResult<Insight[]> {
   const result = useQuery(api.listInsights, {
-    args: loose({ excludeIds: options?.excludeIds }),
+    args: { excludeIds: options?.excludeIds },
   });
   return {
     data: result.data as Insight[] | undefined,
@@ -42,9 +41,11 @@ export function useInsightMutations(): InsightMutations {
           reuseUnmodifiedDraft?: boolean;
         },
       ): Promise<UUID> => {
-        const { id } = await createMutation.mutateAsync(
-          loose({ name, baseTableId, options }),
-        );
+        const { id } = await createMutation.mutateAsync({
+          name,
+          baseTableId,
+          options,
+        });
         return id;
       },
       update: async (
@@ -57,36 +58,47 @@ export function useInsightMutations(): InsightMutations {
         await removeMutation.mutateAsync({ id });
       },
       addField: async (insightId: UUID, fieldId: UUID): Promise<void> => {
-        await patchMutation.mutateAsync(
-          loose({ id: insightId, mode: "addField", fieldId }),
-        );
+        await patchMutation.mutateAsync({
+          id: insightId,
+          mode: "addField",
+          fieldId,
+        });
       },
       removeField: async (insightId: UUID, fieldId: UUID): Promise<void> => {
-        await patchMutation.mutateAsync(
-          loose({ id: insightId, mode: "removeField", fieldId }),
-        );
+        await patchMutation.mutateAsync({
+          id: insightId,
+          mode: "removeField",
+          fieldId,
+        });
       },
       addMetric: async (
         insightId: UUID,
         metric: InsightMetric,
       ): Promise<void> => {
-        await patchMutation.mutateAsync(
-          loose({ id: insightId, mode: "addMetric", metric }),
-        );
+        await patchMutation.mutateAsync({
+          id: insightId,
+          mode: "addMetric",
+          metric,
+        });
       },
       updateMetric: async (
         insightId: UUID,
         metricId: UUID,
         updates: Partial<InsightMetric>,
       ): Promise<void> => {
-        await patchMutation.mutateAsync(
-          loose({ id: insightId, mode: "updateMetric", metricId, updates }),
-        );
+        await patchMutation.mutateAsync({
+          id: insightId,
+          mode: "updateMetric",
+          metricId,
+          updates,
+        });
       },
       removeMetric: async (insightId: UUID, metricId: UUID): Promise<void> => {
-        await patchMutation.mutateAsync(
-          loose({ id: insightId, mode: "removeMetric", metricId }),
-        );
+        await patchMutation.mutateAsync({
+          id: insightId,
+          mode: "removeMetric",
+          metricId,
+        });
       },
     }),
     [createMutation, patchMutation, removeMutation, updateMutation],
@@ -105,11 +117,11 @@ export function useCompiledInsight(
   id: UUID | undefined,
 ): UseQueryResult<CompiledInsight | null> {
   const insight = useQuery(api.getInsight, {
-    args: loose({ id }),
+    args: { id },
     skip: !id,
   });
   const tables = useQuery(api.listDataTables, {
-    args: loose({}),
+    args: {},
     skip: !id,
   });
 
@@ -158,6 +170,6 @@ export async function getInsight(id: UUID): Promise<Insight | undefined> {
 }
 
 export async function getAllInsights(): Promise<Insight[]> {
-  const result = await getWyStackClient().query(api.listInsights, loose({}));
+  const result = await getWyStackClient().query(api.listInsights, {});
   return result as Insight[];
 }

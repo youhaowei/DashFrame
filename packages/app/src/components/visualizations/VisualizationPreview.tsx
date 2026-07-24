@@ -1,6 +1,6 @@
+import { useDataTables, useInsight } from "@/data";
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
-import { useDataTables, useInsight } from "@dashframe/core";
 import { resolveEncodingToSql } from "@dashframe/engine";
 import type { ChartEncoding, Insight, Visualization } from "@dashframe/types";
 import { Chart } from "@dashframe/visualization";

@@ -1,4 +1,4 @@
-import { useVisualizations } from "@dashframe/core";
+import { useVisualizations } from "@/data";
 import type { UUID } from "@dashframe/types";
 import { Spinner } from "@wystack/ui-react";
 import { useMemo } from "react";

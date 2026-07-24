@@ -70,7 +70,6 @@
       "version": "0.0.0",
       "dependencies": {
         "@dashframe/app": "workspace:*",
-        "@dashframe/core": "workspace:*",
         "@dashframe/desktop-types": "workspace:*",
         "@tanstack/react-query": "^5.90.0",
         "@tanstack/react-router": "^1.95.0",
@@ -134,7 +133,6 @@
         "@dashframe/app": "workspace:*",
         "@dashframe/connector-local": "workspace:*",
         "@dashframe/connector-notion": "workspace:*",
-        "@dashframe/core": "workspace:*",
         "@dashframe/csv": "workspace:*",
         "@dashframe/engine": "workspace:*",
         "@dashframe/engine-browser": "workspace:*",
@@ -320,6 +318,17 @@
         "typescript": "^5.8.3",
       },
     },
+    "libs/wystack/packages/identity-clerk": {
+      "name": "@wystack/identity-clerk",
+      "version": "0.0.1",
+      "dependencies": {
+        "@wystack/identity": "workspace:*",
+        "jose": "^6.1.3",
+      },
+      "devDependencies": {
+        "typescript": "^5.8.3",
+      },
+    },
     "libs/wystack/packages/identity-workos": {
       "name": "@wystack/identity-workos",
       "version": "0.0.1",
@@ -416,10 +425,10 @@
         "@dashframe/connector-local": "workspace:*",
         "@dashframe/connector-notion": "workspace:*",
         "@dashframe/connector-postgres": "workspace:*",
-        "@dashframe/core": "workspace:*",
         "@dashframe/csv": "workspace:*",
         "@dashframe/engine": "workspace:*",
         "@dashframe/engine-browser": "workspace:*",
+        "@dashframe/server": "workspace:*",
         "@dashframe/types": "workspace:*",
         "@dashframe/ui": "workspace:*",
         "@dashframe/visualization": "workspace:*",
@@ -444,6 +453,7 @@
         "@tanstack/react-table": "^8.21.3",
         "@tanstack/react-virtual": "^3.13.12",
         "@uwdata/vgplot": "^0.21.1",
+        "@wystack/client": "workspace:*",
         "@wystack/ui-core": "workspace:*",
         "@wystack/ui-react": "workspace:*",
         "apache-arrow": "^21.1.0",
@@ -476,24 +486,6 @@
         "jsdom": "^25.0.1",
         "typescript": "5.7.2",
         "vitest": "^4.0.16",
-      },
-    },
-    "packages/app-data": {
-      "name": "@dashframe/app-data",
-      "version": "0.0.0",
-      "dependencies": {
-        "@dashframe/engine-browser": "workspace:*",
-        "@dashframe/server": "workspace:*",
-        "@dashframe/types": "workspace:*",
-        "@tanstack/react-query": "^5.90.0",
-        "@wystack/client": "workspace:*",
-        "react": "^19.2.4",
-      },
-      "devDependencies": {
-        "@dashframe/eslint-config": "workspace:*",
-        "@types/react": "^19.2.7",
-        "typescript": "5.7.2",
-        "vitest": "^4.1.6",
       },
     },
     "packages/assistant": {
@@ -572,17 +564,6 @@
         "@vitest/coverage-v8": "^4.0.16",
         "typescript": "^5.6.0",
         "vitest": "^4.0.16",
-      },
-    },
-    "packages/core": {
-      "name": "@dashframe/core",
-      "version": "0.1.0",
-      "dependencies": {
-        "@dashframe/app-data": "workspace:*",
-        "@dashframe/types": "workspace:*",
-      },
-      "devDependencies": {
-        "typescript": "^5.6.0",
       },
     },
     "packages/csv": {
@@ -961,8 +942,6 @@
 
     "@dashframe/app": ["@dashframe/app@workspace:packages/app"],
 
-    "@dashframe/app-data": ["@dashframe/app-data@workspace:packages/app-data"],
-
     "@dashframe/assistant": ["@dashframe/assistant@workspace:packages/assistant"],
 
     "@dashframe/connector-local": ["@dashframe/connector-local@workspace:packages/connector-local"],
@@ -972,8 +951,6 @@
     "@dashframe/connector-postgres": ["@dashframe/connector-postgres@workspace:packages/connector-postgres"],
 
     "@dashframe/connector-rest": ["@dashframe/connector-rest@workspace:packages/connector-rest"],
-
-    "@dashframe/core": ["@dashframe/core@workspace:packages/core"],
 
     "@dashframe/csv": ["@dashframe/csv@workspace:packages/csv"],
 
@@ -1862,6 +1839,8 @@
     "@wystack/db": ["@wystack/db@workspace:libs/wystack/packages/db"],
 
     "@wystack/identity": ["@wystack/identity@workspace:libs/wystack/packages/identity"],
+
+    "@wystack/identity-clerk": ["@wystack/identity-clerk@workspace:libs/wystack/packages/identity-clerk"],
 
     "@wystack/identity-workos": ["@wystack/identity-workos@workspace:libs/wystack/packages/identity-workos"],
 
@@ -3711,8 +3690,6 @@
 
     "@dashframe/connector-rest/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
-    "@dashframe/core/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
-
     "@dashframe/csv/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
     "@dashframe/engine/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
@@ -3892,6 +3869,8 @@
     "@wystack/db/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
     "@wystack/identity/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
+
+    "@wystack/identity-clerk/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
     "@wystack/identity-workos/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 

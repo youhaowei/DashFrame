@@ -1,12 +1,8 @@
 import { ConnectorIcon } from "@/components/data-sources/renderers/ConnectorIcon";
 import { JoinFlowModal } from "@/components/visualizations/JoinFlowModal";
+import { useDataFrames, useDataSources, useInsightMutations } from "@/data";
 import { getConnectorById } from "@/lib/connectors/registry";
 import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
-import {
-  useDataFrames,
-  useDataSources,
-  useInsightMutations,
-} from "@dashframe/core";
 import type { DataTable, Insight } from "@dashframe/types";
 import { JoinTypeIcon } from "@dashframe/ui";
 import { useNavigate } from "@tanstack/react-router";

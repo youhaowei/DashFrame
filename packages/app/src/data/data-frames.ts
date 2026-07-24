@@ -11,8 +11,8 @@ import type {
 import { useMutation, useQuery } from "@wystack/client";
 import { useMemo } from "react";
 
-import { api } from "./api";
-import { getWyStackClient } from "./client";
+import { api } from "../wystack/api";
+import { getWyStackClient } from "../wystack/client";
 
 export type DataFrameEntry = DataFrameJSON & {
   name: string;

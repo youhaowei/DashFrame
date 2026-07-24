@@ -19,7 +19,7 @@ const {
   updateDataTable: vi.fn(),
 }));
 
-vi.mock("@dashframe/core", () => ({
+vi.mock("@/data", () => ({
   addDataFrameEntry,
   getDataFrameEntry,
   getDataTable,

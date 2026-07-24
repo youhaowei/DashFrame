@@ -1,5 +1,5 @@
 import { JoinFlowModal } from "@/components/visualizations/JoinFlowModal";
-import { useDataFrames, useInsightMutations } from "@dashframe/core";
+import { useDataFrames, useInsightMutations } from "@/data";
 import type { DataTable, Field, Insight } from "@dashframe/types";
 import { JoinTypeIcon } from "@dashframe/ui";
 import {

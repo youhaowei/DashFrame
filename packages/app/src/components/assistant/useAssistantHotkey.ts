@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 
+import { useAssistantProviderConfigs } from "@/data";
 import { useAssistantStore } from "@/lib/stores/assistant-store";
-import { useAssistantProviderConfigs } from "@dashframe/core";
 
 /**
  * Global keyboard summon for the assistant: ⌘J (mac) / Ctrl+J toggles the

@@ -1,6 +1,6 @@
 import { ConnectorIcon } from "@/components/data-sources/renderers/ConnectorIcon";
+import { useDataSources, useDataTables } from "@/data";
 import { getConnectorById } from "@/lib/connectors/registry";
-import { useDataSources, useDataTables } from "@dashframe/core";
 import type { AnyConnector } from "@dashframe/engine";
 import { ItemSelector, type SelectableItem } from "@dashframe/ui";
 import { Link } from "@tanstack/react-router";

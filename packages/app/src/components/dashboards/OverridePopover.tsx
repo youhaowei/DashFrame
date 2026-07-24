@@ -17,14 +17,14 @@
  *   • (Additive "add filter" row for other eligible fields — not in this PR)
  */
 
-import { isControlEligible } from "@/lib/dashboards/controls";
-import { computeCombinedFields } from "@/lib/insights/compute-combined-fields";
 import {
   useDashboardMutations,
   useDataTables,
   useInsights,
   useVisualizations,
-} from "@dashframe/core";
+} from "@/data";
+import { isControlEligible } from "@/lib/dashboards/controls";
+import { computeCombinedFields } from "@/lib/insights/compute-combined-fields";
 import type {
   DashboardControl,
   DashboardItem,

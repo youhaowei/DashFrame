@@ -15,7 +15,7 @@ const {
   mockUseDataTables: vi.fn(),
 }));
 
-vi.mock("@dashframe/core", () => ({
+vi.mock("@/data", () => ({
   useDataSources: mockUseDataSources,
   useDataTables: mockUseDataTables,
   useDataSourceMutations: () => ({ remove: vi.fn() }),

@@ -1,13 +1,13 @@
 /* eslint-disable sonarjs/cognitive-complexity */
 
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
-import { useDataFramePagination } from "@/hooks/useDataFramePagination";
 import {
   getDataFrame,
   useDataTables,
   useInsightMutations,
   useInsights,
-} from "@dashframe/core";
+} from "@/data";
+import { useDataFramePagination } from "@/hooks/useDataFramePagination";
 import {
   joinTypeToSQL,
   quoteIdentifier,

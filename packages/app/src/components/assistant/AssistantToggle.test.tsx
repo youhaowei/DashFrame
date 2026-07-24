@@ -12,7 +12,7 @@ const { configsResult } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("@dashframe/core", () => ({
+vi.mock("@/data", () => ({
   useAssistantProviderConfigs: () => configsResult,
 }));
 

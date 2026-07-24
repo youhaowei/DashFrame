@@ -7,7 +7,7 @@
  * - @dashframe/engine-server: DuckDB native + PostgreSQL (server)
  * - @dashframe/engine-mobile: SQLite (mobile)
  *
- * Re-exports @dashframe/core for convenience.
+ * Re-exports @dashframe/types for convenience.
  */
 
 // Re-export all types

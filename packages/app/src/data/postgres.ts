@@ -2,8 +2,7 @@ import type { Field, UUID } from "@dashframe/types";
 import { useMutation } from "@wystack/client";
 import { useMemo } from "react";
 
-import { api } from "./api";
-import { loose } from "./wystack-args";
+import { api } from "../wystack/api";
 
 export interface PostgresTableRef {
   id: string;
@@ -34,9 +33,12 @@ export function usePostgresMutations() {
         tableId: UUID,
         limit?: number,
       ): Promise<PostgresQueryResult> =>
-        (await queryMutation.mutateAsync(
-          loose({ dataSourceId, databaseId, tableId, limit }),
-        )) as PostgresQueryResult,
+        (await queryMutation.mutateAsync({
+          dataSourceId,
+          databaseId,
+          tableId,
+          limit,
+        })) as PostgresQueryResult,
     }),
     [listMutation, queryMutation],
   );

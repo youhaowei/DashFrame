@@ -298,5 +298,5 @@ export * from "@dashframe/engine";
 ## See Also
 
 - `@dashframe/engine` - Abstract interfaces this package implements
-- `@dashframe/core` - Core types (UUID, Field, Metric)
+- `@dashframe/types` - Core types (UUID, Field, Metric)
 - `reference/architecture.md` (project docs) - High-level architecture overview

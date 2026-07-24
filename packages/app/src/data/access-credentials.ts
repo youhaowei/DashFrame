@@ -11,7 +11,7 @@ import type {
 import { useMutation, useQuery } from "@wystack/client";
 import { useMemo } from "react";
 
-import { api } from "./api";
+import { api } from "../wystack/api";
 
 export function useAccessConnectionInfo(): UseAccessConnectionInfoResult {
   const result = useQuery(api.getAccessConnectionInfo);

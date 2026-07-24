@@ -10,13 +10,12 @@ import type {
 import { useMutation, useQuery } from "@wystack/client";
 import { useMemo } from "react";
 
-import { api } from "./api";
-import { getWyStackClient } from "./client";
-import { loose } from "./wystack-args";
+import { api } from "../wystack/api";
+import { getWyStackClient } from "../wystack/client";
 
 export function useVisualizations(insightId?: UUID): UseVisualizationsResult {
   const result = useQuery(api.listVisualizations, {
-    args: loose({ insightId }),
+    args: { insightId },
   });
   return {
     data: result.data as Visualization[] | undefined,
@@ -38,9 +37,13 @@ export function useVisualizationMutations(): VisualizationMutations {
         spec: VegaLiteSpec,
         encoding?: VisualizationEncoding,
       ): Promise<UUID> => {
-        const { id } = await createMutation.mutateAsync(
-          loose({ name, insightId, visualizationType, spec, encoding }),
-        );
+        const { id } = await createMutation.mutateAsync({
+          name,
+          insightId,
+          visualizationType,
+          spec,
+          encoding,
+        });
         return id;
       },
       update: async (
@@ -76,17 +79,13 @@ export async function getVisualization(
 export async function getVisualizationsByInsight(
   insightId: UUID,
 ): Promise<Visualization[]> {
-  const result = await getWyStackClient().query(
-    api.listVisualizations,
-    loose({ insightId }),
-  );
+  const result = await getWyStackClient().query(api.listVisualizations, {
+    insightId,
+  });
   return result as Visualization[];
 }
 
 export async function getAllVisualizations(): Promise<Visualization[]> {
-  const result = await getWyStackClient().query(
-    api.listVisualizations,
-    loose({}),
-  );
+  const result = await getWyStackClient().query(api.listVisualizations, {});
   return result as Visualization[];
 }

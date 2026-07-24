@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
   updateItems: vi.fn(async () => {}),
 }));
 
-vi.mock("@dashframe/core", () => ({
+vi.mock("@/data", () => ({
   useDashboardMutations: () => ({ updateItems: mocks.updateItems }),
 }));
 

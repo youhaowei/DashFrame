@@ -1,11 +1,7 @@
 import { ConnectorIcon } from "@/components/data-sources/renderers/ConnectorIcon";
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
+import { useDataSourceMutations, useDataSources, useDataTables } from "@/data";
 import { getConnectorById } from "@/lib/connectors/registry";
-import {
-  useDataSourceMutations,
-  useDataSources,
-  useDataTables,
-} from "@dashframe/core";
 import type { DataSource, UUID } from "@dashframe/types";
 import { useNavigate } from "@tanstack/react-router";
 import {

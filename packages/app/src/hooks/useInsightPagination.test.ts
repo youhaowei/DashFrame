@@ -51,7 +51,7 @@ vi.mock("@/components/providers/DuckDBProvider", () => ({
   useDuckDB: () => mockUseDuckDB(),
 }));
 
-vi.mock("@dashframe/core", () => ({
+vi.mock("@/data", () => ({
   getDataFrame: mockGetDataFrame,
   getDataTable: mockGetDataTable,
 }));

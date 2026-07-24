@@ -1,11 +1,7 @@
+import { useDataSources, useDataTables, useNotionMutations } from "@/data";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import { getConnectorById } from "@/lib/connectors/registry";
 import { materializeRemoteTable } from "@/lib/remote-table-materialization";
-import {
-  useDataSources,
-  useDataTables,
-  useNotionMutations,
-} from "@dashframe/core";
 import type { DataTable, Field } from "@dashframe/types";
 import { VirtualTable, type VirtualTableColumn } from "@dashframe/ui";
 import {

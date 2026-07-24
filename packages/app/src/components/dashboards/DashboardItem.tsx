@@ -1,5 +1,5 @@
 import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
-import { useDashboardMutations } from "@dashframe/core";
+import { useDashboardMutations } from "@/data";
 import type {
   DashboardControl,
   DashboardItemOverrides,

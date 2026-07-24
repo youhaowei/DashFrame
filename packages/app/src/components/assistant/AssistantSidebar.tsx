@@ -1,9 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import {
-  runAssistantPrompt,
-  useAssistantProviderConfigs,
-} from "@dashframe/core";
+import { runAssistantPrompt, useAssistantProviderConfigs } from "@/data";
 import { Button, Textarea, cn } from "@wystack/ui-react";
 import {
   ArrowRightIcon,

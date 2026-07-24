@@ -1,5 +1,5 @@
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
-import { getDataFrame, useDataFrames } from "@dashframe/core";
+import { getDataFrame, useDataFrames } from "@/data";
 import type { UUID } from "@dashframe/types";
 import type { FetchDataParams, FetchDataResult } from "@dashframe/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";

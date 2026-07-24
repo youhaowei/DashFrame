@@ -1,5 +1,5 @@
+import { useDataFrames, useDataSources, useDataTables } from "@/data";
 import { getConnectorById } from "@/lib/connectors/registry";
-import { useDataFrames, useDataSources, useDataTables } from "@dashframe/core";
 import { Button, EmptyState, Panel, cn } from "@wystack/ui-react";
 import { DeleteIcon, FileIcon } from "@wystack/ui-react/icons";
 import { useMemo } from "react";

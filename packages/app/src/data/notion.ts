@@ -2,9 +2,8 @@ import type { Field, UUID } from "@dashframe/types";
 import { useMutation } from "@wystack/client";
 import { useMemo } from "react";
 
-import { api } from "./api";
-import { getWyStackClient } from "./client";
-import { loose } from "./wystack-args";
+import { api } from "../wystack/api";
+import { getWyStackClient } from "../wystack/client";
 
 /**
  * A Notion database as listed by the server's `listNotionDatabases` route.
@@ -56,9 +55,12 @@ export function useNotionMutations() {
         tableId: UUID,
         limit?: number,
       ): Promise<NotionQueryResult> => {
-        return (await queryMutation.mutateAsync(
-          loose({ dataSourceId, databaseId, tableId, limit }),
-        )) as NotionQueryResult;
+        return (await queryMutation.mutateAsync({
+          dataSourceId,
+          databaseId,
+          tableId,
+          limit,
+        })) as NotionQueryResult;
       },
     }),
     [listMutation, queryMutation],

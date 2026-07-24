@@ -13,7 +13,7 @@
  * - useDataFrameDataByInsight variant (lookup by insightId)
  * - Hook stability and reference memoization
  */
-import type { DataFrameEntry } from "@dashframe/core";
+import type { DataFrameEntry } from "@/data";
 import type { DataFrameRow } from "@dashframe/types";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -41,7 +41,7 @@ const { mockGetDataFrame, mockUseDataFrames } = vi.hoisted(() => ({
   mockUseDataFrames: vi.fn(),
 }));
 
-vi.mock("@dashframe/core", () => ({
+vi.mock("@/data", () => ({
   getDataFrame: mockGetDataFrame,
   useDataFrames: mockUseDataFrames,
 }));

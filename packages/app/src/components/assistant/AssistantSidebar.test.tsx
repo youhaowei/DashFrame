@@ -9,7 +9,7 @@ const { runAssistantPrompt } = vi.hoisted(() => ({
   runAssistantPrompt: vi.fn(),
 }));
 
-vi.mock("@dashframe/core", () => ({
+vi.mock("@/data", () => ({
   runAssistantPrompt,
   useAssistantProviderCatalog: () => ({ data: [], isLoading: false }),
   useAssistantProviderConfigs: () => ({ data: [], isLoading: false }),
