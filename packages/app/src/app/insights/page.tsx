@@ -4,8 +4,8 @@ import {
   useDataTables,
   useInsightMutations,
   useInsights,
-  useVisualizations,
 } from "@/data";
+import { api } from "@/wystack/api";
 import {
   isUnmodifiedDraft,
   type DataTable,
@@ -13,6 +13,7 @@ import {
   type UUID,
 } from "@dashframe/types";
 import { useNavigate } from "@tanstack/react-router";
+import { useQuery } from "@wystack/client";
 import {
   Badge,
   Button,
@@ -80,7 +81,9 @@ export default function InsightsPage() {
   const { data: allInsights = [] } = useInsights();
   const { remove: removeInsightLocal } = useInsightMutations();
   const clearActiveView = useInsightCanvasStore((s) => s.clearActiveView);
-  const { data: visualizations = [] } = useVisualizations();
+  const { data: visualizations = [] } = useQuery(api.listVisualizations, {
+    args: {},
+  });
   const { data: dataSources = [] } = useDataSources();
   const { data: allDataTables = [] } = useDataTables();
 

@@ -7,8 +7,6 @@ import {
   useDataFrames,
   useDataTables,
   useInsightMutations,
-  useVisualizationMutations,
-  useVisualizations,
 } from "@/data";
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
@@ -803,8 +801,12 @@ export function InsightView({
 
   // Mutations
   const { update: updateInsight } = useInsightMutations();
-  const { create: createVisualizationLocal, remove: removeVisualization } =
-    useVisualizationMutations();
+  const { mutateAsync: createVisualizationLocal } = useMutation(
+    api.createVisualization,
+  );
+  const { mutateAsync: removeVisualizationMutation } = useMutation(
+    api.removeVisualization,
+  );
   const { updateAnalysis } = useDataFrameMutations();
   const { confirm } = useConfirmDialogStore();
 
@@ -840,7 +842,9 @@ export function InsightView({
   // Fetch related data
   const { data: allDataTables = [] } = useDataTables();
   const { data: allDataFrameEntries = [] } = useDataFrames();
-  const { data: allVisualizations = [] } = useVisualizations();
+  const { data: allVisualizations = [] } = useQuery(api.listVisualizations, {
+    args: {},
+  });
   const { data: dashboards = [] } = useQuery(api.listDashboards);
   const createDashboard = useMutation(api.createDashboard);
   const addDashboardItem = useMutation(api.addDashboardItem);
@@ -1325,13 +1329,13 @@ export function InsightView({
         return matchingVisualization.id;
       }
 
-      const vizId = await createVisualizationLocal(
-        suggestion.title,
+      const { id: vizId } = await createVisualizationLocal({
+        name: suggestion.title,
         insightId,
-        suggestion.chartType,
-        {} as VegaLiteSpec, // Deprecated: rendering now uses encoding
-        visualizationEncoding,
-      );
+        visualizationType: suggestion.chartType,
+        spec: {} as VegaLiteSpec, // Deprecated: rendering now uses encoding
+        encoding: visualizationEncoding,
+      });
 
       handleSetActiveView(visualizationView(vizId));
       return vizId;
@@ -1445,13 +1449,13 @@ export function InsightView({
       const viz = insightVisualizations.find((v) => v.id === vizId);
       if (!viz) return;
 
-      const newVizId = await createVisualizationLocal(
-        `${viz.name} (copy)`,
+      const { id: newVizId } = await createVisualizationLocal({
+        name: `${viz.name} (copy)`,
         insightId,
-        viz.visualizationType,
-        viz.spec,
-        viz.encoding,
-      );
+        visualizationType: viz.visualizationType,
+        spec: viz.spec,
+        encoding: viz.encoding,
+      });
 
       navigate({ to: `/visualizations/${newVizId}` } as never);
     },
@@ -1467,11 +1471,11 @@ export function InsightView({
         confirmLabel: "Delete",
         variant: "destructive",
         onConfirm: async () => {
-          await removeVisualization(vizId);
+          await removeVisualizationMutation({ id: vizId });
         },
       });
     },
-    [confirm, removeVisualization],
+    [confirm, removeVisualizationMutation],
   );
 
   const handleSelectVisualMode = useCallback(() => {

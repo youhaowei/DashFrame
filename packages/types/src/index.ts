@@ -103,13 +103,9 @@ export type {
   AxisType,
   ChartTag,
   ChartTypeMetadata,
-  UseVisualizationMutations,
-  UseVisualizations,
-  UseVisualizationsResult,
   VegaLiteSpec,
   Visualization,
   VisualizationEncoding,
-  VisualizationMutations,
   VisualizationType,
 } from "./visualizations";
 

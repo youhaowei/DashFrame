@@ -1,7 +1,7 @@
 import { useBindArtifact } from "@/components/assistant/artifact-context";
 import { DashboardControlBar } from "@/components/dashboards/DashboardControlBar";
 import { DashboardGrid } from "@/components/dashboards/DashboardGrid";
-import { useDataTables, useInsights, useVisualizations } from "@/data";
+import { useDataTables, useInsights } from "@/data";
 import type { CombinedField } from "@/lib/insights/compute-combined-fields";
 import { api } from "@/wystack/api";
 import type { DashboardItemType, InsightFilter } from "@dashframe/types";
@@ -45,7 +45,9 @@ export default function DashboardDetailContent({
     isLoading,
     isFetching,
   } = useQuery(api.listDashboards);
-  const { data: visualizations = [] } = useVisualizations();
+  const { data: visualizations = [] } = useQuery(api.listVisualizations, {
+    args: {},
+  });
   const { data: insights = [] } = useInsights();
   const { data: dataTables = [] } = useDataTables();
   const addItem = useMutation(api.addDashboardItem);

@@ -17,7 +17,7 @@
  *   • (Additive "add filter" row for other eligible fields — not in this PR)
  */
 
-import { useDataTables, useInsights, useVisualizations } from "@/data";
+import { useDataTables, useInsights } from "@/data";
 import { isControlEligible } from "@/lib/dashboards/controls";
 import { computeCombinedFields } from "@/lib/insights/compute-combined-fields";
 import { api } from "@/wystack/api";
@@ -29,7 +29,7 @@ import type {
   InsightFilterOverride,
   InsightSort,
 } from "@dashframe/types";
-import { useMutation } from "@wystack/client";
+import { useMutation, useQuery } from "@wystack/client";
 import {
   Badge,
   Button,
@@ -272,7 +272,9 @@ export function OverridePopover({
   const updateControls = useMutation(api.updateDashboardControls);
 
   // Self-fetch visualization → insight → data table (same pattern as VisualizationDisplay).
-  const { data: visualizations = [] } = useVisualizations();
+  const { data: visualizations = [] } = useQuery(api.listVisualizations, {
+    args: {},
+  });
   const { data: insights = [] } = useInsights();
   const { data: dataTables = [] } = useDataTables();
 

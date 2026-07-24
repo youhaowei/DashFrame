@@ -29,6 +29,30 @@ vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mockNavigate,
 }));
 
+// Partial-mock the WyStack client for the migrated visualizations query.
+// RecentInsightsSection still reads via the @/data insights wrapper.
+vi.mock("@wystack/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@wystack/client")>();
+  return {
+    ...actual,
+    useQuery: (ref: { _path: string }) => {
+      if (ref._path === "listVisualizations") {
+        return {
+          data: [
+            {
+              id: "viz-1",
+              name: "Bar Chart",
+              createdAt: 1000,
+            },
+          ],
+        };
+      }
+      return { data: [] };
+    },
+    useMutation: () => ({ mutateAsync: vi.fn() }),
+  };
+});
+
 vi.mock("@/data", () => ({
   useInsights: () => ({
     data: [
@@ -38,15 +62,6 @@ vi.mock("@/data", () => ({
         createdAt: 1000,
         metrics: [{ id: "m1" }],
         selectedFields: ["field1", "field2"],
-      },
-    ],
-  }),
-  useVisualizations: () => ({
-    data: [
-      {
-        id: "viz-1",
-        name: "Bar Chart",
-        createdAt: 1000,
       },
     ],
   }),

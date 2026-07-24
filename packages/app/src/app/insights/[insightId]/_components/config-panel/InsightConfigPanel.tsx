@@ -1,15 +1,11 @@
-import {
-  useDataTableMutations,
-  useInsightMutations,
-  useVisualizationMutations,
-  useVisualizations,
-} from "@/data";
+import { useDataTableMutations, useInsightMutations } from "@/data";
 import {
   computeCombinedFields,
   computeFilterableFields,
   type CombinedField,
 } from "@/lib/insights/compute-combined-fields";
 import { reorderVisibleMetrics } from "@/lib/insights/reorder-visible-metrics";
+import { api } from "@/wystack/api";
 import type {
   DataTable,
   Insight,
@@ -18,6 +14,7 @@ import type {
   InsightSort,
 } from "@dashframe/types";
 import { InputField } from "@dashframe/ui";
+import { useMutation, useQuery } from "@wystack/client";
 import { Badge, Panel, cn } from "@wystack/ui-react";
 import {
   ArrowUpDown,
@@ -148,11 +145,18 @@ export function InsightConfigPanel({
   // Mutations
   const { update: updateInsight } = useInsightMutations();
   const { updateField } = useDataTableMutations();
-  const { updateEncoding, remove: removeVisualization } =
-    useVisualizationMutations();
+  const { mutateAsync: updateVisualizationMutation } = useMutation(
+    api.updateVisualization,
+  );
+  const { mutateAsync: removeVisualizationMutation } = useMutation(
+    api.removeVisualization,
+  );
 
   // Get visualizations for this insight to check dependencies
-  const { data: insightVisualizations = [] } = useVisualizations(insight.id);
+  const { data: insightVisualizations = [] } = useQuery(
+    api.listVisualizations,
+    { args: { insightId: insight.id } },
+  );
 
   // Compute affected visualizations reactively based on current visualization state
   // This avoids race conditions where stale state was stored in the dialog
@@ -375,7 +379,10 @@ export function InsightConfigPanel({
           deleteDialog.itemId,
           deleteDialog.itemType,
         );
-        await updateEncoding(vizId, newEncoding);
+        await updateVisualizationMutation({
+          id: vizId,
+          updates: { encoding: newEncoding },
+        });
         // No need to update state - affectedVisualizations is computed reactively
       } catch (error) {
         console.error("Failed to remove from visualization:", error);
@@ -388,7 +395,7 @@ export function InsightConfigPanel({
       insightVisualizations,
       deleteDialog.itemId,
       deleteDialog.itemType,
-      updateEncoding,
+      updateVisualizationMutation,
     ],
   );
 
@@ -396,7 +403,7 @@ export function InsightConfigPanel({
     async (vizId: string) => {
       setProcessingVizId(vizId);
       try {
-        await removeVisualization(vizId);
+        await removeVisualizationMutation({ id: vizId });
         // No need to update state - affectedVisualizations is computed reactively
       } catch (error) {
         console.error("Failed to delete visualization:", error);
@@ -405,7 +412,7 @@ export function InsightConfigPanel({
         setProcessingVizId(null);
       }
     },
-    [removeVisualization],
+    [removeVisualizationMutation],
   );
 
   const handleConfirmDelete = useCallback(() => {

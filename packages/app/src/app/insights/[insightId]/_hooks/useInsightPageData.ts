@@ -3,11 +3,11 @@ import {
   useDataTables,
   useInsightMutations,
   useInsights,
-  useVisualizations,
 } from "@/data";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import type { PreviewResult } from "@/lib/insights/compute-preview";
 import { computeInsightPreview } from "@/lib/insights/compute-preview";
+import { api } from "@/wystack/api";
 import {
   isUnmodifiedDraft,
   type DataSource,
@@ -15,7 +15,9 @@ import {
   type Field,
   type Insight,
   type Metric,
+  type Visualization,
 } from "@dashframe/types";
+import { useQuery } from "@wystack/client";
 import { useMemo } from "react";
 
 /**
@@ -48,7 +50,7 @@ export interface InsightPageData {
   // Core entities
   insight: Insight | undefined;
   dataTableInfo: DataTableInfo | null;
-  visualizations: ReturnType<typeof useVisualizations>["data"];
+  visualizations: Visualization[];
 
   // Joined tables (resolved from insight.joins)
   joinedTables: JoinedTableInfo[];
@@ -78,8 +80,10 @@ export function useInsightPageData(insightId: string): InsightPageData {
   const { data: dataSources, isLoading: isSourcesLoading } = useDataSources();
   const { data: allDataTables = [], isLoading: isTablesLoading } =
     useDataTables();
-  const { data: visualizations = [], isLoading: isVizLoading } =
-    useVisualizations(insightId);
+  const { data: visualizations = [], isLoading: isVizLoading } = useQuery(
+    api.listVisualizations,
+    { args: { insightId } },
+  );
 
   // Find the insight from the list
   const insight = useMemo(

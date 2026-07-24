@@ -1,4 +1,5 @@
-import { useVisualizations } from "@/data";
+import { api } from "@/wystack/api";
+import { useQuery } from "@wystack/client";
 import { Spinner } from "@wystack/ui-react";
 import { HomeView } from "./_components/HomeView";
 import { OnboardingView } from "./_components/OnboardingView";
@@ -10,7 +11,10 @@ import { OnboardingView } from "./_components/OnboardingView";
  * or a dashboard overview when visualizations are present.
  */
 export default function HomePage() {
-  const { data: visualizations = [], isLoading } = useVisualizations();
+  const { data: visualizations = [], isLoading } = useQuery(
+    api.listVisualizations,
+    { args: {} },
+  );
 
   const hasVisualizations = visualizations.length > 0;
 

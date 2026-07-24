@@ -1,5 +1,7 @@
-import { useDataSources, useInsights, useVisualizations } from "@/data";
+import { useDataSources, useInsights } from "@/data";
+import { api } from "@/wystack/api";
 import { useNavigate } from "@tanstack/react-router";
+import { useQuery } from "@wystack/client";
 import { ItemList } from "@wystack/ui-react";
 import { ChartIcon, DatabaseIcon, SparklesIcon } from "@wystack/ui-react/icons";
 import { useMemo } from "react";
@@ -12,7 +14,9 @@ import { useMemo } from "react";
 export function QuickLinksSection() {
   const navigate = useNavigate();
 
-  const { data: visualizations = [] } = useVisualizations();
+  const { data: visualizations = [] } = useQuery(api.listVisualizations, {
+    args: {},
+  });
   const { data: insights = [] } = useInsights();
   const { data: dataSources = [] } = useDataSources();
 

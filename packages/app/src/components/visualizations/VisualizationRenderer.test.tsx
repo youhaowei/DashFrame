@@ -1,11 +1,17 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("@/data", () => ({
-  useVisualizations: () => ({
-    data: [{ id: "viz", insightId: "insight", visualizationType: "bar" }],
-  }),
-}));
+// Partial-mock the WyStack client: keep `createApi` real and replace hooks.
+vi.mock("@wystack/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@wystack/client")>();
+  return {
+    ...actual,
+    useQuery: () => ({
+      data: [{ id: "viz", insightId: "insight", visualizationType: "bar" }],
+    }),
+    useMutation: () => ({ mutateAsync: vi.fn() }),
+  };
+});
 
 vi.mock("./VisualizationDisplay", () => ({
   VisualizationDisplay: ({ visualizationId }: { visualizationId: string }) => (

@@ -54,8 +54,21 @@ const { mockUseVisualizations, mockUseInsights, mockUseDataTables } =
     mockUseDataTables: vi.fn(),
   }));
 
+// Visualizations are direct useQuery; insights/dataTables still go through
+// the @/data wrappers (those domains are not migrated in this change).
+vi.mock("@wystack/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@wystack/client")>();
+  return {
+    ...actual,
+    useQuery: (ref: { _path: string }) => {
+      if (ref._path === "listVisualizations") return mockUseVisualizations();
+      return { data: [] };
+    },
+    useMutation: () => ({ mutateAsync: vi.fn() }),
+  };
+});
+
 vi.mock("@/data", () => ({
-  useVisualizations: () => mockUseVisualizations(),
   useInsights: () => mockUseInsights(),
   useDataTables: () => mockUseDataTables(),
 }));
