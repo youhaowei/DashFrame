@@ -825,7 +825,14 @@ export function InsightView({
       // Set new timeout to save after 500ms of no typing
       saveTimeoutRef.current = setTimeout(() => {
         if (newName !== insight.name) {
-          updateInsight({ id: insightId, updates: { name: newName } });
+          updateInsight({ id: insightId, updates: { name: newName } }).catch(
+            () => {
+              // Rename is fire-and-forget from a debounce; surface the failure
+              // and roll the field back to the last-known-saved name.
+              setLocalName(insight.name);
+              toast.error("Couldn't rename the insight");
+            },
+          );
         }
       }, 500);
     },

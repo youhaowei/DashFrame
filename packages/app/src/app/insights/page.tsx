@@ -30,6 +30,7 @@ import {
   SettingsIcon,
 } from "@wystack/ui-react/icons";
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 
 import { useInsightCanvasStore } from "@/lib/stores/insight-canvas-store";
 
@@ -72,12 +73,29 @@ function getInsightState(
 export default function InsightsPage() {
   const navigate = useNavigate();
 
-  const { data: allInsights = [] } = useQuery(api.listInsights, { args: {} });
+  const {
+    data: allInsights = [],
+    isLoading: insightsLoading,
+    isError: insightsError,
+    refetch: refetchInsights,
+  } = useQuery(api.listInsights, { args: {} });
   const { mutateAsync: removeInsight } = useMutation(api.removeInsight);
   const clearActiveView = useInsightCanvasStore((s) => s.clearActiveView);
-  const { data: visualizations = [] } = useQuery(api.listVisualizations, {
-    args: {},
-  });
+  const {
+    data: visualizations = [],
+    isLoading: visualizationsLoading,
+    isError: visualizationsError,
+    refetch: refetchVisualizations,
+  } = useQuery(api.listVisualizations, { args: {} });
+  // Gate the state-based grouping (and its destructive "delete all drafts"
+  // action) until BOTH queries have loaded *successfully*. The draft
+  // classification depends on `visualizations`; until that resolves it defaults
+  // to `[]`, so every insight — even populated ones — looks like an
+  // unconfigured draft. An *errored* query has "settled" yet still yields empty
+  // data, so error must be treated exactly like loading here: neither state is
+  // safe to group or bulk-delete against.
+  const isLoading = insightsLoading || visualizationsLoading;
+  const hasLoadError = insightsError || visualizationsError;
   const { data: dataSources = [] } = useQuery(api.listDataSources);
   const { data: allDataTables = [] } = useQuery(api.listDataTables, {
     args: {},
@@ -204,7 +222,12 @@ export default function InsightsPage() {
   const handleDeleteInsight = async (insightId: UUID, e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
-    await removeInsight({ id: insightId });
+    try {
+      await removeInsight({ id: insightId });
+    } catch {
+      toast.error("Couldn't delete the insight");
+      return;
+    }
     // Drop the persisted canvas-view entry so deleted insights don't
     // accumulate stale keys in localStorage.
     clearActiveView(insightId);
@@ -212,8 +235,17 @@ export default function InsightsPage() {
 
   // Handle delete all drafts
   const handleDeleteAllDrafts = async () => {
+    // Never act on a classification computed while the queries are unsettled or
+    // errored — during load, or after a load failure, the draft grouping is
+    // untrustworthy (see the isLoading/hasLoadError note above).
+    if (isLoading || hasLoadError) return;
     for (const item of groupedInsights.drafts) {
-      await removeInsight({ id: item.insight.id });
+      try {
+        await removeInsight({ id: item.insight.id });
+      } catch {
+        toast.error("Couldn't delete every draft — some may remain");
+        return;
+      }
       clearActiveView(item.insight.id);
     }
   };
@@ -330,93 +362,125 @@ export default function InsightsPage() {
       {/* Content */}
       <main className="flex-1 overflow-y-auto">
         <div className="container mx-auto max-w-4xl space-y-8 px-6 py-6">
-          {/* With Visualizations */}
-          {groupedInsights.withViz.length > 0 && (
-            <section className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-neutral-fg-subtle">
-                  With Visualizations ({groupedInsights.withViz.length})
-                </h2>
-              </div>
-              <div className="grid gap-3">
-                {groupedInsights.withViz.map(renderInsightCard)}
-              </div>
-            </section>
+          {isLoading && (
+            <div className="flex items-center justify-center py-16">
+              <p className="text-sm text-neutral-fg-subtle">
+                Loading insights…
+              </p>
+            </div>
           )}
-
-          {/* Configured */}
-          {groupedInsights.configured.length > 0 && (
-            <section className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-neutral-fg-subtle">
-                  Configured ({groupedInsights.configured.length})
-                </h2>
-              </div>
-              <div className="grid gap-3">
-                {groupedInsights.configured.map(renderInsightCard)}
-              </div>
-            </section>
-          )}
-
-          {/* Drafts */}
-          {groupedInsights.drafts.length > 0 && (
-            <section className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-neutral-fg-subtle">
-                  Drafts ({groupedInsights.drafts.length})
-                </h2>
-                <Button
-                  variant="ghost"
-                  icon={DeleteIcon}
-                  label="Delete all"
-                  size="sm"
-                  color="danger"
-                  className="text-palette-danger hover:text-palette-danger"
-                  onClick={handleDeleteAllDrafts}
-                />
-              </div>
-              <div className="grid gap-3">
-                {groupedInsights.drafts.map(renderInsightCard)}
-              </div>
-            </section>
-          )}
-
-          {/* Empty State */}
-          {filteredInsights.length === 0 && (
+          {!isLoading && hasLoadError && (
             <div className="flex flex-col items-center justify-center py-16">
               <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-neutral-bg-muted">
                 <FileIcon className="h-8 w-8 text-neutral-fg-subtle" />
               </div>
-              {searchQuery ? (
-                <>
-                  <h3 className="mb-2 text-lg font-semibold">
-                    No insights found
-                  </h3>
-                  <p className="mb-4 text-sm text-neutral-fg-subtle">
-                    No insights match &quot;{searchQuery}&quot;
-                  </p>
-                  <Button
-                    variant="outline"
-                    label="Clear search"
-                    onClick={() => setSearchQuery("")}
-                  />
-                </>
-              ) : (
-                <>
-                  <h3 className="mb-2 text-lg font-semibold">
-                    No insights yet
-                  </h3>
-                  <p className="mb-4 text-sm text-neutral-fg-subtle">
-                    Create your first insight to start analyzing data
-                  </p>
-                  <Button
-                    icon={PlusIcon}
-                    label="New Insight"
-                    onClick={() => setIsCreateModalOpen(true)}
-                  />
-                </>
-              )}
+              <h3 className="mb-2 text-lg font-semibold">
+                Couldn&apos;t load insights
+              </h3>
+              <p className="mb-4 text-sm text-neutral-fg-subtle">
+                Something went wrong. Check your connection and try again.
+              </p>
+              <Button
+                variant="outline"
+                label="Try again"
+                onClick={() => {
+                  refetchInsights();
+                  refetchVisualizations();
+                }}
+              />
             </div>
+          )}
+          {!isLoading && !hasLoadError && (
+            <>
+              {/* With Visualizations */}
+              {groupedInsights.withViz.length > 0 && (
+                <section className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-sm font-semibold text-neutral-fg-subtle">
+                      With Visualizations ({groupedInsights.withViz.length})
+                    </h2>
+                  </div>
+                  <div className="grid gap-3">
+                    {groupedInsights.withViz.map(renderInsightCard)}
+                  </div>
+                </section>
+              )}
+
+              {/* Configured */}
+              {groupedInsights.configured.length > 0 && (
+                <section className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-sm font-semibold text-neutral-fg-subtle">
+                      Configured ({groupedInsights.configured.length})
+                    </h2>
+                  </div>
+                  <div className="grid gap-3">
+                    {groupedInsights.configured.map(renderInsightCard)}
+                  </div>
+                </section>
+              )}
+
+              {/* Drafts */}
+              {groupedInsights.drafts.length > 0 && (
+                <section className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-sm font-semibold text-neutral-fg-subtle">
+                      Drafts ({groupedInsights.drafts.length})
+                    </h2>
+                    <Button
+                      variant="ghost"
+                      icon={DeleteIcon}
+                      label="Delete all"
+                      size="sm"
+                      color="danger"
+                      className="text-palette-danger hover:text-palette-danger"
+                      onClick={handleDeleteAllDrafts}
+                    />
+                  </div>
+                  <div className="grid gap-3">
+                    {groupedInsights.drafts.map(renderInsightCard)}
+                  </div>
+                </section>
+              )}
+
+              {/* Empty State */}
+              {filteredInsights.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-16">
+                  <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-neutral-bg-muted">
+                    <FileIcon className="h-8 w-8 text-neutral-fg-subtle" />
+                  </div>
+                  {searchQuery ? (
+                    <>
+                      <h3 className="mb-2 text-lg font-semibold">
+                        No insights found
+                      </h3>
+                      <p className="mb-4 text-sm text-neutral-fg-subtle">
+                        No insights match &quot;{searchQuery}&quot;
+                      </p>
+                      <Button
+                        variant="outline"
+                        label="Clear search"
+                        onClick={() => setSearchQuery("")}
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <h3 className="mb-2 text-lg font-semibold">
+                        No insights yet
+                      </h3>
+                      <p className="mb-4 text-sm text-neutral-fg-subtle">
+                        Create your first insight to start analyzing data
+                      </p>
+                      <Button
+                        icon={PlusIcon}
+                        label="New Insight"
+                        onClick={() => setIsCreateModalOpen(true)}
+                      />
+                    </>
+                  )}
+                </div>
+              )}
+            </>
           )}
         </div>
       </main>

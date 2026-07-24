@@ -305,19 +305,32 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
         `Are you sure you want to delete "${dataSource.name}"? This will remove all associated data.`,
       )
     ) {
-      await removeDataSource({ id: dataSource.id });
+      try {
+        await removeDataSource({ id: dataSource.id });
+      } catch {
+        toast.error("Failed to delete data source");
+        return;
+      }
       toast.success("Data source deleted");
     }
   };
 
   const handleNameChange = async (newName: string) => {
-    await updateDataSource({ id: dataSource.id, name: newName });
+    try {
+      await updateDataSource({ id: dataSource.id, name: newName });
+    } catch {
+      toast.error("Failed to rename data source");
+    }
   };
 
   const handleApiKeyChange = async (newApiKey: string) => {
     setApiKeyInput(newApiKey);
     if (isRemoteApi) {
-      await updateDataSource({ id: dataSource.id, apiKey: newApiKey });
+      try {
+        await updateDataSource({ id: dataSource.id, apiKey: newApiKey });
+      } catch {
+        toast.error("Failed to update API key");
+      }
     }
   };
 

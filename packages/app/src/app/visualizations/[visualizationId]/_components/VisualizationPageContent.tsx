@@ -763,14 +763,12 @@ export default function VisualizationPageContent({
           yType: currentEncoding.xType,
         };
 
-        // Update both type and encoding together
+        // Update both type and encoding in a single mutation so a mid-swap
+        // failure can't leave the chart with a swapped type but un-swapped
+        // axes (a visibly broken mapping). Mirrors handleSwapAxes below.
         await updateVisualizationMutation({
           id: visualizationId as UUID,
-          updates: { visualizationType: newType },
-        });
-        await updateVisualizationMutation({
-          id: visualizationId as UUID,
-          updates: { encoding: newEncoding },
+          updates: { visualizationType: newType, encoding: newEncoding },
         });
       } else {
         // Just update the type

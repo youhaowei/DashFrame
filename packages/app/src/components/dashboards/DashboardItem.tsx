@@ -9,6 +9,7 @@ import { useMutation } from "@wystack/client";
 import { Button, cn, Surface } from "@wystack/ui-react";
 import { DeleteIcon, DragHandleIcon, EditIcon } from "@wystack/ui-react/icons";
 import { useState } from "react";
+import { toast } from "sonner";
 import { MarkdownWidget } from "./MarkdownWidget";
 import { OverridePopover } from "./OverridePopover";
 
@@ -50,8 +51,27 @@ export function DashboardItem({
   ...props
 }: DashboardItemProps) {
   const [isEditingContent, setIsEditingContent] = useState(false);
-  const updateItem = useMutation(api.updateDashboardItem);
-  const removeItem = useMutation(api.removeDashboardItem);
+  const { mutateAsync: updateItem } = useMutation(api.updateDashboardItem);
+  const { mutateAsync: removeItem } = useMutation(api.removeDashboardItem);
+
+  const handleRemove = async () => {
+    try {
+      await removeItem({ dashboardId, itemId: item.id });
+    } catch {
+      toast.error("Couldn't remove the widget");
+    }
+  };
+
+  const handleSaveContent = async (content: string) => {
+    try {
+      await updateItem({ dashboardId, itemId: item.id, updates: { content } });
+    } catch {
+      // Keep the editor open on failure so the user's text isn't lost.
+      toast.error("Couldn't save the widget");
+      return;
+    }
+    setIsEditingContent(false);
+  };
 
   return (
     <div
@@ -91,9 +111,7 @@ export function DashboardItem({
               variant="ghost"
               size="sm"
               className="h-6 w-6 text-palette-danger hover:bg-palette-danger/10 hover:text-palette-danger"
-              onClick={() =>
-                removeItem.mutateAsync({ dashboardId, itemId: item.id })
-              }
+              onClick={handleRemove}
             >
               <DeleteIcon className="h-3.5 w-3.5" />
             </Button>
@@ -110,14 +128,7 @@ export function DashboardItem({
             <MarkdownWidget
               content={item.content || ""}
               isEditing={isEditingContent}
-              onSave={(content) => {
-                updateItem.mutateAsync({
-                  dashboardId,
-                  itemId: item.id,
-                  updates: { content },
-                });
-                setIsEditingContent(false);
-              }}
+              onSave={handleSaveContent}
               onCancel={() => setIsEditingContent(false)}
             />
           ) : (
