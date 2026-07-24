@@ -812,21 +812,6 @@ export function InsightView({
   );
   const { confirm } = useConfirmDialogStore();
 
-  // Rename is fire-and-forget from a debounce; on failure surface the error and
-  // roll the field back to the last-known-saved name — but only if the user
-  // hasn't typed a newer name since this save was dispatched, otherwise a stale
-  // rejection would clobber the newer in-flight input (a fresh debounce is
-  // already saving it).
-  const rollbackRenameIfUnchanged = useCallback(
-    (attemptedName: string) => {
-      setLocalName((current) =>
-        current === attemptedName ? insight.name : current,
-      );
-      toast.error("Couldn't rename the insight");
-    },
-    [insight.name],
-  );
-
   // Debounced save for insight name (500ms after typing stops)
   const handleNameChange = useCallback(
     (newName: string) => {
@@ -840,13 +825,18 @@ export function InsightView({
       // Set new timeout to save after 500ms of no typing
       saveTimeoutRef.current = setTimeout(() => {
         if (newName !== insight.name) {
+          // Fire-and-forget from a debounce: surface a failure but leave the
+          // field on the user's latest input. We deliberately don't roll the
+          // field back — with overlapping debounced renames a rollback would
+          // race (clobbering newer input, or restoring a pre-edit name over a
+          // partial success); the next keystroke's debounce simply retries.
           updateInsight({ id: insightId, updates: { name: newName } }).catch(
-            () => rollbackRenameIfUnchanged(newName),
+            () => toast.error("Couldn't rename the insight"),
           );
         }
       }, 500);
     },
-    [insightId, insight.name, updateInsight, rollbackRenameIfUnchanged],
+    [insightId, insight.name, updateInsight],
   );
 
   // Cleanup timeout on unmount

@@ -8,6 +8,9 @@ interface MarkdownWidgetProps {
   isEditing: boolean;
   onSave: (content: string) => void;
   onCancel: () => void;
+  /** True while an onSave round-trip is in flight — locks the editor so a
+   *  keystroke after Save can't be silently dropped by the delayed close. */
+  isSaving?: boolean;
   className?: string;
 }
 
@@ -16,6 +19,7 @@ export function MarkdownWidget({
   isEditing,
   onSave,
   onCancel,
+  isSaving = false,
   className,
 }: MarkdownWidgetProps) {
   // Edit buffer — initialized from `content` and reset when `content` changes
@@ -35,6 +39,7 @@ export function MarkdownWidget({
         <textarea
           value={value}
           onChange={(e) => setValue(e.target.value)}
+          disabled={isSaving}
           className="flex min-h-20 w-full flex-1 resize-none rounded-md border border-neutral-border bg-neutral-bg px-3 py-2 font-mono text-sm ring-offset-neutral-bg placeholder:text-neutral-fg-subtle focus-visible:ring-2 focus-visible:ring-neutral-ring focus-visible:ring-offset-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
           placeholder="Enter markdown..."
           autoFocus
@@ -44,6 +49,7 @@ export function MarkdownWidget({
             label="Cancel"
             variant="ghost"
             size="sm"
+            disabled={isSaving}
             onClick={() => {
               setValue(content);
               onCancel();
@@ -52,7 +58,12 @@ export function MarkdownWidget({
             <CloseIcon className="mr-1 h-3 w-3" />
             Cancel
           </Button>
-          <Button label="Save" size="sm" onClick={() => onSave(value)}>
+          <Button
+            label="Save"
+            size="sm"
+            disabled={isSaving}
+            onClick={() => onSave(value)}
+          >
             <CheckIcon className="mr-1 h-3 w-3" />
             Save
           </Button>

@@ -51,7 +51,9 @@ export function DashboardItem({
   ...props
 }: DashboardItemProps) {
   const [isEditingContent, setIsEditingContent] = useState(false);
-  const { mutateAsync: updateItem } = useMutation(api.updateDashboardItem);
+  const { mutateAsync: updateItem, isPending: isSavingContent } = useMutation(
+    api.updateDashboardItem,
+  );
   const { mutateAsync: removeItem } = useMutation(api.removeDashboardItem);
 
   const handleRemove = async () => {
@@ -130,6 +132,7 @@ export function DashboardItem({
               isEditing={isEditingContent}
               onSave={handleSaveContent}
               onCancel={() => setIsEditingContent(false)}
+              isSaving={isSavingContent}
             />
           ) : (
             <div className="h-full w-full">

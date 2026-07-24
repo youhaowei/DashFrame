@@ -75,27 +75,29 @@ export default function InsightsPage() {
 
   const {
     data: allInsights = [],
-    isLoading: insightsLoading,
-    isError: insightsError,
+    isPending: insightsPending,
+    isLoadingError: insightsLoadError,
     refetch: refetchInsights,
   } = useQuery(api.listInsights, { args: {} });
   const { mutateAsync: removeInsight } = useMutation(api.removeInsight);
   const clearActiveView = useInsightCanvasStore((s) => s.clearActiveView);
   const {
     data: visualizations = [],
-    isLoading: visualizationsLoading,
-    isError: visualizationsError,
+    isPending: visualizationsPending,
+    isLoadingError: visualizationsLoadError,
     refetch: refetchVisualizations,
   } = useQuery(api.listVisualizations, { args: {} });
   // Gate the state-based grouping (and its destructive "delete all drafts"
-  // action) until BOTH queries have loaded *successfully*. The draft
-  // classification depends on `visualizations`; until that resolves it defaults
-  // to `[]`, so every insight — even populated ones — looks like an
-  // unconfigured draft. An *errored* query has "settled" yet still yields empty
-  // data, so error must be treated exactly like loading here: neither state is
-  // safe to group or bulk-delete against.
-  const isLoading = insightsLoading || visualizationsLoading;
-  const hasLoadError = insightsError || visualizationsError;
+  // action) until BOTH queries have data. The draft classification depends on
+  // `visualizations`; before the first successful load it defaults to `[]`, so
+  // every insight — even populated ones — looks like an unconfigured draft.
+  // We key off `isPending`/`isLoadingError` (not `isError`) on purpose: those
+  // are the *initial-load* states where data is genuinely absent. A later
+  // background-refetch failure keeps the last-good data (`isRefetchError`), so
+  // we must NOT blank the list or block deletes for it — the cached
+  // classification is still trustworthy.
+  const isLoading = insightsPending || visualizationsPending;
+  const hasLoadError = insightsLoadError || visualizationsLoadError;
   const { data: dataSources = [] } = useQuery(api.listDataSources);
   const { data: allDataTables = [] } = useQuery(api.listDataTables, {
     args: {},
