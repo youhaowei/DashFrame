@@ -43,7 +43,7 @@ export default function DashboardDetailContent({
   const {
     data: dashboards = [],
     isLoading,
-    isFetching = false,
+    isFetching,
   } = useQuery(api.listDashboards);
   const { data: visualizations = [] } = useVisualizations();
   const { data: insights = [] } = useInsights();

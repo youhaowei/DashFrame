@@ -6,8 +6,10 @@
  *   must see an error toast. The dialog must remain open.
  * - When the create mutation resolves without an id, navigation must NOT occur
  *   and the user must see an error toast. The dialog must remain open.
- * - On success the dialog closes, the input resets, and navigate is called
- *   with the returned id.
+ * - On success the dialog closes, the input resets, navigate is called with
+ *   the returned id, and create receives the reshaped `{ name }` arg object.
+ * - The registry mints bare-name branded paths, so the partial-mock's
+ *   `ref._path` discrimination stays valid (guards the fan-out template).
  */
 import {
   act,
@@ -146,9 +148,22 @@ describe("DashboardsPage – handleCreate failure paths", () => {
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith({ to: "/dashboards/dash-abc" });
     });
+    // Assert the reshaped registry-object arg, not just that create fired —
+    // a dropped/misnamed key (`title` vs `name`) must fail here.
+    expect(mockCreate).toHaveBeenCalledWith({ name: "Success Board" });
     expect(mockShowError).not.toHaveBeenCalled();
 
     // Dialog is closed — the input is no longer in the document
     expect(screen.queryByPlaceholderText(/sales overview/i)).toBeNull();
+  });
+
+  it("mints bare-name branded paths the mock discriminates on", async () => {
+    // The partial-mock routes useMutation by ref._path. This guards the
+    // invariant that keeps that routing valid: the registry mints bare
+    // function names, so a future dotted/namespaced path would fail loudly
+    // here instead of silently aliasing every mutation to mockCreate.
+    const { api } = await import("@/wystack/api");
+    expect(api.createDashboard._path).toBe("createDashboard");
+    expect(api.removeDashboard._path).toBe("removeDashboard");
   });
 });

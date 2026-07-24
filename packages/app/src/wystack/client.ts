@@ -4,7 +4,7 @@
  * React components reach the WyStack client through context (the host's
  * `WyStackProvider` + `useWyStackClient`). But the app also has plain async
  * helpers — CSV ingest, pagination loaders — that call direct-access getters
- * (`getDashboard`, `getDataFrame`, …) outside any component. Those need the
+ * (`getDataFrame`, …) outside any component. Those need the
  * same minted client, and the client's URL is only known at runtime.
  *
  * So the host calls `setWyStackClient(instance.client)` exactly once, right

@@ -29,7 +29,10 @@ export function DashboardGrid({
   isEditable,
   controlTransientValues,
 }: DashboardGridProps) {
-  const updateItems = useMutation(api.updateDashboardItems);
+  // Destructure the stable `mutateAsync` — the `useMutation` result object is a
+  // fresh reference every render, so depending on it would defeat the
+  // `onLayoutChange` memoization. `mutateAsync` is referentially stable.
+  const { mutateAsync: saveLayout } = useMutation(api.updateDashboardItems);
   const [activeBreakpoint, setActiveBreakpoint] = useState("lg");
 
   const layouts = useMemo(() => {
@@ -111,15 +114,15 @@ export function DashboardGrid({
         ];
       });
       if (patches.length > 0) {
-        updateItems
-          .mutateAsync({ dashboardId: dashboard.id, patches })
-          .catch((error: unknown) => {
+        saveLayout({ dashboardId: dashboard.id, patches }).catch(
+          (error: unknown) => {
             console.error("Failed to save dashboard layout:", error);
             toast.error("Failed to save dashboard layout");
-          });
+          },
+        );
       }
     },
-    [activeBreakpoint, dashboard.id, dashboard.items, isEditable, updateItems],
+    [activeBreakpoint, dashboard.id, dashboard.items, isEditable, saveLayout],
   );
 
   // Pre-compute effective overrides for every item.  Merges the item's own
