@@ -7,7 +7,6 @@ import {
   useDataTables,
   useInsights,
   useNotionMutations,
-  usePostgresMutations,
 } from "@/data";
 import { getConnectorById } from "@/lib/connectors/registry";
 import { handleFileConnectorResult } from "@/lib/local-csv-handler";
@@ -25,11 +24,13 @@ import {
   RemoteTableReplacementError,
 } from "@/lib/remote-table-materialization";
 import { useConfirmDialogStore, type ConfirmDialogConfig } from "@/lib/stores";
+import { api } from "@/wystack/api";
 import type {
   FileSourceConnector,
   RemoteApiConnector,
 } from "@dashframe/engine";
 import { getFieldSensitivity, type UUID } from "@dashframe/types";
+import { useMutation } from "@wystack/client";
 import { Button, SectionList } from "@wystack/ui-react";
 import { ArrowLeftIcon } from "@wystack/ui-react/icons";
 import { useCallback, useMemo, useState } from "react";
@@ -127,7 +128,12 @@ export function DataPickerContent({
   const dataSourceMutations = useDataSourceMutations();
   const tableMutations = useDataTableMutations();
   const notionMutations = useNotionMutations();
-  const postgresMutations = usePostgresMutations();
+  const { mutateAsync: listPostgresTablesMutation } = useMutation(
+    api.listPostgresTables,
+  );
+  const { mutateAsync: queryPostgresTableMutation } = useMutation(
+    api.queryPostgresTable,
+  );
   const confirm = useConfirmDialogStore((state) => state.confirm);
 
   // Local state
@@ -303,11 +309,12 @@ export function DataPickerContent({
           addSource: dataSourceMutations.add,
           removeSource: dataSourceMutations.remove,
           listNotionDatabases: notionMutations.listDatabases,
-          listPostgresTables: postgresMutations.listTables,
+          listPostgresTables: (id) =>
+            listPostgresTablesMutation({ dataSourceId: id }),
         }),
       );
     },
-    [dataSourceMutations, notionMutations, postgresMutations],
+    [dataSourceMutations, notionMutations, listPostgresTablesMutation],
   );
 
   const handleRemoteResourceSelect = useCallback(
@@ -330,11 +337,11 @@ export function DataPickerContent({
                 resource.id,
                 tableId,
               )
-            : await postgresMutations.queryTable(
-                remoteResourceState.sourceId,
-                resource.id,
+            : await queryPostgresTableMutation({
+                dataSourceId: remoteResourceState.sourceId,
+                databaseId: resource.id,
                 tableId,
-              );
+              });
         const explicitlySensitive = result.fields.some(
           (field) => getFieldSensitivity(field) === "sensitive",
         );
@@ -383,7 +390,7 @@ export function DataPickerContent({
     [
       notionMutations,
       onTableSelect,
-      postgresMutations,
+      queryPostgresTableMutation,
       confirm,
       remoteResourceState,
       tableMutations,
