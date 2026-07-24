@@ -42,11 +42,11 @@
  *   createVisualization        → CreateVisualization
  *   updateVisualization        → RenameNode + SetChartType + SetChartEncoding
  *   removeVisualization        → DeleteNode
- *   DashboardMutations.create  → CreateDashboard
- *   DashboardMutations.addItem → AddDashboardItem
- *   DashboardMutations.updateItem → UpdateDashboardItem
- *   DashboardMutations.update (layout) → SetDashboardLayout
- *   DashboardMutations.removeItem → RemoveDashboardItem
+ *   createDashboard            → CreateDashboard
+ *   addDashboardItem           → AddDashboardItem
+ *   updateDashboardItem        → UpdateDashboardItem
+ *   updateDashboard (layout)   → SetDashboardLayout
+ *   removeDashboardItem        → RemoveDashboardItem
  *   removeInsight/removeVisualization/removeDashboard → DeleteNode
  *
  * Cross-cutting `RenameNode` is the one polymorphic rename — the `name` slice

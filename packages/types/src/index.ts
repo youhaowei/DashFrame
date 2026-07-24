@@ -157,11 +157,7 @@ export type {
   DashboardItemOverrides,
   DashboardItemPatch,
   DashboardItemType,
-  DashboardMutations,
   InsightFilterOverride,
-  UseDashboardMutations,
-  UseDashboards,
-  UseDashboardsResult,
 } from "./dashboards";
 
 // =============================================================================

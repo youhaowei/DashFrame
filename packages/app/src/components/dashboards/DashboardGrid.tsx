@@ -1,10 +1,11 @@
-import { useDashboardMutations } from "@/data";
 import { computeItemOverrides } from "@/lib/dashboards/controls";
+import { api } from "@/wystack/api";
 import type {
   Dashboard,
   DashboardItemOverrides,
   InsightFilter,
 } from "@dashframe/types";
+import { useMutation } from "@wystack/client";
 import { useCallback, useMemo, useState } from "react";
 import { Responsive, WidthProvider, type Layout } from "react-grid-layout";
 import { toast } from "sonner";
@@ -28,7 +29,7 @@ export function DashboardGrid({
   isEditable,
   controlTransientValues,
 }: DashboardGridProps) {
-  const { updateItems } = useDashboardMutations();
+  const updateItems = useMutation(api.updateDashboardItems);
   const [activeBreakpoint, setActiveBreakpoint] = useState("lg");
 
   const layouts = useMemo(() => {
@@ -110,10 +111,12 @@ export function DashboardGrid({
         ];
       });
       if (patches.length > 0) {
-        updateItems(dashboard.id, patches).catch((error: unknown) => {
-          console.error("Failed to save dashboard layout:", error);
-          toast.error("Failed to save dashboard layout");
-        });
+        updateItems
+          .mutateAsync({ dashboardId: dashboard.id, patches })
+          .catch((error: unknown) => {
+            console.error("Failed to save dashboard layout:", error);
+            toast.error("Failed to save dashboard layout");
+          });
       }
     },
     [activeBreakpoint, dashboard.id, dashboard.items, isEditable, updateItems],

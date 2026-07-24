@@ -6,9 +6,17 @@ const mocks = vi.hoisted(() => ({
   updateItems: vi.fn(async () => {}),
 }));
 
-vi.mock("@/data", () => ({
-  useDashboardMutations: () => ({ updateItems: mocks.updateItems }),
-}));
+// Partial-mock the WyStack client: keep `createApi` (so `api` builds real
+// refs) and replace only `useMutation`. This consumer uses a single mutation
+// (`api.updateDashboardItems`), so the mock ignores the ref and always returns
+// the same `mutateAsync` spy.
+vi.mock("@wystack/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@wystack/client")>();
+  return {
+    ...actual,
+    useMutation: () => ({ mutateAsync: mocks.updateItems }),
+  };
+});
 
 vi.mock("react-grid-layout", () => ({
   WidthProvider: (Grid: unknown) => Grid,
@@ -84,9 +92,12 @@ describe("DashboardGrid canonical layout persistence", () => {
       ]);
     });
 
-    expect(mocks.updateItems).toHaveBeenCalledWith("dashboard", [
-      { itemId: "first", updates: { x: 1, y: 2, width: 4, height: 4 } },
-      { itemId: "second", updates: { x: 7, y: 3, width: 4, height: 4 } },
-    ]);
+    expect(mocks.updateItems).toHaveBeenCalledWith({
+      dashboardId: "dashboard",
+      patches: [
+        { itemId: "first", updates: { x: 1, y: 2, width: 4, height: 4 } },
+        { itemId: "second", updates: { x: 7, y: 3, width: 4, height: 4 } },
+      ],
+    });
   });
 });

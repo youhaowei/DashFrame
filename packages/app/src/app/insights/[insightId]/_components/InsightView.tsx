@@ -3,8 +3,6 @@ import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import { VisualizationPreview } from "@/components/visualizations/VisualizationPreview";
 import {
   getDataFrame,
-  useDashboardMutations,
-  useDashboards,
   useDataFrameMutations,
   useDataFrames,
   useDataTables,
@@ -28,6 +26,7 @@ import {
   suggestByChartType,
   type ChartSuggestion,
 } from "@/lib/visualizations/suggest-charts";
+import { api } from "@/wystack/api";
 import {
   extractUUIDFromColumnAlias,
   fieldIdToColumnAlias,
@@ -53,6 +52,7 @@ import {
 } from "@dashframe/ui";
 import { Chart } from "@dashframe/visualization";
 import { useNavigate } from "@tanstack/react-router";
+import { useMutation, useQuery } from "@wystack/client";
 import { Button, cn } from "@wystack/ui-react";
 import {
   DashboardIcon,
@@ -841,9 +841,9 @@ export function InsightView({
   const { data: allDataTables = [] } = useDataTables();
   const { data: allDataFrameEntries = [] } = useDataFrames();
   const { data: allVisualizations = [] } = useVisualizations();
-  const { data: dashboards = [] } = useDashboards();
-  const { create: createDashboard, addItem: addDashboardItem } =
-    useDashboardMutations();
+  const { data: dashboards = [] } = useQuery(api.listDashboards);
+  const createDashboard = useMutation(api.createDashboard);
+  const addDashboardItem = useMutation(api.addDashboardItem);
   const persistedActiveView = useInsightCanvasStore(
     (s) => s.activeViewByInsight[insightId],
   );
@@ -1403,14 +1403,20 @@ export function InsightView({
 
       const dashboard = dashboards[0];
       const dashboardId =
-        dashboard?.id ?? (await createDashboard(`${insight.name} dashboard`));
+        dashboard?.id ??
+        (
+          await createDashboard.mutateAsync({
+            name: `${insight.name} dashboard`,
+          })
+        ).id;
       const bottomY =
         dashboard?.items.reduce(
           (max, item) => Math.max(max, item.y + item.height),
           0,
         ) ?? 0;
 
-      await addDashboardItem(dashboardId, {
+      await addDashboardItem.mutateAsync({
+        dashboardId,
         type: "visualization",
         visualizationId,
         position: {

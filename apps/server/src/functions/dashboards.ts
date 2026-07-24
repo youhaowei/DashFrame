@@ -15,9 +15,10 @@
  * Every handler reads/writes through `ctx.db` (WyStack's DrizzleTracker) so the
  * subscription manager records the `dashboards` table in each query's
  * read-set and each mutation's write-set — that table-overlap is what drives
- * WS invalidation back to live `useDashboards` subscribers.
+ * WS invalidation back to live dashboard-list query subscribers.
  */
 import { schema } from "@dashframe/server-core";
+import type { Dashboard } from "@dashframe/types";
 import { eq, jsonb, text, uuid } from "@wystack/db";
 
 import { wy } from "../wystack";
@@ -88,16 +89,16 @@ async function withDashboardWrite<T>(
   }
 }
 
-/** Domain `Dashboard` shape returned to the client (matches @dashframe/types). */
-export interface DashboardResult {
-  id: string;
-  name: string;
-  description?: string;
-  items: DashboardItem[];
-  controls?: DashboardControl[];
-  createdAt: number;
-  updatedAt?: number;
-}
+/**
+ * The domain `Dashboard` shape returned to the client. Handlers annotate their
+ * returns with this so the WyStack `api` registry infers the domain type and
+ * consumers read `useQuery(api.listDashboards).data` as `Dashboard[]` with no
+ * cast. The server's local `DashboardItem`/`DashboardControl` interfaces stay
+ * intentionally loose (`filters?: unknown[]`) for internal JSONB manipulation;
+ * the single unchecked loose→domain assertion lives at the `rowToDashboard`
+ * boundary below (where the JSONB is deserialized), not in every client.
+ */
+export type DashboardResult = Dashboard;
 
 /** Row → domain. Single source of the mapping (read paths share it). */
 function rowToDashboard(row: DashboardRow): DashboardResult {
@@ -105,8 +106,8 @@ function rowToDashboard(row: DashboardRow): DashboardResult {
     id: row.id,
     name: row.name,
     description: row.description ?? undefined,
-    items: (row.layout as DashboardItem[]) ?? [],
-    controls: (row.controls as DashboardControl[] | null) ?? undefined,
+    items: (row.layout as Dashboard["items"]) ?? [],
+    controls: (row.controls as Dashboard["controls"]) ?? undefined,
     // Null-safe via the shared `tsToMillis` (app-artifacts.ts): the draft overlay
     // returns NULL created_at for a dashboard created inside a draft (the sparse
     // `<table>__draft` row has no canonical base; publish stamps the real value),

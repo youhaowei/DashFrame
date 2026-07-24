@@ -25,14 +25,6 @@ export {
   type RunAssistantPromptOptions,
 } from "../wystack/assistant-run";
 
-// Dashboards
-export {
-  getAllDashboards,
-  getDashboard,
-  useDashboardMutations,
-  useDashboards,
-} from "./dashboards";
-
 export {
   useAssistantProviderCatalog,
   useAssistantProviderConfigMutations,

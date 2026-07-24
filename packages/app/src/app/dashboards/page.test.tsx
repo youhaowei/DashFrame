@@ -2,10 +2,10 @@
  * Tests for the DashboardsPage create-dashboard handler.
  *
  * Contracts:
- * - When createDashboard rejects, navigation must NOT occur and the user
+ * - When the create mutation rejects, navigation must NOT occur and the user
  *   must see an error toast. The dialog must remain open.
- * - When createDashboard resolves undefined, navigation must NOT occur and
- *   the user must see an error toast. The dialog must remain open.
+ * - When the create mutation resolves without an id, navigation must NOT occur
+ *   and the user must see an error toast. The dialog must remain open.
  * - On success the dialog closes, the input resets, and navigate is called
  *   with the returned id.
  */
@@ -22,19 +22,25 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // Hoisted mocks (vi.mock hoisting requires these to be declared with vi.hoisted)
 // ---------------------------------------------------------------------------
 
-const { mockCreate, mockMutations } = vi.hoisted(() => {
-  const create = vi.fn();
-  const remove = vi.fn();
+const { mockCreate, mockRemove } = vi.hoisted(() => ({
+  mockCreate: vi.fn(),
+  mockRemove: vi.fn(),
+}));
+
+// Partial-mock the WyStack client: keep `createApi` real (so `api` builds real
+// refs) and replace the hooks. `useMutation` discriminates by `ref._path` —
+// `createApi` caches refs, so the branded path is stable per function.
+vi.mock("@wystack/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@wystack/client")>();
   return {
-    mockCreate: create,
-    mockMutations: { create, remove },
+    ...actual,
+    useQuery: () => ({ data: [], isLoading: false }),
+    useMutation: (ref: { _path: string }) =>
+      ref._path === "removeDashboard"
+        ? { mutateAsync: mockRemove }
+        : { mutateAsync: mockCreate },
   };
 });
-
-vi.mock("@/data", () => ({
-  useDashboards: () => ({ data: [], isLoading: false }),
-  useDashboardMutations: () => mockMutations,
-}));
 
 const { mockNavigate } = vi.hoisted(() => {
   const navigate = vi.fn();
@@ -108,8 +114,8 @@ describe("DashboardsPage – handleCreate failure paths", () => {
     screen.getByPlaceholderText(/sales overview/i);
   });
 
-  it("shows error toast and does NOT navigate when createDashboard resolves undefined", async () => {
-    mockCreate.mockResolvedValue(undefined);
+  it("shows error toast and does NOT navigate when the create mutation resolves without an id", async () => {
+    mockCreate.mockResolvedValue({ id: undefined });
 
     render(<DashboardsPage />);
     openCreateDialog();
@@ -128,7 +134,7 @@ describe("DashboardsPage – handleCreate failure paths", () => {
   });
 
   it("navigates to the dashboard and closes the dialog on success", async () => {
-    mockCreate.mockResolvedValue("dash-abc");
+    mockCreate.mockResolvedValue({ id: "dash-abc" });
 
     render(<DashboardsPage />);
     openCreateDialog();

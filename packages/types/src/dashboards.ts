@@ -1,5 +1,4 @@
 import type { InsightFilter, InsightSort } from "./insights";
-import type { UseQueryResult } from "./repository-base";
 import type { UUID } from "./uuid";
 
 // ============================================================================
@@ -154,11 +153,6 @@ export interface Dashboard {
 // ============================================================================
 
 /**
- * Result type for useDashboards hook.
- */
-export type UseDashboardsResult = UseQueryResult<Dashboard[]>;
-
-/**
  * Input for creating a new item.
  */
 export interface CreateItemInput {
@@ -186,67 +180,3 @@ export type DashboardItemOverridePatch =
     }
   | { kind: "sorts"; value: InsightSort[] | null }
   | { kind: "limit"; value: number | null };
-
-/**
- * Mutation methods for dashboards.
- */
-export interface DashboardMutations {
-  /** Create a new dashboard */
-  create: (name: string, description?: string) => Promise<UUID>;
-
-  /** Update a dashboard */
-  update: (
-    id: UUID,
-    updates: Pick<Partial<Dashboard>, "name" | "description">,
-  ) => Promise<void>;
-
-  /** Remove a dashboard */
-  remove: (id: UUID) => Promise<void>;
-
-  /** Add an item to dashboard */
-  addItem: (dashboardId: UUID, input: CreateItemInput) => Promise<UUID>;
-
-  /** Update item position/size/content */
-  updateItem: (
-    dashboardId: UUID,
-    itemId: UUID,
-    updates: Partial<Omit<DashboardItem, "id" | "type" | "overrides">>,
-  ) => Promise<void>;
-
-  /** Atomically apply several item patches to one authoritative layout. */
-  updateItems: (
-    dashboardId: UUID,
-    patches: DashboardItemPatch[],
-  ) => Promise<void>;
-
-  /** Apply one override intent against the latest server-owned item state. */
-  patchItemOverride: (
-    dashboardId: UUID,
-    itemId: UUID,
-    patch: DashboardItemOverridePatch,
-  ) => Promise<void>;
-
-  /** Remove an item */
-  removeItem: (dashboardId: UUID, itemId: UUID) => Promise<void>;
-
-  /**
-   * Persist the dashboard's controls array.  Replaces the entire array — the
-   * caller is responsible for merging if only a single control changed.
-   * Only the author uses this; viewer turns go through the transient overlay
-   * in `useDashboardControls`.
-   */
-  updateControls: (
-    dashboardId: UUID,
-    controls: DashboardControl[],
-  ) => Promise<void>;
-}
-
-/**
- * Hook type for reading dashboards.
- */
-export type UseDashboards = () => UseDashboardsResult;
-
-/**
- * Hook type for dashboard mutations.
- */
-export type UseDashboardMutations = () => DashboardMutations;
