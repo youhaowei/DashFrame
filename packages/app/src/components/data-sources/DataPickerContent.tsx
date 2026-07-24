@@ -1,8 +1,6 @@
 import {
   removeDataFrame,
   useDataFrames,
-  useDataSourceMutations,
-  useDataSources,
   useDataTableMutations,
   useDataTables,
   useInsights,
@@ -29,7 +27,7 @@ import type {
   RemoteApiConnector,
 } from "@dashframe/engine";
 import { getFieldSensitivity, type UUID } from "@dashframe/types";
-import { useMutation } from "@wystack/client";
+import { useMutation, useQuery } from "@wystack/client";
 import { Button, SectionList } from "@wystack/ui-react";
 import { ArrowLeftIcon } from "@wystack/ui-react/icons";
 import { useCallback, useMemo, useState } from "react";
@@ -120,11 +118,12 @@ export function DataPickerContent({
   showPostgres = true,
   showInsights = true,
 }: DataPickerContentProps) {
-  const { data: dataSources = [] } = useDataSources();
+  const { data: dataSources = [] } = useQuery(api.listDataSources);
   const { data: allDataTables = [] } = useDataTables();
   const { data: allInsights = [] } = useInsights();
   const { data: dataFrames = [] } = useDataFrames();
-  const dataSourceMutations = useDataSourceMutations();
+  const { mutateAsync: addDataSource } = useMutation(api.addDataSource);
+  const { mutateAsync: removeDataSource } = useMutation(api.removeDataSource);
   const tableMutations = useDataTableMutations();
   const { mutateAsync: listNotionDatabasesMutation } = useMutation(
     api.listNotionDatabases,
@@ -310,8 +309,10 @@ export function DataPickerContent({
           connectorId: connector.id,
           connectorName: connector.name,
           credentials,
-          addSource: dataSourceMutations.add,
-          removeSource: dataSourceMutations.remove,
+          addSource: async (input) => (await addDataSource(input)).id,
+          removeSource: async (id) => {
+            await removeDataSource({ id });
+          },
           listNotionDatabases: (id) =>
             listNotionDatabasesMutation({ dataSourceId: id }),
           listPostgresTables: (id) =>
@@ -320,9 +321,10 @@ export function DataPickerContent({
       );
     },
     [
-      dataSourceMutations,
+      addDataSource,
       listNotionDatabasesMutation,
       listPostgresTablesMutation,
+      removeDataSource,
     ],
   );
 

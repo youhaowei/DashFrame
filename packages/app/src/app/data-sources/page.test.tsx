@@ -5,21 +5,38 @@ const {
   mockNavigate,
   mockRefetchDataSources,
   mockRefetchDataTables,
+  mockRemoveDataSource,
   mockUseDataSources,
   mockUseDataTables,
 } = vi.hoisted(() => ({
   mockNavigate: vi.fn(),
   mockRefetchDataSources: vi.fn(),
   mockRefetchDataTables: vi.fn(),
+  mockRemoveDataSource: vi.fn(),
   mockUseDataSources: vi.fn(),
   mockUseDataTables: vi.fn(),
 }));
 
 vi.mock("@/data", () => ({
-  useDataSources: mockUseDataSources,
   useDataTables: mockUseDataTables,
-  useDataSourceMutations: () => ({ remove: vi.fn() }),
 }));
+
+vi.mock("@wystack/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@wystack/client")>();
+  return {
+    ...actual,
+    useQuery: (ref: { _path: string }) => {
+      if (ref._path === "listDataSources") return mockUseDataSources();
+      throw new Error(`Unexpected query: ${ref._path}`);
+    },
+    useMutation: (ref: { _path: string }) => {
+      if (ref._path === "removeDataSource") {
+        return { mutateAsync: mockRemoveDataSource };
+      }
+      throw new Error(`Unexpected mutation: ${ref._path}`);
+    },
+  };
+});
 
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mockNavigate,
@@ -46,6 +63,7 @@ describe("DataSourcesPage query states", () => {
     vi.clearAllMocks();
     mockRefetchDataSources.mockResolvedValue(undefined);
     mockRefetchDataTables.mockResolvedValue(undefined);
+    mockRemoveDataSource.mockResolvedValue({ ok: true });
     mockUseDataSources.mockReturnValue(successfulQuery(mockRefetchDataSources));
     mockUseDataTables.mockReturnValue(successfulQuery(mockRefetchDataTables));
   });
@@ -90,5 +108,29 @@ describe("DataSourcesPage query states", () => {
 
     expect(screen.getByText("No data sources yet")).not.toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("passes the reshaped id object to the remove mutation", async () => {
+    mockUseDataSources.mockReturnValue({
+      ...successfulQuery(mockRefetchDataSources),
+      data: [
+        {
+          id: "source-123",
+          name: "Local Files",
+          type: "local",
+          config: { hasApiKey: false, hasConnectionString: false },
+          createdAt: 0,
+        },
+      ],
+    });
+
+    render(<DataSourcesPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "More options" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /delete/i }));
+
+    await waitFor(() => {
+      expect(mockRemoveDataSource).toHaveBeenCalledWith({ id: "source-123" });
+    });
   });
 });

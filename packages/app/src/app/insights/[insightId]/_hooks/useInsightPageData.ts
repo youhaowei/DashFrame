@@ -1,9 +1,4 @@
-import {
-  useDataSources,
-  useDataTables,
-  useInsightMutations,
-  useInsights,
-} from "@/data";
+import { useDataTables, useInsightMutations, useInsights } from "@/data";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import type { PreviewResult } from "@/lib/insights/compute-preview";
 import { computeInsightPreview } from "@/lib/insights/compute-preview";
@@ -77,7 +72,9 @@ export interface InsightPageData {
 export function useInsightPageData(insightId: string): InsightPageData {
   const { data: insights, isLoading: isInsightsLoading } = useInsights();
   const { update: updateInsight } = useInsightMutations();
-  const { data: dataSources, isLoading: isSourcesLoading } = useDataSources();
+  const { data: dataSources, isLoading: isSourcesLoading } = useQuery(
+    api.listDataSources,
+  );
   const { data: allDataTables = [], isLoading: isTablesLoading } =
     useDataTables();
   const { data: visualizations = [], isLoading: isVizLoading } = useQuery(

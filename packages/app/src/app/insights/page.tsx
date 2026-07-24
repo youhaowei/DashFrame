@@ -1,10 +1,5 @@
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
-import {
-  useDataSources,
-  useDataTables,
-  useInsightMutations,
-  useInsights,
-} from "@/data";
+import { useDataTables, useInsightMutations, useInsights } from "@/data";
 import { api } from "@/wystack/api";
 import {
   isUnmodifiedDraft,
@@ -84,7 +79,7 @@ export default function InsightsPage() {
   const { data: visualizations = [] } = useQuery(api.listVisualizations, {
     args: {},
   });
-  const { data: dataSources = [] } = useDataSources();
+  const { data: dataSources = [] } = useQuery(api.listDataSources);
   const { data: allDataTables = [] } = useDataTables();
 
   // Local state

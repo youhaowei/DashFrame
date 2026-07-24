@@ -2,7 +2,7 @@
  * DataSourcePageContent tests.
  *
  * Section 1 — loading-state contract:
- *   When useDataSources is loading, the component shows a loading indicator and
+ *   When the data-sources query is loading, the component shows a loading indicator and
  *   NEVER shows "Data source not found" for a source that exists in the resolved
  *   data. Once data arrives the content renders.
  *   (Regression for the hardcoded `const isLoading = false` bug.)
@@ -20,6 +20,10 @@ const { mockUseDataSources } = vi.hoisted(() => ({
   mockUseDataSources: vi.fn(),
 }));
 
+const { mockUpdateDataSource } = vi.hoisted(() => ({
+  mockUpdateDataSource: vi.fn(),
+}));
+
 const { mockUseDataTables } = vi.hoisted(() => ({
   mockUseDataTables: vi.fn(),
 }));
@@ -29,12 +33,27 @@ const { mockCreateInsightFromTable } = vi.hoisted(() => ({
 }));
 
 vi.mock("@/data", () => ({
-  useDataSources: () => mockUseDataSources(),
-  useDataSourceMutations: () => ({ update: vi.fn() }),
   useDataFrames: () => ({ data: [] }),
   useDataTableMutations: () => ({ remove: vi.fn(), updateField: vi.fn() }),
   useDataTables: () => mockUseDataTables(),
 }));
+
+vi.mock("@wystack/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@wystack/client")>();
+  return {
+    ...actual,
+    useQuery: (ref: { _path: string }) => {
+      if (ref._path === "listDataSources") return mockUseDataSources();
+      throw new Error(`Unexpected query: ${ref._path}`);
+    },
+    useMutation: (ref: { _path: string }) => {
+      if (ref._path === "updateDataSource") {
+        return { mutateAsync: mockUpdateDataSource };
+      }
+      throw new Error(`Unexpected mutation: ${ref._path}`);
+    },
+  };
+});
 
 vi.mock("@/hooks/useCreateInsight", () => ({
   useCreateInsight: () => ({
@@ -219,10 +238,11 @@ const DATA_SOURCE = {
 describe("DataSourcePageContent — loading state contract", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUpdateDataSource.mockResolvedValue({ ok: true });
     mockUseDataTables.mockReturnValue({ data: [] });
   });
 
-  it("shows loading while useDataSources is fetching and then shows content — never 'not found'", async () => {
+  it("shows loading while the data-sources query is fetching and then shows content — never 'not found'", async () => {
     // Start: loading, no data yet (store hasn't hydrated)
     mockUseDataSources.mockReturnValue({ data: [], isLoading: true });
 
@@ -349,6 +369,27 @@ describe("DataSourcePageContent — loading state contract", () => {
       "Orders",
       { visualize: true },
     );
+  });
+
+  it("passes the reshaped id and name object to the update mutation", async () => {
+    mockUseDataSources.mockReturnValue({
+      data: [DATA_SOURCE],
+      isLoading: false,
+      isFetching: false,
+    });
+
+    render(<DataSourcePageContent sourceId={SOURCE_ID} />);
+
+    await act(async () => {
+      fireEvent.change(screen.getByDisplayValue("My Database"), {
+        target: { value: "Renamed Source" },
+      });
+    });
+
+    expect(mockUpdateDataSource).toHaveBeenCalledWith({
+      id: SOURCE_ID,
+      name: "Renamed Source",
+    });
   });
 });
 

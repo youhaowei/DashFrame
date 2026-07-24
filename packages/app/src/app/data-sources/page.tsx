@@ -1,9 +1,11 @@
 import { ConnectorIcon } from "@/components/data-sources/renderers/ConnectorIcon";
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
-import { useDataSourceMutations, useDataSources, useDataTables } from "@/data";
+import { useDataTables } from "@/data";
 import { getConnectorById } from "@/lib/connectors/registry";
+import { api } from "@/wystack/api";
 import type { DataSource, UUID } from "@dashframe/types";
 import { useNavigate } from "@tanstack/react-router";
+import { useMutation, useQuery } from "@wystack/client";
 import {
   Badge,
   Button,
@@ -42,10 +44,10 @@ type DataSourceWithTables = {
 export default function DataSourcesPage() {
   const navigate = useNavigate();
 
-  const dataSourcesQuery = useDataSources();
+  const dataSourcesQuery = useQuery(api.listDataSources);
   const dataSources = dataSourcesQuery.data;
   const refetchDataSources = dataSourcesQuery.refetch;
-  const { remove: removeDataSourceLocal } = useDataSourceMutations();
+  const { mutateAsync: removeDataSource } = useMutation(api.removeDataSource);
 
   // Get all data tables to count them per source
   const dataTablesQuery = useDataTables();
@@ -105,7 +107,7 @@ export default function DataSourcesPage() {
   ) => {
     e.stopPropagation();
     e.preventDefault();
-    await removeDataSourceLocal(dataSourceId);
+    await removeDataSource({ id: dataSourceId });
   };
 
   // Render data source card

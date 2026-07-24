@@ -1,4 +1,3 @@
-import type { UseRetryableQueryResult } from "./repository-base";
 import type { UUID } from "./uuid";
 
 // ============================================================================
@@ -61,44 +60,3 @@ export interface CreateDataSourceInput {
 export interface CreateDataSourceConfig {
   defaultSchema?: string;
 }
-
-// ============================================================================
-// Repository Hook Types
-// ============================================================================
-
-/**
- * Result type for useDataSources hook.
- */
-export type UseDataSourcesResult = UseRetryableQueryResult<DataSource[]>;
-
-/**
- * Mutation methods for data sources - pure CRUD operations.
- * Connector-specific validation should happen at the UI/hook layer.
- */
-export interface DataSourceMutations {
-  /** Add a new data source */
-  add: (input: CreateDataSourceInput) => Promise<UUID>;
-  /** Update a data source by ID.
-   * `apiKey` and `connectionString` are write-only fields accepted here
-   * but never returned by the read path.
-   */
-  update: (
-    id: UUID,
-    updates: Partial<Pick<DataSource, "name">> &
-      Pick<CreateDataSourceInput, "apiKey" | "connectionString">,
-  ) => Promise<void>;
-  /** Remove a data source by ID */
-  remove: (id: UUID) => Promise<void>;
-}
-
-/**
- * Hook type for reading data sources.
- * Implemented by the app's WyStack data layer.
- */
-export type UseDataSources = () => UseDataSourcesResult;
-
-/**
- * Hook type for data source mutations.
- * Implemented by the app's WyStack data layer.
- */
-export type UseDataSourceMutations = () => DataSourceMutations;

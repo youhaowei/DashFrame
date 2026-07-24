@@ -1,11 +1,13 @@
 import { ConnectorIcon } from "@/components/data-sources/renderers/ConnectorIcon";
 import { JoinFlowModal } from "@/components/visualizations/JoinFlowModal";
-import { useDataFrames, useDataSources, useInsightMutations } from "@/data";
+import { useDataFrames, useInsightMutations } from "@/data";
 import { getConnectorById } from "@/lib/connectors/registry";
 import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
+import { api } from "@/wystack/api";
 import type { DataTable, Insight } from "@dashframe/types";
 import { JoinTypeIcon } from "@dashframe/ui";
 import { useNavigate } from "@tanstack/react-router";
+import { useQuery } from "@wystack/client";
 import {
   ItemList,
   Section,
@@ -148,7 +150,7 @@ export const DataModelSection = memo(function DataModelSection({
   const navigate = useNavigate();
   const [isJoinFlowOpen, setIsJoinFlowOpen] = useState(false);
   const { data: allDataFrameEntries = [] } = useDataFrames();
-  const { data: allDataSources = [] } = useDataSources();
+  const { data: allDataSources = [] } = useQuery(api.listDataSources);
   const { update: updateInsight } = useInsightMutations();
   const { confirm } = useConfirmDialogStore();
 

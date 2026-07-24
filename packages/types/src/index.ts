@@ -67,10 +67,6 @@ export type {
   ConnectorConfig,
   CreateDataSourceInput,
   DataSource,
-  DataSourceMutations,
-  UseDataSourceMutations,
-  UseDataSources,
-  UseDataSourcesResult,
 } from "./data-sources";
 
 export type {

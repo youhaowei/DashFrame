@@ -1,11 +1,11 @@
-import { useDataSources, useDataTables } from "@/data";
+import { useDataTables } from "@/data";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import { getConnectorById } from "@/lib/connectors/registry";
 import { materializeRemoteTable } from "@/lib/remote-table-materialization";
 import { api } from "@/wystack/api";
 import type { DataTable, Field } from "@dashframe/types";
 import { VirtualTable, type VirtualTableColumn } from "@dashframe/ui";
-import { useMutation } from "@wystack/client";
+import { useMutation, useQuery } from "@wystack/client";
 import {
   Button,
   Card,
@@ -591,7 +591,7 @@ function useNotionSync(
 // The connector registry is the single source of truth for kind metadata —
 // no per-connector-id string checks survive here.
 export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
-  const { data: dataSources } = useDataSources();
+  const { data: dataSources } = useQuery(api.listDataSources);
   const { data: allTables } = useDataTables(dataSourceId ?? undefined);
 
   const dataSource = useMemo(

@@ -33,18 +33,6 @@ export {
 } from "./access-credentials";
 
 export {
-  addDataSource,
-  getAllDataSources,
-  getDataSource,
-  getDataSourceByType,
-  getOrCreateDataSourceByType,
-  removeDataSource,
-  updateDataSource,
-  useDataSourceMutations,
-  useDataSources,
-} from "./data-sources";
-
-export {
   addDataTable,
   createDataTable,
   getAllDataTables,
