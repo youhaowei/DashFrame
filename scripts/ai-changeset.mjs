@@ -33,6 +33,7 @@ const rootDir = join(__dirname, "..");
 // Package paths to detect changes
 const PACKAGE_PATHS = {
   "apps/web": "@dashframe/web",
+  "packages/app": "@dashframe/app",
   "packages/types": "@dashframe/types",
   "packages/core-dexie": "@dashframe/core-dexie",
   "packages/core-store": "@dashframe/core-store",
