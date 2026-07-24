@@ -812,6 +812,21 @@ export function InsightView({
   );
   const { confirm } = useConfirmDialogStore();
 
+  // Rename is fire-and-forget from a debounce; on failure surface the error and
+  // roll the field back to the last-known-saved name — but only if the user
+  // hasn't typed a newer name since this save was dispatched, otherwise a stale
+  // rejection would clobber the newer in-flight input (a fresh debounce is
+  // already saving it).
+  const rollbackRenameIfUnchanged = useCallback(
+    (attemptedName: string) => {
+      setLocalName((current) =>
+        current === attemptedName ? insight.name : current,
+      );
+      toast.error("Couldn't rename the insight");
+    },
+    [insight.name],
+  );
+
   // Debounced save for insight name (500ms after typing stops)
   const handleNameChange = useCallback(
     (newName: string) => {
@@ -826,17 +841,12 @@ export function InsightView({
       saveTimeoutRef.current = setTimeout(() => {
         if (newName !== insight.name) {
           updateInsight({ id: insightId, updates: { name: newName } }).catch(
-            () => {
-              // Rename is fire-and-forget from a debounce; surface the failure
-              // and roll the field back to the last-known-saved name.
-              setLocalName(insight.name);
-              toast.error("Couldn't rename the insight");
-            },
+            () => rollbackRenameIfUnchanged(newName),
           );
         }
       }, 500);
     },
-    [insightId, insight.name, updateInsight],
+    [insightId, insight.name, updateInsight, rollbackRenameIfUnchanged],
   );
 
   // Cleanup timeout on unmount
