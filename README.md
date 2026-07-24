@@ -44,7 +44,7 @@ libs/
 ## Naming Conventions
 
 - Use `DashFrame` for user-facing copy, branding, React components, and TypeScript types.
-- Use `dashframe` for package names, config identifiers, workspace scopes (e.g. `@dashframe/core`), directories, and persisted storage keys.
+- Use `dashframe` for package names, config identifiers, workspace scopes (e.g. `@dashframe/app`), directories, and persisted storage keys.
 - Keep new packages under the `@dashframe/*` scope so tooling and imports remain consistent.
 
 ### Quick start

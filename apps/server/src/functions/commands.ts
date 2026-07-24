@@ -1885,7 +1885,7 @@ async function findOrphanedInsights(
  * The `dataFrames` table stores metadata only; the actual Arrow bytes live in
  * the renderer's IndexedDB. Deleting the metadata row here is the signal the
  * client-side `removeDataFrame` hook needs to clean up the Arrow bytes via
- * `deleteArrowData(storage.key)` (see `packages/app-data/src/data-frames.ts`).
+ * `deleteArrowData(storage.key)` (see `packages/app/src/data/data-frames.ts`).
  */
 async function deleteInsightDataFrames(
   ctx: { db: import("@wystack/db").DrizzleTracker },
