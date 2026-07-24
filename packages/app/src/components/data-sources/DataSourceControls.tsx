@@ -1,4 +1,3 @@
-import { useDataTableMutations, useDataTables } from "@/data";
 import { getConnectorById } from "@/lib/connectors/registry";
 import { api } from "@/wystack/api";
 import { InputField } from "@dashframe/ui";
@@ -194,10 +193,12 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
   );
 
   const { data: dataSources } = useQuery(api.listDataSources);
-  const { data: allTables } = useDataTables(dataSourceId ?? undefined);
+  const { data: allTables } = useQuery(api.listDataTables, {
+    args: { dataSourceId: dataSourceId ?? undefined },
+  });
   const { mutateAsync: updateDataSource } = useMutation(api.updateDataSource);
   const { mutateAsync: removeDataSource } = useMutation(api.removeDataSource);
-  const tableMutations = useDataTableMutations();
+  const { mutateAsync: addDataTable } = useMutation(api.addDataTable);
 
   const dataSource = useMemo(
     () => dataSources?.find((s) => s.id === dataSourceId) ?? null,
@@ -271,7 +272,11 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
     if (!dataSource || !isRemoteApi) return;
 
     try {
-      await tableMutations.add(dataSource.id, database.title, database.id);
+      await addDataTable({
+        dataSourceId: dataSource.id,
+        name: database.title,
+        table: database.id,
+      });
       toast.success(`Added "${database.title}"`);
     } catch (error) {
       console.error("Failed to add database:", error);

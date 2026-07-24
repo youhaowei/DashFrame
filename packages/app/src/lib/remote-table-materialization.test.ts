@@ -22,8 +22,11 @@ const {
 vi.mock("@/data", () => ({
   addDataFrameEntry,
   getDataFrameEntry,
-  getDataTable,
   removeDataFrame,
+}));
+
+vi.mock("@/lib/data-access/data-tables", () => ({
+  getDataTable,
   updateDataTable,
 }));
 

@@ -17,16 +17,13 @@ const {
   mockUseDataTables: vi.fn(),
 }));
 
-vi.mock("@/data", () => ({
-  useDataTables: mockUseDataTables,
-}));
-
 vi.mock("@wystack/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@wystack/client")>();
   return {
     ...actual,
     useQuery: (ref: { _path: string }) => {
       if (ref._path === "listDataSources") return mockUseDataSources();
+      if (ref._path === "listDataTables") return mockUseDataTables();
       throw new Error(`Unexpected query: ${ref._path}`);
     },
     useMutation: (ref: { _path: string }) => {

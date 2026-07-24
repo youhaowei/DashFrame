@@ -5,7 +5,7 @@ import {
 import { ConnectorIcon } from "@/components/data-sources/renderers/ConnectorIcon";
 import { SensitivityBadge } from "@/components/data-sources/SensitivityBadge";
 import { AppLayout } from "@/components/layouts/AppLayout";
-import { useDataFrames, useDataTableMutations, useDataTables } from "@/data";
+import { useDataFrames } from "@/data";
 import { useCreateInsight } from "@/hooks/useCreateInsight";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import { getConnectorById } from "@/lib/connectors/registry";
@@ -159,13 +159,18 @@ export default function DataSourcePageContent({
     isFetching,
   } = useQuery(api.listDataSources);
   const { mutateAsync: updateDataSource } = useMutation(api.updateDataSource);
-  const { remove: removeDataTable, updateField } = useDataTableMutations();
+  const { mutateAsync: removeDataTable } = useMutation(api.removeDataTable);
+  const { mutateAsync: patchDataTableArray } = useMutation(
+    api.patchDataTableArray,
+  );
   const { data: allDataFrames = [] } = useDataFrames();
 
   // Find the data source
   const dataSource = allDataSources.find((s) => s.id === sourceId);
 
-  const { data: dataTables = [] } = useDataTables(sourceId);
+  const { data: dataTables = [] } = useQuery(api.listDataTables, {
+    args: { dataSourceId: sourceId },
+  });
 
   // Local state for selected table - use null to indicate "not yet selected by user"
   const [selectedTableId, setSelectedTableId] = useState<UUID | null>(null);
@@ -252,11 +257,13 @@ export default function DataSourcePageContent({
   ) => {
     if (!effectiveSelectedTableId) return;
     try {
-      await updateField(
-        effectiveSelectedTableId,
-        fieldId,
-        buildSensitivityUpdate(sensitivity, reasons),
-      );
+      await patchDataTableArray({
+        dataTableId: effectiveSelectedTableId,
+        kind: "fields",
+        mode: "update",
+        itemId: fieldId,
+        value: buildSensitivityUpdate(sensitivity, reasons),
+      });
     } catch {
       toast.error("Failed to update field sensitivity");
       return;
@@ -281,7 +288,7 @@ export default function DataSourcePageContent({
 
     try {
       // Delete from local store
-      await removeDataTable(deleteConfirmState.tableId);
+      await removeDataTable({ id: deleteConfirmState.tableId });
 
       // Clear selection and close dialog
       setSelectedTableId(null);

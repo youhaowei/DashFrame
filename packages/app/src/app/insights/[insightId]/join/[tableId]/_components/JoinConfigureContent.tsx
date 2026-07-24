@@ -1,13 +1,9 @@
 /* eslint-disable sonarjs/cognitive-complexity */
 
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
-import {
-  getDataFrame,
-  useDataTables,
-  useInsightMutations,
-  useInsights,
-} from "@/data";
+import { getDataFrame, useInsightMutations, useInsights } from "@/data";
 import { useDataFramePagination } from "@/hooks/useDataFramePagination";
+import { api } from "@/wystack/api";
 import {
   joinTypeToSQL,
   quoteIdentifier,
@@ -25,6 +21,7 @@ import {
   type VirtualTableColumnConfig,
 } from "@dashframe/ui";
 import { useNavigate } from "@tanstack/react-router";
+import { useQuery } from "@wystack/client";
 import {
   Alert,
   AlertDescription,
@@ -83,7 +80,10 @@ export default function JoinConfigureContent({
   const navigate = useNavigate();
 
   const { data: allInsights, isLoading: isInsightsLoading } = useInsights();
-  const { data: allDataTables, isLoading: isTablesLoading } = useDataTables();
+  const { data: allDataTables, isLoading: isTablesLoading } = useQuery(
+    api.listDataTables,
+    { args: {} },
+  );
   const { update: updateInsight } = useInsightMutations();
 
   const isLoading = isInsightsLoading || isTablesLoading;

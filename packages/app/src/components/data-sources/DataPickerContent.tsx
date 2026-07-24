@@ -1,10 +1,4 @@
-import {
-  removeDataFrame,
-  useDataFrames,
-  useDataTableMutations,
-  useDataTables,
-  useInsights,
-} from "@/data";
+import { removeDataFrame, useDataFrames, useInsights } from "@/data";
 import { getConnectorById } from "@/lib/connectors/registry";
 import { handleFileConnectorResult } from "@/lib/local-csv-handler";
 import {
@@ -119,12 +113,15 @@ export function DataPickerContent({
   showInsights = true,
 }: DataPickerContentProps) {
   const { data: dataSources = [] } = useQuery(api.listDataSources);
-  const { data: allDataTables = [] } = useDataTables();
+  const { data: allDataTables = [] } = useQuery(api.listDataTables, {
+    args: {},
+  });
   const { data: allInsights = [] } = useInsights();
   const { data: dataFrames = [] } = useDataFrames();
   const { mutateAsync: addDataSource } = useMutation(api.addDataSource);
   const { mutateAsync: removeDataSource } = useMutation(api.removeDataSource);
-  const tableMutations = useDataTableMutations();
+  const { mutateAsync: addDataTable } = useMutation(api.addDataTable);
+  const { mutateAsync: removeDataTable } = useMutation(api.removeDataTable);
   const { mutateAsync: listNotionDatabasesMutation } = useMutation(
     api.listNotionDatabases,
   );
@@ -336,11 +333,13 @@ export function DataPickerContent({
       let tableId: UUID | null = null;
       let dataFrameId: UUID | null = null;
       try {
-        tableId = await tableMutations.add(
-          remoteResourceState.sourceId,
-          resource.title,
-          resource.id,
-        );
+        tableId = (
+          await addDataTable({
+            dataSourceId: remoteResourceState.sourceId,
+            name: resource.title,
+            table: resource.id,
+          })
+        ).id;
         const result =
           remoteResourceState.connectorId === "notion"
             ? await queryNotionDatabaseMutation({
@@ -366,7 +365,7 @@ export function DataPickerContent({
             requestRemoteFieldReview(confirm, resource.title, request),
         );
         if (!reviewedFields) {
-          await tableMutations.remove(tableId);
+          await removeDataTable({ id: tableId });
           tableId = null;
           return;
         }
@@ -383,7 +382,7 @@ export function DataPickerContent({
         const cleanupResults = await Promise.allSettled([
           ...(dataFrameId ? [removeDataFrame(dataFrameId)] : []),
           ...(tableId && !preserveTable
-            ? [tableMutations.remove(tableId)]
+            ? [removeDataTable({ id: tableId })]
             : []),
         ]);
         const cleanupFailed = cleanupResults.some(
@@ -400,11 +399,12 @@ export function DataPickerContent({
     },
     [
       queryNotionDatabaseMutation,
+      addDataTable,
       onTableSelect,
       queryPostgresTableMutation,
       confirm,
       remoteResourceState,
-      tableMutations,
+      removeDataTable,
     ],
   );
 

@@ -24,6 +24,11 @@ const { mockUpdateDataSource } = vi.hoisted(() => ({
   mockUpdateDataSource: vi.fn(),
 }));
 
+const { mockPatchDataTableArray, mockRemoveDataTable } = vi.hoisted(() => ({
+  mockPatchDataTableArray: vi.fn(),
+  mockRemoveDataTable: vi.fn(),
+}));
+
 const { mockUseDataTables } = vi.hoisted(() => ({
   mockUseDataTables: vi.fn(),
 }));
@@ -34,8 +39,6 @@ const { mockCreateInsightFromTable } = vi.hoisted(() => ({
 
 vi.mock("@/data", () => ({
   useDataFrames: () => ({ data: [] }),
-  useDataTableMutations: () => ({ remove: vi.fn(), updateField: vi.fn() }),
-  useDataTables: () => mockUseDataTables(),
 }));
 
 vi.mock("@wystack/client", async (importOriginal) => {
@@ -44,11 +47,18 @@ vi.mock("@wystack/client", async (importOriginal) => {
     ...actual,
     useQuery: (ref: { _path: string }) => {
       if (ref._path === "listDataSources") return mockUseDataSources();
+      if (ref._path === "listDataTables") return mockUseDataTables();
       throw new Error(`Unexpected query: ${ref._path}`);
     },
     useMutation: (ref: { _path: string }) => {
       if (ref._path === "updateDataSource") {
         return { mutateAsync: mockUpdateDataSource };
+      }
+      if (ref._path === "patchDataTableArray") {
+        return { mutateAsync: mockPatchDataTableArray };
+      }
+      if (ref._path === "removeDataTable") {
+        return { mutateAsync: mockRemoveDataTable };
       }
       throw new Error(`Unexpected mutation: ${ref._path}`);
     },
@@ -238,6 +248,8 @@ const DATA_SOURCE = {
 describe("DataSourcePageContent — loading state contract", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockPatchDataTableArray.mockResolvedValue({ ok: true });
+    mockRemoveDataTable.mockResolvedValue({ ok: true });
     mockUpdateDataSource.mockResolvedValue({ ok: true });
     mockUseDataTables.mockReturnValue({ data: [] });
   });
@@ -389,6 +401,37 @@ describe("DataSourcePageContent — loading state contract", () => {
     expect(mockUpdateDataSource).toHaveBeenCalledWith({
       id: SOURCE_ID,
       name: "Renamed Source",
+    });
+  });
+
+  it("passes the reshaped field patch object to the data-table mutation", async () => {
+    mockUseDataSources.mockReturnValue({
+      data: [DATA_SOURCE],
+      isLoading: false,
+      isFetching: false,
+    });
+    mockUseDataTables.mockReturnValue({
+      data: [
+        {
+          id: "table-orders",
+          name: "Orders",
+          fields: [{ id: "field-a", name: "Amount", type: "number" }],
+          metrics: [],
+        },
+      ],
+    });
+
+    render(<DataSourcePageContent sourceId={SOURCE_ID} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Orders" }));
+    fireEvent.click(screen.getByRole("button", { name: "Mark safe" }));
+
+    expect(mockPatchDataTableArray).toHaveBeenCalledWith({
+      dataTableId: "table-orders",
+      kind: "fields",
+      mode: "update",
+      itemId: "field-a",
+      value: undefined,
     });
   });
 });

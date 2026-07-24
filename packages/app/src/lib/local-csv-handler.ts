@@ -1,11 +1,10 @@
+import { addDataFrameEntry, replaceDataFrame } from "@/data";
+import { getOrCreateDataSourceByType } from "@/lib/data-access/data-sources";
 import {
-  addDataFrameEntry,
   createDataTable,
   getDataTable,
-  replaceDataFrame,
   updateDataTable,
-} from "@/data";
-import { getOrCreateDataSourceByType } from "@/lib/data-access/data-sources";
+} from "@/lib/data-access/data-tables";
 import { csvToDataFrame } from "@dashframe/csv";
 import type { FileParseResult } from "@dashframe/engine";
 import type { BrowserDataFrame } from "@dashframe/engine-browser";

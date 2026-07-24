@@ -4,12 +4,7 @@ import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import { useContextPanelSection } from "@/components/shell/context-panel-outlet";
 import { AxisSelectField } from "@/components/visualizations/AxisSelectField";
 import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
-import {
-  getDataFrame,
-  useCompiledInsight,
-  useDataTables,
-  useInsights,
-} from "@/data";
+import { getDataFrame, useCompiledInsight, useInsights } from "@/data";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
@@ -146,7 +141,7 @@ export default function VisualizationPageContent({
     { args: {} },
   );
   const { data: insights = [] } = useInsights();
-  const { data: dataTables = [] } = useDataTables();
+  const { data: dataTables = [] } = useQuery(api.listDataTables, { args: {} });
   const { mutateAsync: updateVisualizationMutation } = useMutation(
     api.updateVisualization,
   );

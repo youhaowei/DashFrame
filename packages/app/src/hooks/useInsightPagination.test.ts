@@ -53,6 +53,9 @@ vi.mock("@/components/providers/DuckDBProvider", () => ({
 
 vi.mock("@/data", () => ({
   getDataFrame: mockGetDataFrame,
+}));
+
+vi.mock("@/lib/data-access/data-tables", () => ({
   getDataTable: mockGetDataTable,
 }));
 

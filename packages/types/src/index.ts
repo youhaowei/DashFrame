@@ -69,13 +69,7 @@ export type {
   DataSource,
 } from "./data-sources";
 
-export type {
-  DataTable,
-  DataTableMutations,
-  UseDataTableMutations,
-  UseDataTables,
-  UseDataTablesResult,
-} from "./data-tables";
+export type { DataTable } from "./data-tables";
 
 export type {
   CompiledInsight,

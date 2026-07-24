@@ -33,17 +33,6 @@ export {
 } from "./access-credentials";
 
 export {
-  addDataTable,
-  createDataTable,
-  getAllDataTables,
-  getDataTable,
-  getDataTablesBySource,
-  updateDataTable,
-  useDataTableMutations,
-  useDataTables,
-} from "./data-tables";
-
-export {
   getAllInsights,
   getInsight,
   useCompiledInsight,

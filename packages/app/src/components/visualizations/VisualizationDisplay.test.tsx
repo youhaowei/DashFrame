@@ -54,15 +54,16 @@ const { mockUseVisualizations, mockUseInsights, mockUseDataTables } =
     mockUseDataTables: vi.fn(),
   }));
 
-// Visualizations are direct useQuery; insights/dataTables still go through
-// the @/data wrappers (those domains are not migrated in this change).
+// Visualizations and data tables are direct useQuery; insights still go
+// through its @/data wrapper.
 vi.mock("@wystack/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@wystack/client")>();
   return {
     ...actual,
     useQuery: (ref: { _path: string }) => {
       if (ref._path === "listVisualizations") return mockUseVisualizations();
-      return { data: [] };
+      if (ref._path === "listDataTables") return mockUseDataTables();
+      throw new Error(`Unexpected query: ${ref._path}`);
     },
     useMutation: () => ({ mutateAsync: vi.fn() }),
   };
@@ -70,7 +71,6 @@ vi.mock("@wystack/client", async (importOriginal) => {
 
 vi.mock("@/data", () => ({
   useInsights: () => mockUseInsights(),
-  useDataTables: () => mockUseDataTables(),
 }));
 
 vi.mock("@dashframe/engine", () => ({

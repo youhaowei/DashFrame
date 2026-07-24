@@ -40,6 +40,9 @@ const { mockGetDataFrame, mockGetDataTable } = vi.hoisted(() => ({
 
 vi.mock("@/data", () => ({
   getDataFrame: mockGetDataFrame,
+}));
+
+vi.mock("@/lib/data-access/data-tables", () => ({
   getDataTable: mockGetDataTable,
 }));
 

@@ -1,4 +1,3 @@
-import { useDataTables } from "@/data";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import { getConnectorById } from "@/lib/connectors/registry";
 import { materializeRemoteTable } from "@/lib/remote-table-materialization";
@@ -592,7 +591,9 @@ function useNotionSync(
 // no per-connector-id string checks survive here.
 export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
   const { data: dataSources } = useQuery(api.listDataSources);
-  const { data: allTables } = useDataTables(dataSourceId ?? undefined);
+  const { data: allTables } = useQuery(api.listDataTables, {
+    args: { dataSourceId: dataSourceId ?? undefined },
+  });
 
   const dataSource = useMemo(
     () => dataSources?.find((s) => s.id === dataSourceId) ?? null,

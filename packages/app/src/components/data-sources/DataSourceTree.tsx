@@ -1,4 +1,4 @@
-import { useDataFrames, useDataTables } from "@/data";
+import { useDataFrames } from "@/data";
 import { getConnectorById } from "@/lib/connectors/registry";
 import { api } from "@/wystack/api";
 import { useQuery } from "@wystack/client";
@@ -20,7 +20,9 @@ export function DataSourceTree({
   onDeleteTable,
 }: DataSourceTreeProps) {
   const { data: dataSources } = useQuery(api.listDataSources);
-  const { data: tables } = useDataTables(dataSourceId);
+  const { data: tables } = useQuery(api.listDataTables, {
+    args: { dataSourceId },
+  });
   const { data: dataFrames } = useDataFrames();
 
   const dataSource = useMemo(

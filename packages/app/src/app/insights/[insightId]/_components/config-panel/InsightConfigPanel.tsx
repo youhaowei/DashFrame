@@ -1,4 +1,4 @@
-import { useDataTableMutations, useInsightMutations } from "@/data";
+import { useInsightMutations } from "@/data";
 import {
   computeCombinedFields,
   computeFilterableFields,
@@ -144,7 +144,9 @@ export function InsightConfigPanel({
 
   // Mutations
   const { update: updateInsight } = useInsightMutations();
-  const { updateField } = useDataTableMutations();
+  const { mutateAsync: patchDataTableArray } = useMutation(
+    api.patchDataTableArray,
+  );
   const { mutateAsync: updateVisualizationMutation } = useMutation(
     api.updateVisualization,
   );
@@ -275,13 +277,19 @@ export function InsightConfigPanel({
       // Update the display name in the source DataTable
       // This only changes the user-facing name, not the underlying columnName
       try {
-        await updateField(field.sourceTableId, field.id, { name: newName });
+        await patchDataTableArray({
+          dataTableId: field.sourceTableId,
+          kind: "fields",
+          mode: "update",
+          itemId: field.id,
+          value: { name: newName },
+        });
       } catch (error) {
         console.error("Failed to rename field:", error);
         alert("Failed to rename field. Please try again.");
       }
     },
-    [updateField],
+    [patchDataTableArray],
   );
 
   // --- Metric handlers ---

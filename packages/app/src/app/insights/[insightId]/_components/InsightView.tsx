@@ -5,7 +5,6 @@ import {
   getDataFrame,
   useDataFrameMutations,
   useDataFrames,
-  useDataTables,
   useInsightMutations,
 } from "@/data";
 import { useInsightPagination } from "@/hooks/useInsightPagination";
@@ -840,7 +839,9 @@ export function InsightView({
   }, []);
 
   // Fetch related data
-  const { data: allDataTables = [] } = useDataTables();
+  const { data: allDataTables = [] } = useQuery(api.listDataTables, {
+    args: {},
+  });
   const { data: allDataFrameEntries = [] } = useDataFrames();
   const { data: allVisualizations = [] } = useQuery(api.listVisualizations, {
     args: {},

@@ -17,7 +17,7 @@
  *   • (Additive "add filter" row for other eligible fields — not in this PR)
  */
 
-import { useDataTables, useInsights } from "@/data";
+import { useInsights } from "@/data";
 import { isControlEligible } from "@/lib/dashboards/controls";
 import { computeCombinedFields } from "@/lib/insights/compute-combined-fields";
 import { api } from "@/wystack/api";
@@ -276,7 +276,7 @@ export function OverridePopover({
     args: {},
   });
   const { data: insights = [] } = useInsights();
-  const { data: dataTables = [] } = useDataTables();
+  const { data: dataTables = [] } = useQuery(api.listDataTables, { args: {} });
 
   const visualization = useMemo(
     () =>

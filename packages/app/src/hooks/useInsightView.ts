@@ -1,6 +1,7 @@
 import { useChartEngine } from "@/components/providers/ChartEngineProvider";
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
-import { getDataFrame, getDataTable } from "@/data";
+import { getDataFrame } from "@/data";
+import { getDataTable } from "@/lib/data-access/data-tables";
 import type { EffectiveParams } from "@dashframe/engine";
 import {
   buildInsightAvailableFields,

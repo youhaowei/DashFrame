@@ -1,5 +1,4 @@
 import { ConnectorIcon } from "@/components/data-sources/renderers/ConnectorIcon";
-import { useDataTables } from "@/data";
 import { getConnectorById } from "@/lib/connectors/registry";
 import { api } from "@/wystack/api";
 import type { AnyConnector } from "@dashframe/engine";
@@ -53,7 +52,7 @@ export function DataSourceSelector({
   onCreateClick,
 }: DataSourceSelectorProps) {
   const { data: dataSources, isLoading } = useQuery(api.listDataSources);
-  const { data: allTables } = useDataTables();
+  const { data: allTables } = useQuery(api.listDataTables, { args: {} });
 
   // Sort data sources by creation time (newest first)
   const sortedSources = useMemo(

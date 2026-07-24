@@ -1,6 +1,5 @@
 import { ConnectorIcon } from "@/components/data-sources/renderers/ConnectorIcon";
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
-import { useDataTables } from "@/data";
 import { getConnectorById } from "@/lib/connectors/registry";
 import { api } from "@/wystack/api";
 import type { DataSource, UUID } from "@dashframe/types";
@@ -50,7 +49,7 @@ export default function DataSourcesPage() {
   const { mutateAsync: removeDataSource } = useMutation(api.removeDataSource);
 
   // Get all data tables to count them per source
-  const dataTablesQuery = useDataTables();
+  const dataTablesQuery = useQuery(api.listDataTables, { args: {} });
   const allDataTables = dataTablesQuery.data;
   const refetchDataTables = dataTablesQuery.refetch;
 
