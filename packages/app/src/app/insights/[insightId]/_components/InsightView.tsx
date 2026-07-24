@@ -1,15 +1,11 @@
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import { VisualizationPreview } from "@/components/visualizations/VisualizationPreview";
-import {
-  getDataFrame,
-  useDataFrameMutations,
-  useDataFrames,
-  useInsightMutations,
-} from "@/data";
+import { useInsightMutations } from "@/data";
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
 import { formatCellValue } from "@/lib/cell-formatter";
+import { getDataFrame } from "@/lib/data-access/data-frames";
 import {
   TABLE_CANVAS_VIEW,
   canvasViewsEqual,
@@ -806,7 +802,15 @@ export function InsightView({
   const { mutateAsync: removeVisualizationMutation } = useMutation(
     api.removeVisualization,
   );
-  const { updateAnalysis } = useDataFrameMutations();
+  const { mutateAsync: updateDataFrameEntry } = useMutation(
+    api.updateDataFrameEntry,
+  );
+  const updateAnalysis = useCallback(
+    async (id: UUID, analysis: DataFrameAnalysis): Promise<void> => {
+      await updateDataFrameEntry({ id, updates: { analysis } });
+    },
+    [updateDataFrameEntry],
+  );
   const { confirm } = useConfirmDialogStore();
 
   // Debounced save for insight name (500ms after typing stops)
@@ -842,7 +846,7 @@ export function InsightView({
   const { data: allDataTables = [] } = useQuery(api.listDataTables, {
     args: {},
   });
-  const { data: allDataFrameEntries = [] } = useDataFrames();
+  const { data: allDataFrameEntries = [] } = useQuery(api.listDataFrames);
   const { data: allVisualizations = [] } = useQuery(api.listVisualizations, {
     args: {},
   });

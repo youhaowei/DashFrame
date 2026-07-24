@@ -1,6 +1,7 @@
 import { AccessCredentialsDialog } from "@/components/access-credentials/AccessCredentialsDialog";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { clearAllData, useAccessCapabilities } from "@/data";
+import { useAccessCapabilities } from "@/data";
+import { clearAllData } from "@/lib/data-access/data-frames";
 import { PerfHud } from "@/lib/perf";
 import { useToastStore } from "@/lib/stores";
 import { useAssistantStore } from "@/lib/stores/assistant-store";

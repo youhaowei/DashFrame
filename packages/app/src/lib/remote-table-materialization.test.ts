@@ -19,7 +19,7 @@ const {
   updateDataTable: vi.fn(),
 }));
 
-vi.mock("@/data", () => ({
+vi.mock("@/lib/data-access/data-frames", () => ({
   addDataFrameEntry,
   getDataFrameEntry,
   removeDataFrame,

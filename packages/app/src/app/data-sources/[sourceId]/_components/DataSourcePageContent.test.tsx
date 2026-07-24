@@ -37,10 +37,6 @@ const { mockCreateInsightFromTable } = vi.hoisted(() => ({
   mockCreateInsightFromTable: vi.fn(),
 }));
 
-vi.mock("@/data", () => ({
-  useDataFrames: () => ({ data: [] }),
-}));
-
 vi.mock("@wystack/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@wystack/client")>();
   return {
@@ -48,6 +44,7 @@ vi.mock("@wystack/client", async (importOriginal) => {
     useQuery: (ref: { _path: string }) => {
       if (ref._path === "listDataSources") return mockUseDataSources();
       if (ref._path === "listDataTables") return mockUseDataTables();
+      if (ref._path === "listDataFrames") return { data: [] };
       throw new Error(`Unexpected query: ${ref._path}`);
     },
     useMutation: (ref: { _path: string }) => {

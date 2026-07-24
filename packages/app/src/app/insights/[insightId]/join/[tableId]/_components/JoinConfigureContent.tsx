@@ -1,8 +1,9 @@
 /* eslint-disable sonarjs/cognitive-complexity */
 
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
-import { getDataFrame, useInsightMutations, useInsights } from "@/data";
+import { useInsightMutations, useInsights } from "@/data";
 import { useDataFramePagination } from "@/hooks/useDataFramePagination";
+import { getDataFrame } from "@/lib/data-access/data-frames";
 import { api } from "@/wystack/api";
 import {
   joinTypeToSQL,

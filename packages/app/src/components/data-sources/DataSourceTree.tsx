@@ -1,4 +1,3 @@
-import { useDataFrames } from "@/data";
 import { getConnectorById } from "@/lib/connectors/registry";
 import { api } from "@/wystack/api";
 import { useQuery } from "@wystack/client";
@@ -23,7 +22,7 @@ export function DataSourceTree({
   const { data: tables } = useQuery(api.listDataTables, {
     args: { dataSourceId },
   });
-  const { data: dataFrames } = useDataFrames();
+  const { data: dataFrames } = useQuery(api.listDataFrames);
 
   const dataSource = useMemo(
     () => dataSources?.find((s) => s.id === dataSourceId),

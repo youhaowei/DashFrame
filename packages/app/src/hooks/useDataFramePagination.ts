@@ -1,7 +1,9 @@
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
-import { getDataFrame, useDataFrames } from "@/data";
+import { getDataFrame } from "@/lib/data-access/data-frames";
+import { api } from "@/wystack/api";
 import type { UUID } from "@dashframe/types";
 import type { FetchDataParams, FetchDataResult } from "@dashframe/ui";
+import { useQuery } from "@wystack/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 /**
@@ -26,7 +28,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
  */
 export function useDataFramePagination(dataFrameId: UUID | undefined) {
   const { connection, isInitialized, isLoading: isDuckDBLoading } = useDuckDB();
-  const { data: allDataFrames } = useDataFrames();
+  const { data: allDataFrames } = useQuery(api.listDataFrames);
 
   const entry = useMemo(
     () => allDataFrames?.find((df) => df.id === dataFrameId),

@@ -13,7 +13,7 @@
  * - useDataFrameDataByInsight variant (lookup by insightId)
  * - Hook stability and reference memoization
  */
-import type { DataFrameEntry } from "@/data";
+import type { DataFrameEntry } from "@/lib/data-access/data-frames";
 import type { DataFrameRow } from "@dashframe/types";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -41,10 +41,20 @@ const { mockGetDataFrame, mockUseDataFrames } = vi.hoisted(() => ({
   mockUseDataFrames: vi.fn(),
 }));
 
-vi.mock("@/data", () => ({
+vi.mock("@/lib/data-access/data-frames", () => ({
   getDataFrame: mockGetDataFrame,
-  useDataFrames: mockUseDataFrames,
 }));
+
+vi.mock("@wystack/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@wystack/client")>();
+  return {
+    ...actual,
+    useQuery: (ref: { _path: string }) => {
+      if (ref._path === "listDataFrames") return mockUseDataFrames();
+      throw new Error(`Unexpected query: ${ref._path}`);
+    },
+  };
+});
 
 /**
  * Helper to create a mock DataFrame with load() method

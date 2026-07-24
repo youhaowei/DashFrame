@@ -1,5 +1,9 @@
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
-import { getDataFrame, useDataFrames, type DataFrameEntry } from "@/data";
+import {
+  getDataFrame,
+  type DataFrameEntry,
+} from "@/lib/data-access/data-frames";
+import { api } from "@/wystack/api";
 import type {
   ColumnType,
   DataFrameColumn,
@@ -7,6 +11,7 @@ import type {
   DataFrameRow,
   UUID,
 } from "@dashframe/types";
+import { useQuery } from "@wystack/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 // Global mutex to prevent concurrent loads of the same DataFrame
@@ -93,7 +98,7 @@ export function useDataFrameData(
   },
 ): UseDataFrameDataResult {
   const { connection, isInitialized, isLoading: isDuckDBLoading } = useDuckDB();
-  const { data: allDataFrames } = useDataFrames();
+  const { data: allDataFrames } = useQuery(api.listDataFrames);
 
   // Find the entry from the reactive data
   const entry = useMemo(
@@ -246,7 +251,7 @@ export function useDataFrameDataByInsight(
     skip?: boolean;
   },
 ): UseDataFrameDataResult {
-  const { data: allDataFrames } = useDataFrames();
+  const { data: allDataFrames } = useQuery(api.listDataFrames);
 
   // Find entry by insightId
   const entry = useMemo(

@@ -1,6 +1,6 @@
 import { ConnectorIcon } from "@/components/data-sources/renderers/ConnectorIcon";
 import { JoinFlowModal } from "@/components/visualizations/JoinFlowModal";
-import { useDataFrames, useInsightMutations } from "@/data";
+import { useInsightMutations } from "@/data";
 import { getConnectorById } from "@/lib/connectors/registry";
 import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
 import { api } from "@/wystack/api";
@@ -149,7 +149,7 @@ export const DataModelSection = memo(function DataModelSection({
 }: DataModelSectionProps) {
   const navigate = useNavigate();
   const [isJoinFlowOpen, setIsJoinFlowOpen] = useState(false);
-  const { data: allDataFrameEntries = [] } = useDataFrames();
+  const { data: allDataFrameEntries = [] } = useQuery(api.listDataFrames);
   const { data: allDataSources = [] } = useQuery(api.listDataSources);
   const { update: updateInsight } = useInsightMutations();
   const { confirm } = useConfirmDialogStore();

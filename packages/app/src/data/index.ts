@@ -41,23 +41,4 @@ export {
   useInsights,
 } from "./insights";
 
-export {
-  addDataFrameEntry,
-  clearAllData,
-  getAllDataFrames,
-  getDataFrame,
-  getDataFrameByInsight,
-  getDataFrameEntry,
-  removeDataFrame,
-  replaceDataFrame,
-  updateDataFrameAnalysis,
-  updateDataFrameEntry,
-  updateMetadata,
-  useDataFrameMutations,
-  useDataFrames,
-  type DataFrameEntry,
-  type DataFrameMutations,
-  type UseDataFramesResult,
-} from "./data-frames";
-
 export { DatabaseProvider, useDatabase } from "../wystack/compat";

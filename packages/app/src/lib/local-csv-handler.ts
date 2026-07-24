@@ -1,4 +1,7 @@
-import { addDataFrameEntry, replaceDataFrame } from "@/data";
+import {
+  addDataFrameEntry,
+  replaceDataFrame,
+} from "@/lib/data-access/data-frames";
 import { getOrCreateDataSourceByType } from "@/lib/data-access/data-sources";
 import {
   createDataTable,

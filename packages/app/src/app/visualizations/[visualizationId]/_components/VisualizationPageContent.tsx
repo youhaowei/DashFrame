@@ -4,10 +4,11 @@ import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import { useContextPanelSection } from "@/components/shell/context-panel-outlet";
 import { AxisSelectField } from "@/components/visualizations/AxisSelectField";
 import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
-import { getDataFrame, useCompiledInsight, useInsights } from "@/data";
+import { useCompiledInsight, useInsights } from "@/data";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
+import { getDataFrame } from "@/lib/data-access/data-frames";
 import {
   computeInsightPreview,
   type PreviewResult,

@@ -1,5 +1,5 @@
-import type { DataFrameEntry } from "@/data";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
+import type { DataFrameEntry } from "@/lib/data-access/data-frames";
 import { extractUUIDFromColumnAlias } from "@dashframe/engine";
 import type {
   ColumnAnalysis,

@@ -5,7 +5,6 @@ import {
 import { ConnectorIcon } from "@/components/data-sources/renderers/ConnectorIcon";
 import { SensitivityBadge } from "@/components/data-sources/SensitivityBadge";
 import { AppLayout } from "@/components/layouts/AppLayout";
-import { useDataFrames } from "@/data";
 import { useCreateInsight } from "@/hooks/useCreateInsight";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import { getConnectorById } from "@/lib/connectors/registry";
@@ -163,7 +162,7 @@ export default function DataSourcePageContent({
   const { mutateAsync: patchDataTableArray } = useMutation(
     api.patchDataTableArray,
   );
-  const { data: allDataFrames = [] } = useDataFrames();
+  const { data: allDataFrames = [] } = useQuery(api.listDataFrames);
 
   // Find the data source
   const dataSource = allDataSources.find((s) => s.id === sourceId);
