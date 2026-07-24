@@ -15,7 +15,7 @@
  */
 import { useCallback, useState } from "react";
 
-import { discardDraft, getDraftPublishReview, publishDraft } from "@/data";
+import { discardDraft, publishDraft } from "@/data";
 import type { PreviewDiff } from "@dashframe/types";
 import { useNavigate } from "@tanstack/react-router";
 import { Button, cn } from "@wystack/ui-react";
@@ -25,6 +25,17 @@ import { toast } from "sonner";
 import { PreviewDiffDialog } from "@/components/preview-diff/PreviewDiffDialog";
 import { draftLifecycleErrorDescription } from "@/components/preview-diff/user-facing-errors";
 import { useAssistantStore } from "@/lib/stores/assistant-store";
+import { api } from "@/wystack/api";
+import { getWyStackClient } from "@/wystack/client";
+
+/**
+ * Relocated from the (deleted) `data/drafts.ts` wrapper — this file is its
+ * only consumer. One-shot imperative fetch, not a `useQuery` hook: the review
+ * is loaded on-demand when the user clicks "Review changes", not on render.
+ */
+async function getDraftPublishReview(draftId: string) {
+  return getWyStackClient().query(api.draftPublishReview, { draftId });
+}
 
 /**
  * Panel body rendered in the assistant sidebar when there is a draft to review.

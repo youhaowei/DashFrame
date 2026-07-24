@@ -96,13 +96,3 @@ export { previewBatch, type PreviewCommand } from "./preview-diff";
 
 // Draft lifecycle — publish, discard, and log-read RPCs.
 export { discardDraft, getDraftLog, publishDraft } from "./draft-lifecycle";
-
-export {
-  getDraftPublishReview,
-  useDraftMutations,
-  useDraftPublishReview,
-  type DraftMutations,
-  type DraftPublishReview,
-  type LateBoundOperandRef,
-  type UseDraftPublishReviewResult,
-} from "./drafts";
