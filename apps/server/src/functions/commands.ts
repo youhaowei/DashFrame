@@ -71,7 +71,7 @@
  * transitively depend on itself.
  *
  * Storage contract: `InsightDefinition.baseTableId` is the structural source id
- * carried on every Insight. `rowToInsight` in `app-artifacts.ts` reads it, and
+ * carried on every Insight. `decodeInsight` in `dto/insights.ts` reads it, and
  * it is a field on the `Insight` domain type the renderer consumes. `source`
  * carries the polymorphic source description; `baseTableId` is written to
  * `source.sourceId` on every write so both stay in lockstep — for a DataTable
@@ -96,10 +96,15 @@ import type {
 import { eq, jsonb, text, uuid } from "@wystack/db";
 import { isSecretRef, type SecretRef } from "@wystack/secret-vault";
 import type { Command } from "@wystack/server";
-import { z } from "zod";
 
 import type { DashframeFunctionContext } from "../app-context";
 import { wy } from "../wystack";
+import {
+  type InsightSource,
+  insightSourceSchema,
+  type StoredInsightDefinition,
+  storedInsightDefinitionSchema,
+} from "./dto/insights";
 import {
   applyCredentialField,
   coerceProvenance,
@@ -112,6 +117,11 @@ import {
   shouldDeferRelease,
   vaultFromCtx,
 } from "./utils";
+
+// The canonical stored-definition schema/types are owned by the insights codec
+// (`./dto/insights`). Re-export the schema so command tests keep importing it
+// from this module and their `.safeParse` spy targets the same object.
+export { storedInsightDefinitionSchema };
 
 const {
   dataSources,
@@ -129,92 +139,13 @@ type VisualizationRow = typeof visualizations.$inferSelect;
 type DashboardRow = typeof dashboards.$inferSelect;
 
 // ---------------------------------------------------------------------------
-// Insight definition shape (stored in insights.definition jsonb)
+// Insight definition contract
 // ---------------------------------------------------------------------------
-
-/**
- * The polymorphic source description stored in `insights.definition`.
- * Insight-on-Insight composition rides on `sourceType`.
- */
-interface InsightSource {
-  sourceType: "dataTable" | "insight";
-  sourceId: UUID;
-}
-
-interface StoredInsightDefinition {
-  /** Structural source id — also surfaced on the `Insight` domain type via `rowToInsight`. */
-  baseTableId: UUID;
-  /** Polymorphic source description; `baseTableId` mirrors `source.sourceId`. */
-  source?: InsightSource;
-  selectedFields: UUID[];
-  metrics: unknown[];
-  filters?: unknown[];
-  sorts?: unknown[];
-  joins?: unknown[];
-}
-
-// ---------------------------------------------------------------------------
-// JSONB validation schemas (defined once, applied at every read/cast site)
-// ---------------------------------------------------------------------------
-
-/**
- * Zod schema for the polymorphic InsightSource stored in
- * `insights.definition`. Validates the discriminant and the required id before
- * any property access so a corrupt/unexpected blob fails with a clear
- * ZodError rather than throwing on `undefined.someField`.
- */
-const insightSourceSchema = z.object({
-  sourceType: z.enum(["dataTable", "insight"]),
-  sourceId: z.string(),
-});
-
-/**
- * Zod schema for the full StoredInsightDefinition JSONB blob. Applied in
- * `requireInsightDefinition` so every handler that reads the definition from
- * the DB gets a validated, typed value — not a blindly-cast unknown.
- *
- * IMPORTANT — write-back allowlist: `requireInsightDefinition` returns
- * `parsed.data` (the Zod output). Handlers spread this into the next
- * definition before writing it back (`{ ...definition, <field> }`). Any key
- * present in the stored blob but absent from this schema is silently dropped
- * on the next write. Adding a new field to `StoredInsightDefinition` requires
- * a matching entry here.
- *
- * `selectedFields` and `metrics` default to `[]` (rather than being required)
- * to match the read-path's defensive coalescing (`?? []`) — older or
- * externally written rows that omit them remain readable instead of being
- * rejected as corrupt.
- *
- * Exported so tests can assert parse-call counts (e.g. the orphan scan parses
- * each insight once, not once per owned table).
- */
-export const storedInsightDefinitionSchema = z.object({
-  baseTableId: z.string(),
-  source: insightSourceSchema.optional(),
-  // `.nullish().default([])` — a null value (SQL JSONB can store null for an
-  // absent key) and an absent key are both "nothing set" states, not corrupt.
-  // Present-but-malformed (a non-array) is still rejected as corrupt.
-  selectedFields: z
-    .array(z.string())
-    .nullish()
-    .transform((v) => v ?? []),
-  metrics: z
-    .array(z.unknown())
-    .nullish()
-    .transform((v) => v ?? []),
-  filters: z
-    .array(z.unknown())
-    .nullish()
-    .transform((v) => v ?? undefined),
-  sorts: z
-    .array(z.unknown())
-    .nullish()
-    .transform((v) => v ?? undefined),
-  joins: z
-    .array(z.unknown())
-    .nullish()
-    .transform((v) => v ?? undefined),
-});
+// The stored-definition schema and types — `InsightSource`,
+// `StoredInsightDefinition`, `insightSourceSchema`, `storedInsightDefinitionSchema`
+// — are owned by the insights codec (`./dto/insights`) and imported above. The
+// read path (`decodeInsight`) and these write handlers therefore share one
+// canonical schema and cannot drift.
 
 /**
  * Load an Insight's stored definition. Throws if the row does not exist — the
@@ -623,7 +554,7 @@ const refreshDataTable = wy.procedure
 /**
  * CreateInsight — mints a new transform node over a DataFrame-producing input
  * (DataTable or another Insight). `source.sourceId` is written into both the
- * polymorphic `source` field and `baseTableId` (which `rowToInsight` surfaces
+ * polymorphic `source` field and `baseTableId` (which `decodeInsight` surfaces
  * on the `Insight` domain type). When `sourceType === 'insight'` `baseTableId`
  * carries the upstream insight id; consumers resolving the structural source
  * read `source.sourceType` to disambiguate.
@@ -1015,7 +946,7 @@ function requireInsightMetricShape(value: unknown): InsightMetric {
 
 /**
  * Apply a field edit to an Insight via `definition.selectedFields` — the array the
- * read path (rowToInsight) actually surfaces. An Insight does not own Field objects;
+ * read path (decodeInsight) actually surfaces. An Insight does not own Field objects;
  * it SELECTS field ids from its source, so a field command resolves to a membership
  * edit of the id set, mirroring patchInsightDefinition's addField/removeField in
  * app-artifacts.ts:
@@ -1093,7 +1024,7 @@ async function patchDataTableCollection(
       return "insight";
     }
     // Insight metrics live inside the definition jsonb under `metrics`, the same
-    // key the read path (rowToInsight) surfaces. Validate the stored definition
+    // key the read path (decodeInsight) surfaces. Validate the stored definition
     // at the point of use — a corrupt blob must produce a clean "corrupt
     // definition" error, not crash on `.metrics`.
     const { definition } = await requireInsightDefinition(ctx, nodeId);

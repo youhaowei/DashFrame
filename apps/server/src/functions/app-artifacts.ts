@@ -11,10 +11,7 @@ import type {
   DataTable,
   Field,
   Insight,
-  InsightFilter,
-  InsightJoinConfig,
   InsightMetric,
-  InsightSort,
   Metric,
   SourceSchema,
   UUID,
@@ -31,6 +28,13 @@ import { z } from "zod";
 
 import type { DashframeFunctionContext } from "../app-context";
 import { wy } from "../wystack";
+import {
+  decodeInsight,
+  encodeInsightDefinition,
+  type InsightDefinition,
+  type InsightRow,
+} from "./dto/insights";
+import { tsToMillis } from "./timestamps";
 import {
   applyCredentialField,
   type DataSourceConfig,
@@ -53,7 +57,6 @@ const {
 type DataSourceRow = typeof dataSources.$inferSelect;
 type DataTableRow = typeof dataTables.$inferSelect;
 type DataFrameRow = typeof dataFrames.$inferSelect;
-type InsightRow = typeof insights.$inferSelect;
 type VisualizationRow = typeof visualizations.$inferSelect;
 
 type DataFrameEntry = DataFrameJSON & {
@@ -62,15 +65,6 @@ type DataFrameEntry = DataFrameJSON & {
   rowCount?: number;
   columnCount?: number;
   analysis?: DataFrameAnalysis;
-};
-
-type InsightDefinition = {
-  baseTableId: UUID;
-  selectedFields: UUID[];
-  metrics: InsightMetric[];
-  filters?: InsightFilter[];
-  sorts?: InsightSort[];
-  joins?: InsightJoinConfig[];
 };
 
 type DataTableArrayKind = "fields" | "metrics";
@@ -224,23 +218,6 @@ function patchInsightMetricDefinition(
 }
 
 /**
- * Coalesce a row timestamp to epoch ms, null-safe.
- *
- * Canonical artifact tables stamp `created_at` with a DB default, so a canonical
- * read always has it. But the DRAFT-OVERLAY view coalesces canonical ⊕ the sparse
- * `<table>__draft` delta, and the draft shadow leaves `created_at` NULL for an
- * artifact CREATED inside a draft (it has no canonical base, and publish stamps
- * the real value). A draft-created artifact read through the overlay therefore
- * carries a null timestamp until publish — `.getTime()` on it throws. Coalesce
- * null → 0 (epoch): the artifact is unpublished, so it has no real creation time
- * yet; 0 is the honest placeholder the read path can surface without crashing.
- * `updatedAt` stays optional (null → undefined) via `?.getTime()` at call sites.
- */
-export function tsToMillis(value: Date | null | undefined): number {
-  return value != null ? value.getTime() : 0;
-}
-
-/**
  * Map a `data_sources` row to the `DataSource` read DTO.
  *
  * Presence flags (hasApiKey / hasConnectionString) are derived from the vault
@@ -328,40 +305,6 @@ function rowToDataFrame(row: DataFrameRow): DataFrameEntry {
   };
 }
 
-function rowToInsight(row: InsightRow): Insight {
-  const definition = row.definition as InsightDefinition;
-  return {
-    id: row.id,
-    name: row.name,
-    baseTableId: definition.baseTableId,
-    selectedFields: definition.selectedFields ?? [],
-    metrics: definition.metrics ?? [],
-    filters: definition.filters,
-    sorts: definition.sorts,
-    joins: definition.joins,
-    createdAt: tsToMillis(row.createdAt),
-    updatedAt: row.updatedAt?.getTime(),
-  };
-}
-
-function insightToDefinition(input: {
-  baseTableId: UUID;
-  selectedFields?: UUID[];
-  metrics?: InsightMetric[];
-  filters?: InsightFilter[];
-  sorts?: InsightSort[];
-  joins?: InsightJoinConfig[];
-}): InsightDefinition {
-  return {
-    baseTableId: input.baseTableId,
-    selectedFields: input.selectedFields ?? [],
-    metrics: input.metrics ?? [],
-    filters: input.filters,
-    sorts: input.sorts,
-    joins: input.joins,
-  };
-}
-
 function stripDataFromSpec(spec: VegaLiteSpec): VegaLiteSpec {
   const next = { ...spec };
   delete next.data;
@@ -401,7 +344,7 @@ async function loadInsight(
     | InsightRow
     | undefined;
   if (!row) throw new Error(`Insight ${id} not found`);
-  return rowToInsight(row);
+  return decodeInsight(row);
 }
 
 const listDataSources = wy.procedure
@@ -918,7 +861,7 @@ const listInsights = wy.procedure
     const excluded = new Set((excludeIds as UUID[] | undefined) ?? []);
     const rows = (await ctx.db.from(insights).all()) as InsightRow[];
     return rows
-      .map(rowToInsight)
+      .map(decodeInsight)
       .filter((insight) => !excluded.has(insight.id));
   });
 
@@ -928,7 +871,7 @@ const getInsight = wy.procedure
     const row = (await ctx.db.from(insights).where(eq("id", id)).first()) as
       | InsightRow
       | undefined;
-    return row ? rowToInsight(row) : null;
+    return row ? decodeInsight(row) : null;
   });
 
 const createInsight = wy.procedure
@@ -994,7 +937,7 @@ const createInsight = wy.procedure
 
         const [row] = (await tx.into(insights).insert({
           name,
-          definition: insightToDefinition({
+          definition: encodeInsightDefinition({
             baseTableId,
             selectedFields: opts.selectedFields,
             metrics: opts.metrics,
@@ -1017,7 +960,7 @@ const updateInsight = wy.procedure
       .where(eq("id", id))
       .update({
         ...(patch.name !== undefined ? { name: patch.name } : {}),
-        definition: insightToDefinition({
+        definition: encodeInsightDefinition({
           baseTableId: patch.baseTableId ?? current.baseTableId,
           selectedFields: patch.selectedFields ?? current.selectedFields,
           metrics: patch.metrics ?? current.metrics,
@@ -1084,7 +1027,7 @@ const patchInsight = wy.procedure
       .from(insights)
       .where(eq("id", args.id))
       .update({
-        definition: insightToDefinition({
+        definition: encodeInsightDefinition({
           ...current,
           selectedFields,
           metrics,

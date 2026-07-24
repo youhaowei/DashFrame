@@ -22,7 +22,7 @@ import type { Dashboard } from "@dashframe/types";
 import { eq, jsonb, text, uuid } from "@wystack/db";
 
 import { wy } from "../wystack";
-import { tsToMillis } from "./app-artifacts";
+import { tsToMillis } from "./timestamps";
 
 const { dashboards } = schema;
 

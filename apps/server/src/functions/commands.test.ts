@@ -1388,7 +1388,7 @@ describe("command vocabulary", () => {
   describe("AddField / RemoveField on Insight node (selectedFields membership)", () => {
     it("should add the field id to selectedFields (the array the read path surfaces), not a phantom definition.fields", async () => {
       // Regression: AddField on an Insight wrote `definition.fields` (an array of
-      // Field objects), but rowToInsight surfaces `definition.selectedFields`
+      // Field objects), but decodeInsight surfaces `definition.selectedFields`
       // (UUID[]) and ignores `definition.fields`. The selection reported success
       // while the read path returned the old list. The fix routes an Insight field
       // edit to selectedFields membership (mirrors patchInsightDefinition.addField).
