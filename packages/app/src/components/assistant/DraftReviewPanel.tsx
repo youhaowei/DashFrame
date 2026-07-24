@@ -15,9 +15,9 @@
  */
 import { useCallback, useState } from "react";
 
-import { discardDraft, publishDraft } from "@/data";
 import type { PreviewDiff } from "@dashframe/types";
 import { useNavigate } from "@tanstack/react-router";
+import { useMutation } from "@wystack/client";
 import { Button, cn } from "@wystack/ui-react";
 import { FileIcon, SparklesIcon } from "@wystack/ui-react/icons";
 import { toast } from "sonner";
@@ -49,6 +49,8 @@ export function DraftReviewPanel({
 }) {
   const navigate = useNavigate();
   const setPendingDraft = useAssistantStore((s) => s.setPendingDraft);
+  const { mutateAsync: publishDraftMutation } = useMutation(api.publishDraft);
+  const { mutateAsync: discardDraftMutation } = useMutation(api.discardDraft);
 
   const [diff, setDiff] = useState<PreviewDiff | null>(null);
   const [publishBlocked, setPublishBlocked] = useState(true);
@@ -109,9 +111,10 @@ export function DraftReviewPanel({
       return;
     }
     try {
-      await publishDraft(draftId, {
+      await publishDraftMutation({
+        draftId,
         ...(commandCount !== null
-          ? { expectedCommandCount: commandCount }
+          ? { expectedCommandCount: String(commandCount) }
           : {}),
         ...(logSignature !== null
           ? { expectedLogSignature: logSignature }
@@ -132,12 +135,13 @@ export function DraftReviewPanel({
     logSignature,
     openFullReview,
     publishBlocked,
+    publishDraftMutation,
     setPendingDraft,
   ]);
 
   const handleDiscard = useCallback(async () => {
     try {
-      await discardDraft(draftId);
+      await discardDraftMutation({ draftId });
       toast.info("Draft discarded.");
       setDialogOpen(false);
       setDiff(null);
@@ -146,7 +150,7 @@ export function DraftReviewPanel({
       console.error("[DraftReviewPanel] discard failed:", err);
       toast.error("Discard failed. Please try again.");
     }
-  }, [draftId, setPendingDraft]);
+  }, [discardDraftMutation, draftId, setPendingDraft]);
 
   const [isQuickDiscarding, setIsQuickDiscarding] = useState(false);
 
@@ -154,7 +158,7 @@ export function DraftReviewPanel({
     if (isLoading || isQuickDiscarding) return;
     setIsQuickDiscarding(true);
     try {
-      await discardDraft(draftId);
+      await discardDraftMutation({ draftId });
       toast.info("Draft discarded.");
       setPendingDraft(null);
     } catch (err) {
@@ -163,7 +167,13 @@ export function DraftReviewPanel({
     } finally {
       setIsQuickDiscarding(false);
     }
-  }, [draftId, isLoading, isQuickDiscarding, setPendingDraft]);
+  }, [
+    discardDraftMutation,
+    draftId,
+    isLoading,
+    isQuickDiscarding,
+    setPendingDraft,
+  ]);
 
   const handleDialogClose = useCallback(() => {
     setDialogOpen(false);

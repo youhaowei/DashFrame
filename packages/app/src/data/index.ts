@@ -93,6 +93,3 @@ export { DatabaseProvider, useDatabase } from "../wystack/compat";
 
 // Preview batch — SPLIT-TIER: returns metadata only, no row data over the wire.
 export { previewBatch, type PreviewCommand } from "./preview-diff";
-
-// Draft lifecycle — publish, discard, and log-read RPCs.
-export { discardDraft, getDraftLog, publishDraft } from "./draft-lifecycle";
