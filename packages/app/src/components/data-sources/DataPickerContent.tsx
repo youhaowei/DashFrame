@@ -6,7 +6,6 @@ import {
   useDataTableMutations,
   useDataTables,
   useInsights,
-  useNotionMutations,
 } from "@/data";
 import { getConnectorById } from "@/lib/connectors/registry";
 import { handleFileConnectorResult } from "@/lib/local-csv-handler";
@@ -127,7 +126,12 @@ export function DataPickerContent({
   const { data: dataFrames = [] } = useDataFrames();
   const dataSourceMutations = useDataSourceMutations();
   const tableMutations = useDataTableMutations();
-  const notionMutations = useNotionMutations();
+  const { mutateAsync: listNotionDatabasesMutation } = useMutation(
+    api.listNotionDatabases,
+  );
+  const { mutateAsync: queryNotionDatabaseMutation } = useMutation(
+    api.queryNotionDatabase,
+  );
   const { mutateAsync: listPostgresTablesMutation } = useMutation(
     api.listPostgresTables,
   );
@@ -308,13 +312,18 @@ export function DataPickerContent({
           credentials,
           addSource: dataSourceMutations.add,
           removeSource: dataSourceMutations.remove,
-          listNotionDatabases: notionMutations.listDatabases,
+          listNotionDatabases: (id) =>
+            listNotionDatabasesMutation({ dataSourceId: id }),
           listPostgresTables: (id) =>
             listPostgresTablesMutation({ dataSourceId: id }),
         }),
       );
     },
-    [dataSourceMutations, notionMutations, listPostgresTablesMutation],
+    [
+      dataSourceMutations,
+      listNotionDatabasesMutation,
+      listPostgresTablesMutation,
+    ],
   );
 
   const handleRemoteResourceSelect = useCallback(
@@ -332,11 +341,11 @@ export function DataPickerContent({
         );
         const result =
           remoteResourceState.connectorId === "notion"
-            ? await notionMutations.queryDatabase(
-                remoteResourceState.sourceId,
-                resource.id,
+            ? await queryNotionDatabaseMutation({
+                dataSourceId: remoteResourceState.sourceId,
+                databaseId: resource.id,
                 tableId,
-              )
+              })
             : await queryPostgresTableMutation({
                 dataSourceId: remoteResourceState.sourceId,
                 databaseId: resource.id,
@@ -388,7 +397,7 @@ export function DataPickerContent({
       }
     },
     [
-      notionMutations,
+      queryNotionDatabaseMutation,
       onTableSelect,
       queryPostgresTableMutation,
       confirm,

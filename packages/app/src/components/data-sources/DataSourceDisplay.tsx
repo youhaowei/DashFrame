@@ -1,9 +1,11 @@
-import { useDataSources, useDataTables, useNotionMutations } from "@/data";
+import { useDataSources, useDataTables } from "@/data";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import { getConnectorById } from "@/lib/connectors/registry";
 import { materializeRemoteTable } from "@/lib/remote-table-materialization";
+import { api } from "@/wystack/api";
 import type { DataTable, Field } from "@dashframe/types";
 import { VirtualTable, type VirtualTableColumn } from "@dashframe/ui";
+import { useMutation } from "@wystack/client";
 import {
   Button,
   Card,
@@ -492,7 +494,9 @@ function useNotionSync(
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [notionPreviewData, setNotionPreviewData] =
     useState<PreviewData | null>(null);
-  const notionMutations = useNotionMutations();
+  const { mutateAsync: queryNotionDatabaseMutation } = useMutation(
+    api.queryNotionDatabase,
+  );
 
   const runNotionQuery = async (successMsg: (n: number) => string) => {
     if (
@@ -512,11 +516,11 @@ function useNotionSync(
       // Sync materializes the FULL database (no row cap): the persisted table
       // must hold the whole source so it survives a reload intact. The server's
       // `limit` arg stays available for a future preview-only fetch.
-      const result = await notionMutations.queryDatabase(
-        dataSource.id,
-        selectedDataTable.table,
-        selectedDataTable.id,
-      );
+      const result = await queryNotionDatabaseMutation({
+        dataSourceId: dataSource.id,
+        databaseId: selectedDataTable.table,
+        tableId: selectedDataTable.id,
+      });
       const reviewedFieldsByColumn = new Map(
         selectedDataTable.fields.map((field) => [
           field.columnName ?? field.name,

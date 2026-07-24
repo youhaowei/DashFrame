@@ -3,11 +3,11 @@ import {
   useDataSources,
   useDataTableMutations,
   useDataTables,
-  useNotionMutations,
-  type NotionDatabaseRef,
 } from "@/data";
 import { getConnectorById } from "@/lib/connectors/registry";
+import { api } from "@/wystack/api";
 import { InputField } from "@dashframe/ui";
+import { useMutation } from "@wystack/client";
 import {
   Button,
   cn,
@@ -88,6 +88,11 @@ function CollapsibleSection({
 
 interface DataSourceControlsProps {
   dataSourceId: string | null;
+}
+
+interface NotionDatabaseRef {
+  id: string;
+  title: string;
 }
 
 type CachedDatabases = {
@@ -214,7 +219,9 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
   const isNotionSource = connector?.id === "notion";
 
   // Notion data-plane mutations — resolved server-side via the bound resolver.
-  const notionMutations = useNotionMutations();
+  const { mutateAsync: listNotionDatabasesMutation } = useMutation(
+    api.listNotionDatabases,
+  );
 
   // Get configured DataTables (only meaningful for remote-api connectors)
   const dataTables = useMemo(() => {
@@ -245,7 +252,9 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
       // The stored API key is resolved server-side by data-source id (the
       // listNotionDatabases mutation mints a one-secret bound resolver); the
       // secret is never read back into the renderer.
-      const result = await notionMutations.listDatabases(requestDataSourceId);
+      const result = await listNotionDatabasesMutation({
+        dataSourceId: requestDataSourceId,
+      });
       // Updates state and persists to localStorage in one go.
       setAvailableDatabases(requestDataSourceId, result);
     } catch (error) {
