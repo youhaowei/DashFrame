@@ -71,7 +71,7 @@
  * transitively depend on itself.
  *
  * Storage contract: `InsightDefinition.baseTableId` is the structural source id
- * carried on every Insight. `decodeInsight` in `dto/insights.ts` reads it, and
+ * carried on every Insight. `decodeInsight` in `insights.ts` reads it, and
  * it is a field on the `Insight` domain type the renderer consumes. `source`
  * carries the polymorphic source description; `baseTableId` is written to
  * `source.sourceId` on every write so both stay in lockstep — for a DataTable
@@ -104,7 +104,7 @@ import {
   insightSourceSchema,
   type StoredInsightDefinition,
   storedInsightDefinitionSchema,
-} from "./dto/insights";
+} from "./insights";
 import {
   applyCredentialField,
   coerceProvenance,
@@ -119,7 +119,7 @@ import {
 } from "./utils";
 
 // The canonical stored-definition schema/types are owned by the insights codec
-// (`./dto/insights`). Re-export the schema so command tests keep importing it
+// (`./insights`). Re-export the schema so command tests keep importing it
 // from this module and their `.safeParse` spy targets the same object.
 export { storedInsightDefinitionSchema };
 
@@ -143,7 +143,7 @@ type DashboardRow = typeof dashboards.$inferSelect;
 // ---------------------------------------------------------------------------
 // The stored-definition schema and types — `InsightSource`,
 // `StoredInsightDefinition`, `insightSourceSchema`, `storedInsightDefinitionSchema`
-// — are owned by the insights codec (`./dto/insights`) and imported above. The
+// — are owned by the insights codec (`./insights`) and imported above. The
 // read path (`decodeInsight`) and these write handlers therefore share one
 // canonical schema and cannot drift.
 

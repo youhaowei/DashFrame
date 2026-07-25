@@ -33,7 +33,7 @@ import {
   encodeInsightDefinition,
   type InsightDefinition,
   type InsightRow,
-} from "./dto/insights";
+} from "./insights";
 import { tsToMillis } from "./timestamps";
 import {
   applyCredentialField,

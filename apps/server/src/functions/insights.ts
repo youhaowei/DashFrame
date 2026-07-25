@@ -25,7 +25,7 @@ import type {
 } from "@dashframe/types";
 import { z } from "zod";
 
-import { tsToMillis } from "../timestamps";
+import { tsToMillis } from "./timestamps";
 
 export type InsightRow = typeof schema.insights.$inferSelect;
 
