@@ -30,6 +30,7 @@ import type { DashframeFunctionContext } from "../app-context";
 import { wy } from "../wystack";
 import {
   decodeInsight,
+  decodeStoredInsightDefinition,
   encodeInsightDefinition,
   type InsightDefinition,
   type InsightRow,
@@ -336,15 +337,15 @@ async function loadDataTable(
   return rowToDataTable(row);
 }
 
-async function loadInsight(
+async function loadInsightRow(
   ctx: { db: import("@wystack/db").DrizzleTracker },
   id: string,
-): Promise<Insight> {
+): Promise<InsightRow> {
   const row = (await ctx.db.from(insights).where(eq("id", id)).first()) as
     | InsightRow
     | undefined;
   if (!row) throw new Error(`Insight ${id} not found`);
-  return decodeInsight(row);
+  return row;
 }
 
 const listDataSources = wy.procedure
@@ -953,15 +954,24 @@ const createInsight = wy.procedure
 const updateInsight = wy.procedure
   .input({ id: uuid, updates: jsonb })
   .mutation(async (ctx, { id, updates }): Promise<{ ok: true }> => {
-    const current = await loadInsight(ctx, id);
+    const row = await loadInsightRow(ctx, id);
+    const current = decodeInsight(row);
+    const stored = decodeStoredInsightDefinition(row);
     const patch = updates as Partial<Insight>;
+    const nextBaseTableId = patch.baseTableId ?? current.baseTableId;
     await ctx.db
       .from(insights)
       .where(eq("id", id))
       .update({
         ...(patch.name !== undefined ? { name: patch.name } : {}),
         definition: encodeInsightDefinition({
-          baseTableId: patch.baseTableId ?? current.baseTableId,
+          baseTableId: nextBaseTableId,
+          // `source` survives every non-repointing update (a rename must not
+          // un-compose an insight-on-insight). Repointing the base invalidates
+          // the old source — sourceType can't be re-derived from the new id, so
+          // drop it and degrade to a leaf rather than store a stale pointer.
+          source:
+            nextBaseTableId === stored.baseTableId ? stored.source : undefined,
           selectedFields: patch.selectedFields ?? current.selectedFields,
           metrics: patch.metrics ?? current.metrics,
           filters: patch.filters ?? current.filters,
@@ -1021,7 +1031,9 @@ const patchInsight = wy.procedure
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const current = await loadInsight(ctx, args.id);
+    const row = await loadInsightRow(ctx, args.id);
+    const current = decodeInsight(row);
+    const stored = decodeStoredInsightDefinition(row);
     const { selectedFields, metrics } = patchInsightDefinition(current, args);
     await ctx.db
       .from(insights)
@@ -1029,6 +1041,9 @@ const patchInsight = wy.procedure
       .update({
         definition: encodeInsightDefinition({
           ...current,
+          // Not on the domain `Insight`; carry it from the stored definition or
+          // a field/metric patch silently un-composes the insight.
+          source: stored.source,
           selectedFields,
           metrics,
         }),

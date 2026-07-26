@@ -30,6 +30,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { eq } from "drizzle-orm";
+
 import { functions } from "../functions";
 import { wy } from "../wystack";
 
@@ -779,5 +781,119 @@ describe("addDataSource / updateDataSource — same-operation minted-ref rollbac
     ).rejects.toThrow(/defaultSchema must be a string/);
 
     expect(await db.select().from(dataSources)).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Regression: `source` must survive every write that goes through the encoder.
+//
+// `decodeInsight` returns the domain `Insight`, which deliberately has no
+// `source` — it is storage-level composition wiring, not a domain field. Both
+// write paths used to rebuild `definition` from that decoded `Insight`, so any
+// rename or field/metric patch silently erased the source. The user-visible
+// damage is not just a lost pointer: `wouldCreateCycle` in `commands.ts` walks
+// `definition.source`, so a source-less insight reads as a leaf and the guard
+// stops seeing the edge — admitting an A→B→A cycle it is there to reject.
+// ---------------------------------------------------------------------------
+
+describe("insight writes preserve `source` (Insight-on-Insight composition)", () => {
+  let dir: string;
+  let db: Awaited<ReturnType<typeof openArtifactDb>>;
+  let app: WyStackApp;
+
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), "dashframe-insight-source-"));
+    db = await openArtifactDb({ path: join(dir, "artifacts.db") });
+    app = await wy.build({ db, functions });
+  });
+
+  afterEach(async () => {
+    await db.$client.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  async function call(path: string, args: unknown): Promise<unknown> {
+    const { result } = await app.call(path, args);
+    return result;
+  }
+
+  async function storedDefinition(
+    id: string,
+  ): Promise<Record<string, unknown>> {
+    const [row] = await db
+      .select()
+      .from(schema.insights)
+      .where(eq(schema.insights.id, id));
+    if (!row) throw new Error(`test setup: insight ${id} not found`);
+    return row.definition as Record<string, unknown>;
+  }
+
+  /** Create an insight, then compose it onto `sourceInsightId`. */
+  async function makeComposedInsight(baseTableId: string) {
+    const sourceInsightId = crypto.randomUUID();
+    const { id } = (await call("createInsight", {
+      name: "Derived",
+      baseTableId,
+      options: { selectedFields: [] },
+    })) as { id: string };
+
+    // Compose it — the shape SetInsightSource persists.
+    await db
+      .update(schema.insights)
+      .set({
+        definition: {
+          ...(await storedDefinition(id)),
+          source: { sourceType: "insight", sourceId: sourceInsightId },
+        },
+      })
+      .where(eq(schema.insights.id, id));
+
+    return { id, sourceInsightId };
+  }
+
+  async function storedSource(id: string) {
+    return (await storedDefinition(id)).source;
+  }
+
+  it("should keep `source` when updateInsight only renames the insight", async () => {
+    const baseTableId = crypto.randomUUID();
+    const { id, sourceInsightId } = await makeComposedInsight(baseTableId);
+
+    await call("updateInsight", { id, updates: { name: "Renamed" } });
+
+    expect(await storedSource(id)).toEqual({
+      sourceType: "insight",
+      sourceId: sourceInsightId,
+    });
+  });
+
+  it("should keep `source` when patchInsight adds a field", async () => {
+    const baseTableId = crypto.randomUUID();
+    const { id, sourceInsightId } = await makeComposedInsight(baseTableId);
+
+    await call("patchInsight", {
+      id,
+      mode: "addField",
+      fieldId: crypto.randomUUID(),
+    });
+
+    expect(await storedSource(id)).toEqual({
+      sourceType: "insight",
+      sourceId: sourceInsightId,
+    });
+  });
+
+  it("should drop `source` when updateInsight repoints the base table", async () => {
+    // Repointing invalidates the old source: sourceType cannot be re-derived
+    // from the new id, so degrading to a leaf beats storing a stale pointer.
+    const baseTableId = crypto.randomUUID();
+    const { id } = await makeComposedInsight(baseTableId);
+
+    await call("updateInsight", {
+      id,
+      updates: { baseTableId: crypto.randomUUID() },
+    });
+
+    expect(await storedSource(id)).toBeUndefined();
   });
 });

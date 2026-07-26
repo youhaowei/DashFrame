@@ -68,6 +68,8 @@ export interface StoredInsightDefinition {
  */
 export type InsightDefinition = {
   baseTableId: UUID;
+  /** Carried through every write; see {@link encodeInsightDefinition}. */
+  source?: InsightSource;
   selectedFields: UUID[];
   metrics: InsightMetric[];
   filters?: InsightFilter[];
@@ -143,6 +145,29 @@ export const storedInsightDefinitionSchema = z.object({
 });
 
 /**
+ * Decode a DB insight row into its validated **stored** definition — the shape
+ * that still carries `source`. Throws (fail-closed) on structural corruption,
+ * naming the offending insight id.
+ *
+ * Write handlers must rebuild `definition` from THIS, not from the domain
+ * {@link Insight}: `Insight` deliberately omits `source` (it is storage-level
+ * composition wiring, not a domain field), so a write reconstructed from a
+ * decoded `Insight` silently erases it — which in turn makes a composed insight
+ * look like a leaf to the cycle checker in `commands.ts`.
+ */
+export function decodeStoredInsightDefinition(
+  row: InsightRow,
+): StoredInsightDefinition {
+  const parsed = storedInsightDefinitionSchema.safeParse(row.definition);
+  if (!parsed.success) {
+    throw new Error(
+      `Insight ${row.id} has an invalid definition: ${parsed.error.message}`,
+    );
+  }
+  return parsed.data as StoredInsightDefinition;
+}
+
+/**
  * Decode a DB insight row into the domain `Insight`. Throws (fail-closed) when
  * the `definition` blob is structurally invalid — a non-object, a missing
  * `baseTableId`, or a non-array where an array is required — naming the
@@ -151,13 +176,7 @@ export const storedInsightDefinitionSchema = z.object({
  * module header); valid-path output is identical to the former `rowToInsight`.
  */
 export function decodeInsight(row: InsightRow): Insight {
-  const parsed = storedInsightDefinitionSchema.safeParse(row.definition);
-  if (!parsed.success) {
-    throw new Error(
-      `Insight ${row.id} has an invalid definition: ${parsed.error.message}`,
-    );
-  }
-  const definition = parsed.data;
+  const definition = decodeStoredInsightDefinition(row);
   return {
     id: row.id,
     name: row.name,
@@ -175,9 +194,15 @@ export function decodeInsight(row: InsightRow): Insight {
 /**
  * Encode domain insight fields into the stored `definition` JSONB blob.
  * Symmetric write seam for `decodeInsight`; no Zod validation in this pilot.
+ *
+ * `source` has no counterpart on the domain `Insight`, so every caller must
+ * source it from {@link decodeStoredInsightDefinition} and pass it through
+ * explicitly. Omitting it writes a source-less definition — correct only when
+ * the insight genuinely has no source, or when its base is being repointed.
  */
 export function encodeInsightDefinition(input: {
   baseTableId: UUID;
+  source?: InsightSource;
   selectedFields?: UUID[];
   metrics?: InsightMetric[];
   filters?: InsightFilter[];
@@ -186,6 +211,7 @@ export function encodeInsightDefinition(input: {
 }): InsightDefinition {
   return {
     baseTableId: input.baseTableId,
+    source: input.source,
     selectedFields: input.selectedFields ?? [],
     metrics: input.metrics ?? [],
     filters: input.filters,
