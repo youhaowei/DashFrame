@@ -785,7 +785,7 @@ describe("addDataSource / updateDataSource — same-operation minted-ref rollbac
 });
 
 // ---------------------------------------------------------------------------
-// Regression: `source` must survive every write that goes through the encoder.
+// Regression: `source` must survive every read-modify-write.
 //
 // `decodeInsight` returns the domain `Insight`, which deliberately has no
 // `source` — it is storage-level composition wiring, not a domain field. Both
@@ -830,7 +830,7 @@ describe("insight writes preserve `source` (Insight-on-Insight composition)", ()
 
   /** Create an insight, then compose it onto `sourceInsightId`. */
   async function makeComposedInsight(baseTableId: string) {
-    const sourceInsightId = crypto.randomUUID();
+    const sourceInsightId = baseTableId;
     const { id } = (await call("createInsight", {
       name: "Derived",
       baseTableId,
@@ -867,6 +867,39 @@ describe("insight writes preserve `source` (Insight-on-Insight composition)", ()
     });
   });
 
+  it("should allow updateInsight to repeat an unchanged base table", async () => {
+    const baseTableId = crypto.randomUUID();
+    const { id, sourceInsightId } = await makeComposedInsight(baseTableId);
+
+    await call("updateInsight", {
+      id,
+      updates: { name: "Renamed", baseTableId },
+    });
+
+    expect(await storedSource(id)).toEqual({
+      sourceType: "insight",
+      sourceId: sourceInsightId,
+    });
+  });
+
+  it("should ignore a `source` supplied through updateInsight", async () => {
+    // `source` is a valid schema key, so an untyped `updates` payload carrying
+    // one would otherwise write a composition edge that never passed
+    // `requireSourceExists`/`wouldCreateCycle` — here, a self-cycle.
+    const baseTableId = crypto.randomUUID();
+    const { id, sourceInsightId } = await makeComposedInsight(baseTableId);
+
+    await call("updateInsight", {
+      id,
+      updates: { source: { sourceType: "insight", sourceId: id } },
+    });
+
+    expect(await storedSource(id)).toEqual({
+      sourceType: "insight",
+      sourceId: sourceInsightId,
+    });
+  });
+
   it("should keep `source` when patchInsight adds a field", async () => {
     const baseTableId = crypto.randomUUID();
     const { id, sourceInsightId } = await makeComposedInsight(baseTableId);
@@ -883,17 +916,58 @@ describe("insight writes preserve `source` (Insight-on-Insight composition)", ()
     });
   });
 
-  it("should drop `source` when updateInsight repoints the base table", async () => {
-    // Repointing invalidates the old source: sourceType cannot be re-derived
-    // from the new id, so degrading to a leaf beats storing a stale pointer.
+  it("should reject updateInsight when it repoints the base table", async () => {
     const baseTableId = crypto.randomUUID();
-    const { id } = await makeComposedInsight(baseTableId);
+    const { id, sourceInsightId } = await makeComposedInsight(baseTableId);
 
-    await call("updateInsight", {
-      id,
-      updates: { baseTableId: crypto.randomUUID() },
+    await expect(
+      call("updateInsight", {
+        id,
+        updates: { baseTableId: crypto.randomUUID() },
+      }),
+    ).rejects.toThrow(
+      "updateInsight cannot repoint baseTableId; use SetInsightSource",
+    );
+
+    expect(await storedDefinition(id)).toMatchObject({
+      baseTableId,
+      source: { sourceType: "insight", sourceId: sourceInsightId },
     });
+  });
 
-    expect(await storedSource(id)).toBeUndefined();
+  it("should reject a malformed updates payload instead of persisting it", async () => {
+    const baseTableId = crypto.randomUUID();
+    const { id } = (await call("createInsight", {
+      name: "Malformed update target",
+      baseTableId,
+    })) as { id: string };
+
+    await expect(
+      call("updateInsight", {
+        id,
+        updates: { metrics: "not-an-array" },
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("should leave the project readable after a rejected update", async () => {
+    const baseTableId = crypto.randomUUID();
+    const { id } = (await call("createInsight", {
+      name: "Readable update target",
+      baseTableId,
+    })) as { id: string };
+    const before = await storedDefinition(id);
+
+    await expect(
+      call("updateInsight", {
+        id,
+        updates: { metrics: "not-an-array" },
+      }),
+    ).rejects.toThrow();
+
+    expect(await storedDefinition(id)).toEqual(before);
+    await expect(call("listInsights", {})).resolves.toEqual([
+      expect.objectContaining({ id }),
+    ]);
   });
 });

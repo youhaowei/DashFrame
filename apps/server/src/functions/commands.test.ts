@@ -1020,6 +1020,53 @@ describe("command vocabulary", () => {
       expect(def.source.sourceId).toBe(bId);
     });
 
+    it("should preserve the cycle guard after updateInsight renames a composed insight", async () => {
+      const { tableId } = await makeTable();
+      const aId = id();
+      const bId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: aId,
+          name: "A",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("CreateInsight", {
+          id: bId,
+          name: "B",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+      await commit(
+        cmd("SetInsightSource", {
+          id: bId,
+          source: { sourceType: "insight", sourceId: aId },
+        }),
+      );
+
+      await app.call("updateInsight", {
+        id: bId,
+        updates: { name: "B renamed" },
+      });
+
+      await expect(
+        commit(
+          cmd("SetInsightSource", {
+            id: aId,
+            source: { sourceType: "insight", sourceId: bId },
+          }),
+        ),
+      ).rejects.toThrow(/cycle/);
+
+      const aRows = await insightsById(aId);
+      const definition = aRows[0]?.definition as {
+        source: { sourceType: string; sourceId: string };
+      };
+      expect(definition.source).toEqual({
+        sourceType: "dataTable",
+        sourceId: tableId,
+      });
+    });
+
     it("should throw for SetInsightSource on a missing insight (no silent no-op)", async () => {
       const { tableId } = await makeTable();
       await expect(

@@ -98,13 +98,6 @@ export const insightSourceSchema = z.object({
  * `parseRowDefinition` in `commands.ts` — so every reader gets a validated,
  * typed value, not a blindly-cast unknown.
  *
- * IMPORTANT — write-back allowlist: `requireInsightDefinition` returns
- * `parsed.data` (the Zod output). Handlers spread this into the next
- * definition before writing it back (`{ ...definition, <field> }`). Any key
- * present in the stored blob but absent from this schema is silently dropped
- * on the next write. Adding a new field to `StoredInsightDefinition` requires
- * a matching entry here.
- *
  * Tolerance: `selectedFields`/`metrics` coalesce absent-or-null → `[]`, and
  * `filters`/`sorts`/`joins` absent-or-null → `undefined`. A SQL JSONB column
  * can store `null` for an omitted key, and an auto-draft legitimately omits
@@ -112,9 +105,9 @@ export const insightSourceSchema = z.object({
  * is still rejected. Element shapes are trusted (`z.unknown()`) — see the
  * module header.
  *
- * `baseTableId` is required: every write goes through the encoder which sets
- * it, so a missing one is genuine corruption, safe to throw. No `.uuid()` —
- * legacy ids may not be RFC-4122.
+ * `baseTableId` is required: canonical writes always set it, so a missing one
+ * is genuine corruption, safe to throw. No `.uuid()` — legacy ids may not be
+ * RFC-4122.
  *
  * Exported so tests can assert parse-call counts (e.g. the orphan scan parses
  * each insight once, not once per owned table).
@@ -164,19 +157,14 @@ export function decodeStoredInsightDefinition(
       `Insight ${row.id} has an invalid definition: ${parsed.error.message}`,
     );
   }
-  return parsed.data as StoredInsightDefinition;
+  return parsed.data;
 }
 
-/**
- * Decode a DB insight row into the domain `Insight`. Throws (fail-closed) when
- * the `definition` blob is structurally invalid — a non-object, a missing
- * `baseTableId`, or a non-array where an array is required — naming the
- * offending insight id. A throw here fails the whole `listInsights` query
- * (the settled fail-closed blast radius). Element shapes are trusted (see the
- * module header); valid-path output is identical to the former `rowToInsight`.
- */
-export function decodeInsight(row: InsightRow): Insight {
-  const definition = decodeStoredInsightDefinition(row);
+/** Pure projection: no parse, no DB, no throw. */
+export function toInsight(
+  row: InsightRow,
+  definition: StoredInsightDefinition,
+): Insight {
   return {
     id: row.id,
     name: row.name,
@@ -192,13 +180,25 @@ export function decodeInsight(row: InsightRow): Insight {
 }
 
 /**
+ * Decode a DB insight row into the domain `Insight`. Throws (fail-closed) when
+ * the `definition` blob is structurally invalid — a non-object, a missing
+ * `baseTableId`, or a non-array where an array is required — naming the
+ * offending insight id. A throw here fails the whole `listInsights` query
+ * (the settled fail-closed blast radius). Element shapes are trusted (see the
+ * module header); valid-path output is identical to the former `rowToInsight`.
+ */
+export function decodeInsight(row: InsightRow): Insight {
+  return toInsight(row, decodeStoredInsightDefinition(row));
+}
+
+/**
  * Encode domain insight fields into the stored `definition` JSONB blob.
  * Symmetric write seam for `decodeInsight`; no Zod validation in this pilot.
  *
  * `source` has no counterpart on the domain `Insight`, so every caller must
  * source it from {@link decodeStoredInsightDefinition} and pass it through
  * explicitly. Omitting it writes a source-less definition — correct only when
- * the insight genuinely has no source, or when its base is being repointed.
+ * the insight genuinely has no source.
  */
 export function encodeInsightDefinition(input: {
   baseTableId: UUID;

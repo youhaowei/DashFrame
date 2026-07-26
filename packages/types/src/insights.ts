@@ -100,11 +100,11 @@ export interface Insight {
  * (renderer) and the server-side insight definition.
  */
 export interface InsightDraftShape {
-  selectedFields?: UUID[];
-  metrics?: InsightMetric[];
-  filters?: InsightFilter[];
-  sorts?: InsightSort[];
-  joins?: InsightJoinConfig[];
+  selectedFields?: readonly unknown[];
+  metrics?: readonly unknown[];
+  filters?: readonly unknown[];
+  sorts?: readonly unknown[];
+  joins?: readonly unknown[];
 }
 
 /**

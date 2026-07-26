@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   decodeInsight,
+  decodeStoredInsightDefinition,
   encodeInsightDefinition,
   type InsightRow,
 } from "./insights";
@@ -234,6 +235,47 @@ describe("decodeInsight", () => {
   });
 });
 
+describe("decodeStoredInsightDefinition", () => {
+  it("round-trips every stored key", () => {
+    const definition = {
+      baseTableId: BASE_TABLE_ID,
+      source: { sourceType: "insight" as const, sourceId: INSIGHT_ID },
+      selectedFields: [FIELD_ID],
+      metrics: [{ id: METRIC_ID }],
+      filters: [{ id: "filter-1" }],
+      sorts: [{ field: FIELD_ID }],
+      joins: [{ rightTableId: "table-right" }],
+    };
+
+    expect(decodeStoredInsightDefinition(makeRow({ definition }))).toEqual(
+      definition,
+    );
+  });
+
+  it("returns source where decodeInsight drops it", () => {
+    const source = { sourceType: "insight" as const, sourceId: INSIGHT_ID };
+    const row = makeRow({
+      definition: { baseTableId: BASE_TABLE_ID, source },
+    });
+
+    expect(decodeStoredInsightDefinition(row).source).toEqual(source);
+    expect(decodeInsight(row)).not.toHaveProperty("source");
+  });
+
+  it("throws with the insight id for a malformed source discriminant", () => {
+    const row = makeRow({
+      definition: {
+        baseTableId: BASE_TABLE_ID,
+        source: { sourceType: "dashboard", sourceId: INSIGHT_ID },
+      },
+    });
+
+    expect(() => decodeStoredInsightDefinition(row)).toThrow(
+      new RegExp(`Insight ${INSIGHT_ID} has an invalid definition`),
+    );
+  });
+});
+
 describe("encodeInsightDefinition", () => {
   it("round-trips mapped fields and defaults selectedFields/metrics to []", () => {
     expect(encodeInsightDefinition({ baseTableId: BASE_TABLE_ID })).toEqual({
@@ -281,5 +323,13 @@ describe("encodeInsightDefinition", () => {
       sorts,
       joins,
     });
+  });
+
+  it("carries source into the stored definition", () => {
+    const source = { sourceType: "insight" as const, sourceId: INSIGHT_ID };
+
+    expect(
+      encodeInsightDefinition({ baseTableId: BASE_TABLE_ID, source }),
+    ).toHaveProperty("source", source);
   });
 });

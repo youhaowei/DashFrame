@@ -32,18 +32,19 @@ import {
   decodeInsight,
   decodeStoredInsightDefinition,
   encodeInsightDefinition,
+  storedInsightDefinitionSchema,
   type InsightDefinition,
   type InsightRow,
 } from "./insights";
 import { tsToMillis } from "./timestamps";
 import {
   applyCredentialField,
-  type DataSourceConfig,
   isRecord,
   modeFromCtx,
   releaseCredentialRefs,
   requireRecordWithId,
   vaultFromCtx,
+  type DataSourceConfig,
 } from "./utils";
 
 const {
@@ -924,12 +925,13 @@ const createInsight = wy.procedure
           // shows up in latency, promote baseTableId to a top-level indexed
           // column (or add a JSONB expression index) and filter at the DB layer.
           const rows = (await tx.from(insights).all()) as InsightRow[];
-          const existingDraft = rows
-            .filter(
-              (r) =>
-                (r.definition as InsightDefinition).baseTableId === baseTableId,
-            )
-            .find((r) => isUnmodifiedDraft(r.definition as InsightDefinition));
+          const existingDraft = rows.find((row) => {
+            const definition = decodeStoredInsightDefinition(row);
+            return (
+              definition.baseTableId === baseTableId &&
+              isUnmodifiedDraft(definition)
+            );
+          });
 
           if (existingDraft) {
             return { id: existingDraft.id };
@@ -955,28 +957,31 @@ const updateInsight = wy.procedure
   .input({ id: uuid, updates: jsonb })
   .mutation(async (ctx, { id, updates }): Promise<{ ok: true }> => {
     const row = await loadInsightRow(ctx, id);
-    const current = decodeInsight(row);
     const stored = decodeStoredInsightDefinition(row);
     const patch = updates as Partial<Insight>;
-    const nextBaseTableId = patch.baseTableId ?? current.baseTableId;
+    if (
+      patch.baseTableId !== undefined &&
+      patch.baseTableId !== stored.baseTableId
+    ) {
+      throw new Error(
+        "updateInsight cannot repoint baseTableId; use SetInsightSource",
+      );
+    }
     await ctx.db
       .from(insights)
       .where(eq("id", id))
       .update({
         ...(patch.name !== undefined ? { name: patch.name } : {}),
-        definition: encodeInsightDefinition({
-          baseTableId: nextBaseTableId,
-          // `source` survives every non-repointing update (a rename must not
-          // un-compose an insight-on-insight). Repointing the base invalidates
-          // the old source — sourceType can't be re-derived from the new id, so
-          // drop it and degrade to a leaf rather than store a stale pointer.
-          source:
-            nextBaseTableId === stored.baseTableId ? stored.source : undefined,
-          selectedFields: patch.selectedFields ?? current.selectedFields,
-          metrics: patch.metrics ?? current.metrics,
-          filters: patch.filters ?? current.filters,
-          sorts: patch.sorts ?? current.sorts,
-          joins: patch.joins ?? current.joins,
+        definition: storedInsightDefinitionSchema.parse({
+          ...stored,
+          ...patch,
+          // Pinned from the stored blob, never the patch. `source` is a valid
+          // schema key, so an untyped `updates` carrying one would otherwise
+          // win the spread and write a composition edge that never passed
+          // `requireSourceExists`/`wouldCreateCycle` — the same back-door the
+          // `baseTableId` guard above closes, and a more direct one. `Insight`
+          // has no `source`, so the cast hides this from the type checker.
+          source: stored.source,
         }),
       });
     return { ok: true };
@@ -1039,11 +1044,8 @@ const patchInsight = wy.procedure
       .from(insights)
       .where(eq("id", args.id))
       .update({
-        definition: encodeInsightDefinition({
-          ...current,
-          // Not on the domain `Insight`; carry it from the stored definition or
-          // a field/metric patch silently un-composes the insight.
-          source: stored.source,
+        definition: storedInsightDefinitionSchema.parse({
+          ...stored,
           selectedFields,
           metrics,
         }),
