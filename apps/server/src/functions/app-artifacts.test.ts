@@ -1048,7 +1048,10 @@ describe("insight writes preserve `source` (Insight-on-Insight composition)", ()
         baseTableId,
         options: { selectedFields: {} },
       }),
-    ).rejects.toThrow();
+      // Pin the reason, not just the fact of a rejection: a bare `toThrow()`
+      // stays green if the call starts failing for an unrelated cause (input
+      // coercion, transaction error) while the definition guard is gone.
+    ).rejects.toThrow(/selectedFields/);
 
     // Nothing was minted, and the sibling is still listable.
     const rows = await db.select().from(schema.insights);
@@ -1057,5 +1060,33 @@ describe("insight writes preserve `source` (Insight-on-Insight composition)", ()
     await expect(call("listInsights", {})).resolves.toEqual([
       expect.objectContaining({ id: healthyId }),
     ]);
+  });
+
+  it("should reject a non-array even when the reuse branch would short-circuit the insert", async () => {
+    // The guard has to sit above EVERY exit from the handler, not just above
+    // the insert. `isUnmodifiedDraft` reads `.length` off each array, so a
+    // non-array `selectedFields: {}` gives `undefined ?? 0 === 0` and reads as
+    // "unmodified" — with an existing draft to reuse, the handler returns that
+    // draft's id and never reaches the insert. The malformed request would
+    // report success, and the fields the caller asked for would vanish.
+    const baseTableId = crypto.randomUUID();
+    const { id: draftId } = (await call("createInsight", {
+      name: "Auto draft",
+      baseTableId,
+      options: { reuseUnmodifiedDraft: true },
+    })) as { id: string };
+
+    await expect(
+      call("createInsight", {
+        name: "Poison",
+        baseTableId,
+        options: { reuseUnmodifiedDraft: true, selectedFields: {} },
+      }),
+    ).rejects.toThrow(/selectedFields/);
+
+    // The reusable draft is untouched and still the only row.
+    const rows = await db.select().from(schema.insights);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.id).toBe(draftId);
   });
 });

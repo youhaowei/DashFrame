@@ -893,18 +893,37 @@ const createInsight = wy.procedure
       };
 
       return ctx.db.transaction(async (tx) => {
-        // Reuse is opt-in and only applies when the incoming insight is itself an
-        // unmodified draft. A pre-populated insight (fields/metrics) or any
-        // non-auto-draft caller always inserts a fresh row. Extract the draft
-        // shape explicitly so the predicate reads only the fields it should —
-        // the wider `opts` bag carries the reuse flag itself, which is not part
-        // of the draft definition.
-        const shouldReuse =
-          opts.reuseUnmodifiedDraft === true &&
-          isUnmodifiedDraft({
+        // Validate BEFORE the reuse check, not merely before the insert. The
+        // guard has to sit above EVERY exit from this handler, because
+        // `isUnmodifiedDraft` reads `.length` off each array: a non-array like
+        // `selectedFields: {}` yields `undefined ?? 0 === 0` and reads as
+        // "unmodified", so a malformed request would take the reuse branch and
+        // return an existing draft's id — reporting success for input we refuse
+        // to store, and silently dropping what the caller meant to select.
+        // Parsing first makes the guard order-independent.
+        //
+        // Parsing also replaces the old hand-built draft-shape literal: the
+        // schema strips unknown keys, so `reuseUnmodifiedDraft` is already gone
+        // from `definition` and the predicate reads only definition fields.
+        const definition = storedInsightDefinitionSchema.parse(
+          // `options` arrives as opaque `jsonb` and is cast, not checked, so
+          // `encodeInsightDefinition` will pass a non-array `selectedFields`
+          // straight through (`{}` is not nullish, so `?? []` does not catch
+          // it). An unvalidated INSERT is worse than an unvalidated update: it
+          // mints a permanently undecodable row that fails the fail-closed read
+          // path for every later reader, not just this one.
+          encodeInsightDefinition({
+            baseTableId,
             selectedFields: opts.selectedFields,
             metrics: opts.metrics,
-          });
+          }),
+        );
+
+        // Reuse is opt-in and only applies when the incoming insight is itself an
+        // unmodified draft. A pre-populated insight (fields/metrics) or any
+        // non-auto-draft caller always inserts a fresh row.
+        const shouldReuse =
+          opts.reuseUnmodifiedDraft === true && isUnmodifiedDraft(definition);
 
         if (shouldReuse) {
           // Atomic check-and-create: scan-and-decide runs inside the transaction
@@ -953,20 +972,7 @@ const createInsight = wy.procedure
 
         const [row] = (await tx.into(insights).insert({
           name,
-          // `options` arrives as opaque `jsonb` and is cast, not checked, so
-          // `encodeInsightDefinition` will pass a non-array `selectedFields`
-          // straight through (`{}` is not nullish, so `?? []` does not catch
-          // it). Parse before inserting, exactly as `updateInsight` and
-          // `patchInsight` below do — an unvalidated INSERT is worse than an
-          // unvalidated update, because it mints a permanently undecodable row
-          // that fails the fail-closed read path for every later reader.
-          definition: storedInsightDefinitionSchema.parse(
-            encodeInsightDefinition({
-              baseTableId,
-              selectedFields: opts.selectedFields,
-              metrics: opts.metrics,
-            }),
-          ),
+          definition,
           createdBy: { kind: "user" },
         })) as InsightRow[];
         if (!row) throw new Error("insert returned no row");
