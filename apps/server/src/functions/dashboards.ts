@@ -22,7 +22,7 @@ import type { Dashboard } from "@dashframe/types";
 import { eq, jsonb, text, uuid } from "@wystack/db";
 
 import { wy } from "../wystack";
-import { tsToMillis } from "./app-artifacts";
+import { tsToMillis } from "./timestamps";
 
 const { dashboards } = schema;
 
@@ -108,7 +108,7 @@ function rowToDashboard(row: DashboardRow): DashboardResult {
     description: row.description ?? undefined,
     items: (row.layout as Dashboard["items"]) ?? [],
     controls: (row.controls as Dashboard["controls"]) ?? undefined,
-    // Null-safe via the shared `tsToMillis` (app-artifacts.ts): the draft overlay
+    // Null-safe via the shared `tsToMillis` (timestamps.ts): the draft overlay
     // returns NULL created_at for a dashboard created inside a draft (the sparse
     // `<table>__draft` row has no canonical base; publish stamps the real value),
     // so coalesce null → 0 rather than crash on `.getTime()`.

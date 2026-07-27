@@ -11,10 +11,7 @@ import type {
   DataTable,
   Field,
   Insight,
-  InsightFilter,
-  InsightJoinConfig,
   InsightMetric,
-  InsightSort,
   Metric,
   SourceSchema,
   UUID,
@@ -32,13 +29,24 @@ import { z } from "zod";
 import type { DashframeFunctionContext } from "../app-context";
 import { wy } from "../wystack";
 import {
+  decodeInsight,
+  decodeStoredInsightDefinition,
+  encodeInsightDefinition,
+  storedInsightDefinitionSchema,
+  toInsight,
+  type InsightDefinition,
+  type InsightRow,
+  type StoredInsightDefinition,
+} from "./insights";
+import { tsToMillis } from "./timestamps";
+import {
   applyCredentialField,
-  type DataSourceConfig,
   isRecord,
   modeFromCtx,
   releaseCredentialRefs,
   requireRecordWithId,
   vaultFromCtx,
+  type DataSourceConfig,
 } from "./utils";
 
 const {
@@ -53,7 +61,6 @@ const {
 type DataSourceRow = typeof dataSources.$inferSelect;
 type DataTableRow = typeof dataTables.$inferSelect;
 type DataFrameRow = typeof dataFrames.$inferSelect;
-type InsightRow = typeof insights.$inferSelect;
 type VisualizationRow = typeof visualizations.$inferSelect;
 
 type DataFrameEntry = DataFrameJSON & {
@@ -62,15 +69,6 @@ type DataFrameEntry = DataFrameJSON & {
   rowCount?: number;
   columnCount?: number;
   analysis?: DataFrameAnalysis;
-};
-
-type InsightDefinition = {
-  baseTableId: UUID;
-  selectedFields: UUID[];
-  metrics: InsightMetric[];
-  filters?: InsightFilter[];
-  sorts?: InsightSort[];
-  joins?: InsightJoinConfig[];
 };
 
 type DataTableArrayKind = "fields" | "metrics";
@@ -224,23 +222,6 @@ function patchInsightMetricDefinition(
 }
 
 /**
- * Coalesce a row timestamp to epoch ms, null-safe.
- *
- * Canonical artifact tables stamp `created_at` with a DB default, so a canonical
- * read always has it. But the DRAFT-OVERLAY view coalesces canonical ⊕ the sparse
- * `<table>__draft` delta, and the draft shadow leaves `created_at` NULL for an
- * artifact CREATED inside a draft (it has no canonical base, and publish stamps
- * the real value). A draft-created artifact read through the overlay therefore
- * carries a null timestamp until publish — `.getTime()` on it throws. Coalesce
- * null → 0 (epoch): the artifact is unpublished, so it has no real creation time
- * yet; 0 is the honest placeholder the read path can surface without crashing.
- * `updatedAt` stays optional (null → undefined) via `?.getTime()` at call sites.
- */
-export function tsToMillis(value: Date | null | undefined): number {
-  return value != null ? value.getTime() : 0;
-}
-
-/**
  * Map a `data_sources` row to the `DataSource` read DTO.
  *
  * Presence flags (hasApiKey / hasConnectionString) are derived from the vault
@@ -328,40 +309,6 @@ function rowToDataFrame(row: DataFrameRow): DataFrameEntry {
   };
 }
 
-function rowToInsight(row: InsightRow): Insight {
-  const definition = row.definition as InsightDefinition;
-  return {
-    id: row.id,
-    name: row.name,
-    baseTableId: definition.baseTableId,
-    selectedFields: definition.selectedFields ?? [],
-    metrics: definition.metrics ?? [],
-    filters: definition.filters,
-    sorts: definition.sorts,
-    joins: definition.joins,
-    createdAt: tsToMillis(row.createdAt),
-    updatedAt: row.updatedAt?.getTime(),
-  };
-}
-
-function insightToDefinition(input: {
-  baseTableId: UUID;
-  selectedFields?: UUID[];
-  metrics?: InsightMetric[];
-  filters?: InsightFilter[];
-  sorts?: InsightSort[];
-  joins?: InsightJoinConfig[];
-}): InsightDefinition {
-  return {
-    baseTableId: input.baseTableId,
-    selectedFields: input.selectedFields ?? [],
-    metrics: input.metrics ?? [],
-    filters: input.filters,
-    sorts: input.sorts,
-    joins: input.joins,
-  };
-}
-
 function stripDataFromSpec(spec: VegaLiteSpec): VegaLiteSpec {
   const next = { ...spec };
   delete next.data;
@@ -393,15 +340,15 @@ async function loadDataTable(
   return rowToDataTable(row);
 }
 
-async function loadInsight(
+async function loadInsightRow(
   ctx: { db: import("@wystack/db").DrizzleTracker },
   id: string,
-): Promise<Insight> {
+): Promise<InsightRow> {
   const row = (await ctx.db.from(insights).where(eq("id", id)).first()) as
     | InsightRow
     | undefined;
   if (!row) throw new Error(`Insight ${id} not found`);
-  return rowToInsight(row);
+  return row;
 }
 
 const listDataSources = wy.procedure
@@ -918,7 +865,7 @@ const listInsights = wy.procedure
     const excluded = new Set((excludeIds as UUID[] | undefined) ?? []);
     const rows = (await ctx.db.from(insights).all()) as InsightRow[];
     return rows
-      .map(rowToInsight)
+      .map(decodeInsight)
       .filter((insight) => !excluded.has(insight.id));
   });
 
@@ -928,7 +875,7 @@ const getInsight = wy.procedure
     const row = (await ctx.db.from(insights).where(eq("id", id)).first()) as
       | InsightRow
       | undefined;
-    return row ? rowToInsight(row) : null;
+    return row ? decodeInsight(row) : null;
   });
 
 const createInsight = wy.procedure
@@ -980,12 +927,24 @@ const createInsight = wy.procedure
           // shows up in latency, promote baseTableId to a top-level indexed
           // column (or add a JSONB expression index) and filter at the DB layer.
           const rows = (await tx.from(insights).all()) as InsightRow[];
-          const existingDraft = rows
-            .filter(
-              (r) =>
-                (r.definition as InsightDefinition).baseTableId === baseTableId,
-            )
-            .find((r) => isUnmodifiedDraft(r.definition as InsightDefinition));
+          // Fail OPEN here, unlike every read site. This scan only looks for a
+          // draft worth reusing, so an undecodable row is skipped rather than
+          // thrown: failing closed would let one corrupt row anywhere in the
+          // table block createInsight for every unrelated baseTableId, and the
+          // worst case of skipping is that we create a new draft instead of
+          // reusing one. `listInsights` still surfaces the corruption.
+          const existingDraft = rows.find((row) => {
+            let definition: StoredInsightDefinition;
+            try {
+              definition = decodeStoredInsightDefinition(row);
+            } catch {
+              return false;
+            }
+            return (
+              definition.baseTableId === baseTableId &&
+              isUnmodifiedDraft(definition)
+            );
+          });
 
           if (existingDraft) {
             return { id: existingDraft.id };
@@ -994,7 +953,7 @@ const createInsight = wy.procedure
 
         const [row] = (await tx.into(insights).insert({
           name,
-          definition: insightToDefinition({
+          definition: encodeInsightDefinition({
             baseTableId,
             selectedFields: opts.selectedFields,
             metrics: opts.metrics,
@@ -1010,22 +969,48 @@ const createInsight = wy.procedure
 const updateInsight = wy.procedure
   .input({ id: uuid, updates: jsonb })
   .mutation(async (ctx, { id, updates }): Promise<{ ok: true }> => {
-    const current = await loadInsight(ctx, id);
-    const patch = updates as Partial<Insight>;
-    await ctx.db
-      .from(insights)
-      .where(eq("id", id))
-      .update({
-        ...(patch.name !== undefined ? { name: patch.name } : {}),
-        definition: insightToDefinition({
-          baseTableId: patch.baseTableId ?? current.baseTableId,
-          selectedFields: patch.selectedFields ?? current.selectedFields,
-          metrics: patch.metrics ?? current.metrics,
-          filters: patch.filters ?? current.filters,
-          sorts: patch.sorts ?? current.sorts,
-          joins: patch.joins ?? current.joins,
-        }),
-      });
+    // Read-modify-write on the definition blob runs inside a transaction: an
+    // interleaved SetInsightSource would otherwise commit between the read and
+    // the write, and this write-back of the stale snapshot would silently
+    // revert the accepted source change. Same single-connection serialization
+    // INVARIANT as the createInsight dedup scan above — see the note there.
+    await ctx.db.transaction(async (tx) => {
+      const row = await loadInsightRow({ db: tx }, id);
+      const stored = decodeStoredInsightDefinition(row);
+      const patch = updates as Partial<Insight>;
+      // `name` is a row column, not part of the definition blob, so the schema
+      // parse below never sees it. Without this check an untyped `updates`
+      // could put a non-string straight into the column — the same unchecked
+      // write this procedure exists to close, just on the other field.
+      if (patch.name !== undefined && typeof patch.name !== "string") {
+        throw new Error("updateInsight: name must be a string");
+      }
+      if (
+        patch.baseTableId !== undefined &&
+        patch.baseTableId !== stored.baseTableId
+      ) {
+        throw new Error(
+          "updateInsight cannot repoint baseTableId; use SetInsightSource",
+        );
+      }
+      await tx
+        .from(insights)
+        .where(eq("id", id))
+        .update({
+          ...(patch.name !== undefined ? { name: patch.name } : {}),
+          definition: storedInsightDefinitionSchema.parse({
+            ...stored,
+            ...patch,
+            // Pinned from the stored blob, never the patch. `source` is a valid
+            // schema key, so an untyped `updates` carrying one would otherwise
+            // win the spread and write a composition edge that never passed
+            // `requireSourceExists`/`wouldCreateCycle` — the same back-door the
+            // `baseTableId` guard above closes, and a more direct one. `Insight`
+            // has no `source`, so the cast hides this from the type checker.
+            source: stored.source,
+          }),
+        });
+    });
     return { ok: true };
   });
 
@@ -1078,18 +1063,27 @@ const patchInsight = wy.procedure
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const current = await loadInsight(ctx, args.id);
-    const { selectedFields, metrics } = patchInsightDefinition(current, args);
-    await ctx.db
-      .from(insights)
-      .where(eq("id", args.id))
-      .update({
-        definition: insightToDefinition({
-          ...current,
-          selectedFields,
-          metrics,
-        }),
-      });
+    // Transactional for the same reason as updateInsight: this is a
+    // read-modify-write of the definition blob, and an interleaved
+    // SetInsightSource would otherwise be reverted by the stale write-back.
+    await ctx.db.transaction(async (tx) => {
+      const row = await loadInsightRow({ db: tx }, args.id);
+      // One parse, two views: `toInsight` projects the already-decoded
+      // definition instead of decoding the row a second time.
+      const stored = decodeStoredInsightDefinition(row);
+      const current = toInsight(row, stored);
+      const { selectedFields, metrics } = patchInsightDefinition(current, args);
+      await tx
+        .from(insights)
+        .where(eq("id", args.id))
+        .update({
+          definition: storedInsightDefinitionSchema.parse({
+            ...stored,
+            selectedFields,
+            metrics,
+          }),
+        });
+    });
     return { ok: true };
   });
 

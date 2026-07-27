@@ -30,6 +30,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { eq } from "drizzle-orm";
+
 import { functions } from "../functions";
 import { wy } from "../wystack";
 
@@ -298,6 +300,44 @@ describe("createInsight — atomic auto-draft dedup", () => {
     // Exactly one insight row — no duplicate draft.
     const rows = await allInsights();
     expect(rows).toHaveLength(1);
+  });
+
+  it("should still create a draft when an unrelated insight row is corrupt", async () => {
+    // The dedup scan decodes rows looking for a reusable draft, so failing
+    // closed on a corrupt blob would let one bad row anywhere in the table
+    // block createInsight for every unrelated baseTableId. It fails OPEN: an
+    // undecodable row is skipped.
+    //
+    // The reuse call below targets a baseTableId with NO existing draft, so
+    // `rows.find` cannot short-circuit and must decode every row — including
+    // the corrupt one — whatever order the scan returns them in. Postgres (and
+    // so PGlite) does not guarantee row order without ORDER BY, so the test
+    // must not depend on the corrupt row landing before any match.
+    const { id: corruptId } = (await call("createInsight", {
+      name: "unrelated",
+      baseTableId: crypto.randomUUID(),
+      options: { selectedFields: [] },
+    })) as { id: string };
+    // `sorts` must be an array — an object fails the stored schema structurally.
+    await db
+      .update(insights)
+      .set({ definition: { baseTableId: crypto.randomUUID(), sorts: {} } })
+      .where(eq(insights.id, corruptId));
+
+    // No draft exists for this table, so the scan traverses the whole table and
+    // then inserts. Failing closed, the corrupt row makes this throw instead.
+    const created = (await call("createInsight", {
+      name: "orders",
+      baseTableId: crypto.randomUUID(),
+      options: { selectedFields: [], reuseUnmodifiedDraft: true },
+    })) as { id: string };
+
+    // Pin the shape before asserting. `call` returns `unknown` and the cast is
+    // unchecked, so a drifted result shape would read `undefined` and a laxer
+    // assertion would pass green while testing nothing.
+    expect(typeof created.id).toBe("string");
+    expect(created.id).not.toBe(corruptId);
+    expect(await allInsights()).toHaveLength(2);
   });
 
   it("should still create a new draft when the existing insight has been modified", async () => {
@@ -779,5 +819,213 @@ describe("addDataSource / updateDataSource — same-operation minted-ref rollbac
     ).rejects.toThrow(/defaultSchema must be a string/);
 
     expect(await db.select().from(dataSources)).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Regression: `source` must survive every read-modify-write.
+//
+// `decodeInsight` returns the domain `Insight`, which deliberately has no
+// `source` — it is storage-level composition wiring, not a domain field. Both
+// write paths used to rebuild `definition` from that decoded `Insight`, so any
+// rename or field/metric patch silently erased the source. The user-visible
+// damage is not just a lost pointer: `wouldCreateCycle` in `commands.ts` walks
+// `definition.source`, so a source-less insight reads as a leaf and the guard
+// stops seeing the edge — admitting an A→B→A cycle it is there to reject.
+// ---------------------------------------------------------------------------
+
+describe("insight writes preserve `source` (Insight-on-Insight composition)", () => {
+  let dir: string;
+  let db: Awaited<ReturnType<typeof openArtifactDb>>;
+  let app: WyStackApp;
+
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), "dashframe-insight-source-"));
+    db = await openArtifactDb({ path: join(dir, "artifacts.db") });
+    app = await wy.build({ db, functions });
+  });
+
+  afterEach(async () => {
+    await db.$client.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  async function call(path: string, args: unknown): Promise<unknown> {
+    const { result } = await app.call(path, args);
+    return result;
+  }
+
+  async function storedDefinition(
+    id: string,
+  ): Promise<Record<string, unknown>> {
+    const [row] = await db
+      .select()
+      .from(schema.insights)
+      .where(eq(schema.insights.id, id));
+    if (!row) throw new Error(`test setup: insight ${id} not found`);
+    return row.definition as Record<string, unknown>;
+  }
+
+  /** Create an insight, then compose it onto `sourceInsightId`. */
+  async function makeComposedInsight(baseTableId: string) {
+    const sourceInsightId = baseTableId;
+    const { id } = (await call("createInsight", {
+      name: "Derived",
+      baseTableId,
+      options: { selectedFields: [] },
+    })) as { id: string };
+
+    // Compose it — the shape SetInsightSource persists.
+    await db
+      .update(schema.insights)
+      .set({
+        definition: {
+          ...(await storedDefinition(id)),
+          source: { sourceType: "insight", sourceId: sourceInsightId },
+        },
+      })
+      .where(eq(schema.insights.id, id));
+
+    return { id, sourceInsightId };
+  }
+
+  async function storedSource(id: string) {
+    return (await storedDefinition(id)).source;
+  }
+
+  it("should keep `source` when updateInsight only renames the insight", async () => {
+    const baseTableId = crypto.randomUUID();
+    const { id, sourceInsightId } = await makeComposedInsight(baseTableId);
+
+    await call("updateInsight", { id, updates: { name: "Renamed" } });
+
+    expect(await storedSource(id)).toEqual({
+      sourceType: "insight",
+      sourceId: sourceInsightId,
+    });
+  });
+
+  it("should allow updateInsight to repeat an unchanged base table", async () => {
+    const baseTableId = crypto.randomUUID();
+    const { id, sourceInsightId } = await makeComposedInsight(baseTableId);
+
+    await call("updateInsight", {
+      id,
+      updates: { name: "Renamed", baseTableId },
+    });
+
+    expect(await storedSource(id)).toEqual({
+      sourceType: "insight",
+      sourceId: sourceInsightId,
+    });
+  });
+
+  it("should ignore a `source` supplied through updateInsight", async () => {
+    // `source` is a valid schema key, so an untyped `updates` payload carrying
+    // one would otherwise write a composition edge that never passed
+    // `requireSourceExists`/`wouldCreateCycle` — here, a self-cycle.
+    const baseTableId = crypto.randomUUID();
+    const { id, sourceInsightId } = await makeComposedInsight(baseTableId);
+
+    await call("updateInsight", {
+      id,
+      updates: { source: { sourceType: "insight", sourceId: id } },
+    });
+
+    expect(await storedSource(id)).toEqual({
+      sourceType: "insight",
+      sourceId: sourceInsightId,
+    });
+  });
+
+  it("should keep `source` when patchInsight adds a field", async () => {
+    const baseTableId = crypto.randomUUID();
+    const { id, sourceInsightId } = await makeComposedInsight(baseTableId);
+
+    await call("patchInsight", {
+      id,
+      mode: "addField",
+      fieldId: crypto.randomUUID(),
+    });
+
+    expect(await storedSource(id)).toEqual({
+      sourceType: "insight",
+      sourceId: sourceInsightId,
+    });
+  });
+
+  it("should reject updateInsight when it repoints the base table", async () => {
+    const baseTableId = crypto.randomUUID();
+    const { id, sourceInsightId } = await makeComposedInsight(baseTableId);
+
+    await expect(
+      call("updateInsight", {
+        id,
+        updates: { baseTableId: crypto.randomUUID() },
+      }),
+    ).rejects.toThrow(
+      "updateInsight cannot repoint baseTableId; use SetInsightSource",
+    );
+
+    expect(await storedDefinition(id)).toMatchObject({
+      baseTableId,
+      source: { sourceType: "insight", sourceId: sourceInsightId },
+    });
+  });
+
+  it("should reject a malformed updates payload instead of persisting it", async () => {
+    const baseTableId = crypto.randomUUID();
+    const { id } = (await call("createInsight", {
+      name: "Malformed update target",
+      baseTableId,
+    })) as { id: string };
+
+    await expect(
+      call("updateInsight", {
+        id,
+        updates: { metrics: "not-an-array" },
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("should reject a non-string name instead of writing it to the row", async () => {
+    // `name` is a row column, not part of the definition blob, so the schema
+    // parse that guards everything else never sees it.
+    const baseTableId = crypto.randomUUID();
+    const { id } = (await call("createInsight", {
+      name: "Name guard target",
+      baseTableId,
+    })) as { id: string };
+
+    await expect(
+      call("updateInsight", { id, updates: { name: { not: "a string" } } }),
+    ).rejects.toThrow(/name must be a string/);
+
+    const [row] = await db
+      .select()
+      .from(schema.insights)
+      .where(eq(schema.insights.id, id));
+    expect(row?.name).toBe("Name guard target");
+  });
+
+  it("should leave the project readable after a rejected update", async () => {
+    const baseTableId = crypto.randomUUID();
+    const { id } = (await call("createInsight", {
+      name: "Readable update target",
+      baseTableId,
+    })) as { id: string };
+    const before = await storedDefinition(id);
+
+    await expect(
+      call("updateInsight", {
+        id,
+        updates: { metrics: "not-an-array" },
+      }),
+    ).rejects.toThrow();
+
+    expect(await storedDefinition(id)).toEqual(before);
+    await expect(call("listInsights", {})).resolves.toEqual([
+      expect.objectContaining({ id }),
+    ]);
   });
 });
