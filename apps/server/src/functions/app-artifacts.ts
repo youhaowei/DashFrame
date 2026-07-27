@@ -33,8 +33,10 @@ import {
   decodeStoredInsightDefinition,
   encodeInsightDefinition,
   storedInsightDefinitionSchema,
+  toInsight,
   type InsightDefinition,
   type InsightRow,
+  type StoredInsightDefinition,
 } from "./insights";
 import { tsToMillis } from "./timestamps";
 import {
@@ -925,8 +927,19 @@ const createInsight = wy.procedure
           // shows up in latency, promote baseTableId to a top-level indexed
           // column (or add a JSONB expression index) and filter at the DB layer.
           const rows = (await tx.from(insights).all()) as InsightRow[];
+          // Fail OPEN here, unlike every read site. This scan only looks for a
+          // draft worth reusing, so an undecodable row is skipped rather than
+          // thrown: failing closed would let one corrupt row anywhere in the
+          // table block createInsight for every unrelated baseTableId, and the
+          // worst case of skipping is that we create a new draft instead of
+          // reusing one. `listInsights` still surfaces the corruption.
           const existingDraft = rows.find((row) => {
-            const definition = decodeStoredInsightDefinition(row);
+            let definition: StoredInsightDefinition;
+            try {
+              definition = decodeStoredInsightDefinition(row);
+            } catch {
+              return false;
+            }
             return (
               definition.baseTableId === baseTableId &&
               isUnmodifiedDraft(definition)
@@ -956,34 +969,41 @@ const createInsight = wy.procedure
 const updateInsight = wy.procedure
   .input({ id: uuid, updates: jsonb })
   .mutation(async (ctx, { id, updates }): Promise<{ ok: true }> => {
-    const row = await loadInsightRow(ctx, id);
-    const stored = decodeStoredInsightDefinition(row);
-    const patch = updates as Partial<Insight>;
-    if (
-      patch.baseTableId !== undefined &&
-      patch.baseTableId !== stored.baseTableId
-    ) {
-      throw new Error(
-        "updateInsight cannot repoint baseTableId; use SetInsightSource",
-      );
-    }
-    await ctx.db
-      .from(insights)
-      .where(eq("id", id))
-      .update({
-        ...(patch.name !== undefined ? { name: patch.name } : {}),
-        definition: storedInsightDefinitionSchema.parse({
-          ...stored,
-          ...patch,
-          // Pinned from the stored blob, never the patch. `source` is a valid
-          // schema key, so an untyped `updates` carrying one would otherwise
-          // win the spread and write a composition edge that never passed
-          // `requireSourceExists`/`wouldCreateCycle` — the same back-door the
-          // `baseTableId` guard above closes, and a more direct one. `Insight`
-          // has no `source`, so the cast hides this from the type checker.
-          source: stored.source,
-        }),
-      });
+    // Read-modify-write on the definition blob runs inside a transaction: an
+    // interleaved SetInsightSource would otherwise commit between the read and
+    // the write, and this write-back of the stale snapshot would silently
+    // revert the accepted source change. Same single-connection serialization
+    // INVARIANT as the createInsight dedup scan above — see the note there.
+    await ctx.db.transaction(async (tx) => {
+      const row = await loadInsightRow({ db: tx }, id);
+      const stored = decodeStoredInsightDefinition(row);
+      const patch = updates as Partial<Insight>;
+      if (
+        patch.baseTableId !== undefined &&
+        patch.baseTableId !== stored.baseTableId
+      ) {
+        throw new Error(
+          "updateInsight cannot repoint baseTableId; use SetInsightSource",
+        );
+      }
+      await tx
+        .from(insights)
+        .where(eq("id", id))
+        .update({
+          ...(patch.name !== undefined ? { name: patch.name } : {}),
+          definition: storedInsightDefinitionSchema.parse({
+            ...stored,
+            ...patch,
+            // Pinned from the stored blob, never the patch. `source` is a valid
+            // schema key, so an untyped `updates` carrying one would otherwise
+            // win the spread and write a composition edge that never passed
+            // `requireSourceExists`/`wouldCreateCycle` — the same back-door the
+            // `baseTableId` guard above closes, and a more direct one. `Insight`
+            // has no `source`, so the cast hides this from the type checker.
+            source: stored.source,
+          }),
+        });
+    });
     return { ok: true };
   });
 
@@ -1036,20 +1056,27 @@ const patchInsight = wy.procedure
     if (!parsed.success) {
       throw new Error(parsed.error.message);
     }
-    const row = await loadInsightRow(ctx, args.id);
-    const current = decodeInsight(row);
-    const stored = decodeStoredInsightDefinition(row);
-    const { selectedFields, metrics } = patchInsightDefinition(current, args);
-    await ctx.db
-      .from(insights)
-      .where(eq("id", args.id))
-      .update({
-        definition: storedInsightDefinitionSchema.parse({
-          ...stored,
-          selectedFields,
-          metrics,
-        }),
-      });
+    // Transactional for the same reason as updateInsight: this is a
+    // read-modify-write of the definition blob, and an interleaved
+    // SetInsightSource would otherwise be reverted by the stale write-back.
+    await ctx.db.transaction(async (tx) => {
+      const row = await loadInsightRow({ db: tx }, args.id);
+      // One parse, two views: `toInsight` projects the already-decoded
+      // definition instead of decoding the row a second time.
+      const stored = decodeStoredInsightDefinition(row);
+      const current = toInsight(row, stored);
+      const { selectedFields, metrics } = patchInsightDefinition(current, args);
+      await tx
+        .from(insights)
+        .where(eq("id", args.id))
+        .update({
+          definition: storedInsightDefinitionSchema.parse({
+            ...stored,
+            selectedFields,
+            metrics,
+          }),
+        });
+    });
     return { ok: true };
   });
 

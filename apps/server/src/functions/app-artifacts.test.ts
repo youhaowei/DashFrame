@@ -302,6 +302,44 @@ describe("createInsight — atomic auto-draft dedup", () => {
     expect(rows).toHaveLength(1);
   });
 
+  it("should still reuse a draft when an unrelated insight row is corrupt", async () => {
+    // The dedup scan reads every row, so failing closed on a corrupt blob would
+    // let one bad row anywhere in the table block createInsight for every
+    // unrelated baseTableId. This scan fails OPEN: the corrupt row is skipped.
+    //
+    // ORDERING IS LOAD-BEARING: the corrupt row must be inserted BEFORE the row
+    // that matches. `rows.find` short-circuits on the first match, so a corrupt
+    // row sitting after the match is never decoded and the test would pass with
+    // or without the fix.
+    const { id: corruptId } = (await call("createInsight", {
+      name: "unrelated",
+      baseTableId: crypto.randomUUID(),
+      options: { selectedFields: [] },
+    })) as { id: string };
+    // `sorts` must be an array — an object fails the stored schema structurally.
+    await db
+      .update(insights)
+      .set({ definition: { baseTableId: crypto.randomUUID(), sorts: {} } })
+      .where(eq(insights.id, corruptId));
+
+    const tableId = crypto.randomUUID();
+
+    // Both of these scan past the corrupt row. Failing closed, the first throws.
+    const first = (await call("createInsight", {
+      name: "orders",
+      baseTableId: tableId,
+      options: { selectedFields: [], reuseUnmodifiedDraft: true },
+    })) as { id: string };
+
+    const second = (await call("createInsight", {
+      name: "orders",
+      baseTableId: tableId,
+      options: { selectedFields: [], reuseUnmodifiedDraft: true },
+    })) as { id: string };
+
+    expect(second.id).toBe(first.id);
+  });
+
   it("should still create a new draft when the existing insight has been modified", async () => {
     // A modified insight (selectedFields populated) must NOT be reused as a
     // draft — even a reuse call should insert a fresh row.
