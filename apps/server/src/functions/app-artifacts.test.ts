@@ -1028,4 +1028,34 @@ describe("insight writes preserve `source` (Insight-on-Insight composition)", ()
       expect.objectContaining({ id }),
     ]);
   });
+
+  it("should reject a non-array in createInsight options instead of minting an undecodable row", async () => {
+    // `options` arrives as opaque `jsonb`; `encodeInsightDefinition` does not
+    // validate, and `{}` is not nullish so `?? []` does not catch it. An
+    // unvalidated INSERT is worse than an unvalidated update: it mints a row
+    // that can never be decoded, and because `listInsights` decodes every row,
+    // one such row takes out the whole list — including insights the caller
+    // never touched. `updateInsight`/`patchInsight` already parse; so must this.
+    const baseTableId = crypto.randomUUID();
+    const { id: healthyId } = (await call("createInsight", {
+      name: "Healthy sibling",
+      baseTableId,
+    })) as { id: string };
+
+    await expect(
+      call("createInsight", {
+        name: "Poison",
+        baseTableId,
+        options: { selectedFields: {} },
+      }),
+    ).rejects.toThrow();
+
+    // Nothing was minted, and the sibling is still listable.
+    const rows = await db.select().from(schema.insights);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.id).toBe(healthyId);
+    await expect(call("listInsights", {})).resolves.toEqual([
+      expect.objectContaining({ id: healthyId }),
+    ]);
+  });
 });

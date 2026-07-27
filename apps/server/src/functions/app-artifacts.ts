@@ -953,11 +953,20 @@ const createInsight = wy.procedure
 
         const [row] = (await tx.into(insights).insert({
           name,
-          definition: encodeInsightDefinition({
-            baseTableId,
-            selectedFields: opts.selectedFields,
-            metrics: opts.metrics,
-          }),
+          // `options` arrives as opaque `jsonb` and is cast, not checked, so
+          // `encodeInsightDefinition` will pass a non-array `selectedFields`
+          // straight through (`{}` is not nullish, so `?? []` does not catch
+          // it). Parse before inserting, exactly as `updateInsight` and
+          // `patchInsight` below do — an unvalidated INSERT is worse than an
+          // unvalidated update, because it mints a permanently undecodable row
+          // that fails the fail-closed read path for every later reader.
+          definition: storedInsightDefinitionSchema.parse(
+            encodeInsightDefinition({
+              baseTableId,
+              selectedFields: opts.selectedFields,
+              metrics: opts.metrics,
+            }),
+          ),
           createdBy: { kind: "user" },
         })) as InsightRow[];
         if (!row) throw new Error("insert returned no row");

@@ -187,7 +187,7 @@ async function requireInsightDefinition(
  * that went bad, this is a caller sending something we refuse to store.
  */
 function requireDefinitionShape(
-  command: string,
+  command: CommandName,
   candidate: unknown,
 ): StoredInsightDefinition {
   const parsed = storedInsightDefinitionSchema.safeParse(candidate);
@@ -667,6 +667,11 @@ const setInsightSource = wy.procedure
       }
     }
 
+    // No `requireDefinitionShape` here, deliberately: unlike the four handlers
+    // that take an opaque `jsonb` array operand, every key this writes is
+    // already checked — `definition` came back parsed from
+    // `requireInsightDefinition`, and `source` from `insightSourceSchema`. There
+    // is no unvalidated value to reject.
     const next: StoredInsightDefinition = {
       ...definition,
       baseTableId: source.sourceId,

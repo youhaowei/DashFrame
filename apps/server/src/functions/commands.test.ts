@@ -9,7 +9,8 @@
  * rollback, and preview persisting nothing.
  *
  * Covers: Insight (incl. Insight-on-Insight composition and cycle rejection),
- * SelectFields, SetInsightFilter/Sort, AddJoin/UpdateJoin/RemoveJoin,
+ * SelectFields, SetInsightFilter/Sort, write-boundary validation of the
+ * definition blob, AddJoin/UpdateJoin/RemoveJoin,
  * Visualization (CreateVisualization, SetChartType, SetChartEncoding), Dashboard
  * (CreateDashboard, AddDashboardItem, UpdateDashboardItem, SetDashboardLayout,
  * RemoveDashboardItem), DeleteNode, extended RenameNode, and AddField/UpdateField
@@ -1272,7 +1273,13 @@ describe("command vocabulary", () => {
     async function storedDefinition(insightId: string): Promise<string> {
       const rows = await insightsById(insightId);
       expect(rows).toHaveLength(1);
-      return JSON.stringify(rows[0]?.definition);
+      const json = JSON.stringify(rows[0]?.definition);
+      // Anti-vacuity guard, in the helper so every caller inherits it: if the
+      // fixture ever stopped persisting a definition, `json` would be the
+      // string "undefined" and every byte-identity comparison built on it
+      // would pass without proving anything.
+      expect(json).toContain("baseTableId");
+      return json;
     }
 
     it.each([
@@ -1283,16 +1290,40 @@ describe("command vocabulary", () => {
       "%s should reject a non-array operand and leave the stored definition byte-identical",
       async (command, field) => {
         const insightId = await makeInsight();
+        // Populate BOTH operand fields first, so byte-identity proves an
+        // existing good array was not clobbered — not merely that nothing was
+        // added. Clobber-on-reject is the likelier regression.
+        await commit(
+          cmd("SetInsightFilter", {
+            id: insightId,
+            filters: [
+              {
+                field: "region",
+                operator: "eq",
+                value: { kind: "value", v: "EMEA" },
+              },
+            ],
+          }),
+          cmd("SetInsightSort", {
+            id: insightId,
+            sorts: [{ field: "amount", direction: "desc" }],
+          }),
+        );
         const before = await storedDefinition(insightId);
-        // Guard against a vacuous comparison: if the fixture ever stopped
-        // persisting a definition, `before` would be "undefined" and every
-        // byte-identity assertion below would pass without proving anything.
-        expect(before).toContain("baseTableId");
+        expect(before).toContain(
+          field === "fieldIds" ? "selectedFields" : field,
+        );
 
         for (const operand of NON_ARRAY_OPERANDS) {
           await expect(
             commit(rawCmd(command, { id: insightId, [field]: operand })),
-          ).rejects.toThrow(/definition is invalid/);
+          ).rejects.toThrow(
+            // Pin WHICH handler rejected. A copy-pasted wrong command name in
+            // `requireDefinitionShape(...)` still type-checks and would pass an
+            // unscoped /definition is invalid/ — exactly the defect a repeated
+            // fan-out manufactures.
+            new RegExp(`${command}: definition is invalid`),
+          );
           // Nothing was written — not a partial write, not a normalized one.
           expect(await storedDefinition(insightId)).toBe(before);
         }
@@ -1314,7 +1345,7 @@ describe("command vocabulary", () => {
                 [field]: operand,
               }),
             ),
-          ).rejects.toThrow(/definition is invalid/);
+          ).rejects.toThrow(/CreateInsight: definition is invalid/);
           expect(await insightsById(insightId)).toHaveLength(0);
         }
       },
@@ -1329,7 +1360,7 @@ describe("command vocabulary", () => {
 
       await expect(
         commit(rawCmd("SelectFields", { id: insightId, fieldIds: [id(), 42] })),
-      ).rejects.toThrow(/definition is invalid/);
+      ).rejects.toThrow(/SelectFields: definition is invalid/);
       expect(await storedDefinition(insightId)).toBe(before);
     });
 
@@ -1356,7 +1387,7 @@ describe("command vocabulary", () => {
 
       await expect(
         commit(rawCmd("SetInsightSort", { id: targetId, sorts: {} })),
-      ).rejects.toThrow(/definition is invalid/);
+      ).rejects.toThrow(/SetInsightSort: definition is invalid/);
 
       const listed = (await app.call("listInsights", {})).result as {
         id: string;
@@ -1364,6 +1395,41 @@ describe("command vocabulary", () => {
       }[];
       expect(listed).toHaveLength(2);
       expect(listed.map((i) => i.name).sort()).toEqual(["Sibling", "Target"]);
+    });
+
+    it("should fail the whole listInsights query if a bad operand ever does land (why the guard exists)", async () => {
+      // Characterization of the harm the guard prevents. Without this, the test
+      // above only pins the ABSENCE of blast radius and the rationale above
+      // `requireDefinitionShape` is unattested — if someone later made
+      // `listInsights` lenient, nothing here would notice that the whole
+      // argument for write-side validation had quietly evaporated.
+      const { tableId } = await makeTable();
+      const targetId = id();
+      const siblingId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: targetId,
+          name: "Target",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("CreateInsight", {
+          id: siblingId,
+          name: "Sibling",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+
+      // Corrupt the blob directly, bypassing every write guard — this is the
+      // state the guards make unreachable, not a state a command can produce.
+      await db
+        .update(insights)
+        .set({ definition: { baseTableId: tableId, sorts: {} } })
+        .where(eq(insights.id, targetId));
+
+      // One bad row takes out the entire query, including the untouched sibling.
+      await expect(app.call("listInsights", {})).rejects.toThrow(
+        /has an invalid definition/,
+      );
     });
 
     it("should round-trip valid operands unchanged, including empty arrays", async () => {

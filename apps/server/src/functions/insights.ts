@@ -7,6 +7,12 @@
  * command handlers (`commands.ts`) consume them, so there is a single canonical
  * `storedInsightDefinitionSchema` — the read and write paths cannot drift.
  *
+ * The load-bearing property is that read and write apply the SAME SCHEMA
+ * OBJECT, not two schemas kept in agreement — `requireInsightDefinition` reads
+ * through it, `requireDefinitionShape` writes through it, so there is nothing
+ * for the two seams to drift between. Copy that property, not this file's
+ * layout.
+ *
  * Validation is STRUCTURAL, not element-deep: the schema rejects a non-object
  * blob, a missing `baseTableId`, or a non-array where an array is required, but
  * trusts element shapes (metric/filter internals). That matches the write
@@ -193,7 +199,15 @@ export function decodeInsight(row: InsightRow): Insight {
 
 /**
  * Encode domain insight fields into the stored `definition` JSONB blob.
- * Symmetric write seam for `decodeInsight`; no Zod validation in this pilot.
+ * Symmetric write seam for `decodeInsight`.
+ *
+ * This function does NOT validate — it only assembles. Callers whose inputs
+ * came off the wire (an opaque `jsonb` operand, an untyped patch) must wrap the
+ * result in `storedInsightDefinitionSchema.parse(...)` before writing; a
+ * non-array that reaches the column mints a row the fail-closed read path can
+ * never decode, which fails `listInsights` for EVERY row, not just that one.
+ * Assembling and validating are kept separate because some callers already hold
+ * a parsed definition and would otherwise pay a redundant parse.
  *
  * `source` has no counterpart on the domain `Insight`, so every caller must
  * source it from {@link decodeStoredInsightDefinition} and pass it through
