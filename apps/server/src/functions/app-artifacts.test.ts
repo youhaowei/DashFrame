@@ -302,15 +302,17 @@ describe("createInsight — atomic auto-draft dedup", () => {
     expect(rows).toHaveLength(1);
   });
 
-  it("should still reuse a draft when an unrelated insight row is corrupt", async () => {
-    // The dedup scan reads every row, so failing closed on a corrupt blob would
-    // let one bad row anywhere in the table block createInsight for every
-    // unrelated baseTableId. This scan fails OPEN: the corrupt row is skipped.
+  it("should still create a draft when an unrelated insight row is corrupt", async () => {
+    // The dedup scan decodes rows looking for a reusable draft, so failing
+    // closed on a corrupt blob would let one bad row anywhere in the table
+    // block createInsight for every unrelated baseTableId. It fails OPEN: an
+    // undecodable row is skipped.
     //
-    // ORDERING IS LOAD-BEARING: the corrupt row must be inserted BEFORE the row
-    // that matches. `rows.find` short-circuits on the first match, so a corrupt
-    // row sitting after the match is never decoded and the test would pass with
-    // or without the fix.
+    // The reuse call below targets a baseTableId with NO existing draft, so
+    // `rows.find` cannot short-circuit and must decode every row — including
+    // the corrupt one — whatever order the scan returns them in. Postgres (and
+    // so PGlite) does not guarantee row order without ORDER BY, so the test
+    // must not depend on the corrupt row landing before any match.
     const { id: corruptId } = (await call("createInsight", {
       name: "unrelated",
       baseTableId: crypto.randomUUID(),
@@ -322,26 +324,20 @@ describe("createInsight — atomic auto-draft dedup", () => {
       .set({ definition: { baseTableId: crypto.randomUUID(), sorts: {} } })
       .where(eq(insights.id, corruptId));
 
-    const tableId = crypto.randomUUID();
-
-    // Both of these scan past the corrupt row. Failing closed, the first throws.
-    const first = (await call("createInsight", {
+    // No draft exists for this table, so the scan traverses the whole table and
+    // then inserts. Failing closed, the corrupt row makes this throw instead.
+    const created = (await call("createInsight", {
       name: "orders",
-      baseTableId: tableId,
+      baseTableId: crypto.randomUUID(),
       options: { selectedFields: [], reuseUnmodifiedDraft: true },
     })) as { id: string };
 
-    const second = (await call("createInsight", {
-      name: "orders",
-      baseTableId: tableId,
-      options: { selectedFields: [], reuseUnmodifiedDraft: true },
-    })) as { id: string };
-
-    // Pin the shape before comparing. `call` returns `unknown` and the cast is
-    // unchecked, so if the result shape ever drifts both sides read `undefined`
-    // and `toBe` passes — a green test asserting nothing.
-    expect(typeof first.id).toBe("string");
-    expect(second.id).toBe(first.id);
+    // Pin the shape before asserting. `call` returns `unknown` and the cast is
+    // unchecked, so a drifted result shape would read `undefined` and a laxer
+    // assertion would pass green while testing nothing.
+    expect(typeof created.id).toBe("string");
+    expect(created.id).not.toBe(corruptId);
+    expect(await allInsights()).toHaveLength(2);
   });
 
   it("should still create a new draft when the existing insight has been modified", async () => {
@@ -990,6 +986,26 @@ describe("insight writes preserve `source` (Insight-on-Insight composition)", ()
         updates: { metrics: "not-an-array" },
       }),
     ).rejects.toThrow();
+  });
+
+  it("should reject a non-string name instead of writing it to the row", async () => {
+    // `name` is a row column, not part of the definition blob, so the schema
+    // parse that guards everything else never sees it.
+    const baseTableId = crypto.randomUUID();
+    const { id } = (await call("createInsight", {
+      name: "Name guard target",
+      baseTableId,
+    })) as { id: string };
+
+    await expect(
+      call("updateInsight", { id, updates: { name: { not: "a string" } } }),
+    ).rejects.toThrow(/name must be a string/);
+
+    const [row] = await db
+      .select()
+      .from(schema.insights)
+      .where(eq(schema.insights.id, id));
+    expect(row?.name).toBe("Name guard target");
   });
 
   it("should leave the project readable after a rejected update", async () => {

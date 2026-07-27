@@ -978,6 +978,13 @@ const updateInsight = wy.procedure
       const row = await loadInsightRow({ db: tx }, id);
       const stored = decodeStoredInsightDefinition(row);
       const patch = updates as Partial<Insight>;
+      // `name` is a row column, not part of the definition blob, so the schema
+      // parse below never sees it. Without this check an untyped `updates`
+      // could put a non-string straight into the column — the same unchecked
+      // write this procedure exists to close, just on the other field.
+      if (patch.name !== undefined && typeof patch.name !== "string") {
+        throw new Error("updateInsight: name must be a string");
+      }
       if (
         patch.baseTableId !== undefined &&
         patch.baseTableId !== stored.baseTableId
