@@ -337,6 +337,10 @@ describe("createInsight — atomic auto-draft dedup", () => {
       options: { selectedFields: [], reuseUnmodifiedDraft: true },
     })) as { id: string };
 
+    // Pin the shape before comparing. `call` returns `unknown` and the cast is
+    // unchecked, so if the result shape ever drifts both sides read `undefined`
+    // and `toBe` passes — a green test asserting nothing.
+    expect(typeof first.id).toBe("string");
     expect(second.id).toBe(first.id);
   });
 
