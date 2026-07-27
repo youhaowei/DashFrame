@@ -265,12 +265,19 @@ describe("createInsight — atomic auto-draft dedup", () => {
       options: { selectedFields: [], reuseUnmodifiedDraft: true },
     })) as { id: string };
 
+    // `call` is untyped, so pin that an id came back at all before comparing:
+    // if the handler stopped returning one, both sides would be `undefined`
+    // and the equality below would pass vacuously.
+    expect(typeof first.id).toBe("string");
+
     // Both calls must return the same id — the second reuses the first draft.
     expect(second.id).toBe(first.id);
 
-    // Exactly one row in the DB — no duplicate draft created.
+    // Exactly one row in the DB — no duplicate draft created — and the
+    // returned id is that row's, not some value the handler invented.
     const rows = await allInsights();
     expect(rows).toHaveLength(1);
+    expect(rows[0]?.id).toBe(first.id);
   });
 
   it("should produce exactly one unmodified draft when two reuse calls fire without awaiting the first (TOCTOU simulation)", async () => {
@@ -294,12 +301,18 @@ describe("createInsight — atomic auto-draft dedup", () => {
       }),
     ])) as [{ id: string }, { id: string }];
 
+    // Pin that an id came back before comparing — two `undefined`s are equal,
+    // so the assertion below is vacuous without this.
+    expect(typeof r1.id).toBe("string");
+
     // Both calls must resolve to the same id.
     expect(r1.id).toBe(r2.id);
 
-    // Exactly one insight row — no duplicate draft.
+    // Exactly one insight row — no duplicate draft — and it is the row both
+    // calls returned.
     const rows = await allInsights();
     expect(rows).toHaveLength(1);
+    expect(rows[0]?.id).toBe(r1.id);
   });
 
   it("should still create a draft when an unrelated insight row is corrupt", async () => {
