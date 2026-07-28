@@ -135,6 +135,31 @@ describe("bind-auth gate", () => {
     ).not.toThrow();
   });
 
+  // Regression for #243. `assertBindAuthorized` carried its own copy of the
+  // loopback check, so the same prefix-matching bypass existed on the
+  // `createDashframeServer` path independently of the CLI path. Both now share
+  // `isLoopbackHost`; these pin that the factory gate rejects them too. Only
+  // the two DNS names were the actual bypass — see the per-case notes in
+  // index.test.ts for why `127foo` and `127.1` ride along.
+  it.each([
+    "127.attacker.example",
+    "127.0.0.1.evil.example",
+    "127foo",
+    "127.1",
+  ])("host %s is not loopback → refuses without a token", (hostname) => {
+    expect(() =>
+      assertBindAuthorized({ hostname, authToken: undefined }),
+    ).toThrow(/refusing to bind.*without an auth token/i);
+  });
+
+  it("real 127.0.0.0/8 literals stay loopback → no token required", () => {
+    for (const hostname of ["127.0.0.1", "127.0.0.53", "127.1.2.3"]) {
+      expect(() =>
+        assertBindAuthorized({ hostname, authToken: undefined }),
+      ).not.toThrow();
+    }
+  });
+
   it("non-loopback + no token + insecure → allowed (deliberate opt-out)", () => {
     expect(() =>
       assertBindAuthorized({
