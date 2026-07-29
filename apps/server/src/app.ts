@@ -58,6 +58,7 @@ import { type ArtifactDb } from "@dashframe/server-core";
 
 import type { AppContext } from "./app-context";
 import { handleAssistantRunRequest } from "./assistant-run-route";
+import { isLoopbackHost } from "./bind-host";
 import { captureCommandCredentials } from "./credential-release";
 import {
   createDraftController,
@@ -75,22 +76,6 @@ type CorsOrigin =
       origin: string,
       c: Context,
     ) => Promise<string | undefined | null> | string | undefined | null);
-
-/**
- * Returns true when `hostname` is a loopback address (127.0.0.0/8, ::1, or
- * the "localhost" name). Loopback-only binds are reachable from this machine
- * alone; no network auth token is required. Undefined / absent hostname
- * defaults to 127.0.0.1 (loopback).
- */
-function isLoopbackHost(hostname: string | undefined): boolean {
-  return (
-    hostname === undefined ||
-    hostname === "localhost" ||
-    // Entire 127.0.0.0/8 block is loopback (RFC 3330), not just 127.0.0.1.
-    hostname.startsWith("127.") ||
-    hostname === "::1"
-  );
-}
 
 /**
  * Secure-by-default bind-auth gate. Throws when a non-loopback bind has no

@@ -84,6 +84,36 @@ describe("dashframe serve CLI", () => {
       );
     });
 
+    // Regression for #243: the gate used to classify loopback with
+    // `hostname.startsWith("127.")`, a string prefix test on a *hostname*.
+    it.each([
+      // The bypass. Both pass the old prefix test while resolving wherever
+      // their owner points them, so each silently waived the token
+      // requirement on a network-reachable bind.
+      "127.attacker.example",
+      "127.0.0.1.evil.example",
+      // Already rejected by the old test (no dot after `127`). Pins the
+      // adjacent shape so a looser rewrite of the parse can't admit it.
+      "127foo",
+      // Not a dotted-quad literal, and not attacker-controlled — a genuine
+      // loopback shorthand that getaddrinfo widens to 127.0.0.1. The gate
+      // fails closed on spellings it cannot parse rather than guessing, so
+      // this one is over-strict by design, not a bypass.
+      "127.1",
+    ])("should reject the non-loopback host %s without a token", (hostname) => {
+      expect(() => assertBindIsSafe({ hostname })).toThrow(/without --token/);
+    });
+
+    it("should still allow real 127.0.0.0/8 literals without a token", () => {
+      // The fix must not narrow loopback to 127.0.0.1 — local dev and Electron
+      // bind elsewhere in the block.
+      for (const hostname of ["127.0.0.1", "127.0.0.53", "127.1.2.3"]) {
+        expect(() => assertBindIsSafe({ hostname })).not.toThrow();
+      }
+      expect(() => assertBindIsSafe({ hostname: "localhost" })).not.toThrow();
+      expect(() => assertBindIsSafe({ hostname: "::1" })).not.toThrow();
+    });
+
     it("should allow a non-loopback bind when a token is set", () => {
       expect(() =>
         assertBindIsSafe({ hostname: "0.0.0.0", token: "secret" }),

@@ -11,6 +11,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 
 import { createDashframeServer, type DashframeServer } from "./app";
+import { isLoopbackHost } from "./bind-host";
 
 interface CliOptions {
   hostname?: string;
@@ -187,16 +188,6 @@ function parseArgAt(opts: CliOptions, args: string[], index: number): number {
   }
 }
 
-function isLoopback(hostname: string | undefined): boolean {
-  return (
-    hostname === undefined ||
-    hostname === "localhost" ||
-    // Entire 127.0.0.0/8 block is loopback (RFC 3330), not just 127.0.0.1.
-    hostname.startsWith("127.") ||
-    hostname === "::1"
-  );
-}
-
 /**
  * Fail-closed auth gate. Loopback binds are reachable only from this machine,
  * so a token is optional there. A non-loopback bind exposes the project to the
@@ -204,7 +195,7 @@ function isLoopback(hostname: string | undefined): boolean {
  * Throws (rather than warns) so a forgotten token never silently exposes data.
  */
 export function assertBindIsSafe(opts: CliOptions): void {
-  if (isLoopback(opts.hostname) || opts.token || opts.insecure) {
+  if (isLoopbackHost(opts.hostname) || opts.token || opts.insecure) {
     return;
   }
   throw new Error(
@@ -242,7 +233,7 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
 
   assertBindIsSafe(opts);
 
-  if (opts.insecure && !opts.token && !isLoopback(opts.hostname)) {
+  if (opts.insecure && !opts.token && !isLoopbackHost(opts.hostname)) {
     console.warn(
       "[dashframe] warning: --insecure non-loopback bind without --token exposes this project to the network",
     );
