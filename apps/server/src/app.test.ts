@@ -545,6 +545,97 @@ describe("createDashframeServer", () => {
   });
 });
 
+describe("write → subscription invalidation", () => {
+  /**
+   * Guards the RE-MIRROR POINT documented in app.ts's `call` wrapper.
+   *
+   * wystack collapsed invalidation onto one per-app source: `rawApp.call` fuses
+   * `emit(tablesWritten)` after a write, and `createRoutes` no longer publishes
+   * from the returned `tablesWritten`. DashFrame's `call` chain never reaches
+   * `rawApp.call` — the draft seam composes `createTracked → runHandler` itself —
+   * so the fuse does not fire for us and our wrapper has to emit explicitly.
+   *
+   * Why this test and not a unit assertion on `emit`: when that emit went
+   * missing, typecheck and all 48 package test suites stayed green and only the
+   * chart E2E caught it, ~5 minutes downstream. The contract that actually
+   * matters is observable at the wire — a subscriber must receive `invalidate`
+   * after somebody else's write — so that is what this asserts, over a real WS
+   * against a real server. A future pin bump that moves the emit seam again
+   * fails HERE, in unit-test time.
+   */
+  let root: string;
+  let project: ProjectHandle | null;
+  let server: DashframeServer | null;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "dashframe-invalidate-"));
+    project = null;
+    server = null;
+  });
+
+  afterEach(async () => {
+    server?.stop();
+    await project?.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("delivers invalidate to a live subscriber after a mutation on another surface", async () => {
+    project = await openProject({ dir: join(root, "proj") });
+    server = await createDashframeServer({ db: project.db });
+
+    const ws = new WebSocket(`${server.url.replace(/^http/, "ws")}/api/ws`);
+    const subscriptionId = "sub-invalidate-1";
+
+    const invalidated = new Promise<string>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error("no invalidate frame within 10s")),
+        10_000,
+      );
+      ws.onerror = () => reject(new Error("WebSocket failed"));
+      ws.onopen = () => ws.send(JSON.stringify({ type: "auth", token: null }));
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(String(event.data)) as {
+          type?: string;
+          id?: string;
+        };
+        if (msg.type === "authenticated") {
+          ws.send(
+            JSON.stringify({
+              type: "subscribe",
+              id: subscriptionId,
+              path: "listDataSources",
+              args: {},
+            }),
+          );
+          return;
+        }
+        // Wait for the server's ack before writing: subscribing is not
+        // instantaneous, and a write that lands before the entry is in the
+        // store would produce no invalidate for reasons unrelated to the seam.
+        if (msg.type === "subscribed" && msg.id === subscriptionId) {
+          void fetch(`${server!.url}/api/getOrCreateDataSource`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              id: crypto.randomUUID(),
+              type: "csv",
+              name: "Invalidation Source",
+            }),
+          });
+          return;
+        }
+        if (msg.type === "invalidate" && msg.id === subscriptionId) {
+          clearTimeout(timer);
+          resolve(msg.id);
+        }
+      };
+    });
+
+    await expect(invalidated).resolves.toBe(subscriptionId);
+    ws.close();
+  });
+});
+
 describe("onWrite hook", () => {
   /**
    * Tests for the `onWrite` durability hook (see GitHub issue #88 / #90).

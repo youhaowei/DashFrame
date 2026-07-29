@@ -230,9 +230,18 @@ export interface DashframeServerOptions {
    * of persisting the plaintext. Read mutations use `vault.has(ref)` for
    * presence checks (hasApiKey / hasConnectionString).
    *
-   * Optional at the factory level — omitting it falls back to the legacy
-   * plaintext-in-config path (pre-vault callers, tests that don't exercise
-   * the credential boundary). Desktop always injects the keychain vault.
+   * Optional at the factory level, but the credential boundary FAILS CLOSED
+   * when it is absent — there is no plaintext fallback. `storeCredential`
+   * throws rather than persist plaintext (`functions/utils.ts`), and so do
+   * `releaseCredentialRefs`, the assistant-provider release, and the connector
+   * bound-resolver. Omitting it is for callers that never cross the credential
+   * boundary (tests, read-only hosts); any credential-bearing mutation on a
+   * vault-less server is an error, not a downgrade. The one vault-absent branch
+   * that does not throw is the read-side `hasApiKey` presence check, which
+   * tolerates legacy plaintext rows written before this boundary existed.
+   *
+   * Desktop always injects the keychain vault. `dashframe serve` currently
+   * injects none — see #254.
    */
   vault?: SecretVault;
   /** Generic external-access credentials backed by the injected SecretVault. */
@@ -572,6 +581,25 @@ export async function createDashframeServer(
   // wrapper; wyStackApp is populated after assignment because it IS the wrapped
   // app reference. Both keys win over per-request context (spread LAST).
   const serverContext: Record<string, unknown> = {};
+  // Invalidation emit — the RE-MIRROR POINT in `buildDashframeApp` come due.
+  //
+  // wystack collapsed invalidation onto a single per-app source: `rawApp.call`
+  // fuses `emit(tablesWritten)` after any write, and `createRoutes` no longer
+  // publishes from the returned `tablesWritten` at all. Our `call` chain never
+  // reaches `rawApp.call` (the draft seam in `buildDashframeApp` composes
+  // `createTracked → runHandler` itself so it can hand the draft-scoped handle
+  // to the handler), so that fuse never fires for us — without this, every
+  // subscription across every surface silently stops invalidating.
+  //
+  // Emitted HERE, at the outermost wrapper, and with the MERGED set: the
+  // `__extraTablesWritten` writes come from sub-trackers (publishDraft's
+  // `applyCommands`) that no inner tracker ever saw, so emitting deeper would
+  // miss them. Guarded on size so the router's own read-only recompute — which
+  // re-enters `call` — cannot start a recompute storm.
+  const emitInvalidation = (tablesWritten: Set<string>) => {
+    if (tablesWritten.size > 0) vaultWrapped.emit(tablesWritten);
+  };
+
   const app: WyStackApp = {
     ...vaultWrapped,
     async call(path, args, context) {
@@ -603,6 +631,7 @@ export async function createDashframeServer(
           extra.length > 0
             ? new Set([...callResult.tablesWritten, ...extra])
             : callResult.tablesWritten;
+        emitInvalidation(mergedTables);
         return {
           ...callResult,
           result: cleanResult,
@@ -610,6 +639,7 @@ export async function createDashframeServer(
         };
       }
 
+      emitInvalidation(callResult.tablesWritten);
       return callResult;
     },
     async runHandler(path, args, tracked, context) {
