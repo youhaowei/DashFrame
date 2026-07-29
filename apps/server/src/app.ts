@@ -230,9 +230,18 @@ export interface DashframeServerOptions {
    * of persisting the plaintext. Read mutations use `vault.has(ref)` for
    * presence checks (hasApiKey / hasConnectionString).
    *
-   * Optional at the factory level — omitting it falls back to the legacy
-   * plaintext-in-config path (pre-vault callers, tests that don't exercise
-   * the credential boundary). Desktop always injects the keychain vault.
+   * Optional at the factory level, but the credential boundary FAILS CLOSED
+   * when it is absent — there is no plaintext fallback. `storeCredential`
+   * throws rather than persist plaintext (`functions/utils.ts`), and so do
+   * `releaseCredentialRefs`, the assistant-provider release, and the connector
+   * bound-resolver. Omitting it is for callers that never cross the credential
+   * boundary (tests, read-only hosts); any credential-bearing mutation on a
+   * vault-less server is an error, not a downgrade. The one vault-absent branch
+   * that does not throw is the read-side `hasApiKey` presence check, which
+   * tolerates legacy plaintext rows written before this boundary existed.
+   *
+   * Desktop always injects the keychain vault. `dashframe serve` currently
+   * injects none — see #254.
    */
   vault?: SecretVault;
   /** Generic external-access credentials backed by the injected SecretVault. */
