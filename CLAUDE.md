@@ -2,7 +2,7 @@
 
 ## Operations — see [AGENTS.md](AGENTS.md)
 
-[AGENTS.md](AGENTS.md) is the operational companion to this file: how to run the app (desktop and headless web+server), the lint/test/build commands, and the **local review gate**. That gate — code review + behavioral QA + a second review pass on a different model (Codex), run on the branch diff (`git diff origin/main...HEAD`) — is **mandatory before every push and before marking any PR ready**. The one exception is narrow — a change confined to documentation and other prose files skips QA and the second reviewer but still gets code review; anything executable (application source, scripts, CI workflows, manifests, build wiring) does not qualify, and neither does a comment-only edit inside a source file. CI only _confirms_ the gate; it does not replace it. Read AGENTS.md before pushing.
+@AGENTS.md is the operational companion to this file: how to run the app (desktop and headless web+server), the lint/test/build commands, and the **local review gate**. That gate — code review + behavioral QA + a second review pass on a different model (Codex), run on the branch diff (`git diff origin/main...HEAD`) — is **mandatory before every push and before marking any PR ready**. The one exception is narrow — a change confined to documentation and other prose files skips QA and the second reviewer but still gets code review; anything executable (application source, scripts, CI workflows, manifests, build wiring) does not qualify, and neither does a comment-only edit inside a source file. CI only _confirms_ the gate; it does not replace it. Read AGENTS.md before pushing.
 
 ## Design Context
 
