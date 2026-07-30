@@ -5,41 +5,56 @@ two surfaces of the same UI (`packages/app`): an Electron **desktop** app and a
 browser **web** app, both backed by the same Hono HTTP+WS server code.
 
 Package manager is **Bun** (pinned `bun@1.3.5`); orchestration is Turborepo.
-`bun` is on `PATH` (`/usr/local/bin/bun` in the cloud VM, Homebrew locally).
+`bun` is on `PATH`; where it is installed from varies by machine.
 
 ## Local review gate (run before every push)
 
 Every change is reviewed **locally before it is pushed** — CI _confirms_ a clean
 result, it does not _discover_ problems. Before you push a branch, and again
 before you mark any PR ready for review, run all three checks below against the
-branch diff (`git diff origin/main...HEAD`) and resolve what they surface. A red
-result or an unresolved finding is a **push-blocker** — do not defer it to CI or
-to a human reviewer.
+branch diff and resolve what they surface. A red result or an unresolved finding
+is a **push-blocker** — do not defer it to CI or to a human reviewer.
+
+**Refresh the base first.** Run `git fetch origin main`, then read the diff as
+`git diff origin/main...HEAD`. A local `origin/main` goes stale by construction,
+and a stale base silently changes what every arm below reads — the gate reviews
+commits that already landed, or misses the ones it was meant to catch.
 
 1. **Code review.** Review the full branch diff for correctness, security, and
-   fit with the surrounding code. In Claude Code run `/code-review`; otherwise
-   dispatch a reviewer over `git diff origin/main...HEAD`. Fix every blocker and
-   consciously dismiss lower findings — never push past an open blocker.
-   (`/code-review ultra` is the heavier multi-agent cloud pass, user-triggered
-   only; it does not replace this local pass.)
+   fit with the surrounding code. In Claude Code run `/code-review`; elsewhere,
+   run your agent runner's review command over the same diff — the brief below
+   works verbatim for this pass too. Fix every blocker and consciously dismiss
+   lower findings — never push past an open blocker. (`/code-review ultra` is
+   the heavier multi-agent cloud pass, user-triggered only; it does not replace
+   this local pass.)
 
-2. **QA — behavioral.** Boot the app and exercise the _changed surface_ against
-   what it is supposed to do; do not infer behavior from the diff alone.
+2. **QA — behavioral.** Exercise the _changed surface_ at runtime against what
+   it is supposed to do; do not infer behavior from the diff alone. A passing
+   unit test is not this arm — it proves the code does what it was written to
+   do, which is the thing in question.
    - Desktop: `bun run dev` (needs a display).
    - Web + server, headless: see **Running for browser/headless testing** below.
+   - No UI surface (server, CLI, build): drive the real path — call the
+     endpoint, run the command, import the file — and check the result.
    - UI changes additionally require visual proof from the running app in the PR
      (relevant states, light + dark) — see `CLAUDE.md` → **Pull requests**.
 
 3. **Second reviewer.** The same diff, read again by a model that is neither the
    one that wrote the change nor the one that ran step 1 — the requirement is a
    second, genuinely independent read, not a particular vendor. Writing in
-   Claude and reviewing in Codex is the usual pairing here: from the repo root,
-   run `codex exec` with the brief below as its prompt — the brief tells the
-   reviewer to take the diff itself, so nothing else needs wiring up. If Codex
-   already wrote the change or ran step 1, route this arm elsewhere; any second
-   model in your own editor or agent runner counts, given the same diff and the
-   same brief. Land or consciously dismiss every finding; an open finding is a
-   push-blocker, and "the other reviewer didn't flag it" is not a dismissal.
+   Claude and reviewing in Codex is the usual pairing here — from the repo root:
+
+   ```sh
+   codex exec "Follow the second-reviewer brief in AGENTS.md — the block quote
+   under the '### Second-reviewer brief' heading. Do exactly what it says."
+   ```
+
+   Nothing else needs wiring up: the reviewer reads the brief out of this file,
+   and the brief tells it to take the diff itself. If Codex already wrote the
+   change or ran step 1, route this arm elsewhere; any second model in your own
+   editor or agent runner counts, given the same diff and the same brief. Land
+   or consciously dismiss every finding; an open finding is a push-blocker, and
+   "the other reviewer didn't flag it" is not a dismissal.
 
 **Narrow exception.** A change confined to documentation and other prose files
 may skip QA and the second reviewer, but still gets the code-review pass.
@@ -91,13 +106,13 @@ not from the harness around them.
 
 ## Lint / test / build
 
-Use the project's own gate `bun check`, which runs the ticket-ref check
+Use the project's own gate `bun run check`, which runs the ticket-ref check
 (`scripts/check-no-ticket-refs.mjs`) and then `turbo check --filter=!@wystack/*`
 (lint + typecheck + test, excluding the vendored submodule packages). The
 `@wystack/*` packages lint with `oxlint`, which is not installed, so a raw
 `bun run lint` / `turbo lint` fails on `@wystack/ui`; the project deliberately
 filters them out. The per-task commands below skip the ticket-ref gate — run
-`bun check` (or `bun run check:ticket-refs`) if you touched code that might carry
+`bun run check` (or `bun run check:ticket-refs`) if you touched code that might carry
 ticket references.
 
 - Lint: `bunx turbo lint --filter='!@wystack/*'`
@@ -123,11 +138,11 @@ reviewed. The workflow:
 
 1. **Land the submodule change first, in its own repo.** Open and merge a PR in
    `youhaowei/wystack` (or `youhaowei/stdui`) against that repo's default branch.
-   Run its own gate there — the parent's `bun check` filters `@wystack/*` out
+   Run its own gate there — the parent's `bun run check` filters `@wystack/*` out
    (`--filter=!@wystack/*`), so it does **not** cover submodule code.
 2. **Then bump the pin in DashFrame.** In the submodule dir, check out the merged
    commit; from the repo root, `git add libs/wystack` (or `libs/stdui`) and commit
-   the new SHA. Rebuild: `bun run build:wystack`, then run the full `bun check` so
+   the new SHA. Rebuild: `bun run build:wystack`, then run the full `bun run check` so
    the parent is verified against the new substrate — a pin that merges is not the
    same as a submodule that is compatible.
 3. **Re-point after the submodule merges.** If the submodule PR merged with a
