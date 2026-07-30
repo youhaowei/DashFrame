@@ -9,7 +9,8 @@
  * rollback, and preview persisting nothing.
  *
  * Covers: Insight (incl. Insight-on-Insight composition and cycle rejection),
- * SelectFields, SetInsightFilter/Sort, AddJoin/UpdateJoin/RemoveJoin,
+ * SelectFields, SetInsightFilter/Sort, write-boundary validation of the
+ * definition blob, AddJoin/UpdateJoin/RemoveJoin,
  * Visualization (CreateVisualization, SetChartType, SetChartEncoding), Dashboard
  * (CreateDashboard, AddDashboardItem, UpdateDashboardItem, SetDashboardLayout,
  * RemoveDashboardItem), DeleteNode, extended RenameNode, and AddField/UpdateField
@@ -23,7 +24,7 @@ import {
   SecretVault,
   TestBackend,
 } from "@wystack/secret-vault";
-import type { WyStackApp } from "@wystack/server";
+import type { Command, WyStackApp } from "@wystack/server";
 import { eq } from "drizzle-orm";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -32,7 +33,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { functions } from "../functions";
 import { wy } from "../wystack";
-import { cmd, storedInsightDefinitionSchema } from "./commands";
+import {
+  cmd,
+  COMMAND_PATHS,
+  type CommandName,
+  storedInsightDefinitionSchema,
+} from "./commands";
 
 /** Compose a SecretVault backed by TestBackend. ONLY for test setup. */
 function makeTestVault(): SecretVault {
@@ -1213,6 +1219,256 @@ describe("command vocabulary", () => {
       const rows = await insightsById(insightId);
       const def = rows[0]?.definition as { sorts: typeof sorts };
       expect(def.sorts).toEqual(sorts);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Write-boundary validation of the insight `definition` JSONB
+  // -------------------------------------------------------------------------
+  //
+  // Four commands assemble a stored definition out of opaque `jsonb` operands.
+  // Annotating the assembled object as `StoredInsightDefinition` is a
+  // compile-time assertion only, so before these handlers parsed at the write
+  // seam a non-array operand persisted successfully — and then failed the
+  // fail-closed read path on every later decode of that row. Because
+  // `listInsights` decodes EVERY row, one bad operand took out the whole list,
+  // not just the insight that was edited, while the write itself reported
+  // success. These tests pin all three properties: the reject, the untouched
+  // blob, and the blast radius.
+  describe("insight definition write validation", () => {
+    /**
+     * Build a command straight from the registry path with UNTYPED args. `cmd()`
+     * is typed per command, so a malformed operand cannot be expressed through
+     * it — which is exactly the point: the typed face is not the boundary, the
+     * wire is. This models a client posting bad JSON, and reads the path out of
+     * `COMMAND_PATHS` so it cannot drift from `cmd()`.
+     */
+    function rawCmd(name: CommandName, args: Record<string, unknown>): Command {
+      return { path: COMMAND_PATHS[name], args };
+    }
+
+    /** Operands that are not arrays. Each must be refused by all four writers. */
+    const NON_ARRAY_OPERANDS = [{}, "nope", 7, true, { length: 1 }];
+
+    async function makeInsight(): Promise<string> {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+          selectedFields: [id()],
+        }),
+      );
+      return insightId;
+    }
+
+    /**
+     * The RAW stored JSONB, serialized. Deliberately not a decoded `Insight`:
+     * decoding applies the schema's `null → []` / `null → undefined`
+     * transforms, so two decoded values compare equal even when the underlying
+     * blob changed shape. Byte-identity is the actual claim.
+     */
+    async function storedDefinition(insightId: string): Promise<string> {
+      const rows = await insightsById(insightId);
+      expect(rows).toHaveLength(1);
+      const json = JSON.stringify(rows[0]?.definition);
+      // Anti-vacuity guard, in the helper so every caller inherits it: if the
+      // fixture ever stopped persisting a definition, `json` would be the
+      // string "undefined" and every byte-identity comparison built on it
+      // would pass without proving anything.
+      expect(json).toContain("baseTableId");
+      return json;
+    }
+
+    it.each([
+      ["SelectFields", "fieldIds"],
+      ["SetInsightFilter", "filters"],
+      ["SetInsightSort", "sorts"],
+    ] as const)(
+      "%s should reject a non-array operand and leave the stored definition byte-identical",
+      async (command, field) => {
+        const insightId = await makeInsight();
+        // Populate BOTH operand fields first, so byte-identity proves an
+        // existing good array was not clobbered — not merely that nothing was
+        // added. Clobber-on-reject is the likelier regression.
+        await commit(
+          cmd("SetInsightFilter", {
+            id: insightId,
+            filters: [
+              {
+                field: "region",
+                operator: "eq",
+                value: { kind: "value", v: "EMEA" },
+              },
+            ],
+          }),
+          cmd("SetInsightSort", {
+            id: insightId,
+            sorts: [{ field: "amount", direction: "desc" }],
+          }),
+        );
+        const before = await storedDefinition(insightId);
+        expect(before).toContain(
+          field === "fieldIds" ? "selectedFields" : field,
+        );
+
+        for (const operand of NON_ARRAY_OPERANDS) {
+          await expect(
+            commit(rawCmd(command, { id: insightId, [field]: operand })),
+          ).rejects.toThrow(
+            // Pin WHICH handler rejected. A copy-pasted wrong command name in
+            // `requireDefinitionShape(...)` still type-checks and would pass an
+            // unscoped /definition is invalid/ — exactly the defect a repeated
+            // fan-out manufactures.
+            new RegExp(`${command}: definition is invalid`),
+          );
+          // Nothing was written — not a partial write, not a normalized one.
+          expect(await storedDefinition(insightId)).toBe(before);
+        }
+      },
+    );
+
+    it.each(["selectedFields", "metrics"])(
+      "CreateInsight should reject a non-array %s and persist no row",
+      async (field) => {
+        const { tableId } = await makeTable();
+        for (const operand of NON_ARRAY_OPERANDS) {
+          const insightId = id();
+          await expect(
+            commit(
+              rawCmd("CreateInsight", {
+                id: insightId,
+                name: "I",
+                source: { sourceType: "dataTable", sourceId: tableId },
+                [field]: operand,
+              }),
+            ),
+          ).rejects.toThrow(/CreateInsight: definition is invalid/);
+          expect(await insightsById(insightId)).toHaveLength(0);
+        }
+      },
+    );
+
+    it("should reject a non-string element inside selectedFields", async () => {
+      // `selectedFields` is typed `z.array(z.string())`, so element validation
+      // is real here — unlike `filters`/`sorts`/`metrics`, whose elements are
+      // deliberately opaque at this layer (see the insights codec header).
+      const insightId = await makeInsight();
+      const before = await storedDefinition(insightId);
+
+      await expect(
+        commit(rawCmd("SelectFields", { id: insightId, fieldIds: [id(), 42] })),
+      ).rejects.toThrow(/SelectFields: definition is invalid/);
+      expect(await storedDefinition(insightId)).toBe(before);
+    });
+
+    it("should keep listInsights resolvable for every sibling after a rejected write", async () => {
+      // The blast radius IS the user-visible harm: a per-call rejection alone
+      // would not prove the list survives. `listInsights` decodes every row, so
+      // a corrupt blob anywhere fails the whole query and the client renders
+      // its "couldn't load" state — the user loses insights they never touched.
+      const { tableId } = await makeTable();
+      const targetId = id();
+      const siblingId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: targetId,
+          name: "Target",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("CreateInsight", {
+          id: siblingId,
+          name: "Sibling",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+
+      await expect(
+        commit(rawCmd("SetInsightSort", { id: targetId, sorts: {} })),
+      ).rejects.toThrow(/SetInsightSort: definition is invalid/);
+
+      const listed = (await app.call("listInsights", {})).result as {
+        id: string;
+        name: string;
+      }[];
+      expect(listed).toHaveLength(2);
+      expect(listed.map((i) => i.name).sort()).toEqual(["Sibling", "Target"]);
+    });
+
+    it("should fail the whole listInsights query if a bad operand ever does land (why the guard exists)", async () => {
+      // Characterization of the harm the guard prevents. Without this, the test
+      // above only pins the ABSENCE of blast radius and the rationale above
+      // `requireDefinitionShape` is unattested — if someone later made
+      // `listInsights` lenient, nothing here would notice that the whole
+      // argument for write-side validation had quietly evaporated.
+      const { tableId } = await makeTable();
+      const targetId = id();
+      const siblingId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: targetId,
+          name: "Target",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("CreateInsight", {
+          id: siblingId,
+          name: "Sibling",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+
+      // Corrupt the blob directly, bypassing every write guard — this is the
+      // state the guards make unreachable, not a state a command can produce.
+      await db
+        .update(insights)
+        .set({ definition: { baseTableId: tableId, sorts: {} } })
+        .where(eq(insights.id, targetId));
+
+      // One bad row takes out the entire query, including the untouched sibling.
+      await expect(app.call("listInsights", {})).rejects.toThrow(
+        /has an invalid definition/,
+      );
+    });
+
+    it("should round-trip valid operands unchanged, including empty arrays", async () => {
+      const insightId = await makeInsight();
+      const fieldA = id();
+
+      await commit(
+        cmd("SelectFields", { id: insightId, fieldIds: [fieldA] }),
+        cmd("SetInsightSort", {
+          id: insightId,
+          sorts: [{ field: "amount", direction: "desc" }],
+        }),
+      );
+      const rows = await insightsById(insightId);
+      const def = rows[0]?.definition as {
+        selectedFields: unknown;
+        sorts: unknown;
+      };
+      // Pin the type before comparing: an `as` cast over a missing key would
+      // otherwise make `toEqual` compare undefined to undefined and pass green.
+      expect(Array.isArray(def.selectedFields)).toBe(true);
+      expect(def.selectedFields).toEqual([fieldA]);
+      expect(Array.isArray(def.sorts)).toBe(true);
+      expect(def.sorts).toEqual([{ field: "amount", direction: "desc" }]);
+
+      // Empty arrays are a valid "nothing set", distinct from a rejected
+      // operand — parsing must not coerce them away or treat them as absent.
+      await commit(
+        cmd("SelectFields", { id: insightId, fieldIds: [] }),
+        cmd("SetInsightSort", { id: insightId, sorts: [] }),
+      );
+      const cleared = (await insightsById(insightId))[0]?.definition as {
+        selectedFields: unknown;
+        sorts: unknown;
+      };
+      expect(Array.isArray(cleared.selectedFields)).toBe(true);
+      expect(cleared.selectedFields).toEqual([]);
+      expect(Array.isArray(cleared.sorts)).toBe(true);
+      expect(cleared.sorts).toEqual([]);
     });
   });
 

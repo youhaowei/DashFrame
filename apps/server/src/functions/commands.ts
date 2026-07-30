@@ -172,6 +172,34 @@ async function requireInsightDefinition(
 }
 
 /**
+ * Validate a definition a command is about to persist. The write counterpart to
+ * `requireInsightDefinition` — same schema, opposite direction.
+ *
+ * Commands take their operands as opaque `jsonb`, so annotating the assembled
+ * object as `StoredInsightDefinition` asserts a shape nothing checked: a caller
+ * passing `sorts: {}` type-checks, persists, and then fails the fail-closed read
+ * path on EVERY subsequent decode of the row. Because `listInsights` decodes
+ * every row, one bad operand takes out the whole list, not just the insight that
+ * was edited, and the write reports success — so the damage is silent and there
+ * is no in-app way back. Parsing here rejects the operand before the write.
+ *
+ * "invalid" (not "corrupt") is deliberate: corruption describes a stored blob
+ * that went bad, this is a caller sending something we refuse to store.
+ */
+function requireDefinitionShape(
+  command: CommandName,
+  candidate: unknown,
+): StoredInsightDefinition {
+  const parsed = storedInsightDefinitionSchema.safeParse(candidate);
+  if (!parsed.success) {
+    throw new Error(
+      `${command}: definition is invalid: ${parsed.error.message}`,
+    );
+  }
+  return parsed.data as StoredInsightDefinition;
+}
+
+/**
  * Assert a `{ sourceType, sourceId }` resolves to an existing row before it is
  * persisted into an Insight's `definition.source`. The source is stored as JSON,
  * not an FK, so nothing else stops a dangling reference: a `sourceId` that names
@@ -587,13 +615,15 @@ const createInsight = wy.procedure
     // The source must resolve to an existing row — JSON source has no FK, so an
     // unvalidated sourceId would persist as a dangling reference.
     await requireSourceExists(ctx, source);
-    const definition: StoredInsightDefinition = {
+    // Both operands arrive as opaque `jsonb`; the schema rejects a non-array and
+    // coalesces absent → [], so no cast and no `?? []` is needed here.
+    const definition = requireDefinitionShape("CreateInsight", {
       baseTableId: source.sourceId,
       source,
-      selectedFields: (args.selectedFields as UUID[] | undefined) ?? [],
+      selectedFields: args.selectedFields,
       // Stored as InsightMetric (sourceTable), the shape the read path expects.
-      metrics: (args.metrics as InsightMetric[] | undefined) ?? [],
-    };
+      metrics: args.metrics,
+    });
     const [row] = (await ctx.db.into(insights).insert({
       id: args.id,
       name: args.name,
@@ -637,6 +667,11 @@ const setInsightSource = wy.procedure
       }
     }
 
+    // No `requireDefinitionShape` here, deliberately: unlike the four handlers
+    // that take an opaque `jsonb` array operand, every key this writes is
+    // already checked — `definition` came back parsed from
+    // `requireInsightDefinition`, and `source` from `insightSourceSchema`. There
+    // is no unvalidated value to reject.
     const next: StoredInsightDefinition = {
       ...definition,
       baseTableId: source.sourceId,
@@ -658,10 +693,10 @@ const selectFields = wy.procedure
   .input({ id: uuid, fieldIds: jsonb })
   .mutation(async (ctx, { id, fieldIds }): Promise<{ ok: true }> => {
     const { definition } = await requireInsightDefinition(ctx, id);
-    const next: StoredInsightDefinition = {
+    const next = requireDefinitionShape("SelectFields", {
       ...definition,
-      selectedFields: fieldIds as UUID[],
-    };
+      selectedFields: fieldIds,
+    });
     await ctx.db
       .from(insights)
       .where(eq("id", id))
@@ -680,10 +715,10 @@ const setInsightFilter = wy.procedure
   .input({ id: uuid, filters: jsonb })
   .mutation(async (ctx, { id, filters }): Promise<{ ok: true }> => {
     const { definition } = await requireInsightDefinition(ctx, id);
-    const next: StoredInsightDefinition = {
+    const next = requireDefinitionShape("SetInsightFilter", {
       ...definition,
-      filters: filters as unknown[],
-    };
+      filters,
+    });
     await ctx.db
       .from(insights)
       .where(eq("id", id))
@@ -699,10 +734,10 @@ const setInsightSort = wy.procedure
   .input({ id: uuid, sorts: jsonb })
   .mutation(async (ctx, { id, sorts }): Promise<{ ok: true }> => {
     const { definition } = await requireInsightDefinition(ctx, id);
-    const next: StoredInsightDefinition = {
+    const next = requireDefinitionShape("SetInsightSort", {
       ...definition,
-      sorts: sorts as unknown[],
-    };
+      sorts,
+    });
     await ctx.db
       .from(insights)
       .where(eq("id", id))

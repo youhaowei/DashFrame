@@ -265,12 +265,19 @@ describe("createInsight — atomic auto-draft dedup", () => {
       options: { selectedFields: [], reuseUnmodifiedDraft: true },
     })) as { id: string };
 
+    // `call` is untyped, so pin that an id came back at all before comparing:
+    // if the handler stopped returning one, both sides would be `undefined`
+    // and the equality below would pass vacuously.
+    expect(typeof first.id).toBe("string");
+
     // Both calls must return the same id — the second reuses the first draft.
     expect(second.id).toBe(first.id);
 
-    // Exactly one row in the DB — no duplicate draft created.
+    // Exactly one row in the DB — no duplicate draft created — and the
+    // returned id is that row's, not some value the handler invented.
     const rows = await allInsights();
     expect(rows).toHaveLength(1);
+    expect(rows[0]?.id).toBe(first.id);
   });
 
   it("should produce exactly one unmodified draft when two reuse calls fire without awaiting the first (TOCTOU simulation)", async () => {
@@ -294,12 +301,18 @@ describe("createInsight — atomic auto-draft dedup", () => {
       }),
     ])) as [{ id: string }, { id: string }];
 
+    // Pin that an id came back before comparing — two `undefined`s are equal,
+    // so the assertion below is vacuous without this.
+    expect(typeof r1.id).toBe("string");
+
     // Both calls must resolve to the same id.
     expect(r1.id).toBe(r2.id);
 
-    // Exactly one insight row — no duplicate draft.
+    // Exactly one insight row — no duplicate draft — and it is the row both
+    // calls returned.
     const rows = await allInsights();
     expect(rows).toHaveLength(1);
+    expect(rows[0]?.id).toBe(r1.id);
   });
 
   it("should still create a draft when an unrelated insight row is corrupt", async () => {
@@ -1027,5 +1040,66 @@ describe("insight writes preserve `source` (Insight-on-Insight composition)", ()
     await expect(call("listInsights", {})).resolves.toEqual([
       expect.objectContaining({ id }),
     ]);
+  });
+
+  it("should reject a non-array in createInsight options instead of minting an undecodable row", async () => {
+    // `options` arrives as opaque `jsonb`; `encodeInsightDefinition` does not
+    // validate, and `{}` is not nullish so `?? []` does not catch it. An
+    // unvalidated INSERT is worse than an unvalidated update: it mints a row
+    // that can never be decoded, and because `listInsights` decodes every row,
+    // one such row takes out the whole list — including insights the caller
+    // never touched. `updateInsight`/`patchInsight` already parse; so must this.
+    const baseTableId = crypto.randomUUID();
+    const { id: healthyId } = (await call("createInsight", {
+      name: "Healthy sibling",
+      baseTableId,
+    })) as { id: string };
+
+    await expect(
+      call("createInsight", {
+        name: "Poison",
+        baseTableId,
+        options: { selectedFields: {} },
+      }),
+      // Pin the reason, not just the fact of a rejection: a bare `toThrow()`
+      // stays green if the call starts failing for an unrelated cause (input
+      // coercion, transaction error) while the definition guard is gone.
+    ).rejects.toThrow(/selectedFields/);
+
+    // Nothing was minted, and the sibling is still listable.
+    const rows = await db.select().from(schema.insights);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.id).toBe(healthyId);
+    await expect(call("listInsights", {})).resolves.toEqual([
+      expect.objectContaining({ id: healthyId }),
+    ]);
+  });
+
+  it("should reject a non-array even when the reuse branch would short-circuit the insert", async () => {
+    // The guard has to sit above EVERY exit from the handler, not just above
+    // the insert. `isUnmodifiedDraft` reads `.length` off each array, so a
+    // non-array `selectedFields: {}` gives `undefined ?? 0 === 0` and reads as
+    // "unmodified" — with an existing draft to reuse, the handler returns that
+    // draft's id and never reaches the insert. The malformed request would
+    // report success, and the fields the caller asked for would vanish.
+    const baseTableId = crypto.randomUUID();
+    const { id: draftId } = (await call("createInsight", {
+      name: "Auto draft",
+      baseTableId,
+      options: { reuseUnmodifiedDraft: true },
+    })) as { id: string };
+
+    await expect(
+      call("createInsight", {
+        name: "Poison",
+        baseTableId,
+        options: { reuseUnmodifiedDraft: true, selectedFields: {} },
+      }),
+    ).rejects.toThrow(/selectedFields/);
+
+    // The reusable draft is untouched and still the only row.
+    const rows = await db.select().from(schema.insights);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.id).toBe(draftId);
   });
 });
