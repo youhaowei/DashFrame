@@ -30,10 +30,15 @@ to a human reviewer.
    - UI changes additionally require visual proof from the running app in the PR
      (relevant states, light + dark) — see `CLAUDE.md` → **Pull requests**.
 
-3. **Second reviewer — Codex.** The same diff, read by a different model.
-   Dispatch Codex through the `codex-routing` skill with the brief below. Land
-   or consciously dismiss every finding; an open finding is a push-blocker, and
-   "the other reviewer didn't flag it" is not a dismissal.
+3. **Second reviewer.** The same diff, read again by a model other than the one
+   that wrote the change — the requirement is the second, independent read, not
+   a particular vendor. We route this to Codex: from the repo root, run
+   `codex exec` with the brief below as its prompt — the brief tells the reviewer
+   to take the diff itself, so nothing else needs wiring up. Any equivalent
+   invocation counts: a second model in your own editor or agent runner, given
+   the same diff and the same brief. Land or consciously dismiss every finding;
+   an open finding is a push-blocker, and "the other reviewer didn't flag it" is
+   not a dismissal.
 
 **Narrow exception.** A change that touches no executable artifact — prose,
 comments, and documentation only — may skip QA and the second reviewer, but
