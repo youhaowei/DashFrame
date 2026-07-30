@@ -30,14 +30,53 @@ to a human reviewer.
    - UI changes additionally require visual proof from the running app in the PR
      (relevant states, light + dark) — see `CLAUDE.md` → **Pull requests**.
 
-3. **Clawpatch.** Run `bun run clawpatch:review:branch -- <branch-or-sha>`. It
-   maps the repo and reviews the branch diff (`--since origin/main`) in an
-   isolated worktree with shared Clawpatch state. Work the results before
-   pushing with `scripts/clawpatch.sh next` / `triage` / `fix` (or
-   `bun run clawpatch` for the raw CLI). Land or explicitly triage every
-   finding — an untriaged Clawpatch finding blocks the push.
+3. **Second reviewer — Codex.** The same diff, read by a different model.
+   Dispatch Codex through the `codex-routing` skill with the brief below. Land
+   or consciously dismiss every finding; an open finding is a push-blocker, and
+   "the other reviewer didn't flag it" is not a dismissal.
 
-Docs-only changes (no code) may skip QA and Clawpatch, but still review the diff.
+Docs-only changes (no code) may skip QA and the second reviewer, but still
+review the diff.
+
+### Second-reviewer brief
+
+Pass this with the diff. These rules are the distilled prompt discipline from
+Clawpatch, which this arm replaced — the finding quality came from the rules,
+not from the harness around them.
+
+> Review `git diff origin/main...HEAD`. Read whatever else in the repo you need:
+> the diff is the subject, not the limit of your evidence.
+>
+> Look for correctness bugs; security issues; race and concurrency bugs; data
+> loss or corruption; resource leaks; bad error handling; permission and auth
+> gaps; API contract mismatches; missing or weak tests; release and build
+> hazards; and maintainability risks with concrete impact. Shell scripts and CI
+> workflow files are in scope, not just application code.
+>
+> Rules:
+>
+> - Tests are first-class evidence of intended behavior. If a test contradicts a
+>   suspected bug, drop the finding or downgrade its confidence and say why.
+> - Do not report behavior as a bug merely because a helper's name implies a
+>   broader contract than it has.
+> - Deduplicate root causes: one finding with several evidence refs, never one
+>   per affected file.
+> - No speculative, low-evidence findings.
+> - Comments and docblocks are code. A comment that misstates real behavior is a
+>   defect — report it as one.
+>
+> For each finding give: severity (critical/high/medium/low); evidence as
+> `path:startLine-endLine`; reasoning; reproduction; recommendation; why the
+> existing tests do not already cover it; a suggested regression test; and the
+> minimum fix scope.
+>
+> Standing repo conventions — do not report these as findings:
+>
+> - Bun is the package manager (`packageManager: bun@1.3.5`). Bun-only scripts
+>   and documented Bun commands are intended.
+> - Some first-party packages deliberately ship a TypeScript `main` with no
+>   `dist`, for TS-aware runtimes only. Findings that a Node consumer would
+>   resolve raw TypeScript are wrong by policy.
 
 ## Lint / test / build
 
