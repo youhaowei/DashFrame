@@ -40,11 +40,13 @@ to a human reviewer.
    an open finding is a push-blocker, and "the other reviewer didn't flag it" is
    not a dismissal.
 
-**Narrow exception.** A change that touches no executable artifact — prose,
-comments, and documentation only — may skip QA and the second reviewer, but
-still gets the code-review pass. Scripts, CI workflows, package manifests, and
-build wiring are executable: changing them does not qualify, even when no
-application source is touched.
+**Narrow exception.** A change confined to documentation and other prose files
+may skip QA and the second reviewer, but still gets the code-review pass.
+Anything executable does not qualify — application source, scripts, CI
+workflows, package manifests, build wiring — even when no application source is
+touched. A comment-only edit inside a source file does not qualify either: a
+comment that misstates behavior is a defect, and the second reviewer is the arm
+that catches it.
 
 ### Second-reviewer brief
 
