@@ -35,8 +35,11 @@ to a human reviewer.
    or consciously dismiss every finding; an open finding is a push-blocker, and
    "the other reviewer didn't flag it" is not a dismissal.
 
-Docs-only changes (no code) may skip QA and the second reviewer, but still
-review the diff.
+**Narrow exception.** A change that touches no executable artifact — prose,
+comments, and documentation only — may skip QA and the second reviewer, but
+still gets the code-review pass. Scripts, CI workflows, package manifests, and
+build wiring are executable: changing them does not qualify, even when no
+application source is touched.
 
 ### Second-reviewer brief
 
