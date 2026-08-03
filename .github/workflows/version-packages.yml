@@ -18,8 +18,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
+
+      - name: Fetch pinned libraries
+        run: ./scripts/setup-libs.sh --ci
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2

@@ -40,7 +40,7 @@ function awaitProc(child, label) {
 // The desktop main bundle resolves @dashframe/* and @wystack/* workspace
 // packages via the "bun" export condition → raw TypeScript source. esbuild
 // bundles them at build:main time, so no pre-built dist is needed for any
-// @dashframe/* package. Only @wystack/* still ship dist (submodule packages
+// @dashframe/* package. Only @wystack/* still ship dist (pinned library packages
 // outside this repo's control), so we build those first.
 const repoRoot = path.resolve(desktopDir, "..", "..");
 

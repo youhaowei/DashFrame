@@ -9,7 +9,7 @@ DashFrame is a local-first business intelligence tool focused on the data → ch
 - **Electron** desktop app + **Vite/React 19** web app — one shared UI (`packages/app`)
 - **Hono** HTTP+WS server (`apps/server`, `packages/server-core`) — the web app is _not_ purely client-side; it talks to this backend
 - **DuckDB** for query — native (`@duckdb/node-api`) on desktop, **DuckDB-WASM** in the browser
-- **WyStack** (`libs/wystack`) — the RPC/data substrate; **stdui** (`libs/stdui`) — the `@wystack/ui-*` design system (both git submodules)
+- **WyStack** (`libs/wystack`) — the RPC/data substrate; **stdui** (`libs/stdui`) — the `@wystack/ui-*` design system (both pinned sibling checkouts, see `libs.lock`)
 - **Bun** for package management and runtime, **Turborepo** for workspace orchestration
 - **Tailwind CSS v4**, **Vega-Lite** for declarative chart rendering
 - Connectors for CSV, Notion, Postgres, and REST sources
@@ -37,8 +37,8 @@ packages/
   visualization/    # Chart rendering system
   ui/               # App-local UI primitives
 libs/
-  wystack/          # RPC/data substrate (submodule)
-  stdui/            # @wystack/ui-* design system (submodule)
+  wystack/          # RPC/data substrate (symlink to sibling checkout, pinned in libs.lock)
+  stdui/            # @wystack/ui-* design system (symlink to sibling checkout, pinned in libs.lock)
 ```
 
 ## Naming Conventions
@@ -50,15 +50,18 @@ libs/
 ### Quick start
 
 ```bash
-bun run setup     # init submodules, install deps, build the vendored @wystack/* packages
+bun run setup     # link/clone pinned libraries, install deps, build the @wystack/* packages
 bun dev           # launch the Electron desktop app (embeds the server; renderer on Vite)
 bun check         # lint + typecheck + tests (the project gate)
 bun run test      # run all tests
 ```
 
-`bun run setup` is required on a fresh clone — it initializes the `libs/wystack`
-and `libs/stdui` git submodules and builds the `@wystack/*` packages the app
-depends on.
+`bun run setup` is required on a fresh clone. Libraries under `libs/` are not
+submodules: each is a symlink to a sibling checkout (default `~/Projects/<name>`,
+override with `LIBS_DIR`), cloned automatically if missing, with the validated
+commit pinned in `libs.lock`. CI clones exactly the pinned commits. To change a
+library, land the change in the library's own repo first, then bump its sha in
+`libs.lock` here.
 
 ### Running the app
 

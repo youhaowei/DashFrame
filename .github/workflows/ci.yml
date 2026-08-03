@@ -52,9 +52,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Fetch pinned libraries
-        run: ./scripts/setup-libs.sh --ci
-
       - name: Skip if e2e/web absent
         id: guard
         run: |
@@ -64,6 +61,10 @@ jobs:
             echo "present=false" >>"$GITHUB_OUTPUT"
             echo "e2e/web not present yet — no tests to run"
           fi
+
+      - name: Fetch pinned libraries
+        if: steps.guard.outputs.present == 'true'
+        run: ./scripts/setup-libs.sh --ci
 
       - name: Setup Bun
         if: steps.guard.outputs.present == 'true'

@@ -30,7 +30,7 @@
 
 ## Tokens
 
-`@wystack/ui-core` (core tokens + utils, vendored at `libs/stdui` — directory name is historical) and `@wystack/ui-react` (React components) are the source of truth. The package and vocabulary split is: tokens/common in `@wystack/ui-core`, components in `@wystack/ui-react`. This document records the mapping, never duplicates values. Token changes go upstream to the submodule.
+`@wystack/ui-core` (core tokens + utils, vendored at `libs/stdui` — directory name is historical) and `@wystack/ui-react` (React components) are the source of truth. The package and vocabulary split is: tokens/common in `@wystack/ui-core`, components in `@wystack/ui-react`. This document records the mapping, never duplicates values. Token changes go upstream to the stdui repo.
 
 ### The surface system (canonical shell recipe)
 
@@ -52,7 +52,7 @@ Neutral scale (`neutral-bg*`, `neutral-fg*`, `neutral-border`), palette (`palett
 
 - **In active use** from `@wystack/ui-react`: Button, Dialog, DropdownMenu, Tooltip, Breadcrumb, Card, cn; icons from `@wystack/ui-react/icons`; tokens and core from `@wystack/ui-core`.
 - **Local extensions** live in `packages/ui` (`@dashframe/ui`) — e.g. SensitivityBadge.
-- **Rule**: don't restyle `@wystack/ui-react` primitives locally. If a primitive needs a different shape, upstream the change to the submodule (Rule of Three applies before generalizing). Token changes go to `@wystack/ui-core`.
+- **Rule**: don't restyle `@wystack/ui-react` primitives locally. If a primitive needs a different shape, upstream the change to the stdui repo (Rule of Three applies before generalizing). Token changes go to `@wystack/ui-core`.
 
 ## Principle: a signal earns its surface
 

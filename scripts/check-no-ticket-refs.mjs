@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const TICKET_PATTERN = /\b(YW|TASK)-\d+\b/g;
-// First-party source roots. `libs/*` are git submodules (separate repos with
+// First-party source roots. `libs/*` are pinned sibling libraries (separate repos with
 // their own conventions) and `spikes` is throwaway exploration, so both are
 // intentionally excluded; `e2e` holds first-party Playwright source/tests that
 // must follow the no-ticket-refs convention like any other source.

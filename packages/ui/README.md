@@ -143,7 +143,7 @@ Use semantic tokens, not hardcoded colors:
 
 ### Adding Components
 
-- **stdui primitives** — add to `libs/stdui/` (separate repo/submodule)
+- **stdui primitives** — add to the stdui repo (linked at `libs/stdui`, separate repo)
 - **DashFrame components** — add to `src/components/`, export from `src/index.ts`, add story
 
 ### Scripts

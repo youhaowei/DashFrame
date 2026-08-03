@@ -9,7 +9,7 @@
 # Detection: if --git-dir == --git-common-dir we are in the main checkout.
 # In a linked worktree those differ (--git-dir points to the per-worktree
 # gitdir, --git-common-dir to the shared .git).  This comparison is
-# path-independent and safe inside submodules.
+# path-independent and safe inside nested checkouts.
 
 git_dir=$(git rev-parse --git-dir 2>/dev/null || true)
 git_common_dir=$(git rev-parse --git-common-dir 2>/dev/null || true)
