@@ -21,8 +21,15 @@ while IFS=$'\t' read -r name repo sha; do
   else
     src="$LIBS_DIR/$name"
     [ -d "$src" ] || { echo "setup-libs: missing sibling checkout: $src" >&2; exit 1; }
+    # A real directory here (left by a --ci run) would make ln -sfn nest the
+    # link inside it instead of replacing it.
+    [ -d "libs/$name" ] && [ ! -L "libs/$name" ] && rm -rf "libs/$name"
     ln -sfn "$src" "libs/$name"
     head="$(git -C "$src" rev-parse HEAD)"
-    [ "$head" = "$sha" ] || echo "setup-libs: drift: $name sibling at ${head:0:7}, pin is ${sha:0:7}" >&2
+    [ "$head" = "$sha" ] || {
+      echo "setup-libs: drift: $name sibling at ${head:0:7}, pin is ${sha:0:7}" >&2
+      echo "  (if install or typecheck fails, this drift is the first suspect:" >&2
+      echo "   sync the sibling toward the pin, or bump the pin in libs.lock)" >&2
+    }
   fi
 done < libs.lock
