@@ -21,8 +21,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
+
+      - name: Fetch pinned libraries
+        run: ./scripts/setup-libs.sh --ci
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -50,8 +51,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
+
+      - name: Fetch pinned libraries
+        run: ./scripts/setup-libs.sh --ci
 
       - name: Skip if e2e/web absent
         id: guard
@@ -75,10 +77,10 @@ jobs:
 
       # The web E2E target runs a production `vite build`, which resolves
       # @wystack/* via their `import`/`default` conditions → `dist/*.js`. Those
-      # dist files only exist after the submodule is built. (Typecheck/lint jobs
+      # dist files only exist after the pinned library is built. (Typecheck/lint jobs
       # consume wystack *source* via the `bun` condition, so they don't need
       # this — but the bundler build does.)
-      - name: Build WyStack submodule
+      - name: Build WyStack
         if: steps.guard.outputs.present == 'true'
         run: bun run build:wystack
 

@@ -1,0 +1,7 @@
+# Pinned sibling libraries. Managed by scripts/setup-libs.sh.
+# Dev: libs/<name> is a symlink to a sibling checkout; this file records the
+# sha the app was last validated against (what CI builds with).
+# Bump = update sha here + refresh bun.lock in the same commit.
+# name	repo	sha
+stdui	https://github.com/youhaowei/stdui.git	7187a2dd22fd8913d554a1d551f8df28ae0b34b4
+wystack	https://github.com/youhaowei/wystack.git	8eddcee392942502edd5a10efa26552f0818a0c9

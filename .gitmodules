@@ -1,6 +1,0 @@
-[submodule "libs/stdui"]
-	path = libs/stdui
-	url = https://github.com/youhaowei/stdui.git
-[submodule "libs/wystack"]
-	path = libs/wystack
-	url = https://github.com/youhaowei/wystack.git

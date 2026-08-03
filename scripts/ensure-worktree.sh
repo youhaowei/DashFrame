@@ -210,4 +210,11 @@ fi
 
 assert_main_checkout_unchanged "$repo_root" "$main_head_before" "$main_branch_before"
 
+# Link the pinned sibling libraries into the new worktree (no-op on branches
+# that predate libs.lock). Submodules used to require a manual init here;
+# symlinks make a fresh worktree usable after nothing but this + bun install.
+if [ -x "$worktree_path/scripts/setup-libs.sh" ] && [ -f "$worktree_path/libs.lock" ]; then
+  "$worktree_path/scripts/setup-libs.sh" >&2 || echo "WARN [ensure-worktree]: setup-libs failed; run it manually." >&2
+fi
+
 echo "$worktree_path"

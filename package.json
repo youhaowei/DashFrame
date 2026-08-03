@@ -8,8 +8,20 @@
   "workspaces": [
     "apps/*",
     "packages/*",
-    "libs/stdui/packages/*",
-    "libs/wystack/packages/*",
+    "libs/stdui/packages/ui-core",
+    "libs/stdui/packages/ui-react",
+    "libs/wystack/packages/client",
+    "libs/wystack/packages/db",
+    "libs/wystack/packages/identity",
+    "libs/wystack/packages/identity-clerk",
+    "libs/wystack/packages/identity-workos",
+    "libs/wystack/packages/log",
+    "libs/wystack/packages/permissions",
+    "libs/wystack/packages/secret-vault",
+    "libs/wystack/packages/server",
+    "libs/wystack/packages/transport",
+    "libs/wystack/packages/types",
+    "libs/wystack/packages/version",
     "e2e/*"
   ],
   "overrides": {
@@ -23,7 +35,7 @@
     "*.{js,jsx,ts,tsx,json,css,md}": "prettier --write --loglevel=error"
   },
   "scripts": {
-    "setup": "git submodule update --init --recursive && bun install && bun run build:wystack",
+    "setup": "./scripts/setup-libs.sh && bun install && bun run build:wystack",
     "build:wystack": "bun run --cwd libs/wystack build",
     "dev": "bun --filter @dashframe/desktop dev",
     "dev:web": "turbo dev --filter=@dashframe/web",
