@@ -1,6 +1,10 @@
 {
   "files": [
     {
+      "path": "CLAUDE.md",
+      "description": "Repo instructions: review gate, PR conventions, worktree/main-branch policy."
+    },
+    {
       "path": "DESIGN.md",
       "description": "Visual design system: surface-system tokens, register, anti-patterns. Source of truth for any UI review."
     }
