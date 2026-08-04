@@ -5,6 +5,11 @@
 # removal always appears to need --force. This wrapper does the safety checks
 # git skips, then forces the removal. It refuses when:
 #   - the worktree itself has uncommitted or untracked files, or
+#   - the worktree's own per-worktree gitdir holds commits reachable from no
+#     branch, tag, or remote ref (a detached-HEAD commit dies with that
+#     gitdir), or an operation is paused there (rebase, bisect, merge,
+#     cherry-pick, revert — all keep their state per-worktree, invisible to
+#     `git status` when the tree is clean), or
 #   - a submodule checkout differs from the commit the branch records
 #     (a stale checkout to sync, or an uncommitted pointer bump), or
 #   - a submodule path was deleted or replaced by other content while its
@@ -20,11 +25,30 @@
 # local formulation of this check had a counterexample — either destroying
 # work hidden behind a local tag or blocking work published only via a tag.
 #
-# usage: scripts/remove-worktree.sh <worktree-path>
+# NOT protected: gitignored files. Like `git worktree remove` itself, the
+# status checks here never see ignored content — a hand-made .env or local
+# build artifact is removed with the worktree. A block would trip on
+# node_modules/ in every worktree, so this stays a documented exemption.
+#
+# --throwaway: the caller attests it created this worktree moments ago from
+# fetched state and nothing worked in it since (automation cleaning up after
+# itself). Submodule ref checks then degrade from ls-remote pushed-ness to
+# local containment — anything not reachable from a remote-tracking ref
+# still blocks — and never touch the network, so cleanup cannot strand on a
+# dead VPN or an expired credential. Never pass it for a worktree a human
+# has worked in: it reopens the local-tag blind spot ls-remote exists to
+# close.
+#
+# usage: scripts/remove-worktree.sh [--throwaway] <worktree-path>
 set -euo pipefail
 
+throwaway=false
+if [ "${1:-}" = "--throwaway" ]; then
+  throwaway=true
+  shift
+fi
 worktree_path="${1:-}"
-[ -n "$worktree_path" ] || { echo "usage: remove-worktree.sh <worktree-path>" >&2; exit 2; }
+[ -n "$worktree_path" ] || { echo "usage: remove-worktree.sh [--throwaway] <worktree-path>" >&2; exit 2; }
 [ -d "$worktree_path" ] || { echo "remove-worktree: no such directory: $worktree_path" >&2; exit 1; }
 
 blocked=false
@@ -49,6 +73,41 @@ if ! wt_gitdir=$(git -C "$worktree_path" rev-parse --absolute-git-dir 2>&1); the
   exit 1
 fi
 
+# The worktree's own per-worktree gitdir dies with the removal, exactly like
+# a submodule's. A commit reachable only from this worktree's HEAD (or from
+# refs/worktree/*) has no other home — the per-worktree reflog dies too. The
+# test is reachability from any shared ref, deliberately NOT ls-remote:
+# this is loss prevention, not publication, and worktrees for local-only
+# branches are routine — a pushed-ness test would refuse every one of them.
+wt_refs=$(git -C "$worktree_path" for-each-ref --format='%(refname)' 'refs/worktree/**' 2>/dev/null || true)
+# $wt_refs intentionally unquoted: one argument per refname, never whitespace.
+# shellcheck disable=SC2086
+if ! wt_only=$(git -C "$worktree_path" log --oneline HEAD $wt_refs --not --branches --tags --remotes -- 2>&1); then
+  echo "remove-worktree: cannot enumerate the worktree's own commits: $wt_only" >&2
+  exit 1
+fi
+if [ -n "$wt_only" ]; then
+  echo "remove-worktree: the worktree has commits reachable only from its own HEAD:" >&2
+  printf '%s\n' "$wt_only" | sed -n '1,5p' | sed 's/^/    /' >&2
+  echo "    Keep them: 'git -C $worktree_path branch <name>' puts them on a shared ref." >&2
+  blocked=true
+fi
+
+# Paused operations keep their state in the per-worktree gitdir, invisible
+# to `status --porcelain` when the tree is clean — a half-narrowed bisect or
+# a `rebase -i` stopped at an edit (todo list, --autostash content) would be
+# silently destroyed. Presence is the only reliable signal: a bisect HEAD is
+# usually a pushed commit, so the reachability check above never fires.
+in_progress=""
+for op_state in rebase-merge rebase-apply sequencer MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD BISECT_LOG; do
+  [ -e "$wt_gitdir/$op_state" ] && in_progress="$in_progress $op_state"
+done
+if [ -n "$in_progress" ]; then
+  echo "remove-worktree: an operation is in progress in this worktree (found:$in_progress)." >&2
+  echo "    Finish or abort it first (git rebase --abort, git bisect reset, git merge --abort, ...)." >&2
+  blocked=true
+fi
+
 # check_submodule_refs <label> <git...> — refuse when the submodule holds
 # commits no remote has, or stashes. The git invocation prefix is either
 # `git -C <checkout>` or `git --git-dir <module-gitdir>` so the same checks
@@ -57,6 +116,13 @@ check_submodule_refs() {
   local sub="$1"; shift
   local remotes remote remote_refs sha ref unpushed stashes reason reached=false
   local pushed=()
+
+  # In --throwaway mode the network probe is skipped entirely: the caller
+  # created this worktree moments ago from fetched state, so the submodule's
+  # remote-tracking refs are fresh and local containment against them is the
+  # whole check. Anything not reachable from a remote-tracking ref still
+  # blocks — a commit made inside the submodule since creation is caught.
+  if [ "$throwaway" = false ]; then
 
   # The remote name is whatever this submodule actually has — never assume
   # `origin`; a renamed remote must not read as an unreachable one.
@@ -106,13 +172,23 @@ EOF
     exit 1
   fi
 
-  # Everything local — HEAD, branches, and tags — minus everything the
-  # remotes have. --remotes stays as a second exclusion source so commits
-  # pushed before a remote moved on are still recognized. Note: after --not,
-  # revs are negated WITHOUT a ^ prefix (a ^ there would flip them back to
-  # included). No pipe into a truncating command — head's early exit would
-  # SIGPIPE git under pipefail; capture fully, truncate for display after.
-  if ! unpushed=$("$@" log --oneline HEAD --branches --tags --not --remotes ${pushed[@]+"${pushed[@]}"} -- 2>&1); then
+  fi # [ "$throwaway" = false ]
+
+  # Everything local — every ref plus HEAD, so notes, replace refs and other
+  # namespaces are covered, minus refs/stash which has its own check with a
+  # better message — against everything the remotes have. --remotes stays as
+  # a second exclusion source so commits pushed before a remote moved on are
+  # still recognized. In --throwaway mode tags are excluded too: a fetched
+  # tag need not be reachable from any remote branch, so a fresh clone
+  # legitimately holds tags the remote-tracking refs cannot account for, and
+  # the attestation is precisely that nobody created one locally since.
+  # Note: after --not, revs are negated WITHOUT a ^ prefix (a ^ there would
+  # flip them back to included). No pipe into a truncating command — head's
+  # early exit would SIGPIPE git under pipefail; capture fully, truncate for
+  # display after.
+  local exclusions=(--remotes)
+  [ "$throwaway" = true ] && exclusions+=(--tags)
+  if ! unpushed=$("$@" log --oneline --exclude=refs/stash --all --not "${exclusions[@]}" ${pushed[@]+"${pushed[@]}"} -- 2>&1); then
     echo "remove-worktree: cannot enumerate submodule commits for $sub: $unpushed" >&2
     exit 1
   fi

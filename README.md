@@ -91,9 +91,14 @@ can only fetch commits that exist upstream.
 - Remove worktrees with `scripts/remove-worktree.sh <path>` — never with
   `git worktree remove --force` directly, in scripts or briefs either. The
   wrapper refuses while the worktree or a submodule holds uncommitted or
-  unpushed work (the submodule gitdir is per-worktree, so removal destroys
-  detached commits, stashes, and local branches alike), then removes.
-  Plain `git worktree remove` always balks at populated submodules.
+  unpushed work, a detached-HEAD commit, or a paused rebase/bisect/merge
+  (both the worktree's own gitdir and each submodule's are per-worktree, so
+  removal destroys detached commits, stashes, and local branches alike),
+  then removes. Gitignored files (a hand-made `.env`) are the one documented
+  exemption — they go with the worktree. Automation cleaning up a worktree
+  it created moments ago may pass `--throwaway` to verify locally instead of
+  against the remotes. Plain `git worktree remove` always balks at populated
+  submodules. `scripts/test-remove-worktree.sh` is the executable proof.
 
 ### Running the app
 

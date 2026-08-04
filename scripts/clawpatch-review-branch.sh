@@ -32,7 +32,10 @@ cleanup_review_worktree() {
     # Route removal through the guard rather than a raw --force: the review
     # worktree is meant to be throwaway, so if the guard refuses, something
     # unexpected holds real work — leave the worktree in place and say so.
-    if ! "$repo_root/scripts/remove-worktree.sh" "$review_worktree" >&2; then
+    # --throwaway because this script created the worktree minutes ago from
+    # fetched state: the guard verifies locally and skips the per-submodule
+    # ls-remote, so a network blip during the review cannot strand cleanup.
+    if ! "$repo_root/scripts/remove-worktree.sh" --throwaway "$review_worktree" >&2; then
       echo "WARN [clawpatch-review-branch]: review worktree kept at $review_worktree — remove-worktree.sh refused (see above)." >&2
       review_worktree_parent=""
       return 0
@@ -52,12 +55,22 @@ looks_like_commit_sha() {
 }
 
 resolve_target_sha() {
-  local ref="$1"
+  local ref="$1" tmp_ref sha
   # A fresh fetch is the only trustworthy source for a remote branch; an
   # existing origin/<ref> tracking ref may be stale, so never use it without
-  # a successful fetch backing it.
-  if git -C "$repo_root" fetch origin "$ref" >/dev/null 2>&1; then
-    git -C "$repo_root" rev-parse --verify "FETCH_HEAD^{commit}" 2>/dev/null && return 0
+  # a successful fetch backing it. Fetch into a unique temp ref rather than
+  # reading FETCH_HEAD: FETCH_HEAD is one shared file per gitdir, rewritten
+  # wholesale by ANY concurrent fetch in this checkout (a second review run,
+  # an IDE background fetch), so a fetch-then-read of it can silently
+  # resolve — and review — whatever commit the other fetch brought in.
+  tmp_ref="refs/clawpatch-review/resolve-$$"
+  if git -C "$repo_root" fetch origin "+refs/heads/${ref}:${tmp_ref}" >/dev/null 2>&1; then
+    sha="$(git -C "$repo_root" rev-parse --verify "${tmp_ref}^{commit}" 2>/dev/null || true)"
+    git -C "$repo_root" update-ref -d "$tmp_ref" >/dev/null 2>&1 || true
+    if [[ -n "$sha" ]]; then
+      printf '%s\n' "$sha"
+      return 0
+    fi
   fi
   # Local-only branches never exist on origin; a local head is authoritative.
   git -C "$repo_root" rev-parse --verify "refs/heads/${ref}^{commit}" 2>/dev/null && return 0
@@ -154,6 +167,15 @@ else
 fi
 
 cd "$worktree"
+
+# The review below diffs --since origin/main, and nothing above updates that
+# tracking ref — the target-ref fetches are single-ref and leave origin/main
+# wherever the last full fetch put it, silently scoping the review to the
+# wrong range. Freshen it here; warn-only, because reviewing a local branch
+# offline is still legitimate as long as the operator knows the base may lag.
+if ! git -C "$repo_root" fetch origin main >/dev/null 2>&1; then
+  echo "WARN [clawpatch-review-branch]: could not fetch origin main — the review base origin/main may be stale." >&2
+fi
 
 "$repo_root/scripts/clawpatch.sh" map --source heuristic --json
 "$repo_root/scripts/clawpatch.sh" review --since origin/main --json --no-input ${extra_args[@]+"${extra_args[@]}"}
