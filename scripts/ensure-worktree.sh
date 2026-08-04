@@ -221,8 +221,8 @@ else
     # main checkout (the historical behaviour here), which yanks the branch
     # out from under whoever else is using that checkout.
     #
-    # DashFrame convention: upstream default branch is always main (CLAUDE.md,
-    # CI, branch protection). We hardcode origin/main here rather than deriving
+    # DashFrame convention: upstream default branch is always main (CI,
+    # branch protection). We hardcode origin/main here rather than deriving
     # from origin/HEAD — that would be the right call if this script were
     # vendored for other repos, but it wouldn't change behaviour here.
     git fetch origin main >/dev/null 2>&1 || true
