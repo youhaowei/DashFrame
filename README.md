@@ -98,7 +98,7 @@ can only fetch commits that exist upstream.
   exemption — they go with the worktree. Automation cleaning up a worktree
   it created moments ago may pass `--throwaway` to verify locally instead of
   against the remotes. Plain `git worktree remove` always balks at populated
-  submodules. `scripts/test-remove-worktree.sh` is the executable proof.
+  submodules.
 
 ### Running the app
 
