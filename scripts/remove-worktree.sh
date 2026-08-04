@@ -50,6 +50,10 @@ fi
 worktree_path="${1:-}"
 [ -n "$worktree_path" ] || { echo "usage: remove-worktree.sh [--throwaway] <worktree-path>" >&2; exit 2; }
 [ -d "$worktree_path" ] || { echo "remove-worktree: no such directory: $worktree_path" >&2; exit 1; }
+# Canonicalize: the final `git -C <path> worktree remove <path>` evaluates
+# the second path after -C has already changed into the first, so a relative
+# argument passes every check and then fails at the removal itself.
+worktree_path=$(cd "$worktree_path" && pwd)
 
 blocked=false
 
@@ -74,7 +78,7 @@ capture() {
 # them — so do that check here first. Submodules are excluded entirely: a
 # gitlink difference is not an uncommitted file, and every submodule state
 # gets its own dedicated check below, with remedies that actually work.
-if ! capture git -C "$worktree_path" status --porcelain --ignore-submodules=all; then
+if ! capture git -C "$worktree_path" status --porcelain --untracked-files=all --ignore-submodules=all; then
   echo "remove-worktree: cannot read worktree state: $g_err" >&2
   exit 1
 fi
@@ -120,20 +124,24 @@ if [ -n "$head_src$wt_refs" ]; then
   fi
 fi
 
-# Paused operations keep their state in the per-worktree gitdir, invisible
-# to `status --porcelain` when the tree is clean — a half-narrowed bisect or
-# a `rebase -i` stopped at an edit (todo list, --autostash content) would be
-# silently destroyed. Presence is the only reliable signal: a bisect HEAD is
-# usually a pushed commit, so the reachability check above never fires.
-in_progress=""
-for op_state in rebase-merge rebase-apply sequencer MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD BISECT_LOG; do
-  [ -e "$wt_gitdir/$op_state" ] && in_progress="$in_progress $op_state"
-done
-if [ -n "$in_progress" ]; then
-  echo "remove-worktree: an operation is in progress in this worktree (found:$in_progress)." >&2
+# check_paused_ops <label> <gitdir> — paused operations keep their state in
+# the gitdir, invisible to `status --porcelain` when the tree is clean — a
+# half-narrowed bisect or a `rebase -i` stopped at an edit (todo list,
+# --autostash content) would be silently destroyed. Presence is the only
+# reliable signal: a bisect HEAD is usually a pushed commit, so the
+# reachability checks never fire. Applies to the worktree's own gitdir and
+# to every submodule gitdir alike — both die with the removal.
+check_paused_ops() {
+  local label="$1" gitdir="$2" op_state found=""
+  for op_state in rebase-merge rebase-apply sequencer MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD BISECT_LOG; do
+    [ -e "$gitdir/$op_state" ] && found="$found $op_state"
+  done
+  [ -n "$found" ] || return 0
+  echo "remove-worktree: an operation is in progress in $label (found:$found)." >&2
   echo "    Finish or abort it first (git rebase --abort, git bisect reset, git merge --abort, ...)." >&2
   blocked=true
-fi
+}
+check_paused_ops "this worktree" "$wt_gitdir"
 
 # check_submodule_refs <label> <git...> — refuse when the submodule holds
 # commits no remote has, or stashes. The git invocation prefix is either
@@ -204,19 +212,25 @@ EOF
 
   # Everything local — every ref plus HEAD, so notes, replace refs and other
   # namespaces are covered, minus refs/stash which has its own check with a
-  # better message — against everything the remotes have. --remotes stays as
-  # a second exclusion source so commits pushed before a remote moved on are
-  # still recognized. In --throwaway mode tags are excluded too: a fetched
-  # tag need not be reachable from any remote branch, so a fresh clone
-  # legitimately holds tags the remote-tracking refs cannot account for, and
-  # the attestation is precisely that nobody created one locally since.
+  # better message — against everything the remotes have. In the default
+  # mode the ONLY exclusion source is the fresh ls-remote answer above:
+  # local remote-tracking refs can be stale, and after an upstream
+  # force-push or branch delete a stale refs/remotes/* would vouch for
+  # commits whose last remaining copy is right here — the exact loss this
+  # guard exists to prevent. (A commit pushed long ago but since discarded
+  # upstream therefore blocks; that is fail-closed working as intended, and
+  # a fetch is the remedy when the block is stale-local-state instead.)
+  # In --throwaway mode the remote-tracking refs and tags ARE the check:
+  # the caller attests the worktree was created moments ago from fetched
+  # state, so those refs are fresh and a fetched tag need not be reachable
+  # from any remote branch.
   # Note: after --not, revs are negated WITHOUT a ^ prefix (a ^ there would
   # flip them back to included). No pipe into a truncating command — head's
   # early exit would SIGPIPE git under pipefail; capture fully, truncate for
   # display after.
-  local exclusions=(--remotes)
-  [ "$throwaway" = true ] && exclusions+=(--tags)
-  if ! capture "$@" log --oneline --exclude=refs/stash --all --not "${exclusions[@]}" ${pushed[@]+"${pushed[@]}"} --; then
+  local exclusions=()
+  [ "$throwaway" = true ] && exclusions=(--remotes --tags)
+  if ! capture "$@" log --oneline --exclude=refs/stash --all --not ${exclusions[@]+"${exclusions[@]}"} ${pushed[@]+"${pushed[@]}"} --; then
     echo "remove-worktree: cannot enumerate submodule commits for $sub: $g_err" >&2
     exit 1
   fi
@@ -238,6 +252,18 @@ EOF
     printf '%s\n' "$stashes" | sed -n '1,5p' | sed 's/^/    /' >&2
     blocked=true
   fi
+
+  # Paused operations die with the module gitdir exactly as with the
+  # worktree's own — and a paused bisect/rebase here typically sits on a
+  # pushed commit, so nothing above catches it. Local and cheap, so it runs
+  # in --throwaway mode too.
+  local sub_gitdir
+  if ! capture "$@" rev-parse --absolute-git-dir; then
+    echo "remove-worktree: cannot resolve gitdir for $sub: $g_err" >&2
+    exit 1
+  fi
+  sub_gitdir=$g_out
+  check_paused_ops "$sub" "$sub_gitdir"
 }
 
 # check_module_gitdirs <modules-root> <label-prefix> — run the ref/stash
@@ -299,7 +325,7 @@ while IFS= read -r -d '' entry; do
 
   if [ -e "$subdir/.git" ]; then
     # Populated checkout: uncommitted changes, then pointer drift.
-    if ! capture git -C "$subdir" status --porcelain; then
+    if ! capture git -C "$subdir" status --porcelain --untracked-files=all; then
       echo "remove-worktree: cannot read submodule state for $sub: $g_err" >&2
       exit 1
     fi
@@ -343,9 +369,10 @@ while IFS= read -r -d '' entry; do
     # FAILS must not read as emptiness: the && chain falls through to the
     # foreign-content block below, keeping unlistable directories fail-closed.
     :
-  elif [ -e "$subdir" ]; then
+  elif [ -e "$subdir" ] || [ -L "$subdir" ]; then
     # Content at a gitlink path that is not a submodule checkout would be
     # silently discarded by the removal (--ignore-submodules=all hides it).
+    # -L catches a dangling symlink, which -e reports as absent.
     echo "remove-worktree: $sub was replaced by non-submodule content — inspect or remove it first." >&2
     blocked=true
   fi

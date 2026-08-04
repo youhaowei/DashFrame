@@ -109,7 +109,6 @@ can only fetch commits that exist upstream.
   (`cd apps/server && bun run src/index.ts --host 127.0.0.1 --port 4000`) and point
   the web app at it
   (`cd apps/web && VITE_WYSTACK_URL=http://127.0.0.1:4000 bun run dev:direct`).
-  See [`AGENTS.md`](AGENTS.md) for the full headless recipe.
 
 ### Packages
 

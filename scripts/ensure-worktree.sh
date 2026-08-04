@@ -59,13 +59,30 @@ init_unpopulated_submodules() {
     # Skip only a checkout that is actually usable. `.git` existing alone is
     # not that: an interrupted init can write the gitfile before the checkout
     # lands, and skipping on it would hand out a worktree with an empty
-    # library. HEAD resolving is the healthy-checkout test; a populated
-    # checkout on its own branch still passes and stays untouched, and a
-    # half-initialized one falls through to the update below, which repairs it.
-    if [ -e "$_isu_wt/$_isu_sub/.git" ] && git -C "$_isu_wt/$_isu_sub" rev-parse --verify --quiet HEAD >/dev/null 2>&1; then
+    # library. Nor is HEAD resolving alone: submodule init clones with
+    # --no-checkout first, so an interruption between clone and checkout
+    # leaves a resolvable HEAD over an empty tree. Healthy means both HEAD
+    # resolves AND the directory holds content beyond .git; anything else
+    # falls through to the update below, which repairs it. A populated
+    # checkout on its own branch — dirty or not — passes and stays
+    # untouched: distinguishing a mid-checkout kill from deliberate local
+    # edits would need a diff against HEAD, and repairing on that signal
+    # would clobber exactly the edits this script promises never to touch.
+    if [ -e "$_isu_wt/$_isu_sub/.git" ] \
+      && git -C "$_isu_wt/$_isu_sub" rev-parse --verify --quiet HEAD >/dev/null 2>&1 \
+      && [ -n "$(find "$_isu_wt/$_isu_sub" -mindepth 1 -maxdepth 1 -not -name .git -print -quit 2>/dev/null)" ]; then
       continue
     fi
-    if ! git -C "$_isu_wt" submodule update --init --recursive -- "$_isu_sub" >&2; then
+    # A half-initialized checkout (gitfile present) needs --force: plain
+    # `submodule update` is a no-op when HEAD already matches the recorded
+    # sha, so it would leave the empty tree in place. --force re-checks-out
+    # regardless, and only checkouts the healthy gate above rejected can
+    # reach it — there is nothing here to clobber. A fully unpopulated path
+    # (no gitfile) takes the plain init, as before.
+    _isu_force=""
+    [ -e "$_isu_wt/$_isu_sub/.git" ] && _isu_force="--force"
+    # shellcheck disable=SC2086
+    if ! git -C "$_isu_wt" submodule update --init --recursive $_isu_force -- "$_isu_sub" >&2; then
       echo "ERROR [ensure-worktree]: failed to initialize submodule '$_isu_sub' in '$_isu_wt'." >&2
       echo "  Fix connectivity/credentials and re-run; this script retries unpopulated submodules." >&2
       exit 1
