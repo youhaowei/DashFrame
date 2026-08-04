@@ -62,15 +62,27 @@ init_unpopulated_submodules() {
     # library. Nor is HEAD resolving alone: submodule init clones with
     # --no-checkout first, so an interruption between clone and checkout
     # leaves a resolvable HEAD over an empty tree. Healthy means both HEAD
-    # resolves AND the directory holds content beyond .git; anything else
-    # falls through to the update below, which repairs it. A populated
-    # checkout on its own branch — dirty or not — passes and stays
-    # untouched: distinguishing a mid-checkout kill from deliberate local
-    # edits would need a diff against HEAD, and repairing on that signal
-    # would clobber exactly the edits this script promises never to touch.
+    # resolves AND at least one file HEAD actually records exists on disk —
+    # untracked debris like .DS_Store must not vouch for a checkout, so the
+    # test walks HEAD's own file list rather than asking whether the
+    # directory is non-empty. Anything else falls through to the update
+    # below, which repairs it. A populated checkout on its own branch —
+    # dirty or not — passes and stays untouched: even with every file but
+    # one deleted, that one file is still a tracked file present on disk,
+    # and repairing on any weaker signal would clobber exactly the edits
+    # this script promises never to touch.
+    _isu_tracked_present=""
     if [ -e "$_isu_wt/$_isu_sub/.git" ] \
-      && git -C "$_isu_wt/$_isu_sub" rev-parse --verify --quiet HEAD >/dev/null 2>&1 \
-      && [ -n "$(find "$_isu_wt/$_isu_sub" -mindepth 1 -maxdepth 1 -not -name .git -print -quit 2>/dev/null)" ]; then
+      && git -C "$_isu_wt/$_isu_sub" rev-parse --verify --quiet HEAD >/dev/null 2>&1; then
+      _isu_tracked_present=$(git -C "$_isu_wt/$_isu_sub" ls-tree -r --name-only HEAD 2>/dev/null \
+        | while IFS= read -r _isu_f; do
+            if [ -e "$_isu_wt/$_isu_sub/$_isu_f" ] || [ -L "$_isu_wt/$_isu_sub/$_isu_f" ]; then
+              echo yes
+              break
+            fi
+          done)
+    fi
+    if [ -n "$_isu_tracked_present" ]; then
       continue
     fi
     # A half-initialized checkout (gitfile present) needs --force: plain
