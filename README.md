@@ -9,7 +9,7 @@ DashFrame is a local-first business intelligence tool focused on the data → ch
 - **Electron** desktop app + **Vite/React 19** web app — one shared UI (`packages/app`)
 - **Hono** HTTP+WS server (`apps/server`, `packages/server-core`) — the web app is _not_ purely client-side; it talks to this backend
 - **DuckDB** for query — native (`@duckdb/node-api`) on desktop, **DuckDB-WASM** in the browser
-- **WyStack** (`libs/wystack`) — the RPC/data substrate; **stdui** (`libs/stdui`) — the `@wystack/ui-*` design system (both pinned sibling checkouts, see `libs.lock`)
+- **WyStack** (`libs/wystack`) — the RPC/data substrate; **stdui** (`libs/stdui`) — the `@wystack/ui-*` design system (both pinned library clones, see `libs.lock`)
 - **Bun** for package management and runtime, **Turborepo** for workspace orchestration
 - **Tailwind CSS v4**, **Vega-Lite** for declarative chart rendering
 - Connectors for CSV, Notion, Postgres, and REST sources
@@ -37,8 +37,8 @@ packages/
   visualization/    # Chart rendering system
   ui/               # App-local UI primitives
 libs/
-  wystack/          # RPC/data substrate (symlink to sibling checkout, pinned in libs.lock)
-  stdui/            # @wystack/ui-* design system (symlink to sibling checkout, pinned in libs.lock)
+  wystack/          # RPC/data substrate (pinned clone, see libs.lock)
+  stdui/            # @wystack/ui-* design system (pinned clone, see libs.lock)
 ```
 
 ## Naming Conventions
@@ -57,11 +57,18 @@ bun run test      # run all tests
 ```
 
 `bun run setup` is required on a fresh clone. Libraries under `libs/` are not
-submodules: each is a symlink to a sibling checkout (default `~/Projects/<name>`,
-override with `LIBS_DIR`), cloned automatically if missing, with the validated
-commit pinned in `libs.lock`. CI clones exactly the pinned commits. To change a
-library, land the change in the library's own repo first, then bump its sha in
-`libs.lock` here.
+submodules: each is a plain clone (gitignored, invisible to this repo's git)
+checked out at the commit pinned in `libs.lock` — the same locally and in CI.
+To change a library, land the change in the library's own repo first, then
+bump its sha in `libs.lock` and re-run `./scripts/setup-libs.sh`.
+
+To co-develop against a live library checkout,
+`./scripts/setup-libs.sh --link wystack [path]` swaps `libs/wystack` for a
+symlink (default target `~/Projects/wystack`); `--unlink wystack` restores the
+pinned clone. While linked, turbo commands fail at workspace discovery
+(turbo can't resolve packages outside the repo root) — `bun install` and the
+dev servers still work. After any link/unlink:
+`rm -rf node_modules && bun install`.
 
 ### Running the app
 
