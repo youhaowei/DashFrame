@@ -199,6 +199,18 @@ run_guard "$WT"
 assert_removed "$WT" "gitignored .env does not block (removal discards it, per the header)"
 echo ""
 
+echo "Test 9: orphan worktree (unborn HEAD) → removed, not bricked"
+WT="$SCRATCH/wt9"
+git -C "$REPO" worktree add --orphan "$WT" --quiet >/dev/null 2>&1
+if git -C "$WT" rev-parse --verify --quiet HEAD >/dev/null 2>&1; then
+  fail "fixture: orphan worktree unexpectedly has a born HEAD — test cannot bite"
+else
+  ok "fixture: worktree HEAD is unborn"
+fi
+run_guard "$WT"
+assert_removed "$WT" "unborn HEAD has nothing to lose — removal proceeds"
+echo ""
+
 if [ "$FAILURES" -eq 0 ]; then
   printf "${GREEN}All tests passed — remove-worktree guard is working.${RESET}\n"
   exit 0

@@ -80,17 +80,25 @@ fi
 # this is loss prevention, not publication, and worktrees for local-only
 # branches are routine — a pushed-ness test would refuse every one of them.
 wt_refs=$(git -C "$worktree_path" for-each-ref --format='%(refname)' 'refs/worktree/**' 2>/dev/null || true)
-# $wt_refs intentionally unquoted: one argument per refname, never whitespace.
-# shellcheck disable=SC2086
-if ! wt_only=$(git -C "$worktree_path" log --oneline HEAD $wt_refs --not --branches --tags --remotes -- 2>&1); then
-  echo "remove-worktree: cannot enumerate the worktree's own commits: $wt_only" >&2
-  exit 1
-fi
-if [ -n "$wt_only" ]; then
-  echo "remove-worktree: the worktree has commits reachable only from its own HEAD:" >&2
-  printf '%s\n' "$wt_only" | sed -n '1,5p' | sed 's/^/    /' >&2
-  echo "    Keep them: 'git -C $worktree_path branch <name>' puts them on a shared ref." >&2
-  blocked=true
+# An unborn HEAD (`git worktree add --orphan`) resolves to no commit and has
+# none to lose — include it as a source only when it points at one, or the
+# log below hard-fails and the worktree becomes permanently un-removable.
+head_src=""
+git -C "$worktree_path" rev-parse --verify --quiet HEAD >/dev/null 2>&1 && head_src=HEAD
+if [ -n "$head_src$wt_refs" ]; then
+  # $head_src/$wt_refs intentionally unquoted: one argument per refname,
+  # never whitespace, and an empty one must vanish rather than become "".
+  # shellcheck disable=SC2086
+  if ! wt_only=$(git -C "$worktree_path" log --oneline $head_src $wt_refs --not --branches --tags --remotes -- 2>&1); then
+    echo "remove-worktree: cannot enumerate the worktree's own commits: $wt_only" >&2
+    exit 1
+  fi
+  if [ -n "$wt_only" ]; then
+    echo "remove-worktree: the worktree has commits reachable only from its own HEAD:" >&2
+    printf '%s\n' "$wt_only" | sed -n '1,5p' | sed 's/^/    /' >&2
+    echo "    Keep them: 'git -C $worktree_path branch <name>' puts them on a shared ref." >&2
+    blocked=true
+  fi
 fi
 
 # Paused operations keep their state in the per-worktree gitdir, invisible
