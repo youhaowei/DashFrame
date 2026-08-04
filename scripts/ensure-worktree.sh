@@ -45,6 +45,26 @@ assert_main_checkout_unchanged() {
   fi
 }
 
+# init_unpopulated_submodules <worktree_path>
+# Initialize any submodule that is not populated yet. This is the only place
+# submodules are synced automatically — there is deliberately no post-checkout
+# hook, so a library checkout you moved to a feature branch stays where you
+# put it; populated submodules are never touched here. Runs on the reuse path
+# too, so a bootstrap that failed mid-init heals on the next invocation.
+# Fail-closed: a worktree with an empty libs/ must not be handed to an agent.
+init_unpopulated_submodules() {
+  _isu_wt="$1"
+  [ -f "$_isu_wt/.gitmodules" ] || return 0
+  for _isu_sub in $(git config --file "$_isu_wt/.gitmodules" --get-regexp 'submodule\..*\.path' 2>/dev/null | awk '{print $2}'); do
+    [ -e "$_isu_wt/$_isu_sub/.git" ] && continue
+    if ! git -C "$_isu_wt" submodule update --init --recursive -- "$_isu_sub" >&2; then
+      echo "ERROR [ensure-worktree]: failed to initialize submodule '$_isu_sub' in '$_isu_wt'." >&2
+      echo "  Fix connectivity/credentials and re-run; this script retries unpopulated submodules." >&2
+      exit 1
+    fi
+  done
+}
+
 # ── 1. Require a branch argument ────────────────────────────────────────────
 branch="${1:-}"
 if [ -z "$branch" ]; then
@@ -74,7 +94,9 @@ if [ "$git_dir" != "$git_common_dir" ]; then
     exit 1
   fi
   # Print the worktree root for the caller to cd into (in case they're in a subdir).
-  git rev-parse --show-toplevel
+  _wt_top=$(git rev-parse --show-toplevel)
+  init_unpopulated_submodules "$_wt_top"
+  echo "$_wt_top"
   exit 0
 fi
 
@@ -122,6 +144,7 @@ if [ -d "$worktree_path" ]; then
     exit 1
   fi
   assert_main_checkout_unchanged "$repo_root" "$main_head_before" "$main_branch_before"
+  init_unpopulated_submodules "$worktree_path"
   echo "$worktree_path"
   exit 0
 fi
@@ -210,12 +233,6 @@ fi
 
 assert_main_checkout_unchanged "$repo_root" "$main_head_before" "$main_branch_before"
 
-# Initialize submodules in the fresh worktree. This is the only place they
-# are synced automatically — there is deliberately no post-checkout hook, so
-# a library checkout you moved to a feature branch stays where you put it.
-if [ -f "$worktree_path/.gitmodules" ]; then
-  git -C "$worktree_path" submodule update --init --recursive >&2 ||
-    echo "WARN [ensure-worktree]: submodule init failed; run 'git submodule update --init --recursive' manually." >&2
-fi
+init_unpopulated_submodules "$worktree_path"
 
 echo "$worktree_path"

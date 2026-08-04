@@ -63,21 +63,37 @@ depends on.
 ### Working on the libraries
 
 `libs/wystack` and `libs/stdui` are full clones of their own repos. Edit them
-in place, on a branch, like any repo. **The one rule: push the library commit
-to its upstream before committing the pointer bump here** — the pre-push hook
-enforces it, and CI can only fetch commits that exist upstream.
+in place, on a branch, like any repo. **The one rule: the library commit must
+be on its upstream before the pointer bump leaves this machine** — the
+pre-push hook blocks the superproject push until it is (nothing checks at
+commit time, so an early commit is fine; it just cannot be pushed), and CI
+can only fetch commits that exist upstream.
 
 - Nothing syncs submodules automatically. There is no post-checkout hook, so a
   library checkout stays on whatever branch you put it on; only
   `scripts/ensure-worktree.sh` (fresh worktrees) and `bun run setup` touch it.
+- Create worktrees through `scripts/ensure-worktree.sh` — a hand-rolled
+  `git worktree add` leaves `libs/` empty (nothing initializes submodules for
+  you anymore), which surfaces later as a confusing
+  `@wystack/*@workspace:* failed to resolve` from `bun install`. If you do
+  add one by hand, run `git submodule update --init --recursive` in it.
 - `git status` hides in-progress library edits (`ignore = dirty`) but still
-  shows real pointer moves — a visible `libs/*` change means a pending bump.
-- To try a library checkout that lives elsewhere (a sibling repo or another
-  worktree), `bun link` the specific `@wystack/*` package instead of touching
-  the submodule.
-- Remove worktrees with `scripts/remove-worktree.sh <path>` — it checks the
-  submodules for unpushed work, then removes (plain `git worktree remove`
-  always balks at populated submodules).
+  shows pointer differences as `modified: libs/* (new commits)`. That line has
+  two possible meanings now: a pending bump you made, or a stale library
+  checkout after switching branches whose pointers differ. Check with
+  `git diff --submodule` before staging it; to sync a stale checkout
+  deliberately, run `git submodule update -- libs/<name>`.
+- `bun link` can point an `@wystack/*` package at a checkout that lives
+  elsewhere, but **any `bun install` (including `bun run setup`) silently
+  undoes the link** — every `@wystack/*` dependency is `workspace:*`, and
+  install re-resolves it to the in-repo submodule. Re-link after installs, or
+  prefer editing the submodule clone in place.
+- Remove worktrees with `scripts/remove-worktree.sh <path>` — never with
+  `git worktree remove --force` directly, in scripts or briefs either. The
+  wrapper refuses while the worktree or a submodule holds uncommitted or
+  unpushed work (the submodule gitdir is per-worktree, so removal destroys
+  detached commits, stashes, and local branches alike), then removes.
+  Plain `git worktree remove` always balks at populated submodules.
 
 ### Running the app
 
