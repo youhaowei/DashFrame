@@ -173,7 +173,7 @@ cd "$worktree"
 # wherever the last full fetch put it, silently scoping the review to the
 # wrong range. Freshen it here; warn-only, because reviewing a local branch
 # offline is still legitimate as long as the operator knows the base may lag.
-if ! git -C "$repo_root" fetch origin main >/dev/null 2>&1; then
+if ! git -C "$repo_root" fetch origin '+refs/heads/main:refs/remotes/origin/main' >/dev/null 2>&1; then
   echo "WARN [clawpatch-review-branch]: could not fetch origin main — the review base origin/main may be stale." >&2
 fi
 

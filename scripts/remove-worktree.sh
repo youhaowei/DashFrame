@@ -53,25 +53,43 @@ worktree_path="${1:-}"
 
 blocked=false
 
+# capture <cmd...> — stdout into g_out, stderr into g_err, command status
+# returned. Value-bearing captures must never merge stderr into the value:
+# git writes warnings to stderr while exiting 0 (an unreadable global
+# config, say), and a warning folded into a status listing or a sha turns a
+# clean worktree into a false block — which, from the throwaway cleanup
+# path, means a worktree kept forever.
+g_out="" g_err=""
+capture() {
+  local errf rc=0
+  errf=$(mktemp)
+  g_out=$("$@" 2>"$errf") || rc=$?
+  g_err=$(cat "$errf" 2>/dev/null || true)
+  rm -f "$errf"
+  return "$rc"
+}
+
 # The superproject worktree itself: plain `git worktree remove` would refuse
 # on modified or untracked files, and --force below would silently discard
 # them — so do that check here first. Submodules are excluded entirely: a
 # gitlink difference is not an uncommitted file, and every submodule state
 # gets its own dedicated check below, with remedies that actually work.
-if ! wt_status=$(git -C "$worktree_path" status --porcelain --ignore-submodules=all 2>&1); then
-  echo "remove-worktree: cannot read worktree state: $wt_status" >&2
+if ! capture git -C "$worktree_path" status --porcelain --ignore-submodules=all; then
+  echo "remove-worktree: cannot read worktree state: $g_err" >&2
   exit 1
 fi
+wt_status=$g_out
 if [ -n "$wt_status" ]; then
   echo "remove-worktree: worktree has uncommitted or untracked files:" >&2
   printf '%s\n' "$wt_status" | sed -n '1,5p' | sed 's/^/    /' >&2
   blocked=true
 fi
 
-if ! wt_gitdir=$(git -C "$worktree_path" rev-parse --absolute-git-dir 2>&1); then
-  echo "remove-worktree: cannot resolve worktree gitdir: $wt_gitdir" >&2
+if ! capture git -C "$worktree_path" rev-parse --absolute-git-dir; then
+  echo "remove-worktree: cannot resolve worktree gitdir: $g_err" >&2
   exit 1
 fi
+wt_gitdir=$g_out
 
 # The worktree's own per-worktree gitdir dies with the removal, exactly like
 # a submodule's. A commit reachable only from this worktree's HEAD (or from
@@ -89,10 +107,11 @@ if [ -n "$head_src$wt_refs" ]; then
   # $head_src/$wt_refs intentionally unquoted: one argument per refname,
   # never whitespace, and an empty one must vanish rather than become "".
   # shellcheck disable=SC2086
-  if ! wt_only=$(git -C "$worktree_path" log --oneline $head_src $wt_refs --not --branches --tags --remotes -- 2>&1); then
-    echo "remove-worktree: cannot enumerate the worktree's own commits: $wt_only" >&2
+  if ! capture git -C "$worktree_path" log --oneline $head_src $wt_refs --not --branches --tags --remotes --; then
+    echo "remove-worktree: cannot enumerate the worktree's own commits: $g_err" >&2
     exit 1
   fi
+  wt_only=$g_out
   if [ -n "$wt_only" ]; then
     echo "remove-worktree: the worktree has commits reachable only from its own HEAD:" >&2
     printf '%s\n' "$wt_only" | sed -n '1,5p' | sed 's/^/    /' >&2
@@ -134,10 +153,11 @@ check_submodule_refs() {
 
   # The remote name is whatever this submodule actually has — never assume
   # `origin`; a renamed remote must not read as an unreachable one.
-  if ! remotes=$("$@" remote 2>&1); then
-    echo "remove-worktree: cannot list remotes for $sub: $remotes" >&2
+  if ! capture "$@" remote; then
+    echo "remove-worktree: cannot list remotes for $sub: $g_err" >&2
     exit 1
   fi
+  remotes=$g_out
   if [ -z "$remotes" ]; then
     echo "remove-worktree: $sub has no remote — nothing in it can be verified as pushed." >&2
     blocked=true
@@ -196,10 +216,11 @@ EOF
   # display after.
   local exclusions=(--remotes)
   [ "$throwaway" = true ] && exclusions+=(--tags)
-  if ! unpushed=$("$@" log --oneline --exclude=refs/stash --all --not "${exclusions[@]}" ${pushed[@]+"${pushed[@]}"} -- 2>&1); then
-    echo "remove-worktree: cannot enumerate submodule commits for $sub: $unpushed" >&2
+  if ! capture "$@" log --oneline --exclude=refs/stash --all --not "${exclusions[@]}" ${pushed[@]+"${pushed[@]}"} --; then
+    echo "remove-worktree: cannot enumerate submodule commits for $sub: $g_err" >&2
     exit 1
   fi
+  unpushed=$g_out
   if [ -n "$unpushed" ]; then
     echo "remove-worktree: $sub has commits no remote has:" >&2
     printf '%s\n' "$unpushed" | sed -n '1,5p' | sed 's/^/    /' >&2
@@ -207,10 +228,11 @@ EOF
   fi
 
   # Stashes are per-gitdir too and invisible to git log's ref selectors.
-  if ! stashes=$("$@" stash list 2>&1); then
-    echo "remove-worktree: cannot read stash list for $sub: $stashes" >&2
+  if ! capture "$@" stash list; then
+    echo "remove-worktree: cannot read stash list for $sub: $g_err" >&2
     exit 1
   fi
+  stashes=$g_out
   if [ -n "$stashes" ]; then
     echo "remove-worktree: $sub has stashed changes:" >&2
     printf '%s\n' "$stashes" | sed -n '1,5p' | sed 's/^/    /' >&2
@@ -222,8 +244,12 @@ EOF
 # checks against every module gitdir that exists under a modules/ directory,
 # nested ones included (git nests them under a parent's modules/).
 check_module_gitdirs() {
-  local modules_root="$1" label_prefix="$2" cfg module_gitdir
+  local modules_root="$1" label_prefix="$2" cfg module_gitdir find_errf
   [ -d "$modules_root" ] || return 0
+  # A find error (unreadable directory, say) means some module gitdirs were
+  # never enumerated, and a walk that silently skipped them would pass a
+  # worktree it never actually checked — collect stderr and refuse instead.
+  find_errf=$(mktemp)
   while IFS= read -r -d '' cfg; do
     module_gitdir="${cfg%/config}"
     [ -f "$module_gitdir/HEAD" ] || continue
@@ -237,13 +263,34 @@ check_module_gitdirs() {
     # exist; none of these checks read the worktree.
     check_submodule_refs "$label_prefix${module_gitdir#"$modules_root/"}" \
       git --git-dir "$module_gitdir" --work-tree "$worktree_path"
-  done < <(find "$modules_root" -name config -type f -print0 2>/dev/null)
+  done < <(find "$modules_root" -name config -type f -print0 2>"$find_errf")
+  if [ -s "$find_errf" ]; then
+    echo "remove-worktree: cannot fully enumerate module gitdirs under $modules_root:" >&2
+    sed -n '1,3p' "$find_errf" | sed 's/^/    /' >&2
+    rm -f "$find_errf"
+    exit 1
+  fi
+  rm -f "$find_errf"
 }
 
 # Pass 1 — checkout state, enumerated from HEAD's tree (gitlink entries):
 # uncommitted changes, pointer drift, and gitlink paths holding content that
 # is not a submodule checkout. Ref checks happen in pass 2, keyed on the
 # gitdirs themselves.
+#
+# The listing feeds the loop through a process substitution, whose failure
+# set -e cannot see — a failing ls-tree would silently skip every pass-1
+# check. So when HEAD is born (an unborn HEAD has no tree and no gitlinks —
+# nothing here to check), run the listing once for its verdict first; the
+# loop then reads a second run of the same command against the same object
+# store. Two runs because command substitution cannot carry the
+# NUL-delimited stream.
+if [ -n "$head_src" ]; then
+  if ! lstree_err=$(git -C "$worktree_path" ls-tree -r -z HEAD 2>&1 >/dev/null); then
+    echo "remove-worktree: cannot enumerate HEAD's tree: $lstree_err" >&2
+    exit 1
+  fi
+fi
 while IFS= read -r -d '' entry; do
   mode="${entry%% *}"
   [ "$mode" = "160000" ] || continue
@@ -252,10 +299,11 @@ while IFS= read -r -d '' entry; do
 
   if [ -e "$subdir/.git" ]; then
     # Populated checkout: uncommitted changes, then pointer drift.
-    if ! sub_status=$(git -C "$subdir" status --porcelain 2>&1); then
-      echo "remove-worktree: cannot read submodule state for $sub: $sub_status" >&2
+    if ! capture git -C "$subdir" status --porcelain; then
+      echo "remove-worktree: cannot read submodule state for $sub: $g_err" >&2
       exit 1
     fi
+    sub_status=$g_out
     if [ -n "$sub_status" ]; then
       echo "remove-worktree: $sub has uncommitted changes" >&2
       blocked=true
@@ -264,14 +312,16 @@ while IFS= read -r -d '' entry; do
     # a stale checkout after a branch switch (lossless) or a pointer bump
     # not yet committed. Both deserve a block with the actual way out —
     # `git stash` / `git checkout -- .` cannot clear a gitlink difference.
-    if ! recorded=$(git -C "$worktree_path" rev-parse "HEAD:$sub" 2>&1); then
-      echo "remove-worktree: cannot read recorded commit for $sub: $recorded" >&2
+    if ! capture git -C "$worktree_path" rev-parse "HEAD:$sub"; then
+      echo "remove-worktree: cannot read recorded commit for $sub: $g_err" >&2
       exit 1
     fi
-    if ! checked_out=$(git -C "$subdir" rev-parse HEAD 2>&1); then
-      echo "remove-worktree: cannot read checked-out commit for $sub: $checked_out" >&2
+    recorded=$g_out
+    if ! capture git -C "$subdir" rev-parse HEAD; then
+      echo "remove-worktree: cannot read checked-out commit for $sub: $g_err" >&2
       exit 1
     fi
+    checked_out=$g_out
     if [ "$recorded" != "$checked_out" ]; then
       echo "remove-worktree: $sub is checked out at ${checked_out:0:12}, but the branch records ${recorded:0:12}." >&2
       echo "    Stale checkout: sync it with 'git submodule update -- $sub'." >&2

@@ -56,7 +56,15 @@ init_unpopulated_submodules() {
   _isu_wt="$1"
   [ -f "$_isu_wt/.gitmodules" ] || return 0
   for _isu_sub in $(git config --file "$_isu_wt/.gitmodules" --get-regexp 'submodule\..*\.path' 2>/dev/null | awk '{print $2}'); do
-    [ -e "$_isu_wt/$_isu_sub/.git" ] && continue
+    # Skip only a checkout that is actually usable. `.git` existing alone is
+    # not that: an interrupted init can write the gitfile before the checkout
+    # lands, and skipping on it would hand out a worktree with an empty
+    # library. HEAD resolving is the healthy-checkout test; a populated
+    # checkout on its own branch still passes and stays untouched, and a
+    # half-initialized one falls through to the update below, which repairs it.
+    if [ -e "$_isu_wt/$_isu_sub/.git" ] && git -C "$_isu_wt/$_isu_sub" rev-parse --verify --quiet HEAD >/dev/null 2>&1; then
+      continue
+    fi
     if ! git -C "$_isu_wt" submodule update --init --recursive -- "$_isu_sub" >&2; then
       echo "ERROR [ensure-worktree]: failed to initialize submodule '$_isu_sub' in '$_isu_wt'." >&2
       echo "  Fix connectivity/credentials and re-run; this script retries unpopulated submodules." >&2
