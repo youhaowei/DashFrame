@@ -45,6 +45,63 @@ assert_main_checkout_unchanged() {
   fi
 }
 
+# init_unpopulated_submodules <worktree_path>
+# Initialize any submodule that is not populated yet. This is the only place
+# submodules are synced automatically — there is deliberately no post-checkout
+# hook, so a library checkout you moved to a feature branch stays where you
+# put it; populated submodules are never touched here. Runs on the reuse path
+# too, so a bootstrap that failed mid-init heals on the next invocation.
+# Fail-closed: a worktree with an empty libs/ must not be handed to an agent.
+init_unpopulated_submodules() {
+  _isu_wt="$1"
+  [ -f "$_isu_wt/.gitmodules" ] || return 0
+  for _isu_sub in $(git config --file "$_isu_wt/.gitmodules" --get-regexp 'submodule\..*\.path' 2>/dev/null | awk '{print $2}'); do
+    # Skip only a checkout that is actually usable. `.git` existing alone is
+    # not that: an interrupted init can write the gitfile before the checkout
+    # lands, and skipping on it would hand out a worktree with an empty
+    # library. Nor is HEAD resolving alone: submodule init clones with
+    # --no-checkout first, so an interruption between clone and checkout
+    # leaves a resolvable HEAD over an empty tree. Healthy means both HEAD
+    # resolves AND at least one file HEAD actually records exists on disk —
+    # untracked debris like .DS_Store must not vouch for a checkout, so the
+    # test walks HEAD's own file list rather than asking whether the
+    # directory is non-empty. Anything else falls through to the update
+    # below, which repairs it. A populated checkout on its own branch —
+    # dirty or not — passes and stays untouched: even with every file but
+    # one deleted, that one file is still a tracked file present on disk,
+    # and repairing on any weaker signal would clobber exactly the edits
+    # this script promises never to touch.
+    _isu_tracked_present=""
+    if [ -e "$_isu_wt/$_isu_sub/.git" ] \
+      && git -C "$_isu_wt/$_isu_sub" rev-parse --verify --quiet HEAD >/dev/null 2>&1; then
+      _isu_tracked_present=$(git -C "$_isu_wt/$_isu_sub" ls-tree -r --name-only HEAD 2>/dev/null \
+        | while IFS= read -r _isu_f; do
+            if [ -e "$_isu_wt/$_isu_sub/$_isu_f" ] || [ -L "$_isu_wt/$_isu_sub/$_isu_f" ]; then
+              echo yes
+              break
+            fi
+          done)
+    fi
+    if [ -n "$_isu_tracked_present" ]; then
+      continue
+    fi
+    # A half-initialized checkout (gitfile present) needs --force: plain
+    # `submodule update` is a no-op when HEAD already matches the recorded
+    # sha, so it would leave the empty tree in place. --force re-checks-out
+    # regardless, and only checkouts the healthy gate above rejected can
+    # reach it — there is nothing here to clobber. A fully unpopulated path
+    # (no gitfile) takes the plain init, as before.
+    _isu_force=""
+    [ -e "$_isu_wt/$_isu_sub/.git" ] && _isu_force="--force"
+    # shellcheck disable=SC2086
+    if ! git -C "$_isu_wt" submodule update --init --recursive $_isu_force -- "$_isu_sub" >&2; then
+      echo "ERROR [ensure-worktree]: failed to initialize submodule '$_isu_sub' in '$_isu_wt'." >&2
+      echo "  Fix connectivity/credentials and re-run; this script retries unpopulated submodules." >&2
+      exit 1
+    fi
+  done
+}
+
 # ── 1. Require a branch argument ────────────────────────────────────────────
 branch="${1:-}"
 if [ -z "$branch" ]; then
@@ -74,7 +131,9 @@ if [ "$git_dir" != "$git_common_dir" ]; then
     exit 1
   fi
   # Print the worktree root for the caller to cd into (in case they're in a subdir).
-  git rev-parse --show-toplevel
+  _wt_top=$(git rev-parse --show-toplevel)
+  init_unpopulated_submodules "$_wt_top"
+  echo "$_wt_top"
   exit 0
 fi
 
@@ -122,6 +181,7 @@ if [ -d "$worktree_path" ]; then
     exit 1
   fi
   assert_main_checkout_unchanged "$repo_root" "$main_head_before" "$main_branch_before"
+  init_unpopulated_submodules "$worktree_path"
   echo "$worktree_path"
   exit 0
 fi
@@ -173,8 +233,8 @@ else
     # main checkout (the historical behaviour here), which yanks the branch
     # out from under whoever else is using that checkout.
     #
-    # DashFrame convention: upstream default branch is always main (CLAUDE.md,
-    # CI, branch protection). We hardcode origin/main here rather than deriving
+    # DashFrame convention: upstream default branch is always main (CI,
+    # branch protection). We hardcode origin/main here rather than deriving
     # from origin/HEAD — that would be the right call if this script were
     # vendored for other repos, but it wouldn't change behaviour here.
     git fetch origin main >/dev/null 2>&1 || true
@@ -209,5 +269,7 @@ if [ "$actual_branch" != "$branch" ]; then
 fi
 
 assert_main_checkout_unchanged "$repo_root" "$main_head_before" "$main_branch_before"
+
+init_unpopulated_submodules "$worktree_path"
 
 echo "$worktree_path"

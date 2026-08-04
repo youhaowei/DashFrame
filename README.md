@@ -60,6 +60,46 @@ bun run test      # run all tests
 and `libs/stdui` git submodules and builds the `@wystack/*` packages the app
 depends on.
 
+### Working on the libraries
+
+`libs/wystack` and `libs/stdui` are full clones of their own repos. Edit them
+in place, on a branch, like any repo. **The one rule: the library commit must
+be on its upstream before the pointer bump leaves this machine** — the
+pre-push hook blocks the superproject push until it is (nothing checks at
+commit time, so an early commit is fine; it just cannot be pushed), and CI
+can only fetch commits that exist upstream.
+
+- Nothing syncs submodules automatically. There is no post-checkout hook, so a
+  library checkout stays on whatever branch you put it on; only
+  `scripts/ensure-worktree.sh` (fresh worktrees) and `bun run setup` touch it.
+- Create worktrees through `scripts/ensure-worktree.sh` — a hand-rolled
+  `git worktree add` leaves `libs/` empty (nothing initializes submodules for
+  you anymore), which surfaces later as a confusing
+  `@wystack/*@workspace:* failed to resolve` from `bun install`. If you do
+  add one by hand, run `git submodule update --init --recursive` in it.
+- `git status` hides in-progress library edits (`ignore = dirty`) but still
+  shows pointer differences as `modified: libs/* (new commits)`. That line has
+  two possible meanings now: a pending bump you made, or a stale library
+  checkout after switching branches whose pointers differ. Check with
+  `git diff --submodule` before staging it; to sync a stale checkout
+  deliberately, run `git submodule update -- libs/<name>`.
+- `bun link` can point an `@wystack/*` package at a checkout that lives
+  elsewhere, but **any `bun install` (including `bun run setup`) silently
+  undoes the link** — every `@wystack/*` dependency is `workspace:*`, and
+  install re-resolves it to the in-repo submodule. Re-link after installs, or
+  prefer editing the submodule clone in place.
+- Remove worktrees with `scripts/remove-worktree.sh <path>` — never with
+  `git worktree remove --force` directly, in scripts or briefs either. The
+  wrapper refuses while the worktree or a submodule holds uncommitted or
+  unpushed work, a detached-HEAD commit, or a paused rebase/bisect/merge
+  (both the worktree's own gitdir and each submodule's are per-worktree, so
+  removal destroys detached commits, stashes, and local branches alike),
+  then removes. Gitignored files (a hand-made `.env`) are the one documented
+  exemption — they go with the worktree. Automation cleaning up a worktree
+  it created moments ago may pass `--throwaway` to verify locally instead of
+  against the remotes. Plain `git worktree remove` always balks at populated
+  submodules.
+
 ### Running the app
 
 - **Desktop (default):** `bun dev` runs `@dashframe/desktop` — the Electron shell with
@@ -69,7 +109,6 @@ depends on.
   (`cd apps/server && bun run src/index.ts --host 127.0.0.1 --port 4000`) and point
   the web app at it
   (`cd apps/web && VITE_WYSTACK_URL=http://127.0.0.1:4000 bun run dev:direct`).
-  See [`AGENTS.md`](AGENTS.md) for the full headless recipe.
 
 ### Packages
 

@@ -1,6 +1,8 @@
 [submodule "libs/stdui"]
 	path = libs/stdui
 	url = https://github.com/youhaowei/stdui.git
+	ignore = dirty
 [submodule "libs/wystack"]
 	path = libs/wystack
 	url = https://github.com/youhaowei/wystack.git
+	ignore = dirty
