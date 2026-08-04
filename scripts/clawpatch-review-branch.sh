@@ -28,8 +28,15 @@ review_worktree=""
 review_worktree_parent=""
 
 cleanup_review_worktree() {
-  if [[ -n "$review_worktree" ]]; then
-    git -C "$repo_root" worktree remove --force "$review_worktree" >/dev/null 2>&1 || true
+  if [[ -n "$review_worktree" && -d "$review_worktree" ]]; then
+    # Route removal through the guard rather than a raw --force: the review
+    # worktree is meant to be throwaway, so if the guard refuses, something
+    # unexpected holds real work — leave the worktree in place and say so.
+    if ! "$repo_root/scripts/remove-worktree.sh" "$review_worktree" >&2; then
+      echo "WARN [clawpatch-review-branch]: review worktree kept at $review_worktree — remove-worktree.sh refused (see above)." >&2
+      review_worktree_parent=""
+      return 0
+    fi
   fi
   if [[ "$review_branch_created" == true && -n "$review_branch" ]]; then
     git -C "$repo_root" branch -D "$review_branch" >/dev/null 2>&1 || true
@@ -99,6 +106,13 @@ create_review_worktree() {
   review_worktree="$review_worktree_parent/worktree"
   git -C "$repo_root" worktree add -b "$review_branch" "$review_worktree" "$sha" >/dev/null
   review_branch_created=true
+  # `git worktree add` leaves submodules unpopulated; reviewing a tree whose
+  # libs/* are empty silently produces a report on a broken tree. Fail closed,
+  # matching ensure-worktree.sh.
+  if ! git -C "$review_worktree" submodule update --init --recursive >/dev/null; then
+    echo "ERROR [clawpatch-review-branch]: could not initialize submodules in the review worktree." >&2
+    exit 1
+  fi
 }
 
 worktree=""
