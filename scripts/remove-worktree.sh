@@ -73,6 +73,7 @@ check_submodule_refs() {
   # What the remotes actually have, fresh — remote-tracking refs alone miss
   # tags entirely. Fail closed only when NO remote answers: guessing while
   # offline is how work gets lost.
+  local remote_errors=""
   for remote in $remotes; do
     if remote_refs=$("$@" ls-remote --heads --tags "$remote" 2>/dev/null); then
       reached=true
@@ -86,10 +87,16 @@ check_submodule_refs() {
       done <<EOF
 $remote_refs
 EOF
+    else
+      # Keep git's own reason — a bad URL, an expired credential, and a DNS
+      # outage must not all collapse into one indistinguishable line. This
+      # repeats the call, but only on a path that already failed and exits.
+      remote_errors="$remote_errors
+    $remote: $("$@" ls-remote --heads --tags "$remote" 2>&1 >/dev/null | sed -n '1p' || true)"
     fi
   done
   if [ "$reached" = false ]; then
-    echo "remove-worktree: cannot reach any remote ($remotes) to verify pushed refs for $sub." >&2
+    echo "remove-worktree: cannot reach any remote to verify pushed refs for $sub:$remote_errors" >&2
     exit 1
   fi
 
@@ -159,6 +166,17 @@ while IFS= read -r -d '' entry; do
       echo "    Pointer bump you meant to keep: commit it in the superproject first." >&2
       blocked=true
     fi
+    # A .git DIRECTORY (not the gitfile `git submodule update` writes) means
+    # the gitdir is embedded in the checkout — e.g. a hand-run `git clone`
+    # into the path. Pass 2 never sees it (it only walks <gitdir>/modules),
+    # so its refs and stashes are checked here.
+    if [ -d "$subdir/.git" ]; then
+      check_submodule_refs "$sub" git -C "$subdir"
+    fi
+  elif [ -d "$subdir" ] && [ -z "$(ls -A "$subdir")" ]; then
+    # The empty placeholder directory git materializes at every
+    # uninitialized gitlink path — benign, nothing to lose.
+    :
   elif [ -e "$subdir" ]; then
     # Content at a gitlink path that is not a submodule checkout would be
     # silently discarded by the removal (--ignore-submodules=all hides it).
