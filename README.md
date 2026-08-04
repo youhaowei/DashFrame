@@ -60,6 +60,25 @@ bun run test      # run all tests
 and `libs/stdui` git submodules and builds the `@wystack/*` packages the app
 depends on.
 
+### Working on the libraries
+
+`libs/wystack` and `libs/stdui` are full clones of their own repos. Edit them
+in place, on a branch, like any repo. **The one rule: push the library commit
+to its upstream before committing the pointer bump here** — the pre-push hook
+enforces it, and CI can only fetch commits that exist upstream.
+
+- Nothing syncs submodules automatically. There is no post-checkout hook, so a
+  library checkout stays on whatever branch you put it on; only
+  `scripts/ensure-worktree.sh` (fresh worktrees) and `bun run setup` touch it.
+- `git status` hides in-progress library edits (`ignore = dirty`) but still
+  shows real pointer moves — a visible `libs/*` change means a pending bump.
+- To try a library checkout that lives elsewhere (a sibling repo or another
+  worktree), `bun link` the specific `@wystack/*` package instead of touching
+  the submodule.
+- Remove worktrees with `scripts/remove-worktree.sh <path>` — it checks the
+  submodules for unpushed work, then removes (plain `git worktree remove`
+  always balks at populated submodules).
+
 ### Running the app
 
 - **Desktop (default):** `bun dev` runs `@dashframe/desktop` — the Electron shell with

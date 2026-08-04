@@ -210,4 +210,12 @@ fi
 
 assert_main_checkout_unchanged "$repo_root" "$main_head_before" "$main_branch_before"
 
+# Initialize submodules in the fresh worktree. This is the only place they
+# are synced automatically — there is deliberately no post-checkout hook, so
+# a library checkout you moved to a feature branch stays where you put it.
+if [ -f "$worktree_path/.gitmodules" ]; then
+  git -C "$worktree_path" submodule update --init --recursive >&2 ||
+    echo "WARN [ensure-worktree]: submodule init failed; run 'git submodule update --init --recursive' manually." >&2
+fi
+
 echo "$worktree_path"
