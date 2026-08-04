@@ -55,7 +55,7 @@ fi
 # run whether or not a checkout exists on disk.
 check_submodule_refs() {
   local sub="$1"; shift
-  local remotes remote remote_refs sha ref unpushed stashes reached=false
+  local remotes remote remote_refs sha ref unpushed stashes reason reached=false
   local pushed=()
 
   # The remote name is whatever this submodule actually has — never assume
@@ -73,7 +73,7 @@ check_submodule_refs() {
   # What the remotes actually have, fresh — remote-tracking refs alone miss
   # tags entirely. Fail closed only when NO remote answers: guessing while
   # offline is how work gets lost.
-  local remote_errors=""
+  local failed_remotes=""
   for remote in $remotes; do
     if remote_refs=$("$@" ls-remote --heads --tags "$remote" 2>/dev/null); then
       reached=true
@@ -88,15 +88,21 @@ check_submodule_refs() {
 $remote_refs
 EOF
     else
-      # Keep git's own reason — a bad URL, an expired credential, and a DNS
-      # outage must not all collapse into one indistinguishable line. This
-      # repeats the call, but only on a path that already failed and exits.
-      remote_errors="$remote_errors
-    $remote: $("$@" ls-remote --heads --tags "$remote" 2>&1 >/dev/null | sed -n '1p' || true)"
+      failed_remotes="$failed_remotes $remote"
     fi
   done
   if [ "$reached" = false ]; then
-    echo "remove-worktree: cannot reach any remote to verify pushed refs for $sub:$remote_errors" >&2
+    # Keep git's own reason — a bad URL, an expired credential, and a DNS
+    # outage must not all collapse into one indistinguishable line. The
+    # re-probe happens only here, on the path that already failed and
+    # exits, so successful runs never pay for it. Skip warning lines (ssh
+    # known-hosts, https redirects) — the first non-warning line is the
+    # actual cause; the first line often is not.
+    echo "remove-worktree: cannot reach any remote to verify pushed refs for $sub:" >&2
+    for remote in $failed_remotes; do
+      reason=$("$@" ls-remote --heads --tags "$remote" 2>&1 >/dev/null | grep -iv '^warning:' | sed -n '1p' || true)
+      echo "    $remote: ${reason:-no error output}" >&2
+    done
     exit 1
   fi
 
@@ -126,6 +132,28 @@ EOF
     printf '%s\n' "$stashes" | sed -n '1,5p' | sed 's/^/    /' >&2
     blocked=true
   fi
+}
+
+# check_module_gitdirs <modules-root> <label-prefix> — run the ref/stash
+# checks against every module gitdir that exists under a modules/ directory,
+# nested ones included (git nests them under a parent's modules/).
+check_module_gitdirs() {
+  local modules_root="$1" label_prefix="$2" cfg module_gitdir
+  [ -d "$modules_root" ] || return 0
+  while IFS= read -r -d '' cfg; do
+    module_gitdir="${cfg%/config}"
+    [ -f "$module_gitdir/HEAD" ] || continue
+    # Every git call against a module gitdir needs --work-tree pointed at a
+    # directory that exists: core.worktree in the gitdir may reference a
+    # deleted checkout and git dies on chdir before doing anything —
+    # including this sanity check, which would otherwise silently skip
+    # exactly the deleted-checkout gitdirs this walk exists to protect.
+    git --git-dir "$module_gitdir" --work-tree "$worktree_path" rev-parse --git-dir >/dev/null 2>&1 || continue
+    # Label by the gitdir's name under modules/ — the path may no longer
+    # exist; none of these checks read the worktree.
+    check_submodule_refs "$label_prefix${module_gitdir#"$modules_root/"}" \
+      git --git-dir "$module_gitdir" --work-tree "$worktree_path"
+  done < <(find "$modules_root" -name config -type f -print0 2>/dev/null)
 }
 
 # Pass 1 — checkout state, enumerated from HEAD's tree (gitlink entries):
@@ -169,13 +197,17 @@ while IFS= read -r -d '' entry; do
     # A .git DIRECTORY (not the gitfile `git submodule update` writes) means
     # the gitdir is embedded in the checkout — e.g. a hand-run `git clone`
     # into the path. Pass 2 never sees it (it only walks <gitdir>/modules),
-    # so its refs and stashes are checked here.
+    # so its refs are checked here — including any module gitdirs nested
+    # under it (a `git clone --recursive` puts them in .git/modules).
     if [ -d "$subdir/.git" ]; then
       check_submodule_refs "$sub" git -C "$subdir"
+      check_module_gitdirs "$subdir/.git/modules" "$sub: "
     fi
-  elif [ -d "$subdir" ] && [ -z "$(ls -A "$subdir")" ]; then
+  elif [ -d "$subdir" ] && entries=$(ls -A "$subdir" 2>/dev/null) && [ -z "$entries" ]; then
     # The empty placeholder directory git materializes at every
-    # uninitialized gitlink path — benign, nothing to lose.
+    # uninitialized gitlink path — benign, nothing to lose. An ls that
+    # FAILS must not read as emptiness: the && chain falls through to the
+    # foreign-content block below, keeping unlistable directories fail-closed.
     :
   elif [ -e "$subdir" ]; then
     # Content at a gitlink path that is not a submodule checkout would be
@@ -192,22 +224,7 @@ done < <(git -C "$worktree_path" ls-tree -r -z HEAD)
 # its gitdir) or of what path it sits at (git keys modules/ by submodule
 # NAME, which diverges from the path after `git mv`). Nested submodules
 # appear as gitdirs under a parent's modules/ and are found the same way.
-if [ -d "$wt_gitdir/modules" ]; then
-  while IFS= read -r -d '' cfg; do
-    module_gitdir="${cfg%/config}"
-    [ -f "$module_gitdir/HEAD" ] || continue
-    # Every git call against a module gitdir needs --work-tree pointed at a
-    # directory that exists: core.worktree in the gitdir may reference a
-    # deleted checkout and git dies on chdir before doing anything —
-    # including this sanity check, which would otherwise silently skip
-    # exactly the deleted-checkout gitdirs pass 2 exists to protect.
-    git --git-dir "$module_gitdir" --work-tree "$worktree_path" rev-parse --git-dir >/dev/null 2>&1 || continue
-    # Label by the gitdir's name under modules/ — the path may no longer
-    # exist; none of these checks read the worktree.
-    check_submodule_refs "${module_gitdir#"$wt_gitdir/modules/"}" \
-      git --git-dir "$module_gitdir" --work-tree "$worktree_path"
-  done < <(find "$wt_gitdir/modules" -name config -type f -print0 2>/dev/null)
-fi
+check_module_gitdirs "$wt_gitdir/modules" ""
 
 if [ "$blocked" = true ]; then
   echo "remove-worktree: refusing — push or discard the work above first." >&2
