@@ -41,15 +41,33 @@ function makeAccessCredentials(rootDir: string): ApiAccessCredentials {
   );
 }
 
+/** Text of a tool result, joined across content blocks. */
+function resultText(result: unknown): string {
+  const content = (result as { content?: unknown }).content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((block) =>
+      typeof (block as { text?: unknown }).text === "string"
+        ? (block as { text: string }).text
+        : "",
+    )
+    .join("\n");
+}
+
+/**
+ * A rejected tool call comes back as an isError result the agent can read, not
+ * as a thrown JSON-RPC error, so this asserts on the result rather than a
+ * rejection.
+ */
 async function expectToolError(
   client: Client,
   name: string,
   args: Record<string, unknown>,
   message: RegExp,
 ): Promise<void> {
-  await expect(client.callTool({ name, arguments: args })).rejects.toThrow(
-    message,
-  );
+  const result = await client.callTool({ name, arguments: args });
+  expect(result.isError).toBe(true);
+  expect(resultText(result)).toMatch(message);
 }
 
 describe("MCP route", () => {
@@ -224,7 +242,7 @@ describe("MCP route", () => {
     }
   });
 
-  it("rejects unsafe commands, lifecycle paths, and caller-supplied secret refs", async () => {
+  it("rejects unsafe commands, lifecycle names, and caller-supplied secret refs", async () => {
     const { client, transport } = await connect();
     try {
       await expectToolError(
@@ -350,7 +368,7 @@ describe("MCP route", () => {
     }
   });
 
-  it("returns JSON-RPC errors for missing and invalid credentials without opening a draft", async () => {
+  it("answers missing and invalid credentials with HTTP 401 and opens no draft", async () => {
     const request = {
       jsonrpc: "2.0",
       id: 1,
@@ -367,6 +385,7 @@ describe("MCP route", () => {
         headers: { "Content-Type": "application/json", ...headers },
         body: JSON.stringify(request),
       });
+      expect(response.status).toBe(401);
       expect(response.headers.get("content-type")).toContain(
         "application/json",
       );

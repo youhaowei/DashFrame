@@ -39,12 +39,32 @@ function principalKey(context: Record<string, unknown>): string | null {
   return null;
 }
 
-function jsonRpcError(c: Context, message: string): Response {
-  return c.json({
-    jsonrpc: "2.0",
-    id: null,
-    error: { code: -32001, message },
-  });
+/**
+ * Transport-level failures answer with a real HTTP status, not a 200 carrying
+ * a JSON-RPC error body. An MCP client that has not completed a handshake
+ * cannot interpret a JSON-RPC envelope, and a proxy or agent runtime between
+ * the two reads only the status line.
+ */
+function jsonRpcError(
+  status: 400 | 401 | 403 | 404 | 500,
+  code: number,
+  message: string,
+): Response {
+  return new Response(
+    JSON.stringify({ jsonrpc: "2.0", id: null, error: { code, message } }),
+    { status, headers: { "Content-Type": "application/json" } },
+  );
+}
+
+/**
+ * Tool-level failure. The message names the offending field or command, never
+ * a value — see the credential-ref gate in tools.ts.
+ */
+function toolFailure(message: string): {
+  content: Array<{ type: "text"; text: string }>;
+  isError: true;
+} {
+  return { content: [{ type: "text", text: message }], isError: true };
 }
 
 function createServer(tools: McpTool[]): Server {
@@ -65,9 +85,21 @@ function createServer(tools: McpTool[]): Server {
       (candidate) => candidate.name === request.params.name,
     );
     if (tool === undefined) {
-      throw new Error(`Unknown MCP tool: ${request.params.name}`);
+      return toolFailure(
+        `Unknown tool "${request.params.name}". Available: ` +
+          tools.map((candidate) => candidate.name).join(", "),
+      );
     }
-    return tool.execute(request.params.arguments ?? {});
+    try {
+      return await tool.execute(request.params.arguments ?? {});
+    } catch (error) {
+      // A rejected tool call is a result the agent can act on, not a protocol
+      // fault. Thrown JSON-RPC errors reach the agent as a broken connection;
+      // isError content reaches it as "that did not work, here is why".
+      return toolFailure(
+        error instanceof Error ? error.message : String(error),
+      );
+    }
   });
   return server;
 }
@@ -81,10 +113,13 @@ export function createMcpRoute(opts: McpRouteOptions) {
     try {
       context = await opts.resolveContext(c.req.raw);
     } catch {
-      return jsonRpcError(c, "Unauthorized MCP request.");
+      // Never echo the Authorization header or any credential material.
+      return jsonRpcError(401, -32001, "Unauthorized MCP request.");
     }
     const key = principalKey(context);
-    if (key === null) return jsonRpcError(c, "Unauthorized MCP request.");
+    if (key === null) {
+      return jsonRpcError(401, -32001, "Unauthorized MCP request.");
+    }
 
     const requestedSessionId = c.req.header("mcp-session-id");
     let active =
@@ -93,7 +128,8 @@ export function createMcpRoute(opts: McpRouteOptions) {
         : sessions.get(requestedSessionId);
     if (active !== undefined && active.session.principalKey !== key) {
       return jsonRpcError(
-        c,
+        403,
+        -32003,
         "MCP session is not available to this credential.",
       );
     }
