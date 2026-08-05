@@ -98,6 +98,7 @@ import { isSecretRef, type SecretRef } from "@wystack/secret-vault";
 import type { Command } from "@wystack/server";
 
 import type { DashframeFunctionContext } from "../app-context";
+import { permissions } from "../permissions";
 import { wy } from "../wystack";
 import {
   type InsightSource,
@@ -288,6 +289,7 @@ async function wouldCreateCycle(
  */
 const getOrCreateDataSource = wy.procedure
   .input({ id: uuid, type: text, name: text })
+  .authorize(permissions.commands.commit)
   .mutation(async (ctx, { id, type, name }): Promise<{ id: string }> => {
     const existing = (await ctx.db
       .from(dataSources)
@@ -322,6 +324,7 @@ const createDataSource = wy.procedure
     /** Artifact provenance carried by the emitter (agent vs user). */
     createdBy: jsonb.optional(),
   })
+  .authorize(permissions.commands.commit)
   .mutation(
     async (
       ctx,
@@ -406,6 +409,7 @@ const setDataSourceConfig = wy.procedure
     connectionString: text.optional(),
     extra: jsonb.optional(),
   })
+  .authorize(permissions.commands.commit)
   .mutation(
     async (
       ctx,
@@ -522,6 +526,7 @@ const createDataTable = wy.procedure
     metrics: jsonb.optional(),
     dataFrameId: uuid.optional(),
   })
+  .authorize(permissions.commands.commit)
   .mutation(async (ctx, args): Promise<{ id: string }> => {
     const [row] = (await ctx.db.into(dataTables).insert({
       id: args.id,
@@ -554,6 +559,7 @@ async function requireDataTable(
 /** SetDataTableSchema — replaces the discovered source schema slice. */
 const setDataTableSchema = wy.procedure
   .input({ id: uuid, sourceSchema: jsonb })
+  .authorize(permissions.commands.commit)
   .mutation(async (ctx, { id, sourceSchema }): Promise<{ ok: true }> => {
     await requireDataTable(ctx, id);
     await ctx.db
@@ -566,6 +572,7 @@ const setDataTableSchema = wy.procedure
 /** RefreshDataTable — points the table at a new DataFrame and stamps the fetch. */
 const refreshDataTable = wy.procedure
   .input({ id: uuid, dataFrameId: uuid })
+  .authorize(permissions.commands.commit)
   .mutation(async (ctx, { id, dataFrameId }): Promise<{ ok: true }> => {
     await requireDataTable(ctx, id);
     await ctx.db
@@ -595,6 +602,7 @@ const createInsight = wy.procedure
     selectedFields: jsonb.optional(),
     metrics: jsonb.optional(),
   })
+  .authorize(permissions.commands.commit)
   .mutation(async (ctx, args): Promise<{ id: string }> => {
     const parsedSource = insightSourceSchema.safeParse(args.source);
     if (!parsedSource.success) {
@@ -642,6 +650,7 @@ const createInsight = wy.procedure
  */
 const setInsightSource = wy.procedure
   .input({ id: uuid, source: jsonb })
+  .authorize(permissions.commands.commit)
   .mutation(async (ctx, { id, source: rawSource }): Promise<{ ok: true }> => {
     const parsedSource = insightSourceSchema.safeParse(rawSource);
     if (!parsedSource.success) {
@@ -691,6 +700,7 @@ const setInsightSource = wy.procedure
  */
 const selectFields = wy.procedure
   .input({ id: uuid, fieldIds: jsonb })
+  .authorize(permissions.commands.commit)
   .mutation(async (ctx, { id, fieldIds }): Promise<{ ok: true }> => {
     const { definition } = await requireInsightDefinition(ctx, id);
     const next = requireDefinitionShape("SelectFields", {
@@ -713,6 +723,7 @@ const selectFields = wy.procedure
  */
 const setInsightFilter = wy.procedure
   .input({ id: uuid, filters: jsonb })
+  .authorize(permissions.commands.commit)
   .mutation(async (ctx, { id, filters }): Promise<{ ok: true }> => {
     const { definition } = await requireInsightDefinition(ctx, id);
     const next = requireDefinitionShape("SetInsightFilter", {
@@ -732,6 +743,7 @@ const setInsightFilter = wy.procedure
  */
 const setInsightSort = wy.procedure
   .input({ id: uuid, sorts: jsonb })
+  .authorize(permissions.commands.commit)
   .mutation(async (ctx, { id, sorts }): Promise<{ ok: true }> => {
     const { definition } = await requireInsightDefinition(ctx, id);
     const next = requireDefinitionShape("SetInsightSort", {
@@ -815,6 +827,7 @@ function requireJoinShape(value: unknown): InsightJoinConfig {
 /** AddJoin — append an inline join to an Insight. */
 const addJoin = wy.procedure
   .input({ id: uuid, join: jsonb })
+  .authorize(permissions.commands.commit)
   .mutation(async (ctx, { id, join }): Promise<{ ok: true }> => {
     const validated = requireJoinShape(join);
     // The rightTableId has no stored FK (joins live in jsonb), so verify it
@@ -847,6 +860,7 @@ const addJoin = wy.procedure
 /** UpdateJoin — edit a join's keys/type at the given array index. */
 const updateJoin = wy.procedure
   .input({ id: uuid, joinIndex: jsonb, updates: jsonb })
+  .authorize(permissions.commands.commit)
   .mutation(async (ctx, { id, joinIndex, updates }): Promise<{ ok: true }> => {
     if (!isRecord(updates) || Object.keys(updates).length === 0) {
       throw new Error("updates are required for UpdateJoin");
@@ -879,6 +893,7 @@ const updateJoin = wy.procedure
 /** RemoveJoin — drop the join at the given array index. */
 const removeJoin = wy.procedure
   .input({ id: uuid, joinIndex: jsonb })
+  .authorize(permissions.commands.commit)
   .mutation(async (ctx, { id, joinIndex }): Promise<{ ok: true }> => {
     if (
       typeof joinIndex !== "number" ||
@@ -1136,6 +1151,7 @@ function applyCollectionOp(
 
 const addField = wy.procedure
   .input({ nodeId: uuid, field: jsonb })
+  .authorize(permissions.commands.commit)
   .mutation(async (ctx, { nodeId, field }): Promise<FieldMetricResult> => {
     const kind = await patchDataTableCollection(ctx, nodeId, "fields", {
       mode: "add",
@@ -1146,6 +1162,7 @@ const addField = wy.procedure
 
 const updateField = wy.procedure
   .input({ nodeId: uuid, fieldId: uuid, updates: jsonb })
+  .authorize(permissions.commands.commit)
   .mutation(
     async (ctx, { nodeId, fieldId, updates }): Promise<FieldMetricResult> => {
       if (!isRecord(updates) || Object.keys(updates).length === 0) {
@@ -1162,6 +1179,7 @@ const updateField = wy.procedure
 
 const removeField = wy.procedure
   .input({ nodeId: uuid, fieldId: uuid })
+  .authorize(permissions.commands.commit)
   .mutation(async (ctx, { nodeId, fieldId }): Promise<FieldMetricResult> => {
     const kind = await patchDataTableCollection(ctx, nodeId, "fields", {
       mode: "remove",
@@ -1172,6 +1190,7 @@ const removeField = wy.procedure
 
 const addMetric = wy.procedure
   .input({ nodeId: uuid, metric: jsonb })
+  .authorize(permissions.commands.commit)
   .mutation(async (ctx, { nodeId, metric }): Promise<FieldMetricResult> => {
     const kind = await patchDataTableCollection(ctx, nodeId, "metrics", {
       mode: "add",
@@ -1187,6 +1206,7 @@ const addMetric = wy.procedure
 
 const updateMetric = wy.procedure
   .input({ nodeId: uuid, metricId: uuid, updates: jsonb })
+  .authorize(permissions.commands.commit)
   .mutation(
     async (ctx, { nodeId, metricId, updates }): Promise<FieldMetricResult> => {
       if (!isRecord(updates) || Object.keys(updates).length === 0) {
@@ -1203,6 +1223,7 @@ const updateMetric = wy.procedure
 
 const removeMetric = wy.procedure
   .input({ nodeId: uuid, metricId: uuid })
+  .authorize(permissions.commands.commit)
   .mutation(async (ctx, { nodeId, metricId }): Promise<FieldMetricResult> => {
     const kind = await patchDataTableCollection(ctx, nodeId, "metrics", {
       mode: "remove",
@@ -1241,6 +1262,7 @@ const createVisualization = wy.procedure
     spec: jsonb,
     encoding: jsonb.optional(),
   })
+  .authorize(permissions.commands.commit)
   .mutation(async (ctx, args): Promise<{ id: string }> => {
     const [row] = (await ctx.db.into(visualizations).insert({
       id: args.id,
@@ -1269,6 +1291,7 @@ async function requireVisualization(
  */
 const setChartType = wy.procedure
   .input({ id: uuid, visualizationType: text })
+  .authorize(permissions.commands.commit)
   .mutation(async (ctx, { id, visualizationType }): Promise<{ ok: true }> => {
     await requireVisualization(ctx, id);
     await ctx.db
@@ -1285,6 +1308,7 @@ const setChartType = wy.procedure
  */
 const setChartEncoding = wy.procedure
   .input({ id: uuid, encoding: jsonb, spec: jsonb.optional() })
+  .authorize(permissions.commands.commit)
   .mutation(async (ctx, { id, encoding, spec }): Promise<{ ok: true }> => {
     await requireVisualization(ctx, id);
     const patch: Partial<VisualizationRow> = {
@@ -1416,6 +1440,7 @@ function sanitizeDashboardItemUpdates(
  */
 const createDashboard = wy.procedure
   .input({ id: uuid, name: text, description: text.optional() })
+  .authorize(permissions.commands.commit)
   .mutation(async (ctx, { id, name, description }): Promise<{ id: string }> => {
     const [row] = (await ctx.db.into(dashboards).insert({
       id,
@@ -1437,6 +1462,7 @@ const createDashboard = wy.procedure
  */
 const addDashboardItem = wy.procedure
   .input({ dashboardId: uuid, item: jsonb })
+  .authorize(permissions.commands.commit)
   .mutation(
     async (ctx, { dashboardId, item: rawItem }): Promise<{ ok: true }> => {
       const item = requireDashboardItem(rawItem);
@@ -1461,6 +1487,7 @@ const addDashboardItem = wy.procedure
  */
 const updateDashboardItem = wy.procedure
   .input({ dashboardId: uuid, itemId: uuid, updates: jsonb })
+  .authorize(permissions.commands.commit)
   .mutation(
     async (ctx, { dashboardId, itemId, updates }): Promise<{ ok: true }> => {
       if (!isRecord(updates) || Object.keys(updates).length === 0) {
@@ -1503,6 +1530,7 @@ const updateDashboardItem = wy.procedure
  */
 const setDashboardLayout = wy.procedure
   .input({ dashboardId: uuid, items: jsonb })
+  .authorize(permissions.commands.commit)
   .mutation(async (ctx, { dashboardId, items }): Promise<{ ok: true }> => {
     // Guard existence first — a missing dashboard would silently do nothing.
     await requireDashboardItems(ctx, dashboardId);
@@ -1524,6 +1552,7 @@ const setDashboardLayout = wy.procedure
  */
 const removeDashboardItem = wy.procedure
   .input({ dashboardId: uuid, itemId: uuid })
+  .authorize(permissions.commands.commit)
   .mutation(async (ctx, { dashboardId, itemId }): Promise<{ ok: true }> => {
     const items = await requireDashboardItems(ctx, dashboardId);
     if (!items.some((it) => it.id === itemId)) {
@@ -1562,6 +1591,7 @@ const fanOutDashboardItems = wy.procedure
     field: text,
     placements: jsonb,
   })
+  .authorize(permissions.commands.commit)
   .mutation(
     async (
       ctx,
@@ -1705,6 +1735,7 @@ export interface RenameNodeResult {
  */
 const renameNode = wy.procedure
   .input({ id: uuid, name: text })
+  .authorize(permissions.commands.commit)
   .mutation(async (ctx, { id, name }): Promise<RenameNodeResult> => {
     // Probe order (dataTables → dataSources → insights) is load-bearing: the
     // preview builder reads `renamed` to learn which artifact this rename hit
@@ -2042,6 +2073,7 @@ function assertVaultPresentForCredentialDelete(
  */
 const deleteNode = wy.procedure
   .input({ id: uuid })
+  .authorize(permissions.commands.commit)
   .mutation(async (ctx, { id }): Promise<DeleteNodeResult> => {
     // --- Visualization -------------------------------------------------------
     // No owned children. Reference boundary: Dashboards that contain this
@@ -2247,6 +2279,64 @@ export const commandFunctions = {
   renameNode,
   deleteNode,
 };
+
+/**
+ * The registry paths the pure command vocabulary dispatches under (the keys
+ * of `commandFunctions`). Lifecycle procedures — `publishDraft`,
+ * `discardDraft`, `commitBatch`, `previewDiff`, `draftPublishReview`, etc. —
+ * are never members of this set.
+ *
+ * This is a security boundary, not a convenience lookup. Every one of those
+ * lifecycle procedures runs `.authorize(permissions.commands.commit)`, whose
+ * check trusts CONTEXT markers it did not itself verify — `ctx.mode ===
+ * "preview"`, `ctx.draftId != null`, `ctx.__publishReplay === true` — because
+ * those markers are supposed to mean "this dispatch is a nested step of an
+ * already-authorized outer batch." But `applyCommands`/`runHandler` dispatch
+ * ANY registry path with no allowlist of their own. Nest `publishDraft` (or
+ * `commitBatch`) itself inside a batch and its `.authorize` check reads the
+ * OUTER batch's markers and passes — a service principal that can only ever
+ * preview or draft-append escalates to a real canonical publish, because the
+ * nested procedure's OWN transaction is outside the reach of the outer
+ * preview's rollback (or is simply a second, real commit).
+ *
+ * The fix is not a smarter authorize check (context markers can't distinguish
+ * "I am the outer call" from "I am nested inside one" — they're the same
+ * bag). It's dispatch discipline: every surface that runs a caller-supplied
+ * batch (`previewDiff`, `commitBatch`, `DraftController.appendToDraft`) MUST
+ * reject any command whose path falls outside this vocabulary BEFORE
+ * dispatching a single command — see `assertKnownCommandPaths`.
+ */
+const KNOWN_COMMAND_PATHS: ReadonlySet<string> = new Set(
+  Object.keys(commandFunctions),
+);
+
+export function isKnownCommandPath(
+  path: string,
+): path is keyof typeof commandFunctions {
+  return KNOWN_COMMAND_PATHS.has(path);
+}
+
+/**
+ * Reject a caller-supplied batch containing any path outside the pure
+ * command vocabulary — see `KNOWN_COMMAND_PATHS` for why this matters. Call
+ * this BEFORE dispatching a single command from the batch; a bad path later
+ * in the batch must not let earlier commands run first. `surface` names the
+ * calling procedure/method for the error message.
+ */
+export function assertKnownCommandPaths(
+  commands: readonly Command[],
+  surface: string,
+): void {
+  for (const command of commands) {
+    if (!isKnownCommandPath(command.path)) {
+      throw new Error(
+        `${surface}: "${command.path}" is not a DashFrame command — ` +
+          "lifecycle procedures (publishDraft, discardDraft, commitBatch, " +
+          "previewDiff, etc.) cannot be nested inside a batch",
+      );
+    }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Typed command builders — the VOCABULARY face
