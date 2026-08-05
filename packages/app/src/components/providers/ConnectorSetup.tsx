@@ -1,5 +1,6 @@
 import { useConnectorCatalog } from "@/data/connector-catalog";
 import { hydrateConnectorRegistry } from "@/lib/connectors/registry";
+import { makeGa4Connector } from "@dashframe/connector-ga4";
 import { localFileConnector } from "@dashframe/connector-local";
 import { makeNotionConnector } from "@dashframe/connector-notion";
 import { makePostgresConnector } from "@dashframe/connector-postgres";
@@ -23,10 +24,18 @@ const postgresConnectorForRegistry = makePostgresConnector(() => {
   );
 }, {});
 
+const ga4ConnectorForRegistry = makeGa4Connector(() => {
+  throw new Error(
+    "[connector-registry] connect()/query() must not be called from the renderer — " +
+      "use the WyStack server mutations instead.",
+  );
+});
+
 const CONNECTOR_FACTORIES: Record<string, () => AnyConnector> = {
   local: () => localFileConnector,
   notion: () => notionConnectorForRegistry,
   postgres: () => postgresConnectorForRegistry,
+  googleAnalytics: () => ga4ConnectorForRegistry,
 };
 
 /**

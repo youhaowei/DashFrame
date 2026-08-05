@@ -295,12 +295,9 @@ describe("dashframe serve CLI", () => {
         expect(options.accessCredentials).toBe(services.accessCredentials);
         expect(options.authToken).toBe("plaintext-token");
 
-        // This vault is scoped to `serve-token` only (see
-        // `createStandaloneSecretServices`) — `connector-key` deliberately
-        // has no default here, so a copied/relocated project can never end
-        // up with a connector-credential ref this host-local vault can't
-        // resolve. Desktop keeps `connector-key` on a project-scoped
-        // DrizzleMappingStore for the same reason.
+        // Named access tokens and connector credentials share the composed,
+        // encrypted standalone vault. No other credential class is routed to
+        // it implicitly.
         await services.vault!.store("serve-token-secret", {
           class: CREDENTIAL_CLASS.ServeToken,
         });
@@ -313,9 +310,25 @@ describe("dashframe serve CLI", () => {
           ),
         ).toBeDefined();
 
+        // Connector credentials now DO have a class default here: OAuth
+        // connector onboarding stores its token bundle through this same
+        // standalone vault. Assistant-provider remains the fail-closed class.
+        const connectorRef = await services.vault!.store("connector-secret", {
+          class: CREDENTIAL_CLASS.ConnectorKey,
+        });
         await expect(
-          services.vault!.store("connector-secret", {
-            class: CREDENTIAL_CLASS.ConnectorKey,
+          services.vault!.withSecret(connectorRef, async (value) => value),
+        ).resolves.toBe("connector-secret");
+        expect(
+          await fs.readdir(path.join(dataDir, "access-credentials", "blobs")),
+        ).toHaveLength(2);
+
+        // The registry is still registered WITHOUT `fallback: true`, so a
+        // class with no explicit default must keep throwing rather than land
+        // in this host-local vault.
+        await expect(
+          services.vault!.store("assistant-provider-secret", {
+            class: CREDENTIAL_CLASS.AssistantProvider,
           }),
         ).rejects.toThrow(/no fallback default/);
       } finally {

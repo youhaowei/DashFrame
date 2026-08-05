@@ -35,6 +35,7 @@
   },
   "dependencies": {
     "@dashframe/assistant": "workspace:*",
+    "@dashframe/connector-ga4": "workspace:*",
     "@dashframe/connector-notion": "workspace:*",
     "@dashframe/connector-postgres": "workspace:*",
     "@dashframe/engine": "workspace:*",

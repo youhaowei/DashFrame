@@ -122,6 +122,12 @@ export function DataPickerContent({
   const { mutateAsync: queryPostgresTableMutation } = useMutation(
     api.queryPostgresTable,
   );
+  const { mutateAsync: listGa4PropertiesMutation } = useMutation(
+    api.listGa4Properties,
+  );
+  const { mutateAsync: queryGa4PropertyMutation } = useMutation(
+    api.queryGa4Property,
+  );
   const confirm = useConfirmDialogStore((state) => state.confirm);
 
   // Local state
@@ -313,6 +319,21 @@ export function DataPickerContent({
     ],
   );
 
+  const handleOAuthConnect = useCallback(
+    async (connector: RemoteApiConnector, dataSourceId: string) => {
+      if (connector.id !== "googleAnalytics") {
+        throw new Error(`${connector.name} OAuth onboarding is not supported`);
+      }
+      setError(null);
+      setRemoteResourceState({
+        connectorId: "googleAnalytics",
+        sourceId: dataSourceId,
+        resources: await listGa4PropertiesMutation({ dataSourceId }),
+      });
+    },
+    [listGa4PropertiesMutation],
+  );
+
   const handleRemoteResourceSelect = useCallback(
     async (resource: { id: string; title: string }) => {
       if (!remoteResourceState) return;
@@ -328,18 +349,27 @@ export function DataPickerContent({
             table: resource.id,
           })
         ).id;
-        const result =
-          remoteResourceState.connectorId === "notion"
-            ? await queryNotionDatabaseMutation({
-                dataSourceId: remoteResourceState.sourceId,
-                databaseId: resource.id,
-                tableId,
-              })
-            : await queryPostgresTableMutation({
-                dataSourceId: remoteResourceState.sourceId,
-                databaseId: resource.id,
-                tableId,
-              });
+        let result;
+        if (remoteResourceState.connectorId === "notion") {
+          result = await queryNotionDatabaseMutation({
+            dataSourceId: remoteResourceState.sourceId,
+            databaseId: resource.id,
+            tableId,
+          });
+        } else if (remoteResourceState.connectorId === "postgres") {
+          result = await queryPostgresTableMutation({
+            dataSourceId: remoteResourceState.sourceId,
+            databaseId: resource.id,
+            tableId,
+          });
+        } else {
+          // The property is read from the DataTable row just created above,
+          // so it cannot drift from the resource the user picked.
+          result = await queryGa4PropertyMutation({
+            dataSourceId: remoteResourceState.sourceId,
+            tableId,
+          });
+        }
         const explicitlySensitive = result.fields.some(
           (field) => getFieldSensitivity(field) === "sensitive",
         );
@@ -390,6 +420,7 @@ export function DataPickerContent({
       addDataTable,
       onTableSelect,
       queryPostgresTableMutation,
+      queryGa4PropertyMutation,
       confirm,
       remoteResourceState,
       removeDataTable,
@@ -449,6 +480,7 @@ export function DataPickerContent({
               error={error}
               onFileSelect={handleFileSelect}
               onConnect={handleConnect}
+              onOAuthConnect={handleOAuthConnect}
             />
           </SectionList>
         )}

@@ -24,6 +24,7 @@ import {
   type DashframeServerOptions,
 } from "./app";
 import { isLoopbackHost } from "./bind-host";
+import { readOptionalGoogleOAuthConfig } from "./connector-setup/oauth-provider";
 import {
   ENCRYPTED_FILE_BACKEND_NAME,
   EncryptedFileSecretBackend,
@@ -355,17 +356,29 @@ export async function createStandaloneSecretServices(
     keyring,
   );
   // Permanent mapping identifier: NEVER change after secrets may exist under it.
-  // Scoped to `serve-token` only (the brief's named class), and registered
-  // WITHOUT `fallback: true` — `SecretRegistry#getForClass` resolves
-  // registry-wide fallback ahead of an absent class default, so `fallback:
-  // true` would silently route `connector-key` and `assistant-provider`
-  // writes here too. Desktop keeps those classes on a project-scoped
-  // DrizzleMappingStore so credential refs travel with the copiable project
-  // DB; a class with no explicit default here must keep throwing rather than
-  // land in this host-local vault.
+  // Registered WITHOUT `fallback: true`: only explicitly configured classes
+  // may land in this host-local encrypted store. Assistant-provider remains
+  // fail-closed because it has no class default here.
   registry.register(ENCRYPTED_FILE_BACKEND_NAME, backend);
   registry.setClassDefault(
     CREDENTIAL_CLASS.ServeToken,
+    ENCRYPTED_FILE_BACKEND_NAME,
+  );
+  // OAuth connector onboarding stores its token bundle through this vault, so
+  // connector keys need a default here or `serve` cannot complete a connection
+  // at all.
+  //
+  // Know what that inherits. This vault's mappings live in a host-local
+  // mappings.json under dataDir while the ref itself lives in the project DB,
+  // so unlike desktop — which uses DrizzleMappingStore and keeps ref, blob, and
+  // mapping inside one transactional boundary — a project copied or restored
+  // away from this host holds refs that no longer resolve. That split is
+  // pre-existing: serve tokens already sit on it. This line widens which
+  // credential classes it covers; it does not create it. Moving the serve path
+  // onto DrizzleMappingStore is the real fix and needs a migration for the
+  // mappings already written here.
+  registry.setClassDefault(
+    CREDENTIAL_CLASS.ConnectorKey,
     ENCRYPTED_FILE_BACKEND_NAME,
   );
 
@@ -397,6 +410,7 @@ export function createStandaloneServerOptions(
     // Durable counterpart: used by the pre-release gate before deleting a vault
     // ref so the snapshot that drops the ref is confirmed on disk first.
     flushSnapshot: () => project.flushSnapshot(),
+    googleOAuth: readOptionalGoogleOAuthConfig(),
   };
 }
 

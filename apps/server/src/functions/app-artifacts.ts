@@ -1,3 +1,7 @@
+import {
+  makeGa4Connector,
+  type GoogleOAuthTokenBundle,
+} from "@dashframe/connector-ga4";
 import { makeNotionConnector } from "@dashframe/connector-notion";
 import { makePostgresConnector } from "@dashframe/connector-postgres";
 // The canonical bound-resolver type — aliased for readability at the mint site.
@@ -41,6 +45,7 @@ import {
 import { tsToMillis } from "./timestamps";
 import {
   applyCredentialField,
+  flushThenReleaseRefs,
   isRecord,
   modeFromCtx,
   releaseCredentialRefs,
@@ -1485,6 +1490,235 @@ const queryPostgresTable = wy.procedure
     },
   );
 
+// ============================================================================
+// GA4 connector factory + data plane — mirrors postgresConnectorFor.
+// ============================================================================
+
+async function ga4ConnectorFor(
+  ctx: DashframeFunctionContext,
+  dataSourceId: UUID,
+): Promise<ReturnType<typeof makeGa4Connector>> {
+  const vault = vaultFromCtx(ctx);
+  const row = (await ctx.db
+    .from(dataSources)
+    .where(eq("id", dataSourceId))
+    .first()) as DataSourceRow | undefined;
+  if (!row) throw new Error(`DataSource ${dataSourceId} not found`);
+  if (row.kind !== "googleAnalytics") {
+    throw new Error(
+      `DataSource ${dataSourceId} is not a Google Analytics source`,
+    );
+  }
+  const config = (row.config ?? {}) as DataSourceConfig;
+  const auth = mintBoundResolver(
+    vault,
+    config.apiKey,
+    `DataSource(${dataSourceId})`,
+  );
+  // Client credentials come from server config on every call rather than from
+  // the stored bundle, so rotating the OAuth client is a config change instead
+  // of a re-write of every connected source's vault entry.
+  const oauthClient = ctx.googleOAuth;
+  return makeGa4Connector(auth, {
+    ...(oauthClient
+      ? {
+          oauthClient: {
+            clientId: oauthClient.clientId,
+            clientSecret: oauthClient.clientSecret,
+          },
+        }
+      : {}),
+    persistTokenBundle: (bundle) =>
+      persistGa4TokenBundle(ctx, dataSourceId, vault, bundle),
+  });
+}
+
+/**
+ * Write a renewed GA4 token bundle back to the source's vault entry.
+ *
+ * Without this the connector holds a fresh access token only for the life of
+ * one request: the next call past the stored expiry refreshes again, spending a
+ * Google grant per request instead of per hour.
+ *
+ * The vault has no in-place rotate — `store` mints a new ref — so this follows
+ * the same ordering every other credential rotation here uses:
+ * store-new → canonical-write → flush-snapshot → release-old. Releasing the old
+ * ref before the new config is durable would leave a snapshot pointing at a
+ * credential that no longer exists.
+ *
+ * Callers reach this through `persistGa4TokenBundle`, which serializes it per
+ * source. It must not be called directly: `superseded` is computed from the
+ * read a few lines below, so two interleaved runs would each supersede only
+ * what their own read saw and one of the minted refs would be stored and then
+ * never referenced or released.
+ */
+async function persistGa4TokenBundleLocked(
+  ctx: DashframeFunctionContext,
+  dataSourceId: UUID,
+  vault: SecretVault | undefined,
+  bundle: GoogleOAuthTokenBundle,
+): Promise<void> {
+  // A preview executes and rolls back, but a vault write is outside that
+  // transaction and would survive the rollback pointing at a discarded config.
+  if (modeFromCtx(ctx) === "preview") return;
+  const current = (await ctx.db
+    .from(dataSources)
+    .where(eq("id", dataSourceId))
+    .first()) as DataSourceRow | undefined;
+  if (!current) return;
+  const config = { ...((current.config ?? {}) as DataSourceConfig) };
+  const superseded: SecretRef[] = [];
+  await applyCredentialField(
+    config,
+    "apiKey",
+    JSON.stringify(bundle),
+    vault,
+    `apiKey-${dataSourceId}`,
+    false,
+    false,
+    superseded,
+  );
+  await ctx.db
+    .from(dataSources)
+    .where(eq("id", dataSourceId))
+    .update({ config });
+  await flushThenReleaseRefs(
+    ctx.flushSnapshot,
+    superseded,
+    vault,
+    `ga4-refresh-${dataSourceId}`,
+  );
+}
+
+/**
+ * In-flight token write per data source, so the read-modify-write above runs
+ * one at a time.
+ *
+ * Keyed by source rather than global: refreshes for different sources share
+ * nothing, and a global lock would let one slow vault write stall every other
+ * source's queries.
+ */
+const ga4TokenWrites = new Map<UUID, Promise<void>>();
+
+/**
+ * Write a renewed GA4 token bundle back, serialized against other writes for
+ * the same source.
+ *
+ * Serializing makes the second writer re-read after the first has landed, so
+ * its `superseded` list contains the first writer's ref and
+ * `flushThenReleaseRefs` actually releases it. Without that, two simultaneous
+ * refreshes each mint a ref, the last config write wins, and the loser's blob
+ * stays in the vault forever with nothing pointing at it.
+ *
+ * This narrows the race to the write, not the refresh: two callers can still
+ * both hit Google, and if Google rotated the refresh token the second caller's
+ * bundle carries the pre-rotation one, so the surviving config can hold a dead
+ * refresh token. Tolerable, because Google's web-server flow does not rotate
+ * refresh tokens per call, and a bundle that does go stale costs one failed
+ * refresh before the next call re-reads and recovers. Coalescing the refresh
+ * itself has to happen above the connector boundary and is a separate change.
+ */
+async function persistGa4TokenBundle(
+  ctx: DashframeFunctionContext,
+  dataSourceId: UUID,
+  vault: SecretVault | undefined,
+  bundle: GoogleOAuthTokenBundle,
+): Promise<void> {
+  const previous = ga4TokenWrites.get(dataSourceId) ?? Promise.resolve();
+  // Chained on a tail that settles either way. A persist failure is non-fatal
+  // to the request that hit it (see `accessTokenFor`), so it must not reject
+  // every write queued behind it — that would turn one storage hiccup into a
+  // permanently broken refresh path for the source.
+  const settle = () =>
+    persistGa4TokenBundleLocked(ctx, dataSourceId, vault, bundle);
+  const result = previous.then(settle, settle);
+  // Drop the entry once this is the last write outstanding, or the map grows a
+  // permanent entry per source connected in the process's lifetime. Folded
+  // into the stored tail rather than chained separately so the cleanup runs
+  // before anything queued behind this write reads the map.
+  // Only clears its own entry: a writer that queued behind this one has
+  // already replaced the map value, and deleting that would let a third writer
+  // start from an empty chain and race the one still running.
+  const forget = () => {
+    if (ga4TokenWrites.get(dataSourceId) === tail) {
+      ga4TokenWrites.delete(dataSourceId);
+    }
+  };
+  const tail: Promise<void> = result.then(forget, forget);
+  ga4TokenWrites.set(dataSourceId, tail);
+  return result;
+}
+
+const listGa4Properties = wy.procedure
+  .input({ dataSourceId: uuid })
+  .mutation(
+    async (ctx, { dataSourceId }): Promise<{ id: string; title: string }[]> => {
+      const connector = await ga4ConnectorFor(ctx, dataSourceId);
+      const properties = await connector.connect();
+      return properties.map((property) => ({
+        id: property.id,
+        title: property.name,
+      }));
+    },
+  );
+
+/**
+ * Serializable result of a GA4 property read. Structurally identical to
+ * PostgresQueryResult today, and named separately on purpose: these two travel
+ * different code paths and one gaining a field should not silently change the
+ * other's contract.
+ */
+type Ga4QueryResult = {
+  arrowBuffer: string;
+  fieldIds: string[];
+  fields: Field[];
+  rowCount: number;
+};
+
+/**
+ * Read a GA4 property into a DataTable.
+ *
+ * Named for what it queries: a GA4 "table" is a property, not a saved report,
+ * and the old name promised a report selection that never existed.
+ *
+ * The property comes from the DataTable row rather than from a caller-supplied
+ * argument. The row records which property the table was created from, so
+ * taking a separate property id let the two disagree and wrote one property's
+ * data into another property's table.
+ */
+const queryGa4Property = wy.procedure
+  .input({
+    dataSourceId: uuid,
+    tableId: uuid,
+    limit: int.optional(),
+  })
+  .mutation(
+    async (ctx, { dataSourceId, tableId, limit }): Promise<Ga4QueryResult> => {
+      const table = (await ctx.db
+        .from(dataTables)
+        .where(eq("id", tableId))
+        .first()) as DataTableRow | undefined;
+      if (!table) throw new Error(`DataTable ${tableId} not found`);
+      if (table.dataSourceId !== dataSourceId) {
+        throw new Error(
+          `DataTable ${tableId} does not belong to DataSource ${dataSourceId}`,
+        );
+      }
+      const connector = await ga4ConnectorFor(ctx, dataSourceId);
+      const pagination =
+        limit !== undefined && Number.isInteger(limit) && limit > 0
+          ? { pagination: { offset: 0, limit } }
+          : undefined;
+      const result = await connector.query(table.table, tableId, pagination);
+      return {
+        arrowBuffer: result.arrowBuffer,
+        fieldIds: result.fieldIds,
+        fields: result.fields,
+        rowCount: result.rowCount,
+      };
+    },
+  );
+
 export const appArtifactFunctions = {
   listDataSources,
   getDataSource,
@@ -1523,4 +1757,7 @@ export const appArtifactFunctions = {
   // Postgres data-plane routes (auth-blind via bound resolver)
   listPostgresTables,
   queryPostgresTable,
+  // Google Analytics data-plane routes (auth-blind via bound resolver)
+  listGa4Properties,
+  queryGa4Property,
 };
