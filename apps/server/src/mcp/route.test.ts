@@ -10,7 +10,6 @@ import {
   schema,
   type ProjectHandle,
 } from "@dashframe/server-core";
-import { COMMAND_PATHS } from "@dashframe/types";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import {
@@ -123,7 +122,7 @@ describe("MCP route", () => {
         "read_artifact",
         "read_data",
         "read_source",
-        "applyCommandBatch",
+        "draft_batch",
       ]);
       for (const tool of listed.tools) {
         const roundTripped = JSON.parse(JSON.stringify(tool.inputSchema)) as {
@@ -151,11 +150,11 @@ describe("MCP route", () => {
 
       const sourceId = crypto.randomUUID();
       const first = await client.callTool({
-        name: "applyCommandBatch",
+        name: "draft_batch",
         arguments: {
           commands: [
             {
-              path: COMMAND_PATHS.CreateDataSource,
+              type: "CreateDataSource",
               args: { id: sourceId, type: "csv", name: "Drafted source" },
             },
           ],
@@ -200,11 +199,11 @@ describe("MCP route", () => {
       });
 
       const second = await client.callTool({
-        name: "applyCommandBatch",
+        name: "draft_batch",
         arguments: {
           commands: [
             {
-              path: COMMAND_PATHS.CreateDashboard,
+              type: "CreateDashboard",
               args: { id: crypto.randomUUID(), name: "Drafted dashboard" },
             },
           ],
@@ -230,11 +229,11 @@ describe("MCP route", () => {
     try {
       await expectToolError(
         client,
-        "applyCommandBatch",
+        "draft_batch",
         {
           commands: [
             {
-              path: COMMAND_PATHS.DeleteNode,
+              type: "DeleteNode",
               args: { id: crypto.randomUUID() },
             },
           ],
@@ -243,11 +242,11 @@ describe("MCP route", () => {
       );
       await expectToolError(
         client,
-        "applyCommandBatch",
+        "draft_batch",
         {
           commands: [
             {
-              path: COMMAND_PATHS.GetOrCreateDataSource,
+              type: "GetOrCreateDataSource",
               args: {
                 id: crypto.randomUUID(),
                 type: "csv",
@@ -258,21 +257,29 @@ describe("MCP route", () => {
         },
         /not draft-safe/i,
       );
-      for (const path of ["publishDraft", "commitBatch"]) {
+      // Lifecycle procedures are not command names, so they are denied by the
+      // name-level allow-list rather than by the registry-path check. There is
+      // no way to express a raw registry path through this tool at all.
+      for (const type of [
+        "publishDraft",
+        "commitBatch",
+        "discardDraft",
+        "reviseDraft",
+      ]) {
         await expectToolError(
           client,
-          "applyCommandBatch",
-          { commands: [{ path, args: {} }] },
-          /not a DashFrame command/i,
+          "draft_batch",
+          { commands: [{ type, args: {} }] },
+          /is not draft-safe/i,
         );
       }
       await expectToolError(
         client,
-        "applyCommandBatch",
+        "draft_batch",
         {
           commands: [
             {
-              path: COMMAND_PATHS.CreateDataSource,
+              type: "CreateDataSource",
               args: {
                 id: crypto.randomUUID(),
                 type: "csv",
@@ -296,11 +303,11 @@ describe("MCP route", () => {
     const { client, transport } = await connect();
     try {
       const drafted = await client.callTool({
-        name: "applyCommandBatch",
+        name: "draft_batch",
         arguments: {
           commands: [
             {
-              path: COMMAND_PATHS.CreateDashboard,
+              type: "CreateDashboard",
               args: { id: crypto.randomUUID(), name: "Review draft" },
             },
           ],

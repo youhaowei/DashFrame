@@ -3,15 +3,18 @@ import {
   CREDENTIAL_COMMAND_ARG_FIELDS,
   defineToolHandler,
   DRAFT_SAFE_COMMANDS,
+  renderCommandGuide,
   Type,
   validateToolArgs,
   type GraphReader,
   type TSchema,
 } from "@dashframe/assistant";
 import {
+  cmd,
   COMMAND_PATHS,
   type Command,
   type CommandName,
+  type CommandPayloads,
 } from "@dashframe/types";
 import { isSecretRef } from "@wystack/secret-vault";
 import type { WyStackApp } from "@wystack/server";
@@ -43,12 +46,41 @@ export interface McpTool {
   }>;
 }
 
-const commandNameByPath = new Map<string, CommandName>(
-  Object.entries(COMMAND_PATHS).map(([name, path]) => [
-    path,
-    name as CommandName,
-  ]),
-);
+/** The write tool's name — snake_case, matching the read tools. */
+export const DRAFT_BATCH_TOOL_NAME = "draft_batch";
+
+/** One entry of the write tool's batch, as the agent supplies it. */
+interface DraftBatchCommandInput {
+  type: string;
+  args: Record<string, unknown>;
+}
+
+function draftSafeCommandList(): string {
+  return [...DRAFT_SAFE_COMMANDS].sort().join(", ");
+}
+
+/**
+ * The write tool's description carries the whole command vocabulary inline.
+ * An MCP client sees tool descriptions and nothing else before it calls, so a
+ * guide behind a second round trip is a guide the agent will not read.
+ */
+function draftBatchDescription(): string {
+  return [
+    "Append a batch of draft-safe DashFrame commands to this session's draft.",
+    "Nothing here reaches canonical state: the draft opens on the first",
+    "successful call, is reused for the rest of the session, and only a person",
+    "can publish it. API credentials can draft, never commit.",
+    "",
+    "Each entry is { type, args } where `type` is a command NAME from the guide",
+    "below (not a registry path). Do not pass a draft id — this tool holds it.",
+    `Allowed here: ${draftSafeCommandList()}.`,
+    "",
+    "Reads before the first write see canonical state; reads afterwards see the",
+    "draft overlay, so you can read back what you just wrote.",
+    "",
+    renderCommandGuide(),
+  ].join("\n");
+}
 
 function hasCallerSuppliedSecretRef(value: unknown): boolean {
   if (isSecretRef(value)) return true;
@@ -59,29 +91,51 @@ function hasCallerSuppliedSecretRef(value: unknown): boolean {
   return false;
 }
 
-function assertDraftSafeBatch(commands: readonly Command[]): void {
-  // Keep the lifecycle/unknown-path diagnostic owned by the server's existing
-  // vocabulary gate; it must run before the MCP-only safe-command policy.
-  assertKnownCommandPaths(commands, "applyCommandBatch");
-
-  for (const command of commands) {
-    const name = commandNameByPath.get(command.path);
-    if (name === undefined || !DRAFT_SAFE_COMMANDS.has(name)) {
+/**
+ * The MCP-only policy gate, applied to command NAMES before anything is
+ * lowered to a registry path. `draftBatch` itself only checks path membership,
+ * so this is the layer that denies `DeleteNode` and `GetOrCreateDataSource`.
+ */
+function assertDraftSafeBatch(
+  commands: readonly DraftBatchCommandInput[],
+): void {
+  for (const { type, args } of commands) {
+    if (!DRAFT_SAFE_COMMANDS.has(type)) {
       throw new Error(
-        "applyCommandBatch: this command is not draft-safe. Use an additive or " +
-          "update command from the DashFrame command guide instead.",
+        `${DRAFT_BATCH_TOOL_NAME}: command "${type}" is not draft-safe. ` +
+          `Use one of: ${draftSafeCommandList()}.`,
+      );
+    }
+    if (!(type in COMMAND_PATHS)) {
+      throw new Error(
+        `${DRAFT_BATCH_TOOL_NAME}: command "${type}" is not a known DashFrame ` +
+          "command name.",
       );
     }
     if (
-      name in CREDENTIAL_COMMAND_ARG_FIELDS &&
-      hasCallerSuppliedSecretRef(command.args)
+      type in CREDENTIAL_COMMAND_ARG_FIELDS &&
+      hasCallerSuppliedSecretRef(args)
     ) {
       throw new Error(
-        "applyCommandBatch: credential arguments must contain plaintext values, " +
-          "not caller-supplied secret references.",
+        `${DRAFT_BATCH_TOOL_NAME}: credential arguments must contain plaintext ` +
+          "values, not caller-supplied secret references.",
       );
     }
   }
+}
+
+/**
+ * Lower command names to the registry envelopes `draftBatch` expects.
+ * `assertKnownCommandPaths` runs afterwards as defence in depth: the
+ * name-level allow-list above is the primary gate, but if `COMMAND_PATHS` ever
+ * drifts from the registry, the server's own vocabulary check still fires.
+ */
+function lowerCommands(commands: readonly DraftBatchCommandInput[]): Command[] {
+  const lowered = commands.map(({ type, args }) =>
+    cmd(type as CommandName, args as CommandPayloads[CommandName]),
+  );
+  assertKnownCommandPaths(lowered, DRAFT_BATCH_TOOL_NAME);
+  return lowered;
 }
 
 /**
@@ -139,25 +193,22 @@ export function createMcpTools(
   ) as AssistantTool[];
 
   const writeTool = defineToolHandler({
-    name: "applyCommandBatch",
-    description:
-      "Append a batch of draft-safe DashFrame commands to this MCP session's " +
-      "draft. Commands are never committed to canonical state here. Use the " +
-      "existing read tools and command guide to choose valid command paths and " +
-      "argument shapes. Do not include a draft id; this session opens one only " +
-      "after its first successful write. Credential fields must use plaintext, " +
-      "never a secret reference.",
-    label: "Apply command batch",
+    name: DRAFT_BATCH_TOOL_NAME,
+    description: draftBatchDescription(),
+    label: "Draft batch",
     executionMode: "sequential",
     parameters: Type.Object({
       commands: Type.Array(
         Type.Object({
-          path: Type.String({
+          type: Type.String({
             description:
-              "DashFrame command registry path from the command guide.",
+              "Draft-safe DashFrame command name from the guide below, e.g. " +
+              "CreateDataSource or CreateVisualization. Not a registry path.",
           }),
-          args: Type.Unknown({
-            description: "Arguments for that command path.",
+          args: Type.Record(Type.String(), Type.Any(), {
+            description:
+              "Arguments for that command. Credential fields carry the " +
+              "plaintext value, never a secret reference.",
           }),
         }),
         {
@@ -167,8 +218,9 @@ export function createMcpTools(
       ),
     }),
     async execute(_toolCallId, params) {
-      const commands = params.commands as Command[];
-      assertDraftSafeBatch(commands);
+      const batch = params.commands as DraftBatchCommandInput[];
+      assertDraftSafeBatch(batch);
+      const commands = lowerCommands(batch);
       const response = await app.call(
         "draftBatch",
         {
