@@ -148,7 +148,9 @@ itself. The hook still runs `lint-staged` (prettier) on staged files.
 `git worktree remove --force` or `rm -rf`. The guard refuses when removal would
 destroy uncommitted, unpushed, stashed, or mid-operation work, in the worktree
 or any of its submodules, and tells you what to do instead. A refusal means
-there is work to save, not a broken script.
+there is work to save, not a broken script. Gitignored files are the one
+exemption: the checks never see ignored content, so a hand-made `.env` or a
+local build artifact is removed with the worktree — copy those out yourself.
 
 ## Git submodules (`libs/wystack`, `libs/stdui`)
 
