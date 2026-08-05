@@ -1,4 +1,8 @@
-import type { ArtifactDb } from "@dashframe/server-core";
+import {
+  draftCommandLog,
+  draftMetadata,
+  type ArtifactDb,
+} from "@dashframe/server-core";
 import type { PreviewDiff } from "@dashframe/types";
 import { text } from "@wystack/db";
 import type { Command, WyStackApp } from "@wystack/server";
@@ -6,6 +10,7 @@ import type { Command, WyStackApp } from "@wystack/server";
 import { createDraftController } from "../draft-controller";
 import { findLateBound, type LateBoundOperandRef } from "../draft-late-bound";
 import { computeLogSignature } from "../draft-log-signature";
+import { permissions } from "../permissions";
 import { wy } from "../wystack";
 import { buildPreviewDiff } from "./preview-diff";
 
@@ -31,6 +36,14 @@ export interface DraftPublishReview {
   diff: PreviewDiff;
   lateBound: LateBoundOperandRef[];
   publishBlocked: boolean;
+  /**
+   * False when `draft_metadata` no longer holds this handle — it was never
+   * opened, or a concurrent reviewer already published or discarded it. The
+   * durable log is deleted on both exits, so a gone draft otherwise reads as a
+   * perfectly healthy zero-command draft; without this flag the reviewer sees
+   * "Ready to publish" and a publish that does nothing reports success.
+   */
+  draftExists: boolean;
 }
 
 export interface DraftCommandSummary {
@@ -45,6 +58,7 @@ interface DraftFunctionContext {
   artifactDb?: unknown;
   vault?: unknown;
   principal?: unknown;
+  draftController?: ReturnType<typeof createDraftController>;
 }
 
 function asDraftFunctionContext(ctx: unknown): DraftFunctionContext {
@@ -95,6 +109,7 @@ const draftPublishReview = wy.procedure
   .query(async (ctx, { draftId }): Promise<DraftPublishReview> => {
     const { app, db } = requireServerContext(ctx);
     const controller = createDraftController(app, db);
+    const draftExists = await controller.draftExists(draftId);
     const commands = await controller.getDraftLog(draftId);
     const lateBound = findLateBound(commands);
     const diff = await buildPreviewDiff(app, db, commands, handlerContext(ctx));
@@ -105,10 +120,38 @@ const draftPublishReview = wy.procedure
       logSignature: computeLogSignature(commands),
       diff,
       lateBound,
-      publishBlocked: lateBound.length > 0 || diff.error !== undefined,
+      // A zero-command log is blocked too: publishing it replays nothing but
+      // still deletes the handle, so "Ready" and a success toast would report a
+      // change that never happened.
+      publishBlocked:
+        !draftExists ||
+        commands.length === 0 ||
+        lateBound.length > 0 ||
+        diff.error !== undefined,
+      draftExists,
     };
+  });
+
+const listDrafts = wy.procedure
+  .input({})
+  .authorize(permissions.commands.preview)
+  .query(async (ctx) => {
+    const { app, db } = requireServerContext(ctx);
+    // The controller uses the native DB for its aggregate query. Tag both
+    // durable registry tables on the outer tracker so the reactive router can
+    // subscribe this query to draft-log invalidations without loading either
+    // table twice.
+    await Promise.all([
+      ctx.db.from(draftMetadata).limit(0).all(),
+      ctx.db.from(draftCommandLog).limit(0).all(),
+    ]);
+    const controller =
+      asDraftFunctionContext(ctx).draftController ??
+      createDraftController(app, db);
+    return controller.listDrafts();
   });
 
 export const draftFunctions = {
   draftPublishReview,
+  listDrafts,
 };

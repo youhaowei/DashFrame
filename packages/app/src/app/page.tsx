@@ -1,3 +1,4 @@
+import { DraftListItem } from "@/components/drafts/DraftListItem";
 import { api } from "@/wystack/api";
 import { useQuery } from "@wystack/client";
 import { Spinner } from "@wystack/ui-react";
@@ -15,6 +16,7 @@ export default function HomePage() {
     api.listVisualizations,
     { args: {} },
   );
+  const { data: drafts = [] } = useQuery(api.listDrafts, { args: {} });
 
   const hasVisualizations = visualizations.length > 0;
 
@@ -31,6 +33,19 @@ export default function HomePage() {
       {/* Content */}
       <main className="flex-1 overflow-y-auto">
         <div className="container mx-auto max-w-4xl px-6 py-12">
+          {drafts.length > 0 ? (
+            <section className="mb-8">
+              <h2 className="mb-3 text-sm font-semibold text-neutral-fg">
+                Waiting for review
+              </h2>
+              <div className="space-y-3">
+                {drafts.map((draft) => (
+                  <DraftListItem key={draft.draftId} draft={draft} />
+                ))}
+              </div>
+            </section>
+          ) : null}
+
           {/* Onboarding View - Show when no visualizations exist */}
           {!hasVisualizations && <OnboardingView />}
 

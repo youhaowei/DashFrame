@@ -26,6 +26,8 @@ const BASE_PORT = await (async () => {
 const API_PORT = Number(process.env.E2E_API_PORT ?? BASE_PORT + WORKER_COUNT);
 const API_URL = `http://127.0.0.1:${API_PORT}`;
 process.env.E2E_WYSTACK_URL = API_URL;
+const USER_TOKEN = "dashframe-e2e-user";
+process.env.E2E_USER_TOKEN = USER_TOKEN;
 
 // Export for use in test fixtures
 export { API_URL, BASE_PORT, isCI, WORKER_COUNT };
@@ -37,7 +39,7 @@ export { API_URL, BASE_PORT, isCI, WORKER_COUNT };
  * - Local: Multiple servers for parallel workers
  */
 function apiServerCommand(port: number) {
-  return `cd ../.. && bun run --filter @dashframe/server start -- --host 127.0.0.1 --port ${API_PORT} --project /tmp/dashframe-e2e-${port}`;
+  return `cd ../.. && DASHFRAME_SECRET_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= bun run --filter @dashframe/server start -- --host 127.0.0.1 --port ${API_PORT} --token ${USER_TOKEN} --project /tmp/dashframe-e2e-${port}`;
 }
 
 function webServerCommand(port: number) {

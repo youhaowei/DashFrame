@@ -1,15 +1,45 @@
 import type { Command } from "@wystack/server";
 
+/** Discriminant of a late-bound operand's `ref.type` (PIN 4.8a / 4.8b). */
+export type LateBoundRefType =
+  | "column"
+  | "category"
+  | "placeholder"
+  | "unknown";
+
 export interface LateBoundOperandRef {
   commandIndex: number;
   path: string;
   jsonPath: string;
   kind: string;
   label?: string;
+  /**
+   * Re-derived from the log node's `ref.type`. Missing or unrecognized types
+   * map to `"unknown"` and are remove-only (never bindable).
+   */
+  refType: LateBoundRefType;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Read `ref.type` off a late-bound node. Never trusts client-supplied values —
+ * the server re-derives this from the durable log for every bind check.
+ */
+export function refTypeFromLateBoundNode(value: unknown): LateBoundRefType {
+  if (!isRecord(value) || value.kind !== "lateBound") return "unknown";
+  const ref = value.ref;
+  if (!isRecord(ref) || typeof ref.type !== "string") return "unknown";
+  if (
+    ref.type === "column" ||
+    ref.type === "category" ||
+    ref.type === "placeholder"
+  ) {
+    return ref.type;
+  }
+  return "unknown";
 }
 
 function collectLateBound(
@@ -26,10 +56,16 @@ function collectLateBound(
   if (!isRecord(value)) return;
 
   if (value.kind === "lateBound") {
+    const ref = isRecord(value.ref) ? value.ref : undefined;
+    const refType = refTypeFromLateBoundNode(value);
+    let label: string | undefined;
+    if (typeof value.label === "string") label = value.label;
+    else if (typeof ref?.prompt === "string") label = ref.prompt;
     out.push({
       jsonPath: path,
       kind: "lateBound",
-      label: typeof value.label === "string" ? value.label : undefined,
+      label,
+      refType,
     });
     return;
   }

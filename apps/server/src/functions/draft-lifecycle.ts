@@ -19,7 +19,7 @@
  *   explicitly here — the outer `buildDashframeApp` wrapper does not fire it for
  *   the same sub-tracker reason.
  */
-import type { ArtifactDb } from "@dashframe/server-core";
+import { type ArtifactDb } from "@dashframe/server-core";
 import { text } from "@wystack/db";
 import type { SecretRef, SecretVault } from "@wystack/secret-vault";
 import type { Command } from "@wystack/server";
@@ -33,6 +33,8 @@ import {
   releaseRefsAtTransition,
 } from "../credential-release";
 import {
+  DRAFT_COMMAND_LOG_TABLE,
+  DRAFT_METADATA_TABLE,
   DraftPublishConflictError,
   type DraftController,
 } from "../draft-controller";
@@ -53,6 +55,21 @@ interface PublishDraftInternalResult {
   tablesWritten: string[];
   __extraTablesWritten: string[];
 }
+
+/**
+ * `discardDraft` has no public result — it carries only the internal
+ * invalidation field, which the `app.ts` wrapper strips, so the client still
+ * sees an empty object.
+ */
+interface DiscardDraftInternalResult {
+  __extraTablesWritten: string[];
+}
+
+/**
+ * The two durable registry tables `listDrafts` subscribes to. Derived from the
+ * schema rather than hardcoded so a table rename can never silently detach the
+ * inbox from its invalidations.
+ */
 
 function draftConflictError(
   conflictReport: Awaited<ReturnType<DraftController["detectConflict"]>>,
@@ -155,6 +172,17 @@ const publishDraft = wy.procedure
         throw new Error(
           "publishDraft: draftController not in handler context — " +
             "ensure createDashframeServer injects it via serverContext",
+        );
+      }
+
+      // The handle must still be registered. Both lifecycle exits delete the
+      // durable log, so a draft another reviewer already published or discarded
+      // replays as an empty log — a silent no-op that reports success. Phrased
+      // as a drift rejection because that is exactly what it is from the
+      // reviewer's side, and the client classifier keys on this wording.
+      if (!(await draftController.draftExists(draftId))) {
+        throw new Error(
+          `publishDraft: draft changed since review — no open draft ${draftId}`,
         );
       }
 
@@ -273,7 +301,19 @@ const publishDraft = wy.procedure
         tablesWritten,
         // Internal field consumed by the app.ts wrapper to drive WS invalidation.
         // Stripped from the response before it reaches the client.
-        __extraTablesWritten: tablesWritten,
+        //
+        // The draft registry tables are named EXPLICITLY. Publish deletes this
+        // draft's metadata row and its command log inside the same transaction,
+        // but those deletes happen on the controller's own sub-tracker, so they
+        // never reach `result.tablesWritten` — leaving `listDrafts` (which
+        // subscribes to both) uninvalidated. Without them the nav badge, the
+        // inbox, and the home surface keep showing a draft that no longer
+        // exists until something else forces a refetch.
+        __extraTablesWritten: [
+          ...tablesWritten,
+          DRAFT_METADATA_TABLE,
+          DRAFT_COMMAND_LOG_TABLE,
+        ],
       };
     },
   );
@@ -291,7 +331,7 @@ const publishDraft = wy.procedure
 const discardDraft = wy.procedure
   .input({ draftId: text })
   .authorize(permissions.commands.commit)
-  .mutation(async (ctx, { draftId }): Promise<void> => {
+  .mutation(async (ctx, { draftId }): Promise<DiscardDraftInternalResult> => {
     const draftController = ctx.draftController as DraftController | undefined;
     if (!draftController) {
       throw new Error(
@@ -347,6 +387,14 @@ const discardDraft = wy.procedure
     if (artifactDb != null && snapshotPersisted) {
       await releaseRefsAtTransition(artifactDb, vault, mintedRefs, draftId);
     }
+
+    // Same split-tracker problem as publish: the log delete and the metadata
+    // delete run on the controller's own transaction, so the outer tracker sees
+    // nothing and `listDrafts` would never invalidate. Name both tables so the
+    // inbox and the nav badge drop the discarded draft live.
+    return {
+      __extraTablesWritten: [DRAFT_METADATA_TABLE, DRAFT_COMMAND_LOG_TABLE],
+    };
   });
 
 /**
