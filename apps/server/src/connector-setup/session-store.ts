@@ -1,6 +1,5 @@
 import { schema } from "@dashframe/server-core";
-import { eq as trackedEq, type DrizzleTracker } from "@wystack/db";
-import { and, getTableName, lt, eq as sqlEq } from "drizzle-orm";
+import { eq, lt, type DrizzleTracker } from "@wystack/db";
 import {
   createHash,
   randomBytes,
@@ -12,6 +11,20 @@ const { connectorSetupSessions, dataSources } = schema;
 
 export const CONNECTOR_SETUP_TTL_MS = 15 * 60 * 1000;
 export const CONNECTOR_SETUP_TERMINAL_RETENTION_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The only database surface this module may touch.
+ *
+ * Deliberately NOT `DrizzleTracker`: narrowing to `from` / `into` makes `raw`
+ * unreachable from here, so every read and write in this file goes through the
+ * tracked builder and self-records `tablesRead` / `tablesWritten`. That is a
+ * correctness requirement, not a style preference — reactive invalidation and
+ * snapshot freshness are driven entirely by those two sets, and an untracked
+ * write is invisible to them: subscribers keep serving a stale session state
+ * with nothing to indicate it went stale. Widening this type back to
+ * `DrizzleTracker` re-opens that hole silently, because `raw` compiles fine.
+ */
+type Db = Pick<DrizzleTracker, "from" | "into">;
 
 export type ConnectorSetupState =
   | "awaiting-user-auth"
@@ -45,7 +58,7 @@ export class ConnectorSetupGateError extends Error {
   }
 }
 
-function nonceHash(nonce: string): string {
+export function hashStateNonce(nonce: string): string {
   return createHash("sha256").update(nonce).digest("hex");
 }
 
@@ -58,13 +71,14 @@ function newCodeVerifier(): string {
 }
 
 function matchesStateNonce(nonce: string, expectedHex: string): boolean {
-  const actual = Buffer.from(nonceHash(nonce), "hex");
+  const actual = Buffer.from(hashStateNonce(nonce), "hex");
   const expected = Buffer.from(expectedHex, "hex");
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
-function trackWrite(db: DrizzleTracker): void {
-  db.tablesWritten.add(getTableName(connectorSetupSessions));
+/** Rows returned by a tracked `update()` / `delete()`, which lowers to RETURNING *. */
+function returnedRows(rows: unknown): ConnectorSetupSessionRow[] {
+  return rows as ConnectorSetupSessionRow[];
 }
 
 export function oauthStateFor(stateNonce: string): string {
@@ -72,7 +86,7 @@ export function oauthStateFor(stateNonce: string): string {
 }
 
 export async function startSession(
-  db: DrizzleTracker,
+  db: Db,
   input: StartSessionInput,
 ): Promise<SessionIssuance> {
   const now = input.now ?? new Date();
@@ -82,7 +96,7 @@ export async function startSession(
     connectorId: input.connectorId,
     requestedName: input.requestedName,
     state: "awaiting-user-auth",
-    stateNonceHash: nonceHash(stateNonce),
+    stateNonceHash: hashStateNonce(stateNonce),
     codeVerifier: newCodeVerifier(),
     scopes: input.scopes,
     dataSourceId: null,
@@ -101,7 +115,7 @@ export async function startSession(
  * every resume issuance kills the previous authorize URL automatically.
  */
 export async function publicResumeInfo(
-  db: DrizzleTracker,
+  db: Db,
   sessionId: string,
   now = new Date(),
   reissue = true,
@@ -109,7 +123,7 @@ export async function publicResumeInfo(
 ): Promise<SessionIssuance | { session: ConnectorSetupSessionRow }> {
   let row = (await db
     .from(connectorSetupSessions)
-    .where(trackedEq("id", sessionId))
+    .where(eq("id", sessionId))
     .first()) as ConnectorSetupSessionRow | undefined;
   if (!row) throw new ConnectorSetupGateError("session-not-found");
 
@@ -117,38 +131,28 @@ export async function publicResumeInfo(
     row.state === "awaiting-user-auth" &&
     row.expiresAt.getTime() <= now.getTime()
   ) {
-    const [expired] = await db.raw
-      .update(connectorSetupSessions)
-      .set({ state: "expired", updatedAt: now })
-      .where(
-        and(
-          sqlEq(connectorSetupSessions.id, row.id),
-          sqlEq(connectorSetupSessions.state, "awaiting-user-auth"),
-        ),
-      )
-      .returning();
-    if (expired) trackWrite(db);
-    return { session: (expired ?? row) as ConnectorSetupSessionRow };
+    const [expired] = returnedRows(
+      await db
+        .from(connectorSetupSessions)
+        .where([eq("id", row.id), eq("state", "awaiting-user-auth")])
+        .update({ state: "expired", updatedAt: now }),
+    );
+    return { session: expired ?? row };
   }
 
   if (recoverExchange && row.state === "exchanging") {
     const isExpired = row.expiresAt.getTime() <= now.getTime();
-    const [recovered] = await db.raw
-      .update(connectorSetupSessions)
-      .set({
-        state: isExpired ? "expired" : "awaiting-user-auth",
-        updatedAt: now,
-      })
-      .where(
-        and(
-          sqlEq(connectorSetupSessions.id, row.id),
-          sqlEq(connectorSetupSessions.state, "exchanging"),
-        ),
-      )
-      .returning();
+    const [recovered] = returnedRows(
+      await db
+        .from(connectorSetupSessions)
+        .where([eq("id", row.id), eq("state", "exchanging")])
+        .update({
+          state: isExpired ? "expired" : "awaiting-user-auth",
+          updatedAt: now,
+        }),
+    );
     if (!recovered) throw new ConnectorSetupGateError("session-raced");
-    trackWrite(db);
-    row = recovered as ConnectorSetupSessionRow;
+    row = recovered;
     if (isExpired) return { session: row };
   }
 
@@ -157,26 +161,24 @@ export async function publicResumeInfo(
   }
 
   const stateNonce = newStateNonce();
-  const [reissued] = await db.raw
-    .update(connectorSetupSessions)
-    .set({
-      stateNonceHash: nonceHash(stateNonce),
-      codeVerifier: newCodeVerifier(),
-      failureCode: null,
-      failureMessage: null,
-      updatedAt: now,
-    })
-    .where(
-      and(
-        sqlEq(connectorSetupSessions.id, row.id),
-        sqlEq(connectorSetupSessions.state, "awaiting-user-auth"),
-        sqlEq(connectorSetupSessions.stateNonceHash, row.stateNonceHash),
-      ),
-    )
-    .returning();
+  const [reissued] = returnedRows(
+    await db
+      .from(connectorSetupSessions)
+      .where([
+        eq("id", row.id),
+        eq("state", "awaiting-user-auth"),
+        eq("stateNonceHash", row.stateNonceHash),
+      ])
+      .update({
+        stateNonceHash: hashStateNonce(stateNonce),
+        codeVerifier: newCodeVerifier(),
+        failureCode: null,
+        failureMessage: null,
+        updatedAt: now,
+      }),
+  );
   if (!reissued) throw new ConnectorSetupGateError("session-raced");
-  trackWrite(db);
-  return { session: reissued as ConnectorSetupSessionRow, stateNonce };
+  return { session: reissued, stateNonce };
 }
 
 /**
@@ -184,7 +186,7 @@ export async function publicResumeInfo(
  * database update. No process-local lock participates in the single-use guard.
  */
 export async function consumeCallback(
-  db: DrizzleTracker,
+  db: Db,
   state: string,
   now = new Date(),
 ): Promise<ConnectorSetupSessionRow> {
@@ -208,90 +210,75 @@ export async function consumeCallback(
     throw new ConnectorSetupGateError("session-not-awaiting");
   }
   if (row.expiresAt.getTime() <= now.getTime()) {
-    const expired = await db.raw
-      .update(connectorSetupSessions)
-      .set({ state: "expired", updatedAt: now })
-      .where(
-        and(
-          sqlEq(connectorSetupSessions.id, row.id),
-          sqlEq(connectorSetupSessions.state, "awaiting-user-auth"),
-        ),
-      )
-      .returning();
-    if (expired.length > 0) trackWrite(db);
-    const expiredRow = expired[0] as ConnectorSetupSessionRow | undefined;
-    throw new ConnectorSetupGateError("session-expired", expiredRow ?? row);
+    const expired = returnedRows(
+      await db
+        .from(connectorSetupSessions)
+        .where([eq("id", row.id), eq("state", "awaiting-user-auth")])
+        .update({ state: "expired", updatedAt: now }),
+    );
+    throw new ConnectorSetupGateError("session-expired", expired[0] ?? row);
   }
 
-  const consumed = await db.raw
-    .update(connectorSetupSessions)
-    .set({ state: "exchanging", updatedAt: now })
-    .where(
-      and(
-        sqlEq(connectorSetupSessions.id, row.id),
-        sqlEq(connectorSetupSessions.state, "awaiting-user-auth"),
-        sqlEq(connectorSetupSessions.stateNonceHash, row.stateNonceHash),
-      ),
-    )
-    .returning();
+  const consumed = returnedRows(
+    await db
+      .from(connectorSetupSessions)
+      .where([
+        eq("id", row.id),
+        eq("state", "awaiting-user-auth"),
+        eq("stateNonceHash", row.stateNonceHash),
+      ])
+      .update({ state: "exchanging", updatedAt: now }),
+  );
   if (consumed.length !== 1) {
     throw new ConnectorSetupGateError("session-consumed");
   }
-  trackWrite(db);
-  return consumed[0] as ConnectorSetupSessionRow;
+  return consumed[0]!;
 }
 
 export async function markVerifying(
-  db: DrizzleTracker,
+  db: Db,
   sessionId: string,
   dataSourceId: string,
   now = new Date(),
 ): Promise<ConnectorSetupSessionRow> {
-  const rows = await db.raw
-    .update(connectorSetupSessions)
-    .set({ state: "verifying", dataSourceId, updatedAt: now })
-    .where(
-      and(
-        sqlEq(connectorSetupSessions.id, sessionId),
-        sqlEq(connectorSetupSessions.state, "exchanging"),
-      ),
-    )
-    .returning();
+  const rows = returnedRows(
+    await db
+      .from(connectorSetupSessions)
+      .where([eq("id", sessionId), eq("state", "exchanging")])
+      .update({ state: "verifying", dataSourceId, updatedAt: now }),
+  );
   if (rows.length !== 1) throw new Error("Connector setup transition rejected");
-  trackWrite(db);
-  return rows[0] as ConnectorSetupSessionRow;
+  return rows[0]!;
 }
 
 export async function markConnected(
-  db: DrizzleTracker,
+  db: Db,
   sessionId: string,
   dataSourceId: string,
   now = new Date(),
 ): Promise<ConnectorSetupSessionRow> {
-  const rows = await db.raw
-    .update(connectorSetupSessions)
-    .set({
-      state: "connected",
-      dataSourceId,
-      failureCode: null,
-      failureMessage: null,
-      updatedAt: now,
-    })
-    .where(
-      and(
-        sqlEq(connectorSetupSessions.id, sessionId),
-        sqlEq(connectorSetupSessions.state, "verifying"),
-        sqlEq(connectorSetupSessions.dataSourceId, dataSourceId),
-      ),
-    )
-    .returning();
+  const rows = returnedRows(
+    await db
+      .from(connectorSetupSessions)
+      .where([
+        eq("id", sessionId),
+        eq("state", "verifying"),
+        eq("dataSourceId", dataSourceId),
+      ])
+      .update({
+        state: "connected",
+        dataSourceId,
+        failureCode: null,
+        failureMessage: null,
+        updatedAt: now,
+      }),
+  );
   if (rows.length !== 1) throw new Error("Connector setup transition rejected");
-  trackWrite(db);
-  return rows[0] as ConnectorSetupSessionRow;
+  return rows[0]!;
 }
 
 export async function markFailed(
-  db: DrizzleTracker,
+  db: Db,
   sessionId: string,
   failureCode: string,
   failureMessage: string,
@@ -304,60 +291,49 @@ export async function markFailed(
 ): Promise<ConnectorSetupSessionRow> {
   const row = (await db
     .from(connectorSetupSessions)
-    .where(trackedEq("id", sessionId))
+    .where(eq("id", sessionId))
     .first()) as ConnectorSetupSessionRow | undefined;
   if (!row) throw new Error("Connector setup session not found");
   if (["connected", "failed", "expired"].includes(row.state)) return row;
   if (!allowedStates.includes(row.state as ConnectorSetupState)) return row;
-  const [failed] = await db.raw
-    .update(connectorSetupSessions)
-    .set({
-      state: "failed",
-      dataSourceId: null,
-      failureCode,
-      failureMessage,
-      updatedAt: now,
-    })
-    .where(
-      and(
-        sqlEq(connectorSetupSessions.id, sessionId),
-        sqlEq(connectorSetupSessions.state, row.state),
-      ),
-    )
-    .returning();
-  if (failed) {
-    trackWrite(db);
-    return failed as ConnectorSetupSessionRow;
-  }
+  const [failed] = returnedRows(
+    await db
+      .from(connectorSetupSessions)
+      .where([eq("id", sessionId), eq("state", row.state)])
+      .update({
+        state: "failed",
+        dataSourceId: null,
+        failureCode,
+        failureMessage,
+        updatedAt: now,
+      }),
+  );
+  if (failed) return failed;
   const raced = (await db
     .from(connectorSetupSessions)
-    .where(trackedEq("id", sessionId))
+    .where(eq("id", sessionId))
     .first()) as ConnectorSetupSessionRow | undefined;
   if (!raced) throw new Error("Connector setup session not found");
   return raced;
 }
 
 async function expireAwaiting(
-  db: DrizzleTracker,
+  db: Db,
   row: ConnectorSetupSessionRow,
   now: Date,
 ): Promise<boolean> {
   if (row.expiresAt.getTime() > now.getTime()) return false;
-  const updated = await db.raw
-    .update(connectorSetupSessions)
-    .set({ state: "expired", updatedAt: now })
-    .where(
-      and(
-        sqlEq(connectorSetupSessions.id, row.id),
-        sqlEq(connectorSetupSessions.state, "awaiting-user-auth"),
-      ),
-    )
-    .returning({ id: connectorSetupSessions.id });
+  const updated = returnedRows(
+    await db
+      .from(connectorSetupSessions)
+      .where([eq("id", row.id), eq("state", "awaiting-user-auth")])
+      .update({ state: "expired", updatedAt: now }),
+  );
   return updated.length > 0;
 }
 
 async function recoverInFlight(
-  db: DrizzleTracker,
+  db: Db,
   row: ConnectorSetupSessionRow,
   now: Date,
 ): Promise<"recovered" | "expired" | undefined> {
@@ -366,48 +342,46 @@ async function recoverInFlight(
   }
   const isExpired = row.expiresAt.getTime() <= now.getTime();
   if (row.state === "verifying" && row.dataSourceId) {
-    const [source] = await db.raw
-      .select({ kind: dataSources.kind })
+    // Tracked read: this decides the recovery outcome, so the sweep's result
+    // depends on data_sources and must invalidate when data_sources changes.
+    const source = (await db
       .from(dataSources)
-      .where(sqlEq(dataSources.id, row.dataSourceId));
+      .select("kind")
+      .where(eq("id", row.dataSourceId))
+      .first()) as { kind: string } | undefined;
     if (source?.kind === row.connectorId) {
-      const connected = await db.raw
-        .update(connectorSetupSessions)
-        .set({ state: "connected", updatedAt: now })
-        .where(
-          and(
-            sqlEq(connectorSetupSessions.id, row.id),
-            sqlEq(connectorSetupSessions.state, "verifying"),
-            sqlEq(connectorSetupSessions.dataSourceId, row.dataSourceId),
-          ),
-        )
-        .returning({ id: connectorSetupSessions.id });
+      const connected = returnedRows(
+        await db
+          .from(connectorSetupSessions)
+          .where([
+            eq("id", row.id),
+            eq("state", "verifying"),
+            eq("dataSourceId", row.dataSourceId),
+          ])
+          .update({ state: "connected", updatedAt: now }),
+      );
       if (connected.length > 0) return "recovered";
       return undefined;
     }
   }
-  const updated = await db.raw
-    .update(connectorSetupSessions)
-    .set({
-      state: isExpired ? "expired" : "awaiting-user-auth",
-      stateNonceHash: nonceHash(newStateNonce()),
-      codeVerifier: newCodeVerifier(),
-      dataSourceId: null,
-      updatedAt: now,
-    })
-    .where(
-      and(
-        sqlEq(connectorSetupSessions.id, row.id),
-        sqlEq(connectorSetupSessions.state, row.state),
-      ),
-    )
-    .returning({ id: connectorSetupSessions.id });
+  const updated = returnedRows(
+    await db
+      .from(connectorSetupSessions)
+      .where([eq("id", row.id), eq("state", row.state)])
+      .update({
+        state: isExpired ? "expired" : "awaiting-user-auth",
+        stateNonceHash: hashStateNonce(newStateNonce()),
+        codeVerifier: newCodeVerifier(),
+        dataSourceId: null,
+        updatedAt: now,
+      }),
+  );
   if (updated.length === 0) return undefined;
   return isExpired ? "expired" : "recovered";
 }
 
 export async function sweep(
-  db: DrizzleTracker,
+  db: Db,
   now = new Date(),
 ): Promise<{ recovered: number; expired: number; deleted: number }> {
   const rows = (await db
@@ -437,17 +411,13 @@ export async function sweep(
     .map((row) => row.id);
   let deleted = 0;
   for (const id of terminalIds) {
-    const removed = await db.raw
-      .delete(connectorSetupSessions)
-      .where(
-        and(
-          sqlEq(connectorSetupSessions.id, id),
-          lt(connectorSetupSessions.updatedAt, cutoff),
-        ),
-      )
-      .returning({ id: connectorSetupSessions.id });
+    const removed = returnedRows(
+      await db
+        .from(connectorSetupSessions)
+        .where([eq("id", id), lt("updatedAt", cutoff)])
+        .delete(),
+    );
     deleted += removed.length;
   }
-  if (recovered + expired + deleted > 0) trackWrite(db);
   return { recovered, expired, deleted };
 }

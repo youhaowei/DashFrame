@@ -252,4 +252,73 @@ describe("connector setup session store", () => {
       .where(eq(connectorSetupSessions.id, issuance.session.id));
     expect(row).toMatchObject({ state: "connected", dataSourceId: sourceId });
   });
+
+  // Reactive invalidation and snapshot freshness are driven entirely by a
+  // tracker's tablesRead / tablesWritten sets. A read or write this module
+  // performs without recording its table is invisible to them: subscribers keep
+  // serving state that has already changed, with nothing to mark it stale.
+  // These tests pin the recording itself, which no behavioural assertion above
+  // can catch — every one of them passes with tracking completely absent.
+  describe("reactive tracking", () => {
+    it("records the data_sources read that decides an in-flight recovery", async () => {
+      const issuance = await pending();
+      const sourceId = crypto.randomUUID();
+      await db.insert(dataSources).values({
+        id: sourceId,
+        name: "GA4",
+        kind: "googleAnalytics",
+        storage: "live",
+        config: {},
+        createdBy: { kind: "user" },
+      });
+      await db
+        .update(connectorSetupSessions)
+        .set({ state: "verifying", dataSourceId: sourceId })
+        .where(eq(connectorSetupSessions.id, issuance.session.id));
+
+      const tracker = app.createTracked();
+      await sweep(tracker, new Date("2026-08-05T12:01:00Z"));
+
+      // The sweep's outcome depends on this row's `kind`, so a later write to
+      // data_sources must invalidate anything derived from the sweep.
+      expect([...tracker.tablesRead]).toContain("data_sources");
+      expect([...tracker.tablesWritten]).toContain("connector_setup_sessions");
+    });
+
+    it("records the session write on every mutating path", async () => {
+      // Each write tags through the tracked builder at the point of the write,
+      // rather than through a single end-of-function call gated on counters the
+      // module computes for itself — a path that writes without incrementing
+      // one of those counters silently loses its tag.
+      const consumed = await pending();
+      const consumeTracker = app.createTracked();
+      await consumeCallback(
+        consumeTracker,
+        oauthStateFor(consumed.stateNonce),
+        new Date("2026-08-05T12:01:00Z"),
+      );
+      expect([...consumeTracker.tablesWritten]).toContain(
+        "connector_setup_sessions",
+      );
+
+      const resumed = await pending();
+      const resumeTracker = app.createTracked();
+      await publicResumeInfo(resumeTracker, resumed.session.id);
+      expect([...resumeTracker.tablesWritten]).toContain(
+        "connector_setup_sessions",
+      );
+
+      const stale = await pending(new Date("2026-08-05T11:40:00Z"));
+      const sweepTracker = app.createTracked();
+      await sweep(sweepTracker, new Date("2026-08-05T12:00:00Z"));
+      expect([...sweepTracker.tablesWritten]).toContain(
+        "connector_setup_sessions",
+      );
+      const [staleRow] = await db
+        .select()
+        .from(connectorSetupSessions)
+        .where(eq(connectorSetupSessions.id, stale.session.id));
+      expect(staleRow?.state).toBe("expired");
+    });
+  });
 });
