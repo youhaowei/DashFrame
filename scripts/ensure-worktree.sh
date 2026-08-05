@@ -115,15 +115,12 @@ init_unpopulated_submodules() {
 # human adjudicates. Blocking at creation costs one ls-remote per submodule
 # and avoids that situation.
 #
-# SCOPE — this catches pins whose commit lives in THIS checkout's submodule
-# object store, which is the case that matters here because section 3 only
-# runs in the main checkout and its pins come from main or a local branch.
-# It does NOT catch a pin whose commit was authored inside a SIBLING
-# worktree: submodule gitdirs are per-worktree, so such a commit is absent
-# from this store entirely and is skipped below. That case is not silent —
-# `git submodule update` fails at checkout with "not our ref" — it is just
-# not caught here. Probing sibling worktrees' gitdirs would close it and is
-# left as follow-up.
+# Submodule gitdirs are PER-WORKTREE, so a pin authored inside a sibling
+# worktree is absent from this checkout's submodule object store even though
+# it exists on the machine. Such a pin is therefore judged the same way as
+# any other: fetch every head and tag the remote advertises, and if the
+# commit still is not here, no remote has it — refuse. Skipping it for being
+# locally unknown would miss the very case this guard exists for.
 #
 # Per AGENTS.md a submodule change lands in its own repo FIRST, so a
 # legitimate in-flight pin is always on a pushed branch and passes here. A
@@ -143,10 +140,6 @@ assert_submodule_pins_pushed() {
     [ -e "$repo_root/$_aspp_sub/.git" ] || continue
     _aspp_pin=$(git -C "$repo_root" rev-parse --verify --quiet "$_aspp_rev:$_aspp_sub" 2>/dev/null || echo "")
     [ -n "$_aspp_pin" ] || continue
-    # A pin whose object this store does not hold cannot be judged here. It
-    # may still be local to a sibling worktree's submodule gitdir — see SCOPE
-    # in the docblock — so this is a known gap, not a proof of pushed-ness.
-    git -C "$repo_root/$_aspp_sub" cat-file -e "$_aspp_pin" 2>/dev/null || continue
 
     _aspp_tips=""
     _aspp_reached=false
@@ -162,7 +155,12 @@ assert_submodule_pins_pushed() {
       # default refspec auto-follows a tag only when its object is reachable
       # from fetched branch history, so a tag sitting on no branch — exactly
       # the tip most likely to be missing — would never arrive.
+      # The pin itself counts as a missing object worth fetching for: it may
+      # have been authored in a sibling worktree's submodule gitdir (those are
+      # per-worktree) and pushed from there, in which case this store has
+      # never seen it but the remote has.
       _aspp_missing=false
+      git -C "$repo_root/$_aspp_sub" cat-file -e "$_aspp_pin" 2>/dev/null || _aspp_missing=true
       for _aspp_sha in $(printf '%s\n' "$_aspp_refs" | awk '{print $1}'); do
         git -C "$repo_root/$_aspp_sub" cat-file -e "$_aspp_sha" 2>/dev/null || _aspp_missing=true
       done
@@ -179,6 +177,21 @@ assert_submodule_pins_pushed() {
     if [ "$_aspp_reached" = false ]; then
       echo "WARNING [ensure-worktree]: could not reach any remote of submodule '$_aspp_sub' — its pin was not verified as pushed." >&2
       continue
+    fi
+
+    # The pin is still absent after fetching every head and tag a reachable
+    # remote advertises. It is therefore reachable from nothing on that
+    # remote — typically a commit authored in a sibling worktree's submodule
+    # gitdir and never pushed. Refuse: `git worktree add` would succeed and
+    # `git submodule update` would then die with "not our ref", leaving a
+    # half-created worktree and a misleading connectivity error.
+    if ! git -C "$repo_root/$_aspp_sub" cat-file -e "$_aspp_pin" 2>/dev/null; then
+      echo "ERROR [ensure-worktree]: '$_aspp_rev' pins submodule '$_aspp_sub' at $(printf '%.12s' "$_aspp_pin"), which no remote of that submodule has and this checkout does not hold." >&2
+      echo "  A submodule commit made inside another worktree lives in that worktree's own gitdir." >&2
+      echo "  Push it from there — land it in the submodule's own repo (AGENTS.md), then bump the pin —" >&2
+      echo "  or point '$_aspp_rev' back at a commit the submodule remote has." >&2
+      if [ -n "${_wt_log:-}" ]; then rm -f "$_wt_log"; fi
+      exit 1
     fi
 
     # A failing `git log` must not read as "pushed": that is the one way this
