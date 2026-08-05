@@ -226,12 +226,8 @@ export type {
 export {
   COMMAND_PATHS,
   buildInsightUpdateCommands,
-  buildJoinDiffCommands,
   buildMetricDiffCommands,
   buildVisualizationUpdateCommands,
   cmd,
   resultValueByCommandPath,
-  toDomainFilters,
-  toTypedFilters,
-  unwrapFilterOperand,
 } from "./commands";

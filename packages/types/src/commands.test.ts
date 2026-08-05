@@ -3,14 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   COMMAND_PATHS,
   buildInsightUpdateCommands,
-  buildJoinDiffCommands,
   buildMetricDiffCommands,
   buildVisualizationUpdateCommands,
   cmd,
   resultValueByCommandPath,
-  toDomainFilters,
-  toTypedFilters,
-  unwrapFilterOperand,
 } from "./commands";
 import type { Insight } from "./insights";
 import type { InsightMetric } from "./metric";
@@ -31,16 +27,8 @@ function metric(mid: UUID, name: string): InsightMetric {
   };
 }
 
-const baseInsight: Pick<
-  Insight,
-  "metrics" | "joins" | "selectedFields" | "filters" | "sorts" | "name"
-> = {
-  name: "I",
-  selectedFields: [],
+const baseInsight: Pick<Insight, "metrics"> = {
   metrics: [],
-  filters: undefined,
-  sorts: undefined,
-  joins: undefined,
 };
 
 describe("cmd + COMMAND_PATHS", () => {
@@ -50,34 +38,6 @@ describe("cmd + COMMAND_PATHS", () => {
       args: { id, name: "New" },
     });
     expect(COMMAND_PATHS.CreateDataSource).toBe("createDataSource");
-  });
-});
-
-describe("filter operand wrap/unwrap", () => {
-  it("wraps domain filters as tagged value operands", () => {
-    expect(
-      toTypedFilters([{ field: "region", operator: "eq", value: "EMEA" }]),
-    ).toEqual([
-      {
-        field: "region",
-        operator: "eq",
-        value: { kind: "value", v: "EMEA" },
-      },
-    ]);
-  });
-
-  it("unwraps tagged values and leaves plain values alone", () => {
-    expect(unwrapFilterOperand({ kind: "value", v: "EMEA" })).toBe("EMEA");
-    expect(unwrapFilterOperand("plain")).toBe("plain");
-    expect(
-      toDomainFilters([
-        {
-          field: "region",
-          operator: "eq",
-          value: { kind: "value", v: "EMEA" },
-        },
-      ]),
-    ).toEqual([{ field: "region", operator: "eq", value: "EMEA" }]);
   });
 });
 
@@ -109,40 +69,17 @@ describe("buildMetricDiffCommands", () => {
   });
 });
 
-describe("buildJoinDiffCommands", () => {
-  const joinA = {
-    type: "inner" as const,
-    rightTableId: tableId,
-    leftKey: "id",
-    rightKey: "id",
-  };
-
-  it("emits AddJoin when appending", () => {
-    expect(buildJoinDiffCommands(id, [], [joinA])).toEqual([
-      cmd("AddJoin", { id, join: joinA }),
-    ]);
-  });
-
-  it("emits RemoveJoin for a single removal", () => {
-    expect(buildJoinDiffCommands(id, [joinA], [])).toEqual([
-      cmd("RemoveJoin", { id, joinIndex: 0 }),
-    ]);
-  });
-});
-
 describe("buildInsightUpdateCommands", () => {
   it("decomposes multi-slice updates into one command list", () => {
     const commands = buildInsightUpdateCommands(id, baseInsight, {
       name: "Renamed",
       selectedFields: [midA],
       sorts: [{ field: "amount", direction: "desc" }],
-      filters: [{ field: "region", operator: "eq", value: "EMEA" }],
       metrics: [metric(midA, "Sum")],
     });
     expect(commands.map((c) => c.path)).toEqual([
       "renameNode",
       "selectFields",
-      "setInsightFilter",
       "setInsightSort",
       "addMetric",
     ]);
@@ -150,6 +87,26 @@ describe("buildInsightUpdateCommands", () => {
 
   it("returns empty when no known slices are present", () => {
     expect(buildInsightUpdateCommands(id, baseInsight, {})).toEqual([]);
+  });
+
+  it("throws rather than silently dropping filters or joins", () => {
+    expect(() =>
+      buildInsightUpdateCommands(id, baseInsight, {
+        filters: [{ field: "region", operator: "eq", value: "EMEA" }],
+      }),
+    ).toThrow(/filters are not supported/);
+    expect(() =>
+      buildInsightUpdateCommands(id, baseInsight, {
+        joins: [
+          {
+            type: "inner",
+            rightTableId: tableId,
+            leftKey: "id",
+            rightKey: "id",
+          },
+        ],
+      }),
+    ).toThrow(/joins are not supported/);
   });
 });
 

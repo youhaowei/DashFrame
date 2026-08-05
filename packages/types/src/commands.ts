@@ -310,70 +310,6 @@ export function cmd<K extends CommandName>(
 // UI helpers — decompose coarse domain patches into command batches
 // ---------------------------------------------------------------------------
 
-/**
- * Wrap domain InsightFilter values into the tagged operand form.
- *
- * Throws on a `between` filter — TypedInsightFilter's operand is a single
- * scalar and can't express a range. Callers that may carry `between` filters
- * (the insight config panel's filter editor) must not route through this
- * builder; they stay on the legacy `updateInsight` write path instead.
- */
-export function toTypedFilters(
-  filters: readonly InsightFilter[],
-): TypedInsightFilter[] {
-  return filters.map((f) => {
-    if (f.operator === "between") {
-      throw new Error(
-        "toTypedFilters: 'between' filters are not supported by SetInsightFilter's scalar operand model",
-      );
-    }
-    return {
-      ...(f.id !== undefined ? { id: f.id } : {}),
-      field: f.field,
-      operator: f.operator,
-      value: { kind: "value" as const, v: f.value },
-    };
-  });
-}
-
-/**
- * Unwrap a stored filter operand for the domain `Insight` shape used by SQL
- * and the UI. Accepts both tagged `{ kind: "value", v }` (command path) and
- * plain values (legacy updateInsight path) so either storage form reads cleanly.
- */
-export function unwrapFilterOperand(value: unknown): unknown {
-  if (
-    value !== null &&
-    typeof value === "object" &&
-    !Array.isArray(value) &&
-    "kind" in value &&
-    (value as { kind: unknown }).kind === "value" &&
-    "v" in value
-  ) {
-    return (value as { v: unknown }).v;
-  }
-  return value;
-}
-
-/** Map stored filter rows to domain InsightFilter (plain values). */
-export function toDomainFilters(
-  filters: readonly unknown[] | undefined,
-): InsightFilter[] | undefined {
-  if (filters === undefined) return undefined;
-  return filters.map((raw) => {
-    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
-      return raw as InsightFilter;
-    }
-    const rec = raw as Record<string, unknown>;
-    return {
-      ...(typeof rec.id === "string" ? { id: rec.id } : {}),
-      field: String(rec.field ?? ""),
-      operator: rec.operator as InsightFilter["operator"],
-      value: unwrapFilterOperand(rec.value),
-    };
-  });
-}
-
 function stableJson(value: unknown): string {
   return JSON.stringify(value);
 }
@@ -433,82 +369,25 @@ export function buildMetricDiffCommands(
   return commands;
 }
 
-function joinsEqual(
-  a: InsightJoinConfig | undefined,
-  b: InsightJoinConfig | undefined,
-): boolean {
-  return stableJson(a) === stableJson(b);
-}
-
-/**
- * Diff two join arrays into Add/Update/RemoveJoin commands.
- */
-export function buildJoinDiffCommands(
-  id: UUID,
-  previous: readonly InsightJoinConfig[] | undefined,
-  next: readonly InsightJoinConfig[],
-): Command[] {
-  const prev = previous ?? [];
-  const commands: Command[] = [];
-
-  // Append-only
-  if (
-    next.length === prev.length + 1 &&
-    prev.every((j, i) => joinsEqual(j, next[i]))
-  ) {
-    return [cmd("AddJoin", { id, join: next[next.length - 1]! })];
-  }
-
-  // Single removal
-  if (next.length === prev.length - 1) {
-    for (let i = 0; i < prev.length; i++) {
-      const candidate = [...prev.slice(0, i), ...prev.slice(i + 1)];
-      if (candidate.every((j, k) => joinsEqual(j, next[k]))) {
-        return [cmd("RemoveJoin", { id, joinIndex: i })];
-      }
-    }
-  }
-
-  // Same length — per-index updates
-  if (next.length === prev.length) {
-    for (let i = 0; i < next.length; i++) {
-      if (!joinsEqual(prev[i], next[i])) {
-        commands.push(
-          cmd("UpdateJoin", {
-            id,
-            joinIndex: i,
-            updates: next[i]!,
-          }),
-        );
-      }
-    }
-    return commands;
-  }
-
-  // Full rebuild (remove high→low so indices stay valid, then add)
-  for (let i = prev.length - 1; i >= 0; i--) {
-    commands.push(cmd("RemoveJoin", { id, joinIndex: i }));
-  }
-  for (const join of next) {
-    commands.push(cmd("AddJoin", { id, join }));
-  }
-  return commands;
-}
-
 /**
  * Decompose a coarse insight patch (legacy `updateInsight` shape) into the
  * minimal command batch for the slices present in `updates`.
  *
- * Requires `current` for metric/join diffs. Slices without a corresponding
+ * Requires `current` for the metric diff. Slices without a corresponding
  * command (e.g. unknown keys) are ignored — callers should only pass known
  * domain fields.
+ *
+ * `filters` and `joins` are deliberately NOT handled here and throw rather than
+ * being dropped, so a future caller cannot lose a write silently:
+ *   - filters stay on the legacy `updateInsight` write path until the filter
+ *     command model supports ranges (`between` has no single-scalar operand).
+ *   - joins are edited through explicit `cmd("AddJoin")` / `cmd("RemoveJoin")`
+ *     at the call site, which knows the user's intent better than an
+ *     array diff can infer it.
  */
 export function buildInsightUpdateCommands(
   id: UUID,
-  current: Pick<
-    Insight,
-    "metrics" | "joins" | "selectedFields" | "filters" | "sorts" | "name"
-  >,
+  current: Pick<Insight, "metrics">,
   updates: Partial<Omit<Insight, "id" | "createdAt">>,
 ): Command[] {
   const commands: Command[] = [];
@@ -522,11 +401,8 @@ export function buildInsightUpdateCommands(
     );
   }
   if (updates.filters !== undefined) {
-    commands.push(
-      cmd("SetInsightFilter", {
-        id,
-        filters: toTypedFilters(updates.filters),
-      }),
+    throw new Error(
+      "buildInsightUpdateCommands: filters are not supported — use the legacy updateInsight write path",
     );
   }
   if (updates.sorts !== undefined) {
@@ -538,7 +414,9 @@ export function buildInsightUpdateCommands(
     );
   }
   if (updates.joins !== undefined) {
-    commands.push(...buildJoinDiffCommands(id, current.joins, updates.joins));
+    throw new Error(
+      'buildInsightUpdateCommands: joins are not supported — use cmd("AddJoin") / cmd("RemoveJoin") directly',
+    );
   }
   // baseTableId repoint is refused by the legacy path; callers must use
   // SetInsightSource directly. Silently skip if present.

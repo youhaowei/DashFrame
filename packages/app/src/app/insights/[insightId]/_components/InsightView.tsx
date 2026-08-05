@@ -6,9 +6,9 @@ import { useInsightView } from "@/hooks/useInsightView";
 import { formatCellValue } from "@/lib/cell-formatter";
 import { getDataFrame } from "@/lib/data-access/data-frames";
 import {
+  TABLE_CANVAS_VIEW,
   canvasViewsEqual,
   sanitizeInsightCanvasView,
-  TABLE_CANVAS_VIEW,
   useInsightCanvasStore,
   type InsightCanvasView,
 } from "@/lib/stores/insight-canvas-store";
