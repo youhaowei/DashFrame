@@ -1,16 +1,28 @@
 import { schema } from "@dashframe/server-core";
 import { eq, lt, type DrizzleTracker } from "@wystack/db";
-import {
-  createHash,
-  randomBytes,
-  randomUUID,
-  timingSafeEqual,
-} from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 
 const { connectorSetupSessions, dataSources } = schema;
 
 export const CONNECTOR_SETUP_TTL_MS = 15 * 60 * 1000;
 export const CONNECTOR_SETUP_TERMINAL_RETENTION_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * How long an `exchanging` / `verifying` row must sit untouched before the
+ * sweep is allowed to treat it as abandoned.
+ *
+ * The sweep infers "the process handling this crashed" from the state alone,
+ * which is only true of a row nobody is working on. At boot that holds for
+ * everything in flight, but `sweepConnectorSetupSessions` is an ordinary
+ * mutation any client may call at any moment — including the seconds between
+ * markVerifying and markConnected. Recovering a live session there rotates its
+ * nonce and clears its dataSourceId out from under the handler, which then
+ * fails its compare-and-swap and reports failure for a connection that in fact
+ * succeeded, leaving a resumable session that creates a second data source.
+ *
+ * The window only has to exceed a normal code exchange plus verification probe.
+ */
+export const CONNECTOR_SETUP_INFLIGHT_GRACE_MS = 2 * 60 * 1000;
 
 /**
  * The only database surface this module may touch.
@@ -68,12 +80,6 @@ function newStateNonce(): string {
 
 function newCodeVerifier(): string {
   return randomBytes(64).toString("base64url");
-}
-
-function matchesStateNonce(nonce: string, expectedHex: string): boolean {
-  const actual = Buffer.from(hashStateNonce(nonce), "hex");
-  const expected = Buffer.from(expectedHex, "hex");
-  return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
 /** Rows returned by a tracked `update()` / `delete()`, which lowers to RETURNING *. */
@@ -244,18 +250,16 @@ export async function consumeCallback(
   // caller can inflate. The index makes the work per callback independent of
   // how many sessions exist.
   //
-  // The constant-time digest comparison stays, and still does the deciding: the
-  // index lookup narrows to a candidate, and `matchesStateNonce` is what
-  // accepts it. Only after that gate succeeds does the callback learn which
-  // session exists.
-  const candidate = (await db
+  // The unique-index equality IS the match — there is no separate compare step
+  // after it, because there is nothing left to decide. Nothing secret is
+  // compared here either: the lookup key is a SHA-256 digest of the presented
+  // nonce, not the nonce, so an equality test on it leaks nothing about the
+  // nonce. Loosening this lookup to a prefix or a non-unique index would
+  // reintroduce a candidate set and would need a real gate added back.
+  const row = (await db
     .from(connectorSetupSessions)
     .where(eq("stateNonceHash", hashStateNonce(state)))
     .first()) as ConnectorSetupSessionRow | undefined;
-  const row =
-    candidate && matchesStateNonce(state, candidate.stateNonceHash)
-      ? candidate
-      : undefined;
   if (!row) {
     throw new ConnectorSetupGateError("state-mismatch");
   }
@@ -354,8 +358,11 @@ export async function markFailed(
       .from(connectorSetupSessions)
       .where([eq("id", sessionId), eq("state", row.state)])
       .update({
+        // dataSourceId is deliberately preserved. It is the only record of
+        // which source this attempt was working on, and a failed session that
+        // has forgotten it cannot be reconciled by anything but manual
+        // inspection. The state itself already says the attempt did not finish.
         state: "failed",
-        dataSourceId: null,
         failureCode,
         failureMessage,
         updatedAt: now,
@@ -391,6 +398,13 @@ async function recoverInFlight(
   now: Date,
 ): Promise<"recovered" | "expired" | undefined> {
   if (row.state !== "exchanging" && row.state !== "verifying") {
+    return undefined;
+  }
+  // Still inside the grace window: assume a live handler owns this row.
+  if (
+    now.getTime() - row.updatedAt.getTime() <
+    CONNECTOR_SETUP_INFLIGHT_GRACE_MS
+  ) {
     return undefined;
   }
   const isExpired = row.expiresAt.getTime() <= now.getTime();

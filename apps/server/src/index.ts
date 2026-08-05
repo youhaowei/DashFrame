@@ -364,6 +364,19 @@ export async function createStandaloneSecretServices(
     CREDENTIAL_CLASS.ServeToken,
     ENCRYPTED_FILE_BACKEND_NAME,
   );
+  // OAuth connector onboarding stores its token bundle through this vault, so
+  // connector keys need a default here or `serve` cannot complete a connection
+  // at all.
+  //
+  // Know what that inherits. This vault's mappings live in a host-local
+  // mappings.json under dataDir while the ref itself lives in the project DB,
+  // so unlike desktop — which uses DrizzleMappingStore and keeps ref, blob, and
+  // mapping inside one transactional boundary — a project copied or restored
+  // away from this host holds refs that no longer resolve. That split is
+  // pre-existing: serve tokens already sit on it. This line widens which
+  // credential classes it covers; it does not create it. Moving the serve path
+  // onto DrizzleMappingStore is the real fix and needs a migration for the
+  // mappings already written here.
   registry.setClassDefault(
     CREDENTIAL_CLASS.ConnectorKey,
     ENCRYPTED_FILE_BACKEND_NAME,

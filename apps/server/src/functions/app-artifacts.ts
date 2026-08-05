@@ -1545,6 +1545,11 @@ async function ga4ConnectorFor(
  * store-new → canonical-write → flush-snapshot → release-old. Releasing the old
  * ref before the new config is durable would leave a snapshot pointing at a
  * credential that no longer exists.
+ *
+ * Two simultaneous queries can both refresh and both mint a ref; the last
+ * config write wins and the other blob is orphaned. Wasteful, never dangling —
+ * no config ever points at the loser — and not worth a lock on a path that runs
+ * about once an hour per source.
  */
 async function persistGa4TokenBundle(
   ctx: DashframeFunctionContext,

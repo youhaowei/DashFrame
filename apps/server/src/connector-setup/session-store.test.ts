@@ -246,11 +246,17 @@ describe("connector setup session store", () => {
     const terminal = await pending(new Date("2026-08-03T00:00:00Z"));
     await db
       .update(connectorSetupSessions)
-      .set({ state: "exchanging" })
+      // updatedAt is set explicitly: the sweep only recovers rows that have
+      // sat untouched past CONNECTOR_SETUP_INFLIGHT_GRACE_MS, and the schema's
+      // $onUpdate would otherwise stamp these with the real clock.
+      .set({
+        state: "exchanging",
+        updatedAt: new Date("2026-08-05T11:55:00Z"),
+      })
       .where(eq(connectorSetupSessions.id, exchanging.session.id));
     await db
       .update(connectorSetupSessions)
-      .set({ state: "verifying" })
+      .set({ state: "verifying", updatedAt: new Date("2026-08-05T11:56:00Z") })
       .where(eq(connectorSetupSessions.id, verifying.session.id));
     await db
       .update(connectorSetupSessions)
@@ -280,6 +286,38 @@ describe("connector setup session store", () => {
     expect(rows.some((row) => row.id === terminal.session.id)).toBe(false);
   });
 
+  it("leaves a still-live in-flight session alone", async () => {
+    // sweepConnectorSetupSessions is an ordinary mutation any client can call,
+    // including during the seconds between markVerifying and markConnected.
+    // Recovering there would rotate the nonce and clear dataSourceId under a
+    // live handler, failing its compare-and-swap and reporting failure for a
+    // connection that actually succeeded.
+    const now = new Date("2026-08-05T12:00:00Z");
+    const issuance = await pending(new Date("2026-08-05T11:59:30Z"));
+    const sourceId = crypto.randomUUID();
+    await db
+      .update(connectorSetupSessions)
+      .set({
+        state: "verifying",
+        dataSourceId: sourceId,
+        updatedAt: new Date("2026-08-05T11:59:30Z"),
+      })
+      .where(eq(connectorSetupSessions.id, issuance.session.id));
+
+    await expect(sweep(app.createTracked(), now)).resolves.toEqual({
+      recovered: 0,
+      expired: 0,
+      deleted: 0,
+    });
+    const [row] = await db
+      .select()
+      .from(connectorSetupSessions)
+      .where(eq(connectorSetupSessions.id, issuance.session.id));
+    expect(row?.state).toBe("verifying");
+    expect(row?.dataSourceId).toBe(sourceId);
+    expect(row?.stateNonceHash).toBe(issuance.session.stateNonceHash);
+  });
+
   it("reconciles a verifying session whose planned source was already created", async () => {
     const issuance = await pending();
     const sourceId = crypto.randomUUID();
@@ -293,7 +331,11 @@ describe("connector setup session store", () => {
     });
     await db
       .update(connectorSetupSessions)
-      .set({ state: "verifying", dataSourceId: sourceId })
+      .set({
+        state: "verifying",
+        dataSourceId: sourceId,
+        updatedAt: new Date("2026-08-05T11:57:00Z"),
+      })
       .where(eq(connectorSetupSessions.id, issuance.session.id));
 
     await expect(
@@ -384,7 +426,11 @@ describe("connector setup session store", () => {
       });
       await db
         .update(connectorSetupSessions)
-        .set({ state: "verifying", dataSourceId: sourceId })
+        .set({
+          state: "verifying",
+          dataSourceId: sourceId,
+          updatedAt: new Date("2026-08-05T11:57:00Z"),
+        })
         .where(eq(connectorSetupSessions.id, issuance.session.id));
 
       const tracker = app.createTracked();
@@ -396,7 +442,7 @@ describe("connector setup session store", () => {
       expect([...tracker.tablesWritten]).toContain("connector_setup_sessions");
     });
 
-    it("records the session write on every mutating path", async () => {
+    it("records the session write on the reissue, callback, and failure paths", async () => {
       // Each write tags through the tracked builder at the point of the write,
       // rather than through a single end-of-function call gated on counters the
       // module computes for itself — a path that writes without incrementing

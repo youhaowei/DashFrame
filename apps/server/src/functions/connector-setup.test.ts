@@ -329,6 +329,29 @@ describe("connector setup functions", () => {
       expect((await row(session.sessionId))?.state).toBe("awaiting-user-auth");
     });
 
+    it("exposes only the minimal public shape on the unauthenticated path", async () => {
+      const app = await makeApp(makeVault().vault);
+      const session = await start(app);
+
+      const reissued = await app.call(
+        "reissueConnectorSetupResume",
+        { sessionId: session.sessionId },
+        { principal: user },
+      );
+
+      // An exact key set, not a subset: this DTO is what the unauthenticated
+      // resume routes hand to the browser, so a field added to it must fail
+      // here rather than ship. Notably absent: codeVerifier, stateNonceHash,
+      // requestedName, dataSourceId, failureMessage.
+      expect(Object.keys(reissued.result as object).sort()).toEqual([
+        "authorizeUrl",
+        "connectorId",
+        "expiresAt",
+        "sessionId",
+        "state",
+      ]);
+    });
+
     it("rotates the capability only through the reissue mutation", async () => {
       const app = await makeApp(makeVault().vault);
       const session = await start(app);
