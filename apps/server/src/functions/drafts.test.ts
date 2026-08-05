@@ -228,6 +228,7 @@ describe("draft publish functions", () => {
         jsonPath: "args.name",
         kind: "lateBound",
         label: "data source name",
+        refType: "unknown",
       },
     ]);
     expect(review.commands).toHaveLength(1);
