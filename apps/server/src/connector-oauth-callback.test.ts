@@ -1,5 +1,6 @@
 import { openArtifactDb } from "@dashframe/server-core";
 import type { WyStackApp } from "@wystack/server";
+import type { Context } from "hono";
 import { Hono } from "hono";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -142,5 +143,116 @@ describe("connector OAuth browser routes", () => {
       "[dashframe] connector OAuth callback rejected: state-mismatch",
     );
     warn.mockRestore();
+  });
+
+  // These routes are consumed by a browser, not by our own client, so the
+  // status is the entire machine-readable half of the response — the body is
+  // prose for a human. Asserting only bodies let every status here be changed
+  // to 200 with the suite still green.
+  describe("status codes each browser route commits to", () => {
+    // Typed against the real handler shape rather than cast through `never`:
+    // these tests stand in for mutants, so a handler signature change has to
+    // break them rather than slide past on a cast.
+    function route(
+      handler: (c: Context, app: WyStackApp) => Promise<Response>,
+      path: string,
+      result: unknown,
+    ) {
+      const call = vi.fn(async () => ({
+        result,
+        tablesRead: new Set<string>(),
+        tablesWritten: new Set<string>(),
+      }));
+      const hono = new Hono();
+      hono.get(path, (c) => handler(c, fakeApp(call)));
+      return hono;
+    }
+
+    it("answers a callback that has to restart authorization with 409", async () => {
+      const hono = route(
+        handleConnectorOAuthCallback,
+        "/api/connectors/oauth/callback",
+        { state: "awaiting-user-auth" },
+      );
+      const response = await hono.request(
+        "/api/connectors/oauth/callback?state=opaque&code=authorization-code",
+      );
+      // Not 200: the tab is showing "sign in again", so a cache or a monitor
+      // must not read this as a completed connection.
+      expect(response.status).toBe(409);
+    });
+
+    it("answers a callback for a dead session with 400", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const hono = route(
+        handleConnectorOAuthCallback,
+        "/api/connectors/oauth/callback",
+        { state: "expired" },
+      );
+      const response = await hono.request(
+        "/api/connectors/oauth/callback?state=opaque&code=authorization-code",
+      );
+      expect(response.status).toBe(400);
+      warn.mockRestore();
+    });
+
+    it("serves the resume DTO with 200 and an unavailable session with 404", async () => {
+      const ok = route(
+        handleConnectorSetupResume,
+        "/api/connectors/setup/:sessionId/resume",
+        { sessionId: "s", connectorId: "googleAnalytics", state: "expired" },
+      );
+      expect((await ok.request("/api/connectors/setup/s/resume")).status).toBe(
+        200,
+      );
+
+      const failing = new Hono();
+      failing.get("/api/connectors/setup/:sessionId/resume", (c) =>
+        handleConnectorSetupResume(
+          c,
+          fakeApp(
+            vi.fn(async () => {
+              throw new ConnectorSetupGateError("state-mismatch");
+            }),
+          ),
+        ),
+      );
+      const response = await failing.request("/api/connectors/setup/s/resume");
+      expect(response.status).toBe(404);
+      await expect(response.json()).resolves.toEqual({
+        error: "Connector setup session is unavailable",
+      });
+    });
+
+    it("answers the landing route with 410 when the session is past resuming", async () => {
+      const landing = route(handleConnectorResumeLanding, "/", {
+        sessionId: "s",
+        connectorId: "googleAnalytics",
+        state: "failed",
+      });
+      // 410, not 404: the session existed and is being reported as gone for
+      // good, which is what tells the user to start over rather than retry.
+      expect((await landing.request("/?resumeConnector=opaque")).status).toBe(
+        410,
+      );
+    });
+
+    it("answers the landing route with 200 when setup already finished", async () => {
+      const landing = route(handleConnectorResumeLanding, "/", {
+        sessionId: "s",
+        connectorId: "googleAnalytics",
+        state: "connected",
+      });
+      expect((await landing.request("/?resumeConnector=opaque")).status).toBe(
+        200,
+      );
+    });
+
+    it("answers the bare origin root with 404 rather than claiming a session", async () => {
+      const landing = route(handleConnectorResumeLanding, "/", {
+        state: "connected",
+      });
+      expect((await landing.request("/")).status).toBe(404);
+    });
   });
 });

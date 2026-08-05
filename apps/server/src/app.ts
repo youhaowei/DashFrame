@@ -526,6 +526,12 @@ export async function buildDashframeApp(opts: {
  * boot over it takes the whole app down for a problem confined to one
  * background chore. The next sweep, or the callback gate itself, catches
  * whatever this pass missed.
+ *
+ * `__bootSweep` waives the in-flight grace window. This is the one caller that
+ * can prove no handler owns an `exchanging` / `verifying` row — the process
+ * that would have owned it is the one that just died. It also has to waive it:
+ * this pass is the only one scheduled, so a row left inside the window would
+ * sit in flight indefinitely while the browser polled it to its own timeout.
  */
 async function sweepConnectorSetupAtBoot(
   app: WyStackApp,
@@ -535,7 +541,10 @@ async function sweepConnectorSetupAtBoot(
     await app.call(
       "sweepConnectorSetupSessions",
       {},
-      { principal: { kind: "user", userId: LOCAL_USER_ID } },
+      {
+        principal: { kind: "user", userId: LOCAL_USER_ID },
+        __bootSweep: true,
+      },
     );
     await flushSnapshot?.();
   } catch (error) {

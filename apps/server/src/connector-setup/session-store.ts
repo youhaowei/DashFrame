@@ -21,6 +21,13 @@ export const CONNECTOR_SETUP_TERMINAL_RETENTION_MS = 24 * 60 * 60 * 1000;
  * succeeded, leaving a resumable session that creates a second data source.
  *
  * The window only has to exceed a normal code exchange plus verification probe.
+ *
+ * The boot sweep passes 0 instead (see `sweep`'s `graceMs`): nothing can be
+ * mid-exchange in a process that has not finished starting, and honouring the
+ * grace there would strand every row younger than the window — no later pass is
+ * scheduled, so the browser would poll a `verifying` row that never reaches a
+ * terminal state until its own 15-minute timeout gives up on a connection that
+ * actually succeeded.
  */
 export const CONNECTOR_SETUP_INFLIGHT_GRACE_MS = 2 * 60 * 1000;
 
@@ -396,15 +403,13 @@ async function recoverInFlight(
   db: Db,
   row: ConnectorSetupSessionRow,
   now: Date,
+  graceMs: number,
 ): Promise<"recovered" | "expired" | undefined> {
   if (row.state !== "exchanging" && row.state !== "verifying") {
     return undefined;
   }
   // Still inside the grace window: assume a live handler owns this row.
-  if (
-    now.getTime() - row.updatedAt.getTime() <
-    CONNECTOR_SETUP_INFLIGHT_GRACE_MS
-  ) {
+  if (now.getTime() - row.updatedAt.getTime() < graceMs) {
     return undefined;
   }
   const isExpired = row.expiresAt.getTime() <= now.getTime();
@@ -447,9 +452,16 @@ async function recoverInFlight(
   return isExpired ? "expired" : "recovered";
 }
 
+/**
+ * @param graceMs how long an in-flight row must sit untouched before it counts
+ * as abandoned. Callers that can prove no handler is alive — the boot sweep —
+ * pass 0; every other caller must leave the default, since the on-demand sweep
+ * is an ordinary mutation that can land mid-exchange.
+ */
 export async function sweep(
   db: Db,
   now = new Date(),
+  graceMs = CONNECTOR_SETUP_INFLIGHT_GRACE_MS,
 ): Promise<{ recovered: number; expired: number; deleted: number }> {
   const rows = (await db
     .from(connectorSetupSessions)
@@ -461,7 +473,7 @@ export async function sweep(
       if (await expireAwaiting(db, row, now)) expired += 1;
       continue;
     }
-    const outcome = await recoverInFlight(db, row, now);
+    const outcome = await recoverInFlight(db, row, now, graceMs);
     if (outcome === "expired") expired += 1;
     if (outcome === "recovered") recovered += 1;
   }

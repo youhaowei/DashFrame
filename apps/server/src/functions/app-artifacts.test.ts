@@ -1162,3 +1162,126 @@ describe("insight writes preserve `source` (Insight-on-Insight composition)", ()
     expect(rows[0]?.id).toBe(draftId);
   });
 });
+
+// ---------------------------------------------------------------------------
+// GA4 token write-back — concurrent refresh must not orphan a vault ref
+// ---------------------------------------------------------------------------
+//
+// Writing a refreshed bundle is a read-modify-write: read the source's config,
+// store a new secret, write the config, then release the ref the read saw. Run
+// two of those interleaved and each computes "the old ref" from its own read,
+// so one minted ref ends up stored with no config pointing at it and nothing
+// that will ever release it. Nothing detects that later — the vault has no
+// listing operation, so an orphan is invisible by construction.
+//
+// The assertion that discriminates fixed from broken is that exactly one of the
+// two minted refs is still live. "One config write happened" would pass on the
+// broken code too.
+
+describe("GA4 refreshed-token write-back under concurrency", () => {
+  let dir: string;
+  let db: Awaited<ReturnType<typeof openArtifactDb>>;
+  let app: WyStackApp;
+  let vault: SecretVault;
+
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), "dashframe-ga4-refresh-"));
+    db = await openArtifactDb({ path: join(dir, "artifacts.db") });
+    ({ vault } = makeTestVault());
+    app = await wy.build({ db, functions });
+  });
+
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    await db.$client.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("leaves exactly one live credential ref when two refreshes race", async () => {
+    // An already-expired bundle, so both calls take the refresh path.
+    const expired = JSON.stringify({
+      version: 1,
+      clientId: "client-id",
+      accessToken: "stale-access-token",
+      refreshToken: "refresh-token",
+      expiresAt: Date.now() - 60_000,
+      scopes: ["https://www.googleapis.com/auth/analytics.readonly"],
+    });
+    const originalRef = await vault.store(expired, {
+      class: CREDENTIAL_CLASS.ConnectorKey,
+    });
+    const dataSourceId = crypto.randomUUID();
+    await db.insert(dataSources).values({
+      id: dataSourceId,
+      name: "GA4",
+      kind: "googleAnalytics",
+      storage: "live",
+      config: { apiKey: originalRef },
+      createdBy: { kind: "user" },
+    });
+
+    const minted: SecretRef[] = [];
+    const realStore = vault.store.bind(vault);
+    vi.spyOn(vault, "store").mockImplementation(async (plaintext, opts) => {
+      const ref = await realStore(plaintext, opts);
+      minted.push(ref);
+      return ref;
+    });
+
+    // Both calls interleave around the token endpoint: each has read the
+    // source's config before either has written one back.
+    let releaseToken: (() => void) | undefined;
+    const bothRefreshing = new Promise<void>((resolve) => {
+      let arrived = 0;
+      releaseToken = () => {
+        if (++arrived === 2) resolve();
+      };
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input instanceof Request ? input.url : input);
+        if (url.startsWith("https://oauth2.googleapis.com/token")) {
+          releaseToken?.();
+          await bothRefreshing;
+          return new Response(
+            JSON.stringify({
+              access_token: `fresh-${crypto.randomUUID()}`,
+              expires_in: 3600,
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        return new Response(JSON.stringify({ accountSummaries: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }),
+    );
+
+    const context = {
+      vault,
+      googleOAuth: { clientId: "client-id", clientSecret: "client-secret" },
+      flushSnapshot: async () => {},
+    };
+    await Promise.all([
+      app.call("listGa4Properties", { dataSourceId }, context),
+      app.call("listGa4Properties", { dataSourceId }, context),
+    ]);
+
+    // Both refreshes minted a ref; only the one the config points at survives.
+    expect(minted).toHaveLength(2);
+    const [row] = await db
+      .select()
+      .from(dataSources)
+      .where(eq(dataSources.id, dataSourceId));
+    const live = (row?.config as { apiKey?: SecretRef }).apiKey;
+    expect(isSecretRef(live)).toBe(true);
+    expect(minted).toContain(live);
+    const survivors: SecretRef[] = [];
+    for (const ref of [originalRef, ...minted]) {
+      if (await vault.has(ref)) survivors.push(ref);
+    }
+    expect(survivors).toEqual([live]);
+  });
+});

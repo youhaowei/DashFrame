@@ -347,10 +347,19 @@ const cancelConnectorSetup = wy.procedure
     ),
   );
 
+// The grace window comes from context, never from input: a client-settable
+// `graceMs: 0` would let anyone recover a session whose handler is still
+// running, which is the exact race the window exists to close. Only the host
+// process can set __bootSweep, and only startup can honestly claim that no
+// handler is alive.
 const sweepConnectorSetupSessions = wy.procedure
   .authorize(permissions.connectors.setup)
   .input({})
-  .mutation(async (ctx) => sweep(ctx.db));
+  .mutation(async (ctx) =>
+    ctx.__bootSweep === true
+      ? sweep(ctx.db, new Date(), 0)
+      : sweep(ctx.db, new Date()),
+  );
 
 export function connectorSetupGateCode(error: unknown): string {
   return error instanceof ConnectorSetupGateError

@@ -1546,12 +1546,13 @@ async function ga4ConnectorFor(
  * ref before the new config is durable would leave a snapshot pointing at a
  * credential that no longer exists.
  *
- * Two simultaneous queries can both refresh and both mint a ref; the last
- * config write wins and the other blob is orphaned. Wasteful, never dangling —
- * no config ever points at the loser — and not worth a lock on a path that runs
- * about once an hour per source.
+ * Callers reach this through `persistGa4TokenBundle`, which serializes it per
+ * source. It must not be called directly: `superseded` is computed from the
+ * read a few lines below, so two interleaved runs would each supersede only
+ * what their own read saw and one of the minted refs would be stored and then
+ * never referenced or released.
  */
-async function persistGa4TokenBundle(
+async function persistGa4TokenBundleLocked(
   ctx: DashframeFunctionContext,
   dataSourceId: UUID,
   vault: SecretVault | undefined,
@@ -1587,6 +1588,65 @@ async function persistGa4TokenBundle(
     vault,
     `ga4-refresh-${dataSourceId}`,
   );
+}
+
+/**
+ * In-flight token write per data source, so the read-modify-write above runs
+ * one at a time.
+ *
+ * Keyed by source rather than global: refreshes for different sources share
+ * nothing, and a global lock would let one slow vault write stall every other
+ * source's queries.
+ */
+const ga4TokenWrites = new Map<UUID, Promise<void>>();
+
+/**
+ * Write a renewed GA4 token bundle back, serialized against other writes for
+ * the same source.
+ *
+ * Serializing makes the second writer re-read after the first has landed, so
+ * its `superseded` list contains the first writer's ref and
+ * `flushThenReleaseRefs` actually releases it. Without that, two simultaneous
+ * refreshes each mint a ref, the last config write wins, and the loser's blob
+ * stays in the vault forever with nothing pointing at it.
+ *
+ * This narrows the race to the write, not the refresh: two callers can still
+ * both hit Google, and if Google rotated the refresh token the second caller's
+ * bundle carries the pre-rotation one, so the surviving config can hold a dead
+ * refresh token. Tolerable, because Google's web-server flow does not rotate
+ * refresh tokens per call, and a bundle that does go stale costs one failed
+ * refresh before the next call re-reads and recovers. Coalescing the refresh
+ * itself has to happen above the connector boundary and is a separate change.
+ */
+async function persistGa4TokenBundle(
+  ctx: DashframeFunctionContext,
+  dataSourceId: UUID,
+  vault: SecretVault | undefined,
+  bundle: GoogleOAuthTokenBundle,
+): Promise<void> {
+  const previous = ga4TokenWrites.get(dataSourceId) ?? Promise.resolve();
+  // Chained on a tail that settles either way. A persist failure is non-fatal
+  // to the request that hit it (see `accessTokenFor`), so it must not reject
+  // every write queued behind it — that would turn one storage hiccup into a
+  // permanently broken refresh path for the source.
+  const settle = () =>
+    persistGa4TokenBundleLocked(ctx, dataSourceId, vault, bundle);
+  const result = previous.then(settle, settle);
+  // Drop the entry once this is the last write outstanding, or the map grows a
+  // permanent entry per source connected in the process's lifetime. Folded
+  // into the stored tail rather than chained separately so the cleanup runs
+  // before anything queued behind this write reads the map.
+  // Only clears its own entry: a writer that queued behind this one has
+  // already replaced the map value, and deleting that would let a third writer
+  // start from an empty chain and race the one still running.
+  const forget = () => {
+    if (ga4TokenWrites.get(dataSourceId) === tail) {
+      ga4TokenWrites.delete(dataSourceId);
+    }
+  };
+  const tail: Promise<void> = result.then(forget, forget);
+  ga4TokenWrites.set(dataSourceId, tail);
+  return result;
 }
 
 const listGa4Properties = wy.procedure

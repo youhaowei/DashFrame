@@ -21,6 +21,17 @@ export interface AppContext {
   mode?: string;
   draftId?: string;
   __publishReplay?: boolean;
+  /**
+   * Marks the connector-setup sweep as the one the server runs during startup,
+   * which is allowed to recover in-flight rows immediately instead of waiting
+   * out the abandonment grace window.
+   *
+   * Context, not procedure input, and deliberately so: an input field would let
+   * any client send `graceMs: 0` and recover a session a live handler is still
+   * working on — exactly the race the grace window exists to close. Only the
+   * host process can set this.
+   */
+  __bootSweep?: boolean;
 }
 
 export type DashframeFunctionContext = FunctionContext<AppContext>;

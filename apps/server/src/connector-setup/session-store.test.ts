@@ -8,9 +8,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { functions } from "../functions";
 import { wy } from "../wystack";
 import {
+  CONNECTOR_SETUP_INFLIGHT_GRACE_MS,
   CONNECTOR_SETUP_TERMINAL_RETENTION_MS,
   ConnectorSetupGateError,
   consumeCallback,
+  effectiveState,
+  markConnected,
+  markVerifying,
   oauthStateFor,
   publicResumeInfo,
   startSession,
@@ -74,6 +78,18 @@ describe("connector setup session store", () => {
     await db.$client.close();
     rmSync(dir, { recursive: true, force: true });
   });
+
+  // Derived, not hardcoded: these offsets only mean anything relative to the
+  // grace window, so retuning CONNECTOR_SETUP_INFLIGHT_GRACE_MS must move them
+  // too. Literals would leave the tests passing while asserting the wrong side
+  // of the boundary.
+  const SWEEP_NOW = new Date("2026-08-05T12:00:00Z");
+  const ABANDONED_AT = new Date(
+    SWEEP_NOW.getTime() - CONNECTOR_SETUP_INFLIGHT_GRACE_MS - 1_000,
+  );
+  const STILL_LIVE_AT = new Date(
+    SWEEP_NOW.getTime() - Math.floor(CONNECTOR_SETUP_INFLIGHT_GRACE_MS / 4),
+  );
 
   async function pending(now = new Date("2026-08-05T12:00:00Z")) {
     return startSession(app.createTracked(), {
@@ -238,10 +254,117 @@ describe("connector setup session store", () => {
     expect("stateNonce" in resumed).toBe(false);
   });
 
-  it("boot sweep recovers in-flight rows, expires stale rows, and deletes old terminals", async () => {
-    const now = new Date("2026-08-05T12:00:00Z");
-    const exchanging = await pending(new Date("2026-08-05T11:55:00Z"));
-    const verifying = await pending(new Date("2026-08-05T11:56:00Z"));
+  // Each of these closes a mutant that survived the suite: the boundary
+  // comparisons and the compare-and-swap preconditions could all be weakened
+  // without a single test going red.
+  describe("boundaries a reader must not get wrong", () => {
+    it("reports a session as expired at the instant its TTL elapses, not after", async () => {
+      const { session } = await pending();
+      const deadline = session.expiresAt;
+
+      expect(effectiveState(session, new Date(deadline.getTime() - 1))).toBe(
+        "awaiting-user-auth",
+      );
+      // Exactly at expiresAt the session is already gone. `<` instead of `<=`
+      // here would keep a session usable for one more millisecond than the
+      // callback gate allows, so a resume issued on this boundary would mint an
+      // authorize URL that consumeCallback then rejects as expired.
+      expect(effectiveState(session, deadline)).toBe("expired");
+      expect(effectiveState(session, new Date(deadline.getTime() + 1))).toBe(
+        "expired",
+      );
+    });
+
+    it("refuses a callback that arrives exactly on the expiry instant", async () => {
+      const issuance = await pending();
+      const deadline = issuance.session.expiresAt;
+
+      // The gate and effectiveState have to agree on which side of `expiresAt`
+      // is still usable. `<` here would accept a callback for a session the
+      // resume path already reports as expired, so a code exchange would run
+      // against a row no reader considers live.
+      await expect(
+        consumeCallback(
+          app.createTracked(),
+          oauthStateFor(issuance.stateNonce),
+          deadline,
+        ),
+      ).rejects.toMatchObject({ code: "session-expired" });
+      const [row] = await db
+        .select()
+        .from(connectorSetupSessions)
+        .where(eq(connectorSetupSessions.id, issuance.session.id));
+      expect(row?.state).toBe("expired");
+    });
+
+    it("accepts a callback one millisecond before the expiry instant", async () => {
+      const issuance = await pending();
+      await expect(
+        consumeCallback(
+          app.createTracked(),
+          oauthStateFor(issuance.stateNonce),
+          new Date(issuance.session.expiresAt.getTime() - 1),
+        ),
+      ).resolves.toMatchObject({ state: "exchanging" });
+    });
+
+    it("refuses to re-enter verification for a session already verifying", async () => {
+      const { session } = await pending();
+      const first = crypto.randomUUID();
+      await db
+        .update(connectorSetupSessions)
+        .set({ state: "exchanging" })
+        .where(eq(connectorSetupSessions.id, session.id));
+      await markVerifying(app.createTracked(), session.id, first, SWEEP_NOW);
+
+      // Only an `exchanging` row may enter verification. Dropping that term
+      // would let a retried exchange run a second verification probe, minting
+      // a second data source and overwriting the first id — orphaning a row
+      // nothing ever cleans up.
+      await expect(
+        markVerifying(
+          app.createTracked(),
+          session.id,
+          crypto.randomUUID(),
+          SWEEP_NOW,
+        ),
+      ).rejects.toThrow("Connector setup transition rejected");
+      const [row] = await db
+        .select()
+        .from(connectorSetupSessions)
+        .where(eq(connectorSetupSessions.id, session.id));
+      expect(row).toMatchObject({ state: "verifying", dataSourceId: first });
+    });
+
+    it("refuses to connect a session to a source it was not verifying", async () => {
+      const { session } = await pending();
+      const intended = crypto.randomUUID();
+      const other = crypto.randomUUID();
+      await db
+        .update(connectorSetupSessions)
+        .set({ state: "exchanging" })
+        .where(eq(connectorSetupSessions.id, session.id));
+      await markVerifying(app.createTracked(), session.id, intended, SWEEP_NOW);
+
+      // The dataSourceId term in the compare-and-swap is the only thing tying a
+      // connect to the source its own verification probe created. Without it a
+      // concurrent flow's id could be written into this session, pointing the
+      // user's finished connector at someone else's data source.
+      await expect(
+        markConnected(app.createTracked(), session.id, other, SWEEP_NOW),
+      ).rejects.toThrow("Connector setup transition rejected");
+      const [row] = await db
+        .select()
+        .from(connectorSetupSessions)
+        .where(eq(connectorSetupSessions.id, session.id));
+      expect(row).toMatchObject({ state: "verifying", dataSourceId: intended });
+    });
+  });
+
+  it("recovers abandoned in-flight rows, expires stale rows, and deletes old terminals", async () => {
+    const now = SWEEP_NOW;
+    const exchanging = await pending(ABANDONED_AT);
+    const verifying = await pending(ABANDONED_AT);
     const stale = await pending(new Date("2026-08-05T11:40:00Z"));
     const terminal = await pending(new Date("2026-08-03T00:00:00Z"));
     await db
@@ -251,12 +374,12 @@ describe("connector setup session store", () => {
       // $onUpdate would otherwise stamp these with the real clock.
       .set({
         state: "exchanging",
-        updatedAt: new Date("2026-08-05T11:55:00Z"),
+        updatedAt: ABANDONED_AT,
       })
       .where(eq(connectorSetupSessions.id, exchanging.session.id));
     await db
       .update(connectorSetupSessions)
-      .set({ state: "verifying", updatedAt: new Date("2026-08-05T11:56:00Z") })
+      .set({ state: "verifying", updatedAt: ABANDONED_AT })
       .where(eq(connectorSetupSessions.id, verifying.session.id));
     await db
       .update(connectorSetupSessions)
@@ -292,15 +415,15 @@ describe("connector setup session store", () => {
     // Recovering there would rotate the nonce and clear dataSourceId under a
     // live handler, failing its compare-and-swap and reporting failure for a
     // connection that actually succeeded.
-    const now = new Date("2026-08-05T12:00:00Z");
-    const issuance = await pending(new Date("2026-08-05T11:59:30Z"));
+    const now = SWEEP_NOW;
+    const issuance = await pending(STILL_LIVE_AT);
     const sourceId = crypto.randomUUID();
     await db
       .update(connectorSetupSessions)
       .set({
         state: "verifying",
         dataSourceId: sourceId,
-        updatedAt: new Date("2026-08-05T11:59:30Z"),
+        updatedAt: STILL_LIVE_AT,
       })
       .where(eq(connectorSetupSessions.id, issuance.session.id));
 
@@ -316,6 +439,28 @@ describe("connector setup session store", () => {
     expect(row?.state).toBe("verifying");
     expect(row?.dataSourceId).toBe(sourceId);
     expect(row?.stateNonceHash).toBe(issuance.session.stateNonceHash);
+  });
+
+  it("waives the grace window at boot so a fast restart strands nothing", async () => {
+    // The grace window assumes a live handler may own an in-flight row. After a
+    // crash that assumption is false, and honouring it here would be permanent:
+    // the boot pass is the only sweep scheduled, so a row younger than the
+    // window would sit in `verifying` forever while the browser polled it to
+    // its own 15-minute timeout and reported a failure for a live connection.
+    const issuance = await pending(STILL_LIVE_AT);
+    await db
+      .update(connectorSetupSessions)
+      .set({ state: "exchanging", updatedAt: STILL_LIVE_AT })
+      .where(eq(connectorSetupSessions.id, issuance.session.id));
+
+    await expect(
+      sweep(app.createTracked(), SWEEP_NOW, 0),
+    ).resolves.toMatchObject({ recovered: 1 });
+    const [row] = await db
+      .select()
+      .from(connectorSetupSessions)
+      .where(eq(connectorSetupSessions.id, issuance.session.id));
+    expect(row?.state).toBe("awaiting-user-auth");
   });
 
   it("reconciles a verifying session whose planned source was already created", async () => {
@@ -334,13 +479,15 @@ describe("connector setup session store", () => {
       .set({
         state: "verifying",
         dataSourceId: sourceId,
-        updatedAt: new Date("2026-08-05T11:57:00Z"),
+        updatedAt: ABANDONED_AT,
       })
       .where(eq(connectorSetupSessions.id, issuance.session.id));
 
-    await expect(
-      sweep(app.createTracked(), new Date("2026-08-05T12:01:00Z")),
-    ).resolves.toEqual({ recovered: 1, expired: 0, deleted: 0 });
+    await expect(sweep(app.createTracked(), SWEEP_NOW)).resolves.toEqual({
+      recovered: 1,
+      expired: 0,
+      deleted: 0,
+    });
     const [row] = await db
       .select()
       .from(connectorSetupSessions)
@@ -429,12 +576,12 @@ describe("connector setup session store", () => {
         .set({
           state: "verifying",
           dataSourceId: sourceId,
-          updatedAt: new Date("2026-08-05T11:57:00Z"),
+          updatedAt: ABANDONED_AT,
         })
         .where(eq(connectorSetupSessions.id, issuance.session.id));
 
       const tracker = app.createTracked();
-      await sweep(tracker, new Date("2026-08-05T12:01:00Z"));
+      await sweep(tracker, SWEEP_NOW);
 
       // The sweep's outcome depends on this row's `kind`, so a later write to
       // data_sources must invalidate anything derived from the sweep.
@@ -471,7 +618,7 @@ describe("connector setup session store", () => {
 
       const stale = await pending(new Date("2026-08-05T11:40:00Z"));
       const sweepTracker = app.createTracked();
-      await sweep(sweepTracker, new Date("2026-08-05T12:00:00Z"));
+      await sweep(sweepTracker, SWEEP_NOW);
       expect([...sweepTracker.tablesWritten]).toContain(
         "connector_setup_sessions",
       );
