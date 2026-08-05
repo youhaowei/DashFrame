@@ -102,6 +102,90 @@ init_unpopulated_submodules() {
   done
 }
 
+# assert_submodule_pins_pushed <rev>
+# Refuse to provision a worktree whose submodule pins point at commits no
+# submodule remote has.
+#
+# The trap this closes: an arm worktree is created from a rev whose
+# libs/wystack pin is a local-only commit, an agent builds on it, and the
+# submodule change later lands upstream as a SQUASH — which publishes the
+# content under a brand-new sha and leaves the pinned commit reachable from
+# nothing on the remote. From then on the arm's submodule gitdir is the only
+# copy, teardown correctly refuses to destroy it, and the worktree is stuck
+# until a human adjudicates. Blocking at creation costs one ls-remote per
+# submodule and avoids that situation entirely.
+#
+# Per AGENTS.md a submodule change lands in its own repo FIRST, so a
+# legitimate in-flight pin is always on a pushed branch and passes here. A
+# pin that fails is a local-only commit — push it or reset the submodule.
+#
+# Deliberately NOT fatal when no remote answers: this guard prevents an
+# awkward situation, it is not the data-loss guard (remove-worktree.sh is),
+# and failing closed here would make offline worktree creation impossible.
+# It warns loudly on stderr instead.
+assert_submodule_pins_pushed() {
+  _aspp_rev="$1"
+  [ -f "$repo_root/.gitmodules" ] || return 0
+  for _aspp_sub in $(git config --file "$repo_root/.gitmodules" --get-regexp 'submodule\..*\.path' 2>/dev/null | awk '{print $2}'); do
+    # An unpopulated submodule has no local object store and nothing at risk:
+    # the new worktree clones it fresh from the remote, so a pin the remote
+    # does not have fails loudly at checkout rather than silently here.
+    [ -e "$repo_root/$_aspp_sub/.git" ] || continue
+    _aspp_pin=$(git -C "$repo_root" rev-parse --verify --quiet "$_aspp_rev:$_aspp_sub" 2>/dev/null || echo "")
+    [ -n "$_aspp_pin" ] || continue
+    # A pin whose object is absent locally cannot be judged here at all — and
+    # is not a local-only commit by definition, since nothing local holds it.
+    git -C "$repo_root/$_aspp_sub" cat-file -e "$_aspp_pin" 2>/dev/null || continue
+
+    _aspp_tips=""
+    _aspp_reached=false
+    for _aspp_remote in $(git -C "$repo_root/$_aspp_sub" remote); do
+      _aspp_refs=$(git -C "$repo_root/$_aspp_sub" ls-remote --heads --tags "$_aspp_remote" 2>/dev/null) || continue
+      _aspp_reached=true
+      # A tip sha whose object was never fetched cannot exclude anything, and
+      # dropping it silently would read the whole upstream history as
+      # unpushed — the same false-refusal bug remove-worktree.sh carried.
+      # Fetch once when something is missing; a failed fetch merely leaves the
+      # tip list shorter, which errs toward complaining rather than toward
+      # vouching for a pin no remote actually has.
+      _aspp_missing=false
+      for _aspp_sha in $(printf '%s\n' "$_aspp_refs" | awk '{print $1}'); do
+        git -C "$repo_root/$_aspp_sub" cat-file -e "$_aspp_sha" 2>/dev/null || _aspp_missing=true
+      done
+      if [ "$_aspp_missing" = true ]; then
+        git -C "$repo_root/$_aspp_sub" fetch --quiet "$_aspp_remote" >/dev/null 2>&1 || true
+      fi
+      for _aspp_sha in $(printf '%s\n' "$_aspp_refs" | awk '{print $1}'); do
+        if git -C "$repo_root/$_aspp_sub" cat-file -e "$_aspp_sha" 2>/dev/null; then
+          _aspp_tips="$_aspp_tips $_aspp_sha"
+        fi
+      done
+    done
+
+    if [ "$_aspp_reached" = false ]; then
+      echo "WARNING [ensure-worktree]: could not reach any remote of submodule '$_aspp_sub' — its pin was not verified as pushed." >&2
+      continue
+    fi
+
+    # shellcheck disable=SC2086
+    _aspp_unpushed=$(git -C "$repo_root/$_aspp_sub" log --oneline "$_aspp_pin" --not $_aspp_tips -- 2>/dev/null || echo "")
+    if [ -n "$_aspp_unpushed" ]; then
+      echo "ERROR [ensure-worktree]: '$_aspp_rev' pins submodule '$_aspp_sub' at $(printf '%.12s' "$_aspp_pin"), which no remote of that submodule has." >&2
+      printf '%s\n' "$_aspp_unpushed" | sed -n '1,5p' | sed 's/^/    /' >&2
+      echo "  Building on an unpushed submodule commit is how work gets orphaned: if that change" >&2
+      echo "  later lands upstream as a squash, the pinned sha becomes reachable from nothing and" >&2
+      echo "  this worktree's submodule gitdir is its only copy." >&2
+      echo "  Fix it first, in $repo_root/$_aspp_sub:" >&2
+      echo "    push it   — land the submodule change in its own repo (AGENTS.md), then bump the pin; or" >&2
+      echo "    reset it  — point '$_aspp_rev' back at a commit the submodule remote has." >&2
+      # The create paths call this after mktemp'ing the worktree-add log; the
+      # reuse path never sets it. Clean it up rather than leak a temp file.
+      if [ -n "${_wt_log:-}" ]; then rm -f "$_wt_log"; fi
+      exit 1
+    fi
+  done
+}
+
 # ── 1. Require a branch argument ────────────────────────────────────────────
 branch="${1:-}"
 if [ -z "$branch" ]; then
@@ -181,6 +265,9 @@ if [ -d "$worktree_path" ]; then
     exit 1
   fi
   assert_main_checkout_unchanged "$repo_root" "$main_head_before" "$main_branch_before"
+  # Reuse path: the pin that matters is the one this worktree already records,
+  # and init_unpopulated_submodules below is about to check it out.
+  assert_submodule_pins_pushed "$(git -C "$worktree_path" rev-parse HEAD)"
   init_unpopulated_submodules "$worktree_path"
   echo "$worktree_path"
   exit 0
@@ -198,6 +285,7 @@ mkdir -p "$worktree_base"
 _wt_log=$(mktemp)
 _wt_rc=0
 if git show-ref --verify --quiet "refs/heads/$branch"; then
+  assert_submodule_pins_pushed "$branch"
   git worktree add "$worktree_path" "$branch" >"$_wt_log" 2>&1 || _wt_rc=$?
 else
   # Check whether the branch exists on origin. `git ls-remote --exit-code`
@@ -219,6 +307,7 @@ else
       echo "ERROR [ensure-worktree]: branch '$branch' exists on origin but 'git fetch origin $branch' failed — not falling back to a possibly stale local ref." >&2
       exit 1
     fi
+    assert_submodule_pins_pushed "origin/$branch"
     git worktree add "$worktree_path" -b "$branch" "origin/$branch" >"$_wt_log" 2>&1 || _wt_rc=$?
   elif [ "$_ls_remote_rc" -ne 2 ]; then
     echo "ERROR [ensure-worktree]: could not determine whether branch '$branch' exists on origin (git ls-remote exited $_ls_remote_rc)." >&2
@@ -243,6 +332,7 @@ else
       echo "ERROR [ensure-worktree]: branch '$branch' not found locally or on origin, and 'origin/main' is unavailable to branch from." >&2
       exit 1
     fi
+    assert_submodule_pins_pushed "origin/main"
     git worktree add --no-track -b "$branch" "$worktree_path" origin/main >"$_wt_log" 2>&1 || _wt_rc=$?
   fi
 fi

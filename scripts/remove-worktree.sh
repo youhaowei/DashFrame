@@ -25,6 +25,13 @@
 # local formulation of this check had a counterexample — either destroying
 # work hidden behind a local tag or blocking work published only via a tag.
 #
+# ls-remote answers with the remote's tip SHAs, and a SHA whose object this
+# gitdir never fetched cannot exclude anything reachable from it. So when the
+# answer names an object that is missing locally, this script fetches once
+# from that remote before deciding. Without that fetch, a worktree parked
+# while its submodule's remote advanced reads the entire upstream history as
+# unpushed and becomes permanently un-removable.
+#
 # NOT protected: gitignored files. Like `git worktree remove` itself, the
 # status checks here never see ignored content — a hand-made .env or local
 # build artifact is removed with the worktree. A block would trip on
@@ -150,6 +157,7 @@ check_paused_ops "this worktree" "$wt_gitdir"
 check_submodule_refs() {
   local sub="$1"; shift
   local remotes remote remote_refs sha ref unpushed stashes reason reached=false
+  local missing_tip
   local pushed=()
 
   # In --throwaway mode the network probe is skipped entirely: the caller
@@ -179,10 +187,29 @@ check_submodule_refs() {
   for remote in $remotes; do
     if remote_refs=$("$@" ls-remote --heads --tags "$remote" 2>/dev/null); then
       reached=true
+      # Only objects that exist locally can be used as exclusions — a sha
+      # never fetched cannot be handed to `git log --not`. Dropping such a
+      # tip silently is NOT the conservative choice it looks like: everything
+      # reachable from it then reads as unpushed, so a worktree whose
+      # submodule gitdir predates the remote's current tip reports its whole
+      # upstream history as work to save and can never be removed. That is
+      # the false refusal. One fetch per remote repairs it, and only when a
+      # tip is actually missing, so an up-to-date gitdir pays nothing.
+      missing_tip=false
       while read -r sha ref; do
         [ -n "$sha" ] || continue
-        # Only objects that exist locally can be used as exclusions; a
-        # remote sha never fetched cannot be an ancestor of local refs.
+        "$@" cat-file -e "$sha" 2>/dev/null || missing_tip=true
+      done <<EOF
+$remote_refs
+EOF
+      # A failed fetch is deliberately not fatal: the exclusion set merely
+      # stays as small as it was, which blocks removal rather than allowing
+      # one. The "no remote answered at all" case below still exits.
+      if [ "$missing_tip" = true ]; then
+        "$@" fetch --quiet "$remote" >/dev/null 2>&1 || true
+      fi
+      while read -r sha ref; do
+        [ -n "$sha" ] || continue
         if "$@" cat-file -e "$sha" 2>/dev/null; then
           pushed+=("$sha")
         fi
@@ -213,13 +240,16 @@ EOF
   # Everything local — every ref plus HEAD, so notes, replace refs and other
   # namespaces are covered, minus refs/stash which has its own check with a
   # better message — against everything the remotes have. In the default
-  # mode the ONLY exclusion source is the fresh ls-remote answer above:
-  # local remote-tracking refs can be stale, and after an upstream
-  # force-push or branch delete a stale refs/remotes/* would vouch for
-  # commits whose last remaining copy is right here — the exact loss this
-  # guard exists to prevent. (A commit pushed long ago but since discarded
-  # upstream therefore blocks; that is fail-closed working as intended, and
-  # a fetch is the remedy when the block is stale-local-state instead.)
+  # mode the exclusion set is exactly the shas the fresh ls-remote above
+  # named: local remote-tracking refs are never consulted as exclusions,
+  # because after an upstream force-push or branch delete a stale
+  # refs/remotes/* would vouch for commits whose last remaining copy is
+  # right here — the exact loss this guard exists to prevent. (A commit
+  # pushed long ago but since discarded upstream therefore blocks; that is
+  # fail-closed working as intended.) The repair fetch above may refresh
+  # those refs/remotes/* as a side effect; that does not widen the set,
+  # since membership is decided by the ls-remote answer either way — the
+  # fetch only supplies the objects needed to honor it.
   # In --throwaway mode the remote-tracking refs and tags ARE the check:
   # the caller attests the worktree was created moments ago from fetched
   # state, so those refs are fresh and a fetched tag need not be reachable
