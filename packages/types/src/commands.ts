@@ -470,6 +470,16 @@ export function buildVisualizationUpdateCommands(
  * Path-match a command result out of a commitBatch response.
  * Prefer this over index-match so the lookup stays correct if the batch
  * gains leading commands later.
+ *
+ * PRECONDITION: the path must occur at most once in the batch. This returns
+ * the FIRST match, so a batch containing two commands on the same path would
+ * silently hand back the wrong result. Every current caller builds a batch
+ * with a unique path per lookup.
+ *
+ * This is a stopgap. Correlating a result to the command that produced it by
+ * name — the framework's `Command.id` — is the mechanism that removes the
+ * precondition entirely, and is filed as follow-up work. Do not add a second
+ * same-path command to a batch that is read back this way until then.
  */
 export function resultValueByCommandPath(
   batch: {
