@@ -50,7 +50,12 @@ function CommandLog({
     refType: "column" | "category" | "placeholder" | "unknown";
   }>;
   busy: boolean;
-  onRevise: (op: RevisionOp) => Promise<void>;
+  /**
+   * Resolves to whether the revision actually landed. `LateBoundFixControl`
+   * keys its input reset on this — a swallowed failure that resolved void
+   * cleared the field and made a rejected bind look applied.
+   */
+  onRevise: (op: RevisionOp) => Promise<boolean>;
 }) {
   const [confirmingIndex, setConfirmingIndex] = useState<number | null>(null);
 
@@ -194,8 +199,9 @@ export default function DraftReviewPage({ draftId }: DraftReviewPageProps) {
         remaining = await getWyStackClient().query(api.listDrafts, {});
         await refetchDrafts();
       } catch {
-        // Publishing has already succeeded. Navigation falls back to home when
-        // the follow-up list refresh is temporarily unavailable.
+        // Publishing has already succeeded, so a failed refresh must not fail
+        // the action. Fall through on the optimistic list computed above —
+        // this draft removed from the drafts already in hand.
       }
       navigate({ to: remaining.length > 0 ? "/drafts" : "/", replace: true });
     } catch (error) {
@@ -232,8 +238,8 @@ export default function DraftReviewPage({ draftId }: DraftReviewPageProps) {
     }
   };
 
-  const handleRevise = async (op: RevisionOp) => {
-    if (!review) return;
+  const handleRevise = async (op: RevisionOp): Promise<boolean> => {
+    if (!review) return false;
     setBusy("revise");
     setReviewError(null);
     try {
@@ -243,12 +249,14 @@ export default function DraftReviewPage({ draftId }: DraftReviewPageProps) {
         ops: [op],
       });
       await refetch();
+      return true;
     } catch (error) {
       setReviewError(
         isDriftError(error)
           ? DRAFT_DRIFT_DESCRIPTION
           : draftLifecycleErrorDescription(error),
       );
+      return false;
     } finally {
       setBusy(null);
     }

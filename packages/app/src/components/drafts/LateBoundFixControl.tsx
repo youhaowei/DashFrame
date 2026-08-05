@@ -27,7 +27,8 @@ export function LateBoundFixControl({
 }: {
   entry: LateBoundEntry;
   disabled?: boolean;
-  onApply: (value: string) => Promise<void>;
+  /** Resolves true only when the bind landed; false leaves the input intact. */
+  onApply: (value: string) => Promise<boolean>;
 }) {
   const inputId = useId();
   const [value, setValue] = useState("");
@@ -44,8 +45,10 @@ export function LateBoundFixControl({
   const apply = async () => {
     setApplying(true);
     try {
-      await onApply(value);
-      setValue("");
+      // Clear ONLY on success. Clearing unconditionally wiped the reviewer's
+      // typed value on a rejected bind, so a failure looked like it applied and
+      // the value had to be retyped from memory.
+      if (await onApply(value)) setValue("");
     } finally {
       setApplying(false);
     }

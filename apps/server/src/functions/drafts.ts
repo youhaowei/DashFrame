@@ -36,6 +36,14 @@ export interface DraftPublishReview {
   diff: PreviewDiff;
   lateBound: LateBoundOperandRef[];
   publishBlocked: boolean;
+  /**
+   * False when `draft_metadata` no longer holds this handle — it was never
+   * opened, or a concurrent reviewer already published or discarded it. The
+   * durable log is deleted on both exits, so a gone draft otherwise reads as a
+   * perfectly healthy zero-command draft; without this flag the reviewer sees
+   * "Ready to publish" and a publish that does nothing reports success.
+   */
+  draftExists: boolean;
 }
 
 export interface DraftCommandSummary {
@@ -101,6 +109,7 @@ const draftPublishReview = wy.procedure
   .query(async (ctx, { draftId }): Promise<DraftPublishReview> => {
     const { app, db } = requireServerContext(ctx);
     const controller = createDraftController(app, db);
+    const draftExists = await controller.draftExists(draftId);
     const commands = await controller.getDraftLog(draftId);
     const lateBound = findLateBound(commands);
     const diff = await buildPreviewDiff(app, db, commands, handlerContext(ctx));
@@ -111,7 +120,15 @@ const draftPublishReview = wy.procedure
       logSignature: computeLogSignature(commands),
       diff,
       lateBound,
-      publishBlocked: lateBound.length > 0 || diff.error !== undefined,
+      // A zero-command log is blocked too: publishing it replays nothing but
+      // still deletes the handle, so "Ready" and a success toast would report a
+      // change that never happened.
+      publishBlocked:
+        !draftExists ||
+        commands.length === 0 ||
+        lateBound.length > 0 ||
+        diff.error !== undefined,
+      draftExists,
     };
   });
 

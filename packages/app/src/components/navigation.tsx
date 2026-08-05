@@ -159,6 +159,13 @@ function SidebarContent({
                   variant="soft"
                   color="secondary"
                   className="ml-auto min-w-5 justify-center text-[10px]"
+                  // A bare digit next to "Review" reads as "Review 3" to a
+                  // screen reader, which says nothing about what the 3 counts.
+                  aria-label={
+                    pendingDraftCount === 1
+                      ? "1 draft waiting for review"
+                      : `${pendingDraftCount} drafts waiting for review`
+                  }
                 >
                   {pendingDraftCount}
                 </Badge>

@@ -59,11 +59,15 @@ interface SeededDraft {
 }
 
 /**
- * Five commands drafted by a service principal: three that create nodes, one
- * carrying an unbound placeholder (blocks publish), and one dashboard the
- * reviewer is expected to remove.
+ * A batch drafted by a service principal: three commands that create nodes, one
+ * dashboard the reviewer is expected to remove, and — unless `lateBound` is
+ * turned off — a filter carrying an unbound placeholder, which blocks publish.
+ * Pass `{ lateBound: false }` when the test needs a draft that can publish
+ * as-is.
  */
-async function seedDraft(): Promise<SeededDraft> {
+async function seedDraft({
+  lateBound = true,
+}: { lateBound?: boolean } = {}): Promise<SeededDraft> {
   const serviceToken = await issueServiceToken();
   const sourceId = crypto.randomUUID();
   const tableId = crypto.randomUUID();
@@ -96,22 +100,26 @@ async function seedDraft(): Promise<SeededDraft> {
         source: { sourceType: "dataTable", sourceId: tableId },
       },
     },
-    {
-      path: "setInsightFilter",
-      args: {
-        id: insightId,
-        filters: [
+    ...(lateBound
+      ? [
           {
-            field: "region",
-            operator: "eq",
-            value: {
-              kind: "lateBound",
-              ref: { type: "placeholder", prompt: "Region" },
+            path: "setInsightFilter",
+            args: {
+              id: insightId,
+              filters: [
+                {
+                  field: "region",
+                  operator: "eq",
+                  value: {
+                    kind: "lateBound",
+                    ref: { type: "placeholder", prompt: "Region" },
+                  },
+                },
+              ],
             },
           },
-        ],
-      },
-    },
+        ]
+      : []),
     {
       path: "createDashboardCmd",
       args: { id: dashboardId, name: "Remove me" },
@@ -265,5 +273,33 @@ test.describe("draft review", () => {
 
     await expect(page.getByRole("link", { name: /Review 1/ })).toBeVisible();
     await expect(page.getByRole("link", { name: /5 changes/ })).toBeVisible();
+  });
+
+  test("a lifecycle exit elsewhere clears the inbox without a reload", async ({
+    page,
+    workerBaseURL,
+  }) => {
+    // Publish and discard delete the draft's registry rows inside the
+    // controller's own transaction, which the outer request tracker never sees.
+    // The review page hides that by re-querying `listDrafts` by hand after its
+    // own publish — so the gap is only visible from a surface that did NOT
+    // perform the exit. This test is that surface: the inbox sits mounted while
+    // the lifecycle call happens over the API, and only the server's
+    // invalidation can empty it.
+    const publishable = await seedDraft({ lateBound: false });
+    const discardable = await seedDraft({ lateBound: false });
+
+    await page.goto(`${workerBaseURL}/drafts`);
+    await expect(page.getByRole("link", { name: /4 changes/ })).toHaveCount(2);
+    await expect(page.getByLabel("2 drafts waiting for review")).toBeVisible();
+
+    await mutate("publishDraft", { draftId: publishable.draftId }, USER_TOKEN);
+    await expect(page.getByLabel("1 draft waiting for review")).toBeVisible();
+
+    await mutate("discardDraft", { draftId: discardable.draftId }, USER_TOKEN);
+    await expect(
+      page.getByText("No changes waiting for review."),
+    ).toBeVisible();
+    await expect(page.getByLabel(/waiting for review/)).toHaveCount(0);
   });
 });

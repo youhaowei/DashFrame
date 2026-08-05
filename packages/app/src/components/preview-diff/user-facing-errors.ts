@@ -38,8 +38,9 @@ export function draftLifecycleErrorDescription(error: unknown): string {
   if (message.includes("late-bound operands")) {
     return "This draft still has values that need binding before it can publish.";
   }
-  if (message.includes("changed since review")) {
-    return "The draft changed after you opened this review. Refresh the page and review again before publishing.";
-  }
+  // No drift branch here on purpose: `isDriftError` already matches
+  // "changed since review" and every caller checks it FIRST, so a branch for it
+  // in the fallback would be unreachable and would drift out of sync with
+  // `DRAFT_DRIFT_DESCRIPTION` the moment either string is edited.
   return "Please try again.";
 }

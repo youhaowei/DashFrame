@@ -22,17 +22,45 @@ function toEpoch(value: Date | string | null | undefined): number | null {
 
 /**
  * Re-render every 30s so "Updated 2m ago" keeps up with the clock without the
- * list re-querying. Paired with `getServerNow` returning 0, which makes
- * `formatRelativeTime` render its neutral placeholder on the server snapshot
- * instead of a value the client would immediately contradict.
+ * list re-querying.
+ *
+ * The snapshot is a CACHED module-level value, not a fresh `Date.now()` per
+ * call. `useSyncExternalStore` compares snapshots with `Object.is` on every
+ * render and throws "The result of getSnapshot should be cached" when the value
+ * changes without a store notification — a live clock read never compares equal
+ * to itself. The interval advances the cached value and notifies, which is the
+ * only thing that moves it. One shared interval also serves every row instead
+ * of one per list item.
+ *
+ * Paired with `getServerNow` returning 0, which makes `formatRelativeTime`
+ * render its neutral placeholder on the server snapshot instead of a value the
+ * client would immediately contradict.
  */
+let cachedNow = Date.now();
+const nowListeners = new Set<() => void>();
+let nowTimer: ReturnType<typeof setInterval> | undefined;
+
 function subscribeNow(onStoreChange: () => void): () => void {
-  const id = window.setInterval(onStoreChange, 30_000);
-  return () => window.clearInterval(id);
+  // Catch up on whatever elapsed between module load (or the last unsubscribe)
+  // and this mount. React re-reads the snapshot immediately after subscribing,
+  // so this lands without a notification.
+  cachedNow = Date.now();
+  nowListeners.add(onStoreChange);
+  nowTimer ??= setInterval(() => {
+    cachedNow = Date.now();
+    for (const listener of nowListeners) listener();
+  }, 30_000);
+  return () => {
+    nowListeners.delete(onStoreChange);
+    if (nowListeners.size === 0 && nowTimer !== undefined) {
+      clearInterval(nowTimer);
+      nowTimer = undefined;
+    }
+  };
 }
 
 function getNow(): number {
-  return Date.now();
+  return cachedNow;
 }
 
 function getServerNow(): number {

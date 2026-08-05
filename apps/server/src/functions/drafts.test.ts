@@ -194,7 +194,10 @@ describe("draft publish functions", () => {
 
   it("blocks publish when the durable log contains late-bound operands", async () => {
     const app = await wy.build({ db, functions });
-    const draftId = "text-draft-id";
+    // Open through the controller rather than inventing a handle: publish now
+    // requires a registered `draft_metadata` row, so a bare log insert under a
+    // made-up id is rejected as drift before the late-bound guard is reached.
+    const draftId = await createDraftController(app, db).openDraft();
     await db.insert(draftCommandLog).values({
       draftId,
       seq: 0,
@@ -251,6 +254,95 @@ describe("draft publish functions", () => {
         },
       ),
     ).rejects.toThrow(/late-bound operands/);
+  });
+
+  it("treats a draft that is gone or empty as blocked, never as ready", async () => {
+    const app = await wy.build({ db, functions });
+    const controller = createDraftController(app, db);
+    const ctx = {
+      wyStackApp: app,
+      artifactDb: db,
+      draftController: controller,
+      principal: { kind: "user", userId: LOCAL_USER_ID },
+    };
+
+    // Never opened — or already published/discarded by someone else. Both
+    // exits delete the log, so without the registry check this is
+    // indistinguishable from a healthy zero-command draft.
+    const gone = (
+      await app.call(
+        "draftPublishReview",
+        { draftId: crypto.randomUUID() },
+        ctx,
+      )
+    ).result as DraftPublishReview;
+    expect(gone.draftExists).toBe(false);
+    expect(gone.publishBlocked).toBe(true);
+
+    // Registered but empty: publishing would replay nothing and still delete
+    // the handle, reporting a change that never happened.
+    const emptyId = await controller.openDraft();
+    const empty = (
+      await app.call("draftPublishReview", { draftId: emptyId }, ctx)
+    ).result as DraftPublishReview;
+    expect(empty.draftExists).toBe(true);
+    expect(empty.commandCount).toBe(0);
+    expect(empty.publishBlocked).toBe(true);
+  });
+
+  it("rejects publishing a draft that no longer exists as drift", async () => {
+    const app = await wy.build({ db, functions });
+    await expect(
+      app.call(
+        "publishDraft",
+        { draftId: crypto.randomUUID() },
+        {
+          wyStackApp: app,
+          artifactDb: db,
+          draftController: createDraftController(app, db),
+          principal: { kind: "user", userId: LOCAL_USER_ID },
+        },
+      ),
+      // Wording matters: the client classifier keys on "changed since review"
+      // to show the reload-and-review copy.
+    ).rejects.toThrow(/changed since review/);
+  });
+
+  it("refuses to append under an unregistered draft handle", async () => {
+    const app = await wy.build({ db, functions });
+    const controller = createDraftController(app, db);
+    const orphanId = crypto.randomUUID();
+
+    await expect(
+      app.call(
+        "draftBatch",
+        {
+          draftId: orphanId,
+          commands: [
+            {
+              path: "createDataSource",
+              args: {
+                id: crypto.randomUUID(),
+                type: "csv",
+                name: "orphan",
+                createdBy: { kind: "agent" },
+              },
+            },
+          ],
+        },
+        {
+          wyStackApp: app,
+          artifactDb: db,
+          draftController: controller,
+          principal: { kind: "user", userId: LOCAL_USER_ID },
+        },
+      ),
+    ).rejects.toThrow(/no open draft/);
+
+    // Nothing was written: an accepted append here would be permanently
+    // invisible to listDrafts and unreachable by publish or discard.
+    expect(await controller.getDraftLog(orphanId)).toHaveLength(0);
+    expect(await controller.listDrafts()).toHaveLength(0);
   });
 
   it("discards a draft without touching canonical artifacts", async () => {

@@ -374,6 +374,16 @@ export interface DraftController {
   ): Promise<CommandResult[]>;
   /** List every open draft from durable metadata, newest activity first. */
   listDrafts(): Promise<DraftListEntry[]>;
+  /**
+   * True when `draft_metadata` still holds this handle. That table is the
+   * registry of record: `openDraft` inserts the row and both lifecycle exits
+   * (publish, discard) delete it, so its absence means the handle was never
+   * opened or is already gone. Any caller that accepts a CLIENT-SUPPLIED
+   * draftId must gate on this — the command log and the shadow tables accept
+   * an arbitrary id, so appending under an unregistered handle writes rows
+   * that `listDrafts` can never surface and no lifecycle path can ever sweep.
+   */
+  draftExists(draftId: string): Promise<boolean>;
   /** Atomically replace a reviewed log after guarded remove/bind operations. */
   reviseDraft(
     draftId: string,
@@ -957,6 +967,14 @@ export function createDraftController(
         baseInventory: await snapshotCanonicalInventory(),
       });
       return draftId;
+    },
+
+    async draftExists(draftId: string): Promise<boolean> {
+      const rows = await db
+        .select({ draftId: draftMetadata.draftId })
+        .from(draftMetadata)
+        .where(eq(draftMetadata.draftId, draftId));
+      return rows.length > 0;
     },
 
     async listDrafts(): Promise<DraftListEntry[]> {
