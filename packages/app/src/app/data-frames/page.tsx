@@ -1,8 +1,10 @@
 import { DataGrid } from "@/components/data-grid";
+import { useNow } from "@/hooks/useNow";
 import {
   removeDataFrame,
   type DataFrameEntry,
 } from "@/lib/data-access/data-frames";
+import { formatRelativeTime } from "@/lib/format-relative-time";
 import { api } from "@/wystack/api";
 import type { ColumnDef } from "@tanstack/react-table";
 import { useMutation, useQuery } from "@wystack/client";
@@ -20,14 +22,55 @@ import {
 import { ArrowUpDownIcon } from "@wystack/ui-react/icons";
 import { useMemo, useState } from "react";
 
+function resolveSourceName(
+  sourceId: string | undefined,
+  isLoadingDataSources: boolean,
+  dataSourceNameById: Map<string, string>,
+): string | null {
+  if (!sourceId) return null;
+  if (isLoadingDataSources) return "…";
+  return dataSourceNameById.get(sourceId) ?? "Unknown source";
+}
+
+function resolveDefinitionName(
+  definitionId: string | undefined,
+  isLoadingDataTables: boolean,
+  dataTableNameById: Map<string, string>,
+): string {
+  if (!definitionId) return "—";
+  if (isLoadingDataTables) return "…";
+  return dataTableNameById.get(definitionId) ?? "Unknown table";
+}
+
 export default function DataFramesPage() {
   const { data: dataFrames, isLoading } = useQuery(api.listDataFrames);
+  const { data: dataSources, isLoading: isLoadingDataSources } = useQuery(
+    api.listDataSources,
+  );
+  const { data: dataTables, isLoading: isLoadingDataTables } = useQuery(
+    api.listDataTables,
+    { args: {} },
+  );
   const { mutateAsync: updateDataFrameEntry } = useMutation(
     api.updateDataFrameEntry,
   );
 
   const [editingFrame, setEditingFrame] = useState<DataFrameEntry | null>(null);
   const [editedName, setEditedName] = useState("");
+
+  const now = useNow();
+
+  const dataSourceNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const source of dataSources ?? []) map.set(source.id, source.name);
+    return map;
+  }, [dataSources]);
+
+  const dataTableNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const table of dataTables ?? []) map.set(table.id, table.name);
+    return map;
+  }, [dataTables]);
 
   const columns = useMemo<ColumnDef<DataFrameEntry>[]>(
     () => [
@@ -53,9 +96,43 @@ export default function DataFramesPage() {
         id: "source",
         header: "Source",
         cell: ({ row }) => {
+          const { sourceId, insightId } = row.original;
+          const sourceName = resolveSourceName(
+            sourceId,
+            isLoadingDataSources,
+            dataSourceNameById,
+          );
           return (
             <span className="text-neutral-fg-subtle">
-              {row.original.insightId ? "From Insight" : "Direct Load"}
+              {sourceName ?? (insightId ? "From Insight" : "Direct Load")}
+            </span>
+          );
+        },
+      },
+      {
+        id: "definition",
+        header: "Definition",
+        cell: ({ row }) => {
+          const { definitionId } = row.original;
+          return (
+            <span className="text-neutral-fg-subtle">
+              {resolveDefinitionName(
+                definitionId,
+                isLoadingDataTables,
+                dataTableNameById,
+              )}
+            </span>
+          );
+        },
+      },
+      {
+        id: "lastRefreshedAt",
+        header: "Last Refreshed",
+        cell: ({ row }) => {
+          const { lastRefreshedAt } = row.original;
+          return (
+            <span className="text-neutral-fg-subtle">
+              {lastRefreshedAt ? formatRelativeTime(now, lastRefreshedAt) : "—"}
             </span>
           );
         },
@@ -105,7 +182,13 @@ export default function DataFramesPage() {
         ),
       },
     ],
-    [],
+    [
+      dataSourceNameById,
+      dataTableNameById,
+      now,
+      isLoadingDataSources,
+      isLoadingDataTables,
+    ],
   );
 
   const handleEdit = (entry: DataFrameEntry) => {
