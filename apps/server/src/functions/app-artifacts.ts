@@ -1597,24 +1597,54 @@ const listGa4Properties = wy.procedure
     },
   );
 
-const queryGa4Report = wy.procedure
+/**
+ * Serializable result of a GA4 property read. Structurally identical to
+ * PostgresQueryResult today, and named separately on purpose: these two travel
+ * different code paths and one gaining a field should not silently change the
+ * other's contract.
+ */
+type Ga4QueryResult = {
+  arrowBuffer: string;
+  fieldIds: string[];
+  fields: Field[];
+  rowCount: number;
+};
+
+/**
+ * Read a GA4 property into a DataTable.
+ *
+ * Named for what it queries: a GA4 "table" is a property, not a saved report,
+ * and the old name promised a report selection that never existed.
+ *
+ * The property comes from the DataTable row rather than from a caller-supplied
+ * argument. The row records which property the table was created from, so
+ * taking a separate property id let the two disagree and wrote one property's
+ * data into another property's table.
+ */
+const queryGa4Property = wy.procedure
   .input({
     dataSourceId: uuid,
-    propertyId: text,
     tableId: uuid,
     limit: int.optional(),
   })
   .mutation(
-    async (
-      ctx,
-      { dataSourceId, propertyId, tableId, limit },
-    ): Promise<PostgresQueryResult> => {
+    async (ctx, { dataSourceId, tableId, limit }): Promise<Ga4QueryResult> => {
+      const table = (await ctx.db
+        .from(dataTables)
+        .where(eq("id", tableId))
+        .first()) as DataTableRow | undefined;
+      if (!table) throw new Error(`DataTable ${tableId} not found`);
+      if (table.dataSourceId !== dataSourceId) {
+        throw new Error(
+          `DataTable ${tableId} does not belong to DataSource ${dataSourceId}`,
+        );
+      }
       const connector = await ga4ConnectorFor(ctx, dataSourceId);
       const pagination =
         limit !== undefined && Number.isInteger(limit) && limit > 0
           ? { pagination: { offset: 0, limit } }
           : undefined;
-      const result = await connector.query(propertyId, tableId, pagination);
+      const result = await connector.query(table.table, tableId, pagination);
       return {
         arrowBuffer: result.arrowBuffer,
         fieldIds: result.fieldIds,
@@ -1664,5 +1694,5 @@ export const appArtifactFunctions = {
   queryPostgresTable,
   // Google Analytics data-plane routes (auth-blind via bound resolver)
   listGa4Properties,
-  queryGa4Report,
+  queryGa4Property,
 };

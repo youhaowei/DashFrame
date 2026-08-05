@@ -183,7 +183,7 @@ describe("connector setup functions", () => {
     expect(flushSnapshot).toHaveBeenCalledTimes(2);
   });
 
-  it("fails closed without a vault after a successful probe and leaves no source", async () => {
+  it("fails closed without a vault before spending the authorization code", async () => {
     const app = await makeApp();
     const session = await start(app);
     const state = new URL(session.authorizeUrl).searchParams.get("state");
@@ -193,11 +193,14 @@ describe("connector setup functions", () => {
       { principal: user },
     );
 
+    // Named for the actual cause. Reaching the create step first would report
+    // "create-failed", which reads as a database fault, after having already
+    // burned the single-use code on an exchange that could never be stored.
     expect(completed.result).toMatchObject({
       state: "failed",
-      failureCode: "create-failed",
+      failureCode: "no_vault",
     });
-    expect(probedBundles).toHaveLength(1);
+    expect(probedBundles).toHaveLength(0);
     expect(await db.select().from(dataSources)).toHaveLength(0);
     const [row] = await db.select().from(connectorSetupSessions);
     expect(row?.dataSourceId).toBeNull();

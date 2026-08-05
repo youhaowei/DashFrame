@@ -27,6 +27,7 @@ import {
 import { permissions } from "../permissions";
 import { wy } from "../wystack";
 import { COMMAND_PATHS } from "./commands";
+import { vaultFromCtx } from "./utils";
 
 export interface ConnectorSetupSessionDto {
   sessionId: string;
@@ -221,6 +222,21 @@ const completeConnectorOAuth = wy.procedure
         session.id,
         "authorization-rejected",
         "Google authorization was not completed.",
+      );
+      return fullDto(ctx, failed);
+    }
+
+    // Check for somewhere to put the credential before spending the
+    // authorization code. Without this the flow exchanges the code, probes
+    // Google, and only then fails at the create step — reporting
+    // "create-failed", which reads as a database problem, and burning a
+    // single-use code the user has to redo the whole consent screen to replace.
+    if (vaultFromCtx(ctx) == null) {
+      const failed = await markFailed(
+        ctx.db,
+        session.id,
+        "no_vault",
+        "This server has no credential vault, so the connection cannot be stored.",
       );
       return fullDto(ctx, failed);
     }

@@ -8,6 +8,7 @@ import {
   type FileSourceConnector,
   type RemoteApiConnector,
 } from "@dashframe/engine";
+import { useEffect, useRef } from "react";
 import { ConnectorCard } from "./ConnectorCard";
 import { FormFieldRenderer } from "./FormFieldRenderer";
 
@@ -38,8 +39,23 @@ interface ConnectorCardWithFormProps {
 const POLL_INTERVAL_MS = 2_000;
 const POLL_TIMEOUT_MS = 15 * 60 * 1_000;
 
-function waitForPoll(): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, POLL_INTERVAL_MS));
+/**
+ * Ownership handle for an in-flight OAuth poll.
+ *
+ * The poll outlives the click that started it — up to POLL_TIMEOUT_MS — so the
+ * component needs a way to stop it on unmount. Without one the loop keeps
+ * querying the server for fifteen minutes after the card is gone and then calls
+ * onOAuthConnect on a tree that no longer exists.
+ */
+interface PollToken {
+  cancelled: boolean;
+  timer?: number;
+}
+
+function waitForPoll(token: PollToken): Promise<void> {
+  return new Promise((resolve) => {
+    token.timer = window.setTimeout(resolve, POLL_INTERVAL_MS);
+  });
 }
 
 function openAuthorizationWindow(): Window | null {
@@ -54,10 +70,35 @@ function openAuthorizationWindow(): Window | null {
   return authWindow;
 }
 
+/**
+ * Interpret one poll result. Returns true when the flow has reached a terminal
+ * state and the loop should stop; throws when that state is a failure.
+ */
+async function settleOAuthPoll(
+  current: { state: string; dataSourceId?: string; failureMessage?: string },
+  connector: RemoteApiConnector,
+  onOAuthConnect: ConnectorCardWithFormProps["onOAuthConnect"],
+): Promise<boolean> {
+  if (current.state === "connected") {
+    if (!current.dataSourceId) {
+      throw new Error("Connected source id is missing");
+    }
+    await onOAuthConnect(connector, current.dataSourceId);
+    return true;
+  }
+  if (current.state === "failed" || current.state === "expired") {
+    throw new Error(
+      current.failureMessage ?? "Google authorization did not complete",
+    );
+  }
+  return false;
+}
+
 async function pollOAuthCompletion(
   connector: RemoteApiConnector,
   sessionId: string,
   onOAuthConnect: ConnectorCardWithFormProps["onOAuthConnect"],
+  token: PollToken,
 ): Promise<void> {
   const client = getWyStackClient();
   for (
@@ -65,24 +106,15 @@ async function pollOAuthCompletion(
     elapsed < POLL_TIMEOUT_MS;
     elapsed += POLL_INTERVAL_MS
   ) {
-    await waitForPoll();
+    await waitForPoll(token);
+    if (token.cancelled) return;
     const current = await client.query(api.getConnectorSetupSession, {
       sessionId,
     });
-    if (current.state === "connected") {
-      const dataSourceId =
-        "dataSourceId" in current ? current.dataSourceId : undefined;
-      if (!dataSourceId) throw new Error("Connected source id is missing");
-      await onOAuthConnect(connector, dataSourceId);
-      return;
-    }
-    if (current.state === "failed" || current.state === "expired") {
-      const failureMessage =
-        "failureMessage" in current ? current.failureMessage : undefined;
-      throw new Error(
-        failureMessage ?? "Google authorization did not complete",
-      );
-    }
+    // Checked again after the round trip: the component can unmount while the
+    // query is in flight, and onOAuthConnect updates parent state.
+    if (token.cancelled) return;
+    if (await settleOAuthPoll(current, connector, onOAuthConnect)) return;
   }
   throw new Error("Google authorization timed out");
 }
@@ -90,6 +122,7 @@ async function pollOAuthCompletion(
 async function runOAuthSetup(
   connector: RemoteApiConnector,
   onOAuthConnect: ConnectorCardWithFormProps["onOAuthConnect"],
+  token: PollToken,
 ): Promise<void> {
   const client = getWyStackClient();
   const authWindow = openAuthorizationWindow();
@@ -116,7 +149,12 @@ async function runOAuthSetup(
     );
   }
   authWindow.location.replace(session.authorizeUrl);
-  await pollOAuthCompletion(connector, session.sessionId, onOAuthConnect);
+  await pollOAuthCompletion(
+    connector,
+    session.sessionId,
+    onOAuthConnect,
+    token,
+  );
 }
 
 /**
@@ -146,6 +184,15 @@ export function ConnectorCardWithForm({
   const { form, formFields, execute, isSubmitting, submitError } =
     useConnectorForm(connector);
 
+  const pollToken = useRef<PollToken>({ cancelled: false });
+  useEffect(() => {
+    const token = pollToken.current;
+    return () => {
+      token.cancelled = true;
+      if (token.timer !== undefined) window.clearTimeout(token.timer);
+    };
+  }, []);
+
   const handleFileSelect = (file: File) => {
     // Type guard with graceful recovery: if type mismatch occurs (e.g., bad data
     // from storage), log error and return instead of crashing the UI
@@ -170,7 +217,10 @@ export function ConnectorCardWithForm({
       return;
     }
     if (connector.authKind === "oauth") {
-      await execute(() => runOAuthSetup(connector, onOAuthConnect));
+      pollToken.current.cancelled = false;
+      await execute(() =>
+        runOAuthSetup(connector, onOAuthConnect, pollToken.current),
+      );
       return;
     }
 

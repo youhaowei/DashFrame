@@ -518,6 +518,35 @@ export async function buildDashframeApp(opts: {
   };
 }
 
+/**
+ * Run the connector-setup sweep once at boot, and never let it stop the server.
+ *
+ * Housekeeping, not a precondition: the sweep only expires and prunes stale
+ * connector-setup rows, and nothing else depends on it having run. Failing the
+ * boot over it takes the whole app down for a problem confined to one
+ * background chore. The next sweep, or the callback gate itself, catches
+ * whatever this pass missed.
+ */
+async function sweepConnectorSetupAtBoot(
+  app: WyStackApp,
+  flushSnapshot: (() => Promise<void>) | undefined,
+): Promise<void> {
+  try {
+    await app.call(
+      "sweepConnectorSetupSessions",
+      {},
+      { principal: { kind: "user", userId: LOCAL_USER_ID } },
+    );
+    await flushSnapshot?.();
+  } catch (error) {
+    console.warn(
+      `[dashframe] connector setup sweep skipped at boot: ${
+        error instanceof Error ? error.message : "unknown error"
+      }`,
+    );
+  }
+}
+
 export async function createDashframeServer(
   opts: DashframeServerOptions,
 ): Promise<DashframeServer> {
@@ -783,6 +812,11 @@ export async function createDashframeServer(
   honoApp.get("/api/connectors/setup/:sessionId/resume", (c) =>
     handleConnectorSetupResume(c, app),
   );
+  // This route owns the origin root. Hono matches first-registered-first, so a
+  // static UI route registered at "/" below would never be reached, and one
+  // registered above would silently swallow every resume link. Moving this line
+  // relative to createRoutes changes which handler wins, with no error either
+  // way — do it deliberately or not at all.
   honoApp.get("/", (c) => handleConnectorResumeLanding(c, app));
 
   honoApp.route("/", createRoutes({ app, resolveContext }, upgradeWebSocket));
@@ -791,17 +825,7 @@ export async function createDashframeServer(
   injectWebSocket(server);
   serverState.endpoint = `http://${hostname}:${port}/api`;
 
-  try {
-    await app.call(
-      "sweepConnectorSetupSessions",
-      {},
-      { principal: { kind: "user", userId: LOCAL_USER_ID } },
-    );
-    await opts.flushSnapshot?.();
-  } catch (error) {
-    server.close();
-    throw error;
-  }
+  await sweepConnectorSetupAtBoot(app, opts.flushSnapshot);
 
   return {
     url: `http://${hostname}:${port}`,

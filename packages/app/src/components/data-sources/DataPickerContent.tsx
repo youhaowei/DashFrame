@@ -125,8 +125,8 @@ export function DataPickerContent({
   const { mutateAsync: listGa4PropertiesMutation } = useMutation(
     api.listGa4Properties,
   );
-  const { mutateAsync: queryGa4ReportMutation } = useMutation(
-    api.queryGa4Report,
+  const { mutateAsync: queryGa4PropertyMutation } = useMutation(
+    api.queryGa4Property,
   );
   const confirm = useConfirmDialogStore((state) => state.confirm);
 
@@ -363,9 +363,10 @@ export function DataPickerContent({
             tableId,
           });
         } else {
-          result = await queryGa4ReportMutation({
+          // The property is read from the DataTable row just created above,
+          // so it cannot drift from the resource the user picked.
+          result = await queryGa4PropertyMutation({
             dataSourceId: remoteResourceState.sourceId,
-            propertyId: resource.id,
             tableId,
           });
         }
@@ -419,7 +420,7 @@ export function DataPickerContent({
       addDataTable,
       onTableSelect,
       queryPostgresTableMutation,
-      queryGa4ReportMutation,
+      queryGa4PropertyMutation,
       confirm,
       remoteResourceState,
       removeDataTable,
