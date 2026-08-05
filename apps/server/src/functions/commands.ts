@@ -2333,6 +2333,15 @@ export const commandFunctions = {
  * reject any command whose path falls outside this vocabulary BEFORE
  * dispatching a single command — see `assertKnownCommandPaths`.
  */
+/**
+ * Compile-time tie between the client-safe path table and this registry. The
+ * table lives in `@dashframe/types`, which cannot see `commandFunctions`, so
+ * the check is re-asserted here, where both are in scope. Without it a typo or
+ * a renamed handler would only surface at request time — a 500 on a user
+ * action — instead of failing the build.
+ */
+COMMAND_PATHS satisfies { [K in CommandName]: keyof typeof commandFunctions };
+
 const KNOWN_COMMAND_PATHS: ReadonlySet<string> = new Set(
   Object.keys(commandFunctions),
 );

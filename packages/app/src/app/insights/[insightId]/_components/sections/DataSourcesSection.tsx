@@ -12,6 +12,7 @@ import {
 } from "@wystack/ui-react";
 import { CloseIcon, DatabaseIcon, PlusIcon } from "@wystack/ui-react/icons";
 import { memo, useCallback, useMemo, useState } from "react";
+import { toast } from "sonner";
 
 interface DataSourcesSectionProps {
   insight: Insight;
@@ -40,9 +41,16 @@ export const DataSourcesSection = memo(function DataSourcesSection({
   const handleRemoveJoin = useCallback(
     async (joinIndex: number) => {
       if (!insight.joins) return;
-      await commitBatch({
-        commands: [cmd("RemoveJoin", { id: insight.id, joinIndex })],
-      });
+      // RemoveJoin addresses the join by its rendered index, so a stale view
+      // (concurrent edit, double click) makes the server reject it. Surface
+      // that instead of leaking an unhandled rejection out of the click path.
+      try {
+        await commitBatch({
+          commands: [cmd("RemoveJoin", { id: insight.id, joinIndex })],
+        });
+      } catch {
+        toast.error("Couldn't remove the table");
+      }
     },
     [insight.joins, insight.id, commitBatch],
   );

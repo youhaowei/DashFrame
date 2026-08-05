@@ -8,12 +8,7 @@
  * mutation handlers + `commandFunctions` registry only.
  */
 import type { Field, SourceSchema } from "./field";
-import type {
-  Insight,
-  InsightFilter,
-  InsightJoinConfig,
-  InsightSort,
-} from "./insights";
+import type { Insight, InsightJoinConfig, InsightSort } from "./insights";
 import type { InsightMetric, Metric } from "./metric";
 import type { UUID } from "./uuid";
 import type {
@@ -310,14 +305,37 @@ export function cmd<K extends CommandName>(
 // UI helpers — decompose coarse domain patches into command batches
 // ---------------------------------------------------------------------------
 
-function stableJson(value: unknown): string {
-  return JSON.stringify(value);
+/**
+ * Shallow value comparison for metric records. Key-order sensitive (it is just
+ * JSON), which can only ever report a false CHANGE, never a false match — a
+ * redundant rebuild, not a lost edit.
+ */
+function jsonEqual(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/**
+ * True when `next` drops a key that `previous` had set.
+ *
+ * `UpdateMetric` merges its `updates` onto the stored metric, and JSON drops
+ * `undefined` values on the wire — so an edit that CLEARS a field (switching
+ * `sum(amount)` to `count(*)` sets `columnName: undefined`) would arrive as an
+ * update that never mentions the field, leaving the old value in place. Such an
+ * edit has to be expressed as a rebuild instead of a merge.
+ */
+function clearsAKey(previous: InsightMetric, next: InsightMetric): boolean {
+  return Object.entries(previous).some(
+    ([key, value]) =>
+      value !== undefined &&
+      (next as unknown as Record<string, unknown>)[key] === undefined,
+  );
 }
 
 /**
  * Diff two metric lists into Add/Update/Remove commands (one batch).
- * When order changes with the same id set, rebuild via remove-all + add-all
- * so array order is preserved (UpdateMetric is in-place and cannot reorder).
+ * Rebuilds via remove-all + add-all when order changes with the same id set
+ * (UpdateMetric is in-place and cannot reorder), and when any edit clears a
+ * field (a merge cannot express a removal — see `clearsAKey`).
  */
 export function buildMetricDiffCommands(
   nodeId: UUID,
@@ -333,10 +351,14 @@ export function buildMetricDiffCommands(
     prevIds.length === nextIds.length &&
     prevIds.every((id) => nextById.has(id));
   const orderChanged = sameSet && prevIds.some((id, i) => id !== nextIds[i]);
+  const clearsAField = next.some((m) => {
+    const prev = prevById.get(m.id);
+    return prev !== undefined && clearsAKey(prev, m);
+  });
 
   const commands: Command[] = [];
 
-  if (orderChanged) {
+  if (orderChanged || clearsAField) {
     for (let i = previous.length - 1; i >= 0; i--) {
       commands.push(cmd("RemoveMetric", { nodeId, metricId: previous[i]!.id }));
     }
@@ -355,7 +377,7 @@ export function buildMetricDiffCommands(
     const prev = prevById.get(m.id);
     if (!prev) {
       commands.push(cmd("AddMetric", { nodeId, metric: m }));
-    } else if (stableJson(prev) !== stableJson(m)) {
+    } else if (!jsonEqual(prev, m)) {
       const { id: _id, ...updates } = m;
       commands.push(
         cmd("UpdateMetric", {
@@ -418,8 +440,11 @@ export function buildInsightUpdateCommands(
       'buildInsightUpdateCommands: joins are not supported — use cmd("AddJoin") / cmd("RemoveJoin") directly',
     );
   }
-  // baseTableId repoint is refused by the legacy path; callers must use
-  // SetInsightSource directly. Silently skip if present.
+  if (updates.baseTableId !== undefined) {
+    throw new Error(
+      'buildInsightUpdateCommands: baseTableId cannot be repointed here — use cmd("SetInsightSource") directly',
+    );
+  }
 
   return commands;
 }
@@ -478,7 +503,7 @@ export function buildVisualizationUpdateCommands(
  *
  * This is a stopgap. Correlating a result to the command that produced it by
  * name — the framework's `Command.id` — is the mechanism that removes the
- * precondition entirely, and is filed as follow-up work. Do not add a second
+ * precondition entirely, and is the intended follow-up. Do not add a second
  * same-path command to a batch that is read back this way until then.
  */
 export function resultValueByCommandPath(

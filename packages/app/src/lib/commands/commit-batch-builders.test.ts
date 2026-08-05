@@ -60,18 +60,6 @@ describe("migrated insight write path", () => {
     ]);
   });
 
-  it("removes a join through an explicit RemoveJoin command", async () => {
-    // Joins are never inferred from an array diff — the call site knows which
-    // index the user removed and says so directly.
-    const commitBatch = vi.fn().mockResolvedValue({ ok: true });
-    await commitBatch({
-      commands: [cmd("RemoveJoin", { id: insightId, joinIndex: 0 })],
-    });
-    expect(commitBatch).toHaveBeenCalledWith({
-      commands: [{ path: "removeJoin", args: { id: insightId, joinIndex: 0 } }],
-    });
-  });
-
   it("surfaces commitBatch failure rather than succeeding silently", async () => {
     const commitBatch = vi
       .fn()

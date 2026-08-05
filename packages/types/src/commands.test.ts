@@ -56,6 +56,43 @@ describe("buildMetricDiffCommands", () => {
     ]);
   });
 
+  it("emits UpdateMetric when a field changes value", () => {
+    const prev = metric(midA, "Sum");
+    const next = { ...prev, columnName: "revenue" };
+    expect(buildMetricDiffCommands(id, [prev], [next])).toEqual([
+      {
+        path: "updateMetric",
+        args: {
+          nodeId: id,
+          metricId: midA,
+          updates: {
+            name: "Sum",
+            sourceTable: tableId,
+            aggregation: "sum",
+            columnName: "revenue",
+          },
+        },
+      },
+    ]);
+  });
+
+  it("rebuilds rather than merging when an edit clears a field", () => {
+    // sum(amount) -> count(*): `columnName` is cleared. A merge cannot express
+    // that (undefined does not survive JSON), so the metric is rebuilt.
+    const prev = metric(midA, "Sum");
+    const next: InsightMetric = {
+      ...prev,
+      name: "Row Count",
+      aggregation: "count",
+      columnName: undefined,
+    };
+    const commands = buildMetricDiffCommands(id, [prev], [next]);
+    expect(commands).toEqual([
+      cmd("RemoveMetric", { nodeId: id, metricId: midA }),
+      cmd("AddMetric", { nodeId: id, metric: next }),
+    ]);
+  });
+
   it("rebuilds via remove+add when order changes", () => {
     const a = metric(midA, "A");
     const b = metric(midB, "B");

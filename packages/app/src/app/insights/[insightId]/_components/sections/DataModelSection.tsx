@@ -24,6 +24,7 @@ import {
   PlusIcon,
 } from "@wystack/ui-react/icons";
 import { memo, useCallback, useMemo, useState, type ReactNode } from "react";
+import { toast } from "sonner";
 
 interface DataModelSectionProps {
   insight: Insight;
@@ -173,9 +174,16 @@ export const DataModelSection = memo(function DataModelSection({
         variant: "destructive",
         onConfirm: async () => {
           if (!insight.joins) return;
-          await commitBatch({
-            commands: [cmd("RemoveJoin", { id: insight.id, joinIndex })],
-          });
+          // RemoveJoin addresses the join by its rendered index, so a stale
+          // view (concurrent edit, double click) makes the server reject it.
+          // Surface that instead of leaking an unhandled rejection.
+          try {
+            await commitBatch({
+              commands: [cmd("RemoveJoin", { id: insight.id, joinIndex })],
+            });
+          } catch {
+            toast.error("Couldn't remove the table");
+          }
         },
       });
     },
