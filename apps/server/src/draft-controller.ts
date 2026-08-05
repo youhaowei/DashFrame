@@ -81,7 +81,10 @@ import {
 } from "@wystack/server";
 import { eq, getTableName, sql } from "drizzle-orm";
 
-import { assertPublishLogHasNoLateBound } from "./draft-late-bound";
+import {
+  assertPublishLogHasNoLateBound,
+  findLateBound,
+} from "./draft-late-bound";
 import { computeLogSignature } from "./draft-log-signature";
 import { assertKnownCommandPaths } from "./functions/commands";
 
@@ -171,6 +174,167 @@ function rowToDraftCommand(row: {
   return cmd;
 }
 
+function asDate(value: unknown, field: string): Date {
+  const date = value instanceof Date ? value : new Date(String(value));
+  if (Number.isNaN(date.getTime())) {
+    throw new Error(`listDrafts: invalid ${field}`);
+  }
+  return date;
+}
+
+function asStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === "string");
+  }
+  return [];
+}
+
+function parseJsonValue(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return {};
+  }
+}
+
+function asCountRecord(value: unknown): Record<string, number> {
+  const parsed = parseJsonValue(value);
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return {};
+  }
+  const counts: Record<string, number> = {};
+  for (const [key, count] of Object.entries(parsed)) {
+    const numeric = typeof count === "number" ? count : Number(count);
+    if (Number.isFinite(numeric)) counts[key] = numeric;
+  }
+  return counts;
+}
+
+function pathTokens(jsonPath: string): Array<string | number> {
+  if (!/^args(?:\.[A-Za-z_$][\w$]*|\[\d+\])*$/.test(jsonPath)) {
+    throw new Error("reviseDraft: operand path must target command args");
+  }
+  return [...jsonPath.matchAll(/([A-Za-z_$][\w$]*)|\[(\d+)\]/g)].map((match) =>
+    match[2] === undefined ? match[1]! : Number(match[2]),
+  );
+}
+
+function bindOperandAtPath(
+  command: DraftCommand,
+  jsonPath: string,
+  value: unknown,
+): void {
+  const tokens = pathTokens(jsonPath);
+  let parent: unknown = command;
+  for (const token of tokens.slice(0, -1)) {
+    if (parent === null || typeof parent !== "object") {
+      throw new Error("reviseDraft: operand path no longer exists");
+    }
+    parent = (parent as Record<string | number, unknown>)[token];
+  }
+  const last = tokens.at(-1);
+  if (
+    last === undefined ||
+    parent === null ||
+    typeof parent !== "object" ||
+    Array.isArray(parent) !== (typeof last === "number")
+  ) {
+    throw new Error("reviseDraft: operand path no longer exists");
+  }
+  const current = (parent as Record<string | number, unknown>)[last];
+  if (
+    current === null ||
+    typeof current !== "object" ||
+    Array.isArray(current) ||
+    (current as Record<string, unknown>).kind !== "lateBound"
+  ) {
+    throw new Error("reviseDraft: operand path is not late-bound");
+  }
+  (parent as Record<string | number, unknown>)[last] = {
+    kind: "value",
+    v: value,
+  };
+}
+
+function validateRevisionOp(
+  log: DraftCommand[],
+  candidate: unknown,
+): DraftRevisionOp {
+  if (
+    candidate === null ||
+    typeof candidate !== "object" ||
+    Array.isArray(candidate)
+  ) {
+    throw new Error("reviseDraft: invalid operation");
+  }
+  const op = candidate as DraftRevisionOp;
+  if (
+    !Number.isInteger(op.commandIndex) ||
+    op.commandIndex < 0 ||
+    op.commandIndex >= log.length
+  ) {
+    throw new Error("reviseDraft: invalid command index");
+  }
+  if (op.type === "removeCommand") return op;
+  if (
+    op.type !== "bindOperand" ||
+    typeof op.jsonPath !== "string" ||
+    !Object.hasOwn(op, "value")
+  ) {
+    throw new Error("reviseDraft: invalid operation");
+  }
+  pathTokens(op.jsonPath);
+  const command = log[op.commandIndex];
+  if (!command) throw new Error("reviseDraft: invalid command index");
+  const lateBound = findLateBound([command]).find(
+    (entry) => entry.jsonPath === op.jsonPath,
+  );
+  if (!lateBound) {
+    throw new Error("reviseDraft: operand path is not late-bound");
+  }
+  if (lateBound.refType !== "placeholder") {
+    throw new Error(
+      `reviseDraft: ${lateBound.refType} operands cannot be bound`,
+    );
+  }
+  return op;
+}
+
+function assertUniqueRevisionOps(ops: DraftRevisionOp[]): void {
+  const removals = ops
+    .filter((op) => op.type === "removeCommand")
+    .map((op) => op.commandIndex);
+  if (new Set(removals).size !== removals.length) {
+    throw new Error("reviseDraft: duplicate remove operation");
+  }
+  const bindings = ops
+    .filter((op) => op.type === "bindOperand")
+    .map((op) => `${op.commandIndex}:${op.jsonPath}`);
+  if (new Set(bindings).size !== bindings.length) {
+    throw new Error("reviseDraft: duplicate bind operation");
+  }
+}
+
+function applyRevisionOps(
+  log: DraftCommand[],
+  ops: DraftRevisionOp[],
+): DraftCommand[] {
+  const revised = structuredClone(log) as DraftCommand[];
+  for (const op of ops) {
+    if (op.type !== "bindOperand") continue;
+    const command = revised[op.commandIndex];
+    if (!command) throw new Error("reviseDraft: invalid command index");
+    bindOperandAtPath(command, op.jsonPath, op.value);
+  }
+  const removals = new Set(
+    ops
+      .filter((op) => op.type === "removeCommand")
+      .map((op) => op.commandIndex),
+  );
+  return revised.filter((_, index) => !removals.has(index));
+}
+
 export interface DraftController {
   /**
    * Open a new draft and return its durable handle. No wystack call, no shadow
@@ -208,6 +372,14 @@ export interface DraftController {
     batch: DraftCommand[],
     context?: Record<string, unknown>,
   ): Promise<CommandResult[]>;
+  /** List every open draft from durable metadata, newest activity first. */
+  listDrafts(): Promise<DraftListEntry[]>;
+  /** Atomically replace a reviewed log after guarded remove/bind operations. */
+  reviseDraft(
+    draftId: string,
+    expectedLogSignature: string,
+    ops: DraftRevisionOp[],
+  ): Promise<DraftRevisionResult>;
   /**
    * Publish = replay the durable command log onto canonical via
    * `applyCommands(app, log, {commit, tx})`, with the log delete + shadow sweep
@@ -240,6 +412,30 @@ export interface DraftController {
   detectConflict(draftId: string): Promise<ConflictReport>;
   /** Read-only peek at a draft's persisted (compacted) command log. */
   getDraftLog(draftId: string): Promise<Command[]>;
+}
+
+export interface DraftListEntry {
+  draftId: string;
+  createdAt: Date;
+  commandCount: number;
+  updatedAt: Date | null;
+  kinds: Record<string, number>;
+  paths: string[];
+}
+
+export type DraftRevisionOp =
+  | { type: "removeCommand"; commandIndex: number }
+  | {
+      type: "bindOperand";
+      commandIndex: number;
+      jsonPath: string;
+      value: unknown;
+    };
+
+export interface DraftRevisionResult {
+  draftId: string;
+  commandCount: number;
+  logSignature: string;
 }
 
 /**
@@ -761,6 +957,110 @@ export function createDraftController(
         baseInventory: await snapshotCanonicalInventory(),
       });
       return draftId;
+    },
+
+    async listDrafts(): Promise<DraftListEntry[]> {
+      const rows = normalizeRows(
+        await db.execute(
+          sql.raw(`
+            WITH draft_summary AS (
+              SELECT
+                draft_id,
+                COUNT(*)::int AS command_count,
+                MAX(created_at) AS updated_at
+              FROM draft_command_log
+              GROUP BY draft_id
+            )
+            SELECT
+              metadata.draft_id AS "draftId",
+              metadata.created_at AS "createdAt",
+              COALESCE(summary.command_count, 0)::int AS "commandCount",
+              summary.updated_at AS "updatedAt",
+              COALESCE((
+                SELECT jsonb_object_agg(kind_counts.kind, kind_counts.count)
+                FROM (
+                  SELECT COALESCE(log.kind, 'unknown') AS kind, COUNT(*)::int AS count
+                  FROM draft_command_log AS log
+                  WHERE log.draft_id = metadata.draft_id
+                  GROUP BY COALESCE(log.kind, 'unknown')
+                ) AS kind_counts
+              ), '{}'::jsonb) AS kinds,
+              COALESCE((
+                SELECT array_agg(path_counts.path ORDER BY path_counts.first_seq)
+                FROM (
+                  SELECT log.path, MIN(log.seq) AS first_seq
+                  FROM draft_command_log AS log
+                  WHERE log.draft_id = metadata.draft_id
+                  GROUP BY log.path
+                  ORDER BY first_seq
+                  LIMIT 5
+                ) AS path_counts
+              ), ARRAY[]::text[]) AS paths
+            FROM draft_metadata AS metadata
+            LEFT JOIN draft_summary AS summary
+              ON summary.draft_id = metadata.draft_id
+            ORDER BY COALESCE(summary.updated_at, metadata.created_at) DESC
+          `),
+        ),
+      );
+      return rows.map((row) => ({
+        draftId: String(row.draftId),
+        createdAt: asDate(row.createdAt, "createdAt"),
+        commandCount: Number(row.commandCount),
+        updatedAt:
+          row.updatedAt === null || row.updatedAt === undefined
+            ? null
+            : asDate(row.updatedAt, "updatedAt"),
+        kinds: asCountRecord(row.kinds),
+        paths: asStringArray(row.paths),
+      }));
+    },
+
+    async reviseDraft(draftId, expectedLogSignature, ops) {
+      if (!Array.isArray(ops) || ops.length === 0) {
+        throw new Error("reviseDraft: at least one operation is required");
+      }
+      return db.transaction(async (tx) => {
+        const log = await readLog(draftId, tx);
+
+        // Validate every address and late-bound type against the authoritative
+        // log before checking drift. In particular, a category/column/unknown
+        // ref is never allowed to become bindable merely because a client
+        // retries with a fresh signature or claims a different refType.
+        const validatedOps = (ops as unknown[]).map((op) =>
+          validateRevisionOp(log, op),
+        );
+        assertUniqueRevisionOps(validatedOps);
+
+        if (computeLogSignature(log) !== expectedLogSignature) {
+          throw new Error("reviseDraft: draft changed since review");
+        }
+
+        const resulting = applyRevisionOps(log, validatedOps);
+        assertKnownCommandPaths(resulting, "reviseDraft");
+
+        await tx
+          .delete(draftCommandLog)
+          .where(eq(draftCommandLog.draftId, draftId));
+        if (resulting.length > 0) {
+          await tx.insert(draftCommandLog).values(
+            resulting.map((cmd, seq) => ({
+              draftId,
+              seq,
+              path: cmd.path,
+              args: (cmd.args ?? null) as unknown,
+              cmdId: cmd.id ?? null,
+              compactionKey: cmd.compactionKey ?? null,
+              kind: cmd.kind ?? null,
+            })),
+          );
+        }
+        return {
+          draftId,
+          commandCount: resulting.length,
+          logSignature: computeLogSignature(resulting),
+        };
+      });
     },
 
     async appendToDraft(draftId, batch, context = {}) {

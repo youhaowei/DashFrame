@@ -17,7 +17,9 @@ import { commandFunctions } from "./functions/commands";
 import { connectorCatalogFunctions } from "./functions/connector-catalog";
 import { connectorSetupFunctions } from "./functions/connector-setup";
 import { dashboardFunctions } from "./functions/dashboards";
+import { draftBatchFunctions } from "./functions/draft-batch";
 import { draftLifecycleFunctions } from "./functions/draft-lifecycle";
+import { draftReviseFunctions } from "./functions/draft-revise";
 import { draftFunctions } from "./functions/drafts";
 import { previewDiffFunctions } from "./functions/preview-diff";
 import { wy } from "./wystack";
@@ -67,7 +69,9 @@ export const functions = {
   ...connectorSetupFunctions,
   ...dashboardFunctions,
   ...draftLifecycleFunctions,
+  ...draftBatchFunctions,
   ...draftFunctions,
+  ...draftReviseFunctions,
   ...accessCredentialFunctions,
   ...previewDiffFunctions,
 };

@@ -1,4 +1,8 @@
-import type { ArtifactDb } from "@dashframe/server-core";
+import {
+  draftCommandLog,
+  draftMetadata,
+  type ArtifactDb,
+} from "@dashframe/server-core";
 import type { PreviewDiff } from "@dashframe/types";
 import { text } from "@wystack/db";
 import type { Command, WyStackApp } from "@wystack/server";
@@ -6,6 +10,7 @@ import type { Command, WyStackApp } from "@wystack/server";
 import { createDraftController } from "../draft-controller";
 import { findLateBound, type LateBoundOperandRef } from "../draft-late-bound";
 import { computeLogSignature } from "../draft-log-signature";
+import { permissions } from "../permissions";
 import { wy } from "../wystack";
 import { buildPreviewDiff } from "./preview-diff";
 
@@ -45,6 +50,7 @@ interface DraftFunctionContext {
   artifactDb?: unknown;
   vault?: unknown;
   principal?: unknown;
+  draftController?: ReturnType<typeof createDraftController>;
 }
 
 function asDraftFunctionContext(ctx: unknown): DraftFunctionContext {
@@ -109,6 +115,26 @@ const draftPublishReview = wy.procedure
     };
   });
 
+const listDrafts = wy.procedure
+  .input({})
+  .authorize(permissions.commands.preview)
+  .query(async (ctx) => {
+    const { app, db } = requireServerContext(ctx);
+    // The controller uses the native DB for its aggregate query. Tag both
+    // durable registry tables on the outer tracker so the reactive router can
+    // subscribe this query to draft-log invalidations without loading either
+    // table twice.
+    await Promise.all([
+      ctx.db.from(draftMetadata).limit(0).all(),
+      ctx.db.from(draftCommandLog).limit(0).all(),
+    ]);
+    const controller =
+      asDraftFunctionContext(ctx).draftController ??
+      createDraftController(app, db);
+    return controller.listDrafts();
+  });
+
 export const draftFunctions = {
   draftPublishReview,
+  listDrafts,
 };
