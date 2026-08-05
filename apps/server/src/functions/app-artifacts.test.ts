@@ -1240,8 +1240,12 @@ describe("GA4 refreshed-token write-back under concurrency", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input instanceof Request ? input.url : input);
-        if (url.startsWith("https://oauth2.googleapis.com/token")) {
+        const url = new URL(
+          String(input instanceof Request ? input.url : input),
+        );
+        // Compared as a parsed origin rather than a substring, so a host that
+        // merely contains this one cannot match.
+        if (url.origin === "https://oauth2.googleapis.com") {
           releaseToken?.();
           await bothRefreshing;
           return new Response(

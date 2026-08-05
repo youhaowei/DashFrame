@@ -194,8 +194,13 @@ describe("GA4 connector", () => {
       const persistTokenBundle = vi.fn(async (next: GoogleOAuthTokenBundle) => {
         stored = JSON.stringify(next);
       });
+      // Matched on the parsed origin, not a substring: a substring test would
+      // also match a host that merely contains this one, which is the same
+      // mistake that makes real host checks exploitable.
+      const isTokenEndpoint = (url: string | URL) =>
+        new URL(String(url)).origin === "https://oauth2.googleapis.com";
       const fetchImpl = vi.fn(async (url: string | URL) =>
-        String(url).includes("oauth2.googleapis.com")
+        isTokenEndpoint(url)
           ? new Response(
               JSON.stringify({ access_token: "fresh-token", expires_in: 3600 }),
               { status: 200 },
@@ -229,8 +234,8 @@ describe("GA4 connector", () => {
       await connector.connect();
       expect(persistTokenBundle).toHaveBeenCalledTimes(1);
       expect(fetchImpl).toHaveBeenCalledTimes(1);
-      expect(String(fetchImpl.mock.calls[0]?.[0])).not.toContain(
-        "oauth2.googleapis.com",
+      expect(new URL(String(fetchImpl.mock.calls[0]?.[0])).origin).not.toBe(
+        "https://oauth2.googleapis.com",
       );
     });
 
