@@ -28,8 +28,6 @@ export function OnboardingView() {
             onTableSelect={createInsightFromTable}
             onInsightSelect={(id, name) => createInsightFromInsight(id, name)}
             showInsights={true}
-            showNotion={true}
-            showPostgres={true}
           />
         </CardContent>
       </Card>

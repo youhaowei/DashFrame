@@ -64,6 +64,14 @@ export type {
 } from "./access-credentials";
 
 export type {
+  ConnectorAuthKind,
+  ConnectorCatalogEntry,
+  ConnectorFormField,
+  ConnectorFormFieldType,
+  UseConnectorCatalogResult,
+} from "./connectors";
+
+export type {
   ConnectorConfig,
   CreateDataSourceInput,
   DataSource,

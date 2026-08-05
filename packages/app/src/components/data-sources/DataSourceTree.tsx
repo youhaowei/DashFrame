@@ -1,4 +1,7 @@
-import { getConnectorById } from "@/lib/connectors/registry";
+import {
+  getConnectorById,
+  useRegistryVersion,
+} from "@/lib/connectors/registry";
 import { api } from "@/wystack/api";
 import { useQuery } from "@wystack/client";
 import { Button, EmptyState, Panel, cn } from "@wystack/ui-react";
@@ -23,6 +26,11 @@ export function DataSourceTree({
     args: { dataSourceId },
   });
   const { data: dataFrames } = useQuery(api.listDataFrames);
+
+  // Subscribe so a re-render fires once the connector registry hydrates from
+  // the server catalog (getConnectorById reads a module-scope map, which is
+  // not reactive on its own).
+  useRegistryVersion();
 
   const dataSource = useMemo(
     () => dataSources?.find((s) => s.id === dataSourceId),

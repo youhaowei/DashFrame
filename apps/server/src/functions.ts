@@ -14,6 +14,7 @@ import { accessCredentialFunctions } from "./functions/access-credentials";
 import { appArtifactFunctions } from "./functions/app-artifacts";
 import { assistantProviderConfigFunctions } from "./functions/assistant-provider-configs";
 import { commandFunctions } from "./functions/commands";
+import { connectorCatalogFunctions } from "./functions/connector-catalog";
 import { dashboardFunctions } from "./functions/dashboards";
 import { draftLifecycleFunctions } from "./functions/draft-lifecycle";
 import { draftFunctions } from "./functions/drafts";
@@ -61,6 +62,7 @@ export const functions = {
   ...appArtifactFunctions,
   ...assistantProviderConfigFunctions,
   ...commandFunctions,
+  ...connectorCatalogFunctions,
   ...dashboardFunctions,
   ...draftLifecycleFunctions,
   ...draftFunctions,

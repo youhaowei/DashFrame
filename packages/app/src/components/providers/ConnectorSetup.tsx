@@ -1,31 +1,14 @@
-/**
- * ConnectorSetup — boot-time connector registration.
- *
- * Registers each known connector kind into the connector registry at module
- * load time so the registry is fully populated before any component renders.
- * Connectors are stateless singletons, so registration is idempotent and safe
- * to run eagerly (no browser APIs, no side effects).
- *
- * This differs from RendererRegistration (which uses useEffect) because chart
- * renderers need a live DuckDB/vgplot instance before they can be used, so
- * their registration is deferred to when the engine is ready. Connectors carry
- * only static metadata (id, name, icon, form fields) — they're available
- * immediately.
- *
- * Mount ConnectorSetup once near the root (e.g. inside RouteRoot) so this
- * module is loaded at app startup. The component itself renders nothing.
- */
-
-import { registerConnector } from "@/lib/connectors/registry";
+import { useConnectorCatalog } from "@/data/connector-catalog";
+import { hydrateConnectorRegistry } from "@/lib/connectors/registry";
 import { localFileConnector } from "@dashframe/connector-local";
 import { makeNotionConnector } from "@dashframe/connector-notion";
 import { makePostgresConnector } from "@dashframe/connector-postgres";
+import type { AnyConnector } from "@dashframe/engine";
+import { useEffect } from "react";
 
-// The Notion connector instance here is registered for static metadata only
-// (id, name, icon, form fields). connect()/query() are never called from the
-// renderer — they go through the WyStack server mutations (listNotionDatabases
-// / queryNotionDatabase). The resolver throws if called from the renderer —
-// that would be a bug.
+// Static-metadata-only instances — connect()/query() are never called from the
+// renderer (they go through the WyStack server mutations). Unchanged from the
+// previous version of this file, just no longer registered unconditionally.
 const notionConnectorForRegistry = makeNotionConnector(() => {
   throw new Error(
     "[connector-registry] connect()/query() must not be called from the renderer — " +
@@ -33,11 +16,6 @@ const notionConnectorForRegistry = makeNotionConnector(() => {
   );
 });
 
-// The Postgres connector instance here is registered for static metadata only
-// (id, name, icon, form fields). connect()/query() go through server mutations
-// (listPostgresTables / queryPostgresTable). The resolver throws if called from
-// the renderer — that would be a bug. pg is dynamically imported in the
-// connector so this registration is safe in a browser context.
 const postgresConnectorForRegistry = makePostgresConnector(() => {
   throw new Error(
     "[connector-registry] connect()/query() must not be called from the renderer — " +
@@ -45,17 +23,36 @@ const postgresConnectorForRegistry = makePostgresConnector(() => {
   );
 }, {});
 
-// Register connectors at module scope — synchronous, before any render.
-// getConnectorById() calls from any component on first render will resolve.
-registerConnector(localFileConnector);
-registerConnector(notionConnectorForRegistry);
-registerConnector(postgresConnectorForRegistry);
+const CONNECTOR_FACTORIES: Record<string, () => AnyConnector> = {
+  local: () => localFileConnector,
+  notion: () => notionConnectorForRegistry,
+  postgres: () => postgresConnectorForRegistry,
+};
 
 /**
- * Renders nothing. Import side-effect (module-scope registration above) is
- * what does the work. This component exists only as an explicit mount-point
- * anchor so RouteRoot can document "connectors are set up here".
+ * Renders nothing. Fetches the server connector catalog and hydrates the
+ * client registry from it (see hydrateConnectorRegistry in registry.ts) —
+ * the registry is a rendering-detail cache of live connector instances,
+ * populated FROM the server read, not by independent client-side
+ * registration. Which connector ids exist is a server-side property; this
+ * component only supplies the client-only, non-serializable behavior
+ * (parse/validate/the throwing connect/query stubs) for ids the server says
+ * exist.
+ *
+ * Effect-based, like RendererRegistration in VisualizationSetup.tsx, because
+ * the catalog now requires a server round-trip — this can no longer be
+ * synchronous module-scope registration. Consumers that read the registry
+ * before the catalog resolves see it partially/un-populated, exactly as
+ * VisualizationSetup's children tolerate renderers not yet being ready.
  */
 export function ConnectorSetup() {
+  const { data: catalog } = useConnectorCatalog();
+
+  useEffect(() => {
+    if (catalog) {
+      hydrateConnectorRegistry(catalog, CONNECTOR_FACTORIES);
+    }
+  }, [catalog]);
+
   return null;
 }

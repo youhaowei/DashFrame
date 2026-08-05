@@ -78,6 +78,7 @@ vi.mock("@/hooks/useDataFrameData", () => ({
 
 vi.mock("@/lib/connectors/registry", () => ({
   getConnectorById: () => null,
+  useRegistryVersion: () => 0,
 }));
 
 vi.mock("@/lib/perf", () => ({
