@@ -6,8 +6,11 @@ import { PerfHud } from "@/lib/perf";
 import { useToastStore } from "@/lib/stores";
 import { useAssistantStore } from "@/lib/stores/assistant-store";
 import { useShellStore } from "@/lib/stores/shell-store";
+import { api } from "@/wystack/api";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
+import { useQuery } from "@wystack/client";
 import {
+  Badge,
   Button,
   Dialog,
   DialogContent,
@@ -29,6 +32,7 @@ import {
   DashboardIcon,
   DatabaseIcon,
   DeleteIcon,
+  FileIcon,
   GithubIcon,
   GridIcon,
   MenuIcon,
@@ -50,6 +54,12 @@ type NavItem = {
 };
 
 const navItems: NavItem[] = [
+  {
+    name: "Review",
+    href: "/drafts",
+    description: "Review",
+    icon: FileIcon,
+  },
   {
     name: "Dashboards",
     href: "/dashboards",
@@ -86,6 +96,7 @@ interface SidebarContentProps {
    * mount a second instance (duplicate hotkey listeners, duplicate panels).
    */
   footerSlot?: ReactNode;
+  pendingDraftCount: number;
 }
 
 function SidebarContent({
@@ -93,6 +104,7 @@ function SidebarContent({
   onAssistantProviders,
   onAccessCredentials,
   footerSlot,
+  pendingDraftCount,
 }: SidebarContentProps) {
   const pathname = useLocation({ select: (l) => l.pathname });
 
@@ -119,7 +131,8 @@ function SidebarContent({
       {/* Navigation Links */}
       <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-2">
         {navItems.map((item) => {
-          const isActive = pathname === item.href;
+          const isActive =
+            pathname === item.href || pathname.startsWith(`${item.href}/`);
 
           return (
             <Link
@@ -141,6 +154,22 @@ function SidebarContent({
                 )}
               />
               <span className="truncate text-sm font-medium">{item.name}</span>
+              {item.href === "/drafts" && pendingDraftCount > 0 ? (
+                <Badge
+                  variant="soft"
+                  color="secondary"
+                  className="ml-auto min-w-5 justify-center text-[10px]"
+                  // A bare digit next to "Review" reads as "Review 3" to a
+                  // screen reader, which says nothing about what the 3 counts.
+                  aria-label={
+                    pendingDraftCount === 1
+                      ? "1 draft waiting for review"
+                      : `${pendingDraftCount} drafts waiting for review`
+                  }
+                >
+                  {pendingDraftCount}
+                </Badge>
+              ) : null}
             </Link>
           );
         })}
@@ -199,6 +228,7 @@ export function Navigation() {
   const [showAccessCredentials, setShowAccessCredentials] = useState(false);
   const setAssistantSetupOpen = useAssistantStore((s) => s.setSetupOpen);
   const accessCapabilities = useAccessCapabilities();
+  const { data: drafts = [] } = useQuery(api.listDrafts, { args: {} });
   const canManageAccessCredentials =
     accessCapabilities.data?.canManageCredentials === true;
 
@@ -238,6 +268,7 @@ export function Navigation() {
           style={{ width: DESKTOP_NAV_WIDTH }}
         >
           <SidebarContent
+            pendingDraftCount={drafts.length}
             onClearData={() => setShowClearConfirm(true)}
             onAssistantProviders={() => setAssistantSetupOpen(true)}
             onAccessCredentials={
@@ -276,6 +307,7 @@ export function Navigation() {
             </div>
             <div className="flex-1 overflow-y-auto">
               <SidebarContent
+                pendingDraftCount={drafts.length}
                 onClearData={() => setShowClearConfirm(true)}
                 onAssistantProviders={() => setAssistantSetupOpen(true)}
                 onAccessCredentials={

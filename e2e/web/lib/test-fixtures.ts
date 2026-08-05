@@ -18,6 +18,7 @@ const fixturesDir = path.join(__dirname, "..", "fixtures");
 const isCI = !!process.env.CI;
 const BASE_PORT = Number(process.env.E2E_BASE_PORT ?? 3100);
 const WYSTACK_URL = process.env.E2E_WYSTACK_URL;
+const USER_TOKEN = process.env.E2E_USER_TOKEN;
 
 /**
  * Get the base URL for a worker based on its parallel index.
@@ -55,6 +56,8 @@ interface DashFrameWorkerFixtures {
 interface DashFrameAutoFixtures {
   /** Clears the WyStack server DB before each test for isolation */
   clearServerDB: void;
+  /** Injects the authenticated API runtime before the app bootstraps. */
+  authenticatedRuntime: void;
 }
 
 interface DashFrameFixtures {
@@ -89,6 +92,17 @@ export const test = base.extend<
       const workerBaseURL = getWorkerBaseURL(workerInfo.parallelIndex);
       const page = await browser.newPage();
       try {
+        if (WYSTACK_URL && USER_TOKEN) {
+          await page.addInitScript(
+            ({ url, token }) => {
+              Object.defineProperty(globalThis, "dashframe", {
+                configurable: true,
+                value: { getServerInfo: async () => ({ url, token }) },
+              });
+            },
+            { url: WYSTACK_URL, token: USER_TOKEN },
+          );
+        }
         await page.goto(workerBaseURL);
         await page.evaluate(async () => {
           const databases = await indexedDB.databases();
@@ -124,7 +138,10 @@ export const test = base.extend<
       if (WYSTACK_URL) {
         const response = await fetch(`${WYSTACK_URL}/api/clearAllData`, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: {
+            "content-type": "application/json",
+            ...(USER_TOKEN ? { Authorization: `Bearer ${USER_TOKEN}` } : {}),
+          },
           body: "{}",
         });
         if (!response.ok) {
@@ -132,6 +149,24 @@ export const test = base.extend<
             `Failed to clear WyStack server DB before test: ${response.status} ${await response.text()}`,
           );
         }
+      }
+      await use();
+    },
+    { scope: "test", auto: true },
+  ],
+
+  authenticatedRuntime: [
+    async ({ page }, use) => {
+      if (WYSTACK_URL && USER_TOKEN) {
+        await page.addInitScript(
+          ({ url, token }) => {
+            Object.defineProperty(globalThis, "dashframe", {
+              configurable: true,
+              value: { getServerInfo: async () => ({ url, token }) },
+            });
+          },
+          { url: WYSTACK_URL, token: USER_TOKEN },
+        );
       }
       await use();
     },

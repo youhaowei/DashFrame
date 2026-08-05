@@ -34,6 +34,15 @@ export const permissions = definePermissions<AppContext>()({
     },
   },
   commands: {
+    draft: {
+      description:
+        "Open or append a draft command batch (API entry; never commits to canonical). " +
+        "Open to any WELL-FORMED principal, service or user — API credentials can draft " +
+        "but not commit. Deliberately does NOT reuse commands.commit: that check falls " +
+        "through to the user-principal branch when draftId is unset on a direct RPC, " +
+        "which would deny the service principals this permission exists to admit.",
+      check: () => true,
+    },
     commit: {
       description:
         "Commit or replay commands against canonical state (preview and draft-append stay open to any principal)",
@@ -70,6 +79,7 @@ export const permissions = definePermissions<AppContext>()({
 export const expectedPermissionIds = [
   "accessCredentials.manage",
   "commands.commit",
+  "commands.draft",
   "commands.preview",
   "connectors.setup",
 ] as const;
