@@ -119,6 +119,37 @@ ticket references.
 - Test: `bunx turbo test --filter='!@wystack/*'`
 - Build: `bunx turbo build --filter='!@wystack/*'`
 
+## Worktrees (all agents)
+
+Every agent that touches source files works in an isolated git worktree — never
+in the shared main checkout (`/Users/youhaowei/Projects/DashFrame`). Two agents
+in the same checkout revert each other's uncommitted work.
+
+**Bootstrap (first step in any feature-branch brief):**
+
+```sh
+worktree=$(scripts/ensure-worktree.sh <branch-name>)
+cd "$worktree"
+# all work happens here
+```
+
+`scripts/ensure-worktree.sh` creates `~/worktrees/dashframe/<branch-slug>`
+(forward-slashes and colons in the branch name become dashes, lowercase) if not
+already there, populates and heals submodule checkouts, and prints the path. If
+it fails, STOP — do not improvise another location.
+
+**Enforcement:** `.husky/pre-commit` blocks commits on a non-default branch in
+the main checkout. Bypass with `ALLOW_MAIN_CHECKOUT_COMMIT=1` only when you
+knowingly own that checkout — e.g. a cloud/VM agent working on its branch in
+the environment's single checkout, where isolation is provided by the VM
+itself. The hook still runs `lint-staged` (prettier) on staged files.
+
+**Teardown:** remove worktrees with `scripts/remove-worktree.sh <path>` — never
+`git worktree remove --force` or `rm -rf`. The guard refuses when removal would
+destroy uncommitted, unpushed, stashed, or mid-operation work, in the worktree
+or any of its submodules, and tells you what to do instead. A refusal means
+there is work to save, not a broken script.
+
 ## Git submodules (`libs/wystack`, `libs/stdui`)
 
 Two vendored dependencies are **git submodules**, each with its own GitHub repo:
@@ -130,6 +161,13 @@ The `@dashframe/*` packages consume their **built** output, so `bun run setup`
 (and CI) init the submodules and run `bun run build:wystack` before anything
 else. If imports from `@wystack/*` fail to resolve, the submodule is
 uninitialized or unbuilt — run `git submodule update --init --recursive && bun run build:wystack`.
+
+**Nothing syncs submodules automatically.** There is no post-checkout hook:
+switching branches never touches a submodule checkout, so a submodule parked on
+its own branch stays there. Only `scripts/ensure-worktree.sh` (which also heals
+half-initialized checkouts) and `bun run setup` populate them. Teardown goes through
+`scripts/remove-worktree.sh` (see **Worktrees** above). See `README.md` → the
+submodule workflow section for the full contract.
 
 **Changing submodule code is a two-repo change — never edit in place and commit
 only the pin.** The parent repo records a submodule as a pinned commit SHA; a
@@ -151,17 +189,10 @@ reviewed. The workflow:
 
 **Worktree isolation applies to submodules too.** Parallel agents that both touch
 `libs/wystack` need their **own** wystack worktree each — two agents sharing one
-submodule checkout revert each other exactly like the parent repo (`CLAUDE.md` →
-worktree isolation). Trust the submodule PR's own remote state as the source of
+submodule checkout revert each other exactly like the parent repo (**Worktrees** above). Trust the submodule PR's own remote state as the source of
 truth for what has landed.
 
-## Cursor Cloud specific instructions
-
-Dependency refresh (submodules + install + build of the vendored `@wystack/*`
-packages) is handled by the startup update script; see root `package.json`
-`setup` for the equivalent steps.
-
-### Running for browser/headless testing (recommended in the cloud VM)
+## Running for browser/headless testing
 
 The web app is **not** purely client-side — it needs the backend API, or data
 import fails with `404` on `/api/*` and a failed `/api/ws` WebSocket. Run two
@@ -180,13 +211,3 @@ processes:
 Root `bun run dev` launches the **Electron desktop** app (embeds the server
 in-process, auto-starts the renderer on 5173). It needs a display, so it is not
 suitable for the headless VM — prefer the web+server combo above.
-
-### Committing (pre-commit worktree guard)
-
-`.husky/pre-commit` refuses feature-branch commits made from the **main
-checkout** (it's meant to force human/local multi-agent work into isolated
-worktrees via `scripts/ensure-worktree.sh`, per `CLAUDE.md`). A Cursor Cloud
-agent works on its branch directly in the single main checkout, so that guard
-would block every commit. Commit with the documented bypass:
-`ALLOW_MAIN_CHECKOUT_COMMIT=1 git commit ...`. The hook still runs `lint-staged`
-(prettier) on staged files.
