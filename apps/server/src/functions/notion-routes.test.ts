@@ -20,7 +20,7 @@ import {
   SecretVault,
   TestBackend,
 } from "@wystack/secret-vault";
-import type { WyStackApp } from "@wystack/server";
+import { applyCommands, type WyStackApp } from "@wystack/server";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -68,7 +68,9 @@ vi.mock("@dashframe/connector-notion", () => ({
 }));
 
 import { functions } from "../functions";
+import { LOCAL_USER_ID } from "../permissions";
 import { wy } from "../wystack";
+import { cmd } from "./commands";
 
 function makeTestVault(): { vault: SecretVault; backend: TestBackend } {
   const backend = new TestBackend();
@@ -113,12 +115,26 @@ describe("Notion data-plane routes — happy path (mocked connector)", () => {
 
   /** Create a notion source with a stored credential ref, return its id. */
   async function seedNotionSource(): Promise<string> {
-    const { result } = await app.call("addDataSource", {
-      type: "notion",
-      name: "My Notion",
-      apiKey: "secret_plaintext",
-    });
-    return (result as { id: string }).id;
+    const id = crypto.randomUUID();
+    await applyCommands(
+      app,
+      [
+        cmd("CreateDataSource", {
+          id,
+          type: "notion",
+          name: "My Notion",
+          apiKey: "secret_plaintext",
+        }),
+      ],
+      {
+        mode: "commit",
+        context: {
+          vault,
+          principal: { kind: "user", userId: LOCAL_USER_ID },
+        },
+      },
+    );
+    return id;
   }
 
   it("listNotionDatabases maps {id,name} → {id,title} and resolves via the vault", async () => {

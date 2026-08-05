@@ -25,7 +25,7 @@ import {
   SecretVault,
   TestBackend,
 } from "@wystack/secret-vault";
-import type { WyStackApp } from "@wystack/server";
+import { applyCommands, type Command, type WyStackApp } from "@wystack/server";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -71,6 +71,30 @@ async function buildUserApp(
         principal: { kind: "user", userId: LOCAL_USER_ID },
       }),
   };
+}
+
+async function commit(
+  app: WyStackApp,
+  commands: Command[],
+  vault?: SecretVault,
+) {
+  return applyCommands(app, commands, {
+    mode: "commit",
+    context: {
+      ...(vault === undefined ? {} : { vault }),
+      principal: { kind: "user", userId: LOCAL_USER_ID },
+    },
+  });
+}
+
+async function createSource(
+  app: WyStackApp,
+  args: Omit<Parameters<typeof cmd<"CreateDataSource">>[1], "id">,
+  vault?: SecretVault,
+): Promise<string> {
+  const id = crypto.randomUUID();
+  await commit(app, [cmd("CreateDataSource", { id, ...args })], vault);
+  return id;
 }
 
 /** Read the raw config jsonb from the artifact DB for a given data-source id. */
@@ -127,13 +151,16 @@ describe("vault control-plane — store→ref + has→presence", () => {
   // AC2: store → ref, NO plaintext in config
   // -------------------------------------------------------------------------
 
-  it("AC2 — addDataSource stores a SecretRef, not plaintext, in config.apiKey", async () => {
-    const { result } = await app.call("addDataSource", {
-      type: "notion",
-      name: "My Notion Source",
-      apiKey: "secret-plaintext-key",
-    });
-    const id = (result as { id: string }).id;
+  it("AC2 — CreateDataSource stores a SecretRef, not plaintext, in config.apiKey", async () => {
+    const id = await createSource(
+      app,
+      {
+        type: "notion",
+        name: "My Notion Source",
+        apiKey: "secret-plaintext-key",
+      },
+      vault,
+    );
 
     const config = await readConfig(db, id);
     expect(config).not.toBeNull();
@@ -145,13 +172,16 @@ describe("vault control-plane — store→ref + has→presence", () => {
     expect(config!["connectionString"]).toBeUndefined();
   });
 
-  it("AC2 — addDataSource with connectionString stores a SecretRef", async () => {
-    const { result } = await app.call("addDataSource", {
-      type: "postgres",
-      name: "My PG Source",
-      connectionString: "postgresql://user:pass@host/db",
-    });
-    const id = (result as { id: string }).id;
+  it("AC2 — CreateDataSource with connectionString stores a SecretRef", async () => {
+    const id = await createSource(
+      app,
+      {
+        type: "postgres",
+        name: "My PG Source",
+        connectionString: "postgresql://user:pass@host/db",
+      },
+      vault,
+    );
 
     const config = await readConfig(db, id);
     expect(isSecretRef(config!["connectionString"])).toBe(true);
@@ -159,23 +189,27 @@ describe("vault control-plane — store→ref + has→presence", () => {
     expect(config!["apiKey"]).toBeUndefined();
   });
 
-  it("AC2 — updateDataSource replaces apiKey with a fresh SecretRef", async () => {
+  it("AC2 — SetDataSourceConfig replaces apiKey with a fresh SecretRef", async () => {
     // First create.
-    const { result } = await app.call("addDataSource", {
-      type: "notion",
-      name: "Source",
-      apiKey: "original-key",
-    });
-    const id = (result as { id: string }).id;
+    const id = await createSource(
+      app,
+      {
+        type: "notion",
+        name: "Source",
+        apiKey: "original-key",
+      },
+      vault,
+    );
     const configBefore = await readConfig(db, id);
     const refBefore = configBefore!["apiKey"] as string;
     expect(isSecretRef(refBefore)).toBe(true);
 
     // Now update with a new apiKey.
-    await app.call("updateDataSource", {
-      id,
-      apiKey: "new-key",
-    });
+    await commit(
+      app,
+      [cmd("SetDataSourceConfig", { id, apiKey: "new-key" })],
+      vault,
+    );
 
     const configAfter = await readConfig(db, id);
     const refAfter = configAfter!["apiKey"] as string;
@@ -186,18 +220,21 @@ describe("vault control-plane — store→ref + has→presence", () => {
     expect(configAfter!["apiKey"]).not.toBe("new-key");
   });
 
-  it("AC2 — updateDataSource with empty apiKey CLEARS the credential", async () => {
+  it("AC2 — SetDataSourceConfig with empty apiKey CLEARS the credential", async () => {
     // Seed a credential.
-    const { result } = await app.call("addDataSource", {
-      type: "notion",
-      name: "Source",
-      apiKey: "to-be-cleared",
-    });
-    const id = (result as { id: string }).id;
+    const id = await createSource(
+      app,
+      {
+        type: "notion",
+        name: "Source",
+        apiKey: "to-be-cleared",
+      },
+      vault,
+    );
     expect(isSecretRef((await readConfig(db, id))!["apiKey"])).toBe(true);
 
     // Empty string clears it: the config key is removed entirely.
-    await app.call("updateDataSource", { id, apiKey: "" });
+    await commit(app, [cmd("SetDataSourceConfig", { id, apiKey: "" })], vault);
 
     const config = await readConfig(db, id);
     expect(config!["apiKey"]).toBeUndefined();
@@ -237,7 +274,7 @@ describe("vault control-plane — store→ref + has→presence", () => {
     expect(isSecretRef(csRef)).toBe(true);
 
     // Clear only apiKey; connectionString is undefined in this write → untouched.
-    await app.call("updateDataSource", { id, apiKey: "" });
+    await commit(app, [cmd("SetDataSourceConfig", { id, apiKey: "" })], vault);
 
     const config = await readConfig(db, id);
     expect(config!["apiKey"]).toBeUndefined();
@@ -280,12 +317,15 @@ describe("vault control-plane — store→ref + has→presence", () => {
   // -------------------------------------------------------------------------
 
   it("AC3 — hasApiKey is true after storing a credential", async () => {
-    const { result: createResult } = await app.call("addDataSource", {
-      type: "notion",
-      name: "Source with key",
-      apiKey: "real-key",
-    });
-    const id = (createResult as { id: string }).id;
+    const id = await createSource(
+      app,
+      {
+        type: "notion",
+        name: "Source with key",
+        apiKey: "real-key",
+      },
+      vault,
+    );
 
     const { result } = await app.call("getDataSource", { id });
     const ds = result as {
@@ -299,11 +339,14 @@ describe("vault control-plane — store→ref + has→presence", () => {
   });
 
   it("AC3 — hasApiKey is false when no credential was stored", async () => {
-    const { result: createResult } = await app.call("addDataSource", {
-      type: "notion",
-      name: "Source without key",
-    });
-    const id = (createResult as { id: string }).id;
+    const id = await createSource(
+      app,
+      {
+        type: "notion",
+        name: "Source without key",
+      },
+      vault,
+    );
 
     const { result } = await app.call("getDataSource", { id });
     const ds = result as {
@@ -315,12 +358,15 @@ describe("vault control-plane — store→ref + has→presence", () => {
 
   it("AC3 — hasApiKey reflects backend.has(), not raw config truthiness", async () => {
     // Store a credential and verify the backend has it (has() is non-decrypting).
-    const { result: createResult } = await app.call("addDataSource", {
-      type: "notion",
-      name: "Source",
-      apiKey: "key-value",
-    });
-    const id = (createResult as { id: string }).id;
+    const id = await createSource(
+      app,
+      {
+        type: "notion",
+        name: "Source",
+        apiKey: "key-value",
+      },
+      vault,
+    );
 
     // The backend has() must have been called (not withSecret).
     const { result } = await app.call("getDataSource", { id });
@@ -334,15 +380,23 @@ describe("vault control-plane — store→ref + has→presence", () => {
 
   it("AC3 — listDataSources reflects hasApiKey correctly", async () => {
     // One source with key, one without.
-    await app.call("addDataSource", {
-      type: "notion",
-      name: "With key",
-      apiKey: "some-key",
-    });
-    await app.call("addDataSource", {
-      type: "csv",
-      name: "Without key",
-    });
+    await createSource(
+      app,
+      {
+        type: "notion",
+        name: "With key",
+        apiKey: "some-key",
+      },
+      vault,
+    );
+    await createSource(
+      app,
+      {
+        type: "csv",
+        name: "Without key",
+      },
+      vault,
+    );
 
     const { result } = await app.call("listDataSources", {});
     const sources = result as {
@@ -381,9 +435,9 @@ describe("vault control-plane — fail-closed when no vault is injected", () => 
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("addDataSource with an apiKey throws and persists no row", async () => {
+  it("CreateDataSource with an apiKey throws and persists no row", async () => {
     await expect(
-      app.call("addDataSource", {
+      createSource(app, {
         type: "notion",
         name: "Leaky Source",
         apiKey: "should-never-persist",
@@ -395,9 +449,9 @@ describe("vault control-plane — fail-closed when no vault is injected", () => 
     expect(rows).toHaveLength(0);
   });
 
-  it("addDataSource with a connectionString throws and persists no row", async () => {
+  it("CreateDataSource with a connectionString throws and persists no row", async () => {
     await expect(
-      app.call("addDataSource", {
+      createSource(app, {
         type: "postgres",
         name: "Leaky PG",
         connectionString: "postgresql://user:pass@host/db",
@@ -438,12 +492,14 @@ describe("vault control-plane — fail-closed when no vault is injected", () => 
     expect(config?.["apiKey"]).toBeUndefined();
   });
 
-  it("updateDataSource with an apiKey throws and leaves config unchanged", async () => {
+  it("SetDataSourceConfig with an apiKey throws and leaves config unchanged", async () => {
     const id = crypto.randomUUID();
     await app.call("createDataSource", { id, type: "notion", name: "Source" });
 
     await expect(
-      app.call("updateDataSource", { id, apiKey: "should-never-persist" }),
+      commit(app, [
+        cmd("SetDataSourceConfig", { id, apiKey: "should-never-persist" }),
+      ]),
     ).rejects.toThrow(/no vault/i);
 
     const config = await readConfig(db, id);
@@ -452,11 +508,10 @@ describe("vault control-plane — fail-closed when no vault is injected", () => 
 
   it("a write with NO credential still succeeds without a vault", async () => {
     // Only credential-bearing writes require the vault — a plain create must work.
-    const { result } = await app.call("addDataSource", {
+    const id = await createSource(app, {
       type: "csv",
       name: "No-credential Source",
     });
-    const id = (result as { id: string }).id;
     expect(id).toBeTruthy();
 
     const config = await readConfig(db, id);
@@ -464,7 +519,7 @@ describe("vault control-plane — fail-closed when no vault is injected", () => 
     expect(config?.["connectionString"]).toBeUndefined();
   });
 
-  it("renaming via updateDataSource (no credential) still succeeds without a vault", async () => {
+  it("RenameNode still succeeds without a vault", async () => {
     const id = crypto.randomUUID();
     await app.call("createDataSource", {
       id,
@@ -473,7 +528,7 @@ describe("vault control-plane — fail-closed when no vault is injected", () => 
     });
 
     await expect(
-      app.call("updateDataSource", { id, name: "New Name" }),
+      commit(app, [cmd("RenameNode", { id, name: "New Name" })]),
     ).resolves.toBeDefined();
 
     const rows = await db.select().from(dataSources);
@@ -535,7 +590,7 @@ describe("connector factory — mintBoundResolver fail-closed", () => {
     };
 
     // Insert a DataSource row that has plaintext (not a ref) in config.apiKey.
-    // We bypass the normal addDataSource (which would store a ref) by inserting directly.
+    // We bypass the command path (which would store a ref) by inserting directly.
     const id = crypto.randomUUID();
     await db.insert(dataSources).values({
       id,

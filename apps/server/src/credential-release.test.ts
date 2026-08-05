@@ -37,7 +37,7 @@ import {
   TestBackend,
   type SecretRef,
 } from "@wystack/secret-vault";
-import type { WyStackApp } from "@wystack/server";
+import { applyCommands, type Command, type WyStackApp } from "@wystack/server";
 import { eq } from "drizzle-orm";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -133,6 +133,13 @@ async function readConfig(
   return rows[0] ? (rows[0].config as Record<string, unknown>) : null;
 }
 
+async function commit(h: Harness, commands: Command[]): Promise<unknown> {
+  return applyCommands(h.app, commands, {
+    mode: "commit",
+    context: { principal: { kind: "user", userId: LOCAL_USER_ID } },
+  });
+}
+
 /** Read the first persisted draft-command-log args for a draft (asserts present). */
 async function firstLogArgs(
   h: Harness,
@@ -149,17 +156,20 @@ async function firstLogArgs(
   return args as Record<string, unknown>;
 }
 
-/** Seed a canonical data source with a credential via the live (legacy) path. */
+/** Seed a canonical data source with a credential through the command path. */
 async function seedCanonicalSource(
   h: Harness,
   apiKey: string,
 ): Promise<{ id: string; ref: SecretRef }> {
-  const { result } = await h.app.call("addDataSource", {
-    type: "notion",
-    name: "Seed",
-    apiKey,
-  });
-  const id = (result as { id: string }).id;
+  const id = crypto.randomUUID();
+  await commit(h, [
+    cmd("CreateDataSource", {
+      id,
+      type: "notion",
+      name: "Seed",
+      apiKey,
+    }),
+  ]);
   const config = await readConfig(h, id);
   return { id, ref: config!.apiKey as SecretRef };
 }
@@ -312,11 +322,14 @@ describe("credential write path — capture-before-log + transition release", ()
 
   it("ALLOWS endpoint/extra config on a NON-credentialed source", async () => {
     // No inherited credential → nothing to exfil → the config change is allowed.
-    const { result } = await h.app.call("addDataSource", {
-      type: "rest",
-      name: "NoCred",
-    });
-    const id = (result as { id: string }).id;
+    const id = crypto.randomUUID();
+    await commit(h, [
+      cmd("CreateDataSource", {
+        id,
+        type: "rest",
+        name: "NoCred",
+      }),
+    ]);
     const draftId = await h.controller.openDraft();
 
     await h.controller.appendToDraft(draftId, [
@@ -408,13 +421,16 @@ describe("credential write path — capture-before-log + transition release", ()
   // rides Object.assign to the attacker host.
   it("REFUSES reconfiguring a multi-credential source when only ONE credential is re-affirmed", async () => {
     // Canonical source holding TWO top-level credential refs (apiKey + connectionString).
-    const { result } = await h.app.call("addDataSource", {
-      type: "rest",
-      name: "TwoCred",
-      apiKey: "secret-one",
-      connectionString: "secret-two",
-    });
-    const id = (result as { id: string }).id;
+    const id = crypto.randomUUID();
+    await commit(h, [
+      cmd("CreateDataSource", {
+        id,
+        type: "rest",
+        name: "TwoCred",
+        apiKey: "secret-one",
+        connectionString: "secret-two",
+      }),
+    ]);
     const before = await readConfig(h, id);
     expect(isSecretRef(before!.apiKey)).toBe(true);
     expect(isSecretRef(before!.connectionString)).toBe(true);
@@ -440,13 +456,16 @@ describe("credential write path — capture-before-log + transition release", ()
   });
 
   it("ALLOWS reconfiguring a multi-credential source when EVERY credential is re-affirmed", async () => {
-    const { result } = await h.app.call("addDataSource", {
-      type: "rest",
-      name: "TwoCred",
-      apiKey: "secret-one",
-      connectionString: "secret-two",
-    });
-    const id = (result as { id: string }).id;
+    const id = crypto.randomUUID();
+    await commit(h, [
+      cmd("CreateDataSource", {
+        id,
+        type: "rest",
+        name: "TwoCred",
+        apiKey: "secret-one",
+        connectionString: "secret-two",
+      }),
+    ]);
 
     const draftId = await h.controller.openDraft();
     // Both inherited credentials re-affirmed (apiKey re-supplied, connectionString
