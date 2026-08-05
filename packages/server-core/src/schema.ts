@@ -71,7 +71,7 @@ export const dataSources = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     name: text("name").notNull(),
-    kind: text("kind").notNull(), // 'csv' | 'json' | 'parquet' | 'notion' | 'postgres'
+    kind: text("kind").notNull(), // 'csv' | 'json' | 'parquet' | 'notion' | 'postgres' | 'googleAnalytics'
     storage: text("storage").notNull(), // 'parquet' | 'live'
     config: jsonb("config").notNull(),
     schema: jsonb("schema"),
@@ -269,6 +269,41 @@ export const assistantProviderConfigs = pgTable(
   (t) => [
     index("assistant_provider_configs_provider_id_idx").on(t.providerId),
     index("assistant_provider_configs_is_default_idx").on(t.isDefault),
+  ],
+);
+
+// connector_setup_sessions — resumable OAuth connector setup state.
+//
+// NOT drafted: setup is infrastructure state, not an artifact proposal. The
+// session deliberately owns no SecretRef; plaintext OAuth tokens exist only in
+// memory between exchange and the canonical CreateDataSource call.
+export const connectorSetupSessions = pgTable(
+  "connector_setup_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    connectorId: text("connector_id").notNull(),
+    requestedName: text("requested_name").notNull(),
+    state: text("state").notNull(),
+    stateNonceHash: text("state_nonce_hash").notNull(),
+    codeVerifier: text("code_verifier").notNull(),
+    scopes: jsonb("scopes").notNull(),
+    dataSourceId: uuid("data_source_id"),
+    failureCode: text("failure_code"),
+    failureMessage: text("failure_message"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    uniqueIndex("connector_setup_sessions_state_nonce_hash_idx").on(
+      t.stateNonceHash,
+    ),
+    index("connector_setup_sessions_state_idx").on(t.state),
   ],
 );
 
@@ -500,6 +535,7 @@ export const schema = {
   // Credential infrastructure — NOT drafted (security boundary)
   secretMappings,
   assistantProviderConfigs,
+  connectorSetupSessions,
   // Draft metadata — base version for conflict detection
   draftMetadata,
   // Draft shadow tables (artifact overlay)

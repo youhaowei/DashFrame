@@ -100,6 +100,7 @@
       },
       "dependencies": {
         "@dashframe/assistant": "workspace:*",
+        "@dashframe/connector-ga4": "workspace:*",
         "@dashframe/connector-notion": "workspace:*",
         "@dashframe/connector-postgres": "workspace:*",
         "@dashframe/engine": "workspace:*",
@@ -423,6 +424,7 @@
       "name": "@dashframe/app",
       "version": "0.1.0",
       "dependencies": {
+        "@dashframe/connector-ga4": "workspace:*",
         "@dashframe/connector-local": "workspace:*",
         "@dashframe/connector-notion": "workspace:*",
         "@dashframe/connector-postgres": "workspace:*",
@@ -504,6 +506,20 @@
         "@types/bun": "^1.2.0",
         "typescript": "5.7.2",
         "vitest": "^4.1.6",
+      },
+    },
+    "packages/connector-ga4": {
+      "name": "@dashframe/connector-ga4",
+      "version": "0.1.0",
+      "dependencies": {
+        "@dashframe/engine": "workspace:*",
+        "@dashframe/types": "workspace:*",
+        "apache-arrow": "^21.1.0",
+      },
+      "devDependencies": {
+        "@dashframe/eslint-config": "workspace:*",
+        "typescript": "5.7.2",
+        "vitest": "^4.0.16",
       },
     },
     "packages/connector-local": {
@@ -944,6 +960,8 @@
     "@dashframe/app": ["@dashframe/app@workspace:packages/app"],
 
     "@dashframe/assistant": ["@dashframe/assistant@workspace:packages/assistant"],
+
+    "@dashframe/connector-ga4": ["@dashframe/connector-ga4@workspace:packages/connector-ga4"],
 
     "@dashframe/connector-local": ["@dashframe/connector-local@workspace:packages/connector-local"],
 

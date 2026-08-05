@@ -1,3 +1,4 @@
+import { makeGa4Connector } from "@dashframe/connector-ga4";
 import { makeNotionConnector } from "@dashframe/connector-notion";
 import { makePostgresConnector } from "@dashframe/connector-postgres";
 import type { AnyConnector } from "@dashframe/engine";
@@ -17,9 +18,12 @@ const throwingResolver = () => {
 
 function toCatalogEntry(connector: AnyConnector): ConnectorCatalogEntry {
   const formFields = connector.getFormFields() as ConnectorFormField[];
-  const authKind = formFields.some((field) => field.type === "password")
-    ? "credential"
-    : "none";
+  let authKind: ConnectorCatalogEntry["authKind"] = "none";
+  if (connector.authKind === "oauth") {
+    authKind = "oauth";
+  } else if (formFields.some((field) => field.type === "password")) {
+    authKind = "credential";
+  }
 
   const entry: ConnectorCatalogEntry = {
     id: connector.id,
@@ -67,7 +71,7 @@ export const LOCAL_CATALOG_ENTRY: ConnectorCatalogEntry = Object.freeze({
 
 /**
  * Lazily builds and memoizes the catalog on first read rather than at module
- * load. The Notion/Postgres connector instances below exist purely to read
+ * load. The remote connector instances below exist purely to read
  * static metadata (id/name/description/icon/getFormFields()) — the exact same
  * pattern already used client-side in
  * packages/app/src/components/providers/ConnectorSetup.tsx — but constructing
@@ -89,11 +93,13 @@ function buildConnectorCatalog(): ConnectorCatalogEntry[] {
     throwingResolver,
     {},
   );
+  const ga4ConnectorForCatalog = makeGa4Connector(throwingResolver);
 
   return Object.freeze([
     LOCAL_CATALOG_ENTRY,
     toCatalogEntry(notionConnectorForCatalog),
     toCatalogEntry(postgresConnectorForCatalog),
+    toCatalogEntry(ga4ConnectorForCatalog),
   ]) as ConnectorCatalogEntry[];
 }
 

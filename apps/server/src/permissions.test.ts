@@ -19,10 +19,12 @@ describe("permissions", () => {
     );
     expect(permissions.commands.commit.id).toBe("commands.commit");
     expect(permissions.commands.preview.id).toBe("commands.preview");
+    expect(permissions.connectors.setup.id).toBe("connectors.setup");
     expect(expectedPermissionIds).toEqual([
       "accessCredentials.manage",
       "commands.commit",
       "commands.preview",
+      "connectors.setup",
     ]);
   });
 
@@ -37,6 +39,25 @@ describe("permissions", () => {
     const ctx = context({ kind: "service", credentialId: "credential-1" });
     await expect(
       evaluate(ctx.principal, permissions.accessCredentials.manage, ctx),
+    ).resolves.toBe(false);
+  });
+
+  it("allows connector setup for user and service principals", async () => {
+    for (const principal of [
+      { kind: "user" as const, userId: LOCAL_USER_ID },
+      { kind: "service" as const, credentialId: "credential-1" },
+    ]) {
+      const ctx = context(principal);
+      await expect(
+        evaluate(ctx.principal, permissions.connectors.setup, ctx),
+      ).resolves.toBe(true);
+    }
+  });
+
+  it("denies connector setup without a valid principal", async () => {
+    const ctx = context(undefined);
+    await expect(
+      evaluate(ctx.principal, permissions.connectors.setup, ctx),
     ).resolves.toBe(false);
   });
 

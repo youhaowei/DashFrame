@@ -1,6 +1,6 @@
 import type { UseRetryableQueryResult } from "./repository-base";
 
-export type ConnectorAuthKind = "none" | "credential";
+export type ConnectorAuthKind = "none" | "credential" | "oauth";
 
 export type ConnectorFormFieldType =
   | "text"

@@ -59,6 +59,15 @@ import { type ArtifactDb } from "@dashframe/server-core";
 import type { AppContext } from "./app-context";
 import { handleAssistantRunRequest } from "./assistant-run-route";
 import { isLoopbackHost } from "./bind-host";
+import {
+  handleConnectorOAuthCallback,
+  handleConnectorResumeLanding,
+  handleConnectorSetupResume,
+} from "./connector-oauth-callback";
+import {
+  readOptionalGoogleOAuthConfig,
+  type GoogleOAuthConfig,
+} from "./connector-setup/oauth-provider";
 import { captureCommandCredentials } from "./credential-release";
 import {
   createDraftController,
@@ -208,6 +217,8 @@ export interface DashframeServerOptions {
    * debounced `onWrite` behaviour in that case (existing semantics).
    */
   flushSnapshot?: () => Promise<void>;
+  /** Google OAuth client settings used by resumable connector setup. */
+  googleOAuth?: GoogleOAuthConfig;
   /**
    * Secret vault for credential storage. The runtime composer (Electron main
    * or `dashframe serve`) registers a backend into a SecretRegistry, builds a
@@ -439,6 +450,7 @@ export async function buildDashframeApp(opts: {
   onWrite?: () => void;
   accessCredentials?: ApiAccessCredentials;
   getServerEndpoint?: () => string | undefined;
+  googleOAuth?: GoogleOAuthConfig;
 }): Promise<WyStackApp> {
   const rawApp = await wy.build({
     db: opts.db,
@@ -456,6 +468,7 @@ export async function buildDashframeApp(opts: {
       ? { accessCredentials: opts.accessCredentials }
       : {}),
     ...(vault != null ? { vault } : {}),
+    ...(opts.googleOAuth != null ? { googleOAuth: opts.googleOAuth } : {}),
   };
 
   // The draft seam wraps `call` itself (not just runHandler): `rawApp.call`
@@ -505,6 +518,47 @@ export async function buildDashframeApp(opts: {
   };
 }
 
+/**
+ * Run the connector-setup sweep once at boot, and never let it stop the server.
+ *
+ * Housekeeping, not a precondition: the sweep only expires and prunes stale
+ * connector-setup rows, and nothing else depends on it having run. Failing the
+ * boot over it takes the whole app down for a problem confined to one
+ * background chore. The next sweep, or the callback gate itself, catches
+ * whatever this pass missed.
+ *
+ * `__bootSweep` waives the in-flight grace window. This is the one caller that
+ * can prove no handler owns an `exchanging` / `verifying` row — the process
+ * that would have owned it is the one that just died. It also has to waive it:
+ * this pass is the only one scheduled, so a row left inside the window would
+ * sit in flight indefinitely while the browser polled it to its own timeout.
+ *
+ * Must be called before the listener opens — see the call site. The waiver is
+ * only sound while no request can be in flight.
+ */
+async function sweepConnectorSetupAtBoot(
+  app: WyStackApp,
+  flushSnapshot: (() => Promise<void>) | undefined,
+): Promise<void> {
+  try {
+    await app.call(
+      "sweepConnectorSetupSessions",
+      {},
+      {
+        principal: { kind: "user", userId: LOCAL_USER_ID },
+        __bootSweep: true,
+      },
+    );
+    await flushSnapshot?.();
+  } catch (error) {
+    console.warn(
+      `[dashframe] connector setup sweep skipped at boot: ${
+        error instanceof Error ? error.message : "unknown error"
+      }`,
+    );
+  }
+}
+
 export async function createDashframeServer(
   opts: DashframeServerOptions,
 ): Promise<DashframeServer> {
@@ -528,6 +582,7 @@ export async function createDashframeServer(
   // by the accessCredentials.manage check, a typed lie.
   const userId = LOCAL_USER_ID;
   const serverState: { endpoint?: string } = {};
+  const googleOAuth = opts.googleOAuth ?? readOptionalGoogleOAuthConfig();
 
   // Resolve the auth context builder: vault-backed ref takes priority over
   // plaintext token. Both produce the same (req) → context shape for WyStack.
@@ -609,6 +664,7 @@ export async function createDashframeServer(
     onWrite: opts.onWrite,
     accessCredentials: opts.accessCredentials,
     getServerEndpoint: () => serverState.endpoint,
+    googleOAuth,
   });
 
   // Inject server-level references needed by the previewDiff query handler
@@ -758,7 +814,32 @@ export async function createDashframeServer(
     }),
   );
 
+  // OAuth callback + resume are intentionally outside createRoutes: neither
+  // browser request carries a bearer token. The callback reaches project writes
+  // only through its state gates and the fixed internal principal in the
+  // delegated app.call.
+  honoApp.get("/api/connectors/oauth/callback", (c) =>
+    handleConnectorOAuthCallback(c, app),
+  );
+  honoApp.get("/api/connectors/setup/:sessionId/resume", (c) =>
+    handleConnectorSetupResume(c, app),
+  );
+  // This route owns the origin root. Hono matches first-registered-first, so a
+  // static UI route registered at "/" below would never be reached, and one
+  // registered above would silently swallow every resume link. Moving this line
+  // relative to createRoutes changes which handler wins, with no error either
+  // way — do it deliberately or not at all.
+  honoApp.get("/", (c) => handleConnectorResumeLanding(c, app));
+
   honoApp.route("/", createRoutes({ app, resolveContext }, upgradeWebSocket));
+
+  // Before the listener opens, and that ordering is load-bearing: the sweep
+  // waives the in-flight grace window on the claim that no handler can own an
+  // `exchanging` / `verifying` row. That claim is only true while nothing can
+  // reach the callback route. Run it after `listen` and an OAuth callback
+  // arriving in the same moment could have its session reset underneath it,
+  // failing a connection that in fact succeeded.
+  await sweepConnectorSetupAtBoot(app, opts.flushSnapshot);
 
   const { port, server } = await listen(honoApp, hostname, requestedPort);
   injectWebSocket(server);

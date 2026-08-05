@@ -1,6 +1,9 @@
 import type { CreateDataSourceInput, UUID } from "@dashframe/types";
 
-export type SupportedRemoteConnectorId = "notion" | "postgres";
+export type SupportedRemoteConnectorId =
+  | "notion"
+  | "postgres"
+  | "googleAnalytics";
 
 export interface RemoteResource {
   id: string;
@@ -8,7 +11,7 @@ export interface RemoteResource {
 }
 
 interface ConnectRemoteSourceOptions {
-  connectorId: SupportedRemoteConnectorId;
+  connectorId: Exclude<SupportedRemoteConnectorId, "googleAnalytics">;
   connectorName: string;
   credentials: Record<string, unknown>;
   addSource: (input: CreateDataSourceInput) => Promise<UUID>;

@@ -14,6 +14,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@dashframe/connector-ga4": "workspace:*",
     "@dashframe/connector-local": "workspace:*",
     "@dashframe/connector-notion": "workspace:*",
     "@dashframe/connector-postgres": "workspace:*",
