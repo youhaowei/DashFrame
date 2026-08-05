@@ -2,7 +2,10 @@ import { jsonb, text } from "@wystack/db";
 import type { Command } from "@wystack/server";
 
 import type { DashframeFunctionContext } from "../app-context";
-import type { DraftController } from "../draft-controller";
+import {
+  DRAFT_COMMAND_LOG_TABLE,
+  type DraftController,
+} from "../draft-controller";
 import { permissions } from "../permissions";
 import { wy } from "../wystack";
 import { assertKnownCommandPaths } from "./commands";
@@ -79,7 +82,7 @@ const draftBatch = wy.procedure
     return {
       draftId: targetDraftId,
       results,
-      __extraTablesWritten: ["draft_command_log"],
+      __extraTablesWritten: [DRAFT_COMMAND_LOG_TABLE],
     };
   });
 

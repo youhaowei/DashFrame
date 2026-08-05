@@ -19,16 +19,11 @@
  *   explicitly here — the outer `buildDashframeApp` wrapper does not fire it for
  *   the same sub-tracker reason.
  */
-import {
-  draftCommandLog,
-  draftMetadata,
-  type ArtifactDb,
-} from "@dashframe/server-core";
+import { type ArtifactDb } from "@dashframe/server-core";
 import { text } from "@wystack/db";
 import type { SecretRef, SecretVault } from "@wystack/secret-vault";
 import type { Command } from "@wystack/server";
 import { ValidationError } from "@wystack/server";
-import { getTableName } from "drizzle-orm";
 
 import type { DashframeFunctionContext } from "../app-context";
 import {
@@ -38,6 +33,8 @@ import {
   releaseRefsAtTransition,
 } from "../credential-release";
 import {
+  DRAFT_COMMAND_LOG_TABLE,
+  DRAFT_METADATA_TABLE,
   DraftPublishConflictError,
   type DraftController,
 } from "../draft-controller";
@@ -73,8 +70,6 @@ interface DiscardDraftInternalResult {
  * schema rather than hardcoded so a table rename can never silently detach the
  * inbox from its invalidations.
  */
-const DRAFT_METADATA_TABLE = getTableName(draftMetadata);
-const DRAFT_COMMAND_LOG_TABLE = getTableName(draftCommandLog);
 
 function draftConflictError(
   conflictReport: Awaited<ReturnType<DraftController["detectConflict"]>>,

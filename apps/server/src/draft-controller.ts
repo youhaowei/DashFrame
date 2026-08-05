@@ -105,6 +105,19 @@ const DRAFT_SHADOW_TABLES = [
   dashboardsDraft,
 ] as const;
 
+/**
+ * The two registry tables every draft write and every lifecycle exit touches.
+ *
+ * Derived with `getTableName` rather than spelled as literals, and exported so
+ * that every producer of `__extraTablesWritten` names them the same way. These
+ * strings are what the outer tracker matches subscriptions against: a rename
+ * that missed one literal would not fail a build or a test — it would silently
+ * stop invalidating `listDrafts`, and the inbox would go stale with no error
+ * anywhere.
+ */
+export const DRAFT_METADATA_TABLE = getTableName(draftMetadata);
+export const DRAFT_COMMAND_LOG_TABLE = getTableName(draftCommandLog);
+
 const DRAFT_CONFLICT_TABLES = [
   { canonical: dataSources, draft: dataSourcesDraft },
   { canonical: dataTables, draft: dataTablesDraft },

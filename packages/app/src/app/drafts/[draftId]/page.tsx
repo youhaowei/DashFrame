@@ -157,6 +157,33 @@ function CommandLog({
   );
 }
 
+/**
+ * Why Publish is disabled, for the two block reasons nothing else on this page
+ * explains. Late-bound values and a load failure already raise the alert in the
+ * diff pane; a gone or empty draft rendered as a bare "Review required" badge
+ * over an empty diff — "something is wrong" with no way to tell what, or
+ * whether the reviewer can do anything about it.
+ *
+ * Returns undefined for the reasons that ARE explained elsewhere, so this never
+ * doubles up on the alert.
+ */
+function PublishBlockedReason({
+  review,
+}: {
+  review: { draftExists: boolean; commandCount: number } | undefined;
+}) {
+  if (review === undefined) return null;
+  let reason: string | undefined;
+  if (!review.draftExists) {
+    reason =
+      "This draft is no longer available — it was already published or discarded.";
+  } else if (review.commandCount === 0) {
+    reason = "This draft has no changes to publish.";
+  }
+  if (reason === undefined) return null;
+  return <p className="mt-1 text-xs text-palette-warning">{reason}</p>;
+}
+
 export default function DraftReviewPage({ draftId }: DraftReviewPageProps) {
   const navigate = useNavigate();
   const setPendingDraft = useAssistantStore((state) => state.setPendingDraft);
@@ -280,6 +307,7 @@ export default function DraftReviewPage({ draftId }: DraftReviewPageProps) {
               {blocked ? "Review required" : "Ready"}
             </Badge>
           </div>
+          <PublishBlockedReason review={review} />
           <p className="mt-1 truncate text-xs text-neutral-fg-subtle">
             {draftId}
           </p>

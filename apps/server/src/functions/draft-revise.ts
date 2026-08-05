@@ -1,7 +1,11 @@
 import { jsonb, text } from "@wystack/db";
 
 import type { DashframeFunctionContext } from "../app-context";
-import type { DraftController, DraftRevisionOp } from "../draft-controller";
+import {
+  DRAFT_COMMAND_LOG_TABLE,
+  type DraftController,
+  type DraftRevisionOp,
+} from "../draft-controller";
 import { permissions } from "../permissions";
 import { wy } from "../wystack";
 
@@ -31,7 +35,7 @@ const reviseDraft = wy.procedure
     );
     return {
       ...result,
-      __extraTablesWritten: ["draft_command_log"],
+      __extraTablesWritten: [DRAFT_COMMAND_LOG_TABLE],
     };
   });
 
