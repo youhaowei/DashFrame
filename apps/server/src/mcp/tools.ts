@@ -150,6 +150,19 @@ function lowerCommands(commands: readonly DraftBatchCommandInput[]): Command[] {
 }
 
 /**
+ * `draftBatch` rejects a handle it cannot find with exactly this phrasing
+ * (`draftBatch: no open draft <id>`), and nothing else on that path produces
+ * it. Matching the text is the narrowest available signal — the RPC layer
+ * carries no error codes — so it is kept deliberately specific rather than
+ * matching anything draft-shaped.
+ */
+function isMissingDraftError(error: unknown): boolean {
+  if (error instanceof Error) return error.message.includes("no open draft");
+  if (typeof error === "string") return error.includes("no open draft");
+  return false;
+}
+
+/**
  * The reader is deliberately a forwarder: the draft id belongs to the MCP
  * session and is looked up when each read executes, not when tools are listed.
  */
@@ -293,17 +306,35 @@ export function createMcpTools(
       const batch = params.commands as DraftBatchCommandInput[];
       assertDraftSafeBatch(batch);
       const commands = lowerCommands(batch);
-      const response = await app.call(
-        "draftBatch",
-        {
-          commands,
-          ...(session.draftId === undefined
-            ? {}
-            : { draftId: session.draftId }),
-        },
-        { principal: session.principal },
-      );
-      const result = response.result as { draftId: string; results: unknown[] };
+
+      const append = async (
+        draftId: string | undefined,
+      ): Promise<{ draftId: string; results: unknown[] }> => {
+        const response = await app.call(
+          "draftBatch",
+          { commands, ...(draftId === undefined ? {} : { draftId }) },
+          { principal: session.principal },
+        );
+        return response.result as { draftId: string; results: unknown[] };
+      };
+
+      // The session's draft is not the session's to keep: a person can publish
+      // or discard it at any moment, and `deleteDraftMetadata` then makes the
+      // remembered id unknown to `draftBatch` forever. The agent cannot rescue
+      // itself — this tool holds the id and never accepts one — so a stale
+      // handle would brick every remaining write on the connection. Forget it
+      // and open a fresh draft instead. Retried once, and only for this error:
+      // any other failure is the caller's to see.
+      let result: { draftId: string; results: unknown[] };
+      try {
+        result = await append(session.draftId);
+      } catch (error) {
+        if (session.draftId === undefined || !isMissingDraftError(error)) {
+          throw error;
+        }
+        session.draftId = undefined;
+        result = await append(undefined);
+      }
       session.draftId = result.draftId;
       return {
         content: [

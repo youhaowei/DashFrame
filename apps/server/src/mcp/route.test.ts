@@ -174,20 +174,67 @@ describe("MCP route", () => {
         expect(writeTool?.description).toContain(denied);
       }
 
+      // Every read tool, against an empty graph. `isError` alone would pass on
+      // a tool that returned nothing at all, so each one asserts the shape it
+      // actually promises — the miss is a *result*, not a failure, and the
+      // agent has to be able to tell the two apart.
       const missingId = crypto.randomUUID();
-      for (const [name, args] of [
-        ["read_neighborhood", { kind: "dataSource", id: missingId }],
-        [
-          "read_graph",
-          { from: { kind: "dataSource", id: missingId }, depth: 0 },
-        ],
-        ["find_nodes", {}],
-        ["read_artifact", { kind: "dataSource", id: missingId }],
-        ["read_data", { kind: "dataTable", id: missingId }],
-        ["read_source", { file: "apps/server/src/functions/commands.ts" }],
-      ] as const) {
-        const result = await client.callTool({ name, arguments: args });
+      const sourceFile = "apps/server/src/functions/commands.ts";
+      const reads: Array<{
+        name: string;
+        args: Record<string, unknown>;
+        structured: Record<string, unknown>;
+        text: string;
+      }> = [
+        {
+          name: "read_neighborhood",
+          args: { kind: "dataSource", id: missingId },
+          structured: { error: "not_found" },
+          text: `No artifact found for dataSource ${missingId}.`,
+        },
+        {
+          name: "read_graph",
+          args: { from: { kind: "dataSource", id: missingId }, depth: 0 },
+          structured: { reached: [] },
+          text: "Reached 0 node(s) within 0 hop(s).",
+        },
+        {
+          name: "find_nodes",
+          args: {},
+          structured: { hits: [] },
+          text: "0 match(es): none",
+        },
+        {
+          name: "read_artifact",
+          args: { kind: "dataSource", id: missingId },
+          structured: { error: "not_found" },
+          text: `No artifact found for dataSource ${missingId}.`,
+        },
+        {
+          name: "read_data",
+          args: { kind: "dataTable", id: missingId },
+          structured: { error: "not_found" },
+          text: `No data artifact found for dataTable ${missingId}.`,
+        },
+        {
+          // The fixture project is an empty temp directory, so nothing is
+          // allowlisted for source reads. That refusal is a normal result and
+          // must not reach the agent as a failure — which is precisely what a
+          // bare `isError` assertion could not tell apart.
+          name: "read_source",
+          args: { file: sourceFile },
+          structured: { error: "not_readable" },
+          text: `No readable source for "${sourceFile}" (not allowlisted).`,
+        },
+      ];
+      for (const read of reads) {
+        const result = await client.callTool({
+          name: read.name,
+          arguments: read.args,
+        });
         expect(result.isError).not.toBe(true);
+        expect(result.structuredContent).toMatchObject(read.structured);
+        expect(resultText(result)).toContain(read.text);
       }
 
       const sourceId = crypto.randomUUID();
@@ -264,6 +311,49 @@ describe("MCP route", () => {
       expect(
         await project!.db.select().from(schema.draftCommandLog),
       ).toHaveLength(2);
+    } finally {
+      await transport.close();
+    }
+  });
+
+  it("opens a fresh draft when a person has already discarded the session's", async () => {
+    const { client, transport } = await connect();
+    try {
+      const write = async (name: string) =>
+        client.callTool({
+          name: "draft_batch",
+          arguments: {
+            commands: [
+              {
+                type: "CreateDataSource",
+                args: { id: crypto.randomUUID(), type: "csv", name },
+              },
+            ],
+          },
+        });
+
+      const first = await write("Before the discard");
+      expect(first.isError).not.toBe(true);
+      const firstId = (first.structuredContent as { draftId: string }).draftId;
+
+      // Out of band, as a person: the draft the session is holding goes away.
+      const discarded = await fetch(`${server!.url}/api/discardDraft`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...bearer(USER_TOKEN) },
+        body: JSON.stringify({ draftId: firstId }),
+      });
+      expect(discarded.status).toBe(200);
+
+      // The agent cannot supply a draft id, so if the stale handle survived
+      // here every remaining write on this connection would fail.
+      const second = await write("After the discard");
+      expect(second.isError).not.toBe(true);
+      const secondId = (second.structuredContent as { draftId: string })
+        .draftId;
+      expect(secondId).not.toBe(firstId);
+      expect(
+        await project!.db.select().from(schema.draftCommandLog),
+      ).toHaveLength(1);
     } finally {
       await transport.close();
     }
