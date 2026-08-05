@@ -66,7 +66,11 @@ import {
 } from "./draft-controller";
 import { assertPublishLogHasNoLateBound } from "./draft-late-bound";
 import { functions } from "./functions";
-import { expectedPermissionIds, LOCAL_USER_ID } from "./permissions";
+import {
+  expectedPermissionIds,
+  LOCAL_USER_ID,
+  LOOPBACK_ANON_USER_ID,
+} from "./permissions";
 import { wy } from "./wystack";
 
 type CorsOrigin =
@@ -563,24 +567,36 @@ export async function createDashframeServer(
       createAccessCredentialResolver(opts.accessCredentials),
     );
   }
-  // No auth mechanism configured at all (no authToken, no authRef, no
-  // accessCredentials) — this is the documented token-less loopback config
-  // (`dashframe serve` with no `--token`; see index.ts's help text: "The
-  // default bind is loopback-only and safe to run without a token").
-  // `assertBindAuthorized` above already confirmed this combination is only
-  // reachable on a loopback bind (or an explicit `insecure: true` opt-out),
-  // so trusting every request as the local operator is the SAME trust model
-  // this config always had — pre-`commands.commit`, no procedure but
-  // `accessCredentials.manage` carried an `.authorize` check, so a missing
-  // principal never blocked anything. Now that every command procedure does,
-  // an absent principal denies every one of them: this loopback config would
-  // silently become read-only (previewDiff still works — its permission is
-  // open — but every command, `commitBatch`, `publishDraft`, and
-  // `discardDraft` would 403). Synthesize the local user principal for every
-  // request so the trust model is unchanged.
+  // `credentialResolvers` is empty here in two cases: no auth mechanism
+  // configured at all (no authToken, no authRef, no accessCredentials — the
+  // documented token-less loopback config; `dashframe serve` with no
+  // `--token`, see index.ts's help text: "The default bind is loopback-only
+  // and safe to run without a token"), OR `accessCredentials` IS configured
+  // but `hasPrimaryAuth` is false (a keyed loopback serve with no
+  // `--token`/`authRef` — the block above deliberately keeps that resolver
+  // out of the chain). Both are "no request carries an authenticated
+  // identity" configs and get the same treatment. `assertBindAuthorized`
+  // above already confirmed either combination is only reachable on a
+  // loopback bind (or an explicit `insecure: true` opt-out).
+  // Pre-`commands.commit`, no procedure but `accessCredentials.manage`
+  // carried an `.authorize` check, so a missing principal never blocked
+  // anything on this config. Now that every command procedure does, an
+  // absent principal denies every one of them: this loopback config would
+  // silently become read-only (`commands.preview` is still open to any
+  // well-formed principal — but `evaluate()` denies before it ever calls
+  // `check` when there is no principal at all, so even `previewDiff` would
+  // 403 without this — and every command, `commitBatch`, `publishDraft`, and
+  // `discardDraft` would too). Synthesize a principal for every request so
+  // the loopback config stays writable.
+  //
+  // Deliberately NOT `LOCAL_USER_ID` (the operator's own identity) — see
+  // `LOOPBACK_ANON_USER_ID`'s doc comment in permissions.ts for why using the
+  // operator id here would let any unauthenticated loopback request mint a
+  // durable, off-host-usable API credential via `accessCredentials.manage`.
+  // `commands.commit` only needs `kind === "user"`, which this satisfies.
   if (credentialResolvers.length === 0) {
     credentialResolvers.push(async () => ({
-      principal: { kind: "user", userId },
+      principal: { kind: "user", userId: LOOPBACK_ANON_USER_ID },
     }));
   }
   const resolveContext = combineResolvers(...credentialResolvers);

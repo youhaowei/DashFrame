@@ -5,6 +5,24 @@ import type { AppContext } from "./app-context";
 
 export const LOCAL_USER_ID = "local-user";
 
+/**
+ * The synthesized principal for the token-less loopback config (see
+ * `createDashframeServer` in app.ts) — deliberately NOT `LOCAL_USER_ID`.
+ *
+ * `commands.commit` only requires `principal.kind === "user"`, so this
+ * identity is enough to keep that loopback config writable. But
+ * `accessCredentials.manage` additionally requires
+ * `principal.userId === LOCAL_USER_ID` specifically — that's the operator's
+ * own identity, meant to gate minting durable, off-host-usable API
+ * credentials behind an authenticated bind. If the loopback synthesis used
+ * `LOCAL_USER_ID` too, every unauthenticated request on a token-less server
+ * would silently double as the operator for that check, and could mint a
+ * credential usable from anywhere. `loopback-anonymous` is a real,
+ * well-formed `user` principal (satisfies `commands.commit`) but is never
+ * equal to `LOCAL_USER_ID` (still denied by `accessCredentials.manage`).
+ */
+export const LOOPBACK_ANON_USER_ID = "loopback-anonymous";
+
 export const permissions = definePermissions<AppContext>()({
   accessCredentials: {
     manage: {

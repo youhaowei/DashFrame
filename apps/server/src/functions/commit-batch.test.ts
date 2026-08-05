@@ -246,7 +246,13 @@ describe("commitBatch and draft-only API credentials", () => {
       `${server.url}/api/previewDiff?args=${previewArgs}`,
       { headers: bearer(serviceToken) },
     );
-    expect(previewResponse.status).not.toBe(200);
+    // `assertKnownCommandPaths` throws a plain Error (not a permission
+    // denial — the batch is rejected before dispatch ever gets a chance to
+    // authorize anything), which the router's generic catch-all answers 500.
+    expect(previewResponse.status).toBe(500);
+    const previewBody = (await previewResponse.json()) as { error: string };
+    expect(previewBody.error).toContain("publishDraft");
+    expect(previewBody.error).toContain("is not a DashFrame command");
 
     const commitResponse = await post(
       server,
@@ -254,7 +260,10 @@ describe("commitBatch and draft-only API credentials", () => {
       { commands: [nestedPublish] },
       USER_TOKEN,
     );
-    expect(commitResponse.status).not.toBe(200);
+    expect(commitResponse.status).toBe(500);
+    const commitBody = (await commitResponse.json()) as { error: string };
+    expect(commitBody.error).toContain("publishDraft");
+    expect(commitBody.error).toContain("is not a DashFrame command");
 
     // The draft never published — no canonical write from either attempt.
     expect(

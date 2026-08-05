@@ -453,6 +453,43 @@ describe("createDashframeServer", () => {
       expect(withRandomToken.status).toBe(200);
     });
 
+    it("token-less loopback synthesizes a non-operator principal — commands 200, minting an access credential still 403s", async () => {
+      // Delta-review finding: the loopback synthesis must NOT reuse
+      // `LOCAL_USER_ID` (the operator's own identity). `commands.commit`
+      // only requires `principal.kind === "user"`, so a distinct synthetic
+      // id keeps every command writable (first assertion below) — but
+      // `accessCredentials.manage` additionally requires
+      // `principal.userId === LOCAL_USER_ID` specifically, so an
+      // unauthenticated loopback request must NOT be able to mint a durable,
+      // off-host-usable API credential (second assertion). Reusing
+      // `LOCAL_USER_ID` for the synthesized principal would pass both checks
+      // and silently let any local process on the loopback bind mint
+      // credentials nobody typed a token for.
+      project = await openProject({ dir: join(root, "proj") });
+      server = await createDashframeServer({ db: project.db });
+
+      const sourceId = crypto.randomUUID();
+      const commandRes = await fetch(`${server.url}/api/createDataSource`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          cmd("CreateDataSource", {
+            id: sourceId,
+            type: "csv",
+            name: "Loopback anon",
+          }).args,
+        ),
+      });
+      expect(commandRes.status).toBe(200);
+
+      const issueRes = await fetch(`${server.url}/api/issueAccessCredential`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Should never mint" }),
+      });
+      expect(issueRes.status).toBe(403);
+    });
+
     it("issues, authenticates, and revokes a workspace access credential", async () => {
       project = await openProject({
         dir: join(root, "proj"),

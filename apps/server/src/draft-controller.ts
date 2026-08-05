@@ -812,6 +812,15 @@ export function createDraftController(
           const captured = captureCredentials
             ? await captureCredentials(cmd)
             : { command: cmd, rollback: async () => {} };
+          // Defense in depth: `assertKnownCommandPaths(batch, ...)` above
+          // already rejected any out-of-vocabulary path in the caller-supplied
+          // batch before this loop started. Re-check the CAPTURED command too
+          // — `captureCredentials` rewrites `args` (plaintext → vault ref) and
+          // is trusted to leave `path` alone, but a future capture
+          // implementation that also normalizes/reroutes `path` should not be
+          // able to smuggle a lifecycle path past the pre-dispatch gate by
+          // producing it only after the batch-level check already passed.
+          assertKnownCommandPaths([captured.command], "appendToDraft");
           captureRollbacks.push(captured.rollback);
           const value = await app.runHandler(
             captured.command.path,
@@ -900,6 +909,15 @@ export function createDraftController(
           );
         }
         assertPublishLogHasNoLateBound(log);
+        // Defense in depth: every command in the log was already vetted by
+        // `assertKnownCommandPaths` at `appendToDraft` time, so this should
+        // never find anything — but replay reads the log fresh from storage
+        // inside this transaction, not the in-memory batch that was
+        // originally validated. Re-checking here means a hypothetical path
+        // that reaches the table some other way (a direct write, a future
+        // seam that skips `appendToDraft`) still can't replay a lifecycle
+        // command onto canonical state.
+        assertKnownCommandPaths(log, "publishDraft replay");
         validatePublishLog?.(log);
         if (options.blockOnConflict === true) {
           const conflictReport = await detectConflictReport(
