@@ -1,4 +1,7 @@
-import { getConnectorById } from "@/lib/connectors/registry";
+import {
+  getConnectorById,
+  useRegistryVersion,
+} from "@/lib/connectors/registry";
 import { ItemCard } from "@wystack/ui-react";
 import { ConnectorIcon } from "./renderers/ConnectorIcon";
 
@@ -46,6 +49,11 @@ export function DataSourceList({
   selectedSourceId,
   onSourceClick,
 }: DataSourceListProps) {
+  // Subscribe so a re-render fires once the connector registry hydrates from
+  // the server catalog (getConnectorById reads a module-scope map, which is
+  // not reactive on its own).
+  useRegistryVersion();
+
   return (
     <>
       {sources.map((source) => {

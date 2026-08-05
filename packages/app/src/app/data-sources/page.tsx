@@ -1,6 +1,9 @@
 import { ConnectorIcon } from "@/components/data-sources/renderers/ConnectorIcon";
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
-import { getConnectorById } from "@/lib/connectors/registry";
+import {
+  getConnectorById,
+  useRegistryVersion,
+} from "@/lib/connectors/registry";
 import { api } from "@/wystack/api";
 import type { DataSource, UUID } from "@dashframe/types";
 import { useNavigate } from "@tanstack/react-router";
@@ -42,6 +45,11 @@ type DataSourceWithTables = {
  */
 export default function DataSourcesPage() {
   const navigate = useNavigate();
+
+  // Subscribe so a re-render fires once the connector registry hydrates from
+  // the server catalog (getConnectorById reads a module-scope map, which is
+  // not reactive on its own).
+  useRegistryVersion();
 
   const dataSourcesQuery = useQuery(api.listDataSources);
   const dataSources = dataSourcesQuery.data;

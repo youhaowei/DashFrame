@@ -118,6 +118,7 @@
         "zod": "^4.1.12",
       },
       "devDependencies": {
+        "@dashframe/connector-local": "workspace:*",
         "@dashframe/eslint-config": "workspace:*",
         "@types/bun": "^1.2.0",
         "@wystack/client": "workspace:*",

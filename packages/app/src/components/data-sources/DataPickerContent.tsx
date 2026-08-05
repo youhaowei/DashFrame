@@ -70,16 +70,6 @@ export interface DataPickerContentProps {
    */
   onCancel?: () => void;
   /**
-   * Whether to show Notion connection option
-   * @default true
-   */
-  showNotion?: boolean;
-  /**
-   * Whether to show Postgres connection option
-   * @default true
-   */
-  showPostgres?: boolean;
-  /**
    * Whether to show insights section (requires onInsightSelect to be provided)
    * @default true
    */
@@ -108,8 +98,6 @@ export function DataPickerContent({
   excludeInsightIds = [],
   excludeTableIds = [],
   onCancel,
-  showNotion = true,
-  showPostgres = true,
   showInsights = true,
 }: DataPickerContentProps) {
   const { data: dataSources = [] } = useQuery(api.listDataSources);
@@ -461,8 +449,6 @@ export function DataPickerContent({
               error={error}
               onFileSelect={handleFileSelect}
               onConnect={handleConnect}
-              showNotion={showNotion}
-              showPostgres={showPostgres}
             />
           </SectionList>
         )}

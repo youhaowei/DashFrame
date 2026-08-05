@@ -1,6 +1,9 @@
 import { ConnectorIcon } from "@/components/data-sources/renderers/ConnectorIcon";
 import { JoinFlowModal } from "@/components/visualizations/JoinFlowModal";
-import { getConnectorById } from "@/lib/connectors/registry";
+import {
+  getConnectorById,
+  useRegistryVersion,
+} from "@/lib/connectors/registry";
 import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
 import { api } from "@/wystack/api";
 import type { DataTable, Insight } from "@dashframe/types";
@@ -148,6 +151,12 @@ export const DataModelSection = memo(function DataModelSection({
 }: DataModelSectionProps) {
   const navigate = useNavigate();
   const [isJoinFlowOpen, setIsJoinFlowOpen] = useState(false);
+
+  // Subscribe so a re-render fires once the connector registry hydrates from
+  // the server catalog (getConnectorById reads a module-scope map, which is
+  // not reactive on its own).
+  useRegistryVersion();
+
   const { data: allDataFrameEntries = [] } = useQuery(api.listDataFrames);
   const { data: allDataSources = [] } = useQuery(api.listDataSources);
   const { mutateAsync: updateInsight } = useMutation(api.updateInsight);
