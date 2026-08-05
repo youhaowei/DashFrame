@@ -28,6 +28,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { functions } from "../functions";
+import { LOCAL_USER_ID } from "../permissions";
 import { wy } from "../wystack";
 import { cmd } from "./commands";
 import { buildPreviewDiff } from "./preview-diff";
@@ -47,6 +48,25 @@ function makeTestVault(): { vault: SecretVault; backend: TestBackend } {
   registry.setClassDefault("connector-key", "test");
   const vault = new SecretVault(registry, new InMemoryMappingStore());
   return { vault, backend };
+}
+
+async function buildUserApp(
+  db: Awaited<ReturnType<typeof openArtifactDb>>,
+): Promise<WyStackApp> {
+  const rawApp = await wy.build({ db, functions });
+  return {
+    ...rawApp,
+    call: (path, args, context) =>
+      rawApp.call(path, args, {
+        ...(context ?? {}),
+        principal: { kind: "user", userId: LOCAL_USER_ID },
+      }),
+    runHandler: (path, args, tracked, context) =>
+      rawApp.runHandler(path, args, tracked, {
+        ...(context ?? {}),
+        principal: { kind: "user", userId: LOCAL_USER_ID },
+      }),
+  };
 }
 
 /** Read the raw config jsonb from the artifact DB for a given data-source id. */
@@ -71,19 +91,24 @@ describe("vault control-plane — store→ref + has→presence", () => {
     db = await openArtifactDb({ path: join(dir, "artifacts.db") });
     ({ vault, backend } = makeTestVault());
     // Inject vault via static context — mirrors createDashframeServer's seam.
-    const rawApp = await wy.build({ db, functions });
+    const rawApp = await buildUserApp(db);
     // Wrap to inject vault into every call context, matching app.ts behaviour.
     // Static context (vault) spreads LAST so it cannot be shadowed by a caller-
     // supplied ctx — same ordering as the production createDashframeServer seam.
     app = {
       ...rawApp,
       async call(path, args, ctx) {
-        return rawApp.call(path, args, { ...(ctx ?? {}), vault });
+        return rawApp.call(path, args, {
+          ...(ctx ?? {}),
+          vault,
+          principal: { kind: "user", userId: LOCAL_USER_ID },
+        });
       },
       async runHandler(path, args, tracked, ctx) {
         return rawApp.runHandler(path, args, tracked, {
           ...(ctx ?? {}),
           vault,
+          principal: { kind: "user", userId: LOCAL_USER_ID },
         });
       },
     };
@@ -337,14 +362,14 @@ describe("vault control-plane — store→ref + has→presence", () => {
 describe("vault control-plane — fail-closed when no vault is injected", () => {
   let dir: string;
   let db: Awaited<ReturnType<typeof openArtifactDb>>;
-  // No vault wrapper: wy.build's app is used directly, so ctx.vault is
-  // undefined for every handler — exactly a server runtime that injected no vault.
+  // No vault wrapper: the app receives only the test user principal, so
+  // ctx.vault is undefined — exactly a server runtime that injected no vault.
   let app: WyStackApp;
 
   beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), "dashframe-vault-failclosed-"));
     db = await openArtifactDb({ path: join(dir, "artifacts.db") });
-    app = await wy.build({ db, functions });
+    app = await buildUserApp(db);
   });
 
   afterEach(async () => {
@@ -475,7 +500,7 @@ describe("connector factory — mintBoundResolver fail-closed", () => {
     dir = mkdtempSync(join(tmpdir(), "dashframe-factory-novault-"));
     db = await openArtifactDb({ path: join(dir, "artifacts.db") });
     // No vault wrapper — ctx.vault is undefined
-    const rawApp = await wy.build({ db, functions });
+    const rawApp = await buildUserApp(db);
 
     // Create a notion DataSource row (no vault needed for a credential-free create)
     const id = crypto.randomUUID();
@@ -491,7 +516,7 @@ describe("connector factory — mintBoundResolver fail-closed", () => {
     dir = mkdtempSync(join(tmpdir(), "dashframe-factory-noref-"));
     db = await openArtifactDb({ path: join(dir, "artifacts.db") });
     const { vault } = makeTestVault();
-    const rawApp = await wy.build({ db, functions });
+    const rawApp = await buildUserApp(db);
     const vaultApp: WyStackApp = {
       ...rawApp,
       async call(path, args, ctx) {
@@ -526,7 +551,7 @@ describe("connector factory — mintBoundResolver fail-closed", () => {
   it("queryNotionDatabase throws when no vault is injected", async () => {
     dir = mkdtempSync(join(tmpdir(), "dashframe-factory-q-novault-"));
     db = await openArtifactDb({ path: join(dir, "artifacts.db") });
-    const rawApp = await wy.build({ db, functions });
+    const rawApp = await buildUserApp(db);
 
     const id = crypto.randomUUID();
     await rawApp.call("createDataSource", { id, type: "notion", name: "Src" });
@@ -546,7 +571,7 @@ describe("connector factory — mintBoundResolver fail-closed", () => {
     dir = mkdtempSync(join(tmpdir(), "dashframe-factory-q-kind-"));
     db = await openArtifactDb({ path: join(dir, "artifacts.db") });
     const { vault } = makeTestVault();
-    const rawApp = await wy.build({ db, functions });
+    const rawApp = await buildUserApp(db);
     const vaultApp: WyStackApp = {
       ...rawApp,
       async call(path, args, ctx) {
@@ -611,7 +636,7 @@ describe("vault lifecycle — delete releases SecretRefs (removeDataSource)", ()
     dir = mkdtempSync(join(tmpdir(), "dashframe-vault-rm-"));
     db = await openArtifactDb({ path: join(dir, "artifacts.db") });
     ({ vault, backend } = makeTestVault());
-    const rawApp = await wy.build({ db, functions });
+    const rawApp = await buildUserApp(db);
     app = {
       ...rawApp,
       async call(path, args, ctx) {
@@ -716,7 +741,7 @@ describe("vault lifecycle — delete releases SecretRefs (DeleteNode)", () => {
     dir = mkdtempSync(join(tmpdir(), "dashframe-vault-del-"));
     db = await openArtifactDb({ path: join(dir, "artifacts.db") });
     ({ vault } = makeTestVault());
-    const rawApp = await wy.build({ db, functions });
+    const rawApp = await buildUserApp(db);
     // flushSnapshot is required by the fail-closed credential-release gate: refs are
     // only released after a confirmed durable snapshot. Wire a no-op for tests
     // exercising the direct canonical path (no actual snapshot needed here).
@@ -904,7 +929,7 @@ describe("vault lifecycle — preview mode skips vault store", () => {
     // No vault wrapper on the raw app: buildPreviewDiff threads the vault through
     // the `context` arg it passes to applyCommands, so the handlers receive it
     // via ctx — the same path as the production seam.
-    app = await wy.build({ db, functions });
+    app = await buildUserApp(db);
   });
 
   afterEach(async () => {
@@ -974,7 +999,7 @@ describe("vault lifecycle — preview mode skips vault store", () => {
     const setupDb = await openArtifactDb({
       path: join(setupDir, "artifacts.db"),
     });
-    const rawSetupApp = await wy.build({ db: setupDb, functions });
+    const rawSetupApp = await buildUserApp(setupDb);
     const setupApp: WyStackApp = {
       ...rawSetupApp,
       async call(path, args, ctx) {
@@ -1039,7 +1064,7 @@ describe("vault lifecycle — preview mode skips vault store", () => {
     const commitDb = await openArtifactDb({
       path: join(commitDir, "artifacts.db"),
     });
-    const rawApp = await wy.build({ db: commitDb, functions });
+    const rawApp = await buildUserApp(commitDb);
     const commitApp: WyStackApp = {
       ...rawApp,
       async call(path, args, ctx) {
@@ -1126,7 +1151,7 @@ describe("vault lifecycle — preview mode skips vault delete", () => {
       return realDelete(...args);
     };
 
-    const rawApp = await wy.build({ db, functions });
+    const rawApp = await buildUserApp(db);
     // commitApp threads the vault via a wrapper (commit-mode call path).
     commitApp = wrapWithVault(rawApp);
     // previewApp runs DeleteNode through buildPreviewDiff, which threads the
@@ -1304,7 +1329,7 @@ describe("vault lifecycle: clear releases prior SecretRef (AC1)", () => {
     dir = mkdtempSync(join(tmpdir(), "dashframe-vault-clear-"));
     db = await openArtifactDb({ path: join(dir, "artifacts.db") });
     ({ vault } = makeTestVault());
-    const rawApp = await wy.build({ db, functions });
+    const rawApp = await buildUserApp(db);
     // flushSnapshot is required by the fail-closed credential-release gate: refs are
     // only released after a confirmed durable snapshot. Wire a no-op for tests
     // exercising the direct canonical path (no actual snapshot needed here).
@@ -1444,7 +1469,7 @@ describe("vault lifecycle: rotate releases prior SecretRef (AC2)", () => {
     dir = mkdtempSync(join(tmpdir(), "dashframe-vault-rotate-"));
     db = await openArtifactDb({ path: join(dir, "artifacts.db") });
     ({ vault } = makeTestVault());
-    const rawApp = await wy.build({ db, functions });
+    const rawApp = await buildUserApp(db);
     // flushSnapshot is required by the fail-closed credential-release gate: refs are
     // only released after a confirmed durable snapshot. Wire a no-op for tests
     // exercising the direct canonical path (no actual snapshot needed here).
@@ -1519,7 +1544,7 @@ describe("vault lifecycle: vault-absent clear is a no-op (AC3)", () => {
     const dir = mkdtempSync(join(tmpdir(), "dashframe-vault-ac3-"));
     const db = await openArtifactDb({ path: join(dir, "artifacts.db") });
     // No vault injected — this is a vault-absent server.
-    const app = await wy.build({ db, functions });
+    const app = await buildUserApp(db);
 
     try {
       // Arrange: create a source with no credential (allowed without vault).

@@ -1,4 +1,5 @@
 import type { AssistantCommand, AssistantHost } from "@dashframe/assistant";
+import type { Principal } from "@wystack/identity";
 import type { WyStackApp } from "@wystack/server";
 
 import { createAssistantReadHost } from "./assistant-read-host";
@@ -18,6 +19,7 @@ export interface DashframeAssistantHostOptions {
    */
   app: WyStackApp;
   draftController: DraftController;
+  principal?: Principal;
   readSourceFile?: (file: string) => Promise<string>;
 }
 
@@ -37,12 +39,25 @@ export function createDashframeAssistantHost(
   return {
     open: () => options.draftController.openDraft(),
     append: (draftId, batch, context) =>
-      options.draftController.appendToDraft(draftId, batch, context),
+      options.draftController.appendToDraft(draftId, batch, {
+        ...context,
+        ...(options.principal !== undefined
+          ? { principal: options.principal }
+          : {}),
+      }),
     discard: async (draftId) => {
       // Route through the registered command so discard runs the full
       // lifecycle (credential release, persistence scheduling), not just the
       // controller's in-memory drop.
-      await options.app.call("discardDraft", { draftId });
+      await options.app.call(
+        "discardDraft",
+        { draftId },
+        {
+          ...(options.principal !== undefined
+            ? { principal: options.principal }
+            : {}),
+        },
+      );
     },
     buildCommand,
     reader: (draftId) =>

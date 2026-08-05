@@ -15,14 +15,18 @@ import {
   type DashframeServer,
 } from "../app";
 import { functions } from "../functions";
+import { LOCAL_USER_ID } from "../permissions";
 import { wy } from "../wystack";
 import { cmd } from "./commands";
 import type { DraftPublishReview } from "./drafts";
 
 const { dataSources } = schema;
+const USER_TOKEN = "renderer-token";
 
 async function getJson<T>(url: string): Promise<T> {
-  const response = await fetch(url);
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${USER_TOKEN}` },
+  });
   expect(response.status).toBe(200);
   return (await response.json()) as T;
 }
@@ -30,7 +34,10 @@ async function getJson<T>(url: string): Promise<T> {
 async function postJson<T>(url: string, body: unknown): Promise<T> {
   const response = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${USER_TOKEN}`,
+    },
     body: JSON.stringify(body),
   });
   expect(response.status).toBe(200);
@@ -55,7 +62,20 @@ describe("draft publish functions", () => {
   });
 
   async function controller() {
-    const app = await buildDashframeApp({ db });
+    const baseApp = await buildDashframeApp({ db });
+    const app = {
+      ...baseApp,
+      call: (path, args, context) =>
+        baseApp.call(path, args, {
+          ...(context ?? {}),
+          principal: { kind: "user", userId: LOCAL_USER_ID },
+        }),
+      runHandler: (path, args, tracked, context) =>
+        baseApp.runHandler(path, args, tracked, {
+          ...(context ?? {}),
+          principal: { kind: "user", userId: LOCAL_USER_ID },
+        }),
+    } satisfies typeof baseApp;
     return createDraftController(app, db);
   }
 
@@ -74,6 +94,7 @@ describe("draft publish functions", () => {
 
     server = await createDashframeServer({
       db,
+      authToken: USER_TOKEN,
       onWrite: () => onWriteCalls.push(Date.now()),
     });
 
@@ -134,7 +155,7 @@ describe("draft publish functions", () => {
       }),
     ]);
 
-    server = await createDashframeServer({ db });
+    server = await createDashframeServer({ db, authToken: USER_TOKEN });
 
     const review = await getJson<{ data: DraftPublishReview }>(
       `${server.url}/api/draftPublishReview?args=${encodeURIComponent(
@@ -147,7 +168,10 @@ describe("draft publish functions", () => {
     // the same failure mode a stale client would trigger after a real drift.
     const res = await fetch(`${server.url}/api/publishDraft`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${USER_TOKEN}`,
+      },
       body: JSON.stringify({
         draftId,
         expectedLogSignature: "0".repeat(64),
@@ -188,7 +212,11 @@ describe("draft publish functions", () => {
     const { result } = await app.call(
       "draftPublishReview",
       { draftId },
-      { wyStackApp: app, artifactDb: db },
+      {
+        wyStackApp: app,
+        artifactDb: db,
+        principal: { kind: "user", userId: LOCAL_USER_ID },
+      },
     );
     const review = result as DraftPublishReview;
 
@@ -218,6 +246,7 @@ describe("draft publish functions", () => {
           wyStackApp: app,
           artifactDb: db,
           draftController: createDraftController(app, db),
+          principal: { kind: "user", userId: LOCAL_USER_ID },
         },
       ),
     ).rejects.toThrow(/late-bound operands/);
@@ -234,7 +263,7 @@ describe("draft publish functions", () => {
         name: "Throwaway",
       }),
     ]);
-    server = await createDashframeServer({ db });
+    server = await createDashframeServer({ db, authToken: USER_TOKEN });
 
     await postJson(`${server.url}/api/discardDraft`, { draftId });
 

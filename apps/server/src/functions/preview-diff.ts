@@ -61,6 +61,7 @@ import { jsonb } from "@wystack/db";
 import type { Command, CommandResult } from "@wystack/server";
 import { applyCommands, type WyStackApp } from "@wystack/server";
 
+import { permissions } from "../permissions";
 import { wy } from "../wystack";
 import { commandFunctions } from "./commands";
 
@@ -1188,6 +1189,7 @@ const previewDiff = wy.procedure
     // in the applyCommands context.
     const handlerContext: Record<string, unknown> = {};
     if (ctx.vault !== undefined) handlerContext.vault = ctx.vault;
+    if (ctx.principal !== undefined) handlerContext.principal = ctx.principal;
     return buildPreviewDiff(
       wyStackApp,
       artifactDb,
@@ -1196,6 +1198,46 @@ const previewDiff = wy.procedure
     );
   });
 
+const commitBatch = wy.procedure
+  .input({ commands: jsonb })
+  .authorize(permissions.commands.commit)
+  .mutation(async (ctx, { commands }) => {
+    const wyStackApp = ctx.wyStackApp as WyStackApp | undefined;
+    const artifactDb = ctx.artifactDb as ArtifactDb | undefined;
+    if (!wyStackApp || !artifactDb) {
+      throw new Error(
+        "commitBatch: wyStackApp/artifactDb not in handler context — " +
+          "ensure createDashframeServer injects them via staticContext",
+      );
+    }
+    if (!Array.isArray(commands)) {
+      throw new Error("commitBatch: commands must be an array");
+    }
+
+    const handlerContext: Record<string, unknown> = {};
+    if (ctx.vault !== undefined) handlerContext.vault = ctx.vault;
+    if (ctx.principal !== undefined) handlerContext.principal = ctx.principal;
+
+    const result = await applyCommands(wyStackApp, commands as Command[], {
+      mode: "commit",
+      context: handlerContext,
+    });
+
+    if (result.tablesWritten.size > 0) {
+      ctx.onWrite?.();
+    }
+
+    const tablesWritten = [...result.tablesWritten];
+    return {
+      mode: result.mode,
+      commands: result.commands,
+      results: result.results,
+      tablesWritten,
+      __extraTablesWritten: tablesWritten,
+    };
+  });
+
 export const previewDiffFunctions = {
   previewDiff,
+  commitBatch,
 };

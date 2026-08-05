@@ -692,7 +692,10 @@ describe("write → subscription invalidation", () => {
 
   it("delivers invalidate to a live subscriber after a mutation on another surface", async () => {
     project = await openProject({ dir: join(root, "proj") });
-    server = await createDashframeServer({ db: project.db });
+    server = await createDashframeServer({
+      db: project.db,
+      authToken: "renderer-token",
+    });
 
     const ws = new WebSocket(`${server.url.replace(/^http/, "ws")}/api/ws`);
     const subscriptionId = "sub-invalidate-1";
@@ -703,7 +706,8 @@ describe("write → subscription invalidation", () => {
         10_000,
       );
       ws.onerror = () => reject(new Error("WebSocket failed"));
-      ws.onopen = () => ws.send(JSON.stringify({ type: "auth", token: null }));
+      ws.onopen = () =>
+        ws.send(JSON.stringify({ type: "auth", token: "renderer-token" }));
       ws.onmessage = (event) => {
         const msg = JSON.parse(String(event.data)) as {
           type?: string;
@@ -726,7 +730,10 @@ describe("write → subscription invalidation", () => {
         if (msg.type === "subscribed" && msg.id === subscriptionId) {
           void fetch(`${server!.url}/api/getOrCreateDataSource`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              "Content-Type": "application/json",
+              ...bearer("renderer-token"),
+            },
             body: JSON.stringify({
               id: crypto.randomUUID(),
               type: "csv",
@@ -785,7 +792,10 @@ describe("onWrite hook", () => {
   ): Promise<Response> {
     return fetch(`${url}/api/${path}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...bearer("renderer-token"),
+      },
       body: JSON.stringify(body),
     });
   }
@@ -795,6 +805,7 @@ describe("onWrite hook", () => {
     project = await openProject({ dir: join(root, "proj") });
     server = await createDashframeServer({
       db: project.db,
+      authToken: "renderer-token",
       onWrite: () => {
         onWriteCalls.push(Date.now());
       },
@@ -814,6 +825,7 @@ describe("onWrite hook", () => {
     project = await openProject({ dir: join(root, "proj") });
     server = await createDashframeServer({
       db: project.db,
+      authToken: "renderer-token",
       onWrite: () => {
         callCount++;
       },
@@ -839,6 +851,7 @@ describe("onWrite hook", () => {
     project = await openProject({ dir: join(root, "proj") });
     server = await createDashframeServer({
       db: project.db,
+      authToken: "renderer-token",
       onWrite: () => {
         callCount++;
       },
@@ -859,6 +872,7 @@ describe("onWrite hook", () => {
     project = await openProject({ dir: join(root, "proj") });
     server = await createDashframeServer({
       db: project.db,
+      authToken: "renderer-token",
       onWrite: () => {
         callCount++;
       },
@@ -866,6 +880,7 @@ describe("onWrite hook", () => {
 
     const res = await fetch(
       `${server.url}/api/projectInfo?args=${encodeURIComponent("{}")}`,
+      { headers: bearer("renderer-token") },
     );
     expect(res.status).toBe(200);
     expect(callCount).toBe(0);
@@ -874,7 +889,10 @@ describe("onWrite hook", () => {
   it("should work without onWrite (backward-compatible — omitting it changes nothing)", async () => {
     // No onWrite configured — server should start and mutations should succeed.
     project = await openProject({ dir: join(root, "proj") });
-    server = await createDashframeServer({ db: project.db });
+    server = await createDashframeServer({
+      db: project.db,
+      authToken: "renderer-token",
+    });
 
     const res = await postMutation(server.url, "getOrCreateDataSource", {
       id: crypto.randomUUID(),
@@ -893,6 +911,7 @@ describe("onWrite hook", () => {
     const sourceId = crypto.randomUUID();
     server = await createDashframeServer({
       db: project.db,
+      authToken: "renderer-token",
       onWrite: () => {
         throw new Error("snapshot scheduler exploded");
       },

@@ -15,7 +15,21 @@ export const permissions = definePermissions<AppContext>()({
         ctx.principal.userId === LOCAL_USER_ID,
     },
   },
+  commands: {
+    commit: {
+      description:
+        "Commit or replay commands against canonical state (preview and draft-append stay open to any principal)",
+      check: (ctx) =>
+        ctx.mode === "preview" ||
+        ctx.draftId != null ||
+        ctx.__publishReplay === true ||
+        (isPrincipal(ctx.principal) && ctx.principal.kind === "user"),
+    },
+  },
 });
 
 /** Boot-time snapshot guarding the public permission identifiers. */
-export const expectedPermissionIds = ["accessCredentials.manage"] as const;
+export const expectedPermissionIds = [
+  "accessCredentials.manage",
+  "commands.commit",
+] as const;

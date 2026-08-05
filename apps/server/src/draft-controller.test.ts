@@ -38,6 +38,7 @@ import {
 } from "./app";
 import { computeLogSignature } from "./draft-log-signature";
 import { cmd } from "./functions/commands";
+import { LOCAL_USER_ID } from "./permissions";
 
 const { insights, dataSources, projectMeta } = schema;
 
@@ -62,7 +63,20 @@ describe("DraftController (persisted draft overlay)", () => {
   /** Open the full stack (db + app with the draft seam + controller) at a path. */
   async function openStack(path: string) {
     const openedDb = await openArtifactDb({ path });
-    const builtApp = await buildDashframeApp({ db: openedDb });
+    const baseApp = await buildDashframeApp({ db: openedDb });
+    const builtApp = {
+      ...baseApp,
+      call: (path, args, context) =>
+        baseApp.call(path, args, {
+          ...(context ?? {}),
+          principal: { kind: "user", userId: LOCAL_USER_ID },
+        }),
+      runHandler: (path, args, tracked, context) =>
+        baseApp.runHandler(path, args, tracked, {
+          ...(context ?? {}),
+          principal: { kind: "user", userId: LOCAL_USER_ID },
+        }),
+    } satisfies typeof baseApp;
     return {
       db: openedDb,
       app: builtApp,

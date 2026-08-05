@@ -11,6 +11,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { buildDashframeApp, createDraftController } from "./app";
 import { createDashframeAssistantHost } from "./assistant-host";
+import { cmd } from "./functions/commands";
+import { LOCAL_USER_ID } from "./permissions";
 
 const usage = {
   input: 0,
@@ -120,7 +122,11 @@ describe("DashFrame AssistantHost integration", () => {
 
   it("binds the single host port through a full run lifecycle", async () => {
     const dashboardId = crypto.randomUUID() as UUID;
-    const host = createDashframeAssistantHost({ app, draftController });
+    const host = createDashframeAssistantHost({
+      app,
+      draftController,
+      principal: { kind: "user", userId: LOCAL_USER_ID },
+    });
     const firstMutations: string[] = [];
     const toolErrors: boolean[] = [];
 
@@ -186,5 +192,25 @@ describe("DashFrame AssistantHost integration", () => {
       {},
     );
     expect(canonical).toBeNull();
+  });
+
+  it("forwards a service principal into draft append dispatch", async () => {
+    const host = createDashframeAssistantHost({
+      app,
+      draftController,
+      principal: { kind: "service", credentialId: "credential-1" },
+    });
+    const draftId = await host.open();
+    const dashboardId = crypto.randomUUID();
+
+    await host.append(
+      draftId,
+      [cmd("CreateDashboard", { id: dashboardId, name: "Service draft" })],
+      {},
+    );
+
+    expect(await draftController.getDraftLog(draftId)).toEqual([
+      expect.objectContaining({ path: "createDashboardCmd" }),
+    ]);
   });
 });

@@ -36,6 +36,7 @@ import {
   DraftPublishConflictError,
   type DraftController,
 } from "../draft-controller";
+import { permissions } from "../permissions";
 import { wy } from "../wystack";
 import { PUBLISH_REPLAY_CONTEXT_KEY } from "./utils";
 
@@ -141,6 +142,7 @@ const publishDraft = wy.procedure
     expectedCommandCount: text.optional(),
     expectedLogSignature: text.optional(),
   })
+  .authorize(permissions.commands.commit)
   .mutation(
     async (
       ctx,
@@ -210,7 +212,12 @@ const publishDraft = wy.procedure
       try {
         result = await draftController.publishDraft(
           draftId,
-          { [PUBLISH_REPLAY_CONTEXT_KEY]: true },
+          {
+            [PUBLISH_REPLAY_CONTEXT_KEY]: true,
+            ...(ctx.principal !== undefined
+              ? { principal: ctx.principal }
+              : {}),
+          },
           {
             expectedCommandCount: expected,
             expectedLogSignature,
@@ -283,6 +290,7 @@ const publishDraft = wy.procedure
  */
 const discardDraft = wy.procedure
   .input({ draftId: text })
+  .authorize(permissions.commands.commit)
   .mutation(async (ctx, { draftId }): Promise<void> => {
     const draftController = ctx.draftController as DraftController | undefined;
     if (!draftController) {
