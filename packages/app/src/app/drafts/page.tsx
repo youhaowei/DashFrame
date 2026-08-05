@@ -38,7 +38,7 @@ export default function DraftsPage() {
   return (
     <main className="h-full overflow-y-auto bg-surface-base p-[var(--surface-inset)]">
       <section className="mx-auto min-h-full max-w-4xl rounded-[var(--surface-radius)] bg-neutral-bg/90 px-6 py-8 shadow-[var(--surface-shadow)] saturate-[1.2]">
-        <h1 className="text-xl font-semibold text-neutral-fg">Review</h1>
+        <h1 className="text-xl font-semibold text-neutral-fg">Drafts</h1>
 
         {isLoading ? (
           <div className="flex min-h-40 items-center justify-center">

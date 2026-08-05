@@ -55,9 +55,9 @@ type NavItem = {
 
 const navItems: NavItem[] = [
   {
-    name: "Review",
+    name: "Drafts",
     href: "/drafts",
-    description: "Review",
+    description: "Drafts",
     icon: FileIcon,
   },
   {
@@ -159,7 +159,7 @@ function SidebarContent({
                   variant="soft"
                   color="secondary"
                   className="ml-auto min-w-5 justify-center text-[10px]"
-                  // A bare digit next to "Review" reads as "Review 3" to a
+                  // A bare digit next to "Drafts" reads as "Drafts 3" to a
                   // screen reader, which says nothing about what the 3 counts.
                   aria-label={
                     pendingDraftCount === 1
