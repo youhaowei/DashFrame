@@ -3,6 +3,7 @@ import type { Principal } from "@wystack/identity";
 import type { SecretVault } from "@wystack/secret-vault";
 import type { FunctionContext, WyStackApp } from "@wystack/server";
 
+import type { GoogleOAuthConfig } from "./connector-setup/oauth-provider";
 import type { DraftController } from "./draft-controller";
 
 /** Host capabilities and request identity available to every WyStack procedure. */
@@ -16,6 +17,7 @@ export interface AppContext {
   draftController?: DraftController;
   onWrite?: () => void;
   flushSnapshot?: () => Promise<void>;
+  googleOAuth?: GoogleOAuthConfig;
   mode?: string;
   draftId?: string;
   __publishReplay?: boolean;

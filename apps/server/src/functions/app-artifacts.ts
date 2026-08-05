@@ -1,3 +1,4 @@
+import { makeGa4Connector } from "@dashframe/connector-ga4";
 import { makeNotionConnector } from "@dashframe/connector-notion";
 import { makePostgresConnector } from "@dashframe/connector-postgres";
 // The canonical bound-resolver type — aliased for readability at the mint site.
@@ -1485,6 +1486,74 @@ const queryPostgresTable = wy.procedure
     },
   );
 
+// ============================================================================
+// GA4 connector factory + data plane — mirrors postgresConnectorFor.
+// ============================================================================
+
+async function ga4ConnectorFor(
+  ctx: DashframeFunctionContext,
+  dataSourceId: UUID,
+): Promise<ReturnType<typeof makeGa4Connector>> {
+  const vault = vaultFromCtx(ctx);
+  const row = (await ctx.db
+    .from(dataSources)
+    .where(eq("id", dataSourceId))
+    .first()) as DataSourceRow | undefined;
+  if (!row) throw new Error(`DataSource ${dataSourceId} not found`);
+  if (row.kind !== "googleAnalytics") {
+    throw new Error(
+      `DataSource ${dataSourceId} is not a Google Analytics source`,
+    );
+  }
+  const config = (row.config ?? {}) as DataSourceConfig;
+  const auth = mintBoundResolver(
+    vault,
+    config.apiKey,
+    `DataSource(${dataSourceId})`,
+  );
+  return makeGa4Connector(auth);
+}
+
+const listGa4Properties = wy.procedure
+  .input({ dataSourceId: uuid })
+  .mutation(
+    async (ctx, { dataSourceId }): Promise<{ id: string; title: string }[]> => {
+      const connector = await ga4ConnectorFor(ctx, dataSourceId);
+      const properties = await connector.connect();
+      return properties.map((property) => ({
+        id: property.id,
+        title: property.name,
+      }));
+    },
+  );
+
+const queryGa4Report = wy.procedure
+  .input({
+    dataSourceId: uuid,
+    propertyId: text,
+    tableId: uuid,
+    limit: int.optional(),
+  })
+  .mutation(
+    async (
+      ctx,
+      { dataSourceId, propertyId, tableId, limit },
+    ): Promise<PostgresQueryResult> => {
+      const connector = await ga4ConnectorFor(ctx, dataSourceId);
+      const pagination =
+        limit !== undefined && Number.isInteger(limit) && limit > 0
+          ? { pagination: { offset: 0, limit } }
+          : undefined;
+      const result = await connector.query(propertyId, tableId, pagination);
+      return {
+        arrowBuffer: result.arrowBuffer,
+        fieldIds: result.fieldIds,
+        fields: result.fields,
+        rowCount: result.rowCount,
+      };
+    },
+  );
+
 export const appArtifactFunctions = {
   listDataSources,
   getDataSource,
@@ -1523,4 +1592,7 @@ export const appArtifactFunctions = {
   // Postgres data-plane routes (auth-blind via bound resolver)
   listPostgresTables,
   queryPostgresTable,
+  // Google Analytics data-plane routes (auth-blind via bound resolver)
+  listGa4Properties,
+  queryGa4Report,
 };

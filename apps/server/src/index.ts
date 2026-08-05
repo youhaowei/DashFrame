@@ -24,6 +24,7 @@ import {
   type DashframeServerOptions,
 } from "./app";
 import { isLoopbackHost } from "./bind-host";
+import { readOptionalGoogleOAuthConfig } from "./connector-setup/oauth-provider";
 import {
   ENCRYPTED_FILE_BACKEND_NAME,
   EncryptedFileSecretBackend,
@@ -355,17 +356,16 @@ export async function createStandaloneSecretServices(
     keyring,
   );
   // Permanent mapping identifier: NEVER change after secrets may exist under it.
-  // Scoped to `serve-token` only (the brief's named class), and registered
-  // WITHOUT `fallback: true` — `SecretRegistry#getForClass` resolves
-  // registry-wide fallback ahead of an absent class default, so `fallback:
-  // true` would silently route `connector-key` and `assistant-provider`
-  // writes here too. Desktop keeps those classes on a project-scoped
-  // DrizzleMappingStore so credential refs travel with the copiable project
-  // DB; a class with no explicit default here must keep throwing rather than
-  // land in this host-local vault.
+  // Registered WITHOUT `fallback: true`: only explicitly configured classes
+  // may land in this host-local encrypted store. Assistant-provider remains
+  // fail-closed because it has no class default here.
   registry.register(ENCRYPTED_FILE_BACKEND_NAME, backend);
   registry.setClassDefault(
     CREDENTIAL_CLASS.ServeToken,
+    ENCRYPTED_FILE_BACKEND_NAME,
+  );
+  registry.setClassDefault(
+    CREDENTIAL_CLASS.ConnectorKey,
     ENCRYPTED_FILE_BACKEND_NAME,
   );
 
@@ -397,6 +397,7 @@ export function createStandaloneServerOptions(
     // Durable counterpart: used by the pre-release gate before deleting a vault
     // ref so the snapshot that drops the ref is confirmed on disk first.
     flushSnapshot: () => project.flushSnapshot(),
+    googleOAuth: readOptionalGoogleOAuthConfig(),
   };
 }
 

@@ -59,6 +59,15 @@ import { type ArtifactDb } from "@dashframe/server-core";
 import type { AppContext } from "./app-context";
 import { handleAssistantRunRequest } from "./assistant-run-route";
 import { isLoopbackHost } from "./bind-host";
+import {
+  handleConnectorOAuthCallback,
+  handleConnectorResumeLanding,
+  handleConnectorSetupResume,
+} from "./connector-oauth-callback";
+import {
+  readOptionalGoogleOAuthConfig,
+  type GoogleOAuthConfig,
+} from "./connector-setup/oauth-provider";
 import { captureCommandCredentials } from "./credential-release";
 import {
   createDraftController,
@@ -208,6 +217,8 @@ export interface DashframeServerOptions {
    * debounced `onWrite` behaviour in that case (existing semantics).
    */
   flushSnapshot?: () => Promise<void>;
+  /** Google OAuth client settings used by resumable connector setup. */
+  googleOAuth?: GoogleOAuthConfig;
   /**
    * Secret vault for credential storage. The runtime composer (Electron main
    * or `dashframe serve`) registers a backend into a SecretRegistry, builds a
@@ -439,6 +450,7 @@ export async function buildDashframeApp(opts: {
   onWrite?: () => void;
   accessCredentials?: ApiAccessCredentials;
   getServerEndpoint?: () => string | undefined;
+  googleOAuth?: GoogleOAuthConfig;
 }): Promise<WyStackApp> {
   const rawApp = await wy.build({
     db: opts.db,
@@ -456,6 +468,7 @@ export async function buildDashframeApp(opts: {
       ? { accessCredentials: opts.accessCredentials }
       : {}),
     ...(vault != null ? { vault } : {}),
+    ...(opts.googleOAuth != null ? { googleOAuth: opts.googleOAuth } : {}),
   };
 
   // The draft seam wraps `call` itself (not just runHandler): `rawApp.call`
@@ -528,6 +541,7 @@ export async function createDashframeServer(
   // by the accessCredentials.manage check, a typed lie.
   const userId = LOCAL_USER_ID;
   const serverState: { endpoint?: string } = {};
+  const googleOAuth = opts.googleOAuth ?? readOptionalGoogleOAuthConfig();
 
   // Resolve the auth context builder: vault-backed ref takes priority over
   // plaintext token. Both produce the same (req) → context shape for WyStack.
@@ -609,6 +623,7 @@ export async function createDashframeServer(
     onWrite: opts.onWrite,
     accessCredentials: opts.accessCredentials,
     getServerEndpoint: () => serverState.endpoint,
+    googleOAuth,
   });
 
   // Inject server-level references needed by the previewDiff query handler
@@ -758,11 +773,35 @@ export async function createDashframeServer(
     }),
   );
 
+  // OAuth callback + resume are intentionally outside createRoutes: neither
+  // browser request carries a bearer token. The callback reaches project writes
+  // only through its state gates and the fixed internal principal in the
+  // delegated app.call.
+  honoApp.get("/api/connectors/oauth/callback", (c) =>
+    handleConnectorOAuthCallback(c, app),
+  );
+  honoApp.get("/api/connectors/setup/:sessionId/resume", (c) =>
+    handleConnectorSetupResume(c, app),
+  );
+  honoApp.get("/", (c) => handleConnectorResumeLanding(c, app));
+
   honoApp.route("/", createRoutes({ app, resolveContext }, upgradeWebSocket));
 
   const { port, server } = await listen(honoApp, hostname, requestedPort);
   injectWebSocket(server);
   serverState.endpoint = `http://${hostname}:${port}/api`;
+
+  try {
+    await app.call(
+      "sweepConnectorSetupSessions",
+      {},
+      { principal: { kind: "user", userId: LOCAL_USER_ID } },
+    );
+    await opts.flushSnapshot?.();
+  } catch (error) {
+    server.close();
+    throw error;
+  }
 
   return {
     url: `http://${hostname}:${port}`,

@@ -15,6 +15,7 @@
  * - Known connector kinds (local, notion) are resolvable after registration
  */
 
+import { makeGa4Connector } from "@dashframe/connector-ga4";
 import { localFileConnector } from "@dashframe/connector-local";
 import { makeNotionConnector } from "@dashframe/connector-notion";
 import type { AnyConnector } from "@dashframe/engine";
@@ -34,6 +35,9 @@ import {
 // Static-metadata connector for registry tests — resolver throws if called
 // (connect/query must never be invoked from the renderer)
 const notionConnector = makeNotionConnector(() => {
+  throw new Error("connect/query must not be called from the renderer");
+});
+const ga4Connector = makeGa4Connector(() => {
   throw new Error("connect/query must not be called from the renderer");
 });
 
@@ -280,6 +284,21 @@ describe("connector registry", () => {
       // Same id re-registration does not bump version (registerConnector contract)
       expect(getRegistryVersion()).toBe(v);
       expect(getConnectorById("local")).toBe(c2);
+    });
+
+    it("hydrates Google Analytics when the server catalog advertises it", () => {
+      hydrateConnectorRegistry(
+        [
+          {
+            ...makeCatalogEntry("googleAnalytics", "remote-api"),
+            authKind: "oauth",
+          },
+        ],
+        { googleAnalytics: () => ga4Connector },
+      );
+
+      expect(getConnectorById("googleAnalytics")).toBe(ga4Connector);
+      expect(getConnectorById("googleAnalytics")?.authKind).toBe("oauth");
     });
   });
 

@@ -41,6 +41,9 @@ export type SecretResolver = <T>(
  * State management is handled by React hooks, not the connector.
  */
 export abstract class BaseConnector {
+  /** Authentication interaction used by connector onboarding. */
+  readonly authKind: "form" | "oauth" = "form";
+
   /** Unique identifier for this connector */
   abstract readonly id: string;
 

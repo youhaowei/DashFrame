@@ -54,6 +54,7 @@ export {
   PROJECT_META_ID,
   PROJECT_META_SINGLETON_KEY,
   assistantProviderConfigs,
+  connectorSetupSessions,
   dashboards,
   dashboardsDraft,
   dataFrames,

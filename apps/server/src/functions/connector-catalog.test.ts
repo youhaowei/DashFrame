@@ -1,7 +1,10 @@
 import { localFileConnector } from "@dashframe/connector-local";
 import { describe, expect, it } from "vitest";
 
-import { LOCAL_CATALOG_ENTRY } from "./connector-catalog";
+import {
+  getConnectorCatalogEntries,
+  LOCAL_CATALOG_ENTRY,
+} from "./connector-catalog";
 
 describe("LOCAL_CATALOG_ENTRY drift guard", () => {
   it("matches the real localFileConnector static metadata", () => {
@@ -18,5 +21,20 @@ describe("LOCAL_CATALOG_ENTRY drift guard", () => {
     expect(LOCAL_CATALOG_ENTRY.formFields).toEqual(
       localFileConnector.getFormFields(),
     );
+  });
+});
+
+describe("connector catalog OAuth metadata", () => {
+  it("advertises Google Analytics as an OAuth connector with no form fields", () => {
+    const entry = getConnectorCatalogEntries().find(
+      ({ id }) => id === "googleAnalytics",
+    );
+
+    expect(entry).toMatchObject({
+      id: "googleAnalytics",
+      sourceType: "remote-api",
+      authKind: "oauth",
+      formFields: [],
+    });
   });
 });

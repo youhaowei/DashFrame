@@ -56,6 +56,14 @@ export const permissions = definePermissions<AppContext>()({
       check: () => true,
     },
   },
+  connectors: {
+    setup: {
+      description: "Set up connector credentials",
+      check: (ctx) =>
+        isPrincipal(ctx.principal) &&
+        (ctx.principal.kind === "user" || ctx.principal.kind === "service"),
+    },
+  },
 });
 
 /** Boot-time snapshot guarding the public permission identifiers. */
@@ -63,4 +71,5 @@ export const expectedPermissionIds = [
   "accessCredentials.manage",
   "commands.commit",
   "commands.preview",
+  "connectors.setup",
 ] as const;

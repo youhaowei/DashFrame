@@ -56,6 +56,16 @@ export function ConnectorCard({
   const fileConnector = isFileConnector
     ? (connector as FileSourceConnector)
     : null;
+  let connectButtonLabel = "Connect";
+  if (connector.authKind === "oauth") {
+    connectButtonLabel = "Sign in with Google";
+  }
+  if (isLoading) {
+    connectButtonLabel =
+      connector.authKind === "oauth"
+        ? "Waiting for Google..."
+        : "Connecting...";
+  }
 
   return (
     <Card className="overflow-hidden">
@@ -99,7 +109,7 @@ export function ConnectorCard({
         {/* Connect button for remote-api connectors */}
         {connector.sourceType === "remote-api" && (
           <Button
-            label={isLoading ? "Connecting..." : "Connect"}
+            label={connectButtonLabel}
             onClick={onConnect}
             disabled={isLoading}
             className="w-full"

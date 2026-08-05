@@ -32,6 +32,11 @@ export interface AddConnectionPanelProps {
     connector: RemoteApiConnector,
     credentials: Record<string, unknown>,
   ) => Promise<void>;
+  /** Called after an OAuth connector reaches the connected terminal state. */
+  onOAuthConnect: (
+    connector: RemoteApiConnector,
+    dataSourceId: string,
+  ) => Promise<void>;
 }
 
 /**
@@ -50,6 +55,7 @@ export function AddConnectionPanel({
   error,
   onFileSelect,
   onConnect,
+  onOAuthConnect,
 }: AddConnectionPanelProps) {
   const { data: catalog, isLoading, isError, refetch } = useConnectorCatalog();
 
@@ -100,6 +106,7 @@ export function AddConnectionPanel({
             connector={connector}
             onFileSelect={onFileSelect}
             onConnect={onConnect}
+            onOAuthConnect={onOAuthConnect}
           />
         ))}
       </div>

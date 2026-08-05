@@ -66,6 +66,7 @@ function renderPanel() {
     <AddConnectionPanel
       onFileSelect={vi.fn()}
       onConnect={vi.fn().mockResolvedValue(undefined)}
+      onOAuthConnect={vi.fn().mockResolvedValue(undefined)}
     />,
   );
 }
