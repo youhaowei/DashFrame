@@ -103,6 +103,30 @@ function fullDto(
   };
 }
 
+function hasCompletedAuthorization(
+  oauthError: string | undefined,
+  code: string | undefined,
+): code is string {
+  return !oauthError && Boolean(code);
+}
+
+function isRedirectUriMismatch(error: unknown): boolean {
+  return error instanceof OAuthExchangeError && error.redirectUriMismatch;
+}
+
+async function probeSampleReport(
+  probe: ReturnType<typeof makeGa4Connector>,
+  properties: Awaited<
+    ReturnType<ReturnType<typeof makeGa4Connector>["connect"]>
+  >,
+): Promise<void> {
+  const property = properties[0];
+  if (!property) return;
+  await probe.query(property.id, crypto.randomUUID(), {
+    pagination: { offset: 0, limit: 1 },
+  });
+}
+
 function publicDto(
   row: ConnectorSetupSessionRow,
   authorizeUrl?: string,
@@ -216,7 +240,7 @@ const completeConnectorOAuth = wy.procedure
     const consumed = await consumeForCompletion(ctx, state);
     if ("expired" in consumed) return consumed.expired;
     const { session } = consumed;
-    if (oauthError || !code) {
+    if (!hasCompletedAuthorization(oauthError, code)) {
       const failed = await markFailed(
         ctx.db,
         session.id,
@@ -254,7 +278,7 @@ const completeConnectorOAuth = wy.procedure
         state,
       });
     } catch (error) {
-      if (error instanceof OAuthExchangeError && error.redirectUriMismatch) {
+      if (isRedirectUriMismatch(error)) {
         const issuance = await publicResumeInfo(
           ctx.db,
           session.id,
@@ -279,22 +303,36 @@ const completeConnectorOAuth = wy.procedure
 
     const dataSourceId = crypto.randomUUID();
     await markVerifying(ctx.db, session.id, dataSourceId);
+    let probe: ReturnType<typeof makeGa4Connector>;
+    let properties: Awaited<ReturnType<(typeof probe)["connect"]>>;
     try {
       // Probe against the plaintext bundle in process memory. No vault write or
       // DataSource exists until this authenticated read succeeds.
-      const probe = makeGa4Connector(async (use) => use(tokenBundle), {
+      probe = makeGa4Connector(async (use) => use(tokenBundle), {
         oauthClient: {
           clientId: googleOAuth(ctx).clientId,
           clientSecret: googleOAuth(ctx).clientSecret,
         },
       });
-      await probe.connect();
+      properties = await probe.connect();
     } catch {
       const failed = await markFailed(
         ctx.db,
         session.id,
         "probe-failed",
         "Google Analytics could not be verified.",
+      );
+      return fullDto(ctx, failed);
+    }
+
+    try {
+      await probeSampleReport(probe, properties);
+    } catch {
+      const failed = await markFailed(
+        ctx.db,
+        session.id,
+        "report-probe-failed",
+        "Google Analytics could not be verified: reporting access is missing or restricted for this account.",
       );
       return fullDto(ctx, failed);
     }
