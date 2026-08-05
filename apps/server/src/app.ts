@@ -75,6 +75,7 @@ import {
 } from "./draft-controller";
 import { assertPublishLogHasNoLateBound } from "./draft-late-bound";
 import { functions } from "./functions";
+import { createMcpRoute } from "./mcp/route";
 import {
   expectedPermissionIds,
   LOCAL_USER_ID,
@@ -813,6 +814,8 @@ export async function createDashframeServer(
       resolveContext,
     }),
   );
+
+  honoApp.all("/mcp", createMcpRoute({ app, resolveContext }));
 
   // OAuth callback + resume are intentionally outside createRoutes: neither
   // browser request carries a bearer token. The callback reaches project writes
