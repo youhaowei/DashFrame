@@ -35,6 +35,12 @@ vi.mock("@dashframe/connector-ga4", () => ({
         await probeWait;
         return [{ id: "properties/123", name: "Example" }];
       }),
+    query: async () => ({
+      arrowBuffer: "",
+      fieldIds: [],
+      fields: [],
+      rowCount: 0,
+    }),
   }),
 }));
 
