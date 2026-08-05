@@ -34,7 +34,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 import { functions } from "../functions";
 import { LOCAL_USER_ID } from "../permissions";
@@ -749,27 +749,36 @@ describe("command credential writes — same-operation minted-ref rollback", () 
   }
 
   it("releases the same-operation minted ref when the insert fails, and the error propagates", async () => {
+    const id = crypto.randomUUID();
+    // A real PK conflict reaches the transaction-bound Drizzle handle that the
+    // command uses (unlike a mock on the outer tracker).
+    await commit([
+      cmd("CreateDataSource", {
+        id,
+        type: "notion",
+        name: "Existing",
+      }),
+    ]);
+
     const storeSpy = vi.spyOn(vault, "store");
-    const insertSpy = vi.spyOn(db, "insert").mockImplementationOnce(() => {
-      throw new Error("simulated insert failure");
-    });
 
     await expect(
       commit([
         cmd("CreateDataSource", {
-          id: crypto.randomUUID(),
+          id,
           type: "notion",
           name: "Will Fail",
           apiKey: "plaintext-key",
         }),
       ]),
-    ).rejects.toThrow(/simulated insert failure/);
+    ).rejects.toThrow();
 
-    insertSpy.mockRestore();
-
-    // No row was written that could reference the minted ref.
+    // The conflicting write rolled back: only the seed row remains, and it has
+    // no credential field that could reference this call's minted ref.
     const rows = await db.select().from(dataSources);
-    expect(rows.length).toBe(0);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.id).toBe(id);
+    expect((rows[0]?.config as { apiKey?: unknown }).apiKey).toBeUndefined();
 
     // The rollback released the ref this call minted (captured via the store spy,
     // since it never lands anywhere else once the insert fails).
@@ -799,12 +808,21 @@ describe("command credential writes — same-operation minted-ref rollback", () 
     const priorConnectionString = priorConnectionStringRaw as SecretRef;
     expect(await vault.has(priorConnectionString)).toBe(true);
 
-    // Now update apiKey (a DIFFERENT field) and force the DB update to fail.
-    // connectionString is left untouched — its pre-existing ref must survive.
+    // Add a test-local check after the seed exists. The update below now fails
+    // inside the transaction-bound DB handle, rather than relying on an outer
+    // tracker mock that applyCommands never calls.
+    await db.execute(
+      sql.raw(`
+      ALTER TABLE "data_sources"
+      ADD CONSTRAINT "data_sources_test_api_key_check"
+      CHECK (("config" ->> 'apiKey') IS NULL)
+    `),
+    );
+
+    // Now update apiKey (a DIFFERENT field) and force a real DB constraint
+    // failure. connectionString is left untouched — its pre-existing ref must
+    // survive.
     const storeSpy = vi.spyOn(vault, "store");
-    const updateSpy = vi.spyOn(db, "update").mockImplementationOnce(() => {
-      throw new Error("simulated update failure");
-    });
 
     await expect(
       commit([
@@ -813,9 +831,7 @@ describe("command credential writes — same-operation minted-ref rollback", () 
           apiKey: "new-api-key-plaintext",
         }),
       ]),
-    ).rejects.toThrow(/simulated update failure/);
-
-    updateSpy.mockRestore();
+    ).rejects.toThrow();
 
     // Positive half: the apiKey ref minted by THIS call was released by the
     // compensation (captured via the store spy, since it never lands anywhere
@@ -831,9 +847,12 @@ describe("command credential writes — same-operation minted-ref rollback", () 
 
     // The row itself was never updated (write failed before/at the DB call).
     const after = await db.select().from(dataSources);
-    expect(
-      (after[0]?.config as { connectionString?: string }).connectionString,
-    ).toBe(priorConnectionString);
+    const afterConfig = after[0]?.config as {
+      apiKey?: unknown;
+      connectionString?: string;
+    };
+    expect(afterConfig.connectionString).toBe(priorConnectionString);
+    expect(afterConfig.apiKey).toBeUndefined();
   });
 
   it("succeeds unchanged on the happy path: the minted ref persists and the row is written", async () => {
