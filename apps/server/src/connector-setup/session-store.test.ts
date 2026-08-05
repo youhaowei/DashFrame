@@ -19,6 +19,46 @@ import {
 
 const { connectorSetupSessions, dataSources } = schema;
 
+/**
+ * Wrap a tracked database handle so every SELECT it lowers is recorded.
+ *
+ * The session store's handle is `Pick<DrizzleTracker, "from" | "into">`, which
+ * is small enough to stand in for — that is what makes it possible to assert
+ * what SQL a code path actually issues, rather than only what it returns.
+ * `toSql()` is captured at the moment a read executes, since clause methods
+ * return copies rather than mutating the builder.
+ */
+/* eslint-disable @typescript-eslint/no-explicit-any -- test double mirrors the builder's dynamic surface */
+function recordingDb(tracked: any): { db: any; selects: string[] } {
+  const selects: string[] = [];
+  const wrap = (builder: any): any =>
+    new Proxy(builder, {
+      get(target, prop) {
+        const value = Reflect.get(target, prop);
+        if (typeof value !== "function") return value;
+        return (...args: unknown[]) => {
+          if (prop === "first" || prop === "all") {
+            selects.push(target.toSql().sql);
+          }
+          const result = value.apply(target, args);
+          const isBuilder =
+            result !== null &&
+            typeof result === "object" &&
+            typeof (result as { where?: unknown }).where === "function";
+          return isBuilder ? wrap(result) : result;
+        };
+      },
+    });
+  return {
+    selects,
+    db: {
+      into: (table: unknown) => tracked.into(table),
+      from: (table: unknown) => wrap(tracked.from(table)),
+    },
+  };
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
 describe("connector setup session store", () => {
   let dir: string;
   let db: Awaited<ReturnType<typeof openArtifactDb>>;
@@ -251,6 +291,64 @@ describe("connector setup session store", () => {
       .from(connectorSetupSessions)
       .where(eq(connectorSetupSessions.id, issuance.session.id));
     expect(row).toMatchObject({ state: "connected", dataSourceId: sourceId });
+  });
+
+  // The OAuth callback endpoint is unauthenticated: anyone who can reach the
+  // callback URL can drive it, and the same caller can inflate the number of
+  // live sessions. Resolving the presented nonce by reading the table therefore
+  // makes per-callback cost grow with session count — a denial-of-service lever.
+  describe("callback state lookup", () => {
+    it("resolves the presented nonce through the unique index, not a table read", async () => {
+      const issuance = await pending();
+      const { db: recorded, selects } = recordingDb(app.createTracked());
+
+      await consumeCallback(
+        recorded,
+        oauthStateFor(issuance.stateNonce),
+        new Date("2026-08-05T12:01:00Z"),
+      );
+
+      // Every SELECT on the callback path is constrained by the nonce hash.
+      // An unconstrained read of connector_setup_sessions is exactly the scan
+      // this graft removes, so its absence is the assertion.
+      expect(selects.length).toBeGreaterThan(0);
+      for (const sql of selects) {
+        expect(sql).toContain("state_nonce_hash");
+        expect(sql).toContain("where");
+      }
+    });
+
+    it("still resolves the right session, and rejects a wrong nonce, with many sessions present", async () => {
+      const target = await pending();
+      const others = await Promise.all(
+        Array.from({ length: 200 }, () => pending()),
+      );
+
+      const consumed = await consumeCallback(
+        app.createTracked(),
+        oauthStateFor(target.stateNonce),
+        new Date("2026-08-05T12:01:00Z"),
+      );
+      expect(consumed.id).toBe(target.session.id);
+
+      // A nonce that matches no stored hash is rejected, and the sessions that
+      // were not addressed are untouched.
+      await expect(
+        consumeCallback(
+          app.createTracked(),
+          oauthStateFor("w".repeat(43)),
+          new Date("2026-08-05T12:01:00Z"),
+        ),
+      ).rejects.toMatchObject({
+        code: "state-mismatch",
+      } satisfies Partial<ConnectorSetupGateError>);
+
+      const rows = await db.select().from(connectorSetupSessions);
+      const untouched = rows.filter(
+        (row) => row.state === "awaiting-user-auth",
+      );
+      expect(untouched).toHaveLength(others.length);
+    });
   });
 
   // Reactive invalidation and snapshot freshness are driven entirely by a

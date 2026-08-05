@@ -193,16 +193,29 @@ export async function consumeCallback(
   if (!/^[A-Za-z0-9_-]{43}$/u.test(state)) {
     throw new ConnectorSetupGateError("state-mismatch");
   }
-  // State carries only the nonce, never the session capability. Scan the small
-  // setup-session table and perform every digest comparison in constant time;
-  // only after that gate succeeds does the callback learn which session exists.
-  const rows = (await db
+  // State carries only the nonce, never the session capability. Hash the
+  // presented nonce and look it up through
+  // connector_setup_sessions_state_nonce_hash_idx, which is UNIQUE — so this
+  // resolves to at most one candidate row instead of reading the table.
+  //
+  // This endpoint is unauthenticated: anyone who can reach the callback URL can
+  // drive it. A full scan here therefore hands out a denial-of-service lever
+  // whose cost grows with the number of live setup sessions, which the same
+  // caller can inflate. The index makes the work per callback independent of
+  // how many sessions exist.
+  //
+  // The constant-time digest comparison stays, and still does the deciding: the
+  // index lookup narrows to a candidate, and `matchesStateNonce` is what
+  // accepts it. Only after that gate succeeds does the callback learn which
+  // session exists.
+  const candidate = (await db
     .from(connectorSetupSessions)
-    .all()) as ConnectorSetupSessionRow[];
-  let row: ConnectorSetupSessionRow | undefined;
-  for (const candidate of rows) {
-    if (matchesStateNonce(state, candidate.stateNonceHash)) row = candidate;
-  }
+    .where(eq("stateNonceHash", hashStateNonce(state)))
+    .first()) as ConnectorSetupSessionRow | undefined;
+  const row =
+    candidate && matchesStateNonce(state, candidate.stateNonceHash)
+      ? candidate
+      : undefined;
   if (!row) {
     throw new ConnectorSetupGateError("state-mismatch");
   }
