@@ -781,6 +781,27 @@ export async function createDashframeServer(
   const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({
     app: honoApp,
   });
+  // The MCP transport needs headers and a method the rest of the surface does
+  // not: a session id it both sends and reads back, a resumption id, the
+  // negotiated protocol version, and DELETE to end a session. Scoped to /mcp
+  // rather than widening the general policy, and registered first so a
+  // preflight for /mcp is answered here and never reaches the policy below —
+  // one Access-Control-Allow-Origin on the response, not two.
+  honoApp.use(
+    "/mcp",
+    cors({
+      origin: corsOrigin,
+      allowHeaders: [
+        "Authorization",
+        "Content-Type",
+        "Mcp-Session-Id",
+        "Mcp-Protocol-Version",
+        "Last-Event-ID",
+      ],
+      allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
+      exposeHeaders: ["Mcp-Session-Id", "Mcp-Protocol-Version"],
+    }),
+  );
   honoApp.use(
     "*",
     cors({

@@ -173,7 +173,64 @@ function createDelegatingReader(
   });
 }
 
-function toMcpTool(tool: AssistantTool): McpTool {
+/** Cap on the id line; a whole-graph `find_nodes` can return a lot. */
+const MAX_SURFACED_REFS = 50;
+
+/**
+ * Collect every `{ ref: { kind, id }, name }` the read layer produced, in
+ * encounter order, deduped.
+ */
+function collectRefs(
+  value: unknown,
+  out: Map<string, { kind: string; id: string; name?: string }>,
+): void {
+  if (Array.isArray(value)) {
+    for (const item of value) collectRefs(item, out);
+    return;
+  }
+  if (typeof value !== "object" || value === null) return;
+  const record = value as Record<string, unknown>;
+  const ref = record.ref as { kind?: unknown; id?: unknown } | undefined;
+  if (typeof ref?.kind === "string" && typeof ref.id === "string") {
+    const key = `${ref.kind}:${ref.id}`;
+    if (!out.has(key)) {
+      out.set(key, {
+        kind: ref.kind,
+        id: ref.id,
+        ...(typeof record.name === "string" ? { name: record.name } : {}),
+      });
+    }
+  }
+  for (const nested of Object.values(record)) collectRefs(nested, out);
+}
+
+/**
+ * The read tools narrate results by name, and put the ids only in `details`.
+ * That is fine for a client that reads structured output, but this server
+ * declares no outputSchema, so whether a client surfaces `structuredContent`
+ * to the model is the client's choice. An agent that only sees the text would
+ * know an artifact exists and have no id to pass to the next call, so the ids
+ * go in the text too.
+ */
+function refLine(details: unknown): string | null {
+  const refs = new Map<string, { kind: string; id: string; name?: string }>();
+  collectRefs(details, refs);
+  if (refs.size === 0) return null;
+  const shown = [...refs.values()].slice(0, MAX_SURFACED_REFS);
+  const rendered = shown
+    .map((ref) =>
+      ref.name === undefined
+        ? `${ref.kind} ${ref.id}`
+        : `${ref.name} — ${ref.kind} ${ref.id}`,
+    )
+    .join("; ");
+  const omitted = refs.size - shown.length;
+  return omitted > 0
+    ? `Ids: ${rendered}; and ${omitted} more.`
+    : `Ids: ${rendered}`;
+}
+
+function toMcpTool(tool: AssistantTool, surfaceRefs: boolean): McpTool {
   return {
     name: tool.name,
     description: tool.description,
@@ -185,8 +242,12 @@ function toMcpTool(tool: AssistantTool): McpTool {
         crypto.randomUUID(),
         checked.value as never,
       );
+      const ids = surfaceRefs ? refLine(result.details) : null;
       return {
-        content: result.content,
+        content:
+          ids === null
+            ? result.content
+            : [...result.content, { type: "text" as const, text: ids }],
         ...(typeof result.details === "object" && result.details !== null
           ? { structuredContent: result.details as Record<string, unknown> }
           : {}),
@@ -260,5 +321,8 @@ export function createMcpTools(
     },
   });
 
-  return [...readTools.map(toMcpTool), toMcpTool(writeTool as AssistantTool)];
+  return [
+    ...readTools.map((tool) => toMcpTool(tool, true)),
+    toMcpTool(writeTool as AssistantTool, false),
+  ];
 }

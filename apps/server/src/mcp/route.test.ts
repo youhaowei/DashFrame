@@ -31,14 +31,21 @@ function bearer(token: string): { Authorization: string } {
   return { Authorization: `Bearer ${token}` };
 }
 
-function makeAccessCredentials(rootDir: string): ApiAccessCredentials {
+/**
+ * The vault is shared between the access-credential store and the server, so a
+ * plaintext credential written through the write tool actually goes somewhere —
+ * without one the server refuses to persist and the credential path is never
+ * exercised.
+ */
+function makeVault(rootDir: string): {
+  vault: SecretVault;
+  accessCredentials: ApiAccessCredentials;
+} {
   const registry = new SecretRegistry();
   registry.register("test", new TestBackend(), { fallback: true });
   registry.setClassDefault(CREDENTIAL_CLASS.ServeToken, "test");
-  return new ApiAccessCredentials(
-    new SecretVault(registry, new InMemoryMappingStore()),
-    rootDir,
-  );
+  const vault = new SecretVault(registry, new InMemoryMappingStore());
+  return { vault, accessCredentials: new ApiAccessCredentials(vault, rootDir) };
 }
 
 /** Text of a tool result, joined across content blocks. */
@@ -79,9 +86,11 @@ describe("MCP route", () => {
   beforeEach(async () => {
     root = mkdtempSync(join(tmpdir(), "dashframe-mcp-"));
     project = await openProject({ dir: join(root, "project") });
+    const { vault, accessCredentials } = makeVault(join(root, "credentials"));
     server = await createDashframeServer({
       db: project.db,
-      accessCredentials: makeAccessCredentials(join(root, "credentials")),
+      accessCredentials,
+      vault,
       authToken: USER_TOKEN,
     });
 
@@ -214,6 +223,9 @@ describe("MCP route", () => {
           }),
         ],
       });
+      // A client that shows the model only the text content still has to be
+      // able to get from a name to an id.
+      expect(resultText(draftScopedRead)).toContain(sourceId);
 
       const listedDrafts = await fetch(
         `${server!.url}/api/listDrafts?args=%7B%7D`,
@@ -337,6 +349,111 @@ describe("MCP route", () => {
     } finally {
       await transport.close();
     }
+  });
+
+  it("stores a plaintext credential as a vault reference and never persists the plaintext", async () => {
+    const { client, transport } = await connect();
+    // The literal never appears in an assertion message: every check below is a
+    // boolean or a length, so a failing run prints no secret.
+    const plaintextKey = `pk-live-${crypto.randomUUID()}`;
+    try {
+      const written = await client.callTool({
+        name: "draft_batch",
+        arguments: {
+          commands: [
+            {
+              type: "CreateDataSource",
+              args: {
+                id: crypto.randomUUID(),
+                type: "rest",
+                name: "Credentialed source",
+                apiKey: plaintextKey,
+              },
+            },
+          ],
+        },
+      });
+      expect(written.isError).not.toBe(true);
+      expect(JSON.stringify(written).includes(plaintextKey)).toBe(false);
+
+      const log = await project!.db.select().from(schema.draftCommandLog);
+      expect(log).toHaveLength(1);
+      const loggedArgs = log[0]!.args as { apiKey?: unknown };
+      // Capture-before-log rewrote the plaintext into a vault reference before
+      // the durable log was written.
+      expect(typeof loggedArgs.apiKey === "string").toBe(true);
+      expect(String(loggedArgs.apiKey).startsWith("secret:")).toBe(true);
+      expect(JSON.stringify(log).includes(plaintextKey)).toBe(false);
+
+      // And canonical gained nothing at all.
+      expect(await project!.db.select().from(schema.dataSources)).toHaveLength(
+        0,
+      );
+    } finally {
+      await transport.close();
+    }
+  });
+
+  it("refuses to hand one credential's session to another", async () => {
+    const { client, transport } = await connect();
+    try {
+      const sessionId = transport.sessionId;
+      expect(typeof sessionId === "string").toBe(true);
+
+      const issued = await fetch(`${server!.url}/api/issueAccessCredential`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...bearer(USER_TOKEN) },
+        body: JSON.stringify({ name: "Second integration credential" }),
+      });
+      expect(issued.status).toBe(200);
+      const otherToken = (
+        (await issued.json()) as { data: { accessCredential: string } }
+      ).data.accessCredential;
+
+      const stolen = await fetch(`${server!.url}/mcp`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          "mcp-session-id": sessionId!,
+          ...bearer(otherToken),
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+      });
+      expect(stolen.status).toBe(403);
+
+      // The original credential still owns its session.
+      const listed = await client.listTools();
+      expect(listed.tools.length).toBeGreaterThan(0);
+    } finally {
+      await transport.close();
+    }
+  });
+
+  it("answers an MCP preflight with exactly one allow-origin and the session headers", async () => {
+    const preflight = await fetch(`${server!.url}/mcp`, {
+      method: "OPTIONS",
+      headers: {
+        Origin: "http://localhost:5173",
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "authorization,mcp-session-id",
+      },
+    });
+    expect(preflight.status).toBe(204);
+    // getSetCookie-style duplication check: one value, not two concatenated.
+    const allowOrigin = preflight.headers.get("access-control-allow-origin");
+    expect(allowOrigin?.includes(",")).toBe(false);
+    const allowHeaders =
+      preflight.headers.get("access-control-allow-headers")?.toLowerCase() ??
+      "";
+    expect(allowHeaders).toContain("mcp-session-id");
+    expect(allowHeaders).toContain("mcp-protocol-version");
+    expect(
+      preflight.headers.get("access-control-allow-methods")?.toUpperCase(),
+    ).toContain("DELETE");
+    expect(
+      preflight.headers.get("access-control-expose-headers")?.toLowerCase(),
+    ).toContain("mcp-session-id");
   });
 
   it("keeps the service principal out of commit and revise routes", async () => {
