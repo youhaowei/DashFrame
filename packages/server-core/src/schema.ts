@@ -128,9 +128,12 @@ export const dataFrames = pgTable(
     primaryKey: jsonb("primary_key"),
     name: text("name").notNull(),
     insightId: uuid("insight_id"),
+    sourceId: uuid("source_id"),
+    definitionId: uuid("definition_id"),
     rowCount: integer("row_count"),
     columnCount: integer("column_count"),
     analysis: jsonb("analysis"),
+    lastRefreshedAt: timestamp("last_refreshed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -345,9 +348,12 @@ export const dataFramesDraft = pgTable(
     primaryKey: jsonb("primary_key"),
     name: text("name"),
     insightId: uuid("insight_id"),
+    sourceId: uuid("source_id"),
+    definitionId: uuid("definition_id"),
     rowCount: integer("row_count"),
     columnCount: integer("column_count"),
     analysis: jsonb("analysis"),
+    lastRefreshedAt: timestamp("last_refreshed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }),
     updatedAt: timestamp("updated_at", { withTimezone: true }),
     // Draft control columns.

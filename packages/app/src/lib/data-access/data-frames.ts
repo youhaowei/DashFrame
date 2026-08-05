@@ -15,9 +15,12 @@ import { getWyStackClient } from "../../wystack/client";
 export type DataFrameEntry = DataFrameJSON & {
   name: string;
   insightId?: UUID;
+  sourceId?: UUID;
+  definitionId?: UUID;
   rowCount?: number;
   columnCount?: number;
   analysis?: DataFrameAnalysis;
+  lastRefreshedAt?: number;
 };
 
 async function deleteArrowDataBestEffort(key: string): Promise<void> {
@@ -33,11 +36,17 @@ export async function addDataFrameEntry(
   metadata: {
     name: string;
     insightId?: UUID;
+    sourceId?: UUID;
+    definitionId?: UUID;
     rowCount?: number;
     columnCount?: number;
   },
 ): Promise<UUID> {
-  const entry: DataFrameEntry = { ...dataFrame.toJSON(), ...metadata };
+  const entry: DataFrameEntry = {
+    ...dataFrame.toJSON(),
+    ...metadata,
+    lastRefreshedAt: Date.now(),
+  };
   await getWyStackClient().mutate(api.putDataFrameEntry, { entry });
   return dataFrame.id;
 }
@@ -52,7 +61,12 @@ export async function updateDataFrameEntry(
 export async function replaceDataFrame(
   id: UUID,
   newDataFrame: DataFrame,
-  metadata?: { rowCount?: number; columnCount?: number },
+  metadata?: {
+    rowCount?: number;
+    columnCount?: number;
+    sourceId?: UUID;
+    definitionId?: UUID;
+  },
 ): Promise<void> {
   const oldEntity = await getDataFrameEntry(id);
   const serialization = newDataFrame.toJSON();
@@ -61,8 +75,11 @@ export async function replaceDataFrame(
     fieldIds: serialization.fieldIds,
     primaryKey: serialization.primaryKey,
     createdAt: serialization.createdAt,
+    sourceId: metadata?.sourceId,
+    definitionId: metadata?.definitionId,
     rowCount: metadata?.rowCount,
     columnCount: metadata?.columnCount,
+    lastRefreshedAt: Date.now(),
   });
   if (oldEntity?.storage?.type === "indexeddb") {
     await deleteArrowDataBestEffort(oldEntity.storage.key);

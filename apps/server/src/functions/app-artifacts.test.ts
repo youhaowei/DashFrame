@@ -203,6 +203,61 @@ describe("privacy floor — no raw sampleValues persist in artifact DB", () => {
     const stored = await readAnalysis(id);
     expect(stored).toBeNull();
   });
+
+  it("should persist data-frame origin and refresh metadata", async () => {
+    const id = crypto.randomUUID();
+    const sourceId = crypto.randomUUID();
+    const definitionId = crypto.randomUUID();
+    const lastRefreshedAt = Date.now();
+
+    await call("putDataFrameEntry", {
+      entry: {
+        ...makeDataFrameEntry(id),
+        sourceId,
+        definitionId,
+        lastRefreshedAt,
+      },
+    });
+
+    const result = (await call("getDataFrameEntry", { id })) as {
+      sourceId?: string;
+      definitionId?: string;
+      lastRefreshedAt?: number;
+    };
+    expect(result).toMatchObject({ sourceId, definitionId, lastRefreshedAt });
+  });
+
+  it("should update only lastRefreshedAt without clobbering origin metadata", async () => {
+    const id = crypto.randomUUID();
+    const sourceId = crypto.randomUUID();
+    const definitionId = crypto.randomUUID();
+    const lastRefreshedAt = Date.now();
+    const refreshedAt = lastRefreshedAt + 1_000;
+
+    await call("putDataFrameEntry", {
+      entry: {
+        ...makeDataFrameEntry(id),
+        sourceId,
+        definitionId,
+        lastRefreshedAt,
+      },
+    });
+    await call("updateDataFrameEntry", {
+      id,
+      updates: { lastRefreshedAt: refreshedAt },
+    });
+
+    const result = (await call("getDataFrameEntry", { id })) as {
+      sourceId?: string;
+      definitionId?: string;
+      lastRefreshedAt?: number;
+    };
+    expect(result).toMatchObject({
+      sourceId,
+      definitionId,
+      lastRefreshedAt: refreshedAt,
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
