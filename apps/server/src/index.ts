@@ -6,17 +6,34 @@
  * by an on-disk DashFrame project. Web dev can point `VITE_WYSTACK_URL` at the
  * printed URL.
  */
-import { openProject, type ProjectHandle } from "@dashframe/server-core";
+import {
+  ApiAccessCredentials,
+  FileMappingStore,
+  openProject,
+  type ProjectHandle,
+} from "@dashframe/server-core";
+import { SecretRegistry, SecretVault } from "@wystack/secret-vault";
+import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 
-import { createDashframeServer, type DashframeServer } from "./app";
+import {
+  createDashframeServer,
+  type DashframeServer,
+  type DashframeServerOptions,
+} from "./app";
 import { isLoopbackHost } from "./bind-host";
+import {
+  ENCRYPTED_FILE_BACKEND_NAME,
+  EncryptedFileSecretBackend,
+  loadSecretKeyring,
+} from "./secret-file-backend";
 
-interface CliOptions {
+export interface CliOptions {
   hostname?: string;
   port?: number;
   project?: string;
+  dataDir?: string;
   name?: string;
   corsOrigin?: string | string[];
   token?: string;
@@ -29,11 +46,13 @@ const DEFAULT_WEB_PROJECT_DIR = path.join(
   ".DashFrame",
   "web-project",
 );
+const DEFAULT_DATA_DIR = path.join(homedir(), ".DashFrame", "data");
 export function printHelp(): void {
   console.log(`dashframe serve
 
 Options:
   --project <dir>         Project directory (default: DASHFRAME_PROJECT_DIR or ~/.DashFrame/web-project)
+  --data-dir <dir>        Host-local data directory (default: DASHFRAME_DATA_DIR or ~/.DashFrame/data)
   --bind <addr>           Bind address as host[:port] (default: 127.0.0.1:0)
   --token <token>         Require Bearer token auth for HTTP and WebSocket clients
   --host <host>           Bind host alias (default: 127.0.0.1)
@@ -49,6 +68,10 @@ Security boundary:
   0.0.0.0 or another network interface makes the project reachable from that
   network, so a non-loopback bind requires --token; pass --insecure to opt out
   deliberately. A token is not TLS and not multi-user authorization.
+
+Secret encryption:
+  Set DASHFRAME_SECRET_KEY_FILE to a mode-0600 key file, or DASHFRAME_SECRET_KEY
+  directly. The value must be canonical padded base64 encoding of 32 bytes.
 `);
 }
 
@@ -168,6 +191,9 @@ function parseArgAt(opts: CliOptions, args: string[], index: number): number {
     case "--project":
       opts.project = readValue(args, index, arg);
       return index + 1;
+    case "--data-dir":
+      opts.dataDir = readValue(args, index, arg);
+      return index + 1;
     case "--name":
       opts.name = readValue(args, index, arg);
       return index + 1;
@@ -205,6 +231,125 @@ export function assertBindIsSafe(opts: CliOptions): void {
   );
 }
 
+export interface StandaloneSecretServices {
+  vault?: SecretVault;
+  accessCredentials?: ApiAccessCredentials;
+}
+
+/** Resolve host-local storage independently from the copiable project path. */
+export function resolveDataDir(
+  opts: CliOptions,
+  environment: NodeJS.ProcessEnv = process.env,
+): string {
+  return opts.dataDir ?? environment.DASHFRAME_DATA_DIR ?? DEFAULT_DATA_DIR;
+}
+
+export function resolveProjectDirectory(
+  opts: CliOptions,
+  environment: NodeJS.ProcessEnv = process.env,
+): string {
+  return (
+    opts.project ?? environment.DASHFRAME_PROJECT_DIR ?? DEFAULT_WEB_PROJECT_DIR
+  );
+}
+
+/** Refuse any configuration that places host-local access data in the project. */
+export function assertAccessRootOutsideProject(
+  projectDir: string,
+  dataDir: string,
+): void {
+  const projectRoot = resolveExistingPathSegments(projectDir);
+  const accessRoot = resolveExistingPathSegments(
+    path.join(dataDir, "access-credentials"),
+  );
+  const relative = path.relative(projectRoot, accessRoot);
+  if (
+    relative === "" ||
+    (!relative.startsWith(`..${path.sep}`) &&
+      relative !== ".." &&
+      !path.isAbsolute(relative))
+  ) {
+    throw new Error(
+      "Refusing to place host-local access credentials inside the project directory. " +
+        "Choose a separate --data-dir or DASHFRAME_DATA_DIR.",
+    );
+  }
+}
+
+/** Resolve symlinks in existing ancestors while preserving missing suffixes. */
+function resolveExistingPathSegments(targetPath: string): string {
+  let candidate = path.resolve(targetPath);
+  const missingSegments: string[] = [];
+  while (true) {
+    try {
+      return path.join(realpathSync(candidate), ...missingSegments.reverse());
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      const parent = path.dirname(candidate);
+      if (parent === candidate) return path.resolve(targetPath);
+      missingSegments.push(path.basename(candidate));
+      candidate = parent;
+    }
+  }
+}
+
+/** Compose the optional standalone-server vault when key material is present. */
+export async function createStandaloneSecretServices(
+  dataDir: string,
+  environment: NodeJS.ProcessEnv = process.env,
+): Promise<StandaloneSecretServices> {
+  const keyring = await loadSecretKeyring(environment);
+  if (!keyring) return {};
+
+  const accessRoot = path.join(dataDir, "access-credentials");
+  const registry = new SecretRegistry();
+  const backend = new EncryptedFileSecretBackend(
+    path.join(accessRoot, "blobs"),
+    keyring,
+  );
+  // Permanent mapping identifier: NEVER change after secrets may exist under it.
+  // Scoped to `serve-token` only (the brief's named class), and registered
+  // WITHOUT `fallback: true` — `SecretRegistry#getForClass` resolves
+  // registry-wide fallback ahead of an absent class default, so `fallback:
+  // true` would silently route `connector-key` and `assistant-provider`
+  // writes here too. Desktop keeps those classes on a project-scoped
+  // DrizzleMappingStore so credential refs travel with the copiable project
+  // DB; a class with no explicit default here must keep throwing rather than
+  // land in this host-local vault.
+  registry.register(ENCRYPTED_FILE_BACKEND_NAME, backend);
+  registry.setClassDefault("serve-token", ENCRYPTED_FILE_BACKEND_NAME);
+
+  const vault = new SecretVault(
+    registry,
+    new FileMappingStore(path.join(accessRoot, "mappings.json")),
+  );
+  return {
+    vault,
+    accessCredentials: new ApiAccessCredentials(vault, accessRoot),
+  };
+}
+
+export function createStandaloneServerOptions(
+  opts: CliOptions,
+  project: ProjectHandle,
+  secretServices: StandaloneSecretServices,
+): DashframeServerOptions {
+  return {
+    db: project.db,
+    hostname: opts.hostname,
+    port: opts.port,
+    corsOrigin: opts.corsOrigin,
+    authToken: opts.token,
+    ...secretServices,
+    // Drive the debounced snapshot scheduler on the headless serve path too, so
+    // `dashframe serve` gets the same crash-durability guarantee as desktop.
+    onWrite: () => project.touchSnapshot(),
+    // Durable counterpart: used by the pre-release gate before deleting a vault
+    // ref so the snapshot that drops the ref is confirmed on disk first.
+    flushSnapshot: () => project.flushSnapshot(),
+  };
+}
+
 function closeOnSignal(project: ProjectHandle, server: DashframeServer): void {
   let closing = false;
   const close = async () => {
@@ -239,11 +384,13 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     );
   }
 
+  const projectDir = resolveProjectDirectory(opts);
+  const dataDir = resolveDataDir(opts);
+  assertAccessRootOutsideProject(projectDir, dataDir);
+  const secretServices = await createStandaloneSecretServices(dataDir);
+
   const project = await openProject({
-    dir:
-      opts.project ??
-      process.env.DASHFRAME_PROJECT_DIR ??
-      DEFAULT_WEB_PROJECT_DIR,
+    dir: projectDir,
     name: opts.name,
   });
 
@@ -266,19 +413,9 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     );
   }
 
-  const server = await createDashframeServer({
-    db: project.db,
-    hostname: opts.hostname,
-    port: opts.port,
-    corsOrigin: opts.corsOrigin,
-    authToken: opts.token,
-    // Drive the debounced snapshot scheduler on the headless serve path too, so
-    // `dashframe serve` gets the same crash-durability guarantee as desktop.
-    onWrite: () => project.touchSnapshot(),
-    // Durable counterpart: used by the pre-release gate before deleting a vault
-    // ref so the snapshot that drops the ref is confirmed on disk first.
-    flushSnapshot: () => project.flushSnapshot(),
-  });
+  const server = await createDashframeServer(
+    createStandaloneServerOptions(opts, project, secretServices),
+  );
 
   closeOnSignal(project, server);
 

@@ -257,6 +257,54 @@ describe("createDashframeServer", () => {
       expect(await capabilitiesResponse.json()).toMatchObject({
         data: { canManageCredentials: false },
       });
+
+      // No `authToken`/`authRef` configured on this server, so no resolver
+      // runs and the request context carries no `principal` at all — the
+      // `accessCredentials.manage` permission check in `.authorize` denies
+      // before the "no secret key configured" capability check ever runs.
+      // (Config disclosure to a fully unauthenticated caller would be a
+      // separate bug; `.authorize` running first is what prevents it.)
+      const issueWithoutKeyResponse = await fetch(
+        `${server.url}/api/issueAccessCredential`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: "Unavailable credential" }),
+        },
+      );
+      expect(issueWithoutKeyResponse.status).toBe(403);
+      const issueWithoutKeyBody = (await issueWithoutKeyResponse.json()) as {
+        error: string;
+      };
+      expect(issueWithoutKeyBody.error).not.toContain(
+        "No secret key configured",
+      );
+    });
+
+    it("returns 401 (not the no-key config message) for an unauthenticated caller on a token-protected server with no key configured", async () => {
+      // Regression guard: `.authorize` must run before the capability-check
+      // middleware, or an unauthenticated caller on a --token-protected
+      // server learns "no secret key configured" (an operator-facing
+      // env-var hint, plus a 500 instead of 401) rather than a plain
+      // authorization failure.
+      project = await openProject({
+        dir: join(root, "proj"),
+        name: "Token Co, no key",
+      });
+      server = await createDashframeServer({
+        db: project.db,
+        authToken: "renderer-token",
+        // No `accessCredentials` — this server has no key configured.
+      });
+
+      const response = await fetch(`${server.url}/api/issueAccessCredential`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Unavailable credential" }),
+      });
+      expect(response.status).toBe(401);
+      const body = (await response.json()) as { error: string };
+      expect(body.error).not.toContain("No secret key configured");
     });
 
     it("issues, authenticates, and revokes a workspace access credential", async () => {
