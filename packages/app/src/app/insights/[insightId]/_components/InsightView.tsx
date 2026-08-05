@@ -6,9 +6,9 @@ import { useInsightView } from "@/hooks/useInsightView";
 import { formatCellValue } from "@/lib/cell-formatter";
 import { getDataFrame } from "@/lib/data-access/data-frames";
 import {
-  TABLE_CANVAS_VIEW,
   canvasViewsEqual,
   sanitizeInsightCanvasView,
+  TABLE_CANVAS_VIEW,
   useInsightCanvasStore,
   type InsightCanvasView,
 } from "@/lib/stores/insight-canvas-store";
@@ -1314,14 +1314,19 @@ export function InsightView({
         insight.metrics ?? [],
       );
 
-      // Update insight with merged fields and metrics
-      // IMPORTANT: Must await to ensure fields/metrics are saved before navigation
-      await commitBatch({
-        commands: buildInsightUpdateCommands(insightId, insight, {
-          selectedFields: mergedFieldIds,
-          metrics: mergedMetrics,
-        }),
+      // Update insight with merged fields and metrics.
+      // Must await: fields and metrics have to be saved before navigation.
+      // An empty batch means the merge changed nothing — skip the round trip
+      // rather than sending a batch with no commands in it.
+      // Failures propagate: all three callers of pinChartSuggestion catch and
+      // toast, so a toast here would show the user two of them.
+      const insightCommands = buildInsightUpdateCommands(insightId, insight, {
+        selectedFields: mergedFieldIds,
+        metrics: mergedMetrics,
       });
+      if (insightCommands.length > 0) {
+        await commitBatch({ commands: insightCommands });
+      }
 
       // Convert ChartEncoding (SQL expressions) to VisualizationEncoding (prefixed IDs)
       // Pass the full suggestion to preserve xTransform/yTransform for temporal axes
