@@ -175,9 +175,7 @@ export function InsightConfigPanel({
   const { mutateAsync: removeVisualizationMutation } = useMutation(
     api.removeVisualization,
   );
-  // Filters stay on the legacy write path until the filter command model
-  // supports ranges (SetInsightFilter's operand is a single scalar and can't
-  // express the "between" filters this panel's editor allows).
+  // filters stay on the legacy write path until the filter command model supports ranges
   const { mutateAsync: updateInsightLegacy } = useMutation(api.updateInsight);
 
   // Get visualizations for this insight to check dependencies

@@ -1364,7 +1364,6 @@ export function InsightView({
       parseAggregateExpression,
       insight,
       commitBatch,
-      insight,
       insightId,
       createVisualizationLocal,
       insightVisualizations,

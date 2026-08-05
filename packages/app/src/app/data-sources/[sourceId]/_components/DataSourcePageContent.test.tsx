@@ -20,6 +20,10 @@ const { mockUseDataSources } = vi.hoisted(() => ({
   mockUseDataSources: vi.fn(),
 }));
 
+const { mockToastError } = vi.hoisted(() => ({
+  mockToastError: vi.fn(),
+}));
+
 const { mockCommitBatch } = vi.hoisted(() => ({
   mockCommitBatch: vi.fn(),
 }));
@@ -86,7 +90,9 @@ vi.mock("@/lib/perf", () => ({
   withPerfAsync: (_stage: unknown, fn: () => unknown) => fn(),
 }));
 
-vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+vi.mock("sonner", () => ({
+  toast: { error: mockToastError, success: vi.fn() },
+}));
 
 vi.mock("@dashframe/engine", () => ({
   extractColumnAliasComponents: vi.fn(() => null),
@@ -413,6 +419,25 @@ describe("DataSourcePageContent — loading state contract", () => {
         },
       ],
     });
+  });
+
+  it("surfaces a commit-batch failure when renaming a source", async () => {
+    mockUseDataSources.mockReturnValue({
+      data: [DATA_SOURCE],
+      isLoading: false,
+      isFetching: false,
+    });
+    mockCommitBatch.mockRejectedValue(new Error("write failed"));
+
+    render(<DataSourcePageContent sourceId={SOURCE_ID} />);
+
+    await act(async () => {
+      fireEvent.change(screen.getByDisplayValue("My Database"), {
+        target: { value: "Renamed Source" },
+      });
+    });
+
+    expect(mockToastError).toHaveBeenCalledWith("Failed to rename data source");
   });
 
   it("passes the reshaped field patch object to the data-table mutation", async () => {
