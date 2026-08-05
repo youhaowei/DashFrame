@@ -122,7 +122,9 @@ async function probeSampleReport(
 ): Promise<void> {
   const property = properties[0];
   if (!property) return;
-  await probe.query(property.id, crypto.randomUUID(), {
+  // Throwaway id: only used to tag the discarded result's Arrow field ids.
+  const probeTableId = crypto.randomUUID();
+  await probe.query(property.id, probeTableId, {
     pagination: { offset: 0, limit: 1 },
   });
 }

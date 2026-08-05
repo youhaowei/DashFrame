@@ -36,6 +36,7 @@ describe("GA4 connector setup pipeline", () => {
   let db: Awaited<ReturnType<typeof openArtifactDb>>;
   let flushSnapshot: ReturnType<typeof vi.fn>;
   let reportStatus: number;
+  let hasProperties: boolean;
   let googleFetch: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
@@ -43,6 +44,7 @@ describe("GA4 connector setup pipeline", () => {
     db = await openArtifactDb({ path: join(dir, "artifacts.db") });
     flushSnapshot = vi.fn(async () => {});
     reportStatus = 200;
+    hasProperties = true;
     googleFetch = vi.fn(async (url: string | URL | Request) => {
       const target = new URL(String(url));
       if (
@@ -61,16 +63,18 @@ describe("GA4 connector setup pipeline", () => {
         target.pathname === "/v1beta/accountSummaries"
       ) {
         return googleResponse({
-          accountSummaries: [
-            {
-              propertySummaries: [
+          accountSummaries: hasProperties
+            ? [
                 {
-                  property: "properties/123456789",
-                  displayName: "Example Property",
+                  propertySummaries: [
+                    {
+                      property: "properties/123456789",
+                      displayName: "Example Property",
+                    },
+                  ],
                 },
-              ],
-            },
-          ],
+              ]
+            : [],
         });
       }
       if (
@@ -137,6 +141,15 @@ describe("GA4 connector setup pipeline", () => {
 
   const user = { kind: "user" as const, userId: LOCAL_USER_ID };
 
+  // The setup-time probe and a real `queryGa4Property` call both hit
+  // `runReport`; picking calls out by URL lets a test pin what one specific
+  // call's body looked like without caring how many others also fired.
+  function runReportCalls() {
+    return googleFetch.mock.calls.filter(([url]) =>
+      new URL(String(url)).pathname.endsWith(":runReport"),
+    );
+  }
+
   async function start(app: WyStackApp) {
     const call = await app.call(
       "startConnectorSetup",
@@ -171,6 +184,16 @@ describe("GA4 connector setup pipeline", () => {
     expect(source).toMatchObject({
       id: result.dataSourceId,
       kind: "googleAnalytics",
+    });
+
+    // The setup-time probe must actually be bounded: a fixture that only
+    // matched the runReport URL would also pass a probe requesting the full
+    // 10_000-row default, which defeats the point of calling it a "sample".
+    const probeCall = runReportCalls()[0];
+    expect(probeCall).toBeDefined();
+    expect(JSON.parse(String(probeCall?.[1]?.body))).toMatchObject({
+      offset: "0",
+      limit: "1",
     });
 
     const added = await app.call(
@@ -223,5 +246,24 @@ describe("GA4 connector setup pipeline", () => {
     expect(failureMessage).not.toContain("token");
     expect(failureMessage).not.toContain("access-token");
     expect(failureMessage).not.toContain("refresh-token");
+  });
+
+  it("completes setup without a report probe when the account has no properties", async () => {
+    hasProperties = false;
+    const app = await makeApp();
+    const session = await start(app);
+    const state = new URL(session.authorizeUrl).searchParams.get("state");
+
+    const completed = await app.call(
+      "completeConnectorOAuth",
+      { state, code: "authorization-code" },
+      { principal: user },
+    );
+
+    expect(completed.result).toMatchObject({ state: "connected" });
+    expect(await db.select().from(dataSources)).toHaveLength(1);
+    // Nothing to sample a report against, so the probe must not fire at all
+    // — not "fire and pass trivially", an actual absence of the call.
+    expect(runReportCalls()).toHaveLength(0);
   });
 });
