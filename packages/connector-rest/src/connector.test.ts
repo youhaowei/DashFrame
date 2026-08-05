@@ -36,7 +36,9 @@ async function makeTestVaultWithSecret(plaintext: string) {
   registry.register("test", backend, { fallback: true });
   registry.setClassDefault("connector-key", "test");
   const vault = new SecretVault(registry, new InMemoryMappingStore());
-  const ref = await vault.store(plaintext, { class: "connector-key" });
+  const ref = await vault.store(plaintext, {
+    class: "connector-key",
+  });
   return { vault, ref };
 }
 

@@ -32,6 +32,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  CREDENTIAL_CLASS,
   openProject,
   schema,
   type ArtifactDb,
@@ -73,7 +74,7 @@ function makeTestVault(): SecretVault {
   const backend = new TestBackend();
   const registry = new SecretRegistry();
   registry.register("test", backend, { fallback: true });
-  registry.setClassDefault("connector-key", "test");
+  registry.setClassDefault(CREDENTIAL_CLASS.ConnectorKey, "test");
   return new SecretVault(registry, new InMemoryMappingStore());
 }
 

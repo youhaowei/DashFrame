@@ -3,7 +3,10 @@
  * the command vocabulary (`commands.ts`) while both write paths coexist
  * (transition window while legacy coarse handlers and the command vocabulary coexist).
  */
-import type { ArtifactProvenance } from "@dashframe/server-core";
+import {
+  CREDENTIAL_CLASS,
+  type ArtifactProvenance,
+} from "@dashframe/server-core";
 import type { SecretRef, SecretVault } from "@wystack/secret-vault";
 import { isSecretRef } from "@wystack/secret-vault";
 
@@ -184,7 +187,10 @@ export async function storeCredential(
     );
   }
   return withClassBoundaryMessage(() =>
-    vault.store(plaintext, { class: "connector-key", locatorHint }),
+    vault.store(plaintext, {
+      class: CREDENTIAL_CLASS.ConnectorKey,
+      locatorHint,
+    }),
   );
 }
 

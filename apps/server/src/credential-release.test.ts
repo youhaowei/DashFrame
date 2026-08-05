@@ -23,6 +23,7 @@
  * (draftController / artifactDb / onWrite) the draft RPC handlers read.
  */
 import {
+  CREDENTIAL_CLASS,
   draftCommandLog,
   openArtifactDb,
   schema,
@@ -68,7 +69,7 @@ function makeTestVault(): { vault: SecretVault; backend: TestBackend } {
   const backend = new TestBackend();
   const registry = new SecretRegistry();
   registry.register("test", backend, { fallback: true });
-  registry.setClassDefault("connector-key", "test");
+  registry.setClassDefault(CREDENTIAL_CLASS.ConnectorKey, "test");
   const vault = new SecretVault(registry, new InMemoryMappingStore());
   return { vault, backend };
 }

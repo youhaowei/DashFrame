@@ -4,7 +4,7 @@ import {
   resolveAssistantProvider,
   type StoredAssistantProviderConfig,
 } from "@dashframe/assistant";
-import { schema } from "@dashframe/server-core";
+import { CREDENTIAL_CLASS, schema } from "@dashframe/server-core";
 import type {
   AssistantProviderAuthKind,
   AssistantProviderCatalogEntry,
@@ -143,7 +143,7 @@ async function storeAssistantCredential(args: {
   const vault = args.vault;
   return withClassBoundaryMessage(() =>
     vault.store(args.plaintext as string, {
-      class: "assistant-provider",
+      class: CREDENTIAL_CLASS.AssistantProvider,
       locatorHint: args.locatorHint,
     }),
   );

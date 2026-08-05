@@ -19,6 +19,26 @@ export const sharedRules = {
   "sonarjs/fixme-tag": "off",
 };
 
+// WyStack's SecretVault CredentialClass is a plain open string — DashFrame
+// owns the meaning of these values via CREDENTIAL_CLASS in
+// packages/server-core/src/credential-classes.ts. Hand-writing one of these
+// literals elsewhere reintroduces business-logic-in-the-substrate coupling
+// that constant module exists to prevent. Test files are exempt: they
+// deliberately pin the storage-format string values as fixtures, independent
+// of the app-side constant — see the override below.
+const credentialClassLiteralRules = {
+  "no-restricted-syntax": [
+    "error",
+    {
+      selector:
+        "Literal[value=/^(connector-key|serve-token|assistant-provider)$/]",
+      message:
+        "Don't hand-write this credential-class string literal — import CREDENTIAL_CLASS from " +
+        "packages/server-core/src/credential-classes.ts instead.",
+    },
+  ],
+};
+
 // Non-command `no-restricted-imports` entries that should apply everywhere,
 // including inside apps/server — currently empty, but the seam future
 // restricted-import entries should be added to. Keeping them here (rather
@@ -102,6 +122,25 @@ const sharedConfig = [
   },
   {
     rules: commandBoundaryRules,
+  },
+  {
+    rules: credentialClassLiteralRules,
+  },
+  // credential-classes.ts IS the one place these literals are allowed to be
+  // written by hand — it's the constant module everything else imports from.
+  {
+    files: ["**/credential-classes.ts"],
+    rules: {
+      "no-restricted-syntax": "off",
+    },
+  },
+  // Test files deliberately pin the storage-format string values as
+  // fixtures — see credentialClassLiteralRules above.
+  {
+    files: ["**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx"],
+    rules: {
+      "no-restricted-syntax": "off",
+    },
   },
   // The builder layer (apps/server/src/functions/commands.ts) and the server
   // generally are exempt from the command-specific restrictions — they're

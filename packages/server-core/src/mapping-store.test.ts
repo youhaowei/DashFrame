@@ -19,6 +19,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { CREDENTIAL_CLASS } from "./credential-classes";
 import { openArtifactDb, type ArtifactDb } from "./db";
 import { DrizzleMappingStore, FileMappingStore } from "./mapping-store";
 import { secretMappings } from "./schema";
@@ -97,12 +98,12 @@ describe("DrizzleMappingStore", () => {
     const backend = new TestBackend();
     const registry = new SecretRegistry();
     registry.register("test", backend, { fallback: true });
-    registry.setClassDefault("connector-key", "test");
+    registry.setClassDefault(CREDENTIAL_CLASS.ConnectorKey, "test");
 
     const ref = await new SecretVault(
       registry,
       new DrizzleMappingStore(db),
-    ).store("super-secret-token", { class: "connector-key" });
+    ).store("super-secret-token", { class: CREDENTIAL_CLASS.ConnectorKey });
 
     expect(isSecretRef(ref)).toBe(true);
 
@@ -113,7 +114,7 @@ describe("DrizzleMappingStore", () => {
     // smuggled through the vault either.
     const registryAfter = new SecretRegistry();
     registryAfter.register("test", backend, { fallback: true });
-    registryAfter.setClassDefault("connector-key", "test");
+    registryAfter.setClassDefault(CREDENTIAL_CLASS.ConnectorKey, "test");
     const vaultAfter = new SecretVault(
       registryAfter,
       new DrizzleMappingStore(db),
@@ -134,12 +135,12 @@ describe("DrizzleMappingStore", () => {
     const backend = new TestBackend();
     const registry = new SecretRegistry();
     registry.register("test", backend, { fallback: true });
-    registry.setClassDefault("connector-key", "test");
+    registry.setClassDefault(CREDENTIAL_CLASS.ConnectorKey, "test");
 
     const ref = await new SecretVault(
       registry,
       new DrizzleMappingStore(db),
-    ).store("durable-token", { class: "connector-key" });
+    ).store("durable-token", { class: CREDENTIAL_CLASS.ConnectorKey });
 
     // Close the DB and reopen the same file — a real process restart for the DB.
     await db.$client.close();
@@ -170,12 +171,12 @@ describe("FileMappingStore", () => {
     const backend = new TestBackend();
     const registry = new SecretRegistry();
     registry.register("test", backend, { fallback: true });
-    registry.setClassDefault("serve-token", "test");
+    registry.setClassDefault(CREDENTIAL_CLASS.ServeToken, "test");
 
     const ref = await new SecretVault(
       registry,
       new FileMappingStore(mappingPath),
-    ).store("workspace-token", { class: "serve-token" });
+    ).store("workspace-token", { class: CREDENTIAL_CLASS.ServeToken });
 
     const reopened = new SecretVault(
       registry,

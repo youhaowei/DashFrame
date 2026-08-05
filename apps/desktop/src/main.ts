@@ -5,6 +5,7 @@ import {
 import {
   ApiAccessCredentials,
   ARTIFACTS_DB_FILENAME,
+  CREDENTIAL_CLASS,
   DrizzleMappingStore,
   FileMappingStore,
   openProject,
@@ -97,7 +98,9 @@ async function storeServeToken(
   }
 
   try {
-    const authRef = await vault.store(token, { class: "serve-token" });
+    const authRef = await vault.store(token, {
+      class: CREDENTIAL_CLASS.ServeToken,
+    });
     // Persist the new ref so the next launch can clean it up. Best-effort: a
     // write failure only risks a future orphan, not this launch.
     try {
@@ -261,9 +264,18 @@ app
     secretRegistry.register("electron-keychain", keychainBackend, {
       fallback: true,
     });
-    secretRegistry.setClassDefault("connector-key", "electron-keychain");
-    secretRegistry.setClassDefault("serve-token", "electron-keychain");
-    secretRegistry.setClassDefault("assistant-provider", "electron-keychain");
+    secretRegistry.setClassDefault(
+      CREDENTIAL_CLASS.ConnectorKey,
+      "electron-keychain",
+    );
+    secretRegistry.setClassDefault(
+      CREDENTIAL_CLASS.ServeToken,
+      "electron-keychain",
+    );
+    secretRegistry.setClassDefault(
+      CREDENTIAL_CLASS.AssistantProvider,
+      "electron-keychain",
+    );
     // Compose the vault from the registry. The mapping store persists the
     // ref→{backend, locator} binding in the project DB (`secret_mappings` table)
     // so refs stay resolvable across restarts: the ref in `data_sources.config`,
@@ -357,7 +369,10 @@ app
         ),
         { fallback: true },
       );
-      accessRegistry.setClassDefault("serve-token", "electron-keychain");
+      accessRegistry.setClassDefault(
+        CREDENTIAL_CLASS.ServeToken,
+        "electron-keychain",
+      );
       const accessVault = new SecretVault(
         accessRegistry,
         new FileMappingStore(path.join(accessRoot, "mappings.json")),

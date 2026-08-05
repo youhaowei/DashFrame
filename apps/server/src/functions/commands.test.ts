@@ -16,7 +16,11 @@
  * RemoveDashboardItem), DeleteNode, extended RenameNode, and AddField/UpdateField
  * on Insight nodes.
  */
-import { openArtifactDb, schema } from "@dashframe/server-core";
+import {
+  CREDENTIAL_CLASS,
+  openArtifactDb,
+  schema,
+} from "@dashframe/server-core";
 import {
   InMemoryMappingStore,
   isSecretRef,
@@ -45,7 +49,7 @@ import {
 function makeTestVault(): SecretVault {
   const registry = new SecretRegistry();
   registry.register("test", new TestBackend(), { fallback: true });
-  registry.setClassDefault("connector-key", "test");
+  registry.setClassDefault(CREDENTIAL_CLASS.ConnectorKey, "test");
   return new SecretVault(registry, new InMemoryMappingStore());
 }
 

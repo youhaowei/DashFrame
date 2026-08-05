@@ -8,6 +8,8 @@ import {
 import fs from "node:fs/promises";
 import path from "node:path";
 
+import { CREDENTIAL_CLASS } from "./credential-classes";
+
 export interface AccessCredentialRecord {
   id: string;
   name: string;
@@ -79,7 +81,7 @@ export class ApiAccessCredentials {
       const token = `${TOKEN_PREFIX}${randomBytes(32).toString("base64url")}`;
       const id = randomUUID();
       const verifierRef = await this.vault.store(verifier(token), {
-        class: "serve-token",
+        class: CREDENTIAL_CLASS.ServeToken,
         locatorHint: `access-${id}`,
       });
       const credential: PersistedAccessCredential = {

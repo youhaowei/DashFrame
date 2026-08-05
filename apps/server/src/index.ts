@@ -8,6 +8,7 @@
  */
 import {
   ApiAccessCredentials,
+  CREDENTIAL_CLASS,
   FileMappingStore,
   openProject,
   type ProjectHandle,
@@ -363,7 +364,10 @@ export async function createStandaloneSecretServices(
   // DB; a class with no explicit default here must keep throwing rather than
   // land in this host-local vault.
   registry.register(ENCRYPTED_FILE_BACKEND_NAME, backend);
-  registry.setClassDefault("serve-token", ENCRYPTED_FILE_BACKEND_NAME);
+  registry.setClassDefault(
+    CREDENTIAL_CLASS.ServeToken,
+    ENCRYPTED_FILE_BACKEND_NAME,
+  );
 
   const vault = new SecretVault(
     registry,
