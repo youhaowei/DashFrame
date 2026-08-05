@@ -66,9 +66,12 @@ type VisualizationRow = typeof visualizations.$inferSelect;
 type DataFrameEntry = DataFrameJSON & {
   name: string;
   insightId?: UUID;
+  sourceId?: UUID;
+  definitionId?: UUID;
   rowCount?: number;
   columnCount?: number;
   analysis?: DataFrameAnalysis;
+  lastRefreshedAt?: number;
 };
 
 type DataTableArrayKind = "fields" | "metrics";
@@ -76,6 +79,10 @@ type DataTableArrayItem = { id: string };
 
 function dateFromEpoch(value: unknown): Date | undefined {
   return typeof value === "number" ? new Date(value) : undefined;
+}
+
+function nullableDateFromEpoch(value: number | undefined): Date | null {
+  return value === undefined ? null : new Date(value);
 }
 
 function withDefaultCountMetric(
@@ -303,9 +310,12 @@ function rowToDataFrame(row: DataFrameRow): DataFrameEntry {
     createdAt: tsToMillis(row.createdAt),
     name: row.name,
     insightId: row.insightId ?? undefined,
+    sourceId: row.sourceId ?? undefined,
+    definitionId: row.definitionId ?? undefined,
     rowCount: row.rowCount ?? undefined,
     columnCount: row.columnCount ?? undefined,
     analysis: (row.analysis as DataFrameAnalysis | null) ?? undefined,
+    lastRefreshedAt: row.lastRefreshedAt?.getTime() ?? undefined,
   };
 }
 
@@ -800,9 +810,12 @@ const putDataFrameEntry = wy.procedure
       createdAt: new Date(value.createdAt),
       name: value.name,
       insightId: value.insightId ?? null,
+      sourceId: value.sourceId ?? null,
+      definitionId: value.definitionId ?? null,
       rowCount: value.rowCount ?? null,
       columnCount: value.columnCount ?? null,
       analysis: safeAnalysis,
+      lastRefreshedAt: nullableDateFromEpoch(value.lastRefreshedAt),
     };
     const existing = (await ctx.db
       .from(dataFrames)
@@ -836,6 +849,10 @@ const updateDataFrameEntry = wy.procedure
         ...(patch.insightId !== undefined
           ? { insightId: patch.insightId }
           : {}),
+        ...(patch.sourceId !== undefined ? { sourceId: patch.sourceId } : {}),
+        ...(patch.definitionId !== undefined
+          ? { definitionId: patch.definitionId }
+          : {}),
         ...(patch.rowCount !== undefined ? { rowCount: patch.rowCount } : {}),
         ...(patch.columnCount !== undefined
           ? { columnCount: patch.columnCount }
@@ -846,6 +863,11 @@ const updateDataFrameEntry = wy.procedure
               analysis: patch.analysis
                 ? stripSampleValues(patch.analysis)
                 : null,
+            }
+          : {}),
+        ...(patch.lastRefreshedAt !== undefined
+          ? {
+              lastRefreshedAt: nullableDateFromEpoch(patch.lastRefreshedAt),
             }
           : {}),
       });

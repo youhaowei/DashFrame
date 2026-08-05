@@ -136,6 +136,8 @@ export async function materializeRemoteTable(
       name,
       rowCount: result.rowCount,
       columnCount,
+      sourceId: existing?.dataSourceId,
+      definitionId: table.id as UUID,
     });
     metadataAdded = true;
 
