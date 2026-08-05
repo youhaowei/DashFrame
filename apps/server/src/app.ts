@@ -532,6 +532,9 @@ export async function buildDashframeApp(opts: {
  * that would have owned it is the one that just died. It also has to waive it:
  * this pass is the only one scheduled, so a row left inside the window would
  * sit in flight indefinitely while the browser polled it to its own timeout.
+ *
+ * Must be called before the listener opens — see the call site. The waiver is
+ * only sound while no request can be in flight.
  */
 async function sweepConnectorSetupAtBoot(
   app: WyStackApp,
@@ -830,11 +833,17 @@ export async function createDashframeServer(
 
   honoApp.route("/", createRoutes({ app, resolveContext }, upgradeWebSocket));
 
+  // Before the listener opens, and that ordering is load-bearing: the sweep
+  // waives the in-flight grace window on the claim that no handler can own an
+  // `exchanging` / `verifying` row. That claim is only true while nothing can
+  // reach the callback route. Run it after `listen` and an OAuth callback
+  // arriving in the same moment could have its session reset underneath it,
+  // failing a connection that in fact succeeded.
+  await sweepConnectorSetupAtBoot(app, opts.flushSnapshot);
+
   const { port, server } = await listen(honoApp, hostname, requestedPort);
   injectWebSocket(server);
   serverState.endpoint = `http://${hostname}:${port}/api`;
-
-  await sweepConnectorSetupAtBoot(app, opts.flushSnapshot);
 
   return {
     url: `http://${hostname}:${port}`,
