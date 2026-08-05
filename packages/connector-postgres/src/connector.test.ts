@@ -11,7 +11,6 @@
  */
 
 import type { SecretResolver } from "@dashframe/engine";
-import { CREDENTIAL_CLASS } from "@dashframe/server-core";
 import {
   InMemoryMappingStore,
   SecretRegistry,
@@ -38,10 +37,10 @@ async function makeTestVaultWithSecret(plaintext: string) {
   const backend = new TestBackend();
   const registry = new SecretRegistry();
   registry.register("test", backend, { fallback: true });
-  registry.setClassDefault(CREDENTIAL_CLASS.ConnectorKey, "test");
+  registry.setClassDefault("connector-key", "test");
   const vault = new SecretVault(registry, new InMemoryMappingStore());
   const ref = await vault.store(plaintext, {
-    class: CREDENTIAL_CLASS.ConnectorKey,
+    class: "connector-key",
   });
   return { vault, ref };
 }

@@ -1,4 +1,3 @@
-import { CREDENTIAL_CLASS } from "@dashframe/server-core";
 import {
   InMemoryMappingStore,
   makeSecretRef,
@@ -265,12 +264,11 @@ describe("Arrow data path — vault-backed auth (fail-closed)", () => {
   } {
     const registry = new SecretRegistry();
     registry.register("test", new TestBackend(), { fallback: true });
-    registry.setClassDefault(CREDENTIAL_CLASS.ServeToken, "test");
+    registry.setClassDefault("serve-token", "test");
     const vault = new SecretVault(registry, new InMemoryMappingStore());
     return {
       vault,
-      store: () =>
-        vault.store(storedToken, { class: CREDENTIAL_CLASS.ServeToken }),
+      store: () => vault.store(storedToken, { class: "serve-token" }),
     };
   }
 

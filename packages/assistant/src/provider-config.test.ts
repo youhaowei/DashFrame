@@ -1,4 +1,3 @@
-import { CREDENTIAL_CLASS } from "@dashframe/server-core";
 import {
   registerOAuthProvider,
   resetOAuthProviders,
@@ -17,7 +16,7 @@ import { resolveAssistantProvider } from "./provider-config";
 function makeVault(): SecretVault {
   const registry = new SecretRegistry();
   registry.register("test", new TestBackend(), { fallback: true });
-  registry.setClassDefault(CREDENTIAL_CLASS.AssistantProvider, "test");
+  registry.setClassDefault("assistant-provider", "test");
   return new SecretVault(registry, new InMemoryMappingStore());
 }
 
@@ -29,7 +28,7 @@ describe("assistant provider resolution", () => {
   it("resolves API keys through the vault without exposing the SecretRef", async () => {
     const vault = makeVault();
     const ref = await vault.store("test-api-key-value", {
-      class: CREDENTIAL_CLASS.AssistantProvider,
+      class: "assistant-provider",
     });
 
     const resolved = await resolveAssistantProvider(
@@ -63,7 +62,7 @@ describe("assistant provider resolution", () => {
       expires: Date.now() + 60_000,
     };
     const ref = await vault.store(JSON.stringify(expired), {
-      class: CREDENTIAL_CLASS.AssistantProvider,
+      class: "assistant-provider",
     });
     registerOAuthProvider({
       id: "anthropic",

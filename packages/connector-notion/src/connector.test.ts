@@ -13,7 +13,6 @@
  * full bound-resolver path without a real keychain. TestBackend MUST NOT appear
  * in production or renderer code — only in *.test.ts files.
  */
-import { CREDENTIAL_CLASS } from "@dashframe/server-core";
 import {
   InMemoryMappingStore,
   SecretRegistry,
@@ -44,7 +43,7 @@ function makeTestVaultAndBackend() {
   const registry = new SecretRegistry();
   // register() opts: { fallback?: boolean } — NOT a class array
   registry.register("test", backend, { fallback: true });
-  registry.setClassDefault(CREDENTIAL_CLASS.ConnectorKey, "test");
+  registry.setClassDefault("connector-key", "test");
   const mapping = new InMemoryMappingStore();
   const vault = new SecretVault(registry, mapping);
   return { vault, backend };
@@ -52,7 +51,7 @@ function makeTestVaultAndBackend() {
 
 async function mintBoundResolver(vault: SecretVault, plaintext: string) {
   const ref = await vault.store(plaintext, {
-    class: CREDENTIAL_CLASS.ConnectorKey,
+    class: "connector-key",
     locatorHint: "test-key",
   });
   return {

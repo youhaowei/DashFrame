@@ -22,7 +22,6 @@
     "ipaddr.js": "2.4.0"
   },
   "devDependencies": {
-    "@dashframe/server-core": "workspace:*",
     "@vitest/coverage-v8": "^4.0.16",
     "typescript": "^5.6.0",
     "vitest": "^4.0.16"

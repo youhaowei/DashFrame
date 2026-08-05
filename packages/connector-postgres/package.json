@@ -22,7 +22,6 @@
     "pg": "^8.13.3"
   },
   "devDependencies": {
-    "@dashframe/server-core": "workspace:*",
     "@vitest/coverage-v8": "^4.0.16",
     "@wystack/secret-vault": "workspace:*",
     "typescript": "^5.6.0",
