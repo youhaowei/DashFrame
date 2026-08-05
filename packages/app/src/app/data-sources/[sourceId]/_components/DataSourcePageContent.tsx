@@ -7,7 +7,10 @@ import { SensitivityBadge } from "@/components/data-sources/SensitivityBadge";
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { useCreateInsight } from "@/hooks/useCreateInsight";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
-import { getConnectorById } from "@/lib/connectors/registry";
+import {
+  getConnectorById,
+  useRegistryVersion,
+} from "@/lib/connectors/registry";
 import { PerfStage, withPerfAsync } from "@/lib/perf";
 import { api } from "@/wystack/api";
 import { extractColumnAliasComponents } from "@dashframe/engine";
@@ -151,6 +154,11 @@ export default function DataSourcePageContent({
 }: DataSourcePageContentProps) {
   const navigate = useNavigate();
   const { createInsightFromTable } = useCreateInsight();
+
+  // Subscribe so a re-render fires once the connector registry hydrates from
+  // the server catalog (getConnectorById reads a module-scope map, which is
+  // not reactive on its own).
+  useRegistryVersion();
 
   const {
     data: allDataSources = [],

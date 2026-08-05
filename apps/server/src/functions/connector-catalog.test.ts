@@ -14,5 +14,9 @@ describe("LOCAL_CATALOG_ENTRY drift guard", () => {
     expect(LOCAL_CATALOG_ENTRY.accept).toBe(localFileConnector.accept);
     expect(LOCAL_CATALOG_ENTRY.maxSizeMB).toBe(localFileConnector.maxSizeMB);
     expect(LOCAL_CATALOG_ENTRY.helperText).toBe(localFileConnector.helperText);
+    expect(LOCAL_CATALOG_ENTRY.sourceType).toBe(localFileConnector.sourceType);
+    expect(LOCAL_CATALOG_ENTRY.formFields).toEqual(
+      localFileConnector.getFormFields(),
+    );
   });
 });

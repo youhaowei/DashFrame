@@ -1,5 +1,8 @@
 import { useDataFrameData } from "@/hooks/useDataFrameData";
-import { getConnectorById } from "@/lib/connectors/registry";
+import {
+  getConnectorById,
+  useRegistryVersion,
+} from "@/lib/connectors/registry";
 import { materializeRemoteTable } from "@/lib/remote-table-materialization";
 import { api } from "@/wystack/api";
 import type { DataTable, Field } from "@dashframe/types";
@@ -594,6 +597,11 @@ export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
   const { data: allTables } = useQuery(api.listDataTables, {
     args: { dataSourceId: dataSourceId ?? undefined },
   });
+
+  // Subscribe so a re-render fires once the connector registry hydrates from
+  // the server catalog (getConnectorById at line ~624 below reads a
+  // module-scope map, which is not reactive on its own).
+  useRegistryVersion();
 
   const dataSource = useMemo(
     () => dataSources?.find((s) => s.id === dataSourceId) ?? null,

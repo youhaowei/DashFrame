@@ -1,17 +1,23 @@
 /**
  * Connector Registry
  *
- * Pluggable connector architecture: new connector kinds register themselves
- * at boot time instead of being hard-coded in a static array. Mirrors the
- * chart renderer registry in @dashframe/visualization.
+ * Client-side cache of live connector instances, keyed by id. Which
+ * connector ids exist is a server-side property (the connector catalog,
+ * see apps/server/src/functions/connector-catalog.ts); this registry does
+ * not self-populate at boot. It's hydrated asynchronously — see
+ * hydrateConnectorRegistry() below and ConnectorSetup.tsx, which fetches the
+ * catalog and registers a matching local factory (parse/validate/connect
+ * behavior) for each entry. Until that effect runs, the registry is empty;
+ * components that read it should subscribe with useRegistryVersion() so they
+ * re-render once it's populated, rather than reading it once on mount.
  *
  * @example
  * ```ts
- * // Register at boot
- * registerConnector(localFileConnector);
- * registerConnector(notionConnector);
+ * // Populate from a fetched catalog (see ConnectorSetup.tsx)
+ * hydrateConnectorRegistry(catalog, { local: () => localFileConnector });
  *
- * // Resolve in a component
+ * // Resolve in a component — subscribe first so hydration triggers a re-render
+ * const version = useRegistryVersion();
  * const connector = getConnectorById(source.type);
  * ```
  */

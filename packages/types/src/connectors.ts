@@ -1,4 +1,4 @@
-import type { UseQueryResult } from "./repository-base";
+import type { UseRetryableQueryResult } from "./repository-base";
 
 export type ConnectorAuthKind = "none" | "credential";
 
@@ -35,6 +35,12 @@ export interface ConnectorCatalogEntry {
   name: string;
   description: string;
   sourceType: "file" | "remote-api";
+  /**
+   * Raw SVG markup rendered directly into the DOM (see ConnectorIcon /
+   * svg-sanitization). Server-catalog entries are trusted (Notion/Postgres
+   * connector code, or the drift-guarded Local literal) — this is not a
+   * generic untrusted-input field.
+   */
   icon: string;
   authKind: ConnectorAuthKind;
   formFields: ConnectorFormField[];
@@ -46,4 +52,6 @@ export interface ConnectorCatalogEntry {
   helperText?: string;
 }
 
-export type UseConnectorCatalogResult = UseQueryResult<ConnectorCatalogEntry[]>;
+export type UseConnectorCatalogResult = UseRetryableQueryResult<
+  ConnectorCatalogEntry[]
+>;

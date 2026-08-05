@@ -12,5 +12,8 @@ export function useConnectorCatalog(): UseConnectorCatalogResult {
     data: result.data as ConnectorCatalogEntry[] | undefined,
     isLoading: result.isLoading,
     isFetching: result.isFetching,
+    isError: result.isError,
+    error: result.error,
+    refetch: result.refetch,
   };
 }

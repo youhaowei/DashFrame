@@ -1,5 +1,8 @@
 import { ConnectorIcon } from "@/components/data-sources/renderers/ConnectorIcon";
-import { getConnectorById } from "@/lib/connectors/registry";
+import {
+  getConnectorById,
+  useRegistryVersion,
+} from "@/lib/connectors/registry";
 import { api } from "@/wystack/api";
 import type { AnyConnector } from "@dashframe/engine";
 import { ItemSelector, type SelectableItem } from "@dashframe/ui";
@@ -54,6 +57,11 @@ export function DataSourceSelector({
   const { data: dataSources, isLoading } = useQuery(api.listDataSources);
   const { data: allTables } = useQuery(api.listDataTables, { args: {} });
 
+  // Subscribed so `items` below recomputes once the connector registry
+  // hydrates from the server catalog (getConnectorById reads a module-scope
+  // map, which is not reactive on its own).
+  const registryVersion = useRegistryVersion();
+
   // Sort data sources by creation time (newest first)
   const sortedSources = useMemo(
     () => [...(dataSources ?? [])].sort((a, b) => b.createdAt - a.createdAt),
@@ -94,7 +102,10 @@ export function DataSourceSelector({
         metadata,
       };
     });
-  }, [sortedSources, selectedId, tableCountBySource]);
+    // registryVersion isn't read in the body above — it's a trigger-only
+    // dependency so this recomputes once the registry hydrates after mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sortedSources, selectedId, tableCountBySource, registryVersion]);
 
   const actions: ItemAction[] = useMemo(
     () => [

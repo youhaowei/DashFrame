@@ -28,7 +28,7 @@ function toCatalogEntry(connector: AnyConnector): ConnectorCatalogEntry {
     sourceType: connector.sourceType,
     icon: connector.icon,
     authKind,
-    formFields,
+    formFields: Object.freeze(formFields) as ConnectorFormField[],
   };
 
   if (isFileConnector(connector)) {
@@ -37,7 +37,7 @@ function toCatalogEntry(connector: AnyConnector): ConnectorCatalogEntry {
     entry.helperText = connector.helperText;
   }
 
-  return entry;
+  return Object.freeze(entry);
 }
 
 /**
@@ -52,35 +52,61 @@ function toCatalogEntry(connector: AnyConnector): ConnectorCatalogEntry {
  * (connector-catalog.test.ts) imports the real class as a
  * devDependency ONLY and asserts these literals still match it.
  */
-export const LOCAL_CATALOG_ENTRY: ConnectorCatalogEntry = {
+export const LOCAL_CATALOG_ENTRY: ConnectorCatalogEntry = Object.freeze({
   id: "local",
   name: "Local Files",
   description: "Upload a CSV or JSON file from your computer.",
   sourceType: "file",
   icon: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="M9 15l3-3 3 3"/></svg>`,
   authKind: "none",
-  formFields: [],
+  formFields: Object.freeze([] as ConnectorFormField[]) as ConnectorFormField[],
   accept: ".csv,.json,text/csv,application/json",
   maxSizeMB: 100,
   helperText: "Supports CSV and JSON files up to 100MB (stored locally)",
-};
+});
 
-// Constructed with a throwing resolver purely to read static metadata
-// (id/name/description/icon/getFormFields()) — the exact same pattern already
-// used client-side in packages/app/src/components/providers/ConnectorSetup.tsx.
-// connect()/query() are never called on these instances.
-const notionConnectorForCatalog = makeNotionConnector(throwingResolver);
-const postgresConnectorForCatalog = makePostgresConnector(throwingResolver, {});
+/**
+ * Lazily builds and memoizes the catalog on first read rather than at module
+ * load. The Notion/Postgres connector instances below exist purely to read
+ * static metadata (id/name/description/icon/getFormFields()) — the exact same
+ * pattern already used client-side in
+ * packages/app/src/components/providers/ConnectorSetup.tsx — but constructing
+ * them still runs connector-package module init code. Deferring that to first
+ * call keeps a `functions.ts` import (e.g. from an unrelated unit test) from
+ * paying that cost, or from breaking if a caller mocks one of the connector
+ * packages without a full metadata surface.
+ *
+ * The returned array and every entry in it are frozen so callers can't mutate
+ * the shared cached instance.
+ */
+let cachedCatalog: ConnectorCatalogEntry[] | null = null;
 
-export const CONNECTOR_CATALOG: ConnectorCatalogEntry[] = [
-  LOCAL_CATALOG_ENTRY,
-  toCatalogEntry(notionConnectorForCatalog),
-  toCatalogEntry(postgresConnectorForCatalog),
-];
+function buildConnectorCatalog(): ConnectorCatalogEntry[] {
+  // Constructed with a throwing resolver purely to read static metadata.
+  // connect()/query() are never called on these instances.
+  const notionConnectorForCatalog = makeNotionConnector(throwingResolver);
+  const postgresConnectorForCatalog = makePostgresConnector(
+    throwingResolver,
+    {},
+  );
+
+  return Object.freeze([
+    LOCAL_CATALOG_ENTRY,
+    toCatalogEntry(notionConnectorForCatalog),
+    toCatalogEntry(postgresConnectorForCatalog),
+  ]) as ConnectorCatalogEntry[];
+}
+
+export function getConnectorCatalogEntries(): ConnectorCatalogEntry[] {
+  cachedCatalog ??= buildConnectorCatalog();
+  return cachedCatalog;
+}
 
 const getConnectorCatalog = wy.procedure
   .input({})
-  .query(async (): Promise<ConnectorCatalogEntry[]> => CONNECTOR_CATALOG);
+  .query(
+    async (): Promise<ConnectorCatalogEntry[]> => getConnectorCatalogEntries(),
+  );
 
 export const connectorCatalogFunctions = {
   getConnectorCatalog,
