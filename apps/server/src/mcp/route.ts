@@ -2,6 +2,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import {
   CallToolRequestSchema,
+  isInitializeRequest,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { WyStackApp } from "@wystack/server";
@@ -122,11 +123,11 @@ export function createMcpRoute(opts: McpRouteOptions) {
     }
 
     const requestedSessionId = c.req.header("mcp-session-id");
-    let active =
+    const existing =
       requestedSessionId === undefined
         ? undefined
         : sessions.get(requestedSessionId);
-    if (active !== undefined && active.session.principalKey !== key) {
+    if (existing !== undefined && existing.session.principalKey !== key) {
       return jsonRpcError(
         403,
         -32003,
@@ -134,28 +135,62 @@ export function createMcpRoute(opts: McpRouteOptions) {
       );
     }
 
-    if (active === undefined) {
-      const session: McpSession = {
-        principal: context.principal,
-        principalKey: key,
-      };
-      const transport = new WebStandardStreamableHTTPServerTransport({
-        sessionIdGenerator: () => crypto.randomUUID(),
-        enableJsonResponse: true,
-        onsessioninitialized: (sessionId) => {
-          sessions.set(sessionId, { session, transport, server });
-        },
-        onsessionclosed: async (sessionId) => {
-          const closed = sessions.get(sessionId);
-          sessions.delete(sessionId);
-          await closed?.server.close();
-        },
-      });
-      const server = createServer(createMcpTools(opts.app, session));
-      await server.connect(transport);
-      active = { session, transport, server };
+    // The body is read only after the caller has been authenticated, and is
+    // then handed to the transport so the stream is consumed exactly once.
+    let parsedBody: unknown;
+    if (c.req.method === "POST") {
+      try {
+        parsedBody = await c.req.raw.json();
+      } catch {
+        return jsonRpcError(400, -32700, "Parse error: invalid JSON body.");
+      }
     }
 
-    return active.transport.handleRequest(c.req.raw);
+    let active: ActiveMcpSession;
+    if (existing !== undefined) {
+      active = existing;
+    } else if (requestedSessionId !== undefined) {
+      return jsonRpcError(
+        404,
+        -32001,
+        "Unknown MCP session. Re-initialize the connection.",
+      );
+    } else if (c.req.method === "POST" && isInitializeRequest(parsedBody)) {
+      // Only an initialize request may mint a session. Without this guard every
+      // sessionless POST built a fresh Server and transport that nothing ever
+      // reclaimed, so an authenticated caller could exhaust memory by looping
+      // any other method at /mcp.
+      active = await openSession(context.principal, key);
+    } else {
+      return jsonRpcError(
+        400,
+        -32000,
+        "Expected an initialize request or an mcp-session-id header.",
+      );
+    }
+
+    return active.transport.handleRequest(c.req.raw, { parsedBody });
   };
+
+  async function openSession(
+    principal: unknown,
+    key: string,
+  ): Promise<ActiveMcpSession> {
+    const session: McpSession = { principal, principalKey: key };
+    const transport = new WebStandardStreamableHTTPServerTransport({
+      sessionIdGenerator: () => crypto.randomUUID(),
+      enableJsonResponse: true,
+      onsessioninitialized: (sessionId) => {
+        sessions.set(sessionId, { session, transport, server });
+      },
+      onsessionclosed: async (sessionId) => {
+        const closed = sessions.get(sessionId);
+        sessions.delete(sessionId);
+        await closed?.server.close();
+      },
+    });
+    const server = createServer(createMcpTools(opts.app, session));
+    await server.connect(transport);
+    return { session, transport, server };
+  }
 }

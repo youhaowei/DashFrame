@@ -368,6 +368,49 @@ describe("MCP route", () => {
     }
   });
 
+  it("only mints a session for an initialize request", async () => {
+    // Without this guard every sessionless POST built a fresh server and
+    // transport, so an authenticated caller could exhaust memory by looping
+    // any other method.
+    const notInitialize = await fetch(`${server!.url}/mcp`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        ...bearer(serviceToken),
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+    });
+    expect(notInitialize.status).toBe(400);
+    expect(await notInitialize.json()).toMatchObject({
+      error: { code: -32000 },
+    });
+
+    const unknownSession = await fetch(`${server!.url}/mcp`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        "mcp-session-id": crypto.randomUUID(),
+        ...bearer(serviceToken),
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+    });
+    expect(unknownSession.status).toBe(404);
+
+    const malformed = await fetch(`${server!.url}/mcp`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        ...bearer(serviceToken),
+      },
+      body: "{not json",
+    });
+    expect(malformed.status).toBe(400);
+    expect(await malformed.json()).toMatchObject({ error: { code: -32700 } });
+  });
+
   it("answers missing and invalid credentials with HTTP 401 and opens no draft", async () => {
     const request = {
       jsonrpc: "2.0",
