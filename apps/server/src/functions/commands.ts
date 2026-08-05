@@ -444,7 +444,7 @@ const createDataSource = wy.procedure
 /**
  * SetDataSourceConfig — replaces the config slice of a DataSource (the connector
  * secrets). The `name` slice is NOT here — renaming is `RenameNode`. This is the
- * config half is paired with `RenameNode` for source updates.
+ * config half of a DataSource update, paired with `RenameNode` for the name half.
  *
  * `extra` carries optional non-credential connector settings (e.g. database name,
  * schema). Sink guard: any key in `extra` that matches "apiKey" or

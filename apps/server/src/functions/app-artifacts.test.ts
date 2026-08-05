@@ -762,16 +762,25 @@ describe("command credential writes — same-operation minted-ref rollback", () 
 
     const storeSpy = vi.spyOn(vault, "store");
 
-    await expect(
-      commit([
-        cmd("CreateDataSource", {
-          id,
-          type: "notion",
-          name: "Will Fail",
-          apiKey: "plaintext-key",
-        }),
-      ]),
-    ).rejects.toThrow();
+    // Assert on the underlying driver error (surfaced via `.cause` — Drizzle
+    // wraps it in a "Failed query" error), not just "it threw something": a
+    // future refactor that throws earlier, for an unrelated reason, must not
+    // satisfy this test vacuously.
+    let insertError: Error | undefined;
+    await commit([
+      cmd("CreateDataSource", {
+        id,
+        type: "notion",
+        name: "Will Fail",
+        apiKey: "plaintext-key",
+      }),
+    ]).catch((e: Error) => {
+      insertError = e;
+    });
+    expect(insertError).toBeDefined();
+    expect((insertError?.cause as Error | undefined)?.message).toMatch(
+      /duplicate key value violates unique constraint "data_sources_pkey"/,
+    );
 
     // The conflicting write rolled back: only the seed row remains, and it has
     // no credential field that could reference this call's minted ref.
@@ -824,14 +833,23 @@ describe("command credential writes — same-operation minted-ref rollback", () 
     // survive.
     const storeSpy = vi.spyOn(vault, "store");
 
-    await expect(
-      commit([
-        cmd("SetDataSourceConfig", {
-          id,
-          apiKey: "new-api-key-plaintext",
-        }),
-      ]),
-    ).rejects.toThrow();
+    // Assert on the named test-local CHECK constraint via `.cause`, not just
+    // "it threw something" — pins the failure to the exact write this test
+    // means to exercise, so a future refactor that throws earlier for an
+    // unrelated reason can't satisfy this test vacuously.
+    let updateError: Error | undefined;
+    await commit([
+      cmd("SetDataSourceConfig", {
+        id,
+        apiKey: "new-api-key-plaintext",
+      }),
+    ]).catch((e: Error) => {
+      updateError = e;
+    });
+    expect(updateError).toBeDefined();
+    expect((updateError?.cause as Error | undefined)?.message).toMatch(
+      /violates check constraint "data_sources_test_api_key_check"/,
+    );
 
     // Positive half: the apiKey ref minted by THIS call was released by the
     // compensation (captured via the store spy, since it never lands anywhere
