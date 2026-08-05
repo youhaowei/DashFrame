@@ -51,6 +51,7 @@ const LOCATOR_PATTERN = /^[a-f0-9]{32}$/;
 const KEY_ID_PATTERN = /^[a-f0-9]{16}$/;
 const BASE64_KEY_PATTERN = /^[A-Za-z0-9+/]{43}=$/;
 const AAD_DOMAIN = Buffer.from("dashframe-secret-blob", "ascii");
+const KEY_ID_DOMAIN = Buffer.from("dashframe-secret-key-id\0", "ascii");
 
 export const ENCRYPTED_FILE_BACKEND_NAME = "dashframe-encrypted-file";
 
@@ -60,10 +61,6 @@ export interface SecretKeyringConfig {
 }
 
 interface FileSystemSurface {
-  mkdir(
-    targetPath: string,
-    options: { recursive: true; mode?: number },
-  ): Promise<string | undefined>;
   lstat(targetPath: string): Promise<Stats>;
   readFile(targetPath: string): Promise<Buffer>;
   open(
@@ -75,21 +72,14 @@ interface FileSystemSurface {
   unlink(targetPath: string): Promise<void>;
 }
 
+/**
+ * Only the randomness source is injectable. AES-GCM itself is deliberately not
+ * a seam: a test that can swap the cipher can no longer prove anything about
+ * the real one, and every property this backend claims (confidentiality,
+ * AAD binding, tamper detection) is a property of the real cipher.
+ */
 interface CryptoSurface {
   randomBytes(size: number): Buffer;
-  encrypt(
-    key: Buffer,
-    nonce: Buffer,
-    plaintext: string,
-    aad: Buffer,
-  ): { ciphertext: Buffer; authTag: Buffer };
-  decrypt(
-    key: Buffer,
-    nonce: Buffer,
-    ciphertext: Buffer,
-    authTag: Buffer,
-    aad: Buffer,
-  ): string;
 }
 
 export interface EncryptedFileSecretBackendDependencies {
@@ -98,7 +88,6 @@ export interface EncryptedFileSecretBackendDependencies {
 }
 
 const defaultFileSystem: FileSystemSurface = {
-  mkdir: (targetPath, options) => fs.mkdir(targetPath, options),
   lstat: (targetPath) => fs.lstat(targetPath),
   readFile: (targetPath) => fs.readFile(targetPath),
   open: (targetPath, flags, mode) => fs.open(targetPath, flags, mode),
@@ -106,31 +95,42 @@ const defaultFileSystem: FileSystemSurface = {
   unlink: (targetPath) => fs.unlink(targetPath),
 };
 
-const defaultCrypto: CryptoSurface = {
-  randomBytes,
-  encrypt(key, nonce, plaintext, aad) {
-    const cipher = createCipheriv(ALGORITHM, key, nonce, {
-      authTagLength: AUTH_TAG_LENGTH,
-    });
-    cipher.setAAD(aad);
-    const ciphertext = Buffer.concat([
-      cipher.update(plaintext, "utf8"),
-      cipher.final(),
-    ]);
-    return { ciphertext, authTag: cipher.getAuthTag() };
-  },
-  decrypt(key, nonce, ciphertext, authTag, aad) {
-    const decipher = createDecipheriv(ALGORITHM, key, nonce, {
-      authTagLength: AUTH_TAG_LENGTH,
-    });
-    decipher.setAAD(aad);
-    decipher.setAuthTag(authTag);
-    return Buffer.concat([
-      decipher.update(ciphertext),
-      decipher.final(),
-    ]).toString("utf8");
-  },
-};
+const defaultCrypto: CryptoSurface = { randomBytes };
+
+function encrypt(
+  key: Buffer,
+  nonce: Buffer,
+  plaintext: string,
+  aad: Buffer,
+): { ciphertext: Buffer; authTag: Buffer } {
+  const cipher = createCipheriv(ALGORITHM, key, nonce, {
+    authTagLength: AUTH_TAG_LENGTH,
+  });
+  cipher.setAAD(aad);
+  const ciphertext = Buffer.concat([
+    cipher.update(plaintext, "utf8"),
+    cipher.final(),
+  ]);
+  return { ciphertext, authTag: cipher.getAuthTag() };
+}
+
+function decrypt(
+  key: Buffer,
+  nonce: Buffer,
+  ciphertext: Buffer,
+  authTag: Buffer,
+  aad: Buffer,
+): string {
+  const decipher = createDecipheriv(ALGORITHM, key, nonce, {
+    authTagLength: AUTH_TAG_LENGTH,
+  });
+  decipher.setAAD(aad);
+  decipher.setAuthTag(authTag);
+  return Buffer.concat([
+    decipher.update(ciphertext),
+    decipher.final(),
+  ]).toString("utf8");
+}
 
 /**
  * AES-256-GCM encrypted-file backend registered permanently as
@@ -160,29 +160,13 @@ export class EncryptedFileSecretBackend implements SecretBackend {
     await this.#ensureStorageDirectory();
 
     const locator = this.#crypto.randomBytes(16).toString("hex");
-    validateLocator(locator);
     const target = this.#blobPath(locator);
     await this.#assertUnusedWriteTarget(target);
 
     const key = this.#keys.get(this.#activeKeyId)!;
     const nonce = this.#crypto.randomBytes(NONCE_LENGTH);
-    if (nonce.length !== NONCE_LENGTH) {
-      throw new Error(
-        "[encrypted-file] Random nonce source returned the wrong length",
-      );
-    }
     const aad = buildAad(FORMAT_VERSION, this.#activeKeyId, locator, locator);
-    const { ciphertext, authTag } = this.#crypto.encrypt(
-      key,
-      nonce,
-      plaintext,
-      aad,
-    );
-    if (authTag.length !== AUTH_TAG_LENGTH) {
-      throw new Error(
-        "[encrypted-file] AES-GCM returned an invalid authentication tag",
-      );
-    }
+    const { ciphertext, authTag } = encrypt(key, nonce, plaintext, aad);
     const blob = encodeEnvelope({
       version: FORMAT_VERSION,
       keyId: this.#activeKeyId,
@@ -215,6 +199,10 @@ export class EncryptedFileSecretBackend implements SecretBackend {
       // secondary error a best-effort unlink produced.
       await handle?.close().catch(() => undefined);
       await this.#fs.unlink(temporary).catch(() => undefined);
+      // `renamed` is currently unreachable in this branch: the only step after
+      // the rename is the deliberately non-throwing `#syncDirectory`. Kept so
+      // that adding a throwing step after the rename cannot silently leave a
+      // half-committed blob behind.
       if (renamed) {
         await this.#fs.unlink(target).catch(() => undefined);
       }
@@ -231,14 +219,11 @@ export class EncryptedFileSecretBackend implements SecretBackend {
     const stat = await this.#lstatBlob(target);
     assertRegularFile(stat, target);
 
+    // `decodeEnvelope` rejects an unsupported FORMAT_VERSION itself, before
+    // parsing anything version-dependent. A blob from a key we no longer hold
+    // is rejected just below — both reject cleanly, without ever
+    // materializing plaintext.
     const envelope = decodeEnvelope(await this.#fs.readFile(target));
-    // Checked before decrypt: a future-version blob (or one from a key we no
-    // longer hold) should reject cleanly without materializing plaintext.
-    if (envelope.version !== FORMAT_VERSION) {
-      throw new Error(
-        `[encrypted-file] Unsupported encrypted blob version ${envelope.version}`,
-      );
-    }
     const key = this.#keys.get(envelope.keyId);
     if (!key) {
       // Never interpolate keyId (a truncated hash of key material) into an
@@ -256,7 +241,7 @@ export class EncryptedFileSecretBackend implements SecretBackend {
       locator,
       envelope.locator,
     );
-    const plaintext = this.#crypto.decrypt(
+    const plaintext = decrypt(
       key,
       envelope.nonce,
       envelope.ciphertext,
@@ -266,14 +251,25 @@ export class EncryptedFileSecretBackend implements SecretBackend {
     return use(plaintext);
   }
 
-  /** Presence check only: lstat validates existence/type and never reads or decrypts. */
+  /**
+   * Presence check only: lstat validates existence/type and never reads or
+   * decrypts.
+   *
+   * Answers `false` — rather than throwing — for anything that is not a
+   * securely-permissioned regular file (a symlink, a directory, a
+   * group/world-accessible file). `has()` is called in a loop over every
+   * stored access credential during authentication, so a single poisoned or
+   * mis-permissioned entry must degrade to "this one is not usable" instead of
+   * aborting authentication for every credential on the host. The read and
+   * write paths still fail loudly on the same conditions — this is a
+   * relaxation of the presence probe only, never of an actual secret access.
+   */
   async has(locator: string): Promise<boolean> {
     validateLocator(locator);
     const target = this.#blobPath(locator);
     try {
       const stat = await this.#fs.lstat(target);
-      assertRegularFile(stat, target);
-      return true;
+      return stat.isFile() && (stat.mode & 0o077) === 0;
     } catch (error) {
       if (isMissing(error)) return false;
       throw error;
@@ -294,12 +290,15 @@ export class EncryptedFileSecretBackend implements SecretBackend {
   }
 
   async #ensureStorageDirectory(): Promise<void> {
-    await this.#fs.mkdir(this.#storageDir, { recursive: true, mode: 0o700 });
+    await fs.mkdir(this.#storageDir, { recursive: true, mode: 0o700 });
     const stat = await this.#fs.lstat(this.#storageDir);
+    // Paths stay out of every message on this class — these errors surface
+    // through RPC handlers to a remote caller, and a host filesystem layout is
+    // not theirs to learn. `cause` keeps the detail for local debugging.
     if (stat.isSymbolicLink() || !stat.isDirectory()) {
-      throw new Error(
-        `[encrypted-file] Storage path is not a real directory: ${this.#storageDir}`,
-      );
+      throw new Error("[encrypted-file] Storage path is not a real directory", {
+        cause: new Error(`storage directory: ${this.#storageDir}`),
+      });
     }
     // `mode: 0o700` above only applies on creation. A pre-existing directory
     // (operator-created data dir, restored backup) could be group/world
@@ -309,7 +308,9 @@ export class EncryptedFileSecretBackend implements SecretBackend {
     // file.
     if ((stat.mode & 0o077) !== 0) {
       throw new Error(
-        `[encrypted-file] Storage directory must have mode 0700 (group/world permissions are forbidden): ${this.#storageDir}`,
+        "[encrypted-file] Storage directory must not be group- or " +
+          "world-accessible (mode 0077 bits must be clear)",
+        { cause: new Error(`storage directory: ${this.#storageDir}`) },
       );
     }
   }
@@ -317,14 +318,16 @@ export class EncryptedFileSecretBackend implements SecretBackend {
   async #assertUnusedWriteTarget(target: string): Promise<void> {
     try {
       const stat = await this.#fs.lstat(target);
+      // No path or locator in either message — see `#ensureStorageDirectory`.
       if (stat.isSymbolicLink()) {
         throw new Error(
-          `[encrypted-file] Refusing to write through a symbolic link: ${target}`,
+          "[encrypted-file] Refusing to write through a symbolic link",
+          { cause: new Error(`write target: ${target}`) },
         );
       }
-      throw new Error(
-        `[encrypted-file] Refusing to overwrite existing blob: ${target}`,
-      );
+      throw new Error("[encrypted-file] Refusing to overwrite existing blob", {
+        cause: new Error(`write target: ${target}`),
+      });
     } catch (error) {
       if (isMissing(error)) return;
       throw error;
@@ -405,7 +408,15 @@ function decodeEnvelope(blob: Buffer): BlobEnvelope {
   ) {
     throw new Error("[encrypted-file] Invalid encrypted blob envelope");
   }
+  // Checked here, before anything version-dependent is parsed, so a
+  // future-version blob reports "Unsupported version" instead of failing later
+  // as "Invalid metadata" against a layout it was never written in.
   const version = blob[MAGIC.length]!;
+  if (version !== FORMAT_VERSION) {
+    throw new Error(
+      `[encrypted-file] Unsupported encrypted blob version ${version}`,
+    );
+  }
   const keyIdLength = blob[MAGIC.length + 1]!;
   const locatorLength = blob[MAGIC.length + 2]!;
   const metadataEnd = fixedLength + keyIdLength + locatorLength;
@@ -492,14 +503,27 @@ function validateLocator(locator: string): void {
 }
 
 function assertRegularFile(stat: Stats, target: string): void {
+  // Paths stay out of the message; `cause` carries them for local debugging.
   if (stat.isSymbolicLink()) {
-    throw new Error(
-      `[encrypted-file] Refusing to follow symbolic link: ${target}`,
-    );
+    throw new Error("[encrypted-file] Refusing to follow symbolic link", {
+      cause: new Error(`blob path: ${target}`),
+    });
   }
   if (!stat.isFile()) {
+    throw new Error("[encrypted-file] Encrypted blob is not a regular file", {
+      cause: new Error(`blob path: ${target}`),
+    });
+  }
+  // Blobs are written 0600. A relaxed mode means another local user could have
+  // replaced the contents, so the AEAD tag is the only thing standing between
+  // us and an attacker-chosen blob — and it would pass if they simply copied a
+  // valid one. Refuse, and keep this exactly in step with `has()`, which
+  // reports the same condition as "not usable".
+  if ((stat.mode & 0o077) !== 0) {
     throw new Error(
-      `[encrypted-file] Encrypted blob is not a regular file: ${target}`,
+      "[encrypted-file] Encrypted blob must not be group- or " +
+        "world-accessible (mode 0077 bits must be clear)",
+      { cause: new Error(`blob path: ${target}`) },
     );
   }
 }
@@ -508,8 +532,25 @@ function isMissing(error: unknown): boolean {
   return (error as NodeJS.ErrnoException).code === "ENOENT";
 }
 
+/**
+ * Stable, non-secret identifier for a key, recorded in every blob so a
+ * rotating keyring knows which key decrypts which blob.
+ *
+ * Domain-separated: hashing a fixed label and a NUL terminator ahead of the key
+ * means this value can never collide with a bare `sha256(key)` computed
+ * elsewhere for a different purpose, so publishing the ID in a blob leaks
+ * nothing usable against any other use of the same key material.
+ *
+ * Like the backend registration name, this derivation can NEVER change once
+ * blobs exist: the ID is written into the envelope and bound into the AAD, so a
+ * changed derivation orphans every stored secret.
+ */
 export function deriveKeyId(key: Buffer): string {
-  return createHash("sha256").update(key).digest("hex").slice(0, 16);
+  return createHash("sha256")
+    .update(KEY_ID_DOMAIN)
+    .update(key)
+    .digest("hex")
+    .slice(0, 16);
 }
 
 /**
@@ -528,6 +569,13 @@ export function deriveKeyId(key: Buffer): string {
  * DASHFRAME_SECRET_KEY_PREVIOUS so existing blobs stay readable. Dropping a
  * key from this list permanently loses access to any blob still encrypted
  * under it.
+ *
+ * Rotation does NOT re-encrypt anything. Existing blobs stay under the key
+ * that wrote them until they are rewritten, so swapping the active key limits
+ * future exposure but does not remediate a key already compromised — that
+ * requires revoking and re-issuing the affected access credentials. All three
+ * variables are read once at startup; changing any of them requires a server
+ * restart to take effect.
  */
 export async function loadSecretKeyring(
   environment: NodeJS.ProcessEnv = process.env,
@@ -541,14 +589,32 @@ export async function loadSecretKeyring(
       "Set only one of DASHFRAME_SECRET_KEY_FILE or DASHFRAME_SECRET_KEY",
     );
   }
-  if (!hasKeyFile && !hasInlineKey) return undefined;
+  if (!hasKeyFile && !hasInlineKey) {
+    // Retired keys with nothing active is always a misconfiguration — most
+    // likely a rotation that moved the key out of DASHFRAME_SECRET_KEY without
+    // setting the new one. Silently returning `undefined` here would start the
+    // server with no encrypted backend at all, so the operator would see
+    // "named access credentials are unavailable" instead of the real cause.
+    if ((environment.DASHFRAME_SECRET_KEY_PREVIOUS ?? "").length > 0) {
+      throw new Error(
+        "DASHFRAME_SECRET_KEY_PREVIOUS is set but no active key is " +
+          "configured — set DASHFRAME_SECRET_KEY or DASHFRAME_SECRET_KEY_FILE, " +
+          "or unset DASHFRAME_SECRET_KEY_PREVIOUS.",
+      );
+    }
+    return undefined;
+  }
   if (hasKeyFile && keyFile.length === 0) {
     throw new Error("DASHFRAME_SECRET_KEY_FILE must not be empty");
   }
 
-  const encoded = hasKeyFile
-    ? await readKeyFile(keyFile as string)
-    : (inlineKey as string);
+  // One trailing newline is tolerated in both spellings, not just the file:
+  // shell pipelines (`export DASHFRAME_SECRET_KEY=$(cat key)` under some
+  // shells, docker `--env-file`) pick one up just as easily as `openssl` does
+  // when writing the file, and an asymmetry here is a confusing hard failure.
+  const encoded = stripTrailingNewline(
+    hasKeyFile ? await readKeyFile(keyFile as string) : (inlineKey as string),
+  );
   const key = decodeKey(
     encoded,
     hasKeyFile ? "secret key file" : "DASHFRAME_SECRET_KEY",
@@ -556,24 +622,26 @@ export async function loadSecretKeyring(
   const activeKeyId = deriveKeyId(key);
   const keys = new Map([[activeKeyId, key]]);
 
-  const previous = environment.DASHFRAME_SECRET_KEY_PREVIOUS;
-  if (previous !== undefined && previous.length > 0) {
-    const entries = previous.split(",").map((entry) => entry.trim());
-    for (const [index, entry] of entries.entries()) {
-      if (entry.length === 0) {
-        throw new Error(
-          `DASHFRAME_SECRET_KEY_PREVIOUS entry ${index + 1} is empty`,
-        );
-      }
-      const previousKey = decodeKey(
-        entry,
-        `DASHFRAME_SECRET_KEY_PREVIOUS entry ${index + 1}`,
-      );
-      keys.set(deriveKeyId(previousKey), previousKey);
-    }
+  for (const previousKey of decodePreviousKeys(
+    environment.DASHFRAME_SECRET_KEY_PREVIOUS,
+  )) {
+    keys.set(deriveKeyId(previousKey), previousKey);
   }
 
   return { activeKeyId, keys };
+}
+
+/** Decode the comma-separated retired-key list, or `[]` when unset/empty. */
+function decodePreviousKeys(previous: string | undefined): Buffer[] {
+  if (previous === undefined || previous.length === 0) return [];
+  return previous
+    .split(",")
+    .map((entry) => entry.trim())
+    .map((entry, index) => {
+      const source = `DASHFRAME_SECRET_KEY_PREVIOUS entry ${index + 1}`;
+      if (entry.length === 0) throw new Error(`${source} is empty`);
+      return decodeKey(entry, source);
+    });
 }
 
 async function readKeyFile(filePath: string): Promise<string> {
@@ -596,11 +664,15 @@ async function readKeyFile(filePath: string): Promise<string> {
   );
   try {
     assertSecureKeyFile(await handle.stat(), filePath);
-    const contents = await handle.readFile("utf8");
-    return contents.replace(/\r?\n$/, "");
+    return await handle.readFile("utf8");
   } finally {
     await handle.close();
   }
+}
+
+/** Strip at most one trailing LF or CRLF. */
+function stripTrailingNewline(value: string): string {
+  return value.replace(/\r?\n$/, "");
 }
 
 function assertSecureKeyFile(stat: Stats, filePath: string): void {
@@ -612,7 +684,7 @@ function assertSecureKeyFile(stat: Stats, filePath: string): void {
   }
   if ((stat.mode & 0o077) !== 0) {
     throw new Error(
-      `Secret key file must have mode 0600 (group/world permissions are forbidden): ${filePath}`,
+      `Secret key file must not be group- or world-accessible (mode 0077 bits must be clear): ${filePath}`,
     );
   }
 }

@@ -11,6 +11,7 @@
  *   AC-8  durable atomic-write cleanup
  */
 
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -18,6 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   deriveKeyId,
+  ENCRYPTED_FILE_BACKEND_NAME,
   EncryptedFileSecretBackend,
   loadSecretKeyring,
   type SecretKeyringConfig,
@@ -142,9 +144,41 @@ describe("AC-2: plaintext never at rest", () => {
     const plaintext = "my-api-key-12345";
     const subject = backend();
     const locator = await subject.store(plaintext);
-    const blob = await rawBlob(locator);
-    expect(blob.equals(Buffer.from(plaintext, "utf8"))).toBe(false);
-    expect(blob.includes(Buffer.from(plaintext, "utf8"))).toBe(false);
+    // `includes` subsumes `equals` here — a blob equal to the plaintext would
+    // also contain it.
+    expect(
+      (await rawBlob(locator)).includes(Buffer.from(plaintext, "utf8")),
+    ).toBe(false);
+  });
+
+  it("keeps plaintext out of the locator, the temp file, and the directory listing", async () => {
+    const plaintext = "another-api-key-98765";
+    const subject = backend();
+    const locator = await subject.store(plaintext, plaintext);
+    expect(locator).not.toContain(plaintext);
+    for (const entry of await fs.readdir(blobs)) {
+      expect(entry).not.toContain(plaintext);
+      expect(
+        (await fs.readFile(path.join(blobs, entry))).includes(
+          Buffer.from(plaintext, "utf8"),
+        ),
+      ).toBe(false);
+    }
+  });
+
+  it("keeps plaintext out of a failed store (nothing is left on disk)", async () => {
+    const plaintext = "never-persisted-99999";
+    const subject = new EncryptedFileSecretBackend(blobs, keyring(key(1)), {
+      fs: {
+        rename: vi.fn(async () => {
+          throw new Error("simulated rename failure");
+        }),
+      },
+    });
+    await expect(subject.store(plaintext)).rejects.toThrow(
+      "simulated rename failure",
+    );
+    expect(await fs.readdir(blobs)).toEqual([]);
   });
 
   it("uses a fresh 12-byte nonce so identical plaintexts encrypt differently", async () => {
@@ -158,27 +192,149 @@ describe("AC-2: plaintext never at rest", () => {
     expect(firstNonce.equals(secondNonce)).toBe(false);
   });
 
-  it("creates the storage directory and a mode-0600 blob", async () => {
+  it("creates the storage directory 0700 and a mode-0600 blob", async () => {
     const subject = backend();
     const locator = await subject.store("secret");
-    expect((await fs.stat(blobs)).isDirectory()).toBe(true);
+    const directory = await fs.stat(blobs);
+    expect(directory.isDirectory()).toBe(true);
+    expect(directory.mode & 0o777).toBe(0o700);
     expect((await fs.stat(path.join(blobs, locator))).mode & 0o777).toBe(0o600);
+  });
+
+  it("refuses a pre-existing group/world-accessible storage directory", async () => {
+    // `mode: 0o700` only applies on creation. An operator-created data dir or a
+    // restored backup can be group-writable, which would let another local user
+    // unlink or replace blobs.
+    await fs.mkdir(blobs, { recursive: true, mode: 0o700 });
+    // eslint-disable-next-line sonarjs/file-permissions -- deliberately insecure mode under test
+    await fs.chmod(blobs, 0o755);
+    await expect(backend().store("secret")).rejects.toThrow(
+      /must not be group- or world-accessible/,
+    );
+  });
+
+  it("refuses a symlinked storage directory", async () => {
+    const real = path.join(root, "elsewhere");
+    await fs.mkdir(real, { mode: 0o700 });
+    await fs.symlink(real, blobs);
+    await expect(backend().store("secret")).rejects.toThrow(
+      /Storage path is not a real directory/,
+    );
+    expect(await fs.readdir(real)).toEqual([]);
+  });
+});
+
+describe("on-disk contract (frozen once blobs exist)", () => {
+  it("pins the backend registration name", () => {
+    // Persisted in vault mappings — changing it orphans every stored secret.
+    expect(ENCRYPTED_FILE_BACKEND_NAME).toBe("dashframe-encrypted-file");
+  });
+
+  it("pins the envelope layout byte-for-byte", async () => {
+    // magic[4] | version[1] | keyIdLength[1] | locatorLength[1] |
+    // nonce[12] | authTag[16] | keyId[16] | locator[32] | ciphertext
+    const plaintext = "layout-probe";
+    const locator = await backend().store(plaintext);
+    const blob = await rawBlob(locator);
+
+    expect(blob.subarray(0, 4).toString("ascii")).toBe("DFSB");
+    expect(blob[4]).toBe(1);
+    expect(blob[5]).toBe(16);
+    expect(blob[6]).toBe(32);
+    expect(blob.subarray(HEADER.keyId, HEADER.locator).toString("ascii")).toBe(
+      deriveKeyId(key(1)),
+    );
+    expect(
+      blob.subarray(HEADER.locator, HEADER.ciphertext).toString("ascii"),
+    ).toBe(locator);
+    // GCM ciphertext is the same length as the plaintext; the tag lives in the
+    // fixed header, not appended.
+    expect(blob).toHaveLength(HEADER.ciphertext + plaintext.length);
+  });
+
+  it("pins the key-ID derivation as domain-separated, not a bare key hash", async () => {
+    // Recorded in every blob and bound into the AAD — this derivation can never
+    // change once blobs exist.
+    const material = key(1);
+    expect(deriveKeyId(material)).toBe(
+      createHash("sha256")
+        .update(Buffer.from("dashframe-secret-key-id\0", "ascii"))
+        .update(material)
+        .digest("hex")
+        .slice(0, 16),
+    );
+    expect(deriveKeyId(material)).not.toBe(
+      createHash("sha256").update(material).digest("hex").slice(0, 16),
+    );
+  });
+
+  it("rejects a blob claiming a future format version", async () => {
+    const locator = await backend().store("future");
+    await rewriteBlob(locator, (blob) => {
+      blob[HEADER.version] = 2;
+    });
+    await expect(
+      backend().withSecret(locator, async (value) => value),
+    ).rejects.toThrow(/Unsupported encrypted blob version 2/);
   });
 });
 
 describe("AC-3: has() never decrypts", () => {
-  it("does not invoke the injected decrypt operation for present or absent blobs", async () => {
-    const decrypt = vi.fn(() => {
-      throw new Error("decrypt must not run");
+  it("never reads blob contents for present or absent locators", async () => {
+    // AES-GCM is not an injectable seam (see `CryptoSurface`), so this pins the
+    // stronger precondition instead: `has()` never reads the file at all, and
+    // what is never read can never be decrypted.
+    const written = await backend().store("secret");
+    const readFile = vi.fn(async () => {
+      throw new Error("has() must not read blob contents");
     });
     const subject = new EncryptedFileSecretBackend(blobs, keyring(key(1)), {
-      crypto: { decrypt },
+      fs: { readFile },
     });
-    const locator = await subject.store("secret");
 
-    expect(await subject.has(locator)).toBe(true);
+    expect(await subject.has(written)).toBe(true);
     expect(await subject.has("b".repeat(32))).toBe(false);
-    expect(decrypt).not.toHaveBeenCalled();
+    expect(readFile).not.toHaveBeenCalled();
+  });
+
+  it("returns false, rather than throwing, for an unusable entry", async () => {
+    // `has()` runs in a loop over every stored credential during
+    // authentication. One poisoned entry must mean "this one is unusable", not
+    // "authentication fails for everybody". The read path still fails loudly on
+    // the same entry — proven below.
+    await fs.mkdir(blobs, { recursive: true, mode: 0o700 });
+    const symlinked = "a".repeat(32);
+    const outside = path.join(root, "outside");
+    await fs.writeFile(outside, "not-a-secret", { mode: 0o600 });
+    await fs.symlink(outside, path.join(blobs, symlinked));
+
+    const wideOpen = "b".repeat(32);
+    await fs.writeFile(path.join(blobs, wideOpen), "irrelevant", {
+      mode: 0o600,
+    });
+    // eslint-disable-next-line sonarjs/file-permissions -- deliberately insecure mode under test
+    await fs.chmod(path.join(blobs, wideOpen), 0o644);
+
+    const directory = "c".repeat(32);
+    await fs.mkdir(path.join(blobs, directory), { mode: 0o700 });
+
+    const subject = backend();
+    expect(await subject.has(symlinked)).toBe(false);
+    expect(await subject.has(wideOpen)).toBe(false);
+    expect(await subject.has(directory)).toBe(false);
+
+    // Same entries, read path: every one is still a hard failure. `has()`
+    // downgrading these to "unusable" must never mean the read path will hand
+    // the value over.
+    await expect(
+      subject.withSecret(symlinked, async (value) => value),
+    ).rejects.toThrow(/Refusing to follow symbolic link/);
+    await expect(
+      subject.withSecret(wideOpen, async (value) => value),
+    ).rejects.toThrow(/must not be group- or world-accessible/);
+    await expect(
+      subject.withSecret(directory, async (value) => value),
+    ).rejects.toThrow(/not a regular file/);
   });
 });
 
@@ -246,6 +402,62 @@ describe("AC-4: locator validation and symlink defense", () => {
       /Refusing to write through a symbolic link/,
     );
     expect(await fs.readFile(outside, "utf8")).toBe("untouched");
+  });
+
+  it("refuses to overwrite a regular file already at the generated write locator", async () => {
+    // The randomness source has collided (or been subverted). Overwriting would
+    // destroy a live secret with no way to recover it.
+    await fs.mkdir(blobs, { recursive: true, mode: 0o700 });
+    const locatorBytes = Buffer.alloc(16, 0xcc);
+    const locator = locatorBytes.toString("hex");
+    await fs.writeFile(path.join(blobs, locator), "existing-blob", {
+      mode: 0o600,
+    });
+    const subject = new EncryptedFileSecretBackend(blobs, keyring(key(1)), {
+      crypto: {
+        randomBytes: vi.fn((size: number) =>
+          size === 12 ? Buffer.alloc(12, 0xbb) : locatorBytes,
+        ),
+      },
+    });
+
+    await expect(subject.store("secret")).rejects.toThrow(
+      /Refusing to overwrite existing blob/,
+    );
+    expect(await fs.readFile(path.join(blobs, locator), "utf8")).toBe(
+      "existing-blob",
+    );
+  });
+
+  it("deletes only the link, never the symlink target", async () => {
+    await fs.mkdir(blobs, { recursive: true, mode: 0o700 });
+    const locator = "d".repeat(32);
+    const outside = path.join(root, "outside");
+    await fs.writeFile(outside, "survives", { mode: 0o600 });
+    await fs.symlink(outside, path.join(blobs, locator));
+
+    await backend().delete(locator);
+    expect(await fs.readFile(outside, "utf8")).toBe("survives");
+    await expect(fs.lstat(path.join(blobs, locator))).rejects.toThrow(/ENOENT/);
+  });
+
+  it("keeps concurrent stores independent", async () => {
+    // Single-writer process, but the server issues stores concurrently. Each
+    // must land on its own locator with its own nonce.
+    const subject = backend();
+    const plaintexts = Array.from({ length: 12 }, (_, i) => `secret-${i}`);
+    const locators = await Promise.all(
+      plaintexts.map((value) => subject.store(value)),
+    );
+    expect(new Set(locators).size).toBe(plaintexts.length);
+    expect(await fs.readdir(blobs)).toHaveLength(plaintexts.length);
+    await Promise.all(
+      locators.map(async (locator, i) =>
+        expect(await subject.withSecret(locator, async (value) => value)).toBe(
+          plaintexts[i],
+        ),
+      ),
+    );
   });
 });
 
@@ -404,7 +616,7 @@ describe("AC-6: key validation at startup", () => {
     await fs.chmod(file, 0o644);
     await expect(
       loadSecretKeyring({ DASHFRAME_SECRET_KEY_FILE: file }),
-    ).rejects.toThrow(/mode 0600/);
+    ).rejects.toThrow(/must not be group- or world-accessible/);
   });
 
   it("loads a mode-0600 key file with one trailing newline", async () => {
@@ -484,6 +696,63 @@ describe("AC-7: keyring rotation", () => {
       newOnly.withSecret(locator, async (value) => value),
     ).rejects.toThrow(/not present in the configured keyring/);
   });
+
+  it("survives a full rotation and then fails closed when the old key is dropped", async () => {
+    // The operator-facing rotation sequence, end to end through the env-var
+    // loader: issue under A → rotate to B keeping A in PREVIOUS → the old blob
+    // still reads → drop A → it fails closed rather than returning garbage.
+    const oldKey = key(1);
+    const newKey = key(2);
+
+    const before = await loadSecretKeyring({
+      DASHFRAME_SECRET_KEY: oldKey.toString("base64"),
+    });
+    const locator = await new EncryptedFileSecretBackend(blobs, before!).store(
+      "issued-before-rotation",
+    );
+
+    const during = await loadSecretKeyring({
+      DASHFRAME_SECRET_KEY: newKey.toString("base64"),
+      DASHFRAME_SECRET_KEY_PREVIOUS: oldKey.toString("base64"),
+    });
+    const rotating = new EncryptedFileSecretBackend(blobs, during!);
+    expect(await rotating.withSecret(locator, async (value) => value)).toBe(
+      "issued-before-rotation",
+    );
+    // New writes always use the active key, never a retired one.
+    const rewritten = await rotating.store("issued-after-rotation");
+    expect((await rawBlob(rewritten)).subarray(35, 51).toString("ascii")).toBe(
+      deriveKeyId(newKey),
+    );
+
+    const after = await loadSecretKeyring({
+      DASHFRAME_SECRET_KEY: newKey.toString("base64"),
+    });
+    const dropped = new EncryptedFileSecretBackend(blobs, after!);
+    await expect(
+      dropped.withSecret(locator, async (value) => value),
+    ).rejects.toThrow(/not present in the configured keyring/);
+    expect(await dropped.withSecret(rewritten, async (value) => value)).toBe(
+      "issued-after-rotation",
+    );
+  });
+
+  it("refuses to start with retired keys but no active key", async () => {
+    // A rotation that moved the key out of DASHFRAME_SECRET_KEY without setting
+    // the new one would otherwise silently start with no encrypted backend.
+    await expect(
+      loadSecretKeyring({
+        DASHFRAME_SECRET_KEY_PREVIOUS: key(1).toString("base64"),
+      }),
+    ).rejects.toThrow(/no active key is configured/);
+  });
+
+  it("tolerates one trailing newline on an inline key, same as a key file", async () => {
+    const loaded = await loadSecretKeyring({
+      DASHFRAME_SECRET_KEY: `${key(1).toString("base64")}\n`,
+    });
+    expect(loaded?.activeKeyId).toBe(deriveKeyId(key(1)));
+  });
 });
 
 describe("AC-8: durable atomic writes", () => {
@@ -537,6 +806,31 @@ describe("AC-8: durable atomic writes", () => {
   });
 });
 
+/**
+ * These errors surface through the access-credentials RPC handlers to a remote
+ * caller. A locator is a live handle to a stored secret, and the host
+ * filesystem layout is not the caller's to learn — so neither may appear in the
+ * message. The detail is expected to live in `cause` instead.
+ */
+function expectsNoPathOrLocator(locator?: string): unknown {
+  return expect.objectContaining({
+    message: expect.not.stringMatching(
+      new RegExp(
+        [
+          escapeRegExp(root),
+          escapeRegExp(os.tmpdir()),
+          "[/\\\\]",
+          ...(locator ? [escapeRegExp(locator)] : []),
+        ].join("|"),
+      ),
+    ),
+  });
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 describe("AC-9: error-message hygiene", () => {
   it("never echoes the locator back in a lookup or validation failure", async () => {
     const subject = backend();
@@ -568,6 +862,56 @@ describe("AC-9: error-message hygiene", () => {
       expect.objectContaining({
         message: expect.not.stringContaining(deriveKeyId(retired)),
       }),
+    );
+  });
+
+  it("never leaks a host path or locator on the symlink read path", async () => {
+    await fs.mkdir(blobs, { recursive: true, mode: 0o700 });
+    const locator = "a".repeat(32);
+    const outside = path.join(root, "outside");
+    await fs.writeFile(outside, "not-a-secret", { mode: 0o600 });
+    await fs.symlink(outside, path.join(blobs, locator));
+
+    await expect(
+      backend().withSecret(locator, async (value) => value),
+    ).rejects.toThrow(expectsNoPathOrLocator(locator));
+  });
+
+  it("never leaks a host path or locator when refusing to overwrite a blob", async () => {
+    await fs.mkdir(blobs, { recursive: true, mode: 0o700 });
+    const locatorBytes = Buffer.alloc(16, 0xcc);
+    const locator = locatorBytes.toString("hex");
+    await fs.writeFile(path.join(blobs, locator), "existing-blob", {
+      mode: 0o600,
+    });
+    const subject = new EncryptedFileSecretBackend(blobs, keyring(key(1)), {
+      crypto: {
+        randomBytes: vi.fn((size: number) =>
+          size === 12 ? Buffer.alloc(12, 0xbb) : locatorBytes,
+        ),
+      },
+    });
+
+    await expect(subject.store("secret")).rejects.toThrow(
+      expectsNoPathOrLocator(locator),
+    );
+  });
+
+  it("never leaks the storage path when the directory is mis-permissioned", async () => {
+    await fs.mkdir(blobs, { recursive: true, mode: 0o700 });
+    // eslint-disable-next-line sonarjs/file-permissions -- deliberately insecure mode under test
+    await fs.chmod(blobs, 0o755);
+    await expect(backend().store("secret")).rejects.toThrow(
+      expectsNoPathOrLocator(),
+    );
+  });
+
+  it("never leaks the storage path when the directory is a symlink", async () => {
+    const real = path.join(root, "elsewhere");
+    await fs.mkdir(real, { mode: 0o700 });
+    await fs.symlink(real, blobs);
+    await expect(backend().store("secret")).rejects.toThrow(
+      expectsNoPathOrLocator(),
     );
   });
 });

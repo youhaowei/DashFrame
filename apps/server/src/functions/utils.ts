@@ -183,7 +183,40 @@ export async function storeCredential(
         "injected — refusing to persist plaintext.",
     );
   }
-  return vault.store(plaintext, { class: "connector-key", locatorHint });
+  return withClassBoundaryMessage(() =>
+    vault.store(plaintext, { class: "connector-key", locatorHint }),
+  );
+}
+
+/**
+ * Translate the vault registry's "no backend for class X" throw into an
+ * operator-legible one.
+ *
+ * `dashframe serve` composes a vault that is scoped to `serve-token` only —
+ * `connector-key` and `assistant-provider` deliberately have no backend there,
+ * because their refs travel with the copiable project DB and must not land in a
+ * host-local store. Without this, an operator trying to save a data-source
+ * credential on serve gets a registry-internal message naming a class name they
+ * have never heard of, which reads like a bug rather than the boundary it is.
+ *
+ * Matched on the registry's message text because it does not export a typed
+ * error; the fallback re-throws untouched, so a miss degrades to today's
+ * behavior rather than swallowing an unrelated failure.
+ */
+export async function withClassBoundaryMessage<T>(
+  operation: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (!/No backend configured for class/i.test(message)) throw error;
+    throw new Error(
+      "dashframe serve stores only access credentials; data-source and " +
+        "assistant credentials require the desktop app.",
+      { cause: error },
+    );
+  }
 }
 
 /**

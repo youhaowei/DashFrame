@@ -18,7 +18,11 @@ import { spawn } from "node:child_process";
 import { z } from "zod";
 
 import { wy } from "../wystack";
-import { flushThenReleaseRefs, vaultFromCtx } from "./utils";
+import {
+  flushThenReleaseRefs,
+  vaultFromCtx,
+  withClassBoundaryMessage,
+} from "./utils";
 
 function flushSnapshotFromCtx(ctx: unknown): (() => Promise<void>) | undefined {
   return (ctx as Record<string, unknown>).flushSnapshot as
@@ -136,10 +140,13 @@ async function storeAssistantCredential(args: {
       "[secret-vault] cannot store assistant provider credential: no vault injected",
     );
   }
-  return args.vault.store(args.plaintext, {
-    class: "assistant-provider",
-    locatorHint: args.locatorHint,
-  });
+  const vault = args.vault;
+  return withClassBoundaryMessage(() =>
+    vault.store(args.plaintext as string, {
+      class: "assistant-provider",
+      locatorHint: args.locatorHint,
+    }),
+  );
 }
 
 async function deleteRef(

@@ -99,6 +99,29 @@ describe("dashframe serve CLI", () => {
       expect(helpText).toContain("Security boundary:");
       expect(helpText).toContain("non-loopback bind");
     });
+
+    it("should document rotation and the fail-closed default", () => {
+      const originalLog = console.log;
+      const output: string[] = [];
+      console.log = (...args: unknown[]) => {
+        output.push(args.join(" "));
+      };
+
+      try {
+        printHelp();
+      } finally {
+        console.log = originalLog;
+      }
+
+      const helpText = output.join("\n");
+      expect(helpText).toContain("DASHFRAME_SECRET_KEY_PREVIOUS");
+      // The three things an operator gets wrong without being told.
+      expect(helpText).toContain("does NOT re-encrypt");
+      expect(helpText).toContain("revoking and re-issuing");
+      expect(helpText).toContain("restart the server");
+      expect(helpText).toContain("fails closed");
+      expect(helpText).toContain("there is no plaintext fallback");
+    });
   });
 
   describe("assertBindIsSafe", () => {
@@ -159,30 +182,20 @@ describe("dashframe serve CLI", () => {
   });
 
   describe("standalone secret composition", () => {
-    it("resolves data-dir without consulting the project path", () => {
+    it("resolves data-dir and project-dir independently, flag over env", () => {
+      const environment = {
+        DASHFRAME_PROJECT_DIR: "/env/project",
+        DASHFRAME_DATA_DIR: "/env/data",
+      };
       expect(
-        resolveDataDir(
-          { project: "/copiable/project" },
-          {
-            DASHFRAME_PROJECT_DIR: "/another/project",
-            DASHFRAME_DATA_DIR: "/host/data",
-          },
-        ),
-      ).toBe("/host/data");
+        resolveDataDir({ project: "/copiable/project" }, environment),
+      ).toBe("/env/data");
+      expect(resolveDataDir({ dataDir: "/flag/data" }, environment)).toBe(
+        "/flag/data",
+      );
+      expect(resolveProjectDirectory({}, environment)).toBe("/env/project");
       expect(
-        resolveDataDir(
-          { project: "/copiable/project", dataDir: "/flag/data" },
-          { DASHFRAME_DATA_DIR: "/env/data" },
-        ),
-      ).toBe("/flag/data");
-      expect(
-        resolveProjectDirectory(
-          { project: "/flag/project" },
-          {
-            DASHFRAME_PROJECT_DIR: "/env/project",
-            DASHFRAME_DATA_DIR: "/irrelevant/data",
-          },
-        ),
+        resolveProjectDirectory({ project: "/flag/project" }, environment),
       ).toBe("/flag/project");
     });
 
@@ -199,6 +212,42 @@ describe("dashframe serve CLI", () => {
       expect(() =>
         assertAccessRootOutsideProject("/copiable/project", "/host/data"),
       ).not.toThrow();
+    });
+
+    it.runIf(process.platform === "darwin" || process.platform === "win32")(
+      "refuses a case-different spelling of the project directory",
+      async () => {
+        // APFS and NTFS are case-insensitive by default, so `/Project/data` and
+        // `/project/data` are the same directory. A byte-wise compare waves the
+        // second spelling through.
+        const root = await fs.mkdtemp(path.join(os.tmpdir(), "server-case-"));
+        try {
+          const project = path.join(root, "Project");
+          await fs.mkdir(project);
+          expect(() =>
+            assertAccessRootOutsideProject(
+              project,
+              path.join(root, "project", "data"),
+            ),
+          ).toThrow(/inside the project directory/);
+        } finally {
+          await fs.rm(root, { recursive: true, force: true });
+        }
+      },
+    );
+
+    it("reports an operator-legible error for an unresolvable data-dir", async () => {
+      const root = await fs.mkdtemp(path.join(os.tmpdir(), "server-enotdir-"));
+      try {
+        // A regular file used as a directory ancestor: ENOTDIR, not ENOENT.
+        const file = path.join(root, "not-a-dir");
+        await fs.writeFile(file, "");
+        expect(() =>
+          assertAccessRootOutsideProject(root, path.join(file, "data")),
+        ).toThrow(/cannot resolve --data-dir .*: ENOTDIR/);
+      } finally {
+        await fs.rm(root, { recursive: true, force: true });
+      }
     });
 
     it("resolves existing symlink ancestors before enforcing separation", async () => {

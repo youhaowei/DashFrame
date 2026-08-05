@@ -219,14 +219,16 @@ export interface DashframeServerOptions {
    * when it is absent — there is no plaintext fallback. `storeCredential`
    * throws rather than persist plaintext (`functions/utils.ts`), and so do
    * `releaseCredentialRefs`, the assistant-provider release, and the connector
-   * bound-resolver. Omitting it is for callers that never cross the credential
-   * boundary (tests, read-only hosts); any credential-bearing mutation on a
-   * vault-less server is an error, not a downgrade. The one vault-absent branch
-   * that does not throw is the read-side `hasApiKey` presence check, which
-   * tolerates legacy plaintext rows written before this boundary existed.
+   * bound-resolver. Omitting it is the normal state for callers that never
+   * cross the credential boundary (tests, read-only hosts) and for a keyless
+   * `dashframe serve`; any credential-bearing mutation on a vault-less server
+   * is an error, not a downgrade. The one vault-absent branch that does not
+   * throw is the read-side `hasApiKey` presence check, which tolerates legacy
+   * plaintext rows written before this boundary existed.
    *
-   * Desktop always injects the keychain vault. `dashframe serve` currently
-   * injects none — see #254.
+   * Desktop always injects the keychain vault. `dashframe serve` injects an
+   * encrypted-file vault when `DASHFRAME_SECRET_KEY` / `DASHFRAME_SECRET_KEY_FILE`
+   * is set, and none otherwise — fail-closed, never a plaintext fallback.
    */
   vault?: SecretVault;
   /** Generic external-access credentials backed by the injected SecretVault. */
@@ -543,7 +545,20 @@ export async function createDashframeServer(
   } else if (opts.authToken) {
     credentialResolvers.push(createTokenResolver(opts.authToken, userId));
   }
-  if (opts.accessCredentials) {
+  // Named access credentials are an ADDITIONAL way in, never the first one.
+  // Registering this resolver is what makes `resolveContext` defined, and a
+  // defined `resolveContext` turns on transport authentication for every
+  // request. On a loopback `dashframe serve` with a secret key but no
+  // `--token`/`authRef`, that would reject every unauthenticated request with
+  // no way to bootstrap the first credential (the issue mutation itself needs
+  // a credential). So the resolver only joins the chain when a primary auth
+  // mechanism already exists; without one, the server stays open exactly as it
+  // was before a key was configured, and the vault is still injected so the
+  // issue/list/revoke functions remain configured for a `--token` operator.
+  const hasPrimaryAuth = Boolean(
+    (opts.authRef && opts.vault) || opts.authToken,
+  );
+  if (opts.accessCredentials && hasPrimaryAuth) {
     credentialResolvers.push(
       createAccessCredentialResolver(opts.accessCredentials),
     );

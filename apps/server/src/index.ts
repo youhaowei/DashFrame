@@ -71,7 +71,26 @@ Security boundary:
 
 Secret encryption:
   Set DASHFRAME_SECRET_KEY_FILE to a mode-0600 key file, or DASHFRAME_SECRET_KEY
-  directly. The value must be canonical padded base64 encoding of 32 bytes.
+  directly. The value must be canonical padded base64 encoding of 32 bytes; one
+  trailing newline is allowed in either spelling.
+
+  DASHFRAME_SECRET_KEY_PREVIOUS holds a comma-separated list of retired keys in
+  the same encoding. They are used only to DECRYPT blobs written before a
+  rotation; new secrets are always written with the active key. Dropping a key
+  from this list permanently loses access to any secret still stored under it.
+
+  To rotate: generate a new key, set it as DASHFRAME_SECRET_KEY, and move the
+  old value into DASHFRAME_SECRET_KEY_PREVIOUS. Rotation does NOT re-encrypt
+  existing secrets — they stay under the key that wrote them, so rotating limits
+  future exposure but does not remediate a compromised key. Full remediation
+  means revoking and re-issuing the affected access credentials.
+
+  All three variables are read once at startup; restart the server after
+  changing any of them.
+
+  With no key configured the server fails closed. Named access credentials are
+  unavailable, nothing is written to disk in the clear, and credential-bearing
+  writes are refused outright: there is no plaintext fallback.
 `);
 }
 
@@ -262,7 +281,16 @@ export function assertAccessRootOutsideProject(
   const accessRoot = resolveExistingPathSegments(
     path.join(dataDir, "access-credentials"),
   );
-  const relative = path.relative(projectRoot, accessRoot);
+  // macOS (APFS/HFS+) and Windows are case-insensitive by default, so a
+  // byte-wise compare lets `--data-dir /Project/data` slip past a project at
+  // `/project` — the same directory, spelled differently. Case-fold both sides
+  // there so the containment check matches what the filesystem actually does.
+  const foldCase =
+    process.platform === "darwin" || process.platform === "win32";
+  const relative = path.relative(
+    foldCase ? projectRoot.toLowerCase() : projectRoot,
+    foldCase ? accessRoot.toLowerCase() : accessRoot,
+  );
   if (
     relative === "" ||
     (!relative.startsWith(`..${path.sep}`) &&
@@ -281,15 +309,31 @@ function resolveExistingPathSegments(targetPath: string): string {
   let candidate = path.resolve(targetPath);
   const missingSegments: string[] = [];
   while (true) {
+    let resolved: string;
     try {
-      return path.join(realpathSync(candidate), ...missingSegments.reverse());
+      // Resolved outside the `path.join` argument list: a throw from inside
+      // that call would otherwise have already consumed `missingSegments` via
+      // the in-place `reverse()` below, corrupting the next iteration.
+      resolved = realpathSync(candidate);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== "ENOENT") {
+        // ENOTDIR (a file used as a directory), EACCES (unreadable ancestor):
+        // real misconfigurations that deserve an operator-legible message
+        // rather than a bare syscall error from deep in the CLI.
+        throw new Error(
+          `cannot resolve --data-dir "${targetPath}": ${code ?? "unknown error"}`,
+          { cause: error },
+        );
+      }
       const parent = path.dirname(candidate);
       if (parent === candidate) return path.resolve(targetPath);
       missingSegments.push(path.basename(candidate));
       candidate = parent;
+      continue;
     }
+    // Copy before reversing — `reverse()` mutates in place.
+    return path.join(resolved, ...[...missingSegments].reverse());
   }
 }
 
@@ -386,8 +430,14 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
 
   const projectDir = resolveProjectDirectory(opts);
   const dataDir = resolveDataDir(opts);
-  assertAccessRootOutsideProject(projectDir, dataDir);
   const secretServices = await createStandaloneSecretServices(dataDir);
+  // Only meaningful once a vault exists: the check guards where host-local
+  // access-credential blobs land, and a keyless serve never writes any. Running
+  // it unconditionally would hard-fail an unusual --project/--data-dir layout
+  // over a feature that host never enabled.
+  if (secretServices.vault) {
+    assertAccessRootOutsideProject(projectDir, dataDir);
+  }
 
   const project = await openProject({
     dir: projectDir,
@@ -420,6 +470,13 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
   closeOnSignal(project, server);
 
   console.log(`[dashframe] project: ${project.dir}`);
+  // Enabled/disabled only — never key material, and never a key ID derived
+  // from it.
+  console.log(
+    secretServices.vault
+      ? "[dashframe] secret encryption: enabled (named access credentials available)"
+      : "[dashframe] secret encryption: disabled (no DASHFRAME_SECRET_KEY/_FILE; named access credentials unavailable)",
+  );
   console.log(`[dashframe] listening: ${server.url}`);
   console.log("[dashframe] ready");
 }
