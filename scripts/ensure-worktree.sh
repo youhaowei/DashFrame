@@ -106,14 +106,24 @@ init_unpopulated_submodules() {
 # Refuse to provision a worktree whose submodule pins point at commits no
 # submodule remote has.
 #
-# The trap this closes: an arm worktree is created from a rev whose
-# libs/wystack pin is a local-only commit, an agent builds on it, and the
-# submodule change later lands upstream as a SQUASH — which publishes the
-# content under a brand-new sha and leaves the pinned commit reachable from
-# nothing on the remote. From then on the arm's submodule gitdir is the only
-# copy, teardown correctly refuses to destroy it, and the worktree is stuck
-# until a human adjudicates. Blocking at creation costs one ls-remote per
-# submodule and avoids that situation entirely.
+# The trap this closes: a worktree is created from a rev whose libs/wystack
+# pin is a local-only commit, an agent builds on it, and the submodule change
+# later lands upstream as a SQUASH — which publishes the content under a
+# brand-new sha and leaves the pinned commit reachable from nothing on the
+# remote. From then on that worktree's submodule gitdir is the only copy,
+# teardown correctly refuses to destroy it, and the worktree is stuck until a
+# human adjudicates. Blocking at creation costs one ls-remote per submodule
+# and avoids that situation.
+#
+# SCOPE — this catches pins whose commit lives in THIS checkout's submodule
+# object store, which is the case that matters here because section 3 only
+# runs in the main checkout and its pins come from main or a local branch.
+# It does NOT catch a pin whose commit was authored inside a SIBLING
+# worktree: submodule gitdirs are per-worktree, so such a commit is absent
+# from this store entirely and is skipped below. That case is not silent —
+# `git submodule update` fails at checkout with "not our ref" — it is just
+# not caught here. Probing sibling worktrees' gitdirs would close it and is
+# left as follow-up.
 #
 # Per AGENTS.md a submodule change lands in its own repo FIRST, so a
 # legitimate in-flight pin is always on a pushed branch and passes here. A
@@ -133,8 +143,9 @@ assert_submodule_pins_pushed() {
     [ -e "$repo_root/$_aspp_sub/.git" ] || continue
     _aspp_pin=$(git -C "$repo_root" rev-parse --verify --quiet "$_aspp_rev:$_aspp_sub" 2>/dev/null || echo "")
     [ -n "$_aspp_pin" ] || continue
-    # A pin whose object is absent locally cannot be judged here at all — and
-    # is not a local-only commit by definition, since nothing local holds it.
+    # A pin whose object this store does not hold cannot be judged here. It
+    # may still be local to a sibling worktree's submodule gitdir — see SCOPE
+    # in the docblock — so this is a known gap, not a proof of pushed-ness.
     git -C "$repo_root/$_aspp_sub" cat-file -e "$_aspp_pin" 2>/dev/null || continue
 
     _aspp_tips=""
@@ -147,13 +158,16 @@ assert_submodule_pins_pushed() {
       # unpushed — the same false-refusal bug remove-worktree.sh carried.
       # Fetch once when something is missing; a failed fetch merely leaves the
       # tip list shorter, which errs toward complaining rather than toward
-      # vouching for a pin no remote actually has.
+      # vouching for a pin no remote actually has. --tags is required: the
+      # default refspec auto-follows a tag only when its object is reachable
+      # from fetched branch history, so a tag sitting on no branch — exactly
+      # the tip most likely to be missing — would never arrive.
       _aspp_missing=false
       for _aspp_sha in $(printf '%s\n' "$_aspp_refs" | awk '{print $1}'); do
         git -C "$repo_root/$_aspp_sub" cat-file -e "$_aspp_sha" 2>/dev/null || _aspp_missing=true
       done
       if [ "$_aspp_missing" = true ]; then
-        git -C "$repo_root/$_aspp_sub" fetch --quiet "$_aspp_remote" >/dev/null 2>&1 || true
+        git -C "$repo_root/$_aspp_sub" fetch --quiet --tags "$_aspp_remote" >/dev/null 2>&1 || true
       fi
       for _aspp_sha in $(printf '%s\n' "$_aspp_refs" | awk '{print $1}'); do
         if git -C "$repo_root/$_aspp_sub" cat-file -e "$_aspp_sha" 2>/dev/null; then
@@ -167,8 +181,15 @@ assert_submodule_pins_pushed() {
       continue
     fi
 
+    # A failing `git log` must not read as "pushed": that is the one way this
+    # guard could fail open. Warn and move on instead of vouching for the pin.
+    _aspp_rc=0
     # shellcheck disable=SC2086
-    _aspp_unpushed=$(git -C "$repo_root/$_aspp_sub" log --oneline "$_aspp_pin" --not $_aspp_tips -- 2>/dev/null || echo "")
+    _aspp_unpushed=$(git -C "$repo_root/$_aspp_sub" log --oneline "$_aspp_pin" --not $_aspp_tips -- 2>/dev/null) || _aspp_rc=$?
+    if [ "$_aspp_rc" -ne 0 ]; then
+      echo "WARNING [ensure-worktree]: could not test the pin of submodule '$_aspp_sub' (git log exited $_aspp_rc) — not verified as pushed." >&2
+      continue
+    fi
     if [ -n "$_aspp_unpushed" ]; then
       echo "ERROR [ensure-worktree]: '$_aspp_rev' pins submodule '$_aspp_sub' at $(printf '%.12s' "$_aspp_pin"), which no remote of that submodule has." >&2
       printf '%s\n' "$_aspp_unpushed" | sed -n '1,5p' | sed 's/^/    /' >&2
@@ -265,9 +286,13 @@ if [ -d "$worktree_path" ]; then
     exit 1
   fi
   assert_main_checkout_unchanged "$repo_root" "$main_head_before" "$main_branch_before"
-  # Reuse path: the pin that matters is the one this worktree already records,
-  # and init_unpopulated_submodules below is about to check it out.
-  assert_submodule_pins_pushed "$(git -C "$worktree_path" rev-parse HEAD)"
+  # Deliberately NOT guarded: this worktree already exists, so there is no
+  # creation to refuse — a block here would only withhold the path to a
+  # worktree that is already on disk, and since remove-worktree.sh rightly
+  # refuses to destroy unpushed submodule work, the worktree could then be
+  # neither entered nor torn down through the sanctioned tooling. The
+  # early-return path for a caller already inside a worktree is unguarded for
+  # the same reason.
   init_unpopulated_submodules "$worktree_path"
   echo "$worktree_path"
   exit 0

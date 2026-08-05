@@ -205,8 +205,12 @@ EOF
       # A failed fetch is deliberately not fatal: the exclusion set merely
       # stays as small as it was, which blocks removal rather than allowing
       # one. The "no remote answered at all" case below still exits.
+      # --tags is required: the default refspec auto-follows a tag only when
+      # its object is reachable from fetched branch history, so a tag sitting
+      # on no branch — exactly the tip most likely to be missing here — would
+      # never arrive, and missing_tip would stay true on every future run.
       if [ "$missing_tip" = true ]; then
-        "$@" fetch --quiet "$remote" >/dev/null 2>&1 || true
+        "$@" fetch --quiet --tags "$remote" >/dev/null 2>&1 || true
       fi
       while read -r sha ref; do
         [ -n "$sha" ] || continue
