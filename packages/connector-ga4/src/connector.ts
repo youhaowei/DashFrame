@@ -40,7 +40,20 @@ export interface GoogleOAuthClientCredentials {
 interface GoogleTokenResponse {
   access_token?: unknown;
   expires_in?: unknown;
+  refresh_token?: unknown;
 }
+
+/**
+ * Write the renewed bundle back to wherever the host keeps it.
+ *
+ * Optional, and a failure to persist must not fail the request the refresh was
+ * for: the freshly minted token is valid in memory either way. Without it the
+ * connector re-refreshes on every call past expiry, which spends a Google
+ * grant per request and eventually trips rate limits.
+ */
+export type PersistTokenBundle = (
+  bundle: GoogleOAuthTokenBundle,
+) => Promise<void>;
 
 interface AccountSummariesResponse {
   accountSummaries?: Array<{
@@ -68,6 +81,12 @@ export interface Ga4ConnectorDependencies {
    * never reach a network path; a refresh without it fails closed.
    */
   oauthClient?: GoogleOAuthClientCredentials;
+  /**
+   * Write-back for a renewed token bundle. Optional for the same reason as
+   * `oauthClient`; omitting it means every call past expiry burns a fresh
+   * refresh grant.
+   */
+  persistTokenBundle?: PersistTokenBundle;
 }
 
 function parseTokenBundle(raw: string): GoogleOAuthTokenBundle {
@@ -98,11 +117,14 @@ function parseTokenBundle(raw: string): GoogleOAuthTokenBundle {
   return bundle;
 }
 
+const DEFAULT_TOKEN_LIFETIME_SECONDS = 3600;
+
 async function refreshAccessToken(
   bundle: GoogleOAuthTokenBundle,
   fetchImpl: typeof fetch,
+  now: () => number,
   oauthClient: GoogleOAuthClientCredentials | undefined,
-): Promise<string> {
+): Promise<GoogleOAuthTokenBundle> {
   if (!bundle.refreshToken) {
     throw new Error("[GA4Connector] Google authorization must be renewed");
   }
@@ -142,7 +164,21 @@ async function refreshAccessToken(
   if (typeof token.access_token !== "string" || !token.access_token) {
     throw new Error("[GA4Connector] Google token refresh returned no token");
   }
-  return token.access_token;
+  const lifetime =
+    typeof token.expires_in === "number" && token.expires_in > 0
+      ? token.expires_in
+      : DEFAULT_TOKEN_LIFETIME_SECONDS;
+  return {
+    ...bundle,
+    accessToken: token.access_token,
+    // Google only returns a refresh token when it rotates one. Keep the
+    // existing one otherwise, or the source loses its grant on first refresh.
+    refreshToken:
+      typeof token.refresh_token === "string" && token.refresh_token
+        ? token.refresh_token
+        : bundle.refreshToken,
+    expiresAt: now() + lifetime * 1000,
+  };
 }
 
 async function accessTokenFor(
@@ -150,10 +186,31 @@ async function accessTokenFor(
   fetchImpl: typeof fetch,
   now: () => number,
   oauthClient: GoogleOAuthClientCredentials | undefined,
+  persist: PersistTokenBundle | undefined,
 ): Promise<string> {
   const bundle = parseTokenBundle(raw);
   if (bundle.expiresAt > now() + 60_000) return bundle.accessToken;
-  return refreshAccessToken(bundle, fetchImpl, oauthClient);
+  const refreshed = await refreshAccessToken(
+    bundle,
+    fetchImpl,
+    now,
+    oauthClient,
+  );
+  if (persist) {
+    try {
+      await persist(refreshed);
+    } catch (error) {
+      // The token in hand is valid; only the write-back failed. Losing the
+      // request over a storage problem is strictly worse than refreshing
+      // again next time. Never include the bundle in what is logged.
+      console.warn(
+        `[GA4Connector] refreshed credential could not be persisted: ${
+          error instanceof Error ? error.message : "unknown error"
+        }`,
+      );
+    }
+  }
+  return refreshed.accessToken;
 }
 
 async function fetchJson(
@@ -246,6 +303,7 @@ export class Ga4Connector extends RemoteApiConnector {
   readonly #fetch: typeof fetch;
   readonly #now: () => number;
   readonly #oauthClient: GoogleOAuthClientCredentials | undefined;
+  readonly #persistTokenBundle: PersistTokenBundle | undefined;
 
   constructor(
     auth: SecretResolver,
@@ -255,6 +313,7 @@ export class Ga4Connector extends RemoteApiConnector {
     this.#fetch = dependencies.fetch ?? fetch;
     this.#now = dependencies.now ?? Date.now;
     this.#oauthClient = dependencies.oauthClient;
+    this.#persistTokenBundle = dependencies.persistTokenBundle;
   }
 
   getFormFields(): FormField[] {
@@ -272,6 +331,7 @@ export class Ga4Connector extends RemoteApiConnector {
         this.#fetch,
         this.#now,
         this.#oauthClient,
+        this.#persistTokenBundle,
       );
       return listProperties(this.#fetch, token);
     });
@@ -295,6 +355,7 @@ export class Ga4Connector extends RemoteApiConnector {
         this.#fetch,
         this.#now,
         this.#oauthClient,
+        this.#persistTokenBundle,
       );
       const response = (await fetchJson(
         this.#fetch,

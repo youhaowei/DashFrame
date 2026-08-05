@@ -3,4 +3,5 @@ export {
   makeGa4Connector,
   type Ga4ConnectorDependencies,
   type GoogleOAuthTokenBundle,
+  type PersistTokenBundle,
 } from "./connector.js";

@@ -187,6 +187,84 @@ describe("GA4 connector", () => {
       expect(fetchImpl).not.toHaveBeenCalled();
     });
 
+    it("persists the renewed bundle so the next call does not refresh again", async () => {
+      // A mutable store standing in for the vault entry: persist writes to it,
+      // and the resolver reads whatever is currently there.
+      let stored = JSON.stringify(bundle(expired));
+      const persistTokenBundle = vi.fn(async (next: GoogleOAuthTokenBundle) => {
+        stored = JSON.stringify(next);
+      });
+      const fetchImpl = vi.fn(async (url: string | URL) =>
+        String(url).includes("oauth2.googleapis.com")
+          ? new Response(
+              JSON.stringify({ access_token: "fresh-token", expires_in: 3600 }),
+              { status: 200 },
+            )
+          : new Response(JSON.stringify({ accountSummaries: [] }), {
+              status: 200,
+            }),
+      );
+      const connector = makeGa4Connector(
+        async <T>(use: (plaintext: string) => Promise<T>) => use(stored),
+        {
+          fetch: fetchImpl as unknown as typeof fetch,
+          now,
+          persistTokenBundle,
+          oauthClient,
+        },
+      );
+
+      await connector.connect();
+      expect(persistTokenBundle).toHaveBeenCalledTimes(1);
+      const saved = JSON.parse(stored) as GoogleOAuthTokenBundle;
+      expect(saved.accessToken).toBe("fresh-token");
+      expect(saved.expiresAt).toBe(now() + 3600_000);
+      // Google returned no new refresh token, so the existing grant is kept.
+      expect(saved.refreshToken).toBe("refresh-token");
+      expect(saved).not.toHaveProperty("clientSecret");
+
+      // The whole point: the second call is already inside the new expiry
+      // window, so it must not spend another refresh grant.
+      fetchImpl.mockClear();
+      await connector.connect();
+      expect(persistTokenBundle).toHaveBeenCalledTimes(1);
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      expect(String(fetchImpl.mock.calls[0]?.[0])).not.toContain(
+        "oauth2.googleapis.com",
+      );
+    });
+
+    it("still serves the request when the write-back fails", async () => {
+      const fetchImpl = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ access_token: "fresh-token" }), {
+            status: 200,
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ accountSummaries: [] }), {
+            status: 200,
+          }),
+        );
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const connector = makeGa4Connector(resolver(bundle(expired)), {
+        fetch: fetchImpl as typeof fetch,
+        now,
+        oauthClient,
+        persistTokenBundle: async () => {
+          throw new Error("vault unavailable");
+        },
+      });
+
+      // The token in hand is valid; only storing it failed.
+      await expect(connector.connect()).resolves.toEqual([]);
+      expect(
+        new Headers(fetchImpl.mock.calls[1]?.[1]?.headers).get("Authorization"),
+      ).toBe("Bearer fresh-token");
+      warn.mockRestore();
+    });
+
     it("refuses to renew a grant minted by a different OAuth client", async () => {
       const fetchImpl = vi.fn();
       const connector = makeGa4Connector(

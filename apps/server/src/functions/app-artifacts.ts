@@ -1,4 +1,7 @@
-import { makeGa4Connector } from "@dashframe/connector-ga4";
+import {
+  makeGa4Connector,
+  type GoogleOAuthTokenBundle,
+} from "@dashframe/connector-ga4";
 import { makeNotionConnector } from "@dashframe/connector-notion";
 import { makePostgresConnector } from "@dashframe/connector-postgres";
 // The canonical bound-resolver type — aliased for readability at the mint site.
@@ -42,6 +45,7 @@ import {
 import { tsToMillis } from "./timestamps";
 import {
   applyCredentialField,
+  flushThenReleaseRefs,
   isRecord,
   modeFromCtx,
   releaseCredentialRefs,
@@ -1524,7 +1528,60 @@ async function ga4ConnectorFor(
           },
         }
       : {}),
+    persistTokenBundle: (bundle) =>
+      persistGa4TokenBundle(ctx, dataSourceId, vault, bundle),
   });
+}
+
+/**
+ * Write a renewed GA4 token bundle back to the source's vault entry.
+ *
+ * Without this the connector holds a fresh access token only for the life of
+ * one request: the next call past the stored expiry refreshes again, spending a
+ * Google grant per request instead of per hour.
+ *
+ * The vault has no in-place rotate — `store` mints a new ref — so this follows
+ * the same ordering every other credential rotation here uses:
+ * store-new → canonical-write → flush-snapshot → release-old. Releasing the old
+ * ref before the new config is durable would leave a snapshot pointing at a
+ * credential that no longer exists.
+ */
+async function persistGa4TokenBundle(
+  ctx: DashframeFunctionContext,
+  dataSourceId: UUID,
+  vault: SecretVault | undefined,
+  bundle: GoogleOAuthTokenBundle,
+): Promise<void> {
+  // A preview executes and rolls back, but a vault write is outside that
+  // transaction and would survive the rollback pointing at a discarded config.
+  if (modeFromCtx(ctx) === "preview") return;
+  const current = (await ctx.db
+    .from(dataSources)
+    .where(eq("id", dataSourceId))
+    .first()) as DataSourceRow | undefined;
+  if (!current) return;
+  const config = { ...((current.config ?? {}) as DataSourceConfig) };
+  const superseded: SecretRef[] = [];
+  await applyCredentialField(
+    config,
+    "apiKey",
+    JSON.stringify(bundle),
+    vault,
+    `apiKey-${dataSourceId}`,
+    false,
+    false,
+    superseded,
+  );
+  await ctx.db
+    .from(dataSources)
+    .where(eq("id", dataSourceId))
+    .update({ config });
+  await flushThenReleaseRefs(
+    ctx.flushSnapshot,
+    superseded,
+    vault,
+    `ga4-refresh-${dataSourceId}`,
+  );
 }
 
 const listGa4Properties = wy.procedure
