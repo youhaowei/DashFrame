@@ -86,9 +86,12 @@ export async function handleConnectorSetupResume(c: Context, app: WyStackApp) {
   c.header("Cache-Control", "no-store");
   c.header("Referrer-Policy", "no-referrer");
   try {
+    // Resuming means handing back a working authorize URL, which rotates the
+    // state nonce. That is a write, so this calls the mutation rather than the
+    // read-only query.
     const call = await app.call(
-      "getConnectorSetupSession",
-      { sessionId: c.req.param("sessionId"), publicResume: true },
+      "reissueConnectorSetupResume",
+      { sessionId: c.req.param("sessionId") },
       { principal: INTERNAL_PRINCIPAL },
     );
     return c.json(call.result as PublicConnectorSetupResumeDto);
@@ -108,8 +111,8 @@ export async function handleConnectorResumeLanding(
 
   try {
     const call = await app.call(
-      "getConnectorSetupSession",
-      { sessionId, publicResume: true },
+      "reissueConnectorSetupResume",
+      { sessionId },
       { principal: INTERNAL_PRINCIPAL },
     );
     const result = call.result as PublicConnectorSetupResumeDto;

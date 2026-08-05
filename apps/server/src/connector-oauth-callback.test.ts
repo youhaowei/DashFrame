@@ -114,8 +114,8 @@ describe("connector OAuth browser routes", () => {
     expect(response.headers.get("location")).toBe(authorizeUrl);
     expect(response.headers.get("referrer-policy")).toBe("no-referrer");
     expect(call).toHaveBeenCalledWith(
-      "getConnectorSetupSession",
-      { sessionId: "opaque-session", publicResume: true },
+      "reissueConnectorSetupResume",
+      { sessionId: "opaque-session" },
       { principal: { kind: "user", userId: LOCAL_USER_ID } },
     );
   });

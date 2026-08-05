@@ -273,4 +273,79 @@ describe("connector setup functions", () => {
     expect(completed.result).toMatchObject({ state: "expired" });
     expect(flushSnapshot).toHaveBeenCalledTimes(2);
   });
+
+  // Reading a session and reissuing its resume capability are different
+  // operations with different consequences, so they are different procedures.
+  // These pin that the query really is side-effect free — a rotation hidden in
+  // it would kill an authorize URL the user is in the middle of using.
+  describe("read/reissue split", () => {
+    async function row(sessionId: string) {
+      const [found] = await db
+        .select()
+        .from(connectorSetupSessions)
+        .where(eq(connectorSetupSessions.id, sessionId));
+      return found;
+    }
+
+    it("reads a session without writing anything or minting a URL", async () => {
+      const app = await makeApp(makeVault().vault);
+      const session = await start(app);
+      const before = await row(session.sessionId);
+      flushSnapshot.mockClear();
+
+      const read = await app.call(
+        "getConnectorSetupSession",
+        { sessionId: session.sessionId },
+        { principal: user },
+      );
+
+      expect(read.tablesWritten.size).toBe(0);
+      expect(read.result).not.toHaveProperty("authorizeUrl");
+      expect(flushSnapshot).not.toHaveBeenCalled();
+      expect(await row(session.sessionId)).toEqual(before);
+    });
+
+    it("reports a lapsed session as expired without persisting the expiry", async () => {
+      const app = await makeApp(makeVault().vault);
+      const session = await start(app);
+      await db
+        .update(connectorSetupSessions)
+        .set({ expiresAt: new Date(0) })
+        .where(eq(connectorSetupSessions.id, session.sessionId));
+
+      const read = await app.call(
+        "getConnectorSetupSession",
+        { sessionId: session.sessionId, publicResume: true },
+        { principal: user },
+      );
+
+      expect(read.result).toMatchObject({ state: "expired" });
+      expect(read.tablesWritten.size).toBe(0);
+      // The stored state is still the pre-expiry one: only a mutation may
+      // advance it, and the sweep or the callback gate will.
+      expect((await row(session.sessionId))?.state).toBe("awaiting-user-auth");
+    });
+
+    it("rotates the capability only through the reissue mutation", async () => {
+      const app = await makeApp(makeVault().vault);
+      const session = await start(app);
+      const before = await row(session.sessionId);
+
+      const reissued = await app.call(
+        "reissueConnectorSetupResume",
+        { sessionId: session.sessionId },
+        { principal: user },
+      );
+      const after = await row(session.sessionId);
+
+      expect(reissued.tablesWritten).toContain("connector_setup_sessions");
+      expect(
+        (reissued.result as { authorizeUrl?: string }).authorizeUrl,
+      ).toContain("state=");
+      expect(after?.stateNonceHash).not.toBe(before?.stateNonceHash);
+      expect(after?.codeVerifier).not.toBe(before?.codeVerifier);
+      // The rotated nonce must be durable before the URL is usable.
+      expect(flushSnapshot).toHaveBeenCalled();
+    });
+  });
 });

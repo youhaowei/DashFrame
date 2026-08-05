@@ -11,11 +11,13 @@ import {
 import {
   ConnectorSetupGateError,
   consumeCallback,
+  effectiveState,
   markConnected,
   markFailed,
   markVerifying,
   oauthStateFor,
   publicResumeInfo,
+  readSession,
   startSession,
   sweep,
   type ConnectorSetupSessionRow,
@@ -88,7 +90,7 @@ function fullDto(
     sessionId: row.id,
     connectorId: row.connectorId,
     requestedName: row.requestedName,
-    state: row.state as ConnectorSetupState,
+    state: effectiveState(row),
     ...(authorizeUrl ? { authorizeUrl } : {}),
     resumeUrl: connectorResumeLink(ctx.getServerEndpoint(), row.id),
     ...(row.dataSourceId ? { dataSourceId: row.dataSourceId } : {}),
@@ -104,11 +106,10 @@ function publicDto(
   row: ConnectorSetupSessionRow,
   authorizeUrl?: string,
 ): PublicConnectorSetupResumeDto {
+  const reported = effectiveState(row);
   const state =
-    row.state === "connected" ||
-    row.state === "failed" ||
-    row.state === "expired"
-      ? row.state
+    reported === "connected" || reported === "failed" || reported === "expired"
+      ? reported
       : "awaiting-user-auth";
   return {
     sessionId: row.id,
@@ -175,25 +176,37 @@ const startConnectorSetup = wy.procedure
     return fullDto(ctx, issuance.session, authorizeUrl);
   });
 
+// A query that reads and nothing else. It cannot hand back an authorize URL:
+// minting one rotates the state nonce and the PKCE verifier, which is a write,
+// and a write hidden inside a query is invisible to callers, retried by any
+// transport that assumes queries are safe, and silently invalidates a resume
+// link that someone else is mid-flight on. Ask for a fresh URL explicitly
+// through `reissueConnectorSetupResume`.
 const getConnectorSetupSession = wy.procedure
   .authorize(permissions.connectors.setup)
   .input({ sessionId: uuid, publicResume: boolean.optional() })
   .query(async (ctx, { sessionId, publicResume }) => {
-    const issuance = await publicResumeInfo(
-      ctx.db,
-      sessionId,
-      new Date(),
-      publicResume === true,
-    );
-    const authorizeUrl =
-      "stateNonce" in issuance ? authorizeUrlFor(ctx, issuance) : undefined;
-    if ("stateNonce" in issuance) {
-      await requireDurableFlush(ctx, "getConnectorSetupSession");
-    }
-    return publicResume
-      ? publicDto(issuance.session, authorizeUrl)
-      : fullDto(ctx, issuance.session, authorizeUrl);
+    const row = await readSession(ctx.db, sessionId);
+    return publicResume ? publicDto(row) : fullDto(ctx, row);
   });
+
+/** Rotate the resume capability and return a usable authorize URL. */
+const reissueConnectorSetupResume = wy.procedure
+  .authorize(permissions.connectors.setup)
+  .input({ sessionId: uuid })
+  .mutation(
+    async (ctx, { sessionId }): Promise<PublicConnectorSetupResumeDto> => {
+      const issuance = await publicResumeInfo(ctx.db, sessionId, new Date());
+      if (!("stateNonce" in issuance)) {
+        return publicDto(issuance.session);
+      }
+      const authorizeUrl = authorizeUrlFor(ctx, issuance);
+      // An authorize URL whose rotated nonce is not yet durable is dead on
+      // arrival: the callback would arrive to a row still holding the old hash.
+      await requireDurableFlush(ctx, "reissueConnectorSetupResume");
+      return publicDto(issuance.session, authorizeUrl);
+    },
+  );
 
 const completeConnectorOAuth = wy.procedure
   .authorize(permissions.connectors.setup)
@@ -332,6 +345,7 @@ export function connectorSetupGateCode(error: unknown): string {
 export const connectorSetupFunctions = {
   startConnectorSetup,
   getConnectorSetupSession,
+  reissueConnectorSetupResume,
   completeConnectorOAuth,
   cancelConnectorSetup,
   sweepConnectorSetupSessions,

@@ -111,8 +111,48 @@ export async function startSession(
 }
 
 /**
+ * Read one session without touching it.
+ *
+ * Kept separate from `publicResumeInfo` because that function writes on three
+ * different paths (expiry, exchange recovery, reissue). A caller that only
+ * wants to look at a session must not go through it.
+ */
+export async function readSession(
+  db: Db,
+  sessionId: string,
+): Promise<ConnectorSetupSessionRow> {
+  const row = (await db
+    .from(connectorSetupSessions)
+    .where(eq("id", sessionId))
+    .first()) as ConnectorSetupSessionRow | undefined;
+  if (!row) throw new ConnectorSetupGateError("session-not-found");
+  return row;
+}
+
+/**
+ * The state a reader should be shown, derived rather than stored.
+ *
+ * An awaiting session past its TTL is expired in every sense a caller cares
+ * about, but persisting that is a write, and reads must not write. Deriving it
+ * here lets the read path report the truth while staying a pure query; the row
+ * itself is flipped by the reissue path, the callback gate, or the sweep.
+ */
+export function effectiveState(
+  row: ConnectorSetupSessionRow,
+  now = new Date(),
+): ConnectorSetupState {
+  return row.state === "awaiting-user-auth" &&
+    row.expiresAt.getTime() <= now.getTime()
+    ? "expired"
+    : (row.state as ConnectorSetupState);
+}
+
+/**
  * Resolve a resume capability. Awaiting sessions rotate both PKCE and state so
  * every resume issuance kills the previous authorize URL automatically.
+ *
+ * Writes on every path that is not an immediate return, so it may only be
+ * called from a mutation.
  */
 export async function publicResumeInfo(
   db: Db,
