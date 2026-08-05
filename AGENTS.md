@@ -106,14 +106,21 @@ not from the harness around them.
 
 ## Lint / test / build
 
-Use the project's own gate `bun run check`, which runs the ticket-ref check
-(`scripts/check-no-ticket-refs.mjs`) and then `turbo check --filter=!@wystack/*`
-(lint + typecheck + test, excluding the vendored submodule packages). The
-`@wystack/*` packages lint with `oxlint`, which is not installed, so a raw
+Use the project's own gate `bun run check`. It runs four things through
+`scripts/run-checks.mjs` — the three convention guards (`check:ticket-refs`,
+`check:wystack-domain-nouns`, `check:apply-commands-boundary`) and then
+`check:packages`, which is `turbo check --filter=!@wystack/*` (lint + typecheck +
+test, excluding the vendored submodule packages). **Every one of them runs even
+when an earlier one fails**, and the summary at the end lists each result; the
+overall exit code is non-zero if any failed. That is deliberate — the guards each
+take under a second, and when they were chained with `&&` a one-line convention
+violation hid every type error and failing test behind it. Re-run just the one
+that failed with `bun run <name>`.
+
+The `@wystack/*` packages lint with `oxlint`, which is not installed, so a raw
 `bun run lint` / `turbo lint` fails on `@wystack/ui`; the project deliberately
-filters them out. The per-task commands below skip the ticket-ref gate — run
-`bun run check` (or `bun run check:ticket-refs`) if you touched code that might carry
-ticket references.
+filters them out. The per-task commands below skip the convention guards — run
+`bun run check` if you touched code that might carry ticket references.
 
 - Lint: `bunx turbo lint --filter='!@wystack/*'`
 - Test: `bunx turbo test --filter='!@wystack/*'`
