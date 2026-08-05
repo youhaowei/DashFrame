@@ -22,6 +22,7 @@ import {
   SecretVault,
   TestBackend,
 } from "@wystack/secret-vault";
+import { applyCommands } from "@wystack/server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -1143,6 +1144,22 @@ describe("buildDashframeApp — vault injection seam", () => {
     return new SecretVault(registry, new InMemoryMappingStore());
   }
 
+  async function createSource(
+    app: Awaited<ReturnType<typeof buildDashframeApp>>,
+    input: Omit<Parameters<typeof cmd<"CreateDataSource">>[1], "id">,
+    context?: Record<string, unknown>,
+  ): Promise<string> {
+    const id = crypto.randomUUID();
+    await applyCommands(app, [cmd("CreateDataSource", { id, ...input })], {
+      mode: "commit",
+      context: {
+        ...(context ?? {}),
+        principal: { kind: "user", userId: LOCAL_USER_ID },
+      },
+    });
+    return id;
+  }
+
   beforeEach(async () => {
     root = mkdtempSync(join(tmpdir(), "dashframe-seam-"));
     project = await openProject({ dir: join(root, "proj") });
@@ -1174,12 +1191,11 @@ describe("buildDashframeApp — vault injection seam", () => {
     // If staticContext spread LAST, the injected vault wins and the call
     // succeeds (store → SecretRef). If merge order were reversed, bogusVault
     // would win and the call would throw with a "no backend" error.
-    const { result } = await app.call(
-      "addDataSource",
+    const id = await createSource(
+      app,
       { type: "notion", name: "Shadow Test", apiKey: "plaintext-key" },
       { vault: bogusVault },
     );
-    const id = (result as { id: string }).id;
     expect(typeof id).toBe("string");
     expect(id.length).toBeGreaterThan(0);
     // The call succeeded → the INJECTED vault was used (bogus would have thrown).
@@ -1197,12 +1213,11 @@ describe("buildDashframeApp — vault injection seam", () => {
     });
 
     // First store a credential via app.call with a bogus vault in context.
-    const { result } = await app.call(
-      "addDataSource",
+    const id = await createSource(
+      app,
       { type: "notion", name: "Identity Test", apiKey: "my-key" },
       { vault: bogusVault },
     );
-    const id = (result as { id: string }).id;
 
     // Now read it back — this calls vault.has(ref) on ctx.vault.
     await app.call("getDataSource", { id }, { vault: bogusVault });
@@ -1223,11 +1238,10 @@ describe("buildDashframeApp — vault injection seam", () => {
     const app = await buildDashframeApp({ db: project.db });
 
     // No credential write — doesn't require vault.
-    const { result } = await app.call("addDataSource", {
+    const id = await createSource(app, {
       type: "csv",
       name: "No Vault Source",
     });
-    const id = (result as { id: string }).id;
     expect(typeof id).toBe("string");
 
     // Read it back.
@@ -1252,12 +1266,12 @@ describe("buildDashframeApp — vault injection seam", () => {
     });
 
     // Credential-bearing call — succeeds only if the vault was injected into context.
-    const { result } = await app.call("addDataSource", {
+    const id = await createSource(app, {
       type: "notion",
       name: "Handler Vault Test",
       apiKey: "threaded-key",
     });
-    expect((result as { id: string }).id).toBeTruthy();
+    expect(id).toBeTruthy();
   });
 });
 

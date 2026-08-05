@@ -296,7 +296,7 @@ describe("command vocabulary", () => {
       expect(await vault.has(stored as never)).toBe(true);
     });
 
-    it("should replace only config (not name) for SetDataSourceConfig, decomposed from updateDataSource", async () => {
+    it("should replace only config (not name) for SetDataSourceConfig", async () => {
       const sourceId = id();
       // Create first, then read the original ref BEFORE the config update so the
       // replacement is provable (not just "the final value is a ref").
@@ -324,7 +324,7 @@ describe("command vocabulary", () => {
       expect(row?.name).toBe("Original");
     });
 
-    it("should rename without touching config for RenameNode, decomposed from updateDataSource", async () => {
+    it("should rename without touching config for RenameNode", async () => {
       const sourceId = id();
       // Read the credential ref BEFORE the rename so "config untouched" is
       // provable: the ref must be byte-identical after RenameNode.

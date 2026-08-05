@@ -21,8 +21,6 @@
  *
  *   DataSource/DataTable/Fields/Metrics commands:
  *   getOrCreateDataSourceByType → GetOrCreateDataSource   (the reference atomic command)
- *   addDataSource              → CreateDataSource
- *   updateDataSource           → SetDataSourceConfig + RenameNode
  *   addDataTable               → CreateDataTable
  *   updateDataTable            → RenameNode + SetDataTableSchema + RefreshDataTable
  *   refreshDataTable           → RefreshDataTable
@@ -40,7 +38,6 @@
  *                                              AddMetric / UpdateMetric / RemoveMetric
  *                                              (same commands, now routed to Insight node)
  *   createVisualization        → CreateVisualization
- *   updateVisualization        → RenameNode + SetChartType + SetChartEncoding
  *   removeVisualization        → DeleteNode
  *   createDashboard            → CreateDashboard
  *   addDashboardItem           → AddDashboardItem
@@ -105,7 +102,11 @@ import {
   type TypedInsightFilter,
 } from "@dashframe/types";
 import { eq, jsonb, text, uuid } from "@wystack/db";
-import { isSecretRef, type SecretRef } from "@wystack/secret-vault";
+import {
+  isSecretRef,
+  type SecretRef,
+  type SecretVault,
+} from "@wystack/secret-vault";
 import type { Command } from "@wystack/server";
 
 // Re-export the client-safe vocabulary so existing server/test imports of
@@ -340,6 +341,31 @@ const getOrCreateDataSource = wy.procedure
     return { id: row.id };
   });
 
+/**
+ * Best-effort compensation for refs minted by the current command before its
+ * database write fails. A release failure must not mask the original write
+ * error; it leaves an inert, recoverable orphan instead.
+ */
+async function releaseFreshRefsBestEffort(
+  vault: SecretVault | undefined,
+  refs: SecretRef[],
+  label: string,
+): Promise<void> {
+  if (vault == null || refs.length === 0) return;
+  const results = await Promise.allSettled(
+    refs.map((ref) => vault.delete(ref)),
+  );
+  const failures = results.filter(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  );
+  if (failures.length > 0) {
+    console.error(
+      `[dashframe] ${label}: ${failures.length} of ${refs.length} freshly-minted credential ref(s) failed to release after a write failure (inert orphan):`,
+      failures.map((failure) => failure.reason),
+    );
+  }
+}
+
 /** CreateDataSource — mints a DataSource with a client-supplied id + config. */
 const createDataSource = wy.procedure
   .input({
@@ -370,44 +396,55 @@ const createDataSource = wy.procedure
       // In preview mode the vault write is skipped — the DB transaction rolls back
       // anyway, but vault.store() is a keychain side-effect outside the transaction
       // that would survive the rollback and permanently orphan a secret.
-      await applyCredentialField(
-        config,
-        "apiKey",
-        apiKey,
-        vault,
-        `apiKey-${id}`,
-        preview,
-        deferRelease,
-      );
-      await applyCredentialField(
-        config,
-        "connectionString",
-        connectionString,
-        vault,
-        `connectionString-${id}`,
-        preview,
-        deferRelease,
-      );
-      const [row] = (await ctx.db.into(dataSources).insert({
-        id,
-        name,
-        kind: type,
-        storage: "live",
-        // Agent-emitted creates carry agent provenance (in the command, so it
-        // survives the publish log replay) so agent-authored sources are auditably
-        // distinct; an absent/malformed value defaults to user.
-        createdBy: coerceProvenance(createdBy),
-        config,
-      })) as DataSourceRow[];
-      if (!row) throw new Error("insert returned no row");
-      return { id: row.id };
+      const minted: SecretRef[] = [];
+      try {
+        await applyCredentialField(
+          config,
+          "apiKey",
+          apiKey,
+          vault,
+          `apiKey-${id}`,
+          preview,
+          deferRelease,
+        );
+        if (!preview && !deferRelease && isSecretRef(config.apiKey)) {
+          minted.push(config.apiKey);
+        }
+        await applyCredentialField(
+          config,
+          "connectionString",
+          connectionString,
+          vault,
+          `connectionString-${id}`,
+          preview,
+          deferRelease,
+        );
+        if (!preview && !deferRelease && isSecretRef(config.connectionString))
+          minted.push(config.connectionString);
+        const [row] = (await ctx.db.into(dataSources).insert({
+          id,
+          name,
+          kind: type,
+          storage: "live",
+          // Agent-emitted creates carry agent provenance (in the command, so it
+          // survives the publish log replay) so agent-authored sources are auditably
+          // distinct; an absent/malformed value defaults to user.
+          createdBy: coerceProvenance(createdBy),
+          config,
+        })) as DataSourceRow[];
+        if (!row) throw new Error("insert returned no row");
+        return { id: row.id };
+      } catch (error) {
+        await releaseFreshRefsBestEffort(vault, minted, "CreateDataSource");
+        throw error;
+      }
     },
   );
 
 /**
  * SetDataSourceConfig — replaces the config slice of a DataSource (the connector
  * secrets). The `name` slice is NOT here — renaming is `RenameNode`. This is the
- * config half decomposed out of the coarse `updateDataSource`.
+ * config half is paired with `RenameNode` for source updates.
  *
  * `extra` carries optional non-credential connector settings (e.g. database name,
  * schema). Sink guard: any key in `extra` that matches "apiKey" or
@@ -487,32 +524,56 @@ const setDataSourceConfig = wy.procedure
       // instead of releasing it immediately, so the canonical write and snapshot
       // flush can happen first.
       const supersededRefs: SecretRef[] = [];
-      await applyCredentialField(
-        config,
-        "apiKey",
-        apiKey,
-        vault,
-        `apiKey-${id}`,
-        preview,
-        deferRelease,
-        supersededRefs,
-      );
-      await applyCredentialField(
-        config,
-        "connectionString",
-        connectionString,
-        vault,
-        `connectionString-${id}`,
-        preview,
-        deferRelease,
-        supersededRefs,
-      );
-      // Merge non-credential keys from `extra` into the config (guarded above).
-      if (isRecord(extra)) {
-        Object.assign(config, extra);
+      const priorApiKey = config.apiKey;
+      const priorConnectionString = config.connectionString;
+      const minted: SecretRef[] = [];
+      try {
+        await applyCredentialField(
+          config,
+          "apiKey",
+          apiKey,
+          vault,
+          `apiKey-${id}`,
+          preview,
+          deferRelease,
+          supersededRefs,
+        );
+        if (
+          !preview &&
+          !deferRelease &&
+          isSecretRef(config.apiKey) &&
+          config.apiKey !== priorApiKey
+        ) {
+          minted.push(config.apiKey);
+        }
+        await applyCredentialField(
+          config,
+          "connectionString",
+          connectionString,
+          vault,
+          `connectionString-${id}`,
+          preview,
+          deferRelease,
+          supersededRefs,
+        );
+        if (
+          !preview &&
+          !deferRelease &&
+          isSecretRef(config.connectionString) &&
+          config.connectionString !== priorConnectionString
+        ) {
+          minted.push(config.connectionString);
+        }
+        // Merge non-credential keys from `extra` into the config (guarded above).
+        if (isRecord(extra)) {
+          Object.assign(config, extra);
+        }
+        // PHASE 2: canonical write — new config (with new ref) is now committed.
+        await ctx.db.from(dataSources).where(eq("id", id)).update({ config });
+      } catch (error) {
+        await releaseFreshRefsBestEffort(vault, minted, "SetDataSourceConfig");
+        throw error;
       }
-      // PHASE 2: canonical write — new config (with new ref) is now committed.
-      await ctx.db.from(dataSources).where(eq("id", id)).update({ config });
 
       // PHASE 3: flush snapshot then release old refs (direct canonical path only).
       // Only relevant when the direct call actually superseded credential refs
@@ -1266,7 +1327,7 @@ const removeMetric = wy.procedure
 /**
  * Remove the `data` key from a Vega-Lite spec before persisting.
  * Keeps storage/privacy behaviour consistent with the legacy
- * createVisualization/updateVisualization handlers in app-artifacts.ts.
+ * createVisualization handler in app-artifacts.ts.
  */
 function stripDataFromSpec(spec: VegaLiteSpec): VegaLiteSpec {
   const next = { ...spec };
@@ -1314,7 +1375,7 @@ async function requireVisualization(
 
 /**
  * SetChartType — change the chart type for an existing Visualization.
- * Decomposed out of the coarse `updateVisualization` blob handler.
+ * Handles the chart-type slice of a visualization update.
  */
 const setChartType = wy.procedure
   .input({ id: uuid, visualizationType: text })

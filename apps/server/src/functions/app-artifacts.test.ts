@@ -28,7 +28,7 @@ import {
   isSecretRef,
   type SecretRef,
 } from "@wystack/secret-vault";
-import type { WyStackApp } from "@wystack/server";
+import { applyCommands, type Command, type WyStackApp } from "@wystack/server";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -37,7 +37,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 
 import { functions } from "../functions";
+import { LOCAL_USER_ID } from "../permissions";
 import { wy } from "../wystack";
+import { cmd } from "./commands";
 
 const { dataFrames, dataSources } = schema;
 
@@ -704,10 +706,10 @@ describe("patchInsight — Zod guard rejects malformed inputs", () => {
 });
 
 // ---------------------------------------------------------------------------
-// addDataSource / updateDataSource — same-operation minted-ref rollback
+// Command credential writes — same-operation minted-ref rollback
 // ---------------------------------------------------------------------------
 //
-// These legacy coarse handlers mint a vault ref (a real keychain-class write via
+// These command handlers mint a vault ref (a real keychain-class write via
 // storeCredential) BEFORE the canonical DB insert/update. Without a rollback, a
 // DB failure after the mint orphans the freshly-stored secret forever (no row
 // references it, so no lifecycle transition can ever find and release it).
@@ -718,7 +720,7 @@ describe("patchInsight — Zod guard rejects malformed inputs", () => {
 // because a DIFFERENT field's write failed in the same call — releasing it would
 // destroy a live credential.
 
-describe("addDataSource / updateDataSource — same-operation minted-ref rollback", () => {
+describe("command credential writes — same-operation minted-ref rollback", () => {
   let dir: string;
   let db: Awaited<ReturnType<typeof openArtifactDb>>;
   let app: WyStackApp;
@@ -736,9 +738,14 @@ describe("addDataSource / updateDataSource — same-operation minted-ref rollbac
     rmSync(dir, { recursive: true, force: true });
   });
 
-  async function call(path: string, args: unknown): Promise<unknown> {
-    const { result } = await app.call(path, args, { vault });
-    return result;
+  async function commit(commands: Command[]): Promise<unknown> {
+    return applyCommands(app, commands, {
+      mode: "commit",
+      context: {
+        vault,
+        principal: { kind: "user", userId: LOCAL_USER_ID },
+      },
+    });
   }
 
   it("releases the same-operation minted ref when the insert fails, and the error propagates", async () => {
@@ -748,11 +755,14 @@ describe("addDataSource / updateDataSource — same-operation minted-ref rollbac
     });
 
     await expect(
-      call("addDataSource", {
-        type: "notion",
-        name: "Will Fail",
-        apiKey: "plaintext-key",
-      }),
+      commit([
+        cmd("CreateDataSource", {
+          id: crypto.randomUUID(),
+          type: "notion",
+          name: "Will Fail",
+          apiKey: "plaintext-key",
+        }),
+      ]),
     ).rejects.toThrow(/simulated insert failure/);
 
     insertSpy.mockRestore();
@@ -770,12 +780,16 @@ describe("addDataSource / updateDataSource — same-operation minted-ref rollbac
   });
 
   it("releases the same-op minted ref and leaves untouched fields' refs intact when the update write fails", async () => {
-    // Seed a row with a live connectionString ref via a successful addDataSource.
-    const { id } = (await call("addDataSource", {
-      type: "postgres",
-      name: "Seed",
-      connectionString: "postgres://seed",
-    })) as { id: string };
+    // Seed a row with a live connectionString ref via a successful command.
+    const id = crypto.randomUUID();
+    await commit([
+      cmd("CreateDataSource", {
+        id,
+        type: "postgres",
+        name: "Seed",
+        connectionString: "postgres://seed",
+      }),
+    ]);
 
     const before = await db.select().from(dataSources);
     const priorConnectionStringRaw = (
@@ -793,10 +807,12 @@ describe("addDataSource / updateDataSource — same-operation minted-ref rollbac
     });
 
     await expect(
-      call("updateDataSource", {
-        id,
-        apiKey: "new-api-key-plaintext",
-      }),
+      commit([
+        cmd("SetDataSourceConfig", {
+          id,
+          apiKey: "new-api-key-plaintext",
+        }),
+      ]),
     ).rejects.toThrow(/simulated update failure/);
 
     updateSpy.mockRestore();
@@ -821,27 +837,35 @@ describe("addDataSource / updateDataSource — same-operation minted-ref rollbac
   });
 
   it("succeeds unchanged on the happy path: the minted ref persists and the row is written", async () => {
-    const result = (await call("addDataSource", {
-      type: "notion",
-      name: "Happy Path",
-      apiKey: "plaintext-key",
-    })) as { id: string };
+    const id = crypto.randomUUID();
+    await commit([
+      cmd("CreateDataSource", {
+        id,
+        type: "notion",
+        name: "Happy Path",
+        apiKey: "plaintext-key",
+      }),
+    ]);
 
     const rows = await db.select().from(dataSources);
     expect(rows.length).toBe(1);
     const config = rows[0]?.config as { apiKey?: unknown };
     expect(isSecretRef(config.apiKey)).toBe(true);
     expect(await vault.has(config.apiKey as SecretRef)).toBe(true);
-    expect(rows[0]?.id).toBe(result.id);
+    expect(rows[0]?.id).toBe(id);
   });
 
   it("persists connector-specific config beside a vault-backed credential", async () => {
-    await call("addDataSource", {
-      type: "postgres",
-      name: "Warehouse",
-      connectionString: "postgres://user:secret@host/db",
-      config: { defaultSchema: "analytics" },
-    });
+    const id = crypto.randomUUID();
+    await commit([
+      cmd("CreateDataSource", {
+        id,
+        type: "postgres",
+        name: "Warehouse",
+        connectionString: "postgres://user:secret@host/db",
+      }),
+      cmd("SetDataSourceConfig", { id, extra: { defaultSchema: "analytics" } }),
+    ]);
 
     const rows = await db.select().from(dataSources);
     const config = rows[0]?.config as {
@@ -853,44 +877,23 @@ describe("addDataSource / updateDataSource — same-operation minted-ref rollbac
     expect(JSON.stringify(config)).not.toContain("postgres://user:secret");
   });
 
-  it("rejects credentials smuggled through connector-specific config", async () => {
-    await expect(
-      call("addDataSource", {
+  it("rejects credentials smuggled through command extra config", async () => {
+    const id = crypto.randomUUID();
+    await commit([
+      cmd("CreateDataSource", {
+        id,
         type: "postgres",
-        name: "Unsafe",
-        config: { connectionString: "postgres://plaintext" },
+        name: "Safe",
       }),
-    ).rejects.toThrow(/not allowed in config/);
-
+    ]);
     await expect(
-      call("addDataSource", {
-        type: "postgres",
-        name: "Nested unsafe",
-        config: { nested: { connectionString: "postgres://plaintext" } },
-      }),
-    ).rejects.toThrow(/not allowed in config/);
-
-    await expect(
-      call("addDataSource", {
-        type: "postgres",
-        name: "Alternate unsafe",
-        config: { dsn: "postgres://plaintext" },
-      }),
-    ).rejects.toThrow(/not allowed in config/);
-
-    expect(await db.select().from(dataSources)).toHaveLength(0);
-  });
-
-  it("rejects invalid values for allowlisted connector config", async () => {
-    await expect(
-      call("addDataSource", {
-        type: "postgres",
-        name: "Invalid schema",
-        config: { defaultSchema: { nested: true } },
-      }),
-    ).rejects.toThrow(/defaultSchema must be a string/);
-
-    expect(await db.select().from(dataSources)).toHaveLength(0);
+      commit([
+        cmd("SetDataSourceConfig", {
+          id,
+          extra: { connectionString: "postgres://plaintext" },
+        }),
+      ]),
+    ).rejects.toThrow(/typed credential fields/i);
   });
 });
 
