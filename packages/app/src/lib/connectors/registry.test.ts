@@ -11,12 +11,14 @@
  *   subscribers re-render); re-registration works afterward
  * - getRegistryVersion() increments on a genuinely new id or a clear, not on
  *   read-only ops or same-id re-registration
- * - Known connector kinds (local, notion) are resolvable after boot registration
+ * - hydrateConnectorRegistry() registers matching factories and skips unknowns
+ * - Known connector kinds (local, notion) are resolvable after registration
  */
 
 import { localFileConnector } from "@dashframe/connector-local";
 import { makeNotionConnector } from "@dashframe/connector-notion";
 import type { AnyConnector } from "@dashframe/engine";
+import type { ConnectorCatalogEntry } from "@dashframe/types";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   clearConnectorRegistry,
@@ -25,6 +27,7 @@ import {
   getConnectors,
   getRegistryVersion,
   hasConnector,
+  hydrateConnectorRegistry,
   registerConnector,
 } from "./registry";
 
@@ -72,6 +75,21 @@ function makeConnector(
       throw new Error("not implemented");
     },
   } as unknown as AnyConnector;
+}
+
+function makeCatalogEntry(
+  id: string,
+  sourceType: "file" | "remote-api" = "file",
+): ConnectorCatalogEntry {
+  return {
+    id,
+    name: `${id} Connector`,
+    description: `Test connector for ${id}`,
+    sourceType,
+    icon: `<svg data-id="${id}"></svg>`,
+    authKind: "none",
+    formFields: [],
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -195,18 +213,11 @@ describe("connector registry", () => {
   });
 
   describe("getConnectors()", () => {
-    it("returns all non-feature-flagged connectors with no options", () => {
-      // notion is feature-flagged off by default; only local is visible
+    it("returns all registered connectors with no options", () => {
       registerConnector(makeConnector("local"));
       registerConnector(makeConnector("notion", "remote-api"));
-      expect(getConnectors()).toHaveLength(1);
-      expect(getConnectors()[0]?.id).toBe("local");
-    });
-
-    it("returns all connectors when showNotion is explicitly true", () => {
-      registerConnector(makeConnector("local"));
-      registerConnector(makeConnector("notion", "remote-api"));
-      expect(getConnectors({ showNotion: true })).toHaveLength(2);
+      expect(getConnectors()).toHaveLength(2);
+      expect(getConnectors().map((c) => c.id)).toEqual(["local", "notion"]);
     });
 
     it("filters by sourceType=file", () => {
@@ -217,30 +228,58 @@ describe("connector registry", () => {
       expect(files[0]?.id).toBe("local");
     });
 
-    it("filters by sourceType=remote-api with showNotion enabled", () => {
-      // notion is the only remote-api connector; must enable showNotion to see it
+    it("filters by sourceType=remote-api", () => {
       registerConnector(makeConnector("local", "file"));
       registerConnector(makeConnector("notion", "remote-api"));
-      const remotes = getConnectors({
-        sourceType: "remote-api",
-        showNotion: true,
-      });
+      const remotes = getConnectors({ sourceType: "remote-api" });
       expect(remotes).toHaveLength(1);
       expect(remotes[0]?.id).toBe("notion");
     });
+  });
 
-    it("excludes notion when showNotion is false (default)", () => {
-      registerConnector(makeConnector("local", "file"));
-      registerConnector(makeConnector("notion", "remote-api"));
-      const visible = getConnectors({ showNotion: false });
-      expect(visible.some((c) => c.id === "notion")).toBe(false);
+  describe("hydrateConnectorRegistry()", () => {
+    it("registers connectors for catalog entries with a matching factory", () => {
+      const local = makeConnector("local");
+      const notion = makeConnector("notion", "remote-api");
+      hydrateConnectorRegistry(
+        [makeCatalogEntry("local"), makeCatalogEntry("notion", "remote-api")],
+        {
+          local: () => local,
+          notion: () => notion,
+        },
+      );
+      expect(getConnectorById("local")).toBe(local);
+      expect(getConnectorById("notion")).toBe(notion);
     });
 
-    it("includes notion when showNotion is true", () => {
-      registerConnector(makeConnector("local", "file"));
-      registerConnector(makeConnector("notion", "remote-api"));
-      const visible = getConnectors({ showNotion: true });
-      expect(visible.some((c) => c.id === "notion")).toBe(true);
+    it("skips catalog entries with no matching factory without throwing", () => {
+      const local = makeConnector("local");
+      expect(() =>
+        hydrateConnectorRegistry(
+          [
+            makeCatalogEntry("local"),
+            makeCatalogEntry("unknown-server-only", "remote-api"),
+          ],
+          { local: () => local },
+        ),
+      ).not.toThrow();
+      expect(getConnectorById("local")).toBe(local);
+      expect(getConnectorById("unknown-server-only")).toBeUndefined();
+    });
+
+    it("delegates to registerConnector (idempotent on re-hydrate of same id)", () => {
+      const c1 = makeConnector("local");
+      const c2 = makeConnector("local");
+      hydrateConnectorRegistry([makeCatalogEntry("local")], {
+        local: () => c1,
+      });
+      const v = getRegistryVersion();
+      hydrateConnectorRegistry([makeCatalogEntry("local")], {
+        local: () => c2,
+      });
+      // Same id re-registration does not bump version (registerConnector contract)
+      expect(getRegistryVersion()).toBe(v);
+      expect(getConnectorById("local")).toBe(c2);
     });
   });
 
@@ -291,7 +330,7 @@ describe("connector registry", () => {
     });
   });
 
-  describe("boot registration — known connector kinds", () => {
+  describe("known connector kinds after registration", () => {
     it("'local' connector is resolvable after registration with correct metadata", () => {
       registerConnector(localFileConnector);
 
@@ -321,6 +360,19 @@ describe("connector registry", () => {
       expect(getConnectorById("local")).toBeDefined();
       expect(getConnectorById("notion")).toBeDefined();
       expect(getConnectorIds()).toHaveLength(2);
+    });
+
+    it("hydrateConnectorRegistry resolves known kinds from a catalog + factories", () => {
+      hydrateConnectorRegistry(
+        [makeCatalogEntry("local"), makeCatalogEntry("notion", "remote-api")],
+        {
+          local: () => localFileConnector,
+          notion: () => notionConnector,
+        },
+      );
+
+      expect(getConnectorById("local")).toBe(localFileConnector);
+      expect(getConnectorById("notion")).toBe(notionConnector);
     });
   });
 });

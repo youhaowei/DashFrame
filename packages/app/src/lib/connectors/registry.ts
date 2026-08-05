@@ -22,6 +22,7 @@ import type {
   RemoteApiConnector,
 } from "@dashframe/engine";
 import { isFileConnector, isRemoteApiConnector } from "@dashframe/engine";
+import type { ConnectorCatalogEntry } from "@dashframe/types";
 import { useSyncExternalStore } from "react";
 
 // ============================================================================
@@ -95,6 +96,29 @@ export function registerConnector(connector: AnyConnector): void {
 }
 
 /**
+ * Populate the registry from a server-fetched connector catalog. For each
+ * catalog entry, looks up a local factory that constructs the live connector
+ * instance (parse/validate/connect behavior can't cross the network — only
+ * metadata can) and registers it. Catalog entries with no matching factory are
+ * skipped silently (a server-known connector with no client-side
+ * implementation yet is not an error here).
+ *
+ * This is the ONLY intended way the registry gets populated in the app; it
+ * replaces unconditional registerConnector() calls at boot. See
+ * ConnectorSetup.tsx for the caller and the factory map.
+ */
+export function hydrateConnectorRegistry(
+  catalog: ConnectorCatalogEntry[],
+  factories: Record<string, () => AnyConnector>,
+): void {
+  for (const entry of catalog) {
+    const factory = factories[entry.id];
+    if (!factory) continue;
+    registerConnector(factory());
+  }
+}
+
+/**
  * Clear all registered connectors.
  *
  * Bumps the registry version and notifies subscribers. The version bump is what
@@ -119,14 +143,6 @@ export function clearConnectorRegistry(): void {
  * Options for filtering connectors
  */
 export interface GetConnectorsOptions {
-  /** Show Notion connector (default: false for explicit surface control) */
-  showNotion?: boolean;
-  /**
-   * Show Postgres connector (default: false).
-   *
-   * Postgres is registered for static metadata and server-side query routing.
-   */
-  showPostgres?: boolean;
   /** Filter by source type */
   sourceType?: "file" | "remote-api";
 }
@@ -136,24 +152,10 @@ export interface GetConnectorsOptions {
  * Order reflects registration order.
  */
 export function getConnectors(options?: GetConnectorsOptions): AnyConnector[] {
-  return Array.from(connectorMap.values()).filter((connector) => {
-    // Feature flag: Notion
-    if (connector.id === "notion" && !(options?.showNotion ?? false)) {
-      return false;
-    }
-
-    // Feature flag: Postgres (connect UI not yet wired)
-    if (connector.id === "postgres" && !(options?.showPostgres ?? false)) {
-      return false;
-    }
-
-    // Filter by source type if specified
-    if (options?.sourceType && connector.sourceType !== options.sourceType) {
-      return false;
-    }
-
-    return true;
-  });
+  return Array.from(connectorMap.values()).filter(
+    (connector) =>
+      !options?.sourceType || connector.sourceType === options.sourceType,
+  );
 }
 
 /**

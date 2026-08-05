@@ -257,6 +257,19 @@ describe("createDashframeServer", () => {
       expect(await capabilitiesResponse.json()).toMatchObject({
         data: { canManageCredentials: false },
       });
+
+      const catalogResponse = await fetch(
+        `${server.url}/api/getConnectorCatalog?args=${encodeURIComponent("{}")}`,
+      );
+      expect(catalogResponse.status).toBe(200);
+      const catalogBody = (await catalogResponse.json()) as {
+        data: { id: string }[];
+      };
+      const catalogIds = catalogBody.data.map((entry) => entry.id);
+      expect(catalogIds).toContain("local");
+      expect(catalogIds).toContain("notion");
+      expect(catalogIds).toContain("postgres");
+      expect(catalogIds).not.toContain("rest");
     });
 
     it("issues, authenticates, and revokes a workspace access credential", async () => {

@@ -39,7 +39,21 @@ vi.mock("@dashframe/connector-notion", () => ({
     auth: <T>(use: (plaintext: string) => Promise<T>) => Promise<T>,
   ) => ({
     id: "notion",
+    name: "Notion",
+    description: "Connect to your Notion workspace.",
+    icon: "<svg></svg>",
     sourceType: "remote-api" as const,
+    // Called eagerly by the server's connector catalog (connector-catalog.ts)
+    // to build ConnectorCatalogEntry.formFields at module load — must be
+    // present even though this test never asserts on it.
+    getFormFields: () => [
+      {
+        name: "apiKey",
+        label: "API Key",
+        type: "password" as const,
+        required: true,
+      },
+    ],
     connect: async () => auth(async () => [{ id: "db-1", name: "Roadmap" }]),
     query: async (databaseId: string, _tableId: string, options?: unknown) => {
       queryCalls.push({ databaseId, options });

@@ -1,5 +1,7 @@
-import { getConnectors } from "@/lib/connectors/registry";
+import { useConnectorCatalog } from "@/data/connector-catalog";
+import { getConnectorById } from "@/lib/connectors/registry";
 import type {
+  AnyConnector,
   FileSourceConnector,
   RemoteApiConnector,
 } from "@dashframe/engine";
@@ -21,24 +23,17 @@ export interface AddConnectionPanelProps {
     connector: RemoteApiConnector,
     credentials: Record<string, unknown>,
   ) => Promise<void>;
-  /** Whether to show Notion connector on this surface. */
-  showNotion?: boolean;
-  /**
-   * Whether to show Postgres connector on this surface.
-   */
-  showPostgres?: boolean;
 }
 
 /**
  * Panel for adding new data connections.
- * Renders connector cards dynamically from the registry.
+ * Renders connector cards dynamically from the server catalog (via registry).
  *
  * @example
  * ```tsx
  * <AddConnectionPanel
  *   onFileSelect={(connector, file) => handleFileUpload(connector, file)}
  *   onConnect={(connector, credentials) => handleConnect(credentials)}
- *   showNotion={true}
  * />
  * ```
  */
@@ -46,14 +41,14 @@ export function AddConnectionPanel({
   error,
   onFileSelect,
   onConnect,
-  showNotion = false,
-  showPostgres = false,
 }: AddConnectionPanelProps) {
-  // Get connectors from registry with feature flags
-  const connectors = useMemo(
-    () => getConnectors({ showNotion, showPostgres }),
-    [showNotion, showPostgres],
-  );
+  const { data: catalog } = useConnectorCatalog();
+  const connectors = useMemo(() => {
+    if (!catalog) return [];
+    return catalog
+      .map((entry) => getConnectorById(entry.id))
+      .filter((c): c is AnyConnector => c !== undefined);
+  }, [catalog]);
 
   return (
     <div className="space-y-6">
