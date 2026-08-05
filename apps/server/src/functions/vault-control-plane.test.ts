@@ -12,7 +12,11 @@
  * Test pattern: TestBackend is used IN TEST SETUP to compose a vault. TestBackend
  * is NEVER used in production (server functions) code — only here.
  */
-import { openArtifactDb, schema } from "@dashframe/server-core";
+import {
+  CREDENTIAL_CLASS,
+  openArtifactDb,
+  schema,
+} from "@dashframe/server-core";
 import {
   InMemoryMappingStore,
   isSecretRef,
@@ -44,7 +48,7 @@ function makeTestVault(): { vault: SecretVault; backend: TestBackend } {
   const backend = new TestBackend();
   const registry = new SecretRegistry();
   registry.register("test", backend, { fallback: true });
-  registry.setClassDefault("connector-key", "test");
+  registry.setClassDefault(CREDENTIAL_CLASS.ConnectorKey, "test");
   const vault = new SecretVault(registry, new InMemoryMappingStore());
   return { vault, backend };
 }

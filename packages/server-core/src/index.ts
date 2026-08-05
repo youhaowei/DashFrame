@@ -40,6 +40,7 @@ export {
   type AccessCredentialRecord,
   type IssuedAccessCredentialRecord,
 } from "./api-access-credentials";
+export { CREDENTIAL_CLASS } from "./credential-classes";
 export { DrizzleMappingStore, FileMappingStore } from "./mapping-store";
 export {
   DASHFRAME_HOME_DIRNAME,

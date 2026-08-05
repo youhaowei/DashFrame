@@ -1,5 +1,8 @@
-import type { ProjectHandle } from "@dashframe/server-core";
-import { ApiAccessCredentials } from "@dashframe/server-core";
+import {
+  ApiAccessCredentials,
+  CREDENTIAL_CLASS,
+  type ProjectHandle,
+} from "@dashframe/server-core";
 import { SecretVault } from "@wystack/secret-vault";
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -299,7 +302,7 @@ describe("dashframe serve CLI", () => {
         // resolve. Desktop keeps `connector-key` on a project-scoped
         // DrizzleMappingStore for the same reason.
         await services.vault!.store("serve-token-secret", {
-          class: "serve-token",
+          class: CREDENTIAL_CLASS.ServeToken,
         });
         expect(
           await fs.readdir(path.join(dataDir, "access-credentials", "blobs")),
@@ -312,7 +315,7 @@ describe("dashframe serve CLI", () => {
 
         await expect(
           services.vault!.store("connector-secret", {
-            class: "connector-key",
+            class: CREDENTIAL_CLASS.ConnectorKey,
           }),
         ).rejects.toThrow(/no fallback default/);
       } finally {

@@ -13,7 +13,7 @@
  * invokes its bound resolver (proving the auth-blind path runs) and returns
  * fixed data. TestBackend is used ONLY in test setup — never in production code.
  */
-import { openArtifactDb } from "@dashframe/server-core";
+import { CREDENTIAL_CLASS, openArtifactDb } from "@dashframe/server-core";
 import {
   InMemoryMappingStore,
   SecretRegistry,
@@ -74,7 +74,7 @@ function makeTestVault(): { vault: SecretVault; backend: TestBackend } {
   const backend = new TestBackend();
   const registry = new SecretRegistry();
   registry.register("test", backend, { fallback: true });
-  registry.setClassDefault("connector-key", "test");
+  registry.setClassDefault(CREDENTIAL_CLASS.ConnectorKey, "test");
   const vault = new SecretVault(registry, new InMemoryMappingStore());
   return { vault, backend };
 }

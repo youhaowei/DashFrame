@@ -211,7 +211,7 @@ export interface DashframeServerOptions {
    * instantiates a backend — it RECEIVES a fully-composed vault.
    *
    * When supplied, control-plane write mutations (create/update DataSource)
-   * call `vault.store(plaintext, { class: "connector-key" }) → ref` instead
+   * call `vault.store(plaintext, { class: CREDENTIAL_CLASS.ConnectorKey }) → ref` instead
    * of persisting the plaintext. Read mutations use `vault.has(ref)` for
    * presence checks (hasApiKey / hasConnectionString).
    *

@@ -11,6 +11,7 @@ import { join } from "node:path";
 
 import {
   ApiAccessCredentials,
+  CREDENTIAL_CLASS,
   openProject,
   type ProjectHandle,
 } from "@dashframe/server-core";
@@ -43,7 +44,7 @@ function makeSecretServices(rootDir: string): {
   const backend = new TestBackend();
   const registry = new SecretRegistry();
   registry.register("test", backend, { fallback: true });
-  registry.setClassDefault("serve-token", "test");
+  registry.setClassDefault(CREDENTIAL_CLASS.ServeToken, "test");
   const vault = new SecretVault(registry, new InMemoryMappingStore());
   return { vault, accessCredentials: new ApiAccessCredentials(vault, rootDir) };
 }
@@ -961,7 +962,7 @@ describe("buildDashframeApp — vault injection seam", () => {
     const backend = new TestBackend();
     const registry = new SecretRegistry();
     registry.register("test", backend, { fallback: true });
-    registry.setClassDefault("connector-key", "test");
+    registry.setClassDefault(CREDENTIAL_CLASS.ConnectorKey, "test");
     const vault = new SecretVault(registry, new InMemoryMappingStore());
     return { vault, backend };
   }
@@ -1117,7 +1118,7 @@ describe("vault-backed serve-token auth", () => {
     const backend = new TestBackend();
     const registry = new SecretRegistry();
     registry.register("test", backend, { fallback: true });
-    registry.setClassDefault("serve-token", "test");
+    registry.setClassDefault(CREDENTIAL_CLASS.ServeToken, "test");
     return new SecretVault(registry, new InMemoryMappingStore());
   }
 
@@ -1136,7 +1137,9 @@ describe("vault-backed serve-token auth", () => {
 
   it("resolves token from vault: valid Bearer → 200, no auth → 401, wrong token → 401", async () => {
     const plaintext = "vault-serve-token-test";
-    const authRef = await vault.store(plaintext, { class: "serve-token" });
+    const authRef = await vault.store(plaintext, {
+      class: CREDENTIAL_CLASS.ServeToken,
+    });
 
     project = await openProject({ dir: join(root, "proj"), name: "Vault Co" });
     server = await createDashframeServer({
@@ -1169,7 +1172,9 @@ describe("vault-backed serve-token auth", () => {
 
   it("vault-backed resolver isolates per-request (token resolved fresh each time)", async () => {
     const plaintext = "rotating-token";
-    const authRef = await vault.store(plaintext, { class: "serve-token" });
+    const authRef = await vault.store(plaintext, {
+      class: CREDENTIAL_CLASS.ServeToken,
+    });
 
     project = await openProject({ dir: join(root, "proj") });
     server = await createDashframeServer({

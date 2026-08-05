@@ -7,6 +7,7 @@
  * registry-internal message to operators, so these tests drive a real
  * `SecretRegistry` — never a stubbed throw — and are the canary for that drift.
  */
+import { CREDENTIAL_CLASS } from "@dashframe/server-core";
 import {
   InMemoryMappingStore,
   SecretRegistry,
@@ -21,7 +22,7 @@ import { storeCredential, withClassBoundaryMessage } from "./utils";
 function serveScopedVault(): SecretVault {
   const registry = new SecretRegistry();
   registry.register("test", new TestBackend());
-  registry.setClassDefault("serve-token", "test");
+  registry.setClassDefault(CREDENTIAL_CLASS.ServeToken, "test");
   return new SecretVault(registry, new InMemoryMappingStore());
 }
 

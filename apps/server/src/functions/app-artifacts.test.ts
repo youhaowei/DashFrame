@@ -14,7 +14,11 @@
  * Pattern matches commands.test.ts: real PGLite, 'should ...' names,
  * structural-invariant testing.
  */
-import { openArtifactDb, schema } from "@dashframe/server-core";
+import {
+  CREDENTIAL_CLASS,
+  openArtifactDb,
+  schema,
+} from "@dashframe/server-core";
 import type { DataFrameAnalysis } from "@dashframe/types";
 import {
   InMemoryMappingStore,
@@ -42,7 +46,7 @@ function makeTestVault(): { vault: SecretVault; backend: TestBackend } {
   const backend = new TestBackend();
   const registry = new SecretRegistry();
   registry.register("test", backend, { fallback: true });
-  registry.setClassDefault("connector-key", "test");
+  registry.setClassDefault(CREDENTIAL_CLASS.ConnectorKey, "test");
   const vault = new SecretVault(registry, new InMemoryMappingStore());
   return { vault, backend };
 }

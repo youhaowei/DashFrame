@@ -33,6 +33,7 @@
   },
   "devDependencies": {
     "@dashframe/eslint-config": "workspace:*",
+    "@dashframe/server-core": "workspace:*",
     "@types/bun": "^1.2.0",
     "typescript": "5.7.2",
     "vitest": "^4.1.6"

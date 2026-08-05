@@ -501,6 +501,7 @@
       },
       "devDependencies": {
         "@dashframe/eslint-config": "workspace:*",
+        "@dashframe/server-core": "workspace:*",
         "@types/bun": "^1.2.0",
         "typescript": "5.7.2",
         "vitest": "^4.1.6",
@@ -530,6 +531,7 @@
         "apache-arrow": "^21.1.0",
       },
       "devDependencies": {
+        "@dashframe/server-core": "workspace:*",
         "@vitest/coverage-v8": "^4.0.16",
         "@wystack/secret-vault": "workspace:*",
         "typescript": "^5.6.0",
@@ -546,6 +548,7 @@
         "pg": "^8.13.3",
       },
       "devDependencies": {
+        "@dashframe/server-core": "workspace:*",
         "@vitest/coverage-v8": "^4.0.16",
         "@wystack/secret-vault": "workspace:*",
         "typescript": "^5.6.0",
@@ -562,6 +565,7 @@
         "ipaddr.js": "2.4.0",
       },
       "devDependencies": {
+        "@dashframe/server-core": "workspace:*",
         "@vitest/coverage-v8": "^4.0.16",
         "typescript": "^5.6.0",
         "vitest": "^4.0.16",
@@ -630,6 +634,7 @@
       },
       "devDependencies": {
         "@dashframe/eslint-config": "workspace:*",
+        "@dashframe/server-core": "workspace:*",
         "@types/node": "^22.10.1",
         "esbuild": "^0.28.0",
         "typescript": "5.7.2",

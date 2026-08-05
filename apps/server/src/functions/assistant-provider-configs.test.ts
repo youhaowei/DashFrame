@@ -3,7 +3,11 @@ import {
   resetOAuthProviders,
   type OAuthCredentials,
 } from "@dashframe/assistant";
-import { openArtifactDb, schema } from "@dashframe/server-core";
+import {
+  CREDENTIAL_CLASS,
+  openArtifactDb,
+  schema,
+} from "@dashframe/server-core";
 import {
   InMemoryMappingStore,
   isSecretRef,
@@ -25,7 +29,7 @@ import { resolveAssistantProviderConfigForRun } from "./assistant-provider-confi
 function makeTestVault(): SecretVault {
   const registry = new SecretRegistry();
   registry.register("test", new TestBackend(), { fallback: true });
-  registry.setClassDefault("assistant-provider", "test");
+  registry.setClassDefault(CREDENTIAL_CLASS.AssistantProvider, "test");
   return new SecretVault(registry, new InMemoryMappingStore());
 }
 

@@ -9,6 +9,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiAccessCredentials } from "./api-access-credentials";
+import { CREDENTIAL_CLASS } from "./credential-classes";
 import { FileMappingStore } from "./mapping-store";
 
 function makeVault(
@@ -17,7 +18,7 @@ function makeVault(
 ): { vault: SecretVault; backend: TestBackend } {
   const registry = new SecretRegistry();
   registry.register("test", backend, { fallback: true });
-  registry.setClassDefault("serve-token", "test");
+  registry.setClassDefault(CREDENTIAL_CLASS.ServeToken, "test");
   return {
     vault: new SecretVault(registry, new FileMappingStore(mappingPath)),
     backend,
