@@ -24,16 +24,8 @@ const fieldId = "33333333-3333-4333-8333-333333333333" as UUID;
 const metricId = "44444444-4444-4444-8444-444444444444" as UUID;
 const tableId = "55555555-5555-4555-8555-555555555555" as UUID;
 
-const current: Pick<
-  Insight,
-  "metrics" | "joins" | "selectedFields" | "filters" | "sorts" | "name"
-> = {
-  name: "Insight",
-  selectedFields: [],
+const current: Pick<Insight, "metrics"> = {
   metrics: [],
-  joins: undefined,
-  filters: undefined,
-  sorts: undefined,
 };
 
 /**
@@ -68,24 +60,15 @@ describe("migrated insight write path", () => {
     ]);
   });
 
-  it("builds RemoveJoin for a join removal edit", async () => {
-    const withJoin = {
-      ...current,
-      joins: [
-        {
-          type: "inner" as const,
-          rightTableId: tableId,
-          leftKey: "id",
-          rightKey: "id",
-        },
-      ],
-    };
+  it("removes a join through an explicit RemoveJoin command", async () => {
+    // Joins are never inferred from an array diff — the call site knows which
+    // index the user removed and says so directly.
     const commitBatch = vi.fn().mockResolvedValue({ ok: true });
-    await commitInsightUpdate(commitBatch, insightId, withJoin, {
-      joins: [],
+    await commitBatch({
+      commands: [cmd("RemoveJoin", { id: insightId, joinIndex: 0 })],
     });
     expect(commitBatch).toHaveBeenCalledWith({
-      commands: [cmd("RemoveJoin", { id: insightId, joinIndex: 0 })],
+      commands: [{ path: "removeJoin", args: { id: insightId, joinIndex: 0 } }],
     });
   });
 
