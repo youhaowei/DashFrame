@@ -6,9 +6,9 @@ import { useInsightView } from "@/hooks/useInsightView";
 import { formatCellValue } from "@/lib/cell-formatter";
 import { getDataFrame } from "@/lib/data-access/data-frames";
 import {
-  TABLE_CANVAS_VIEW,
   canvasViewsEqual,
   sanitizeInsightCanvasView,
+  TABLE_CANVAS_VIEW,
   useInsightCanvasStore,
   type InsightCanvasView,
 } from "@/lib/stores/insight-canvas-store";
@@ -35,7 +35,11 @@ import type {
   VisualizationEncoding,
   VisualizationType,
 } from "@dashframe/types";
-import { CHART_TYPE_METADATA } from "@dashframe/types";
+import {
+  buildInsightUpdateCommands,
+  CHART_TYPE_METADATA,
+  cmd,
+} from "@dashframe/types";
 import {
   CHART_ICONS,
   ControlTooltip,
@@ -793,8 +797,8 @@ export function InsightView({
   } | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
-  // Mutations
-  const { mutateAsync: updateInsight } = useMutation(api.updateInsight);
+  // Mutations — artifact writes go through commitBatch (one batch per user edit).
+  const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
   const { mutateAsync: createVisualizationLocal } = useMutation(
     api.createVisualization,
   );
@@ -830,13 +834,13 @@ export function InsightView({
           // field back — with overlapping debounced renames a rollback would
           // race (clobbering newer input, or restoring a pre-edit name over a
           // partial success); the next keystroke's debounce simply retries.
-          updateInsight({ id: insightId, updates: { name: newName } }).catch(
-            () => toast.error("Couldn't rename the insight"),
-          );
+          commitBatch({
+            commands: [cmd("RenameNode", { id: insightId, name: newName })],
+          }).catch(() => toast.error("Couldn't rename the insight"));
         }
       }, 500);
     },
-    [insightId, insight.name, updateInsight],
+    [insightId, insight.name, commitBatch],
   );
 
   // Cleanup timeout on unmount
@@ -1312,12 +1316,11 @@ export function InsightView({
 
       // Update insight with merged fields and metrics
       // IMPORTANT: Must await to ensure fields/metrics are saved before navigation
-      await updateInsight({
-        id: insightId,
-        updates: {
+      await commitBatch({
+        commands: buildInsightUpdateCommands(insightId, insight, {
           selectedFields: mergedFieldIds,
           metrics: mergedMetrics,
-        },
+        }),
       });
 
       // Convert ChartEncoding (SQL expressions) to VisualizationEncoding (prefixed IDs)
@@ -1360,7 +1363,8 @@ export function InsightView({
       isChartViewReady,
       parseAggregateExpression,
       insight,
-      updateInsight,
+      commitBatch,
+      insight,
       insightId,
       createVisualizationLocal,
       insightVisualizations,

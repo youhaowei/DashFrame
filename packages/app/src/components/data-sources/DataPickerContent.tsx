@@ -20,7 +20,13 @@ import type {
   FileSourceConnector,
   RemoteApiConnector,
 } from "@dashframe/engine";
-import { getFieldSensitivity, type UUID } from "@dashframe/types";
+import type { CreateDataSourceInput, UUID } from "@dashframe/types";
+import {
+  cmd,
+  COMMAND_PATHS,
+  getFieldSensitivity,
+  resultValueByCommandPath,
+} from "@dashframe/types";
 import { useMutation, useQuery } from "@wystack/client";
 import { Button, SectionList } from "@wystack/ui-react";
 import { ArrowLeftIcon } from "@wystack/ui-react/icons";
@@ -106,7 +112,7 @@ export function DataPickerContent({
   });
   const { data: allInsights = [] } = useQuery(api.listInsights, { args: {} });
   const { data: dataFrames = [] } = useQuery(api.listDataFrames);
-  const { mutateAsync: addDataSource } = useMutation(api.addDataSource);
+  const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
   const { mutateAsync: removeDataSource } = useMutation(api.removeDataSource);
   const { mutateAsync: addDataTable } = useMutation(api.addDataTable);
   const { mutateAsync: removeDataTable } = useMutation(api.removeDataTable);
@@ -294,7 +300,37 @@ export function DataPickerContent({
           connectorId: connector.id,
           connectorName: connector.name,
           credentials,
-          addSource: async (input) => (await addDataSource(input)).id,
+          addSource: async (input: CreateDataSourceInput) => {
+            const id = crypto.randomUUID() as UUID;
+            const commands = [
+              cmd("CreateDataSource", {
+                id,
+                type: input.type,
+                name: input.name,
+                apiKey: input.apiKey,
+                connectionString: input.connectionString,
+              }),
+            ];
+            // defaultSchema is non-credential connector config — follow with
+            // SetDataSourceConfig.extra in the same batch when present.
+            if (input.config?.defaultSchema !== undefined) {
+              commands.push(
+                cmd("SetDataSourceConfig", {
+                  id,
+                  extra: { defaultSchema: input.config.defaultSchema },
+                }),
+              );
+            }
+            const batch = await commitBatch({ commands });
+            const created = resultValueByCommandPath(
+              batch,
+              COMMAND_PATHS.CreateDataSource,
+            ) as { id: string } | undefined;
+            if (!created?.id) {
+              throw new Error("CreateDataSource did not return an id");
+            }
+            return created.id as UUID;
+          },
           removeSource: async (id) => {
             await removeDataSource({ id });
           },
@@ -306,7 +342,7 @@ export function DataPickerContent({
       );
     },
     [
-      addDataSource,
+      commitBatch,
       listNotionDatabasesMutation,
       listPostgresTablesMutation,
       removeDataSource,

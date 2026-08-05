@@ -29,6 +29,7 @@ import type {
   InsightSort,
   UUID,
 } from "@dashframe/types";
+import { toDomainFilters } from "@dashframe/types";
 import { z } from "zod";
 
 import { tsToMillis } from "./timestamps";
@@ -177,7 +178,10 @@ export function toInsight(
     baseTableId: definition.baseTableId,
     selectedFields: definition.selectedFields,
     metrics: definition.metrics as InsightMetric[],
-    filters: definition.filters as InsightFilter[] | undefined,
+    // Unwrap tagged filter operands (`{ kind: "value", v }`) written by
+    // SetInsightFilter so the domain Insight (and SQL engine) always see plain
+    // values. Legacy plain values pass through unchanged.
+    filters: toDomainFilters(definition.filters),
     sorts: definition.sorts as InsightSort[] | undefined,
     joins: definition.joins as InsightJoinConfig[] | undefined,
     createdAt: tsToMillis(row.createdAt),

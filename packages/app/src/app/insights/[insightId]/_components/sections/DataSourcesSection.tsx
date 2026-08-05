@@ -1,6 +1,7 @@
 import { JoinFlowModal } from "@/components/visualizations/JoinFlowModal";
 import { api } from "@/wystack/api";
 import type { DataTable, Field, Insight } from "@dashframe/types";
+import { cmd } from "@dashframe/types";
 import { JoinTypeIcon } from "@dashframe/ui";
 import { useMutation, useQuery } from "@wystack/client";
 import {
@@ -33,19 +34,17 @@ export const DataSourcesSection = memo(function DataSourcesSection({
 }: DataSourcesSectionProps) {
   const [isJoinFlowOpen, setIsJoinFlowOpen] = useState(false);
   const { data: allDataFrameEntries = [] } = useQuery(api.listDataFrames);
-  const { mutateAsync: updateInsight } = useMutation(api.updateInsight);
+  const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
 
   // Remove join handler
   const handleRemoveJoin = useCallback(
     async (joinIndex: number) => {
       if (!insight.joins) return;
-      const updatedJoins = insight.joins.filter((_, idx) => idx !== joinIndex);
-      await updateInsight({
-        id: insight.id,
-        updates: { joins: updatedJoins },
+      await commitBatch({
+        commands: [cmd("RemoveJoin", { id: insight.id, joinIndex })],
       });
     },
-    [insight.joins, insight.id, updateInsight],
+    [insight.joins, insight.id, commitBatch],
   );
 
   // Build ItemList items for Data Sources section

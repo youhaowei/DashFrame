@@ -20,8 +20,8 @@ const { mockUseDataSources } = vi.hoisted(() => ({
   mockUseDataSources: vi.fn(),
 }));
 
-const { mockUpdateDataSource } = vi.hoisted(() => ({
-  mockUpdateDataSource: vi.fn(),
+const { mockCommitBatch } = vi.hoisted(() => ({
+  mockCommitBatch: vi.fn(),
 }));
 
 const { mockPatchDataTableArray, mockRemoveDataTable } = vi.hoisted(() => ({
@@ -48,8 +48,8 @@ vi.mock("@wystack/client", async (importOriginal) => {
       throw new Error(`Unexpected query: ${ref._path}`);
     },
     useMutation: (ref: { _path: string }) => {
-      if (ref._path === "updateDataSource") {
-        return { mutateAsync: mockUpdateDataSource };
+      if (ref._path === "commitBatch") {
+        return { mutateAsync: mockCommitBatch };
       }
       if (ref._path === "patchDataTableArray") {
         return { mutateAsync: mockPatchDataTableArray };
@@ -92,11 +92,15 @@ vi.mock("@dashframe/engine", () => ({
   extractColumnAliasComponents: vi.fn(() => null),
 }));
 
-vi.mock("@dashframe/types", () => ({
-  buildSensitivityUpdate: vi.fn(),
-  getFieldSensitivity: () => "unclassified",
-  suggestSensitivityReasons: () => [],
-}));
+vi.mock("@dashframe/types", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@dashframe/types")>();
+  return {
+    ...actual,
+    buildSensitivityUpdate: vi.fn(),
+    getFieldSensitivity: () => "unclassified",
+    suggestSensitivityReasons: () => [],
+  };
+});
 
 // Render AppLayout as a simple passthrough so children appear in the DOM.
 vi.mock("@/components/layouts/AppLayout", () => ({
@@ -248,7 +252,12 @@ describe("DataSourcePageContent — loading state contract", () => {
     vi.clearAllMocks();
     mockPatchDataTableArray.mockResolvedValue({ ok: true });
     mockRemoveDataTable.mockResolvedValue({ ok: true });
-    mockUpdateDataSource.mockResolvedValue({ ok: true });
+    mockCommitBatch.mockResolvedValue({
+      mode: "commit",
+      commands: [],
+      results: [],
+      tablesWritten: [],
+    });
     mockUseDataTables.mockReturnValue({ data: [] });
   });
 
@@ -381,7 +390,7 @@ describe("DataSourcePageContent — loading state contract", () => {
     );
   });
 
-  it("passes the reshaped id and name object to the update mutation", async () => {
+  it("dispatches RenameNode via commitBatch on rename", async () => {
     mockUseDataSources.mockReturnValue({
       data: [DATA_SOURCE],
       isLoading: false,
@@ -396,9 +405,13 @@ describe("DataSourcePageContent — loading state contract", () => {
       });
     });
 
-    expect(mockUpdateDataSource).toHaveBeenCalledWith({
-      id: SOURCE_ID,
-      name: "Renamed Source",
+    expect(mockCommitBatch).toHaveBeenCalledWith({
+      commands: [
+        {
+          path: "renameNode",
+          args: { id: SOURCE_ID, name: "Renamed Source" },
+        },
+      ],
     });
   });
 

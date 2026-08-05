@@ -7,6 +7,7 @@ import {
 import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
 import { api } from "@/wystack/api";
 import type { DataTable, Insight } from "@dashframe/types";
+import { cmd } from "@dashframe/types";
 import { JoinTypeIcon } from "@dashframe/ui";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@wystack/client";
@@ -159,7 +160,7 @@ export const DataModelSection = memo(function DataModelSection({
 
   const { data: allDataFrameEntries = [] } = useQuery(api.listDataFrames);
   const { data: allDataSources = [] } = useQuery(api.listDataSources);
-  const { mutateAsync: updateInsight } = useMutation(api.updateInsight);
+  const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
   const { confirm } = useConfirmDialogStore();
 
   // Remove join handler - shows confirmation then removes
@@ -172,17 +173,13 @@ export const DataModelSection = memo(function DataModelSection({
         variant: "destructive",
         onConfirm: async () => {
           if (!insight.joins) return;
-          const updatedJoins = insight.joins.filter(
-            (_, idx) => idx !== joinIndex,
-          );
-          await updateInsight({
-            id: insight.id,
-            updates: { joins: updatedJoins },
+          await commitBatch({
+            commands: [cmd("RemoveJoin", { id: insight.id, joinIndex })],
           });
         },
       });
     },
-    [insight.joins, insight.id, updateInsight, confirm],
+    [insight.joins, insight.id, commitBatch, confirm],
   );
 
   // Navigate to data source page for a table

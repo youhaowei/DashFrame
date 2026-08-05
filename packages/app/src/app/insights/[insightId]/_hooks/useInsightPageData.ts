@@ -3,6 +3,7 @@ import type { PreviewResult } from "@/lib/insights/compute-preview";
 import { computeInsightPreview } from "@/lib/insights/compute-preview";
 import { api } from "@/wystack/api";
 import {
+  buildInsightUpdateCommands,
   isUnmodifiedDraft,
   type DataSource,
   type DataTable,
@@ -77,16 +78,7 @@ export function useInsightPageData(insightId: string): InsightPageData {
     api.listInsights,
     { args: {} },
   );
-  const { mutateAsync: updateInsightMutation } = useMutation(api.updateInsight);
-  const updateInsight = useCallback(
-    async (
-      id: UUID,
-      updates: Partial<Omit<Insight, "id" | "createdAt">>,
-    ): Promise<void> => {
-      await updateInsightMutation({ id, updates });
-    },
-    [updateInsightMutation],
-  );
+  const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
   const { data: dataSources, isLoading: isSourcesLoading } = useQuery(
     api.listDataSources,
   );
@@ -103,6 +95,25 @@ export function useInsightPageData(insightId: string): InsightPageData {
   const insight = useMemo(
     () => insights?.find((i) => i.id === insightId),
     [insights, insightId],
+  );
+
+  // Metric/join diffs need a loaded baseline; callers must not fire before load.
+  const updateInsight = useCallback(
+    async (
+      id: UUID,
+      updates: Partial<Omit<Insight, "id" | "createdAt">>,
+    ): Promise<void> => {
+      const current = insights?.find((i) => i.id === id) ?? insight;
+      if (!current) {
+        throw new Error(
+          `Insight ${id} not loaded — cannot build command batch`,
+        );
+      }
+      const commands = buildInsightUpdateCommands(id, current, updates);
+      if (commands.length === 0) return;
+      await commitBatch({ commands });
+    },
+    [commitBatch, insight, insights],
   );
 
   // Find data source and table using flat schema (baseTableId directly on insight).

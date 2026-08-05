@@ -1,5 +1,6 @@
 import { getConnectorById } from "@/lib/connectors/registry";
 import { api } from "@/wystack/api";
+import { cmd } from "@dashframe/types";
 import { InputField } from "@dashframe/ui";
 import { useMutation, useQuery } from "@wystack/client";
 import {
@@ -196,7 +197,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
   const { data: allTables } = useQuery(api.listDataTables, {
     args: { dataSourceId: dataSourceId ?? undefined },
   });
-  const { mutateAsync: updateDataSource } = useMutation(api.updateDataSource);
+  const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
   const { mutateAsync: removeDataSource } = useMutation(api.removeDataSource);
   const { mutateAsync: addDataTable } = useMutation(api.addDataTable);
 
@@ -317,7 +318,9 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
 
   const handleNameChange = async (newName: string) => {
     try {
-      await updateDataSource({ id: dataSource.id, name: newName });
+      await commitBatch({
+        commands: [cmd("RenameNode", { id: dataSource.id, name: newName })],
+      });
     } catch {
       toast.error("Failed to rename data source");
     }
@@ -327,7 +330,14 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
     setApiKeyInput(newApiKey);
     if (isRemoteApi) {
       try {
-        await updateDataSource({ id: dataSource.id, apiKey: newApiKey });
+        await commitBatch({
+          commands: [
+            cmd("SetDataSourceConfig", {
+              id: dataSource.id,
+              apiKey: newApiKey,
+            }),
+          ],
+        });
       } catch {
         toast.error("Failed to update API key");
       }

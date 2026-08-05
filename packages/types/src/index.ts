@@ -202,3 +202,36 @@ export type {
   PreviewIntent,
   RenamedTarget,
 } from "./preview-diff";
+
+// =============================================================================
+// Command vocabulary (client-safe builders for commitBatch)
+// =============================================================================
+
+export type {
+  ArtifactProvenance,
+  Command,
+  CommandName,
+  CommandPayloads,
+  CommandRegistryPath,
+  CommandResult,
+  DashboardItemFilterOverride,
+  DashboardItemInput,
+  DashboardItemOverridesInput,
+  FilterOperandValue,
+  InsightSourceInput,
+  LateBoundRef,
+  TypedInsightFilter,
+} from "./commands";
+
+export {
+  COMMAND_PATHS,
+  buildInsightUpdateCommands,
+  buildJoinDiffCommands,
+  buildMetricDiffCommands,
+  buildVisualizationUpdateCommands,
+  cmd,
+  resultValueByCommandPath,
+  toDomainFilters,
+  toTypedFilters,
+  unwrapFilterOperand,
+} from "./commands";

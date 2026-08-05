@@ -1,0 +1,610 @@
+/**
+ * Client-safe command vocabulary — typed builders the UI and agent both use
+ * to assemble `{ path, args }` envelopes for `commitBatch` / `previewDiff`.
+ *
+ * Lives in `@dashframe/types` (no server/Drizzle/vault imports) so the renderer
+ * can import `cmd` without pulling the server module graph into the bundle.
+ * `apps/server/src/functions/commands.ts` re-exports these and owns the
+ * mutation handlers + `commandFunctions` registry only.
+ */
+import type { Field, SourceSchema } from "./field";
+import type {
+  Insight,
+  InsightFilter,
+  InsightJoinConfig,
+  InsightSort,
+} from "./insights";
+import type { InsightMetric, Metric } from "./metric";
+import type { UUID } from "./uuid";
+import type {
+  VegaLiteSpec,
+  Visualization,
+  VisualizationEncoding,
+  VisualizationType,
+} from "./visualizations";
+
+// ---------------------------------------------------------------------------
+// Envelope (mirrors @wystack/server `Command` — kept local so this package
+// stays dependency-free)
+// ---------------------------------------------------------------------------
+
+/**
+ * One command in a batch. `path` is the registry path the handler is
+ * registered under; `args` is the typed payload (opaque at this layer).
+ */
+export interface Command {
+  id?: string;
+  path: string;
+  args: unknown;
+}
+
+/**
+ * One command's outcome in a `commitBatch` / `applyCommands` result.
+ * Parallel to the `commands` array: `results[i]` pairs with `commands[i]`.
+ */
+export interface CommandResult {
+  id?: string;
+  value: unknown;
+}
+
+// ---------------------------------------------------------------------------
+// Operand / source / dashboard input shapes
+// ---------------------------------------------------------------------------
+
+/**
+ * Emitter provenance for artifact creates. Same shape as
+ * `@dashframe/server-core`'s `ArtifactProvenance` — duplicated here so the
+ * types package stays free of server-core.
+ */
+export type ArtifactProvenance = {
+  kind: "user" | "agent";
+  id?: string;
+  runId?: string;
+};
+
+/**
+ * Polymorphic source for Insight commands (DataTable or another Insight).
+ */
+export type InsightSourceInput =
+  | { sourceType: "dataTable"; sourceId: UUID }
+  | { sourceType: "insight"; sourceId: UUID };
+
+/**
+ * A filter predicate value operand — tagged union (discriminant required).
+ * `kind: 'value'`    → the author supplied the literal (v: null = IS NULL).
+ * `kind: 'lateBound'` → the egress gate withheld the value; bound at publish.
+ */
+export type FilterOperandValue =
+  | { kind: "value"; v: unknown }
+  | { kind: "lateBound"; ref: LateBoundRef };
+
+/**
+ * Late-bound reference forms (spec: Artifact API, Operand value-binding).
+ */
+export type LateBoundRef =
+  | { type: "column"; fieldId: UUID }
+  | { type: "category"; handle: string }
+  | { type: "placeholder"; prompt: string };
+
+/**
+ * A filter predicate where the value operand is a FilterOperandValue.
+ * Mirrors InsightFilter from domain types but with the typed operand.
+ *
+ * No `between` operator: the operand model here is scalar (`v: unknown`), and
+ * a range/"between" value can't be expressed by a single scalar. Extending
+ * this to support ranges is out of scope — see the UI-side note in
+ * InsightConfigPanel.tsx's filter handlers, which stay on the legacy
+ * `updateInsight` write path for exactly this reason.
+ */
+export interface TypedInsightFilter {
+  /** Stable identity preserved across UI round-trips when present. */
+  id?: string;
+  field: string;
+  operator: "eq" | "ne" | "gt" | "gte" | "lt" | "lte" | "contains" | "in";
+  value: FilterOperandValue;
+}
+
+/**
+ * Filter override for a single dashboard item.
+ */
+export interface DashboardItemFilterOverride {
+  field: string;
+  operator:
+    | "eq"
+    | "ne"
+    | "gt"
+    | "gte"
+    | "lt"
+    | "lte"
+    | "contains"
+    | "in"
+    | "between";
+  value: unknown;
+  cleared?: boolean;
+}
+
+/** Override bag for a dashboard item (instrument-level overrides). */
+export interface DashboardItemOverridesInput {
+  filters?: DashboardItemFilterOverride[];
+  sorts?: { field: string; direction: "asc" | "desc" }[];
+  limit?: number;
+}
+
+/** A Dashboard item as supplied in AddDashboardItem / SetDashboardLayout. */
+export interface DashboardItemInput {
+  id: UUID;
+  type: "visualization" | "markdown";
+  visualizationId?: UUID;
+  content?: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  overrides?: DashboardItemOverridesInput;
+}
+
+// ---------------------------------------------------------------------------
+// Command payloads + names + paths
+// ---------------------------------------------------------------------------
+
+/**
+ * Typed payloads for each command. Intent-carrying messages the human UI and
+ * the agent both construct; `COMMAND_PATHS` lowers them to the `{ path, args }`
+ * envelope `applyCommands` dispatches.
+ */
+export interface CommandPayloads {
+  // DataSource
+  GetOrCreateDataSource: { id: UUID; type: string; name: string };
+  CreateDataSource: {
+    id: UUID;
+    type: string;
+    name: string;
+    apiKey?: string;
+    connectionString?: string;
+    /** Provenance of the emitter — `{ kind: "agent" }` for agent-authored. */
+    createdBy?: ArtifactProvenance;
+  };
+  SetDataSourceConfig: {
+    id: UUID;
+    apiKey?: string;
+    connectionString?: string;
+    /** Non-credential connector settings. Must not include 'apiKey' or 'connectionString'. */
+    extra?: Record<string, unknown>;
+  };
+  // DataTable
+  CreateDataTable: {
+    id: UUID;
+    dataSourceId: UUID;
+    name: string;
+    table: string;
+    sourceSchema?: SourceSchema;
+    fields?: Field[];
+    metrics?: Metric[];
+    dataFrameId?: UUID;
+  };
+  SetDataTableSchema: { id: UUID; sourceSchema: SourceSchema };
+  RefreshDataTable: { id: UUID; dataFrameId: UUID };
+  // Fields & Metrics (targets DataTable or Insight via nodeId)
+  AddField: { nodeId: UUID; field: Field };
+  UpdateField: { nodeId: UUID; fieldId: UUID; updates: Partial<Field> };
+  RemoveField: { nodeId: UUID; fieldId: UUID };
+  AddMetric: { nodeId: UUID; metric: Metric | InsightMetric };
+  UpdateMetric: { nodeId: UUID; metricId: UUID; updates: Partial<Metric> };
+  RemoveMetric: { nodeId: UUID; metricId: UUID };
+  // Insight
+  CreateInsight: {
+    id: UUID;
+    name: string;
+    source: InsightSourceInput;
+    selectedFields?: UUID[];
+    metrics?: InsightMetric[];
+  };
+  SetInsightSource: { id: UUID; source: InsightSourceInput };
+  SelectFields: { id: UUID; fieldIds: UUID[] };
+  SetInsightFilter: { id: UUID; filters: TypedInsightFilter[] };
+  SetInsightSort: { id: UUID; sorts: InsightSort[] };
+  AddJoin: { id: UUID; join: InsightJoinConfig };
+  UpdateJoin: {
+    id: UUID;
+    joinIndex: number;
+    updates: Partial<InsightJoinConfig>;
+  };
+  RemoveJoin: { id: UUID; joinIndex: number };
+  // Visualization
+  CreateVisualization: {
+    id: UUID;
+    name: string;
+    insightId: UUID;
+    visualizationType: VisualizationType;
+    spec: VegaLiteSpec;
+    encoding?: VisualizationEncoding;
+  };
+  SetChartType: { id: UUID; visualizationType: VisualizationType };
+  SetChartEncoding: {
+    id: UUID;
+    encoding: VisualizationEncoding;
+    spec?: VegaLiteSpec;
+  };
+  // Dashboard
+  CreateDashboard: { id: UUID; name: string; description?: string };
+  AddDashboardItem: { dashboardId: UUID; item: DashboardItemInput };
+  UpdateDashboardItem: {
+    dashboardId: UUID;
+    itemId: UUID;
+    updates: Partial<Omit<DashboardItemInput, "id" | "type">>;
+  };
+  SetDashboardLayout: { dashboardId: UUID; items: DashboardItemInput[] };
+  RemoveDashboardItem: { dashboardId: UUID; itemId: UUID };
+  FanOutDashboardItems: {
+    dashboardId: UUID;
+    sourceItemId: UUID;
+    field: string;
+    placements: {
+      id: UUID;
+      value: unknown;
+      x: number;
+      y: number;
+      width?: number;
+      height?: number;
+    }[];
+  };
+  // Cross-cutting
+  RenameNode: { id: UUID; name: string };
+  DeleteNode: { id: UUID };
+}
+
+export type CommandName = keyof CommandPayloads;
+
+/**
+ * Map a command name to the registry path its backing mutation is registered
+ * under. Single source of truth tying the typed vocabulary to the dispatch path.
+ */
+export const COMMAND_PATHS = {
+  GetOrCreateDataSource: "getOrCreateDataSource",
+  CreateDataSource: "createDataSource",
+  SetDataSourceConfig: "setDataSourceConfig",
+  CreateDataTable: "createDataTable",
+  SetDataTableSchema: "setDataTableSchema",
+  RefreshDataTable: "refreshDataTableCmd",
+  AddField: "addField",
+  UpdateField: "updateField",
+  RemoveField: "removeField",
+  AddMetric: "addMetric",
+  UpdateMetric: "updateMetric",
+  RemoveMetric: "removeMetric",
+  CreateInsight: "createInsightCmd",
+  SetInsightSource: "setInsightSource",
+  SelectFields: "selectFields",
+  SetInsightFilter: "setInsightFilter",
+  SetInsightSort: "setInsightSort",
+  AddJoin: "addJoin",
+  UpdateJoin: "updateJoin",
+  RemoveJoin: "removeJoin",
+  CreateVisualization: "createVisualizationCmd",
+  SetChartType: "setChartType",
+  SetChartEncoding: "setChartEncoding",
+  CreateDashboard: "createDashboardCmd",
+  AddDashboardItem: "addDashboardItemCmd",
+  UpdateDashboardItem: "updateDashboardItemCmd",
+  SetDashboardLayout: "setDashboardLayout",
+  RemoveDashboardItem: "removeDashboardItemCmd",
+  FanOutDashboardItems: "fanOutDashboardItemsCmd",
+  RenameNode: "renameNode",
+  DeleteNode: "deleteNode",
+} as const satisfies { [K in CommandName]: string };
+
+export type CommandRegistryPath = (typeof COMMAND_PATHS)[CommandName];
+
+/**
+ * Build one `Command` envelope from a typed payload. `cmd("AddField", {...})`
+ * gives compile-time checking of the payload AND the right dispatch path.
+ */
+export function cmd<K extends CommandName>(
+  name: K,
+  payload: CommandPayloads[K],
+): Command {
+  return { path: COMMAND_PATHS[name], args: payload };
+}
+
+// ---------------------------------------------------------------------------
+// UI helpers — decompose coarse domain patches into command batches
+// ---------------------------------------------------------------------------
+
+/**
+ * Wrap domain InsightFilter values into the tagged operand form.
+ *
+ * Throws on a `between` filter — TypedInsightFilter's operand is a single
+ * scalar and can't express a range. Callers that may carry `between` filters
+ * (the insight config panel's filter editor) must not route through this
+ * builder; they stay on the legacy `updateInsight` write path instead.
+ */
+export function toTypedFilters(
+  filters: readonly InsightFilter[],
+): TypedInsightFilter[] {
+  return filters.map((f) => {
+    if (f.operator === "between") {
+      throw new Error(
+        "toTypedFilters: 'between' filters are not supported by SetInsightFilter's scalar operand model",
+      );
+    }
+    return {
+      ...(f.id !== undefined ? { id: f.id } : {}),
+      field: f.field,
+      operator: f.operator,
+      value: { kind: "value" as const, v: f.value },
+    };
+  });
+}
+
+/**
+ * Unwrap a stored filter operand for the domain `Insight` shape used by SQL
+ * and the UI. Accepts both tagged `{ kind: "value", v }` (command path) and
+ * plain values (legacy updateInsight path) so either storage form reads cleanly.
+ */
+export function unwrapFilterOperand(value: unknown): unknown {
+  if (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    "kind" in value &&
+    (value as { kind: unknown }).kind === "value" &&
+    "v" in value
+  ) {
+    return (value as { v: unknown }).v;
+  }
+  return value;
+}
+
+/** Map stored filter rows to domain InsightFilter (plain values). */
+export function toDomainFilters(
+  filters: readonly unknown[] | undefined,
+): InsightFilter[] | undefined {
+  if (filters === undefined) return undefined;
+  return filters.map((raw) => {
+    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+      return raw as InsightFilter;
+    }
+    const rec = raw as Record<string, unknown>;
+    return {
+      ...(typeof rec.id === "string" ? { id: rec.id } : {}),
+      field: String(rec.field ?? ""),
+      operator: rec.operator as InsightFilter["operator"],
+      value: unwrapFilterOperand(rec.value),
+    };
+  });
+}
+
+function stableJson(value: unknown): string {
+  return JSON.stringify(value);
+}
+
+/**
+ * Diff two metric lists into Add/Update/Remove commands (one batch).
+ * When order changes with the same id set, rebuild via remove-all + add-all
+ * so array order is preserved (UpdateMetric is in-place and cannot reorder).
+ */
+export function buildMetricDiffCommands(
+  nodeId: UUID,
+  previous: readonly InsightMetric[],
+  next: readonly InsightMetric[],
+): Command[] {
+  const prevById = new Map(previous.map((m) => [m.id, m]));
+  const nextById = new Map(next.map((m) => [m.id, m]));
+  const prevIds = previous.map((m) => m.id);
+  const nextIds = next.map((m) => m.id);
+
+  const sameSet =
+    prevIds.length === nextIds.length &&
+    prevIds.every((id) => nextById.has(id));
+  const orderChanged = sameSet && prevIds.some((id, i) => id !== nextIds[i]);
+
+  const commands: Command[] = [];
+
+  if (orderChanged) {
+    for (let i = previous.length - 1; i >= 0; i--) {
+      commands.push(cmd("RemoveMetric", { nodeId, metricId: previous[i]!.id }));
+    }
+    for (const metric of next) {
+      commands.push(cmd("AddMetric", { nodeId, metric }));
+    }
+    return commands;
+  }
+
+  for (const m of previous) {
+    if (!nextById.has(m.id)) {
+      commands.push(cmd("RemoveMetric", { nodeId, metricId: m.id }));
+    }
+  }
+  for (const m of next) {
+    const prev = prevById.get(m.id);
+    if (!prev) {
+      commands.push(cmd("AddMetric", { nodeId, metric: m }));
+    } else if (stableJson(prev) !== stableJson(m)) {
+      const { id: _id, ...updates } = m;
+      commands.push(
+        cmd("UpdateMetric", {
+          nodeId,
+          metricId: m.id,
+          updates: updates as Partial<Metric>,
+        }),
+      );
+    }
+  }
+  return commands;
+}
+
+function joinsEqual(
+  a: InsightJoinConfig | undefined,
+  b: InsightJoinConfig | undefined,
+): boolean {
+  return stableJson(a) === stableJson(b);
+}
+
+/**
+ * Diff two join arrays into Add/Update/RemoveJoin commands.
+ */
+export function buildJoinDiffCommands(
+  id: UUID,
+  previous: readonly InsightJoinConfig[] | undefined,
+  next: readonly InsightJoinConfig[],
+): Command[] {
+  const prev = previous ?? [];
+  const commands: Command[] = [];
+
+  // Append-only
+  if (
+    next.length === prev.length + 1 &&
+    prev.every((j, i) => joinsEqual(j, next[i]))
+  ) {
+    return [cmd("AddJoin", { id, join: next[next.length - 1]! })];
+  }
+
+  // Single removal
+  if (next.length === prev.length - 1) {
+    for (let i = 0; i < prev.length; i++) {
+      const candidate = [...prev.slice(0, i), ...prev.slice(i + 1)];
+      if (candidate.every((j, k) => joinsEqual(j, next[k]))) {
+        return [cmd("RemoveJoin", { id, joinIndex: i })];
+      }
+    }
+  }
+
+  // Same length — per-index updates
+  if (next.length === prev.length) {
+    for (let i = 0; i < next.length; i++) {
+      if (!joinsEqual(prev[i], next[i])) {
+        commands.push(
+          cmd("UpdateJoin", {
+            id,
+            joinIndex: i,
+            updates: next[i]!,
+          }),
+        );
+      }
+    }
+    return commands;
+  }
+
+  // Full rebuild (remove high→low so indices stay valid, then add)
+  for (let i = prev.length - 1; i >= 0; i--) {
+    commands.push(cmd("RemoveJoin", { id, joinIndex: i }));
+  }
+  for (const join of next) {
+    commands.push(cmd("AddJoin", { id, join }));
+  }
+  return commands;
+}
+
+/**
+ * Decompose a coarse insight patch (legacy `updateInsight` shape) into the
+ * minimal command batch for the slices present in `updates`.
+ *
+ * Requires `current` for metric/join diffs. Slices without a corresponding
+ * command (e.g. unknown keys) are ignored — callers should only pass known
+ * domain fields.
+ */
+export function buildInsightUpdateCommands(
+  id: UUID,
+  current: Pick<
+    Insight,
+    "metrics" | "joins" | "selectedFields" | "filters" | "sorts" | "name"
+  >,
+  updates: Partial<Omit<Insight, "id" | "createdAt">>,
+): Command[] {
+  const commands: Command[] = [];
+
+  if (updates.name !== undefined) {
+    commands.push(cmd("RenameNode", { id, name: updates.name }));
+  }
+  if (updates.selectedFields !== undefined) {
+    commands.push(
+      cmd("SelectFields", { id, fieldIds: updates.selectedFields }),
+    );
+  }
+  if (updates.filters !== undefined) {
+    commands.push(
+      cmd("SetInsightFilter", {
+        id,
+        filters: toTypedFilters(updates.filters),
+      }),
+    );
+  }
+  if (updates.sorts !== undefined) {
+    commands.push(cmd("SetInsightSort", { id, sorts: updates.sorts }));
+  }
+  if (updates.metrics !== undefined) {
+    commands.push(
+      ...buildMetricDiffCommands(id, current.metrics ?? [], updates.metrics),
+    );
+  }
+  if (updates.joins !== undefined) {
+    commands.push(...buildJoinDiffCommands(id, current.joins, updates.joins));
+  }
+  // baseTableId repoint is refused by the legacy path; callers must use
+  // SetInsightSource directly. Silently skip if present.
+
+  return commands;
+}
+
+/**
+ * Decompose a coarse visualization patch into RenameNode / SetChartType /
+ * SetChartEncoding as needed. One user edit → one commands array.
+ */
+export function buildVisualizationUpdateCommands(
+  id: UUID,
+  updates: Partial<
+    Pick<Visualization, "name" | "visualizationType" | "encoding" | "spec">
+  >,
+): Command[] {
+  const commands: Command[] = [];
+  if (updates.name !== undefined) {
+    commands.push(cmd("RenameNode", { id, name: updates.name }));
+  }
+  if (updates.visualizationType !== undefined) {
+    commands.push(
+      cmd("SetChartType", {
+        id,
+        visualizationType: updates.visualizationType,
+      }),
+    );
+  }
+  if (updates.encoding !== undefined || updates.spec !== undefined) {
+    // SetChartEncoding requires encoding; when only spec is patched, pass the
+    // empty object only if encoding is also undefined — callers that only
+    // change encoding always supply it. Spec-only is rare; require encoding.
+    if (updates.encoding === undefined) {
+      throw new Error(
+        "buildVisualizationUpdateCommands: encoding is required when setting spec",
+      );
+    }
+    commands.push(
+      cmd("SetChartEncoding", {
+        id,
+        encoding: updates.encoding,
+        ...(updates.spec !== undefined ? { spec: updates.spec } : {}),
+      }),
+    );
+  }
+  return commands;
+}
+
+/**
+ * Path-match a command result out of a commitBatch response.
+ * Prefer this over index-match so the lookup stays correct if the batch
+ * gains leading commands later.
+ */
+export function resultValueByCommandPath(
+  batch: {
+    commands: readonly Command[];
+    results: readonly CommandResult[];
+  },
+  path: string,
+): unknown {
+  const index = batch.commands.findIndex((c) => c.path === path);
+  if (index < 0) {
+    throw new Error(
+      `commitBatch result: no command with path "${path}" in batch`,
+    );
+  }
+  return batch.results[index]?.value;
+}

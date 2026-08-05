@@ -17,6 +17,7 @@ import { extractColumnAliasComponents } from "@dashframe/engine";
 import type { ColumnAnalysis, FieldSensitivity, UUID } from "@dashframe/types";
 import {
   buildSensitivityUpdate,
+  cmd,
   getFieldSensitivity,
   suggestSensitivityReasons,
 } from "@dashframe/types";
@@ -165,7 +166,7 @@ export default function DataSourcePageContent({
     isLoading,
     isFetching,
   } = useQuery(api.listDataSources);
-  const { mutateAsync: updateDataSource } = useMutation(api.updateDataSource);
+  const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
   const { mutateAsync: removeDataTable } = useMutation(api.removeDataTable);
   const { mutateAsync: patchDataTableArray } = useMutation(
     api.patchDataTableArray,
@@ -232,7 +233,10 @@ export default function DataSourcePageContent({
     try {
       await withPerfAsync(
         PerfStage.CommandApply,
-        () => updateDataSource({ id: sourceId, name: newName }),
+        () =>
+          commitBatch({
+            commands: [cmd("RenameNode", { id: sourceId, name: newName })],
+          }),
         `data-source:${sourceId}`,
       );
     } catch {
