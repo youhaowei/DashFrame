@@ -18,9 +18,11 @@ describe("permissions", () => {
       "accessCredentials.manage",
     );
     expect(permissions.commands.commit.id).toBe("commands.commit");
+    expect(permissions.commands.preview.id).toBe("commands.preview");
     expect(expectedPermissionIds).toEqual([
       "accessCredentials.manage",
       "commands.commit",
+      "commands.preview",
     ]);
   });
 
@@ -96,6 +98,27 @@ describe("permissions", () => {
     });
     await expect(
       evaluate(service.principal, permissions.commands.commit, service),
+    ).resolves.toBe(false);
+  });
+
+  it("allows preview for any well-formed principal, service or user", async () => {
+    const service = context({
+      kind: "service",
+      credentialId: "credential-1",
+    });
+    const user = context({ kind: "user", userId: LOCAL_USER_ID });
+
+    for (const ctx of [service, user]) {
+      await expect(
+        evaluate(ctx.principal, permissions.commands.preview, ctx),
+      ).resolves.toBe(true);
+    }
+  });
+
+  it("still denies preview with no principal at all — `evaluate` requires a well-formed Principal before it calls any permission's `check`, so 'preview is open' cannot mean 'no identity required'", async () => {
+    const anonymous = context(undefined);
+    await expect(
+      evaluate(anonymous.principal, permissions.commands.preview, anonymous),
     ).resolves.toBe(false);
   });
 });

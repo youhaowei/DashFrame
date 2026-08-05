@@ -63,7 +63,7 @@ import { applyCommands, type WyStackApp } from "@wystack/server";
 
 import { permissions } from "../permissions";
 import { wy } from "../wystack";
-import { commandFunctions } from "./commands";
+import { assertKnownCommandPaths, commandFunctions } from "./commands";
 
 const {
   dataSources,
@@ -1169,6 +1169,7 @@ function dashboardVisRefs(layout: unknown): string[] {
  */
 const previewDiff = wy.procedure
   .input({ commands: jsonb })
+  .authorize(permissions.commands.preview)
   .query(async (ctx, { commands }): Promise<PreviewDiff> => {
     const wyStackApp = ctx.wyStackApp as WyStackApp | undefined;
     const artifactDb = ctx.artifactDb as ArtifactDb | undefined;
@@ -1184,6 +1185,14 @@ const previewDiff = wy.procedure
     if (!Array.isArray(commands)) {
       throw new Error("previewDiff: commands must be an array");
     }
+    // Reject any non-vocabulary path (e.g. a nested `publishDraft`) BEFORE
+    // dispatch. Preview execute-then-rolls-back the vocabulary commands it
+    // knows about; a lifecycle procedure dispatched from inside the batch
+    // would run its OWN transaction outside that rollback's reach, and its
+    // `.authorize(commands.commit)` check would read `mode: "preview"` off
+    // THIS request and pass — a service principal (who can only preview)
+    // would escalate to a real publish. See `assertKnownCommandPaths`.
+    assertKnownCommandPaths(commands as Command[], "previewDiff");
     // Pass through vault and per-request auth context to buildPreviewDiff.
     // Strip runtime-only keys (db, wyStackApp, artifactDb) that don't belong
     // in the applyCommands context.
@@ -1213,6 +1222,9 @@ const commitBatch = wy.procedure
     if (!Array.isArray(commands)) {
       throw new Error("commitBatch: commands must be an array");
     }
+    // Same nested-dispatch hazard as previewDiff — reject non-vocabulary
+    // paths before a single command runs. See `assertKnownCommandPaths`.
+    assertKnownCommandPaths(commands as Command[], "commitBatch");
 
     const handlerContext: Record<string, unknown> = {};
     if (ctx.vault !== undefined) handlerContext.vault = ctx.vault;

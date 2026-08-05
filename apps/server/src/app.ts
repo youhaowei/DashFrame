@@ -563,10 +563,27 @@ export async function createDashframeServer(
       createAccessCredentialResolver(opts.accessCredentials),
     );
   }
-  const resolveContext =
-    credentialResolvers.length > 0
-      ? combineResolvers(...credentialResolvers)
-      : undefined;
+  // No auth mechanism configured at all (no authToken, no authRef, no
+  // accessCredentials) — this is the documented token-less loopback config
+  // (`dashframe serve` with no `--token`; see index.ts's help text: "The
+  // default bind is loopback-only and safe to run without a token").
+  // `assertBindAuthorized` above already confirmed this combination is only
+  // reachable on a loopback bind (or an explicit `insecure: true` opt-out),
+  // so trusting every request as the local operator is the SAME trust model
+  // this config always had — pre-`commands.commit`, no procedure but
+  // `accessCredentials.manage` carried an `.authorize` check, so a missing
+  // principal never blocked anything. Now that every command procedure does,
+  // an absent principal denies every one of them: this loopback config would
+  // silently become read-only (previewDiff still works — its permission is
+  // open — but every command, `commitBatch`, `publishDraft`, and
+  // `discardDraft` would 403). Synthesize the local user principal for every
+  // request so the trust model is unchanged.
+  if (credentialResolvers.length === 0) {
+    credentialResolvers.push(async () => ({
+      principal: { kind: "user", userId },
+    }));
+  }
+  const resolveContext = combineResolvers(...credentialResolvers);
 
   // Wrap the WyStack app to inject the vault into every handler context and
   // to fire `opts.onWrite` after every successful mutation.

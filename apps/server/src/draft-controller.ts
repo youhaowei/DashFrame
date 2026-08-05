@@ -83,6 +83,7 @@ import { eq, getTableName, sql } from "drizzle-orm";
 
 import { assertPublishLogHasNoLateBound } from "./draft-late-bound";
 import { computeLogSignature } from "./draft-log-signature";
+import { assertKnownCommandPaths } from "./functions/commands";
 
 /**
  * The closed set of `<table>__draft` shadows a draft can touch. Discard
@@ -763,6 +764,17 @@ export function createDraftController(
     },
 
     async appendToDraft(draftId, batch, context = {}) {
+      // Reject any non-vocabulary path (e.g. a nested `publishDraft`) BEFORE
+      // a single command runs. Every command below dispatches with `draftId`
+      // in context, and `commands.commit`'s `.authorize` check treats
+      // `ctx.draftId != null` as "this is a draft-append step" — a lifecycle
+      // procedure (publishDraft/discardDraft/commitBatch) nested in the batch
+      // would read that SAME marker and pass, then run its own real
+      // transaction using its OWN args (e.g. a different, unrelated draftId
+      // to publish for real) — a service principal that can only ever draft
+      // would escalate to a real canonical publish. See
+      // `assertKnownCommandPaths` in functions/commands.ts.
+      assertKnownCommandPaths(batch, "appendToDraft");
       // Route writes through the draft overlay by passing a BASE DrizzleTracker plus a
       // `draftId` in context, so `app.runHandler`'s `withDraftSeam` builds the
       // per-table FALL-THROUGH draft handle (draftable tables → `<table>__draft`,

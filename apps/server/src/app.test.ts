@@ -30,6 +30,7 @@ import {
   type DashframeServer,
 } from "./app";
 import type { ProjectInfoResult } from "./functions";
+import { cmd } from "./functions/commands";
 import { LOCAL_USER_ID } from "./permissions";
 
 function bearer(token: string): { Authorization: string } {
@@ -343,6 +344,113 @@ describe("createDashframeServer", () => {
       expect((await res.json()) as { data: ProjectInfoResult }).toMatchObject({
         data: { name: "Keyed Co, no token" },
       });
+    });
+
+    it("keyed token-less loopback: commands 200, but issuing an access credential still 403s", async () => {
+      // Delta-review regression: a keyed loopback serve with no
+      // authToken/authRef has `hasPrimaryAuth === false`, so main's gate
+      // (above) keeps the accessCredentials resolver OUT of the chain —
+      // `credentialResolvers` ends up empty, same as the fully-unkeyed case.
+      // That means THIS config also hits the loopback-synthesis branch in
+      // `createDashframeServer` (see app.ts), and the synthesized principal
+      // must not double as the operator: `commands.commit` only requires
+      // `principal.kind === "user"` (satisfied — commands succeed below),
+      // but `accessCredentials.manage` additionally requires
+      // `principal.userId === LOCAL_USER_ID` specifically, which the
+      // synthesized `LOOPBACK_ANON_USER_ID` principal is NOT — so minting a
+      // credential over this unauthenticated bind must still 403, even
+      // though a key is configured and issuing credentials is otherwise
+      // reachable in principle.
+      project = await openProject({
+        dir: join(root, "proj"),
+        name: "Keyed Co, no token, commands",
+      });
+      const { vault, accessCredentials } = makeSecretServices(
+        join(root, "access-credentials"),
+      );
+      server = await createDashframeServer({
+        db: project.db,
+        vault,
+        accessCredentials,
+        // No `authToken`/`authRef` — a keyed loopback serve.
+      });
+
+      const sourceId = crypto.randomUUID();
+      const commandRes = await fetch(`${server.url}/api/createDataSource`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          cmd("CreateDataSource", {
+            id: sourceId,
+            type: "csv",
+            name: "Keyed loopback",
+          }).args,
+        ),
+      });
+      expect(commandRes.status).toBe(200);
+
+      const issueRes = await fetch(`${server.url}/api/issueAccessCredential`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Should never mint" }),
+      });
+      expect(issueRes.status).toBe(403);
+    });
+
+    it("runs commands on the token-less loopback config (no authToken/authRef/accessCredentials configured)", async () => {
+      // Pins the fix for the loopback-becomes-read-only regression: before,
+      // an absent principal denied every `.authorize(commands.commit)`
+      // procedure (all 31 commands, publishDraft, discardDraft,
+      // commitBatch), even though `index.ts`'s own help text documents this
+      // exact config ("--project ... no --token ...") as the safe default —
+      // pre-existing behavior let every request through as the local
+      // operator. `createDashframeServer` must synthesize that principal
+      // when no auth mechanism is configured at all.
+      project = await openProject({ dir: join(root, "proj") });
+      server = await createDashframeServer({ db: project.db });
+
+      const sourceId = crypto.randomUUID();
+      // No Authorization header at all.
+      const res = await fetch(`${server.url}/api/createDataSource`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          cmd("CreateDataSource", {
+            id: sourceId,
+            type: "csv",
+            name: "Loopback",
+          }).args,
+        ),
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { data: { id: string } };
+      expect(body.data.id).toBe(sourceId);
+
+      // An arbitrary bearer token must not be interpreted as a service
+      // credential in this mode — there is no `accessCredentials` resolver
+      // configured to authenticate it, so the synthesized loopback resolver
+      // is the only one in play and every request (token or not) resolves
+      // to the SAME local-user principal. A service principal is simply
+      // unreachable in a config with no accessCredentials configured.
+      const otherSourceId = crypto.randomUUID();
+      const withRandomToken = await fetch(
+        `${server.url}/api/createDataSource`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...bearer("some-random-value-nobody-configured"),
+          },
+          body: JSON.stringify(
+            cmd("CreateDataSource", {
+              id: otherSourceId,
+              type: "csv",
+              name: "Loopback 2",
+            }).args,
+          ),
+        },
+      );
+      expect(withRandomToken.status).toBe(200);
     });
 
     it("issues, authenticates, and revokes a workspace access credential", async () => {

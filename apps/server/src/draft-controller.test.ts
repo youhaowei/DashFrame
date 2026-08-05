@@ -114,6 +114,43 @@ describe("DraftController (persisted draft overlay)", () => {
     expect(await controller.getDraftLog(draftId)).toHaveLength(1);
   });
 
+  it("rejects a nested lifecycle command in an appendToDraft batch before dispatching anything", async () => {
+    // `commands.commit`'s `.authorize` check treats `ctx.draftId != null` as
+    // "this is a draft-append step" and passes. Without a vocabulary
+    // allowlist, a nested `publishDraft` (or `discardDraft`/`commitBatch`)
+    // would read that SAME marker, pass authorization, and then run its
+    // OWN transaction against its OWN args — letting a draft-append-only
+    // caller (e.g. a service principal) publish a completely different
+    // draft for real. `appendToDraft` must reject before dispatching a
+    // single command in the batch.
+    const draftId = await controller.openDraft();
+    const otherDraftId = await controller.openDraft();
+    const targetSourceId = id();
+    await appendCmds(
+      otherDraftId,
+      cmd("CreateDataSource", {
+        id: targetSourceId,
+        type: "csv",
+        name: "Target draft",
+      }),
+    );
+
+    await expect(
+      controller.appendToDraft(draftId, [
+        { path: "publishDraft", args: { draftId: otherDraftId } } as Command,
+      ]),
+    ).rejects.toThrow(/publishDraft/);
+
+    // Neither draft was touched by the rejected append.
+    expect(await controller.getDraftLog(draftId)).toHaveLength(0);
+    expect(await controller.getDraftLog(otherDraftId)).toHaveLength(1);
+    expect(
+      (await db.select().from(dataSources)).some(
+        (row) => row.id === targetSourceId,
+      ),
+    ).toBe(false);
+  });
+
   it("enforces expectedCommandCount inside the publish transaction", async () => {
     const draftId = await controller.openDraft();
     await appendCmds(

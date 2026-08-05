@@ -2280,6 +2280,64 @@ export const commandFunctions = {
   deleteNode,
 };
 
+/**
+ * The registry paths the pure command vocabulary dispatches under (the keys
+ * of `commandFunctions`). Lifecycle procedures — `publishDraft`,
+ * `discardDraft`, `commitBatch`, `previewDiff`, `draftPublishReview`, etc. —
+ * are never members of this set.
+ *
+ * This is a security boundary, not a convenience lookup. Every one of those
+ * lifecycle procedures runs `.authorize(permissions.commands.commit)`, whose
+ * check trusts CONTEXT markers it did not itself verify — `ctx.mode ===
+ * "preview"`, `ctx.draftId != null`, `ctx.__publishReplay === true` — because
+ * those markers are supposed to mean "this dispatch is a nested step of an
+ * already-authorized outer batch." But `applyCommands`/`runHandler` dispatch
+ * ANY registry path with no allowlist of their own. Nest `publishDraft` (or
+ * `commitBatch`) itself inside a batch and its `.authorize` check reads the
+ * OUTER batch's markers and passes — a service principal that can only ever
+ * preview or draft-append escalates to a real canonical publish, because the
+ * nested procedure's OWN transaction is outside the reach of the outer
+ * preview's rollback (or is simply a second, real commit).
+ *
+ * The fix is not a smarter authorize check (context markers can't distinguish
+ * "I am the outer call" from "I am nested inside one" — they're the same
+ * bag). It's dispatch discipline: every surface that runs a caller-supplied
+ * batch (`previewDiff`, `commitBatch`, `DraftController.appendToDraft`) MUST
+ * reject any command whose path falls outside this vocabulary BEFORE
+ * dispatching a single command — see `assertKnownCommandPaths`.
+ */
+const KNOWN_COMMAND_PATHS: ReadonlySet<string> = new Set(
+  Object.keys(commandFunctions),
+);
+
+export function isKnownCommandPath(
+  path: string,
+): path is keyof typeof commandFunctions {
+  return KNOWN_COMMAND_PATHS.has(path);
+}
+
+/**
+ * Reject a caller-supplied batch containing any path outside the pure
+ * command vocabulary — see `KNOWN_COMMAND_PATHS` for why this matters. Call
+ * this BEFORE dispatching a single command from the batch; a bad path later
+ * in the batch must not let earlier commands run first. `surface` names the
+ * calling procedure/method for the error message.
+ */
+export function assertKnownCommandPaths(
+  commands: readonly Command[],
+  surface: string,
+): void {
+  for (const command of commands) {
+    if (!isKnownCommandPath(command.path)) {
+      throw new Error(
+        `${surface}: "${command.path}" is not a DashFrame command — ` +
+          "lifecycle procedures (publishDraft, discardDraft, commitBatch, " +
+          "previewDiff, etc.) cannot be nested inside a batch",
+      );
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Typed command builders — the VOCABULARY face
 // ---------------------------------------------------------------------------
