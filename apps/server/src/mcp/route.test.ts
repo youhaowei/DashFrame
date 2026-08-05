@@ -150,6 +150,21 @@ describe("MCP route", () => {
         expect(Object.getOwnPropertySymbols(roundTripped)).toHaveLength(0);
       }
 
+      // The write tool's description is the only thing an agent reads before
+      // its first call, so the vocabulary and the denials have to be in it.
+      const writeTool = listed.tools.find(
+        (tool) => tool.name === "draft_batch",
+      );
+      expect(writeTool?.description).toContain("# Command vocabulary");
+      for (const denied of [
+        "DeleteNode",
+        "GetOrCreateDataSource",
+        "publishDraft",
+        "secret:<uuid>",
+      ]) {
+        expect(writeTool?.description).toContain(denied);
+      }
+
       const missingId = crypto.randomUUID();
       for (const [name, args] of [
         ["read_neighborhood", { kind: "dataSource", id: missingId }],
@@ -291,10 +306,10 @@ describe("MCP route", () => {
           /is not draft-safe/i,
         );
       }
-      await expectToolError(
-        client,
-        "draft_batch",
-        {
+      const rejectedRef = `secret:${crypto.randomUUID()}`;
+      const refAttempt = await client.callTool({
+        name: "draft_batch",
+        arguments: {
           commands: [
             {
               type: "CreateDataSource",
@@ -302,13 +317,20 @@ describe("MCP route", () => {
                 id: crypto.randomUUID(),
                 type: "csv",
                 name: "Ref attempt",
-                apiKey: `secret:${crypto.randomUUID()}`,
+                apiKey: rejectedRef,
               },
             },
           ],
         },
+      });
+      expect(refAttempt.isError).toBe(true);
+      expect(resultText(refAttempt)).toMatch(
         /caller-supplied secret references/i,
       );
+      // Error text may name the field, never the value. Asserted as a boolean
+      // so a failure does not print the rejected reference.
+      expect(resultText(refAttempt).includes(rejectedRef)).toBe(false);
+      expect(JSON.stringify(refAttempt).includes(rejectedRef)).toBe(false);
       expect(
         await project!.db.select().from(schema.draftCommandLog),
       ).toHaveLength(0);
