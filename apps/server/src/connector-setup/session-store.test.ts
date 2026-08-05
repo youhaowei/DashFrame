@@ -193,9 +193,22 @@ describe("connector setup session store", () => {
 
   it("allows only one concurrent resume request to rotate the authorization state", async () => {
     const issuance = await pending();
+    // Pin the clock. `pending()` mints the session against a fixed date, so
+    // letting publicResumeInfo default to the wall clock makes the session
+    // expired for all but a 15-minute window on one particular day — and the
+    // expiry branch returns normally for both callers, so the race this test
+    // exists to check never runs.
     const attempts = await Promise.allSettled([
-      publicResumeInfo(app.createTracked(), issuance.session.id),
-      publicResumeInfo(app.createTracked(), issuance.session.id),
+      publicResumeInfo(
+        app.createTracked(),
+        issuance.session.id,
+        new Date("2026-08-05T12:01:00Z"),
+      ),
+      publicResumeInfo(
+        app.createTracked(),
+        issuance.session.id,
+        new Date("2026-08-05T12:01:00Z"),
+      ),
     ]);
 
     expect(
@@ -401,7 +414,11 @@ describe("connector setup session store", () => {
 
       const resumed = await pending();
       const resumeTracker = app.createTracked();
-      await publicResumeInfo(resumeTracker, resumed.session.id);
+      await publicResumeInfo(
+        resumeTracker,
+        resumed.session.id,
+        new Date("2026-08-05T12:01:00Z"),
+      );
       expect([...resumeTracker.tablesWritten]).toContain(
         "connector_setup_sessions",
       );
