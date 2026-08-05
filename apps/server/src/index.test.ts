@@ -1,6 +1,21 @@
-import { describe, expect, it } from "vitest";
+import type { ProjectHandle } from "@dashframe/server-core";
+import { ApiAccessCredentials } from "@dashframe/server-core";
+import { SecretVault } from "@wystack/secret-vault";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { describe, expect, it, vi } from "vitest";
 
-import { assertBindIsSafe, parseArgs, printHelp } from "./index";
+import {
+  assertAccessRootOutsideProject,
+  assertBindIsSafe,
+  createStandaloneSecretServices,
+  createStandaloneServerOptions,
+  parseArgs,
+  printHelp,
+  resolveDataDir,
+  resolveProjectDirectory,
+} from "./index";
 
 describe("dashframe serve CLI", () => {
   describe("parseArgs", () => {
@@ -28,6 +43,20 @@ describe("dashframe serve CLI", () => {
       expect(parseArgs(["--bind", "[::1]:4124"])).toEqual({
         hostname: "::1",
         port: 4124,
+      });
+    });
+
+    it("should parse the host-local data directory independently", () => {
+      expect(
+        parseArgs([
+          "--project",
+          "/copiable/project",
+          "--data-dir",
+          "/host/local/data",
+        ]),
+      ).toEqual({
+        project: "/copiable/project",
+        dataDir: "/host/local/data",
       });
     });
 
@@ -65,8 +94,33 @@ describe("dashframe serve CLI", () => {
       const helpText = output.join("\n");
       expect(helpText).toContain("--bind <addr>");
       expect(helpText).toContain("--token <token>");
+      expect(helpText).toContain("--data-dir <dir>");
+      expect(helpText).toContain("canonical padded base64");
       expect(helpText).toContain("Security boundary:");
       expect(helpText).toContain("non-loopback bind");
+    });
+
+    it("should document rotation and the fail-closed default", () => {
+      const originalLog = console.log;
+      const output: string[] = [];
+      console.log = (...args: unknown[]) => {
+        output.push(args.join(" "));
+      };
+
+      try {
+        printHelp();
+      } finally {
+        console.log = originalLog;
+      }
+
+      const helpText = output.join("\n");
+      expect(helpText).toContain("DASHFRAME_SECRET_KEY_PREVIOUS");
+      // The three things an operator gets wrong without being told.
+      expect(helpText).toContain("does NOT re-encrypt");
+      expect(helpText).toContain("revoking and re-issuing");
+      expect(helpText).toContain("restart the server");
+      expect(helpText).toContain("fails closed");
+      expect(helpText).toContain("there is no plaintext fallback");
     });
   });
 
@@ -124,6 +178,205 @@ describe("dashframe serve CLI", () => {
       expect(() =>
         assertBindIsSafe({ hostname: "0.0.0.0", insecure: true }),
       ).not.toThrow();
+    });
+  });
+
+  describe("standalone secret composition", () => {
+    it("resolves data-dir and project-dir independently, flag over env", () => {
+      const environment = {
+        DASHFRAME_PROJECT_DIR: "/env/project",
+        DASHFRAME_DATA_DIR: "/env/data",
+      };
+      expect(
+        resolveDataDir({ project: "/copiable/project" }, environment),
+      ).toBe("/env/data");
+      expect(resolveDataDir({ dataDir: "/flag/data" }, environment)).toBe(
+        "/flag/data",
+      );
+      expect(resolveProjectDirectory({}, environment)).toBe("/env/project");
+      expect(
+        resolveProjectDirectory({ project: "/flag/project" }, environment),
+      ).toBe("/flag/project");
+    });
+
+    it("refuses to place the host-local access root inside the project", () => {
+      expect(() =>
+        assertAccessRootOutsideProject(
+          "/copiable/project",
+          "/copiable/project/local-data",
+        ),
+      ).toThrow(/inside the project directory/);
+      expect(() =>
+        assertAccessRootOutsideProject("/host/access-credentials", "/host"),
+      ).toThrow(/inside the project directory/);
+      expect(() =>
+        assertAccessRootOutsideProject("/copiable/project", "/host/data"),
+      ).not.toThrow();
+    });
+
+    it.runIf(process.platform === "darwin" || process.platform === "win32")(
+      "refuses a case-different spelling of the project directory",
+      async () => {
+        // APFS and NTFS are case-insensitive by default, so `/Project/data` and
+        // `/project/data` are the same directory. A byte-wise compare waves the
+        // second spelling through.
+        const root = await fs.mkdtemp(path.join(os.tmpdir(), "server-case-"));
+        try {
+          const project = path.join(root, "Project");
+          await fs.mkdir(project);
+          expect(() =>
+            assertAccessRootOutsideProject(
+              project,
+              path.join(root, "project", "data"),
+            ),
+          ).toThrow(/inside the project directory/);
+        } finally {
+          await fs.rm(root, { recursive: true, force: true });
+        }
+      },
+    );
+
+    it("reports an operator-legible error for an unresolvable data-dir", async () => {
+      const root = await fs.mkdtemp(path.join(os.tmpdir(), "server-enotdir-"));
+      try {
+        // A regular file used as a directory ancestor: ENOTDIR, not ENOENT.
+        const file = path.join(root, "not-a-dir");
+        await fs.writeFile(file, "");
+        expect(() =>
+          assertAccessRootOutsideProject(root, path.join(file, "data")),
+        ).toThrow(/cannot resolve --data-dir .*: ENOTDIR/);
+      } finally {
+        await fs.rm(root, { recursive: true, force: true });
+      }
+    });
+
+    it("resolves existing symlink ancestors before enforcing separation", async () => {
+      const root = await fs.mkdtemp(
+        path.join(os.tmpdir(), "server-data-separation-"),
+      );
+      try {
+        const project = path.join(root, "project");
+        const dataLink = path.join(root, "data-link");
+        await fs.mkdir(project);
+        await fs.symlink(project, dataLink);
+        expect(() => assertAccessRootOutsideProject(project, dataLink)).toThrow(
+          /inside the project directory/,
+        );
+      } finally {
+        await fs.rm(root, { recursive: true, force: true });
+      }
+    });
+
+    it("composes vault and access credentials and passes both into server options", async () => {
+      const dataDir = await fs.mkdtemp(
+        path.join(os.tmpdir(), "server-composition-keyed-"),
+      );
+      try {
+        const services = await createStandaloneSecretServices(dataDir, {
+          DASHFRAME_SECRET_KEY: Buffer.alloc(32, 7).toString("base64"),
+        });
+        expect(services.vault).toBeInstanceOf(SecretVault);
+        expect(services.accessCredentials).toBeInstanceOf(ApiAccessCredentials);
+
+        const project = {
+          db: {},
+          touchSnapshot: vi.fn(),
+          flushSnapshot: vi.fn(),
+        } as unknown as ProjectHandle;
+        const options = createStandaloneServerOptions(
+          { token: "plaintext-token" },
+          project,
+          services,
+        );
+        expect(options.vault).toBe(services.vault);
+        expect(options.accessCredentials).toBe(services.accessCredentials);
+        expect(options.authToken).toBe("plaintext-token");
+
+        // This vault is scoped to `serve-token` only (see
+        // `createStandaloneSecretServices`) — `connector-key` deliberately
+        // has no default here, so a copied/relocated project can never end
+        // up with a connector-credential ref this host-local vault can't
+        // resolve. Desktop keeps `connector-key` on a project-scoped
+        // DrizzleMappingStore for the same reason.
+        await services.vault!.store("serve-token-secret", {
+          class: "serve-token",
+        });
+        expect(
+          await fs.readdir(path.join(dataDir, "access-credentials", "blobs")),
+        ).toHaveLength(1);
+        expect(
+          await fs.stat(
+            path.join(dataDir, "access-credentials", "mappings.json"),
+          ),
+        ).toBeDefined();
+
+        await expect(
+          services.vault!.store("connector-secret", {
+            class: "connector-key",
+          }),
+        ).rejects.toThrow(/no fallback default/);
+      } finally {
+        await fs.rm(dataDir, { recursive: true, force: true });
+      }
+    });
+
+    it("omits vault services without a key while preserving --token", async () => {
+      const services = await createStandaloneSecretServices("/unused", {});
+      expect(services).toEqual({});
+      const project = {
+        db: {},
+        touchSnapshot: vi.fn(),
+        flushSnapshot: vi.fn(),
+      } as unknown as ProjectHandle;
+      const options = createStandaloneServerOptions(
+        { token: "plaintext-token" },
+        project,
+        services,
+      );
+      expect(options.vault).toBeUndefined();
+      expect(options.accessCredentials).toBeUndefined();
+      expect(options.authToken).toBe("plaintext-token");
+    });
+
+    // End-to-end through the real ApiAccessCredentials + SecretVault +
+    // encrypted-file backend. The unit suites prove each layer in isolation;
+    // this proves the composed stack actually issues a usable credential and
+    // that a revoked one stops authenticating — the behavior an operator
+    // cares about, and the one a wiring mistake breaks without failing any
+    // single-layer test.
+    it("issues, authenticates, and revokes a credential through the composed stack", async () => {
+      const dataDir = await fs.mkdtemp(
+        path.join(os.tmpdir(), "server-composition-lifecycle-"),
+      );
+      try {
+        const { accessCredentials } = await createStandaloneSecretServices(
+          dataDir,
+          { DASHFRAME_SECRET_KEY: Buffer.alloc(32, 11).toString("base64") },
+        );
+        const credentials = accessCredentials!;
+
+        const issued = await credentials.issue("ci-runner");
+        expect(issued.credential.name).toBe("ci-runner");
+        expect(await credentials.authenticate(issued.token)).toBe(
+          issued.credential.id,
+        );
+        expect((await credentials.list()).map((record) => record.id)).toContain(
+          issued.credential.id,
+        );
+
+        // The issued token must never rest on disk in the clear — the whole
+        // point of routing `serve-token` through the encrypted backend.
+        const blobDir = path.join(dataDir, "access-credentials", "blobs");
+        for (const entry of await fs.readdir(blobDir)) {
+          const blob = await fs.readFile(path.join(blobDir, entry));
+          expect(blob.includes(Buffer.from(issued.token, "utf8"))).toBe(false);
+        }
+
+        expect(await credentials.revoke(issued.credential.id)).toBe(true);
+        expect(await credentials.authenticate(issued.token)).toBeNull();
+      } finally {
+        await fs.rm(dataDir, { recursive: true, force: true });
+      }
     });
   });
 });

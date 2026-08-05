@@ -219,14 +219,16 @@ export interface DashframeServerOptions {
    * when it is absent — there is no plaintext fallback. `storeCredential`
    * throws rather than persist plaintext (`functions/utils.ts`), and so do
    * `releaseCredentialRefs`, the assistant-provider release, and the connector
-   * bound-resolver. Omitting it is for callers that never cross the credential
-   * boundary (tests, read-only hosts); any credential-bearing mutation on a
-   * vault-less server is an error, not a downgrade. The one vault-absent branch
-   * that does not throw is the read-side `hasApiKey` presence check, which
-   * tolerates legacy plaintext rows written before this boundary existed.
+   * bound-resolver. Omitting it is the normal state for callers that never
+   * cross the credential boundary (tests, read-only hosts) and for a keyless
+   * `dashframe serve`; any credential-bearing mutation on a vault-less server
+   * is an error, not a downgrade. The one vault-absent branch that does not
+   * throw is the read-side `hasApiKey` presence check, which tolerates legacy
+   * plaintext rows written before this boundary existed.
    *
-   * Desktop always injects the keychain vault. `dashframe serve` currently
-   * injects none — see #254.
+   * Desktop always injects the keychain vault. `dashframe serve` injects an
+   * encrypted-file vault when `DASHFRAME_SECRET_KEY` / `DASHFRAME_SECRET_KEY_FILE`
+   * is set, and none otherwise — fail-closed, never a plaintext fallback.
    */
   vault?: SecretVault;
   /** Generic external-access credentials backed by the injected SecretVault. */
@@ -339,8 +341,10 @@ export function createFallThroughDraftDb(
  * `withDraft(draftId)` is a pure @wystack/db primitive that accepts any
  * caller-supplied id.
  *
- * CONSUMER CONSTRAINTS — the seam is dormant in this slice (no host injects a
- * draftId). The host that wires draftId into request context owns these:
+ * CONSUMER CONSTRAINTS — the seam is live: the assistant host
+ * (assistant-host.ts) wires draftId through `DraftController` for the
+ * `/assistant/run` route mounted below. Any host that injects a draftId owns
+ * these:
  *   - LOG SYNC. A write mutation reached via raw `app.call({draftId})` lands in
  *     `<table>__draft` but does NOT append to `draft_command_log`; since publish
  *     replays only the log, that write is visible in the overlay yet dropped on
@@ -351,8 +355,12 @@ export function createFallThroughDraftDb(
  *     (`where(eq("id", …))`). A command whose handler filters a shadow table by a
  *     non-PK column (e.g. delete `data_frames` by `insightId`) is not draftable
  *     as-is; such paths must be PK-addressed or blocked before drafting.
- *   - CREDENTIAL SIDE EFFECTS. See draft-controller.ts SECURITY BOUNDARY: a
- *     credentialed handler's `vault.store` is a real side effect even in a draft.
+ *   - CREDENTIAL SIDE EFFECTS. A credentialed handler's `vault.store` is a real
+ *     side effect even in a draft. Handled by the two seams in
+ *     credential-release.ts: capture-before-log rewrites plaintext to vault refs
+ *     inside `DraftController.appendToDraft`, and publish/discard release
+ *     superseded or minted refs via `releaseRefsAtTransition` (gated on
+ *     snapshot persistence).
  *   - AUTHORIZATION. draftId is caller-supplied; a multi-tenant host must
  *     authorize it against the caller (single-user desktop is exempt).
  */
@@ -537,7 +545,20 @@ export async function createDashframeServer(
   } else if (opts.authToken) {
     credentialResolvers.push(createTokenResolver(opts.authToken, userId));
   }
-  if (opts.accessCredentials) {
+  // Named access credentials are an ADDITIONAL way in, never the first one.
+  // Registering this resolver is what makes `resolveContext` defined, and a
+  // defined `resolveContext` turns on transport authentication for every
+  // request. On a loopback `dashframe serve` with a secret key but no
+  // `--token`/`authRef`, that would reject every unauthenticated request with
+  // no way to bootstrap the first credential (the issue mutation itself needs
+  // a credential). So the resolver only joins the chain when a primary auth
+  // mechanism already exists; without one, the server stays open exactly as it
+  // was before a key was configured, and the vault is still injected so the
+  // issue/list/revoke functions remain configured for a `--token` operator.
+  const hasPrimaryAuth = Boolean(
+    (opts.authRef && opts.vault) || opts.authToken,
+  );
+  if (opts.accessCredentials && hasPrimaryAuth) {
     credentialResolvers.push(
       createAccessCredentialResolver(opts.accessCredentials),
     );

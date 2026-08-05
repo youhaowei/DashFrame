@@ -28,16 +28,32 @@ function toDto(record: AccessCredentialRecord): AccessCredential {
 
 function credentials(ctx: DashframeFunctionContext): ApiAccessCredentials {
   if (!ctx.accessCredentials) {
-    throw new Error("Access credentials are unavailable in this host");
+    throw new Error(
+      "No secret key configured — set DASHFRAME_SECRET_KEY_FILE or " +
+        "DASHFRAME_SECRET_KEY to enable named access credentials.",
+    );
   }
   return ctx.accessCredentials;
 }
 
-const getAccessConnectionInfo = wy.procedure
+// Authorization runs before the capability check: `.authorize` gates on the
+// caller's principal first, and only an authorized caller learns whether
+// this server has key material configured. Reversing this order (capability
+// check ahead of `.authorize`) would let an unauthenticated caller
+// distinguish "no secret key configured" from "unauthorized" and, on a
+// --token-protected server with no key configured, would turn an
+// unauthenticated request into a 500 with the operator-facing config message
+// instead of a 401/403.
+const configuredAccessCredentialProcedure = wy.procedure
   .authorize(permissions.accessCredentials.manage)
+  .use(async ({ ctx, next }) => {
+    credentials(ctx);
+    return next();
+  });
+
+const getAccessConnectionInfo = configuredAccessCredentialProcedure
   .input({})
   .query(async (ctx): Promise<AccessConnectionInfo> => {
-    credentials(ctx);
     const endpoint = ctx.getServerEndpoint();
     if (!endpoint) throw new Error("Server endpoint is not ready");
     return {
@@ -58,16 +74,14 @@ const getAccessCapabilities = wy.procedure
     };
   });
 
-const listAccessCredentials = wy.procedure
-  .authorize(permissions.accessCredentials.manage)
+const listAccessCredentials = configuredAccessCredentialProcedure
   .input({})
   .query(
     async (ctx): Promise<AccessCredential[]> =>
       (await credentials(ctx).list()).map(toDto),
   );
 
-const issueAccessCredential = wy.procedure
-  .authorize(permissions.accessCredentials.manage)
+const issueAccessCredential = configuredAccessCredentialProcedure
   .input({ name: text })
   .mutation(async (ctx, { name }): Promise<IssuedAccessCredential> => {
     const issued = await credentials(ctx).issue(name);
@@ -77,8 +91,7 @@ const issueAccessCredential = wy.procedure
     };
   });
 
-const revokeAccessCredential = wy.procedure
-  .authorize(permissions.accessCredentials.manage)
+const revokeAccessCredential = configuredAccessCredentialProcedure
   .input({ id: uuid })
   .mutation(async (ctx, { id }): Promise<{ ok: true }> => {
     await credentials(ctx).revoke(id);

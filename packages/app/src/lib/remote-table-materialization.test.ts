@@ -42,6 +42,7 @@ import {
 
 const TABLE_ID = "11111111-1111-4111-8111-111111111111" as UUID;
 const FRAME_ID = "22222222-2222-4222-8222-222222222222" as UUID;
+const SOURCE_ID = "33333333-3333-4333-8333-333333333333" as UUID;
 
 function field(sensitivity?: Field["sensitivity"]): Field {
   return {
@@ -66,7 +67,11 @@ function result(fields: Field[]) {
 describe("materializeRemoteTable", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    getDataTable.mockResolvedValue({ id: TABLE_ID, fields: [] });
+    getDataTable.mockResolvedValue({
+      id: TABLE_ID,
+      dataSourceId: SOURCE_ID,
+      fields: [],
+    });
     getDataFrameEntry.mockResolvedValue(undefined);
     addDataFrameEntry.mockResolvedValue(FRAME_ID);
     updateDataTable.mockResolvedValue(undefined);
@@ -130,6 +135,13 @@ describe("materializeRemoteTable", () => {
       expect.any(Uint8Array),
       expect.any(Array),
     );
+    expect(addDataFrameEntry).toHaveBeenCalledWith(expect.anything(), {
+      name: "Leads",
+      rowCount: 1,
+      columnCount: 1,
+      sourceId: SOURCE_ID,
+      definitionId: TABLE_ID,
+    });
   });
 
   it("removes metadata and IndexedDB bytes when table linking fails", async () => {

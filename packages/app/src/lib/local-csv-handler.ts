@@ -106,6 +106,8 @@ export async function handleLocalCSVUpload(
       await replaceDataFrame(overrideTable.dataFrameId, dataFrame, {
         rowCount,
         columnCount,
+        sourceId: dataSource.id,
+        definitionId: dataTableId,
       });
       dataFrameId = overrideTable.dataFrameId;
     } else {
@@ -114,6 +116,8 @@ export async function handleLocalCSVUpload(
         name: tableName,
         rowCount,
         columnCount,
+        sourceId: dataSource.id,
+        definitionId: dataTableId,
       });
       dataFrameId = dataFrame.id;
     }
@@ -140,6 +144,8 @@ export async function handleLocalCSVUpload(
       name: tableName,
       rowCount,
       columnCount,
+      sourceId: dataSource.id,
+      definitionId: dataTableId,
     });
     dataFrameId = dataFrame.id;
 
@@ -202,6 +208,8 @@ export async function handleFileConnectorResult(
       await replaceDataFrame(overrideTable.dataFrameId, dataFrame, {
         rowCount,
         columnCount,
+        sourceId: dataSource.id,
+        definitionId: dataTableId,
       });
       dataFrameId = overrideTable.dataFrameId;
     } else {
@@ -209,6 +217,8 @@ export async function handleFileConnectorResult(
         name: tableName,
         rowCount,
         columnCount,
+        sourceId: dataSource.id,
+        definitionId: dataTableId,
       });
       dataFrameId = dataFrame.id;
     }
@@ -234,6 +244,8 @@ export async function handleFileConnectorResult(
       name: tableName,
       rowCount,
       columnCount,
+      sourceId: dataSource.id,
+      definitionId: dataTableId,
     });
     dataFrameId = dataFrame.id;
 
