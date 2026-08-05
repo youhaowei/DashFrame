@@ -43,10 +43,13 @@
  * land. NOTE the scope: this closes the at-rest-table channel, NOT a handler's
  * vault SIDE EFFECT — a credentialed command run inside a draft would still call
  * `vault.store` for real (not drafted, not swept on discard, re-run on publish).
- * The seam is dormant in this slice (no host injects a draftId), so this is not
- * yet live; the consumer that wires draftId into request context must enforce the
- * credential-side-effect boundary at THAT seam (deny-list credentialed paths in a
- * draft, or make vault.store draft-aware) before routing untrusted drafts.
+ * The seam is live — the assistant host (assistant-host.ts) wires draftId
+ * through this controller. The vault-side-effect channel is handled in
+ * credential-release.ts: `captureCommandCredentials` (host-injected into
+ * `appendToDraft`) stores plaintext to the vault and rewrites the logged command
+ * to refs before it runs, and `releaseRefsAtTransition` releases superseded or
+ * minted refs after publish/discard commits — see that file's header for the
+ * two-seam contract.
  */
 import {
   dashboards,

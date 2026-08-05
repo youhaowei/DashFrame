@@ -339,8 +339,10 @@ export function createFallThroughDraftDb(
  * `withDraft(draftId)` is a pure @wystack/db primitive that accepts any
  * caller-supplied id.
  *
- * CONSUMER CONSTRAINTS — the seam is dormant in this slice (no host injects a
- * draftId). The host that wires draftId into request context owns these:
+ * CONSUMER CONSTRAINTS — the seam is live: the assistant host
+ * (assistant-host.ts) wires draftId through `DraftController` for the
+ * `/assistant/run` route mounted below. Any host that injects a draftId owns
+ * these:
  *   - LOG SYNC. A write mutation reached via raw `app.call({draftId})` lands in
  *     `<table>__draft` but does NOT append to `draft_command_log`; since publish
  *     replays only the log, that write is visible in the overlay yet dropped on
@@ -351,8 +353,12 @@ export function createFallThroughDraftDb(
  *     (`where(eq("id", …))`). A command whose handler filters a shadow table by a
  *     non-PK column (e.g. delete `data_frames` by `insightId`) is not draftable
  *     as-is; such paths must be PK-addressed or blocked before drafting.
- *   - CREDENTIAL SIDE EFFECTS. See draft-controller.ts SECURITY BOUNDARY: a
- *     credentialed handler's `vault.store` is a real side effect even in a draft.
+ *   - CREDENTIAL SIDE EFFECTS. A credentialed handler's `vault.store` is a real
+ *     side effect even in a draft. Handled by the two seams in
+ *     credential-release.ts: capture-before-log rewrites plaintext to vault refs
+ *     inside `DraftController.appendToDraft`, and publish/discard release
+ *     superseded or minted refs via `releaseRefsAtTransition` (gated on
+ *     snapshot persistence).
  *   - AUTHORIZATION. draftId is caller-supplied; a multi-tenant host must
  *     authorize it against the caller (single-user desktop is exempt).
  */
