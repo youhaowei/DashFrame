@@ -271,7 +271,7 @@ test.describe("draft review", () => {
     // invalidate it over the live subscription — no navigation, no reload.
     await seedDraft();
 
-    await expect(page.getByRole("link", { name: /Review 1/ })).toBeVisible();
+    await expect(page.getByRole("link", { name: /Drafts 1/ })).toBeVisible();
     await expect(page.getByRole("link", { name: /5 changes/ })).toBeVisible();
   });
 
