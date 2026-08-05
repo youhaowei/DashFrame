@@ -70,7 +70,8 @@ Security boundary:
   deliberately. A token is not TLS and not multi-user authorization.
 
 Secret encryption:
-  Set DASHFRAME_SECRET_KEY_FILE to a mode-0600 key file, or DASHFRAME_SECRET_KEY
+  Set DASHFRAME_SECRET_KEY_FILE to an owner-only key file (the group and world
+  mode bits must be clear; 0600 is the usual choice), or DASHFRAME_SECRET_KEY
   directly. The value must be canonical padded base64 encoding of 32 bytes; one
   trailing newline is allowed in either spelling.
 
@@ -311,9 +312,10 @@ function resolveExistingPathSegments(targetPath: string): string {
   while (true) {
     let resolved: string;
     try {
-      // Resolved outside the `path.join` argument list: a throw from inside
-      // that call would otherwise have already consumed `missingSegments` via
-      // the in-place `reverse()` below, corrupting the next iteration.
+      // Resolved into a local before the `path.join` below, purely so the
+      // throwing call and the array handling read as separate steps. Both
+      // orders are correct — arguments evaluate left to right, so an inlined
+      // `realpathSync` would throw before `reverse()` ever ran.
       resolved = realpathSync(candidate);
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
@@ -472,11 +474,28 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
   console.log(`[dashframe] project: ${project.dir}`);
   // Enabled/disabled only — never key material, and never a key ID derived
   // from it.
-  console.log(
-    secretServices.vault
-      ? "[dashframe] secret encryption: enabled (named access credentials available)"
-      : "[dashframe] secret encryption: disabled (no DASHFRAME_SECRET_KEY/_FILE; named access credentials unavailable)",
-  );
+  //
+  // Three states, not two. A key with no `--token` encrypts at rest but leaves
+  // named access credentials inert: issuing one needs a credential to
+  // authenticate with, and presenting one cannot authenticate you either,
+  // because the resolver only joins the chain behind a primary auth mechanism.
+  // Reporting that as plain "enabled" would promise a capability the server
+  // does not have.
+  if (!secretServices.vault) {
+    console.log(
+      "[dashframe] secret encryption: disabled (no DASHFRAME_SECRET_KEY/_FILE; named access credentials unavailable)",
+    );
+  } else if (opts.token) {
+    console.log(
+      "[dashframe] secret encryption: enabled (named access credentials available)",
+    );
+  } else {
+    console.log(
+      "[dashframe] secret encryption: enabled at rest, but named access " +
+        "credentials require --token; without one this server accepts " +
+        "unauthenticated loopback requests, as it does with no key set.",
+    );
+  }
   console.log(`[dashframe] listening: ${server.url}`);
   console.log("[dashframe] ready");
 }

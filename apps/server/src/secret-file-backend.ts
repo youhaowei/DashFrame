@@ -216,14 +216,25 @@ export class EncryptedFileSecretBackend implements SecretBackend {
   ): Promise<T> {
     validateLocator(locator);
     const target = this.#blobPath(locator);
-    const stat = await this.#lstatBlob(target);
-    assertRegularFile(stat, target);
+
+    // Check and use must hit the same inode. Validating a path with `lstat`
+    // and then re-opening it by name leaves a window in which another local
+    // process can swap the entry between the two syscalls, so every check
+    // below runs against an already-open handle instead of against the path.
+    const handle = await this.#openBlob(target);
+    let contents: Buffer;
+    try {
+      assertRegularFile(await handle.stat(), target);
+      contents = await handle.readFile();
+    } finally {
+      await handle.close();
+    }
 
     // `decodeEnvelope` rejects an unsupported FORMAT_VERSION itself, before
     // parsing anything version-dependent. A blob from a key we no longer hold
     // is rejected just below — both reject cleanly, without ever
     // materializing plaintext.
-    const envelope = decodeEnvelope(await this.#fs.readFile(target));
+    const envelope = decodeEnvelope(contents);
     const key = this.#keys.get(envelope.keyId);
     if (!key) {
       // Never interpolate keyId (a truncated hash of key material) into an
@@ -334,16 +345,29 @@ export class EncryptedFileSecretBackend implements SecretBackend {
     }
   }
 
-  async #lstatBlob(target: string): Promise<Stats> {
+  /**
+   * Open a blob for reading without ever following a symbolic link.
+   *
+   * `O_NOFOLLOW` makes the kernel itself refuse the symlink case, which is
+   * what lets the caller drop a separate pre-open `lstat` — and with it the
+   * check-then-use window that a path-based check leaves open.
+   */
+  async #openBlob(target: string): Promise<FileHandle> {
     try {
-      return await this.#fs.lstat(target);
+      return await openWithoutFollowing(this.#fs, target);
     } catch (error) {
+      // The locator is deliberately NOT interpolated into any of these. They
+      // surface through RPC handlers to a remote caller, and a locator is a
+      // live handle to a stored secret — echoing it back turns a failed
+      // lookup into an oracle that confirms and reflects vault handles.
+      // `cause` keeps the underlying errno for local debugging.
+      if (isSymlinkRefusal(error)) {
+        throw new Error(
+          "[encrypted-file] Refusing to follow symbolic link at blob path",
+          { cause: error },
+        );
+      }
       if (!isMissing(error)) throw error;
-      // The locator is deliberately NOT interpolated. These errors surface
-      // through RPC handlers to a remote caller, and a locator is a live
-      // handle to a stored secret — echoing it back turns a failed lookup
-      // into an oracle that confirms and reflects vault handles. `cause`
-      // keeps the underlying ENOENT for local debugging.
       throw new Error("[encrypted-file] No encrypted blob found for locator", {
         cause: error,
       });
@@ -502,13 +526,16 @@ function validateLocator(locator: string): void {
   }
 }
 
+/**
+ * Validate an already-open blob handle's `stat()`.
+ *
+ * There is deliberately no `isSymbolicLink()` branch: this runs against a
+ * descriptor, whose `stat` always describes the link target rather than the
+ * link, so such a branch could never fire and would only look protective.
+ * Symlinks are refused earlier and more strongly, by `O_NOFOLLOW` at the open.
+ */
 function assertRegularFile(stat: Stats, target: string): void {
   // Paths stay out of the message; `cause` carries them for local debugging.
-  if (stat.isSymbolicLink()) {
-    throw new Error("[encrypted-file] Refusing to follow symbolic link", {
-      cause: new Error(`blob path: ${target}`),
-    });
-  }
   if (!stat.isFile()) {
     throw new Error("[encrypted-file] Encrypted blob is not a regular file", {
       cause: new Error(`blob path: ${target}`),
@@ -530,6 +557,41 @@ function assertRegularFile(stat: Stats, target: string): void {
 
 function isMissing(error: unknown): boolean {
   return (error as NodeJS.ErrnoException).code === "ENOENT";
+}
+
+/**
+ * `O_NOFOLLOW` is POSIX and absent on Windows, where `constants.O_NOFOLLOW` is
+ * simply not defined. Reading the flag once keeps the fallback decision in one
+ * place rather than at each call site.
+ */
+const NOFOLLOW_SUPPORTED = typeof constants.O_NOFOLLOW === "number";
+
+/**
+ * Open a path for reading, refusing symbolic links at the syscall when the
+ * platform supports it.
+ *
+ * Where `O_NOFOLLOW` is unavailable the caller still gets a handle, and the
+ * regular-file and permission checks it runs against that handle's `stat()`
+ * remain race-free — only the symlink refusal degrades, because a descriptor
+ * `stat` reports the link target rather than the link.
+ */
+function openWithoutFollowing(
+  fsSurface: FileSystemSurface,
+  target: string,
+): Promise<FileHandle> {
+  if (!NOFOLLOW_SUPPORTED) return fsSurface.open(target, "r");
+  return fsSurface.open(target, constants.O_RDONLY | constants.O_NOFOLLOW);
+}
+
+/**
+ * Did this error come from `O_NOFOLLOW` refusing a symbolic link?
+ *
+ * Linux reports `ELOOP`; several BSDs (macOS included) report `EMLINK` for
+ * this specific case rather than the usual link-count meaning.
+ */
+function isSymlinkRefusal(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException).code;
+  return code === "ELOOP" || code === "EMLINK";
 }
 
 /**
@@ -559,7 +621,9 @@ export function deriveKeyId(key: Buffer): string {
  *
  * Both DASHFRAME_SECRET_KEY and DASHFRAME_SECRET_KEY_FILE contain canonical,
  * padded RFC 4648 base64 encoding of exactly 32 bytes. Key files may end in one
- * newline and must be a non-symlinked regular file with mode 0600.
+ * newline and must be a non-symlinked regular file that is not group- or
+ * world-accessible (the 0077 mode bits must be clear — 0600 is the usual
+ * choice, but 0400 and other owner-only modes are accepted too).
  *
  * DASHFRAME_SECRET_KEY_PREVIOUS is an optional comma-separated list of
  * additional keys in the same encoding, retained only to decrypt blobs
@@ -644,11 +708,29 @@ function decodePreviousKeys(previous: string | undefined): Buffer[] {
     });
 }
 
+/**
+ * Read the key file through a single open handle.
+ *
+ * There is deliberately no `lstat` before the `open`: validating a path and
+ * then re-opening it by name is a check-then-use race, in which another local
+ * process can swap the entry between the two syscalls so that the bytes read
+ * are not the bytes checked. `O_NOFOLLOW` rejects a symlink at the syscall,
+ * and every remaining check runs against `handle.stat()` — the very inode the
+ * key is then read from.
+ */
 async function readKeyFile(filePath: string): Promise<string> {
-  let beforeOpen: Stats;
+  let handle: FileHandle;
   try {
-    beforeOpen = await fs.lstat(filePath);
+    handle = await openWithoutFollowing(defaultFileSystem, filePath);
   } catch (error) {
+    if (isSymlinkRefusal(error)) {
+      throw new Error(
+        `Secret key file must not be a symbolic link: ${filePath}`,
+        {
+          cause: error,
+        },
+      );
+    }
     if (isMissing(error)) {
       throw new Error(`Secret key file does not exist: ${filePath}`, {
         cause: error,
@@ -656,12 +738,6 @@ async function readKeyFile(filePath: string): Promise<string> {
     }
     throw error;
   }
-  assertSecureKeyFile(beforeOpen, filePath);
-
-  const handle = await fs.open(
-    filePath,
-    constants.O_RDONLY | constants.O_NOFOLLOW,
-  );
   try {
     assertSecureKeyFile(await handle.stat(), filePath);
     return await handle.readFile("utf8");
@@ -675,10 +751,12 @@ function stripTrailingNewline(value: string): string {
   return value.replace(/\r?\n$/, "");
 }
 
+/**
+ * Validate an already-open key-file handle's `stat()`. As with
+ * {@link assertRegularFile}, the symlink case belongs to `O_NOFOLLOW` at the
+ * open rather than to a descriptor `stat` that can never observe it.
+ */
 function assertSecureKeyFile(stat: Stats, filePath: string): void {
-  if (stat.isSymbolicLink()) {
-    throw new Error(`Secret key file must not be a symbolic link: ${filePath}`);
-  }
   if (!stat.isFile()) {
     throw new Error(`Secret key path is not a regular file: ${filePath}`);
   }

@@ -27,6 +27,7 @@ import {
 
 const HEADER = {
   version: 4,
+  nonce: 7,
   authTag: 19,
   keyId: 35,
   locator: 51,
@@ -151,7 +152,7 @@ describe("AC-2: plaintext never at rest", () => {
     ).toBe(false);
   });
 
-  it("keeps plaintext out of the locator, the temp file, and the directory listing", async () => {
+  it("keeps plaintext out of the locator, every directory entry, and every entry's contents", async () => {
     const plaintext = "another-api-key-98765";
     const subject = backend();
     const locator = await subject.store(plaintext, plaintext);
@@ -233,14 +234,30 @@ describe("on-disk contract (frozen once blobs exist)", () => {
   it("pins the envelope layout byte-for-byte", async () => {
     // magic[4] | version[1] | keyIdLength[1] | locatorLength[1] |
     // nonce[12] | authTag[16] | keyId[16] | locator[32] | ciphertext
+    //
+    // The nonce and tag fields are pinned by VALUE, not just by width. Both are
+    // opaque 12/16-byte runs, so a transposition of the two fields is
+    // self-consistent — written and read back through the same wrong offsets,
+    // every round-trip test still passes. Only a known nonce catches it.
     const plaintext = "layout-probe";
-    const locator = await backend().store(plaintext);
+    const nonce = Buffer.alloc(12, 0xab);
+    const subject = new EncryptedFileSecretBackend(blobs, keyring(key(1)), {
+      crypto: { randomBytes: (size) => Buffer.alloc(size, 0xab) },
+    });
+    const locator = await subject.store(plaintext);
     const blob = await rawBlob(locator);
 
     expect(blob.subarray(0, 4).toString("ascii")).toBe("DFSB");
     expect(blob[4]).toBe(1);
     expect(blob[5]).toBe(16);
     expect(blob[6]).toBe(32);
+    expect(blob.subarray(HEADER.nonce, HEADER.authTag)).toEqual(nonce);
+    // The tag is whatever GCM produced, but it must live in [19,35) — and it
+    // must not be the nonce, which is what a transposed layout would put here.
+    expect(blob.subarray(HEADER.authTag, HEADER.keyId)).toHaveLength(16);
+    expect(blob.subarray(HEADER.authTag, HEADER.authTag + 12)).not.toEqual(
+      nonce,
+    );
     expect(blob.subarray(HEADER.keyId, HEADER.locator).toString("ascii")).toBe(
       deriveKeyId(key(1)),
     );
@@ -282,19 +299,26 @@ describe("on-disk contract (frozen once blobs exist)", () => {
 describe("AC-3: has() never decrypts", () => {
   it("never reads blob contents for present or absent locators", async () => {
     // AES-GCM is not an injectable seam (see `CryptoSurface`), so this pins the
-    // stronger precondition instead: `has()` never reads the file at all, and
-    // what is never read can never be decrypted.
+    // stronger precondition instead: `has()` never reads blob contents through
+    // the injected filesystem seam, and what is never read can never be
+    // decrypted. Both read routes are covered — `readFile` and the `open`
+    // handle the read path now goes through — so neither can quietly become
+    // the way contents get touched.
     const written = await backend().store("secret");
     const readFile = vi.fn(async () => {
       throw new Error("has() must not read blob contents");
     });
+    const open = vi.fn(async () => {
+      throw new Error("has() must not open blobs");
+    });
     const subject = new EncryptedFileSecretBackend(blobs, keyring(key(1)), {
-      fs: { readFile },
+      fs: { readFile, open },
     });
 
     expect(await subject.has(written)).toBe(true);
     expect(await subject.has("b".repeat(32))).toBe(false);
     expect(readFile).not.toHaveBeenCalled();
+    expect(open).not.toHaveBeenCalled();
   });
 
   it("returns false, rather than throwing, for an unusable entry", async () => {
