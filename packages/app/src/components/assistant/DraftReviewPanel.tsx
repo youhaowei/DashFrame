@@ -10,7 +10,7 @@
  *   3. The user opens the diff in PreviewDiffDialog, which fills compute slots
  *      client-side via local DuckDB.
  *   4. Publish is blocked when the review RPC reports late-bound operands or a
- *      preview error; the user can open `/drafts/:draftId/publish` to resolve.
+ *      preview error; the user can open `/drafts/:draftId` to resolve.
  *   5. Otherwise the user chooses Publish (→ `publishDraft` RPC) or Discard.
  */
 import { useCallback, useState } from "react";
@@ -62,7 +62,7 @@ export function DraftReviewPanel({
 
   const openFullReview = useCallback(() => {
     void navigate({
-      to: "/drafts/$draftId/publish",
+      to: "/drafts/$draftId",
       params: { draftId },
     });
   }, [draftId, navigate]);
