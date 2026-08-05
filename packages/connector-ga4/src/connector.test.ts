@@ -15,11 +15,13 @@ function bundle(overrides: Partial<GoogleOAuthTokenBundle> = {}) {
     refreshToken: "refresh-token",
     expiresAt: Date.parse("2026-08-05T13:00:00Z"),
     clientId: "client-id",
-    clientSecret: "client-secret",
     scopes: ["https://www.googleapis.com/auth/analytics.readonly"],
     ...overrides,
   };
 }
+
+/** Client credentials the host supplies at call time, never persisted. */
+const oauthClient = { clientId: "client-id", clientSecret: "client-secret" };
 
 describe("GA4 connector", () => {
   it("lists every accessible property with a bearer header", async () => {
@@ -67,6 +69,7 @@ describe("GA4 connector", () => {
       {
         fetch: fetchImpl as typeof fetch,
         now: () => Date.parse("2026-08-05T12:00:00Z"),
+        oauthClient,
       },
     );
     await connector.connect();
@@ -132,5 +135,72 @@ describe("GA4 connector", () => {
         crypto.randomUUID(),
       ),
     ).rejects.toThrow(/Invalid GA4 property id/);
+  });
+
+  // The client secret is server-wide config, not per-source data, so it reaches
+  // the refresh request from the host at call time rather than from the stored
+  // bundle. These pin that the wire request is still correctly authenticated,
+  // and that a missing or mismatched client fails closed instead of silently
+  // sending an unauthenticated refresh.
+  describe("token refresh client credentials", () => {
+    const expired = { expiresAt: Date.parse("2026-08-05T11:00:00Z") };
+    const now = () => Date.parse("2026-08-05T12:00:00Z");
+
+    it("sends the host-supplied client secret, which is absent from the bundle", async () => {
+      const fetchImpl = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ access_token: "fresh-token" }), {
+            status: 200,
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ accountSummaries: [] }), {
+            status: 200,
+          }),
+        );
+      const stored = bundle(expired);
+      expect(stored).not.toHaveProperty("clientSecret");
+
+      const connector = makeGa4Connector(resolver(stored), {
+        fetch: fetchImpl as typeof fetch,
+        now,
+        oauthClient,
+      });
+      await connector.connect();
+
+      const body = new URLSearchParams(
+        String(fetchImpl.mock.calls[0]?.[1]?.body),
+      );
+      expect(body.get("client_secret")).toBe(oauthClient.clientSecret);
+      expect(body.get("client_id")).toBe(oauthClient.clientId);
+      expect(body.get("grant_type")).toBe("refresh_token");
+    });
+
+    it("fails closed when the host has no OAuth client configured", async () => {
+      const fetchImpl = vi.fn();
+      const connector = makeGa4Connector(resolver(bundle(expired)), {
+        fetch: fetchImpl as unknown as typeof fetch,
+        now,
+      });
+      await expect(connector.connect()).rejects.toThrow(/not configured/);
+      expect(fetchImpl).not.toHaveBeenCalled();
+    });
+
+    it("refuses to renew a grant minted by a different OAuth client", async () => {
+      const fetchImpl = vi.fn();
+      const connector = makeGa4Connector(
+        resolver(bundle({ ...expired, clientId: "retired-client" })),
+        {
+          fetch: fetchImpl as unknown as typeof fetch,
+          now,
+          oauthClient,
+        },
+      );
+      await expect(connector.connect()).rejects.toThrow(
+        /different OAuth client/,
+      );
+      expect(fetchImpl).not.toHaveBeenCalled();
+    });
   });
 });

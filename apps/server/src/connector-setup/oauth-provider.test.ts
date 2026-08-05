@@ -96,4 +96,47 @@ describe("Google connector OAuth provider", () => {
       }),
     ).rejects.toMatchObject({ redirectUriMismatch: true });
   });
+
+  // The client secret is one server-wide credential. Serialising it into each
+  // connected source's vault bundle would multiply the places it must be
+  // rotated out of, and would let any single source's bundle disclose the
+  // secret for every source.
+  it("never serialises the client secret into the stored token bundle", async () => {
+    const clientSecret = "super-secret-value";
+    const descriptor = makeGa4OAuthDescriptor({
+      clientId: "client-id",
+      clientSecret,
+      now: () => 1_000_000,
+      fetch: vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              access_token: "access-token",
+              refresh_token: "refresh-token",
+              expires_in: 3600,
+              scope: "https://www.googleapis.com/auth/analytics.readonly",
+            }),
+            { status: 200 },
+          ),
+      ) as unknown as typeof fetch,
+    });
+
+    const stored = await descriptor.exchangeCode({
+      code: "code",
+      codeVerifier: "v".repeat(64),
+      redirectUri: "http://127.0.0.1/callback",
+      state: "state",
+    });
+
+    expect(stored).not.toContain(clientSecret);
+    const bundle = JSON.parse(stored) as Record<string, unknown>;
+    expect(bundle).not.toHaveProperty("clientSecret");
+    // The non-secret fields the refresh path still depends on must survive.
+    expect(bundle).toMatchObject({
+      version: 1,
+      accessToken: "access-token",
+      refreshToken: "refresh-token",
+      clientId: "client-id",
+    });
+  });
 });

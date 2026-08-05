@@ -202,13 +202,19 @@ export function makeGa4OAuthDescriptor(
       if (!GA4_SCOPES.every((scope) => grantedScopes.includes(scope))) {
         throw new OAuthExchangeError("missing-required-scope", false);
       }
+      // The client secret is deliberately NOT part of the stored bundle. It is
+      // one server-wide credential, not per-source data: copying it into every
+      // connected source's vault entry would multiply the number of places it
+      // has to be rotated out of, and would let a single source's bundle leak
+      // the secret for every source. Refresh reads it from server config at
+      // call time instead. `clientId` stays — it is not secret, and it records
+      // which OAuth client actually minted this grant.
       const bundle: GoogleOAuthTokenBundle = {
         version: 1,
         accessToken: token.access_token,
         refreshToken: token.refresh_token,
         expiresAt: now() + token.expires_in * 1000,
         clientId: config.clientId,
-        clientSecret: config.clientSecret,
         scopes: grantedScopes,
       };
       return JSON.stringify(bundle);

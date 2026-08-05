@@ -253,7 +253,12 @@ const completeConnectorOAuth = wy.procedure
     try {
       // Probe against the plaintext bundle in process memory. No vault write or
       // DataSource exists until this authenticated read succeeds.
-      const probe = makeGa4Connector(async (use) => use(tokenBundle));
+      const probe = makeGa4Connector(async (use) => use(tokenBundle), {
+        oauthClient: {
+          clientId: googleOAuth(ctx).clientId,
+          clientSecret: googleOAuth(ctx).clientSecret,
+        },
+      });
       await probe.connect();
     } catch {
       const failed = await markFailed(

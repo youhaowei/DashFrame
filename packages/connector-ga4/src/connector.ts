@@ -10,14 +10,31 @@ import type {
 import { RemoteApiConnector, createFieldsFromColumns } from "@dashframe/engine";
 import { tableFromArrays, tableToIPC } from "apache-arrow";
 
+/**
+ * The per-source credential persisted in the vault.
+ *
+ * Carries no client secret by design: that is one server-wide credential, not
+ * per-source data. Storing it here would copy it into every connected source's
+ * vault entry — multiplying the places it must be rotated out of, and letting
+ * any single source's bundle disclose the secret for all of them. `clientId` is
+ * not secret and stays, because it records which OAuth client minted the grant.
+ */
 export interface GoogleOAuthTokenBundle {
   version: 1;
   accessToken: string;
   refreshToken: string;
   expiresAt: number;
   clientId: string;
-  clientSecret?: string;
   scopes: string[];
+}
+
+/**
+ * Client credentials the host supplies at call time, read from server config
+ * and never persisted alongside a token bundle.
+ */
+export interface GoogleOAuthClientCredentials {
+  clientId: string;
+  clientSecret: string;
 }
 
 interface GoogleTokenResponse {
@@ -44,6 +61,13 @@ interface RunReportResponse {
 export interface Ga4ConnectorDependencies {
   fetch?: typeof fetch;
   now?: () => number;
+  /**
+   * OAuth client credentials for token refresh, read from server config by the
+   * host that constructs this connector. Optional because the catalog and
+   * client-registry construct a connector purely for its static metadata and
+   * never reach a network path; a refresh without it fails closed.
+   */
+  oauthClient?: GoogleOAuthClientCredentials;
 }
 
 function parseTokenBundle(raw: string): GoogleOAuthTokenBundle {
@@ -77,16 +101,33 @@ function parseTokenBundle(raw: string): GoogleOAuthTokenBundle {
 async function refreshAccessToken(
   bundle: GoogleOAuthTokenBundle,
   fetchImpl: typeof fetch,
+  oauthClient: GoogleOAuthClientCredentials | undefined,
 ): Promise<string> {
   if (!bundle.refreshToken) {
     throw new Error("[GA4Connector] Google authorization must be renewed");
   }
+  // Fail closed rather than attempting an unauthenticated refresh: Google
+  // rejects it anyway, and a clear message points at the missing server config.
+  if (!oauthClient) {
+    throw new Error(
+      "[GA4Connector] Google OAuth client credentials are not configured",
+    );
+  }
+  // A grant is bound to the client that minted it. If the server's configured
+  // client has been replaced, the stored refresh token cannot be renewed under
+  // the new one — say so instead of sending a mismatched pair and surfacing an
+  // opaque provider error.
+  if (bundle.clientId !== oauthClient.clientId) {
+    throw new Error(
+      "[GA4Connector] Google authorization was issued for a different OAuth client and must be renewed",
+    );
+  }
   const body = new URLSearchParams({
-    client_id: bundle.clientId,
+    client_id: oauthClient.clientId,
+    client_secret: oauthClient.clientSecret,
     refresh_token: bundle.refreshToken,
     grant_type: "refresh_token",
   });
-  if (bundle.clientSecret) body.set("client_secret", bundle.clientSecret);
   const response = await fetchImpl("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -108,10 +149,11 @@ async function accessTokenFor(
   raw: string,
   fetchImpl: typeof fetch,
   now: () => number,
+  oauthClient: GoogleOAuthClientCredentials | undefined,
 ): Promise<string> {
   const bundle = parseTokenBundle(raw);
   if (bundle.expiresAt > now() + 60_000) return bundle.accessToken;
-  return refreshAccessToken(bundle, fetchImpl);
+  return refreshAccessToken(bundle, fetchImpl, oauthClient);
 }
 
 async function fetchJson(
@@ -203,6 +245,7 @@ export class Ga4Connector extends RemoteApiConnector {
 
   readonly #fetch: typeof fetch;
   readonly #now: () => number;
+  readonly #oauthClient: GoogleOAuthClientCredentials | undefined;
 
   constructor(
     auth: SecretResolver,
@@ -211,6 +254,7 @@ export class Ga4Connector extends RemoteApiConnector {
     super(auth);
     this.#fetch = dependencies.fetch ?? fetch;
     this.#now = dependencies.now ?? Date.now;
+    this.#oauthClient = dependencies.oauthClient;
   }
 
   getFormFields(): FormField[] {
@@ -223,7 +267,12 @@ export class Ga4Connector extends RemoteApiConnector {
 
   async connect(): Promise<RemoteDatabase[]> {
     return this.auth(async (raw) => {
-      const token = await accessTokenFor(raw, this.#fetch, this.#now);
+      const token = await accessTokenFor(
+        raw,
+        this.#fetch,
+        this.#now,
+        this.#oauthClient,
+      );
       return listProperties(this.#fetch, token);
     });
   }
@@ -241,7 +290,12 @@ export class Ga4Connector extends RemoteApiConnector {
     }
 
     return this.auth(async (raw) => {
-      const token = await accessTokenFor(raw, this.#fetch, this.#now);
+      const token = await accessTokenFor(
+        raw,
+        this.#fetch,
+        this.#now,
+        this.#oauthClient,
+      );
       const response = (await fetchJson(
         this.#fetch,
         `https://analyticsdata.googleapis.com/v1beta/${property}:runReport`,

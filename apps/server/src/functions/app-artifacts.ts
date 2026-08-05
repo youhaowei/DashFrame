@@ -1511,7 +1511,20 @@ async function ga4ConnectorFor(
     config.apiKey,
     `DataSource(${dataSourceId})`,
   );
-  return makeGa4Connector(auth);
+  // Client credentials come from server config on every call rather than from
+  // the stored bundle, so rotating the OAuth client is a config change instead
+  // of a re-write of every connected source's vault entry.
+  const oauthClient = ctx.googleOAuth;
+  return makeGa4Connector(auth, {
+    ...(oauthClient
+      ? {
+          oauthClient: {
+            clientId: oauthClient.clientId,
+            clientSecret: oauthClient.clientSecret,
+          },
+        }
+      : {}),
+  });
 }
 
 const listGa4Properties = wy.procedure
