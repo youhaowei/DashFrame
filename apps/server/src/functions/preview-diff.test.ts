@@ -82,8 +82,21 @@ describe("PreviewDiff builder", () => {
   // resolve under preview instead of failing closed (server contract: storing a
   // credential requires a vault).
   async function preview(...commands: ReturnType<typeof cmd>[]) {
-    return buildPreviewDiff(app, db, commands, { vault });
+    return buildPreviewDiff(app, db, commands, {
+      vault,
+      principal: { kind: "service", credentialId: "credential-1" },
+    });
   }
+
+  const userContext = {
+    principal: { kind: "user" as const, userId: "local-user" },
+  };
+  const servicePreviewContext = {
+    principal: {
+      kind: "service" as const,
+      credentialId: "credential-1",
+    },
+  };
 
   // --- direct seeding helpers (no vocabulary commands for these yet) ---------
 
@@ -1123,7 +1136,12 @@ describe("PreviewDiff builder", () => {
       ] as ReturnType<typeof cmd>[];
 
       // 1. Preview — capture the diff.
-      const diff = await buildPreviewDiff(app, db, batch);
+      const diff = await buildPreviewDiff(
+        app,
+        db,
+        batch,
+        servicePreviewContext,
+      );
 
       // Basic shape assertions.
       // After the rename, existingSource is no longer noop — it gets renamed.
@@ -1156,7 +1174,10 @@ describe("PreviewDiff builder", () => {
       });
 
       // 2. Commit the same batch against the same DB (preview rolled it back).
-      await applyCommands(app, batch, { mode: "commit" });
+      await applyCommands(app, batch, {
+        mode: "commit",
+        context: userContext,
+      });
 
       // 3. Equivalence: read committed rows and compare to proposedDefinition.
       const sources = await db.select().from(dataSources);
@@ -1236,7 +1257,12 @@ describe("PreviewDiff builder", () => {
       ] as ReturnType<typeof cmd>[];
 
       // 1. Preview — what kind does the preview think the rename targets?
-      const diff = await buildPreviewDiff(app, db, batch);
+      const diff = await buildPreviewDiff(
+        app,
+        db,
+        batch,
+        servicePreviewContext,
+      );
 
       // The rename node for collidingId must resolve to "dataTable" (same as
       // the renameNode handler which probes dataTables before dataSources).
@@ -1247,7 +1273,10 @@ describe("PreviewDiff builder", () => {
       expect(renameNode!.kind).toBe("dataTable");
 
       // 2. Commit the same batch.
-      await applyCommands(app, batch, { mode: "commit" });
+      await applyCommands(app, batch, {
+        mode: "commit",
+        context: userContext,
+      });
 
       // 3. Equivalence: the renameNode handler must have renamed the dataTable,
       //    not the dataSource — confirming preview matches publish.
@@ -1294,7 +1323,12 @@ describe("PreviewDiff builder", () => {
 
       // 1. Preview — the rename must attach to the dataTable kind (handler order),
       //    NOT the canonical dataSource.
-      const diff = await buildPreviewDiff(app, db, batch);
+      const diff = await buildPreviewDiff(
+        app,
+        db,
+        batch,
+        servicePreviewContext,
+      );
       const renameTable = diff.directNodes.find(
         (n) => n.nodeId === collidingId && n.kind === "dataTable",
       );
@@ -1317,7 +1351,10 @@ describe("PreviewDiff builder", () => {
 
       // 2. Commit the same batch — confirm the handler renamed the in-batch
       //    dataTable and left the canonical dataSource untouched.
-      await applyCommands(app, batch, { mode: "commit" });
+      await applyCommands(app, batch, {
+        mode: "commit",
+        context: userContext,
+      });
       const tables = await db.select().from(dataTables);
       const sources = await db.select().from(dataSources);
       expect(tables.find((r) => r.id === collidingId)?.name).toBe(
@@ -1335,7 +1372,7 @@ describe("PreviewDiff builder", () => {
 
   describe("contract: empty batch and idempotent re-preview", () => {
     it("empty batch produces all-empty diff without throwing", async () => {
-      const diff = await buildPreviewDiff(app, db, []);
+      const diff = await buildPreviewDiff(app, db, [], servicePreviewContext);
 
       expect(diff.mode).toBe("preview");
       expect(diff.directNodes).toEqual([]);
@@ -1352,8 +1389,18 @@ describe("PreviewDiff builder", () => {
         cmd("RenameNode", { id: sourceId, name: "Renamed" }),
       ] as ReturnType<typeof cmd>[];
 
-      const diff1 = await buildPreviewDiff(app, db, batch);
-      const diff2 = await buildPreviewDiff(app, db, batch);
+      const diff1 = await buildPreviewDiff(
+        app,
+        db,
+        batch,
+        servicePreviewContext,
+      );
+      const diff2 = await buildPreviewDiff(
+        app,
+        db,
+        batch,
+        servicePreviewContext,
+      );
 
       // Deep equality — idempotent re-preview produces identical metadata.
       expect(diff2.directNodes).toEqual(diff1.directNodes);
@@ -1446,9 +1493,12 @@ describe("PreviewDiff builder", () => {
       // A command that will definitely fail: RenameNode on a non-existent id
       // (no canonical row, not created in the batch).
       const nonExistentId = id();
-      const diff = await buildPreviewDiff(app, db, [
-        cmd("RenameNode", { id: nonExistentId, name: "Will Fail" }),
-      ]);
+      const diff = await buildPreviewDiff(
+        app,
+        db,
+        [cmd("RenameNode", { id: nonExistentId, name: "Will Fail" })],
+        servicePreviewContext,
+      );
 
       expect(diff.mode).toBe("preview");
       expect(diff.error).toBeDefined();
@@ -1466,17 +1516,26 @@ describe("PreviewDiff builder", () => {
       const tableId = id();
       const nonExistentId = id();
 
-      const diff = await buildPreviewDiff(app, db, [
-        cmd("CreateDataSource", { id: sourceId, type: "csv", name: "Src" }),
-        cmd("CreateDataTable", {
-          id: tableId,
-          dataSourceId: sourceId,
-          name: "Tbl",
-          table: "t.csv",
-        }),
-        // Fails: RenameNode on an id that doesn't exist in canonical or batch.
-        cmd("RenameNode", { id: nonExistentId, name: "Fail" }),
-      ]);
+      const diff = await buildPreviewDiff(
+        app,
+        db,
+        [
+          cmd("CreateDataSource", {
+            id: sourceId,
+            type: "csv",
+            name: "Src",
+          }),
+          cmd("CreateDataTable", {
+            id: tableId,
+            dataSourceId: sourceId,
+            name: "Tbl",
+            table: "t.csv",
+          }),
+          // Fails: RenameNode on an id that doesn't exist in canonical or batch.
+          cmd("RenameNode", { id: nonExistentId, name: "Fail" }),
+        ],
+        servicePreviewContext,
+      );
 
       // Did not throw — returned a renderable diff.
       expect(diff.mode).toBe("preview");
@@ -1562,9 +1621,12 @@ describe("PreviewDiff builder", () => {
       // is empty so the guarded prefix re-run is skipped entirely, and the function
       // must still return a well-formed PreviewDiff.
       const nonExistentId = id();
-      const diffPromise = buildPreviewDiff(app, db, [
-        cmd("RenameNode", { id: nonExistentId, name: "Fail" }),
-      ]);
+      const diffPromise = buildPreviewDiff(
+        app,
+        db,
+        [cmd("RenameNode", { id: nonExistentId, name: "Fail" })],
+        servicePreviewContext,
+      );
 
       // The contract: always resolves (never rejects).
       await expect(diffPromise).resolves.toBeDefined();
@@ -1582,10 +1644,15 @@ describe("PreviewDiff builder", () => {
       // failureIndex=1, not from the full-batch run. We assert that the slot is
       // coherent: commandIndex points to the failing command AND message is non-empty.
       const nonExistentId = id();
-      const diff = await buildPreviewDiff(app, db, [
-        cmd("CreateDataSource", { id: id(), type: "csv", name: "OK" }),
-        cmd("RenameNode", { id: nonExistentId, name: "Fail" }),
-      ]);
+      const diff = await buildPreviewDiff(
+        app,
+        db,
+        [
+          cmd("CreateDataSource", { id: id(), type: "csv", name: "OK" }),
+          cmd("RenameNode", { id: nonExistentId, name: "Fail" }),
+        ],
+        servicePreviewContext,
+      );
 
       expect(diff.error).toBeDefined();
       expect(diff.error!.commandIndex).toBe(1);

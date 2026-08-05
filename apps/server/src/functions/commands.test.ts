@@ -36,6 +36,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { functions } from "../functions";
+import { LOCAL_USER_ID } from "../permissions";
 import { wy } from "../wystack";
 import {
   cmd,
@@ -85,7 +86,13 @@ describe("command vocabulary", () => {
   // passes ctx.vault to handlers. Credential-bearing commands require it (the
   // server fails closed without a vault); credential-free batches ignore it.
   async function commit(...commands: ReturnType<typeof cmd>[]) {
-    return applyCommands(app, commands, { mode: "commit", context: { vault } });
+    return applyCommands(app, commands, {
+      mode: "commit",
+      context: {
+        vault,
+        principal: { kind: "user", userId: LOCAL_USER_ID },
+      },
+    });
   }
 
   // Assertion reads go through the raw Drizzle handle and filter in JS — the
@@ -832,7 +839,13 @@ describe("command vocabulary", () => {
       const result = await applyCommands(
         app,
         [cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" })],
-        { mode: "preview" },
+        {
+          mode: "preview",
+          context: {
+            principal: { kind: "service", credentialId: "credential-1" },
+            mode: "preview",
+          },
+        },
       );
       expect(result.mode).toBe("preview");
       // It WOULD have written the data_sources table — pin the table name so a

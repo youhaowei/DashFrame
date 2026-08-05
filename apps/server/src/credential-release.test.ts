@@ -61,6 +61,7 @@ import {
   commandFunctions,
   CREDENTIAL_COMMAND_FIELDS,
 } from "./functions/commands";
+import { LOCAL_USER_ID } from "./permissions";
 
 const { dataSources } = schema;
 
@@ -93,7 +94,9 @@ async function makeHarness(opts?: {
 
   // Mirror createDashframeServer's serverContext seam (without a socket): the
   // draft RPC handlers read draftController / artifactDb from the call context.
-  const serverContext: Record<string, unknown> = {};
+  const serverContext: Record<string, unknown> = {
+    principal: { kind: "user", userId: LOCAL_USER_ID },
+  };
   const app: WyStackApp = {
     ...baseApp,
     async call(path, args, ctx) {

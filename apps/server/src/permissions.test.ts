@@ -17,7 +17,13 @@ describe("permissions", () => {
     expect(permissions.accessCredentials.manage.id).toBe(
       "accessCredentials.manage",
     );
-    expect(expectedPermissionIds).toEqual(["accessCredentials.manage"]);
+    expect(permissions.commands.commit.id).toBe("commands.commit");
+    expect(permissions.commands.preview.id).toBe("commands.preview");
+    expect(expectedPermissionIds).toEqual([
+      "accessCredentials.manage",
+      "commands.commit",
+      "commands.preview",
+    ]);
   });
 
   it("grants access credential management to the local user principal", async () => {
@@ -53,5 +59,66 @@ describe("permissions", () => {
         evaluate(ctx.principal, permissions.accessCredentials.manage, ctx),
       ).resolves.toBe(false);
     }
+  });
+
+  it("allows command execution for previews, drafts, publish replay, and users", async () => {
+    const service = context({
+      kind: "service",
+      credentialId: "credential-1",
+    });
+    const user = context({ kind: "user", userId: LOCAL_USER_ID });
+
+    await expect(
+      evaluate(service.principal, permissions.commands.commit, {
+        ...service,
+        mode: "preview",
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      evaluate(service.principal, permissions.commands.commit, {
+        ...service,
+        draftId: "draft-1",
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      evaluate(user.principal, permissions.commands.commit, {
+        ...user,
+        __publishReplay: true,
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      evaluate(user.principal, permissions.commands.commit, user),
+    ).resolves.toBe(true);
+  });
+
+  it("denies direct canonical command execution to service principals", async () => {
+    const service = context({
+      kind: "service",
+      credentialId: "credential-1",
+    });
+    await expect(
+      evaluate(service.principal, permissions.commands.commit, service),
+    ).resolves.toBe(false);
+  });
+
+  it("allows preview for any well-formed principal, service or user", async () => {
+    const service = context({
+      kind: "service",
+      credentialId: "credential-1",
+    });
+    const user = context({ kind: "user", userId: LOCAL_USER_ID });
+
+    for (const ctx of [service, user]) {
+      await expect(
+        evaluate(ctx.principal, permissions.commands.preview, ctx),
+      ).resolves.toBe(true);
+    }
+  });
+
+  it("still denies preview with no principal at all — `evaluate` requires a well-formed Principal before it calls any permission's `check`, so 'preview is open' cannot mean 'no identity required'", async () => {
+    const anonymous = context(undefined);
+    await expect(
+      evaluate(anonymous.principal, permissions.commands.preview, anonymous),
+    ).resolves.toBe(false);
   });
 });

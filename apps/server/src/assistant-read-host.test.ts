@@ -30,6 +30,7 @@ import { neighbors } from "@dashframe/assistant";
 import { buildDashframeApp, createDraftController } from "./app";
 import { createAssistantReadHost } from "./assistant-read-host";
 import { cmd } from "./functions/commands";
+import { LOCAL_USER_ID } from "./permissions";
 
 describe("assistant read host (resolver over the real server seam)", () => {
   let dir: string;
@@ -40,7 +41,20 @@ describe("assistant read host (resolver over the real server seam)", () => {
   beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), "dashframe-read-"));
     db = await openArtifactDb({ path: join(dir, "artifacts.db") });
-    app = await buildDashframeApp({ db });
+    const baseApp = await buildDashframeApp({ db });
+    app = {
+      ...baseApp,
+      call: (path, args, context) =>
+        baseApp.call(path, args, {
+          ...(context ?? {}),
+          principal: { kind: "user", userId: LOCAL_USER_ID },
+        }),
+      runHandler: (path, args, tracked, context) =>
+        baseApp.runHandler(path, args, tracked, {
+          ...(context ?? {}),
+          principal: { kind: "user", userId: LOCAL_USER_ID },
+        }),
+    };
     controller = createDraftController(app, db);
   });
 

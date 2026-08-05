@@ -52,6 +52,20 @@ export function createWyStackRuntime(
   const instance = createWyStack<Functions>({
     url: runtimeConfig.url,
     getToken: token ? () => token : undefined,
+    // The DashFrame server always configures a `resolveContext` now — even
+    // the token-less loopback config synthesizes a local-user principal (see
+    // apps/server/src/app.ts) so command procedures have someone to
+    // authorize. Per the WS contract in @wystack/server's routes.ts, "when
+    // resolveContext is configured, the client must send `{type:'auth',
+    // token}` as the first frame" — unconditionally, regardless of whether
+    // the token is real. `requiresAuth` otherwise defaults to
+    // `getToken !== undefined`, which is false in the no-token config, so the
+    // client would never send that frame and the server's WS session would
+    // sit unauthenticated forever: subscribe frames get ignored, so live
+    // queries (e.g. the visualization list after creating a chart) never
+    // receive invalidation pushes. Force it on so a null token still
+    // completes the handshake against our synthetic resolver.
+    requiresAuth: true,
   });
   setWyStackClient(instance.client);
   return { Provider: instance.Provider };

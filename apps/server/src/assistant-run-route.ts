@@ -7,6 +7,7 @@ import {
   type CreateAssistantRunOptions,
 } from "@dashframe/assistant";
 import { schema, type ArtifactDb } from "@dashframe/server-core";
+import { isPrincipal } from "@wystack/identity";
 import type { SecretVault } from "@wystack/secret-vault";
 import type { WyStackApp } from "@wystack/server";
 import { eq } from "drizzle-orm";
@@ -315,8 +316,9 @@ export async function handleAssistantRunRequest(
   c: Context,
   options: AssistantRunRouteOptions,
 ): Promise<Response> {
+  let resolved: Record<string, unknown> | undefined;
   try {
-    await options.resolveContext?.(c.req.raw);
+    resolved = await options.resolveContext?.(c.req.raw);
   } catch (error) {
     return c.json({ error: errorMessage(error) }, 401);
   }
@@ -360,6 +362,9 @@ export async function handleAssistantRunRequest(
   const host = createDashframeAssistantHost({
     app: options.app,
     draftController: options.draftController,
+    principal: isPrincipal(resolved?.principal)
+      ? resolved.principal
+      : undefined,
   });
 
   // Abort the provider run when the client goes away — either the fetch is

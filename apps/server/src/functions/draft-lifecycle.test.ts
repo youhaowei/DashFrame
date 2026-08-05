@@ -61,10 +61,12 @@ import {
 } from "../app";
 import { captureCommandCredentials } from "../credential-release";
 import type { Functions } from "../functions";
+import { LOCAL_USER_ID } from "../permissions";
 import { cmd } from "./commands";
 
 /** Mirrors packages/app/src/wystack/api.ts's module-scope api object. */
 const api: ApiFromFunctions<Functions> = createApi<Functions>();
+const USER_TOKEN = "renderer-token";
 
 const { dataSources } = schema;
 
@@ -83,7 +85,10 @@ function makeTestVault(): SecretVault {
 function post(url: string, path: string, body: unknown): Promise<Response> {
   return fetch(`${url}/api/${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${USER_TOKEN}`,
+    },
     body: JSON.stringify(body),
   });
 }
@@ -91,7 +96,31 @@ function post(url: string, path: string, body: unknown): Promise<Response> {
 /** GET /api/:path?args=<json> — for WyStack query endpoints. */
 function get(url: string, path: string, args: unknown): Promise<Response> {
   const params = new URLSearchParams({ args: JSON.stringify(args) });
-  return fetch(`${url}/api/${path}?${params.toString()}`, { method: "GET" });
+  return fetch(`${url}/api/${path}?${params.toString()}`, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${USER_TOKEN}` },
+  });
+}
+
+async function buildUserApp(opts: Parameters<typeof buildDashframeApp>[0]) {
+  const baseApp = await buildDashframeApp(opts);
+  return {
+    ...baseApp,
+    call: (path, args, context) =>
+      baseApp.call(path, args, {
+        ...(context ?? {}),
+        principal: { kind: "user", userId: LOCAL_USER_ID },
+      }),
+    runHandler: (path, args, tracked, context) =>
+      baseApp.runHandler(path, args, tracked, {
+        ...(context ?? {}),
+        principal: { kind: "user", userId: LOCAL_USER_ID },
+      }),
+  } satisfies typeof baseApp;
+}
+
+function createUserServer(opts: Parameters<typeof createDashframeServer>[0]) {
+  return createDashframeServer({ ...opts, authToken: USER_TOKEN });
 }
 
 async function postOk<T>(url: string, path: string, body: unknown): Promise<T> {
@@ -142,7 +171,7 @@ describe("draft lifecycle RPCs (publishDraft, discardDraft, getDraftLog)", () =>
    * Returns the draftId to pass to the HTTP RPCs.
    */
   async function seedDraft(db: ArtifactDb): Promise<string> {
-    const seedApp = await buildDashframeApp({ db });
+    const seedApp = await buildUserApp({ db });
     const seedController = createDraftController(seedApp, db);
 
     // Seed a DataSource into canonical first (publishDraft writes to the
@@ -169,7 +198,7 @@ describe("draft lifecycle RPCs (publishDraft, discardDraft, getDraftLog)", () =>
   }
 
   async function seedCanonicalSource(db: ArtifactDb, name: string) {
-    const seedApp = await buildDashframeApp({ db });
+    const seedApp = await buildUserApp({ db });
     const seedController = createDraftController(seedApp, db);
     const sourceId = crypto.randomUUID();
     const seedDraftId = await seedController.openDraft();
@@ -190,7 +219,7 @@ describe("draft lifecycle RPCs (publishDraft, discardDraft, getDraftLog)", () =>
     project = await openProject({ dir: join(root, "proj") });
     const draftId = await seedDraft(project.db as ArtifactDb);
 
-    server = await createDashframeServer({
+    server = await createUserServer({
       db: project.db,
       onWrite: () => onWriteCalls.push(Date.now()),
     });
@@ -215,14 +244,14 @@ describe("draft lifecycle RPCs (publishDraft, discardDraft, getDraftLog)", () =>
     project = await openProject({ dir: join(root, "empty") });
 
     // Open a draft with no commands — no writes means no onWrite.
-    const seedApp = await buildDashframeApp({ db: project.db as ArtifactDb });
+    const seedApp = await buildUserApp({ db: project.db as ArtifactDb });
     const seedController = createDraftController(
       seedApp,
       project.db as ArtifactDb,
     );
     const emptyDraftId = await seedController.openDraft();
 
-    server = await createDashframeServer({
+    server = await createUserServer({
       db: project.db,
       onWrite: () => onWriteCalls.push(Date.now()),
     });
@@ -248,7 +277,7 @@ describe("draft lifecycle RPCs (publishDraft, discardDraft, getDraftLog)", () =>
     project = await openProject({ dir: join(root, "proj") });
     const draftId = await seedDraft(project.db as ArtifactDb);
 
-    server = await createDashframeServer({
+    server = await createUserServer({
       db: project.db,
       onWrite: () => onWriteCalls.push(Date.now()),
     });
@@ -268,7 +297,7 @@ describe("draft lifecycle RPCs (publishDraft, discardDraft, getDraftLog)", () =>
     project = await openProject({ dir: join(root, "proj") });
     const draftId = await seedDraft(project.db as ArtifactDb);
 
-    server = await createDashframeServer({ db: project.db });
+    server = await createUserServer({ db: project.db });
 
     const res = await post(server.url, "publishDraft", { draftId });
     expect(res.status).toBe(200);
@@ -304,7 +333,7 @@ describe("draft lifecycle RPCs (publishDraft, discardDraft, getDraftLog)", () =>
       .set({ name: "Canonical rename" })
       .where(eq(dataSources.id, sourceId));
 
-    server = await createDashframeServer({ db });
+    server = await createUserServer({ db });
 
     const res = await post(server.url, "publishDraft", { draftId });
     expect(res.status).toBe(400);
@@ -358,7 +387,7 @@ describe("draft lifecycle RPCs (publishDraft, discardDraft, getDraftLog)", () =>
       .set({ name: "Disjoint canonical rename" })
       .where(eq(dataSources.id, canonicalSourceId));
 
-    server = await createDashframeServer({ db });
+    server = await createUserServer({ db });
 
     await postOk<{ tablesWritten: string[] }>(server.url, "publishDraft", {
       draftId,
@@ -390,7 +419,7 @@ describe("draft lifecycle RPCs (publishDraft, discardDraft, getDraftLog)", () =>
     // the signal).
     await db.delete(dataSources).where(eq(dataSources.id, sourceId));
 
-    server = await createDashframeServer({ db });
+    server = await createUserServer({ db });
 
     const res = await post(server.url, "publishDraft", { draftId });
     expect(res.status).toBe(400);
@@ -435,7 +464,7 @@ describe("draft lifecycle RPCs (publishDraft, discardDraft, getDraftLog)", () =>
     // so the publish must proceed.
     await db.delete(dataSources).where(eq(dataSources.id, deletedSourceId));
 
-    server = await createDashframeServer({ db });
+    server = await createUserServer({ db });
 
     await postOk<{ tablesWritten: string[] }>(server.url, "publishDraft", {
       draftId,
@@ -457,7 +486,7 @@ describe("draft lifecycle RPCs (publishDraft, discardDraft, getDraftLog)", () =>
     project = await openProject({ dir: join(root, "proj") });
     const draftId = await seedDraft(project.db as ArtifactDb);
 
-    server = await createDashframeServer({ db: project.db });
+    server = await createUserServer({ db: project.db });
 
     const res = await post(server.url, "publishDraft", {
       draftId,
@@ -495,9 +524,12 @@ describe("draft lifecycle RPCs (publishDraft, discardDraft, getDraftLog)", () =>
     project = await openProject({ dir: join(root, "proj") });
     const draftId = await seedDraft(project.db as ArtifactDb);
 
-    server = await createDashframeServer({ db: project.db });
+    server = await createUserServer({ db: project.db });
 
-    const client = createClient({ url: server.url });
+    const client = createClient({
+      url: server.url,
+      getToken: async () => USER_TOKEN,
+    });
 
     let caught: Error | undefined;
     try {
@@ -556,7 +588,7 @@ describe("draft lifecycle RPCs (publishDraft, discardDraft, getDraftLog)", () =>
 
     // Seed a canonical, credentialed DataSource via a real controller (so the
     // capture-before-log seam mints a real vault ref, not plaintext).
-    const seedApp = await buildDashframeApp({ db, vault });
+    const seedApp = await buildUserApp({ db, vault });
     const seedController = createDraftController(seedApp, db, {
       captureCredentials: (c) => captureCommandCredentials(c, vault, db),
     });
@@ -583,7 +615,7 @@ describe("draft lifecycle RPCs (publishDraft, discardDraft, getDraftLog)", () =>
     // command to it.
     const draftId = await seedController.openDraft();
 
-    server = await createDashframeServer({
+    server = await createUserServer({
       db: project.db,
       vault,
       flushSnapshot: async () => {},
@@ -624,7 +656,7 @@ describe("draft lifecycle RPCs (publishDraft, discardDraft, getDraftLog)", () =>
     project = await openProject({ dir: join(root, "proj") });
     const db = project.db as ArtifactDb;
 
-    const seedApp = await buildDashframeApp({ db, vault });
+    const seedApp = await buildUserApp({ db, vault });
     const seedController = createDraftController(seedApp, db, {
       captureCredentials: (c) => captureCommandCredentials(c, vault, db),
     });
@@ -632,7 +664,7 @@ describe("draft lifecycle RPCs (publishDraft, discardDraft, getDraftLog)", () =>
     // Open the draft the RPC will discard.
     const draftId = await seedController.openDraft();
 
-    server = await createDashframeServer({
+    server = await createUserServer({
       db: project.db,
       vault,
       flushSnapshot: async () => {},
@@ -670,7 +702,7 @@ describe("draft lifecycle RPCs (publishDraft, discardDraft, getDraftLog)", () =>
     project = await openProject({ dir: join(root, "proj") });
     const draftId = await seedDraft(project.db as ArtifactDb);
 
-    server = await createDashframeServer({ db: project.db });
+    server = await createUserServer({ db: project.db });
 
     // getDraftLog is a WyStack query → GET /api/getDraftLog?args=<json>
     const commands = await getOk<{ path: string; args: unknown }[]>(

@@ -44,6 +44,7 @@ interface DraftFunctionContext {
   wyStackApp?: unknown;
   artifactDb?: unknown;
   vault?: unknown;
+  principal?: unknown;
 }
 
 function asDraftFunctionContext(ctx: unknown): DraftFunctionContext {
@@ -81,7 +82,12 @@ function summarizeCommands(
 
 function handlerContext(ctx: unknown): Record<string, unknown> {
   const draftCtx = asDraftFunctionContext(ctx);
-  return draftCtx.vault !== undefined ? { vault: draftCtx.vault } : {};
+  return {
+    ...(draftCtx.vault !== undefined ? { vault: draftCtx.vault } : {}),
+    ...(draftCtx.principal !== undefined
+      ? { principal: draftCtx.principal }
+      : {}),
+  };
 }
 
 const draftPublishReview = wy.procedure
