@@ -203,7 +203,13 @@ processes:
 1. API server (fixed loopback port; loopback needs no token):
    `cd apps/server && bun run src/index.ts --host 127.0.0.1 --port 4000`
    (bare `bun run dev` also works but picks an OS-assigned port). It opens a
-   project at `~/.DashFrame/web-project`.
+   project at `~/.DashFrame/web-project`; host-local data (access credentials)
+   goes to `~/.DashFrame/data`, overridable with `--data-dir` or
+   `DASHFRAME_DATA_DIR` and required to sit outside the project directory.
+   Named access credentials additionally need an encryption key — set
+   `DASHFRAME_SECRET_KEY` (base64 of 32 bytes) or `DASHFRAME_SECRET_KEY_FILE`;
+   without one the server still serves normally but fails closed on anything
+   credential-bearing. Run `--help` for the full rotation story.
 2. Web app pointed at it:
    `cd apps/web && PORT=3000 VITE_WYSTACK_URL=http://127.0.0.1:4000 bun run dev:direct`
    Open `http://127.0.0.1:3000/`. In dev the browser talks same-origin and Vite

@@ -130,12 +130,27 @@ export class ApiAccessCredentials {
       for (const credential of file.credentials) {
         if (credential.revokedAt) continue;
         if (!token.startsWith(credential.tokenPrefix)) continue;
-        if (!(await this.vault.has(credential.verifierRef))) continue;
-        const matches = await this.vault.withSecret(
-          credential.verifierRef,
-          async (expected) => matchesVerifier(token, expected),
-        );
-        if (matches) return credential.id;
+        try {
+          if (!(await this.vault.has(credential.verifierRef))) continue;
+          const matches = await this.vault.withSecret(
+            credential.verifierRef,
+            async (expected) => matchesVerifier(token, expected),
+          );
+          if (matches) return credential.id;
+        } catch (error) {
+          // One unreadable verifier must not take down authentication for every
+          // other credential on the host. A botched rotation (retired key
+          // dropped from the keyring) or a corrupted blob leaves exactly one
+          // entry undecryptable; skipping it degrades to "this credential no
+          // longer works", which is both true and recoverable, instead of 500ing
+          // every request. Nothing secret is logged — not the token, not the
+          // verifier, not the ref.
+          console.warn(
+            `[access-credentials] skipping credential ${credential.id}: its stored verifier could not be read`,
+            error instanceof Error ? error.message : error,
+          );
+          continue;
+        }
       }
       return null;
     });

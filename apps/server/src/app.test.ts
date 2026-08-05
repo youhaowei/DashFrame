@@ -36,15 +36,20 @@ function bearer(token: string): { Authorization: string } {
   return { Authorization: `Bearer ${token}` };
 }
 
-function makeAccessCredentials(rootDir: string): ApiAccessCredentials {
+function makeSecretServices(rootDir: string): {
+  vault: SecretVault;
+  accessCredentials: ApiAccessCredentials;
+} {
   const backend = new TestBackend();
   const registry = new SecretRegistry();
   registry.register("test", backend, { fallback: true });
   registry.setClassDefault("serve-token", "test");
-  return new ApiAccessCredentials(
-    new SecretVault(registry, new InMemoryMappingStore()),
-    rootDir,
-  );
+  const vault = new SecretVault(registry, new InMemoryMappingStore());
+  return { vault, accessCredentials: new ApiAccessCredentials(vault, rootDir) };
+}
+
+function makeAccessCredentials(rootDir: string): ApiAccessCredentials {
+  return makeSecretServices(rootDir).accessCredentials;
 }
 
 function waitForWsAuth(
@@ -256,6 +261,87 @@ describe("createDashframeServer", () => {
       );
       expect(await capabilitiesResponse.json()).toMatchObject({
         data: { canManageCredentials: false },
+      });
+    });
+
+    it("denies before disclosing that no secret key is configured", async () => {
+      // Ordering guard on `configuredAccessCredentialProcedure`: `.authorize`
+      // must run BEFORE the capability-check middleware. This server has no
+      // `authToken`/`authRef`, so no resolver runs and the request context
+      // carries no `principal` at all — the `accessCredentials.manage` check
+      // denies (403) before the "no secret key configured" middleware can turn
+      // an unauthenticated request into a 500 carrying an operator-facing
+      // env-var hint. Swapping the two `.use`/`.authorize` calls fails this.
+      project = await openProject({
+        dir: join(root, "proj"),
+        name: "No key Co",
+      });
+      server = await createDashframeServer({ db: project.db });
+
+      const response = await fetch(`${server.url}/api/issueAccessCredential`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Unavailable credential" }),
+      });
+      expect(response.status).toBe(403);
+      const body = (await response.json()) as { error: string };
+      expect(body.error).not.toContain("No secret key configured");
+    });
+
+    it("rejects at the transport before any procedure middleware runs on a token-protected server", async () => {
+      // Narrower than it looks, and deliberately so: with `authToken` set, an
+      // unauthenticated request never reaches `issueAccessCredential`'s
+      // middleware chain at all — transport auth answers 401 first. It does
+      // NOT prove the `.authorize`-before-capability-check ordering (the test
+      // above owns that); it pins that the transport layer stays in front of
+      // the procedure layer, so no procedure-level message can leak to a
+      // caller who never authenticated.
+      project = await openProject({
+        dir: join(root, "proj"),
+        name: "Token Co, no key",
+      });
+      server = await createDashframeServer({
+        db: project.db,
+        authToken: "renderer-token",
+        // No `accessCredentials` — this server has no key configured.
+      });
+
+      const response = await fetch(`${server.url}/api/issueAccessCredential`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Unavailable credential" }),
+      });
+      expect(response.status).toBe(401);
+      const body = (await response.json()) as { error: string };
+      expect(body.error).not.toContain("No secret key configured");
+    });
+
+    it("stays reachable on loopback when a secret key is configured but no token is", async () => {
+      // Regression guard: configuring `DASHFRAME_SECRET_KEY` alone used to
+      // register the access-credential resolver, which defined `resolveContext`
+      // and turned every unauthenticated loopback request into a 401 with no
+      // way to bootstrap the first credential. A key must not, on its own,
+      // close the loopback server.
+      project = await openProject({
+        dir: join(root, "proj"),
+        name: "Keyed Co, no token",
+      });
+      const { vault, accessCredentials } = makeSecretServices(
+        join(root, "access-credentials"),
+      );
+      server = await createDashframeServer({
+        db: project.db,
+        vault,
+        accessCredentials,
+        // No `authToken`/`authRef` — a keyed loopback serve.
+      });
+
+      const res = await fetch(
+        `${server.url}/api/projectInfo?args=${encodeURIComponent("{}")}`,
+      );
+      expect(res.status).toBe(200);
+      expect((await res.json()) as { data: ProjectInfoResult }).toMatchObject({
+        data: { name: "Keyed Co, no token" },
       });
     });
 

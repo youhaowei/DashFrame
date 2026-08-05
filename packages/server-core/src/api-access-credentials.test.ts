@@ -6,7 +6,7 @@ import {
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiAccessCredentials } from "./api-access-credentials";
 import { FileMappingStore } from "./mapping-store";
@@ -102,6 +102,61 @@ describe("ApiAccessCredentials", () => {
 
     const issued = await credentials.issue(`  ${"x".repeat(80)}  `);
     expect(issued.credential.name).toBe("x".repeat(80));
+  });
+
+  it("skips one undecryptable verifier instead of failing authentication for every credential", async () => {
+    // A botched rotation (a retired key dropped from the keyring) leaves
+    // exactly one verifier unreadable. That must degrade to "this one
+    // credential no longer works" rather than 500ing every authenticated
+    // request on the host.
+    class SelectivelyBrokenBackend extends TestBackend {
+      readonly stored: string[] = [];
+      readonly poisoned = new Set<string>();
+
+      override async store(
+        plaintext: string,
+        locatorHint?: string,
+      ): Promise<string> {
+        const locator = await super.store(plaintext, locatorHint);
+        this.stored.push(locator);
+        return locator;
+      }
+
+      override async withSecret<T>(
+        locator: string,
+        use: (plaintext: string) => Promise<T>,
+      ): Promise<T> {
+        if (this.poisoned.has(locator)) {
+          throw new Error("simulated undecryptable verifier");
+        }
+        return super.withSecret(locator, use);
+      }
+    }
+
+    const backend = new SelectivelyBrokenBackend();
+    const { vault } = makeVault(path.join(rootDir, "mappings.json"), backend);
+    const credentials = new ApiAccessCredentials(vault, rootDir);
+
+    const broken = await credentials.issue("Stale key");
+    const healthy = await credentials.issue("Current key");
+    backend.poisoned.add(backend.stored[0] as string);
+
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      // The damaged credential fails closed...
+      expect(await credentials.authenticate(broken.token)).toBeNull();
+      // ...and every other credential still works.
+      expect(await credentials.authenticate(healthy.token)).toBe(
+        healthy.credential.id,
+      );
+
+      const logged = warn.mock.calls.flat().join(" ");
+      expect(logged).toContain(broken.credential.id);
+      expect(logged).not.toContain(broken.token);
+      expect(logged).not.toContain(healthy.token);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("persists revocation before best-effort secret cleanup", async () => {
