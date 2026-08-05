@@ -15,6 +15,7 @@ import type {
   Field,
   InsightJoinConfig,
 } from "@dashframe/types";
+import { cmd } from "@dashframe/types";
 import {
   VirtualTable,
   type VirtualTableColumn,
@@ -87,7 +88,7 @@ export default function JoinConfigureContent({
     api.listDataTables,
     { args: {} },
   );
-  const { mutateAsync: updateInsight } = useMutation(api.updateInsight);
+  const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
 
   const isLoading = isInsightsLoading || isTablesLoading;
 
@@ -835,11 +836,9 @@ export default function JoinConfigureContent({
           rightKey: rightField.columnName ?? rightField.name,
         };
 
-        // Add join to existing insight (append to existing joins if any)
-        const existingJoins = insight.joins ?? [];
-        await updateInsight({
-          id: insightId,
-          updates: { joins: [...existingJoins, joinConfig] },
+        // Add join to existing insight (append via AddJoin)
+        await commitBatch({
+          commands: [cmd("AddJoin", { id: insightId, join: joinConfig })],
         });
 
         // Note: We intentionally do NOT store a pre-computed joined DataFrame here.
@@ -861,7 +860,7 @@ export default function JoinConfigureContent({
     joinFields,
     insight,
     insightId,
-    updateInsight,
+    commitBatch,
     previewResult,
     navigate,
     toConfigType,

@@ -75,9 +75,10 @@ test.describe("compound-insight field/metric editing", () => {
     await expect(fieldButton).toBeVisible({ timeout: 10_000 });
     await fieldButton.waitFor({ state: "visible" });
 
-    // Intercept the updateInsight mutation to confirm it fires and succeeds.
+    // Intercept the commitBatch mutation (field edits migrated off updateInsight
+    // onto typed commands) to confirm it fires and succeeds.
     const updateResponse = page.waitForResponse(
-      (resp) => resp.url().includes("/api/updateInsight"),
+      (resp) => resp.url().includes("/api/commitBatch"),
       { timeout: 20_000 },
     );
     await fieldButton.click();
@@ -114,7 +115,7 @@ test.describe("compound-insight field/metric editing", () => {
     ).toBeVisible({ timeout: 10_000 });
 
     const removeFieldResponse = page.waitForResponse(
-      (resp) => resp.url().includes("/api/updateInsight"),
+      (resp) => resp.url().includes("/api/commitBatch"),
       { timeout: 10_000 },
     );
     await page.getByRole("button", { name: "Delete field" }).click();
@@ -157,9 +158,10 @@ test.describe("compound-insight field/metric editing", () => {
       page.getByRole("textbox", { name: /metric name/i }),
     ).toHaveValue("Count");
 
-    // Intercept the updateInsight mutation to confirm it fires and succeeds
+    // Intercept the commitBatch mutation (metric edits migrated off
+    // updateInsight onto typed commands) to confirm it fires and succeeds
     const updateInsightResponse = page.waitForResponse(
-      (resp) => resp.url().includes("/api/updateInsight"),
+      (resp) => resp.url().includes("/api/commitBatch"),
       { timeout: 10_000 },
     );
 
@@ -229,7 +231,7 @@ test.describe("compound-insight field/metric editing", () => {
     ).toHaveValue("Count");
 
     const addMetricResponse = page.waitForResponse(
-      (resp) => resp.url().includes("/api/updateInsight"),
+      (resp) => resp.url().includes("/api/commitBatch"),
       { timeout: 10_000 },
     );
     await page.getByRole("button", { name: "Add metric" }).click();
@@ -260,7 +262,7 @@ test.describe("compound-insight field/metric editing", () => {
     await nameInput.fill("Row Count");
 
     const updateMetricResponse = page.waitForResponse(
-      (resp) => resp.url().includes("/api/updateInsight"),
+      (resp) => resp.url().includes("/api/commitBatch"),
       { timeout: 10_000 },
     );
     await page.getByRole("button", { name: "Save" }).click();
@@ -292,7 +294,7 @@ test.describe("compound-insight field/metric editing", () => {
     ).toBeVisible({ timeout: 10_000 });
 
     const removeFieldResponse = page.waitForResponse(
-      (resp) => resp.url().includes("/api/updateInsight"),
+      (resp) => resp.url().includes("/api/commitBatch"),
       { timeout: 10_000 },
     );
     await page.getByRole("button", { name: "Delete field" }).click();
@@ -324,7 +326,7 @@ test.describe("compound-insight field/metric editing", () => {
     ).toBeVisible({ timeout: 10_000 });
 
     const removeMetricResponse = page.waitForResponse(
-      (resp) => resp.url().includes("/api/updateInsight"),
+      (resp) => resp.url().includes("/api/commitBatch"),
       { timeout: 10_000 },
     );
     await page.getByRole("button", { name: "Delete metric" }).click();

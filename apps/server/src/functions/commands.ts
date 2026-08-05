@@ -78,24 +78,51 @@
  * source the two are interchangeable, for an Insight source `baseTableId` holds
  * the upstream insight id.
  */
-import { type ArtifactProvenance, schema } from "@dashframe/server-core";
+import { schema } from "@dashframe/server-core";
 import type {
   ArtifactKind,
+  CommandName,
   Field,
   InsightJoinConfig,
   InsightMetric,
-  InsightSort,
   Metric,
   RenamedTarget,
   SourceSchema,
   UUID,
   VegaLiteSpec,
   VisualizationEncoding,
-  VisualizationType,
+} from "@dashframe/types";
+import {
+  cmd,
+  COMMAND_PATHS,
+  type CommandPayloads,
+  type DashboardItemFilterOverride,
+  type DashboardItemInput,
+  type DashboardItemOverridesInput,
+  type FilterOperandValue,
+  type InsightSourceInput,
+  type LateBoundRef,
+  type TypedInsightFilter,
 } from "@dashframe/types";
 import { eq, jsonb, text, uuid } from "@wystack/db";
 import { isSecretRef, type SecretRef } from "@wystack/secret-vault";
 import type { Command } from "@wystack/server";
+
+// Re-export the client-safe vocabulary so existing server/test imports of
+// `cmd` / `COMMAND_PATHS` / payload types from this module keep working.
+export {
+  cmd,
+  COMMAND_PATHS,
+  type CommandName,
+  type CommandPayloads,
+  type DashboardItemFilterOverride,
+  type DashboardItemInput,
+  type DashboardItemOverridesInput,
+  type FilterOperandValue,
+  type InsightSourceInput,
+  type LateBoundRef,
+  type TypedInsightFilter,
+};
 
 import type { DashframeFunctionContext } from "../app-context";
 import { permissions } from "../permissions";
@@ -2306,6 +2333,15 @@ export const commandFunctions = {
  * reject any command whose path falls outside this vocabulary BEFORE
  * dispatching a single command — see `assertKnownCommandPaths`.
  */
+/**
+ * Compile-time tie between the client-safe path table and this registry. The
+ * table lives in `@dashframe/types`, which cannot see `commandFunctions`, so
+ * the check is re-asserted here, where both are in scope. Without it a typo or
+ * a renamed handler would only surface at request time — a 500 on a user
+ * action — instead of failing the build.
+ */
+COMMAND_PATHS satisfies { [K in CommandName]: keyof typeof commandFunctions };
+
 const KNOWN_COMMAND_PATHS: ReadonlySet<string> = new Set(
   Object.keys(commandFunctions),
 );
@@ -2339,262 +2375,10 @@ export function assertKnownCommandPaths(
 }
 
 // ---------------------------------------------------------------------------
-// Typed command builders — the VOCABULARY face
+// Typed command builders — the VOCABULARY face lives in `@dashframe/types`
+// (re-exported at the top of this file). Credential field map stays here
+// because it is only consumed by the server capture/release seams.
 // ---------------------------------------------------------------------------
-
-/**
- * The polymorphic source for Insight commands (DataTable or another Insight's
- * DataFrame). Exported so callers can construct it without knowing the union
- * shape inline.
- */
-export type InsightSourceInput =
-  | { sourceType: "dataTable"; sourceId: UUID }
-  | { sourceType: "insight"; sourceId: UUID };
-
-/**
- * A filter predicate value operand — tagged union (discriminant required,
- * no property-presence).
- * `kind: 'value'`    → the author supplied the literal (v: null = IS NULL).
- * `kind: 'lateBound'` → the egress gate withheld the value; bound at publish.
- */
-export type FilterOperandValue =
-  | { kind: "value"; v: unknown }
-  | { kind: "lateBound"; ref: LateBoundRef };
-
-/**
- * Late-bound reference forms (spec: Artifact API, Operand value-binding).
- * column    → operand IS another column; no literal needed.
- * category  → opaque handle for a value the gate minted; resolved at publish.
- * placeholder → human supplies at publish.
- */
-export type LateBoundRef =
-  | { type: "column"; fieldId: UUID }
-  | { type: "category"; handle: string }
-  | { type: "placeholder"; prompt: string };
-
-/**
- * A filter predicate where the value operand is a FilterOperandValue.
- * Mirrors InsightFilter from @dashframe/types but with the typed operand.
- */
-export interface TypedInsightFilter {
-  field: string;
-  operator: "eq" | "ne" | "gt" | "gte" | "lt" | "lte" | "contains" | "in";
-  value: FilterOperandValue;
-}
-
-/**
- * Filter override for a single dashboard item. Intentional subset of the domain
- * `InsightFilterOverride` (from @dashframe/types):
- *   - No `id?` field — override filters created by the fan-out primitive are
- *     anonymous (id is a UI-path concern for stable re-targeting concurrent edits).
- *   - `cleared?` is retained — callers can widen a source item's filter by passing
- *     `cleared: true` to cancel a specific field's inherited filter.
- *   - Kept inline (not imported) to avoid a circular package dependency from the
- *     server layer back into @dashframe/types.
- */
-export interface DashboardItemFilterOverride {
-  field: string;
-  operator:
-    | "eq"
-    | "ne"
-    | "gt"
-    | "gte"
-    | "lt"
-    | "lte"
-    | "contains"
-    | "in"
-    | "between";
-  value: unknown;
-  cleared?: boolean;
-}
-
-/** Override bag for a dashboard item (instrument-level overrides). */
-export interface DashboardItemOverridesInput {
-  filters?: DashboardItemFilterOverride[];
-  sorts?: { field: string; direction: "asc" | "desc" }[];
-  limit?: number;
-}
-
-/** A Dashboard item as supplied in AddDashboardItem / SetDashboardLayout. */
-export interface DashboardItemInput {
-  id: UUID;
-  type: "visualization" | "markdown";
-  visualizationId?: UUID;
-  content?: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  overrides?: DashboardItemOverridesInput;
-}
-
-/**
- * Typed payloads for each command. These are the intent-carrying messages the
- * human UI and the agent both construct; `COMMAND_PATHS` lowers them to the
- * `{ path, args }` envelope `applyCommands` dispatches. Keeping the builder pure
- * (no DB) means the only place command logic lives is the backing mutation.
- */
-export interface CommandPayloads {
-  // DataSource
-  GetOrCreateDataSource: { id: UUID; type: string; name: string };
-  CreateDataSource: {
-    id: UUID;
-    type: string;
-    name: string;
-    apiKey?: string;
-    connectionString?: string;
-    /** Provenance of the emitter — `{ kind: "agent" }` for agent-authored. */
-    createdBy?: ArtifactProvenance;
-  };
-  SetDataSourceConfig: {
-    id: UUID;
-    apiKey?: string;
-    connectionString?: string;
-    /** Non-credential connector settings. Must not include 'apiKey' or 'connectionString'. */
-    extra?: Record<string, unknown>;
-  };
-  // DataTable
-  CreateDataTable: {
-    id: UUID;
-    dataSourceId: UUID;
-    name: string;
-    table: string;
-    sourceSchema?: SourceSchema;
-    fields?: Field[];
-    metrics?: Metric[];
-    dataFrameId?: UUID;
-  };
-  SetDataTableSchema: { id: UUID; sourceSchema: SourceSchema };
-  RefreshDataTable: { id: UUID; dataFrameId: UUID };
-  // Fields & Metrics (targets DataTable or Insight via nodeId)
-  AddField: { nodeId: UUID; field: Field };
-  UpdateField: { nodeId: UUID; fieldId: UUID; updates: Partial<Field> };
-  RemoveField: { nodeId: UUID; fieldId: UUID };
-  // AddMetric is polymorphic: targets DataTable (Metric shape, tableId) or
-  // Insight (InsightMetric shape, sourceTable). The handler validates the shape
-  // at the write boundary (requireInsightMetricShape) for the Insight path.
-  AddMetric: { nodeId: UUID; metric: Metric | InsightMetric };
-  UpdateMetric: { nodeId: UUID; metricId: UUID; updates: Partial<Metric> };
-  RemoveMetric: { nodeId: UUID; metricId: UUID };
-  // Insight
-  CreateInsight: {
-    id: UUID;
-    name: string;
-    source: InsightSourceInput;
-    selectedFields?: UUID[];
-    // Insight metrics carry `sourceTable`, not the DataTable `Metric.tableId`.
-    // The read path (requireInsightMetric in app-artifacts.ts) enforces
-    // `sourceTable`, so the typed face must guide callers to the right shape.
-    metrics?: InsightMetric[];
-  };
-  SetInsightSource: { id: UUID; source: InsightSourceInput };
-  SelectFields: { id: UUID; fieldIds: UUID[] };
-  SetInsightFilter: { id: UUID; filters: TypedInsightFilter[] };
-  SetInsightSort: { id: UUID; sorts: InsightSort[] };
-  AddJoin: { id: UUID; join: InsightJoinConfig };
-  UpdateJoin: {
-    id: UUID;
-    joinIndex: number;
-    updates: Partial<InsightJoinConfig>;
-  };
-  RemoveJoin: { id: UUID; joinIndex: number };
-  // Visualization
-  CreateVisualization: {
-    id: UUID;
-    name: string;
-    insightId: UUID;
-    visualizationType: VisualizationType;
-    spec: VegaLiteSpec;
-    encoding?: VisualizationEncoding;
-  };
-  SetChartType: { id: UUID; visualizationType: VisualizationType };
-  SetChartEncoding: {
-    id: UUID;
-    encoding: VisualizationEncoding;
-    spec?: VegaLiteSpec;
-  };
-  // Dashboard
-  CreateDashboard: { id: UUID; name: string; description?: string };
-  AddDashboardItem: { dashboardId: UUID; item: DashboardItemInput };
-  UpdateDashboardItem: {
-    dashboardId: UUID;
-    itemId: UUID;
-    updates: Partial<Omit<DashboardItemInput, "id" | "type">>;
-  };
-  SetDashboardLayout: { dashboardId: UUID; items: DashboardItemInput[] };
-  RemoveDashboardItem: { dashboardId: UUID; itemId: UUID };
-  FanOutDashboardItems: {
-    dashboardId: UUID;
-    sourceItemId: UUID;
-    field: string;
-    placements: {
-      id: UUID;
-      value: unknown;
-      x: number;
-      y: number;
-      width?: number;
-      height?: number;
-    }[];
-  };
-  // Cross-cutting
-  RenameNode: { id: UUID; name: string };
-  DeleteNode: { id: UUID };
-}
-
-export type CommandName = keyof CommandPayloads;
-
-/**
- * Map a command name to the registry path its backing mutation is registered
- * under in the app `functions`. The single source of truth tying the typed
- * vocabulary to the dispatched path.
- */
-export const COMMAND_PATHS: {
-  [K in CommandName]: keyof typeof commandFunctions;
-} = {
-  GetOrCreateDataSource: "getOrCreateDataSource",
-  CreateDataSource: "createDataSource",
-  SetDataSourceConfig: "setDataSourceConfig",
-  CreateDataTable: "createDataTable",
-  SetDataTableSchema: "setDataTableSchema",
-  RefreshDataTable: "refreshDataTableCmd",
-  AddField: "addField",
-  UpdateField: "updateField",
-  RemoveField: "removeField",
-  AddMetric: "addMetric",
-  UpdateMetric: "updateMetric",
-  RemoveMetric: "removeMetric",
-  CreateInsight: "createInsightCmd",
-  SetInsightSource: "setInsightSource",
-  SelectFields: "selectFields",
-  SetInsightFilter: "setInsightFilter",
-  SetInsightSort: "setInsightSort",
-  AddJoin: "addJoin",
-  UpdateJoin: "updateJoin",
-  RemoveJoin: "removeJoin",
-  CreateVisualization: "createVisualizationCmd",
-  SetChartType: "setChartType",
-  SetChartEncoding: "setChartEncoding",
-  CreateDashboard: "createDashboardCmd",
-  AddDashboardItem: "addDashboardItemCmd",
-  UpdateDashboardItem: "updateDashboardItemCmd",
-  SetDashboardLayout: "setDashboardLayout",
-  RemoveDashboardItem: "removeDashboardItemCmd",
-  FanOutDashboardItems: "fanOutDashboardItemsCmd",
-  RenameNode: "renameNode",
-  DeleteNode: "deleteNode",
-};
-
-/**
- * Build one `Command` envelope from a typed payload. `cmd("AddField", {...})`
- * gives compile-time checking of the payload AND the right dispatch path — the
- * capability-parity seam: the same builder the UI and agent call.
- */
-export function cmd<K extends CommandName>(
-  name: K,
-  payload: CommandPayloads[K],
-): Command {
-  return { path: COMMAND_PATHS[name], args: payload };
-}
 
 /**
  * Which credential fields each command's `args` may carry, keyed by the REGISTRY

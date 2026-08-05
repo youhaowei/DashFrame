@@ -12,6 +12,10 @@ import type {
   InsightMetric,
   InsightSort,
 } from "@dashframe/types";
+import {
+  buildInsightUpdateCommands,
+  buildVisualizationUpdateCommands,
+} from "@dashframe/types";
 import { InputField } from "@dashframe/ui";
 import { useMutation, useQuery } from "@wystack/client";
 import { Badge, Panel, cn } from "@wystack/ui-react";
@@ -141,26 +145,38 @@ export function InsightConfigPanel({
   );
   const [processingVizId, setProcessingVizId] = useState<string | null>(null);
 
-  // Mutations
-  const { mutateAsync: updateInsightMutation } = useMutation(api.updateInsight);
+  // Mutations — every artifact write goes through commitBatch (one batch per edit).
+  const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
   const updateInsight = useCallback(
     async (
       id: Insight["id"],
       updates: Partial<Omit<Insight, "id" | "createdAt">>,
     ): Promise<void> => {
-      await updateInsightMutation({ id, updates });
+      const commands = buildInsightUpdateCommands(id, insight, updates);
+      if (commands.length === 0) return;
+      await commitBatch({ commands });
     },
-    [updateInsightMutation],
+    [commitBatch, insight],
   );
   const { mutateAsync: patchDataTableArray } = useMutation(
     api.patchDataTableArray,
   );
-  const { mutateAsync: updateVisualizationMutation } = useMutation(
-    api.updateVisualization,
+  const updateVisualization = useCallback(
+    async (
+      id: string,
+      updates: Parameters<typeof buildVisualizationUpdateCommands>[1],
+    ): Promise<void> => {
+      const commands = buildVisualizationUpdateCommands(id, updates);
+      if (commands.length === 0) return;
+      await commitBatch({ commands });
+    },
+    [commitBatch],
   );
   const { mutateAsync: removeVisualizationMutation } = useMutation(
     api.removeVisualization,
   );
+  // filters stay on the legacy write path until the filter command model supports ranges
+  const { mutateAsync: updateInsightLegacy } = useMutation(api.updateInsight);
 
   // Get visualizations for this insight to check dependencies
   const { data: insightVisualizations = [] } = useQuery(
@@ -355,25 +371,34 @@ export function InsightConfigPanel({
 
   const handleFiltersReorder = useCallback(
     (reordered: FilterWithId[]) => {
-      updateInsight(insight.id, { filters: stripFilterIds(reordered) });
+      updateInsightLegacy({
+        id: insight.id,
+        updates: { filters: stripFilterIds(reordered) },
+      });
     },
-    [insight.id, stripFilterIds, updateInsight],
+    [insight.id, stripFilterIds, updateInsightLegacy],
   );
 
   const handleRemoveFilter = useCallback(
     (filterId: string) => {
       const updated = filtersWithIds.filter((f) => f._id !== filterId);
-      updateInsight(insight.id, { filters: stripFilterIds(updated) });
+      updateInsightLegacy({
+        id: insight.id,
+        updates: { filters: stripFilterIds(updated) },
+      });
     },
-    [insight.id, filtersWithIds, stripFilterIds, updateInsight],
+    [insight.id, filtersWithIds, stripFilterIds, updateInsightLegacy],
   );
 
   const handleSaveFilter = useCallback(
     (saved: FilterWithId) => {
       const updated = applyFilterSave(filtersWithIds, saved);
-      updateInsight(insight.id, { filters: stripFilterIds(updated) });
+      updateInsightLegacy({
+        id: insight.id,
+        updates: { filters: stripFilterIds(updated) },
+      });
     },
-    [insight.id, filtersWithIds, stripFilterIds, updateInsight],
+    [insight.id, filtersWithIds, stripFilterIds, updateInsightLegacy],
   );
 
   // --- Delete dialog handlers ---
@@ -395,10 +420,7 @@ export function InsightConfigPanel({
           deleteDialog.itemId,
           deleteDialog.itemType,
         );
-        await updateVisualizationMutation({
-          id: vizId,
-          updates: { encoding: newEncoding },
-        });
+        await updateVisualization(vizId, { encoding: newEncoding });
         // No need to update state - affectedVisualizations is computed reactively
       } catch (error) {
         console.error("Failed to remove from visualization:", error);
@@ -411,7 +433,7 @@ export function InsightConfigPanel({
       insightVisualizations,
       deleteDialog.itemId,
       deleteDialog.itemType,
-      updateVisualizationMutation,
+      updateVisualization,
     ],
   );
 

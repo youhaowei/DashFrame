@@ -37,7 +37,11 @@ import type {
   VisualizationEncoding,
   VisualizationType,
 } from "@dashframe/types";
-import { CHART_TYPE_METADATA, parseEncoding } from "@dashframe/types";
+import {
+  buildVisualizationUpdateCommands,
+  CHART_TYPE_METADATA,
+  parseEncoding,
+} from "@dashframe/types";
 import { SelectField } from "@dashframe/ui";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@wystack/client";
@@ -143,8 +147,17 @@ export default function VisualizationPageContent({
   );
   const { data: insights = [] } = useQuery(api.listInsights, { args: {} });
   const { data: dataTables = [] } = useQuery(api.listDataTables, { args: {} });
-  const { mutateAsync: updateVisualizationMutation } = useMutation(
-    api.updateVisualization,
+  const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
+  const updateVisualizationMutation = useCallback(
+    async (args: {
+      id: UUID;
+      updates: Parameters<typeof buildVisualizationUpdateCommands>[1];
+    }) => {
+      const commands = buildVisualizationUpdateCommands(args.id, args.updates);
+      if (commands.length === 0) return;
+      await commitBatch({ commands });
+    },
+    [commitBatch],
   );
   const { mutateAsync: removeVisualizationMutation } = useMutation(
     api.removeVisualization,
