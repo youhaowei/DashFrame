@@ -31,6 +31,9 @@ jobs:
   # match display names as exact strings, so a rename means appending the new
   # context, cutting the job's `name:` over, then dropping the stale string —
   # worth doing only once the new `Format` context has reported green.
+  # Until then the stale name is a trap: the `Format` context is NOT redundant
+  # with it, and dropping `Format` from branch protection because this job's
+  # name mentions format would stop prettier gating merges entirely.
   format:
     name: Format
     runs-on: ubuntu-latest

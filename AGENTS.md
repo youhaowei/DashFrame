@@ -124,6 +124,13 @@ Formatting is **not** part of `bun run check` — run `bun run format:check`
 separately. In CI it is its own job for the same reason: a prettier diff must not
 be able to hide a real failure.
 
+`@dashframe/ui`'s `test` script is `vitest run --project=unit`, deliberately
+scoped. Its vitest config also declares a `storybook` project that renders
+stories in a real headless Chromium through Playwright, and the `check` CI job
+installs no browsers — an unscoped `vitest run` there fails on a clean tree.
+Those story tests still have no gate; running them needs a browser install in
+whichever job takes them.
+
 The `@wystack/*` packages lint with `oxlint`, which is not installed, so a raw
 `bun run lint` / `turbo lint` fails on `@wystack/ui`; the project deliberately
 filters them out. The per-task commands below skip the convention guards — run
