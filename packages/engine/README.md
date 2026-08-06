@@ -20,6 +20,8 @@ The engine package defines runtime-agnostic interfaces:
 
 Browser SQL paths live in `@dashframe/engine-browser` (DuckDB-WASM helpers) and do not implement `QueryEngine`. This package has no shared `QueryPlanner` / push-down API. Connectors may still run remote queries themselves (e.g. Postgres table-reference fetches push LIMIT/OFFSET server-side); that is connector-local, not a cross-engine planner.
 
+`NativeDuckDBEngine` is a partial `QueryEngine`: `registerTable(DataFrame)` throws — callers upload Arrow IPC via `registerArrowTable` (or query sources directly, e.g. `read_parquet`). The interface still lists `registerTable` for the contract; the native engine documents the restriction at the throw site.
+
 This separation still allows the same application code to target different runtimes by swapping implementers where they exist.
 
 ## Usage
@@ -51,6 +53,8 @@ interface QueryEngine {
   dispose(): Promise<void>;
 }
 ```
+
+On `NativeDuckDBEngine`, use `registerArrowTable` for uploads — `registerTable` is intentionally unsupported.
 
 ### DataFrameStorage
 
