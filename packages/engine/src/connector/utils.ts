@@ -5,6 +5,7 @@ import type {
   TableColumn,
   UUID,
 } from "@dashframe/types";
+import { defineColumnTypeMap } from "../column-type-map";
 
 export type ConnectorColumn = {
   name: string;
@@ -18,6 +19,8 @@ export type SystemFieldInput = {
   isIdentifier?: boolean;
   isReference?: boolean;
 };
+
+type PrimitiveValue = boolean | number | string;
 
 export function inferStringColumnType(value: string | undefined): ColumnType {
   if (!value?.length) return "unknown";
@@ -46,27 +49,29 @@ export function parseStringValueByType(
     return null;
   }
 
-  switch (type) {
-    case "number": {
-      const numeric = Number(raw);
-      return Number.isNaN(numeric) ? null : numeric;
-    }
-    case "boolean": {
-      const normalized = raw.toLowerCase().trim();
-      if (normalized === "true" || normalized === "1") return true;
-      if (normalized === "false" || normalized === "0") return false;
-      if (normalized === "yes" || normalized === "y") return true;
-      if (normalized === "no" || normalized === "n") return false;
-      return null;
-    }
-    case "date": {
-      const date = new Date(raw);
-      return Number.isNaN(date.getTime()) ? null : date;
-    }
-    default:
-      return raw;
-  }
+  return STRING_VALUE_PARSERS[type](raw);
 }
+
+const STRING_VALUE_PARSERS = defineColumnTypeMap({
+  number: (raw: string): unknown => {
+    const numeric = Number(raw);
+    return Number.isNaN(numeric) ? null : numeric;
+  },
+  boolean: (raw: string): unknown => {
+    const normalized = raw.toLowerCase().trim();
+    if (normalized === "true" || normalized === "1") return true;
+    if (normalized === "false" || normalized === "0") return false;
+    if (normalized === "yes" || normalized === "y") return true;
+    if (normalized === "no" || normalized === "n") return false;
+    return null;
+  },
+  date: (raw: string): unknown => {
+    const date = new Date(raw);
+    return Number.isNaN(date.getTime()) ? null : date;
+  },
+  string: (raw: string): unknown => raw,
+  unknown: (raw: string): unknown => raw,
+});
 
 export function parsePrimitiveBoolean(
   raw: boolean | number | string | null,
@@ -84,7 +89,7 @@ export function parsePrimitiveBoolean(
   return typeof raw === "number" && raw === 1;
 }
 
-function parsePrimitiveDate(raw: boolean | number | string): Date | null {
+function parsePrimitiveDate(raw: PrimitiveValue): Date | null {
   if (typeof raw === "number") {
     const timestamp = Math.abs(raw) < 1_000_000_000_000 ? raw * 1000 : raw;
     const date = new Date(timestamp);
@@ -105,22 +110,22 @@ export function parsePrimitiveValueByType(
     return null;
   }
 
-  switch (type) {
-    case "number": {
-      if (typeof raw === "number") {
-        return raw;
-      }
-      const numeric = Number(raw);
-      return Number.isNaN(numeric) ? null : numeric;
-    }
-    case "boolean":
-      return parsePrimitiveBoolean(raw);
-    case "date":
-      return parsePrimitiveDate(raw);
-    default:
-      return String(raw);
-  }
+  return PRIMITIVE_VALUE_PARSERS[type](raw);
 }
+
+const PRIMITIVE_VALUE_PARSERS = defineColumnTypeMap({
+  number: (raw: PrimitiveValue): unknown => {
+    if (typeof raw === "number") {
+      return raw;
+    }
+    const numeric = Number(raw);
+    return Number.isNaN(numeric) ? null : numeric;
+  },
+  boolean: (raw: PrimitiveValue): unknown => parsePrimitiveBoolean(raw),
+  date: (raw: PrimitiveValue): unknown => parsePrimitiveDate(raw),
+  string: (raw: PrimitiveValue): unknown => String(raw),
+  unknown: (raw: PrimitiveValue): unknown => String(raw),
+});
 
 export function detectPrimaryKeyColumn(
   columns: { name: string }[],
