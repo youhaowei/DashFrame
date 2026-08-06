@@ -20,8 +20,11 @@ export interface QueryResult {
  * - `NativeDuckDBEngine` (`@dashframe/engine-server`) — native DuckDB
  *
  * Browser query paths use DuckDB-WASM helpers in `@dashframe/engine-browser`
- * but do not implement this interface. There is no Postgres QueryEngine and no
- * query push-down layer — remote connectors fetch data, then SQL runs locally.
+ * but do not implement this interface. There is no Postgres `QueryEngine` and no
+ * shared `QueryPlanner` / `QueryPushDownCapable` API in this package.
+ * Individual connectors may still run remote queries themselves (e.g. the
+ * Postgres connector pushes LIMIT/OFFSET on table-reference fetches); that is
+ * connector-local, not a cross-engine planner.
  */
 export interface QueryEngine {
   /**

@@ -1,10 +1,11 @@
 /**
  * Stage 3 — Execute: the native DuckDB engine.
  *
- * A second `QueryEngine` implementation (alongside the renderer's DuckDB-WASM)
- * that runs in the loopback server process on Electron desktop. It owns one
- * DuckDB connection; the renderer cannot tell local from remote, and the cloud
- * tier will reuse this exact seam.
+ * The shipped `QueryEngine` implementer. Runs in the loopback server process on
+ * Electron desktop (and is the seam the cloud tier reuses). Browser paths use
+ * DuckDB-WASM helpers in `@dashframe/engine-browser` but do not implement
+ * `QueryEngine`. It owns one DuckDB connection; the renderer cannot tell local
+ * from remote.
  *
  * Beyond the row-shaped `QueryEngine.query`, it exposes `queryArrow` — the
  * Arrow IPC bytes the dedicated data path (Stage 5) streams. Arrow encoding is

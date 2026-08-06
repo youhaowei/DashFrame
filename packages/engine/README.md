@@ -18,7 +18,7 @@ The engine package defines runtime-agnostic interfaces:
 | `DataFrameStorage` | IndexedDB (`@dashframe/engine-browser`)           |
 | `DataFrame`        | `BrowserDataFrame` (`@dashframe/engine-browser`)  |
 
-Browser SQL paths live in `@dashframe/engine-browser` (DuckDB-WASM helpers) and do not implement `QueryEngine`. There is no query-planner / push-down layer in this package — remote connectors fetch data, then SQL runs on a local engine.
+Browser SQL paths live in `@dashframe/engine-browser` (DuckDB-WASM helpers) and do not implement `QueryEngine`. This package has no shared `QueryPlanner` / push-down API. Connectors may still run remote queries themselves (e.g. Postgres table-reference fetches push LIMIT/OFFSET server-side); that is connector-local, not a cross-engine planner.
 
 This separation still allows the same application code to target different runtimes by swapping implementers where they exist.
 
@@ -67,17 +67,19 @@ interface DataFrameStorage {
 
 ### DataFrame
 
-Immutable data container with serialization support:
+Lightweight storage reference — metadata and location, not the row data itself
+(defined in `@dashframe/types`, re-exported here):
 
 ```typescript
 interface DataFrame {
   readonly id: UUID;
-  readonly columns: TableColumn[];
-  readonly rowCount: number;
+  readonly storage: DataFrameStorageLocation;
+  readonly fieldIds: UUID[];
+  readonly primaryKey?: string | string[];
+  readonly createdAt: number;
 
-  toArray(): Record<string, unknown>[];
-  toArrowIPC(): Uint8Array;
-  getColumn<T = unknown>(name: string): T[];
+  toJSON(): DataFrameJSON;
+  getStorageType(): string;
 }
 ```
 
