@@ -43,6 +43,12 @@ export type {
 
 export { isQueryPushDownCapable } from "./interfaces";
 
+export {
+  defineColumnTypeMap,
+  inferPrimitiveColumnType,
+  type ColumnTypeMap,
+} from "./column-type-map";
+
 // ============================================================================
 // Connector Pattern
 // ============================================================================

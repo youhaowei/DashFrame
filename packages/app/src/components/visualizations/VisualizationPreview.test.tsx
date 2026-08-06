@@ -42,9 +42,13 @@ vi.mock("@wystack/client", async (importOriginal) => {
   };
 });
 
-vi.mock("@dashframe/engine", () => ({
-  resolveEncodingToSql: vi.fn().mockReturnValue({}),
-}));
+vi.mock("@dashframe/engine", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@dashframe/engine")>();
+  return {
+    ...actual,
+    resolveEncodingToSql: vi.fn().mockReturnValue({}),
+  };
+});
 
 // Chart is a heavy dependency — stub it out so tests focus on guard logic.
 vi.mock("@dashframe/visualization", () => ({

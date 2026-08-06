@@ -402,24 +402,64 @@ function nextStagingId(): number {
  * which map losslessly here. Int/Date are covered for robustness against
  * future producers; anything else degrades to VARCHAR via String().
  */
+type ArrowValueAppender = (appender: DuckDBAppender, value: unknown) => void;
+
+type ArrowTypeAdapter = {
+  duckdbType: string;
+  append: ArrowValueAppender;
+};
+
+const VARCHAR_ARROW_ADAPTER: ArrowTypeAdapter = {
+  duckdbType: "VARCHAR",
+  append: (appender, value) => appender.appendVarchar(String(value)),
+};
+
+/**
+ * One adapter table owns both sides of Arrow -> DuckDB conversion. Keeping the
+ * DDL type and Appender operation together prevents those formerly independent
+ * switches from accepting a type differently.
+ */
+const ARROW_TYPE_ADAPTERS: Partial<Record<ArrowType, ArrowTypeAdapter>> = {
+  [ArrowType.Bool]: {
+    duckdbType: "BOOLEAN",
+    append: (appender, value) => appender.appendBoolean(Boolean(value)),
+  },
+  [ArrowType.Int]: {
+    duckdbType: "BIGINT",
+    append: (appender, value) =>
+      appender.appendBigInt(
+        typeof value === "bigint" ? value : BigInt(Math.trunc(Number(value))),
+      ),
+  },
+  [ArrowType.Float]: {
+    duckdbType: "DOUBLE",
+    append: (appender, value) => appender.appendDouble(Number(value)),
+  },
+  [ArrowType.Timestamp]: {
+    duckdbType: "TIMESTAMP",
+    // Arrow JS yields epoch millis; DuckDB TIMESTAMP stores micros.
+    append: (appender, value) =>
+      appender.appendTimestamp(
+        new DuckDBTimestampValue(BigInt(Math.round(Number(value))) * 1000n),
+      ),
+  },
+  [ArrowType.Date]: {
+    duckdbType: "DATE",
+    append: (appender, value) =>
+      appender.appendDate(new DuckDBDateValue(arrowDateToDuckDBDays(value))),
+  },
+  [ArrowType.Utf8]: VARCHAR_ARROW_ADAPTER,
+  [ArrowType.LargeUtf8]: VARCHAR_ARROW_ADAPTER,
+};
+
+function arrowTypeAdapter(field: Field): ArrowTypeAdapter {
+  return (
+    ARROW_TYPE_ADAPTERS[field.type.typeId as ArrowType] ?? VARCHAR_ARROW_ADAPTER
+  );
+}
+
 function arrowFieldToDuckDBType(field: Field): string {
-  switch (field.type.typeId) {
-    case ArrowType.Bool:
-      return "BOOLEAN";
-    case ArrowType.Int:
-      return "BIGINT";
-    case ArrowType.Float:
-      return "DOUBLE";
-    case ArrowType.Timestamp:
-      return "TIMESTAMP";
-    case ArrowType.Date:
-      return "DATE";
-    case ArrowType.Utf8:
-    case ArrowType.LargeUtf8:
-      return "VARCHAR";
-    default:
-      return "VARCHAR";
-  }
+  return arrowTypeAdapter(field).duckdbType;
 }
 
 /**
@@ -446,31 +486,7 @@ function appendArrowValue(
     appender.appendNull();
     return;
   }
-  switch (field.type.typeId) {
-    case ArrowType.Bool:
-      appender.appendBoolean(Boolean(value));
-      break;
-    case ArrowType.Int:
-      appender.appendBigInt(
-        typeof value === "bigint" ? value : BigInt(Math.trunc(Number(value))),
-      );
-      break;
-    case ArrowType.Float:
-      appender.appendDouble(Number(value));
-      break;
-    case ArrowType.Timestamp:
-      // Arrow JS yields epoch millis; DuckDB TIMESTAMP stores micros.
-      appender.appendTimestamp(
-        new DuckDBTimestampValue(BigInt(Math.round(Number(value))) * 1000n),
-      );
-      break;
-    case ArrowType.Date:
-      appender.appendDate(new DuckDBDateValue(arrowDateToDuckDBDays(value)));
-      break;
-    default:
-      appender.appendVarchar(String(value));
-      break;
-  }
+  arrowTypeAdapter(field).append(appender, value);
 }
 
 /**

@@ -1,4 +1,4 @@
-import type { ColumnType } from "@dashframe/engine";
+import { defineColumnTypeMap, type ColumnType } from "@dashframe/engine";
 import {
   Bool,
   Float64,
@@ -16,6 +16,15 @@ export type ArrowColumn = {
   type: ColumnType;
 };
 
+const ARROW_VECTOR_FACTORIES = defineColumnTypeMap({
+  number: (values: unknown[]) => vectorFromArray(values, new Float64()),
+  boolean: (values: unknown[]) => vectorFromArray(values, new Bool()),
+  date: (values: unknown[]) =>
+    vectorFromArray(values, new TimestampMillisecond()),
+  string: (values: unknown[]) => vectorFromArray(values, new Utf8()),
+  unknown: (values: unknown[]) => vectorFromArray(values, new Utf8()),
+});
+
 export function createArrowIPCBufferFromRows(
   rows: Record<string, unknown>[],
   columns: ArrowColumn[],
@@ -25,22 +34,7 @@ export function createArrowIPCBufferFromRows(
   for (const col of columns) {
     const values = rows.map((row) => row[col.name]);
 
-    switch (col.type) {
-      case "number":
-        arrowColumns[col.name] = vectorFromArray(values, new Float64());
-        break;
-      case "boolean":
-        arrowColumns[col.name] = vectorFromArray(values, new Bool());
-        break;
-      case "date":
-        arrowColumns[col.name] = vectorFromArray(
-          values,
-          new TimestampMillisecond(),
-        );
-        break;
-      default:
-        arrowColumns[col.name] = vectorFromArray(values, new Utf8());
-    }
+    arrowColumns[col.name] = ARROW_VECTOR_FACTORIES[col.type](values);
   }
 
   return tableToIPC(new Table(arrowColumns));
