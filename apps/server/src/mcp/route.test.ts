@@ -138,7 +138,7 @@ describe("MCP route", () => {
     });
   });
 
-  it("lists the existing read tools, reads through the service session, and drafts without changing canonical", async () => {
+  it("lists the existing read tools, reads through the service principal, and drafts without changing canonical", async () => {
     const { client, transport } = await connect();
     try {
       const listed = await client.listTools();
@@ -154,9 +154,15 @@ describe("MCP route", () => {
       for (const tool of listed.tools) {
         const roundTripped = JSON.parse(JSON.stringify(tool.inputSchema)) as {
           type?: string;
+          properties?: Record<string, { description?: string }>;
         };
         expect(roundTripped.type).toBe("object");
         expect(Object.getOwnPropertySymbols(roundTripped)).toHaveLength(0);
+        if (tool.name !== "draft_batch") {
+          expect(roundTripped.properties?.draftId?.description).toBe(
+            "Draft id from draft_batch. Pass it to read through that draft's overlay; omit to read canonical state.",
+          );
+        }
       }
 
       // The write tool's description is the only thing an agent reads before
@@ -173,6 +179,9 @@ describe("MCP route", () => {
       ]) {
         expect(writeTool?.description).toContain(denied);
       }
+      expect(writeTool?.description).toContain(
+        "Carry the returned draftId forward",
+      );
 
       // Every read tool, against an empty graph. `isError` alone would pass on
       // a tool that returned nothing at all, so each one asserts the shape it
@@ -261,7 +270,7 @@ describe("MCP route", () => {
 
       const draftScopedRead = await client.callTool({
         name: "find_nodes",
-        arguments: { name: "Drafted source" },
+        arguments: { name: "Drafted source", draftId: firstDraft.draftId },
       });
       expect(draftScopedRead.structuredContent).toMatchObject({
         hits: [
@@ -273,6 +282,12 @@ describe("MCP route", () => {
       // A client that shows the model only the text content still has to be
       // able to get from a name to an id.
       expect(resultText(draftScopedRead)).toContain(sourceId);
+
+      const canonicalRead = await client.callTool({
+        name: "find_nodes",
+        arguments: { name: "Drafted source" },
+      });
+      expect(canonicalRead.structuredContent).toMatchObject({ hits: [] });
 
       const listedDrafts = await fetch(
         `${server!.url}/api/listDrafts?args=%7B%7D`,
@@ -293,6 +308,7 @@ describe("MCP route", () => {
       const second = await client.callTool({
         name: "draft_batch",
         arguments: {
+          draftId: firstDraft.draftId,
           commands: [
             {
               type: "CreateDashboard",
@@ -316,13 +332,14 @@ describe("MCP route", () => {
     }
   });
 
-  it("opens a fresh draft when a person has already discarded the session's", async () => {
+  it("opens a fresh draft when a person has already discarded the supplied draft", async () => {
     const { client, transport } = await connect();
     try {
-      const write = async (name: string) =>
+      const write = async (name: string, draftId?: string) =>
         client.callTool({
           name: "draft_batch",
           arguments: {
+            ...(draftId === undefined ? {} : { draftId }),
             commands: [
               {
                 type: "CreateDataSource",
@@ -336,7 +353,7 @@ describe("MCP route", () => {
       expect(first.isError).not.toBe(true);
       const firstId = (first.structuredContent as { draftId: string }).draftId;
 
-      // Out of band, as a person: the draft the session is holding goes away.
+      // Out of band, as a person: the draft the agent is carrying goes away.
       const discarded = await fetch(`${server!.url}/api/discardDraft`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...bearer(USER_TOKEN) },
@@ -344,9 +361,7 @@ describe("MCP route", () => {
       });
       expect(discarded.status).toBe(200);
 
-      // The agent cannot supply a draft id, so if the stale handle survived
-      // here every remaining write on this connection would fail.
-      const second = await write("After the discard");
+      const second = await write("After the discard", firstId);
       expect(second.isError).not.toBe(true);
       const secondId = (second.structuredContent as { draftId: string })
         .draftId;
@@ -484,42 +499,6 @@ describe("MCP route", () => {
     }
   });
 
-  it("refuses to hand one credential's session to another", async () => {
-    const { client, transport } = await connect();
-    try {
-      const sessionId = transport.sessionId;
-      expect(typeof sessionId === "string").toBe(true);
-
-      const issued = await fetch(`${server!.url}/api/issueAccessCredential`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...bearer(USER_TOKEN) },
-        body: JSON.stringify({ name: "Second integration credential" }),
-      });
-      expect(issued.status).toBe(200);
-      const otherToken = (
-        (await issued.json()) as { data: { accessCredential: string } }
-      ).data.accessCredential;
-
-      const stolen = await fetch(`${server!.url}/mcp`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json, text/event-stream",
-          "mcp-session-id": sessionId!,
-          ...bearer(otherToken),
-        },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
-      });
-      expect(stolen.status).toBe(403);
-
-      // The original credential still owns its session.
-      const listed = await client.listTools();
-      expect(listed.tools.length).toBeGreaterThan(0);
-    } finally {
-      await transport.close();
-    }
-  });
-
   it("answers an MCP preflight with exactly one allow-origin and the session headers", async () => {
     const preflight = await fetch(`${server!.url}/mcp`, {
       method: "OPTIONS",
@@ -597,35 +576,52 @@ describe("MCP route", () => {
     }
   });
 
-  it("only mints a session for an initialize request", async () => {
-    // Without this guard every sessionless POST built a fresh server and
-    // transport, so an authenticated caller could exhaust memory by looping
-    // any other method.
-    const notInitialize = await fetch(`${server!.url}/mcp`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json, text/event-stream",
-        ...bearer(serviceToken),
-      },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
-    });
-    expect(notInitialize.status).toBe(400);
-    expect(await notInitialize.json()).toMatchObject({
-      error: { code: -32000 },
-    });
+  it("handles bare tool calls statelessly and carries draft ids between requests", async () => {
+    const call = async (id: number, draftId?: string) =>
+      fetch(`${server!.url}/mcp`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          ...bearer(serviceToken),
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id,
+          method: "tools/call",
+          params: {
+            name: "draft_batch",
+            arguments: {
+              ...(draftId === undefined ? {} : { draftId }),
+              commands: [
+                {
+                  type: "CreateDashboard",
+                  args: { id: crypto.randomUUID(), name: `Stateless ${id}` },
+                },
+              ],
+            },
+          },
+        }),
+      });
 
-    const unknownSession = await fetch(`${server!.url}/mcp`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json, text/event-stream",
-        "mcp-session-id": crypto.randomUUID(),
-        ...bearer(serviceToken),
-      },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+    const first = await call(1);
+    expect(first.status).toBe(200);
+    expect(first.headers.get("mcp-session-id")).toBeNull();
+    const firstBody = (await first.json()) as {
+      result: { structuredContent: { draftId: string } };
+    };
+    const draftId = firstBody.result.structuredContent.draftId;
+    expect(draftId).toEqual(expect.any(String));
+
+    const second = await call(2, draftId);
+    expect(second.status).toBe(200);
+    expect(second.headers.get("mcp-session-id")).toBeNull();
+    expect((await second.json()) as unknown).toMatchObject({
+      result: { structuredContent: { draftId } },
     });
-    expect(unknownSession.status).toBe(404);
+    expect(
+      await project!.db.select().from(schema.draftCommandLog),
+    ).toHaveLength(2);
 
     const malformed = await fetch(`${server!.url}/mcp`, {
       method: "POST",
@@ -638,6 +634,34 @@ describe("MCP route", () => {
     });
     expect(malformed.status).toBe(400);
     expect(await malformed.json()).toMatchObject({ error: { code: -32700 } });
+  });
+
+  /**
+   * A stateless endpoint keeps nothing for a GET stream to carry or a DELETE to
+   * terminate. Serving GET is worse than refusing it: the transport hands back
+   * an SSE stream that the per-request `server.close()` tears down at once, and
+   * a connected client reopens it roughly once a second forever, rebuilding a
+   * Server and the whole tool list each time. 405 is the answer the client
+   * reads as "no server-initiated stream here", so it stops asking.
+   */
+  it("refuses GET and DELETE with 405 so a connected client stops reopening them", async () => {
+    for (const method of ["GET", "DELETE"]) {
+      const response = await fetch(`${server!.url}/mcp`, {
+        method,
+        headers: { Accept: "text/event-stream", ...bearer(serviceToken) },
+      });
+      expect(response.status).toBe(405);
+      expect(response.headers.get("allow")).toBe("POST");
+      await response.body?.cancel();
+    }
+
+    // Unauthenticated callers learn nothing about which methods are served.
+    const anonymous = await fetch(`${server!.url}/mcp`, {
+      method: "GET",
+      headers: { Accept: "text/event-stream" },
+    });
+    expect(anonymous.status).toBe(401);
+    await anonymous.body?.cancel();
   });
 
   it("answers missing and invalid credentials with HTTP 401 and opens no draft", async () => {

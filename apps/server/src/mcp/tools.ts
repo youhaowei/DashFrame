@@ -21,7 +21,7 @@ import type { WyStackApp } from "@wystack/server";
 
 import { createAssistantReadHost } from "../assistant-read-host";
 import { assertKnownCommandPaths } from "../functions/commands";
-import type { McpSession } from "./route";
+import type { McpRequestContext } from "./route";
 
 type AssistantTool = {
   name: string;
@@ -66,13 +66,14 @@ function draftSafeCommandList(): string {
  */
 function draftBatchDescription(): string {
   return [
-    "Append a batch of draft-safe DashFrame commands to this session's draft.",
+    "Append a batch of draft-safe DashFrame commands to a DashFrame draft.",
     "Nothing here reaches canonical state: the draft opens on the first",
-    "successful call, is reused for the rest of the session, and only a person",
-    "can publish it. API credentials can draft, never commit.",
+    "successful call, and only a person can publish it. API credentials can",
+    "draft, never commit. Carry the returned draftId forward: pass it on later",
+    "draft_batch calls to append, and on read tools to see the draft overlay.",
     "",
     "Each entry is { type, args } where `type` is a command NAME from the guide",
-    "below (not a registry path). Do not pass a draft id — this tool holds it.",
+    "below (not a registry path).",
     `Allowed here: ${draftSafeCommandList()}.`,
     "",
     "Refused at this boundary — do not retry these, they will never succeed:",
@@ -85,9 +86,6 @@ function draftBatchDescription(): string {
     "  Publishing is a person's decision.",
     "- A secret reference (secret:<uuid>) in a credential field. Send the",
     "  plaintext value; the server stores it and hands back the reference.",
-    "",
-    "Reads before the first write see canonical state; reads afterwards see the",
-    "draft overlay, so you can read back what you just wrote.",
     "",
     renderCommandGuide(),
   ].join("\n");
@@ -163,21 +161,21 @@ function isMissingDraftError(error: unknown): boolean {
 }
 
 /**
- * The reader is deliberately a forwarder: the draft id belongs to the MCP
- * session and is looked up when each read executes, not when tools are listed.
+ * The reader is deliberately a forwarder: the request's draft id is applied
+ * when each read executes, not when tools are listed.
  */
 function createDelegatingReader(
   app: WyStackApp,
-  session: McpSession,
+  context: McpRequestContext,
 ): GraphReader {
   return new Proxy({} as GraphReader, {
     get(_target, property: keyof GraphReader) {
       return (...args: unknown[]) => {
         const reader = createAssistantReadHost({
           app,
-          ...(session.draftId === undefined
+          ...(context.draftId === undefined
             ? {}
-            : { draftId: session.draftId }),
+            : { draftId: context.draftId }),
         });
         const method = reader[property] as (...values: unknown[]) => unknown;
         return method.apply(reader, args);
@@ -243,19 +241,46 @@ function refLine(details: unknown): string | null {
     : `Ids: ${rendered}`;
 }
 
-function toMcpTool(tool: AssistantTool, surfaceRefs: boolean): McpTool {
+function toMcpTool(tool: AssistantTool, isReadTool: boolean): McpTool {
+  const inputSchema = isReadTool
+    ? {
+        ...tool.parameters,
+        properties: {
+          ...(tool.parameters as { properties: Record<string, TSchema> })
+            .properties,
+          draftId: Type.Optional(
+            Type.String({
+              description:
+                "Draft id from draft_batch. Pass it to read through that " +
+                "draft's overlay; omit to read canonical state.",
+            }),
+          ),
+        },
+      }
+    : tool.parameters;
   return {
     name: tool.name,
     description: tool.description,
-    inputSchema: tool.parameters,
+    inputSchema,
     async execute(args) {
-      const checked = validateToolArgs(tool.parameters, args);
+      const toolArgs =
+        isReadTool &&
+        typeof args === "object" &&
+        args !== null &&
+        !Array.isArray(args)
+          ? (() => {
+              const rest = { ...(args as Record<string, unknown>) };
+              delete rest.draftId;
+              return rest;
+            })()
+          : args;
+      const checked = validateToolArgs(tool.parameters, toolArgs);
       if (!checked.ok) throw new Error(checked.error.message);
       const result = await tool.execute(
         crypto.randomUUID(),
         checked.value as never,
       );
-      const ids = surfaceRefs ? refLine(result.details) : null;
+      const ids = isReadTool ? refLine(result.details) : null;
       return {
         content:
           ids === null
@@ -271,10 +296,10 @@ function toMcpTool(tool: AssistantTool, surfaceRefs: boolean): McpTool {
 
 export function createMcpTools(
   app: WyStackApp,
-  session: McpSession,
+  context: McpRequestContext,
 ): McpTool[] {
   const readTools = Object.values(
-    createReadTools(createDelegatingReader(app, session)),
+    createReadTools(createDelegatingReader(app, context)),
   ) as AssistantTool[];
 
   const writeTool = defineToolHandler({
@@ -283,6 +308,13 @@ export function createMcpTools(
     label: "Draft batch",
     executionMode: "sequential",
     parameters: Type.Object({
+      draftId: Type.Optional(
+        Type.String({
+          description:
+            "Draft id returned by an earlier draft_batch call. Omit to open " +
+            "a new draft; a missing or stale id also opens a new draft.",
+        }),
+      ),
       commands: Type.Array(
         Type.Object({
           type: Type.String({
@@ -313,34 +345,26 @@ export function createMcpTools(
         const response = await app.call(
           "draftBatch",
           { commands, ...(draftId === undefined ? {} : { draftId }) },
-          { principal: session.principal },
+          { principal: context.principal },
         );
         return response.result as { draftId: string; results: unknown[] };
       };
 
-      // The session's draft is not the session's to keep: a person can publish
-      // or discard it at any moment, and `deleteDraftMetadata` then makes the
-      // remembered id unknown to `draftBatch` forever. The agent cannot rescue
-      // itself — this tool holds the id and never accepts one — so a stale
-      // handle would brick every remaining write on the connection. Forget it
-      // and open a fresh draft instead. Retried once, and only for this error:
-      // any other failure is the caller's to see.
+      const draftId = params.draftId as string | undefined;
       let result: { draftId: string; results: unknown[] };
       try {
-        result = await append(session.draftId);
+        result = await append(draftId);
       } catch (error) {
-        if (session.draftId === undefined || !isMissingDraftError(error)) {
+        if (draftId === undefined || !isMissingDraftError(error)) {
           throw error;
         }
-        session.draftId = undefined;
         result = await append(undefined);
       }
-      session.draftId = result.draftId;
       return {
         content: [
           {
             type: "text" as const,
-            text: `Appended ${commands.length} command(s) to the session draft.`,
+            text: `Appended ${commands.length} command(s) to draft ${result.draftId}.`,
           },
         ],
         details: {
