@@ -20,7 +20,7 @@
     "@types/react-dom": "19.2.3"
   },
   "lint-staged": {
-    "*.{js,jsx,ts,tsx,json,css,md}": "prettier --write --loglevel=error"
+    "*.{js,cjs,mjs,jsx,ts,tsx,json,css,md,yml,yaml}": "prettier --write --log-level=error"
   },
   "scripts": {
     "setup": "git submodule update --init --recursive && bun install && bun run build:wystack",
@@ -41,7 +41,7 @@
     "check:ticket-refs": "node scripts/check-no-ticket-refs.mjs",
     "check:wystack-domain-nouns": "node scripts/check-wystack-domain-nouns.mjs",
     "check:apply-commands-boundary": "node scripts/check-apply-commands-boundary.mjs",
-    "check:packages": "turbo check --filter=!@wystack/*",
+    "check:packages": "turbo check --filter=!@wystack/* --continue=dependencies-successful",
     "check": "node scripts/run-checks.mjs",
     "clean": "turbo clean",
     "storybook": "turbo storybook",

@@ -52,7 +52,8 @@ libs/
 ```bash
 bun run setup     # init submodules, install deps, build the vendored @wystack/* packages
 bun dev           # launch the Electron desktop app (embeds the server; renderer on Vite)
-bun check         # lint + typecheck + tests (the project gate)
+bun check         # lint + typecheck + tests + convention guards (the project gate)
+bun format:check  # formatting only — separate from `bun check`, also required to merge
 bun run test      # run all tests
 ```
 
@@ -160,7 +161,9 @@ DashFrame supports importing data directly from Notion databases:
 
 ## Contributing
 
-- Run `bun check` before committing to validate lint + typecheck + format
+- Run `bun check` before committing to validate lint + typecheck + tests + the
+  convention guards, and `bun format:check` for formatting — the two are separate
+  gates in CI, and `bun check` does not run prettier
 - Follow the shared ESLint + Prettier configs (`bun lint` / `bun format`)
 - Architecture and design notes are maintained separately, not in this repo (release/versioning process stays in `docs/versioning.md`)
 - Prefer incremental commits per module (app, packages)

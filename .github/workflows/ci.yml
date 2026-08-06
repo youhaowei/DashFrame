@@ -17,9 +17,20 @@ jobs:
   # Formatting is deliberately its own job, not a step in `check`. As a step it
   # ran first and short-circuited the rest: a one-file prettier diff skipped
   # lint, typecheck and unit tests, and skipped the `e2e` job gated on this one
-  # (PR #272, run 31006228705). Both remain required for merge, but neither can
-  # now hide the other's result. Keep the `check` job's `name:` byte-identical —
-  # branch-ruleset required contexts match display names as exact strings.
+  # (PR #272, run 31006228705). Both are required for merge, and a formatting
+  # failure can no longer hide a lint, typecheck, test or E2E result.
+  #
+  # `e2e` still declares `needs: check`, so a lint, typecheck or test failure
+  # does still skip E2E. That gate is kept on purpose: E2E builds the wystack
+  # submodule and installs Playwright browsers, and `E2E Tests` is a required
+  # context, so a skipped run blocks the merge rather than letting anything
+  # through. The cost is a second round trip when both are broken at once.
+  #
+  # The `check` job's `name:` still reads "& Format" even though format moved
+  # out. Renaming is deferred, not impossible: branch-ruleset required contexts
+  # match display names as exact strings, so a rename means appending the new
+  # context, cutting the job's `name:` over, then dropping the stale string —
+  # worth doing only once the new `Format` context has reported green.
   format:
     name: Format
     runs-on: ubuntu-latest

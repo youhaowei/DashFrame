@@ -53,6 +53,7 @@
     "dev": "tsc -w -p tsconfig.json --preserveWatchOutput",
     "lint": "eslint src",
     "storybook": "storybook dev -p 6006",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "types": "src/index.ts",
