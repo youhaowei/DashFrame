@@ -33,6 +33,14 @@ function isIdentifiedPrincipal(context: Record<string, unknown>): boolean {
   return false;
 }
 
+/**
+ * The draft id an agent supplies alongside a tool call's arguments. Read tools
+ * advertise it, and it scopes their overlay for this request only.
+ *
+ * Deliberately single-message: a JSON-RPC array has no `params` of its own, so
+ * a batch would silently read canonical state while carrying a draft id. Batch
+ * bodies are refused outright by `isJsonRpcBatch` rather than answered wrongly.
+ */
 function requestDraftId(body: unknown): string | undefined {
   if (typeof body !== "object" || body === null) return undefined;
   const params = (body as Record<string, unknown>).params;
@@ -41,6 +49,17 @@ function requestDraftId(body: unknown): string | undefined {
   if (typeof args !== "object" || args === null) return undefined;
   const draftId = (args as Record<string, unknown>).draftId;
   return typeof draftId === "string" ? draftId : undefined;
+}
+
+/**
+ * JSON-RPC batching left the MCP spec in 2025-06-18 and no current client emits
+ * it, but the transport would still accept an array and answer it. That is the
+ * one shape where a draft id rides in a place `requestDraftId` cannot see, so a
+ * batched read would quietly return canonical state instead of the overlay the
+ * caller asked for. A wrong answer is worse than a refusal.
+ */
+function isJsonRpcBatch(body: unknown): boolean {
+  return Array.isArray(body);
 }
 
 /**
@@ -106,7 +125,9 @@ function createServer(tools: McpTool[]): Server {
     tools: tools.map((tool) => ({
       name: tool.name,
       description: tool.description,
-      // TypeBox is JSON Schema. Deliberately pass the original schema through.
+      // TypeBox is JSON Schema, so each tool's advertised schema is passed
+      // through as-is. For a read tool that schema is its parameters plus the
+      // optional draftId this surface adds — see toMcpTool in tools.ts.
       inputSchema: tool.inputSchema,
     })),
   }));
@@ -161,6 +182,14 @@ export function createMcpRoute(opts: McpRouteOptions) {
       parsedBody = await c.req.raw.json();
     } catch {
       return jsonRpcError(400, -32700, "Parse error: invalid JSON body.");
+    }
+    if (isJsonRpcBatch(parsedBody)) {
+      return jsonRpcError(
+        400,
+        -32600,
+        "Batched JSON-RPC requests are not supported. Send one request per " +
+          "call so a draft id applies to the call that carries it.",
+      );
     }
 
     const transport = new WebStandardStreamableHTTPServerTransport({
