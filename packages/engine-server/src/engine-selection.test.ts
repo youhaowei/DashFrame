@@ -7,7 +7,8 @@ describe("selectEngineBinding — engine selection policy (Stage 2)", () => {
     expect(selectEngineBinding("desktop")).toBe("native");
   });
 
-  it("web resolves to WASM (renderer plays the server role)", () => {
+  // Transitional default: unified plane will flip web to native once serve is wired.
+  it("web currently defaults to WASM backup (not the product end-state)", () => {
     expect(selectEngineBinding("web")).toBe("wasm");
   });
 

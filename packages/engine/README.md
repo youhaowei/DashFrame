@@ -12,13 +12,17 @@ bun add @dashframe/engine
 
 The engine package defines runtime-agnostic interfaces:
 
-| Interface          | Browser Implementation | Server Implementation (Future) |
-| ------------------ | ---------------------- | ------------------------------ |
-| `QueryEngine`      | DuckDB-WASM            | DuckDB native / PostgreSQL     |
-| `DataFrameStorage` | IndexedDB              | Filesystem / S3                |
-| `QueryPlanner`     | BrowserQueryPlanner    | ServerQueryPlanner             |
+| Interface          | Real implementation today                         |
+| ------------------ | ------------------------------------------------- |
+| `QueryEngine`      | `NativeDuckDBEngine` (`@dashframe/engine-server`) |
+| `DataFrameStorage` | IndexedDB (`@dashframe/engine-browser`)           |
+| `DataFrame`        | `BrowserDataFrame` (`@dashframe/engine-browser`)  |
 
-This separation allows the same application code to run on different platforms by swapping the engine implementation.
+Primary path is **server-side native DuckDB** (`NativeDuckDBEngine`). Desktop already uses it; web is meant to share the same server process once headless `serve` wires the engine. DuckDB-WASM helpers in `@dashframe/engine-browser` are a **backup** path and do not implement `QueryEngine`.
+
+This package has no shared `QueryPlanner` / push-down API. Connectors may still run remote queries themselves (e.g. Postgres table-reference fetches push LIMIT/OFFSET server-side); that is connector-local, not a cross-engine planner.
+
+`NativeDuckDBEngine` is a partial `QueryEngine`: `registerTable(DataFrame)` throws — callers upload Arrow IPC via `registerArrowTable` (or query sources directly, e.g. `read_parquet`). The interface still lists `registerTable` for the contract; the native engine documents the restriction at the throw site.
 
 ## Usage
 
@@ -27,8 +31,6 @@ import type {
   QueryEngine,
   DataFrame,
   DataFrameStorage,
-  QueryPlanner,
-  ExecutionPlan,
 } from "@dashframe/engine";
 
 // Also re-exports all @dashframe/types
@@ -52,6 +54,8 @@ interface QueryEngine {
 }
 ```
 
+On `NativeDuckDBEngine`, use `registerArrowTable` for uploads — `registerTable` is intentionally unsupported.
+
 ### DataFrameStorage
 
 Persists DataFrame binary data:
@@ -67,72 +71,21 @@ interface DataFrameStorage {
 
 ### DataFrame
 
-Immutable data container with serialization support:
+Lightweight storage reference — metadata and location, not the row data itself
+(defined in `@dashframe/types`, re-exported here):
 
 ```typescript
 interface DataFrame {
   readonly id: UUID;
-  readonly columns: TableColumn[];
-  readonly rowCount: number;
+  readonly storage: DataFrameStorageLocation;
+  readonly fieldIds: UUID[];
+  readonly primaryKey?: string | string[];
+  readonly createdAt: number;
 
-  toArray(): Record<string, unknown>[];
-  toArrowIPC(): Uint8Array;
-  getColumn<T = unknown>(name: string): T[];
+  toJSON(): DataFrameJSON;
+  getStorageType(): string;
 }
 ```
-
-## QueryPlanner
-
-The `QueryPlanner` determines the optimal execution strategy for queries based on data location and connector capabilities.
-
-### Execution Strategies
-
-```typescript
-type ExecutionPlan =
-  | { strategy: "local"; reason: "data-cached" }
-  | {
-      strategy: "remote";
-      reason: "push-down";
-      connector: RemoteApiConnector;
-      remoteQuery: Partial<Query>;
-    }
-  | {
-      strategy: "hybrid";
-      reason: "no-cache" | "connector-limitation" | "partial-push-down";
-      fetchFirst: boolean;
-    };
-```
-
-### Strategy Selection
-
-1. **Local** - Data exists in cache → execute with local engine
-2. **Remote** - Connector supports push-down → execute on source
-3. **Hybrid** - Fetch data first, then execute locally
-
-### Connector Capabilities
-
-Connectors can implement `QueryPushDownCapable` to advertise remote execution support:
-
-```typescript
-interface QueryPushDownCapable {
-  supportsQueryPushDown(): boolean;
-  supportedPushDownOperations(): PushDownOperation[];
-  canFullyPushDown?(query: Query): boolean;
-}
-
-// Type guard
-import { isQueryPushDownCapable } from "@dashframe/engine";
-
-if (isQueryPushDownCapable(connector)) {
-  const ops = connector.supportedPushDownOperations();
-}
-```
-
-| Connector  | Push-Down Support         |
-| ---------- | ------------------------- |
-| CSV        | None (file is local)      |
-| Notion     | Limited (filter, sort)    |
-| PostgreSQL | Full (all SQL operations) |
 
 ## Connector Pattern
 
@@ -174,6 +127,5 @@ import type {
 
 ## Implementations
 
-- **`@dashframe/engine-browser`** - Browser implementation with DuckDB-WASM
-- **`@dashframe/engine-server`** - Server implementation (future)
-- **`@dashframe/engine-mobile`** - Mobile implementation (future)
+- **`@dashframe/engine-server`** — primary: native DuckDB pipeline (`NativeDuckDBEngine`, Arrow data path, placement policy)
+- **`@dashframe/engine-browser`** — backup / transitional web helpers (DuckDB-WASM, IndexedDB, BrowserDataFrame)

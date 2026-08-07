@@ -3,9 +3,8 @@
  *
  * Abstract engine interfaces for DashFrame computation.
  * This package defines contracts that can be implemented for different runtimes:
- * - @dashframe/engine-browser: DuckDB-WASM + IndexedDB (browser)
- * - @dashframe/engine-server: DuckDB native + PostgreSQL (server)
- * - @dashframe/engine-mobile: SQLite (mobile)
+ * - @dashframe/engine-browser: DuckDB-WASM helpers + IndexedDB (browser)
+ * - @dashframe/engine-server: NativeDuckDBEngine (server)
  *
  * Re-exports @dashframe/types for convenience.
  */
@@ -25,23 +24,10 @@ export type {
   DataFrameStorage,
   // DataFrame
   DataFrameStorageLocation,
-  ExecutionPlan,
-  ExecutionReason,
-  ExecutionStrategy,
-  PushDownOperation,
-  // Query Planner
-  Query,
-  QueryAggregation,
-  QueryEngine,
-  QueryFilter,
-  QueryPlanner,
-  QueryPushDownCapable,
   // Query Engine
+  QueryEngine,
   QueryResult,
-  QuerySort,
 } from "./interfaces";
-
-export { isQueryPushDownCapable } from "./interfaces";
 
 export {
   defineColumnTypeMap,

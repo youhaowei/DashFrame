@@ -1,23 +1,29 @@
 /**
  * Stage 3 — Execute: the native DuckDB engine.
  *
- * A second `QueryEngine` implementation (alongside the renderer's DuckDB-WASM)
- * that runs in the loopback server process on Electron desktop. It owns one
- * DuckDB connection; the renderer cannot tell local from remote, and the cloud
- * tier will reuse this exact seam.
+ * The primary `QueryEngine` for the **server process** (desktop loopback today;
+ * headless `serve` + web-via-server is the same class). Desktop and web share
+ * this implementation so the data plane stays consistent; DuckDB-WASM in
+ * `@dashframe/engine-browser` is a **backup / local-first** path, not a second
+ * peer `QueryEngine` and not the long-term web default.
+ *
+ * Wiring today: Electron main constructs this engine and mounts Stage 5. Headless
+ * `serve` does not pass it yet — that is the first slice of the unified data-plane
+ * work (wire `arrowEngine` into serve). Cloud remote compute is not a binding;
+ * this class is the intended seam there too once that tier exists.
  *
  * Beyond the row-shaped `QueryEngine.query`, it exposes `queryArrow` — the
  * Arrow IPC bytes the dedicated data path (Stage 5) streams. Arrow encoding is
- * delegated to `apache-arrow` (`resultToArrowIpc`) rather than DuckDB's Arrow
- * extension, so the binary format matches exactly what DuckDB-WASM ingests on
- * the renderer side and stays in one well-exercised library.
+ * delegated to `apache-arrow` rather than DuckDB's Arrow extension, so the binary
+ * format matches what clients ingest (including the WASM backup path) and stays
+ * in one well-exercised library.
  *
- * `registerArrowTable` accepts an Arrow IPC stream buffer from the renderer,
- * decodes it with apache-arrow, and ingests it into an in-memory DuckDB table
- * via the typed Appender API. The entire path stays in process memory — row
- * data is NEVER serialized to the filesystem (privacy floor: sensitive data is
- * never at rest outside the gated cache; see #67). Tables persist for the
- * session lifetime and are re-registered on reconnect.
+ * `registerArrowTable` accepts an Arrow IPC stream buffer, decodes it with
+ * apache-arrow, and ingests it into an in-memory DuckDB table via the typed
+ * Appender API. `registerTable(DataFrame)` is intentionally unsupported — use
+ * Arrow upload or direct source SQL. Row data stays in process memory (privacy
+ * floor: sensitive data is never at rest outside the gated cache; see #67).
+ * Tables persist for the session lifetime and are re-registered on reconnect.
  *
  * Two-Arrow-library seam: this side decodes with `apache-arrow`, but the chart
  * layer (Mosaic / `@uwdata/vgplot`) decodes the same IPC with `@uwdata/flechette`.

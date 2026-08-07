@@ -24,7 +24,7 @@
  *   and registers it as a named in-memory table in the engine. The renderer
  *   uploads each DataFrame's Arrow buffer before issuing chart-compute queries.
  *   Only available when the engine implements `registerArrowTable` (i.e. the
- *   native engine is wired — not the web-WASM degenerate case).
+ *   native engine is wired into this process — not the WASM-backup path).
  */
 import type { SecretRef, SecretVault } from "@wystack/secret-vault";
 import { tableFromIPC } from "apache-arrow";
@@ -40,8 +40,8 @@ export interface ArrowQueryRunner {
 
 /**
  * Optional extension: the engine can accept Arrow IPC buffers as named tables
- * (used by the desktop chart-compute path so the native engine has the same
- * DataFrame tables the renderer's WASM engine has).
+ * so chart-compute (and other clients) can register the same frame data the
+ * server engine will query — without materializing through the WASM backup path.
  */
 export interface ArrowTableRegistrar {
   registerArrowTable(name: string, arrow: Uint8Array): Promise<void>;

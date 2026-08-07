@@ -14,12 +14,17 @@ export interface QueryResult {
 }
 
 /**
- * QueryEngine interface - Execute SQL-like queries on DataFrames.
+ * QueryEngine interface — execute SQL against registered tables.
  *
- * Implementations handle the actual query execution:
- * - DuckDBQueryEngine (engine-browser) - DuckDB-WASM in browser
- * - DuckDBServerEngine (engine-server) - DuckDB native
- * - PostgresEngine (engine-server) - PostgreSQL
+ * Primary implementer: `NativeDuckDBEngine` (`@dashframe/engine-server`) —
+ * native DuckDB in the server process (desktop today; web-via-serve is the
+ * same class once wired). DuckDB-WASM helpers in `@dashframe/engine-browser`
+ * are a backup path and do not implement this interface.
+ *
+ * There is no Postgres `QueryEngine` and no shared `QueryPlanner` /
+ * `QueryPushDownCapable` API in this package. Individual connectors may still
+ * run remote queries themselves (e.g. the Postgres connector pushes LIMIT/OFFSET
+ * on table-reference fetches); that is connector-local, not a cross-engine planner.
  */
 export interface QueryEngine {
   /**
