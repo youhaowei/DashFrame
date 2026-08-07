@@ -27,6 +27,7 @@
  * ```
  */
 
+import { quoteIdentifier } from "@dashframe/engine";
 import type { ChartEncoding, VisualizationType } from "@dashframe/types";
 import type {
   ChartCleanup,
@@ -446,7 +447,7 @@ function buildAxisOptions(
  * Set up color domain for stacked bar charts (async).
  * Queries distinct values and sets them in alphabetical order for consistent colors.
  */
-function setupColorDomain(
+export function setupColorDomain(
   api: VgplotAPIExtended,
   colorColumn: string,
   tableName: string,
@@ -456,7 +457,7 @@ function setupColorDomain(
 
   coordinator
     .query(
-      `SELECT DISTINCT "${colorColumn}" as val FROM ${tableName} ORDER BY "${colorColumn}"`,
+      `SELECT DISTINCT ${quoteIdentifier(colorColumn)} as val FROM ${quoteIdentifier(tableName)} ORDER BY ${quoteIdentifier(colorColumn)}`,
       { type: "json" },
     )
     .then((result) => {

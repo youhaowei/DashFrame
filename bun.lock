@@ -750,6 +750,7 @@
       "name": "@dashframe/visualization",
       "version": "0.1.0",
       "dependencies": {
+        "@dashframe/engine": "workspace:*",
         "@dashframe/types": "workspace:*",
         "@dashframe/ui": "workspace:*",
         "@duckdb/duckdb-wasm": "1.32.0",
