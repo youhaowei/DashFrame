@@ -131,6 +131,35 @@ describe("PreviewDiffRenderer", () => {
       expect(screen.getByText("Data Table")).toBeDefined();
       expect(screen.queryByText(/Computing/)).toBeNull();
     });
+
+    it("renders the actual field change from the node's before slice", () => {
+      const node: PreviewDirectNode = {
+        ...dataTableNode("dt-field"),
+        before: {
+          fields: [
+            {
+              id: "3c4708a7-a85d-457e-b69d-3226b0a1cfd5",
+              name: "revenue",
+            },
+          ],
+        },
+        proposedDefinition: {
+          nodeId: "dt-field",
+          fieldId: "3c4708a7-a85d-457e-b69d-3226b0a1cfd5",
+          updates: { name: "Revenue (USD)" },
+        },
+      };
+
+      render(<PreviewDiffRenderer diff={makeDiff([node])} />);
+
+      expect(
+        screen.getByText(
+          (_, element) =>
+            element?.tagName === "LI" &&
+            element.textContent === "name: revenue → Revenue (USD)",
+        ),
+      ).toBeDefined();
+    });
   });
 
   describe("pending indicator — compute===undefined for active insight node", () => {
@@ -193,17 +222,30 @@ describe("PreviewDiffRenderer", () => {
         rowCountBefore: null,
         rowCountAfter: 3,
         head: [
-          { name: "Alice", score: 100 },
-          { name: "Bob", score: 200 },
+          {
+            field_fdd13f3e_b880_4524_a829_6515aeb7ccc7: "Alice",
+            field_3c4708a7_a85d_457e_b69d_3226b0a1cfd5: 100,
+          },
+          {
+            field_fdd13f3e_b880_4524_a829_6515aeb7ccc7: "Bob",
+            field_3c4708a7_a85d_457e_b69d_3226b0a1cfd5: 200,
+          },
         ],
+        columnLabels: {
+          field_fdd13f3e_b880_4524_a829_6515aeb7ccc7: "region",
+          field_3c4708a7_a85d_457e_b69d_3226b0a1cfd5: "Revenue (USD)",
+        },
       };
       const diff = makeDiff([insightNode("ins-head", "create", compute)]);
 
       render(<PreviewDiffRenderer diff={diff} />);
 
       // Column headers.
-      expect(screen.getByText("name")).toBeDefined();
-      expect(screen.getByText("score")).toBeDefined();
+      expect(screen.getByText("region")).toBeDefined();
+      expect(screen.getByText("Revenue (USD)")).toBeDefined();
+      expect(
+        screen.queryByText("field_fdd13f3e_b880_4524_a829_6515aeb7ccc7"),
+      ).toBeNull();
       // Row values.
       expect(screen.getByText("Alice")).toBeDefined();
       expect(screen.getByText("Bob")).toBeDefined();

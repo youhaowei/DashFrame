@@ -39,7 +39,7 @@ import {
   SettingsIcon,
   SparklesIcon,
 } from "@wystack/ui-react/icons";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 
 import {
   DESKTOP_NAV_BREAKPOINT_CLASS,
@@ -223,6 +223,7 @@ function SidebarContent({
 
 export function Navigation() {
   const navigate = useNavigate();
+  const pathname = useLocation({ select: (location) => location.pathname });
   const [isOpen, setIsOpen] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showAccessCredentials, setShowAccessCredentials] = useState(false);
@@ -235,6 +236,9 @@ export function Navigation() {
   const leftNavOpen = useShellStore((s) => s.leftNavOpen);
 
   const { showError, showSuccess } = useToastStore();
+
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- route changes must dismiss the modal drawer.
+  useEffect(() => setIsOpen(false), [pathname]);
 
   const handleClearAllData = async () => {
     try {
@@ -293,7 +297,10 @@ export function Navigation() {
 
       {/* Mobile Sidebar Dialog */}
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
-        <DialogContent className="max-w-xs gap-0 border-0 p-0">
+        <DialogContent
+          className="max-w-xs gap-0 border-0 p-0"
+          showCloseButton={false}
+        >
           <div className="flex h-screen flex-col">
             <div className="flex items-center justify-between border-b border-neutral-border/60 p-4">
               <span className="text-sm font-semibold">Menu</span>

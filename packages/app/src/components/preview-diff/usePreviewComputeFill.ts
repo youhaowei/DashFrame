@@ -29,9 +29,12 @@
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import { getDataFrame } from "@/lib/data-access/data-frames";
 import { getDataTable } from "@/lib/data-access/data-tables";
+import { buildInsightColumnDisplayNames } from "@/lib/insight-column-display-names";
+import { buildInsightAvailableFields } from "@dashframe/engine";
 import { buildInsightSQL, ensureTableLoaded } from "@dashframe/engine-browser";
 import type {
   DataTable,
+  Field,
   Insight,
   PreviewCompute,
   PreviewDiff,
@@ -526,6 +529,17 @@ async function computeNode(
     return { rowCountBefore: null, rowCountAfter: null, head: [] };
   }
 
+  const resolvedFields: Field[] =
+    buildInsightAvailableFields(
+      proposedTables.baseTable,
+      proposedTables.joinedTables,
+      { joins: proposed.joins },
+    ) ??
+    (proposedTables.baseTable.fields ?? []).filter(
+      (field) => !field.name.startsWith("_"),
+    );
+  const columnLabels = buildInsightColumnDisplayNames(proposed, resolvedFields);
+
   const [rowCountAfter, head, rowCountBefore] = await Promise.all([
     computeRowCount(proposed, proposedTables, conn),
     computeHead(proposed, proposedTables, conn),
@@ -534,7 +548,7 @@ async function computeNode(
       : Promise.resolve(null),
   ]);
 
-  return { rowCountBefore, rowCountAfter, head };
+  return { rowCountBefore, rowCountAfter, head, columnLabels };
 }
 
 // ---------------------------------------------------------------------------

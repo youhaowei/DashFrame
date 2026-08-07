@@ -120,7 +120,13 @@ function RowCountDelta({
  * A head-rows sample table for the compute display.
  * Renders the first N rows of the proposed result as a compact table.
  */
-function HeadTable({ head }: { head: Array<Record<string, unknown>> }) {
+function HeadTable({
+  head,
+  labels = {},
+}: {
+  head: Array<Record<string, unknown>>;
+  labels?: Record<string, string>;
+}) {
   if (head.length === 0) return null;
   const columns = Object.keys(head[0] ?? {});
   if (columns.length === 0) return null;
@@ -137,7 +143,7 @@ function HeadTable({ head }: { head: Array<Record<string, unknown>> }) {
                 key={col}
                 className="px-2 py-1 text-left font-semibold text-neutral-fg/60"
               >
-                {col}
+                {labels[col] ?? col}
               </th>
             ))}
           </tr>
@@ -216,7 +222,7 @@ function ComputeDisplay({
         before={compute.rowCountBefore}
         after={compute.rowCountAfter}
       />
-      <HeadTable head={compute.head} />
+      <HeadTable head={compute.head} labels={compute.columnLabels} />
     </div>
   );
 }
@@ -234,9 +240,108 @@ interface PreviewDiffRendererProps {
 // Sub-components
 // ---------------------------------------------------------------------------
 
+type ChangeDetail = {
+  key: string;
+  before: unknown;
+  after: unknown;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function comparableBefore(
+  before: Record<string, unknown>,
+): Record<string, unknown> {
+  const definition = isRecord(before.definition) ? before.definition : {};
+  return { ...definition, ...before };
+}
+
+function valuesMatch(before: unknown, after: unknown): boolean {
+  return JSON.stringify(before) === JSON.stringify(after);
+}
+
+function formatValue(value: unknown): string {
+  if (value === undefined) return "—";
+  if (typeof value === "string") return value;
+  const serialized = JSON.stringify(value);
+  return serialized ?? String(value);
+}
+
+function nestedUpdateDetails(
+  before: Record<string, unknown>,
+  proposed: Record<string, unknown>,
+  collectionKey: "fields" | "metrics" | "joins",
+  targetId: unknown,
+): ChangeDetail[] | null {
+  if (!isRecord(proposed.updates)) return null;
+  const collection = comparableBefore(before)[collectionKey];
+  if (!Array.isArray(collection)) return null;
+
+  let target: unknown;
+  if (collectionKey === "joins") {
+    target = collection[typeof targetId === "number" ? targetId : -1];
+  } else {
+    target = collection.find((item) => isRecord(item) && item.id === targetId);
+  }
+  if (!isRecord(target)) return null;
+
+  return Object.entries(proposed.updates)
+    .filter(([key, after]) => !valuesMatch(target[key], after))
+    .map(([key, after]) => ({ key, before: target[key], after }));
+}
+
+function getChangeDetails(node: PreviewDirectNode): ChangeDetail[] {
+  if (node.before === null || node.change === "noop") return [];
+
+  const { before, proposedDefinition: proposed } = node;
+  const fieldDetails = nestedUpdateDetails(
+    before,
+    proposed,
+    "fields",
+    proposed.fieldId,
+  );
+  if (fieldDetails) return fieldDetails;
+
+  const metricDetails = nestedUpdateDetails(
+    before,
+    proposed,
+    "metrics",
+    proposed.metricId,
+  );
+  if (metricDetails) return metricDetails;
+
+  const joinDetails = nestedUpdateDetails(
+    before,
+    proposed,
+    "joins",
+    proposed.joinIndex,
+  );
+  if (joinDetails) return joinDetails;
+
+  const canonical = comparableBefore(before);
+  const ignoredKeys = new Set([
+    "id",
+    "nodeId",
+    "fieldId",
+    "metricId",
+    "itemId",
+  ]);
+  return Object.entries(proposed)
+    .filter(([key]) => !ignoredKeys.has(key))
+    .map(([key, after]) => {
+      const beforeKey = key === "fieldIds" ? "selectedFields" : key;
+      return { key, before: canonical[beforeKey], after };
+    })
+    .filter(
+      ({ before: beforeValue, after }) => !valuesMatch(beforeValue, after),
+    );
+}
+
 function DirectNodeRow({ node }: { node: PreviewDirectNode }) {
   const changeLabel = CHANGE_LABELS[node.change];
   const kindLabel = KIND_LABELS[node.kind];
+  const changeDetails = getChangeDetails(node);
 
   return (
     <div className="flex items-start gap-3 rounded-[var(--surface-radius)] bg-neutral-bg/60 px-3 py-2">
@@ -267,6 +372,18 @@ function DirectNodeRow({ node }: { node: PreviewDirectNode }) {
                 title={intent.command}
               >
                 {intent.summary}
+              </li>
+            ))}
+          </ul>
+        )}
+        {changeDetails.length > 0 && (
+          <ul className="ml-0 list-none space-y-0.5 text-xs text-neutral-fg/70">
+            {changeDetails.map((detail) => (
+              <li key={detail.key}>
+                <span className="font-medium text-neutral-fg/80">
+                  {detail.key}:{" "}
+                </span>
+                {formatValue(detail.before)} → {formatValue(detail.after)}
               </li>
             ))}
           </ul>
