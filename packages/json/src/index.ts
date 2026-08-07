@@ -11,6 +11,7 @@ import {
   createSourceSchema,
   DataFrame as DataFrameClass,
   detectPrimaryKeyColumn,
+  inferPrimitiveColumnType,
   parsePrimitiveValueByType,
 } from "@dashframe/engine-browser";
 import {
@@ -43,22 +44,18 @@ export interface JSONConversionOptions extends FlattenOptions {
  * JSON values are already typed, so this is simpler than CSV type inference.
  */
 const inferType = (value: JsonPrimitive): ColumnType => {
-  if (value === null) return "unknown";
-  if (typeof value === "number") return "number";
-  if (typeof value === "boolean") return "boolean";
-  if (typeof value === "string") {
+  return inferPrimitiveColumnType(value, (stringValue) => {
     // Check if it's a date string
-    const date = Date.parse(value);
+    const date = Date.parse(stringValue);
     if (!Number.isNaN(date)) {
       // Additional check: ensure it looks like a date (has separators like - or /)
       // This avoids matching simple numeric strings
-      if (/[-/:]/.test(value) && value.length >= 8) {
+      if (/[-/:]/.test(stringValue) && stringValue.length >= 8) {
         return "date";
       }
     }
     return "string";
-  }
-  return "unknown";
+  });
 };
 
 /**

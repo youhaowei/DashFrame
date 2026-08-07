@@ -8,7 +8,7 @@
  * (`getColumnsObjectJson`): BigInt → string, Date/timestamp → string — so the
  * encoder coerces to the Arrow physical type here.
  */
-import type { ColumnType } from "@dashframe/types";
+import { defineColumnTypeMap, type ColumnType } from "@dashframe/engine";
 import { DuckDBTypeId } from "@duckdb/node-api";
 import {
   Bool,
@@ -30,39 +30,48 @@ export interface ResultColumn {
   values: unknown[];
 }
 
+const DUCKDB_TYPE_IDS_BY_COLUMN_TYPE = defineColumnTypeMap({
+  boolean: [DuckDBTypeId.BOOLEAN],
+  number: [
+    DuckDBTypeId.TINYINT,
+    DuckDBTypeId.SMALLINT,
+    DuckDBTypeId.INTEGER,
+    DuckDBTypeId.BIGINT,
+    DuckDBTypeId.UTINYINT,
+    DuckDBTypeId.USMALLINT,
+    DuckDBTypeId.UINTEGER,
+    DuckDBTypeId.UBIGINT,
+    DuckDBTypeId.HUGEINT,
+    DuckDBTypeId.UHUGEINT,
+    DuckDBTypeId.FLOAT,
+    DuckDBTypeId.DOUBLE,
+    DuckDBTypeId.DECIMAL,
+  ],
+  date: [
+    DuckDBTypeId.DATE,
+    DuckDBTypeId.TIMESTAMP,
+    DuckDBTypeId.TIMESTAMP_S,
+    DuckDBTypeId.TIMESTAMP_MS,
+    DuckDBTypeId.TIMESTAMP_NS,
+    DuckDBTypeId.TIMESTAMP_TZ,
+  ],
+  string: [DuckDBTypeId.VARCHAR],
+  unknown: [],
+});
+
+const COLUMN_TYPE_BY_DUCKDB_TYPE_ID = new Map<number, ColumnType>(
+  Object.entries(DUCKDB_TYPE_IDS_BY_COLUMN_TYPE).flatMap(([columnType, ids]) =>
+    ids.map((id) => [id, columnType as ColumnType]),
+  ),
+);
+
 /** Map a DuckDB type id to DashFrame's normalized `ColumnType`. */
 export function duckdbTypeIdToColumnType(
   typeId: number | undefined,
 ): ColumnType {
-  switch (typeId) {
-    case DuckDBTypeId.BOOLEAN:
-      return "boolean";
-    case DuckDBTypeId.TINYINT:
-    case DuckDBTypeId.SMALLINT:
-    case DuckDBTypeId.INTEGER:
-    case DuckDBTypeId.BIGINT:
-    case DuckDBTypeId.UTINYINT:
-    case DuckDBTypeId.USMALLINT:
-    case DuckDBTypeId.UINTEGER:
-    case DuckDBTypeId.UBIGINT:
-    case DuckDBTypeId.HUGEINT:
-    case DuckDBTypeId.UHUGEINT:
-    case DuckDBTypeId.FLOAT:
-    case DuckDBTypeId.DOUBLE:
-    case DuckDBTypeId.DECIMAL:
-      return "number";
-    case DuckDBTypeId.DATE:
-    case DuckDBTypeId.TIMESTAMP:
-    case DuckDBTypeId.TIMESTAMP_S:
-    case DuckDBTypeId.TIMESTAMP_MS:
-    case DuckDBTypeId.TIMESTAMP_NS:
-    case DuckDBTypeId.TIMESTAMP_TZ:
-      return "date";
-    case DuckDBTypeId.VARCHAR:
-      return "string";
-    default:
-      return "unknown";
-  }
+  return typeId === undefined
+    ? "unknown"
+    : (COLUMN_TYPE_BY_DUCKDB_TYPE_ID.get(typeId) ?? "unknown");
 }
 
 /**
