@@ -21,10 +21,15 @@ jobs:
   # failure can no longer hide a lint, typecheck, test or E2E result.
   #
   # `e2e` still declares `needs: check`, so a lint, typecheck or test failure
-  # does still skip E2E. That gate is kept on purpose: E2E builds the wystack
-  # submodule and installs Playwright browsers, and `E2E Tests` is a required
-  # context, so a skipped run blocks the merge rather than letting anything
-  # through. The cost is a second round trip when both are broken at once.
+  # does still skip E2E. That gate is kept on purpose — E2E builds the wystack
+  # submodule and installs Playwright browsers, and paying that on a revision
+  # that cannot compile is waste. What blocks the merge in that case is the
+  # failing `Lint, Type Check & Format` context, NOT the skipped `E2E Tests`
+  # one: a job skipped because `needs` failed still posts a check run, and a
+  # required check run whose conclusion is `skipped` does not hold up a
+  # ruleset. So E2E is protection only on revisions that got far enough to run
+  # it, and the cost of this gate is a second round trip when lint/typecheck
+  # and E2E are broken at once.
   #
   # The `check` job's `name:` still reads "& Format" even though format moved
   # out. Renaming is deferred, not impossible: branch-ruleset required contexts
@@ -43,6 +48,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          # No job here runs an authenticated git operation after checkout, so
+          # leaving GITHUB_TOKEN in .git/config only widens what a compromised
+          # step could reach.
+          persist-credentials: false
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -65,6 +74,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          persist-credentials: false
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -90,6 +100,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          persist-credentials: false
 
       - name: Skip if e2e/web absent
         id: guard

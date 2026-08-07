@@ -27,7 +27,8 @@
 // leaked export), not in DashFrame.
 //
 // Usage: node scripts/check-wystack-domain-nouns.mjs
-// Exit code: 0 = clean (or submodule not checked out — see below), 1 = violations found.
+// Exit code: 0 = clean, 1 = violations found, 78 = could not run because the
+// wystack submodule is not checked out (a skip, not a pass — see below).
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -150,7 +151,13 @@ if (submoduleMissing) {
       `libs/wystack is not checked out, so its exported surface could not be scanned. ` +
       `This is not a pass — run \`git submodule update --init\` and re-run this check before relying on it.`,
   );
-  process.exit(0);
+  // Exit 78 (EX_CONFIG), not 0. "Could not run" must not be reportable as
+  // "passed": scripts/run-checks.mjs maps this code to SKIP and fails the
+  // aggregate gate, so an uninitialized submodule can never produce an
+  // all-PASS summary. CI checks out `submodules: recursive`, so this branch is
+  // unreachable there — it only fires on an unprepared local checkout, where
+  // the fix is the command named above.
+  process.exit(78);
 }
 
 const violations = [];

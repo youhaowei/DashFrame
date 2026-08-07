@@ -113,12 +113,19 @@ Use the project's own gate `bun run check`. It runs four things through
 `turbo check --filter=!@wystack/* --continue=dependencies-successful` (lint +
 typecheck + test, excluding the vendored submodule packages). **Every one of them
 runs even when an earlier one fails**, and the summary at the end lists each
-result; the overall exit code is non-zero if any failed. That is deliberate — the
+result; the overall exit code is non-zero if any did not pass. That is deliberate — the
 guards each take under a second, and when they were chained with `&&` a one-line
 convention violation hid every type error and failing test behind it. The
 `--continue` flag is the same fix one level down: turbo's default is
 `--continue=never`, so without it a single eslint error cancelled every pending
 typecheck and test task. Re-run just the one that failed with `bun run <name>`.
+
+A summary line reads `PASS`, `FAIL`, or `SKIP`. `SKIP` means the check could
+not inspect its subject at all — it exits `78` rather than `0` — and it **fails
+the gate**, because "we did not look" is not evidence of correctness. Today the
+only check that can skip is `check:wystack-domain-nouns`, when `libs/wystack` is
+not checked out; the fix is `git submodule update --init`. CI checks out
+`submodules: recursive`, so it never skips there.
 
 Formatting is **not** part of `bun run check` — run `bun run format:check`
 separately. In CI it is its own job for the same reason: a prettier diff must not

@@ -14,7 +14,9 @@
 // one that failed.
 //
 // Usage: node scripts/run-checks.mjs
-// Exit code: 0 = every check passed, 1 = at least one failed.
+// Exit code: 0 = every check passed, 1 = at least one did not pass (FAIL or
+// SKIP). A check exiting 78 could not run its subject and is reported SKIP;
+// that is a gate failure, not a pass.
 
 import { spawnSync } from "node:child_process";
 
@@ -24,6 +26,12 @@ const CHECKS = [
   "check:apply-commands-boundary",
   "check:packages",
 ];
+
+// A check that could not run its subject at all exits 78 (EX_CONFIG) rather
+// than 0. It is reported as SKIP, never PASS — a summary line that reads PASS
+// has to mean the check inspected its subject and found it clean. A skip still
+// fails the gate, because "we did not look" is not evidence of correctness.
+const SKIP_EXIT_CODE = 78;
 
 const results = [];
 
@@ -42,6 +50,11 @@ for (const script of CHECKS) {
   } else if (run.signal) {
     console.error(`[run-checks] ${script} was killed by ${run.signal}`);
     outcome = "failed";
+  } else if (run.status === SKIP_EXIT_CODE) {
+    console.error(
+      `[run-checks] ${script} could not run — reported as SKIP, which fails the gate`,
+    );
+    outcome = "skipped";
   } else {
     outcome = run.status === 0 ? "passed" : "failed";
   }
@@ -49,16 +62,18 @@ for (const script of CHECKS) {
   results.push({ script, outcome });
 }
 
-const failed = results.filter((r) => r.outcome === "failed");
+const LABELS = { passed: "PASS", failed: "FAIL", skipped: "SKIP" };
+const notPassed = results.filter((r) => r.outcome !== "passed");
 
 console.log("\n=== summary ===");
 for (const { script, outcome } of results) {
-  console.log(`${outcome === "passed" ? "PASS" : "FAIL"}  ${script}`);
+  console.log(`${LABELS[outcome]}  ${script}`);
 }
 
-if (failed.length > 0) {
+if (notPassed.length > 0) {
   console.error(
-    `\n${failed.length} of ${results.length} checks failed: ${failed.map((r) => r.script).join(", ")}`,
+    `\n${notPassed.length} of ${results.length} checks did not pass: ` +
+      notPassed.map((r) => `${r.script} (${LABELS[r.outcome]})`).join(", "),
   );
   process.exit(1);
 }
