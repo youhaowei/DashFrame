@@ -1,14 +1,21 @@
 /**
  * @dashframe/engine-server — the server-authoritative native execution path.
  *
- * Implements the five-stage data pipeline (compile → place → execute → cache →
- * transport) for the Electron desktop / `dashframe serve` deployment:
+ * Primary data plane for DashFrame: native DuckDB in the server process, shared
+ * by desktop and (once wired) web. WASM is a backup mode, not a peer primary.
+ *
+ * Five-stage pipeline (compile → place → execute → cache → transport):
  *
  *   - Stage 1 Compile   — `hashCompiledQuery` (content-addressing boundary)
- *   - Stage 2 Place     — `selectEngineBinding` (engine selection policy, one place)
+ *   - Stage 2 Place     — `selectEngineBinding` (policy seam; web still defaults
+ *                         to wasm until serve + web data path land)
  *   - Stage 3 Execute   — `NativeDuckDBEngine` (native DuckDB QueryEngine)
  *   - Stage 4 Cache     — `ParquetCache` + `CacheWriteGate` seam (sensitivity gate, see #67)
  *   - Stage 5 Transport — `createArrowDataPath` (dedicated Arrow IPC HTTP path)
+ *
+ * Desktop already constructs Stage 3+5 in Electron main. Headless `serve` accepts
+ * an optional `arrowEngine` but does not construct one yet — that wiring is the
+ * first unified-plane slice.
  *
  * Native module: this package depends on `@duckdb/node-api`, which must be
  * externalized from the Electron main bundle (and asar-unpacked if packaged).

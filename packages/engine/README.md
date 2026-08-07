@@ -18,11 +18,11 @@ The engine package defines runtime-agnostic interfaces:
 | `DataFrameStorage` | IndexedDB (`@dashframe/engine-browser`)           |
 | `DataFrame`        | `BrowserDataFrame` (`@dashframe/engine-browser`)  |
 
-Browser SQL paths live in `@dashframe/engine-browser` (DuckDB-WASM helpers) and do not implement `QueryEngine`. This package has no shared `QueryPlanner` / push-down API. Connectors may still run remote queries themselves (e.g. Postgres table-reference fetches push LIMIT/OFFSET server-side); that is connector-local, not a cross-engine planner.
+Primary path is **server-side native DuckDB** (`NativeDuckDBEngine`). Desktop already uses it; web is meant to share the same server process once headless `serve` wires the engine. DuckDB-WASM helpers in `@dashframe/engine-browser` are a **backup** path and do not implement `QueryEngine`.
+
+This package has no shared `QueryPlanner` / push-down API. Connectors may still run remote queries themselves (e.g. Postgres table-reference fetches push LIMIT/OFFSET server-side); that is connector-local, not a cross-engine planner.
 
 `NativeDuckDBEngine` is a partial `QueryEngine`: `registerTable(DataFrame)` throws — callers upload Arrow IPC via `registerArrowTable` (or query sources directly, e.g. `read_parquet`). The interface still lists `registerTable` for the contract; the native engine documents the restriction at the throw site.
-
-This separation still allows the same application code to target different runtimes by swapping implementers where they exist.
 
 ## Usage
 
@@ -127,5 +127,5 @@ import type {
 
 ## Implementations
 
-- **`@dashframe/engine-browser`** — browser helpers (DuckDB-WASM, IndexedDB storage, BrowserDataFrame)
-- **`@dashframe/engine-server`** — server implementation (`NativeDuckDBEngine` and related)
+- **`@dashframe/engine-server`** — primary: native DuckDB pipeline (`NativeDuckDBEngine`, Arrow data path, placement policy)
+- **`@dashframe/engine-browser`** — backup / transitional web helpers (DuckDB-WASM, IndexedDB, BrowserDataFrame)
