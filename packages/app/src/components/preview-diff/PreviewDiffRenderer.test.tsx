@@ -160,6 +160,43 @@ describe("PreviewDiffRenderer", () => {
         ),
       ).toBeDefined();
     });
+
+    it("does not attribute a merged nested update to the wrong target", () => {
+      const node: PreviewDirectNode = {
+        ...dataTableNode("dt-merged-nested-update"),
+        before: {
+          fields: [
+            {
+              id: "3c4708a7-a85d-457e-b69d-3226b0a1cfd5",
+              name: "revenue",
+            },
+          ],
+          metrics: [
+            {
+              id: "fdd13f3e-b880-4524-a829-6515aeb7ccc7",
+              name: "Revenue",
+            },
+          ],
+        },
+        proposedDefinition: {
+          nodeId: "dt-merged-nested-update",
+          fieldId: "3c4708a7-a85d-457e-b69d-3226b0a1cfd5",
+          metricId: "fdd13f3e-b880-4524-a829-6515aeb7ccc7",
+          updates: { name: "Total revenue" },
+        },
+      };
+
+      render(<PreviewDiffRenderer diff={makeDiff([node])} />);
+
+      expect(
+        screen.queryByText(
+          (_, element) =>
+            element?.tagName === "LI" &&
+            element.textContent === "name: revenue → Total revenue",
+        ),
+      ).toBeNull();
+      expect(screen.queryByText("Total revenue")).toBeNull();
+    });
   });
 
   describe("pending indicator — compute===undefined for active insight node", () => {

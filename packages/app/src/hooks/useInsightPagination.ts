@@ -161,9 +161,11 @@ export function useInsightPagination({
   }, [insight.baseTableId, insight.joins]);
 
   const columnDisplayNames = useMemo(() => {
+    const { baseTable, joinedTables } = resolvedTablesRef.current;
     return buildInsightColumnDisplayNames(
       { joins: insight.joins, metrics: insight.metrics },
       resolvedFields,
+      baseTable ? { baseTable, joinedTables } : undefined,
     );
   }, [resolvedFields, insight.metrics, insight.joins]);
 

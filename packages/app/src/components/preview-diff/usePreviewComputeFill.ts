@@ -538,7 +538,14 @@ async function computeNode(
     (proposedTables.baseTable.fields ?? []).filter(
       (field) => !field.name.startsWith("_"),
     );
-  const columnLabels = buildInsightColumnDisplayNames(proposed, resolvedFields);
+  const columnLabels = buildInsightColumnDisplayNames(
+    proposed,
+    resolvedFields,
+    {
+      baseTable: proposedTables.baseTable,
+      joinedTables: proposedTables.joinedTables,
+    },
+  );
 
   const [rowCountAfter, head, rowCountBefore] = await Promise.all([
     computeRowCount(proposed, proposedTables, conn),

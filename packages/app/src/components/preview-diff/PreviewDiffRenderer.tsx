@@ -263,9 +263,11 @@ function valuesMatch(before: unknown, after: unknown): boolean {
 
 function formatValue(value: unknown): string {
   if (value === undefined) return "—";
-  if (typeof value === "string") return value;
-  const serialized = JSON.stringify(value);
-  return serialized ?? String(value);
+  const serialized =
+    typeof value === "string"
+      ? value
+      : (JSON.stringify(value) ?? String(value));
+  return serialized.length > 120 ? `${serialized.slice(0, 120)}…` : serialized;
 }
 
 function nestedUpdateDetails(
@@ -295,13 +297,21 @@ function getChangeDetails(node: PreviewDirectNode): ChangeDetail[] {
   if (node.before === null || node.change === "noop") return [];
 
   const { before, proposedDefinition: proposed } = node;
+  const nestedTargetCount = [
+    proposed.fieldId,
+    proposed.metricId,
+    proposed.joinIndex,
+    proposed.itemId,
+  ].filter((target) => target !== undefined).length;
+  if (nestedTargetCount > 1) return [];
+
   const fieldDetails = nestedUpdateDetails(
     before,
     proposed,
     "fields",
     proposed.fieldId,
   );
-  if (fieldDetails) return fieldDetails;
+  if (fieldDetails !== null) return fieldDetails;
 
   const metricDetails = nestedUpdateDetails(
     before,
@@ -309,7 +319,7 @@ function getChangeDetails(node: PreviewDirectNode): ChangeDetail[] {
     "metrics",
     proposed.metricId,
   );
-  if (metricDetails) return metricDetails;
+  if (metricDetails !== null) return metricDetails;
 
   const joinDetails = nestedUpdateDetails(
     before,
@@ -317,7 +327,7 @@ function getChangeDetails(node: PreviewDirectNode): ChangeDetail[] {
     "joins",
     proposed.joinIndex,
   );
-  if (joinDetails) return joinDetails;
+  if (joinDetails !== null) return joinDetails;
 
   const canonical = comparableBefore(before);
   const ignoredKeys = new Set([
@@ -326,11 +336,18 @@ function getChangeDetails(node: PreviewDirectNode): ChangeDetail[] {
     "fieldId",
     "metricId",
     "itemId",
+    "dashboardId",
+    "joinIndex",
+    "sourceItemId",
   ]);
   return Object.entries(proposed)
     .filter(([key]) => !ignoredKeys.has(key))
     .map(([key, after]) => {
-      const beforeKey = key === "fieldIds" ? "selectedFields" : key;
+      // foldInsightArgs in usePreviewComputeFill.ts is the source of truth for
+      // proposed argument keys that map to stored canonical keys.
+      let beforeKey = key;
+      if (key === "fieldIds") beforeKey = "selectedFields";
+      if (key === "source") beforeKey = "baseTableId";
       return { key, before: canonical[beforeKey], after };
     })
     .filter(
@@ -379,7 +396,7 @@ function DirectNodeRow({ node }: { node: PreviewDirectNode }) {
         {changeDetails.length > 0 && (
           <ul className="ml-0 list-none space-y-0.5 text-xs text-neutral-fg/70">
             {changeDetails.map((detail) => (
-              <li key={detail.key}>
+              <li key={detail.key} className="break-all">
                 <span className="font-medium text-neutral-fg/80">
                   {detail.key}:{" "}
                 </span>
