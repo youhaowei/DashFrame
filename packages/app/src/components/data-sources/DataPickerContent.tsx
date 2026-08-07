@@ -53,6 +53,31 @@ function requestRemoteFieldReview(
   });
 }
 
+function requestFileTableReplacement(
+  confirm: (config: ConfirmDialogConfig) => void,
+  {
+    fileName,
+    tableName,
+    sourceName,
+  }: {
+    fileName: string;
+    tableName: string;
+    sourceName: string;
+  },
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    confirm({
+      title: `Replace table "${tableName}" from "${sourceName}"?`,
+      description: `The existing file-backed table "${tableName}" from "${sourceName}" will be overwritten by "${fileName}".`,
+      confirmLabel: "Replace table",
+      cancelLabel: "Cancel upload",
+      variant: "destructive",
+      onConfirm: () => resolve(true),
+      onCancel: () => resolve(false),
+    });
+  });
+}
+
 export interface DataPickerContentProps {
   /**
    * Called when an existing insight is selected.
@@ -255,17 +280,36 @@ export function DataPickerContent({
           throw new Error(`File size exceeds ${connector.maxSizeMB}MB limit.`);
         }
 
-        // Check for duplicate table
-        const existingTable = allDataTables.find(
-          (table) =>
-            table.name === file.name ||
-            table.name === file.name.replace(/\.(csv|xlsx?)$/i, ""),
-        );
+        // Only file-backed tables can be replaced by an uploaded file. A
+        // remote table with the same name is a separate source of truth and
+        // must never be used as an overwrite target.
+        const existingTable = allDataTables.find((table) => {
+          const source = dataSources.find(
+            (dataSource) => dataSource.id === table.dataSourceId,
+          );
+          const isFileBacked =
+            getConnectorById(source?.type ?? "")?.sourceType === "file";
+          return (
+            isFileBacked &&
+            (table.name === file.name ||
+              table.name === file.name.replace(/\.(csv|xlsx?)$/i, ""))
+          );
+        });
 
         if (existingTable) {
-          const shouldOverride = window.confirm(
-            `"${file.name}" already exists. Replace the existing table with this file?`,
+          const source = dataSources.find(
+            (dataSource) => dataSource.id === existingTable.dataSourceId,
           );
+          const sourceName =
+            getConnectorById(source?.type ?? "")?.name ??
+            source?.name ??
+            source?.type ??
+            "file source";
+          const shouldOverride = await requestFileTableReplacement(confirm, {
+            fileName: file.name,
+            tableName: existingTable.name,
+            sourceName,
+          });
           if (!shouldOverride) {
             return;
           }
@@ -288,7 +332,7 @@ export function DataPickerContent({
         setError(err instanceof Error ? err.message : "Failed to process file");
       }
     },
-    [onTableSelect, allDataTables],
+    [onTableSelect, allDataTables, dataSources, confirm],
   );
 
   const handleConnect = useCallback(
