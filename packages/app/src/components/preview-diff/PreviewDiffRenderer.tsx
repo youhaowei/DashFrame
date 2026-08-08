@@ -246,6 +246,8 @@ type ChangeDetail = {
   after: unknown;
 };
 
+type NestedCollectionKey = "fields" | "metrics" | "joins";
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -290,10 +292,23 @@ function formatValue(value: unknown): string {
 function nestedUpdateDetails(
   before: Record<string, unknown>,
   proposed: Record<string, unknown>,
-  collectionKey: "fields" | "metrics" | "joins",
+  collectionKey: NestedCollectionKey,
   targetId: unknown,
 ): ChangeDetail[] | null {
   if (!isRecord(proposed.updates)) return null;
+  const target = findNestedTarget(before, collectionKey, targetId);
+  if (!target) return null;
+
+  return Object.entries(proposed.updates)
+    .filter(([key, after]) => !valuesMatch(target[key], after))
+    .map(([key, after]) => ({ key, before: target[key], after }));
+}
+
+function findNestedTarget(
+  before: Record<string, unknown>,
+  collectionKey: NestedCollectionKey,
+  targetId: unknown,
+): Record<string, unknown> | null {
   const collection = comparableBefore(before)[collectionKey];
   if (!Array.isArray(collection)) return null;
 
@@ -303,11 +318,20 @@ function nestedUpdateDetails(
   } else {
     target = collection.find((item) => isRecord(item) && item.id === targetId);
   }
-  if (!isRecord(target)) return null;
+  return isRecord(target) ? target : null;
+}
 
-  return Object.entries(proposed.updates)
-    .filter(([key, after]) => !valuesMatch(target[key], after))
-    .map(([key, after]) => ({ key, before: target[key], after }));
+function nestedTargetLabel(
+  before: Record<string, unknown>,
+  collectionKey: NestedCollectionKey,
+  targetId: unknown,
+): string | null {
+  const target = findNestedTarget(before, collectionKey, targetId);
+  if (!target) return null;
+
+  const kind = collectionKey === "joins" ? "join" : collectionKey.slice(0, -1);
+  const name = typeof target.name === "string" ? target.name : targetId;
+  return `${kind} ${name}`;
 }
 
 function fallbackUpdateDetails(
@@ -330,13 +354,34 @@ function getChangeDetails(node: PreviewDirectNode): ChangeDetail[] {
     ["metrics", proposed.metricId],
     ["joins", proposed.joinIndex],
   ] as const;
-  const resolvedNestedDetails = nestedDetails.flatMap(
+  const selectedNestedTargets = nestedDetails.filter(
+    ([, target]) => target !== undefined,
+  );
+
+  if (selectedNestedTargets.length > 1 && isRecord(proposed.updates)) {
+    const labels = selectedNestedTargets.flatMap(([collection, target]) => {
+      const label = nestedTargetLabel(before, collection, target);
+      return label ? [label] : [];
+    });
+    return [
+      {
+        key: `applies to: ${labels.join(", ") || "multiple targets"}`,
+        before: undefined,
+        after: proposed.updates,
+      },
+    ];
+  }
+
+  let anyResolved = false;
+  const resolvedNestedDetails = selectedNestedTargets.flatMap(
     ([collection, target]) => {
-      if (target === undefined) return [];
-      return nestedUpdateDetails(before, proposed, collection, target) ?? [];
+      const details = nestedUpdateDetails(before, proposed, collection, target);
+      if (details === null) return [];
+      anyResolved = true;
+      return details;
     },
   );
-  if (resolvedNestedDetails.length > 0) return resolvedNestedDetails;
+  if (anyResolved) return resolvedNestedDetails;
 
   const fallbackDetails = fallbackUpdateDetails(proposed);
   if (fallbackDetails !== null) return fallbackDetails;

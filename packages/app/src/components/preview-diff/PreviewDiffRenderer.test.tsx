@@ -161,7 +161,7 @@ describe("PreviewDiffRenderer", () => {
       ).toBeDefined();
     });
 
-    it("renders a merged nested update for every target", () => {
+    it("renders a merged nested update once without fabricating target changes", () => {
       const node: PreviewDirectNode = {
         ...dataTableNode("dt-merged-nested-update"),
         before: {
@@ -192,16 +192,40 @@ describe("PreviewDiffRenderer", () => {
         screen.getByText(
           (_, element) =>
             element?.tagName === "LI" &&
-            element.textContent === "name: revenue → Total revenue",
+            element.textContent ===
+              'applies to: field revenue, metric Revenue: — → {"name":"Total revenue"}',
         ),
       ).toBeDefined();
       expect(
-        screen.getByText(
+        screen.queryByText(
+          (_, element) =>
+            element?.tagName === "LI" &&
+            element.textContent === "name: revenue → Total revenue",
+        ),
+      ).toBeNull();
+      expect(
+        screen.queryByText(
           (_, element) =>
             element?.tagName === "LI" &&
             element.textContent === "name: Revenue → Total revenue",
         ),
-      ).toBeDefined();
+      ).toBeNull();
+    });
+
+    it("does not render a fallback row for a resolved no-op nested update", () => {
+      const node: PreviewDirectNode = {
+        ...dataTableNode("unchanged-field"),
+        before: { fields: [{ id: "f1", name: "revenue" }] },
+        proposedDefinition: {
+          nodeId: "unchanged-field",
+          fieldId: "f1",
+          updates: { name: "revenue" },
+        },
+      };
+
+      render(<PreviewDiffRenderer diff={makeDiff([node])} />);
+
+      expect(screen.queryByText(/name:/)).toBeNull();
     });
 
     it("expands dashboard item updates into per-key detail rows", () => {
