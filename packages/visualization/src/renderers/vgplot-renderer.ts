@@ -56,7 +56,12 @@ interface VgplotAPIExtended extends VgplotAPI {
       ) => Promise<unknown>;
     };
   };
-  colorDomain?: (domain: string[]) => void;
+  /**
+   * vgplot's `colorDomain` is a directive factory: it returns `(plot) => void`
+   * rather than applying anything itself. The caller must invoke the returned
+   * closure against a plot for the domain to take effect.
+   */
+  colorDomain?: (domain: string[]) => (plot: unknown) => void;
 }
 
 // ============================================================================
@@ -444,8 +449,13 @@ function buildAxisOptions(
 }
 
 /**
- * Set up color domain for stacked bar charts (async).
- * Queries distinct values and sets them in alphabetical order for consistent colors.
+ * Query the color domain for stacked bar charts (async).
+ *
+ * Queries distinct values for the color column and calls `api.colorDomain(domain)`,
+ * but the returned directive closure is discarded here — the plot is already built
+ * and mounted (see call site) by the time this async query resolves, so the sorted
+ * domain does not currently affect rendered colors. Making it apply requires
+ * restructuring render order and is tracked as separate follow-up work, not this fix.
  */
 export function setupColorDomain(
   api: VgplotAPIExtended,
