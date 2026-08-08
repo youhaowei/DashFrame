@@ -61,6 +61,8 @@ export function SensitivityBadge({
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
+            // Ignore auto-repeat so holding Enter/Space doesn't confirm repeatedly.
+            if (e.repeat) return;
             onConfirmSuggestion();
           }
         }}
