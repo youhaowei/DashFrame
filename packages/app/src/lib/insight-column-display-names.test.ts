@@ -1,6 +1,7 @@
 import {
   buildInsightAvailableFields,
   fieldIdToColumnAlias,
+  metricIdToColumnAlias,
 } from "@dashframe/engine";
 import type { DataTable, Field, Insight, UUID } from "@dashframe/types";
 import { describe, expect, it } from "vitest";
@@ -106,5 +107,55 @@ describe("buildInsightColumnDisplayNames", () => {
 
     expect(labels[firstAlias]).toBe("User Name (created_by)");
     expect(labels[secondAlias]).toBe("User Name (approved_by)");
+  });
+
+  it("uses the metric name for metric aliases", () => {
+    const metricId = "f0f0f0f0-f0f0-f0f0-f0f0-f0f0f0f0f0f0" as UUID;
+    const labels = buildInsightColumnDisplayNames(
+      { metrics: [{ id: metricId, name: "Order count" }] } as Insight,
+      [createdBy],
+    );
+
+    expect(labels[metricIdToColumnAlias(metricId)]).toBe("Order count");
+  });
+
+  it("labels repeated self-joins using the shared base-table instance key", () => {
+    const insight: Insight = {
+      id: "50505050-5050-5050-5050-505050505050" as UUID,
+      name: "Orders hierarchy",
+      baseTableId: BASE_TABLE_ID,
+      selectedFields: [],
+      metrics: [],
+      joins: [
+        {
+          type: "inner",
+          rightTableId: BASE_TABLE_ID,
+          leftKey: "created_by",
+          rightKey: "approved_by",
+        },
+        {
+          type: "inner",
+          rightTableId: BASE_TABLE_ID,
+          leftKey: "approved_by",
+          rightKey: "created_by",
+        },
+      ],
+      createdAt: 0,
+    };
+    const fields = buildInsightAvailableFields(
+      baseTable,
+      new Map([[BASE_TABLE_ID, baseTable]]),
+      insight,
+    );
+
+    expect(fields).not.toBeNull();
+    const labels = buildInsightColumnDisplayNames(insight, fields!, {
+      baseTable,
+      joinedTables: new Map([[BASE_TABLE_ID, baseTable]]),
+    });
+
+    expect(labels[fieldIdToColumnAlias(`${approvedBy.id}_j1`)]).toBe(
+      "Approved By (approved_by)",
+    );
   });
 });

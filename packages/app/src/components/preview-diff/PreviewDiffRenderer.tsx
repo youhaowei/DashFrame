@@ -14,6 +14,7 @@
  * renders whatever is present and leaves the slot empty when absent.
  */
 
+import { sanitizeDashboardItemUpdates } from "@dashframe/server/dashboard-item-updates";
 import type {
   ArtifactKind,
   PreviewCompute,
@@ -256,6 +257,7 @@ function comparableBefore(
   before: Record<string, unknown>,
 ): Record<string, unknown> {
   const definition = isRecord(before.definition) ? before.definition : {};
+  // The row-level slice wins so persisted columns override same-named definition keys.
   return { ...definition, ...before };
 }
 
@@ -280,13 +282,47 @@ function valuesMatch(before: unknown, after: unknown): boolean {
   );
 }
 
+function redactSecretRefs(value: unknown): unknown {
+  if (
+    typeof value === "string" &&
+    /^secret:[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(value)
+  ) {
+    return "••••••";
+  }
+  if (Array.isArray(value)) return value.map(redactSecretRefs);
+  if (!isRecord(value)) return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [key, redactSecretRefs(entry)]),
+  );
+}
+
 function formatValue(value: unknown): string {
   if (value === undefined) return "—";
+  const redacted = redactSecretRefs(value);
   const serialized =
-    typeof value === "string"
-      ? value
-      : (JSON.stringify(value) ?? String(value));
+    typeof redacted === "string"
+      ? redacted
+      : (JSON.stringify(redacted) ?? String(redacted));
   return serialized.length > 120 ? `${serialized.slice(0, 120)}…` : serialized;
+}
+
+function dashboardItemUpdateDetails(
+  before: Record<string, unknown>,
+  proposed: Record<string, unknown>,
+): ChangeDetail[] | null {
+  if (typeof proposed.itemId !== "string" || !isRecord(proposed.updates)) {
+    return null;
+  }
+  const layout = comparableBefore(before).layout;
+  if (!Array.isArray(layout)) return null;
+  const item = layout.find(
+    (candidate) => isRecord(candidate) && candidate.id === proposed.itemId,
+  );
+  if (!isRecord(item)) return null;
+
+  return Object.entries(sanitizeDashboardItemUpdates(proposed.updates))
+    .filter(([key, after]) => !valuesMatch(item[key], after))
+    .map(([key, after]) => ({ key, before: item[key], after }));
 }
 
 function nestedUpdateDetails(
@@ -329,9 +365,14 @@ function nestedTargetLabel(
   const kind = collectionKey === "joins" ? "join" : collectionKey.slice(0, -1);
   const target = findNestedTarget(before, collectionKey, targetId);
   if (!target || typeof target.name !== "string") {
+    const targetLabel =
+      typeof targetId === "string" &&
+      /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(targetId)
+        ? `${targetId.slice(0, 8)}…`
+        : targetId;
     return collectionKey === "joins"
       ? `join #${targetId}`
-      : `${kind} ${targetId}`;
+      : `${kind} ${targetLabel}`;
   }
 
   return `${kind} ${target.name}`;
@@ -352,6 +393,8 @@ function getChangeDetails(node: PreviewDirectNode): ChangeDetail[] {
   if (node.before === null || node.change === "noop") return [];
 
   const { before, proposedDefinition: proposed } = node;
+  const dashboardDetails = dashboardItemUpdateDetails(before, proposed);
+  if (dashboardDetails !== null) return dashboardDetails;
   const nestedDetails = [
     ["fields", proposed.fieldId],
     ["metrics", proposed.metricId],
@@ -403,9 +446,19 @@ function getChangeDetails(node: PreviewDirectNode): ChangeDetail[] {
   return Object.entries(proposed)
     .filter(([key]) => !ignoredKeys.has(key))
     .map(([key, after]) => {
+      if (key === "spec") {
+        return {
+          key,
+          before: isRecord(canonical.options)
+            ? canonical.options.spec
+            : undefined,
+          after,
+        };
+      }
       let beforeKey = key;
       if (key === "fieldIds") beforeKey = "selectedFields";
-      return { key, before: canonical[beforeKey], after };
+      else if (key === "visualizationType") beforeKey = "chartType";
+      return { key: beforeKey, before: canonical[beforeKey], after };
     })
     .filter(
       ({ before: beforeValue, after }) => !valuesMatch(beforeValue, after),

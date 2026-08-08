@@ -13,6 +13,7 @@
  * 7. Empty state when no direct nodes and no error.
  */
 
+import { fieldIdToColumnAlias } from "@dashframe/engine";
 import type {
   PreviewCompute,
   PreviewDiff,
@@ -220,13 +221,32 @@ describe("PreviewDiffRenderer", () => {
       ).toBeNull();
     });
 
+    it("renders a resolved join update from its positional index", () => {
+      const node: PreviewDirectNode = {
+        ...insightNode("join-update", "update"),
+        before: { joins: [{ name: "Orders users", type: "inner" }] },
+        proposedDefinition: { joinIndex: 0, updates: { type: "left" } },
+      };
+
+      render(<PreviewDiffRenderer diff={makeDiff([node])} />);
+
+      expect(
+        screen.getByText(
+          (_, element) =>
+            element?.tagName === "LI" &&
+            element.textContent === "type: inner → left",
+        ),
+      ).toBeDefined();
+    });
+
     it("keeps unresolvable merged targets in the ambiguous label", () => {
+      const fieldId = "3c4708a7-a85d-457e-b69d-3226b0a1cfd5";
       const node: PreviewDirectNode = {
         ...dataTableNode("partially-resolved-merged-update"),
-        before: { fields: [{ id: "f1" }] },
+        before: { fields: [{ id: fieldId }] },
         proposedDefinition: {
           nodeId: "partially-resolved-merged-update",
-          fieldId: "f1",
+          fieldId,
           joinIndex: 0,
           updates: { name: "Renamed field" },
         },
@@ -239,7 +259,7 @@ describe("PreviewDiffRenderer", () => {
           (_, element) =>
             element?.tagName === "LI" &&
             element.textContent ===
-              "one of: field f1, join #0 — name: — → Renamed field",
+              "one of: field 3c4708a7…, join #0 — name: — → Renamed field",
         ),
       ).toBeDefined();
       expect(
@@ -270,11 +290,22 @@ describe("PreviewDiffRenderer", () => {
     it("expands dashboard item updates into per-key detail rows", () => {
       const node: PreviewDirectNode = {
         ...dataTableNode("dashboard-item"),
-        before: { items: [] },
+        before: {
+          layout: [
+            {
+              id: "item-1",
+              type: "markdown",
+              x: 1,
+              y: 2,
+              width: 3,
+              height: 2,
+            },
+          ],
+        },
         proposedDefinition: {
           nodeId: "dashboard-item",
           itemId: "item-1",
-          updates: { w: 4, h: 2 },
+          updates: { width: 4, height: 2, unsupported: true },
         },
       };
 
@@ -283,16 +314,40 @@ describe("PreviewDiffRenderer", () => {
       expect(
         screen.getByText(
           (_, element) =>
-            element?.tagName === "LI" && element.textContent === "w: — → 4",
+            element?.tagName === "LI" && element.textContent === "width: 3 → 4",
         ),
       ).toBeDefined();
       expect(
+        screen.queryByText(
+          (_, element) =>
+            element?.tagName === "LI" &&
+            element.textContent === "height: 2 → 2",
+        ),
+      ).toBeNull();
+      expect(screen.queryByText(/unsupported:/)).toBeNull();
+      expect(screen.queryByText(/updates:/)).toBeNull();
+    });
+
+    it("redacts secret references in detail rows", () => {
+      const oldSecretRef = "secret:3c4708a7-a85d-457e-b69d-3226b0a1cfd5";
+      const newSecretRef = "secret:fdd13f3e-b880-4524-a829-6515aeb7ccc7";
+      const node: PreviewDirectNode = {
+        ...dataTableNode("secret-config"),
+        before: { apiKey: oldSecretRef },
+        proposedDefinition: { apiKey: newSecretRef },
+      };
+
+      render(<PreviewDiffRenderer diff={makeDiff([node])} />);
+
+      expect(
         screen.getByText(
           (_, element) =>
-            element?.tagName === "LI" && element.textContent === "h: — → 2",
+            element?.tagName === "LI" &&
+            element.textContent === "apiKey: •••••• → ••••••",
         ),
       ).toBeDefined();
-      expect(screen.queryByText(/updates:/)).toBeNull();
+      expect(screen.queryByText(oldSecretRef)).toBeNull();
+      expect(screen.queryByText(newSecretRef)).toBeNull();
     });
 
     it("expands an unresolvable field update into per-key detail rows", () => {
@@ -337,6 +392,34 @@ describe("PreviewDiffRenderer", () => {
       expect(screen.queryByText(/source:/)).toBeNull();
     });
 
+    it("normalizes chart operands to their stored visualization shape", () => {
+      const node: PreviewDirectNode = {
+        ...dataTableNode("chart-type"),
+        before: { chartType: "barY", options: { spec: { mark: "bar" } } },
+        proposedDefinition: {
+          visualizationType: "line",
+          spec: { mark: "line" },
+        },
+      };
+
+      render(<PreviewDiffRenderer diff={makeDiff([node])} />);
+
+      expect(
+        screen.getByText(
+          (_, element) =>
+            element?.tagName === "LI" &&
+            element.textContent === "chartType: barY → line",
+        ),
+      ).toBeDefined();
+      expect(
+        screen.getByText(
+          (_, element) =>
+            element?.tagName === "LI" &&
+            element.textContent === 'spec: {"mark":"bar"} → {"mark":"line"}',
+        ),
+      ).toBeDefined();
+    });
+
     it("renders changed source objects without comparing them to baseTableId", () => {
       const node: PreviewDirectNode = {
         ...insightNode("changed-source", "update"),
@@ -377,6 +460,21 @@ describe("PreviewDiffRenderer", () => {
       render(<PreviewDiffRenderer diff={makeDiff([node])} />);
 
       expect(screen.queryByText(/filters:/)).toBeNull();
+    });
+
+    it("does not render detail rows for a create node", () => {
+      const node: PreviewDirectNode = {
+        ...insightNode("new-insight", "create"),
+        proposedDefinition: {
+          baseTableId: "table-1",
+          selectedFields: ["field-1"],
+        },
+      };
+
+      render(<PreviewDiffRenderer diff={makeDiff([node])} />);
+
+      expect(screen.queryByText(/baseTableId:/)).toBeNull();
+      expect(screen.queryByText(/selectedFields:/)).toBeNull();
     });
   });
 
@@ -436,22 +534,26 @@ describe("PreviewDiffRenderer", () => {
     });
 
     it("renders head rows when compute is filled with head data", () => {
+      const regionFieldId = "fdd13f3e-b880-4524-a829-6515aeb7ccc7";
+      const revenueFieldId = "3c4708a7-a85d-457e-b69d-3226b0a1cfd5";
+      const regionAlias = fieldIdToColumnAlias(regionFieldId);
+      const revenueAlias = fieldIdToColumnAlias(revenueFieldId);
       const compute: PreviewCompute = {
         rowCountBefore: null,
         rowCountAfter: 3,
         head: [
           {
-            field_fdd13f3e_b880_4524_a829_6515aeb7ccc7: "Alice",
-            field_3c4708a7_a85d_457e_b69d_3226b0a1cfd5: 100,
+            [regionAlias]: "Alice",
+            [revenueAlias]: 100,
           },
           {
-            field_fdd13f3e_b880_4524_a829_6515aeb7ccc7: "Bob",
-            field_3c4708a7_a85d_457e_b69d_3226b0a1cfd5: 200,
+            [regionAlias]: "Bob",
+            [revenueAlias]: 200,
           },
         ],
         columnLabels: {
-          field_fdd13f3e_b880_4524_a829_6515aeb7ccc7: "region",
-          field_3c4708a7_a85d_457e_b69d_3226b0a1cfd5: "Revenue (USD)",
+          [regionAlias]: "region",
+          [revenueAlias]: "Revenue (USD)",
         },
       };
       const diff = makeDiff([insightNode("ins-head", "create", compute)]);
@@ -461,9 +563,7 @@ describe("PreviewDiffRenderer", () => {
       // Column headers.
       expect(screen.getByText("region")).toBeDefined();
       expect(screen.getByText("Revenue (USD)")).toBeDefined();
-      expect(
-        screen.queryByText("field_fdd13f3e_b880_4524_a829_6515aeb7ccc7"),
-      ).toBeNull();
+      expect(screen.queryByText(regionAlias)).toBeNull();
       // Row values.
       expect(screen.getByText("Alice")).toBeDefined();
       expect(screen.getByText("Bob")).toBeDefined();

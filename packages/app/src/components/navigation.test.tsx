@@ -1,6 +1,10 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import React from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const { mockLocation } = vi.hoisted(() => ({
+  mockLocation: { pathname: "/data-sources" },
+}));
 
 vi.mock("@/components/access-credentials/AccessCredentialsDialog", () => ({
   AccessCredentialsDialog: () => null,
@@ -38,7 +42,10 @@ vi.mock("@tanstack/react-router", () => ({
       {children}
     </a>
   ),
-  useLocation: () => "/data-sources",
+  useLocation: ({
+    select,
+  }: { select?: (location: { pathname: string }) => unknown } = {}) =>
+    select ? select(mockLocation) : mockLocation,
   useNavigate: () => vi.fn(),
 }));
 vi.mock("@wystack/ui-react", () => ({
@@ -103,6 +110,10 @@ vi.mock("@wystack/ui-react/icons", () => ({
 import { Navigation } from "./navigation";
 
 describe("Navigation", () => {
+  beforeEach(() => {
+    mockLocation.pathname = "/data-sources";
+  });
+
   it("closes the mobile drawer when the active route is tapped", () => {
     render(<Navigation />);
 
@@ -114,6 +125,18 @@ describe("Navigation", () => {
         name: "Data Sources",
       }),
     );
+    expect(screen.queryByTestId("mobile-drawer")).toBeNull();
+  });
+
+  it("closes the mobile drawer when the pathname changes", () => {
+    const { rerender } = render(<Navigation />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open menu" }));
+    expect(screen.getByTestId("mobile-drawer")).toBeDefined();
+
+    mockLocation.pathname = "/insights";
+    rerender(<Navigation />);
+
     expect(screen.queryByTestId("mobile-drawer")).toBeNull();
   });
 });

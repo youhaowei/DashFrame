@@ -20,6 +20,10 @@
       "bun": "./src/functions.ts",
       "default": "./src/functions.ts"
     },
+    "./dashboard-item-updates": {
+      "bun": "./src/functions/dashboard-item-updates.ts",
+      "default": "./src/functions/dashboard-item-updates.ts"
+    },
     "./assistant-read-host": {
       "bun": "./src/assistant-read-host.ts",
       "default": "./src/assistant-read-host.ts"
