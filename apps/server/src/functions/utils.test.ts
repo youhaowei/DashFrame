@@ -57,12 +57,17 @@ describe("withClassBoundaryMessage", () => {
     ).resolves.toEqual(expect.any(String));
   });
 
-  it("keeps the registry throw as the cause", async () => {
+  // Asserts the translated message on `storeCredential`'s own path, not just
+  // on `withClassBoundaryMessage` in isolation. A change that stopped
+  // `storeCredential` routing through the wrapper would leak the registry's
+  // internal wording to operators while every other test here still passed.
+  it("translates on storeCredential's real path, and keeps the registry throw as the cause", async () => {
     const error = await storeCredential(
       unbackedVault(),
       "pretend-credential",
       "hint",
     ).catch((thrown: unknown) => thrown);
+    expect((error as Error).message).toMatch(/requires the desktop app/);
     expect((error as Error).cause).toBeInstanceOf(Error);
     expect(((error as Error).cause as Error).message).toMatch(
       /No backend configured for class/,

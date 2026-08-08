@@ -211,6 +211,13 @@ export async function storeCredential(
  * registry-internal message naming a class they have never heard of, which
  * reads like a bug rather than the boundary it is.
  *
+ * The message does name a host, deliberately: `serve` is the only composition
+ * that leaves a class unbacked, so naming it buys the operator an actionable
+ * direction ("use the desktop app") that a host-agnostic wording would lose.
+ * Desktop registers a backend for all three classes (apps/desktop/src/main.ts's
+ * secret-services setup), so this branch is unreachable there. If a host ever
+ * ships with a partial registry, this message has to stop naming `serve`.
+ *
  * Matched on the registry's message text because it does not export a typed
  * error; the fallback re-throws untouched, so a miss degrades to today's
  * behavior rather than swallowing an unrelated failure.
