@@ -1,9 +1,11 @@
 import {
   type ReactNode,
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -35,11 +37,21 @@ interface ArtifactContextStore {
   /** The artifact the assistant is bound to, or null when none is focused. */
   artifact: ArtifactContextValue | null;
   /**
-   * Bind the assistant to an artifact. Center surfaces call this on mount/focus
-   * and clear it (`set(null)`) on unmount so the binding always reflects what
-   * the user is actually looking at.
+   * Bind the assistant to an artifact on behalf of `owner`.
+   *
+   * `claim` marks a surface's *first* registration, which is the only moment
+   * ownership legitimately transfers. Later calls are updates: they apply only
+   * while `owner` still holds the binding, so an outgoing surface whose data
+   * resolves after the incoming one mounted cannot take the slot back and then
+   * clear it on unmount.
    */
-  setArtifact: (artifact: ArtifactContextValue | null) => void;
+  setArtifact: (
+    artifact: ArtifactContextValue | null,
+    owner: symbol,
+    claim: boolean,
+  ) => void;
+  /** Clear the binding only while `owner` still holds it. */
+  releaseArtifact: (owner: symbol) => void;
 }
 
 const ArtifactContext = createContext<ArtifactContextStore | null>(null);
@@ -50,10 +62,29 @@ const ArtifactContext = createContext<ArtifactContextStore | null>(null);
  * region) share one source of truth for "what is the assistant acting on".
  */
 export function ArtifactContextProvider({ children }: { children: ReactNode }) {
-  const [artifact, setArtifact] = useState<ArtifactContextValue | null>(null);
+  const [binding, setBinding] = useState<{
+    artifact: ArtifactContextValue | null;
+    owner: symbol;
+  } | null>(null);
+
+  const setArtifact = useCallback(
+    (artifact: ArtifactContextValue | null, owner: symbol, claim: boolean) => {
+      setBinding((current) => {
+        if (!claim && current && current.owner !== owner) return current;
+        return { artifact, owner };
+      });
+    },
+    [],
+  );
+
+  const releaseArtifact = useCallback((owner: symbol) => {
+    setBinding((current) => (current?.owner === owner ? null : current));
+  }, []);
+
+  const artifact = binding?.artifact ?? null;
   const value = useMemo<ArtifactContextStore>(
-    () => ({ artifact, setArtifact }),
-    [artifact],
+    () => ({ artifact, setArtifact, releaseArtifact }),
+    [artifact, setArtifact, releaseArtifact],
   );
   return (
     <ArtifactContext.Provider value={value}>
@@ -79,18 +110,41 @@ export function useArtifactContext(): ArtifactContextValue | null {
  * useBindArtifact({ kind: "insight", id, title: insight.name });
  */
 export function useBindArtifact(artifact: ArtifactContextValue | null): void {
-  const set = useContext(ArtifactContext)?.setArtifact;
-  // Serialize the binding so the effect re-runs only on a real change, not on
-  // every render that produces a fresh object literal.
-  const key = artifact
-    ? `${artifact.kind}:${artifact.id}:${artifact.title}:${artifact.subtitle ?? ""}`
-    : "";
+  const store = useContext(ArtifactContext);
+  const setArtifact = store?.setArtifact;
+  const releaseArtifact = store?.releaseArtifact;
+  // One identity for this component's whole lifetime, so an update can be told
+  // apart from a new surface taking over.
+  const [owner] = useState(() => Symbol("artifact-context-binding"));
+  const kind = artifact?.kind;
+  const id = artifact?.id;
+  const title = artifact?.title;
+  const subtitle = artifact?.subtitle;
+  // Each artifact field is a separate dependency, avoiding delimiter aliases
+  // while still ignoring fresh object literals with unchanged contents.
+  const binding = useMemo(
+    () =>
+      kind && id !== undefined && title !== undefined
+        ? { kind, id, title, ...(subtitle === undefined ? {} : { subtitle }) }
+        : null,
+    [id, kind, subtitle, title],
+  );
+
+  // Written and read only inside effects — the first run claims the binding,
+  // every later run is an update that must not reclaim a superseded slot.
+  const hasClaimedRef = useRef(false);
+
+  // Updates carry no cleanup — releasing here would blank the binding for a
+  // frame on every artifact change.
   useEffect(() => {
-    if (!set) return;
-    set(artifact);
-    return () => set(null);
-    // `key` captures every field of `artifact`; depending on the object would
-    // thrash on each render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [set, key]);
+    if (!setArtifact) return;
+    setArtifact(binding, owner, !hasClaimedRef.current);
+    hasClaimedRef.current = true;
+  }, [binding, owner, setArtifact]);
+
+  // Release happens only on unmount, and only while this owner still holds it.
+  useEffect(() => {
+    if (!releaseArtifact) return;
+    return () => releaseArtifact(owner);
+  }, [owner, releaseArtifact]);
 }
