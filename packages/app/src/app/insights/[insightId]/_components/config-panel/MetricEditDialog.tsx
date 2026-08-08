@@ -4,6 +4,8 @@ import type {
   InsightMetric,
 } from "@dashframe/types";
 import {
+  Alert,
+  AlertDescription,
   Button,
   Dialog,
   DialogContent,
@@ -20,12 +22,17 @@ import {
   SelectValue,
 } from "@wystack/ui-react";
 import { useMemo, useState } from "react";
+import {
+  metricColumnNameForSave,
+  metricFormulaPreview,
+} from "./metric-formula";
+import { useSaveDismissGuard, useSavingFlag } from "./use-save-dismiss-guard";
 
 interface MetricEditDialogProps {
   metric: InsightMetric | null;
   dataTable: DataTable;
   onOpenChange: (open: boolean) => void;
-  onSave: (metric: InsightMetric) => void;
+  onSave: (metric: InsightMetric) => Promise<void> | void;
 }
 
 /**
@@ -37,17 +44,21 @@ function MetricEditForm({
   dataTable,
   onSave,
   onClose,
+  onPendingChange,
 }: {
   metric: InsightMetric;
   dataTable: DataTable;
-  onSave: (metric: InsightMetric) => void;
+  onSave: (metric: InsightMetric) => Promise<void> | void;
   onClose: () => void;
+  onPendingChange: (pending: boolean) => void;
 }) {
   const [name, setName] = useState(metric.name);
   const [aggregation, setAggregation] = useState<AggregationType>(
     metric.aggregation,
   );
   const [columnName, setColumnName] = useState<string>(metric.columnName ?? "");
+  const [error, setError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useSavingFlag(onPendingChange);
 
   // Get available fields (exclude internal _ prefixed)
   const availableFields = useMemo(
@@ -69,34 +80,27 @@ function MetricEditForm({
     [availableFields],
   );
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!name.trim()) return;
 
     const updatedMetric: InsightMetric = {
       ...metric,
       name: name.trim(),
-      columnName:
-        aggregation === "count" && !columnName
-          ? undefined
-          : columnName || undefined,
+      columnName: metricColumnNameForSave(aggregation, columnName),
       aggregation,
     };
 
-    onSave(updatedMetric);
-    onClose();
-  };
-
-  // Generate formula preview
-  const getFormulaPreview = () => {
-    if (aggregation === "count" && !columnName) {
-      return "count(*)";
+    setError(null);
+    setIsSaving(true);
+    try {
+      await onSave(updatedMetric);
+      onClose();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      setError(`Failed to save metric: ${message}`);
+    } finally {
+      setIsSaving(false);
     }
-
-    if (!columnName) {
-      return `${aggregation}(?)`;
-    }
-
-    return `${aggregation}(${columnName})`;
   };
 
   // Check if field selection is required (not required for basic count)
@@ -108,11 +112,15 @@ function MetricEditForm({
       ? numericFields
       : availableFields;
 
-  // Check if anything changed
+  // Compare against what a save would actually write, not the raw field. A
+  // metric stored as `count` with a column predates the column being dropped
+  // for "Count (rows)"; saving repairs it, so the dialog must read as dirty on
+  // open and let the user commit the repair without inventing another edit.
   const hasChanges =
     name.trim() !== metric.name ||
     aggregation !== metric.aggregation ||
-    (columnName || undefined) !== (metric.columnName || undefined);
+    metricColumnNameForSave(aggregation, columnName) !==
+      (metric.columnName || undefined);
 
   return (
     <>
@@ -124,6 +132,12 @@ function MetricEditForm({
       </DialogHeader>
 
       <div className="space-y-4 py-4">
+        {error && (
+          <Alert color="danger">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
         {/* Aggregation Type */}
         <div className="space-y-2">
           <Label htmlFor="edit-aggregation">Aggregation type</Label>
@@ -198,17 +212,28 @@ function MetricEditForm({
             Formula preview
           </p>
           <code className="font-mono text-sm text-neutral-fg">
-            {getFormulaPreview()}
+            {metricFormulaPreview(aggregation, columnName)}
           </code>
         </div>
       </div>
 
       <DialogFooter>
-        <Button label="Cancel" variant="outline" onClick={onClose} />
         <Button
-          label="Save"
+          label="Cancel"
+          variant="outline"
+          onClick={onClose}
+          disabled={isSaving}
+        />
+        <Button
+          label={isSaving ? "Saving..." : "Save"}
           onClick={handleSave}
-          disabled={!name.trim() || (needsField && !columnName) || !hasChanges}
+          disabled={
+            isSaving ||
+            !name.trim() ||
+            (needsField && !columnName) ||
+            !hasChanges
+          }
+          loading={isSaving}
         />
       </DialogFooter>
     </>
@@ -232,6 +257,16 @@ export function MetricEditDialog({
   onOpenChange,
   onSave,
 }: MetricEditDialogProps) {
+  const { setPending, isPending } = useSaveDismissGuard();
+
+  // Escape and outside-click reach the shell directly, bypassing the disabled
+  // Cancel button. Dismissing a pending save lets a second editor open, and the
+  // first save's completion would then close it and discard that edit.
+  const handleDismiss = () => {
+    if (isPending()) return;
+    handleClose();
+  };
+
   const handleClose = () => {
     onOpenChange(false);
   };
@@ -239,7 +274,7 @@ export function MetricEditDialog({
   const isOpen = metric !== null;
 
   return (
-    <Dialog open={isOpen} onOpenChange={handleClose}>
+    <Dialog open={isOpen} onOpenChange={handleDismiss}>
       <DialogContent className="sm:max-w-md">
         {metric && (
           <MetricEditForm
@@ -248,6 +283,7 @@ export function MetricEditDialog({
             dataTable={dataTable}
             onSave={onSave}
             onClose={handleClose}
+            onPendingChange={setPending}
           />
         )}
       </DialogContent>

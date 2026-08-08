@@ -18,19 +18,19 @@ import type { FilterWithId } from "./FiltersSection";
  */
 
 describe("deriveFilterId", () => {
-  it("uses the persisted id when present", () => {
+  it("uses the persisted id", () => {
     const f: InsightFilter = {
       id: "uuid-1",
       field: "amount",
       operator: "eq",
       value: 1,
     };
-    expect(deriveFilterId(f, 3)).toBe("uuid-1");
+    expect(deriveFilterId(f)).toBe("uuid-1");
   });
 
-  it("falls back to a content+index key when id is absent", () => {
+  it("rejects a filter without a persisted id", () => {
     const f: InsightFilter = { field: "amount", operator: "eq", value: 1 };
-    expect(deriveFilterId(f, 2)).toBe("amount-eq-2");
+    expect(() => deriveFilterId(f)).toThrow("missing its persisted id");
   });
 });
 
@@ -81,23 +81,28 @@ describe("applyFilterSave with a stable persisted id", () => {
     expect(result[1]._id).toBe("uuid-new");
   });
 
-  it("with index-based fallback ids, a reorder would misroute (regression guard)", () => {
-    // This documents WHY persisted ids matter: without them, the same reorder
-    // scenario fails to find the edited filter and appends a duplicate.
-    const original: InsightFilter[] = [
+  it("keeps an API-created filter idempotent after reorder", () => {
+    // The API receives id-less filters from an agent, stamps persisted ids, and
+    // the UI then derives `_id` solely from that stored identity.
+    const receivedByApi: InsightFilter[] = [
       { field: "region", operator: "eq", value: "north" },
       { field: "amount", operator: "gt", value: 100 },
     ];
-    const beforeEdit = withFilterIds(original); // ids: region-eq-0, amount-gt-1
-    const openedForEdit = beforeEdit[1]; // amount-gt-1
+    const persisted: InsightFilter[] = [
+      { ...receivedByApi[0], id: "api-region" },
+      { ...receivedByApi[1], id: "api-amount" },
+    ];
+    const beforeEdit = withFilterIds(persisted);
+    const openedForEdit = beforeEdit[1];
 
-    // Reorder to [amount, region] → amount is now index 0 → id amount-gt-0.
-    const reordered = withFilterIds([original[1], original[0]]);
+    const reordered = withFilterIds([persisted[1], persisted[0]]);
     const saved: FilterWithId = { ...openedForEdit, value: 200 };
     const result = applyFilterSave(reordered, saved);
 
-    // The stale id "amount-gt-1" no longer matches → duplicate appended.
-    expect(result).toHaveLength(3);
+    expect(result).toHaveLength(2);
+    expect(result.filter((filter) => filter.id === "api-amount")).toEqual([
+      expect.objectContaining({ value: 200 }),
+    ]);
   });
 });
 
@@ -130,29 +135,25 @@ describe("prepareFilterForSave — distinct id per Add (data-loss guard)", () =>
     expect(reStamped._id).toBe("uuid-existing");
   });
 
-  it("edits an id-less (API-created) filter in place — backfills id, keeps _id", () => {
-    // Regression: an existing filter with no persisted `id` (its `_id` is the
-    // content+index fallback) must NOT have its `_id` overwritten on save, or
-    // applyFilterSave would fail to match and APPEND A DUPLICATE instead of
-    // updating. The persisted `id` is backfilled, but `_id` is preserved.
+  it("keeps an existing filter's stable id while editing", () => {
     const list = withFilterIds([
-      { field: "region", operator: "eq", value: "north" }, // no id → _id "region-eq-0"
+      { id: "uuid-region", field: "region", operator: "eq", value: "north" },
     ]);
     const openedForEdit = list[0];
-    expect(openedForEdit.id).toBeUndefined();
-    expect(openedForEdit._id).toBe("region-eq-0");
+    expect(openedForEdit.id).toBe("uuid-region");
+    expect(openedForEdit._id).toBe("uuid-region");
 
     const saved = prepareFilterForSave(
       { ...openedForEdit, value: "south" },
-      () => "uuid-backfilled",
+      () => "uuid-SHOULD-NOT-USE",
     );
-    expect(saved._id).toBe("region-eq-0"); // preserved for matching
-    expect(saved.id).toBe("uuid-backfilled"); // backfilled
+    expect(saved._id).toBe("uuid-region");
+    expect(saved.id).toBe("uuid-region");
 
     const result = applyFilterSave(list, saved);
     expect(result).toHaveLength(1); // updated in place, NOT duplicated
     expect(result[0].value).toBe("south");
-    expect(result[0].id).toBe("uuid-backfilled");
+    expect(result[0].id).toBe("uuid-region");
   });
 
   it("two consecutive Adds yield distinct ids — second does NOT overwrite first", () => {
@@ -186,5 +187,96 @@ describe("prepareFilterForSave — distinct id per Add (data-loss guard)", () =>
     expect(list.map((f) => f.id).sort()).toEqual(["uuid-A", "uuid-B"]);
     expect(list.find((f) => f.id === "uuid-A")?.value).toBe(1);
     expect(list.find((f) => f.id === "uuid-B")?.value).toBe("north");
+  });
+
+  it("keeps a legacy id-less filter's identity stable across a refetch", () => {
+    // Rows stored before filters carried persisted ids. Hydration runs again on
+    // every subscription update, so an identity minted per hydration would
+    // differ between the list the dialog opened from and the list its save
+    // merges into, and the save would append a duplicate instead of updating.
+    const stored = [{ field: "amount", operator: "eq" as const, value: 1 }];
+
+    const opened = withFilterIds(stored)[0]!;
+    const afterRefetch = withFilterIds(stored);
+
+    const saved = prepareFilterForSave({ ...opened, value: 2 });
+    const merged = applyFilterSave(afterRefetch, saved);
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0]!.value).toBe(2);
+    // The derived identity is promoted to the persisted id, so the next write
+    // stores it and the row stops being legacy.
+    expect(merged[0]!.id).toBe(opened._id);
+  });
+
+  it("gives byte-identical legacy predicates distinct identities", () => {
+    // Two rows can hold the same field/operator/value and still be separate
+    // entries. A purely content-derived identity would collapse them, and both
+    // `applyFilterSave` (map) and the panel's remove (filter) act on EVERY
+    // `_id` match — so editing one would edit both, and removing one would
+    // remove both. React would also see duplicate keys.
+    const same = { field: "amount", operator: "eq" as const, value: 1 };
+    const hydrated = withFilterIds([same, same]);
+
+    expect(hydrated).toHaveLength(2);
+    expect(hydrated[0]!._id).not.toBe(hydrated[1]!._id);
+
+    // Editing the first must leave the second alone.
+    const edited = applyFilterSave(
+      hydrated,
+      prepareFilterForSave({ ...hydrated[0]!, value: 2 }),
+    );
+    expect(edited).toHaveLength(2);
+    expect(edited[0]!.value).toBe(2);
+    expect(edited[1]!.value).toBe(1);
+
+    // Removing the second — the panel's `_id` filter — must leave the first.
+    const removed = hydrated.filter((f) => f._id !== hydrated[1]!._id);
+    expect(removed).toHaveLength(1);
+    expect(removed[0]!._id).toBe(hydrated[0]!._id);
+
+    // And the occurrence suffix is stable across a refetch, so a save opened
+    // from one hydration still merges into the next.
+    expect(withFilterIds([same, same]).map((f) => f._id)).toEqual(
+      hydrated.map((f) => f._id),
+    );
+  });
+
+  it("treats an empty stored id as absent rather than throwing", () => {
+    // `""` is not nullish, so it slips past a `??` fallback and then fails the
+    // emptiness check in `deriveFilterId` — a throw during render. The server
+    // rejects such values on write but cannot repair an already-stored row.
+    const stored = [
+      { id: "", field: "amount", operator: "eq" as const, value: 1 },
+    ];
+
+    const hydrated = withFilterIds(stored);
+    expect(hydrated).toHaveLength(1);
+    expect(hydrated[0]!._id).toBeTruthy();
+    expect(hydrated[0]!.id).toBe(hydrated[0]!._id);
+
+    // Saving promotes the derived identity, so the row stops being broken.
+    const saved = prepareFilterForSave({ ...hydrated[0]!, value: 2 });
+    expect(saved.id).toBe(hydrated[0]!._id);
+    expect(applyFilterSave(hydrated, saved)).toHaveLength(1);
+  });
+
+  it("keeps legacy identities stable when the stored order changes", () => {
+    // A concurrent update can reorder the array. Identity must follow the
+    // predicate, not its index, or the edit misroutes to its neighbour.
+    const a = { field: "amount", operator: "eq" as const, value: 1 };
+    const b = { field: "region", operator: "eq" as const, value: "north" };
+
+    const opened = withFilterIds([a, b])[0]!;
+    const reordered = withFilterIds([b, a]);
+
+    const merged = applyFilterSave(
+      reordered,
+      prepareFilterForSave({ ...opened, value: 2 }),
+    );
+
+    expect(merged).toHaveLength(2);
+    expect(merged.find((f) => f.field === "amount")?.value).toBe(2);
+    expect(merged.find((f) => f.field === "region")?.value).toBe("north");
   });
 });

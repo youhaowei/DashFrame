@@ -1,5 +1,12 @@
-import type { DataTable, InsightMetric, UUID } from "@dashframe/types";
+import type {
+  AggregationType,
+  DataTable,
+  InsightMetric,
+  UUID,
+} from "@dashframe/types";
 import {
+  Alert,
+  AlertDescription,
   Button,
   Dialog,
   DialogContent,
@@ -16,20 +23,17 @@ import {
   SelectValue,
 } from "@wystack/ui-react";
 import { useMemo, useState } from "react";
-
-type AggregationType =
-  | "sum"
-  | "avg"
-  | "count"
-  | "min"
-  | "max"
-  | "count_distinct";
+import {
+  metricColumnNameForSave,
+  metricFormulaPreview,
+} from "./metric-formula";
+import { useSaveDismissGuard, useSavingFlag } from "./use-save-dismiss-guard";
 
 interface InsightMetricEditorModalProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
   dataTable: DataTable;
-  onSave: (metric: InsightMetric) => void;
+  onSave: (metric: InsightMetric) => Promise<void> | void;
 }
 
 /**
@@ -41,14 +45,18 @@ function InsightMetricForm({
   dataTable,
   onSave,
   onClose,
+  onPendingChange,
 }: {
   dataTable: DataTable;
-  onSave: (metric: InsightMetric) => void;
+  onSave: (metric: InsightMetric) => Promise<void> | void;
   onClose: () => void;
+  onPendingChange: (pending: boolean) => void;
 }) {
   const [customName, setCustomName] = useState<string | null>(null);
   const [aggregation, setAggregation] = useState<AggregationType>("count");
   const [columnName, setColumnName] = useState<string>("");
+  const [error, setError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useSavingFlag(onPendingChange);
 
   // Get available fields (exclude internal _ prefixed)
   const availableFields = useMemo(
@@ -98,7 +106,7 @@ function InsightMetricForm({
   const name = customName ?? autoGenerateName();
   const setName = (next: string) => setCustomName(next);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!name.trim()) return;
 
     // Generate unique ID
@@ -108,25 +116,21 @@ function InsightMetricForm({
       id,
       name: name.trim(),
       sourceTable: dataTable.id,
-      columnName: aggregation === "count" ? undefined : columnName || undefined,
+      columnName: metricColumnNameForSave(aggregation, columnName),
       aggregation,
     };
 
-    onSave(metric);
-    onClose();
-  };
-
-  // Generate formula preview
-  const getFormulaPreview = () => {
-    if (aggregation === "count" && !columnName) {
-      return "count(*)";
+    setError(null);
+    setIsSaving(true);
+    try {
+      await onSave(metric);
+      onClose();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      setError(`Failed to save metric: ${message}`);
+    } finally {
+      setIsSaving(false);
     }
-
-    if (!columnName) {
-      return `${aggregation}(?)`;
-    }
-
-    return `${aggregation}(${columnName})`;
   };
 
   // Check if field selection is required
@@ -148,12 +152,25 @@ function InsightMetricForm({
       </DialogHeader>
 
       <div className="space-y-4 py-4">
+        {error && (
+          <Alert color="danger">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
         {/* Aggregation Type */}
         <div className="space-y-2">
           <Label htmlFor="aggregation">Aggregation type</Label>
           <Select
             value={aggregation}
-            onValueChange={(v) => setAggregation(v as AggregationType)}
+            onValueChange={(v) => {
+              const next = v as AggregationType;
+              setAggregation(next);
+              // The field picker is hidden for "Count (rows)"; leaving a
+              // previously chosen column in state would make it unreachable
+              // but still live.
+              if (next === "count") setColumnName("");
+            }}
           >
             <SelectTrigger id="aggregation">
               <SelectValue />
@@ -216,17 +233,23 @@ function InsightMetricForm({
             Formula preview
           </p>
           <code className="font-mono text-sm text-neutral-fg">
-            {getFormulaPreview()}
+            {metricFormulaPreview(aggregation, columnName)}
           </code>
         </div>
       </div>
 
       <DialogFooter>
-        <Button label="Cancel" variant="outline" onClick={onClose} />
         <Button
-          label="Add metric"
+          label="Cancel"
+          variant="outline"
+          onClick={onClose}
+          disabled={isSaving}
+        />
+        <Button
+          label={isSaving ? "Adding metric..." : "Add metric"}
           onClick={handleSave}
-          disabled={!name.trim() || (needsField && !columnName)}
+          disabled={isSaving || !name.trim() || (needsField && !columnName)}
+          loading={isSaving}
         />
       </DialogFooter>
     </>
@@ -252,7 +275,12 @@ export function InsightMetricEditorModal({
 }: InsightMetricEditorModalProps) {
   const [sessionKey, setSessionKey] = useState(0);
 
+  const { setPending, isPending } = useSaveDismissGuard();
+
   const handleOpenChange = (open: boolean) => {
+    // A dismissal while a save is pending would let a second editor open and
+    // then be closed by the first save's completion.
+    if (!open && isPending()) return;
     if (open) {
       // Bump key so the inner form remounts fresh on each open.
       setSessionKey((k) => k + 1);
@@ -271,6 +299,7 @@ export function InsightMetricEditorModal({
             dataTable={dataTable}
             onSave={onSave}
             onClose={handleClose}
+            onPendingChange={setPending}
           />
         )}
       </DialogContent>

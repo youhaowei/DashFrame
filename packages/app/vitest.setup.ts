@@ -27,6 +27,20 @@ class MemoryStorage implements Storage {
   }
 }
 
+/**
+ * jsdom implements neither the Pointer Capture API nor `scrollIntoView`, and
+ * Radix's `Select` calls both while opening its listbox. Without them a test
+ * cannot drive any Radix dropdown at all — the trigger throws before the
+ * content mounts. These are no-op shims, not behaviour: they only let the
+ * component reach the state a user would see.
+ */
+if (typeof Element !== "undefined") {
+  Element.prototype.hasPointerCapture ??= () => false;
+  Element.prototype.setPointerCapture ??= () => undefined;
+  Element.prototype.releasePointerCapture ??= () => undefined;
+  Element.prototype.scrollIntoView ??= () => undefined;
+}
+
 const memory = new MemoryStorage();
 Object.defineProperty(globalThis, "localStorage", {
   value: memory,

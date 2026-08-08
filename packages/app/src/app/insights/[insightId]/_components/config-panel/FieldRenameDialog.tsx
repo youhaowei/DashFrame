@@ -1,5 +1,7 @@
 import type { CombinedField } from "@/lib/insights/compute-combined-fields";
 import {
+  Alert,
+  AlertDescription,
   Button,
   Dialog,
   DialogContent,
@@ -11,12 +13,13 @@ import {
   Label,
 } from "@wystack/ui-react";
 import { useState } from "react";
+import { useSaveDismissGuard, useSavingFlag } from "./use-save-dismiss-guard";
 
 interface FieldRenameDialogProps {
   field: CombinedField | null;
   tableName?: string;
   onOpenChange: (open: boolean) => void;
-  onSave: (field: CombinedField, newName: string) => void;
+  onSave: (field: CombinedField, newName: string) => Promise<void> | void;
 }
 
 /**
@@ -28,19 +31,32 @@ function FieldRenameForm({
   tableName,
   onSave,
   onClose,
+  onPendingChange,
 }: {
   field: CombinedField;
   tableName?: string;
-  onSave: (field: CombinedField, newName: string) => void;
+  onSave: (field: CombinedField, newName: string) => Promise<void> | void;
   onClose: () => void;
+  onPendingChange: (pending: boolean) => void;
 }) {
   const [name, setName] = useState(field.name);
+  const [error, setError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useSavingFlag(onPendingChange);
   const columnName = field.columnName ?? field.name;
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!name.trim()) return;
-    onSave(field, name.trim());
-    onClose();
+    setError(null);
+    setIsSaving(true);
+    try {
+      await onSave(field, name.trim());
+      onClose();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      setError(`Failed to rename field: ${message}`);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -61,6 +77,12 @@ function FieldRenameForm({
       </DialogHeader>
 
       <div className="space-y-4 py-4">
+        {error && (
+          <Alert color="danger">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
         {/* Source info (read-only) */}
         <div className="space-y-2 rounded-lg bg-neutral-bg-muted px-3 py-3">
           {tableName && (
@@ -98,11 +120,17 @@ function FieldRenameForm({
       </div>
 
       <DialogFooter>
-        <Button label="Cancel" variant="outline" onClick={onClose} />
         <Button
-          label="Save"
+          label="Cancel"
+          variant="outline"
+          onClick={onClose}
+          disabled={isSaving}
+        />
+        <Button
+          label={isSaving ? "Saving..." : "Save"}
           onClick={handleSave}
-          disabled={!name.trim() || name.trim() === field.name}
+          disabled={isSaving || !name.trim() || name.trim() === field.name}
+          loading={isSaving}
         />
       </DialogFooter>
     </>
@@ -124,6 +152,16 @@ export function FieldRenameDialog({
   onOpenChange,
   onSave,
 }: FieldRenameDialogProps) {
+  const { setPending, isPending } = useSaveDismissGuard();
+
+  // Escape and outside-click reach the shell directly, bypassing the disabled
+  // Cancel button. Dismissing a pending save lets a second editor open, and the
+  // first save's completion would then close it and discard that edit.
+  const handleDismiss = () => {
+    if (isPending()) return;
+    handleClose();
+  };
+
   const handleClose = () => {
     onOpenChange(false);
   };
@@ -131,7 +169,7 @@ export function FieldRenameDialog({
   const isOpen = field !== null;
 
   return (
-    <Dialog open={isOpen} onOpenChange={handleClose}>
+    <Dialog open={isOpen} onOpenChange={handleDismiss}>
       <DialogContent className="sm:max-w-md">
         {field && (
           <FieldRenameForm
@@ -140,6 +178,7 @@ export function FieldRenameDialog({
             tableName={tableName}
             onSave={onSave}
             onClose={handleClose}
+            onPendingChange={setPending}
           />
         )}
       </DialogContent>
