@@ -33,23 +33,53 @@ export interface UseDataFrameDataResult {
   reload: () => void;
 }
 
-/**
- * Infer column type from values
- */
+const DATE_PREFIX = /^(\d{4})-(\d{2})-(\d{2})/;
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const ISO_TIMESTAMP_PREFIX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
+
+function isDateString(value: string): boolean {
+  if (!ISO_DATE.test(value) && !ISO_TIMESTAMP_PREFIX.test(value)) return false;
+  if (Number.isNaN(Date.parse(value))) return false;
+
+  const dateParts = DATE_PREFIX.exec(value);
+  if (!dateParts) return false;
+
+  const year = Number(dateParts[1]);
+  const month = Number(dateParts[2]);
+  const day = Number(dateParts[3]);
+  const calendarDate = new Date(Date.UTC(year, month - 1, day));
+  return (
+    calendarDate.getUTCFullYear() === year &&
+    calendarDate.getUTCMonth() === month - 1 &&
+    calendarDate.getUTCDate() === day
+  );
+}
+
+function inferValueType(value: unknown): ColumnType {
+  if (typeof value === "number") return "number";
+  if (typeof value === "boolean") return "boolean";
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return "date";
+  if (typeof value === "string" && isDateString(value)) return "date";
+  return "string";
+}
+
+function widenColumnType(
+  current: ColumnType,
+  candidate: ColumnType,
+): ColumnType {
+  if (current === "unknown" || current === candidate) return candidate;
+  return "string";
+}
+
+/** Infer a column type from every non-null value in the returned data sample. */
 function inferColumnType(values: unknown[]): ColumnType {
+  let type: ColumnType = "unknown";
   for (const value of values) {
     if (value === null || value === undefined) continue;
-    if (typeof value === "number") return "number";
-    if (typeof value === "boolean") return "boolean";
-    if (value instanceof Date) return "date";
-    if (typeof value === "string") {
-      // Check if it looks like a date
-      const date = Date.parse(value);
-      if (!Number.isNaN(date) && value.includes("-")) return "date";
-    }
-    return "string";
+    type = widenColumnType(type, inferValueType(value));
+    if (type === "string") return type;
   }
-  return "unknown";
+  return type;
 }
 
 /**

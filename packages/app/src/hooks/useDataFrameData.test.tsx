@@ -501,8 +501,11 @@ describe("useDataFrameData", () => {
   });
 
   describe("column type inference", () => {
-    it("should infer 'number' type from numeric values", async () => {
-      const mockRows = [{ score: 95 }, { score: 87.5 }, { score: 100 }];
+    it("keeps epoch-millisecond values as numbers", async () => {
+      const mockRows = [
+        { timestamp: 1705536000000 },
+        { timestamp: 1705622400000 },
+      ];
 
       const mockDataFrame = createMockDataFrame(mockRows);
       mockGetDataFrame.mockResolvedValue(mockDataFrame);
@@ -512,7 +515,7 @@ describe("useDataFrameData", () => {
 
       await waitFor(() => {
         expect(result.current.data?.columns).toEqual([
-          { name: "score", type: "number" },
+          { name: "timestamp", type: "number" },
         ]);
       });
     });
@@ -568,10 +571,42 @@ describe("useDataFrameData", () => {
       });
     });
 
-    it("should infer 'date' type from ISO date strings", async () => {
+    it("requires a complete ISO date shape for date strings", async () => {
+      const mockRows = [{ period: "2024-01" }, { period: "2024-02" }];
+
+      const mockDataFrame = createMockDataFrame(mockRows);
+      mockGetDataFrame.mockResolvedValue(mockDataFrame);
+      mockQuery.mockResolvedValue(createMockQueryResult(mockRows));
+
+      const { result } = renderHook(() => useDataFrameData("df-period"));
+
+      await waitFor(() => {
+        expect(result.current.data?.columns).toEqual([
+          { name: "period", type: "string" },
+        ]);
+      });
+    });
+
+    it("widens a date-like first value to text when later values disagree", async () => {
+      const mockRows = [{ sku: "2024-01" }, { sku: "SKU-A" }, { sku: "SKU-B" }];
+
+      const mockDataFrame = createMockDataFrame(mockRows);
+      mockGetDataFrame.mockResolvedValue(mockDataFrame);
+      mockQuery.mockResolvedValue(createMockQueryResult(mockRows));
+
+      const { result } = renderHook(() => useDataFrameData("df-mixed-text"));
+
+      await waitFor(() => {
+        expect(result.current.data?.columns).toEqual([
+          { name: "sku", type: "string" },
+        ]);
+      });
+    });
+
+    it("should infer 'date' type from complete ISO date strings", async () => {
       const mockRows = [
-        { timestamp: "2024-01-01T10:00:00Z" },
-        { timestamp: "2024-01-02T15:30:00Z" },
+        { timestamp: "2024-01-01" },
+        { timestamp: "2024-01-02" },
       ];
 
       const mockDataFrame = createMockDataFrame(mockRows);
