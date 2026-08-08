@@ -164,12 +164,19 @@ cd "$worktree"
 `scripts/ensure-worktree.sh` creates `~/worktrees/dashframe/<branch-slug>`
 (forward-slashes and colons in the branch name become dashes, lowercase) if not
 already there, populates and heals submodule checkouts, runs `bun install`, and
-prints the path — the path it prints is ready to work in, with no separate
+prints the path — a newly created worktree is ready to work in, with no separate
 install step. (`git worktree add` copies tracked files only, so without that a
 fresh worktree has no `node_modules` at all: no Electron binary, no vitest, and
 no resolvable `@wystack/*` imports.) You still need `bun run build:wystack`
-before the `@wystack/*` **built** output exists. If
-it fails, STOP — do not improvise another location.
+before the `@wystack/*` **built** output exists.
+
+On an **existing** worktree the install is a best-effort refresh, not a
+guarantee: it runs unfrozen, and a failure warns and still prints the path,
+because you may have edited a manifest without regenerating the lockfile and
+withholding the path would strand the work already in that tree. Read the
+warning — dependencies there may be stale.
+
+If it fails, STOP — do not improvise another location.
 
 **Enforcement:** `.husky/pre-commit` blocks commits on a non-default branch in
 the main checkout. Bypass with `ALLOW_MAIN_CHECKOUT_COMMIT=1` only when you

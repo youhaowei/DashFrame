@@ -102,7 +102,7 @@ init_unpopulated_submodules() {
   done
 }
 
-# install_dependencies <worktree_path>
+# install_dependencies <worktree_path> <mode: create|reuse>
 # A fresh worktree has no node_modules at all: `git worktree add` copies
 # tracked files only, and nothing else in this script installs. Every agent
 # that then tries to run the app or the test suite hits a different symptom of
@@ -112,10 +112,24 @@ init_unpopulated_submodules() {
 # in", which is what every caller already assumes it means.
 #
 # Idempotent and near-free when the worktree is already installed, so this
-# also heals the reuse path. A failure is fatal: handing back a path whose
-# dependencies are missing is the exact situation this exists to prevent.
+# also heals the reuse path.
+#
+# The two modes differ because the cost of refusing differs. On `create` the
+# worktree is a fresh checkout of a committed tree, so the lockfile matches by
+# construction: `--frozen-lockfile` costs nothing, catches a genuinely broken
+# lockfile, and guarantees provisioning never leaves `bun.lock` modified in a
+# brand-new worktree. Failing there strands nobody — no work exists in it yet.
+#
+# On `reuse` an agent is already working in the tree and may legitimately have
+# edited a manifest without regenerating the lockfile. Enforcing frozen there
+# would make the sanctioned bootstrap refuse to hand back a worktree that
+# already exists and is the only place their work lives — a loop with no exit,
+# since teardown needs the path too. So reuse installs unfrozen, and an install
+# failure warns rather than exits: the caller still gets the path, and a stale
+# node_modules is a recoverable state where a withheld path is not.
 install_dependencies() {
   _idep_wt="$1"
+  _idep_mode="$2"
 
   if ! command -v bun >/dev/null 2>&1; then
     echo "ERROR [ensure-worktree]: 'bun' is not on PATH; cannot install dependencies in '$_idep_wt'." >&2
@@ -123,11 +137,22 @@ install_dependencies() {
     exit 1
   fi
 
-  echo "[ensure-worktree] installing dependencies (bun install)..." >&2
-  if ! (cd "$_idep_wt" && bun install --frozen-lockfile >&2); then
-    echo "ERROR [ensure-worktree]: 'bun install' failed in '$_idep_wt'." >&2
-    echo "  Resolve the install error and re-run; this script retries on an existing worktree." >&2
-    exit 1
+  if [ "$_idep_mode" = "create" ]; then
+    echo "[ensure-worktree] installing dependencies (bun install --frozen-lockfile)..." >&2
+    if ! (cd "$_idep_wt" && bun install --frozen-lockfile >&2); then
+      echo "ERROR [ensure-worktree]: 'bun install --frozen-lockfile' failed in the new worktree '$_idep_wt'." >&2
+      echo "  The lockfile does not match the manifests on this branch. Fix it and re-run;" >&2
+      echo "  this script is safe to re-run on an existing worktree." >&2
+      exit 1
+    fi
+    return
+  fi
+
+  echo "[ensure-worktree] refreshing dependencies (bun install)..." >&2
+  if ! (cd "$_idep_wt" && bun install >&2); then
+    echo "WARNING [ensure-worktree]: 'bun install' failed in the existing worktree '$_idep_wt'." >&2
+    echo "  Returning the path anyway — your work lives there. Dependencies may be stale;" >&2
+    echo "  resolve the install error inside the worktree before running the app or tests." >&2
   fi
 }
 
@@ -280,7 +305,7 @@ if [ "$git_dir" != "$git_common_dir" ]; then
   # Print the worktree root for the caller to cd into (in case they're in a subdir).
   _wt_top=$(git rev-parse --show-toplevel)
   init_unpopulated_submodules "$_wt_top"
-  install_dependencies "$_wt_top"
+  install_dependencies "$_wt_top" reuse
   echo "$_wt_top"
   exit 0
 fi
@@ -337,7 +362,7 @@ if [ -d "$worktree_path" ]; then
   # early-return path for a caller already inside a worktree is unguarded for
   # the same reason.
   init_unpopulated_submodules "$worktree_path"
-  install_dependencies "$worktree_path"
+  install_dependencies "$worktree_path" reuse
   echo "$worktree_path"
   exit 0
 fi
@@ -430,6 +455,6 @@ fi
 assert_main_checkout_unchanged "$repo_root" "$main_head_before" "$main_branch_before"
 
 init_unpopulated_submodules "$worktree_path"
-install_dependencies "$worktree_path"
+install_dependencies "$worktree_path" create
 
 echo "$worktree_path"
