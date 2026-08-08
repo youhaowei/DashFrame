@@ -1163,7 +1163,7 @@ describe("command vocabulary", () => {
   });
 
   describe("SetInsightFilter", () => {
-    it("should replace filters with tagged-union operands", async () => {
+    it("persists ids for agent-created filters that omit them", async () => {
       const { tableId } = await makeTable();
       const insightId = id();
       await commit(
@@ -1183,8 +1183,42 @@ describe("command vocabulary", () => {
       ];
       await commit(cmd("SetInsightFilter", { id: insightId, filters }));
       const rows = await insightsById(insightId);
-      const def = rows[0]?.definition as { filters: typeof filters };
-      expect(def.filters).toEqual(filters);
+      const def = rows[0]?.definition as {
+        filters: Array<(typeof filters)[number] & { id: string }>;
+      };
+      expect(def.filters).toEqual([{ ...filters[0], id: expect.any(String) }]);
+    });
+
+    it("preserves a filter id supplied by an API caller", async () => {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+
+      await commit(
+        cmd("SetInsightFilter", {
+          id: insightId,
+          filters: [
+            {
+              id: "agent-filter-id",
+              field: "region",
+              operator: "eq",
+              value: { kind: "value", v: "EMEA" },
+            },
+          ],
+        }),
+      );
+
+      const rows = await insightsById(insightId);
+      const def = rows[0]?.definition as {
+        filters: Array<{ id: string }>;
+      };
+      expect(def.filters[0]?.id).toBe("agent-filter-id");
     });
 
     it("should replace filters with a late-bound operand (category handle)", async () => {

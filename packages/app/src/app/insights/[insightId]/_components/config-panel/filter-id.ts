@@ -10,26 +10,32 @@ import type { FilterWithId } from "./FiltersSection";
  * reordered — does not shift identities and misroute an in-flight save.
  */
 
-/** Derive the stable client `_id` for a persisted filter at array position i. */
-export function deriveFilterId(filter: InsightFilter, index: number): string {
-  // Persisted id is the stable identity. Filters from the API/agent path may
-  // lack one; fall back to a content+index key (not edited concurrently).
-  return filter.id ?? `${filter.field}-${filter.operator}-${index}`;
+/** Derive the stable client `_id` from a filter's persisted identity. */
+export function deriveFilterId(filter: InsightFilter): string {
+  if (!filter.id) {
+    throw new Error("Filter is missing its persisted id");
+  }
+  return filter.id;
 }
 
 /** Attach stable client ids to a persisted filter list. */
 export function withFilterIds(
   filters: InsightFilter[] | undefined,
 ): FilterWithId[] {
-  return (filters ?? []).map((f, i) => ({ ...f, _id: deriveFilterId(f, i) }));
+  return (filters ?? []).map((filter) => {
+    // All API write paths persist this id. This defensive hydration only keeps
+    // legacy rows usable until their next save; it never derives identity from
+    // content or array position.
+    const id = filter.id ?? crypto.randomUUID();
+    return { ...filter, id, _id: deriveFilterId({ ...filter, id }) };
+  });
 }
 
 /**
  * Client `_id` sentinel for a not-yet-saved new-filter draft. Distinguishes a
  * brand-new filter (which must get a fresh identity and append) from an
  * existing row being edited (which must preserve its `_id` so the save routes
- * back to the same predicate — even if the existing filter has no persisted
- * `id`, e.g. one created via the API/agent path).
+ * back to the same predicate).
  */
 export const NEW_FILTER_ID = "__new__";
 
@@ -41,9 +47,8 @@ export const NEW_FILTER_ID = "__new__";
  *   Generating the id *here, per save* (not once per dialog mount) is what makes
  *   two consecutive Adds yield two distinct filters instead of the second
  *   overwriting the first.
- * - **Existing row** (any other `_id`): preserve `_id` so the save updates the
- *   matching predicate. Backfill a persisted `id` if it lacks one (API/agent
- *   filters), without disturbing the `_id` used for matching.
+ * - **Existing row** (any other `_id`): preserve its persisted identity so the
+ *   save updates the matching predicate.
  *
  * `genId` is injectable for tests; defaults to `crypto.randomUUID`.
  */
@@ -55,8 +60,7 @@ export function prepareFilterForSave(
     const id = filter.id ?? genId();
     return { ...filter, id, _id: id };
   }
-  // Existing row: keep _id for matching; backfill a persisted id if missing.
-  return { ...filter, id: filter.id ?? genId() };
+  return { ...filter, id: filter.id ?? filter._id };
 }
 
 /**

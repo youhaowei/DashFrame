@@ -1,5 +1,7 @@
 import type { CombinedField } from "@/lib/insights/compute-combined-fields";
 import {
+  Alert,
+  AlertDescription,
   Button,
   Dialog,
   DialogContent,
@@ -16,7 +18,7 @@ interface FieldRenameDialogProps {
   field: CombinedField | null;
   tableName?: string;
   onOpenChange: (open: boolean) => void;
-  onSave: (field: CombinedField, newName: string) => void;
+  onSave: (field: CombinedField, newName: string) => Promise<void> | void;
 }
 
 /**
@@ -31,16 +33,27 @@ function FieldRenameForm({
 }: {
   field: CombinedField;
   tableName?: string;
-  onSave: (field: CombinedField, newName: string) => void;
+  onSave: (field: CombinedField, newName: string) => Promise<void> | void;
   onClose: () => void;
 }) {
   const [name, setName] = useState(field.name);
+  const [error, setError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
   const columnName = field.columnName ?? field.name;
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!name.trim()) return;
-    onSave(field, name.trim());
-    onClose();
+    setError(null);
+    setIsSaving(true);
+    try {
+      await onSave(field, name.trim());
+      onClose();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      setError(`Failed to rename field: ${message}`);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -61,6 +74,12 @@ function FieldRenameForm({
       </DialogHeader>
 
       <div className="space-y-4 py-4">
+        {error && (
+          <Alert color="danger">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
         {/* Source info (read-only) */}
         <div className="space-y-2 rounded-lg bg-neutral-bg-muted px-3 py-3">
           {tableName && (
@@ -98,11 +117,17 @@ function FieldRenameForm({
       </div>
 
       <DialogFooter>
-        <Button label="Cancel" variant="outline" onClick={onClose} />
         <Button
-          label="Save"
+          label="Cancel"
+          variant="outline"
+          onClick={onClose}
+          disabled={isSaving}
+        />
+        <Button
+          label={isSaving ? "Saving..." : "Save"}
           onClick={handleSave}
-          disabled={!name.trim() || name.trim() === field.name}
+          disabled={isSaving || !name.trim() || name.trim() === field.name}
+          loading={isSaving}
         />
       </DialogFooter>
     </>

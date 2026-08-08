@@ -243,11 +243,10 @@ export function InsightConfigPanel({
    * matching an in-flight edit back to its predicate on save.
    *
    * `_id` is sourced from the filter's persisted `id` (generated on add by
-   * FilterEditDialog and preserved across persistence round-trips). This
-   * survives a subscription firing mid-edit — a concurrent reorder no longer
-   * shifts the id, so handleSaveFilter cannot misroute the save to the wrong
-   * filter. Filters created via the API/agent path without an `id` fall back to
-   * a content+index key; those aren't expected to be edited concurrently.
+   * FilterEditDialog and the API write boundary, then preserved across
+   * persistence round-trips). This survives a subscription firing mid-edit — a
+   * concurrent reorder no longer shifts the id, so handleSaveFilter cannot
+   * misroute the save to the wrong filter.
    */
   const filtersWithIds = useMemo(
     (): FilterWithId[] => withFilterIds(insight.filters),
@@ -300,18 +299,13 @@ export function InsightConfigPanel({
     async (field: CombinedField, newName: string) => {
       // Update the display name in the source DataTable
       // This only changes the user-facing name, not the underlying columnName
-      try {
-        await patchDataTableArray({
-          dataTableId: field.sourceTableId,
-          kind: "fields",
-          mode: "update",
-          itemId: field.id,
-          value: { name: newName },
-        });
-      } catch (error) {
-        console.error("Failed to rename field:", error);
-        alert("Failed to rename field. Please try again.");
-      }
+      await patchDataTableArray({
+        dataTableId: field.sourceTableId,
+        kind: "fields",
+        mode: "update",
+        itemId: field.id,
+        value: { name: newName },
+      });
     },
     [patchDataTableArray],
   );
@@ -344,19 +338,19 @@ export function InsightConfigPanel({
   );
 
   const handleAddMetric = useCallback(
-    (metric: InsightMetric) => {
+    async (metric: InsightMetric) => {
       const updated = [...(insight.metrics ?? []), metric];
-      updateInsight(insight.id, { metrics: updated });
+      await updateInsight(insight.id, { metrics: updated });
     },
     [insight.id, insight.metrics, updateInsight],
   );
 
   const handleEditMetric = useCallback(
-    (updatedMetric: InsightMetric) => {
+    async (updatedMetric: InsightMetric) => {
       const updated = (insight.metrics ?? []).map((m) =>
         m.id === updatedMetric.id ? updatedMetric : m,
       );
-      updateInsight(insight.id, { metrics: updated });
+      await updateInsight(insight.id, { metrics: updated });
     },
     [insight.id, insight.metrics, updateInsight],
   );
@@ -391,9 +385,9 @@ export function InsightConfigPanel({
   );
 
   const handleSaveFilter = useCallback(
-    (saved: FilterWithId) => {
+    async (saved: FilterWithId) => {
       const updated = applyFilterSave(filtersWithIds, saved);
-      updateInsightLegacy({
+      await updateInsightLegacy({
         id: insight.id,
         updates: { filters: stripFilterIds(updated) },
       });

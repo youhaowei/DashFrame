@@ -131,6 +131,7 @@ import { permissions } from "../permissions";
 import { wy } from "../wystack";
 import { sanitizeDashboardItemUpdates } from "./dashboard-item-updates";
 import {
+  ensureInsightFilterIds,
   type InsightSource,
   insightSourceSchema,
   type StoredInsightDefinition,
@@ -820,10 +821,19 @@ const setInsightFilter = wy.procedure
       ...definition,
       filters,
     });
+    // `filters` is a required input here, but the definition shape types it as
+    // optional, so guard rather than assert — same shape as the patch path in
+    // app-artifacts.ts, which must handle a genuinely absent key.
+    const normalized = {
+      ...next,
+      ...(next.filters === undefined
+        ? {}
+        : { filters: ensureInsightFilterIds(next.filters) }),
+    };
     await ctx.db
       .from(insights)
       .where(eq("id", id))
-      .update({ definition: next });
+      .update({ definition: normalized });
     return { ok: true };
   });
 

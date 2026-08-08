@@ -4,6 +4,8 @@ import type {
   InsightMetric,
 } from "@dashframe/types";
 import {
+  Alert,
+  AlertDescription,
   Button,
   Dialog,
   DialogContent,
@@ -25,7 +27,7 @@ interface MetricEditDialogProps {
   metric: InsightMetric | null;
   dataTable: DataTable;
   onOpenChange: (open: boolean) => void;
-  onSave: (metric: InsightMetric) => void;
+  onSave: (metric: InsightMetric) => Promise<void> | void;
 }
 
 /**
@@ -40,7 +42,7 @@ function MetricEditForm({
 }: {
   metric: InsightMetric;
   dataTable: DataTable;
-  onSave: (metric: InsightMetric) => void;
+  onSave: (metric: InsightMetric) => Promise<void> | void;
   onClose: () => void;
 }) {
   const [name, setName] = useState(metric.name);
@@ -48,6 +50,8 @@ function MetricEditForm({
     metric.aggregation,
   );
   const [columnName, setColumnName] = useState<string>(metric.columnName ?? "");
+  const [error, setError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Get available fields (exclude internal _ prefixed)
   const availableFields = useMemo(
@@ -69,7 +73,7 @@ function MetricEditForm({
     [availableFields],
   );
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!name.trim()) return;
 
     const updatedMetric: InsightMetric = {
@@ -82,8 +86,17 @@ function MetricEditForm({
       aggregation,
     };
 
-    onSave(updatedMetric);
-    onClose();
+    setError(null);
+    setIsSaving(true);
+    try {
+      await onSave(updatedMetric);
+      onClose();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      setError(`Failed to save metric: ${message}`);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // Generate formula preview
@@ -124,6 +137,12 @@ function MetricEditForm({
       </DialogHeader>
 
       <div className="space-y-4 py-4">
+        {error && (
+          <Alert color="danger">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
         {/* Aggregation Type */}
         <div className="space-y-2">
           <Label htmlFor="edit-aggregation">Aggregation type</Label>
@@ -204,11 +223,22 @@ function MetricEditForm({
       </div>
 
       <DialogFooter>
-        <Button label="Cancel" variant="outline" onClick={onClose} />
         <Button
-          label="Save"
+          label="Cancel"
+          variant="outline"
+          onClick={onClose}
+          disabled={isSaving}
+        />
+        <Button
+          label={isSaving ? "Saving..." : "Save"}
           onClick={handleSave}
-          disabled={!name.trim() || (needsField && !columnName) || !hasChanges}
+          disabled={
+            isSaving ||
+            !name.trim() ||
+            (needsField && !columnName) ||
+            !hasChanges
+          }
+          loading={isSaving}
         />
       </DialogFooter>
     </>

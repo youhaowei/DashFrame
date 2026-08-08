@@ -4,6 +4,8 @@ import type {
   InsightFilterBetweenValue,
 } from "@dashframe/types";
 import {
+  Alert,
+  AlertDescription,
   Button,
   Dialog,
   DialogContent,
@@ -40,7 +42,7 @@ interface FilterEditDialogProps {
   filter: FilterWithId | "new" | null;
   combinedFields: CombinedField[];
   onOpenChange: (open: boolean) => void;
-  onSave: (filter: FilterWithId) => void;
+  onSave: (filter: FilterWithId) => Promise<void> | void;
 }
 
 // ============================================================================
@@ -59,6 +61,37 @@ const OPERATOR_OPTIONS: { value: Operator; label: string }[] = [
   { value: "in", label: "in (list)" },
 ];
 
+function initialScalarValue(filter: FilterWithId): string {
+  if (filter.operator === "between") return "";
+  if (filter.operator === "in" && Array.isArray(filter.value)) {
+    return (filter.value as unknown[]).map(String).join(", ");
+  }
+  if (Array.isArray(filter.value)) return "";
+  return String(filter.value ?? "");
+}
+
+function initialBetweenValue(filter: FilterWithId): {
+  low: string;
+  high: string;
+} {
+  if (
+    filter.operator !== "between" ||
+    !filter.value ||
+    typeof filter.value !== "object" ||
+    Array.isArray(filter.value)
+  ) {
+    return { low: "", high: "" };
+  }
+
+  const value = filter.value as InsightFilterBetweenValue;
+  return { low: String(value.low ?? ""), high: String(value.high ?? "") };
+}
+
+function saveButtonLabel(isSaving: boolean, isNew: boolean): string {
+  if (!isSaving) return isNew ? "Add" : "Save";
+  return isNew ? "Adding..." : "Saving...";
+}
+
 // ============================================================================
 // FilterEditForm (inner; key-reset pattern from MetricEditDialog)
 // ============================================================================
@@ -66,7 +99,7 @@ const OPERATOR_OPTIONS: { value: Operator; label: string }[] = [
 interface FilterEditFormProps {
   filter: FilterWithId;
   combinedFields: CombinedField[];
-  onSave: (filter: FilterWithId) => void;
+  onSave: (filter: FilterWithId) => Promise<void> | void;
   onClose: () => void;
   isNew: boolean;
 }
@@ -82,31 +115,16 @@ function FilterEditForm({
   const [operator, setOperator] = useState<Operator>(filter.operator);
 
   // Scalar value state (also used for the `in` operator as comma-separated string)
-  const initialScalar = (() => {
-    if (filter.operator === "between") return "";
-    if (filter.operator === "in" && Array.isArray(filter.value)) {
-      return (filter.value as unknown[]).map(String).join(", ");
-    }
-    if (Array.isArray(filter.value)) return "";
-    return String(filter.value ?? "");
-  })();
-  const [scalarValue, setScalarValue] = useState(initialScalar);
+  const [scalarValue, setScalarValue] = useState(() =>
+    initialScalarValue(filter),
+  );
 
   // Between value state
-  const initialBetween = (() => {
-    if (
-      filter.operator === "between" &&
-      filter.value &&
-      typeof filter.value === "object" &&
-      !Array.isArray(filter.value)
-    ) {
-      const v = filter.value as InsightFilterBetweenValue;
-      return { low: String(v.low ?? ""), high: String(v.high ?? "") };
-    }
-    return { low: "", high: "" };
-  })();
+  const initialBetween = initialBetweenValue(filter);
   const [betweenLow, setBetweenLow] = useState(initialBetween.low);
   const [betweenHigh, setBetweenHigh] = useState(initialBetween.high);
+  const [error, setError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   const selectedField = combinedFields.find(
     (f) => (f.columnName ?? f.name) === field,
@@ -147,22 +165,31 @@ function FilterEditForm({
   if (isIn) valuePlaceholder = "e.g. a, b, c";
   else if (inputType === "number") valuePlaceholder = "Enter a number";
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!isValid) return;
     // prepareFilterForSave stamps a fresh persisted id on a new filter (and
     // sources its client `_id` from it). Generated per save, not per dialog
     // mount — FilterEditDialog is permanently mounted, so a mount-scoped id
     // would hand every Add the same value and make the second filter overwrite
     // the first. An existing filter keeps its id/_id so edits route correctly.
-    onSave(
-      prepareFilterForSave({
-        ...filter,
-        field,
-        operator,
-        value: buildFilterValue(draft),
-      }),
-    );
-    onClose();
+    setError(null);
+    setIsSaving(true);
+    try {
+      await onSave(
+        prepareFilterForSave({
+          ...filter,
+          field,
+          operator,
+          value: buildFilterValue(draft),
+        }),
+      );
+      onClose();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      setError(`Failed to save filter: ${message}`);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -177,6 +204,12 @@ function FilterEditForm({
       </DialogHeader>
 
       <div className="space-y-4 py-4">
+        {error && (
+          <Alert color="danger">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
         {/* Field picker */}
         <div className="space-y-2">
           <Label htmlFor="filter-field">Field</Label>
@@ -284,11 +317,17 @@ function FilterEditForm({
       </div>
 
       <DialogFooter>
-        <Button label="Cancel" variant="outline" onClick={onClose} />
         <Button
-          label={isNew ? "Add" : "Save"}
+          label="Cancel"
+          variant="outline"
+          onClick={onClose}
+          disabled={isSaving}
+        />
+        <Button
+          label={saveButtonLabel(isSaving, isNew)}
           onClick={handleSave}
-          disabled={!isValid}
+          disabled={isSaving || !isValid}
+          loading={isSaving}
         />
       </DialogFooter>
     </>

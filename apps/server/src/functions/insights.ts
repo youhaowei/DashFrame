@@ -67,6 +67,28 @@ export interface StoredInsightDefinition {
 }
 
 /**
+ * Stamp a persisted identity on every filter accepted at an API write boundary.
+ *
+ * Agent commands and legacy API calls may omit `id`; giving those predicates an
+ * id before they reach storage keeps UI identity independent of array order.
+ * Filter element validation remains intentionally opaque at this layer, so
+ * non-object entries are left for the existing definition contract to handle.
+ */
+export function ensureInsightFilterIds(filters: unknown[]): unknown[] {
+  return filters.map((filter) => {
+    if (
+      filter !== null &&
+      typeof filter === "object" &&
+      !Array.isArray(filter) &&
+      (!("id" in filter) || typeof filter.id !== "string" || !filter.id)
+    ) {
+      return { ...filter, id: crypto.randomUUID() };
+    }
+    return filter;
+  });
+}
+
+/**
  * The ideal stored-definition write shape (arrays conceptually present, element
  * types known). The encoder emits this; `app-artifacts.ts` patch/dedup paths
  * consume it. Kept hand-written (not `z.infer`) and separate from the tolerant
