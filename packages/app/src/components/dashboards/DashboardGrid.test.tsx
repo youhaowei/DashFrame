@@ -77,9 +77,7 @@ describe("DashboardGrid canonical layout persistence", () => {
     expect(mocks.gridProps?.onLayoutChange).toBeUndefined();
 
     act(() => {
-      (mocks.gridProps?.onBreakpointChange as (breakpoint: string) => void)(
-        "md",
-      );
+      (mocks.gridProps?.onWidthChange as (width: number) => void)(800);
     });
     expect(mocks.gridProps?.isDraggable).toBe(false);
     expect(mocks.gridProps?.isResizable).toBe(false);
@@ -92,9 +90,7 @@ describe("DashboardGrid canonical layout persistence", () => {
     expect(mocks.updateItems).not.toHaveBeenCalled();
 
     act(() => {
-      (mocks.gridProps?.onBreakpointChange as (breakpoint: string) => void)(
-        "lg",
-      );
+      (mocks.gridProps?.onWidthChange as (width: number) => void)(1000);
     });
     expect(mocks.gridProps?.isDraggable).toBe(true);
     expect(mocks.gridProps?.isResizable).toBe(true);

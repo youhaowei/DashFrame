@@ -13,8 +13,13 @@ import { DashboardItem } from "./DashboardItem";
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
 
+// At 960px, a common 6-column chart is about 456px wide and even a minW: 2
+// item is about 141px: (960 - 13 * 16) / 12 * 2 + 16. The previous 720px
+// floor yielded roughly 101px for that minimum item.
+const EDITABLE_GRID_MIN_WIDTH = 960;
+
 const DASHBOARD_GRID_BREAKPOINTS = {
-  lg: 720,
+  lg: EDITABLE_GRID_MIN_WIDTH,
   md: 600,
   sm: 480,
   xs: 320,
@@ -28,8 +33,6 @@ const DASHBOARD_GRID_COLUMNS = {
   xs: 4,
   xxs: 2,
 };
-
-const EDITABLE_BREAKPOINT = "lg";
 
 interface DashboardGridProps {
   dashboard: Dashboard;
@@ -54,8 +57,15 @@ export function DashboardGrid({
   // fresh reference every render, so depending on it would defeat the
   // `onLayoutChange` memoization. `mutateAsync` is referentially stable.
   const { mutateAsync: saveLayout } = useMutation(api.updateDashboardItems);
-  const [activeBreakpoint, setActiveBreakpoint] = useState<string | null>(null);
-  const isEditingAvailable = activeBreakpoint === EDITABLE_BREAKPOINT;
+  // WidthProvider renders Responsive at its 1280px seed before its observer
+  // measures the element, and Responsive does not call onWidthChange on mount.
+  // Seed the matching wide state; every observed resize then supplies the same
+  // measured width RGL uses to choose its layout.
+  const [isEditingAvailable, setIsEditingAvailable] = useState(true);
+
+  const handleWidthChange = useCallback((width: number) => {
+    setIsEditingAvailable(width >= EDITABLE_GRID_MIN_WIDTH);
+  }, []);
 
   useEffect(() => {
     onEditingAvailabilityChange?.(isEditingAvailable);
@@ -187,7 +197,7 @@ export function DashboardGrid({
       isDraggable={isEditable && isEditingAvailable}
       isResizable={isEditable && isEditingAvailable}
       draggableHandle=".grid-drag-handle"
-      onBreakpointChange={setActiveBreakpoint}
+      onWidthChange={handleWidthChange}
       onDragStop={persistCanonicalLayout}
       onResizeStop={persistCanonicalLayout}
       margin={[16, 16]}

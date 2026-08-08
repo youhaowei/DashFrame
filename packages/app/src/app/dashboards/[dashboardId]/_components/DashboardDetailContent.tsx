@@ -123,7 +123,9 @@ export default function DashboardDetailContent({
 
   // ── Local UI state ────────────────────────────────────────────────────────
   const [isEditable, setIsEditable] = useState(false);
-  const [isEditingAvailable, setIsEditingAvailable] = useState(false);
+  // DashboardGrid starts at WidthProvider's wide seed and reports the first
+  // measured resize, so the header must start from the same availability.
+  const [isEditingAvailable, setIsEditingAvailable] = useState(true);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isAddPending, setIsAddPending] = useState(false);
   const [addType, setAddType] = useState<DashboardItemType>("visualization");
@@ -202,7 +204,10 @@ export default function DashboardDetailContent({
   };
 
   return (
-    <div className="dashboard-detail flex h-full flex-col">
+    <div
+      className="dashboard-detail flex h-full flex-col"
+      data-editing-available={isEditingAvailable}
+    >
       {/* Header */}
       <div className="flex items-center justify-between border-b border-neutral-border/60 px-6 py-4">
         <div className="flex items-center gap-4">

@@ -39,20 +39,18 @@ body,
 
 .dashboard-detail {
   container-type: inline-size;
-  container-name: dashboard-detail;
 }
 
-@container dashboard-detail (max-width: 44.99rem) {
-  .dashboard-edit-controls {
-    align-items: stretch;
-  }
+.dashboard-detail[data-editing-available="false"] .dashboard-edit-controls {
+  align-items: stretch;
+}
 
-  .dashboard-edit-actions {
-    flex-wrap: wrap;
-    justify-content: flex-end;
-  }
+.dashboard-detail[data-editing-available="false"] .dashboard-edit-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
 
+.dashboard-detail[data-editing-available="false"]
   .dashboard-editing-unavailable {
-    text-align: right;
-  }
+  text-align: right;
 }
