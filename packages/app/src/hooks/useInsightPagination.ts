@@ -17,7 +17,11 @@ import type {
   Insight,
   UUID,
 } from "@dashframe/types";
-import type { FetchDataParams, FetchDataResult } from "@dashframe/ui";
+import type {
+  FetchDataParams,
+  FetchDataResult,
+  VirtualTableColumn,
+} from "@dashframe/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 /**
@@ -85,7 +89,7 @@ export function useInsightPagination({
 
   // State
   const [totalCount, setTotalCount] = useState<number>(0);
-  const [columns, setColumns] = useState<{ name: string; type?: string }[]>([]);
+  const [columns, setColumns] = useState<VirtualTableColumn[]>([]);
   const [fieldCount, setFieldCount] = useState<number>(0);
   const [isReady, setIsReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
