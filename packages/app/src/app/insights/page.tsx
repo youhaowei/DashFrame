@@ -6,6 +6,7 @@ import {
   type Insight,
   type UUID,
 } from "@dashframe/types";
+import { groupHoverAndFocusWithinReveal } from "@dashframe/ui";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@wystack/client";
 import {
@@ -296,7 +297,7 @@ export default function InsightsPage() {
                   iconOnly
                   label="More options"
                   size="sm"
-                  className="opacity-0 transition-opacity group-hover:opacity-100"
+                  className={`transition-opacity ${groupHoverAndFocusWithinReveal}`}
                   onClick={() => {}}
                 />
               }

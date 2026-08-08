@@ -130,4 +130,48 @@ describe("DataSourcesPage query states", () => {
       expect(mockRemoveDataSource).toHaveBeenCalledWith({ id: "source-123" });
     });
   });
+
+  it("opts the more-options action into the group focus-within reveal", () => {
+    mockUseDataSources.mockReturnValue({
+      ...successfulQuery(mockRefetchDataSources),
+      data: [
+        {
+          id: "source-123",
+          name: "Local Files",
+          type: "local",
+          config: { hasApiKey: false, hasConnectionString: false },
+          createdAt: 0,
+        },
+      ],
+    });
+
+    render(<DataSourcesPage />);
+
+    const action = screen.getByRole("button", { name: "More options" });
+
+    // The reveal is a CSS group relationship and jsdom computes no Tailwind, so
+    // actual visibility cannot be asserted here — the name says what this pins
+    // rather than overstating it. What it does check is every part the behavior
+    // needs, because dropping any one of them ships a broken UI that still
+    // looks right in the markup:
+    //   - `opacity-0` hides the action by default (without it, always visible)
+    //   - `group-hover:opacity-100` keeps the pointer path working
+    //   - `group-focus-within:opacity-100` is the keyboard path this fixes
+    //   - a `.group` ancestor is what those two selectors key on; with no group
+    //     the action stays invisible to a keyboard user forever
+    // The tokens are spelled out rather than compared against the shared
+    // constant: asserting a value against itself passes whatever it becomes.
+    for (const token of [
+      "opacity-0",
+      "group-hover:opacity-100",
+      "group-focus-within:opacity-100",
+    ]) {
+      expect(action.classList).toContain(token);
+    }
+    expect(action.closest(".group")).not.toBeNull();
+
+    // Focus is still exercised so the control is known to be reachable at all.
+    action.focus();
+    expect(document.activeElement).toBe(action);
+  });
 });
