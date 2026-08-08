@@ -238,7 +238,11 @@ describe("insight config dialog saves", () => {
   // the label promises. Driven through the rendered dialog rather than the
   // helpers, because the defect is the transition the user performs.
   it("drops a previously chosen column when switching back to Count (rows)", async () => {
-    const user = userEvent.setup();
+    // `delay: null` removes userEvent's inter-event wait. This test drives nine
+    // interactions through Radix Selects, and at the default delay the total
+    // ran just over the 5s limit on CI's slower runner while passing locally.
+    // Dropping the delay changes pacing only — every interaction still happens.
+    const user = userEvent.setup({ delay: null });
     const onSave = vi.fn().mockResolvedValue(undefined);
 
     render(
