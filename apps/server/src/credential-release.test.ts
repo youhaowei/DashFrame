@@ -279,11 +279,10 @@ describe("credential write path — capture-before-log + transition release", ()
     expect(rows.length).toBe(0);
   });
 
-  // No-orphan on a PARTIAL-BATCH reject: a first command mints a real ref, a
-  // later command in the same batch carries a foreign ref and is rejected — the
-  // whole append throws and the first command's minted ref is released (no
-  // orphaned keychain blob from the abandoned batch).
-  it("releases a prior command's minted ref when a later batch command is rejected", async () => {
+  // A later command can be rejected after a first command wrote a durable
+  // shadow. The first command is retained in the log, so its minted ref remains
+  // live and transition cleanup can release it at publish or discard.
+  it("keeps a prior command's minted ref when a later batch command is rejected", async () => {
     const storeSpy = vi.spyOn(h.vault, "store");
     try {
       const draftId = await h.controller.openDraft();
@@ -304,17 +303,20 @@ describe("credential write path — capture-before-log + transition release", ()
         ]),
       ).rejects.toThrow(/plaintext secret, not a vault ref/i);
 
-      // The first command minted exactly one ref; it must have been released.
+      // The first command minted exactly one ref and its successful shadow write
+      // is now durable-log-backed, so it must remain live.
       expect(storeSpy).toHaveBeenCalledTimes(1);
       const mintedRef = (await storeSpy.mock.results[0]!.value) as SecretRef;
-      expect(await h.vault.has(mintedRef)).toBe(false);
+      expect(await h.vault.has(mintedRef)).toBe(true);
 
-      // Nothing persisted — the rejected batch left no draft state.
+      // The successful prefix is persisted and can be safely published or
+      // discarded even though the caller receives the later command's error.
       const rows = await h.db
         .select()
         .from(draftCommandLog)
         .where(eq(draftCommandLog.draftId, draftId));
-      expect(rows.length).toBe(0);
+      expect(rows.length).toBe(1);
+      expect(JSON.stringify(rows[0]?.args)).toContain(mintedRef);
     } finally {
       storeSpy.mockRestore();
     }
@@ -990,12 +992,7 @@ describe("credential write path — capture-before-log + transition release", ()
     expect(rows.length).toBe(0); // nothing logged
   });
 
-  // P2 (fix #3) — the rollback must also cover LOG PERSISTENCE, not just the
-  // handler run. If writeLog throws AFTER capture minted a ref and the handler
-  // wrote the shadow, the ref is in the vault but in no durable log — discard /
-  // publish could never find it for transition release (orphan). The rollback
-  // stays armed through writeLog, so a log-persistence failure releases the ref.
-  it("releases captured refs when log persistence fails after the handler runs", async () => {
+  it("preserves captured refs when recovery logs a successful handler after persistence fails", async () => {
     const id = crypto.randomUUID();
     const storeSpy = vi.spyOn(h.vault, "store");
     const delSpy = vi.spyOn(h.vault, "delete");
@@ -1021,12 +1018,14 @@ describe("credential write path — capture-before-log + transition release", ()
       ]),
     ).rejects.toThrow(/simulated writeLog failure/);
 
-    // Capture minted a ref before writeLog failed, and the rollback released it.
+    // Capture minted a ref before the first log transaction failed. The recovery
+    // log now owns it, so rolling it back would leave the surviving shadow row
+    // pointing at a released vault ref.
     expect(storeSpy).toHaveBeenCalled();
     const mintedRef = (await storeSpy.mock.results[0]!.value) as SecretRef;
     expect(isSecretRef(mintedRef)).toBe(true);
-    expect(delSpy).toHaveBeenCalled();
-    expect(await h.vault.has(mintedRef)).toBe(false); // no orphan
+    expect(delSpy).not.toHaveBeenCalled();
+    expect(await h.vault.has(mintedRef)).toBe(true);
 
     // DISCRIMINATOR: the shadow row exists → the handler committed before the
     // failure → the failure was at writeLog (not the handler). Proves this test
@@ -1037,14 +1036,66 @@ describe("credential write path — capture-before-log + transition release", ()
       .where(eq(schema.dataSourcesDraft.draftId, draftId));
     expect(shadowRows.length).toBe(1);
 
-    // The durable log is empty — writeLog never committed.
+    // Recovery persisted the command after the failed first attempt, so the
+    // durable log references the same live ref as the surviving shadow row.
     const logRows = await h.db
       .select()
       .from(draftCommandLog)
       .where(eq(draftCommandLog.draftId, draftId));
-    expect(logRows.length).toBe(0);
+    expect(logRows.length).toBe(1);
+    expect(JSON.stringify(logRows[0]?.args)).toContain(mintedRef);
 
     txSpy.mockRestore();
+  });
+
+  it("never leaves a released captured ref behind a surviving shadow row after a clone failure", async () => {
+    const draftId = await h.controller.openDraft();
+    const firstId = crypto.randomUUID();
+    const secondId = crypto.randomUUID();
+    const storeSpy = vi.spyOn(h.vault, "store");
+
+    await expect(
+      h.controller.appendToDraft(draftId, [
+        cmd("CreateDataSource", {
+          id: firstId,
+          type: "notion",
+          name: "A",
+          apiKey: "first-secret",
+        }),
+        {
+          path: "createDataSource",
+          args: {
+            id: secondId,
+            type: "notion",
+            name: () => "clone failure",
+            apiKey: "second-secret",
+          },
+        } as Command,
+      ]),
+    ).rejects.toThrow(/could not be cloned/);
+
+    const [firstRef, secondRef] = (await Promise.all(
+      storeSpy.mock.results.map((result) => result.value),
+    )) as SecretRef[];
+    expect(storeSpy).toHaveBeenCalledTimes(2);
+    expect(firstRef).toBeDefined();
+    expect(secondRef).toBeDefined();
+    const shadows = await h.db
+      .select()
+      .from(schema.dataSourcesDraft)
+      .where(eq(schema.dataSourcesDraft.draftId, draftId));
+    expect(shadows).toHaveLength(1);
+    expect(shadows[0]?.id).toBe(firstId);
+    expect(JSON.stringify(shadows[0]?.config)).toContain(firstRef!);
+    expect(await h.vault.has(firstRef!)).toBe(true);
+    expect(await h.vault.has(secondRef!)).toBe(false);
+
+    const logRows = await h.db
+      .select()
+      .from(draftCommandLog)
+      .where(eq(draftCommandLog.draftId, draftId));
+    expect(logRows).toHaveLength(1);
+    expect(JSON.stringify(logRows[0]?.args)).toContain(firstRef!);
   });
 
   // P2 (fix #2) — fail-closed on the DIRECT path: a ref-shaped input on a direct

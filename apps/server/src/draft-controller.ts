@@ -361,23 +361,17 @@ export interface DraftController {
    * `withDraft(draftId)` write-path into `<table>__draft` (durable), then
    * materializes the compacted command log into `draft_command_log`.
    *
-   * The log is the source of truth (publish replays only the log). The per-batch
-   * shadow writes and the log projection are NOT wrapped in one transaction, so
-   * an append interrupted mid-batch (a handler throws, or the process dies before
-   * `writeLog`) can leave shadow rows that the log does not yet reference. Those
-   * orphans are INERT: publish ignores the shadow entirely and `dropDraft` sweeps
-   * the full closed set regardless, so canonical is never corrupted — the draft's
-   * recovery posture is "re-append the full batch" (matches wystack's lifecycle,
-   * which documents the same non-atomic-across-batch contract). The append is
-   * effect-free on canonical until publish.
+   * The log is the source of truth (publish replays only the log). Execution is
+   * intentionally non-atomic across a batch: a later command can fail after an
+   * earlier handler has committed its shadow write. Every successful command is
+   * then persisted to the log before the failure surfaces, so no surviving shadow
+   * row is unlogged. The append is effect-free on canonical until publish.
    *
-   * SINGLE-WRITER per draftId. `readLog → compactLog → writeLog` (replace-all) is
-   * not atomic, so two concurrent `appendToDraft` calls on the SAME draftId race:
-   * both read the same prior log and the last `writeLog` wins, erasing the other
-   * batch's log rows while its shadow rows linger (then get swept on publish) —
-   * silent command loss. A draft is a single editing session's handle; the
-   * consumer must serialize appends per draftId (do not fan out). When the seam
-   * is wired into a multi-session host, that host owns the per-draft lock.
+   * Concurrent appends use an optimistic log-signature compare-and-swap. A call
+   * whose pre-handler snapshot is stale rejects with `DraftLogStaleError` rather
+   * than silently reporting success over a lost update; its successful handler
+   * snapshots are still recorded before the error is surfaced. The caller must
+   * reload the log before deciding whether to retry the requested operation.
    * Returns per-command results (same shape as `applyCommands`).
    */
   appendToDraft(
@@ -564,6 +558,16 @@ export class DraftPublishConflictError extends Error {
   }
 }
 
+/** An append observed a log snapshot that another append has since replaced. */
+export class DraftLogStaleError extends Error {
+  constructor() {
+    super(
+      "appendToDraft: draft changed during append; retry from the current draft log",
+    );
+    this.name = "DraftLogStaleError";
+  }
+}
+
 /**
  * Optional hooks the host injects into the controller without coupling it to
  * DashFrame-specific command knowledge.
@@ -630,36 +634,76 @@ export function createDraftController(
    * would drift from the replay source). The unique (draft_id, seq) index is
    * satisfied by the dense re-seq.
    *
-   * ATOMIC: the delete + insert run in ONE transaction so an interrupted replace
-   * (crash or insert failure after the delete) cannot leave the log erased while
-   * shadow rows remain — the swap is all-or-nothing. Without this, the next
-   * `publishDraft` could read an empty/partial log and silently drop committed
-   * draft history.
+   * The caller supplies the transaction that contains the surrounding read and
+   * compare-and-swap. The delete + insert therefore share that transaction, so an
+   * interrupted replace cannot leave the log erased while shadow rows remain.
    */
   async function writeLog(
     draftId: string,
     compacted: DraftCommand[],
+    exec: Pick<ArtifactDb, "delete" | "insert">,
+  ): Promise<void> {
+    await exec
+      .delete(draftCommandLog)
+      .where(eq(draftCommandLog.draftId, draftId));
+    if (compacted.length === 0) return;
+    await exec.insert(draftCommandLog).values(
+      compacted.map((cmd, seq) => ({
+        draftId,
+        seq,
+        path: cmd.path,
+        // `args` is opaque JSON-shaped data the lifecycle never interprets;
+        // store it verbatim. `?? null` because jsonb stores SQL NULL for an
+        // absent arg.
+        args: (cmd.args ?? null) as unknown,
+        cmdId: cmd.id ?? null,
+        compactionKey: cmd.compactionKey ?? null,
+        kind: cmd.kind ?? null,
+      })),
+    );
+  }
+
+  /**
+   * Append a batch to the log only if the durable log still matches the
+   * snapshot observed before its handlers ran. The read and replace-all write
+   * share one transaction; the signature comparison turns a stale snapshot into
+   * a caller-visible conflict instead of a successful lost update.
+   */
+  async function appendLogWithCas(
+    draftId: string,
+    expectedSignature: string,
+    snapshots: DraftCommand[],
   ): Promise<void> {
     await db.transaction(async (tx) => {
-      await tx
-        .delete(draftCommandLog)
-        .where(eq(draftCommandLog.draftId, draftId));
-      if (compacted.length === 0) return;
-      await tx.insert(draftCommandLog).values(
-        compacted.map((cmd, seq) => ({
-          draftId,
-          seq,
-          path: cmd.path,
-          // `args` is opaque JSON-shaped data the lifecycle never interprets;
-          // store it verbatim. `?? null` because jsonb stores SQL NULL for an
-          // absent arg.
-          args: (cmd.args ?? null) as unknown,
-          cmdId: cmd.id ?? null,
-          compactionKey: cmd.compactionKey ?? null,
-          kind: cmd.kind ?? null,
-        })),
-      );
+      const prior = await readLog(draftId, tx);
+      if (computeLogSignature(prior) !== expectedSignature) {
+        throw new DraftLogStaleError();
+      }
+      await writeLog(draftId, compactLog([...prior, ...snapshots]), tx);
     });
+  }
+
+  /**
+   * A handler already made its shadow write. If the enclosing append then
+   * fails, retain every successful snapshot in the log so publish and discard
+   * can still account for that durable state. A concurrent append can make the
+   * recovery snapshot stale too, so retry only that bookkeeping CAS until it
+   * lands; callers still receive the original append failure.
+   */
+  async function preserveRanSnapshots(
+    draftId: string,
+    snapshots: DraftCommand[],
+  ): Promise<void> {
+    if (snapshots.length === 0) return;
+    for (;;) {
+      const expectedSignature = computeLogSignature(await readLog(draftId));
+      try {
+        await appendLogWithCas(draftId, expectedSignature, snapshots);
+        return;
+      } catch (err) {
+        if (!(err instanceof DraftLogStaleError)) throw err;
+      }
+    }
   }
 
   /**
@@ -1118,14 +1162,14 @@ export function createDraftController(
       const baseDb = app.createTracked();
       const draftContext = { ...context, draftId };
       const results: CommandResult[] = [];
-      // Snapshot each command AS IT SUCCESSFULLY RUNS, before compaction/persist.
-      // The handler runs against the live `cmd` (what actually executed); the
-      // SNAPSHOT is what we compact + persist. Without this, a caller mutating a
-      // command or its nested `args` after `appendToDraft` started (while a
-      // handler awaits) would make the durable log replay a command different
-      // from the one the shadow reflects. The deep copy freezes the executed
-      // form. `structuredClone` handles nested args; commands are plain JSON-ish
-      // envelopes (path/args/id/compactionKey/kind) so it round-trips cleanly.
+      // Record the durable state every handler was based on before any of this
+      // batch runs. appendLogWithCas re-reads inside its transaction and rejects
+      // if another append has already replaced this snapshot.
+      const expectedLogSignature = computeLogSignature(await readLog(draftId));
+      // Snapshot each command BEFORE it runs, then run the handler against that
+      // snapshot. This both rejects uncloneable data before a handler can write a
+      // shadow row and guarantees the handler and durable replay see identical
+      // command data if a caller mutates its original object while we await.
       const ranSnapshots: DraftCommand[] = [];
       // Rollbacks for credentials captured in this batch — invoked if ANYTHING
       // throws before the durable log write succeeds (capture, handler run, OR log
@@ -1153,28 +1197,25 @@ export function createDraftController(
           // producing it only after the batch-level check already passed.
           assertKnownCommandPaths([captured.command], "appendToDraft");
           captureRollbacks.push(captured.rollback);
+          const snapshot = structuredClone(captured.command) as DraftCommand;
           const value = await app.runHandler(
-            captured.command.path,
-            captured.command.args,
+            snapshot.path,
+            snapshot.args,
             baseDb,
             draftContext,
           );
-          ranSnapshots.push(structuredClone(captured.command) as DraftCommand);
-          results.push({ id: captured.command.id, value });
+          ranSnapshots.push(snapshot);
+          results.push({ id: snapshot.id, value });
         }
-        // Project the compacted full log into draft_command_log. Read the prior
-        // log, concat the snapshots of what just ran, compact (wystack's exported
-        // algorithm), replace-all (atomically — see writeLog). INSIDE the try so a
-        // log-persistence failure also triggers the capture rollback below.
-        const prior = await readLog(draftId);
-        const compacted = compactLog([...prior, ...ranSnapshots]);
-        await writeLog(draftId, compacted);
+        await appendLogWithCas(draftId, expectedLogSignature, ranSnapshots);
         return results;
       } catch (err) {
-        // The batch is non-atomic by contract (recovery = re-append, which
-        // re-mints); release the refs captured so far so a failed append leaves
-        // no orphaned secret. Best-effort — a release failure leaves an inert orphan.
-        for (const rollback of captureRollbacks) {
+        // The batch is non-atomic by contract, but every successful handler
+        // write must remain replayable and discardable. Preserve those snapshots
+        // first; their captured refs now belong to the durable log. Only captured
+        // commands that did not successfully run are rolled back.
+        await preserveRanSnapshots(draftId, ranSnapshots);
+        for (const rollback of captureRollbacks.slice(ranSnapshots.length)) {
           await rollback().catch(() => {});
         }
         throw err;

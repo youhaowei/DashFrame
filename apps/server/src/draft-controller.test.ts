@@ -1167,6 +1167,139 @@ describe("DraftController (persisted draft overlay)", () => {
     ).toBe("Original");
   });
 
+  it("keeps every naturally concurrent append in the durable log and canonical publish", async () => {
+    const draftId = await controller.openDraft();
+    const sent = ["A1", "A2", "B1", "B2"].map((name) => ({
+      id: id(),
+      type: "csv" as const,
+      name,
+    }));
+
+    // Deliberately plain Promise.allSettled: no barriers, spies, or injected
+    // delays. This is the schedule that previously let the last replace-all
+    // writer discard the first append's durable log rows.
+    const outcomes = await Promise.allSettled([
+      controller.appendToDraft(
+        draftId,
+        sent.slice(0, 2).map((source) => cmd("CreateDataSource", source)),
+      ),
+      controller.appendToDraft(
+        draftId,
+        sent.slice(2).map((source) => cmd("CreateDataSource", source)),
+      ),
+    ]);
+    const log = await controller.getDraftLog(draftId);
+    const loggedNames = log.map(
+      (command) => (command.args as { name: string }).name,
+    );
+    console.info(
+      "[draft-log-atomicity natural] outcomes:",
+      outcomes.map((outcome) => outcome.status),
+    );
+    console.info(
+      "[draft-log-atomicity natural] sent",
+      sent.length,
+      "commands; log contains",
+      log.length,
+      JSON.stringify(loggedNames),
+    );
+
+    expect(loggedNames).toEqual(
+      expect.arrayContaining(sent.map((source) => source.name)),
+    );
+    expect(log).toHaveLength(sent.length);
+    await controller.publishDraft(draftId);
+    const canonicalNames = (await db.select().from(dataSources)).map(
+      (source) => source.name,
+    );
+    console.info(
+      "[draft-log-atomicity natural] canonical:",
+      JSON.stringify(canonicalNames),
+    );
+    expect(canonicalNames).toEqual(
+      expect.arrayContaining(sent.map((source) => source.name)),
+    );
+  });
+
+  it("rejects a stale concurrent append instead of reporting a lost update as success", async () => {
+    const draftId = await controller.openDraft();
+    const outcomes = await Promise.allSettled([
+      controller.appendToDraft(draftId, [
+        cmd("CreateDataSource", { id: id(), type: "csv", name: "A" }),
+      ]),
+      controller.appendToDraft(draftId, [
+        cmd("CreateDataSource", { id: id(), type: "csv", name: "B" }),
+      ]),
+    ]);
+
+    const stale = outcomes.filter(
+      (outcome): outcome is PromiseRejectedResult =>
+        outcome.status === "rejected" &&
+        outcome.reason?.name === "DraftLogStaleError",
+    );
+    expect(stale).toHaveLength(1);
+    expect(await controller.getDraftLog(draftId)).toHaveLength(2);
+  });
+
+  it("persists successful commands before an ordinary later validation failure", async () => {
+    const draftId = await controller.openDraft();
+    const goodId = id();
+    await expect(
+      controller.appendToDraft(draftId, [
+        cmd("CreateDataSource", {
+          id: goodId,
+          type: "csv",
+          name: "A-good",
+        }),
+        {
+          path: "createDataSource",
+          args: { type: "csv", name: "B-invalid" },
+        } as Command,
+      ]),
+    ).rejects.toThrow(/Validation failed/);
+
+    expect((await draftDataSourceRows(draftId)).map((row) => row.name)).toEqual(
+      ["A-good"],
+    );
+    expect(
+      (await controller.getDraftLog(draftId)).map(
+        (command) => (command.args as { name: string }).name,
+      ),
+    ).toEqual(["A-good"]);
+    await controller.publishDraft(draftId);
+    expect(
+      (await db.select().from(dataSources)).find(
+        (source) => source.id === goodId,
+      )?.name,
+    ).toBe("A-good");
+  });
+
+  it("clones before running a handler and retains only the prior successful snapshots", async () => {
+    const draftId = await controller.openDraft();
+    await expect(
+      controller.appendToDraft(draftId, [
+        cmd("CreateDataSource", {
+          id: id(),
+          type: "csv",
+          name: "A-cloned",
+        }),
+        {
+          path: "createDataSource",
+          args: { id: id(), type: "csv", name: () => "boom" },
+        } as Command,
+      ]),
+    ).rejects.toThrow(/could not be cloned/);
+
+    expect((await draftDataSourceRows(draftId)).map((row) => row.name)).toEqual(
+      ["A-cloned"],
+    );
+    expect(
+      (await controller.getDraftLog(draftId)).map(
+        (command) => (command.args as { name: string }).name,
+      ),
+    ).toEqual(["A-cloned"]);
+  });
+
   it("rolls back the canonical replay when the log delete fails mid-publish — no double-replay, draft survives for retry (GH #157)", async () => {
     // The crash-safety contract this slice exists to close. publishDraft replays
     // the command log onto canonical, then deletes the log + sweeps the shadow.
