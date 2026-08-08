@@ -128,6 +128,7 @@ export {
 import type { DashframeFunctionContext } from "../app-context";
 import { permissions } from "../permissions";
 import { wy } from "../wystack";
+import { sanitizeDashboardItemUpdates } from "./dashboard-item-updates";
 import {
   type InsightSource,
   insightSourceSchema,
@@ -1491,36 +1492,6 @@ function requireDashboardItem(value: unknown): DashboardItem {
   // `overrides` is passed through as-is — it is written by the fan-out primitive
   // which controls the shape; the per-field filter pin is validated there.
   return value as unknown as DashboardItem;
-}
-
-/**
- * Filter raw `updates` to the recognized DashboardItem fields with the correct
- * primitive types, dropping anything malformed. Mirrors sanitizeDashboardUpdates in
- * dashboards.ts so the raw command path cannot write `{ x: "left", width: null }`
- * into layout coordinates that consumers assume are numeric.
- */
-function sanitizeDashboardItemUpdates(
-  updates: Record<string, unknown>,
-): Partial<Omit<DashboardItem, "id" | "type">> {
-  const next: Partial<Omit<DashboardItem, "id" | "type">> = {};
-  if (typeof updates.visualizationId === "string") {
-    next.visualizationId = updates.visualizationId;
-  }
-  if (typeof updates.content === "string") next.content = updates.content;
-  if (typeof updates.x === "number") next.x = updates.x;
-  if (typeof updates.y === "number") next.y = updates.y;
-  if (typeof updates.width === "number") next.width = updates.width;
-  if (typeof updates.height === "number") next.height = updates.height;
-  // `overrides` is passed through as-is — callers use this to update or clear
-  // a panel's filter/sort/limit bag. The shape is opaque jsonb; downstream
-  // rendering validates filters at query time, not at the write boundary.
-  // An explicit `undefined` means "not updating overrides" (the key was absent
-  // in the updates object); `null` is not in the type so omit check mirrors
-  // the other field guards.
-  if ("overrides" in updates) {
-    next.overrides = updates.overrides as DashboardItemOverrides | undefined;
-  }
-  return next;
 }
 
 /**

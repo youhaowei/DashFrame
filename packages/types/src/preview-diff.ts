@@ -81,6 +81,8 @@ export interface PreviewCompute {
   rowCountAfter: number | null;
   /** A `head(n)` sample of the proposed result — column-major rows for the renderer. */
   head: Array<Record<string, unknown>>;
+  /** Human-readable labels keyed by the SQL aliases used in `head`. */
+  columnLabels?: Record<string, string>;
 }
 
 /**

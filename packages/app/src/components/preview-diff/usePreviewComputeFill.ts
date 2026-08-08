@@ -29,9 +29,12 @@
 import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import { getDataFrame } from "@/lib/data-access/data-frames";
 import { getDataTable } from "@/lib/data-access/data-tables";
+import { buildInsightColumnDisplayNames } from "@/lib/insight-column-display-names";
+import { buildInsightAvailableFields } from "@dashframe/engine";
 import { buildInsightSQL, ensureTableLoaded } from "@dashframe/engine-browser";
 import type {
   DataTable,
+  Field,
   Insight,
   PreviewCompute,
   PreviewDiff,
@@ -294,6 +297,39 @@ function indexDirectNodes(diff: PreviewDiff): DirectNodeIndex {
   return index;
 }
 
+function foldProposedFieldUpdate(
+  table: DataTable,
+  proposedDefinition: Record<string, unknown>,
+): DataTable {
+  if (typeof proposedDefinition.fieldId !== "string") return table;
+
+  const fields = table.fields ?? [];
+  const target = fields.find(
+    (field) => field.id === proposedDefinition.fieldId,
+  );
+  const updates = proposedDefinition.updates;
+  if (
+    !target ||
+    typeof updates !== "object" ||
+    updates === null ||
+    Array.isArray(updates)
+  ) {
+    return {
+      ...table,
+      fields: fields.filter((field) => field.id !== proposedDefinition.fieldId),
+    };
+  }
+
+  return {
+    ...table,
+    fields: fields.map((field) =>
+      field.id === proposedDefinition.fieldId
+        ? { ...field, ...updates, id: field.id }
+        : field,
+    ),
+  };
+}
+
 /**
  * Resolve a base-table id to a loadable DataTable.
  *
@@ -328,9 +364,10 @@ async function resolveBaseTable(
       // Same-batch update may re-point this table's dataFrameId. Overlay the
       // PROPOSED frame id so the count reflects the proposed table, not the
       // stale canonical one. (No proposed override → use canonical as-is.)
-      return proposedFrameId
+      const table = proposedFrameId
         ? { ...canonical, dataFrameId: proposedFrameId }
         : canonical;
+      return foldProposedFieldUpdate(table, def);
     }
     // create-node DataTable: the canonical store has no row (preview rolled
     // back). We can only compute if a proposed definition names a local
@@ -526,6 +563,24 @@ async function computeNode(
     return { rowCountBefore: null, rowCountAfter: null, head: [] };
   }
 
+  const resolvedFields: Field[] =
+    buildInsightAvailableFields(
+      proposedTables.baseTable,
+      proposedTables.joinedTables,
+      { joins: proposed.joins },
+    ) ??
+    (proposedTables.baseTable.fields ?? []).filter(
+      (field) => !field.name.startsWith("_"),
+    );
+  const columnLabels = buildInsightColumnDisplayNames(
+    proposed,
+    resolvedFields,
+    {
+      baseTable: proposedTables.baseTable,
+      joinedTables: proposedTables.joinedTables,
+    },
+  );
+
   const [rowCountAfter, head, rowCountBefore] = await Promise.all([
     computeRowCount(proposed, proposedTables, conn),
     computeHead(proposed, proposedTables, conn),
@@ -534,7 +589,7 @@ async function computeNode(
       : Promise.resolve(null),
   ]);
 
-  return { rowCountBefore, rowCountAfter, head };
+  return { rowCountBefore, rowCountAfter, head, columnLabels };
 }
 
 // ---------------------------------------------------------------------------

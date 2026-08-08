@@ -15,6 +15,7 @@ interface CreateVisualizationModalProps {
   isOpen: boolean;
   onClose: () => void;
   visualizeOnCreate?: boolean;
+  title?: string;
 }
 
 /**
@@ -28,6 +29,7 @@ export function CreateVisualizationModal({
   isOpen,
   onClose,
   visualizeOnCreate = false,
+  title = "Create Visualization",
 }: CreateVisualizationModalProps) {
   const navigate = useNavigate();
   const { createInsightFromTable, createInsightFromInsight } =
@@ -87,7 +89,7 @@ export function CreateVisualizationModal({
       <DataPickerModal
         isOpen={isOpen && !selectedInsight}
         onClose={onClose}
-        title="Create Visualization"
+        title={title}
         onInsightSelect={handleInsightSelect}
         onTableSelect={handleTableSelect}
         showInsights={true}

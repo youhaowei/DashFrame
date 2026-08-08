@@ -11,6 +11,7 @@
  * 5. Compute stays client-side: the mock seam is DuckDB, not an RPC call.
  */
 
+import { fieldIdToColumnAlias } from "@dashframe/engine";
 import type {
   PreviewCompute,
   PreviewDiff,
@@ -574,6 +575,69 @@ describe("usePreviewComputeFill", () => {
       expect(proposedInsight.selectedFields).toEqual(["fld-a", "fld-b"]);
       // baseTableId comes from the canonical definition (not lost in the fold).
       expect(proposedInsight.baseTableId).toBe(tableId);
+    });
+
+    it("uses proposed table field names for selected-field column labels", async () => {
+      const tableId = "10101010-1010-1010-1010-101010101010";
+      const fieldId = "30303030-3030-3030-3030-303030303030";
+      const table = {
+        ...makeDataTable(tableId),
+        fields: [
+          {
+            id: fieldId,
+            name: "Revenue",
+            tableId,
+            columnName: "revenue",
+            type: "number",
+          },
+        ],
+      };
+
+      mockGetDataTable.mockResolvedValue(table);
+      mockGetDataFrame.mockResolvedValue(makeDataFrame(`df-${tableId}`));
+      mockEnsureTableLoaded.mockResolvedValue(undefined);
+      mockBuildInsightSQL.mockReturnValue(
+        "SELECT revenue FROM proposed_fields",
+      );
+      mockQuery
+        .mockResolvedValueOnce(makeCountResult(1))
+        .mockResolvedValueOnce(makeHeadResult([{ revenue: 1 }]))
+        .mockResolvedValueOnce(makeCountResult(1));
+
+      const tableNode: PreviewDirectNode = {
+        ...nonInsightNode(tableId),
+        nodeId: tableId as PreviewDirectNode["nodeId"],
+        before: { fields: table.fields },
+        proposedDefinition: {
+          fieldId,
+          updates: { name: "Net revenue" },
+        },
+      };
+      const insightNodeWithSelection = insightNode(
+        "n-proposed-fields",
+        "update",
+        {
+          baseTableId: tableId,
+          before: {
+            definition: {
+              baseTableId: tableId,
+              selectedFields: [],
+              metrics: [],
+            },
+          },
+          proposedDefinition: { fieldIds: [fieldId] },
+        },
+      );
+
+      const diff = makeDiff([tableNode, insightNodeWithSelection]);
+      const { result } = renderHook(() => usePreviewComputeFill(diff));
+
+      await waitFor(() => expect(result.current.allResolved).toBe(true));
+
+      const compute = result.current.diff?.directNodes[1]?.compute;
+      expect(compute?.columnLabels?.[fieldIdToColumnAlias(fieldId)]).toBe(
+        "Net revenue",
+      );
     });
 
     it("maps proposedDefinition.source.sourceId → baseTableId (SetInsightSource)", async () => {

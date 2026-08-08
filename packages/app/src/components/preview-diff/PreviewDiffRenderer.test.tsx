@@ -13,6 +13,7 @@
  * 7. Empty state when no direct nodes and no error.
  */
 
+import { fieldIdToColumnAlias } from "@dashframe/engine";
 import type {
   PreviewCompute,
   PreviewDiff,
@@ -131,6 +132,350 @@ describe("PreviewDiffRenderer", () => {
       expect(screen.getByText("Data Table")).toBeDefined();
       expect(screen.queryByText(/Computing/)).toBeNull();
     });
+
+    it("renders the actual field change from the node's before slice", () => {
+      const node: PreviewDirectNode = {
+        ...dataTableNode("dt-field"),
+        before: {
+          fields: [
+            {
+              id: "3c4708a7-a85d-457e-b69d-3226b0a1cfd5",
+              name: "revenue",
+            },
+          ],
+        },
+        proposedDefinition: {
+          nodeId: "dt-field",
+          fieldId: "3c4708a7-a85d-457e-b69d-3226b0a1cfd5",
+          updates: { name: "Revenue (USD)" },
+        },
+      };
+
+      render(<PreviewDiffRenderer diff={makeDiff([node])} />);
+
+      expect(
+        screen.getByText(
+          (_, element) =>
+            element?.tagName === "LI" &&
+            element.textContent === "name: revenue → Revenue (USD)",
+        ),
+      ).toBeDefined();
+    });
+
+    it("renders a merged nested update once without fabricating target changes", () => {
+      const node: PreviewDirectNode = {
+        ...dataTableNode("dt-merged-nested-update"),
+        before: {
+          fields: [
+            {
+              id: "3c4708a7-a85d-457e-b69d-3226b0a1cfd5",
+              name: "revenue",
+            },
+          ],
+          metrics: [
+            {
+              id: "fdd13f3e-b880-4524-a829-6515aeb7ccc7",
+              name: "Revenue",
+            },
+          ],
+        },
+        proposedDefinition: {
+          nodeId: "dt-merged-nested-update",
+          fieldId: "3c4708a7-a85d-457e-b69d-3226b0a1cfd5",
+          metricId: "fdd13f3e-b880-4524-a829-6515aeb7ccc7",
+          updates: { name: "Total revenue", format: "currency" },
+        },
+      };
+
+      render(<PreviewDiffRenderer diff={makeDiff([node])} />);
+
+      expect(
+        screen.getByText(
+          (_, element) =>
+            element?.tagName === "LI" &&
+            element.textContent ===
+              "one of: field revenue, metric Revenue — name: — → Total revenue",
+        ),
+      ).toBeDefined();
+      expect(
+        screen.getByText(
+          (_, element) =>
+            element?.tagName === "LI" &&
+            element.textContent ===
+              "one of: field revenue, metric Revenue — format: — → currency",
+        ),
+      ).toBeDefined();
+      expect(
+        screen.queryByText(
+          (_, element) =>
+            element?.tagName === "LI" &&
+            element.textContent === "name: revenue → Total revenue",
+        ),
+      ).toBeNull();
+      expect(
+        screen.queryByText(
+          (_, element) =>
+            element?.tagName === "LI" &&
+            element.textContent === "name: Revenue → Total revenue",
+        ),
+      ).toBeNull();
+    });
+
+    it("renders a resolved join update from its positional index", () => {
+      const node: PreviewDirectNode = {
+        ...insightNode("join-update", "update"),
+        before: { joins: [{ name: "Orders users", type: "inner" }] },
+        proposedDefinition: { joinIndex: 0, updates: { type: "left" } },
+      };
+
+      render(<PreviewDiffRenderer diff={makeDiff([node])} />);
+
+      expect(
+        screen.getByText(
+          (_, element) =>
+            element?.tagName === "LI" &&
+            element.textContent === "type: inner → left",
+        ),
+      ).toBeDefined();
+    });
+
+    it("keeps unresolvable merged targets in the ambiguous label", () => {
+      const fieldId = "3c4708a7-a85d-457e-b69d-3226b0a1cfd5";
+      const node: PreviewDirectNode = {
+        ...dataTableNode("partially-resolved-merged-update"),
+        before: { fields: [{ id: fieldId }] },
+        proposedDefinition: {
+          nodeId: "partially-resolved-merged-update",
+          fieldId,
+          joinIndex: 0,
+          updates: { name: "Renamed field" },
+        },
+      };
+
+      render(<PreviewDiffRenderer diff={makeDiff([node])} />);
+
+      expect(
+        screen.getByText(
+          (_, element) =>
+            element?.tagName === "LI" &&
+            element.textContent ===
+              "one of: field 3c4708a7…, join #0 — name: — → Renamed field",
+        ),
+      ).toBeDefined();
+      expect(
+        screen.queryByText(
+          (_, element) =>
+            element?.tagName === "LI" &&
+            element.textContent === "name: — → Renamed field",
+        ),
+      ).toBeNull();
+    });
+
+    it("does not render a fallback row for a resolved no-op nested update", () => {
+      const node: PreviewDirectNode = {
+        ...dataTableNode("unchanged-field"),
+        before: { fields: [{ id: "f1", name: "revenue" }] },
+        proposedDefinition: {
+          nodeId: "unchanged-field",
+          fieldId: "f1",
+          updates: { name: "revenue" },
+        },
+      };
+
+      render(<PreviewDiffRenderer diff={makeDiff([node])} />);
+
+      expect(screen.queryByText(/name:/)).toBeNull();
+    });
+
+    it("expands dashboard item updates into per-key detail rows", () => {
+      const node: PreviewDirectNode = {
+        ...dataTableNode("dashboard-item"),
+        before: {
+          layout: [
+            {
+              id: "item-1",
+              type: "markdown",
+              x: 1,
+              y: 2,
+              width: 3,
+              height: 2,
+            },
+          ],
+        },
+        proposedDefinition: {
+          nodeId: "dashboard-item",
+          itemId: "item-1",
+          updates: { width: 4, height: 2, unsupported: true },
+        },
+      };
+
+      render(<PreviewDiffRenderer diff={makeDiff([node])} />);
+
+      expect(
+        screen.getByText(
+          (_, element) =>
+            element?.tagName === "LI" && element.textContent === "width: 3 → 4",
+        ),
+      ).toBeDefined();
+      expect(
+        screen.queryByText(
+          (_, element) =>
+            element?.tagName === "LI" &&
+            element.textContent === "height: 2 → 2",
+        ),
+      ).toBeNull();
+      expect(screen.queryByText(/unsupported:/)).toBeNull();
+      expect(screen.queryByText(/updates:/)).toBeNull();
+    });
+
+    it("redacts secret references in detail rows", () => {
+      const oldSecretRef = "secret:3c4708a7-a85d-457e-b69d-3226b0a1cfd5";
+      const newSecretRef = "secret:fdd13f3e-b880-4524-a829-6515aeb7ccc7";
+      const node: PreviewDirectNode = {
+        ...dataTableNode("secret-config"),
+        before: { apiKey: oldSecretRef },
+        proposedDefinition: { apiKey: newSecretRef },
+      };
+
+      render(<PreviewDiffRenderer diff={makeDiff([node])} />);
+
+      expect(
+        screen.getByText(
+          (_, element) =>
+            element?.tagName === "LI" &&
+            element.textContent === "apiKey: •••••• → ••••••",
+        ),
+      ).toBeDefined();
+      expect(screen.queryByText(oldSecretRef)).toBeNull();
+      expect(screen.queryByText(newSecretRef)).toBeNull();
+    });
+
+    it("expands an unresolvable field update into per-key detail rows", () => {
+      const node: PreviewDirectNode = {
+        ...dataTableNode("missing-field"),
+        before: { fields: [] },
+        proposedDefinition: {
+          nodeId: "missing-field",
+          fieldId: "missing-field-id",
+          updates: { name: "Renamed field" },
+        },
+      };
+
+      render(<PreviewDiffRenderer diff={makeDiff([node])} />);
+
+      expect(
+        screen.getByText(
+          (_, element) =>
+            element?.tagName === "LI" &&
+            element.textContent === "name: — → Renamed field",
+        ),
+      ).toBeDefined();
+      expect(screen.queryByText(/updates:/)).toBeNull();
+    });
+
+    it("compares source objects using their stored source shape", () => {
+      const node: PreviewDirectNode = {
+        ...insightNode("source", "update"),
+        before: {
+          definition: {
+            source: { sourceType: "dataTable", sourceId: "table-1" },
+            baseTableId: "table-1",
+          },
+        },
+        proposedDefinition: {
+          source: { sourceType: "dataTable", sourceId: "table-1" },
+        },
+      };
+
+      render(<PreviewDiffRenderer diff={makeDiff([node])} />);
+
+      expect(screen.queryByText(/source:/)).toBeNull();
+    });
+
+    it("normalizes chart operands to their stored visualization shape", () => {
+      const node: PreviewDirectNode = {
+        ...dataTableNode("chart-type"),
+        before: { chartType: "barY", options: { spec: { mark: "bar" } } },
+        proposedDefinition: {
+          visualizationType: "line",
+          spec: { mark: "line" },
+        },
+      };
+
+      render(<PreviewDiffRenderer diff={makeDiff([node])} />);
+
+      expect(
+        screen.getByText(
+          (_, element) =>
+            element?.tagName === "LI" &&
+            element.textContent === "chartType: barY → line",
+        ),
+      ).toBeDefined();
+      expect(
+        screen.getByText(
+          (_, element) =>
+            element?.tagName === "LI" &&
+            element.textContent === 'spec: {"mark":"bar"} → {"mark":"line"}',
+        ),
+      ).toBeDefined();
+    });
+
+    it("renders changed source objects without comparing them to baseTableId", () => {
+      const node: PreviewDirectNode = {
+        ...insightNode("changed-source", "update"),
+        before: {
+          definition: {
+            source: { sourceType: "dataTable", sourceId: "table-1" },
+            baseTableId: "table-1",
+          },
+        },
+        proposedDefinition: {
+          source: { sourceType: "dataTable", sourceId: "table-2" },
+        },
+      };
+
+      render(<PreviewDiffRenderer diff={makeDiff([node])} />);
+
+      expect(
+        screen.getByText(
+          (_, element) =>
+            element?.tagName === "LI" &&
+            element.textContent ===
+              'source: {"sourceType":"dataTable","sourceId":"table-1"} → {"sourceType":"dataTable","sourceId":"table-2"}',
+        ),
+      ).toBeDefined();
+    });
+
+    it("does not render a change for objects with reordered keys", () => {
+      const node: PreviewDirectNode = {
+        ...insightNode("same-filter", "update"),
+        before: {
+          definition: { filters: [{ field: "region", op: "eq" }] },
+        },
+        proposedDefinition: {
+          filters: [{ op: "eq", field: "region" }],
+        },
+      };
+
+      render(<PreviewDiffRenderer diff={makeDiff([node])} />);
+
+      expect(screen.queryByText(/filters:/)).toBeNull();
+    });
+
+    it("does not render detail rows for a create node", () => {
+      const node: PreviewDirectNode = {
+        ...insightNode("new-insight", "create"),
+        proposedDefinition: {
+          baseTableId: "table-1",
+          selectedFields: ["field-1"],
+        },
+      };
+
+      render(<PreviewDiffRenderer diff={makeDiff([node])} />);
+
+      expect(screen.queryByText(/baseTableId:/)).toBeNull();
+      expect(screen.queryByText(/selectedFields:/)).toBeNull();
+    });
   });
 
   describe("pending indicator — compute===undefined for active insight node", () => {
@@ -189,21 +534,36 @@ describe("PreviewDiffRenderer", () => {
     });
 
     it("renders head rows when compute is filled with head data", () => {
+      const regionFieldId = "fdd13f3e-b880-4524-a829-6515aeb7ccc7";
+      const revenueFieldId = "3c4708a7-a85d-457e-b69d-3226b0a1cfd5";
+      const regionAlias = fieldIdToColumnAlias(regionFieldId);
+      const revenueAlias = fieldIdToColumnAlias(revenueFieldId);
       const compute: PreviewCompute = {
         rowCountBefore: null,
         rowCountAfter: 3,
         head: [
-          { name: "Alice", score: 100 },
-          { name: "Bob", score: 200 },
+          {
+            [regionAlias]: "Alice",
+            [revenueAlias]: 100,
+          },
+          {
+            [regionAlias]: "Bob",
+            [revenueAlias]: 200,
+          },
         ],
+        columnLabels: {
+          [regionAlias]: "region",
+          [revenueAlias]: "Revenue (USD)",
+        },
       };
       const diff = makeDiff([insightNode("ins-head", "create", compute)]);
 
       render(<PreviewDiffRenderer diff={diff} />);
 
       // Column headers.
-      expect(screen.getByText("name")).toBeDefined();
-      expect(screen.getByText("score")).toBeDefined();
+      expect(screen.getByText("region")).toBeDefined();
+      expect(screen.getByText("Revenue (USD)")).toBeDefined();
+      expect(screen.queryByText(regionAlias)).toBeNull();
       // Row values.
       expect(screen.getByText("Alice")).toBeDefined();
       expect(screen.getByText("Bob")).toBeDefined();

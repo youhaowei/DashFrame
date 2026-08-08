@@ -309,6 +309,7 @@ export default function DataSourcesPage() {
       <CreateVisualizationModal
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
+        title="Add Data Source"
       />
     </div>
   );

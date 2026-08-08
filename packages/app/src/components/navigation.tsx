@@ -39,7 +39,7 @@ import {
   SettingsIcon,
   SparklesIcon,
 } from "@wystack/ui-react/icons";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 
 import {
   DESKTOP_NAV_BREAKPOINT_CLASS,
@@ -90,6 +90,7 @@ interface SidebarContentProps {
   onClearData?: () => void;
   onAssistantProviders?: () => void;
   onAccessCredentials?: () => void;
+  onNavigate?: () => void;
   /**
    * Extra rows for the footer, below Settings/Open source — dev tooling like
    * the perf HUD. Supplied only by the desktop nav so the mobile dialog doesn't
@@ -103,6 +104,7 @@ function SidebarContent({
   onClearData,
   onAssistantProviders,
   onAccessCredentials,
+  onNavigate,
   footerSlot,
   pendingDraftCount,
 }: SidebarContentProps) {
@@ -138,6 +140,7 @@ function SidebarContent({
             <Link
               key={item.name}
               to={item.href as never}
+              onClick={onNavigate}
               className={cn(
                 "group flex items-center gap-3 rounded-lg px-2.5 py-2 transition-colors",
                 isActive
@@ -223,6 +226,7 @@ function SidebarContent({
 
 export function Navigation() {
   const navigate = useNavigate();
+  const pathname = useLocation({ select: (location) => location.pathname });
   const [isOpen, setIsOpen] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showAccessCredentials, setShowAccessCredentials] = useState(false);
@@ -235,6 +239,9 @@ export function Navigation() {
   const leftNavOpen = useShellStore((s) => s.leftNavOpen);
 
   const { showError, showSuccess } = useToastStore();
+
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- route changes must dismiss the modal drawer.
+  useEffect(() => setIsOpen(false), [pathname]);
 
   const handleClearAllData = async () => {
     try {
@@ -293,7 +300,10 @@ export function Navigation() {
 
       {/* Mobile Sidebar Dialog */}
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
-        <DialogContent className="max-w-xs gap-0 border-0 p-0">
+        <DialogContent
+          className="max-w-xs gap-0 border-0 p-0"
+          showCloseButton={false}
+        >
           <div className="flex h-screen flex-col">
             <div className="flex items-center justify-between border-b border-neutral-border/60 p-4">
               <span className="text-sm font-semibold">Menu</span>
@@ -308,6 +318,7 @@ export function Navigation() {
             <div className="flex-1 overflow-y-auto">
               <SidebarContent
                 pendingDraftCount={drafts.length}
+                onNavigate={() => setIsOpen(false)}
                 onClearData={() => setShowClearConfirm(true)}
                 onAssistantProviders={() => setAssistantSetupOpen(true)}
                 onAccessCredentials={
