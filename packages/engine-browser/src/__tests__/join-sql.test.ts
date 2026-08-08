@@ -1,13 +1,12 @@
 /**
  * Unit tests for the join type → DuckDB SQL keyword mapping.
  *
- * Guards the exact mapping used at all three preview SQL emit sites:
- *   - engine-browser/src/insight.ts (Insight.toSQL)
+ * Guards the exact mapping used at both preview SQL emit sites:
  *   - engine-browser/src/query-builder.ts (QueryBuilder.buildFromClause)
  *   - packages/app/JoinConfigureContent.tsx (join preview DuckDB query)
  *
  * "OUTER JOIN" alone is invalid DuckDB SQL; this mapping centralises the fix so
- * the bug class cannot recur silently at any of these three call sites.
+ * the bug class cannot recur silently at either call site.
  */
 
 import { describe, expect, it } from "vitest";

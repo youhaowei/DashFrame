@@ -15,7 +15,6 @@ import type {
 import { CARDINALITY_THRESHOLDS } from "@dashframe/types";
 import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
 import { debugLog } from "./debug";
-import { Insight } from "./insight";
 
 // Re-export types and utilities from @dashframe/types for backward compatibility
 export {
@@ -998,98 +997,14 @@ export async function analyzeView(
   }
 }
 
-// ============================================================================
-// Insight Analysis - Run DuckDB analysis on Insight result (LEGACY)
-// ============================================================================
-
 /**
- * Analyze an Insight's result using DuckDB.
- *
- * @deprecated Use `analyzeView()` with a view created by `useInsightView()` instead.
- * This function uses `insight.toSQL()` which generates original column names,
- * not UUID-based aliases. For consistent column naming with visualizations,
- * use the view created by useInsightView and analyze with `analyzeView()`.
- *
- * Uses `insight.toSQL()` to get the query (handles joins, aggregation, filters),
- * then runs full statistical analysis on the result columns.
- *
- * @param conn - DuckDB connection
- * @param insight - Insight instance with toSQL() method
- * @returns Column analysis for all columns in the Insight result
- */
-export async function analyzeInsight(
-  conn: AsyncDuckDBConnection,
-  insight: Insight,
-): Promise<ColumnAnalysis[]> {
-  const tempViewName = `__insight_analysis_${Date.now()}`;
-
-  try {
-    // 1. Get SQL from Insight (handles joins, aggregation, GROUP BY)
-    const insightSQL = insight.toSQL();
-
-    // 2. Create temporary view from Insight SQL
-    // This may fail if tables haven't been loaded into DuckDB yet
-    try {
-      await conn.query(
-        `CREATE OR REPLACE TEMP VIEW "${tempViewName}" AS ${insightSQL}`,
-      );
-    } catch (e) {
-      // If table doesn't exist, return empty analysis
-      // The caller's effect will re-run when tables are loaded
-      const errorMessage = e instanceof Error ? e.message : String(e);
-      if (errorMessage.includes("does not exist")) {
-        debugLog("analyze", "Tables not yet loaded, skipping analysis");
-        return [];
-      }
-      throw e; // Re-throw other errors
-    }
-
-    // 3. Get column info from the view
-    const columnsResult = await conn.query(`DESCRIBE "${tempViewName}"`);
-    const columnsArray = columnsResult.toArray();
-
-    // Build columns array with type info
-    const columns: DataFrameColumn[] = columnsArray.map((row) => ({
-      name: String(row.column_name),
-      type: mapDuckDBTypeToDataFrameType(String(row.column_type)),
-    }));
-
-    // 4. Get row count for analysis
-    const countResult = await conn.query(
-      `SELECT COUNT(*) as cnt FROM "${tempViewName}"`,
-    );
-    const totalRows = Number(countResult.toArray()[0]?.cnt ?? 0);
-
-    // 5. Run full analysis on the view
-    const analysis = await analyzeDataFrame(
-      conn,
-      tempViewName,
-      columns,
-      undefined, // fields - not needed, analysis infers from data
-      totalRows,
-    );
-
-    return analysis;
-  } finally {
-    // Clean up temporary view
-    try {
-      await conn.query(`DROP VIEW IF EXISTS "${tempViewName}"`);
-    } catch {
-      // Ignore cleanup errors
-    }
-  }
-}
-
-/**
- * Map DuckDB type string to DataFrameColumn type.
- * Used when creating column metadata from DESCRIBE query.
+ * Map DuckDB type strings to DataFrameColumn types from DESCRIBE output.
  */
 function mapDuckDBTypeToDataFrameType(
   duckDBType: string,
 ): DataFrameColumn["type"] {
   const upper = duckDBType.toUpperCase();
 
-  // Numeric types
   if (
     upper.includes("INT") ||
     upper.includes("DECIMAL") ||
@@ -1105,7 +1020,6 @@ function mapDuckDBTypeToDataFrameType(
     return "number";
   }
 
-  // Date/time types
   if (
     upper.includes("DATE") ||
     upper.includes("TIME") ||
@@ -1115,11 +1029,9 @@ function mapDuckDBTypeToDataFrameType(
     return "date";
   }
 
-  // Boolean
   if (upper === "BOOLEAN" || upper === "BOOL") {
     return "boolean";
   }
 
-  // Default to string
   return "string";
 }
