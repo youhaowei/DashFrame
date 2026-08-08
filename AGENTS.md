@@ -170,11 +170,18 @@ fresh worktree has no `node_modules` at all: no Electron binary, no vitest, and
 no resolvable `@wystack/*` imports.) You still need `bun run build:wystack`
 before the `@wystack/*` **built** output exists.
 
-On an **existing** worktree the install is a best-effort refresh, not a
-guarantee: it runs unfrozen, and a failure warns and still prints the path,
-because you may have edited a manifest without regenerating the lockfile and
-withholding the path would strand the work already in that tree. Read the
-warning — dependencies there may be stale.
+The install happens **once per worktree**, on first provision, and it runs
+`--frozen-lockfile` so bootstrapping can never rewrite `bun.lock`. An
+already-provisioned worktree is handed back untouched — re-running the script
+is free and safe. That matters if you use `bun link` to point an `@wystack/*`
+package at a checkout elsewhere: an install would silently undo the link (see
+`README.md`), so the script does not run one behind your back. Refresh
+dependencies yourself with `bun install` when you have changed a manifest.
+
+If the first provision fails — no `bun` on `PATH`, or a lockfile that does not
+match the branch — the script exits non-zero and leaves the worktree in place.
+Re-running it resumes the install rather than treating the half-provisioned
+tree as ready.
 
 If it fails, STOP — do not improvise another location.
 
