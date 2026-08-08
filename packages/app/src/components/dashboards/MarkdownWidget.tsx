@@ -22,16 +22,21 @@ export function MarkdownWidget({
   isSaving = false,
   className,
 }: MarkdownWidgetProps) {
-  // Edit buffer — initialized from `content` and reset when `content` changes
-  // externally (i.e. saved from another session or undo).
+  // Edit buffer — initialized from `content` and synced with external changes
+  // (i.e. saved from another session or undo) only while not editing.
   const [value, setValue] = useState(content);
   const prevContentRef = useRef(content);
+  const wasEditingRef = useRef(isEditing);
   useEffect(() => {
-    if (prevContentRef.current !== content) {
-      prevContentRef.current = content;
+    if (
+      !isEditing &&
+      (wasEditingRef.current || prevContentRef.current !== content)
+    ) {
       setValue(content);
     }
-  }, [content]);
+    prevContentRef.current = content;
+    wasEditingRef.current = isEditing;
+  }, [content, isEditing]);
 
   if (isEditing) {
     return (
