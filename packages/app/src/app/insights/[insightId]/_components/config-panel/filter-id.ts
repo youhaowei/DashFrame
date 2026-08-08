@@ -18,15 +18,36 @@ export function deriveFilterId(filter: InsightFilter): string {
   return filter.id;
 }
 
+/**
+ * Identity for a stored filter that predates persisted ids.
+ *
+ * Derived from the predicate's own content, never from array position, and
+ * never freshly generated: hydration runs again on every refetch, so a random
+ * id would differ between the list a dialog was opened from and the list its
+ * save merges into — `applyFilterSave` would miss and append a duplicate,
+ * which is the exact misroute persisted ids exist to prevent. Content is the
+ * only source that is stable across both a refetch and a reorder.
+ *
+ * Two byte-identical predicates collapse to one identity. They are the same
+ * predicate, so an edit routing to the first of them is the same outcome as
+ * routing to the second; that is strictly better than appending a third.
+ *
+ * The `legacy:` prefix keeps these distinguishable from persisted ids, which
+ * are UUIDs. Saving such a row promotes this value to its persisted `id`.
+ */
+function legacyFilterId(filter: InsightFilter): string {
+  const value = JSON.stringify(filter.value ?? null);
+  return `legacy:${filter.field}:${filter.operator}:${value}`;
+}
+
 /** Attach stable client ids to a persisted filter list. */
 export function withFilterIds(
   filters: InsightFilter[] | undefined,
 ): FilterWithId[] {
   return (filters ?? []).map((filter) => {
-    // All API write paths persist this id. This defensive hydration only keeps
-    // legacy rows usable until their next save; it never derives identity from
-    // content or array position.
-    const id = filter.id ?? crypto.randomUUID();
+    // All API write paths stamp this id, so the fallback only covers rows
+    // stored before they did.
+    const id = filter.id ?? legacyFilterId(filter);
     return { ...filter, id, _id: deriveFilterId({ ...filter, id }) };
   });
 }

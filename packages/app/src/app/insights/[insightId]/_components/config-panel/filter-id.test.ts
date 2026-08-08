@@ -188,4 +188,43 @@ describe("prepareFilterForSave — distinct id per Add (data-loss guard)", () =>
     expect(list.find((f) => f.id === "uuid-A")?.value).toBe(1);
     expect(list.find((f) => f.id === "uuid-B")?.value).toBe("north");
   });
+
+  it("keeps a legacy id-less filter's identity stable across a refetch", () => {
+    // Rows stored before filters carried persisted ids. Hydration runs again on
+    // every subscription update, so an identity minted per hydration would
+    // differ between the list the dialog opened from and the list its save
+    // merges into, and the save would append a duplicate instead of updating.
+    const stored = [{ field: "amount", operator: "eq" as const, value: 1 }];
+
+    const opened = withFilterIds(stored)[0]!;
+    const afterRefetch = withFilterIds(stored);
+
+    const saved = prepareFilterForSave({ ...opened, value: 2 });
+    const merged = applyFilterSave(afterRefetch, saved);
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0]!.value).toBe(2);
+    // The derived identity is promoted to the persisted id, so the next write
+    // stores it and the row stops being legacy.
+    expect(merged[0]!.id).toBe(opened._id);
+  });
+
+  it("keeps legacy identities stable when the stored order changes", () => {
+    // A concurrent update can reorder the array. Identity must follow the
+    // predicate, not its index, or the edit misroutes to its neighbour.
+    const a = { field: "amount", operator: "eq" as const, value: 1 };
+    const b = { field: "region", operator: "eq" as const, value: "north" };
+
+    const opened = withFilterIds([a, b])[0]!;
+    const reordered = withFilterIds([b, a]);
+
+    const merged = applyFilterSave(
+      reordered,
+      prepareFilterForSave({ ...opened, value: 2 }),
+    );
+
+    expect(merged).toHaveLength(2);
+    expect(merged.find((f) => f.field === "amount")?.value).toBe(2);
+    expect(merged.find((f) => f.field === "region")?.value).toBe("north");
+  });
 });
