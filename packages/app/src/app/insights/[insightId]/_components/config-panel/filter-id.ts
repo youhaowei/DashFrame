@@ -34,21 +34,23 @@ export function deriveFilterId(filter: InsightFilter): string {
  * and `handleRemoveFilter` drops every match, so a shared identity would edit
  * or delete the pair. The occurrence index among *identical* predicates
  * disambiguates them. It is an ordinal assigned by traversal order within the
- * identical group, reassigned on every hydration — so a given `_id` is not
- * bound to a particular row, only to a slot in that group. Since the members
- * of the group are byte-identical, landing on a different member is not
- * observable: whichever one the save replaces, the list ends up with the same
- * contents.
+ * identical group and reassigned on every hydration, so it identifies a SLOT,
+ * not a logical row. Reordering or inserting identical predicates can transfer
+ * that ordinal to another row. `applyFilterSave` still resolves and replaces
+ * one entry rather than appending, but the transfer can become observable
+ * after editing, because `map` preserves array position: the changed predicate
+ * may land at a different position relative to the non-identical filters
+ * around it. `[A, X, A]` reordered to `[A, X, A]` (the two A's swapped) and
+ * then saved from an edit opened on the first A yields `[A', X, A]` where
+ * following the logical row would have yielded `[A, X, A']`.
  *
- * The one case that IS observable is a concurrent delete that shrinks the
- * group below the saved ordinal. Then the `_id` matches nothing, and
- * `applyFilterSave` appends the edit as a new filter instead of replacing one
- * — the user gets a duplicate and their original is left unedited. Insertion
- * is safe by the same argument as above: the group only grows, so every
- * previous ordinal still resolves. This window is reachable only for rows
- * stored before filters carried ids, and only for byte-identical duplicates;
- * saving any such row promotes a persisted `id` and closes it for good.
- * Tracked as issue #309.
+ * Only a delete that shrinks the group past the saved ordinal produces the
+ * no-match case: then `applyFilterSave` appends the edit as a new filter
+ * instead of replacing one, so the user gets a duplicate and their original is
+ * left unedited. Both windows are reachable only for rows stored before
+ * filters carried ids, and only for byte-identical duplicates; saving any such
+ * row promotes a persisted `id` and closes them for good. Tracked as issue
+ * #309.
  *
  * The `legacy:` prefix keeps these distinguishable from persisted ids, which
  * are UUIDs. Saving such a row promotes this value to its persisted `id`.
