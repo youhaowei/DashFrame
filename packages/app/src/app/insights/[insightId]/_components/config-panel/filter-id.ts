@@ -21,12 +21,11 @@ export function deriveFilterId(filter: InsightFilter): string {
 /**
  * Identity for a stored filter that predates persisted ids.
  *
- * Derived from the predicate's own content, never from array position, and
- * never freshly generated: hydration runs again on every refetch, so a random
- * id would differ between the list a dialog was opened from and the list its
- * save merges into — `applyFilterSave` would miss and append a duplicate,
- * which is the exact misroute persisted ids exist to prevent. Content is the
- * only source that is stable across both a refetch and a reorder.
+ * Derived from the predicate's content plus its occurrence position among
+ * identical predicates — never from its absolute array index, and never
+ * freshly generated: hydration runs again on every refetch, so a random id
+ * would differ between the list a dialog was opened from and the list its save
+ * merges into, and `applyFilterSave` would miss and append instead of update.
  *
  * Byte-identical predicates must still get distinct identities. They remain
  * separate list entries, and editing or removing one of them is not the same
@@ -44,16 +43,20 @@ export function deriveFilterId(filter: InsightFilter): string {
  * then saved from an edit opened on the first A yields `[A', X, A]` where
  * following the logical row would have yielded `[A, X, A']`.
  *
- * Only a delete that shrinks the group past the saved ordinal produces the
- * no-match case: then `applyFilterSave` appends the edit as a new filter
- * instead of replacing one, so the user gets a duplicate and their original is
- * left unedited. Both windows are reachable only for rows stored before
- * filters carried ids, and only for byte-identical duplicates; saving any such
- * row promotes a persisted `id` and closes them for good. Tracked as issue
+ * That ordinal transfer is specific to legacy byte-identical duplicates, and
+ * saving any such row promotes a persisted `id`, which closes it for good.
+ *
+ * The other failure is NOT legacy-specific. `applyFilterSave` appends whenever
+ * the current list lacks the saved `_id`, so any concurrent delete of the row
+ * being edited — legacy or persisted, duplicate or not — makes the save
+ * resurrect it rather than update it. For legacy identities, deleting enough
+ * identical members reaches the same state by renumbering. Tracked as issue
  * #309.
  *
- * The `legacy:` prefix keeps these distinguishable from persisted ids, which
- * are UUIDs. Saving such a row promotes this value to its persisted `id`.
+ * The `legacy:` prefix distinguishes these fallback identities from freshly
+ * generated UUIDs. It is not a marker of being unsaved: saving a legacy row
+ * persists this `legacy:` value as its `id`, so a persisted id is not
+ * necessarily a UUID.
  */
 function legacyFilterId(filter: InsightFilter, occurrence: number): string {
   const value = JSON.stringify(filter.value ?? null);
@@ -127,9 +130,11 @@ export function prepareFilterForSave(
 
 /**
  * Merge a saved filter into the current list: update the row whose `_id`
- * matches, else append. Matching on the persisted-id-derived `_id` means a
- * concurrent reorder between open and save cannot route the edit to the wrong
- * predicate — the id travels with the filter, not its index.
+ * matches, else append. For a filter with a persisted id, that id travels with
+ * the filter rather than its index, so a concurrent reorder between open and
+ * save cannot route the edit to the wrong predicate. The guarantee is weaker
+ * for legacy identities and for concurrent deletes — see `legacyFilterId` and
+ * issue #309.
  */
 export function applyFilterSave(
   current: FilterWithId[],
