@@ -14,7 +14,7 @@ interface SensitivityBadgeProps {
  * Privacy badge for a field row. Single rendering of the sensitivity states
  * shared by every field list:
  * - sensitive → danger badge carrying the stored why
- * - unclassified + suggestion → clickable warning badge (confirm = mark)
+ * - unclassified + suggestion → clickable warning badge when onConfirmSuggestion is supplied; otherwise read-only
  * - unclassified → outline badge (restricted until cleared)
  * - cleared → nothing
  */
