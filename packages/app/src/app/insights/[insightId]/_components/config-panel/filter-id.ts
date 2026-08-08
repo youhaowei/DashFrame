@@ -33,9 +33,16 @@ export function deriveFilterId(filter: InsightFilter): string {
  * operation as doing it to both — `applyFilterSave` replaces every `_id` match
  * and `handleRemoveFilter` drops every match, so a shared identity would edit
  * or delete the pair. The occurrence index among *identical* predicates
- * disambiguates them without reintroducing array position: it is unchanged by
- * a refetch, and reordering two interchangeable predicates has no observable
- * effect anyway.
+ * disambiguates them: it is an ordinal within the identical group, not a
+ * position in the array, so it survives a plain refetch and any reordering.
+ *
+ * What it does NOT survive is a change in how many identical twins exist. If a
+ * concurrent write inserts or deletes one between the dialog opening and its
+ * save, the surviving twins renumber, the save's `_id` matches nothing, and
+ * `applyFilterSave` appends it as a new filter instead of updating the one the
+ * user edited. That window is only reachable for rows stored before filters
+ * carried ids, and only for byte-identical duplicates; a persisted `id` closes
+ * it, which is what saving any such row does. Tracked as issue #309.
  *
  * The `legacy:` prefix keeps these distinguishable from persisted ids, which
  * are UUIDs. Saving such a row promotes this value to its persisted `id`.

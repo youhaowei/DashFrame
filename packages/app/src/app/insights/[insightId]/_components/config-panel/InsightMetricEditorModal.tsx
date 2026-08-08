@@ -1,4 +1,9 @@
-import type { DataTable, InsightMetric, UUID } from "@dashframe/types";
+import type {
+  AggregationType,
+  DataTable,
+  InsightMetric,
+  UUID,
+} from "@dashframe/types";
 import {
   Alert,
   AlertDescription,
@@ -18,43 +23,11 @@ import {
   SelectValue,
 } from "@wystack/ui-react";
 import { useMemo, useState } from "react";
+import {
+  metricColumnNameForSave,
+  metricFormulaPreview,
+} from "./metric-formula";
 import { useSaveDismissGuard, useSavingFlag } from "./use-save-dismiss-guard";
-
-type AggregationType =
-  | "sum"
-  | "avg"
-  | "count"
-  | "min"
-  | "max"
-  | "count_distinct";
-
-// "Count (rows)" is `count(*)` by definition and the dialog offers no column
-// picker for it, so any column still held in state is invisible to the user.
-// Persisting it would emit `count(column)`, which silently skips null rows —
-// a different number than the one the label promises. The column is dropped
-// here as well as cleared on switch, so no caller can reintroduce it.
-export function metricColumnNameForSave(
-  aggregation: AggregationType,
-  columnName: string,
-): string | undefined {
-  if (aggregation === "count") return undefined;
-  return columnName || undefined;
-}
-
-export function metricFormulaPreview(
-  aggregation: AggregationType,
-  columnName: string,
-): string {
-  if (aggregation === "count") {
-    return "count(*)";
-  }
-
-  if (!columnName) {
-    return `${aggregation}(?)`;
-  }
-
-  return `${aggregation}(${columnName})`;
-}
 
 interface InsightMetricEditorModalProps {
   isOpen: boolean;

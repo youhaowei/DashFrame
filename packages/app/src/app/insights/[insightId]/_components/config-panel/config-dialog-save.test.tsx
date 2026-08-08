@@ -5,11 +5,11 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { FieldRenameDialog } from "./FieldRenameDialog";
 import { FilterEditDialog } from "./FilterEditDialog";
+import { InsightMetricEditorModal } from "./InsightMetricEditorModal";
 import {
-  InsightMetricEditorModal,
   metricColumnNameForSave,
   metricFormulaPreview,
-} from "./InsightMetricEditorModal";
+} from "./metric-formula";
 import { MetricEditDialog } from "./MetricEditDialog";
 
 const table = {
@@ -281,6 +281,46 @@ describe("insight config dialog saves", () => {
     await user.click(screen.getByRole("button", { name: "Add metric" }));
 
     expect(onSave).toHaveBeenCalledTimes(1);
+    expect(onSave.mock.calls[0][0]).toMatchObject({
+      aggregation: "count",
+      columnName: undefined,
+    });
+  });
+
+  // The edit dialog reaches the same bad state by a different route: it never
+  // switches aggregation, it *initializes* from a metric already stored as
+  // `count` with a column. The picker is hidden, so the column is invisible,
+  // yet the old save preserved it and kept emitting `count(column)`.
+  it("repairs a stored count metric that still carries a column", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const stored = {
+      id: "metric-2",
+      name: "Orders",
+      sourceTable: table.id,
+      columnName: "amount",
+      aggregation: "count",
+    } as InsightMetric;
+
+    render(
+      <MetricEditDialog
+        metric={stored}
+        dataTable={table}
+        onOpenChange={vi.fn()}
+        onSave={onSave}
+      />,
+    );
+
+    // What the user sees must match what the label promises.
+    expect(screen.getByText("count(*)")).toBeTruthy();
+    expect(screen.queryByLabelText("Field")).toBeNull();
+
+    // Saving is available without inventing an unrelated edit, because the
+    // payload genuinely differs from what is stored.
+    const save = screen.getByRole("button", { name: "Save" });
+    expect(save.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(save);
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     expect(onSave.mock.calls[0][0]).toMatchObject({
       aggregation: "count",
       columnName: undefined,

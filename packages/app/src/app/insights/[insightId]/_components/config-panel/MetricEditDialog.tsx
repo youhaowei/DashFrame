@@ -22,6 +22,10 @@ import {
   SelectValue,
 } from "@wystack/ui-react";
 import { useMemo, useState } from "react";
+import {
+  metricColumnNameForSave,
+  metricFormulaPreview,
+} from "./metric-formula";
 import { useSaveDismissGuard, useSavingFlag } from "./use-save-dismiss-guard";
 
 interface MetricEditDialogProps {
@@ -82,10 +86,7 @@ function MetricEditForm({
     const updatedMetric: InsightMetric = {
       ...metric,
       name: name.trim(),
-      columnName:
-        aggregation === "count" && !columnName
-          ? undefined
-          : columnName || undefined,
+      columnName: metricColumnNameForSave(aggregation, columnName),
       aggregation,
     };
 
@@ -102,19 +103,6 @@ function MetricEditForm({
     }
   };
 
-  // Generate formula preview
-  const getFormulaPreview = () => {
-    if (aggregation === "count" && !columnName) {
-      return "count(*)";
-    }
-
-    if (!columnName) {
-      return `${aggregation}(?)`;
-    }
-
-    return `${aggregation}(${columnName})`;
-  };
-
   // Check if field selection is required (not required for basic count)
   const needsField = aggregation !== "count";
 
@@ -124,11 +112,15 @@ function MetricEditForm({
       ? numericFields
       : availableFields;
 
-  // Check if anything changed
+  // Compare against what a save would actually write, not the raw field. A
+  // metric stored as `count` with a column predates the column being dropped
+  // for "Count (rows)"; saving repairs it, so the dialog must read as dirty on
+  // open and let the user commit the repair without inventing another edit.
   const hasChanges =
     name.trim() !== metric.name ||
     aggregation !== metric.aggregation ||
-    (columnName || undefined) !== (metric.columnName || undefined);
+    metricColumnNameForSave(aggregation, columnName) !==
+      (metric.columnName || undefined);
 
   return (
     <>
@@ -220,7 +212,7 @@ function MetricEditForm({
             Formula preview
           </p>
           <code className="font-mono text-sm text-neutral-fg">
-            {getFormulaPreview()}
+            {metricFormulaPreview(aggregation, columnName)}
           </code>
         </div>
       </div>
