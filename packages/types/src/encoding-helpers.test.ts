@@ -563,10 +563,14 @@ describe("encoding-helpers", () => {
       ).toBeUndefined();
     });
 
-    it("rejects an empty channel value — omit the channel instead", () => {
-      expect(validateVisualizationEncoding({ x: "" })).toContain(
-        "must not be empty",
-      );
+    it("accepts an empty channel value — that is how the picker clears one", () => {
+      // Clearing the optional Color/Size picker saves `""`; `resolveToSql`
+      // reads it as "channel not set".
+      expect(validateVisualizationEncoding({ color: "" })).toBeUndefined();
+      expect(validateVisualizationEncoding({ size: "" })).toBeUndefined();
+      expect(
+        validateVisualizationEncoding({ x: `field:${x}`, color: "" }),
+      ).toBeUndefined();
     });
 
     it("rejects a value that claims to be an ID reference but carries no uuid", () => {

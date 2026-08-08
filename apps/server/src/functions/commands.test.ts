@@ -2119,6 +2119,34 @@ describe("command vocabulary", () => {
       expect((await vizsById(vizId))[0]?.encoding).toEqual(encoding);
     });
 
+    // Clearing the optional Color or Size picker saves `""` through this very
+    // command. The write gate must not turn "clear this channel" into an error.
+    it("should accept a cleared optional channel — the picker saves an empty string", async () => {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      const vizId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("CreateVisualization", {
+          id: vizId,
+          name: "Chart",
+          insightId,
+          visualizationType: "dot",
+          spec: {},
+        }),
+      );
+
+      const encoding = { x: "region", y: "sum(amount)", color: "", size: "" };
+      await commit(
+        cmd("SetChartEncoding", { id: vizId, encoding: encoding as never }),
+      );
+      expect((await vizsById(vizId))[0]?.encoding).toEqual(encoding);
+    });
+
     it("should reject a value that claims to be an ID reference but carries no uuid", async () => {
       const { tableId } = await makeTable();
       const insightId = id();

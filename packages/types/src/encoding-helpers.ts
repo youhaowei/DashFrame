@@ -230,9 +230,10 @@ function channelValueProblem(
   if (typeof value !== "string") {
     return `encoding.${channel} must be a string — ${ENCODING_VALUE_FORMAT} — received ${describeValue(value)}`;
   }
-  if (value === "") {
-    return `encoding.${channel} must not be empty — omit the channel instead`;
-  }
+  // "" is the CLEARED channel, not a malformed one: clearing the optional
+  // Color or Size picker saves `""`, and `resolveToSql` short-circuits on it
+  // (`if (!value) return undefined`). Rejecting it would break clearing.
+  if (value === "") return undefined;
   if (
     ENCODING_PREFIX_PATTERN.test(value) &&
     !ENCODING_VALUE_PATTERN.test(value)
