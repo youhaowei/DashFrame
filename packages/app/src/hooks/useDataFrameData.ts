@@ -12,6 +12,7 @@ import type {
   UUID,
 } from "@dashframe/types";
 import { useQuery } from "@wystack/client";
+import { DataType } from "apache-arrow";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 // Global mutex to prevent concurrent loads of the same DataFrame
@@ -82,10 +83,37 @@ function inferColumnType(values: unknown[]): ColumnType {
   return type;
 }
 
-/**
- * Extract columns from DuckDB result rows
- */
-function extractColumns(rows: DataFrameRow[]): DataFrameColumn[] {
+/** Extract declared column types from the Arrow schema, falling back to rows. */
+type ArrowField = {
+  name: string;
+  type: unknown;
+};
+
+function columnTypeFromArrow(type: unknown): ColumnType {
+  if (DataType.isNull(type)) return "unknown";
+  if (DataType.isBool(type)) return "boolean";
+  if (
+    DataType.isInt(type) ||
+    DataType.isFloat(type) ||
+    DataType.isDecimal(type)
+  ) {
+    return "number";
+  }
+  if (DataType.isDate(type) || DataType.isTimestamp(type)) return "date";
+  return "string";
+}
+
+function extractColumns(
+  rows: DataFrameRow[],
+  fields: readonly ArrowField[] = [],
+): DataFrameColumn[] {
+  if (fields.length > 0) {
+    return fields.map((field) => ({
+      name: field.name,
+      type: columnTypeFromArrow(field.type),
+    }));
+  }
+
   if (rows.length === 0) return [];
 
   const firstRow = rows[0]!;
@@ -213,7 +241,7 @@ export function useDataFrameData(
 
         // Only update state if this is still the most recent load
         if (currentLoadCount === loadCountRef.current) {
-          const columns = extractColumns(rows);
+          const columns = extractColumns(rows, result.schema.fields);
           setData({ rows, columns });
           lastLoadedIdRef.current = dataFrameId;
         }

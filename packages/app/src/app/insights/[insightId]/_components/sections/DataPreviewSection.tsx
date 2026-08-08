@@ -100,9 +100,9 @@ export const DataPreviewSection = memo(function DataPreviewSection({
       return {
         id,
         label,
-        // Only attach a custom formatter when the column has a declared type.
-        // Non-date columns get undefined here and VirtualTable falls back to
-        // its own defaultFormatValue — keeping non-date rendering unchanged.
+        // Attach the type-aware formatter for every declared type, including
+        // numeric columns. Columns without a declared type use VirtualTable's
+        // default formatter.
         format:
           colType !== undefined
             ? (value: unknown) => formatCellValue(value, colType)

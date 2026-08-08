@@ -31,7 +31,22 @@ function formatDate(value: unknown, type?: ColumnType): string | null {
     });
   }
 
-  if (type !== "date" || typeof value !== "string") return null;
+  if (type !== "date") return null;
+
+  if (typeof value === "number") {
+    const date = new Date(value);
+    if (!isNaN(date.getTime())) {
+      return date.toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        timeZone: "UTC",
+      });
+    }
+    return null;
+  }
+
+  if (typeof value !== "string") return null;
 
   const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (dateOnly) {

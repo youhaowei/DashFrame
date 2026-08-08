@@ -1,4 +1,5 @@
 import type { ColumnType } from "@dashframe/types";
+import { formatNumeric } from "@dashframe/ui";
 
 /**
  * Format a cell value based on the column's declared type.
@@ -9,6 +10,7 @@ import type { ColumnType } from "@dashframe/types";
  *
  * Supported types:
  * - "date" → ISO date string (YYYY-MM-DD)
+ * - "number" → display-safe numeric string
  * - everything else → default string coercion (null/undefined → "—")
  */
 export function formatCellValue(value: unknown, type: ColumnType): string {
@@ -16,6 +18,10 @@ export function formatCellValue(value: unknown, type: ColumnType): string {
 
   if (type === "date") {
     return formatEpochAsDate(value);
+  }
+
+  if (type === "number" && typeof value === "number") {
+    return formatNumeric(value);
   }
 
   if (typeof value === "object") return JSON.stringify(value);

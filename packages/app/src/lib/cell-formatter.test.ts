@@ -48,6 +48,10 @@ describe("formatCellValue", () => {
     expect(result).not.toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
+  it("trims floating-point noise in number columns", () => {
+    expect(formatCellValue(409.95000000000005, "number")).toBe("409.95");
+  });
+
   it("passes strings through unchanged for string columns", () => {
     expect(formatCellValue("hello world", "string")).toBe("hello world");
   });

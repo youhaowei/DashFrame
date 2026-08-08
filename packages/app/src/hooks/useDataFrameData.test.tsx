@@ -16,6 +16,7 @@
 import type { DataFrameEntry } from "@/lib/data-access/data-frames";
 import type { DataFrameRow } from "@dashframe/types";
 import { act, renderHook, waitFor } from "@testing-library/react";
+import { Field, Float64, TimestampMillisecond } from "apache-arrow";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   useDataFrameData,
@@ -74,8 +75,9 @@ function createMockDataFrame(_rows: DataFrameRow[]) {
 /**
  * Helper to create a mock DuckDB query result
  */
-function createMockQueryResult(rows: DataFrameRow[]) {
+function createMockQueryResult(rows: DataFrameRow[], fields: Field[] = []) {
   return {
+    schema: { fields },
     toArray: vi.fn().mockReturnValue(rows),
   };
 }
@@ -501,7 +503,7 @@ describe("useDataFrameData", () => {
   });
 
   describe("column type inference", () => {
-    it("keeps epoch-millisecond values as numbers", async () => {
+    it("keeps epoch-millisecond values as numbers when declared numeric", async () => {
       const mockRows = [
         { timestamp: 1705536000000 },
         { timestamp: 1705622400000 },
@@ -509,13 +511,40 @@ describe("useDataFrameData", () => {
 
       const mockDataFrame = createMockDataFrame(mockRows);
       mockGetDataFrame.mockResolvedValue(mockDataFrame);
-      mockQuery.mockResolvedValue(createMockQueryResult(mockRows));
+      mockQuery.mockResolvedValue(
+        createMockQueryResult(mockRows, [
+          new Field("timestamp", new Float64(), true),
+        ]),
+      );
 
       const { result } = renderHook(() => useDataFrameData("df-number"));
 
       await waitFor(() => {
         expect(result.current.data?.columns).toEqual([
           { name: "timestamp", type: "number" },
+        ]);
+      });
+    });
+
+    it("uses a declared Arrow date type for numeric epoch values", async () => {
+      const mockRows = [
+        { order_date: 1705536000000 },
+        { order_date: 1705622400000 },
+      ];
+
+      const mockDataFrame = createMockDataFrame(mockRows);
+      mockGetDataFrame.mockResolvedValue(mockDataFrame);
+      mockQuery.mockResolvedValue(
+        createMockQueryResult(mockRows, [
+          new Field("order_date", new TimestampMillisecond(), true),
+        ]),
+      );
+
+      const { result } = renderHook(() => useDataFrameData("df-date-epoch"));
+
+      await waitFor(() => {
+        expect(result.current.data?.columns).toEqual([
+          { name: "order_date", type: "date" },
         ]);
       });
     });
@@ -588,7 +617,11 @@ describe("useDataFrameData", () => {
     });
 
     it("widens a date-like first value to text when later values disagree", async () => {
-      const mockRows = [{ sku: "2024-01" }, { sku: "SKU-A" }, { sku: "SKU-B" }];
+      const mockRows = [
+        { sku: "2024-01-01" },
+        { sku: "SKU-A" },
+        { sku: "SKU-B" },
+      ];
 
       const mockDataFrame = createMockDataFrame(mockRows);
       mockGetDataFrame.mockResolvedValue(mockDataFrame);
@@ -618,6 +651,27 @@ describe("useDataFrameData", () => {
       await waitFor(() => {
         expect(result.current.data?.columns).toEqual([
           { name: "timestamp", type: "date" },
+        ]);
+      });
+    });
+
+    it("keeps space-separated timestamps as strings", async () => {
+      const mockRows = [
+        { timestamp: "2024-01-18 10:00:00" },
+        { timestamp: "2024-01-19 11:30:00" },
+      ];
+
+      const mockDataFrame = createMockDataFrame(mockRows);
+      mockGetDataFrame.mockResolvedValue(mockDataFrame);
+      mockQuery.mockResolvedValue(createMockQueryResult(mockRows));
+
+      const { result } = renderHook(() =>
+        useDataFrameData("df-space-timestamp"),
+      );
+
+      await waitFor(() => {
+        expect(result.current.data?.columns).toEqual([
+          { name: "timestamp", type: "string" },
         ]);
       });
     });
