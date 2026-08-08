@@ -12,6 +12,7 @@ import {
   computeInsightPreview,
   type PreviewResult,
 } from "@/lib/insights/compute-preview";
+import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
 import { getColumnIcon } from "@/lib/utils/field-icons";
 import {
   getSwappedChartType,
@@ -162,6 +163,7 @@ export default function VisualizationPageContent({
   const { mutateAsync: removeVisualizationMutation } = useMutation(
     api.removeVisualization,
   );
+  const { confirm } = useConfirmDialogStore();
 
   // Find the visualization
   const visualization = useMemo(
@@ -894,11 +896,18 @@ export default function VisualizationPageContent({
     : false;
 
   // Handle delete
-  const handleDelete = async () => {
-    if (confirm(`Are you sure you want to delete "${visualization?.name}"?`)) {
-      await removeVisualizationMutation({ id: visualizationId as UUID });
-      navigate({ to: "/insights" });
-    }
+  const handleDelete = () => {
+    if (!visualization) return;
+    confirm({
+      title: "Delete visualization",
+      description: `Are you sure you want to delete "${visualization.name}"? This action cannot be undone.`,
+      confirmLabel: "Delete",
+      variant: "destructive",
+      onConfirm: async () => {
+        await removeVisualizationMutation({ id: visualizationId as UUID });
+        navigate({ to: "/insights" });
+      },
+    });
   };
 
   const contextPanelContent = useMemo(() => {

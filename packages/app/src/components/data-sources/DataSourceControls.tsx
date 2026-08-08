@@ -1,4 +1,5 @@
 import { getConnectorById } from "@/lib/connectors/registry";
+import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
 import { api } from "@/wystack/api";
 import { cmd } from "@dashframe/types";
 import { InputField } from "@dashframe/ui";
@@ -199,6 +200,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
   });
   const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
   const { mutateAsync: removeDataSource } = useMutation(api.removeDataSource);
+  const { confirm } = useConfirmDialogStore();
   const { mutateAsync: addDataTable } = useMutation(api.addDataTable);
 
   const dataSource = useMemo(
@@ -300,20 +302,22 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
     );
   }
 
-  const handleDelete = async () => {
-    if (
-      confirm(
-        `Are you sure you want to delete "${dataSource.name}"? This will remove all associated data.`,
-      )
-    ) {
-      try {
-        await removeDataSource({ id: dataSource.id });
-      } catch {
-        toast.error("Failed to delete data source");
-        return;
-      }
-      toast.success("Data source deleted");
-    }
+  const handleDelete = () => {
+    confirm({
+      title: "Delete data source",
+      description: `Are you sure you want to delete "${dataSource.name}"? This action cannot be undone.`,
+      confirmLabel: "Delete",
+      variant: "destructive",
+      onConfirm: async () => {
+        try {
+          await removeDataSource({ id: dataSource.id });
+        } catch {
+          toast.error("Failed to delete data source");
+          return;
+        }
+        toast.success("Data source deleted");
+      },
+    });
   };
 
   const handleNameChange = async (newName: string) => {

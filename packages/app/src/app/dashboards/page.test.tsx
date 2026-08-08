@@ -24,9 +24,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // Hoisted mocks (vi.mock hoisting requires these to be declared with vi.hoisted)
 // ---------------------------------------------------------------------------
 
-const { mockCreate, mockRemove } = vi.hoisted(() => ({
+const { mockCreate, mockRemove, mockUseQuery } = vi.hoisted(() => ({
   mockCreate: vi.fn(),
   mockRemove: vi.fn(),
+  mockUseQuery: vi.fn(),
 }));
 
 // Partial-mock the WyStack client: keep `createApi` real (so `api` builds real
@@ -36,7 +37,7 @@ vi.mock("@wystack/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@wystack/client")>();
   return {
     ...actual,
-    useQuery: () => ({ data: [], isLoading: false }),
+    useQuery: () => mockUseQuery(),
     useMutation: (ref: { _path: string }) =>
       ref._path === "removeDashboard"
         ? { mutateAsync: mockRemove }
@@ -61,7 +62,8 @@ const { mockShowError } = vi.hoisted(() => {
   return { mockShowError: showError };
 });
 
-vi.mock("@/lib/stores", () => ({
+vi.mock("@/lib/stores", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/stores")>()),
   useToastStore: () => ({ showError: mockShowError }),
 }));
 
@@ -69,6 +71,7 @@ vi.mock("@/lib/stores", () => ({
 // Import the component after mocks are set up
 // ---------------------------------------------------------------------------
 
+import { useConfirmDialogStore } from "@/lib/stores";
 import DashboardsPage from "./page";
 
 // ---------------------------------------------------------------------------
@@ -95,6 +98,8 @@ async function submitCreate() {
 describe("DashboardsPage – handleCreate failure paths", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useConfirmDialogStore.getState().close();
+    mockUseQuery.mockReturnValue({ data: [], isLoading: false });
   });
 
   it("shows error toast and does NOT navigate when createDashboard rejects", async () => {
@@ -165,5 +170,48 @@ describe("DashboardsPage – handleCreate failure paths", () => {
     const { api } = await import("@/wystack/api");
     expect(api.createDashboard._path).toBe("createDashboard");
     expect(api.removeDashboard._path).toBe("removeDashboard");
+  });
+});
+
+describe("DashboardsPage – delete confirmation", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useConfirmDialogStore.getState().close();
+    mockUseQuery.mockReturnValue({ data: [], isLoading: false });
+  });
+
+  it("does not remove a dashboard after cancellation, but removes it after confirmation", async () => {
+    mockUseQuery.mockReturnValue({
+      data: [
+        {
+          id: "dashboard-1",
+          name: "Quarterly plan",
+          items: [],
+          createdAt: 0,
+          updatedAt: 0,
+        },
+      ],
+      isLoading: false,
+    });
+    mockRemove.mockResolvedValue({ ok: true });
+
+    render(<DashboardsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Delete dashboard" }));
+
+    expect(useConfirmDialogStore.getState().config).toMatchObject({
+      title: "Delete dashboard",
+      description:
+        'Are you sure you want to delete "Quarterly plan"? This action cannot be undone.',
+      confirmLabel: "Delete",
+      variant: "destructive",
+    });
+    useConfirmDialogStore.getState().handleCancel();
+    expect(mockRemove).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete dashboard" }));
+    await act(async () => {
+      useConfirmDialogStore.getState().handleConfirm();
+    });
+    expect(mockRemove).toHaveBeenCalledWith({ id: "dashboard-1" });
   });
 });

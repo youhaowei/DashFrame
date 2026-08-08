@@ -234,6 +234,7 @@ vi.mock("@/components/data-sources/SensitivityBadge", () => ({
 
 // ── Component under test ──────────────────────────────────────────────────────
 
+import { useConfirmDialogStore } from "@/lib/stores";
 import { extractColumnAliasComponents } from "@dashframe/engine";
 import React from "react";
 import DataSourcePageContent, {
@@ -256,6 +257,7 @@ const DATA_SOURCE = {
 describe("DataSourcePageContent — loading state contract", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useConfirmDialogStore.getState().close();
     mockPatchDataTableArray.mockResolvedValue({ ok: true });
     mockRemoveDataTable.mockResolvedValue({ ok: true });
     mockCommitBatch.mockResolvedValue({
@@ -469,6 +471,30 @@ describe("DataSourcePageContent — loading state contract", () => {
       itemId: "field-a",
       value: undefined,
     });
+  });
+
+  it("does not delete a data table after cancellation, but deletes it after confirmation", () => {
+    mockUseDataSources.mockReturnValue({
+      data: [DATA_SOURCE],
+      isLoading: false,
+    });
+    mockUseDataTables.mockReturnValue({
+      data: [{ id: "table-orders", name: "Orders", fields: [], metrics: [] }],
+    });
+
+    render(<DataSourcePageContent sourceId={SOURCE_ID} />);
+    fireEvent.click(screen.getByRole("button", { name: "Orders" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete Table" }));
+
+    expect(useConfirmDialogStore.getState().config?.description).toBe(
+      'Are you sure you want to delete "Orders"? This action cannot be undone.',
+    );
+    useConfirmDialogStore.getState().handleCancel();
+    expect(mockRemoveDataTable).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete Table" }));
+    useConfirmDialogStore.getState().handleConfirm();
+    expect(mockRemoveDataTable).toHaveBeenCalledWith({ id: "table-orders" });
   });
 });
 

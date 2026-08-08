@@ -1,4 +1,4 @@
-import { useToastStore } from "@/lib/stores";
+import { useConfirmDialogStore, useToastStore } from "@/lib/stores";
 import { api } from "@/wystack/api";
 import { groupHoverAndFocusWithinReveal } from "@dashframe/ui";
 import { Link, useNavigate } from "@tanstack/react-router";
@@ -23,16 +23,25 @@ export default function DashboardsPage() {
   const createDashboard = useMutation(api.createDashboard);
   const removeDashboard = useMutation(api.removeDashboard);
   const { showError } = useToastStore();
+  const { confirm } = useConfirmDialogStore();
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [newDashboardName, setNewDashboardName] = useState("");
 
-  const handleDelete = async (id: string) => {
-    try {
-      await removeDashboard.mutateAsync({ id });
-    } catch {
-      showError("Failed to delete dashboard. Please try again.");
-    }
+  const handleDelete = (id: string, name: string) => {
+    confirm({
+      title: "Delete dashboard",
+      description: `Are you sure you want to delete "${name}"? This action cannot be undone.`,
+      confirmLabel: "Delete",
+      variant: "destructive",
+      onConfirm: async () => {
+        try {
+          await removeDashboard.mutateAsync({ id });
+        } catch {
+          showError("Failed to delete dashboard. Please try again.");
+        }
+      },
+    });
   };
 
   const handleCreate = async () => {
@@ -136,7 +145,9 @@ export default function DashboardsPage() {
                         label="Delete dashboard"
                         color="danger"
                         className={`-mt-2 -mr-2 text-neutral-fg-subtle transition-opacity hover:text-palette-danger ${groupHoverAndFocusWithinReveal}`}
-                        onClick={() => handleDelete(dashboard.id)}
+                        onClick={() =>
+                          handleDelete(dashboard.id, dashboard.name)
+                        }
                       />
                     </div>
                   </div>

@@ -33,6 +33,7 @@ import {
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
 import { useInsightCanvasStore } from "@/lib/stores/insight-canvas-store";
 
 // Type for insight with joined details
@@ -81,6 +82,7 @@ export default function InsightsPage() {
     refetch: refetchInsights,
   } = useQuery(api.listInsights, { args: {} });
   const { mutateAsync: removeInsight } = useMutation(api.removeInsight);
+  const { confirm } = useConfirmDialogStore();
   const clearActiveView = useInsightCanvasStore((s) => s.clearActiveView);
   const {
     data: visualizations = [],
@@ -222,35 +224,56 @@ export default function InsightsPage() {
   };
 
   // Handle delete insight
-  const handleDeleteInsight = async (insightId: UUID, e: React.MouseEvent) => {
+  const handleDeleteInsight = (
+    insightId: UUID,
+    name: string,
+    e: React.MouseEvent,
+  ) => {
     e.stopPropagation();
     e.preventDefault();
-    try {
-      await removeInsight({ id: insightId });
-    } catch {
-      toast.error("Couldn't delete the insight");
-      return;
-    }
-    // Drop the persisted canvas-view entry so deleted insights don't
-    // accumulate stale keys in localStorage.
-    clearActiveView(insightId);
+    confirm({
+      title: "Delete insight",
+      description: `Are you sure you want to delete "${name}"? This action cannot be undone.`,
+      confirmLabel: "Delete",
+      variant: "destructive",
+      onConfirm: async () => {
+        try {
+          await removeInsight({ id: insightId });
+        } catch {
+          toast.error("Couldn't delete the insight");
+          return;
+        }
+        // Drop the persisted canvas-view entry so deleted insights don't
+        // accumulate stale keys in localStorage.
+        clearActiveView(insightId);
+      },
+    });
   };
 
   // Handle delete all drafts
-  const handleDeleteAllDrafts = async () => {
+  const handleDeleteAllDrafts = () => {
     // Never act on a classification computed while the queries are unsettled or
     // errored — during load, or after a load failure, the draft grouping is
     // untrustworthy (see the isLoading/hasLoadError note above).
     if (isLoading || hasLoadError) return;
-    for (const item of groupedInsights.drafts) {
-      try {
-        await removeInsight({ id: item.insight.id });
-      } catch {
-        toast.error("Couldn't delete every draft — some may remain");
-        return;
-      }
-      clearActiveView(item.insight.id);
-    }
+    const draftCount = groupedInsights.drafts.length;
+    confirm({
+      title: "Delete drafts",
+      description: `Are you sure you want to delete all ${draftCount} draft insight${draftCount === 1 ? "" : "s"}? This action cannot be undone.`,
+      confirmLabel: "Delete",
+      variant: "destructive",
+      onConfirm: async () => {
+        for (const item of groupedInsights.drafts) {
+          try {
+            await removeInsight({ id: item.insight.id });
+          } catch {
+            toast.error("Couldn't delete every draft — some may remain");
+            return;
+          }
+          clearActiveView(item.insight.id);
+        }
+      },
+    });
   };
 
   // Render insight card
@@ -317,6 +340,7 @@ export default function InsightsPage() {
                 onClick={(e) =>
                   handleDeleteInsight(
                     item.insight.id,
+                    item.insight.name,
                     e as unknown as React.MouseEvent,
                   )
                 }
