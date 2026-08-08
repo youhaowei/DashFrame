@@ -57,11 +57,11 @@ interface VgplotAPIExtended extends VgplotAPI {
     };
   };
   /**
-   * vgplot's `colorDomain` is a directive factory: it returns `(plot) => void`
-   * rather than applying anything itself. The caller must invoke the returned
-   * closure against a plot for the domain to take effect.
+   * vgplot's `colorDomain` is a directive factory — same shape as `colorRange`:
+   * it returns a plot directive that must be passed into `api.plot(...directives)`
+   * for the domain to take effect. It does not mutate anything by itself.
    */
-  colorDomain?: (domain: string[]) => (plot: unknown) => void;
+  colorDomain?: (domain: string[]) => unknown;
 }
 
 // ============================================================================
@@ -449,39 +449,71 @@ function buildAxisOptions(
 }
 
 /**
- * Query the color domain for stacked bar charts (async).
- *
- * Queries distinct values for the color column and calls `api.colorDomain(domain)`,
- * but the returned directive closure is discarded here — the plot is already built
- * and mounted (see call site) by the time this async query resolves, so the sorted
- * domain does not currently affect rendered colors. Making it apply requires
- * restructuring render order and is tracked as separate follow-up work, not this fix.
+ * True when the color channel is bound to a SQL aggregation/expression
+ * (e.g. `sum(amount)`) rather than a plain column name. Domain queries quote
+ * the value as one identifier, which DuckDB rejects for expressions.
  */
-export function setupColorDomain(
+export function isExpressionBoundColor(color: string): boolean {
+  return (
+    COUNT_DISTINCT_PATTERN.test(color) ||
+    DATE_TRUNC_PATTERN.test(color) ||
+    CATEGORICAL_DATE_PATTERN.test(color) ||
+    SQL_FUNCTION_PATTERN.test(color)
+  );
+}
+
+/**
+ * Resolve a color-domain plot directive for stacked bar charts.
+ *
+ * Queries distinct values for a plain color column and returns the directive
+ * produced by `api.colorDomain(domain)`. Callers must push the result into the
+ * options passed to `api.plot(...)` — the factory alone does not apply the domain.
+ *
+ * Metric/expression-bound color channels skip the query (returns undefined;
+ * colors stay unordered). Query failures are logged and return undefined so
+ * the chart still renders without a domain.
+ *
+ * Identifier quoting: both the color column and tableName are passed through
+ * `quoteIdentifier` as single identifiers. That matches plain table names, but
+ * diverges from `api.from(tableName)` for schema-qualified names (e.g.
+ * `schema.table`): the domain query treats the whole string as one identifier
+ * (`"schema.table"`), while Mosaic's `from()` splits schema and table
+ * structurally. Pin the single-identifier behavior until a coordinated
+ * redesign; do not "fix" one side without the other.
+ */
+export async function setupColorDomain(
   api: VgplotAPIExtended,
   colorColumn: string,
   tableName: string,
-): void {
-  const coordinator = api.context?.coordinator;
-  if (!coordinator?.query) return;
+): Promise<unknown | undefined> {
+  // Aggregation/expression-bound color: skip domain query entirely.
+  if (isExpressionBoundColor(colorColumn)) {
+    return undefined;
+  }
 
-  coordinator
-    .query(
+  const coordinator = api.context?.coordinator;
+  if (!coordinator?.query || !api.colorDomain) return undefined;
+
+  try {
+    // Single-identifier quoting for tableName (see function doc): schema-qualified
+    // names are quoted as one identifier, not split into schema.table.
+    const result = await coordinator.query(
       `SELECT DISTINCT ${quoteIdentifier(colorColumn)} as val FROM ${quoteIdentifier(tableName)} ORDER BY ${quoteIdentifier(colorColumn)}`,
       { type: "json" },
-    )
-    .then((result) => {
-      if (!Array.isArray(result)) return;
+    );
 
-      const domain = result.map((row) => String((row as { val: unknown }).val));
+    if (!Array.isArray(result)) return undefined;
 
-      if (domain.length > 0 && api.colorDomain) {
-        api.colorDomain(domain);
-      }
-    })
-    .catch((e: unknown) => {
-      console.warn("[VgplotRenderer] Could not set color domain:", e);
-    });
+    const domain = result.map((row) => String((row as { val: unknown }).val));
+
+    if (domain.length === 0) return undefined;
+
+    // Return the directive — caller must pass it to api.plot(...).
+    return api.colorDomain(domain);
+  } catch (e: unknown) {
+    console.warn("[VgplotRenderer] Could not set color domain:", e);
+    return undefined;
+  }
 }
 
 // ============================================================================
@@ -711,6 +743,34 @@ export function createVgplotRenderer(api: VgplotAPI): ChartRenderer {
         };
       }
 
+      let cancelled = false;
+
+      const showRenderError = (error: unknown) => {
+        console.error("[VgplotRenderer] Error rendering chart:", error);
+
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
+        container.replaceChildren();
+        const errDiv = document.createElement("div");
+        errDiv.style.cssText =
+          "color: red; padding: 16px; text-align: center; font-size: 12px;";
+        errDiv.textContent = `Failed to render chart: ${message}`;
+        container.appendChild(errDiv);
+      };
+
+      const mountPlot = (plotOptions: unknown[]) => {
+        if (cancelled) return;
+
+        // Theme background
+        if (config.theme?.backgroundColor) {
+          container.style.backgroundColor = config.theme.backgroundColor;
+        }
+
+        // Create and mount the plot
+        const plot = api.plot(...plotOptions);
+        container.appendChild(plot);
+      };
+
       try {
         // Build plot options
         const mark = buildMark(api, type, config.tableName, config.encoding);
@@ -727,42 +787,44 @@ export function createVgplotRenderer(api: VgplotAPI): ChartRenderer {
           plotOptions.push(api.colorRange(chartColors));
         }
 
-        // Theme background
-        if (config.theme?.backgroundColor) {
-          container.style.backgroundColor = config.theme.backgroundColor;
-        }
-
-        // Create and mount the plot
-        const plot = api.plot(...plotOptions);
-        container.appendChild(plot);
-
-        // Set up color domain for stacked bar charts
-        if (
+        // Color domain for stacked bar charts: resolve BEFORE api.plot so the
+        // directive is included in plot options (mirrors colorRange above).
+        const colorColumn = config.encoding?.color;
+        const needsColorDomain =
           type === "barY" &&
-          config.encoding?.color &&
-          chartColors.length > 0
-        ) {
-          setupColorDomain(
-            extendedApi,
-            config.encoding.color,
-            config.tableName,
-          );
+          !!colorColumn &&
+          chartColors.length > 0 &&
+          !isExpressionBoundColor(colorColumn);
+
+        if (needsColorDomain && colorColumn) {
+          // Async path: await DISTINCT domain query, then mount with directive.
+          void (async () => {
+            try {
+              const colorDomainDirective = await setupColorDomain(
+                extendedApi,
+                colorColumn,
+                config.tableName,
+              );
+              if (cancelled) return;
+              if (colorDomainDirective !== undefined) {
+                plotOptions.push(colorDomainDirective);
+              }
+              mountPlot(plotOptions);
+            } catch (error) {
+              if (!cancelled) showRenderError(error);
+            }
+          })();
+        } else {
+          // Sync path: no domain query needed (or expression-bound color).
+          mountPlot(plotOptions);
         }
 
         return () => {
+          cancelled = true;
           container.innerHTML = "";
         };
       } catch (error) {
-        console.error("[VgplotRenderer] Error rendering chart:", error);
-
-        const message =
-          error instanceof Error ? error.message : "Unknown error";
-        container.replaceChildren();
-        const errDiv = document.createElement("div");
-        errDiv.style.cssText =
-          "color: red; padding: 16px; text-align: center; font-size: 12px;";
-        errDiv.textContent = `Failed to render chart: ${message}`;
-        container.appendChild(errDiv);
+        showRenderError(error);
 
         return () => {
           container.replaceChildren();
