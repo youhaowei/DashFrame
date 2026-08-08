@@ -33,16 +33,22 @@ export function deriveFilterId(filter: InsightFilter): string {
  * operation as doing it to both — `applyFilterSave` replaces every `_id` match
  * and `handleRemoveFilter` drops every match, so a shared identity would edit
  * or delete the pair. The occurrence index among *identical* predicates
- * disambiguates them: it is an ordinal within the identical group, not a
- * position in the array, so it survives a plain refetch and any reordering.
+ * disambiguates them. It is an ordinal assigned by traversal order within the
+ * identical group, reassigned on every hydration — so a given `_id` is not
+ * bound to a particular row, only to a slot in that group. Since the members
+ * of the group are byte-identical, landing on a different member is not
+ * observable: whichever one the save replaces, the list ends up with the same
+ * contents.
  *
- * What it does NOT survive is a change in how many identical twins exist. If a
- * concurrent write inserts or deletes one between the dialog opening and its
- * save, the surviving twins renumber, the save's `_id` matches nothing, and
- * `applyFilterSave` appends it as a new filter instead of updating the one the
- * user edited. That window is only reachable for rows stored before filters
- * carried ids, and only for byte-identical duplicates; a persisted `id` closes
- * it, which is what saving any such row does. Tracked as issue #309.
+ * The one case that IS observable is a concurrent delete that shrinks the
+ * group below the saved ordinal. Then the `_id` matches nothing, and
+ * `applyFilterSave` appends the edit as a new filter instead of replacing one
+ * — the user gets a duplicate and their original is left unedited. Insertion
+ * is safe by the same argument as above: the group only grows, so every
+ * previous ordinal still resolves. This window is reachable only for rows
+ * stored before filters carried ids, and only for byte-identical duplicates;
+ * saving any such row promotes a persisted `id` and closes it for good.
+ * Tracked as issue #309.
  *
  * The `legacy:` prefix keeps these distinguishable from persisted ids, which
  * are UUIDs. Saving such a row promotes this value to its persisted `id`.
