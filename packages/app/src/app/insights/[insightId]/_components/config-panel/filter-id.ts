@@ -129,12 +129,17 @@ export function prepareFilterForSave(
 }
 
 /**
- * Merge a saved filter into the current list: update the row whose `_id`
- * matches, else append. For a filter with a persisted id, that id travels with
- * the filter rather than its index, so a concurrent reorder between open and
- * save cannot route the edit to the wrong predicate. The guarantee is weaker
- * for legacy identities and for concurrent deletes — see `legacyFilterId` and
- * issue #309.
+ * Merge a saved filter into the current list: replace every row whose `_id`
+ * matches, or append if none match.
+ *
+ * When the persisted id is unique within the current list, it travels with the
+ * filter rather than with its index, so a concurrent reorder between open and
+ * save cannot misroute the edit. Uniqueness is not enforced:
+ * `ensureInsightFilterIds` stamps an id only onto a filter that arrives without
+ * one, so a caller that supplies a duplicate keeps it, and a save then rewrites
+ * every predicate sharing that id. Legacy identities, duplicate persisted ids,
+ * and concurrent deletes are all weaker than the unique-id case — see
+ * `legacyFilterId` and issue #309.
  */
 export function applyFilterSave(
   current: FilterWithId[],
