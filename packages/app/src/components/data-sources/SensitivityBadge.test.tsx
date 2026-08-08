@@ -12,22 +12,29 @@ const field = {
 } as unknown as Field;
 
 describe("SensitivityBadge", () => {
-  it("ignores repeated confirmation keys while handling the initial keydown", () => {
-    const onConfirmSuggestion = vi.fn();
+  it.each(["Enter", " "])(
+    "confirms once on %j and ignores auto-repeat",
+    (key) => {
+      const onConfirmSuggestion = vi.fn();
 
-    render(
-      <SensitivityBadge
-        field={field}
-        suggestedReasons={["Contains email addresses"]}
-        onConfirmSuggestion={onConfirmSuggestion}
-      />,
-    );
+      render(
+        <SensitivityBadge
+          field={field}
+          suggestedReasons={["Contains email addresses"]}
+          onConfirmSuggestion={onConfirmSuggestion}
+        />,
+      );
 
-    const badge = screen.getByRole("button", { name: "Likely sensitive" });
-    fireEvent.keyDown(badge, { key: "Enter", repeat: true });
-    expect(onConfirmSuggestion).not.toHaveBeenCalled();
+      const badge = screen.getByRole("button", { name: "Likely sensitive" });
 
-    fireEvent.keyDown(badge, { key: "Enter" });
-    expect(onConfirmSuggestion).toHaveBeenCalledTimes(1);
-  });
+      fireEvent.keyDown(badge, { key });
+      expect(onConfirmSuggestion).toHaveBeenCalledTimes(1);
+
+      // Holding the key must not confirm again, but the default action stays
+      // suppressed so a held Space cannot scroll the page.
+      const repeated = fireEvent.keyDown(badge, { key, repeat: true });
+      expect(onConfirmSuggestion).toHaveBeenCalledTimes(1);
+      expect(repeated).toBe(false);
+    },
+  );
 });
