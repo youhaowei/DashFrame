@@ -6,16 +6,36 @@ import type {
   InsightFilter,
 } from "@dashframe/types";
 import { useMutation } from "@wystack/client";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Responsive, WidthProvider, type Layout } from "react-grid-layout";
 import { toast } from "sonner";
 import { DashboardItem } from "./DashboardItem";
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
 
+const DASHBOARD_GRID_BREAKPOINTS = {
+  lg: 720,
+  md: 600,
+  sm: 480,
+  xs: 320,
+  xxs: 0,
+};
+
+const DASHBOARD_GRID_COLUMNS = {
+  lg: 12,
+  md: 10,
+  sm: 6,
+  xs: 4,
+  xxs: 2,
+};
+
+const EDITABLE_BREAKPOINT = "lg";
+
 interface DashboardGridProps {
   dashboard: Dashboard;
   isEditable: boolean;
+  /** Receives availability from the grid's own WidthProvider measurement. */
+  onEditingAvailabilityChange?: (isAvailable: boolean) => void;
   /**
    * View-local transient values for controls (from the viewer's session).
    * These are layered on top of saved `control.defaultValue` without mutating
@@ -27,13 +47,19 @@ interface DashboardGridProps {
 export function DashboardGrid({
   dashboard,
   isEditable,
+  onEditingAvailabilityChange,
   controlTransientValues,
 }: DashboardGridProps) {
   // Destructure the stable `mutateAsync` — the `useMutation` result object is a
   // fresh reference every render, so depending on it would defeat the
   // `onLayoutChange` memoization. `mutateAsync` is referentially stable.
   const { mutateAsync: saveLayout } = useMutation(api.updateDashboardItems);
-  const [activeBreakpoint, setActiveBreakpoint] = useState("lg");
+  const [activeBreakpoint, setActiveBreakpoint] = useState<string | null>(null);
+  const isEditingAvailable = activeBreakpoint === EDITABLE_BREAKPOINT;
+
+  useEffect(() => {
+    onEditingAvailabilityChange?.(isEditingAvailable);
+  }, [isEditingAvailable, onEditingAvailabilityChange]);
 
   const layouts = useMemo(() => {
     // Base layout from stored positions (designed for lg: 12 cols)
@@ -87,7 +113,7 @@ export function DashboardGrid({
 
   const persistCanonicalLayout = useCallback(
     (currentLayout: Layout[]) => {
-      if (!isEditable || activeBreakpoint !== "lg") return;
+      if (!isEditable || !isEditingAvailable) return;
       const patches = currentLayout.flatMap((layoutItem) => {
         const item = dashboard.items.find(
           (candidate) => candidate.id === layoutItem.i,
@@ -122,7 +148,7 @@ export function DashboardGrid({
         );
       }
     },
-    [activeBreakpoint, dashboard.id, dashboard.items, isEditable, saveLayout],
+    [dashboard.id, dashboard.items, isEditable, isEditingAvailable, saveLayout],
   );
 
   // Pre-compute effective overrides for every item.  Merges the item's own
@@ -155,18 +181,18 @@ export function DashboardGrid({
     <ResponsiveGridLayout
       className="layout"
       layouts={layouts}
-      breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 }}
-      cols={{ lg: 12, md: 10, sm: 6, xs: 4, xxs: 2 }}
+      breakpoints={DASHBOARD_GRID_BREAKPOINTS}
+      cols={DASHBOARD_GRID_COLUMNS}
       rowHeight={60}
-      isDraggable={isEditable && activeBreakpoint === "lg"}
-      isResizable={isEditable && activeBreakpoint === "lg"}
+      isDraggable={isEditable && isEditingAvailable}
+      isResizable={isEditable && isEditingAvailable}
       draggableHandle=".grid-drag-handle"
       onBreakpointChange={setActiveBreakpoint}
       onDragStop={persistCanonicalLayout}
       onResizeStop={persistCanonicalLayout}
       margin={[16, 16]}
       resizeHandle={
-        isEditable ? (
+        isEditable && isEditingAvailable ? (
           <div className="absolute -right-2 -bottom-2 z-50 flex h-6 w-6 cursor-se-resize items-center justify-center text-neutral-fg-subtle/40 transition-colors hover:text-neutral-fg-subtle">
             <svg
               width="24"
@@ -191,7 +217,7 @@ export function DashboardGrid({
           <DashboardItem
             item={item}
             dashboardId={dashboard.id}
-            isEditable={isEditable}
+            isEditable={isEditable && isEditingAvailable}
             effectiveOverrides={effectiveOverridesMap.get(item.id)}
             controls={dashboard.controls ?? []}
           />

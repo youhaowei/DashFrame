@@ -27,7 +27,7 @@ import {
   FileIcon,
   PlusIcon,
 } from "@wystack/ui-react/icons";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 interface DashboardDetailContentProps {
@@ -123,6 +123,7 @@ export default function DashboardDetailContent({
 
   // ── Local UI state ────────────────────────────────────────────────────────
   const [isEditable, setIsEditable] = useState(false);
+  const [isEditingAvailable, setIsEditingAvailable] = useState(false);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isAddPending, setIsAddPending] = useState(false);
   const [addType, setAddType] = useState<DashboardItemType>("visualization");
@@ -139,6 +140,16 @@ export default function DashboardDetailContent({
       navigate({ to: "/dashboards" });
     }
   }, [isLoading, isFetching, dashboard, navigate]);
+
+  const handleEditingAvailabilityChange = useCallback(
+    (isAvailable: boolean) => {
+      setIsEditingAvailable(isAvailable);
+      if (!isAvailable) {
+        setIsEditable(false);
+      }
+    },
+    [],
+  );
 
   // Show loading state until we have the dashboard (or any fetch is in progress)
   if (isLoading || isFetching || !dashboard) {
@@ -191,7 +202,7 @@ export default function DashboardDetailContent({
   };
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="dashboard-detail flex h-full flex-col">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-neutral-border/60 px-6 py-4">
         <div className="flex items-center gap-4">
@@ -211,28 +222,36 @@ export default function DashboardDetailContent({
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          {isEditable ? (
-            <Button
-              icon={CheckIcon}
-              label="Done Editing"
-              onClick={() => setIsEditable(false)}
-            />
-          ) : (
-            <Button
-              variant="outline"
-              icon={EditIcon}
-              label="Edit Dashboard"
-              onClick={() => setIsEditable(true)}
-            />
-          )}
-          {isEditable && (
-            <Button
-              color="secondary"
-              icon={PlusIcon}
-              label="Add Widget"
-              onClick={() => setIsAddOpen(true)}
-            />
+        <div className="dashboard-edit-controls flex flex-col items-end gap-1">
+          <div className="dashboard-edit-actions flex items-center gap-2">
+            {isEditable ? (
+              <Button
+                icon={CheckIcon}
+                label="Done Editing"
+                onClick={() => setIsEditable(false)}
+              />
+            ) : (
+              <Button
+                variant="outline"
+                icon={EditIcon}
+                label="Edit Dashboard"
+                onClick={() => setIsEditable(true)}
+                disabled={!isEditingAvailable}
+              />
+            )}
+            {isEditable && (
+              <Button
+                color="secondary"
+                icon={PlusIcon}
+                label="Add Widget"
+                onClick={() => setIsAddOpen(true)}
+              />
+            )}
+          </div>
+          {!isEditingAvailable && (
+            <p className="dashboard-editing-unavailable text-xs text-neutral-fg-subtle">
+              Editing unavailable: dashboard needs a wider area.
+            </p>
           )}
         </div>
       </div>
@@ -252,6 +271,7 @@ export default function DashboardDetailContent({
         <DashboardGrid
           dashboard={dashboard}
           isEditable={isEditable}
+          onEditingAvailabilityChange={handleEditingAvailabilityChange}
           controlTransientValues={controlTransientValues}
         />
       </div>

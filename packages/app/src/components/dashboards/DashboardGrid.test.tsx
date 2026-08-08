@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   gridProps: null as Record<string, unknown> | null,
   updateItems: vi.fn(async () => {}),
+  onEditingAvailabilityChange: vi.fn(),
 }));
 
 // Partial-mock the WyStack client: keep `createApi` (so `api` builds real
@@ -62,17 +63,27 @@ describe("DashboardGrid canonical layout persistence", () => {
   beforeEach(() => {
     mocks.gridProps = null;
     mocks.updateItems.mockClear();
+    mocks.onEditingAvailabilityChange.mockClear();
   });
 
   it("ignores responsive projections and batches an intentional desktop edit", () => {
-    render(<DashboardGrid dashboard={dashboard} isEditable />);
+    render(
+      <DashboardGrid
+        dashboard={dashboard}
+        isEditable
+        onEditingAvailabilityChange={mocks.onEditingAvailabilityChange}
+      />,
+    );
     expect(mocks.gridProps?.onLayoutChange).toBeUndefined();
 
     act(() => {
       (mocks.gridProps?.onBreakpointChange as (breakpoint: string) => void)(
-        "xs",
+        "md",
       );
     });
+    expect(mocks.gridProps?.isDraggable).toBe(false);
+    expect(mocks.gridProps?.isResizable).toBe(false);
+    expect(mocks.onEditingAvailabilityChange).toHaveBeenLastCalledWith(false);
     act(() => {
       (mocks.gridProps?.onDragStop as (layout: unknown[]) => void)([
         { i: "first", x: 0, y: 0, w: 2, h: 4 },
@@ -85,6 +96,9 @@ describe("DashboardGrid canonical layout persistence", () => {
         "lg",
       );
     });
+    expect(mocks.gridProps?.isDraggable).toBe(true);
+    expect(mocks.gridProps?.isResizable).toBe(true);
+    expect(mocks.onEditingAvailabilityChange).toHaveBeenLastCalledWith(true);
     act(() => {
       (mocks.gridProps?.onDragStop as (layout: unknown[]) => void)([
         { i: "first", x: 1, y: 2, w: 4, h: 4 },
