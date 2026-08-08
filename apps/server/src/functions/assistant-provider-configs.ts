@@ -49,6 +49,7 @@ const saveInputSchema = z.object({
 
 const setDefaultModelSchema = z.object({
   id: z.string().uuid(),
+  expectedDefaultModel: z.string().min(1),
   defaultModel: z.string().min(1),
 }) satisfies z.ZodType<SetAssistantDefaultModelInput>;
 
@@ -205,6 +206,14 @@ const saveAssistantProviderConfig = wy.procedure
       plaintext: parsed.credential,
       locatorHint: `assistant-provider-${id}`,
     });
+    // An omitted credential normally means "keep the stored one". That is wrong
+    // when the auth kind changed: the stored secret was minted for the old kind,
+    // so keeping it leaves, say, an `oauth` row pointing at an API key. The row
+    // would report a stored credential and then fail at resolve time when the
+    // key is parsed as OAuth JSON. Switching kinds without supplying a new
+    // secret clears the old one instead.
+    const supersededByAuthKindChange =
+      current != null && current.authKind !== parsed.authKind && !mintedRef;
 
     // The row write and the default-reset commit atomically; a failure rolls
     // back the whole transaction, so no committed row can reference mintedRef.
@@ -223,7 +232,9 @@ const saveAssistantProviderConfig = wy.procedure
               displayLabel: parsed.displayLabel,
               authKind: parsed.authKind,
               baseUrl: parsed.baseUrl?.trim() || null,
-              credentialRef: mintedRef ?? current.credentialRef,
+              credentialRef:
+                mintedRef ??
+                (supersededByAuthKindChange ? null : current.credentialRef),
               defaultModel: parsed.defaultModel,
               isDefault: parsed.isDefault ?? current.isDefault,
             })) as AssistantProviderConfigRow[];
@@ -268,7 +279,10 @@ const saveAssistantProviderConfig = wy.procedure
     // best-effort) — releasing before the snapshot holding the new ref is on
     // disk could leave a restored row pointing at a deleted vault entry.
     // Never mintedRef itself past this point.
-    if (mintedRef && isSecretRef(current?.credentialRef)) {
+    if (
+      (mintedRef || supersededByAuthKindChange) &&
+      isSecretRef(current?.credentialRef)
+    ) {
       await flushThenReleaseRefs(
         flushSnapshotFromCtx(ctx),
         [current.credentialRef],
@@ -311,10 +325,18 @@ const setAssistantDefaultModel = wy.procedure
   .input({ input: jsonb })
   .mutation(async (ctx, { input }): Promise<{ ok: true }> => {
     const parsed = setDefaultModelSchema.parse(input);
-    await ctx.db
+    const updated = await ctx.db
       .from(assistantProviderConfigs)
-      .where(eq("id", parsed.id))
+      .where([
+        eq("id", parsed.id),
+        eq("defaultModel", parsed.expectedDefaultModel),
+      ])
       .update({ defaultModel: parsed.defaultModel });
+    if (updated.length !== 1) {
+      throw new Error(
+        "Assistant model changed before this update could be saved. Please try again.",
+      );
+    }
     return { ok: true };
   });
 

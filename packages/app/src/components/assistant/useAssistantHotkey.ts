@@ -17,7 +17,13 @@ export function useAssistantHotkey(): void {
   const configsResult = useQuery(api.listAssistantProviderConfigs);
   const configsLoaded =
     configsResult.data !== undefined && !configsResult.isLoading;
+  const configsFailed = configsResult.isError;
+  // Mirrors AssistantToggle: a failed refetch keeps the last successful data,
+  // so availability follows the rows we actually have, never the error itself.
   const assistantAvailable = (configsResult.data?.length ?? 0) > 0;
+  // Also mirrored: a cached empty list is a known-unconfigured answer, so it
+  // must fall through to setup rather than the retry branch.
+  const configsUnknown = configsResult.data === undefined;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -26,16 +32,32 @@ export function useAssistantHotkey(): void {
       const mod = e.metaKey || e.ctrlKey;
       if (mod && (e.key === "j" || e.key === "J")) {
         e.preventDefault();
-        if (!configsLoaded) return;
+        if (!configsLoaded && !configsFailed) return;
         if (assistantAvailable) {
           toggle();
-        } else {
-          close();
-          setSetupOpen(true);
+          return;
         }
+        // Never learned the answer and the query failed: retry rather than
+        // assert either "configured" (a hollow rail) or "unconfigured" (a setup
+        // dialog the user may not need).
+        if (configsFailed && configsUnknown) {
+          configsResult.refetch().catch(() => undefined);
+          return;
+        }
+        close();
+        setSetupOpen(true);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [assistantAvailable, close, configsLoaded, setSetupOpen, toggle]);
+  }, [
+    assistantAvailable,
+    close,
+    configsFailed,
+    configsLoaded,
+    configsUnknown,
+    configsResult,
+    setSetupOpen,
+    toggle,
+  ]);
 }
