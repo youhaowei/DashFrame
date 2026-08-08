@@ -37,10 +37,6 @@ body,
   border-radius: var(--radius) !important;
 }
 
-.dashboard-detail {
-  container-type: inline-size;
-}
-
 .dashboard-detail[data-editing-available="false"] .dashboard-edit-controls {
   align-items: stretch;
 }

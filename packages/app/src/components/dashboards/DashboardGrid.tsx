@@ -59,9 +59,11 @@ export function DashboardGrid({
   const { mutateAsync: saveLayout } = useMutation(api.updateDashboardItems);
   // WidthProvider renders Responsive at its 1280px seed before its observer
   // measures the element, and Responsive does not call onWidthChange on mount.
-  // Seed the matching wide state; every observed resize then supplies the same
-  // measured width RGL uses to choose its layout.
-  const [isEditingAvailable, setIsEditingAvailable] = useState(true);
+  // Do not expose that unmeasured seed as editing availability: every observed
+  // resize supplies the measured width RGL uses to choose its layout.
+  const [isEditingAvailable, setIsEditingAvailable] = useState<boolean | null>(
+    null,
+  );
 
   const handleWidthChange = useCallback(
     (width: number) => {
@@ -81,7 +83,9 @@ export function DashboardGrid({
   );
 
   useEffect(() => {
-    onEditingAvailabilityChange?.(isEditingAvailable);
+    if (isEditingAvailable !== null) {
+      onEditingAvailabilityChange?.(isEditingAvailable);
+    }
   }, [isEditingAvailable, onEditingAvailabilityChange]);
 
   const layouts = useMemo(() => {
@@ -207,15 +211,15 @@ export function DashboardGrid({
       breakpoints={DASHBOARD_GRID_BREAKPOINTS}
       cols={DASHBOARD_GRID_COLUMNS}
       rowHeight={60}
-      isDraggable={isEditable && isEditingAvailable}
-      isResizable={isEditable && isEditingAvailable}
+      isDraggable={isEditable && isEditingAvailable === true}
+      isResizable={isEditable && isEditingAvailable === true}
       draggableHandle=".grid-drag-handle"
       onWidthChange={handleWidthChange}
       onDragStop={persistCanonicalLayout}
       onResizeStop={persistCanonicalLayout}
       margin={[16, 16]}
       resizeHandle={
-        isEditable && isEditingAvailable ? (
+        isEditable && isEditingAvailable === true ? (
           <div className="absolute -right-2 -bottom-2 z-50 flex h-6 w-6 cursor-se-resize items-center justify-center text-neutral-fg-subtle/40 transition-colors hover:text-neutral-fg-subtle">
             <svg
               width="24"
@@ -240,7 +244,7 @@ export function DashboardGrid({
           <DashboardItem
             item={item}
             dashboardId={dashboard.id}
-            isEditable={isEditable && isEditingAvailable}
+            isEditable={isEditable && isEditingAvailable === true}
             effectiveOverrides={effectiveOverridesMap.get(item.id)}
             controls={dashboard.controls ?? []}
           />

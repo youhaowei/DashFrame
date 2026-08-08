@@ -123,9 +123,10 @@ export default function DashboardDetailContent({
 
   // ── Local UI state ────────────────────────────────────────────────────────
   const [isEditable, setIsEditable] = useState(false);
-  // DashboardGrid starts at WidthProvider's wide seed and reports the first
-  // measured resize, so the header must start from the same availability.
-  const [isEditingAvailable, setIsEditingAvailable] = useState(true);
+  // DashboardGrid reports availability only after its first width measurement.
+  const [isEditingAvailable, setIsEditingAvailable] = useState<boolean | null>(
+    null,
+  );
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isAddPending, setIsAddPending] = useState(false);
   const [addType, setAddType] = useState<DashboardItemType>("visualization");
@@ -247,7 +248,7 @@ export default function DashboardDetailContent({
                 icon={EditIcon}
                 label="Edit Dashboard"
                 onClick={() => setIsEditable(true)}
-                disabled={!isEditingAvailable}
+                disabled={isEditingAvailable !== true}
               />
             )}
             {isEditable && (
@@ -259,7 +260,7 @@ export default function DashboardDetailContent({
               />
             )}
           </div>
-          {!isEditingAvailable && (
+          {isEditingAvailable === false && (
             <p className="dashboard-editing-unavailable text-xs text-neutral-fg-subtle">
               Editing unavailable: dashboard needs a wider area.
             </p>

@@ -60,7 +60,7 @@ describe("DashboardGrid editing availability", () => {
     mocks.updateItems.mockClear();
   });
 
-  it("tracks same-breakpoint width changes from a wide initial render", () => {
+  it("tracks same-breakpoint width changes after the first measurement", () => {
     const view = render(
       <DashboardGrid
         dashboard={dashboard}
@@ -68,8 +68,7 @@ describe("DashboardGrid editing availability", () => {
         onEditingAvailabilityChange={mocks.onEditingAvailabilityChange}
       />,
     );
-    expect(mocks.onEditingAvailabilityChange).toHaveBeenLastCalledWith(true);
-    expect(mocks.onEditingAvailabilityChange).toHaveBeenCalledTimes(1);
+    expect(mocks.onEditingAvailabilityChange).not.toHaveBeenCalled();
 
     mocks.currentWidth = 1000;
     view.rerender(
@@ -80,7 +79,7 @@ describe("DashboardGrid editing availability", () => {
       />,
     );
     expect(mocks.onEditingAvailabilityChange).toHaveBeenLastCalledWith(true);
-    expect(mocks.onEditingAvailabilityChange).toHaveBeenCalledTimes(2);
+    expect(mocks.onEditingAvailabilityChange).toHaveBeenCalledTimes(1);
 
     mocks.currentWidth = 960;
     view.rerender(
