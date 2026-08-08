@@ -58,6 +58,50 @@ describe("useBindArtifact", () => {
     expect(screen.getByTestId("artifact").textContent).toBe("Newer dashboard");
   });
 
+  it("does not let a superseded surface reclaim the binding on a late update", () => {
+    const { rerender } = render(
+      <ArtifactContextProvider>
+        <BoundArtifact />
+        <ArtifactBinder key="outgoing" artifact={olderArtifact} />
+      </ArtifactContextProvider>,
+    );
+
+    // The incoming surface mounts and takes the binding.
+    rerender(
+      <ArtifactContextProvider>
+        <BoundArtifact />
+        <ArtifactBinder key="outgoing" artifact={olderArtifact} />
+        <ArtifactBinder key="incoming" artifact={newerArtifact} />
+      </ArtifactContextProvider>,
+    );
+    expect(screen.getByTestId("artifact").textContent).toBe("Newer dashboard");
+
+    // The outgoing surface's own query resolves late and changes its artifact
+    // while it is still mounted. That is an update, not a claim — it must not
+    // take the binding back from the surface the user is actually looking at.
+    rerender(
+      <ArtifactContextProvider>
+        <BoundArtifact />
+        <ArtifactBinder
+          key="outgoing"
+          artifact={{ ...olderArtifact, title: "Older dashboard (loaded)" }}
+        />
+        <ArtifactBinder key="incoming" artifact={newerArtifact} />
+      </ArtifactContextProvider>,
+    );
+    expect(screen.getByTestId("artifact").textContent).toBe("Newer dashboard");
+
+    // ...and when it finally unmounts it must not clear the incoming binding,
+    // which would leave the assistant empty on a live surface.
+    rerender(
+      <ArtifactContextProvider>
+        <BoundArtifact />
+        <ArtifactBinder key="incoming" artifact={newerArtifact} />
+      </ArtifactContextProvider>,
+    );
+    expect(screen.getByTestId("artifact").textContent).toBe("Newer dashboard");
+  });
+
   it("clears the binding when its only owner unmounts", () => {
     const { rerender } = render(
       <ArtifactContextProvider>

@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -16,7 +17,11 @@ export interface ContextPanelSection {
 
 interface ContextPanelRegistry {
   /** Add the section, or update it in place when its id is already present. */
-  upsertSection: (section: ContextPanelSection, owner: symbol) => void;
+  upsertSection: (
+    section: ContextPanelSection,
+    owner: symbol,
+    claim: boolean,
+  ) => void;
   /** Drop the section only while `owner` still holds it. */
   releaseSection: (id: string, owner: symbol) => void;
 }
@@ -35,9 +40,14 @@ const ContextPanelSectionsContext = createContext<ContextPanelSection[] | null>(
 function replaceSection(
   current: RegisteredContextPanelSection[],
   section: RegisteredContextPanelSection,
+  claim: boolean,
 ) {
   const index = current.findIndex((item) => item.id === section.id);
   if (index === -1) return [...current, section];
+
+  // A superseded owner may not take the slot back on a late content update —
+  // it would then clear a live section when it finally unmounts.
+  if (!claim && current[index]!.owner !== section.owner) return current;
 
   const next = [...current];
   next[index] = section;
@@ -58,9 +68,9 @@ export function ContextPanelProvider({ children }: { children: ReactNode }) {
   >([]);
 
   const upsertSection = useCallback(
-    (section: ContextPanelSection, owner: symbol) => {
+    (section: ContextPanelSection, owner: symbol, claim: boolean) => {
       setRegisteredSections((current) =>
-        replaceSection(current, { ...section, owner }),
+        replaceSection(current, { ...section, owner }, claim),
       );
     },
     [],
@@ -118,6 +128,9 @@ export function useContextPanelSection(section: ContextPanelSection | null) {
   // effect run would make a content update remove-then-append the section,
   // moving it to the end of the panel; ownership must outlive the content.
   const [owner] = useState(() => Symbol("context-panel-section"));
+  // Written and read only inside effects — the first run claims the slot, every
+  // later run is an update that must not reclaim a superseded one.
+  const hasClaimedRef = useRef(false);
 
   // Content changes update the section in place — no removal, so order holds.
   useEffect(() => {
@@ -125,7 +138,9 @@ export function useContextPanelSection(section: ContextPanelSection | null) {
     upsertSection(
       { id: sectionId, title: sectionTitle, content: sectionContent },
       owner,
+      !hasClaimedRef.current,
     );
+    hasClaimedRef.current = true;
   }, [upsertSection, owner, sectionContent, sectionId, sectionTitle]);
 
   // Removal happens only on unmount or when the id itself changes, and only

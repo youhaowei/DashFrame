@@ -5,6 +5,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -36,10 +37,21 @@ interface ArtifactContextStore {
   /** The artifact the assistant is bound to, or null when none is focused. */
   artifact: ArtifactContextValue | null;
   /**
-   * Bind the assistant to an artifact. The returned cleanup only clears this
-   * registration when it still owns the current binding.
+   * Bind the assistant to an artifact on behalf of `owner`.
+   *
+   * `claim` marks a surface's *first* registration, which is the only moment
+   * ownership legitimately transfers. Later calls are updates: they apply only
+   * while `owner` still holds the binding, so an outgoing surface whose data
+   * resolves after the incoming one mounted cannot take the slot back and then
+   * clear it on unmount.
    */
-  registerArtifact: (artifact: ArtifactContextValue | null) => () => void;
+  setArtifact: (
+    artifact: ArtifactContextValue | null,
+    owner: symbol,
+    claim: boolean,
+  ) => void;
+  /** Clear the binding only while `owner` still holds it. */
+  releaseArtifact: (owner: symbol) => void;
 }
 
 const ArtifactContext = createContext<ArtifactContextStore | null>(null);
@@ -55,21 +67,24 @@ export function ArtifactContextProvider({ children }: { children: ReactNode }) {
     owner: symbol;
   } | null>(null);
 
-  const registerArtifact = useCallback(
-    (artifact: ArtifactContextValue | null) => {
-      const owner = Symbol("artifact-context-binding");
-      setBinding({ artifact, owner });
-      return () => {
-        setBinding((current) => (current?.owner === owner ? null : current));
-      };
+  const setArtifact = useCallback(
+    (artifact: ArtifactContextValue | null, owner: symbol, claim: boolean) => {
+      setBinding((current) => {
+        if (!claim && current && current.owner !== owner) return current;
+        return { artifact, owner };
+      });
     },
     [],
   );
 
+  const releaseArtifact = useCallback((owner: symbol) => {
+    setBinding((current) => (current?.owner === owner ? null : current));
+  }, []);
+
   const artifact = binding?.artifact ?? null;
   const value = useMemo<ArtifactContextStore>(
-    () => ({ artifact, registerArtifact }),
-    [artifact, registerArtifact],
+    () => ({ artifact, setArtifact, releaseArtifact }),
+    [artifact, setArtifact, releaseArtifact],
   );
   return (
     <ArtifactContext.Provider value={value}>
@@ -95,7 +110,12 @@ export function useArtifactContext(): ArtifactContextValue | null {
  * useBindArtifact({ kind: "insight", id, title: insight.name });
  */
 export function useBindArtifact(artifact: ArtifactContextValue | null): void {
-  const registerArtifact = useContext(ArtifactContext)?.registerArtifact;
+  const store = useContext(ArtifactContext);
+  const setArtifact = store?.setArtifact;
+  const releaseArtifact = store?.releaseArtifact;
+  // One identity for this component's whole lifetime, so an update can be told
+  // apart from a new surface taking over.
+  const [owner] = useState(() => Symbol("artifact-context-binding"));
   const kind = artifact?.kind;
   const id = artifact?.id;
   const title = artifact?.title;
@@ -110,8 +130,21 @@ export function useBindArtifact(artifact: ArtifactContextValue | null): void {
     [id, kind, subtitle, title],
   );
 
+  // Written and read only inside effects — the first run claims the binding,
+  // every later run is an update that must not reclaim a superseded slot.
+  const hasClaimedRef = useRef(false);
+
+  // Updates carry no cleanup — releasing here would blank the binding for a
+  // frame on every artifact change.
   useEffect(() => {
-    if (!registerArtifact) return;
-    return registerArtifact(binding);
-  }, [binding, registerArtifact]);
+    if (!setArtifact) return;
+    setArtifact(binding, owner, !hasClaimedRef.current);
+    hasClaimedRef.current = true;
+  }, [binding, owner, setArtifact]);
+
+  // Release happens only on unmount, and only while this owner still holds it.
+  useEffect(() => {
+    if (!releaseArtifact) return;
+    return () => releaseArtifact(owner);
+  }, [owner, releaseArtifact]);
 }

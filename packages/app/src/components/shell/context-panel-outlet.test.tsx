@@ -15,8 +15,17 @@ function SectionBinder({ section }: { section: ContextPanelSection }) {
 
 function RegisteredSections() {
   const sections = useContextPanelSections();
+  // Render `content` as well as `title` so an update that silently retains
+  // stale content cannot pass an order assertion.
   return (
-    <output data-testid="sections">{sections.map(({ title }) => title)}</output>
+    <output data-testid="sections">
+      {sections.map(({ id, title, content }) => (
+        <span key={id}>
+          {title}
+          {content}
+        </span>
+      ))}
+    </output>
   );
 }
 
@@ -114,6 +123,49 @@ describe("useContextPanelSection", () => {
       </ContextPanelProvider>,
     );
 
-    expect(screen.getByTestId("sections").textContent).toBe("FirstSecond");
+    expect(screen.getByTestId("sections").textContent).toBe(
+      "FirstchangedSecond",
+    );
+  });
+
+  it("does not let a superseded owner reclaim a section on a late update", () => {
+    const { rerender } = render(
+      <ContextPanelProvider>
+        <RegisteredSections />
+        <SectionBinder key="outgoing" section={olderSection} />
+      </ContextPanelProvider>,
+    );
+
+    rerender(
+      <ContextPanelProvider>
+        <RegisteredSections />
+        <SectionBinder key="outgoing" section={olderSection} />
+        <SectionBinder key="incoming" section={newerSection} />
+      </ContextPanelProvider>,
+    );
+    expect(screen.getByTestId("sections").textContent).toBe("Newer section");
+
+    // The outgoing binder's content resolves late while it is still mounted.
+    // It no longer owns this id, so the update must be refused outright —
+    // otherwise its unmount would clear the incoming section.
+    rerender(
+      <ContextPanelProvider>
+        <RegisteredSections />
+        <SectionBinder
+          key="outgoing"
+          section={{ ...olderSection, content: <span>late</span> }}
+        />
+        <SectionBinder key="incoming" section={newerSection} />
+      </ContextPanelProvider>,
+    );
+    expect(screen.getByTestId("sections").textContent).toBe("Newer section");
+
+    rerender(
+      <ContextPanelProvider>
+        <RegisteredSections />
+        <SectionBinder key="incoming" section={newerSection} />
+      </ContextPanelProvider>,
+    );
+    expect(screen.getByTestId("sections").textContent).toBe("Newer section");
   });
 });
