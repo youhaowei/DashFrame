@@ -24,20 +24,24 @@ export function AssistantToggle({ className }: { className?: string }) {
   // transient error over a working list — the rail is only withheld when the
   // query has never succeeded and there is genuinely nothing to show.
   const assistantAvailable = (configsResult.data?.length ?? 0) > 0;
+  // An empty array is a *known* answer: the query succeeded and there are no
+  // providers. Only `undefined` means we never learned anything.
+  const configsUnknown = configsResult.data === undefined;
   const assistantOpen = isOpen && assistantAvailable;
   let label = "Set up assistant";
   if (assistantAvailable) {
     label = assistantOpen ? "Hide assistant" : "Open assistant";
-  } else if (configsFailed) {
+  } else if (configsFailed && configsUnknown) {
     label = "Retry assistant configuration";
   }
 
   function handleClick() {
-    // Failed with nothing cached: we don't know whether a provider exists, so
-    // neither opening the rail nor opening setup is honest. Retry instead —
-    // that keeps the assistant reachable without presenting a surface that
-    // cannot work.
-    if (!assistantAvailable && configsFailed) {
+    // Failed having never learned the answer: we don't know whether a provider
+    // exists, so neither opening the rail nor opening setup is honest. Retry
+    // instead — that keeps the assistant reachable without presenting a
+    // surface that cannot work. A cached empty list is not this case; it is a
+    // known-unconfigured state, and setup must stay reachable through it.
+    if (!assistantAvailable && configsFailed && configsUnknown) {
       configsResult.refetch().catch(() => undefined);
       return;
     }

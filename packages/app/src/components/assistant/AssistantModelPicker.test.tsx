@@ -11,37 +11,46 @@ import { useAssistantStore } from "@/lib/stores/assistant-store";
 
 import { AssistantModelPicker } from "./AssistantModelPicker";
 
-const { modelCalls, modelResolvers, modelRejecters, configsData, catalogData } =
-  vi.hoisted(() => ({
-    modelCalls: [] as Array<{ input: Record<string, string> }>,
-    modelResolvers: [] as Array<() => void>,
-    modelRejecters: [] as Array<(reason: Error) => void>,
-    // Held by identity, the way react-query hands back the same `data`
-    // reference between refetches. A fresh array per render would re-run the
-    // picker's configs effect on every render and silently reset the
-    // compare-and-swap baseline, which would mask exactly the failure-path
-    // behavior the second test is there to pin.
-    configsData: [
-      {
-        id: "provider-1",
-        providerId: "openai",
-        displayLabel: "OpenAI",
-        authKind: "api-key",
-        defaultModel: "gpt-4.1",
-        isDefault: true,
-      },
-    ],
-    catalogData: [
-      {
-        providerId: "openai",
-        models: [
-          { id: "gpt-4.1", name: "GPT 4.1" },
-          { id: "gpt-4.1-mini", name: "GPT 4.1 mini" },
-          { id: "gpt-4.1-nano", name: "GPT 4.1 nano" },
-        ],
-      },
-    ],
-  }));
+const {
+  modelCalls,
+  modelResolvers,
+  modelRejecters,
+  configsData,
+  catalogData,
+  configsRefetch,
+} = vi.hoisted(() => ({
+  modelCalls: [] as Array<{ input: Record<string, string> }>,
+  // A rejected write drops its compare-and-swap baseline and refetches, so
+  // the mock must offer the same handle react-query does.
+  configsRefetch: async () => undefined,
+  modelResolvers: [] as Array<() => void>,
+  modelRejecters: [] as Array<(reason: Error) => void>,
+  // Held by identity, the way react-query hands back the same `data`
+  // reference between refetches. A fresh array per render would re-run the
+  // picker's configs effect on every render and silently reset the
+  // compare-and-swap baseline, which would mask exactly the failure-path
+  // behavior the second test is there to pin.
+  configsData: [
+    {
+      id: "provider-1",
+      providerId: "openai",
+      displayLabel: "OpenAI",
+      authKind: "api-key",
+      defaultModel: "gpt-4.1",
+      isDefault: true,
+    },
+  ],
+  catalogData: [
+    {
+      providerId: "openai",
+      models: [
+        { id: "gpt-4.1", name: "GPT 4.1" },
+        { id: "gpt-4.1-mini", name: "GPT 4.1 mini" },
+        { id: "gpt-4.1-nano", name: "GPT 4.1 nano" },
+      ],
+    },
+  ],
+}));
 
 vi.mock("@wystack/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@wystack/client")>();
@@ -49,9 +58,13 @@ vi.mock("@wystack/client", async (importOriginal) => {
     ...actual,
     useQuery: (ref: { _path: string }) => {
       if (ref._path === "listAssistantProviderConfigs") {
-        return { data: configsData, isLoading: false };
+        return { data: configsData, isLoading: false, refetch: configsRefetch };
       }
-      return { data: catalogData, isLoading: false };
+      return {
+        data: catalogData,
+        isLoading: false,
+        refetch: async () => undefined,
+      };
     },
     useMutation: (ref: { _path: string }) => ({
       mutateAsync: (args: { input: Record<string, string> }) => {

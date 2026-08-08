@@ -21,6 +21,9 @@ export function useAssistantHotkey(): void {
   // Mirrors AssistantToggle: a failed refetch keeps the last successful data,
   // so availability follows the rows we actually have, never the error itself.
   const assistantAvailable = (configsResult.data?.length ?? 0) > 0;
+  // Also mirrored: a cached empty list is a known-unconfigured answer, so it
+  // must fall through to setup rather than the retry branch.
+  const configsUnknown = configsResult.data === undefined;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -34,10 +37,10 @@ export function useAssistantHotkey(): void {
           toggle();
           return;
         }
-        // Nothing cached and the query failed: retry rather than assert either
-        // "configured" (a hollow rail) or "unconfigured" (a setup dialog the
-        // user may not need).
-        if (configsFailed) {
+        // Never learned the answer and the query failed: retry rather than
+        // assert either "configured" (a hollow rail) or "unconfigured" (a setup
+        // dialog the user may not need).
+        if (configsFailed && configsUnknown) {
           configsResult.refetch().catch(() => undefined);
           return;
         }
@@ -52,6 +55,7 @@ export function useAssistantHotkey(): void {
     close,
     configsFailed,
     configsLoaded,
+    configsUnknown,
     configsResult,
     setSetupOpen,
     toggle,

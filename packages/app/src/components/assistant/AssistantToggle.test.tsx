@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { type WyStackClient, WyStackProvider } from "@wystack/client";
 import { type FC, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -25,17 +31,22 @@ function makeClient(query: () => Promise<unknown>): WyStackClient {
   };
 }
 
-function makeWrapper(client: WyStackClient): FC<{ children: ReactNode }> {
+function makeWrapper(client: WyStackClient): FC<{ children: ReactNode }> & {
+  queryClient: QueryClient;
+} {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return function Wrapper({ children }) {
-    return (
-      <QueryClientProvider client={queryClient}>
-        <WyStackProvider client={client}>{children}</WyStackProvider>
-      </QueryClientProvider>
-    );
-  };
+  const Wrapper: FC<{ children: ReactNode }> & { queryClient?: QueryClient } =
+    function Wrapper({ children }) {
+      return (
+        <QueryClientProvider client={queryClient}>
+          <WyStackProvider client={client}>{children}</WyStackProvider>
+        </QueryClientProvider>
+      );
+    };
+  Wrapper.queryClient = queryClient;
+  return Wrapper as FC<{ children: ReactNode }> & { queryClient: QueryClient };
 }
 
 describe("AssistantToggle", () => {
@@ -116,5 +127,37 @@ describe("AssistantToggle", () => {
     fireEvent.click(hide);
 
     expect(useAssistantStore.getState().isOpen).toBe(false);
+  });
+
+  it("still opens setup when a refetch fails over a cached empty list", () => {
+    // react-query keeps the last successful `data` through a failed refetch, so
+    // this state is `data: []` plus `isError`. An empty list is a *known*
+    // answer — there are no providers — and the only useful action is still to
+    // configure one. Treating any error as "we know nothing" turned the control
+    // retry-only here and made setup unreachable for the exact user who needs
+    // it: a first-run user who then went offline.
+    let settled = false;
+    const query = vi.fn(() =>
+      settled ? Promise.reject(new Error("offline")) : Promise.resolve([]),
+    );
+    const wrapper = makeWrapper(makeClient(query));
+    render(<AssistantToggle />, { wrapper });
+
+    return (async () => {
+      await screen.findByRole("button", { name: "Set up assistant" });
+
+      settled = true;
+      await act(async () => {
+        await wrapper.queryClient.refetchQueries();
+      });
+
+      const button = await screen.findByRole("button", {
+        name: "Set up assistant",
+      });
+      fireEvent.click(button);
+
+      expect(useAssistantStore.getState().isSetupOpen).toBe(true);
+      expect(useAssistantStore.getState().isOpen).toBe(false);
+    })();
   });
 });

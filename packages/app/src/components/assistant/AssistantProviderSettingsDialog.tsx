@@ -122,6 +122,11 @@ export function AssistantProviderSettingsDialog({
 
   async function save() {
     setSaving(true);
+    // The provider select stays live while a save is in flight. Stamping the
+    // returned id onto whatever the form holds when the request lands would
+    // give provider B's draft provider A's row id, and the next save would
+    // overwrite A's configuration with B's data.
+    const submittedProviderId = form.providerId;
     try {
       const existingConfig = configs.find(
         (config) => config.providerId === form.providerId,
@@ -138,7 +143,11 @@ export function AssistantProviderSettingsDialog({
           isDefault: configs.length === 0,
         },
       });
-      setForm((current) => ({ ...current, id: saved.id, credential: "" }));
+      setForm((current) =>
+        current.providerId === submittedProviderId
+          ? { ...current, id: saved.id, credential: "" }
+          : current,
+      );
       showSuccess("Assistant provider saved");
     } catch (error) {
       showError("Failed to save assistant provider", {

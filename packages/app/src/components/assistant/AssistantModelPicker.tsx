@@ -99,6 +99,15 @@ export function AssistantModelPicker() {
               });
             }
           } catch (error) {
+            // The write did not land, so the baseline must not advance to the
+            // model we tried to store. But it must not stay either: a rejection
+            // most often means another writer moved the row, and replaying the
+            // same stale `expectedDefaultModel` would be rejected forever,
+            // leaving the picker permanently unable to save. Drop the baseline
+            // and refetch so the next selection compares against what the
+            // server actually holds.
+            persistedModelsRef.current.delete(configId);
+            configsResult.refetch().catch(() => undefined);
             showError("Failed to set assistant model", {
               description:
                 error instanceof Error ? error.message : "Please try again.",
