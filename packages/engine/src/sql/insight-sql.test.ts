@@ -1001,6 +1001,69 @@ describe("buildInsightSQL — identifier quoting: embedded double-quotes in disp
     // A simple structural check: the AS alias must be wrapped in outer quotes.
     expect(sql!).toMatch(/AS "my ""best"" sales table"/);
   });
+
+  it("doubles embedded double-quotes in a raw-mode filter column reference", () => {
+    // Source column names are CSV-header-derived verbatim, so an RFC-4180 header
+    // `"he""llo"` yields the column name `he"llo`. The raw-mode filter path
+    // references the source column name directly (no UUID alias), so it must
+    // quote through the same helper the SELECT side uses — otherwise the WHERE
+    // clause closes its identifier early and DuckDB rejects the whole query.
+    const WEIRD = 'he"llo';
+    const weirdField = field(REGION_FIELD_ID, "Region", WEIRD, "string");
+    const tableWithQuotedColumn: typeof BASE_TABLE = {
+      ...BASE_TABLE,
+      fields: [weirdField],
+    };
+    const insight: Insight = {
+      id: "77777777-7777-7777-7777-777777777777" as UUID,
+      name: "Raw rows",
+      baseTableId: TABLE_ID,
+      // No selectedFields and no metrics → buildSimpleSQL's raw-reference path.
+      selectedFields: [],
+      metrics: [],
+      filters: [{ field: WEIRD, operator: "eq", value: "x" }],
+      createdAt: 0,
+    };
+
+    const sql = buildInsightSQL(tableWithQuotedColumn, new Map(), insight, {
+      mode: "query",
+    });
+    expect(sql).not.toBeNull();
+    expect(sql!).toContain(`WHERE "he""llo" = 'x'`);
+    // The unescaped form would terminate the identifier after `he`.
+    expect(sql!).not.toContain(`WHERE "he"llo"`);
+  });
+
+  it("doubles embedded double-quotes in model-mode effective filters", () => {
+    // The dashboard-cell chart-view path: model mode with caller-supplied
+    // effective filters, which also resolves against raw source column names.
+    const WEIRD = 'he"llo';
+    const weirdField = field(REGION_FIELD_ID, "Region", WEIRD, "string");
+    const tableWithQuotedColumn: typeof BASE_TABLE = {
+      ...BASE_TABLE,
+      fields: [weirdField],
+    };
+    const filters: InsightFilter[] = [
+      { field: WEIRD, operator: "eq", value: "x" },
+    ];
+    const insight: Insight = {
+      id: "66666666-6666-6666-6666-666666666666" as UUID,
+      name: "Cell view",
+      baseTableId: TABLE_ID,
+      selectedFields: [],
+      metrics: [],
+      filters,
+      createdAt: 0,
+    };
+
+    const sql = buildInsightSQL(tableWithQuotedColumn, new Map(), insight, {
+      mode: "model",
+      effectiveFilters: filters,
+    });
+    expect(sql).not.toBeNull();
+    expect(sql!).toContain(`WHERE "he""llo" = 'x'`);
+    expect(sql!).not.toContain(`WHERE "he"llo"`);
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -1041,7 +1041,9 @@ function resolveFilterColumnRef(
   if (refMode === "alias") {
     return `"${fieldIdToColumnAlias(field.id)}"`;
   }
-  return `"${field.columnName ?? field.name}"`;
+  // Source column names come from the data verbatim (CSV headers), so they can
+  // contain double-quotes — quote through the shared helper, which doubles them.
+  return quoteIdentifier(field.columnName ?? field.name);
 }
 
 /**
