@@ -462,8 +462,14 @@ describe("encoding-helpers", () => {
       expect(isEncodingValue(`metric:${uuid}`)).toBe(true);
     });
 
-    it("accepts an uppercase uuid", () => {
-      expect(isEncodingValue(`field:${uuid.toUpperCase()}`)).toBe(true);
+    it("rejects wrong case — parseEncoding matches the prefix case-sensitively", () => {
+      // `FIELD:<uuid>` would not parse as an ID reference at all; the reader
+      // falls back to treating it as a raw column name. Admitting it at the
+      // gate would persist a value the reader silently mis-resolves.
+      expect(isEncodingValue(`FIELD:${uuid}`)).toBe(false);
+      expect(isEncodingValue(`Metric:${uuid}`)).toBe(false);
+      expect(isEncodingValue(`field:${uuid.toUpperCase()}`)).toBe(false);
+      expect(isEncodingValue(`field:${uuid}_J1`)).toBe(false);
     });
 
     it("accepts a repeat-join instance suffix — the axis picker emits it", () => {
@@ -564,7 +570,14 @@ describe("encoding-helpers", () => {
     });
 
     it("rejects a value that claims to be an ID reference but carries no uuid", () => {
-      for (const bad of ["field:", "field:abc", `metric:${x}-nope`]) {
+      for (const bad of [
+        "field:",
+        "field:abc",
+        `metric:${x}-nope`,
+        // Wrong case: the reader's prefix match is case-sensitive, so this
+        // would be silently mis-read as a raw column name rather than an id.
+        `FIELD:${x}`,
+      ]) {
         expect(validateVisualizationEncoding({ x: bad })).toContain(
           "looks like an ID reference but is malformed",
         );

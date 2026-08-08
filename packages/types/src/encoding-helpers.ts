@@ -177,11 +177,20 @@ export const ENCODING_VALUE_FORMAT =
  * table (`<uuid>_j1`, `<uuid>_j2`, …). Selecting a repeat-join instance in the
  * axis picker persists exactly that form, so rejecting it would break a
  * legitimate encoding the UI itself writes.
+ *
+ * Case-SENSITIVE, deliberately: `parseEncoding` matches the prefix with a
+ * case-sensitive `startsWith`, and ids are compared to stored lowercase UUIDs.
+ * Admitting `FIELD:<uuid>` here would let a value through the gate that the
+ * reader then falls back to treating as a raw column name.
  */
 const ENCODING_VALUE_PATTERN =
-  /^(?:field|metric):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:_j[1-9][0-9]*)?$/i;
+  /^(?:field|metric):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:_j[1-9][0-9]*)?$/;
 
-/** Anything claiming to be an ID reference, well-formed or not. */
+/**
+ * Anything claiming to be an ID reference, well-formed or not. Case-insensitive
+ * so a wrong-case prefix is reported as the malformed reference it is, rather
+ * than passing as a bare column name.
+ */
 const ENCODING_PREFIX_PATTERN = /^(?:field|metric):/i;
 
 /**
