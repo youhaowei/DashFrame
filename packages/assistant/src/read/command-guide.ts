@@ -35,7 +35,7 @@ import { ENCODING_VALUE_FORMAT } from "@dashframe/types";
  */
 const ENCODING_ARG_CONTRACT = `{ x?, y?, color?, size? } — each value is ${ENCODING_VALUE_FORMAT}; plus optional xType/yType ("quantitative"|"nominal"|"ordinal"|"temporal") and xTransform/yTransform`;
 
-const ENCODING_ARG_NOTE = `Encoding channel values are ID references, NOT column names and NOT objects: each must be ${ENCODING_VALUE_FORMAT}. A field id comes from the data table's fields; a metric id from the insight's metrics. Anything else is REJECTED at write time.`;
+const ENCODING_ARG_NOTE = `ALWAYS emit ID references, never objects and never column names: each channel value must be ${ENCODING_VALUE_FORMAT}. A field id comes from the data table's fields; a metric id from the insight's metrics. A non-string channel value, and a \`field:\`/\`metric:\` value whose id is not a uuid, are REJECTED at write time. (A bare column name is accepted only as a legacy form the UI still writes; it resolves by name and breaks on rename, so do not author one.)`;
 
 /** One command's agent-facing contract. */
 export interface CommandGuideEntry {

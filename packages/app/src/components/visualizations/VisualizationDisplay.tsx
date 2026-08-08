@@ -75,8 +75,24 @@ export function VisualizationDisplay(props: VisualizationDisplayProps) {
   // same untrusted encoding, so an unguarded throw here would take the
   // visualization detail route or a whole dashboard down with one bad panel
   // (GH #289).
+  //
+  // The reset key carries `updatedAt`, not just the id: the config panel that
+  // repairs a bad encoding lives OUTSIDE this boundary, on the same route, and
+  // keying on the id alone would leave the repaired chart stuck on the broken
+  // card until the user navigated away. The query is the one the content
+  // component already issues, so this shares its cache rather than adding a
+  // fetch.
+  const { data: visualizations = [] } = useQuery(api.listVisualizations, {
+    args: {},
+  });
+  const active = visualizations.find(
+    (candidate) => candidate.id === props.visualizationId,
+  );
+
   return (
-    <VisualizationErrorBoundary resetKey={props.visualizationId}>
+    <VisualizationErrorBoundary
+      resetKey={`${props.visualizationId ?? ""}:${active?.updatedAt ?? ""}`}
+    >
       <VisualizationDisplayContent {...props} />
     </VisualizationErrorBoundary>
   );

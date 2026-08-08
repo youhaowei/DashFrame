@@ -155,9 +155,9 @@ export function isValidEncoding(
 // ============================================================================
 
 /**
- * The encoding channels whose values are `EncodingValue` strings. The other
- * keys of `VisualizationEncoding` (`xType`, `yType`, `xTransform`,
- * `yTransform`) carry their own shapes and are not checked here.
+ * The encoding channels whose values are channel references. The other keys of
+ * `VisualizationEncoding` (`xType`, `yType`, `xTransform`, `yTransform`) carry
+ * their own shapes and are validated separately below.
  */
 export const ENCODING_VALUE_CHANNELS = ["x", "y", "color", "size"] as const;
 
@@ -181,6 +181,9 @@ export const ENCODING_VALUE_FORMAT =
 const ENCODING_VALUE_PATTERN =
   /^(?:field|metric):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:_j[1-9][0-9]*)?$/i;
 
+/** Anything claiming to be an ID reference, well-formed or not. */
+const ENCODING_PREFIX_PATTERN = /^(?:field|metric):/i;
+
 /**
  * Runtime guard for a value of unknown provenance — an RPC argument, a command
  * envelope authored by an agent, a row read back from storage. Unlike
@@ -195,12 +198,89 @@ export function isEncodingValue(value: unknown): value is EncodingValue {
 }
 
 /**
+ * Why a channel value is not writable, or undefined when it is.
+ *
+ * The write gate is deliberately NOT "must be an `EncodingValue`". A bare
+ * column name is a form the product itself still produces: the axis picker
+ * offers raw data-frame columns while analysis is unavailable, and offers a
+ * column that matched no field under its own name, and `resolveToSql` resolves
+ * both. Requiring the ID form here would reject the picker's own writes and
+ * break duplicating any older chart that stored one.
+ *
+ * What is NOT writable is the crash class and the near-miss:
+ * - a NON-STRING — the render path calls `.startsWith` on channel values, so an
+ *   object or number is the defect from GH #289;
+ * - a value that CLAIMS to be an ID reference (`field:` / `metric:` prefix) but
+ *   carries no valid id — silently unresolvable, and always a caller mistake
+ *   rather than a legacy form.
+ */
+function channelValueProblem(
+  channel: string,
+  value: unknown,
+): string | undefined {
+  if (typeof value !== "string") {
+    return `encoding.${channel} must be a string — ${ENCODING_VALUE_FORMAT} — received ${describeValue(value)}`;
+  }
+  if (value === "") {
+    return `encoding.${channel} must not be empty — omit the channel instead`;
+  }
+  if (
+    ENCODING_PREFIX_PATTERN.test(value) &&
+    !ENCODING_VALUE_PATTERN.test(value)
+  )
+    return `encoding.${channel} looks like an ID reference but is malformed — expected ${ENCODING_VALUE_FORMAT} — received ${describeValue(value)}`;
+  return undefined;
+}
+
+const AXIS_TYPES = new Set(["quantitative", "nominal", "ordinal", "temporal"]);
+const TEMPORAL_AGGREGATIONS = new Set([
+  "none",
+  "yearWeek",
+  "yearMonth",
+  "year",
+]);
+const CATEGORICAL_DATE_GROUPS = new Set(["monthName", "dayOfWeek", "quarter"]);
+
+/**
+ * Why a channel transform is not writable, or undefined when it is.
+ *
+ * `applyTransform` reads `transform.transform.kind` and `applyDateTransformToSql`
+ * switches on the inner union without a default, so a half-built transform
+ * throws at render exactly like a non-string channel value does. Same class of
+ * defect, same gate.
+ */
+function transformProblem(key: string, value: unknown): string | undefined {
+  const shape = `{ type: "date", transform: { kind: "temporal", aggregation: "none"|"yearWeek"|"yearMonth"|"year" } | { kind: "categorical", groupBy: "monthName"|"dayOfWeek"|"quarter" } }`;
+  const reject = () =>
+    `encoding.${key} must be ${shape} — received ${describeValue(value)}`;
+
+  if (!isPlainObject(value)) return reject();
+  if (value.type !== "date") return reject();
+  const transform = value.transform;
+  if (!isPlainObject(transform)) return reject();
+  if (transform.kind === "temporal") {
+    return typeof transform.aggregation === "string" &&
+      TEMPORAL_AGGREGATIONS.has(transform.aggregation)
+      ? undefined
+      : reject();
+  }
+  if (transform.kind === "categorical") {
+    return typeof transform.groupBy === "string" &&
+      CATEGORICAL_DATE_GROUPS.has(transform.groupBy)
+      ? undefined
+      : reject();
+  }
+  return reject();
+}
+
+/**
  * Validate a whole `VisualizationEncoding` supplied by an untrusted caller.
  *
- * The render path (`parseEncoding` → `value.startsWith`) assumes every channel
- * value is a string, so a structurally wrong encoding written to canonical
- * state throws at render rather than at write. This is the write-time gate:
- * anything it rejects can never reach storage.
+ * The render path assumes channel values are strings and transforms are whole,
+ * so a structurally wrong encoding written to canonical state throws at RENDER
+ * rather than at write — and before the error boundary that took the entire
+ * page with it (GH #289). This is the write-time gate: what it rejects can
+ * never reach storage.
  *
  * Absent channels are fine — encodings are built up incrementally, and a
  * missing axis already has its own terminal UI.
@@ -211,30 +291,45 @@ export function isEncodingValue(value: unknown): value is EncodingValue {
  * @example
  * ```typescript
  * validateVisualizationEncoding({ x: { field: "region" } })
- * // Returns: 'encoding.x must be a string "field:<uuid>" … — received {"field":"region"}'
+ * // Returns: 'encoding.x must be a string — a string "field:<uuid>" … — received {"field":"region"}'
  * ```
  */
 export function validateVisualizationEncoding(
   encoding: unknown,
 ): string | undefined {
   if (encoding === undefined) return undefined;
-  if (
-    typeof encoding !== "object" ||
-    encoding === null ||
-    Array.isArray(encoding)
-  ) {
+  if (!isPlainObject(encoding)) {
     return `encoding must be an object mapping channels to encoding values — received ${describeValue(encoding)}`;
   }
 
-  const record = encoding as Record<string, unknown>;
   for (const channel of ENCODING_VALUE_CHANNELS) {
-    const value = record[channel];
+    const value = encoding[channel];
     if (value === undefined) continue;
-    if (!isEncodingValue(value)) {
-      return `encoding.${channel} must be ${ENCODING_VALUE_FORMAT} — received ${describeValue(value)}`;
+    const problem = channelValueProblem(channel, value);
+    if (problem) return problem;
+  }
+
+  for (const key of ["xType", "yType"] as const) {
+    const value = encoding[key];
+    if (value === undefined) continue;
+    if (typeof value !== "string" || !AXIS_TYPES.has(value)) {
+      return `encoding.${key} must be one of "quantitative", "nominal", "ordinal", "temporal" — received ${describeValue(value)}`;
     }
   }
+
+  for (const key of ["xTransform", "yTransform"] as const) {
+    const value = encoding[key];
+    if (value === undefined) continue;
+    const problem = transformProblem(key, value);
+    if (problem) return problem;
+  }
+
   return undefined;
+}
+
+/** Narrow to a non-array, non-null object. */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /** Render an offending value compactly for an error message. */

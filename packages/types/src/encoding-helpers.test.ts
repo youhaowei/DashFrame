@@ -516,6 +516,10 @@ describe("encoding-helpers", () => {
             type: "date",
             transform: { kind: "temporal", aggregation: "yearMonth" },
           },
+          yTransform: {
+            type: "date",
+            transform: { kind: "categorical", groupBy: "monthName" },
+          },
         }),
       ).toBeUndefined();
     });
@@ -523,15 +527,47 @@ describe("encoding-helpers", () => {
     it("rejects the documented-looking guess and names the channel + format", () => {
       const problem = validateVisualizationEncoding({ x: { field: "region" } });
       expect(problem).toContain("encoding.x");
+      expect(problem).toContain("must be a string");
       expect(problem).toContain("field:<uuid>");
       expect(problem).toContain('{"field":"region"}');
     });
 
-    it("rejects a raw column name on any value-bearing channel", () => {
+    it("rejects any non-string on any value-bearing channel", () => {
       for (const channel of ["x", "y", "color", "size"]) {
         expect(
-          validateVisualizationEncoding({ [channel]: "region" }),
+          validateVisualizationEncoding({ [channel]: { field: "c" } }),
         ).toContain(`encoding.${channel}`);
+        expect(validateVisualizationEncoding({ [channel]: 7 })).toContain(
+          `encoding.${channel}`,
+        );
+        expect(validateVisualizationEncoding({ [channel]: null })).toContain(
+          `encoding.${channel}`,
+        );
+      }
+    });
+
+    // The axis picker offers raw data-frame columns while analysis is
+    // unavailable, and offers an unmatched analyzed column under its own name;
+    // `resolveToSql` resolves both. Rejecting these would break the picker's
+    // own writes and duplicating any older chart that stored one.
+    it("accepts a bare column name — a form the axis picker still writes", () => {
+      expect(validateVisualizationEncoding({ x: "region" })).toBeUndefined();
+      expect(
+        validateVisualizationEncoding({ x: "region", y: "sum(amount)" }),
+      ).toBeUndefined();
+    });
+
+    it("rejects an empty channel value — omit the channel instead", () => {
+      expect(validateVisualizationEncoding({ x: "" })).toContain(
+        "must not be empty",
+      );
+    });
+
+    it("rejects a value that claims to be an ID reference but carries no uuid", () => {
+      for (const bad of ["field:", "field:abc", `metric:${x}-nope`]) {
+        expect(validateVisualizationEncoding({ x: bad })).toContain(
+          "looks like an ID reference but is malformed",
+        );
       }
     });
 
@@ -543,6 +579,43 @@ describe("encoding-helpers", () => {
         "must be an object",
       );
       expect(validateVisualizationEncoding([])).toContain("must be an object");
+    });
+
+    it("rejects a bad axis type", () => {
+      expect(
+        validateVisualizationEncoding({
+          x: `field:${x}`,
+          xType: "categorical",
+        }),
+      ).toContain("encoding.xType");
+      expect(
+        validateVisualizationEncoding({ y: `field:${x}`, yType: 3 }),
+      ).toContain("encoding.yType");
+    });
+
+    // `applyTransform` reads transform.transform.kind — a half-built transform
+    // throws at render exactly like a non-string channel value.
+    it("rejects a half-built date transform", () => {
+      const cases: unknown[] = [
+        { type: "date" },
+        { type: "date", transform: {} },
+        { type: "date", transform: { kind: "temporal" } },
+        { type: "date", transform: { kind: "temporal", aggregation: "daily" } },
+        { type: "date", transform: { kind: "categorical" } },
+        { type: "date", transform: { kind: "categorical", groupBy: "week" } },
+        { type: "date", transform: { kind: "weird", aggregation: "year" } },
+        { transform: { kind: "temporal", aggregation: "year" } },
+        "yearMonth",
+        null,
+      ];
+      for (const bad of cases) {
+        expect(
+          validateVisualizationEncoding({ x: `field:${x}`, xTransform: bad }),
+        ).toContain("encoding.xTransform");
+        expect(
+          validateVisualizationEncoding({ y: `field:${y}`, yTransform: bad }),
+        ).toContain("encoding.yTransform");
+      }
     });
 
     it("ignores keys it does not own rather than rejecting them", () => {
