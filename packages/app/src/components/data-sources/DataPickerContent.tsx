@@ -30,11 +30,13 @@ import {
 import { useMutation, useQuery } from "@wystack/client";
 import { Button, SectionList } from "@wystack/ui-react";
 import { ArrowLeftIcon } from "@wystack/ui-react/icons";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AddConnectionPanel } from "./AddConnectionPanel";
 import { DataSourceList, type DataSourceInfo } from "./DataSourceList";
 import { DataTableList } from "./DataTableList";
 import { InsightList, type InsightDisplayInfo } from "./InsightList";
+
+const FILE_TABLE_NAME_EXTENSION = /\.(csv|xlsx?|json)$/i;
 
 function requestRemoteFieldReview(
   confirm: (config: ConfirmDialogConfig) => void,
@@ -68,7 +70,7 @@ function requestFileTableReplacement(
   return new Promise((resolve) => {
     confirm({
       title: `Replace table "${tableName}" from "${sourceName}"?`,
-      description: `The existing file-backed table "${tableName}" from "${sourceName}" will be overwritten by "${fileName}".`,
+      description: `The existing file-backed table "${tableName}" from "${sourceName}" will be overwritten by "${fileName}". Renamed or removed columns can break Insights that reference them.`,
       confirmLabel: "Replace table",
       cancelLabel: "Cancel upload",
       variant: "destructive",
@@ -131,7 +133,9 @@ export function DataPickerContent({
   onCancel,
   showInsights = true,
 }: DataPickerContentProps) {
-  const { data: dataSources = [] } = useQuery(api.listDataSources);
+  const dataSourcesQuery = useQuery(api.listDataSources);
+  const { data: dataSources = [], isLoading: isLoadingDataSources } =
+    dataSourcesQuery;
   const { data: allDataTables = [] } = useQuery(api.listDataTables, {
     args: {},
   });
@@ -169,6 +173,14 @@ export function DataPickerContent({
   const [materializingResourceId, setMaterializingResourceId] = useState<
     string | null
   >(null);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   // Transform sources for DataSourceList
   const dataSourcesInfo: DataSourceInfo[] = useMemo(() => {
@@ -272,6 +284,14 @@ export function DataPickerContent({
   const handleFileSelect = useCallback(
     async (connector: FileSourceConnector, file: File) => {
       setError(null);
+      if (isLoadingDataSources) {
+        setError("Data sources are still loading — try again in a moment.");
+        return;
+      }
+      if (dataSourcesQuery.isError) {
+        setError("Data sources could not be loaded — try again in a moment.");
+        return;
+      }
       try {
         if (
           connector.maxSizeMB &&
@@ -291,8 +311,9 @@ export function DataPickerContent({
             getConnectorById(source?.type ?? "")?.sourceType === "file";
           return (
             isFileBacked &&
+            !excludeTableIds.includes(table.id) &&
             (table.name === file.name ||
-              table.name === file.name.replace(/\.(csv|xlsx?)$/i, ""))
+              table.name === file.name.replace(FILE_TABLE_NAME_EXTENSION, ""))
           );
         });
 
@@ -301,8 +322,8 @@ export function DataPickerContent({
             (dataSource) => dataSource.id === existingTable.dataSourceId,
           );
           const sourceName =
-            getConnectorById(source?.type ?? "")?.name ??
             source?.name ??
+            getConnectorById(source?.type ?? "")?.name ??
             source?.type ??
             "file source";
           const shouldOverride = await requestFileTableReplacement(confirm, {
@@ -311,6 +332,9 @@ export function DataPickerContent({
             sourceName,
           });
           if (!shouldOverride) {
+            return;
+          }
+          if (!isMountedRef.current) {
             return;
           }
         }
@@ -323,16 +347,24 @@ export function DataPickerContent({
         const { dataTableId } = await handleFileConnectorResult(
           file.name,
           result,
-          existingTable ? { overrideTableId: existingTable.id } : undefined,
+          { overrideTableId: tableId },
         );
 
-        const tableName = file.name.replace(/\.(csv|xlsx?)$/i, "");
+        const tableName = file.name.replace(FILE_TABLE_NAME_EXTENSION, "");
         onTableSelect(dataTableId, tableName);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to process file");
       }
     },
-    [onTableSelect, allDataTables, dataSources, confirm],
+    [
+      onTableSelect,
+      allDataTables,
+      dataSources,
+      dataSourcesQuery.isError,
+      isLoadingDataSources,
+      confirm,
+      excludeTableIds,
+    ],
   );
 
   const handleConnect = useCallback(

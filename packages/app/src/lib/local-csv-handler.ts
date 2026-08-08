@@ -11,7 +11,7 @@ import {
 import { csvToDataFrame } from "@dashframe/csv";
 import type { FileParseResult } from "@dashframe/engine";
 import type { BrowserDataFrame } from "@dashframe/engine-browser";
-import type { Metric } from "@dashframe/types";
+import type { Field, Metric } from "@dashframe/types";
 
 /**
  * Build the default Count metric for a new DataTable.
@@ -42,6 +42,33 @@ const ensureCountMetric = (
   if (hasCount) return existing;
 
   return [makeDefaultCountMetric(tableId), ...existing];
+};
+
+/**
+ * Keep stable field identities and their user-reviewed sensitivity marks when
+ * a file-backed table is replaced. Parsed fields provide the current schema;
+ * a column with the same persisted display name retains its existing identity.
+ */
+const mergeReplacementFields = (
+  fields: Field[],
+  existingFields: Field[] = [],
+): Field[] => {
+  const existingFieldsByName = new Map(
+    existingFields.map((field) => [field.name, field]),
+  );
+
+  return fields.map((field) => {
+    const existingField = existingFieldsByName.get(field.name);
+    if (!existingField) return field;
+
+    return {
+      ...field,
+      id: existingField.id,
+      sensitivity: existingField.sensitivity,
+      sensitivityReason: existingField.sensitivityReason,
+      sensitivitySource: existingField.sensitivitySource,
+    };
+  });
 };
 
 /**
@@ -91,12 +118,16 @@ export async function handleLocalCSVUpload(
   if (overrideTable) {
     // 3a. Override existing table instead of creating a new one
     const metrics = ensureCountMetric(overrideTable.metrics, dataTableId);
+    const replacementFields = mergeReplacementFields(
+      fields,
+      overrideTable.fields,
+    );
 
     await updateDataTable(dataTableId, {
       name: tableName,
       table: file.name,
       sourceSchema,
-      fields,
+      fields: replacementFields,
       metrics,
     });
 
@@ -194,12 +225,16 @@ export async function handleFileConnectorResult(
   if (overrideTable) {
     // Override existing table
     const metrics = ensureCountMetric(overrideTable.metrics, dataTableId);
+    const replacementFields = mergeReplacementFields(
+      fields,
+      overrideTable.fields,
+    );
 
     await updateDataTable(dataTableId, {
       name: tableName,
       table: fileName,
       sourceSchema,
-      fields,
+      fields: replacementFields,
       metrics,
     });
 
