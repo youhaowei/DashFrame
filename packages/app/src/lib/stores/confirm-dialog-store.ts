@@ -15,7 +15,7 @@ export interface ConfirmDialogConfig {
   /** Variant for the confirm button */
   variant?: "default" | "destructive";
   /** Callback when confirmed */
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<void>;
   /** Callback when cancelled (optional) */
   onCancel?: () => void;
 }
@@ -33,7 +33,7 @@ interface ConfirmDialogActions {
   /** Close the dialog (called by the dialog component) */
   close: () => void;
   /** Handle the confirm action */
-  handleConfirm: () => void;
+  handleConfirm: () => Promise<void>;
   /** Handle the cancel action */
   handleCancel: () => void;
 }
@@ -74,12 +74,14 @@ export const useConfirmDialogStore = create<
     set({ isOpen: false, config: null });
   },
 
-  handleConfirm: () => {
+  handleConfirm: async () => {
     const { config } = get();
-    if (config?.onConfirm) {
-      config.onConfirm();
-    }
     set({ isOpen: false, config: null });
+    try {
+      await config?.onConfirm?.();
+    } catch (error) {
+      console.error("Confirm dialog action failed:", error);
+    }
   },
 
   handleCancel: () => {

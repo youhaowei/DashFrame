@@ -22,6 +22,7 @@ import {
 } from "@wystack/ui-react";
 import { ArrowUpDownIcon } from "@wystack/ui-react/icons";
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 
 function resolveSourceName(
   sourceId: string | undefined,
@@ -215,7 +216,11 @@ export default function DataFramesPage() {
       confirmLabel: "Delete",
       variant: "destructive",
       onConfirm: async () => {
-        await removeDataFrame(entry.id);
+        try {
+          await removeDataFrame(entry.id);
+        } catch {
+          toast.error("Couldn't delete the data frame");
+        }
       },
     });
   };

@@ -63,6 +63,7 @@ import {
   DeleteIcon,
 } from "@wystack/ui-react/icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import { useCompiledInsight } from "../_hooks/useCompiledInsight";
 
 interface VisualizationPageContentProps {
@@ -904,8 +905,12 @@ export default function VisualizationPageContent({
       confirmLabel: "Delete",
       variant: "destructive",
       onConfirm: async () => {
-        await removeVisualizationMutation({ id: visualizationId as UUID });
-        navigate({ to: "/insights" });
+        try {
+          await removeVisualizationMutation({ id: visualizationId as UUID });
+          navigate({ to: "/insights" });
+        } catch {
+          toast.error("Couldn't delete the visualization");
+        }
       },
     });
   };
