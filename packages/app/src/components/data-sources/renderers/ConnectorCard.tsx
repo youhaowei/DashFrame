@@ -100,7 +100,10 @@ export function ConnectorCard({
               disabled={isLoading}
               onChange={(e) => {
                 const file = e.target.files?.[0];
-                if (file) onFileSelect?.(file);
+                if (file) {
+                  onFileSelect?.(file);
+                  e.target.value = "";
+                }
               }}
             />
           </label>
