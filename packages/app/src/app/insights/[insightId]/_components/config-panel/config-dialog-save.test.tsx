@@ -237,11 +237,20 @@ describe("insight config dialog saves", () => {
   // `count(column)`, which skips null rows and reports a smaller number than
   // the label promises. Driven through the rendered dialog rather than the
   // helpers, because the defect is the transition the user performs.
+  // The 20s budget is deliberate, and this test is the only one in the package
+  // that needs it. It drives eleven interactions through Radix Selects — each
+  // one a full userEvent pointer sequence against a portalled listbox — which
+  // costs ~600ms of CPU alone and ~900ms when the suite's other workers are
+  // competing for cores. That is the honest cost of the test, not a hang: every
+  // interaction completes, and profiling shows the time spread evenly across
+  // them with no dominant step. The default 5s left under 6x headroom, and CI
+  // runs 85 turbo tasks on a 4-core runner, so a contended run reaches 4.3s and
+  // the test times out (PR #313's `check` job). 20s is ~20x the in-suite cost
+  // and still fails fast on a real hang.
   it("drops a previously chosen column when switching back to Count (rows)", async () => {
-    // `delay: null` removes userEvent's inter-event wait. This test drives nine
-    // interactions through Radix Selects, and at the default delay the total
-    // ran just over the 5s limit on CI's slower runner while passing locally.
-    // Dropping the delay changes pacing only — every interaction still happens.
+    // `delay: null` removes userEvent's inter-event wait, which is why the work
+    // above is ~600ms rather than several seconds. It changes pacing only —
+    // every interaction still happens.
     const user = userEvent.setup({ delay: null });
     const onSave = vi.fn().mockResolvedValue(undefined);
 
@@ -289,7 +298,7 @@ describe("insight config dialog saves", () => {
       aggregation: "count",
       columnName: undefined,
     });
-  });
+  }, 20_000);
 
   // The edit dialog reaches the same bad state by a different route: it never
   // switches aggregation, it *initializes* from a metric already stored as
