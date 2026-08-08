@@ -33,6 +33,7 @@ import {
   type ReactNode,
 } from "react";
 import { EngineUnavailableState } from "./EngineUnavailableState";
+import { VisualizationErrorBoundary } from "./VisualizationErrorBoundary";
 
 /**
  * Wraps `children` in a WASM-backed VisualizationProvider when `nativeCapable`
@@ -69,10 +70,35 @@ function WasmFallbackWrapper({
 // Minimum visible rows needed to enable "Show Both" mode
 const MIN_VISIBLE_ROWS_FOR_BOTH = 5;
 
-export function VisualizationDisplay({
-  visualizationId,
-  overrides,
-}: {
+export function VisualizationDisplay(props: VisualizationDisplayProps) {
+  // Same containment as VisualizationPreview: the full-size chart resolves the
+  // same untrusted encoding, so an unguarded throw here would take the
+  // visualization detail route or a whole dashboard down with one bad panel
+  // (GH #289).
+  //
+  // The reset key carries `updatedAt`, not just the id: the config panel that
+  // repairs a bad encoding lives OUTSIDE this boundary, on the same route, and
+  // keying on the id alone would leave the repaired chart stuck on the broken
+  // card until the user navigated away. The query is the one the content
+  // component already issues, so this shares its cache rather than adding a
+  // fetch.
+  const { data: visualizations = [] } = useQuery(api.listVisualizations, {
+    args: {},
+  });
+  const active = visualizations.find(
+    (candidate) => candidate.id === props.visualizationId,
+  );
+
+  return (
+    <VisualizationErrorBoundary
+      resetKey={`${props.visualizationId ?? ""}:${active?.updatedAt ?? ""}`}
+    >
+      <VisualizationDisplayContent {...props} />
+    </VisualizationErrorBoundary>
+  );
+}
+
+interface VisualizationDisplayProps {
   visualizationId?: string;
   /**
    * Per-cell param overrides from the dashboard item.  When present, the
@@ -81,7 +107,12 @@ export function VisualizationDisplay({
    * behaviour, satisfying the no-override no-regression constraint).
    */
   overrides?: DashboardItemOverrides;
-}) {
+}
+
+function VisualizationDisplayContent({
+  visualizationId,
+  overrides,
+}: VisualizationDisplayProps) {
   // Whole-engine-down signals. `engineError` is the native bootstrap failure
   // (connector never came up); `visualizationError` is the provider failing to
   // initialize its Mosaic coordinator. Both mean the same thing to the user —

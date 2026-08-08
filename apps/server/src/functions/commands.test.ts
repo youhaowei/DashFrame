@@ -2033,7 +2033,10 @@ describe("command vocabulary", () => {
         }),
       );
 
-      const encoding = { x: "field:abc", y: "metric:xyz" } as never;
+      const encoding = {
+        x: "field:550e8400-e29b-41d4-a716-446655440000",
+        y: "metric:6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+      } as never;
       await commit(cmd("SetChartEncoding", { id: vizId, encoding }));
       const rows = await vizsById(vizId);
       expect(rows[0]?.encoding).toEqual(encoding);
@@ -2049,6 +2052,217 @@ describe("command vocabulary", () => {
       await expect(
         commit(cmd("SetChartEncoding", { id: id(), encoding: {} as never })),
       ).rejects.toThrow(/not found/);
+    });
+
+    // GH #289 — a malformed encoding used to write through to canonical state
+    // and only fail at RENDER, where it replaced the whole page. The command
+    // layer is the write-time gate.
+    it("should reject a structurally malformed encoding on SetChartEncoding, naming the format", async () => {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      const vizId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("CreateVisualization", {
+          id: vizId,
+          name: "Chart",
+          insightId,
+          visualizationType: "barY",
+          spec: {},
+        }),
+      );
+
+      await expect(
+        commit(
+          cmd("SetChartEncoding", {
+            id: vizId,
+            encoding: { x: { field: "region" } } as never,
+          }),
+        ),
+      ).rejects.toThrow(/encoding\.x must be a string .*field:<uuid>/);
+
+      // Nothing was written — the visualization keeps its original encoding.
+      const rows = await vizsById(vizId);
+      expect(rows[0]?.encoding).toEqual({});
+    });
+
+    // The axis picker offers raw data-frame columns while analysis is
+    // unavailable, and `resolveToSql` resolves them. Rejecting a bare column
+    // name would break the picker's own writes and duplicating older charts.
+    it("should accept a bare column name — a form the axis picker still writes", async () => {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      const vizId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("CreateVisualization", {
+          id: vizId,
+          name: "Chart",
+          insightId,
+          visualizationType: "barY",
+          spec: {},
+        }),
+      );
+
+      const encoding = { x: "region", y: "sum(amount)" };
+      await commit(
+        cmd("SetChartEncoding", { id: vizId, encoding: encoding as never }),
+      );
+      expect((await vizsById(vizId))[0]?.encoding).toEqual(encoding);
+    });
+
+    // Clearing the optional Color or Size picker saves `""` through this very
+    // command. The write gate must not turn "clear this channel" into an error.
+    it("should accept a cleared optional channel — the picker saves an empty string", async () => {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      const vizId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("CreateVisualization", {
+          id: vizId,
+          name: "Chart",
+          insightId,
+          visualizationType: "dot",
+          spec: {},
+        }),
+      );
+
+      const encoding = { x: "region", y: "sum(amount)", color: "", size: "" };
+      await commit(
+        cmd("SetChartEncoding", { id: vizId, encoding: encoding as never }),
+      );
+      expect((await vizsById(vizId))[0]?.encoding).toEqual(encoding);
+    });
+
+    it("should reject a value that claims to be an ID reference but carries no uuid", async () => {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      const vizId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("CreateVisualization", {
+          id: vizId,
+          name: "Chart",
+          insightId,
+          visualizationType: "barY",
+          spec: {},
+        }),
+      );
+
+      await expect(
+        commit(
+          cmd("SetChartEncoding", {
+            id: vizId,
+            encoding: { x: "field:not-a-uuid" } as never,
+          }),
+        ),
+      ).rejects.toThrow(/looks like an ID reference but is malformed/);
+    });
+
+    // `applyTransform` reads transform.transform.kind at render — a half-built
+    // transform throws there exactly like a non-string channel value does.
+    it("should reject a half-built date transform", async () => {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      const vizId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("CreateVisualization", {
+          id: vizId,
+          name: "Chart",
+          insightId,
+          visualizationType: "barY",
+          spec: {},
+        }),
+      );
+
+      await expect(
+        commit(
+          cmd("SetChartEncoding", {
+            id: vizId,
+            encoding: {
+              x: "field:550e8400-e29b-41d4-a716-446655440000",
+              xTransform: { type: "date" },
+            } as never,
+          }),
+        ),
+      ).rejects.toThrow(/encoding\.xTransform must be/);
+    });
+
+    it("should reject a malformed encoding on CreateVisualization — nothing is inserted", async () => {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      const vizId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+
+      await expect(
+        commit(
+          cmd("CreateVisualization", {
+            id: vizId,
+            name: "Chart",
+            insightId,
+            visualizationType: "barY",
+            spec: {},
+            encoding: { y: { field: "amount" } } as never,
+          }),
+        ),
+      ).rejects.toThrow(/CreateVisualization: encoding\.y must be/);
+
+      expect(await vizsById(vizId)).toHaveLength(0);
+    });
+
+    it("should accept a repeat-join instance encoding — the axis picker emits it", async () => {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      const vizId = id();
+      const encoding = {
+        x: "field:550e8400-e29b-41d4-a716-446655440000_j1",
+        y: "metric:6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+      };
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("CreateVisualization", {
+          id: vizId,
+          name: "Chart",
+          insightId,
+          visualizationType: "barY",
+          spec: {},
+          encoding: encoding as never,
+        }),
+      );
+      const rows = await vizsById(vizId);
+      expect(rows[0]?.encoding).toEqual(encoding);
     });
   });
 

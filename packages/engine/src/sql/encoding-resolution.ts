@@ -109,7 +109,11 @@ export function resolveToSql(
   context: EncodingResolutionContext,
   transform?: ChannelTransform,
 ): string | undefined {
-  if (!value) return undefined;
+  // `string | undefined` is what the TYPE says; `encoding` is stored as opaque
+  // jsonb, so a row written before the write gate existed can hand this an
+  // object. The raw-column-name fallback below would pass that object on as a
+  // SQL fragment, so screen the type here rather than downstream.
+  if (!value || typeof value !== "string") return undefined;
   const parsed = parseEncoding(value);
 
   // Metrics: aggregations are already wrapped; transforms don't apply.
@@ -176,7 +180,10 @@ export function resolveForAnalysis(
   value: string | undefined,
   context: EncodingResolutionContext,
 ): ResolvedForAnalysis {
-  if (!value) return { isMetric: false, valid: false };
+  // Same jsonb-shaped hazard as `resolveToSql` above: a non-string must not
+  // fall through to the raw-column-name branch.
+  if (!value || typeof value !== "string")
+    return { isMetric: false, valid: false };
   const parsed = parseEncoding(value);
   if (!parsed) {
     return { columnName: value, isMetric: false, valid: !!value };

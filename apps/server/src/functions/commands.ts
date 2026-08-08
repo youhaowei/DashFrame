@@ -100,6 +100,7 @@ import {
   type InsightSourceInput,
   type LateBoundRef,
   type TypedInsightFilter,
+  validateVisualizationEncoding,
 } from "@dashframe/types";
 import { eq, jsonb, text, uuid } from "@wystack/db";
 import {
@@ -1337,6 +1338,22 @@ function stripDataFromSpec(spec: VegaLiteSpec): VegaLiteSpec {
 }
 
 /**
+ * Reject a structurally wrong encoding at WRITE time.
+ *
+ * `encoding` arrives as opaque `jsonb`, so the RPC schema only proves it is
+ * JSON — nothing checks that a channel holds an `EncodingValue`. An agent
+ * guessing the shape (`{"x":{"field":"region"}}`) therefore used to write
+ * straight through to canonical state and only fail at RENDER, where
+ * `parseEncoding` calls `.startsWith` on a non-string (GH #289). The error text
+ * states the expected format so the caller can correct itself without reading
+ * source.
+ */
+function assertValidEncoding(encoding: unknown, command: string): void {
+  const problem = validateVisualizationEncoding(encoding);
+  if (problem) throw new Error(`${command}: ${problem}`);
+}
+
+/**
  * CreateVisualization — mints a chart over an Insight's DataFrame with a
  * client-supplied id. Insight and Visualization stay 1:many (spec decision):
  * the UI creates a 1:1 feel by batching CreateInsight + CreateVisualization in
@@ -1353,6 +1370,7 @@ const createVisualization = wy.procedure
   })
   .authorize(permissions.commands.commit)
   .mutation(async (ctx, args): Promise<{ id: string }> => {
+    assertValidEncoding(args.encoding, "CreateVisualization");
     const [row] = (await ctx.db.into(visualizations).insert({
       id: args.id,
       name: args.name,
@@ -1399,6 +1417,7 @@ const setChartEncoding = wy.procedure
   .input({ id: uuid, encoding: jsonb, spec: jsonb.optional() })
   .authorize(permissions.commands.commit)
   .mutation(async (ctx, { id, encoding, spec }): Promise<{ ok: true }> => {
+    assertValidEncoding(encoding, "SetChartEncoding");
     await requireVisualization(ctx, id);
     const patch: Partial<VisualizationRow> = {
       encoding: encoding as VisualizationEncoding,
