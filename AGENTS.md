@@ -163,8 +163,27 @@ cd "$worktree"
 
 `scripts/ensure-worktree.sh` creates `~/worktrees/dashframe/<branch-slug>`
 (forward-slashes and colons in the branch name become dashes, lowercase) if not
-already there, populates and heals submodule checkouts, and prints the path. If
-it fails, STOP — do not improvise another location.
+already there, populates and heals submodule checkouts, runs `bun install`, and
+prints the path — a newly created worktree is ready to work in, with no separate
+install step. (`git worktree add` copies tracked files only, so without that a
+fresh worktree has no `node_modules` at all: no Electron binary, no vitest, and
+no resolvable `@wystack/*` imports.) You still need `bun run build:wystack`
+before the `@wystack/*` **built** output exists.
+
+The install happens **once per worktree**, on first provision, and it runs
+`--frozen-lockfile` so bootstrapping can never rewrite `bun.lock`. An
+already-provisioned worktree is handed back untouched — re-running the script
+is free and safe. That matters if you use `bun link` to point an `@wystack/*`
+package at a checkout elsewhere: an install would silently undo the link (see
+`README.md`), so the script does not run one behind your back. Refresh
+dependencies yourself with `bun install` when you have changed a manifest.
+
+If the first provision fails — no `bun` on `PATH`, or a lockfile that does not
+match the branch — the script exits non-zero and leaves the worktree in place.
+Re-running it resumes the install rather than treating the half-provisioned
+tree as ready.
+
+If it fails, STOP — do not improvise another location.
 
 **Enforcement:** `.husky/pre-commit` blocks commits on a non-default branch in
 the main checkout. Bypass with `ALLOW_MAIN_CHECKOUT_COMMIT=1` only when you
