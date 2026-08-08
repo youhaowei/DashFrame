@@ -141,7 +141,15 @@ export function VisualizationItemCard({
 
           {/* Actions dropdown menu */}
           {hasActions && (
-            <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+            <div
+              className="shrink-0"
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.stopPropagation();
+                }
+              }}
+            >
               <DropdownMenu>
                 <DropdownMenuTrigger
                   render={
