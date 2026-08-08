@@ -89,4 +89,29 @@ describe("InsightFieldEditorModal", () => {
       ).toBeNull();
     }
   });
+
+  it("renders no sensitivity badge for a cleared field", () => {
+    const clearedFields = fields.map((field) =>
+      field.id === "customer-email"
+        ? { ...field, sensitivity: "cleared", sensitivityReason: undefined }
+        : field,
+    );
+
+    render(
+      <InsightFieldEditorModal
+        isOpen
+        onOpenChange={vi.fn()}
+        availableFields={clearedFields}
+        baseTableId="orders"
+        onSelect={vi.fn()}
+      />,
+    );
+
+    const emailField = screen.getByRole("button", {
+      name: /customer_email/i,
+    });
+    expect(
+      within(emailField).queryByText(/Sensitive|Likely sensitive|Unclassified/),
+    ).toBeNull();
+  });
 });
