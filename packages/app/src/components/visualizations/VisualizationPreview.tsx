@@ -8,6 +8,8 @@ import { useQuery } from "@wystack/client";
 import { Spinner } from "@wystack/ui-react";
 import { useMemo } from "react";
 
+import { VisualizationErrorBoundary } from "./VisualizationErrorBoundary";
+
 const PREVIEW_HEIGHT = 200; // px
 
 function PreviewLoading() {
@@ -36,8 +38,23 @@ interface VisualizationPreviewProps {
  * This component is self-contained: it fetches the insight and creates
  * the DuckDB view if needed using useInsightView. This unifies the approach
  * with insight detail pages - same hook, same caching, same view creation.
+ *
+ * The boundary lives HERE rather than at each callsite so no consumer can
+ * mount a preview without containment: the home page renders three of these,
+ * and before the boundary one bad encoding replaced that whole page (GH #289).
+ * A boundary cannot catch its own render, hence the inner component.
  */
-export function VisualizationPreview({
+export function VisualizationPreview(props: VisualizationPreviewProps) {
+  return (
+    <VisualizationErrorBoundary
+      resetKey={`${props.visualization.id}:${props.visualization.updatedAt ?? ""}`}
+    >
+      <VisualizationPreviewContent {...props} />
+    </VisualizationErrorBoundary>
+  );
+}
+
+function VisualizationPreviewContent({
   visualization,
   height = PREVIEW_HEIGHT,
   fallback = null,

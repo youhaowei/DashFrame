@@ -24,7 +24,11 @@ import type {
   VisualizationEncoding,
   VisualizationType,
 } from "@dashframe/types";
-import { isUnmodifiedDraft, stripSampleValues } from "@dashframe/types";
+import {
+  isUnmodifiedDraft,
+  stripSampleValues,
+  validateVisualizationEncoding,
+} from "@dashframe/types";
 import { eq, int, jsonb, text, uuid } from "@wystack/db";
 import type { SecretRef, SecretVault } from "@wystack/secret-vault";
 import { isSecretRef } from "@wystack/secret-vault";
@@ -977,6 +981,11 @@ const createVisualization = wy.procedure
       ctx,
       { name, insightId, visualizationType, spec, encoding },
     ): Promise<{ id: string }> => {
+      // Same write-time gate as the CreateVisualization command handler in
+      // commands.ts — this legacy RPC writes the same column, so leaving it
+      // unchecked would keep the malformed-encoding hole open (GH #289).
+      const problem = validateVisualizationEncoding(encoding);
+      if (problem) throw new Error(`createVisualization: ${problem}`);
       const [row] = (await ctx.db.into(visualizations).insert({
         name,
         insightId,

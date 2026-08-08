@@ -24,6 +24,19 @@
  * source.
  */
 
+import { ENCODING_VALUE_FORMAT } from "@dashframe/types";
+
+/**
+ * The encoding argument is the one place the guide's terseness cost real
+ * writes: "field→channel encoding" describes the ROLE and not the SHAPE, so an
+ * agent guessed `{"x":{"field":"region"}}`, which the command layer now rejects
+ * (GH #289). Spell the shape out, sourced from the same constant the rejection
+ * message quotes so the two cannot drift.
+ */
+const ENCODING_ARG_CONTRACT = `{ x?, y?, color?, size? } — each value is ${ENCODING_VALUE_FORMAT}; plus optional xType/yType ("quantitative"|"nominal"|"ordinal"|"temporal") and xTransform/yTransform`;
+
+const ENCODING_ARG_NOTE = `Encoding channel values are ID references, NOT column names and NOT objects: each must be ${ENCODING_VALUE_FORMAT}. A field id comes from the data table's fields; a metric id from the insight's metrics. Anything else is REJECTED at write time.`;
+
 /** One command's agent-facing contract. */
 export interface CommandGuideEntry {
   /** The `cmd()` command name — what the apply tool dispatches on. */
@@ -276,9 +289,9 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
       insightId: "UUID",
       visualizationType: "chart type",
       spec: "Vega-Lite spec",
-      "encoding?": "field→channel encoding",
+      "encoding?": ENCODING_ARG_CONTRACT,
     },
-    notes: "The `data` key is stripped from spec before storage.",
+    notes: `The \`data\` key is stripped from spec before storage. ${ENCODING_ARG_NOTE}`,
   },
   {
     name: "SetChartType",
@@ -292,9 +305,10 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
     summary: "Set a chart's field→channel encoding (and optionally the spec).",
     args: {
       id: "UUID",
-      encoding: "field→channel encoding",
+      encoding: ENCODING_ARG_CONTRACT,
       "spec?": "Vega-Lite spec (omit to leave untouched)",
     },
+    notes: ENCODING_ARG_NOTE,
   },
   // --- Dashboard ---
   {

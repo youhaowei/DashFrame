@@ -8,15 +8,18 @@
  * - isFieldEncoding() - Type guard for field encodings
  * - isMetricEncoding() - Type guard for metric encodings
  * - isValidEncoding() - Type guard for valid encodings
+ * - isEncodingValue() / validateVisualizationEncoding() - write-time validation
  */
 import { describe, expect, it } from "vitest";
 import {
   fieldEncoding,
+  isEncodingValue,
   isFieldEncoding,
   isMetricEncoding,
   isValidEncoding,
   metricEncoding,
   parseEncoding,
+  validateVisualizationEncoding,
 } from "./encoding-helpers";
 import type { UUID } from "./uuid";
 
@@ -445,6 +448,107 @@ describe("encoding-helpers", () => {
       validEncodings.forEach((valid) => {
         expect(isValidEncoding(valid)).toBe(true);
       });
+    });
+  });
+  // ==========================================================================
+  // Write-time validation (GH #289)
+  // ==========================================================================
+
+  describe("isEncodingValue()", () => {
+    const uuid = "550e8400-e29b-41d4-a716-446655440000";
+
+    it("accepts a canonical field and metric encoding", () => {
+      expect(isEncodingValue(`field:${uuid}`)).toBe(true);
+      expect(isEncodingValue(`metric:${uuid}`)).toBe(true);
+    });
+
+    it("accepts an uppercase uuid", () => {
+      expect(isEncodingValue(`field:${uuid.toUpperCase()}`)).toBe(true);
+    });
+
+    it("accepts a repeat-join instance suffix — the axis picker emits it", () => {
+      expect(isEncodingValue(`field:${uuid}_j1`)).toBe(true);
+      expect(isEncodingValue(`field:${uuid}_j12`)).toBe(true);
+    });
+
+    it("rejects a _j0 suffix — instance 0 is the bare uuid", () => {
+      expect(isEncodingValue(`field:${uuid}_j0`)).toBe(false);
+    });
+
+    it("rejects a non-string, which is exactly what crashed the renderer", () => {
+      expect(isEncodingValue({ field: "region" })).toBe(false);
+      expect(isEncodingValue(null)).toBe(false);
+      expect(isEncodingValue(42)).toBe(false);
+      expect(isEncodingValue(["field:" + uuid])).toBe(false);
+    });
+
+    it("rejects a prefixed non-uuid, a raw column name, and a SQL aggregate", () => {
+      expect(isEncodingValue("field:abc")).toBe(false);
+      expect(isEncodingValue("field:")).toBe(false);
+      expect(isEncodingValue("region")).toBe(false);
+      expect(isEncodingValue("sum(revenue)")).toBe(false);
+      expect(isEncodingValue(`dimension:${uuid}`)).toBe(false);
+    });
+
+    it("accepts what the constructors produce", () => {
+      expect(isEncodingValue(fieldEncoding(uuid as UUID))).toBe(true);
+      expect(isEncodingValue(metricEncoding(uuid as UUID))).toBe(true);
+    });
+  });
+
+  describe("validateVisualizationEncoding()", () => {
+    const x = "550e8400-e29b-41d4-a716-446655440000";
+    const y = "6ba7b810-9dad-11d1-80b4-00c04fd430c8";
+
+    it("accepts an absent encoding — encodings are built up incrementally", () => {
+      expect(validateVisualizationEncoding(undefined)).toBeUndefined();
+      expect(validateVisualizationEncoding({})).toBeUndefined();
+    });
+
+    it("accepts a full encoding with types and transforms", () => {
+      expect(
+        validateVisualizationEncoding({
+          x: `field:${x}`,
+          y: `metric:${y}`,
+          color: `field:${x}_j1`,
+          xType: "temporal",
+          xTransform: {
+            type: "date",
+            transform: { kind: "temporal", aggregation: "yearMonth" },
+          },
+        }),
+      ).toBeUndefined();
+    });
+
+    it("rejects the documented-looking guess and names the channel + format", () => {
+      const problem = validateVisualizationEncoding({ x: { field: "region" } });
+      expect(problem).toContain("encoding.x");
+      expect(problem).toContain("field:<uuid>");
+      expect(problem).toContain('{"field":"region"}');
+    });
+
+    it("rejects a raw column name on any value-bearing channel", () => {
+      for (const channel of ["x", "y", "color", "size"]) {
+        expect(
+          validateVisualizationEncoding({ [channel]: "region" }),
+        ).toContain(`encoding.${channel}`);
+      }
+    });
+
+    it("rejects a non-object encoding", () => {
+      expect(validateVisualizationEncoding(null)).toContain(
+        "must be an object",
+      );
+      expect(validateVisualizationEncoding("field:" + x)).toContain(
+        "must be an object",
+      );
+      expect(validateVisualizationEncoding([])).toContain("must be an object");
+    });
+
+    it("ignores keys it does not own rather than rejecting them", () => {
+      expect(
+        validateVisualizationEncoding({ x: `field:${x}`, xLabel: "Region" }),
+      ).toBeUndefined();
     });
   });
 });

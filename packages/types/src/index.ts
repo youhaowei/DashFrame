@@ -121,6 +121,7 @@ export type {
   DateTransform,
   EncodingType,
   EncodingValue,
+  EncodingValueChannel,
   FieldEncodingValue,
   MetricEncodingValue,
   ParsedEncoding,
@@ -128,12 +129,16 @@ export type {
 } from "./encoding-helpers";
 
 export {
+  ENCODING_VALUE_CHANNELS,
+  ENCODING_VALUE_FORMAT,
   fieldEncoding,
+  isEncodingValue,
   isFieldEncoding,
   isMetricEncoding,
   isValidEncoding,
   metricEncoding,
   parseEncoding,
+  validateVisualizationEncoding,
 } from "./encoding-helpers";
 
 export type {

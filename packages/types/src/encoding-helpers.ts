@@ -151,6 +151,105 @@ export function isValidEncoding(
 }
 
 // ============================================================================
+// Write-time Validation
+// ============================================================================
+
+/**
+ * The encoding channels whose values are `EncodingValue` strings. The other
+ * keys of `VisualizationEncoding` (`xType`, `yType`, `xTransform`,
+ * `yTransform`) carry their own shapes and are not checked here.
+ */
+export const ENCODING_VALUE_CHANNELS = ["x", "y", "color", "size"] as const;
+
+export type EncodingValueChannel = (typeof ENCODING_VALUE_CHANNELS)[number];
+
+/**
+ * The exact accepted `EncodingValue` shape, in one place, phrased for a human
+ * or an agent reading a rejection. Both the command-layer error text and the
+ * agent-facing command guide quote this so they cannot drift apart.
+ */
+export const ENCODING_VALUE_FORMAT =
+  'a string "field:<uuid>" or "metric:<uuid>" (a repeat-join instance may suffix the uuid, e.g. "field:<uuid>_j1")';
+
+/**
+ * Canonical UUID, optionally carrying the repeat-join instance suffix that
+ * `joinInstanceFieldId` appends for the second and later joins to the same
+ * table (`<uuid>_j1`, `<uuid>_j2`, …). Selecting a repeat-join instance in the
+ * axis picker persists exactly that form, so rejecting it would break a
+ * legitimate encoding the UI itself writes.
+ */
+const ENCODING_VALUE_PATTERN =
+  /^(?:field|metric):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:_j[1-9][0-9]*)?$/i;
+
+/**
+ * Runtime guard for a value of unknown provenance — an RPC argument, a command
+ * envelope authored by an agent, a row read back from storage. Unlike
+ * `isValidEncoding`, this takes `unknown` (so a non-string cannot reach it as a
+ * type error) and checks the WHOLE shape, not just the prefix.
+ *
+ * @param value - Candidate of any type
+ * @returns True if value is a well-formed `field:<uuid>` / `metric:<uuid>`
+ */
+export function isEncodingValue(value: unknown): value is EncodingValue {
+  return typeof value === "string" && ENCODING_VALUE_PATTERN.test(value);
+}
+
+/**
+ * Validate a whole `VisualizationEncoding` supplied by an untrusted caller.
+ *
+ * The render path (`parseEncoding` → `value.startsWith`) assumes every channel
+ * value is a string, so a structurally wrong encoding written to canonical
+ * state throws at render rather than at write. This is the write-time gate:
+ * anything it rejects can never reach storage.
+ *
+ * Absent channels are fine — encodings are built up incrementally, and a
+ * missing axis already has its own terminal UI.
+ *
+ * @param encoding - Candidate encoding of any type
+ * @returns A human-readable problem description, or undefined when valid
+ *
+ * @example
+ * ```typescript
+ * validateVisualizationEncoding({ x: { field: "region" } })
+ * // Returns: 'encoding.x must be a string "field:<uuid>" … — received {"field":"region"}'
+ * ```
+ */
+export function validateVisualizationEncoding(
+  encoding: unknown,
+): string | undefined {
+  if (encoding === undefined) return undefined;
+  if (
+    typeof encoding !== "object" ||
+    encoding === null ||
+    Array.isArray(encoding)
+  ) {
+    return `encoding must be an object mapping channels to encoding values — received ${describeValue(encoding)}`;
+  }
+
+  const record = encoding as Record<string, unknown>;
+  for (const channel of ENCODING_VALUE_CHANNELS) {
+    const value = record[channel];
+    if (value === undefined) continue;
+    if (!isEncodingValue(value)) {
+      return `encoding.${channel} must be ${ENCODING_VALUE_FORMAT} — received ${describeValue(value)}`;
+    }
+  }
+  return undefined;
+}
+
+/** Render an offending value compactly for an error message. */
+function describeValue(value: unknown): string {
+  if (typeof value === "string") return JSON.stringify(value);
+  if (value === null) return "null";
+  if (typeof value !== "object") return `${typeof value} ${String(value)}`;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return Object.prototype.toString.call(value);
+  }
+}
+
+// ============================================================================
 // Date Transform Types
 // ============================================================================
 
