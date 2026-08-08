@@ -90,6 +90,76 @@ describe("assistant provider config functions", () => {
     ).resolves.toBe("test-api-key-input");
   });
 
+  it("switching auth kind without a new credential clears the superseded one", async () => {
+    // An omitted credential normally means "keep the stored one". Keeping it
+    // across an auth-kind change would leave an `oauth` row pointing at an API
+    // key: the row reports a stored credential, and resolving it later fails
+    // parsing that key as OAuth JSON.
+    const { result: created } = (await app.call("saveAssistantProviderConfig", {
+      input: {
+        providerId: "anthropic",
+        displayLabel: "Anthropic API",
+        authKind: "api-key",
+        credential: "superseded-api-key",
+        defaultModel: "claude-sonnet-4-5",
+      },
+    })) as { result: AssistantProviderConfig };
+
+    const [before] = await db.select().from(schema.assistantProviderConfigs);
+    const oldRef = before!.credentialRef! as SecretRef;
+    expect(isSecretRef(oldRef)).toBe(true);
+
+    const { result: switched } = (await app.call(
+      "saveAssistantProviderConfig",
+      {
+        input: {
+          id: created.id,
+          providerId: "anthropic",
+          displayLabel: "Anthropic API",
+          authKind: "oauth",
+          defaultModel: "claude-sonnet-4-5",
+        },
+      },
+    )) as { result: AssistantProviderConfig };
+
+    expect(switched.hasCredential).toBe(false);
+    const [after] = await db.select().from(schema.assistantProviderConfigs);
+    expect(after!.authKind).toBe("oauth");
+    expect(after!.credentialRef).toBeNull();
+    // The old API key is not merely unreferenced — it is released.
+    expect(await vault.has(oldRef)).toBe(false);
+  });
+
+  it("keeps the stored credential when the auth kind is unchanged", async () => {
+    // The clear above must be scoped to an auth-kind change; an ordinary
+    // rename that omits the credential must still preserve it.
+    const { result: created } = (await app.call("saveAssistantProviderConfig", {
+      input: {
+        providerId: "openai",
+        displayLabel: "OpenAI",
+        authKind: "api-key",
+        credential: "kept-api-key",
+        defaultModel: "gpt-4.1",
+      },
+    })) as { result: AssistantProviderConfig };
+
+    const { result: renamed } = (await app.call("saveAssistantProviderConfig", {
+      input: {
+        id: created.id,
+        providerId: "openai",
+        displayLabel: "OpenAI (work)",
+        authKind: "api-key",
+        defaultModel: "gpt-4.1",
+      },
+    })) as { result: AssistantProviderConfig };
+
+    expect(renamed.hasCredential).toBe(true);
+    const [after] = await db.select().from(schema.assistantProviderConfigs);
+    await expect(
+      vault.withSecret(after!.credentialRef! as SecretRef, async (v) => v),
+    ).resolves.toBe("kept-api-key");
+  });
+
   it("deleting a provider releases the stored SecretRef", async () => {
     const { result } = (await app.call("saveAssistantProviderConfig", {
       input: {
