@@ -61,7 +61,7 @@ interface VgplotAPIExtended extends VgplotAPI {
    * it returns a plot directive that must be passed into `api.plot(...directives)`
    * for the domain to take effect. It does not mutate anything by itself.
    */
-  colorDomain?: (domain: string[]) => unknown;
+  colorDomain?: (domain: unknown[]) => unknown;
 }
 
 // ============================================================================
@@ -504,7 +504,14 @@ export async function setupColorDomain(
 
     if (!Array.isArray(result)) return undefined;
 
-    const domain = result.map((row) => String((row as { val: unknown }).val));
+    // Keep the value's own type: the plot's color channel carries raw column
+    // values, so a string domain would not match a numeric color column and the
+    // palette mapping would silently fall through. BigInt (DuckDB's integer
+    // JSON representation) is narrowed to number for the same reason.
+    const domain = result.map((row) => {
+      const value = (row as { val: unknown }).val;
+      return typeof value === "bigint" ? Number(value) : value;
+    });
 
     if (domain.length === 0) return undefined;
 

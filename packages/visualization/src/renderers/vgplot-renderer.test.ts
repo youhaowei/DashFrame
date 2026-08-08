@@ -73,6 +73,36 @@ function createMockApi(options?: {
   };
 }
 
+/**
+ * jsdom has no canvas, and `colorToHex` uses one to normalize CSS colors —
+ * without a stub every render logs "Not implemented: getContext" and the
+ * palette silently collapses to the gray fallback. Returns the hex the test
+ * already set, so `getChartColors()` yields a real multi-color palette.
+ */
+function stubCanvasColorParsing() {
+  const parse = (color: string) => {
+    const hex = color.replace("#", "");
+    return [0, 2, 4].map((i) => Number.parseInt(hex.slice(i, i + 2), 16));
+  };
+
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(
+    () =>
+      ({
+        set fillStyle(value: string) {
+          this._fill = value;
+        },
+        get fillStyle(): string {
+          return (this._fill as string) ?? "#000000";
+        },
+        fillRect: () => {},
+        getImageData() {
+          const [r, g, b] = parse((this.fillStyle as string) || "#6b7280");
+          return { data: [r, g, b, 255] };
+        },
+      }) as unknown as CanvasRenderingContext2D,
+  );
+}
+
 /** Ensure getChartColors() returns non-empty palette in jsdom. */
 function setChartColorCssVars() {
   document.documentElement.style.setProperty("--chart-1", "#e97838");
@@ -165,6 +195,20 @@ describe("setupColorDomain", () => {
     });
   });
 
+  it("preserves the value type of the domain (numeric columns stay numeric)", async () => {
+    const colorDomain = vi.fn((domain: unknown[]) => ({
+      __directive: "colorDomain",
+      domain,
+    }));
+    // DuckDB returns integers as BigInt over the JSON path.
+    const query = vi.fn(() => Promise.resolve([{ val: 1n }, { val: 2n }]));
+    const api = createMockApi({ query, colorDomain });
+
+    await setupColorDomain(api, "tier", "sales");
+
+    expect(colorDomain).toHaveBeenCalledWith([1, 2]);
+  });
+
   it("skips the domain query for metric/expression-bound color (no query, no throw)", async () => {
     const query = vi.fn(() => Promise.resolve([]));
     const colorDomain = vi.fn();
@@ -202,6 +246,7 @@ describe("setupColorDomain", () => {
 
 describe("createVgplotRenderer color domain", () => {
   beforeEach(() => {
+    stubCanvasColorParsing();
     setChartColorCssVars();
   });
 
