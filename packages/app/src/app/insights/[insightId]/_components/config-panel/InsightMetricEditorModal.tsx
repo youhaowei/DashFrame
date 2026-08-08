@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from "@wystack/ui-react";
 import { useMemo, useState } from "react";
+import { useSaveDismissGuard, useSavingFlag } from "./use-save-dismiss-guard";
 
 type AggregationType =
   | "sum"
@@ -27,20 +28,24 @@ type AggregationType =
   | "max"
   | "count_distinct";
 
+// "Count (rows)" is `count(*)` by definition and the dialog offers no column
+// picker for it, so any column still held in state is invisible to the user.
+// Persisting it would emit `count(column)`, which silently skips null rows —
+// a different number than the one the label promises. The column is dropped
+// here as well as cleared on switch, so no caller can reintroduce it.
 export function metricColumnNameForSave(
   aggregation: AggregationType,
   columnName: string,
 ): string | undefined {
-  return aggregation === "count" && !columnName
-    ? undefined
-    : columnName || undefined;
+  if (aggregation === "count") return undefined;
+  return columnName || undefined;
 }
 
 export function metricFormulaPreview(
   aggregation: AggregationType,
   columnName: string,
 ): string {
-  if (aggregation === "count" && !columnName) {
+  if (aggregation === "count") {
     return "count(*)";
   }
 
@@ -67,16 +72,18 @@ function InsightMetricForm({
   dataTable,
   onSave,
   onClose,
+  onPendingChange,
 }: {
   dataTable: DataTable;
   onSave: (metric: InsightMetric) => Promise<void> | void;
   onClose: () => void;
+  onPendingChange: (pending: boolean) => void;
 }) {
   const [customName, setCustomName] = useState<string | null>(null);
   const [aggregation, setAggregation] = useState<AggregationType>("count");
   const [columnName, setColumnName] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
+  const [isSaving, setIsSaving] = useSavingFlag(onPendingChange);
 
   // Get available fields (exclude internal _ prefixed)
   const availableFields = useMemo(
@@ -183,7 +190,14 @@ function InsightMetricForm({
           <Label htmlFor="aggregation">Aggregation type</Label>
           <Select
             value={aggregation}
-            onValueChange={(v) => setAggregation(v as AggregationType)}
+            onValueChange={(v) => {
+              const next = v as AggregationType;
+              setAggregation(next);
+              // The field picker is hidden for "Count (rows)"; leaving a
+              // previously chosen column in state would make it unreachable
+              // but still live.
+              if (next === "count") setColumnName("");
+            }}
           >
             <SelectTrigger id="aggregation">
               <SelectValue />
@@ -288,7 +302,12 @@ export function InsightMetricEditorModal({
 }: InsightMetricEditorModalProps) {
   const [sessionKey, setSessionKey] = useState(0);
 
+  const { setPending, isPending } = useSaveDismissGuard();
+
   const handleOpenChange = (open: boolean) => {
+    // A dismissal while a save is pending would let a second editor open and
+    // then be closed by the first save's completion.
+    if (!open && isPending()) return;
     if (open) {
       // Bump key so the inner form remounts fresh on each open.
       setSessionKey((k) => k + 1);
@@ -307,6 +326,7 @@ export function InsightMetricEditorModal({
             dataTable={dataTable}
             onSave={onSave}
             onClose={handleClose}
+            onPendingChange={setPending}
           />
         )}
       </DialogContent>

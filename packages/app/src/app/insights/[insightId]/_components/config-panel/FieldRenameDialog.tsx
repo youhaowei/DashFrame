@@ -13,6 +13,7 @@ import {
   Label,
 } from "@wystack/ui-react";
 import { useState } from "react";
+import { useSaveDismissGuard, useSavingFlag } from "./use-save-dismiss-guard";
 
 interface FieldRenameDialogProps {
   field: CombinedField | null;
@@ -30,15 +31,17 @@ function FieldRenameForm({
   tableName,
   onSave,
   onClose,
+  onPendingChange,
 }: {
   field: CombinedField;
   tableName?: string;
   onSave: (field: CombinedField, newName: string) => Promise<void> | void;
   onClose: () => void;
+  onPendingChange: (pending: boolean) => void;
 }) {
   const [name, setName] = useState(field.name);
   const [error, setError] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
+  const [isSaving, setIsSaving] = useSavingFlag(onPendingChange);
   const columnName = field.columnName ?? field.name;
 
   const handleSave = async () => {
@@ -149,6 +152,16 @@ export function FieldRenameDialog({
   onOpenChange,
   onSave,
 }: FieldRenameDialogProps) {
+  const { setPending, isPending } = useSaveDismissGuard();
+
+  // Escape and outside-click reach the shell directly, bypassing the disabled
+  // Cancel button. Dismissing a pending save lets a second editor open, and the
+  // first save's completion would then close it and discard that edit.
+  const handleDismiss = () => {
+    if (isPending()) return;
+    handleClose();
+  };
+
   const handleClose = () => {
     onOpenChange(false);
   };
@@ -156,7 +169,7 @@ export function FieldRenameDialog({
   const isOpen = field !== null;
 
   return (
-    <Dialog open={isOpen} onOpenChange={handleClose}>
+    <Dialog open={isOpen} onOpenChange={handleDismiss}>
       <DialogContent className="sm:max-w-md">
         {field && (
           <FieldRenameForm
@@ -165,6 +178,7 @@ export function FieldRenameDialog({
             tableName={tableName}
             onSave={onSave}
             onClose={handleClose}
+            onPendingChange={setPending}
           />
         )}
       </DialogContent>

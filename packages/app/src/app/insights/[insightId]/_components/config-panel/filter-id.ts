@@ -28,26 +28,52 @@ export function deriveFilterId(filter: InsightFilter): string {
  * which is the exact misroute persisted ids exist to prevent. Content is the
  * only source that is stable across both a refetch and a reorder.
  *
- * Two byte-identical predicates collapse to one identity. They are the same
- * predicate, so an edit routing to the first of them is the same outcome as
- * routing to the second; that is strictly better than appending a third.
+ * Byte-identical predicates must still get distinct identities. They remain
+ * separate list entries, and editing or removing one of them is not the same
+ * operation as doing it to both — `applyFilterSave` replaces every `_id` match
+ * and `handleRemoveFilter` drops every match, so a shared identity would edit
+ * or delete the pair. The occurrence index among *identical* predicates
+ * disambiguates them without reintroducing array position: it is unchanged by
+ * a refetch, and reordering two interchangeable predicates has no observable
+ * effect anyway.
  *
  * The `legacy:` prefix keeps these distinguishable from persisted ids, which
  * are UUIDs. Saving such a row promotes this value to its persisted `id`.
  */
-function legacyFilterId(filter: InsightFilter): string {
+function legacyFilterId(filter: InsightFilter, occurrence: number): string {
   const value = JSON.stringify(filter.value ?? null);
-  return `legacy:${filter.field}:${filter.operator}:${value}`;
+  return `legacy:${filter.field}:${filter.operator}:${value}#${occurrence}`;
+}
+
+/**
+ * A persisted id counts only if it is a non-empty string. An empty string is
+ * not nullish, so it would slip past a `??` fallback and then fail the
+ * emptiness check in `deriveFilterId`, throwing during render. The server
+ * rejects such values on write but cannot repair a row already stored with
+ * one.
+ */
+function persistedId(filter: InsightFilter): string | undefined {
+  return typeof filter.id === "string" && filter.id.length > 0
+    ? filter.id
+    : undefined;
 }
 
 /** Attach stable client ids to a persisted filter list. */
 export function withFilterIds(
   filters: InsightFilter[] | undefined,
 ): FilterWithId[] {
+  const seen = new Map<string, number>();
   return (filters ?? []).map((filter) => {
     // All API write paths stamp this id, so the fallback only covers rows
     // stored before they did.
-    const id = filter.id ?? legacyFilterId(filter);
+    const stored = persistedId(filter);
+    let id = stored;
+    if (id === undefined) {
+      const base = legacyFilterId(filter, 0);
+      const occurrence = seen.get(base) ?? 0;
+      seen.set(base, occurrence + 1);
+      id = legacyFilterId(filter, occurrence);
+    }
     return { ...filter, id, _id: deriveFilterId({ ...filter, id }) };
   });
 }
@@ -78,10 +104,10 @@ export function prepareFilterForSave(
   genId: () => string = () => crypto.randomUUID(),
 ): FilterWithId {
   if (filter._id === NEW_FILTER_ID) {
-    const id = filter.id ?? genId();
+    const id = persistedId(filter) ?? genId();
     return { ...filter, id, _id: id };
   }
-  return { ...filter, id: filter.id ?? filter._id };
+  return { ...filter, id: persistedId(filter) ?? filter._id };
 }
 
 /**

@@ -30,6 +30,7 @@ import {
   isFilterDraftValid,
 } from "./filter-value";
 import type { FilterWithId } from "./FiltersSection";
+import { useSaveDismissGuard, useSavingFlag } from "./use-save-dismiss-guard";
 
 // ============================================================================
 // Types
@@ -101,6 +102,7 @@ interface FilterEditFormProps {
   combinedFields: CombinedField[];
   onSave: (filter: FilterWithId) => Promise<void> | void;
   onClose: () => void;
+  onPendingChange: (pending: boolean) => void;
   isNew: boolean;
 }
 
@@ -109,6 +111,7 @@ function FilterEditForm({
   combinedFields,
   onSave,
   onClose,
+  onPendingChange,
   isNew,
 }: FilterEditFormProps) {
   const [field, setField] = useState<string>(filter.field);
@@ -124,7 +127,7 @@ function FilterEditForm({
   const [betweenLow, setBetweenLow] = useState(initialBetween.low);
   const [betweenHigh, setBetweenHigh] = useState(initialBetween.high);
   const [error, setError] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
+  const [isSaving, setIsSaving] = useSavingFlag(onPendingChange);
 
   const selectedField = combinedFields.find(
     (f) => (f.columnName ?? f.name) === field,
@@ -377,12 +380,22 @@ export function FilterEditDialog({
     return filter;
   })();
 
+  const { setPending, isPending } = useSaveDismissGuard();
+
+  // Escape and outside-click reach the shell directly, bypassing the disabled
+  // Cancel button. Dismissing a pending save lets a second editor open, and the
+  // first save's completion would then close it and discard that edit.
+  const handleDismiss = () => {
+    if (isPending()) return;
+    handleClose();
+  };
+
   const handleClose = () => {
     onOpenChange(false);
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={handleClose}>
+    <Dialog open={isOpen} onOpenChange={handleDismiss}>
       <DialogContent className="sm:max-w-md">
         {effectiveFilter && (
           <FilterEditForm
@@ -391,6 +404,7 @@ export function FilterEditDialog({
             combinedFields={combinedFields}
             onSave={onSave}
             onClose={handleClose}
+            onPendingChange={setPending}
             isNew={isNew}
           />
         )}

@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from "@wystack/ui-react";
 import { useMemo, useState } from "react";
+import { useSaveDismissGuard, useSavingFlag } from "./use-save-dismiss-guard";
 
 interface MetricEditDialogProps {
   metric: InsightMetric | null;
@@ -39,11 +40,13 @@ function MetricEditForm({
   dataTable,
   onSave,
   onClose,
+  onPendingChange,
 }: {
   metric: InsightMetric;
   dataTable: DataTable;
   onSave: (metric: InsightMetric) => Promise<void> | void;
   onClose: () => void;
+  onPendingChange: (pending: boolean) => void;
 }) {
   const [name, setName] = useState(metric.name);
   const [aggregation, setAggregation] = useState<AggregationType>(
@@ -51,7 +54,7 @@ function MetricEditForm({
   );
   const [columnName, setColumnName] = useState<string>(metric.columnName ?? "");
   const [error, setError] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
+  const [isSaving, setIsSaving] = useSavingFlag(onPendingChange);
 
   // Get available fields (exclude internal _ prefixed)
   const availableFields = useMemo(
@@ -262,6 +265,16 @@ export function MetricEditDialog({
   onOpenChange,
   onSave,
 }: MetricEditDialogProps) {
+  const { setPending, isPending } = useSaveDismissGuard();
+
+  // Escape and outside-click reach the shell directly, bypassing the disabled
+  // Cancel button. Dismissing a pending save lets a second editor open, and the
+  // first save's completion would then close it and discard that edit.
+  const handleDismiss = () => {
+    if (isPending()) return;
+    handleClose();
+  };
+
   const handleClose = () => {
     onOpenChange(false);
   };
@@ -269,7 +282,7 @@ export function MetricEditDialog({
   const isOpen = metric !== null;
 
   return (
-    <Dialog open={isOpen} onOpenChange={handleClose}>
+    <Dialog open={isOpen} onOpenChange={handleDismiss}>
       <DialogContent className="sm:max-w-md">
         {metric && (
           <MetricEditForm
@@ -278,6 +291,7 @@ export function MetricEditDialog({
             dataTable={dataTable}
             onSave={onSave}
             onClose={handleClose}
+            onPendingChange={setPending}
           />
         )}
       </DialogContent>

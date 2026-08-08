@@ -209,6 +209,58 @@ describe("prepareFilterForSave — distinct id per Add (data-loss guard)", () =>
     expect(merged[0]!.id).toBe(opened._id);
   });
 
+  it("gives byte-identical legacy predicates distinct identities", () => {
+    // Two rows can hold the same field/operator/value and still be separate
+    // entries. A purely content-derived identity would collapse them, and both
+    // `applyFilterSave` (map) and the panel's remove (filter) act on EVERY
+    // `_id` match — so editing one would edit both, and removing one would
+    // remove both. React would also see duplicate keys.
+    const same = { field: "amount", operator: "eq" as const, value: 1 };
+    const hydrated = withFilterIds([same, same]);
+
+    expect(hydrated).toHaveLength(2);
+    expect(hydrated[0]!._id).not.toBe(hydrated[1]!._id);
+
+    // Editing the first must leave the second alone.
+    const edited = applyFilterSave(
+      hydrated,
+      prepareFilterForSave({ ...hydrated[0]!, value: 2 }),
+    );
+    expect(edited).toHaveLength(2);
+    expect(edited[0]!.value).toBe(2);
+    expect(edited[1]!.value).toBe(1);
+
+    // Removing the second — the panel's `_id` filter — must leave the first.
+    const removed = hydrated.filter((f) => f._id !== hydrated[1]!._id);
+    expect(removed).toHaveLength(1);
+    expect(removed[0]!._id).toBe(hydrated[0]!._id);
+
+    // And the occurrence suffix is stable across a refetch, so a save opened
+    // from one hydration still merges into the next.
+    expect(withFilterIds([same, same]).map((f) => f._id)).toEqual(
+      hydrated.map((f) => f._id),
+    );
+  });
+
+  it("treats an empty stored id as absent rather than throwing", () => {
+    // `""` is not nullish, so it slips past a `??` fallback and then fails the
+    // emptiness check in `deriveFilterId` — a throw during render. The server
+    // rejects such values on write but cannot repair an already-stored row.
+    const stored = [
+      { id: "", field: "amount", operator: "eq" as const, value: 1 },
+    ];
+
+    const hydrated = withFilterIds(stored);
+    expect(hydrated).toHaveLength(1);
+    expect(hydrated[0]!._id).toBeTruthy();
+    expect(hydrated[0]!.id).toBe(hydrated[0]!._id);
+
+    // Saving promotes the derived identity, so the row stops being broken.
+    const saved = prepareFilterForSave({ ...hydrated[0]!, value: 2 });
+    expect(saved.id).toBe(hydrated[0]!._id);
+    expect(applyFilterSave(hydrated, saved)).toHaveLength(1);
+  });
+
   it("keeps legacy identities stable when the stored order changes", () => {
     // A concurrent update can reorder the array. Identity must follow the
     // predicate, not its index, or the edit misroutes to its neighbour.
