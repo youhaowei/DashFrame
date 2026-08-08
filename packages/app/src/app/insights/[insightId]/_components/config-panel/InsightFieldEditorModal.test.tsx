@@ -54,7 +54,7 @@ describe("InsightFieldEditorModal", () => {
       const field = screen.getByRole("button", {
         name: new RegExp(`^${fieldName} `),
       });
-      expect(within(field).queryByText(/Sensitive|Unclassified/)).toBeNull();
+      expect(within(field).queryByText(/sensitive|unclassified/i)).toBeNull();
     }
   });
 
