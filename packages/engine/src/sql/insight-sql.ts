@@ -1041,7 +1041,9 @@ function resolveFilterColumnRef(
   if (refMode === "alias") {
     return `"${fieldIdToColumnAlias(field.id)}"`;
   }
-  return `"${field.columnName ?? field.name}"`;
+  // Source column names come from the data verbatim (CSV headers), so they can
+  // contain double-quotes — quote through the shared helper, which doubles them.
+  return quoteIdentifier(field.columnName ?? field.name);
 }
 
 /**
@@ -1286,17 +1288,19 @@ function buildMetricExpressionWithUUID(
     // Source is a field with UUID alias
     sourceColumnRef = fieldIdToColumnAlias(sourceField.id);
   } else {
-    // Fallback: use raw column name (shouldn't happen with proper config)
+    // Fallback: the raw source column name, which comes from the data verbatim
+    // (CSV headers) and so can contain double-quotes (shouldn't happen with
+    // proper config, but the quoting below has to hold either way).
     sourceColumnRef = metric.columnName;
   }
 
   // COUNT(DISTINCT column)
   if (metric.aggregation === "count_distinct") {
-    return `COUNT(DISTINCT "${sourceColumnRef}") AS "${outputAlias}"`;
+    return `COUNT(DISTINCT ${quoteIdentifier(sourceColumnRef)}) AS "${outputAlias}"`;
   }
 
   // Standard aggregation: SUM, AVG, MIN, MAX, COUNT
-  return `${aggFn}("${sourceColumnRef}") AS "${outputAlias}"`;
+  return `${aggFn}(${quoteIdentifier(sourceColumnRef)}) AS "${outputAlias}"`;
 }
 
 /** Build SELECT parts for all metrics with UUID aliases */
