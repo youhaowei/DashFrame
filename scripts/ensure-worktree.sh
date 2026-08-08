@@ -135,10 +135,19 @@ install_dependencies() {
   _idep_wt="$1"
   _idep_mode="$2"
 
+  # A missing bun is the same class of failure as a failed install, so it takes
+  # the same mode-dependent exit: fatal while provisioning a tree that holds no
+  # work yet, a warning once the tree is the agent's only copy of it.
   if ! command -v bun >/dev/null 2>&1; then
-    echo "ERROR [ensure-worktree]: 'bun' is not on PATH; cannot install dependencies in '$_idep_wt'." >&2
-    echo "  Install bun (see AGENTS.md) and re-run; this script is safe to re-run on an existing worktree." >&2
-    exit 1
+    if [ "$_idep_mode" = "create" ]; then
+      echo "ERROR [ensure-worktree]: 'bun' is not on PATH; cannot install dependencies in '$_idep_wt'." >&2
+      echo "  Install bun (see AGENTS.md) and re-run." >&2
+      exit 1
+    fi
+    echo "WARNING [ensure-worktree]: 'bun' is not on PATH; skipping the dependency refresh in '$_idep_wt'." >&2
+    echo "  Returning the path anyway — your work lives there. Dependencies may be stale;" >&2
+    echo "  install bun (see AGENTS.md) and re-run before running the app or tests." >&2
+    return
   fi
 
   if [ "$_idep_mode" = "create" ]; then
