@@ -305,7 +305,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
   const handleDelete = () => {
     confirm({
       title: "Delete data source",
-      description: `Are you sure you want to delete "${dataSource.name}"? This action cannot be undone.`,
+      description: `Are you sure you want to delete "${dataSource.name}"? This will remove all associated data and cannot be undone.`,
       confirmLabel: "Delete",
       variant: "destructive",
       onConfirm: async () => {

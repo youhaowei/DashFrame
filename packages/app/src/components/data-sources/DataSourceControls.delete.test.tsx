@@ -86,6 +86,9 @@ describe("DataSourceControls delete confirmation", () => {
     render(<DataSourceControls dataSourceId="source-1" />);
     fireEvent.click(screen.getByRole("button", { name: "Delete Data Source" }));
 
+    expect(useConfirmDialogStore.getState().config?.description).toContain(
+      "This will remove all associated data and cannot be undone.",
+    );
     useConfirmDialogStore.getState().handleCancel();
     expect(mockRemoveDataSource).not.toHaveBeenCalled();
 
