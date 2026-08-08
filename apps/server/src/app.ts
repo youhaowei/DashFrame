@@ -182,11 +182,17 @@ export interface DashframeServerOptions {
    */
   insecure?: boolean;
   /**
-   * Optional native engine for the dedicated Arrow IPC data path. When supplied
-   * (desktop / `dashframe serve` with the native engine), `POST /data/arrow`
-   * streams `application/vnd.apache.arrow.stream` for a compiled query — the
-   * binary path that never rides WyStack RPC. Web try-it omits it: the
-   * result already lives in renderer WASM, so there is no server data path.
+   * Optional native engine for the dedicated Arrow IPC data path. When
+   * supplied, `POST /data/arrow` streams `application/vnd.apache.arrow.stream`
+   * for a compiled query — the binary path that never rides WyStack RPC.
+   *
+   * Desktop is the only caller that supplies this today — Electron main
+   * constructs the native engine and passes it in. `dashframe serve`'s CLI
+   * composition (`createStandaloneServerOptions`) never sets it, so the Arrow
+   * data path stays unmounted there; wiring it in is the first slice of the
+   * unified data-plane work (see `@dashframe/engine-server`'s native-engine
+   * doc comment). Web try-it also omits it: the result already lives in
+   * renderer WASM, so there is no server data path.
    */
   arrowEngine?: ArrowQueryRunner;
   /**
