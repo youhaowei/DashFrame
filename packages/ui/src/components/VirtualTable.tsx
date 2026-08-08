@@ -1,9 +1,10 @@
 "use client";
 
+import type { ColumnType } from "@dashframe/types";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn, Spinner } from "@wystack/ui-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { formatNumeric } from "../lib/format-numeric";
+import { defaultFormatValue } from "../lib/format-virtual-table-value";
 
 // ============================================================================
 // Types
@@ -35,7 +36,7 @@ export interface VirtualTableColumnConfig {
 /** Column definition passed to VirtualTable */
 export interface VirtualTableColumn {
   name: string;
-  type?: string;
+  type?: ColumnType;
 }
 
 /** Parameters for async data fetching */
@@ -82,41 +83,6 @@ export interface VirtualTableProps {
   onCellClick?: (columnName: string, value: unknown, rowIndex: number) => void;
   /** Called when a column header is clicked */
   onHeaderClick?: (columnName: string) => void;
-}
-
-// ============================================================================
-// Utilities
-// ============================================================================
-
-function formatDate(value: unknown): string | null {
-  if (value instanceof Date && !isNaN(value.getTime())) {
-    return value.toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-  }
-  if (typeof value === "string") {
-    const parsed = Date.parse(value);
-    if (!isNaN(parsed)) {
-      const date = new Date(parsed);
-      return date.toLocaleDateString("en-US", {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-      });
-    }
-  }
-  return null;
-}
-
-function defaultFormatValue(value: unknown): string {
-  if (value === null || value === undefined) return "—";
-  const dateStr = formatDate(value);
-  if (dateStr) return dateStr;
-  if (typeof value === "number") return formatNumeric(value);
-  if (typeof value === "object") return JSON.stringify(value);
-  return String(value);
 }
 
 // ============================================================================
@@ -199,7 +165,7 @@ export function VirtualTable({
   }, [columnConfigs]);
 
   // Compute effective columns
-  const effectiveColumns = useMemo(() => {
+  const effectiveColumns = useMemo<VirtualTableColumn[]>(() => {
     if (isAsyncMode) {
       return inferredColumns;
     }
@@ -705,8 +671,9 @@ export function VirtualTable({
                   const align = config?.align || "left";
 
                   const rawValue = rowData[col.name];
-                  const formatter = config?.format || defaultFormatValue;
-                  const cellValue = formatter(rawValue);
+                  const cellValue = config?.format
+                    ? config.format(rawValue)
+                    : defaultFormatValue(rawValue, col.type);
                   const isClickable = !!onCellClick;
 
                   return (
