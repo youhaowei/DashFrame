@@ -18,8 +18,9 @@ export function useAssistantHotkey(): void {
   const configsLoaded =
     configsResult.data !== undefined && !configsResult.isLoading;
   const configsFailed = configsResult.isError;
-  const assistantAvailable =
-    configsFailed || (configsResult.data?.length ?? 0) > 0;
+  // Mirrors AssistantToggle: a failed refetch keeps the last successful data,
+  // so availability follows the rows we actually have, never the error itself.
+  const assistantAvailable = (configsResult.data?.length ?? 0) > 0;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -29,13 +30,19 @@ export function useAssistantHotkey(): void {
       if (mod && (e.key === "j" || e.key === "J")) {
         e.preventDefault();
         if (!configsLoaded && !configsFailed) return;
-        if (configsFailed) configsResult.refetch().catch(() => undefined);
         if (assistantAvailable) {
           toggle();
-        } else {
-          close();
-          setSetupOpen(true);
+          return;
         }
+        // Nothing cached and the query failed: retry rather than assert either
+        // "configured" (a hollow rail) or "unconfigured" (a setup dialog the
+        // user may not need).
+        if (configsFailed) {
+          configsResult.refetch().catch(() => undefined);
+          return;
+        }
+        close();
+        setSetupOpen(true);
       }
     };
     window.addEventListener("keydown", onKey);

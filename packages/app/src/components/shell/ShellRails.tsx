@@ -81,8 +81,7 @@ export function ShellRails({ shellWidth }: ShellRailsProps) {
   const setAssistantWidth = useShellStore((s) => s.setAssistantRailWidth);
   const assistantIntentOpen = useAssistantStore((s) => s.isOpen);
   const assistantConfigs = useQuery(api.listAssistantProviderConfigs);
-  const assistantAvailable =
-    assistantConfigs.isError || (assistantConfigs.data?.length ?? 0) > 0;
+  const assistantAvailable = (assistantConfigs.data?.length ?? 0) > 0;
   const assistantOpen = assistantIntentOpen && assistantAvailable;
 
   const contextIntentOpen = appearanceOpen || sections.length > 0;

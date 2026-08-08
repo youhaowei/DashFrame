@@ -20,20 +20,25 @@ export function AssistantToggle({ className }: { className?: string }) {
   const configsLoaded =
     configsResult.data !== undefined && !configsResult.isLoading;
   const configsFailed = configsResult.isError;
-  const assistantAvailable =
-    configsFailed || (configsResult.data?.length ?? 0) > 0;
+  // A failed refetch keeps the last successful `data`, so this stays true on a
+  // transient error over a working list — the rail is only withheld when the
+  // query has never succeeded and there is genuinely nothing to show.
+  const assistantAvailable = (configsResult.data?.length ?? 0) > 0;
   const assistantOpen = isOpen && assistantAvailable;
   let label = "Set up assistant";
-  if (configsFailed) {
-    label = "Retry assistant configuration";
-  } else if (assistantAvailable) {
+  if (assistantAvailable) {
     label = assistantOpen ? "Hide assistant" : "Open assistant";
+  } else if (configsFailed) {
+    label = "Retry assistant configuration";
   }
 
   function handleClick() {
-    if (configsFailed) {
+    // Failed with nothing cached: we don't know whether a provider exists, so
+    // neither opening the rail nor opening setup is honest. Retry instead —
+    // that keeps the assistant reachable without presenting a surface that
+    // cannot work.
+    if (!assistantAvailable && configsFailed) {
       configsResult.refetch().catch(() => undefined);
-      if (!isOpen) toggle();
       return;
     }
     if (!assistantAvailable) {
