@@ -36,6 +36,10 @@ function formatDate(value: unknown, type?: ColumnType): string | null {
   if (typeof value === "number") {
     const date = new Date(value);
     if (!isNaN(date.getTime())) {
+      // Epoch values are rendered in UTC: an Arrow DateDay is midnight UTC, and
+      // rendering it locally shifts the displayed day for users west of UTC. The
+      // Date and string branches below still render in local time — that
+      // inconsistency is tracked in #317.
       return date.toLocaleDateString("en-US", {
         year: "numeric",
         month: "short",
