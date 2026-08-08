@@ -90,6 +90,10 @@ export function useInsightPagination({
   const [isReady, setIsReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resolvedFields, setResolvedFields] = useState<Field[]>([]);
+  const [resolvedTables, setResolvedTables] = useState<{
+    baseTable: DataTable | null;
+    joinedTables: Map<UUID, DataTable>;
+  }>({ baseTable: null, joinedTables: new Map() });
 
   // Generation counter: incremented on every init effect run so stale async
   // completions from a superseded insight config never overwrite current state.
@@ -161,13 +165,13 @@ export function useInsightPagination({
   }, [insight.baseTableId, insight.joins]);
 
   const columnDisplayNames = useMemo(() => {
-    const { baseTable, joinedTables } = resolvedTablesRef.current;
+    const { baseTable, joinedTables } = resolvedTables;
     return buildInsightColumnDisplayNames(
       { joins: insight.joins, metrics: insight.metrics },
       resolvedFields,
       baseTable ? { baseTable, joinedTables } : undefined,
     );
-  }, [resolvedFields, insight.metrics, insight.joins]);
+  }, [resolvedFields, resolvedTables, insight.metrics, insight.joins]);
 
   // Build mapping from UUID column aliases to ColumnType.
   // Metrics are always numeric (aggregations); fields carry their declared type.
@@ -269,6 +273,7 @@ export function useInsightPagination({
         // Write the table cache AFTER the gen check so a stale init for insight A
         // cannot overwrite the cache that a faster init for insight B already set.
         resolvedTablesRef.current = { baseTable, joinedTables };
+        setResolvedTables({ baseTable, joinedTables });
 
         // Store resolved fields for display name mapping
         setResolvedFields(allFields);

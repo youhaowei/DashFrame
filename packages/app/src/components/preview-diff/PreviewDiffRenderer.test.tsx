@@ -161,7 +161,7 @@ describe("PreviewDiffRenderer", () => {
       ).toBeDefined();
     });
 
-    it("does not attribute a merged nested update to the wrong target", () => {
+    it("renders a merged nested update for every target", () => {
       const node: PreviewDirectNode = {
         ...dataTableNode("dt-merged-nested-update"),
         before: {
@@ -189,13 +189,131 @@ describe("PreviewDiffRenderer", () => {
       render(<PreviewDiffRenderer diff={makeDiff([node])} />);
 
       expect(
-        screen.queryByText(
+        screen.getByText(
           (_, element) =>
             element?.tagName === "LI" &&
             element.textContent === "name: revenue → Total revenue",
         ),
-      ).toBeNull();
-      expect(screen.queryByText("Total revenue")).toBeNull();
+      ).toBeDefined();
+      expect(
+        screen.getByText(
+          (_, element) =>
+            element?.tagName === "LI" &&
+            element.textContent === "name: Revenue → Total revenue",
+        ),
+      ).toBeDefined();
+    });
+
+    it("expands dashboard item updates into per-key detail rows", () => {
+      const node: PreviewDirectNode = {
+        ...dataTableNode("dashboard-item"),
+        before: { items: [] },
+        proposedDefinition: {
+          nodeId: "dashboard-item",
+          itemId: "item-1",
+          updates: { w: 4, h: 2 },
+        },
+      };
+
+      render(<PreviewDiffRenderer diff={makeDiff([node])} />);
+
+      expect(
+        screen.getByText(
+          (_, element) =>
+            element?.tagName === "LI" && element.textContent === "w: — → 4",
+        ),
+      ).toBeDefined();
+      expect(
+        screen.getByText(
+          (_, element) =>
+            element?.tagName === "LI" && element.textContent === "h: — → 2",
+        ),
+      ).toBeDefined();
+      expect(screen.queryByText(/updates:/)).toBeNull();
+    });
+
+    it("expands an unresolvable field update into per-key detail rows", () => {
+      const node: PreviewDirectNode = {
+        ...dataTableNode("missing-field"),
+        before: { fields: [] },
+        proposedDefinition: {
+          nodeId: "missing-field",
+          fieldId: "missing-field-id",
+          updates: { name: "Renamed field" },
+        },
+      };
+
+      render(<PreviewDiffRenderer diff={makeDiff([node])} />);
+
+      expect(
+        screen.getByText(
+          (_, element) =>
+            element?.tagName === "LI" &&
+            element.textContent === "name: — → Renamed field",
+        ),
+      ).toBeDefined();
+      expect(screen.queryByText(/updates:/)).toBeNull();
+    });
+
+    it("compares source objects using their stored source shape", () => {
+      const node: PreviewDirectNode = {
+        ...insightNode("source", "update"),
+        before: {
+          definition: {
+            source: { sourceType: "dataTable", sourceId: "table-1" },
+            baseTableId: "table-1",
+          },
+        },
+        proposedDefinition: {
+          source: { sourceType: "dataTable", sourceId: "table-1" },
+        },
+      };
+
+      render(<PreviewDiffRenderer diff={makeDiff([node])} />);
+
+      expect(screen.queryByText(/source:/)).toBeNull();
+    });
+
+    it("renders changed source objects without comparing them to baseTableId", () => {
+      const node: PreviewDirectNode = {
+        ...insightNode("changed-source", "update"),
+        before: {
+          definition: {
+            source: { sourceType: "dataTable", sourceId: "table-1" },
+            baseTableId: "table-1",
+          },
+        },
+        proposedDefinition: {
+          source: { sourceType: "dataTable", sourceId: "table-2" },
+        },
+      };
+
+      render(<PreviewDiffRenderer diff={makeDiff([node])} />);
+
+      expect(
+        screen.getByText(
+          (_, element) =>
+            element?.tagName === "LI" &&
+            element.textContent ===
+              'source: {"sourceType":"dataTable","sourceId":"table-1"} → {"sourceType":"dataTable","sourceId":"table-2"}',
+        ),
+      ).toBeDefined();
+    });
+
+    it("does not render a change for objects with reordered keys", () => {
+      const node: PreviewDirectNode = {
+        ...insightNode("same-filter", "update"),
+        before: {
+          definition: { filters: [{ field: "region", op: "eq" }] },
+        },
+        proposedDefinition: {
+          filters: [{ op: "eq", field: "region" }],
+        },
+      };
+
+      render(<PreviewDiffRenderer diff={makeDiff([node])} />);
+
+      expect(screen.queryByText(/filters:/)).toBeNull();
     });
   });
 

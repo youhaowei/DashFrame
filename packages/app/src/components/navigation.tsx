@@ -90,6 +90,7 @@ interface SidebarContentProps {
   onClearData?: () => void;
   onAssistantProviders?: () => void;
   onAccessCredentials?: () => void;
+  onNavigate?: () => void;
   /**
    * Extra rows for the footer, below Settings/Open source — dev tooling like
    * the perf HUD. Supplied only by the desktop nav so the mobile dialog doesn't
@@ -103,6 +104,7 @@ function SidebarContent({
   onClearData,
   onAssistantProviders,
   onAccessCredentials,
+  onNavigate,
   footerSlot,
   pendingDraftCount,
 }: SidebarContentProps) {
@@ -138,6 +140,7 @@ function SidebarContent({
             <Link
               key={item.name}
               to={item.href as never}
+              onClick={onNavigate}
               className={cn(
                 "group flex items-center gap-3 rounded-lg px-2.5 py-2 transition-colors",
                 isActive
@@ -315,6 +318,7 @@ export function Navigation() {
             <div className="flex-1 overflow-y-auto">
               <SidebarContent
                 pendingDraftCount={drafts.length}
+                onNavigate={() => setIsOpen(false)}
                 onClearData={() => setShowClearConfirm(true)}
                 onAssistantProviders={() => setAssistantSetupOpen(true)}
                 onAccessCredentials={

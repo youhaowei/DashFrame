@@ -258,7 +258,24 @@ function comparableBefore(
 }
 
 function valuesMatch(before: unknown, after: unknown): boolean {
-  return JSON.stringify(before) === JSON.stringify(after);
+  if (Object.is(before, after)) return true;
+  if (Array.isArray(before) && Array.isArray(after)) {
+    return (
+      before.length === after.length &&
+      before.every((value, index) => valuesMatch(value, after[index]))
+    );
+  }
+  if (!isRecord(before) || !isRecord(after)) return false;
+
+  const beforeKeys = Object.keys(before);
+  const afterKeys = Object.keys(after);
+  return (
+    beforeKeys.length === afterKeys.length &&
+    beforeKeys.every(
+      (key) =>
+        Object.hasOwn(after, key) && valuesMatch(before[key], after[key]),
+    )
+  );
 }
 
 function formatValue(value: unknown): string {
@@ -293,41 +310,36 @@ function nestedUpdateDetails(
     .map(([key, after]) => ({ key, before: target[key], after }));
 }
 
+function fallbackUpdateDetails(
+  proposed: Record<string, unknown>,
+): ChangeDetail[] | null {
+  if (!isRecord(proposed.updates)) return null;
+  return Object.entries(proposed.updates).map(([key, after]) => ({
+    key,
+    before: undefined,
+    after,
+  }));
+}
+
 function getChangeDetails(node: PreviewDirectNode): ChangeDetail[] {
   if (node.before === null || node.change === "noop") return [];
 
   const { before, proposedDefinition: proposed } = node;
-  const nestedTargetCount = [
-    proposed.fieldId,
-    proposed.metricId,
-    proposed.joinIndex,
-    proposed.itemId,
-  ].filter((target) => target !== undefined).length;
-  if (nestedTargetCount > 1) return [];
-
-  const fieldDetails = nestedUpdateDetails(
-    before,
-    proposed,
-    "fields",
-    proposed.fieldId,
+  const nestedDetails = [
+    ["fields", proposed.fieldId],
+    ["metrics", proposed.metricId],
+    ["joins", proposed.joinIndex],
+  ] as const;
+  const resolvedNestedDetails = nestedDetails.flatMap(
+    ([collection, target]) => {
+      if (target === undefined) return [];
+      return nestedUpdateDetails(before, proposed, collection, target) ?? [];
+    },
   );
-  if (fieldDetails !== null) return fieldDetails;
+  if (resolvedNestedDetails.length > 0) return resolvedNestedDetails;
 
-  const metricDetails = nestedUpdateDetails(
-    before,
-    proposed,
-    "metrics",
-    proposed.metricId,
-  );
-  if (metricDetails !== null) return metricDetails;
-
-  const joinDetails = nestedUpdateDetails(
-    before,
-    proposed,
-    "joins",
-    proposed.joinIndex,
-  );
-  if (joinDetails !== null) return joinDetails;
+  const fallbackDetails = fallbackUpdateDetails(proposed);
+  if (fallbackDetails !== null) return fallbackDetails;
 
   const canonical = comparableBefore(before);
   const ignoredKeys = new Set([
@@ -339,15 +351,13 @@ function getChangeDetails(node: PreviewDirectNode): ChangeDetail[] {
     "dashboardId",
     "joinIndex",
     "sourceItemId",
+    "updates",
   ]);
   return Object.entries(proposed)
     .filter(([key]) => !ignoredKeys.has(key))
     .map(([key, after]) => {
-      // foldInsightArgs in usePreviewComputeFill.ts is the source of truth for
-      // proposed argument keys that map to stored canonical keys.
       let beforeKey = key;
       if (key === "fieldIds") beforeKey = "selectedFields";
-      if (key === "source") beforeKey = "baseTableId";
       return { key, before: canonical[beforeKey], after };
     })
     .filter(
@@ -395,8 +405,8 @@ function DirectNodeRow({ node }: { node: PreviewDirectNode }) {
         )}
         {changeDetails.length > 0 && (
           <ul className="ml-0 list-none space-y-0.5 text-xs text-neutral-fg/70">
-            {changeDetails.map((detail) => (
-              <li key={detail.key} className="break-all">
+            {changeDetails.map((detail, index) => (
+              <li key={`${detail.key}-${index}`} className="break-all">
                 <span className="font-medium text-neutral-fg/80">
                   {detail.key}:{" "}
                 </span>
