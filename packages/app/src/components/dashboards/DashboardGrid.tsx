@@ -13,13 +13,13 @@ import { DashboardItem } from "./DashboardItem";
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
 
-// At 960px, a common 6-column chart is about 456px wide and even a minW: 2
+// Above 960px, a common 6-column chart is about 456px wide and even a minW: 2
 // item is about 141px: (960 - 13 * 16) / 12 * 2 + 16. The previous 720px
 // floor yielded roughly 101px for that minimum item.
-const EDITABLE_GRID_MIN_WIDTH = 960;
+const EDITABLE_GRID_BREAKPOINT = 960;
 
 const DASHBOARD_GRID_BREAKPOINTS = {
-  lg: EDITABLE_GRID_MIN_WIDTH,
+  lg: EDITABLE_GRID_BREAKPOINT,
   md: 600,
   sm: 480,
   xs: 320,
@@ -63,9 +63,22 @@ export function DashboardGrid({
   // measured width RGL uses to choose its layout.
   const [isEditingAvailable, setIsEditingAvailable] = useState(true);
 
-  const handleWidthChange = useCallback((width: number) => {
-    setIsEditingAvailable(width >= EDITABLE_GRID_MIN_WIDTH);
-  }, []);
+  const handleWidthChange = useCallback(
+    (width: number) => {
+      // RGL selects a breakpoint only when width is strictly greater than its
+      // configured value, so availability must use the same boundary.
+      const isAvailable = width > EDITABLE_GRID_BREAKPOINT;
+      if (isAvailable === isEditingAvailable) {
+        // Report same-breakpoint measurements too. Parent state setters bail
+        // out when the capability is unchanged, while consumers can verify
+        // that RGL delivered the width event.
+        onEditingAvailabilityChange?.(isAvailable);
+        return;
+      }
+      setIsEditingAvailable(isAvailable);
+    },
+    [isEditingAvailable, onEditingAvailabilityChange],
+  );
 
   useEffect(() => {
     onEditingAvailabilityChange?.(isEditingAvailable);

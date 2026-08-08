@@ -148,6 +148,7 @@ export default function DashboardDetailContent({
       setIsEditingAvailable(isAvailable);
       if (!isAvailable) {
         setIsEditable(false);
+        setIsAddOpen(false);
       }
     },
     [],
@@ -163,6 +164,11 @@ export default function DashboardDetailContent({
   }
 
   const handleAddItem = async () => {
+    if (!isEditingAvailable) {
+      setIsAddOpen(false);
+      return;
+    }
+
     // Compute the bottom of the current layout so the new widget is appended
     // below all existing items. Using Infinity here would serialize to null in
     // JSON and cause the server-side position validator to reject the mutation.
@@ -357,7 +363,9 @@ export default function DashboardDetailContent({
               label="Add Widget"
               onClick={handleAddItem}
               disabled={
-                isAddPending || (addType === "visualization" && !selectedVizId)
+                !isEditingAvailable ||
+                isAddPending ||
+                (addType === "visualization" && !selectedVizId)
               }
             />
           </div>

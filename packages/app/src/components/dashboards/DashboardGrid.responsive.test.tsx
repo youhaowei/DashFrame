@@ -69,8 +69,30 @@ describe("DashboardGrid editing availability", () => {
       />,
     );
     expect(mocks.onEditingAvailabilityChange).toHaveBeenLastCalledWith(true);
+    expect(mocks.onEditingAvailabilityChange).toHaveBeenCalledTimes(1);
 
     mocks.currentWidth = 1000;
+    view.rerender(
+      <DashboardGrid
+        dashboard={dashboard}
+        isEditable={false}
+        onEditingAvailabilityChange={mocks.onEditingAvailabilityChange}
+      />,
+    );
+    expect(mocks.onEditingAvailabilityChange).toHaveBeenLastCalledWith(true);
+    expect(mocks.onEditingAvailabilityChange).toHaveBeenCalledTimes(2);
+
+    mocks.currentWidth = 960;
+    view.rerender(
+      <DashboardGrid
+        dashboard={dashboard}
+        isEditable={false}
+        onEditingAvailabilityChange={mocks.onEditingAvailabilityChange}
+      />,
+    );
+    expect(mocks.onEditingAvailabilityChange).toHaveBeenLastCalledWith(false);
+
+    mocks.currentWidth = 961;
     view.rerender(
       <DashboardGrid
         dashboard={dashboard}
