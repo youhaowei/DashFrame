@@ -8,6 +8,7 @@ const {
   mockRemoveDataSource,
   mockUseDataSources,
   mockUseDataTables,
+  mockToastError,
 } = vi.hoisted(() => ({
   mockNavigate: vi.fn(),
   mockRefetchDataSources: vi.fn(),
@@ -15,6 +16,7 @@ const {
   mockRemoveDataSource: vi.fn(),
   mockUseDataSources: vi.fn(),
   mockUseDataTables: vi.fn(),
+  mockToastError: vi.fn(),
 }));
 
 vi.mock("@wystack/client", async (importOriginal) => {
@@ -43,6 +45,10 @@ vi.mock("@/components/visualizations/CreateVisualizationModal", () => ({
   CreateVisualizationModal: () => null,
 }));
 
+vi.mock("sonner", () => ({ toast: { error: mockToastError } }));
+
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { useConfirmDialogStore } from "@/lib/stores";
 import DataSourcesPage from "./page";
 
 function successfulQuery(refetch: () => Promise<unknown>) {
@@ -58,6 +64,7 @@ function successfulQuery(refetch: () => Promise<unknown>) {
 describe("DataSourcesPage query states", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useConfirmDialogStore.getState().close();
     mockRefetchDataSources.mockResolvedValue(undefined);
     mockRefetchDataTables.mockResolvedValue(undefined);
     mockRemoveDataSource.mockResolvedValue({ ok: true });
@@ -107,7 +114,7 @@ describe("DataSourcesPage query states", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  it("passes the reshaped id object to the remove mutation", async () => {
+  it("does not remove a data source until the rendered confirmation is accepted", async () => {
     mockUseDataSources.mockReturnValue({
       ...successfulQuery(mockRefetchDataSources),
       data: [
@@ -121,13 +128,66 @@ describe("DataSourcesPage query states", () => {
       ],
     });
 
-    render(<DataSourcesPage />);
+    render(
+      <>
+        <DataSourcesPage />
+        <ConfirmDialog />
+      </>,
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "More options" }));
     fireEvent.click(await screen.findByRole("menuitem", { name: /delete/i }));
 
+    const dialog = await screen.findByRole("dialog", {
+      name: "Delete data source",
+    });
+    expect(dialog.textContent).toContain(
+      'Are you sure you want to delete "Local Files"? This will remove all associated data and cannot be undone.',
+    );
+    expect(mockRemoveDataSource).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(mockRemoveDataSource).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "More options" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /delete/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+
     await waitFor(() => {
       expect(mockRemoveDataSource).toHaveBeenCalledWith({ id: "source-123" });
+    });
+  });
+
+  it("shows a failure toast when confirmed deletion rejects", async () => {
+    mockRemoveDataSource.mockRejectedValueOnce(new Error("delete failed"));
+    mockUseDataSources.mockReturnValue({
+      ...successfulQuery(mockRefetchDataSources),
+      data: [
+        {
+          id: "source-123",
+          name: "Local Files",
+          type: "local",
+          config: { hasApiKey: false, hasConnectionString: false },
+          createdAt: 0,
+        },
+      ],
+    });
+
+    render(
+      <>
+        <DataSourcesPage />
+        <ConfirmDialog />
+      </>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "More options" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /delete/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
+
+    await waitFor(() => {
+      expect(mockToastError).toHaveBeenCalledWith(
+        "Failed to delete data source",
+      );
     });
   });
 

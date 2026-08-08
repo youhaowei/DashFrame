@@ -4,6 +4,7 @@ import {
   getConnectorById,
   useRegistryVersion,
 } from "@/lib/connectors/registry";
+import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
 import { api } from "@/wystack/api";
 import type { DataSource, UUID } from "@dashframe/types";
 import { groupHoverAndFocusWithinReveal } from "@dashframe/ui";
@@ -31,6 +32,7 @@ import {
   TableIcon,
 } from "@wystack/ui-react/icons";
 import { useCallback, useMemo, useState } from "react";
+import { toast } from "sonner";
 
 // Type for data source with table count
 type DataSourceWithTables = {
@@ -56,6 +58,7 @@ export default function DataSourcesPage() {
   const dataSources = dataSourcesQuery.data;
   const refetchDataSources = dataSourcesQuery.refetch;
   const { mutateAsync: removeDataSource } = useMutation(api.removeDataSource);
+  const { confirm } = useConfirmDialogStore();
 
   // Get all data tables to count them per source
   const dataTablesQuery = useQuery(api.listDataTables, { args: {} });
@@ -111,11 +114,24 @@ export default function DataSourcesPage() {
   // Handle delete data source
   const handleDeleteDataSource = async (
     dataSourceId: UUID,
+    dataSourceName: string,
     e: React.MouseEvent,
   ) => {
     e.stopPropagation();
     e.preventDefault();
-    await removeDataSource({ id: dataSourceId });
+    confirm({
+      title: "Delete data source",
+      description: `Are you sure you want to delete "${dataSourceName}"? This will remove all associated data and cannot be undone.`,
+      confirmLabel: "Delete",
+      variant: "destructive",
+      onConfirm: async () => {
+        try {
+          await removeDataSource({ id: dataSourceId });
+        } catch {
+          toast.error("Failed to delete data source");
+        }
+      },
+    });
   };
 
   // Render data source card
@@ -188,6 +204,7 @@ export default function DataSourcesPage() {
                 onClick={(e) =>
                   handleDeleteDataSource(
                     item.dataSource.id,
+                    item.dataSource.name,
                     e as unknown as React.MouseEvent,
                   )
                 }
