@@ -1,7 +1,9 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockRemoveInsight, mockUseQuery } = vi.hoisted(() => ({
+const { mockNavigate, mockRemoveInsight, mockUseQuery } = vi.hoisted(() => ({
+  mockNavigate: vi.fn(),
   mockRemoveInsight: vi.fn(),
   mockUseQuery: vi.fn(),
 }));
@@ -15,7 +17,7 @@ vi.mock("@wystack/client", async (importOriginal) => {
   };
 });
 
-vi.mock("@tanstack/react-router", () => ({ useNavigate: () => vi.fn() }));
+vi.mock("@tanstack/react-router", () => ({ useNavigate: () => mockNavigate }));
 vi.mock("@/components/visualizations/CreateVisualizationModal", () => ({
   CreateVisualizationModal: () => null,
 }));
@@ -96,4 +98,28 @@ describe("InsightsPage delete confirmations", () => {
     useConfirmDialogStore.getState().handleConfirm();
     expect(mockRemoveInsight).toHaveBeenCalledWith({ id: "insight-1" });
   });
+
+  it.each(["pointer", "keyboard"] as const)(
+    "opens a card menu with %s without navigating the card",
+    async (activation) => {
+      const user = userEvent.setup();
+
+      render(<InsightsPage />);
+
+      const action = screen.getAllByRole("button", {
+        name: "More options",
+      })[0];
+      if (activation === "pointer") {
+        await user.click(action);
+      } else {
+        action.focus();
+        await user.keyboard("{Enter}");
+      }
+
+      expect(
+        await screen.findByRole("menuitem", { name: "Delete" }),
+      ).not.toBeNull();
+      expect(mockNavigate).not.toHaveBeenCalled();
+    },
+  );
 });

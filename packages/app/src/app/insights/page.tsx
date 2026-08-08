@@ -12,6 +12,7 @@ import { useMutation, useQuery } from "@wystack/client";
 import {
   Badge,
   Button,
+  ButtonPrimitive,
   Card,
   CardContent,
   DropdownMenu,
@@ -311,45 +312,52 @@ export default function InsightsPage() {
           </div>
 
           {/* Actions */}
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  icon={MoreIcon}
-                  iconOnly
-                  label="More options"
-                  size="sm"
-                  className={`transition-opacity ${groupHoverAndFocusWithinReveal}`}
-                  onClick={() => {}}
-                />
-              }
-            />
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                onClick={(e) => {
-                  e.stopPropagation();
-                  navigate({ to: `/insights/${item.insight.id}` } as never);
-                }}
-              >
-                <ExternalLinkIcon className="mr-2 h-4 w-4" />
-                Open
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="text-palette-danger"
-                onClick={(e) =>
-                  handleDeleteInsight(
-                    item.insight.id,
-                    item.insight.name,
-                    e as unknown as React.MouseEvent,
-                  )
+          <div
+            className="shrink-0"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <ButtonPrimitive
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label="More options"
+                    title="More options"
+                    className={`transition-opacity ${groupHoverAndFocusWithinReveal}`}
+                  >
+                    <MoreIcon aria-hidden />
+                    <span className="sr-only">More options</span>
+                  </ButtonPrimitive>
                 }
-              >
-                <DeleteIcon className="mr-2 h-4 w-4" />
-                Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+              />
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate({ to: `/insights/${item.insight.id}` } as never);
+                  }}
+                >
+                  <ExternalLinkIcon className="mr-2 h-4 w-4" />
+                  Open
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="text-palette-danger"
+                  onClick={(e) =>
+                    handleDeleteInsight(
+                      item.insight.id,
+                      item.insight.name,
+                      e as unknown as React.MouseEvent,
+                    )
+                  }
+                >
+                  <DeleteIcon className="mr-2 h-4 w-4" />
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       </CardContent>
     </Card>

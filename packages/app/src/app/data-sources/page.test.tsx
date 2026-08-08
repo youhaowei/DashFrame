@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
@@ -113,6 +114,40 @@ describe("DataSourcesPage query states", () => {
     expect(screen.getByText("No data sources yet")).not.toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
   });
+
+  it.each(["pointer", "keyboard"] as const)(
+    "opens a card menu with %s without navigating the card",
+    async (activation) => {
+      mockUseDataSources.mockReturnValue({
+        ...successfulQuery(mockRefetchDataSources),
+        data: [
+          {
+            id: "source-123",
+            name: "Local Files",
+            type: "local",
+            config: { hasApiKey: false, hasConnectionString: false },
+            createdAt: 0,
+          },
+        ],
+      });
+      const user = userEvent.setup();
+
+      render(<DataSourcesPage />);
+
+      const action = screen.getByRole("button", { name: "More options" });
+      if (activation === "pointer") {
+        await user.click(action);
+      } else {
+        action.focus();
+        await user.keyboard("{Enter}");
+      }
+
+      expect(
+        await screen.findByRole("menuitem", { name: "Delete" }),
+      ).not.toBeNull();
+      expect(mockNavigate).not.toHaveBeenCalled();
+    },
+  );
 
   it("does not remove a data source until the rendered confirmation is accepted", async () => {
     mockUseDataSources.mockReturnValue({
