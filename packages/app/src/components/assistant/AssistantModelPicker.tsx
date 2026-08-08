@@ -6,7 +6,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@wystack/ui-react";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 import { useToastStore } from "@/lib/stores";
 import { useAssistantStore } from "@/lib/stores/assistant-store";
@@ -27,6 +27,12 @@ export function AssistantModelPicker() {
   const selectedModelId = useAssistantStore((s) => s.selectedModelId);
   const setSelectedModel = useAssistantStore((s) => s.setSelectedModel);
   const showError = useToastStore((s) => s.showError);
+  const pendingModelMutationsRef = useRef(
+    new Map<string, { defaultModel: string; expectedDefaultModel: string }>(),
+  );
+  const persistedModelsRef = useRef(new Map<string, string>());
+  const inFlightModelConfigIdsRef = useRef(new Set<string>());
+  const drainingModelMutationsRef = useRef(false);
   const configs = useMemo(() => configsResult.data ?? [], [configsResult.data]);
   const catalog = useMemo(() => catalogResult.data ?? [], [catalogResult.data]);
   const configsLoaded =
@@ -46,6 +52,75 @@ export function AssistantModelPicker() {
     );
     return entry?.models ?? [];
   }, [catalog, selected?.providerId]);
+
+  useEffect(() => {
+    for (const config of configs) {
+      if (
+        pendingModelMutationsRef.current.has(config.id) ||
+        inFlightModelConfigIdsRef.current.has(config.id)
+      ) {
+        continue;
+      }
+      persistedModelsRef.current.set(config.id, config.defaultModel);
+    }
+  }, [configs]);
+
+  function queueModelMutation(id: string, defaultModel: string) {
+    const expectedDefaultModel =
+      persistedModelsRef.current.get(id) ??
+      configs.find((config) => config.id === id)?.defaultModel;
+    if (!expectedDefaultModel) return;
+
+    pendingModelMutationsRef.current.set(id, {
+      defaultModel,
+      expectedDefaultModel,
+    });
+    if (drainingModelMutationsRef.current) return;
+
+    drainingModelMutationsRef.current = true;
+    void (async () => {
+      try {
+        while (pendingModelMutationsRef.current.size > 0) {
+          const next = pendingModelMutationsRef.current.entries().next().value;
+          if (!next) break;
+          const [configId, mutation] = next;
+          pendingModelMutationsRef.current.delete(configId);
+          inFlightModelConfigIdsRef.current.add(configId);
+          try {
+            await setDefaultModelMutation({
+              input: { id: configId, ...mutation },
+            });
+            persistedModelsRef.current.set(configId, mutation.defaultModel);
+            const newer = pendingModelMutationsRef.current.get(configId);
+            if (newer) {
+              pendingModelMutationsRef.current.set(configId, {
+                ...newer,
+                expectedDefaultModel: mutation.defaultModel,
+              });
+            }
+          } catch (error) {
+            // The write did not land, so the baseline must not advance to the
+            // model we tried to store. But it must not stay either: a rejection
+            // most often means another writer moved the row, and replaying the
+            // same stale `expectedDefaultModel` would be rejected forever,
+            // leaving the picker permanently unable to save. Drop the baseline
+            // and refetch so the next selection compares against what the
+            // server actually holds.
+            persistedModelsRef.current.delete(configId);
+            configsResult.refetch().catch(() => undefined);
+            showError("Failed to set assistant model", {
+              description:
+                error instanceof Error ? error.message : "Please try again.",
+            });
+          } finally {
+            inFlightModelConfigIdsRef.current.delete(configId);
+          }
+        }
+      } finally {
+        drainingModelMutationsRef.current = false;
+      }
+    })();
+  }
 
   useEffect(() => {
     if (!selected) return;
@@ -112,14 +187,7 @@ export function AssistantModelPicker() {
         onValueChange={(defaultModel) => {
           if (!defaultModel) return;
           setSelectedModel(selected.id, defaultModel);
-          setDefaultModelMutation({
-            input: { id: selected.id, defaultModel },
-          }).catch((error) => {
-            showError("Failed to set assistant model", {
-              description:
-                error instanceof Error ? error.message : "Please try again.",
-            });
-          });
+          queueModelMutation(selected.id, defaultModel);
         }}
       >
         <SelectTrigger className="h-7 w-32 px-2 text-[11px]">

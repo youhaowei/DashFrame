@@ -43,5 +43,7 @@ export interface SaveAssistantProviderConfigInput {
 
 export interface SetAssistantDefaultModelInput {
   id: UUID;
+  /** The model observed before this change; prevents stale writes from winning. */
+  expectedDefaultModel: string;
   defaultModel: string;
 }
