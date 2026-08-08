@@ -13,8 +13,12 @@
 #     caller must cd into that path.  The main checkout's HEAD and current
 #     branch are never switched — verified by an assertion before this
 #     script hands back control.
-#   - Hard-fails (exit 1) if anything goes wrong — this is fail-closed by
-#     design so that a briefed agent cannot silently proceed in main.
+#   - Installs dependencies once, the first time a worktree is provisioned, so
+#     the path it prints means "ready to work in".  An already-provisioned
+#     worktree is handed back untouched.  See install_dependencies.
+#   - Hard-fails (exit 1) on any provisioning or validation failure — this is
+#     fail-closed by design so that a briefed agent cannot silently proceed in
+#     main.
 #
 # ENV:
 #   WORKTREE_BASE  Override the base directory (default: ~/worktrees/<project>)
@@ -100,6 +104,84 @@ init_unpopulated_submodules() {
       exit 1
     fi
   done
+}
+
+# install_dependencies <worktree_path>
+# A fresh worktree has no node_modules at all: `git worktree add` copies
+# tracked files only, and nothing else in this script installs. Every agent
+# that then tries to run the app or the test suite hits a different symptom of
+# the same cause — a missing Electron binary, an unresolvable `@wystack/*`
+# import, `vitest: command not found` — and has to rediscover that the answer
+# is `bun install`. Doing it here makes the printed path mean "ready to work
+# in", which is what every caller already assumes it means.
+#
+# It installs EXACTLY ONCE per worktree, gated on a marker in the worktree's
+# private gitdir, and both halves of that are load-bearing.
+#
+# Installing once, rather than on every call, is what keeps the script safe to
+# re-run. `bun install` is not inert on an already-provisioned tree: every
+# `@wystack/*` dependency is `workspace:*`, so an install silently re-resolves
+# it to the in-repo submodule and undoes any `bun link` pointing at an external
+# checkout (README.md, submodule workflow). Refreshing on reuse would mean the
+# sanctioned bootstrap command quietly dismantles a developer's linked setup
+# every time they ran it. A worktree that is already provisioned is left alone.
+#
+# Gating on a marker, rather than on `node_modules` existing, is what keeps the
+# frozen contract honest. `git worktree add` succeeds before the install runs,
+# so a failed first provision leaves a real worktree on disk with a half-built
+# or absent node_modules. Keying off the directory would classify that as
+# "already provisioned" and hand it back; keying off a marker written only
+# after a clean install means the retry is still a first provision, and gets
+# the same fail-closed frozen install the original attempt did.
+#
+# The install is frozen because provisioning must never rewrite `bun.lock`: the
+# worktree is a fresh checkout of a committed tree, so the lockfile matches by
+# construction, and a mismatch is a genuine defect on the branch rather than
+# something to paper over. Failing here strands nobody — no work exists in a
+# tree that has never been successfully provisioned.
+install_dependencies() {
+  _idep_wt="$1"
+
+  _idep_gitdir=$(cd "$_idep_wt" && git rev-parse --absolute-git-dir 2>/dev/null) || {
+    echo "ERROR [ensure-worktree]: cannot resolve the gitdir for '$_idep_wt'." >&2
+    exit 1
+  }
+  _idep_marker="$_idep_gitdir/ensure-worktree-provisioned"
+
+  # Already provisioned: leave it completely alone. No install, so nothing can
+  # clobber a `bun link` or a hand-edited node_modules.
+  [ -f "$_idep_marker" ] && return
+
+  # Backfill the marker for a worktree that predates it. Without this, the
+  # first run after this change treats every existing worktree as unprovisioned
+  # and forces a frozen install on a tree whose manifests an agent may already
+  # have edited — exiting 1 and withholding the path to the only copy of their
+  # work. An existing node_modules is sufficient evidence that someone
+  # installed here. The residual risk runs the safe direction: if a failed
+  # first provision did leave a partial node_modules behind, the cost is
+  # skipping an install and surfacing the ordinary missing-dependency error,
+  # which is recoverable, rather than stranding a worktree, which is not.
+  if [ -d "$_idep_wt/node_modules" ]; then
+    : >"$_idep_marker"
+    return
+  fi
+
+  if ! command -v bun >/dev/null 2>&1; then
+    echo "ERROR [ensure-worktree]: 'bun' is not on PATH; cannot provision '$_idep_wt'." >&2
+    echo "  Install bun (see AGENTS.md) and re-run — this worktree has never been" >&2
+    echo "  successfully provisioned, so re-running resumes where this left off." >&2
+    exit 1
+  fi
+
+  echo "[ensure-worktree] installing dependencies (bun install --frozen-lockfile)..." >&2
+  if ! (cd "$_idep_wt" && bun install --frozen-lockfile >&2); then
+    echo "ERROR [ensure-worktree]: 'bun install --frozen-lockfile' failed in '$_idep_wt'." >&2
+    echo "  The lockfile does not match the manifests on this branch. Fix it and re-run;" >&2
+    echo "  the worktree is left in place and re-running retries the install." >&2
+    exit 1
+  fi
+
+  : >"$_idep_marker"
 }
 
 # assert_submodule_pins_pushed <rev>
@@ -251,6 +333,7 @@ if [ "$git_dir" != "$git_common_dir" ]; then
   # Print the worktree root for the caller to cd into (in case they're in a subdir).
   _wt_top=$(git rev-parse --show-toplevel)
   init_unpopulated_submodules "$_wt_top"
+  install_dependencies "$_wt_top"
   echo "$_wt_top"
   exit 0
 fi
@@ -307,6 +390,7 @@ if [ -d "$worktree_path" ]; then
   # early-return path for a caller already inside a worktree is unguarded for
   # the same reason.
   init_unpopulated_submodules "$worktree_path"
+  install_dependencies "$worktree_path"
   echo "$worktree_path"
   exit 0
 fi
@@ -399,5 +483,6 @@ fi
 assert_main_checkout_unchanged "$repo_root" "$main_head_before" "$main_branch_before"
 
 init_unpopulated_submodules "$worktree_path"
+install_dependencies "$worktree_path"
 
 echo "$worktree_path"
