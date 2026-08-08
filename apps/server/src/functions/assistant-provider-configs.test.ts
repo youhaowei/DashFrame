@@ -142,6 +142,7 @@ describe("assistant provider config functions", () => {
     await app.call("setAssistantDefaultModel", {
       input: {
         id: secondaryConfig.id,
+        expectedDefaultModel: "gpt-4.1",
         defaultModel: "gpt-4.1-mini",
       },
     });
@@ -153,6 +154,40 @@ describe("assistant provider config functions", () => {
     expect(defaultRow?.isDefault).toBe(true);
     expect(secondaryRow?.defaultModel).toBe("gpt-4.1-mini");
     expect(secondaryRow?.isDefault).toBe(false);
+  });
+
+  it("rejects a stale model update instead of overwriting the newer model", async () => {
+    const { result: config } = (await app.call("saveAssistantProviderConfig", {
+      input: {
+        providerId: "openai",
+        displayLabel: "OpenAI",
+        authKind: "api-key",
+        defaultModel: "gpt-4.1",
+      },
+    })) as { result: AssistantProviderConfig };
+
+    await app.call("setAssistantDefaultModel", {
+      input: {
+        id: config.id,
+        expectedDefaultModel: "gpt-4.1",
+        defaultModel: "gpt-4.1-mini",
+      },
+    });
+
+    await expect(
+      app.call("setAssistantDefaultModel", {
+        input: {
+          id: config.id,
+          expectedDefaultModel: "gpt-4.1",
+          defaultModel: "gpt-4.1-nano",
+        },
+      }),
+    ).rejects.toThrow(
+      "Assistant model changed before this update could be saved",
+    );
+
+    const [row] = await db.select().from(schema.assistantProviderConfigs);
+    expect(row?.defaultModel).toBe("gpt-4.1-mini");
   });
 
   it("rejects a providerId that is not in the catalog", async () => {

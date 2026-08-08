@@ -49,6 +49,7 @@ const saveInputSchema = z.object({
 
 const setDefaultModelSchema = z.object({
   id: z.string().uuid(),
+  expectedDefaultModel: z.string().min(1),
   defaultModel: z.string().min(1),
 }) satisfies z.ZodType<SetAssistantDefaultModelInput>;
 
@@ -311,10 +312,18 @@ const setAssistantDefaultModel = wy.procedure
   .input({ input: jsonb })
   .mutation(async (ctx, { input }): Promise<{ ok: true }> => {
     const parsed = setDefaultModelSchema.parse(input);
-    await ctx.db
+    const updated = await ctx.db
       .from(assistantProviderConfigs)
-      .where(eq("id", parsed.id))
+      .where([
+        eq("id", parsed.id),
+        eq("defaultModel", parsed.expectedDefaultModel),
+      ])
       .update({ defaultModel: parsed.defaultModel });
+    if (updated.length !== 1) {
+      throw new Error(
+        "Assistant model changed before this update could be saved. Please try again.",
+      );
+    }
     return { ok: true };
   });
 

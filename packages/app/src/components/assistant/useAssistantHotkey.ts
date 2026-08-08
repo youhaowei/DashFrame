@@ -17,7 +17,9 @@ export function useAssistantHotkey(): void {
   const configsResult = useQuery(api.listAssistantProviderConfigs);
   const configsLoaded =
     configsResult.data !== undefined && !configsResult.isLoading;
-  const assistantAvailable = (configsResult.data?.length ?? 0) > 0;
+  const configsFailed = configsResult.isError;
+  const assistantAvailable =
+    configsFailed || (configsResult.data?.length ?? 0) > 0;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -26,7 +28,8 @@ export function useAssistantHotkey(): void {
       const mod = e.metaKey || e.ctrlKey;
       if (mod && (e.key === "j" || e.key === "J")) {
         e.preventDefault();
-        if (!configsLoaded) return;
+        if (!configsLoaded && !configsFailed) return;
+        if (configsFailed) configsResult.refetch().catch(() => undefined);
         if (assistantAvailable) {
           toggle();
         } else {
@@ -37,5 +40,13 @@ export function useAssistantHotkey(): void {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [assistantAvailable, close, configsLoaded, setSetupOpen, toggle]);
+  }, [
+    assistantAvailable,
+    close,
+    configsFailed,
+    configsLoaded,
+    configsResult,
+    setSetupOpen,
+    toggle,
+  ]);
 }

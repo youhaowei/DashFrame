@@ -1,6 +1,7 @@
 import type {
   AssistantProviderAuthKind,
   AssistantProviderCatalogEntry,
+  UUID,
 } from "@dashframe/types";
 import { useMutation, useQuery } from "@wystack/client";
 import {
@@ -37,6 +38,7 @@ interface AssistantProviderSettingsDialogProps {
 }
 
 interface DraftProviderForm {
+  id?: UUID;
   providerId: string;
   displayLabel: string;
   authKind: AssistantProviderAuthKind;
@@ -121,8 +123,12 @@ export function AssistantProviderSettingsDialog({
   async function save() {
     setSaving(true);
     try {
-      await saveConfigMutation({
+      const existingConfig = configs.find(
+        (config) => config.providerId === form.providerId,
+      );
+      const saved = await saveConfigMutation({
         input: {
+          id: form.id ?? existingConfig?.id,
           providerId: form.providerId,
           displayLabel: form.displayLabel,
           authKind: form.authKind,
@@ -132,7 +138,7 @@ export function AssistantProviderSettingsDialog({
           isDefault: configs.length === 0,
         },
       });
-      setForm((current) => ({ ...current, credential: "" }));
+      setForm((current) => ({ ...current, id: saved.id, credential: "" }));
       showSuccess("Assistant provider saved");
     } catch (error) {
       showError("Failed to save assistant provider", {
@@ -271,6 +277,7 @@ export function AssistantProviderSettingsDialog({
                   setForm((current) => ({
                     ...current,
                     authKind: value as AssistantProviderAuthKind,
+                    credential: "",
                   }));
                 }}
               >

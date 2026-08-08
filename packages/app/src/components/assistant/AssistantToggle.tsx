@@ -19,14 +19,23 @@ export function AssistantToggle({ className }: { className?: string }) {
   const configsResult = useQuery(api.listAssistantProviderConfigs);
   const configsLoaded =
     configsResult.data !== undefined && !configsResult.isLoading;
-  const assistantAvailable = (configsResult.data?.length ?? 0) > 0;
+  const configsFailed = configsResult.isError;
+  const assistantAvailable =
+    configsFailed || (configsResult.data?.length ?? 0) > 0;
   const assistantOpen = isOpen && assistantAvailable;
   let label = "Set up assistant";
-  if (assistantAvailable) {
+  if (configsFailed) {
+    label = "Retry assistant configuration";
+  } else if (assistantAvailable) {
     label = assistantOpen ? "Hide assistant" : "Open assistant";
   }
 
   function handleClick() {
+    if (configsFailed) {
+      configsResult.refetch().catch(() => undefined);
+      if (!isOpen) toggle();
+      return;
+    }
     if (!assistantAvailable) {
       close();
       setSetupOpen(true);
@@ -42,7 +51,7 @@ export function AssistantToggle({ className }: { className?: string }) {
       iconOnly
       label={label}
       tooltip={assistantAvailable ? `${label} (⌘J)` : label}
-      disabled={!configsLoaded}
+      disabled={!configsLoaded && !configsFailed}
       onClick={handleClick}
       active={assistantOpen}
       className={cn(
