@@ -85,3 +85,4 @@ export { Select as SelectField } from "./fields/select";
 // -- Display-layer utilities --
 
 export { formatNumeric } from "./lib/format-numeric";
+export { groupHoverAndFocusWithinReveal } from "./lib/reveal-on-focus-within";

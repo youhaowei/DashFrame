@@ -5,6 +5,7 @@ import type {
   DashboardItemOverrides,
   DashboardItem as DashboardItemType,
 } from "@dashframe/types";
+import { groupHoverAndFocusWithinReveal } from "@dashframe/ui";
 import { useMutation } from "@wystack/client";
 import { Button, cn, Surface } from "@wystack/ui-react";
 import { DeleteIcon, DragHandleIcon, EditIcon } from "@wystack/ui-react/icons";
@@ -84,9 +85,14 @@ export function DashboardItem({
       onTouchEnd={onTouchEnd}
       {...props}
     >
-      {/* Action header - tucked under the container's rounded corners, visible on hover */}
+      {/* Action header - tucked under the container's rounded corners, visible on hover or focus within */}
       {isEditable && (
-        <div className="grid-drag-handle absolute -top-8 right-0 left-0 z-0 flex h-12 cursor-move items-center justify-between rounded-t-lg bg-neutral-bg-muted px-2 pt-4 pb-8 opacity-0 transition-all group-hover:opacity-100 hover:bg-neutral-bg-muted/80">
+        <div
+          className={cn(
+            "grid-drag-handle absolute -top-8 right-0 left-0 z-0 flex h-12 cursor-move items-center justify-between rounded-t-lg bg-neutral-bg-muted px-2 pt-4 pb-8 transition-all hover:bg-neutral-bg-muted/80",
+            groupHoverAndFocusWithinReveal,
+          )}
+        >
           {/* Drag Handle Indicator */}
           <div className="flex items-center gap-2 text-neutral-fg-subtle/60">
             <DragHandleIcon className="h-4 w-4" />
@@ -147,10 +153,13 @@ export function DashboardItem({
         {/* Customize button + override badge — visualization cells only, editor-mode only.
             Hidden from non-editors: a non-editor invoking updateItem/updateControls
             would persist their changes, which is not the intended v0.3 scope.
-            Visible on hover, anchored bottom-right inside the surface. */}
+            Visible on hover or focus within, anchored bottom-right inside the surface. */}
         {item.type === "visualization" && isEditable && (
           <div
-            className="absolute right-2 bottom-2 z-20 opacity-0 transition-opacity group-hover:opacity-100"
+            className={cn(
+              "absolute right-2 bottom-2 z-20 transition-opacity",
+              groupHoverAndFocusWithinReveal,
+            )}
             onMouseDown={(e) => e.stopPropagation()}
           >
             <OverridePopover

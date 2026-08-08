@@ -1,5 +1,6 @@
 import { useToastStore } from "@/lib/stores";
 import { api } from "@/wystack/api";
+import { groupHoverAndFocusWithinReveal } from "@dashframe/ui";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@wystack/client";
 import {
@@ -134,7 +135,7 @@ export default function DashboardsPage() {
                         iconOnly
                         label="Delete dashboard"
                         color="danger"
-                        className="-mt-2 -mr-2 text-neutral-fg-subtle opacity-0 transition-opacity group-hover:opacity-100 hover:text-palette-danger"
+                        className={`-mt-2 -mr-2 text-neutral-fg-subtle transition-opacity hover:text-palette-danger ${groupHoverAndFocusWithinReveal}`}
                         onClick={() => handleDelete(dashboard.id)}
                       />
                     </div>

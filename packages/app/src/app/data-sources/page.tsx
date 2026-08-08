@@ -6,6 +6,7 @@ import {
 } from "@/lib/connectors/registry";
 import { api } from "@/wystack/api";
 import type { DataSource, UUID } from "@dashframe/types";
+import { groupHoverAndFocusWithinReveal } from "@dashframe/ui";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@wystack/client";
 import {
@@ -165,7 +166,7 @@ export default function DataSourcesPage() {
                   iconOnly
                   label="More options"
                   size="sm"
-                  className="opacity-0 transition-opacity group-hover:opacity-100"
+                  className={`transition-opacity ${groupHoverAndFocusWithinReveal}`}
                   onClick={() => {}}
                 />
               }
