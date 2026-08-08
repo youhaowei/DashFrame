@@ -12,6 +12,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useConfirmDialogStore } from "@/lib/stores";
@@ -413,9 +414,11 @@ describe("DataPickerContent file replacement", () => {
       "Renamed or removed columns can break Insights that reference them.",
     );
 
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Replace table" }));
-    });
+    // userEvent (not fireEvent) so this exercises real pointer-events
+    // through the nested dialog stack, not just a synthetic click
+    // dispatched straight at the button node.
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Replace table" }));
 
     await waitFor(() => {
       expect(mockParse).toHaveBeenCalledWith(expect.any(File), FILE_TABLE_ID);

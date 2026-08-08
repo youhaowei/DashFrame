@@ -277,4 +277,60 @@ describe("file table replacement", () => {
       fields.length,
     );
   });
+
+  it("does not reuse an id when only the new parse has a duplicate column name", async () => {
+    const duplicateParsedFields: Field[] = [
+      parsedFields[0],
+      {
+        ...parsedFields[0],
+        id: "second-new-field-id" as UUID,
+        name: "duplicate_amount",
+      },
+    ];
+    // Existing side is unambiguous — a single field named "amount".
+    mockGetDataTable.mockResolvedValue({
+      ...existingTable,
+      fields: [existingField],
+    });
+
+    await replacementHandlers[0].replace({
+      ...parsedResult,
+      fields: duplicateParsedFields,
+      columnCount: 2,
+    });
+
+    const [{ fields }] = mockUpdateDataTable.mock.calls[0].slice(1) as [
+      { fields: Field[] },
+    ];
+    expect(fields).toEqual(duplicateParsedFields);
+    expect(new Set(fields.map((field) => field.id))).toHaveLength(
+      fields.length,
+    );
+  });
+
+  it("does not reuse an id when only the existing table has a duplicate column name", async () => {
+    // Existing side is ambiguous — two fields both mapped to "amount".
+    mockGetDataTable.mockResolvedValue({
+      ...existingTable,
+      fields: [
+        existingField,
+        {
+          ...existingField,
+          id: "second-existing-field-id" as UUID,
+          name: "duplicate_amount",
+        },
+      ],
+    });
+
+    // New parse is unambiguous — a single "amount" column.
+    await replacementHandlers[0].replace(parsedResult);
+
+    const [{ fields }] = mockUpdateDataTable.mock.calls[0].slice(1) as [
+      { fields: Field[] },
+    ];
+    expect(fields).toEqual(parsedFields);
+    expect(new Set(fields.map((field) => field.id))).toHaveLength(
+      fields.length,
+    );
+  });
 });
