@@ -182,7 +182,7 @@ describe("PreviewDiffRenderer", () => {
           nodeId: "dt-merged-nested-update",
           fieldId: "3c4708a7-a85d-457e-b69d-3226b0a1cfd5",
           metricId: "fdd13f3e-b880-4524-a829-6515aeb7ccc7",
-          updates: { name: "Total revenue" },
+          updates: { name: "Total revenue", format: "currency" },
         },
       };
 
@@ -193,7 +193,15 @@ describe("PreviewDiffRenderer", () => {
           (_, element) =>
             element?.tagName === "LI" &&
             element.textContent ===
-              'applies to: field revenue, metric Revenue: — → {"name":"Total revenue"}',
+              "one of: field revenue, metric Revenue — name: — → Total revenue",
+        ),
+      ).toBeDefined();
+      expect(
+        screen.getByText(
+          (_, element) =>
+            element?.tagName === "LI" &&
+            element.textContent ===
+              "one of: field revenue, metric Revenue — format: — → currency",
         ),
       ).toBeDefined();
       expect(
@@ -208,6 +216,37 @@ describe("PreviewDiffRenderer", () => {
           (_, element) =>
             element?.tagName === "LI" &&
             element.textContent === "name: Revenue → Total revenue",
+        ),
+      ).toBeNull();
+    });
+
+    it("keeps unresolvable merged targets in the ambiguous label", () => {
+      const node: PreviewDirectNode = {
+        ...dataTableNode("partially-resolved-merged-update"),
+        before: { fields: [{ id: "f1" }] },
+        proposedDefinition: {
+          nodeId: "partially-resolved-merged-update",
+          fieldId: "f1",
+          joinIndex: 0,
+          updates: { name: "Renamed field" },
+        },
+      };
+
+      render(<PreviewDiffRenderer diff={makeDiff([node])} />);
+
+      expect(
+        screen.getByText(
+          (_, element) =>
+            element?.tagName === "LI" &&
+            element.textContent ===
+              "one of: field f1, join #0 — name: — → Renamed field",
+        ),
+      ).toBeDefined();
+      expect(
+        screen.queryByText(
+          (_, element) =>
+            element?.tagName === "LI" &&
+            element.textContent === "name: — → Renamed field",
         ),
       ).toBeNull();
     });
