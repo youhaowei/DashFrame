@@ -173,6 +173,18 @@ describe("privacy floor — no raw sampleValues persist in artifact DB", () => {
     }
   });
 
+  it("should clear a previously stored analysis when updated with null", async () => {
+    const id = crypto.randomUUID();
+    await call("putDataFrameEntry", {
+      entry: makeDataFrameEntry(id, makeAnalysisWithSamples()),
+    });
+    expect(await readAnalysis(id)).not.toBeNull();
+
+    await call("updateDataFrameEntry", { id, updates: { analysis: null } });
+
+    expect(await readAnalysis(id)).toBeNull();
+  });
+
   it("should store profiles intact when analysis has no sampleValues", async () => {
     const id = crypto.randomUUID();
     // Analysis already clean (sampleValues: []).

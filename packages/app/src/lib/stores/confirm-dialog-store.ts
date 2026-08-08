@@ -66,6 +66,7 @@ export const useConfirmDialogStore = create<
   config: null,
 
   confirm: (config) => {
+    get().config?.onCancel?.();
     set({ isOpen: true, config });
   },
 

@@ -155,7 +155,11 @@ async function analyzeAndCacheDataFrame(
 interface DataFrameEntry {
   id: UUID;
   rowCount?: number;
-  analysis?: DataFrameAnalysis;
+  // `null` is a deliberate "cleared" signal (e.g. after a table replacement
+  // invalidates cached analysis) — every read site below already treats it
+  // the same as `undefined` via a truthy check, so this is a type-only
+  // widening to match the real shape from data-access/data-frames.ts.
+  analysis?: DataFrameAnalysis | null;
 }
 
 /** Table entry with optional fields */

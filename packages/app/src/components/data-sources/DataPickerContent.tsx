@@ -30,11 +30,13 @@ import {
 import { useMutation, useQuery } from "@wystack/client";
 import { Button, SectionList } from "@wystack/ui-react";
 import { ArrowLeftIcon } from "@wystack/ui-react/icons";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AddConnectionPanel } from "./AddConnectionPanel";
 import { DataSourceList, type DataSourceInfo } from "./DataSourceList";
 import { DataTableList } from "./DataTableList";
 import { InsightList, type InsightDisplayInfo } from "./InsightList";
+
+const FILE_TABLE_NAME_EXTENSION = /\.(csv|xlsx?|json)$/i;
 
 function requestRemoteFieldReview(
   confirm: (config: ConfirmDialogConfig) => void,
@@ -47,6 +49,31 @@ function requestRemoteFieldReview(
       description: `DashFrame will store “${field.name}” from ${resourceTitle} locally. Confirm that this specific column contains no sensitive data.`,
       confirmLabel: "Clear this column",
       cancelLabel: "Cancel import",
+      onConfirm: () => resolve(true),
+      onCancel: () => resolve(false),
+    });
+  });
+}
+
+function requestFileTableReplacement(
+  confirm: (config: ConfirmDialogConfig) => void,
+  {
+    fileName,
+    tableName,
+    sourceName,
+  }: {
+    fileName: string;
+    tableName: string;
+    sourceName: string;
+  },
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    confirm({
+      title: `Replace table "${tableName}" from "${sourceName}"?`,
+      description: `The existing file-backed table "${tableName}" from "${sourceName}" will be overwritten by "${fileName}". Renamed or removed columns can break Insights that reference them.`,
+      confirmLabel: "Replace table",
+      cancelLabel: "Cancel upload",
+      variant: "destructive",
       onConfirm: () => resolve(true),
       onCancel: () => resolve(false),
     });
@@ -106,10 +133,12 @@ export function DataPickerContent({
   onCancel,
   showInsights = true,
 }: DataPickerContentProps) {
-  const { data: dataSources = [] } = useQuery(api.listDataSources);
-  const { data: allDataTables = [] } = useQuery(api.listDataTables, {
-    args: {},
-  });
+  const dataSourcesQuery = useQuery(api.listDataSources);
+  const { data: dataSources = [], isLoading: isLoadingDataSources } =
+    dataSourcesQuery;
+  const dataTablesQuery = useQuery(api.listDataTables, { args: {} });
+  const { data: allDataTables = [], isLoading: isLoadingDataTables } =
+    dataTablesQuery;
   const { data: allInsights = [] } = useQuery(api.listInsights, { args: {} });
   const { data: dataFrames = [] } = useQuery(api.listDataFrames);
   const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
@@ -144,6 +173,14 @@ export function DataPickerContent({
   const [materializingResourceId, setMaterializingResourceId] = useState<
     string | null
   >(null);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   // Transform sources for DataSourceList
   const dataSourcesInfo: DataSourceInfo[] = useMemo(() => {
@@ -247,6 +284,22 @@ export function DataPickerContent({
   const handleFileSelect = useCallback(
     async (connector: FileSourceConnector, file: File) => {
       setError(null);
+      if (isLoadingDataSources) {
+        setError("Data sources are still loading — try again in a moment.");
+        return;
+      }
+      if (dataSourcesQuery.isError) {
+        setError("Data sources could not be loaded — try again in a moment.");
+        return;
+      }
+      if (isLoadingDataTables) {
+        setError("Data tables are still loading — try again in a moment.");
+        return;
+      }
+      if (dataTablesQuery.isError) {
+        setError("Data tables could not be loaded — try again in a moment.");
+        return;
+      }
       try {
         if (
           connector.maxSizeMB &&
@@ -255,18 +308,41 @@ export function DataPickerContent({
           throw new Error(`File size exceeds ${connector.maxSizeMB}MB limit.`);
         }
 
-        // Check for duplicate table
-        const existingTable = allDataTables.find(
-          (table) =>
-            table.name === file.name ||
-            table.name === file.name.replace(/\.(csv|xlsx?)$/i, ""),
-        );
+        // Only file-backed tables can be replaced by an uploaded file. A
+        // remote table with the same name is a separate source of truth and
+        // must never be used as an overwrite target.
+        const existingTable = allDataTables.find((table) => {
+          const source = dataSources.find(
+            (dataSource) => dataSource.id === table.dataSourceId,
+          );
+          const isFileBacked =
+            getConnectorById(source?.type ?? "")?.sourceType === "file";
+          return (
+            isFileBacked &&
+            !excludeTableIds.includes(table.id) &&
+            (table.name === file.name ||
+              table.name === file.name.replace(FILE_TABLE_NAME_EXTENSION, ""))
+          );
+        });
 
         if (existingTable) {
-          const shouldOverride = window.confirm(
-            `"${file.name}" already exists. Replace the existing table with this file?`,
+          const source = dataSources.find(
+            (dataSource) => dataSource.id === existingTable.dataSourceId,
           );
+          const sourceName =
+            source?.name ??
+            getConnectorById(source?.type ?? "")?.name ??
+            source?.type ??
+            "file source";
+          const shouldOverride = await requestFileTableReplacement(confirm, {
+            fileName: file.name,
+            tableName: existingTable.name,
+            sourceName,
+          });
           if (!shouldOverride) {
+            return;
+          }
+          if (!isMountedRef.current) {
             return;
           }
         }
@@ -279,16 +355,26 @@ export function DataPickerContent({
         const { dataTableId } = await handleFileConnectorResult(
           file.name,
           result,
-          existingTable ? { overrideTableId: existingTable.id } : undefined,
+          { overrideTableId: tableId },
         );
 
-        const tableName = file.name.replace(/\.(csv|xlsx?)$/i, "");
+        const tableName = file.name.replace(FILE_TABLE_NAME_EXTENSION, "");
         onTableSelect(dataTableId, tableName);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to process file");
       }
     },
-    [onTableSelect, allDataTables],
+    [
+      onTableSelect,
+      allDataTables,
+      dataSources,
+      dataTablesQuery.isError,
+      dataSourcesQuery.isError,
+      isLoadingDataTables,
+      isLoadingDataSources,
+      confirm,
+      excludeTableIds,
+    ],
   );
 
   const handleConnect = useCallback(

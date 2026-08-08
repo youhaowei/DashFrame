@@ -75,7 +75,10 @@ type DataFrameEntry = DataFrameJSON & {
   definitionId?: UUID;
   rowCount?: number;
   columnCount?: number;
-  analysis?: DataFrameAnalysis;
+  // `null` is a deliberate clear signal (see updateDataFrameEntry below), not
+  // merely "absent" — keep it distinct from `undefined` so a future cleanup
+  // doesn't read the clearing branch as dead code and revert it.
+  analysis?: DataFrameAnalysis | null;
   lastRefreshedAt?: number;
 };
 

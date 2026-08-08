@@ -152,6 +152,31 @@ describe("confirm-dialog-store", () => {
 
       expect(useConfirmDialogStore.getState().isOpen).toBe(true);
     });
+
+    it("cancels the pending dialog before replacing its config", async () => {
+      const { confirm } = useConfirmDialogStore.getState();
+      let resolveFirstDialog: (result: boolean) => void;
+      const firstDialog = new Promise<boolean>((resolve) => {
+        resolveFirstDialog = resolve;
+      });
+
+      confirm({
+        title: "First dialog",
+        description: "First description",
+        onConfirm: vi.fn(),
+        onCancel: () => resolveFirstDialog(false),
+      });
+      confirm({
+        title: "Second dialog",
+        description: "Second description",
+        onConfirm: vi.fn(),
+      });
+
+      await expect(firstDialog).resolves.toBe(false);
+      expect(useConfirmDialogStore.getState().config?.title).toBe(
+        "Second dialog",
+      );
+    });
   });
 
   describe("close()", () => {

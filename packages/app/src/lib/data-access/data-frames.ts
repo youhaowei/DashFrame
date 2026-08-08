@@ -19,7 +19,7 @@ export type DataFrameEntry = DataFrameJSON & {
   definitionId?: UUID;
   rowCount?: number;
   columnCount?: number;
-  analysis?: DataFrameAnalysis;
+  analysis?: DataFrameAnalysis | null;
   lastRefreshedAt?: number;
 };
 
@@ -79,6 +79,7 @@ export async function replaceDataFrame(
     definitionId: metadata?.definitionId,
     rowCount: metadata?.rowCount,
     columnCount: metadata?.columnCount,
+    analysis: null,
     lastRefreshedAt: Date.now(),
   });
   if (oldEntity?.storage?.type === "indexeddb") {
