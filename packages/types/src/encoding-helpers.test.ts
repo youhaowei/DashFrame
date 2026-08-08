@@ -73,6 +73,18 @@ describe("encoding-helpers", () => {
   });
 
   describe("parseEncoding()", () => {
+    // `encoding` is stored as opaque jsonb, so a row written before the write
+    // gate existed can hand any shape to a reader. parseEncoding sits under
+    // every one of them, so screening the type here is what keeps a malformed
+    // stored row from throwing in render code that no error boundary covers.
+    it("returns undefined for a non-string, rather than throwing", () => {
+      for (const bad of [{ field: "region" }, 42, true, ["field:a"], null]) {
+        expect(parseEncoding(bad as never)).toBeUndefined();
+      }
+      expect(isFieldEncoding({ field: "region" } as never)).toBe(false);
+      expect(isMetricEncoding({ metric: "revenue" } as never)).toBe(false);
+    });
+
     describe("valid field encodings", () => {
       it("should parse field encoding correctly", () => {
         const result = parseEncoding("field:abc-123-def");
@@ -462,14 +474,21 @@ describe("encoding-helpers", () => {
       expect(isEncodingValue(`metric:${uuid}`)).toBe(true);
     });
 
-    it("rejects wrong case — parseEncoding matches the prefix case-sensitively", () => {
+    it("rejects a wrong-case PREFIX — parseEncoding matches it case-sensitively", () => {
       // `FIELD:<uuid>` would not parse as an ID reference at all; the reader
       // falls back to treating it as a raw column name. Admitting it at the
       // gate would persist a value the reader silently mis-resolves.
       expect(isEncodingValue(`FIELD:${uuid}`)).toBe(false);
       expect(isEncodingValue(`Metric:${uuid}`)).toBe(false);
-      expect(isEncodingValue(`field:${uuid.toUpperCase()}`)).toBe(false);
       expect(isEncodingValue(`field:${uuid}_J1`)).toBe(false);
+    });
+
+    it("accepts an uppercase uuid BODY — the reader compares it exactly", () => {
+      // The id is sliced out and compared to the stored field id, so an
+      // uppercase id resolves fine when that is how it was stored. Rejecting
+      // it would make the gate stricter than the reader.
+      expect(isEncodingValue(`field:${uuid.toUpperCase()}`)).toBe(true);
+      expect(isEncodingValue(`metric:${uuid.toUpperCase()}_j2`)).toBe(true);
     });
 
     it("accepts a repeat-join instance suffix — the axis picker emits it", () => {

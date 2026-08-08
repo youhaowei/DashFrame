@@ -73,7 +73,13 @@ export interface ParsedEncoding {
 export function parseEncoding(
   value: string | undefined,
 ): ParsedEncoding | undefined {
-  if (!value) return undefined;
+  // `string | undefined` is what the TYPE says; `encoding` is stored as opaque
+  // jsonb, so a row written before the write gate existed can hand this an
+  // object. Calling `.startsWith` on one is the GH #289 crash, and this
+  // function sits under every reader — the enforcer the config panel runs, the
+  // SQL resolver, the renderer. Screening the type here closes the class at all
+  // of them rather than at whichever call site was noticed.
+  if (!value || typeof value !== "string") return undefined;
 
   if (value.startsWith("field:")) {
     return { type: "field", id: value.slice(6) as UUID };
@@ -123,7 +129,7 @@ export function metricEncoding(id: UUID): MetricEncodingValue {
 export function isFieldEncoding(
   value: string | undefined,
 ): value is FieldEncodingValue {
-  return value?.startsWith("field:") ?? false;
+  return typeof value === "string" && value.startsWith("field:");
 }
 
 /**
@@ -135,7 +141,7 @@ export function isFieldEncoding(
 export function isMetricEncoding(
   value: string | undefined,
 ): value is MetricEncodingValue {
-  return value?.startsWith("metric:") ?? false;
+  return typeof value === "string" && value.startsWith("metric:");
 }
 
 /**
@@ -178,13 +184,15 @@ export const ENCODING_VALUE_FORMAT =
  * axis picker persists exactly that form, so rejecting it would break a
  * legitimate encoding the UI itself writes.
  *
- * Case-SENSITIVE, deliberately: `parseEncoding` matches the prefix with a
- * case-sensitive `startsWith`, and ids are compared to stored lowercase UUIDs.
- * Admitting `FIELD:<uuid>` here would let a value through the gate that the
- * reader then falls back to treating as a raw column name.
+ * The PREFIX is case-sensitive, deliberately: `parseEncoding` matches it with a
+ * case-sensitive `startsWith`, so admitting `FIELD:<uuid>` would let a value
+ * through the gate that the reader then falls back to treating as a raw column
+ * name. The UUID BODY is not: the reader slices it out and compares it to the
+ * stored field id exactly, so an uppercase id resolves fine if that is how it
+ * was stored, and rejecting it here would be stricter than the reader.
  */
 const ENCODING_VALUE_PATTERN =
-  /^(?:field|metric):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:_j[1-9][0-9]*)?$/;
+  /^(?:field|metric):[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(?:_j[1-9][0-9]*)?$/;
 
 /**
  * Anything claiming to be an ID reference, well-formed or not. Case-insensitive
