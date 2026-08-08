@@ -1,4 +1,9 @@
+import { SensitivityBadge } from "@/components/data-sources/SensitivityBadge";
 import type { CombinedField } from "@/lib/insights/compute-combined-fields";
+import {
+  getFieldSensitivity,
+  suggestSensitivityReasons,
+} from "@dashframe/types";
 import {
   Badge,
   Dialog,
@@ -149,6 +154,12 @@ interface FieldOptionProps {
 }
 
 function FieldOption({ field, isJoined, onClick }: FieldOptionProps) {
+  const sensitivity = getFieldSensitivity(field);
+  const suggestedReasons =
+    sensitivity === "unclassified"
+      ? suggestSensitivityReasons({ name: field.name })
+      : [];
+
   return (
     <button
       onClick={onClick}
@@ -167,6 +178,9 @@ function FieldOption({ field, isJoined, onClick }: FieldOptionProps) {
         )}
       </div>
       <div className="flex shrink-0 items-center gap-2">
+        {(sensitivity === "sensitive" || suggestedReasons.length > 0) && (
+          <SensitivityBadge field={field} suggestedReasons={suggestedReasons} />
+        )}
         <Badge variant="outline" className="text-[10px]">
           {field.type}
         </Badge>

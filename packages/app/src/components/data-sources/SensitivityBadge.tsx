@@ -6,8 +6,8 @@ interface SensitivityBadgeProps {
   field: Field;
   /** Classifier suggestion reasons, when the field is unclassified */
   suggestedReasons: string[];
-  /** One-click confirm of the classifier suggestion */
-  onConfirmSuggestion: () => void;
+  /** One-click confirm of the classifier suggestion, when the surface supports it */
+  onConfirmSuggestion?: () => void;
 }
 
 /**
@@ -41,9 +41,25 @@ export function SensitivityBadge({
   }
 
   if (suggestedReasons.length > 0) {
-    // Clickable confirm affordance. Built from the composed Badge (not a raw
-    // primitive — those are construction blocks internal to @wystack/ui-react) made
-    // interactive via role/tabIndex + keyboard activation.
+    const interactiveProps = onConfirmSuggestion
+      ? {
+          role: "button",
+          tabIndex: 0,
+          onClick: onConfirmSuggestion,
+          onKeyDown: (e: React.KeyboardEvent) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              // Ignore auto-repeat so holding Enter/Space doesn't confirm repeatedly.
+              if (e.repeat) return;
+              onConfirmSuggestion();
+            }
+          },
+        }
+      : {};
+
+    // Surfaces that can confirm the suggestion opt into an interactive
+    // affordance. Read-only surfaces reuse the same composed badge without
+    // advertising an action they cannot perform.
     //
     // This relies on Badge forwarding arbitrary props to its root DOM node.
     // @wystack/ui-react's Badge renders `<div className={...} {...props} />`
@@ -54,19 +70,13 @@ export function SensitivityBadge({
       <Badge
         variant="soft"
         color="warning"
-        role="button"
-        tabIndex={0}
-        title={`${suggestedReasons.join("; ")} — click to confirm as sensitive`}
-        onClick={onConfirmSuggestion}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            // Ignore auto-repeat so holding Enter/Space doesn't confirm repeatedly.
-            if (e.repeat) return;
-            onConfirmSuggestion();
-          }
-        }}
-        className="shrink-0 cursor-pointer"
+        title={
+          onConfirmSuggestion
+            ? `${suggestedReasons.join("; ")} — click to confirm as sensitive`
+            : suggestedReasons.join("; ")
+        }
+        {...interactiveProps}
+        className={onConfirmSuggestion ? "shrink-0 cursor-pointer" : "shrink-0"}
       >
         Likely sensitive
       </Badge>
