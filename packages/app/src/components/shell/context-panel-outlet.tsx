@@ -15,8 +15,14 @@ export interface ContextPanelSection {
 }
 
 interface ContextPanelRegistry {
-  registerSection: (section: ContextPanelSection) => () => void;
-  unregisterSection: (id: string) => void;
+  /** Add the section, or update it in place when its id is already present. */
+  upsertSection: (section: ContextPanelSection, owner: symbol) => void;
+  /** Drop the section only while `owner` still holds it. */
+  releaseSection: (id: string, owner: symbol) => void;
+}
+
+interface RegisteredContextPanelSection extends ContextPanelSection {
+  owner: symbol;
 }
 
 const ContextPanelRegistryContext = createContext<ContextPanelRegistry | null>(
@@ -27,8 +33,8 @@ const ContextPanelSectionsContext = createContext<ContextPanelSection[] | null>(
 );
 
 function replaceSection(
-  current: ContextPanelSection[],
-  section: ContextPanelSection,
+  current: RegisteredContextPanelSection[],
+  section: RegisteredContextPanelSection,
 ) {
   const index = current.findIndex((item) => item.id === section.id);
   if (index === -1) return [...current, section];
@@ -38,28 +44,39 @@ function replaceSection(
   return next;
 }
 
-function removeSection(current: ContextPanelSection[], id: string) {
-  return current.filter((item) => item.id !== id);
+function removeSection(
+  current: RegisteredContextPanelSection[],
+  id: string,
+  owner: symbol,
+) {
+  return current.filter((item) => item.id !== id || item.owner !== owner);
 }
 
 export function ContextPanelProvider({ children }: { children: ReactNode }) {
-  const [sections, setSections] = useState<ContextPanelSection[]>([]);
+  const [registeredSections, setRegisteredSections] = useState<
+    RegisteredContextPanelSection[]
+  >([]);
 
-  const unregisterSection = useCallback((id: string) => {
-    setSections((current) => removeSection(current, id));
-  }, []);
-
-  const registerSection = useCallback(
-    (section: ContextPanelSection) => {
-      setSections((current) => replaceSection(current, section));
-      return () => unregisterSection(section.id);
+  const upsertSection = useCallback(
+    (section: ContextPanelSection, owner: symbol) => {
+      setRegisteredSections((current) =>
+        replaceSection(current, { ...section, owner }),
+      );
     },
-    [unregisterSection],
+    [],
   );
 
+  const releaseSection = useCallback((id: string, owner: symbol) => {
+    setRegisteredSections((current) => removeSection(current, id, owner));
+  }, []);
+
   const value = useMemo(
-    () => ({ registerSection, unregisterSection }),
-    [registerSection, unregisterSection],
+    () => ({ upsertSection, releaseSection }),
+    [upsertSection, releaseSection],
+  );
+  const sections = useMemo(
+    () => registeredSections.map(({ owner: _, ...section }) => section),
+    [registeredSections],
   );
 
   return (
@@ -92,22 +109,30 @@ export function useContextPanelSections() {
 }
 
 export function useContextPanelSection(section: ContextPanelSection | null) {
-  const { registerSection, unregisterSection } = useContextPanelRegistry();
+  const { upsertSection, releaseSection } = useContextPanelRegistry();
   const sectionId = section?.id;
   const sectionTitle = section?.title;
   const sectionContent = section?.content;
 
-  useEffect(() => {
-    if (!sectionId) return;
-    return () => unregisterSection(sectionId);
-  }, [sectionId, unregisterSection]);
+  // One identity for this component's whole lifetime. Minting a fresh owner per
+  // effect run would make a content update remove-then-append the section,
+  // moving it to the end of the panel; ownership must outlive the content.
+  const [owner] = useState(() => Symbol("context-panel-section"));
 
+  // Content changes update the section in place — no removal, so order holds.
   useEffect(() => {
     if (!sectionId || sectionTitle === undefined) return;
-    registerSection({
-      id: sectionId,
-      title: sectionTitle,
-      content: sectionContent,
-    });
-  }, [registerSection, sectionContent, sectionId, sectionTitle]);
+    upsertSection(
+      { id: sectionId, title: sectionTitle, content: sectionContent },
+      owner,
+    );
+  }, [upsertSection, owner, sectionContent, sectionId, sectionTitle]);
+
+  // Removal happens only on unmount or when the id itself changes, and only
+  // while this owner still holds the slot — a newer binder that took the same
+  // id keeps it.
+  useEffect(() => {
+    if (!sectionId) return;
+    return () => releaseSection(sectionId, owner);
+  }, [releaseSection, owner, sectionId]);
 }

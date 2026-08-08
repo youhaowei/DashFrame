@@ -1,6 +1,7 @@
 import {
   type ReactNode,
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -35,11 +36,10 @@ interface ArtifactContextStore {
   /** The artifact the assistant is bound to, or null when none is focused. */
   artifact: ArtifactContextValue | null;
   /**
-   * Bind the assistant to an artifact. Center surfaces call this on mount/focus
-   * and clear it (`set(null)`) on unmount so the binding always reflects what
-   * the user is actually looking at.
+   * Bind the assistant to an artifact. The returned cleanup only clears this
+   * registration when it still owns the current binding.
    */
-  setArtifact: (artifact: ArtifactContextValue | null) => void;
+  registerArtifact: (artifact: ArtifactContextValue | null) => () => void;
 }
 
 const ArtifactContext = createContext<ArtifactContextStore | null>(null);
@@ -50,10 +50,26 @@ const ArtifactContext = createContext<ArtifactContextStore | null>(null);
  * region) share one source of truth for "what is the assistant acting on".
  */
 export function ArtifactContextProvider({ children }: { children: ReactNode }) {
-  const [artifact, setArtifact] = useState<ArtifactContextValue | null>(null);
+  const [binding, setBinding] = useState<{
+    artifact: ArtifactContextValue | null;
+    owner: symbol;
+  } | null>(null);
+
+  const registerArtifact = useCallback(
+    (artifact: ArtifactContextValue | null) => {
+      const owner = Symbol("artifact-context-binding");
+      setBinding({ artifact, owner });
+      return () => {
+        setBinding((current) => (current?.owner === owner ? null : current));
+      };
+    },
+    [],
+  );
+
+  const artifact = binding?.artifact ?? null;
   const value = useMemo<ArtifactContextStore>(
-    () => ({ artifact, setArtifact }),
-    [artifact],
+    () => ({ artifact, registerArtifact }),
+    [artifact, registerArtifact],
   );
   return (
     <ArtifactContext.Provider value={value}>
@@ -79,18 +95,23 @@ export function useArtifactContext(): ArtifactContextValue | null {
  * useBindArtifact({ kind: "insight", id, title: insight.name });
  */
 export function useBindArtifact(artifact: ArtifactContextValue | null): void {
-  const set = useContext(ArtifactContext)?.setArtifact;
-  // Serialize the binding so the effect re-runs only on a real change, not on
-  // every render that produces a fresh object literal.
-  const key = artifact
-    ? `${artifact.kind}:${artifact.id}:${artifact.title}:${artifact.subtitle ?? ""}`
-    : "";
+  const registerArtifact = useContext(ArtifactContext)?.registerArtifact;
+  const kind = artifact?.kind;
+  const id = artifact?.id;
+  const title = artifact?.title;
+  const subtitle = artifact?.subtitle;
+  // Each artifact field is a separate dependency, avoiding delimiter aliases
+  // while still ignoring fresh object literals with unchanged contents.
+  const binding = useMemo(
+    () =>
+      kind && id !== undefined && title !== undefined
+        ? { kind, id, title, ...(subtitle === undefined ? {} : { subtitle }) }
+        : null,
+    [id, kind, subtitle, title],
+  );
+
   useEffect(() => {
-    if (!set) return;
-    set(artifact);
-    return () => set(null);
-    // `key` captures every field of `artifact`; depending on the object would
-    // thrash on each render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [set, key]);
+    if (!registerArtifact) return;
+    return registerArtifact(binding);
+  }, [binding, registerArtifact]);
 }
