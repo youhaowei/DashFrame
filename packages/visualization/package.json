@@ -16,6 +16,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@dashframe/engine": "workspace:*",
     "@dashframe/types": "workspace:*",
     "@dashframe/ui": "workspace:*",
     "@wystack/ui-core": "workspace:*",
