@@ -1,4 +1,4 @@
-import type { DataTable, Field, UUID } from "@dashframe/types";
+import type { DataTable, Field, Metric, UUID } from "@dashframe/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
@@ -45,6 +45,7 @@ const existingField: Field = {
   id: EXISTING_FIELD_ID,
   name: "amount",
   tableId: TABLE_ID,
+  columnName: "amount",
   type: "number",
   sensitivity: "cleared",
   sensitivityReason: "Cleared by you",
@@ -56,12 +57,14 @@ const parsedFields: Field[] = [
     id: NEW_FIELD_ID,
     name: "amount",
     tableId: TABLE_ID,
+    columnName: "amount",
     type: "string",
   },
   {
     id: "new-column-id" as UUID,
     name: "created_at",
     tableId: TABLE_ID,
+    columnName: "created_at",
     type: "date",
   },
 ];
@@ -85,6 +88,25 @@ const parsedResult = {
   columnCount: 2,
 };
 
+const replacementHandlers = [
+  {
+    name: "handleLocalCSVUpload",
+    replace: async (result = parsedResult) => {
+      mockCsvToDataFrame.mockResolvedValue(result);
+      return handleLocalCSVUpload(new File([], "orders.csv"), [], {
+        overrideTableId: TABLE_ID,
+      });
+    },
+  },
+  {
+    name: "handleFileConnectorResult",
+    replace: (result = parsedResult) =>
+      handleFileConnectorResult("orders.csv", result as never, {
+        overrideTableId: TABLE_ID,
+      }),
+  },
+];
+
 describe("file table replacement", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -95,24 +117,9 @@ describe("file table replacement", () => {
     mockCsvToDataFrame.mockResolvedValue(parsedResult);
   });
 
-  it.each([
-    [
-      "handleLocalCSVUpload",
-      () =>
-        handleLocalCSVUpload(new File([], "orders.csv"), [], {
-          overrideTableId: TABLE_ID,
-        }),
-    ],
-    [
-      "handleFileConnectorResult",
-      () =>
-        handleFileConnectorResult("orders.csv", parsedResult as never, {
-          overrideTableId: TABLE_ID,
-        }),
-    ],
-  ])(
-    "%s retains matching field identities and sensitivity marks",
-    async (_name, replace) => {
+  it.each(replacementHandlers)(
+    "$name retains matching field identities but resets cleared sensitivity",
+    async ({ replace }) => {
       await replace();
 
       expect(mockUpdateDataTable).toHaveBeenNthCalledWith(1, TABLE_ID, {
@@ -123,9 +130,9 @@ describe("file table replacement", () => {
           {
             ...parsedFields[0],
             id: EXISTING_FIELD_ID,
-            sensitivity: "cleared",
-            sensitivityReason: "Cleared by you",
-            sensitivitySource: "user",
+            sensitivity: "unclassified",
+            sensitivityReason: undefined,
+            sensitivitySource: undefined,
           },
           parsedFields[1],
         ],
@@ -133,4 +140,141 @@ describe("file table replacement", () => {
       });
     },
   );
+
+  it.each(replacementHandlers)(
+    "$name retains confirmed-sensitive fields across replacement",
+    async ({ replace }) => {
+      mockGetDataTable.mockResolvedValue({
+        ...existingTable,
+        fields: [
+          {
+            ...existingField,
+            sensitivity: "sensitive",
+            sensitivityReason: "Contains payment data",
+            sensitivitySource: "classifier",
+          },
+        ],
+      });
+
+      await replace();
+
+      expect(mockUpdateDataTable).toHaveBeenNthCalledWith(
+        1,
+        TABLE_ID,
+        expect.objectContaining({
+          fields: [
+            {
+              ...parsedFields[0],
+              id: EXISTING_FIELD_ID,
+              sensitivity: "sensitive",
+              sensitivityReason: "Contains payment data",
+              sensitivitySource: "classifier",
+            },
+            parsedFields[1],
+          ],
+        }),
+      );
+    },
+  );
+
+  it.each(replacementHandlers)(
+    "$name drops metrics for removed columns but keeps Count",
+    async ({ replace }) => {
+      const countMetric: Metric = {
+        id: "count-metric-id" as UUID,
+        name: "Count",
+        tableId: TABLE_ID,
+        aggregation: "count",
+      };
+      const amountMetric: Metric = {
+        id: "amount-metric-id" as UUID,
+        name: "Sum of amount",
+        tableId: TABLE_ID,
+        columnName: "amount",
+        aggregation: "sum",
+      };
+      mockGetDataTable.mockResolvedValue({
+        ...existingTable,
+        metrics: [amountMetric, countMetric],
+      });
+      const resultWithoutAmount = {
+        ...parsedResult,
+        fields: [parsedFields[1]],
+        columnCount: 1,
+      };
+
+      await replace(resultWithoutAmount);
+
+      expect(mockUpdateDataTable).toHaveBeenNthCalledWith(
+        1,
+        TABLE_ID,
+        expect.objectContaining({
+          fields: [parsedFields[1]],
+          metrics: [countMetric],
+        }),
+      );
+    },
+  );
+
+  it("matches user-renamed fields by source column name", async () => {
+    mockGetDataTable.mockResolvedValue({
+      ...existingTable,
+      fields: [{ ...existingField, name: "Revenue" }],
+    });
+
+    await replacementHandlers[0].replace();
+
+    expect(mockUpdateDataTable).toHaveBeenNthCalledWith(
+      1,
+      TABLE_ID,
+      expect.objectContaining({
+        fields: [
+          {
+            ...parsedFields[0],
+            id: EXISTING_FIELD_ID,
+            sensitivity: "unclassified",
+            sensitivityReason: undefined,
+            sensitivitySource: undefined,
+          },
+          parsedFields[1],
+        ],
+      }),
+    );
+  });
+
+  it("does not reuse an id when a source column name is ambiguous", async () => {
+    const duplicateParsedFields: Field[] = [
+      parsedFields[0],
+      {
+        ...parsedFields[0],
+        id: "second-new-field-id" as UUID,
+        name: "duplicate_amount",
+      },
+    ];
+    mockGetDataTable.mockResolvedValue({
+      ...existingTable,
+      fields: [
+        existingField,
+        {
+          ...existingField,
+          id: "second-existing-field-id" as UUID,
+          name: "duplicate_amount",
+        },
+      ],
+    });
+
+    await replacementHandlers[0].replace({
+      ...parsedResult,
+      fields: duplicateParsedFields,
+      columnCount: 2,
+    });
+
+    const [{ fields }] = mockUpdateDataTable.mock.calls[0].slice(1) as [
+      { fields: Field[] },
+    ];
+    expect(fields).toEqual(duplicateParsedFields);
+    expect(new Set(fields.map((field) => field.id))).toHaveLength(
+      fields.length,
+    );
+  });
 });

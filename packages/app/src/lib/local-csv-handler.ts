@@ -44,29 +44,87 @@ const ensureCountMetric = (
   return [makeDefaultCountMetric(tableId), ...existing];
 };
 
+const retainReplacementMetrics = (
+  metrics: Metric[],
+  fields: Field[],
+): Metric[] => {
+  const columnNames = new Set(
+    fields.flatMap((field) =>
+      field.columnName === undefined ? [] : [field.columnName],
+    ),
+  );
+
+  return metrics.filter(
+    (metric) =>
+      (metric.aggregation === "count" && !metric.columnName) ||
+      (metric.columnName !== undefined && columnNames.has(metric.columnName)),
+  );
+};
+
 /**
- * Keep stable field identities and their user-reviewed sensitivity marks when
- * a file-backed table is replaced. Parsed fields provide the current schema;
- * a column with the same persisted display name retains its existing identity.
+ * Keep stable field identities and confirmed-sensitive marks when a file-backed
+ * table is replaced. Parsed fields provide the current schema; a column with
+ * the same source column name retains its existing identity.
  */
 const mergeReplacementFields = (
   fields: Field[],
   existingFields: Field[] = [],
 ): Field[] => {
-  const existingFieldsByName = new Map(
-    existingFields.map((field) => [field.name, field]),
-  );
+  const existingFieldsByColumnName = new Map<string, Field[]>();
+  const newFieldCountsByColumnName = new Map<string, number>();
+
+  for (const existingField of existingFields) {
+    if (existingField.columnName === undefined) continue;
+    const matchingFields = existingFieldsByColumnName.get(
+      existingField.columnName,
+    );
+    existingFieldsByColumnName.set(existingField.columnName, [
+      ...(matchingFields ?? []),
+      existingField,
+    ]);
+  }
+
+  for (const field of fields) {
+    if (field.columnName === undefined) continue;
+    newFieldCountsByColumnName.set(
+      field.columnName,
+      (newFieldCountsByColumnName.get(field.columnName) ?? 0) + 1,
+    );
+  }
 
   return fields.map((field) => {
-    const existingField = existingFieldsByName.get(field.name);
-    if (!existingField) return field;
+    if (
+      field.columnName === undefined ||
+      newFieldCountsByColumnName.get(field.columnName) !== 1
+    ) {
+      return field;
+    }
+
+    const matchingExistingFields = existingFieldsByColumnName.get(
+      field.columnName,
+    );
+    const existingField = matchingExistingFields?.[0];
+    if (!existingField || matchingExistingFields.length !== 1) return field;
+    if (existingField.sensitivity === "sensitive") {
+      return {
+        ...field,
+        id: existingField.id,
+        sensitivity: existingField.sensitivity,
+        sensitivityReason: existingField.sensitivityReason,
+        sensitivitySource: existingField.sensitivitySource,
+      };
+    }
 
     return {
       ...field,
       id: existingField.id,
-      sensitivity: existingField.sensitivity,
-      sensitivityReason: existingField.sensitivityReason,
-      sensitivitySource: existingField.sensitivitySource,
+      ...(existingField.sensitivity === "cleared"
+        ? {
+            sensitivity: "unclassified" as const,
+            sensitivityReason: undefined,
+            sensitivitySource: undefined,
+          }
+        : {}),
     };
   });
 };
@@ -117,10 +175,13 @@ export async function handleLocalCSVUpload(
 
   if (overrideTable) {
     // 3a. Override existing table instead of creating a new one
-    const metrics = ensureCountMetric(overrideTable.metrics, dataTableId);
     const replacementFields = mergeReplacementFields(
       fields,
       overrideTable.fields,
+    );
+    const metrics = retainReplacementMetrics(
+      ensureCountMetric(overrideTable.metrics, dataTableId),
+      replacementFields,
     );
 
     await updateDataTable(dataTableId, {
@@ -224,10 +285,13 @@ export async function handleFileConnectorResult(
 
   if (overrideTable) {
     // Override existing table
-    const metrics = ensureCountMetric(overrideTable.metrics, dataTableId);
     const replacementFields = mergeReplacementFields(
       fields,
       overrideTable.fields,
+    );
+    const metrics = retainReplacementMetrics(
+      ensureCountMetric(overrideTable.metrics, dataTableId),
+      replacementFields,
     );
 
     await updateDataTable(dataTableId, {

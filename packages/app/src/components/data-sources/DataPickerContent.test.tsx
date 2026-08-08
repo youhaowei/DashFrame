@@ -30,6 +30,7 @@ const {
     dataSources: [] as DataSource[],
     dataTables: [] as DataTable[],
     dataSourcesQueryState: {} as { isLoading?: boolean; isError?: boolean },
+    dataTablesQueryState: {} as { isLoading?: boolean; isError?: boolean },
   },
 }));
 
@@ -47,7 +48,10 @@ vi.mock("@wystack/client", async (importOriginal) => {
             ...queryData.dataSourcesQueryState,
           };
         case "listDataTables":
-          return { data: queryData.dataTables };
+          return {
+            data: queryData.dataTables,
+            ...queryData.dataTablesQueryState,
+          };
         case "listInsights":
         case "listDataFrames":
           return { data: [] };
@@ -96,6 +100,7 @@ vi.mock("@wystack/ui-react/icons", async (importOriginal) => {
 
 import { ConfirmDialog } from "../confirm-dialog";
 import { DataPickerContent } from "./DataPickerContent";
+import { DataPickerModal } from "./DataPickerModal";
 
 const FILE_SOURCE_ID = "file-source-id" as UUID;
 const REMOTE_SOURCE_ID = "remote-source-id" as UUID;
@@ -166,6 +171,7 @@ describe("DataPickerContent file replacement", () => {
     queryData.dataSources = [];
     queryData.dataTables = [];
     queryData.dataSourcesQueryState = {};
+    queryData.dataTablesQueryState = {};
     mockGetConnectorById.mockImplementation((id: string) => {
       if (id === "local") return { name: "CSV upload", sourceType: "file" };
       if (id === "notion") return { name: "Notion", sourceType: "remote-api" };
@@ -180,7 +186,9 @@ describe("DataPickerContent file replacement", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
-    useConfirmDialogStore.setState({ isOpen: false, config: null });
+    act(() => {
+      useConfirmDialogStore.setState({ isOpen: false, config: null });
+    });
   });
 
   it("creates a new table rather than offering to replace a same-named remote table", async () => {
@@ -232,6 +240,18 @@ describe("DataPickerContent file replacement", () => {
 
   it("waits for data sources before allowing an upload", async () => {
     queryData.dataSourcesQueryState = { isLoading: true };
+
+    render(<DataPickerContent onTableSelect={vi.fn()} />);
+    uploadSalesCsv();
+
+    await waitFor(() => {
+      expect(mockParse).not.toHaveBeenCalled();
+    });
+    expect(mockHandleFileConnectorResult).not.toHaveBeenCalled();
+  });
+
+  it("waits for data tables before allowing an upload", async () => {
+    queryData.dataTablesQueryState = { isLoading: true };
 
     render(<DataPickerContent onTableSelect={vi.fn()} />);
     uploadSalesCsv();
@@ -335,7 +355,10 @@ describe("DataPickerContent file replacement", () => {
         <ConfirmDialog />
       </>,
     );
-    uploadSalesCsv();
+    await act(async () => {
+      handleFileSelect?.(fileConnector, new File(["amount\n10"], "sales.csv"));
+      await Promise.resolve();
+    });
 
     const dialog = await screen.findByRole("dialog");
     expect(dialog.textContent).toContain(
@@ -351,6 +374,47 @@ describe("DataPickerContent file replacement", () => {
     expect(confirmButton.className).toContain("bg-palette-danger");
     await act(async () => {
       fireEvent.click(confirmButton);
+    });
+
+    await waitFor(() => {
+      expect(mockParse).toHaveBeenCalledWith(expect.any(File), FILE_TABLE_ID);
+    });
+    expect(mockHandleFileConnectorResult).toHaveBeenCalledWith(
+      "sales.csv",
+      PARSE_RESULT,
+      { overrideTableId: FILE_TABLE_ID },
+    );
+  });
+
+  it("replaces through the nested confirm dialog in the real picker modal", async () => {
+    queryData.dataSources = [
+      makeSource(FILE_SOURCE_ID, "Quarterly CSV uploads", "local"),
+    ];
+    queryData.dataTables = [makeTable(FILE_TABLE_ID, FILE_SOURCE_ID, "sales")];
+
+    render(
+      <>
+        <DataPickerModal
+          isOpen
+          onClose={vi.fn()}
+          title="Create Visualization"
+          onTableSelect={vi.fn()}
+        />
+        <ConfirmDialog />
+      </>,
+    );
+    uploadSalesCsv();
+
+    const confirmDialog = await screen.findByRole("dialog", {
+      name: 'Replace table "sales" from "Quarterly CSV uploads"?',
+    });
+    expect(screen.getAllByRole("dialog", { hidden: true })).toHaveLength(2);
+    expect(confirmDialog.textContent).toContain(
+      "Renamed or removed columns can break Insights that reference them.",
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Replace table" }));
     });
 
     await waitFor(() => {

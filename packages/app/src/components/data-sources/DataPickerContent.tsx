@@ -136,9 +136,9 @@ export function DataPickerContent({
   const dataSourcesQuery = useQuery(api.listDataSources);
   const { data: dataSources = [], isLoading: isLoadingDataSources } =
     dataSourcesQuery;
-  const { data: allDataTables = [] } = useQuery(api.listDataTables, {
-    args: {},
-  });
+  const dataTablesQuery = useQuery(api.listDataTables, { args: {} });
+  const { data: allDataTables = [], isLoading: isLoadingDataTables } =
+    dataTablesQuery;
   const { data: allInsights = [] } = useQuery(api.listInsights, { args: {} });
   const { data: dataFrames = [] } = useQuery(api.listDataFrames);
   const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
@@ -292,6 +292,14 @@ export function DataPickerContent({
         setError("Data sources could not be loaded — try again in a moment.");
         return;
       }
+      if (isLoadingDataTables) {
+        setError("Data tables are still loading — try again in a moment.");
+        return;
+      }
+      if (dataTablesQuery.isError) {
+        setError("Data tables could not be loaded — try again in a moment.");
+        return;
+      }
       try {
         if (
           connector.maxSizeMB &&
@@ -360,7 +368,9 @@ export function DataPickerContent({
       onTableSelect,
       allDataTables,
       dataSources,
+      dataTablesQuery.isError,
       dataSourcesQuery.isError,
+      isLoadingDataTables,
       isLoadingDataSources,
       confirm,
       excludeTableIds,
