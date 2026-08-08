@@ -198,12 +198,25 @@ export async function storeCredential(
  * Translate the vault registry's "no backend for class X" throw into an
  * operator-legible one.
  *
- * `dashframe serve` composes a vault that is scoped to `serve-token` only —
- * `connector-key` and `assistant-provider` deliberately have no backend there,
- * because their refs travel with the copiable project DB and must not land in a
- * host-local store. Without this, an operator trying to save a data-source
- * credential on serve gets a registry-internal message naming a class name they
- * have never heard of, which reads like a bug rather than the boundary it is.
+ * Wraps both credential-class writers that can hit an unregistered class on
+ * `dashframe serve`: `storeCredential` (`connector-key`) and
+ * `storeAssistantCredential` (`assistant-provider`). `dashframe serve` now
+ * composes a vault with backends for `serve-token` and `connector-key` —
+ * only `assistant-provider` has no backend there today, because its refs
+ * travel with the copiable project DB and must not land in a host-local
+ * store — but the message below stays class-agnostic rather than naming
+ * that gap by name, since either writer can hit this path and which class is
+ * unregistered is a composition-time fact, not one this function should
+ * assume. Without this translation, an operator hitting the gap gets a
+ * registry-internal message naming a class they have never heard of, which
+ * reads like a bug rather than the boundary it is.
+ *
+ * The message does name a host, deliberately: `serve` is the only composition
+ * that leaves a class unbacked, so naming it buys the operator an actionable
+ * direction ("use the desktop app") that a host-agnostic wording would lose.
+ * Desktop registers a backend for all three classes (apps/desktop/src/main.ts's
+ * secret-services setup), so this branch is unreachable there. If a host ever
+ * ships with a partial registry, this message has to stop naming `serve`.
  *
  * Matched on the registry's message text because it does not export a typed
  * error; the fallback re-throws untouched, so a miss degrades to today's
@@ -218,8 +231,8 @@ export async function withClassBoundaryMessage<T>(
     const message = error instanceof Error ? error.message : "";
     if (!/No backend configured for class/i.test(message)) throw error;
     throw new Error(
-      "dashframe serve stores only access credentials; data-source and " +
-        "assistant credentials require the desktop app.",
+      "dashframe serve cannot store this type of credential — it requires " +
+        "the desktop app.",
       { cause: error },
     );
   }

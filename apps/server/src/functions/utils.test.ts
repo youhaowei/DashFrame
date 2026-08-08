@@ -18,27 +18,56 @@ import { describe, expect, it } from "vitest";
 
 import { storeCredential, withClassBoundaryMessage } from "./utils";
 
-/** A vault shaped exactly like the one `dashframe serve` composes. */
+/**
+ * A vault shaped exactly like the one `dashframe serve` composes today:
+ * `serve-token` and `connector-key` both have a backend, `assistant-provider`
+ * deliberately does not (apps/server/src/index.ts's
+ * createStandaloneSecretServices). `assistant-provider` is the one class this
+ * test suite can still exercise the class-boundary translation with.
+ */
 function serveScopedVault(): SecretVault {
   const registry = new SecretRegistry();
   registry.register("test", new TestBackend());
   registry.setClassDefault(CREDENTIAL_CLASS.ServeToken, "test");
+  registry.setClassDefault(CREDENTIAL_CLASS.ConnectorKey, "test");
+  return new SecretVault(registry, new InMemoryMappingStore());
+}
+
+/** A vault with no backend registered for any class, `connector-key` included. */
+function unbackedVault(): SecretVault {
+  const registry = new SecretRegistry();
   return new SecretVault(registry, new InMemoryMappingStore());
 }
 
 describe("withClassBoundaryMessage", () => {
   it("translates the registry's class-boundary throw for a serve-scoped vault", async () => {
     await expect(
-      storeCredential(serveScopedVault(), "pretend-credential", "hint"),
-    ).rejects.toThrow(/require the desktop app/);
+      withClassBoundaryMessage(() =>
+        serveScopedVault().store("pretend-credential", {
+          class: CREDENTIAL_CLASS.AssistantProvider,
+          locatorHint: "hint",
+        }),
+      ),
+    ).rejects.toThrow(/requires the desktop app/);
   });
 
-  it("keeps the registry throw as the cause", async () => {
+  it("succeeds storing a connector-key credential on a serve-scoped vault (has a backend)", async () => {
+    await expect(
+      storeCredential(serveScopedVault(), "pretend-credential", "hint"),
+    ).resolves.toEqual(expect.any(String));
+  });
+
+  // Asserts the translated message on `storeCredential`'s own path, not just
+  // on `withClassBoundaryMessage` in isolation. A change that stopped
+  // `storeCredential` routing through the wrapper would leak the registry's
+  // internal wording to operators while every other test here still passed.
+  it("translates on storeCredential's real path, and keeps the registry throw as the cause", async () => {
     const error = await storeCredential(
-      serveScopedVault(),
+      unbackedVault(),
       "pretend-credential",
       "hint",
     ).catch((thrown: unknown) => thrown);
+    expect((error as Error).message).toMatch(/requires the desktop app/);
     expect((error as Error).cause).toBeInstanceOf(Error);
     expect(((error as Error).cause as Error).message).toMatch(
       /No backend configured for class/,
