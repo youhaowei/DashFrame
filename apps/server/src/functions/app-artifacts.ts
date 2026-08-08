@@ -40,6 +40,7 @@ import {
   decodeInsight,
   decodeStoredInsightDefinition,
   encodeInsightDefinition,
+  ensureInsightFilterIds,
   storedInsightDefinitionSchema,
   toInsight,
   type InsightDefinition,
@@ -860,6 +861,9 @@ const updateInsight = wy.procedure
           definition: storedInsightDefinitionSchema.parse({
             ...stored,
             ...patch,
+            ...(patch.filters !== undefined
+              ? { filters: ensureInsightFilterIds(patch.filters) }
+              : {}),
             // Pinned from the stored blob, never the patch. `source` is a valid
             // schema key, so an untyped `updates` carrying one would otherwise
             // win the spread and write a composition edge that never passed
