@@ -508,10 +508,22 @@ export async function setupColorDomain(
     // values, so a string domain would not match a numeric color column and the
     // palette mapping would silently fall through. BigInt (DuckDB's integer
     // JSON representation) is narrowed to number for the same reason.
-    const domain = result.map((row) => {
+    //
+    // Past Number.MAX_SAFE_INTEGER that narrowing is lossy, and distinct
+    // categories can collapse onto one another — an explicit domain that is
+    // silently wrong. Bail out instead and let vgplot pick its own palette: a
+    // missing ordering is recoverable, a wrong colour-to-value mapping is not.
+    const domain: unknown[] = [];
+    for (const row of result) {
       const value = (row as { val: unknown }).val;
-      return typeof value === "bigint" ? Number(value) : value;
-    });
+      if (typeof value !== "bigint") {
+        domain.push(value);
+        continue;
+      }
+      const narrowed = Number(value);
+      if (!Number.isSafeInteger(narrowed)) return undefined;
+      domain.push(narrowed);
+    }
 
     if (domain.length === 0) return undefined;
 

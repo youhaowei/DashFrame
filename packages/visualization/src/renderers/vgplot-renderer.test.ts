@@ -209,6 +209,24 @@ describe("setupColorDomain", () => {
     expect(colorDomain).toHaveBeenCalledWith([1, 2]);
   });
 
+  it("skips the domain when a bigint value cannot be narrowed without loss", async () => {
+    const colorDomain = vi.fn((domain: unknown[]) => ({
+      __directive: "colorDomain",
+      domain,
+    }));
+    // Two distinct ids that both narrow to 2 ** 53 — an explicit domain built
+    // from them would map two categories onto one colour.
+    const query = vi.fn(() =>
+      Promise.resolve([{ val: 9007199254740993n }, { val: 9007199254740995n }]),
+    );
+    const api = createMockApi({ query, colorDomain });
+
+    const directive = await setupColorDomain(api, "tier", "sales");
+
+    expect(colorDomain).not.toHaveBeenCalled();
+    expect(directive).toBeUndefined();
+  });
+
   it("skips the domain query for metric/expression-bound color (no query, no throw)", async () => {
     const query = vi.fn(() => Promise.resolve([]));
     const colorDomain = vi.fn();
