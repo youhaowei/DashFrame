@@ -102,6 +102,35 @@ init_unpopulated_submodules() {
   done
 }
 
+# install_dependencies <worktree_path>
+# A fresh worktree has no node_modules at all: `git worktree add` copies
+# tracked files only, and nothing else in this script installs. Every agent
+# that then tries to run the app or the test suite hits a different symptom of
+# the same cause — a missing Electron binary, an unresolvable `@wystack/*`
+# import, `vitest: command not found` — and has to rediscover that the answer
+# is `bun install`. Doing it here makes the printed path mean "ready to work
+# in", which is what every caller already assumes it means.
+#
+# Idempotent and near-free when the worktree is already installed, so this
+# also heals the reuse path. A failure is fatal: handing back a path whose
+# dependencies are missing is the exact situation this exists to prevent.
+install_dependencies() {
+  _idep_wt="$1"
+
+  if ! command -v bun >/dev/null 2>&1; then
+    echo "ERROR [ensure-worktree]: 'bun' is not on PATH; cannot install dependencies in '$_idep_wt'." >&2
+    echo "  Install bun (see AGENTS.md) and re-run; this script is safe to re-run on an existing worktree." >&2
+    exit 1
+  fi
+
+  echo "[ensure-worktree] installing dependencies (bun install)..." >&2
+  if ! (cd "$_idep_wt" && bun install --frozen-lockfile >&2); then
+    echo "ERROR [ensure-worktree]: 'bun install' failed in '$_idep_wt'." >&2
+    echo "  Resolve the install error and re-run; this script retries on an existing worktree." >&2
+    exit 1
+  fi
+}
+
 # assert_submodule_pins_pushed <rev>
 # Refuse to provision a worktree whose submodule pins point at commits no
 # submodule remote has.
@@ -251,6 +280,7 @@ if [ "$git_dir" != "$git_common_dir" ]; then
   # Print the worktree root for the caller to cd into (in case they're in a subdir).
   _wt_top=$(git rev-parse --show-toplevel)
   init_unpopulated_submodules "$_wt_top"
+  install_dependencies "$_wt_top"
   echo "$_wt_top"
   exit 0
 fi
@@ -307,6 +337,7 @@ if [ -d "$worktree_path" ]; then
   # early-return path for a caller already inside a worktree is unguarded for
   # the same reason.
   init_unpopulated_submodules "$worktree_path"
+  install_dependencies "$worktree_path"
   echo "$worktree_path"
   exit 0
 fi
@@ -399,5 +430,6 @@ fi
 assert_main_checkout_unchanged "$repo_root" "$main_head_before" "$main_branch_before"
 
 init_unpopulated_submodules "$worktree_path"
+install_dependencies "$worktree_path"
 
 echo "$worktree_path"
