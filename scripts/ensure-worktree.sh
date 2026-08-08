@@ -13,8 +13,12 @@
 #     caller must cd into that path.  The main checkout's HEAD and current
 #     branch are never switched — verified by an assertion before this
 #     script hands back control.
-#   - Hard-fails (exit 1) if anything goes wrong — this is fail-closed by
-#     design so that a briefed agent cannot silently proceed in main.
+#   - Hard-fails (exit 1) on any provisioning or validation failure — this is
+#     fail-closed by design so that a briefed agent cannot silently proceed in
+#     main.  The one deliberate exception is the dependency refresh on an
+#     ALREADY-EXISTING worktree: that warns and still prints the path, because
+#     withholding the path from a worktree that already holds the agent's work
+#     strands it.  See install_dependencies.
 #
 # ENV:
 #   WORKTREE_BASE  Override the base directory (default: ~/worktrees/<project>)
