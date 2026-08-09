@@ -240,6 +240,17 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
       return c.json({ error: "Unauthorized" }, 401);
     }
 
+    // A tokenless loopback server still needs a browser-origin boundary. CORS
+    // prevents a hostile page from reading a response, but a safelisted
+    // `text/plain` request can be sent without preflight and would execute SQL
+    // before the browser blocks that response. Requiring JSON forces a
+    // cross-origin browser to preflight, where the server's CORS policy can
+    // reject the origin before this handler executes.
+    const contentType = c.req.header("content-type")?.split(";", 1)[0]?.trim();
+    if (contentType?.toLowerCase() !== "application/json") {
+      return c.json({ error: "Content-Type must be application/json" }, 415);
+    }
+
     let body: RequestBody;
     try {
       body = (await c.req.json()) as RequestBody;

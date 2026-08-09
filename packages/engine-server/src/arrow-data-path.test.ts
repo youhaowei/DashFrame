@@ -69,6 +69,18 @@ describe("Arrow data path — auth + IPC roundtrip (Stage 5)", () => {
     expect(engine.calls).toHaveLength(0);
   });
 
+  it("rejects a tokenless text/plain query before SQL execution", async () => {
+    const engine = fakeEngine();
+    const app = createArrowDataPath({ engine });
+    const res = await app.request("/arrow", {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: JSON.stringify({ sql: "SELECT 1" }),
+    });
+    expect(res.status).toBe(415);
+    expect(engine.calls).toHaveLength(0);
+  });
+
   it("threads params to the engine so parameterized queries are not silently dropped", async () => {
     const engine = fakeEngine();
     const app = createArrowDataPath({ engine, authToken: TOKEN });
