@@ -105,7 +105,10 @@ function remapAnalysisColumnNames(
   });
 }
 
-import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
+import {
+  useConfirmDialogStore,
+  type ConfirmDialogConfig,
+} from "@/lib/stores/confirm-dialog-store";
 import type { ChartEncoding } from "@dashframe/types";
 import { fieldEncoding, metricEncoding } from "@dashframe/types";
 import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
@@ -114,6 +117,27 @@ import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
 interface AnalysisContext {
   duckDBConnection: AsyncDuckDBConnection;
   updateAnalysis: (id: UUID, analysis: DataFrameAnalysis) => Promise<void>;
+}
+
+export function requestSavedVisualizationDeletion(
+  confirm: (config: ConfirmDialogConfig) => void,
+  removeVisualization: (args: { id: string }) => Promise<unknown>,
+  vizId: string,
+  name: string,
+): void {
+  confirm({
+    title: "Delete visualization",
+    description: `Are you sure you want to delete "${name}"? This deletes only this visualization. Dashboard items that reference it may remain and stop working. This action cannot be undone.`,
+    confirmLabel: "Delete",
+    variant: "destructive",
+    onConfirm: async () => {
+      try {
+        await removeVisualization({ id: vizId });
+      } catch {
+        toast.error("Couldn't delete the visualization");
+      }
+    },
+  });
 }
 
 /**
@@ -1491,15 +1515,12 @@ export function InsightView({
   // Handle deleting a visualization
   const handleDeleteVisualization = useCallback(
     (vizId: string, name: string) => {
-      confirm({
-        title: "Delete visualization",
-        description: `Are you sure you want to delete "${name}"? This action cannot be undone.`,
-        confirmLabel: "Delete",
-        variant: "destructive",
-        onConfirm: async () => {
-          await removeVisualizationMutation({ id: vizId });
-        },
-      });
+      requestSavedVisualizationDeletion(
+        confirm,
+        removeVisualizationMutation,
+        vizId,
+        name,
+      );
     },
     [confirm, removeVisualizationMutation],
   );
