@@ -1,6 +1,6 @@
 import { render } from "@testing-library/react";
 import type { ComponentType } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   currentWidth: 1280,
@@ -58,6 +58,26 @@ describe("DashboardGrid editing availability", () => {
     mocks.currentWidth = 1280;
     mocks.onEditingAvailabilityChange.mockClear();
     mocks.updateItems.mockClear();
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      () => new DOMRect(0, 0, mocks.currentWidth, 0),
+    );
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("reports a first measurement matching WidthProvider's seed", () => {
+    render(
+      <DashboardGrid
+        dashboard={dashboard}
+        isEditable={false}
+        onEditingAvailabilityChange={mocks.onEditingAvailabilityChange}
+      />,
+    );
+
+    expect(mocks.onEditingAvailabilityChange).toHaveBeenCalledOnce();
+    expect(mocks.onEditingAvailabilityChange).toHaveBeenLastCalledWith(true);
   });
 
   it("tracks same-breakpoint width changes after the first measurement", () => {
@@ -68,7 +88,8 @@ describe("DashboardGrid editing availability", () => {
         onEditingAvailabilityChange={mocks.onEditingAvailabilityChange}
       />,
     );
-    expect(mocks.onEditingAvailabilityChange).not.toHaveBeenCalled();
+    expect(mocks.onEditingAvailabilityChange).toHaveBeenLastCalledWith(true);
+    expect(mocks.onEditingAvailabilityChange).toHaveBeenCalledTimes(1);
 
     mocks.currentWidth = 1000;
     view.rerender(
@@ -79,7 +100,7 @@ describe("DashboardGrid editing availability", () => {
       />,
     );
     expect(mocks.onEditingAvailabilityChange).toHaveBeenLastCalledWith(true);
-    expect(mocks.onEditingAvailabilityChange).toHaveBeenCalledTimes(1);
+    expect(mocks.onEditingAvailabilityChange).toHaveBeenCalledTimes(2);
 
     mocks.currentWidth = 960;
     view.rerender(

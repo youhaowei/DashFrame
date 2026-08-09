@@ -6,7 +6,14 @@ import type {
   InsightFilter,
 } from "@dashframe/types";
 import { useMutation } from "@wystack/client";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Responsive, WidthProvider, type Layout } from "react-grid-layout";
 import { toast } from "sonner";
 import { DashboardItem } from "./DashboardItem";
@@ -37,7 +44,7 @@ const DASHBOARD_GRID_COLUMNS = {
 interface DashboardGridProps {
   dashboard: Dashboard;
   isEditable: boolean;
-  /** Receives availability from the grid's own WidthProvider measurement. */
+  /** Receives availability after the grid container has been measured. */
   onEditingAvailabilityChange?: (isAvailable: boolean) => void;
   /**
    * View-local transient values for controls (from the viewer's session).
@@ -53,14 +60,14 @@ export function DashboardGrid({
   onEditingAvailabilityChange,
   controlTransientValues,
 }: DashboardGridProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
   // Destructure the stable `mutateAsync` — the `useMutation` result object is a
   // fresh reference every render, so depending on it would defeat the
   // `onLayoutChange` memoization. `mutateAsync` is referentially stable.
   const { mutateAsync: saveLayout } = useMutation(api.updateDashboardItems);
+  // Keep availability unknown until the container itself has been measured.
   // WidthProvider renders Responsive at its 1280px seed before its observer
   // measures the element, and Responsive does not call onWidthChange on mount.
-  // Do not expose that unmeasured seed as editing availability: every observed
-  // resize supplies the measured width RGL uses to choose its layout.
   const [isEditingAvailable, setIsEditingAvailable] = useState<boolean | null>(
     null,
   );
@@ -81,6 +88,16 @@ export function DashboardGrid({
     },
     [isEditingAvailable, onEditingAvailabilityChange],
   );
+
+  useLayoutEffect(() => {
+    const width = containerRef.current?.getBoundingClientRect().width ?? 0;
+    if (width > 0) {
+      setIsEditingAvailable(width > EDITABLE_GRID_BREAKPOINT);
+    }
+    // RGL's onWidthChange owns subsequent measurements. This direct first
+    // measurement covers the case where the real width equals WidthProvider's
+    // seed and RGL consequently emits no change event.
+  }, []);
 
   useEffect(() => {
     if (isEditingAvailable !== null) {
@@ -205,51 +222,53 @@ export function DashboardGrid({
   }, [dashboard.controls, dashboard.items, controlTransientValues]);
 
   return (
-    <ResponsiveGridLayout
-      className="layout"
-      layouts={layouts}
-      breakpoints={DASHBOARD_GRID_BREAKPOINTS}
-      cols={DASHBOARD_GRID_COLUMNS}
-      rowHeight={60}
-      isDraggable={isEditable && isEditingAvailable === true}
-      isResizable={isEditable && isEditingAvailable === true}
-      draggableHandle=".grid-drag-handle"
-      onWidthChange={handleWidthChange}
-      onDragStop={persistCanonicalLayout}
-      onResizeStop={persistCanonicalLayout}
-      margin={[16, 16]}
-      resizeHandle={
-        isEditable && isEditingAvailable === true ? (
-          <div className="absolute -right-2 -bottom-2 z-50 flex h-6 w-6 cursor-se-resize items-center justify-center text-neutral-fg-subtle/40 transition-colors hover:text-neutral-fg-subtle">
-            <svg
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path
-                d="M20 8C20 14.6274 14.6274 20 8 20"
-                stroke="currentColor"
-                strokeWidth="3"
-                strokeLinecap="round"
-              />
-            </svg>
+    <div ref={containerRef}>
+      <ResponsiveGridLayout
+        className="layout"
+        layouts={layouts}
+        breakpoints={DASHBOARD_GRID_BREAKPOINTS}
+        cols={DASHBOARD_GRID_COLUMNS}
+        rowHeight={60}
+        isDraggable={isEditable && isEditingAvailable === true}
+        isResizable={isEditable && isEditingAvailable === true}
+        draggableHandle=".grid-drag-handle"
+        onWidthChange={handleWidthChange}
+        onDragStop={persistCanonicalLayout}
+        onResizeStop={persistCanonicalLayout}
+        margin={[16, 16]}
+        resizeHandle={
+          isEditable && isEditingAvailable === true ? (
+            <div className="absolute -right-2 -bottom-2 z-50 flex h-6 w-6 cursor-se-resize items-center justify-center text-neutral-fg-subtle/40 transition-colors hover:text-neutral-fg-subtle">
+              <svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M20 8C20 14.6274 14.6274 20 8 20"
+                  stroke="currentColor"
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </div>
+          ) : undefined
+        }
+      >
+        {dashboard.items.map((item) => (
+          <div key={item.id}>
+            <DashboardItem
+              item={item}
+              dashboardId={dashboard.id}
+              isEditable={isEditable && isEditingAvailable === true}
+              effectiveOverrides={effectiveOverridesMap.get(item.id)}
+              controls={dashboard.controls ?? []}
+            />
           </div>
-        ) : undefined
-      }
-    >
-      {dashboard.items.map((item) => (
-        <div key={item.id}>
-          <DashboardItem
-            item={item}
-            dashboardId={dashboard.id}
-            isEditable={isEditable && isEditingAvailable === true}
-            effectiveOverrides={effectiveOverridesMap.get(item.id)}
-            controls={dashboard.controls ?? []}
-          />
-        </div>
-      ))}
-    </ResponsiveGridLayout>
+        ))}
+      </ResponsiveGridLayout>
+    </div>
   );
 }
