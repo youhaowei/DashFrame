@@ -160,7 +160,7 @@ describe("VisualizationPageContent delete confirmation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
 
     expect(useConfirmDialogStore.getState().config?.description).toBe(
-      'Are you sure you want to delete "Revenue by month"? This deletes only this visualization. This action cannot be undone.',
+      'Are you sure you want to delete "Revenue by month"? This deletes only this visualization. Dashboard items that reference it may remain and stop working. This action cannot be undone.',
     );
 
     act(() => useConfirmDialogStore.getState().handleCancel());

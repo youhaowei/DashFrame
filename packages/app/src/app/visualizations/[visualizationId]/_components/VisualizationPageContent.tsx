@@ -901,7 +901,7 @@ export default function VisualizationPageContent({
     if (!visualization) return;
     confirm({
       title: "Delete visualization",
-      description: `Are you sure you want to delete "${visualization.name}"? This deletes only this visualization. This action cannot be undone.`,
+      description: `Are you sure you want to delete "${visualization.name}"? This deletes only this visualization. Dashboard items that reference it may remain and stop working. This action cannot be undone.`,
       confirmLabel: "Delete",
       variant: "destructive",
       onConfirm: async () => {

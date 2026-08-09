@@ -59,7 +59,7 @@ describe("VisualizationsPage delete confirmation", () => {
     fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
 
     expect(useConfirmDialogStore.getState().config?.description).toBe(
-      'Are you sure you want to delete "Revenue by month"? This deletes only this visualization. This action cannot be undone.',
+      'Are you sure you want to delete "Revenue by month"? This deletes only this visualization. Dashboard items that reference it may remain and stop working. This action cannot be undone.',
     );
     useConfirmDialogStore.getState().handleCancel();
     expect(mockRemoveVisualization).not.toHaveBeenCalled();
