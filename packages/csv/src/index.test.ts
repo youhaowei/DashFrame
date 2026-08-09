@@ -33,6 +33,7 @@ async function withTimeZone<T>(
 
 describe("csvToDataFrame date-time import", () => {
   beforeEach(() => {
+    createDataFrame.mockReset();
     createDataFrame.mockResolvedValue({ id: "data-frame-id" });
   });
 
@@ -72,6 +73,7 @@ describe("csvToDataFrame date-time import", () => {
       "date",
     ]);
 
+    expect(createDataFrame).toHaveBeenCalledOnce();
     const [arrowBuffer] = createDataFrame.mock.calls[0] as [Uint8Array];
     const table = tableFromIPC(arrowBuffer);
 
@@ -96,6 +98,7 @@ describe("csvToDataFrame date-time import", () => {
         [["zoneless_t"], ["2024-07-18T23:45:00"]],
         "table-id",
       );
+      expect(createDataFrame).toHaveBeenCalledOnce();
       const [arrowBuffer] = createDataFrame.mock.calls[0] as [Uint8Array];
       return tableFromIPC(arrowBuffer).getChild("zoneless_t")?.get(0);
     });

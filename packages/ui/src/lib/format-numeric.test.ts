@@ -23,14 +23,19 @@ describe("formatNumeric", () => {
     expect(formatNumeric(100000000011)).toBe("100000000011");
   });
 
-  it("preserves genuine long-decimal precision within 10 sig-figs", () => {
-    // 1234.5678 has 8 sig-figs — well within 10, should round-trip exactly
+  it("preserves genuine long-decimal precision within 15 sig-figs", () => {
+    // 1234.5678 has 8 sig-figs — well within 15, should round-trip exactly
     expect(formatNumeric(1234.5678)).toBe("1234.5678");
   });
 
   it("does not over-truncate a legitimately precise value", () => {
-    // 10 sig-figs: 12345678.90 → stays as-is (trailing zero stripped by parseFloat)
+    // 10 sig-figs: 12345678.90 stays within the 15-digit display budget.
     expect(formatNumeric(12345678.9)).toBe("12345678.9");
+  });
+
+  it("preserves meaningful precision beyond 10 significant digits", () => {
+    expect(formatNumeric(1234567890.12)).toBe("1234567890.12");
+    expect(formatNumeric(0.123456789012345)).toBe("0.123456789012345");
   });
 
   it("handles negative floats with noise", () => {
@@ -39,8 +44,8 @@ describe("formatNumeric", () => {
   });
 
   it("handles AVG noise (fractional with many decimals)", () => {
-    // A representative AVG result with noise past the 10th sig-fig
-    expect(formatNumeric(12.333333333333334)).toBe("12.33333333");
+    // A representative AVG result with noise past the 15th sig-fig
+    expect(formatNumeric(12.333333333333334)).toBe("12.3333333333333");
   });
 
   it("passes through non-finite values as strings", () => {

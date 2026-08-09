@@ -6,17 +6,17 @@
  * This formatter strips that noise at the display boundary without
  * mutating the underlying value.
  *
- * Strategy: round to 10 significant digits via `toPrecision`, then
+ * Strategy: round to 15 significant digits via `toPrecision`, then
  * parse back to a number so JavaScript drops trailing zeros naturally
- * (`parseFloat("409.9500000000"`) → 409.95`). 10 sig-figs preserves
- * real precision for values like 1234.5678 while eliminating the
- * sub-ULP error that appears in the 15th–16th digit.
+ * (`parseFloat("409.950000000000"`) → 409.95`). 15 sig-figs preserves
+ * the meaningful precision of a JavaScript Number while eliminating
+ * ordinary binary floating-point noise in its final digits.
  *
  * Rules:
  * - Integers: returned as-is (no decimal point introduced).
  * - Already-clean decimals: unchanged (e.g. "409.95" stays "409.95").
- * - Very long but genuinely precise decimals: rounded to 10 sig-figs,
- *   which is the practical limit of DuckDB DOUBLE precision anyway.
+ * - Very long decimals: preserve up to 15 significant digits, the meaningful
+ *   decimal precision of a DuckDB DOUBLE represented as a JavaScript Number.
  * - Non-finite (Infinity, -Infinity, NaN): returned as String(n).
  */
 export function formatNumeric(n: number): string {
@@ -24,7 +24,7 @@ export function formatNumeric(n: number): string {
   // Integers are already exact — skip toPrecision so that values like
   // COUNT(*) = 12345678901 are never rounded to 12345678900.
   if (Number.isInteger(n)) return String(n);
-  // toPrecision(10) → "4.095000000e+2" style strings for large exponents;
+  // toPrecision(15) → "4.09500000000000e+2" style strings for large exponents;
   // parseFloat normalises them back to the plain decimal representation.
-  return String(parseFloat(n.toPrecision(10)));
+  return String(parseFloat(n.toPrecision(15)));
 }
