@@ -51,7 +51,7 @@ describe("DataFramesPage delete confirmation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete Sales data" }));
 
     expect(useConfirmDialogStore.getState().config?.description).toBe(
-      'Are you sure you want to delete "Sales data"? This action cannot be undone.',
+      'Are you sure you want to delete "Sales data"? Data tables that reference it may remain and stop working; dependent insights and visualizations may also stop working. This action cannot be undone.',
     );
     useConfirmDialogStore.getState().handleCancel();
     expect(mockRemoveDataFrame).not.toHaveBeenCalled();

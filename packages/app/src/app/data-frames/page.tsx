@@ -212,7 +212,7 @@ export default function DataFramesPage() {
   const handleDelete = (entry: DataFrameEntry) => {
     confirm({
       title: "Delete data frame",
-      description: `Are you sure you want to delete "${entry.name}"? This action cannot be undone.`,
+      description: `Are you sure you want to delete "${entry.name}"? Data tables that reference it may remain and stop working; dependent insights and visualizations may also stop working. This action cannot be undone.`,
       confirmLabel: "Delete",
       variant: "destructive",
       onConfirm: async () => {
