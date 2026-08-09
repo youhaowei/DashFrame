@@ -81,7 +81,7 @@ import {
 } from "./draft-controller";
 import { assertPublishLogHasNoLateBound } from "./draft-late-bound";
 import { functions } from "./functions";
-import { createMcpRoute } from "./mcp/route";
+import { createMcpRoute, type McpMode } from "./mcp/route";
 import {
   expectedPermissionIds,
   LOCAL_USER_ID,
@@ -157,6 +157,8 @@ export interface DashframeServerOptions {
   hostname?: string;
   /** Bind port. Default `0` — the OS assigns an ephemeral port. */
   port?: number;
+  /** MCP transport mode. Defaults to stateful for backward compatibility. */
+  mcpMode?: McpMode;
   /**
    * Allowed CORS origin(s) for the renderer. Defaults to local Vite/preview
    * origins (`localhost` / `127.0.0.1`) for dev and smoke verification.
@@ -1169,15 +1171,11 @@ export async function createDashframeServer(
     app: honoApp,
   });
   // The MCP transport needs headers and methods the rest of the surface does
-  // not. /mcp is stateless — it mints no session id and serves only POST — but
-  // an MCP client still probes GET and DELETE and sends the session,
-  // resumption and protocol-version headers on its own initiative. They stay
-  // allowed here so the browser lets those requests through to the route,
-  // which answers the two it does not serve with 405; blocking them at CORS
-  // would surface as an opaque network error instead. Scoped to /mcp rather
-  // than widening the general policy, and registered first so a preflight for
-  // /mcp is answered here and never reaches the policy below — one
-  // Access-Control-Allow-Origin on the response, not two.
+  // not. Stateful mode uses all of them; stateless mode still allows client
+  // probes through CORS so the route can answer unsupported methods with 405
+  // instead of an opaque browser network error. Scoped to /mcp rather than
+  // widening the general policy, and registered first so a preflight for /mcp
+  // is answered here and never reaches the policy below.
   honoApp.use(
     "/mcp",
     cors({
@@ -1239,7 +1237,10 @@ export async function createDashframeServer(
     }),
   );
 
-  honoApp.all("/mcp", createMcpRoute({ app, resolveContext }));
+  honoApp.all(
+    "/mcp",
+    createMcpRoute({ app, resolveContext, mode: opts.mcpMode }),
+  );
 
   // OAuth callback + resume are intentionally outside createRoutes: neither
   // browser request carries a bearer token. The callback reaches project writes

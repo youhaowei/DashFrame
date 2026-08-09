@@ -24,6 +24,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createDashframeServer, type DashframeServer } from "../app";
+import type { McpMode } from "./route";
 
 const USER_TOKEN = "mcp-test-user-token";
 
@@ -78,12 +79,17 @@ async function expectToolError(
 }
 
 describe("MCP route", () => {
-  let root: string;
-  let project: ProjectHandle | null;
-  let server: DashframeServer | null;
+  let root = "";
+  let project: ProjectHandle | null = null;
+  let server: DashframeServer | null = null;
   let serviceToken: string;
 
-  beforeEach(async () => {
+  async function start(mode: McpMode): Promise<void> {
+    server?.stop();
+    await project?.close();
+    server = null;
+    project = null;
+    if (root !== "") rmSync(root, { recursive: true, force: true });
     root = mkdtempSync(join(tmpdir(), "dashframe-mcp-"));
     project = await openProject({ dir: join(root, "project") });
     const { vault, accessCredentials } = makeVault(join(root, "credentials"));
@@ -92,6 +98,7 @@ describe("MCP route", () => {
       accessCredentials,
       vault,
       authToken: USER_TOKEN,
+      mcpMode: mode,
     });
 
     const issued = await fetch(`${server.url}/api/issueAccessCredential`, {
@@ -104,12 +111,19 @@ describe("MCP route", () => {
       data: { accessCredential: string };
     };
     serviceToken = payload.data.accessCredential;
+  }
+
+  beforeEach(async () => {
+    await start("stateless");
   });
 
   afterEach(async () => {
     server?.stop();
     await project?.close();
     rmSync(root, { recursive: true, force: true });
+    server = null;
+    project = null;
+    root = "";
   });
 
   async function connect(): Promise<{
@@ -634,6 +648,59 @@ describe("MCP route", () => {
     });
     expect(malformed.status).toBe(400);
     expect(await malformed.json()).toMatchObject({ error: { code: -32700 } });
+  });
+
+  it("preserves stateful sessions and their server-carried draft continuity", async () => {
+    await start("stateful");
+    const { client, transport } = await connect();
+    try {
+      expect(transport.sessionId).toEqual(expect.any(String));
+
+      const write = async (id: string, name: string) =>
+        client.callTool({
+          name: "draft_batch",
+          arguments: {
+            commands: [{ type: "CreateDashboard", args: { id, name } }],
+          },
+        });
+      const first = await write(crypto.randomUUID(), "Stateful first");
+      const second = await write(crypto.randomUUID(), "Stateful second");
+      const firstId = (first.structuredContent as { draftId: string }).draftId;
+      expect(second.structuredContent).toMatchObject({ draftId: firstId });
+
+      const read = await client.callTool({
+        name: "find_nodes",
+        arguments: { name: "Stateful" },
+      });
+      const names = (
+        read.structuredContent as { hits: Array<{ name: string }> }
+      ).hits
+        .map((hit) => hit.name)
+        .sort();
+      expect(names).toEqual(["Stateful first", "Stateful second"]);
+
+      const issued = await fetch(`${server!.url}/api/issueAccessCredential`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...bearer(USER_TOKEN) },
+        body: JSON.stringify({ name: "Other MCP integration" }),
+      });
+      const otherToken = (
+        (await issued.json()) as { data: { accessCredential: string } }
+      ).data.accessCredential;
+      const stolen = await fetch(`${server!.url}/mcp`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          "Mcp-Session-Id": transport.sessionId!,
+          ...bearer(otherToken),
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 4, method: "tools/list" }),
+      });
+      expect(stolen.status).toBe(403);
+    } finally {
+      await transport.close();
+    }
   });
 
   /**
