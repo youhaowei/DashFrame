@@ -655,6 +655,14 @@ describe("MCP route", () => {
     const { client, transport } = await connect();
     try {
       expect(transport.sessionId).toEqual(expect.any(String));
+      const listed = await client.listTools();
+      const readSchema = listed.tools.find((tool) => tool.name === "find_nodes")
+        ?.inputSchema as { properties?: Record<string, unknown> };
+      const writeSchema = listed.tools.find(
+        (tool) => tool.name === "draft_batch",
+      )?.inputSchema as { properties?: Record<string, unknown> };
+      expect(readSchema.properties).not.toHaveProperty("draftId");
+      expect(writeSchema.properties).not.toHaveProperty("draftId");
 
       const write = async (id: string, name: string) =>
         client.callTool({

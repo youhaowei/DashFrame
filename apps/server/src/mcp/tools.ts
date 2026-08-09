@@ -324,13 +324,18 @@ export function createMcpTools(
     label: "Draft batch",
     executionMode: "sequential",
     parameters: Type.Object({
-      draftId: Type.Optional(
-        Type.String({
-          description:
-            "Draft id returned by an earlier draft_batch call. Omit to open " +
-            "a new draft; a missing or stale id also opens a new draft.",
-        }),
-      ),
+      ...(mode === "stateless"
+        ? {
+            draftId: Type.Optional(
+              Type.String({
+                description:
+                  "Draft id returned by an earlier draft_batch call. Omit " +
+                  "to open a new draft; a missing or stale id also opens a " +
+                  "new draft.",
+              }),
+            ),
+          }
+        : {}),
       commands: Type.Array(
         Type.Object({
           type: Type.String({
@@ -366,7 +371,7 @@ export function createMcpTools(
         return response.result as { draftId: string; results: unknown[] };
       };
 
-      const suppliedDraftId = params.draftId as string | undefined;
+      const suppliedDraftId = (params as { draftId?: string }).draftId;
       const draftId =
         suppliedDraftId ?? (mode === "stateful" ? context.draftId : undefined);
       let result: { draftId: string; results: unknown[] };
