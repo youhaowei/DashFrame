@@ -115,7 +115,7 @@ describe("DataSourcesPage query states", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  it.each(["pointer", "keyboard"] as const)(
+  it.each(["pointer", "Enter", "Space"] as const)(
     "opens a card menu with %s without navigating the card",
     async (activation) => {
       mockUseDataSources.mockReturnValue({
@@ -139,13 +139,17 @@ describe("DataSourcesPage query states", () => {
         await user.click(action);
       } else {
         action.focus();
-        await user.keyboard("{Enter}");
+        await user.keyboard(activation === "Enter" ? "{Enter>}" : "[Space>]");
       }
 
       expect(
         await screen.findByRole("menuitem", { name: "Delete" }),
       ).not.toBeNull();
       expect(mockNavigate).not.toHaveBeenCalled();
+
+      if (activation !== "pointer") {
+        await user.keyboard(activation === "Enter" ? "{Enter/}" : "[Space/]");
+      }
     },
   );
 

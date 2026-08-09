@@ -188,6 +188,11 @@ export default function DataSourcesPage() {
                     aria-label="More options"
                     title="More options"
                     className={`transition-opacity ${groupHoverAndFocusWithinReveal}`}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter" && event.key !== " ") return;
+                      event.preventDefault();
+                      if (!event.repeat) event.currentTarget.click();
+                    }}
                   >
                     <MoreIcon aria-hidden />
                     <span className="sr-only">More options</span>

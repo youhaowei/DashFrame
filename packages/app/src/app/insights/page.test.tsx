@@ -102,7 +102,7 @@ describe("InsightsPage delete confirmations", () => {
     expect(mockRemoveInsight).toHaveBeenCalledWith({ id: "insight-1" });
   });
 
-  it.each(["pointer", "keyboard"] as const)(
+  it.each(["pointer", "Enter", "Space"] as const)(
     "opens a card menu with %s without navigating the card",
     async (activation) => {
       const user = userEvent.setup();
@@ -116,13 +116,17 @@ describe("InsightsPage delete confirmations", () => {
         await user.click(action);
       } else {
         action.focus();
-        await user.keyboard("{Enter}");
+        await user.keyboard(activation === "Enter" ? "{Enter>}" : "[Space>]");
       }
 
       expect(
         await screen.findByRole("menuitem", { name: "Delete" }),
       ).not.toBeNull();
       expect(mockNavigate).not.toHaveBeenCalled();
+
+      if (activation !== "pointer") {
+        await user.keyboard(activation === "Enter" ? "{Enter/}" : "[Space/]");
+      }
     },
   );
 });
