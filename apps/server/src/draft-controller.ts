@@ -1166,17 +1166,15 @@ export function createDraftController(
       // batch runs. appendLogWithCas re-reads inside its transaction and rejects
       // if another append has already replaced this snapshot.
       const expectedLogSignature = computeLogSignature(await readLog(draftId));
-      // Snapshot each command BEFORE it runs, then run the handler against that
-      // snapshot. This both rejects uncloneable data before a handler can write a
-      // shadow row and guarantees the handler and durable replay see identical
+      // Clone each command BEFORE handler execution, then run the handler against
+      // that snapshot. This both rejects uncloneable data before a handler can
+      // write a shadow row and guarantees handler and durable replay see identical
       // command data if a caller mutates its original object while we await.
       const ranSnapshots: DraftCommand[] = [];
-      // Rollbacks for credentials captured in this batch — invoked if ANYTHING
-      // throws before the durable log write succeeds (capture, handler run, OR log
-      // persistence). Until writeLog commits, a minted ref is in the vault but in
-      // no log, so the log-driven discard release could never find it. The rollback
-      // stays armed across the whole append; on success (after writeLog) the refs
-      // are legitimately in the log and the rollbacks are dropped.
+      // Successful handlers add their snapshots to ranSnapshots for durable-log
+      // recovery. Rollback remains armed only for captured commands whose handler
+      // did not successfully enter that preserved path, since no recovery log can
+      // then retain their minted refs.
       const captureRollbacks: Array<() => Promise<void>> = [];
       try {
         for (const cmd of batch) {
