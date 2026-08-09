@@ -10,7 +10,7 @@ import { formatNumeric } from "@dashframe/ui";
  *
  * Supported types:
  * - "date" → ISO date string (YYYY-MM-DD)
- * - "number" → display-safe numeric string
+ * - "number" → exact numeric string
  * - everything else → default string coercion (null/undefined → "—")
  */
 export function formatCellValue(value: unknown, type: ColumnType): string {
