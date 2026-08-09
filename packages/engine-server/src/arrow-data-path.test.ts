@@ -267,6 +267,33 @@ describe("Arrow data path — /tables/:name content-type enforcement", () => {
       expect(engine.registrations[0]?.name).toBe("df_ok");
     }
   });
+
+  it("registers a durable server frame without returning its bytes", async () => {
+    const engine = fakeRegistrar();
+    const id = "11111111-1111-4111-8111-111111111111";
+    const bytes = new Uint8Array([1, 2, 3]);
+    const app = createArrowDataPath({
+      engine,
+      authToken: TOKEN,
+      dataFrameStorage: {
+        save: async () => {},
+        load: async (requested) => (requested === id ? bytes : null),
+        delete: async () => {},
+        exists: async () => true,
+        list: async () => [id],
+        getUsage: async () => ({ count: 1 }),
+      },
+    });
+
+    const response = await app.request(`/frames/${id}/tables/df_server`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    });
+
+    expect(response.status).toBe(200);
+    expect(engine.registrations).toEqual([{ name: "df_server", bytes }]);
+    expect(await response.json()).toEqual({ ok: true, id, name: "df_server" });
+  });
 });
 
 describe("Arrow data path — vault-backed auth (fail-closed)", () => {

@@ -154,6 +154,10 @@ export default defineConfig(({ mode }) => {
               changeOrigin: true,
               ws: true,
             },
+            "/data": {
+              target: wystackUrl,
+              changeOrigin: true,
+            },
           }
         : undefined,
     },

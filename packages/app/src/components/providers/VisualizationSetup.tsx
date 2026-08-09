@@ -104,14 +104,8 @@ interface VisualizationSetupProps {
 /**
  * VisualizationSetup - Wires up the visualization system.
  *
- * Engine selection is surface-scoped (no `isElectron` branches here):
- * - Web tier / WASM path: DuckDBProvider initializes the WASM engine; this
- *   component wraps children with VisualizationProvider once it's ready.
- * - Desktop tier / native path: the host ProviderWrapper mounts a
- *   ChartEngineProvider with a pre-built Mosaic Connector. When that connector
- *   is present, this component wires the connector into VisualizationProvider.
- *   DuckDB-WASM still initializes on the desktop path because useInsightView
- *   depends on it to load DataFrames before uploading them to the native engine.
+ * Both hosts inject the same server-native Mosaic connector. The retained WASM
+ * implementation is not an active fallback or selectable mode in v0.3.
  *
  * ## Error surfaces
  *
@@ -121,10 +115,6 @@ interface VisualizationSetupProps {
  *   It's a persistent condition — charts stay broken until reload — so a fading
  *   toast is the wrong surface. This component still passes children through so
  *   non-chart content (nav, routes) stays usable.
- * - Native connector healthy but WASM failed: WASM error shown as an inline
- *   ErrorState inside the native provider (chart queries still route to native;
- *   data-viewer paths that need WASM see the banner).
- * - WASM-only path failure: standard ErrorState with retry.
  * - Mid-session render throw (engine dies while rendering): caught by
  *   VisualizationBoundary → toast WITH a Reload action (a momentary event, so a
  *   toast is right), never crashes the renderer.
@@ -140,30 +130,19 @@ interface VisualizationSetupProps {
  *
  * ## Provider Hierarchy
  *
- * ### Web (WASM):
- * ```
- * DuckDBProvider (handles lazy loading via requestIdleCallback)
- *     └── VisualizationSetup
- *           └── VisualizationProvider (wasmConnector → Mosaic coordinator)
- *                 └── RendererRegistration (registers vgplot)
- *                 └── children
- * ```
- *
- * ### Desktop (native engine):
+ * ### Web and desktop:
  * ```
  * ChartEngineProvider (native Mosaic connector — supplied by desktop host)
- *     └── DuckDBProvider (still runs for table/pagination — data-viewer paths)
+ *     └── DuckDBProvider (server query adapter for table/pagination)
  *         └── VisualizationSetup
  *               └── VisualizationProvider (native connector → Mosaic coordinator)
  *                     └── RendererRegistration (registers vgplot)
- *                     └── [WASM error banner if DuckDB-WASM failed]
  *                     └── children
  * ```
  */
 export function VisualizationSetup({ children }: VisualizationSetupProps) {
   const { connector } = useChartEngine();
-  const { db, connection, isInitialized, isLoading, error, initDuckDB } =
-    useDuckDBContext();
+  const { isLoading, error, initDuckDB } = useDuckDBContext();
   const { showError } = useToastStore();
 
   const handleRetry = useCallback(() => {
@@ -191,12 +170,7 @@ export function VisualizationSetup({ children }: VisualizationSetupProps) {
 
   // ── Native engine path (desktop host supplied a connector) ──────────────
   if (connector) {
-    // Chart queries route to the native engine via the connector.
-    // DuckDB-WASM still runs for data-viewer paths (useInsightView needs
-    // connection to load DataFrames before uploading them to the native engine).
-    // If WASM fails, surface it as a banner inside the native provider so chart
-    // content still renders while the user sees what's degraded.
-    const wasmErrorBanner =
+    const serverErrorBanner =
       error && !isLoading ? (
         <ErrorState
           title="Failed to initialize data engine"
@@ -207,7 +181,7 @@ export function VisualizationSetup({ children }: VisualizationSetupProps) {
       ) : null;
 
     // VisualizationBoundary wraps the provider's setup components (renderer
-    // registration, WASM banner) but NOT {children}. Children include the full
+    // registration and server error banner) but NOT {children}. Children include the full
     // Shell — navigation, the <Toaster>, route outlets — all of which must stay
     // alive if the visualization setup crashes. Children are still inside
     // VisualizationProvider (needed for useVisualization() context) but sit
@@ -228,21 +202,15 @@ export function VisualizationSetup({ children }: VisualizationSetupProps) {
       <VisualizationProvider connector={connector}>
         <VisualizationBoundary fallback={null} onError={handleBoundaryError}>
           <RendererRegistration />
-          {wasmErrorBanner}
+          {serverErrorBanner}
         </VisualizationBoundary>
         {children}
       </VisualizationProvider>
     );
   }
 
-  // ── WASM path (web tier default) OR native bootstrap failure ─────────────
-  // When the Electron IPC call fails or returns missing server info, `main.tsx`
-  // sets engineError with connector=null. The whole-engine-down condition is
-  // surfaced as a persistent inline affordance in VisualizationDisplay (where
-  // the chart would render), not here — so this path just falls through to the
-  // WASM path so non-chart content still renders.
-  //
-  // Show error state if DuckDB WASM initialization failed
+  // No connector means the supported server data plane is unavailable. Keep
+  // navigation usable, but never activate the retained WASM engine implicitly.
   if (error) {
     return (
       <>
@@ -257,15 +225,5 @@ export function VisualizationSetup({ children }: VisualizationSetupProps) {
     );
   }
 
-  // Pass through children during loading - components handle their own loading states
-  if (isLoading || !isInitialized || !db || !connection) {
-    return <>{children}</>;
-  }
-
-  return (
-    <VisualizationProvider db={db} connection={connection}>
-      <RendererRegistration />
-      {children}
-    </VisualizationProvider>
-  );
+  return <>{children}</>;
 }

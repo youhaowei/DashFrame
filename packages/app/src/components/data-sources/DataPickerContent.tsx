@@ -1,5 +1,4 @@
 import { getConnectorById } from "@/lib/connectors/registry";
-import { removeDataFrame } from "@/lib/data-access/data-frames";
 import { handleFileConnectorResult } from "@/lib/local-csv-handler";
 import {
   connectRemoteSource,
@@ -10,17 +9,13 @@ import {
   reviewUnclassifiedRemoteFields,
   type RemoteFieldReviewRequest,
 } from "@/lib/remote-field-review";
-import {
-  materializeRemoteTable,
-  RemoteTableReplacementError,
-} from "@/lib/remote-table-materialization";
 import { useConfirmDialogStore, type ConfirmDialogConfig } from "@/lib/stores";
 import { api } from "@/wystack/api";
 import type {
   FileSourceConnector,
   RemoteApiConnector,
 } from "@dashframe/engine";
-import type { CreateDataSourceInput, UUID } from "@dashframe/types";
+import type { CreateDataSourceInput, Field, UUID } from "@dashframe/types";
 import {
   cmd,
   COMMAND_PATHS,
@@ -462,7 +457,6 @@ export function DataPickerContent({
       setMaterializingResourceId(resource.id);
       setError(null);
       let tableId: UUID | null = null;
-      let dataFrameId: UUID | null = null;
       try {
         tableId = (
           await addDataTable({
@@ -471,27 +465,38 @@ export function DataPickerContent({
             table: resource.id,
           })
         ).id;
-        let result;
-        if (remoteResourceState.connectorId === "notion") {
-          result = await queryNotionDatabaseMutation({
-            dataSourceId: remoteResourceState.sourceId,
-            databaseId: resource.id,
-            tableId,
-          });
-        } else if (remoteResourceState.connectorId === "postgres") {
-          result = await queryPostgresTableMutation({
-            dataSourceId: remoteResourceState.sourceId,
-            databaseId: resource.id,
-            tableId,
-          });
-        } else {
+        const queryResource = (
+          materialize = false,
+          approvedFields?: Field[],
+        ) => {
+          const materialization = materialize
+            ? { materialize: true, approvedFields }
+            : {};
+          if (remoteResourceState.connectorId === "notion") {
+            return queryNotionDatabaseMutation({
+              dataSourceId: remoteResourceState.sourceId,
+              databaseId: resource.id,
+              tableId: tableId!,
+              ...materialization,
+            });
+          }
+          if (remoteResourceState.connectorId === "postgres") {
+            return queryPostgresTableMutation({
+              dataSourceId: remoteResourceState.sourceId,
+              databaseId: resource.id,
+              tableId: tableId!,
+              ...materialization,
+            });
+          }
           // The property is read from the DataTable row just created above,
           // so it cannot drift from the resource the user picked.
-          result = await queryGa4PropertyMutation({
+          return queryGa4PropertyMutation({
             dataSourceId: remoteResourceState.sourceId,
-            tableId,
+            tableId: tableId!,
+            ...materialization,
           });
-        }
+        };
+        const result = await queryResource();
         const explicitlySensitive = result.fields.some(
           (field) => getFieldSensitivity(field) === "sensitive",
         );
@@ -510,20 +515,11 @@ export function DataPickerContent({
           return;
         }
 
-        const materialized = await materializeRemoteTable(
-          { id: tableId },
-          { ...result, fields: reviewedFields },
-          resource.title,
-        );
-        dataFrameId = materialized.dataFrameId;
+        await queryResource(true, reviewedFields);
         onTableSelect(tableId, resource.title);
-      } catch (cause) {
-        const preserveTable = cause instanceof RemoteTableReplacementError;
+      } catch {
         const cleanupResults = await Promise.allSettled([
-          ...(dataFrameId ? [removeDataFrame(dataFrameId)] : []),
-          ...(tableId && !preserveTable
-            ? [removeDataTable({ id: tableId })]
-            : []),
+          ...(tableId ? [removeDataTable({ id: tableId })] : []),
         ]);
         const cleanupFailed = cleanupResults.some(
           ({ status }) => status === "rejected",

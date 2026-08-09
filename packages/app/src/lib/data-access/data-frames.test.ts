@@ -1,7 +1,7 @@
 import { setWyStackClient } from "@/wystack/client";
 import type { DataFrame, UUID } from "@dashframe/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { replaceDataFrame } from "./data-frames";
+import { getDataFrame, replaceDataFrame } from "./data-frames";
 
 const { mockDeleteArrowData, mockMutate, mockQuery } = vi.hoisted(() => ({
   mockDeleteArrowData: vi.fn(),
@@ -11,6 +11,7 @@ const { mockDeleteArrowData, mockMutate, mockQuery } = vi.hoisted(() => ({
 
 vi.mock("@dashframe/engine-browser", () => ({
   DataFrame: class {},
+  QueryBuilder: class {},
   deleteArrowData: mockDeleteArrowData,
 }));
 vi.mock("@/wystack/api", () => ({
@@ -58,6 +59,24 @@ describe("replaceDataFrame", () => {
         columnCount: 1,
         analysis: null,
       }),
+    });
+  });
+
+  it("constructs a server reference instead of BrowserDataFrame for file storage", async () => {
+    mockQuery.mockResolvedValue({
+      id: DATA_FRAME_ID,
+      storage: { type: "file", key: DATA_FRAME_ID },
+      fieldIds: [],
+      createdAt: 123,
+      name: "Remote frame",
+    });
+
+    const frame = await getDataFrame(DATA_FRAME_ID);
+
+    expect(frame?.getStorageType()).toBe("Server File");
+    expect(frame?.toJSON().storage).toEqual({
+      type: "file",
+      key: DATA_FRAME_ID,
     });
   });
 });

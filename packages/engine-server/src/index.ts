@@ -2,13 +2,14 @@
  * @dashframe/engine-server — the server-authoritative native execution path.
  *
  * Primary data plane for DashFrame: native DuckDB in the server process, shared
- * by desktop and (once wired) web. WASM is a backup mode, not a peer primary.
+ * by desktop and web. The retained WASM implementation has no active product
+ * mode.
  *
  * Five-stage pipeline (compile → place → execute → cache → transport):
  *
  *   - Stage 1 Compile   — `hashCompiledQuery` (content-addressing boundary)
- *   - Stage 2 Place     — `selectEngineBinding` (policy seam; web still defaults
- *                         to wasm until serve + web data path land)
+ *   - Stage 2 Place     — `selectEngineBinding` (policy seam; active web and
+ *                         desktop hosts both select the native server)
  *   - Stage 3 Execute   — `NativeDuckDBEngine` (native DuckDB QueryEngine)
  *   - Stage 4 Cache     — `ParquetCache` + `CacheWriteGate` seam (sensitivity gate, see #67)
  *   - Stage 5 Transport — `createArrowDataPath` (dedicated Arrow IPC HTTP path)
@@ -54,3 +55,5 @@ export {
   type ArrowQueryRunner,
   type ArrowTableRegistrar,
 } from "./arrow-data-path";
+
+export { FileDataFrameStorage } from "./file-dataframe-storage";

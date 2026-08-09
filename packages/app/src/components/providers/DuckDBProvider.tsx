@@ -1,5 +1,5 @@
 import { clearInsightViewCache } from "@/hooks/useInsightView";
-import { initializeDuckDB } from "@/lib/duckdb/init";
+import { getServerDataPlane } from "@/lib/server-data-plane";
 import { clearAllTableCaches } from "@dashframe/engine-browser";
 import type * as duckdb from "@duckdb/duckdb-wasm";
 import {
@@ -30,15 +30,8 @@ const DuckDBContext = createContext<DuckDBContextValue>({
 });
 
 /**
- * DuckDB Provider that eagerly loads DuckDB in the background.
- * Initialization starts automatically during browser idle time (via requestIdleCallback),
- * so DuckDB is typically ready by the time components need it.
- *
- * This approach:
- * - Keeps ~10MB WASM bundle in a separate chunk (code splitting via dynamic import)
- * - Doesn't block initial page render
- * - Starts loading immediately but non-blocking
- * - Components show inline loading states while DuckDB initializes
+ * DuckDB Provider for the sole active v0.3 server-native data plane.
+ * The retained WASM implementation is deliberately not selected here.
  */
 export function DuckDBProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<Omit<DuckDBContextValue, "initDuckDB">>({
@@ -53,8 +46,6 @@ export function DuckDBProvider({ children }: { children: React.ReactNode }) {
   const initRef = useRef(false);
   /** Ref to track live connection for cleanup */
   const connectionRef = useRef<duckdb.AsyncDuckDBConnection | null>(null);
-  /** Ref to track live db instance for cleanup */
-  const dbRef = useRef<duckdb.AsyncDuckDB | null>(null);
   /** Ref to read current state values without triggering callback re-creation */
   const stateRef = useRef(state);
 
@@ -88,24 +79,25 @@ export function DuckDBProvider({ children }: { children: React.ReactNode }) {
     setState((prev) => ({ ...prev, isLoading: true, error: null }));
 
     try {
-      const { db, connection } = await initializeDuckDB();
-
-      // Clear table caches since this is a fresh DuckDB instance
-      // Any previously cached tables no longer exist
-      clearAllTableCaches();
-      clearInsightViewCache();
-
-      // Store in refs for cleanup access
-      dbRef.current = db;
-      connectionRef.current = connection;
-
-      setState({
-        db,
-        connection,
-        isInitialized: true,
-        isLoading: false,
-        error: null,
-      });
+      const serverConnection = getServerDataPlane();
+      if (serverConnection) {
+        clearAllTableCaches();
+        clearInsightViewCache();
+        const connection =
+          serverConnection as unknown as duckdb.AsyncDuckDBConnection;
+        connectionRef.current = connection;
+        setState({
+          db: null,
+          connection,
+          isInitialized: true,
+          isLoading: false,
+          error: null,
+        });
+        return;
+      }
+      throw new Error(
+        "Native server data plane is not configured; DuckDB-WASM is suspended",
+      );
     } catch (err) {
       console.error("Failed to initialize DuckDB:", err);
       setState({
@@ -130,23 +122,14 @@ export function DuckDBProvider({ children }: { children: React.ReactNode }) {
       } catch (err) {
         console.warn("Failed to close DuckDB connection during cleanup:", err);
       }
-      try {
-        dbRef.current?.terminate();
-      } catch (err) {
-        console.warn(
-          "Failed to terminate DuckDB instance during cleanup:",
-          err,
-        );
-      }
       // Clear table caches since DuckDB instance is being destroyed
       clearAllTableCaches();
       clearInsightViewCache();
     };
   }, []);
 
-  // Eager background initialization - starts loading during browser idle time
-  // This improves UX by having DuckDB ready before user needs it,
-  // while not blocking initial page render
+  // Bind the server connection during browser idle time so initial rendering
+  // stays non-blocking while never activating the retained WASM engine.
   useEffect(() => {
     const startInit = () => {
       if (!initRef.current) {
@@ -186,8 +169,7 @@ export const useDuckDBContext = () => useContext(DuckDBContext);
 
 /**
  * Hook to access DuckDB connection and state.
- * DuckDB initializes eagerly in the background when DuckDBProvider mounts,
- * so components don't need to trigger initialization.
+ * The server connection initializes eagerly when DuckDBProvider mounts.
  *
  * @returns DuckDB instance with { db, connection, isLoading, isInitialized, error }
  *

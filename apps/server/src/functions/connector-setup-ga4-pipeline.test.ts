@@ -1,3 +1,4 @@
+import { FileDataFrameStorage } from "@dashframe/engine-server";
 import { openArtifactDb, schema } from "@dashframe/server-core";
 import {
   InMemoryMappingStore,
@@ -123,6 +124,7 @@ describe("GA4 connector setup pipeline", () => {
   async function makeApp(): Promise<WyStackApp> {
     const base = await buildDashframeApp({
       db,
+      dataFrameStorage: new FileDataFrameStorage(join(dir, "dataframes")),
       vault: makeVault(),
       googleOAuth: oauthConfig(),
       getServerEndpoint: () => "http://127.0.0.1:4567/api",
@@ -206,9 +208,23 @@ describe("GA4 connector setup pipeline", () => {
       { principal: user },
     );
     const tableId = (added.result as { id: string }).id;
-    const queried = await app.call(
+    const inspected = await app.call(
       "queryGa4Property",
       { dataSourceId: result.dataSourceId, tableId },
+      { principal: user },
+    );
+    expect(inspected.result).not.toHaveProperty("frameHandle");
+    const approvedFields = (
+      inspected.result as { fields: object[] }
+    ).fields.map((field) => ({ ...field, sensitivity: "cleared" }));
+    const queried = await app.call(
+      "queryGa4Property",
+      {
+        dataSourceId: result.dataSourceId,
+        tableId,
+        materialize: true,
+        approvedFields,
+      },
       { principal: user },
     );
     expect(queried.result).toMatchObject({
@@ -218,9 +234,10 @@ describe("GA4 connector setup pipeline", () => {
         { name: "activeUsers", type: "number" },
       ],
     });
-    expect(queried.result).toHaveProperty("arrowBuffer");
+    expect(queried.result).toHaveProperty("frameHandle");
+    expect(queried.result).not.toHaveProperty("arrowBuffer");
     expect(queried.result).toHaveProperty("fieldIds");
-    expect(googleFetch).toHaveBeenCalledTimes(4);
+    expect(googleFetch).toHaveBeenCalledTimes(5);
   });
 
   it("fails setup when the report probe is forbidden", async () => {

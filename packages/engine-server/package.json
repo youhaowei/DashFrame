@@ -13,6 +13,10 @@
     "./arrow-data-path": {
       "bun": "./src/arrow-data-path.ts",
       "default": "./src/arrow-data-path.ts"
+    },
+    "./file-dataframe-storage": {
+      "bun": "./src/file-dataframe-storage.ts",
+      "default": "./src/file-dataframe-storage.ts"
     }
   },
   "scripts": {

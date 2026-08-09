@@ -1,4 +1,5 @@
 import {
+  FileDataFrameStorage,
   NativeDuckDBEngine,
   selectEngineBinding,
 } from "@dashframe/engine-server";
@@ -380,6 +381,9 @@ app
 
       server = await createDashframeServer({
         db: project.db,
+        dataFrameStorage: new FileDataFrameStorage(
+          path.join(project.dir, "dataframes"),
+        ),
         accessCredentials: new ApiAccessCredentials(accessVault, accessRoot),
         corsOrigin,
         // Vault path passes a ref (no plaintext at the server); the

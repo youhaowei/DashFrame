@@ -117,8 +117,8 @@ export const dataTables = pgTable(
   (t) => [index("data_tables_data_source_id_idx").on(t.dataSourceId)],
 );
 
-// data_frames — browser DataFrame metadata only. Arrow bytes remain in the
-// renderer's IndexedDB storage via @dashframe/engine-browser.
+// data_frames — DataFrame metadata only. Arrow bytes live in the location
+// named by `storage` (project-local file storage or retained browser IndexedDB).
 export const dataFrames = pgTable(
   "data_frames",
   {

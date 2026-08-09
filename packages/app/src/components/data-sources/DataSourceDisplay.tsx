@@ -3,9 +3,12 @@ import {
   getConnectorById,
   useRegistryVersion,
 } from "@/lib/connectors/registry";
-import { materializeRemoteTable } from "@/lib/remote-table-materialization";
 import { api } from "@/wystack/api";
-import type { DataTable, Field } from "@dashframe/types";
+import {
+  getFieldSensitivity,
+  type DataTable,
+  type Field,
+} from "@dashframe/types";
 import { VirtualTable, type VirtualTableColumn } from "@dashframe/ui";
 import { useMutation, useQuery } from "@wystack/client";
 import {
@@ -554,17 +557,30 @@ function useNotionSync(
         return;
       }
 
-      // Persist the frame + fields BEFORE reporting success, so a reload finds
-      // the data and schema intact (not just a refreshed timestamp).
-      const materialized = await materializeRemoteTable(
-        selectedDataTable,
-        reviewedResult,
-        selectedDataTable.name,
-      );
+      if (
+        reviewedResult.fields.some(
+          (field) => getFieldSensitivity(field) !== "cleared",
+        )
+      ) {
+        throw new Error(
+          "Every remote column must be reviewed before materialization",
+        );
+      }
+
+      // Re-query only after the privacy gate. The server validates the reviewed
+      // schema against that result and commits bytes, schema, and linkage
+      // atomically; row bytes never transit the UI.
+      const materialized = await queryNotionDatabaseMutation({
+        dataSourceId: dataSource.id,
+        databaseId: selectedDataTable.table,
+        tableId: selectedDataTable.id,
+        materialize: true,
+        approvedFields: reviewedResult.fields,
+      });
 
       setNotionPreviewData({
         tableId: selectedDataTable.id,
-        rows: [], // row data lives in IndexedDB; preview shows column schema
+        rows: [], // row data stays in server storage; preview shows column schema
         columns,
         rowCount: materialized.rowCount,
       });

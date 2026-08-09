@@ -3,6 +3,7 @@ import "@dashframe/app/globals.css";
 import type { AppRouterContext, ProviderWrapper } from "@dashframe/app";
 import {
   ChartEngineProvider,
+  configureServerDataPlane,
   createWyStackRuntime,
   resolveWyStackConfig,
 } from "@dashframe/app";
@@ -53,57 +54,25 @@ async function bootstrap() {
   const config = await resolveWyStackConfig();
   const { Provider } = createWyStackRuntime(config);
 
-  // Attempt to build a native connector via the Electron IPC bridge.
-  // `window.dashframe` is only present in the Electron renderer (contextBridge).
-  // In web tier / tests this will be undefined — safe to ignore.
-  let nativeConnector: ReturnType<typeof createNativeConnector> | null = null;
-  let engineError: string | null = null;
-
-  const desktop = (
-    globalThis as {
-      dashframe?: { getServerInfo(): Promise<{ url: string; token: string }> };
-    }
-  ).dashframe;
-  if (desktop?.getServerInfo) {
-    try {
-      const info = await desktop.getServerInfo();
-      if (info?.url && info?.token) {
-        nativeConnector = createNativeConnector({
-          serverUrl: info.url,
-          token: info.token,
-        });
-      } else {
-        engineError = "Native engine not available — server info missing.";
-      }
-    } catch (err) {
-      // Failed to reach the loopback server; charts will show a degraded banner.
-      engineError =
-        err instanceof Error
-          ? `Native engine unavailable: ${err.message}`
-          : "Native engine unavailable — unknown error.";
-      console.error("[DashFrame] Failed to build native connector:", err);
-    }
+  if (!config.token) {
+    throw new Error(
+      "Desktop server info omitted its loopback token; native data plane unavailable",
+    );
   }
+  const nativeConnector = createNativeConnector({
+    serverUrl: config.url,
+    token: config.token,
+  });
 
-  // Bind the upload callback ONCE here, not inside the providerWrapper body.
-  // providerWrapper is rendered as a React component, so any object/function
-  // created in its body would be a fresh reference every render. That fresh
-  // reference flows through ChartEngineProvider context into useInsightView's
-  // chart-query effect dependency array, re-firing the effect on every render
-  // (→ setState → re-render → infinite loop, which crashes the renderer on the
-  // visualization route). A stable, module-lifetime callback breaks the loop.
-  const uploadArrowTable = nativeConnector
-    ? (name: string, arrowBytes: Uint8Array) =>
-        nativeConnector.uploadArrowTable(name, arrowBytes)
-    : null;
+  configureServerDataPlane({
+    serverUrl: config.url,
+    token: config.token,
+    connector: nativeConnector,
+  });
 
   const providerWrapper: ProviderWrapper = ({ children }) => (
     <Provider>
-      <ChartEngineProvider
-        connector={nativeConnector}
-        engineError={engineError}
-        uploadArrowTable={uploadArrowTable}
-      >
+      <ChartEngineProvider connector={nativeConnector}>
         {children}
       </ChartEngineProvider>
     </Provider>

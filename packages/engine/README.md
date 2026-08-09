@@ -12,13 +12,13 @@ bun add @dashframe/engine
 
 The engine package defines runtime-agnostic interfaces:
 
-| Interface          | Real implementation today                         |
-| ------------------ | ------------------------------------------------- |
-| `QueryEngine`      | `NativeDuckDBEngine` (`@dashframe/engine-server`) |
-| `DataFrameStorage` | IndexedDB (`@dashframe/engine-browser`)           |
-| `DataFrame`        | `BrowserDataFrame` (`@dashframe/engine-browser`)  |
+| Interface          | Real implementation today                                                     |
+| ------------------ | ----------------------------------------------------------------------------- |
+| `QueryEngine`      | `NativeDuckDBEngine` (`@dashframe/engine-server`)                             |
+| `DataFrameStorage` | Project files (`@dashframe/engine-server`); retained IndexedDB implementation |
+| `DataFrame`        | `BrowserDataFrame` (`@dashframe/engine-browser`)                              |
 
-Primary path is **server-side native DuckDB** (`NativeDuckDBEngine`). Desktop already uses it; web is meant to share the same server process once headless `serve` wires the engine. DuckDB-WASM helpers in `@dashframe/engine-browser` are a **backup** path and do not implement `QueryEngine`.
+The active path is **server-side native DuckDB** (`NativeDuckDBEngine`) for both desktop and web. DuckDB-WASM helpers in `@dashframe/engine-browser` remain in the codebase, but no product mode currently activates them.
 
 This package has no shared `QueryPlanner` / push-down API. Connectors may still run remote queries themselves (e.g. Postgres table-reference fetches push LIMIT/OFFSET server-side); that is connector-local, not a cross-engine planner.
 
@@ -128,4 +128,4 @@ import type {
 ## Implementations
 
 - **`@dashframe/engine-server`** — primary: native DuckDB pipeline (`NativeDuckDBEngine`, Arrow data path, placement policy)
-- **`@dashframe/engine-browser`** — backup / transitional web helpers (DuckDB-WASM, IndexedDB, BrowserDataFrame)
+- **`@dashframe/engine-browser`** — retained DuckDB-WASM, IndexedDB, and BrowserDataFrame implementation; no active product mode

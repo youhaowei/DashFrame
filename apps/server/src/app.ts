@@ -35,12 +35,14 @@
 // when they start (`dashframe serve` does so dynamically); importing this
 // deployment-agnostic app factory remains safe. arrow-data-path has no native
 // dependency.
+import type { DataFrameStorage } from "@dashframe/engine";
 import {
   createArrowDataPath,
   type ArrowQueryRunner,
   type ArrowTableRegistrar,
 } from "@dashframe/engine-server/arrow-data-path";
 import { schema, type ApiAccessCredentials } from "@dashframe/server-core";
+import type { UUID } from "@dashframe/types";
 import { serve as nodeServe } from "@hono/node-server";
 import { createNodeWebSocket } from "@hono/node-ws";
 import type { DraftDrizzleTracker, DrizzleTracker } from "@wystack/db";
@@ -147,6 +149,8 @@ function allowLocalhostOrigin(origin: string): string | undefined {
 export interface DashframeServerOptions {
   /** Project artifact DB — a Drizzle/PGLite instance (e.g. `ProjectHandle.db`). */
   db: object;
+  /** Durable Arrow frame store owned by the selected project. */
+  dataFrameStorage?: DataFrameStorage;
   /** Bind host. Default `127.0.0.1` (loopback). */
   hostname?: string;
   /** Bind port. Default `0` — the OS assigns an ephemeral port. */
@@ -451,6 +455,7 @@ export function withDraftSeam(
  */
 export async function buildDashframeApp(opts: {
   db: object;
+  dataFrameStorage?: DataFrameStorage;
   vault?: SecretVault;
   onWrite?: () => void;
   accessCredentials?: ApiAccessCredentials;
@@ -463,12 +468,34 @@ export async function buildDashframeApp(opts: {
     expectedPermissionIds,
   });
 
+  if (opts.dataFrameStorage != null) {
+    // No requests can be in flight yet, so startup is the safe point to repair
+    // a crash-interrupted delete and remove files with no persisted owner.
+    await removeUnreferencedServerFrames(
+      opts.db as ArtifactDb,
+      opts.dataFrameStorage,
+    );
+  }
+
   const { vault, onWrite } = opts;
 
   // Build the static context additions once so every call shares the same object
   // reference (vault identity is stable for the server lifetime).
   const staticContext: AppContext = {
     getServerEndpoint: opts.getServerEndpoint ?? (() => undefined),
+    ...(opts.dataFrameStorage != null
+      ? {
+          dataFrameStorage: opts.dataFrameStorage,
+          captureServerFrameReferences: () =>
+            referencedServerFrameIds(opts.db as ArtifactDb),
+          cleanupDereferencedServerFrames: (before: ReadonlySet<string>) =>
+            removeDereferencedServerFrames(
+              opts.db as ArtifactDb,
+              opts.dataFrameStorage!,
+              before,
+            ),
+        }
+      : {}),
     ...(opts.accessCredentials != null
       ? { accessCredentials: opts.accessCredentials }
       : {}),
@@ -498,10 +525,25 @@ export async function buildDashframeApp(opts: {
       const merged = { ...(context ?? {}), ...staticContext };
       const tracked = rawApp.createTracked();
       const effective = withDraftSeam(tracked, merged);
+      const framesBefore =
+        opts.dataFrameStorage != null
+          ? await referencedServerFrameIds(opts.db as ArtifactDb)
+          : undefined;
       const result = await rawApp.runHandler(path, args, effective, merged);
       // `tracked` and `effective` share the same tracker sets (withDraft reuses
       // the base tracker), so tablesWritten reflects the write either way.
       const tablesWritten = tracked.tablesWritten;
+      if (
+        opts.dataFrameStorage != null &&
+        framesBefore != null &&
+        tablesWritten.size > 0
+      ) {
+        await removeDereferencedServerFrames(
+          opts.db as ArtifactDb,
+          opts.dataFrameStorage,
+          framesBefore,
+        );
+      }
       if (onWrite != null && tablesWritten.size > 0) {
         try {
           onWrite();
@@ -521,6 +563,54 @@ export async function buildDashframeApp(opts: {
       return rawApp.runHandler(path, args, effective, merged);
     },
   };
+}
+
+async function removeUnreferencedServerFrames(
+  db: ArtifactDb,
+  storage: DataFrameStorage,
+): Promise<void> {
+  const referenced = await referencedServerFrameIds(db);
+  await storage.recoverStagedDeletes?.([...referenced] as UUID[]);
+  const ids = await storage.list();
+  await Promise.all(
+    ids.filter((id) => !referenced.has(id)).map((id) => storage.delete(id)),
+  );
+}
+
+async function removeDereferencedServerFrames(
+  db: ArtifactDb,
+  storage: DataFrameStorage,
+  before: ReadonlySet<string>,
+): Promise<void> {
+  const after = await referencedServerFrameIds(db);
+  const results = await Promise.allSettled(
+    [...before]
+      .filter((id) => !after.has(id))
+      .map((id) => storage.delete(id as UUID)),
+  );
+  const failures = results.filter(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  );
+  if (failures.length > 0) {
+    console.error(
+      `[dashframe] ${failures.length} dereferenced server frame(s) could not be removed; startup recovery will retry`,
+      failures.map(({ reason }) => reason),
+    );
+  }
+}
+
+async function referencedServerFrameIds(db: ArtifactDb): Promise<Set<string>> {
+  const rows = (await db.select().from(schema.dataFrames)) as Array<{
+    storage: unknown;
+  }>;
+  return new Set(
+    rows.flatMap((row) => {
+      const location = row.storage as { type?: string; key?: string };
+      return location.type === "file" && typeof location.key === "string"
+        ? [location.key]
+        : [];
+    }),
+  );
 }
 
 /**
@@ -665,6 +755,7 @@ export async function createDashframeServer(
   // to fire `opts.onWrite` after every successful mutation.
   const vaultWrapped = await buildDashframeApp({
     db: opts.db,
+    dataFrameStorage: opts.dataFrameStorage,
     vault: opts.vault,
     onWrite: opts.onWrite,
     accessCredentials: opts.accessCredentials,
@@ -822,6 +913,7 @@ export async function createDashframeServer(
       "/data",
       createArrowDataPath({
         engine: opts.arrowEngine,
+        dataFrameStorage: opts.dataFrameStorage,
         ...(opts.authRef && opts.vault
           ? { authRef: opts.authRef, vault: opts.vault }
           : { authToken: opts.authToken }),

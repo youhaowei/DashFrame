@@ -11,6 +11,7 @@ import type { UUID } from "./uuid";
  */
 export type DataFrameStorageLocation =
   | { type: "indexeddb"; key: string }
+  | { type: "file"; key: string }
   | { type: "s3"; bucket: string; key: string }
   | { type: "r2"; accountId: string; key: string };
 

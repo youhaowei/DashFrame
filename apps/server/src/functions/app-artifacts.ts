@@ -25,13 +25,15 @@ import type {
   VisualizationType,
 } from "@dashframe/types";
 import {
+  getFieldSensitivity,
   isUnmodifiedDraft,
   stripSampleValues,
   validateVisualizationEncoding,
 } from "@dashframe/types";
-import { eq, int, jsonb, text, uuid } from "@wystack/db";
+import { boolean, eq, int, jsonb, text, uuid } from "@wystack/db";
 import type { SecretRef, SecretVault } from "@wystack/secret-vault";
 import { isSecretRef } from "@wystack/secret-vault";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 import type { DashframeFunctionContext } from "../app-context";
@@ -51,6 +53,7 @@ import { tsToMillis } from "./timestamps";
 import {
   applyCredentialField,
   flushThenReleaseRefs,
+  inDraftContext,
   isRecord,
   modeFromCtx,
   releaseCredentialRefs,
@@ -412,6 +415,7 @@ const getDataSourceByType = wy.procedure
 const removeDataSource = wy.procedure
   .input({ id: uuid })
   .mutation(async (ctx, { id }): Promise<{ ok: true }> => {
+    assertCanonicalFrameSideEffects(ctx);
     // Fetch the source config BEFORE deleting so we can release its SecretRefs.
     // vault-absent-with-a-ref is an error (fail-closed symmetry): a ref can only
     // exist because vault.store() succeeded, which requires a vault to be present.
@@ -419,14 +423,34 @@ const removeDataSource = wy.procedure
     // keychain side-effect outside the DB transaction. A preview executes then
     // rolls back: the row (with its refs) survives, so its credential must too.
     const source = await ctx.db.from(dataSources).where(eq("id", id)).first();
+    const ownedTables = (await ctx.db
+      .from(dataTables)
+      .where(eq("dataSourceId", id))
+      .all()) as DataTableRow[];
+    const ownedFrames = await framesForDefinitions(
+      ctx,
+      ownedTables.map((table) => table.id),
+    );
+    const staged = await stageServerFrames(ctx, ownedFrames);
+    try {
+      await ctx.db.transaction(async (tx) => {
+        for (const frame of ownedFrames) {
+          await tx.from(dataFrames).where(eq("id", frame.id)).delete();
+        }
+        await tx.from(dataTables).where(eq("dataSourceId", id)).delete();
+        await tx.from(dataSources).where(eq("id", id)).delete();
+      });
+    } catch (error) {
+      await rollbackStagedServerFrames(ctx, staged);
+      throw error;
+    }
+    await commitStagedServerFrames(ctx, staged);
     if (source && modeFromCtx(ctx) !== "preview") {
       await releaseCredentialRefs(
         (source.config ?? {}) as DataSourceConfig,
         vaultFromCtx(ctx),
       );
     }
-    await ctx.db.from(dataTables).where(eq("dataSourceId", id)).delete();
-    await ctx.db.from(dataSources).where(eq("id", id)).delete();
     return { ok: true };
   });
 
@@ -528,7 +552,21 @@ const refreshDataTable = wy.procedure
 const removeDataTable = wy.procedure
   .input({ id: uuid })
   .mutation(async (ctx, { id }): Promise<{ ok: true }> => {
-    await ctx.db.from(dataTables).where(eq("id", id)).delete();
+    assertCanonicalFrameSideEffects(ctx);
+    const frames = await framesForDefinitions(ctx, [id]);
+    const staged = await stageServerFrames(ctx, frames);
+    try {
+      await ctx.db.transaction(async (tx) => {
+        for (const frame of frames) {
+          await tx.from(dataFrames).where(eq("id", frame.id)).delete();
+        }
+        await tx.from(dataTables).where(eq("id", id)).delete();
+      });
+    } catch (error) {
+      await rollbackStagedServerFrames(ctx, staged);
+      throw error;
+    }
+    await commitStagedServerFrames(ctx, staged);
     return { ok: true };
   });
 
@@ -700,7 +738,20 @@ const updateDataFrameEntry = wy.procedure
 const removeDataFrameEntry = wy.procedure
   .input({ id: uuid })
   .mutation(async (ctx, { id }): Promise<{ ok: true }> => {
-    await ctx.db.from(dataFrames).where(eq("id", id)).delete();
+    assertCanonicalFrameSideEffects(ctx);
+    const row = (await ctx.db.from(dataFrames).where(eq("id", id)).first()) as
+      | DataFrameRow
+      | undefined;
+    const staged = await stageServerFrames(ctx, row ? [row] : []);
+    try {
+      await ctx.db.transaction(async (tx) => {
+        await tx.from(dataFrames).where(eq("id", id)).delete();
+      });
+    } catch (error) {
+      await rollbackStagedServerFrames(ctx, staged);
+      throw error;
+    }
+    await commitStagedServerFrames(ctx, staged);
     return { ok: true };
   });
 
@@ -1013,16 +1064,27 @@ const removeVisualization = wy.procedure
 const clearAllData = wy.procedure
   .input({})
   .mutation(async (ctx): Promise<{ ok: true }> => {
+    assertCanonicalFrameSideEffects(ctx);
     // One unconditional DELETE FROM per table (DrizzleTracker.delete() with no
     // .where() clears the whole table). Idempotent and a single statement
     // each — no per-row round-trips, no partial-clear retry hazard. FK-child
     // tables first so cascade order is satisfied even without DB-level FKs.
-    await ctx.db.from(dashboards).delete();
-    await ctx.db.from(visualizations).delete();
-    await ctx.db.from(insights).delete();
-    await ctx.db.from(dataFrames).delete();
-    await ctx.db.from(dataTables).delete();
-    await ctx.db.from(dataSources).delete();
+    const frames = (await ctx.db.from(dataFrames).all()) as DataFrameRow[];
+    const staged = await stageServerFrames(ctx, frames);
+    try {
+      await ctx.db.transaction(async (tx) => {
+        await tx.from(dashboards).delete();
+        await tx.from(visualizations).delete();
+        await tx.from(insights).delete();
+        await tx.from(dataFrames).delete();
+        await tx.from(dataTables).delete();
+        await tx.from(dataSources).delete();
+      });
+    } catch (error) {
+      await rollbackStagedServerFrames(ctx, staged);
+      throw error;
+    }
+    await commitStagedServerFrames(ctx, staged);
     return { ok: true };
   });
 
@@ -1127,20 +1189,235 @@ const listNotionDatabases = wy.procedure
   });
 
 /**
- * Serializable result of a Notion query — raw Arrow IPC buffer (base64) +
- * field ids + field definitions. The renderer materializes the browser
- * DataFrame from this; no plaintext and no live DataFrame crosses the boundary.
+ * Serializable Notion inspection/materialization result. Inspection returns
+ * schema only; reviewed materialization also returns an opaque frame handle.
+ * Row bytes never cross the client boundary.
  */
 type NotionQueryResult = {
-  arrowBuffer: string;
+  frameHandle?: UUID;
   fieldIds: string[];
   fields: Field[];
   rowCount: number;
 };
 
+async function persistConnectorFrame(
+  ctx: DashframeFunctionContext,
+  args: {
+    arrowBuffer: string;
+    dataSourceId: UUID;
+    tableId: UUID;
+    fieldIds: string[];
+    approvedFields: Field[];
+    rowCount: number;
+  },
+): Promise<UUID> {
+  assertCanonicalFrameSideEffects(ctx);
+  const storage = ctx.dataFrameStorage;
+  if (!storage) {
+    throw new Error("Server DataFrame storage is not configured");
+  }
+  const frameHandle = randomUUID() as UUID;
+  await storage.save(
+    frameHandle,
+    new Uint8Array(Buffer.from(args.arrowBuffer, "base64")),
+  );
+  let stagedPrevious: StagedServerFrame[] = [];
+  try {
+    await ctx.db.transaction(async (tx) => {
+      // Ownership validation and replacement discovery belong inside the same
+      // serialized DB transaction as the link update. Otherwise a concurrent
+      // DeleteNode or refresh can invalidate an earlier read and leave an
+      // unowned or duplicate materialization behind.
+      const table = (await tx
+        .from(dataTables)
+        .where(eq("id", args.tableId))
+        .first()) as DataTableRow | undefined;
+      if (!table) throw new Error(`DataTable ${args.tableId} not found`);
+      if (table.dataSourceId !== args.dataSourceId) {
+        throw new Error(
+          `DataTable ${args.tableId} does not belong to DataSource ${args.dataSourceId}`,
+        );
+      }
+      const previous = (await tx
+        .from(dataFrames)
+        .where(eq("definitionId", args.tableId))
+        .all()) as DataFrameRow[];
+      stagedPrevious = await stageServerFrames(ctx, previous);
+      await tx.into(dataFrames).insert({
+        id: frameHandle,
+        storage: { type: "file", key: frameHandle },
+        fieldIds: args.fieldIds,
+        name: table.name,
+        sourceId: args.dataSourceId,
+        definitionId: args.tableId,
+        rowCount: args.rowCount,
+        columnCount: args.fieldIds.length,
+        lastRefreshedAt: new Date(),
+      });
+      await tx.from(dataTables).where(eq("id", args.tableId)).update({
+        fields: args.approvedFields,
+        dataFrameId: frameHandle,
+        lastFetchedAt: new Date(),
+      });
+      for (const oldFrame of previous) {
+        await tx.from(dataFrames).where(eq("id", oldFrame.id)).delete();
+      }
+    });
+  } catch (error) {
+    await rollbackStagedServerFrames(ctx, stagedPrevious);
+    await storage.delete(frameHandle).catch(() => undefined);
+    throw error;
+  }
+  await commitStagedServerFrames(ctx, stagedPrevious);
+  return frameHandle;
+}
+
+function approvedFieldsForMaterialization(
+  value: unknown,
+  fieldIds: readonly string[],
+  resultFields: readonly Field[],
+): Field[] {
+  if (
+    resultFields.some((field) => getFieldSensitivity(field) === "sensitive")
+  ) {
+    throw new Error("Sensitive remote columns cannot be materialized");
+  }
+  if (!Array.isArray(value)) {
+    throw new Error("Reviewed fields are required before materialization");
+  }
+  const byColumn = new Map<string, Field>();
+  for (const candidate of value) {
+    if (!isRecord(candidate) || typeof candidate.id !== "string") {
+      throw new Error("Reviewed fields are invalid");
+    }
+    const field = candidate as unknown as Field;
+    if (getFieldSensitivity(field) !== "cleared") {
+      throw new Error(
+        "Every remote column must be reviewed before materialization",
+      );
+    }
+    const column = field.columnName ?? field.name;
+    if (typeof column !== "string" || !column) {
+      throw new Error("Reviewed fields are invalid");
+    }
+    byColumn.set(column, field);
+  }
+  if (
+    resultFields.length !== fieldIds.length ||
+    resultFields.some((field, index) => field.id !== fieldIds[index]) ||
+    byColumn.size !== resultFields.length ||
+    resultFields.some((field) => !byColumn.has(field.columnName ?? field.name))
+  ) {
+    throw new Error("Reviewed fields do not match the remote result");
+  }
+  return resultFields.map((field) => {
+    const approved = byColumn.get(field.columnName ?? field.name)!;
+    return {
+      ...field,
+      sensitivity: approved.sensitivity,
+      sensitivityReason: approved.sensitivityReason,
+    };
+  });
+}
+
+type StagedServerFrame = { token: string };
+
+function assertCanonicalFrameSideEffects(ctx: DashframeFunctionContext): void {
+  if (modeFromCtx(ctx) === "preview" || inDraftContext(ctx)) {
+    throw new Error(
+      "Server frame side effects require a canonical commit context",
+    );
+  }
+}
+
+function atomicStorage(ctx: DashframeFunctionContext) {
+  const storage = ctx.dataFrameStorage;
+  if (
+    !storage?.stageDelete ||
+    !storage.commitDelete ||
+    !storage.rollbackDelete
+  ) {
+    throw new Error("Server DataFrame storage lacks atomic delete support");
+  }
+  return storage as Required<
+    Pick<typeof storage, "stageDelete" | "commitDelete" | "rollbackDelete">
+  > &
+    typeof storage;
+}
+
+async function stageServerFrames(
+  ctx: DashframeFunctionContext,
+  rows: DataFrameRow[],
+): Promise<StagedServerFrame[]> {
+  const fileRows = rows.filter(
+    (row) => (row.storage as DataFrameStorageLocation).type === "file",
+  );
+  if (fileRows.length === 0) return [];
+  const storage = atomicStorage(ctx);
+  const staged: StagedServerFrame[] = [];
+  try {
+    for (const row of fileRows) {
+      const location = row.storage as Extract<
+        DataFrameStorageLocation,
+        { type: "file" }
+      >;
+      const token = await storage.stageDelete(location.key as UUID);
+      if (token) staged.push({ token });
+    }
+    return staged;
+  } catch (error) {
+    await rollbackStagedServerFrames(ctx, staged);
+    throw error;
+  }
+}
+
+async function commitStagedServerFrames(
+  ctx: DashframeFunctionContext,
+  staged: StagedServerFrame[],
+): Promise<void> {
+  if (staged.length === 0) return;
+  const storage = atomicStorage(ctx);
+  const results = await Promise.allSettled(
+    staged.map(({ token }) => storage.commitDelete(token)),
+  );
+  const failures = results.filter(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  );
+  if (failures.length > 0) {
+    console.error(
+      `[dashframe] ${failures.length} staged server frame delete(s) could not be finalized; startup recovery will retry`,
+      failures.map(({ reason }) => reason),
+    );
+  }
+}
+
+async function rollbackStagedServerFrames(
+  ctx: DashframeFunctionContext,
+  staged: StagedServerFrame[],
+): Promise<void> {
+  if (staged.length === 0) return;
+  const storage = atomicStorage(ctx);
+  for (const { token } of staged.toReversed()) {
+    await storage.rollbackDelete(token);
+  }
+}
+
+async function framesForDefinitions(
+  ctx: DashframeFunctionContext,
+  definitionIds: UUID[],
+): Promise<DataFrameRow[]> {
+  if (definitionIds.length === 0) return [];
+  const allRows = (await ctx.db.from(dataFrames).all()) as DataFrameRow[];
+  const definitions = new Set(definitionIds);
+  return allRows.filter(
+    (row) =>
+      row.definitionId != null && definitions.has(row.definitionId as UUID),
+  );
+}
+
 /**
  * queryNotionDatabase — fetch rows from a specific Notion database server-side
- * and return a serializable result the renderer can materialize.
+ * and return schema for review or a reviewed server materialization.
  *
  * The credential resolves via the bound resolver inside `connector.query`; the
  * handler has no plaintext in scope and the client receives only data.
@@ -1153,11 +1430,13 @@ const queryNotionDatabase = wy.procedure
     // Optional cap on rows fetched for the preview. Bounds an unbounded Notion
     // database scan; the renderer passes a preview limit. Omitted = no cap.
     limit: int.optional(),
+    materialize: boolean.optional(),
+    approvedFields: jsonb.optional(),
   })
   .mutation(
     async (
       ctx,
-      { dataSourceId, databaseId, tableId, limit },
+      { dataSourceId, databaseId, tableId, limit, materialize, approvedFields },
     ): Promise<NotionQueryResult> => {
       const connector = await notionConnectorFor(ctx, dataSourceId);
       // Only a positive integer limit caps the fetch. Reject 0/negative — the
@@ -1170,8 +1449,22 @@ const queryNotionDatabase = wy.procedure
       // query() resolves the apiKey via the bound resolver internally and returns
       // a serializable result — no credential in scope here, no DataFrame built.
       const result = await connector.query(databaseId, tableId, pagination);
+      const frameHandle = materialize
+        ? await persistConnectorFrame(ctx, {
+            arrowBuffer: result.arrowBuffer,
+            dataSourceId,
+            tableId,
+            fieldIds: result.fieldIds,
+            approvedFields: approvedFieldsForMaterialization(
+              approvedFields,
+              result.fieldIds,
+              result.fields,
+            ),
+            rowCount: result.rowCount,
+          })
+        : undefined;
       return {
-        arrowBuffer: result.arrowBuffer,
+        ...(frameHandle ? { frameHandle } : {}),
         fieldIds: result.fieldIds,
         fields: result.fields,
         rowCount: result.rowCount,
@@ -1231,12 +1524,11 @@ async function postgresConnectorFor(
 // ============================================================================
 
 /**
- * Serializable result of a Postgres query — raw Arrow IPC buffer (base64) +
- * field ids + field definitions. The renderer materializes the browser
- * DataFrame from this; no plaintext and no live DataFrame crosses the boundary.
+ * Serializable Postgres inspection/materialization result. The handle exists
+ * only after reviewed fields pass the server privacy gate.
  */
 type PostgresQueryResult = {
-  arrowBuffer: string;
+  frameHandle?: UUID;
   fieldIds: string[];
   fields: Field[];
   rowCount: number;
@@ -1261,7 +1553,7 @@ const listPostgresTables = wy.procedure
 
 /**
  * queryPostgresTable — fetch rows from a Postgres table or run a SELECT
- * server-side and return a serializable result the renderer can materialize.
+ * server-side and return schema for review or a reviewed materialization.
  *
  * The credential resolves via the bound resolver inside `connector.query`; the
  * handler has no plaintext in scope and the client receives only data.
@@ -1275,11 +1567,13 @@ const queryPostgresTable = wy.procedure
     tableId: uuid,
     /** Optional cap on rows fetched for the preview. */
     limit: int.optional(),
+    materialize: boolean.optional(),
+    approvedFields: jsonb.optional(),
   })
   .mutation(
     async (
       ctx,
-      { dataSourceId, databaseId, tableId, limit },
+      { dataSourceId, databaseId, tableId, limit, materialize, approvedFields },
     ): Promise<PostgresQueryResult> => {
       const connector = await postgresConnectorFor(ctx, dataSourceId);
       const pagination =
@@ -1287,8 +1581,22 @@ const queryPostgresTable = wy.procedure
           ? { pagination: { offset: 0, limit } }
           : undefined;
       const result = await connector.query(databaseId, tableId, pagination);
+      const frameHandle = materialize
+        ? await persistConnectorFrame(ctx, {
+            arrowBuffer: result.arrowBuffer,
+            dataSourceId,
+            tableId,
+            fieldIds: result.fieldIds,
+            approvedFields: approvedFieldsForMaterialization(
+              approvedFields,
+              result.fieldIds,
+              result.fields,
+            ),
+            rowCount: result.rowCount,
+          })
+        : undefined;
       return {
-        arrowBuffer: result.arrowBuffer,
+        ...(frameHandle ? { frameHandle } : {}),
         fieldIds: result.fieldIds,
         fields: result.fields,
         rowCount: result.rowCount,
@@ -1469,13 +1777,11 @@ const listGa4Properties = wy.procedure
   );
 
 /**
- * Serializable result of a GA4 property read. Structurally identical to
- * PostgresQueryResult today, and named separately on purpose: these two travel
- * different code paths and one gaining a field should not silently change the
- * other's contract.
+ * Serializable GA4 inspection/materialization result. Structurally identical
+ * to Postgres today, but deliberately kept per-connector here.
  */
 type Ga4QueryResult = {
-  arrowBuffer: string;
+  frameHandle?: UUID;
   fieldIds: string[];
   fields: Field[];
   rowCount: number;
@@ -1497,9 +1803,14 @@ const queryGa4Property = wy.procedure
     dataSourceId: uuid,
     tableId: uuid,
     limit: int.optional(),
+    materialize: boolean.optional(),
+    approvedFields: jsonb.optional(),
   })
   .mutation(
-    async (ctx, { dataSourceId, tableId, limit }): Promise<Ga4QueryResult> => {
+    async (
+      ctx,
+      { dataSourceId, tableId, limit, materialize, approvedFields },
+    ): Promise<Ga4QueryResult> => {
       const table = (await ctx.db
         .from(dataTables)
         .where(eq("id", tableId))
@@ -1516,8 +1827,22 @@ const queryGa4Property = wy.procedure
           ? { pagination: { offset: 0, limit } }
           : undefined;
       const result = await connector.query(table.table, tableId, pagination);
+      const frameHandle = materialize
+        ? await persistConnectorFrame(ctx, {
+            arrowBuffer: result.arrowBuffer,
+            dataSourceId,
+            tableId,
+            fieldIds: result.fieldIds,
+            approvedFields: approvedFieldsForMaterialization(
+              approvedFields,
+              result.fieldIds,
+              result.fields,
+            ),
+            rowCount: result.rowCount,
+          })
+        : undefined;
       return {
-        arrowBuffer: result.arrowBuffer,
+        ...(frameHandle ? { frameHandle } : {}),
         fieldIds: result.fieldIds,
         fields: result.fields,
         rowCount: result.rowCount,

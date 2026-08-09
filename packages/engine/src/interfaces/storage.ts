@@ -30,6 +30,17 @@ export interface DataFrameStorage {
   delete(id: UUID): Promise<void>;
 
   /**
+   * Optional reversible delete used when binary storage and artifact metadata
+   * must cross one failure boundary. Implementations move bytes out of the
+   * active namespace, then either commit or roll back after the DB transaction.
+   */
+  stageDelete?(id: UUID): Promise<string | null>;
+  commitDelete?(token: string): Promise<void>;
+  rollbackDelete?(token: string): Promise<void>;
+  /** Reconcile interrupted staged deletes against committed metadata. */
+  recoverStagedDeletes?(referencedIds: readonly UUID[]): Promise<void>;
+
+  /**
    * Check if a DataFrame exists in storage.
    * @param id - Unique identifier for the data
    */

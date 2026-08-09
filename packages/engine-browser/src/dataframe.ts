@@ -105,6 +105,8 @@ export class BrowserDataFrame implements DataFrame {
     switch (this.storage.type) {
       case "indexeddb":
         return "Browser Storage";
+      case "file":
+        return "Server File";
       case "s3":
         return "AWS S3";
       case "r2":

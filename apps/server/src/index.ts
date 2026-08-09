@@ -10,6 +10,7 @@ import type {
   ArrowQueryRunner,
   ArrowTableRegistrar,
 } from "@dashframe/engine-server/arrow-data-path";
+import { FileDataFrameStorage } from "@dashframe/engine-server/file-dataframe-storage";
 import {
   ApiAccessCredentials,
   CREDENTIAL_CLASS,
@@ -448,6 +449,9 @@ export function createStandaloneServerOptions(
 ): DashframeServerOptions {
   return {
     db: project.db,
+    dataFrameStorage: new FileDataFrameStorage(
+      path.join(project.dir, "dataframes"),
+    ),
     hostname: opts.hostname,
     port: opts.port,
     corsOrigin: opts.corsOrigin,

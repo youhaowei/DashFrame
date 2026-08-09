@@ -1967,10 +1967,10 @@ async function findOrphanedInsights(
  * so DataTable cleanup is handled by the caller passing the DataTable's
  * `dataFrameId` directly.
  *
- * The `dataFrames` table stores metadata only; the actual Arrow bytes live in
- * the renderer's IndexedDB. Deleting the metadata row here is the signal the
- * client-side `removeDataFrame` hook needs to clean up the Arrow bytes via
- * `deleteArrowData(storage.key)` (see `packages/app/src/data/data-frames.ts`).
+ * The `dataFrames` table stores metadata only. For server-file rows, the
+ * server app reconciles unreferenced files after the enclosing command
+ * transaction commits; a rolled-back batch therefore never loses live bytes.
+ * Retained IndexedDB rows are still cleaned by the client data-access hook.
  */
 async function deleteInsightDataFrames(
   ctx: { db: import("@wystack/db").DrizzleTracker },
@@ -1988,8 +1988,8 @@ async function deleteInsightDataFrames(
  *
  * Returns the deduplicated set of Insights that SOURCE or JOIN any of
  * `ownedTables` (these are the reference-boundary orphans). As a side-effect,
- * deletes the DataFrame metadata rows for each DataTable's Arrow result so the
- * client-side `removeDataFrame` hook can clean up Arrow bytes.
+ * deletes the DataFrame metadata rows for each DataTable's Arrow result. The
+ * server's post-commit reconciliation then removes unreferenced server files.
  *
  * The full insights table is fetched once (not once-per-table) so that N owned
  * tables do not produce N round-trips.
@@ -2230,7 +2230,7 @@ const deleteNode = wy.procedure
           (it) => it.visualizationId && ownedVizIds.has(it.visualizationId),
         );
       });
-      // Clean up DataFrame metadata so the client-side Arrow cleanup hook fires.
+      // Delete metadata; server-file cleanup runs after the command transaction.
       await deleteInsightDataFrames(ctx, id);
       // Delete the Insight — schema FK cascade removes its Visualizations.
       await ctx.db.from(insights).where(eq("id", id)).delete();

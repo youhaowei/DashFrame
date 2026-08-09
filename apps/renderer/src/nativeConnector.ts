@@ -4,19 +4,18 @@
  * Builds a Mosaic Connector that routes all chart-compute queries to the
  * native DuckDB engine via the loopback Arrow IPC endpoint (`POST /data/arrow`).
  *
- * This is the desktop-tier half of the surface-scoped engine selection:
- *   - Desktop:  this connector → loopback server → native DuckDB
- *   - Web/WASM: no connector; VisualizationSetup falls back to DuckDB-WASM
+ * Desktop uses this loopback connector; web composes the same server protocol
+ * through the shared app connector. Neither activates a WASM fallback.
  *
  * No `isElectron` checks in components — the connector is injected through
  * ChartEngineProvider by the renderer's bootstrap (main.tsx) only when the
  * desktop IPC surface is present.
  *
- * ## Table upload
+ * ## Retained table upload
  *
- * Before chart queries can run against a DataFrame table, that table must be
- * uploaded to the native engine's in-memory store via `POST /data/tables/:name`.
- * Call `uploadArrowTable(name, arrowBytes)` before issuing chart queries.
+ * `uploadArrowTable` remains available for browser-owned local frames, but the
+ * active data plane loads through the shared server connection. Durable project
+ * frames use `registerServerFrame`, so their bytes never cross the renderer.
  *
  * ## Arrow IPC decoding — flechette, not apache-arrow
  *
@@ -81,6 +80,7 @@ export interface NativeMosaicConnector {
    * Must be called before issuing chart queries that reference this table.
    */
   uploadArrowTable(name: string, arrowBytes: Uint8Array): Promise<void>;
+  registerServerFrame(frameId: string, tableName: string): Promise<void>;
 }
 
 /**
@@ -155,8 +155,28 @@ export function createNativeConnector(
     }
   }
 
+  async function registerServerFrame(
+    frameId: string,
+    tableName: string,
+  ): Promise<void> {
+    const endpoint = `${serverUrl}/data/frames/${encodeURIComponent(frameId)}/tables/${encodeURIComponent(tableName)}`;
+    const res = await fetchWithTimeout(endpoint, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+    if (!res.ok) {
+      throw new Error(
+        `Failed to register server frame (${res.status}): ${await res.text()}`,
+      );
+    }
+  }
+
   // Cast through unknown: TypeScript can't narrow the overloaded query
   // signatures to a single implementation, but the runtime dispatches
   // correctly based on q.type.
-  return { query, uploadArrowTable } as unknown as NativeMosaicConnector;
+  return {
+    query,
+    uploadArrowTable,
+    registerServerFrame,
+  } as unknown as NativeMosaicConnector;
 }

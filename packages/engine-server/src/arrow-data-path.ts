@@ -26,12 +26,16 @@
  *   Only available when the engine implements `registerArrowTable` (i.e. the
  *   native engine is wired into this process — not the WASM-backup path).
  */
+import type { DataFrameStorage } from "@dashframe/engine";
+import type { UUID } from "@dashframe/types";
 import type { SecretRef, SecretVault } from "@wystack/secret-vault";
 import { tableFromIPC } from "apache-arrow";
 import { Hono } from "hono";
 import { createHash, timingSafeEqual } from "node:crypto";
 
 export const ARROW_STREAM_CONTENT_TYPE = "application/vnd.apache.arrow.stream";
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /** What the data path needs from an engine: compiled SQL → Arrow IPC bytes. */
 export interface ArrowQueryRunner {
@@ -50,6 +54,8 @@ export interface ArrowTableRegistrar {
 export interface ArrowDataPathOptions {
   /** The engine that executes compiled SQL and returns Arrow IPC. */
   engine: ArrowQueryRunner & Partial<ArrowTableRegistrar>;
+  /** Project-owned frames that may be registered without crossing the client. */
+  dataFrameStorage?: DataFrameStorage;
   /**
    * Per-launch loopback bearer token (plaintext). When set, every request must
    * carry `Authorization: Bearer <token>`. When unset, the path is open
@@ -320,6 +326,42 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
     }
 
     return c.json({ ok: true, name });
+  });
+
+  // Register a durable project frame directly in native DuckDB. The browser
+  // sends only opaque identifiers; Arrow bytes never make a client roundtrip.
+  app.post("/frames/:id/tables/:name", async (c) => {
+    if (!(await checkAuth(c.req.header("authorization"), options))) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+    if (!options.dataFrameStorage) {
+      return c.json({ error: "Server DataFrame storage is unavailable" }, 503);
+    }
+    if (typeof options.engine.registerArrowTable !== "function") {
+      return c.json(
+        { error: "Engine does not support table registration" },
+        501,
+      );
+    }
+    const id = c.req.param("id");
+    const name = c.req.param("name");
+    if (!UUID_PATTERN.test(id)) {
+      return c.json({ error: "Invalid frame id" }, 400);
+    }
+    if (!name || !/^[a-zA-Z_]\w*$/.test(name)) {
+      return c.json(
+        { error: "Table name must be a valid SQL identifier" },
+        400,
+      );
+    }
+    const arrow = await options.dataFrameStorage.load(id as UUID);
+    if (!arrow) return c.json({ error: "Frame not found" }, 404);
+    try {
+      await options.engine.registerArrowTable(name, arrow);
+    } catch {
+      return c.json({ error: "Failed to register frame" }, 500);
+    }
+    return c.json({ ok: true, id, name });
   });
 
   return app;

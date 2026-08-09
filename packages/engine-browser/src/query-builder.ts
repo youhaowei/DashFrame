@@ -261,6 +261,19 @@ export async function ensureTableLoaded(
         });
         break;
       }
+      case "file":
+        if (
+          "registerServerFrame" in conn &&
+          typeof conn.registerServerFrame === "function"
+        ) {
+          await (
+            conn as AsyncDuckDBConnection & {
+              registerServerFrame(id: string, name: string): Promise<void>;
+            }
+          ).registerServerFrame(dataFrame.storage.key, tableName);
+          break;
+        }
+        throw new Error("Server file frames require the server data plane");
       case "s3":
         throw new Error("S3 storage not yet implemented");
       case "r2":

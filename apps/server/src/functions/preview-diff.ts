@@ -1230,10 +1230,15 @@ const commitBatch = wy.procedure
     if (ctx.vault !== undefined) handlerContext.vault = ctx.vault;
     if (ctx.principal !== undefined) handlerContext.principal = ctx.principal;
 
+    const framesBefore = await ctx.captureServerFrameReferences?.();
     const result = await applyCommands(wyStackApp, commands as Command[], {
       mode: "commit",
       context: handlerContext,
     });
+
+    if (framesBefore != null) {
+      await ctx.cleanupDereferencedServerFrames?.(framesBefore);
+    }
 
     if (result.tablesWritten.size > 0) {
       ctx.onWrite?.();

@@ -1,6 +1,7 @@
 import {
   DataFrame as BrowserDataFrame,
   deleteArrowData,
+  QueryBuilder,
 } from "@dashframe/engine-browser";
 import type {
   DataFrame,
@@ -8,6 +9,7 @@ import type {
   DataFrameJSON,
   UUID,
 } from "@dashframe/types";
+import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
 
 import { api } from "../../wystack/api";
 import { getWyStackClient } from "../../wystack/client";
@@ -22,6 +24,41 @@ export type DataFrameEntry = DataFrameJSON & {
   analysis?: DataFrameAnalysis | null;
   lastRefreshedAt?: number;
 };
+
+/** Metadata-only reference for frames owned by the native server data plane. */
+class ServerDataFrame implements DataFrame {
+  readonly id: UUID;
+  readonly storage: DataFrameJSON["storage"];
+  readonly fieldIds: UUID[];
+  readonly primaryKey?: string | string[];
+  readonly createdAt: number;
+
+  constructor(entry: DataFrameEntry) {
+    this.id = entry.id;
+    this.storage = entry.storage;
+    this.fieldIds = entry.fieldIds;
+    this.primaryKey = entry.primaryKey;
+    this.createdAt = entry.createdAt;
+  }
+
+  load(connection: AsyncDuckDBConnection): Promise<QueryBuilder> {
+    return Promise.resolve(new QueryBuilder(this, connection));
+  }
+
+  toJSON(): DataFrameJSON {
+    return {
+      id: this.id,
+      storage: this.storage,
+      fieldIds: this.fieldIds,
+      primaryKey: this.primaryKey,
+      createdAt: this.createdAt,
+    };
+  }
+
+  getStorageType(): string {
+    return "Server File";
+  }
+}
 
 async function deleteArrowDataBestEffort(key: string): Promise<void> {
   try {
@@ -107,9 +144,14 @@ export async function clearAllData(): Promise<void> {
 
 export async function getDataFrame(
   id: UUID,
-): Promise<InstanceType<typeof BrowserDataFrame> | undefined> {
+): Promise<
+  InstanceType<typeof BrowserDataFrame> | ServerDataFrame | undefined
+> {
   const entity = await getDataFrameEntry(id);
-  return entity ? BrowserDataFrame.fromJSON(entity) : undefined;
+  if (!entity) return undefined;
+  return entity.storage.type === "file"
+    ? new ServerDataFrame(entity)
+    : BrowserDataFrame.fromJSON(entity);
 }
 
 export async function getDataFrameEntry(

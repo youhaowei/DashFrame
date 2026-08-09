@@ -7,6 +7,7 @@
  *   than hanging forever.
  * - Happy path: a valid query returns a decoded flechette Table.
  * - Table upload: uploadArrowTable posts with Arrow content-type.
+ * - Server frame registration: only the persisted handle and table name cross.
  * - Error mapping: non-2xx responses are surfaced as human-readable throws.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -144,5 +145,31 @@ describe("createNativeConnector — error handling", () => {
     await expect(
       connector.uploadArrowTable("df_test", new Uint8Array([0])),
     ).rejects.toThrow(/Failed to upload table/);
+  });
+
+  it("registers a persisted server frame by handle without an Arrow body", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const connector = createNativeConnector({
+      serverUrl: SERVER_URL,
+      token: TOKEN,
+    });
+
+    await connector.registerServerFrame(
+      "0d44d605-f3be-46b6-a492-e912231cbedf",
+      "df_report",
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${SERVER_URL}/data/frames/0d44d605-f3be-46b6-a492-e912231cbedf/tables/df_report`,
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          Authorization: `Bearer ${TOKEN}`,
+        }),
+      }),
+    );
+    expect(fetchMock.mock.calls[0]?.[1]).not.toHaveProperty("body");
   });
 });
