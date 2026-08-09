@@ -300,25 +300,28 @@ function toMcpTool(
     description: tool.description,
     inputSchema,
     async execute(args) {
-      // Validate the schema advertised to MCP clients before removing the
-      // transport-only draftId. Otherwise a malformed present value silently
-      // becomes an absent value and scopes the read to canonical state.
-      const checkedInput = validateToolArgs(inputSchema as TSchema, args);
-      if (!checkedInput.ok) throw new Error(checkedInput.error.message);
-      const toolArgs =
+      const isStatelessReadArgs =
         isReadTool &&
         mode === "stateless" &&
-        typeof checkedInput.value === "object" &&
-        checkedInput.value !== null &&
-        !Array.isArray(checkedInput.value)
-          ? (() => {
-              const rest = {
-                ...(checkedInput.value as Record<string, unknown>),
-              };
-              delete rest.draftId;
-              return rest;
-            })()
-          : checkedInput.value;
+        typeof args === "object" &&
+        args !== null &&
+        !Array.isArray(args);
+      if (
+        isStatelessReadArgs &&
+        Object.hasOwn(args, "draftId") &&
+        typeof (args as Record<string, unknown>).draftId !== "string"
+      ) {
+        throw new Error(
+          "Tool argument validation failed: /draftId must be string",
+        );
+      }
+      const toolArgs = isStatelessReadArgs
+        ? (() => {
+            const rest = { ...(args as Record<string, unknown>) };
+            delete rest.draftId;
+            return rest;
+          })()
+        : args;
       const checked = validateToolArgs(tool.parameters, toolArgs);
       if (!checked.ok) throw new Error(checked.error.message);
       const result = await tool.execute(

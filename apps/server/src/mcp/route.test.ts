@@ -246,7 +246,9 @@ describe("MCP route", () => {
         },
         {
           name: "read_graph",
-          args: { from: { kind: "dataSource", id: missingId }, depth: 0 },
+          // Preserve the assistant boundary's Convert-then-Check contract in
+          // stateless mode; models commonly emit numeric arguments as strings.
+          args: { from: { kind: "dataSource", id: missingId }, depth: "0" },
           structured: { reached: [] },
           text: "Reached 0 node(s) within 0 hop(s).",
         },
