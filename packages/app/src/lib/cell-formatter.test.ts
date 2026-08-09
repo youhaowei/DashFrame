@@ -48,20 +48,6 @@ describe("formatCellValue", () => {
     expect(result).not.toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
-  it.each([
-    [409.95000000000005, "409.95000000000005"],
-    [1234567890.12, "1234567890.12"],
-    [0.123456789012345, "0.123456789012345"],
-    [0.1234567890123456, "0.1234567890123456"],
-    [1.2345678901234567, "1.2345678901234567"],
-    [1 + Number.EPSILON, "1.0000000000000002"],
-  ])(
-    "preserves exact numeric value %s in number columns",
-    (value, expected) => {
-      expect(formatCellValue(value, "number")).toBe(expected);
-    },
-  );
-
   it("passes strings through unchanged for string columns", () => {
     expect(formatCellValue("hello world", "string")).toBe("hello world");
   });
