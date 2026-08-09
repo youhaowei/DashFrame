@@ -473,33 +473,54 @@ function closeOnSignal(
   const close = async () => {
     if (closing) return;
     closing = true;
-    try {
-      server.stop();
-    } catch (error) {
-      console.error("[dashframe] error stopping server:", error);
-    }
-    try {
-      await engine.dispose();
-    } catch (error) {
-      console.error("[dashframe] error disposing native DuckDB engine:", error);
-    }
-    try {
-      const result = await project.close();
-      if (!result.snapshotError) {
-        process.exit(0);
-        return;
-      }
+    await shutdownStandaloneResources({ project, server, engine });
+  };
+  process.on("SIGINT", () => void close());
+  process.on("SIGTERM", () => void close());
+}
+
+export interface StandaloneShutdownResources {
+  project: Pick<ProjectHandle, "close">;
+  server: Pick<DashframeServer, "stop">;
+  engine: Pick<StandaloneArrowEngine, "dispose">;
+}
+
+/**
+ * Drain standalone runtime resources and terminate with an honest status.
+ * Snapshot durability is part of a successful shutdown: a reported final
+ * snapshot failure or a rejected project close exits nonzero even though the
+ * server and native engine were already stopped successfully.
+ */
+export async function shutdownStandaloneResources(
+  resources: StandaloneShutdownResources,
+  exit: (code: number) => void = (code) => process.exit(code),
+): Promise<void> {
+  try {
+    resources.server.stop();
+  } catch (error) {
+    console.error("[dashframe] error stopping server:", error);
+  }
+  try {
+    await resources.engine.dispose();
+  } catch (error) {
+    console.error("[dashframe] error disposing native DuckDB engine:", error);
+  }
+
+  let exitCode = 0;
+  try {
+    const result = await resources.project.close();
+    if (result.snapshotError) {
+      exitCode = 1;
       console.error(
         "[dashframe] close-time snapshot failed (data may not be persisted):",
         result.snapshotError,
       );
-    } catch (error) {
-      console.error("[dashframe] error closing project DB:", error);
     }
-    process.exit(0);
-  };
-  process.on("SIGINT", () => void close());
-  process.on("SIGTERM", () => void close());
+  } catch (error) {
+    exitCode = 1;
+    console.error("[dashframe] error closing project DB:", error);
+  }
+  exit(exitCode);
 }
 
 async function disposeEngineAfterStartupFailure(

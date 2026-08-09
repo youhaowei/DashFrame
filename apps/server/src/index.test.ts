@@ -19,6 +19,7 @@ import {
   printHelp,
   resolveDataDir,
   resolveProjectDirectory,
+  shutdownStandaloneResources,
 } from "./index";
 
 describe("dashframe serve CLI", () => {
@@ -81,6 +82,58 @@ describe("dashframe serve CLI", () => {
         })),
       ).rejects.toThrow(/Native DuckDB is required.*connect failed/);
       expect(dispose).toHaveBeenCalledOnce();
+    });
+  });
+
+  describe("standalone shutdown", () => {
+    function resources(close: ProjectHandle["close"]) {
+      return {
+        project: { close },
+        server: { stop: vi.fn() },
+        engine: { dispose: vi.fn().mockResolvedValue(undefined) },
+      };
+    }
+
+    it("exits zero after a durable final snapshot", async () => {
+      const exit = vi.fn();
+      await shutdownStandaloneResources(
+        resources(vi.fn().mockResolvedValue({ snapshotError: null })),
+        exit,
+      );
+      expect(exit).toHaveBeenCalledWith(0);
+    });
+
+    it("exits nonzero when the final snapshot fails", async () => {
+      const exit = vi.fn();
+      const error = new Error("snapshot write failed");
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => undefined);
+      try {
+        await shutdownStandaloneResources(
+          resources(vi.fn().mockResolvedValue({ snapshotError: error })),
+          exit,
+        );
+      } finally {
+        consoleError.mockRestore();
+      }
+      expect(exit).toHaveBeenCalledWith(1);
+    });
+
+    it("exits nonzero when closing the project rejects", async () => {
+      const exit = vi.fn();
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => undefined);
+      try {
+        await shutdownStandaloneResources(
+          resources(vi.fn().mockRejectedValue(new Error("close failed"))),
+          exit,
+        );
+      } finally {
+        consoleError.mockRestore();
+      }
+      expect(exit).toHaveBeenCalledWith(1);
     });
   });
 
