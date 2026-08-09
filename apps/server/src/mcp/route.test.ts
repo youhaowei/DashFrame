@@ -243,7 +243,6 @@ describe("MCP route", () => {
         },
         {
           name: "read_graph",
-          // Preserve the assistant boundary's Convert-then-Check contract in
           // Preserve the assistant boundary's coercion contract; models commonly
           // emit numeric arguments as strings.
           args: { from: { kind: "dataSource", id: missingId }, depth: "0" },

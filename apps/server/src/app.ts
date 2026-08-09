@@ -1170,8 +1170,8 @@ export async function createDashframeServer(
   });
   // The MCP transport needs headers and methods the rest of the surface does
   // not. Allow client probes through CORS so the route can answer unsupported
-  // methods with 405
-  // instead of an opaque browser network error. Scoped to /mcp rather than
+  // methods with 405 instead of an opaque browser network error. Scoped to
+  // /mcp rather than
   // widening the general policy, and registered first so a preflight for /mcp
   // is answered here and never reaches the policy below.
   honoApp.use(
