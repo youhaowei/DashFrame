@@ -21,7 +21,7 @@ import type { WyStackApp } from "@wystack/server";
 
 import { createAssistantReadHost } from "../assistant-read-host";
 import { assertKnownCommandPaths } from "../functions/commands";
-import type { McpMode, McpRequestContext } from "./route";
+import type { McpRequestContext } from "./route";
 
 type AssistantTool = {
   name: string;
@@ -64,22 +64,13 @@ function draftSafeCommandList(): string {
  * An MCP client sees tool descriptions and nothing else before it calls, so a
  * guide behind a second round trip is a guide the agent will not read.
  */
-function draftBatchDescription(mode: McpMode): string {
-  const continuity =
-    mode === "stateless"
-      ? [
-          "draft, never commit. Carry the returned draftId forward: pass it on later",
-          "draft_batch calls to append, and on read tools to see the draft overlay.",
-        ]
-      : [
-          "draft, never commit. The server carries the returned draftId for this",
-          "session, so later writes and reads continue against the same overlay.",
-        ];
+function draftBatchDescription(): string {
   return [
     "Append a batch of draft-safe DashFrame commands to a DashFrame draft.",
     "Nothing here reaches canonical state: the draft opens on the first",
     "successful call, and only a person can publish it. API credentials can",
-    ...continuity,
+    "draft, never commit. Carry the returned draftId forward: pass it on later",
+    "draft_batch calls to append, and on read tools to see the draft overlay.",
     "",
     "Each entry is { type, args } where `type` is a command NAME from the guide",
     "below (not a registry path).",
@@ -176,10 +167,9 @@ function isMissingDraftError(error: unknown): boolean {
 function createDelegatingReader(
   app: WyStackApp,
   context: McpRequestContext,
-  mode: McpMode,
 ): GraphReader {
   const assertDraftOpen = async (): Promise<void> => {
-    if (mode !== "stateless" || context.draftId === undefined) return;
+    if (context.draftId === undefined) return;
     const listed = await app.call(
       "listDrafts",
       {},
@@ -273,41 +263,35 @@ function refLine(details: unknown): string | null {
     : `Ids: ${rendered}`;
 }
 
-function toMcpTool(
-  tool: AssistantTool,
-  isReadTool: boolean,
-  mode: McpMode,
-): McpTool {
-  const inputSchema =
-    isReadTool && mode === "stateless"
-      ? {
-          ...tool.parameters,
-          properties: {
-            ...(tool.parameters as { properties: Record<string, TSchema> })
-              .properties,
-            draftId: Type.Optional(
-              Type.String({
-                description:
-                  "Draft id from draft_batch. Pass it to read through that " +
-                  "draft's overlay; omit to read canonical state.",
-              }),
-            ),
-          },
-        }
-      : tool.parameters;
+function toMcpTool(tool: AssistantTool, isReadTool: boolean): McpTool {
+  const inputSchema = isReadTool
+    ? {
+        ...tool.parameters,
+        properties: {
+          ...(tool.parameters as { properties: Record<string, TSchema> })
+            .properties,
+          draftId: Type.Optional(
+            Type.String({
+              description:
+                "Draft id from draft_batch. Pass it to read through that " +
+                "draft's overlay; omit to read canonical state.",
+            }),
+          ),
+        },
+      }
+    : tool.parameters;
   return {
     name: tool.name,
     description: tool.description,
     inputSchema,
     async execute(args) {
-      const isStatelessReadArgs =
+      const isReadArgs =
         isReadTool &&
-        mode === "stateless" &&
         typeof args === "object" &&
         args !== null &&
         !Array.isArray(args);
       if (
-        isStatelessReadArgs &&
+        isReadArgs &&
         Object.hasOwn(args, "draftId") &&
         typeof (args as Record<string, unknown>).draftId !== "string"
       ) {
@@ -315,7 +299,7 @@ function toMcpTool(
           "Tool argument validation failed: /draftId must be string",
         );
       }
-      const toolArgs = isStatelessReadArgs
+      const toolArgs = isReadArgs
         ? (() => {
             const rest = { ...(args as Record<string, unknown>) };
             delete rest.draftId;
@@ -345,30 +329,24 @@ function toMcpTool(
 export function createMcpTools(
   app: WyStackApp,
   context: McpRequestContext,
-  mode: McpMode,
 ): McpTool[] {
   const readTools = Object.values(
-    createReadTools(createDelegatingReader(app, context, mode)),
+    createReadTools(createDelegatingReader(app, context)),
   ) as AssistantTool[];
 
   const writeTool = defineToolHandler({
     name: DRAFT_BATCH_TOOL_NAME,
-    description: draftBatchDescription(mode),
+    description: draftBatchDescription(),
     label: "Draft batch",
     executionMode: "sequential",
     parameters: Type.Object({
-      ...(mode === "stateless"
-        ? {
-            draftId: Type.Optional(
-              Type.String({
-                description:
-                  "Draft id returned by an earlier draft_batch call. Omit " +
-                  "to open a new draft; a missing or stale id also opens a " +
-                  "new draft.",
-              }),
-            ),
-          }
-        : {}),
+      draftId: Type.Optional(
+        Type.String({
+          description:
+            "Draft id returned by an earlier draft_batch call. Omit " +
+            "to open a new draft; a missing or stale id also opens a new draft.",
+        }),
+      ),
       commands: Type.Array(
         Type.Object({
           type: Type.String({
@@ -404,12 +382,7 @@ export function createMcpTools(
         return response.result as { draftId: string; results: unknown[] };
       };
 
-      const suppliedDraftId =
-        mode === "stateless"
-          ? (params as { draftId?: string }).draftId
-          : undefined;
-      const draftId =
-        suppliedDraftId ?? (mode === "stateful" ? context.draftId : undefined);
+      const draftId = (params as { draftId?: string }).draftId;
       let result: { draftId: string; results: unknown[] };
       try {
         result = await append(draftId);
@@ -419,7 +392,6 @@ export function createMcpTools(
         }
         result = await append(undefined);
       }
-      if (mode === "stateful") context.draftId = result.draftId;
       return {
         content: [
           {
@@ -437,7 +409,7 @@ export function createMcpTools(
   });
 
   return [
-    ...readTools.map((tool) => toMcpTool(tool, true, mode)),
-    toMcpTool(writeTool as AssistantTool, false, mode),
+    ...readTools.map((tool) => toMcpTool(tool, true)),
+    toMcpTool(writeTool as AssistantTool, false),
   ];
 }

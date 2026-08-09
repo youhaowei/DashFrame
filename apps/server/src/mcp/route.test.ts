@@ -24,7 +24,6 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createDashframeServer, type DashframeServer } from "../app";
-import type { McpMode } from "./route";
 import { createMcpTools } from "./tools";
 
 const USER_TOKEN = "mcp-test-user-token";
@@ -85,7 +84,7 @@ describe("MCP route", () => {
   let server: DashframeServer | null = null;
   let serviceToken: string;
 
-  async function start(mode: McpMode): Promise<void> {
+  async function start(): Promise<void> {
     server?.stop();
     await project?.close();
     server = null;
@@ -99,7 +98,6 @@ describe("MCP route", () => {
       accessCredentials,
       vault,
       authToken: USER_TOKEN,
-      mcpMode: mode,
     });
 
     const issued = await fetch(`${server.url}/api/issueAccessCredential`, {
@@ -115,7 +113,7 @@ describe("MCP route", () => {
   }
 
   beforeEach(async () => {
-    await start("stateless");
+    await start();
   });
 
   afterEach(async () => {
@@ -159,11 +157,10 @@ describe("MCP route", () => {
         return { result: [] };
       },
     } as unknown as Parameters<typeof createMcpTools>[0];
-    const tool = createMcpTools(
-      fakeApp,
-      { principal: { kind: "service", credentialId: "test" }, draftId },
-      "stateless",
-    ).find((candidate) => candidate.name === "find_nodes");
+    const tool = createMcpTools(fakeApp, {
+      principal: { kind: "service", credentialId: "test" },
+      draftId,
+    }).find((candidate) => candidate.name === "find_nodes");
 
     await expect(tool!.execute({})).rejects.toThrow(/is no longer open/i);
   });
@@ -247,7 +244,8 @@ describe("MCP route", () => {
         {
           name: "read_graph",
           // Preserve the assistant boundary's Convert-then-Check contract in
-          // stateless mode; models commonly emit numeric arguments as strings.
+          // Preserve the assistant boundary's coercion contract; models commonly
+          // emit numeric arguments as strings.
           args: { from: { kind: "dataSource", id: missingId }, depth: "0" },
           structured: { reached: [] },
           text: "Reached 0 node(s) within 0 hop(s).",
@@ -693,111 +691,6 @@ describe("MCP route", () => {
     });
     expect(malformed.status).toBe(400);
     expect(await malformed.json()).toMatchObject({ error: { code: -32700 } });
-  });
-
-  it("preserves stateful sessions and their server-carried draft continuity", async () => {
-    await start("stateful");
-    const { client, transport } = await connect();
-    try {
-      expect(transport.sessionId).toEqual(expect.any(String));
-      const listed = await client.listTools();
-      const readSchema = listed.tools.find((tool) => tool.name === "find_nodes")
-        ?.inputSchema as { properties?: Record<string, unknown> };
-      const writeSchema = listed.tools.find(
-        (tool) => tool.name === "draft_batch",
-      )?.inputSchema as { properties?: Record<string, unknown> };
-      expect(readSchema.properties).not.toHaveProperty("draftId");
-      expect(writeSchema.properties).not.toHaveProperty("draftId");
-
-      const write = async (id: string, name: string) =>
-        client.callTool({
-          name: "draft_batch",
-          arguments: {
-            commands: [{ type: "CreateDashboard", args: { id, name } }],
-          },
-        });
-      const first = await write(crypto.randomUUID(), "Stateful first");
-      const second = await write(crypto.randomUUID(), "Stateful second");
-      const firstId = (first.structuredContent as { draftId: string }).draftId;
-      expect(second.structuredContent).toMatchObject({ draftId: firstId });
-
-      const foreign = await fetch(`${server!.url}/api/draftBatch`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...bearer(USER_TOKEN) },
-        body: JSON.stringify({
-          commands: [
-            {
-              path: "createDashboardCmd",
-              args: {
-                id: crypto.randomUUID(),
-                name: "Foreign stateful draft",
-              },
-            },
-          ],
-        }),
-      });
-      expect(foreign.status).toBe(200);
-      const foreignId = (
-        (await foreign.json()) as { data: { draftId: string } }
-      ).data.draftId;
-      expect(foreignId).not.toBe(firstId);
-
-      const hiddenOverride = await client.callTool({
-        name: "draft_batch",
-        arguments: {
-          draftId: foreignId,
-          commands: [
-            {
-              type: "CreateDashboard",
-              args: {
-                id: crypto.randomUUID(),
-                name: "Stateful hidden override",
-              },
-            },
-          ],
-        },
-      });
-      expect(hiddenOverride.structuredContent).toMatchObject({
-        draftId: firstId,
-      });
-
-      const read = await client.callTool({
-        name: "find_nodes",
-        arguments: { name: "Stateful" },
-      });
-      const names = (
-        read.structuredContent as { hits: Array<{ name: string }> }
-      ).hits
-        .map((hit) => hit.name)
-        .sort();
-      expect(names).toEqual([
-        "Stateful first",
-        "Stateful hidden override",
-        "Stateful second",
-      ]);
-
-      const issued = await fetch(`${server!.url}/api/issueAccessCredential`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...bearer(USER_TOKEN) },
-        body: JSON.stringify({ name: "Other MCP integration" }),
-      });
-      const otherToken = (
-        (await issued.json()) as { data: { accessCredential: string } }
-      ).data.accessCredential;
-      const stolen = await fetch(`${server!.url}/mcp`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json, text/event-stream",
-          "Mcp-Session-Id": transport.sessionId!,
-          ...bearer(otherToken),
-        },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 4, method: "tools/list" }),
-      });
-      expect(stolen.status).toBe(403);
-    } finally {
-      await transport.close();
-    }
   });
 
   /**
