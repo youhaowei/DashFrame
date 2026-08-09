@@ -375,6 +375,13 @@ describe("MCP route", () => {
       });
       expect(discarded.status).toBe(200);
 
+      await expectToolError(
+        client,
+        "find_nodes",
+        { name: "Before the discard", draftId: firstId },
+        /is no longer open/i,
+      );
+
       const second = await write("After the discard", firstId);
       expect(second.isError).not.toBe(true);
       const secondId = (second.structuredContent as { draftId: string })
@@ -676,6 +683,46 @@ describe("MCP route", () => {
       const firstId = (first.structuredContent as { draftId: string }).draftId;
       expect(second.structuredContent).toMatchObject({ draftId: firstId });
 
+      const foreign = await fetch(`${server!.url}/api/draftBatch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...bearer(USER_TOKEN) },
+        body: JSON.stringify({
+          commands: [
+            {
+              path: "createDashboardCmd",
+              args: {
+                id: crypto.randomUUID(),
+                name: "Foreign stateful draft",
+              },
+            },
+          ],
+        }),
+      });
+      expect(foreign.status).toBe(200);
+      const foreignId = (
+        (await foreign.json()) as { data: { draftId: string } }
+      ).data.draftId;
+      expect(foreignId).not.toBe(firstId);
+
+      const hiddenOverride = await client.callTool({
+        name: "draft_batch",
+        arguments: {
+          draftId: foreignId,
+          commands: [
+            {
+              type: "CreateDashboard",
+              args: {
+                id: crypto.randomUUID(),
+                name: "Stateful hidden override",
+              },
+            },
+          ],
+        },
+      });
+      expect(hiddenOverride.structuredContent).toMatchObject({
+        draftId: firstId,
+      });
+
       const read = await client.callTool({
         name: "find_nodes",
         arguments: { name: "Stateful" },
@@ -685,7 +732,11 @@ describe("MCP route", () => {
       ).hits
         .map((hit) => hit.name)
         .sort();
-      expect(names).toEqual(["Stateful first", "Stateful second"]);
+      expect(names).toEqual([
+        "Stateful first",
+        "Stateful hidden override",
+        "Stateful second",
+      ]);
 
       const issued = await fetch(`${server!.url}/api/issueAccessCredential`, {
         method: "POST",

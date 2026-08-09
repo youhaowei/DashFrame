@@ -176,10 +176,25 @@ function isMissingDraftError(error: unknown): boolean {
 function createDelegatingReader(
   app: WyStackApp,
   context: McpRequestContext,
+  mode: McpMode,
 ): GraphReader {
   return new Proxy({} as GraphReader, {
     get(_target, property: keyof GraphReader) {
-      return (...args: unknown[]) => {
+      return async (...args: unknown[]) => {
+        if (mode === "stateless" && context.draftId !== undefined) {
+          const listed = await app.call(
+            "listDrafts",
+            {},
+            { principal: context.principal },
+          );
+          const drafts = listed.result as Array<{ draftId: string }>;
+          if (!drafts.some((draft) => draft.draftId === context.draftId)) {
+            throw new Error(
+              `Draft ${context.draftId} is no longer open. Use the latest ` +
+                "draftId returned by draft_batch, or omit it to read canonical state.",
+            );
+          }
+        }
         const reader = createAssistantReadHost({
           app,
           ...(context.draftId === undefined
@@ -315,7 +330,7 @@ export function createMcpTools(
   mode: McpMode,
 ): McpTool[] {
   const readTools = Object.values(
-    createReadTools(createDelegatingReader(app, context)),
+    createReadTools(createDelegatingReader(app, context, mode)),
   ) as AssistantTool[];
 
   const writeTool = defineToolHandler({
@@ -371,7 +386,10 @@ export function createMcpTools(
         return response.result as { draftId: string; results: unknown[] };
       };
 
-      const suppliedDraftId = (params as { draftId?: string }).draftId;
+      const suppliedDraftId =
+        mode === "stateless"
+          ? (params as { draftId?: string }).draftId
+          : undefined;
       const draftId =
         suppliedDraftId ?? (mode === "stateful" ? context.draftId : undefined);
       let result: { draftId: string; results: unknown[] };
