@@ -178,23 +178,26 @@ function createDelegatingReader(
   context: McpRequestContext,
   mode: McpMode,
 ): GraphReader {
+  const assertDraftOpen = async (): Promise<void> => {
+    if (mode !== "stateless" || context.draftId === undefined) return;
+    const listed = await app.call(
+      "listDrafts",
+      {},
+      { principal: context.principal },
+    );
+    const drafts = listed.result as Array<{ draftId: string }>;
+    if (!drafts.some((draft) => draft.draftId === context.draftId)) {
+      throw new Error(
+        `Draft ${context.draftId} is no longer open. Use the latest ` +
+          "draftId returned by draft_batch, or omit it to read canonical state.",
+      );
+    }
+  };
+
   return new Proxy({} as GraphReader, {
     get(_target, property: keyof GraphReader) {
       return async (...args: unknown[]) => {
-        if (mode === "stateless" && context.draftId !== undefined) {
-          const listed = await app.call(
-            "listDrafts",
-            {},
-            { principal: context.principal },
-          );
-          const drafts = listed.result as Array<{ draftId: string }>;
-          if (!drafts.some((draft) => draft.draftId === context.draftId)) {
-            throw new Error(
-              `Draft ${context.draftId} is no longer open. Use the latest ` +
-                "draftId returned by draft_batch, or omit it to read canonical state.",
-            );
-          }
-        }
+        await assertDraftOpen();
         const reader = createAssistantReadHost({
           app,
           ...(context.draftId === undefined
@@ -202,7 +205,12 @@ function createDelegatingReader(
             : { draftId: context.draftId }),
         });
         const method = reader[property] as (...values: unknown[]) => unknown;
-        return method.apply(reader, args);
+        const result = await method.apply(reader, args);
+        // A person can publish or discard between the first check and the
+        // overlay read. Refuse that result instead of returning canonical data
+        // from a draft handle whose shadow disappeared mid-request.
+        await assertDraftOpen();
+        return result;
       };
     },
   });
@@ -292,18 +300,25 @@ function toMcpTool(
     description: tool.description,
     inputSchema,
     async execute(args) {
+      // Validate the schema advertised to MCP clients before removing the
+      // transport-only draftId. Otherwise a malformed present value silently
+      // becomes an absent value and scopes the read to canonical state.
+      const checkedInput = validateToolArgs(inputSchema as TSchema, args);
+      if (!checkedInput.ok) throw new Error(checkedInput.error.message);
       const toolArgs =
         isReadTool &&
         mode === "stateless" &&
-        typeof args === "object" &&
-        args !== null &&
-        !Array.isArray(args)
+        typeof checkedInput.value === "object" &&
+        checkedInput.value !== null &&
+        !Array.isArray(checkedInput.value)
           ? (() => {
-              const rest = { ...(args as Record<string, unknown>) };
+              const rest = {
+                ...(checkedInput.value as Record<string, unknown>),
+              };
               delete rest.draftId;
               return rest;
             })()
-          : args;
+          : checkedInput.value;
       const checked = validateToolArgs(tool.parameters, toolArgs);
       if (!checked.ok) throw new Error(checked.error.message);
       const result = await tool.execute(

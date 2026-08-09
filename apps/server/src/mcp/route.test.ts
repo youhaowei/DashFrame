@@ -25,6 +25,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createDashframeServer, type DashframeServer } from "../app";
 import type { McpMode } from "./route";
+import { createMcpTools } from "./tools";
 
 const USER_TOKEN = "mcp-test-user-token";
 
@@ -138,6 +139,34 @@ describe("MCP route", () => {
     await client.connect(transport);
     return { client, transport };
   }
+
+  it("refuses a draft read when the draft closes during the read", async () => {
+    const draftId = crypto.randomUUID();
+    let draftChecks = 0;
+    const fakeApp = {
+      createTracked() {
+        return {};
+      },
+      async runHandler() {
+        return [];
+      },
+      async call(path: string) {
+        if (path === "listDrafts") {
+          return {
+            result: draftChecks++ === 0 ? [{ draftId }] : [],
+          };
+        }
+        return { result: [] };
+      },
+    } as unknown as Parameters<typeof createMcpTools>[0];
+    const tool = createMcpTools(
+      fakeApp,
+      { principal: { kind: "service", credentialId: "test" }, draftId },
+      "stateless",
+    ).find((candidate) => candidate.name === "find_nodes");
+
+    await expect(tool!.execute({})).rejects.toThrow(/is no longer open/i);
+  });
 
   it("mints the credential as a user before the MCP service-principal round trip", async () => {
     const response = await fetch(
@@ -366,6 +395,13 @@ describe("MCP route", () => {
       const first = await write("Before the discard");
       expect(first.isError).not.toBe(true);
       const firstId = (first.structuredContent as { draftId: string }).draftId;
+
+      await expectToolError(
+        client,
+        "find_nodes",
+        { name: "Before the discard", draftId: {} },
+        /validation failed/i,
+      );
 
       // Out of band, as a person: the draft the agent is carrying goes away.
       const discarded = await fetch(`${server!.url}/api/discardDraft`, {
