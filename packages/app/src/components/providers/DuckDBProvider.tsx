@@ -1,6 +1,9 @@
 import { clearInsightViewCache } from "@/hooks/useInsightView";
 import { getServerDataPlane } from "@/lib/server-data-plane";
-import { clearAllTableCaches } from "@dashframe/engine-browser";
+import {
+  clearAllTableCaches,
+  type DuckDBConnection,
+} from "@dashframe/engine-browser";
 import type * as duckdb from "@duckdb/duckdb-wasm";
 import {
   createContext,
@@ -13,7 +16,7 @@ import {
 
 interface DuckDBContextValue {
   db: duckdb.AsyncDuckDB | null;
-  connection: duckdb.AsyncDuckDBConnection | null;
+  connection: DuckDBConnection | null;
   isInitialized: boolean;
   isLoading: boolean;
   error: Error | null;
@@ -45,7 +48,7 @@ export function DuckDBProvider({ children }: { children: React.ReactNode }) {
   /** Prevent duplicate initialization attempts */
   const initRef = useRef(false);
   /** Ref to track live connection for cleanup */
-  const connectionRef = useRef<duckdb.AsyncDuckDBConnection | null>(null);
+  const connectionRef = useRef<DuckDBConnection | null>(null);
   /** Ref to read current state values without triggering callback re-creation */
   const stateRef = useRef(state);
 
@@ -83,8 +86,7 @@ export function DuckDBProvider({ children }: { children: React.ReactNode }) {
       if (serverConnection) {
         clearAllTableCaches();
         clearInsightViewCache();
-        const connection =
-          serverConnection as unknown as duckdb.AsyncDuckDBConnection;
+        const connection = serverConnection;
         connectionRef.current = connection;
         setState({
           db: null,

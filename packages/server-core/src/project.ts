@@ -145,6 +145,8 @@ export interface ProjectHandle {
    * leave an inert orphan rather than risk a dangling live reference.
    */
   flushSnapshot(): Promise<void>;
+  /** Replace every retained recovery snapshot with the current project state. */
+  flushSnapshotRetentionWindow(): Promise<void>;
   /** Flush pending writes, write a final snapshot, and close the underlying PGlite connection. */
   close(): Promise<CloseResult>;
 }
@@ -279,6 +281,7 @@ export async function openProject(
     recovery,
     touchSnapshot: () => scheduler.touch(),
     flushSnapshot: () => scheduler.flushNow(),
+    flushSnapshotRetentionWindow: () => scheduler.flushRetentionWindow(),
     close,
   };
 }

@@ -12,13 +12,13 @@ bun add @dashframe/engine
 
 The engine package defines runtime-agnostic interfaces:
 
-| Interface          | Real implementation today                                                     |
-| ------------------ | ----------------------------------------------------------------------------- |
-| `QueryEngine`      | `NativeDuckDBEngine` (`@dashframe/engine-server`)                             |
-| `DataFrameStorage` | Project files (`@dashframe/engine-server`); retained IndexedDB implementation |
-| `DataFrame`        | `BrowserDataFrame` (`@dashframe/engine-browser`)                              |
+| Interface          | Real implementation today                                             |
+| ------------------ | --------------------------------------------------------------------- |
+| `QueryEngine`      | `NativeDuckDBEngine` (`@dashframe/engine-server`)                     |
+| `DataFrameStorage` | Project files for server snapshots; retained IndexedDB implementation |
+| `DataFrame`        | Server query results; retained `BrowserDataFrame` implementation      |
 
-The active path is **server-side native DuckDB** (`NativeDuckDBEngine`) for both desktop and web. DuckDB-WASM helpers in `@dashframe/engine-browser` remain in the codebase, but no product mode currently activates them.
+Remote imports and refreshes use **server-side native DuckDB** (`NativeDuckDBEngine`) and durable project-file snapshots for both desktop and web. Local-file import still uses the legacy browser/IndexedDB path until the required server-ingestion follow-up lands. There is no selectable WASM mode or fallback.
 
 This package has no shared `QueryPlanner` / push-down API. Connectors may still run remote queries themselves (e.g. Postgres table-reference fetches push LIMIT/OFFSET server-side); that is connector-local, not a cross-engine planner.
 
@@ -65,7 +65,15 @@ interface DataFrameStorage {
   save(id: UUID, data: Uint8Array): Promise<void>;
   load(id: UUID): Promise<Uint8Array | null>;
   delete(id: UUID): Promise<void>;
+  // These three optional methods are an all-or-nothing reversible-delete group.
+  stageDelete?(id: UUID): Promise<string | null>;
+  commitDelete?(token: string): Promise<void>;
+  rollbackDelete?(token: string): Promise<void>;
+  // Independently optional startup recovery for interrupted staged deletes.
+  recoverStagedDeletes?(referencedIds: readonly UUID[]): Promise<void>;
   exists(id: UUID): Promise<boolean>;
+  list(): Promise<UUID[]>;
+  getUsage(): Promise<{ count: number; totalBytes?: number }>;
 }
 ```
 
@@ -128,4 +136,4 @@ import type {
 ## Implementations
 
 - **`@dashframe/engine-server`** — primary: native DuckDB pipeline (`NativeDuckDBEngine`, Arrow data path, placement policy)
-- **`@dashframe/engine-browser`** — retained DuckDB-WASM, IndexedDB, and BrowserDataFrame implementation; no active product mode
+- **`@dashframe/engine-browser`** — retained DuckDB-WASM, IndexedDB, and BrowserDataFrame implementation; local-file import still depends on it pending server ingestion

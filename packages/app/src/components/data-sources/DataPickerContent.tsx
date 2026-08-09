@@ -165,9 +165,9 @@ export function DataPickerContent({
   const [error, setError] = useState<string | null>(null);
   const [remoteResourceState, setRemoteResourceState] =
     useState<RemoteResourceState | null>(null);
-  const [materializingResourceId, setMaterializingResourceId] = useState<
-    string | null
-  >(null);
+  const [importingResourceId, setImportingResourceId] = useState<string | null>(
+    null,
+  );
   const isMountedRef = useRef(true);
 
   useEffect(() => {
@@ -454,7 +454,7 @@ export function DataPickerContent({
   const handleRemoteResourceSelect = useCallback(
     async (resource: { id: string; title: string }) => {
       if (!remoteResourceState) return;
-      setMaterializingResourceId(resource.id);
+      setImportingResourceId(resource.id);
       setError(null);
       let tableId: UUID | null = null;
       try {
@@ -465,19 +465,16 @@ export function DataPickerContent({
             table: resource.id,
           })
         ).id;
-        const queryResource = (
-          materialize = false,
-          approvedFields?: Field[],
-        ) => {
-          const materialization = materialize
-            ? { materialize: true, approvedFields }
+        const queryResource = (snapshot = false, approvedFields?: Field[]) => {
+          const snapshotRequest = snapshot
+            ? { snapshot: true, approvedFields }
             : {};
           if (remoteResourceState.connectorId === "notion") {
             return queryNotionDatabaseMutation({
               dataSourceId: remoteResourceState.sourceId,
               databaseId: resource.id,
               tableId: tableId!,
-              ...materialization,
+              ...snapshotRequest,
             });
           }
           if (remoteResourceState.connectorId === "postgres") {
@@ -485,7 +482,7 @@ export function DataPickerContent({
               dataSourceId: remoteResourceState.sourceId,
               databaseId: resource.id,
               tableId: tableId!,
-              ...materialization,
+              ...snapshotRequest,
             });
           }
           // The property is read from the DataTable row just created above,
@@ -493,7 +490,7 @@ export function DataPickerContent({
           return queryGa4PropertyMutation({
             dataSourceId: remoteResourceState.sourceId,
             tableId: tableId!,
-            ...materialization,
+            ...snapshotRequest,
           });
         };
         const result = await queryResource();
@@ -530,7 +527,7 @@ export function DataPickerContent({
             : "Couldn't import this table. Check the connection and try again.",
         );
       } finally {
-        setMaterializingResourceId(null);
+        setImportingResourceId(null);
       }
     },
     [
@@ -631,7 +628,7 @@ export function DataPickerContent({
                       label={resource.title}
                       variant="outline"
                       className="w-full justify-start"
-                      disabled={materializingResourceId !== null}
+                      disabled={importingResourceId !== null}
                       onClick={() => handleRemoteResourceSelect(resource)}
                     />
                   ))

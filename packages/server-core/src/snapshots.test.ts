@@ -26,7 +26,7 @@ import {
   openProject,
   type ProjectHandle,
 } from "./project";
-import { projectMeta } from "./schema";
+import { dataFrames, projectMeta } from "./schema";
 import {
   hasCorruptWalSegment,
   listSnapshots,
@@ -146,6 +146,42 @@ describe("writeSnapshot + listSnapshots", () => {
     } finally {
       await pg.close();
     }
+  });
+});
+
+describe("retained snapshot resource safety", () => {
+  test("flushSnapshotRetentionWindow removes deleted frame metadata from every retained fallback", async () => {
+    const projectDir = tempDir();
+    const project = await openProject({ dir: projectDir });
+    const frameId = "11111111-1111-4111-8111-111111111111";
+    await project.db.insert(dataFrames).values({
+      id: frameId,
+      storage: { type: "file", key: frameId },
+      fieldIds: [],
+      name: "old snapshot frame",
+    });
+    await project.flushSnapshot();
+    await project.db.delete(dataFrames);
+
+    await project.flushSnapshotRetentionWindow();
+
+    const retained = await listSnapshots(projectDir);
+    expect(retained).toHaveLength(SNAPSHOT_KEEP_N);
+    for (const [index, snapshot] of retained.entries()) {
+      const restoredDir = join(projectDir, `retained-${index}`);
+      const restored = new PGlite(restoredDir, {
+        loadDataDir: new Blob([readFileSync(snapshot.absPath)]),
+      });
+      await restored.waitReady;
+      expect(
+        await restored.query("SELECT id FROM data_frames WHERE id = $1", [
+          frameId,
+        ]),
+      ).toMatchObject({ rows: [] });
+      await restored.close();
+    }
+    await project.close();
+    rmSync(projectDir, { recursive: true, force: true });
   });
 });
 

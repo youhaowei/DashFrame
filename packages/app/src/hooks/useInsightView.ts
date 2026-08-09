@@ -193,13 +193,19 @@ export interface UseInsightViewOptions {
    * the pre-override behaviour.
    */
   effectiveParams?: EffectiveParams;
+  /**
+   * Live table metadata used to invalidate a cached view when its snapshot
+   * replaces one of its source frames. All UI consumers already subscribe to
+   * this table list for rendering, so no additional query is required here.
+   */
+  dataTables?: readonly DataTable[];
 }
 
 export function useInsightView(
   insight: Insight | null | undefined,
   options: UseInsightViewOptions = {},
 ) {
-  const { effectiveParams } = options;
+  const { effectiveParams, dataTables } = options;
   const { connection, isInitialized, isLoading: isDuckDBLoading } = useDuckDB();
 
   // Stable key for the effective params so the cache differentiates cells that
@@ -230,11 +236,22 @@ export function useInsightView(
       )
     : null;
 
+  const frameRevision = dataTables
+    ? [baseTableId, ...(insight?.joins ?? []).map((join) => join.rightTableId)]
+        .map((tableId) => {
+          const table = dataTables.find(
+            (candidate) => candidate.id === tableId,
+          );
+          return `${tableId ?? ""}:${table?.dataFrameId ?? ""}:${table?.lastFetchedAt ?? ""}`;
+        })
+        .join("|")
+    : "";
+
   // Compute config key for cache lookup.
   // Keyed on the effective FILTERS only (the only override dimension that changes
   // the model-mode view); cells differing only in sort/limit reuse one view.
   const configKey = insightId
-    ? `${insightId}:${joinsKey}:${effectiveFiltersKey ?? ""}`
+    ? `${insightId}:${joinsKey}:${effectiveFiltersKey ?? ""}:${frameRevision}`
     : null;
 
   // Track the most recently rendered configKey so in-flight createView calls
@@ -422,7 +439,7 @@ export function useInsightView(
         await Promise.all(joinLoadPromises);
 
         // Load every frame into the active native server connection. File-backed
-        // frames register by handle inside the server; IndexedDB frames use the
+        // server snapshots register by DataFrame ID; IndexedDB frames use the
         // connection's explicit Arrow upload. Unsupported storage fails; no
         // fallback exists in the active v0.3 plane.
         const allNativeCapable = true;
@@ -498,6 +515,11 @@ export function useInsightView(
           viewName: newViewName,
           nativeCapable: allNativeCapable,
         };
+        for (const key of createdViewsCache.keys()) {
+          if (key !== configKey && key.startsWith(`${insightId}:`)) {
+            createdViewsCache.delete(key);
+          }
+        }
         createdViewsCache.set(configKey, created);
 
         // Guard: if the component has moved on to a different configKey while
@@ -549,6 +571,7 @@ export function useInsightView(
     joinsKey,
     configKey,
     effectiveFiltersKey, // re-run when the cell's filter override changes
+    frameRevision,
   ]);
 
   return {

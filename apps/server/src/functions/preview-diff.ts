@@ -1237,7 +1237,16 @@ const commitBatch = wy.procedure
     });
 
     if (framesBefore != null) {
-      await ctx.cleanupDereferencedServerFrames?.(framesBefore);
+      try {
+        await ctx.cleanupDereferencedServerFrames?.(framesBefore);
+      } catch (err) {
+        // applyCommands has committed. Cleanup is recoverable startup work and
+        // must not suppress snapshot scheduling, invalidation, or the response.
+        console.error(
+          "[dashframe] commitBatch: dereferenced server frame cleanup failed; startup recovery will retry",
+          err,
+        );
+      }
     }
 
     if (result.tablesWritten.size > 0) {

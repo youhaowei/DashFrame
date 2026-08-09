@@ -20,9 +20,11 @@ export interface AppContext {
   cleanupDereferencedServerFrames?: (
     before: ReadonlySet<string>,
   ) => Promise<void>;
+  unregisterServerFrames?: (ids: readonly string[]) => Promise<void>;
   draftController?: DraftController;
   onWrite?: () => void;
   flushSnapshot?: () => Promise<void>;
+  flushSnapshotRetentionWindow?: () => Promise<void>;
   googleOAuth?: GoogleOAuthConfig;
   mode?: string;
   draftId?: string;

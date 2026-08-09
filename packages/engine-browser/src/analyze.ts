@@ -13,8 +13,8 @@ import type {
   UnknownAnalysis,
 } from "@dashframe/types";
 import { CARDINALITY_THRESHOLDS } from "@dashframe/types";
-import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
 import { debugLog } from "./debug";
+import type { DuckDBConnection } from "./query-builder";
 
 // Re-export types and utilities from @dashframe/types for backward compatibility
 export {
@@ -331,7 +331,7 @@ function analyzeString(
  * @returns Array of column analysis results
  */
 export async function analyzeDataFrame(
-  conn: AsyncDuckDBConnection,
+  conn: DuckDBConnection,
   tableName: string,
   columns: DataFrameColumn[],
   fields?: Record<string, Field>,
@@ -953,7 +953,7 @@ export function suggestJoinColumns(
  * @returns Column analysis for all columns in the view
  */
 export async function analyzeView(
-  conn: AsyncDuckDBConnection,
+  conn: DuckDBConnection,
   viewName: string,
 ): Promise<ColumnAnalysis[]> {
   try {

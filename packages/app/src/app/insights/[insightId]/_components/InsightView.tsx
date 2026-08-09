@@ -106,13 +106,13 @@ function remapAnalysisColumnNames(
 }
 
 import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
+import type { DuckDBConnection } from "@dashframe/engine-browser";
 import type { ChartEncoding } from "@dashframe/types";
 import { fieldEncoding, metricEncoding } from "@dashframe/types";
-import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
 
 /** Helper context for DataFrame analysis operations */
 interface AnalysisContext {
-  duckDBConnection: AsyncDuckDBConnection;
+  duckDBConnection: DuckDBConnection;
   updateAnalysis: (id: UUID, analysis: DataFrameAnalysis) => Promise<void>;
 }
 
@@ -889,7 +889,7 @@ export function InsightView({
   // For insights with joins, creates a view with joined data
   // For simple insights, returns the base table name
   const { viewName: chartTableName, isReady: isChartViewReady } =
-    useInsightView(insight);
+    useInsightView(insight, { dataTables: allDataTables });
 
   // Derived column-analysis: only return cached results if they match the
   // currently-active chart view. Otherwise treat as empty.

@@ -1960,12 +1960,9 @@ async function findOrphanedInsights(
 }
 
 /**
- * Delete all DataFrame metadata rows linked to the given node id (by
- * `insightId` column) and return their storage locations so the caller can
- * signal Arrow/IndexedDB cleanup. DataTable rows link via `dataFrameId` (a
- * nullable FK on the DataTable row itself), not a column on the DataFrame —
- * so DataTable cleanup is handled by the caller passing the DataTable's
- * `dataFrameId` directly.
+ * Delete DataFrame metadata owned by the Insight only when no DataTable still
+ * references it. DataTable-to-DataFrame links may legitimately cross the
+ * original owner boundary, so ownership alone is not a deletion signal.
  *
  * The `dataFrames` table stores metadata only. For server-file rows, the
  * server app reconciles unreferenced files after the enclosing command
@@ -1976,9 +1973,19 @@ async function deleteInsightDataFrames(
   ctx: { db: import("@wystack/db").DrizzleTracker },
   insightId: string,
 ): Promise<void> {
-  // Delete all DataFrame rows whose insightId matches — there should be at
-  // most one per Insight in practice, but the schema allows N.
-  await ctx.db.from(dataFrames).where(eq("insightId", insightId)).delete();
+  const owned = await ctx.db
+    .from(dataFrames)
+    .where(eq("insightId", insightId))
+    .all();
+  for (const frame of owned) {
+    const references = await ctx.db
+      .from(dataTables)
+      .where(eq("dataFrameId", frame.id))
+      .all();
+    if (references.length === 0) {
+      await ctx.db.from(dataFrames).where(eq("id", frame.id)).delete();
+    }
+  }
 }
 
 /**
@@ -2023,7 +2030,13 @@ async function deleteDataSourceDependents(
   // Clean up DataFrame metadata for each owned DataTable's Arrow result.
   for (const t of ownedTables) {
     if (t.dataFrameId) {
-      await ctx.db.from(dataFrames).where(eq("id", t.dataFrameId)).delete();
+      const references = await ctx.db
+        .from(dataTables)
+        .where(eq("dataFrameId", t.dataFrameId))
+        .all();
+      if (references.every((reference) => ownedTableIds.has(reference.id))) {
+        await ctx.db.from(dataFrames).where(eq("id", t.dataFrameId)).delete();
+      }
     }
   }
 
@@ -2262,10 +2275,16 @@ const deleteNode = wy.procedure
     if (table) {
       const orphanedInsights = await findOrphanedInsights(ctx, id);
       if (table.dataFrameId) {
-        await ctx.db
-          .from(dataFrames)
-          .where(eq("id", table.dataFrameId))
-          .delete();
+        const references = await ctx.db
+          .from(dataTables)
+          .where(eq("dataFrameId", table.dataFrameId))
+          .all();
+        if (references.every((reference) => reference.id === table.id)) {
+          await ctx.db
+            .from(dataFrames)
+            .where(eq("id", table.dataFrameId))
+            .delete();
+        }
       }
       await ctx.db.from(dataTables).where(eq("id", id)).delete();
       return {

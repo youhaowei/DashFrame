@@ -5,6 +5,21 @@ import { debugLog } from "./debug";
 import { joinTypeToSQL } from "./join-sql";
 import { loadArrowData } from "./storage";
 
+/** Shared subset used by both DuckDB-WASM and the native server adapter. */
+export interface ServerDuckDBConnectionLike {
+  query(sql: string): Promise<{ toArray(): unknown[] }>;
+  insertArrowFromIPCStream(
+    arrow: Uint8Array,
+    options: { name: string; create?: boolean },
+  ): Promise<void>;
+  registerServerFrame(frameId: string, tableName: string): Promise<void>;
+  close(): Promise<void>;
+}
+
+export type DuckDBConnection =
+  | AsyncDuckDBConnection
+  | ServerDuckDBConnectionLike;
+
 // ============================================================================
 // Global Table Loading Mutex
 // ============================================================================
@@ -18,7 +33,23 @@ import { loadArrowData } from "./storage";
  *
  * Solution: A global promise-based mutex that serializes table creation per DataFrame.
  */
-const tableLoadingMutex = new Map<string, Promise<string>>();
+const tableLoadingMutex = new Map<
+  string,
+  { signature: string; promise: Promise<string> }
+>();
+
+async function awaitExistingLoad(
+  existing: { signature: string; promise: Promise<string> },
+  signature: string,
+  dataFrame: DataFrame,
+  conn: DuckDBConnection,
+): Promise<string> {
+  if (existing.signature === signature) return existing.promise;
+  // A refreshed generation arrived while the old bytes were loading. Let the
+  // old operation settle, then re-check/reload against the new signature.
+  await existing.promise.catch(() => undefined);
+  return ensureTableLoaded(dataFrame, conn);
+}
 
 const makeTableName = (dataFrameId: string): string =>
   `df_${dataFrameId.replace(/-/g, "_")}`;
@@ -35,24 +66,21 @@ const formatValue = (value: unknown): string => {
   return `'${String(value).replace(/'/g, "''")}'`;
 };
 
-/**
- * Invalidate the loaded table cache for a specific DataFrame.
- *
- * @deprecated No-op. Table existence is now checked directly via SQL.
- * The mutex pattern handles concurrent loads without needing a separate cache.
- */
-export function invalidateTableCache(_dataFrameId: string): void {
-  // No-op: table existence is verified via information_schema query
+const loadedStorageSignatures = new Map<string, string>();
+
+/** Invalidate the known storage generation for a specific DataFrame. */
+export function invalidateTableCache(dataFrameId: string): void {
+  loadedStorageSignatures.delete(makeTableName(dataFrameId));
 }
 
 /**
  * Clear all loaded table caches.
  *
- * @deprecated No-op. Table existence is now checked directly via SQL.
- * The mutex pattern handles concurrent loads without needing a separate cache.
+ * Table existence is still checked directly via SQL; this only clears the
+ * storage-generation marker used to detect same-id frame replacement.
  */
 export function clearAllTableCaches(): void {
-  // No-op: table existence is verified via information_schema query
+  loadedStorageSignatures.clear();
 }
 
 // ============================================================================
@@ -202,14 +230,15 @@ const buildOrderClause = (sorts: SortOrderLocal[]): string | undefined => {
 
 export async function ensureTableLoaded(
   dataFrame: DataFrame,
-  conn: AsyncDuckDBConnection,
+  conn: DuckDBConnection,
 ): Promise<string> {
   const tableName = makeTableName(dataFrame.id);
+  const storageSignature = JSON.stringify(dataFrame.storage);
 
   // Check if there's an ongoing load for this table (mutex prevents concurrent loads)
   const existingLoad = tableLoadingMutex.get(tableName);
   if (existingLoad) {
-    return existingLoad;
+    return awaitExistingLoad(existingLoad, storageSignature, dataFrame, conn);
   }
 
   // Create mutex promise for this load
@@ -219,26 +248,29 @@ export async function ensureTableLoaded(
     resolveLoad = resolve;
     rejectLoad = reject;
   });
-  tableLoadingMutex.set(tableName, loadPromise);
+  tableLoadingMutex.set(tableName, {
+    signature: storageSignature,
+    promise: loadPromise,
+  });
 
   try {
     // Always check if table exists in DuckDB (even if cache says it's loaded)
     // This handles cases where DuckDB was reset or table was dropped externally
     let tableExists = false;
     try {
-      const stmt = await conn.prepare(
-        `SELECT 1 FROM information_schema.tables WHERE table_name = ? LIMIT 1`,
+      const checkResult = await conn.query(
+        `SELECT 1 FROM information_schema.tables WHERE table_name = ${formatValue(tableName)} LIMIT 1`,
       );
-      const checkResult = await stmt.query(tableName);
       tableExists = checkResult.toArray().length > 0;
-      await stmt.close();
     } catch {
       // If check fails (e.g., DuckDB not ready), assume table doesn't exist
       tableExists = false;
     }
 
-    if (tableExists) {
+    const loadedSignature = loadedStorageSignatures.get(tableName);
+    if (tableExists && loadedSignature === storageSignature) {
       // Table already exists in DuckDB - return immediately
+      loadedStorageSignatures.set(tableName, storageSignature);
       resolveLoad(tableName);
       return tableName;
     }
@@ -266,11 +298,7 @@ export async function ensureTableLoaded(
           "registerServerFrame" in conn &&
           typeof conn.registerServerFrame === "function"
         ) {
-          await (
-            conn as AsyncDuckDBConnection & {
-              registerServerFrame(id: string, name: string): Promise<void>;
-            }
-          ).registerServerFrame(dataFrame.storage.key, tableName);
+          await conn.registerServerFrame(dataFrame.storage.key, tableName);
           break;
         }
         throw new Error("Server file frames require the server data plane");
@@ -286,13 +314,16 @@ export async function ensureTableLoaded(
       }
     }
 
+    loadedStorageSignatures.set(tableName, storageSignature);
     resolveLoad(tableName);
     return tableName;
   } catch (err) {
     rejectLoad(err instanceof Error ? err : new Error(String(err)));
     throw err;
   } finally {
-    tableLoadingMutex.delete(tableName);
+    if (tableLoadingMutex.get(tableName)?.promise === loadPromise) {
+      tableLoadingMutex.delete(tableName);
+    }
   }
 }
 
@@ -308,13 +339,13 @@ export async function ensureTableLoaded(
  */
 export class QueryBuilder {
   private readonly dataFrame: DataFrame;
-  private readonly conn: AsyncDuckDBConnection;
+  private readonly conn: DuckDBConnection;
   private readonly operations: Operation[];
   private tableName?: string;
 
   constructor(
     dataFrame: DataFrame,
-    conn: AsyncDuckDBConnection,
+    conn: DuckDBConnection,
     operations: Operation[] = [],
     tableName?: string,
   ) {
@@ -510,7 +541,7 @@ export class QueryBuilder {
    * ```
    */
   static async batchQuery<T extends Record<string, unknown>>(
-    conn: AsyncDuckDBConnection,
+    conn: DuckDBConnection,
     queries: string[],
   ): Promise<T[][]> {
     if (queries.length === 0) return [];

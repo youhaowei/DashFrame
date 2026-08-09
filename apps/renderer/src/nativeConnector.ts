@@ -39,14 +39,16 @@ const LOOPBACK_TIMEOUT_MS = 10_000;
  * Maps an `AbortError` to a human-readable "timed out" message so the engine-
  * error UI surface always has something useful to show.
  */
-async function fetchWithTimeout(
+async function requestWithTimeout<T>(
   url: string,
   init: RequestInit,
-): Promise<Response> {
+  consume: (response: Response) => Promise<T>,
+): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), LOOPBACK_TIMEOUT_MS);
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    const response = await fetch(url, { ...init, signal: controller.signal });
+    return await consume(response);
   } catch (err) {
     if (err instanceof Error && err.name === "AbortError") {
       throw new Error(
@@ -104,33 +106,28 @@ export function createNativeConnector(
   async function query(q: { type?: string; sql: string }): Promise<unknown> {
     const type = q.type ?? "arrow";
 
-    const res = await fetchWithTimeout(arrowEndpoint, {
-      method: "POST",
-      headers: authHeaders(),
-      body: JSON.stringify({ type, sql: q.sql }),
-    });
-
-    if (!res.ok) {
-      // Keep loopback errors out of the UI — surface as a human-readable throw.
-      const text = await res.text().catch(() => String(res.status));
-      throw new Error(`Native engine query failed (${res.status}): ${text}`);
-    }
-
-    if (type === "exec") {
-      // exec: no result body, nothing to return.
-      return undefined;
-    }
-
-    if (type === "json") {
-      // json: server returns a JSON array of row objects.
-      return (await res.json()) as Record<string, unknown>[];
-    }
-
-    // arrow (default): server returns raw Arrow IPC bytes. Decode into a
-    // flechette Table — the surface vgplot consumes (toColumns() etc.).
-    // useDate matches Mosaic's own decodeIPC default.
-    const buf = await res.arrayBuffer();
-    return tableFromIPC(new Uint8Array(buf), { useDate: true });
+    return requestWithTimeout(
+      arrowEndpoint,
+      {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ type, sql: q.sql }),
+      },
+      async (res) => {
+        if (!res.ok) {
+          const text = await res.text().catch(() => String(res.status));
+          throw new Error(
+            `Native engine query failed (${res.status}): ${text}`,
+          );
+        }
+        if (type === "exec") return undefined;
+        if (type === "json") {
+          return (await res.json()) as Record<string, unknown>[];
+        }
+        const buf = await res.arrayBuffer();
+        return tableFromIPC(new Uint8Array(buf), { useDate: true });
+      },
+    );
   }
 
   async function uploadArrowTable(
@@ -138,21 +135,25 @@ export function createNativeConnector(
     arrowBytes: Uint8Array,
   ): Promise<void> {
     const tableEndpoint = `${serverUrl}/data/tables/${encodeURIComponent(name)}`;
-    const res = await fetchWithTimeout(tableEndpoint, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": ARROW_CONTENT_TYPE,
+    await requestWithTimeout(
+      tableEndpoint,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": ARROW_CONTENT_TYPE,
+        },
+        body: arrowBytes,
       },
-      body: arrowBytes,
-    });
-
-    if (!res.ok) {
-      const text = await res.text().catch(() => String(res.status));
-      throw new Error(
-        `Failed to upload table "${name}" (${res.status}): ${text}`,
-      );
-    }
+      async (res) => {
+        if (!res.ok) {
+          const text = await res.text().catch(() => String(res.status));
+          throw new Error(
+            `Failed to upload table "${name}" (${res.status}): ${text}`,
+          );
+        }
+      },
+    );
   }
 
   async function registerServerFrame(
@@ -160,15 +161,17 @@ export function createNativeConnector(
     tableName: string,
   ): Promise<void> {
     const endpoint = `${serverUrl}/data/frames/${encodeURIComponent(frameId)}/tables/${encodeURIComponent(tableName)}`;
-    const res = await fetchWithTimeout(endpoint, {
-      method: "POST",
-      headers: authHeaders(),
-    });
-    if (!res.ok) {
-      throw new Error(
-        `Failed to register server frame (${res.status}): ${await res.text()}`,
-      );
-    }
+    await requestWithTimeout(
+      endpoint,
+      { method: "POST", headers: authHeaders() },
+      async (res) => {
+        if (!res.ok) {
+          throw new Error(
+            `Failed to register server frame (${res.status}): ${await res.text()}`,
+          );
+        }
+      },
+    );
   }
 
   // Cast through unknown: TypeScript can't narrow the overloaded query

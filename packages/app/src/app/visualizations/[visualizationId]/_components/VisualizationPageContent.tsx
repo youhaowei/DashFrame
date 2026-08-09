@@ -229,7 +229,7 @@ export default function VisualizationPageContent({
 
   // Get DuckDB view name for analysis (uses UUID-based column names)
   const { viewName: analysisViewName, isReady: isAnalysisViewReady } =
-    useInsightView(insightForView);
+    useInsightView(insightForView, { dataTables });
   const {
     columns: modelColumns,
     columnDisplayNames: modelColumnDisplayNames,

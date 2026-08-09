@@ -241,6 +241,19 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
       ).rejects.toThrow();
     });
 
+    it("serializes unregister behind an in-flight registration", async () => {
+      engine = new NativeDuckDBEngine();
+      await engine.initialize();
+      const registering = engine.registerArrowTable(
+        "df_race",
+        producerBuffer(),
+      );
+      const unregistering = engine.unregisterTable("df_race");
+      await Promise.all([registering, unregistering]);
+      expect(engine.hasTable("df_race")).toBe(false);
+      await expect(engine.query('SELECT * FROM "df_race"')).rejects.toThrow();
+    });
+
     it("atomic ingest — a failed append leaves the prior table intact (no partial replace)", async () => {
       // Contract: if registerArrowTable throws mid-append (e.g. type mismatch),
       // the previously registered table must be unchanged and still queryable.

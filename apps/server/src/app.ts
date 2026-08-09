@@ -226,6 +226,8 @@ export interface DashframeServerOptions {
    * debounced `onWrite` behaviour in that case (existing semantics).
    */
   flushSnapshot?: () => Promise<void>;
+  /** Drain retained DB snapshots before deleting snapshot-owned frame bytes. */
+  flushSnapshotRetentionWindow?: () => Promise<void>;
   /** Google OAuth client settings used by resumable connector setup. */
   googleOAuth?: GoogleOAuthConfig;
   /**
@@ -458,6 +460,9 @@ export async function buildDashframeApp(opts: {
   dataFrameStorage?: DataFrameStorage;
   vault?: SecretVault;
   onWrite?: () => void;
+  flushSnapshot?: () => Promise<void>;
+  flushSnapshotRetentionWindow?: () => Promise<void>;
+  unregisterServerFrames?: (ids: readonly string[]) => Promise<void>;
   accessCredentials?: ApiAccessCredentials;
   getServerEndpoint?: () => string | undefined;
   googleOAuth?: GoogleOAuthConfig;
@@ -474,6 +479,7 @@ export async function buildDashframeApp(opts: {
     await removeUnreferencedServerFrames(
       opts.db as ArtifactDb,
       opts.dataFrameStorage,
+      opts.flushSnapshotRetentionWindow,
     );
   }
 
@@ -493,6 +499,8 @@ export async function buildDashframeApp(opts: {
               opts.db as ArtifactDb,
               opts.dataFrameStorage!,
               before,
+              opts.flushSnapshotRetentionWindow,
+              opts.unregisterServerFrames,
             ),
         }
       : {}),
@@ -501,6 +509,15 @@ export async function buildDashframeApp(opts: {
       : {}),
     ...(vault != null ? { vault } : {}),
     ...(opts.googleOAuth != null ? { googleOAuth: opts.googleOAuth } : {}),
+    ...(opts.flushSnapshot != null
+      ? { flushSnapshot: opts.flushSnapshot }
+      : {}),
+    ...(opts.flushSnapshotRetentionWindow != null
+      ? { flushSnapshotRetentionWindow: opts.flushSnapshotRetentionWindow }
+      : {}),
+    ...(opts.unregisterServerFrames != null
+      ? { unregisterServerFrames: opts.unregisterServerFrames }
+      : {}),
   };
 
   // The draft seam wraps `call` itself (not just runHandler): `rawApp.call`
@@ -542,6 +559,8 @@ export async function buildDashframeApp(opts: {
           opts.db as ArtifactDb,
           opts.dataFrameStorage,
           framesBefore,
+          opts.flushSnapshotRetentionWindow,
+          opts.unregisterServerFrames,
         );
       }
       if (onWrite != null && tablesWritten.size > 0) {
@@ -568,26 +587,61 @@ export async function buildDashframeApp(opts: {
 async function removeUnreferencedServerFrames(
   db: ArtifactDb,
   storage: DataFrameStorage,
+  flushSnapshotRetentionWindow: (() => Promise<void>) | undefined,
 ): Promise<void> {
   const referenced = await referencedServerFrameIds(db);
+  if (flushSnapshotRetentionWindow == null) {
+    console.error(
+      "[dashframe] no retained-snapshot flush hook; leaving server frame cleanup for a configured startup",
+    );
+    return;
+  }
+  await flushSnapshotRetentionWindow();
   await storage.recoverStagedDeletes?.([...referenced] as UUID[]);
   const ids = await storage.list();
-  await Promise.all(
+  const results = await Promise.allSettled(
     ids.filter((id) => !referenced.has(id)).map((id) => storage.delete(id)),
   );
+  const failures = results.filter(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  );
+  if (failures.length > 0) {
+    console.error(
+      `[dashframe] ${failures.length} unreferenced server frame(s) could not be removed at startup; the next start will retry`,
+      failures.map(({ reason }) => reason),
+    );
+  }
 }
 
 async function removeDereferencedServerFrames(
   db: ArtifactDb,
   storage: DataFrameStorage,
   before: ReadonlySet<string>,
+  flushSnapshotRetentionWindow: (() => Promise<void>) | undefined,
+  unregister: ((ids: readonly string[]) => Promise<void>) | undefined,
 ): Promise<void> {
   const after = await referencedServerFrameIds(db);
+  const dereferenced = [...before].filter((id) => !after.has(id));
+  if (dereferenced.length === 0) return;
+  if (flushSnapshotRetentionWindow == null) {
+    console.error(
+      "[dashframe] no retained-snapshot flush hook; leaving dereferenced server frames for startup recovery",
+    );
+    return;
+  }
+  try {
+    await flushSnapshotRetentionWindow();
+  } catch (error) {
+    console.error(
+      "[dashframe] snapshot flush failed; leaving dereferenced server frames for startup recovery",
+      error,
+    );
+    return;
+  }
   const results = await Promise.allSettled(
-    [...before]
-      .filter((id) => !after.has(id))
-      .map((id) => storage.delete(id as UUID)),
+    dereferenced.map((id) => storage.delete(id as UUID)),
   );
+  await optsUnregisterSuccessful(results, dereferenced, unregister);
   const failures = results.filter(
     (result): result is PromiseRejectedResult => result.status === "rejected",
   );
@@ -599,10 +653,21 @@ async function removeDereferencedServerFrames(
   }
 }
 
+async function optsUnregisterSuccessful(
+  results: PromiseSettledResult<void>[],
+  ids: string[],
+  unregister: ((ids: readonly string[]) => Promise<void>) | undefined,
+): Promise<void> {
+  const removed = ids.filter(
+    (_, index) => results[index]?.status === "fulfilled",
+  );
+  if (removed.length > 0) await unregister?.(removed);
+}
+
 async function referencedServerFrameIds(db: ArtifactDb): Promise<Set<string>> {
-  const rows = (await db.select().from(schema.dataFrames)) as Array<{
-    storage: unknown;
-  }>;
+  const rows = (await db
+    .select({ storage: schema.dataFrames.storage })
+    .from(schema.dataFrames)) as Array<{ storage: unknown }>;
   return new Set(
     rows.flatMap((row) => {
       const location = row.storage as { type?: string; key?: string };
@@ -758,6 +823,16 @@ export async function createDashframeServer(
     dataFrameStorage: opts.dataFrameStorage,
     vault: opts.vault,
     onWrite: opts.onWrite,
+    flushSnapshot: opts.flushSnapshot,
+    flushSnapshotRetentionWindow: opts.flushSnapshotRetentionWindow,
+    unregisterServerFrames: async (ids) => {
+      if (typeof opts.arrowEngine?.unregisterTable !== "function") return;
+      await Promise.all(
+        ids.map((id) =>
+          opts.arrowEngine!.unregisterTable!(`df_${id.replaceAll("-", "_")}`),
+        ),
+      );
+    },
     accessCredentials: opts.accessCredentials,
     getServerEndpoint: () => serverState.endpoint,
     googleOAuth,

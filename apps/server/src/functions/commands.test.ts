@@ -3731,6 +3731,40 @@ describe("command vocabulary", () => {
         0,
       );
     });
+
+    it("preserves an Insight-owned DataFrame while a DataTable still references it", async () => {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      const frameId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+      await db.insert(schema.dataFrames).values({
+        id: frameId,
+        storage: { type: "indexeddb", key: `arrow-${frameId}` },
+        fieldIds: [],
+        name: `Frame for ${insightId}`,
+        insightId,
+        createdAt: new Date(),
+      });
+      await db
+        .update(schema.dataTables)
+        .set({ dataFrameId: frameId })
+        .where(eq(schema.dataTables.id, tableId));
+
+      await commit(cmd("DeleteNode", { id: insightId }));
+
+      expect(
+        await db
+          .select()
+          .from(schema.dataFrames)
+          .where(eq(schema.dataFrames.id, frameId)),
+      ).toHaveLength(1);
+    });
   });
 
   describe("RenameNode (extended to Visualization and Dashboard)", () => {

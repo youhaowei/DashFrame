@@ -37,7 +37,7 @@ interface DataSourceDisplayProps {
 
 // Preview data type for Notion sources.
 // rowCount is the actual fetched row count; undefined when only column schema
-// is available (e.g. the serializable query result carries no materialized rows).
+// is available (e.g. the serializable query result carries no snapshot rows).
 // tableId keys the preview to the data table it was synced from — stale preview
 // from a previously selected table is suppressed by comparing to selectedDataTable.id.
 interface PreviewData {
@@ -108,7 +108,7 @@ function getFilesDescription(fileCount: number): string {
 
 // Helper to get table stats description.
 // rowCount may be undefined when only the column schema has been fetched
-// (the serializable query result carries no materialized row count).
+// (the serializable query result carries no snapshot row count).
 function getTableStatsDescription(
   rowCount: number | undefined,
   columnCount: number | undefined,
@@ -518,7 +518,7 @@ function useNotionSync(
 
     setIsRefreshing(true);
     try {
-      // Sync materializes the FULL database (no row cap): the persisted table
+      // Refresh imports the FULL database (no row cap): the persisted table
       // must hold the whole source so it survives a reload intact. The server's
       // `limit` arg stays available for a future preview-only fetch.
       const result = await queryNotionDatabaseMutation({
@@ -562,19 +562,17 @@ function useNotionSync(
           (field) => getFieldSensitivity(field) !== "cleared",
         )
       ) {
-        throw new Error(
-          "Every remote column must be reviewed before materialization",
-        );
+        throw new Error("Every remote column must be reviewed before refresh");
       }
 
       // Re-query only after the privacy gate. The server validates the reviewed
       // schema against that result and commits bytes, schema, and linkage
       // atomically; row bytes never transit the UI.
-      const materialized = await queryNotionDatabaseMutation({
+      const refreshed = await queryNotionDatabaseMutation({
         dataSourceId: dataSource.id,
         databaseId: selectedDataTable.table,
         tableId: selectedDataTable.id,
-        materialize: true,
+        snapshot: true,
         approvedFields: reviewedResult.fields,
       });
 
@@ -582,7 +580,7 @@ function useNotionSync(
         tableId: selectedDataTable.id,
         rows: [], // row data stays in server storage; preview shows column schema
         columns,
-        rowCount: materialized.rowCount,
+        rowCount: refreshed.rowCount,
       });
 
       toast.success(successMsg(columns.length));

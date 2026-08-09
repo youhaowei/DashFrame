@@ -464,6 +464,7 @@ export function createStandaloneServerOptions(
     // Durable counterpart: used by the pre-release gate before deleting a vault
     // ref so the snapshot that drops the ref is confirmed on disk first.
     flushSnapshot: () => project.flushSnapshot(),
+    flushSnapshotRetentionWindow: () => project.flushSnapshotRetentionWindow(),
     googleOAuth: readOptionalGoogleOAuthConfig(),
   };
 }

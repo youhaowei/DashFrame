@@ -89,6 +89,7 @@ function createMockDataTable(options: {
   id?: string;
   name?: string;
   dataFrameId?: string | undefined;
+  lastFetchedAt?: number;
 }): DataTable {
   return {
     id: (options.id ?? "table-abc") as DataTable["id"],
@@ -101,6 +102,7 @@ function createMockDataTable(options: {
       : "df-123") as DataTable["dataFrameId"],
     fields: [],
     metrics: [],
+    lastFetchedAt: options.lastFetchedAt,
     createdAt: Date.parse("2024-01-01T00:00:00.000Z"),
   };
 }
@@ -503,6 +505,46 @@ describe("useInsightView", () => {
       });
 
       expect(result.current.isReady).toBe(true);
+    });
+
+    it("recreates a cached view when its source frame is refreshed", async () => {
+      const insight = createMockInsight({
+        id: "insight-refresh",
+        baseTableId: "table-refresh",
+      });
+      const firstTable = createMockDataTable({
+        id: "table-refresh",
+        dataFrameId: "df-first",
+        lastFetchedAt: 1,
+      });
+      const secondTable = createMockDataTable({
+        id: "table-refresh",
+        dataFrameId: "df-second",
+        lastFetchedAt: 2,
+      });
+      mockGetDataTable.mockResolvedValue(firstTable);
+      mockGetDataFrame.mockImplementation((id) =>
+        Promise.resolve(createMockDataFrame(id)),
+      );
+      mockEnsureTableLoaded.mockResolvedValue(undefined);
+      mockBuildInsightSQL.mockReturnValue("SELECT * FROM test");
+      mockQuery.mockResolvedValue(undefined);
+
+      const { result, rerender } = renderHook(
+        ({ dataTables }) => useInsightView(insight, { dataTables }),
+        { initialProps: { dataTables: [firstTable] } },
+      );
+      await waitFor(() => expect(result.current.isReady).toBe(true));
+      expect(mockEnsureTableLoaded).toHaveBeenCalledTimes(1);
+
+      mockGetDataTable.mockResolvedValue(secondTable);
+      rerender({ dataTables: [secondTable] });
+
+      await waitFor(() =>
+        expect(mockEnsureTableLoaded).toHaveBeenCalledTimes(2),
+      );
+      expect(mockGetDataFrame).toHaveBeenLastCalledWith("df-second");
+      expect(mockQuery).toHaveBeenCalledTimes(2);
     });
 
     it("should clear error when config-key switches to an already-cached config", async () => {

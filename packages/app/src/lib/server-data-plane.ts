@@ -1,14 +1,20 @@
+import type { ServerDuckDBConnectionLike } from "@dashframe/engine-browser";
 import { tableFromIPC } from "apache-arrow";
 
 import type { ServerMosaicConnector } from "./server-connector";
 
 const TIMEOUT_MS = 10_000;
 
-async function request(url: string, init: RequestInit): Promise<Response> {
+async function request<T>(
+  url: string,
+  init: RequestInit,
+  consume: (response: Response) => Promise<T>,
+): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    const response = await fetch(url, { ...init, signal: controller.signal });
+    return await consume(response);
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
       throw new Error("Server data plane timed out");
@@ -19,8 +25,8 @@ async function request(url: string, init: RequestInit): Promise<Response> {
   }
 }
 
-export interface ServerDuckDBConnection {
-  query(sql: string): Promise<ReturnType<typeof tableFromIPC>>;
+export interface ServerDuckDBConnection extends ServerDuckDBConnectionLike {
+  query(sql: string): Promise<Awaited<ReturnType<typeof tableFromIPC>>>;
   insertArrowFromIPCStream(
     arrow: Uint8Array,
     options: { name: string },
@@ -42,32 +48,39 @@ export function configureServerDataPlane(options: {
   });
   activeConnection = {
     async query(sql) {
-      const response = await request(`${options.serverUrl}/data/arrow`, {
-        method: "POST",
-        headers: authHeaders("application/json"),
-        body: JSON.stringify({ sql }),
-      });
-      if (!response.ok) {
-        throw new Error(
-          `Server query failed (${response.status}): ${await response.text()}`,
-        );
-      }
-      return tableFromIPC(new Uint8Array(await response.arrayBuffer()));
+      return request(
+        `${options.serverUrl}/data/arrow`,
+        {
+          method: "POST",
+          headers: authHeaders("application/json"),
+          body: JSON.stringify({ sql }),
+        },
+        async (response) => {
+          if (!response.ok) {
+            throw new Error(
+              `Server query failed (${response.status}): ${await response.text()}`,
+            );
+          }
+          return tableFromIPC(new Uint8Array(await response.arrayBuffer()));
+        },
+      );
     },
     async insertArrowFromIPCStream(arrow, { name }) {
-      const response = await request(
+      await request(
         `${options.serverUrl}/data/tables/${encodeURIComponent(name)}`,
         {
           method: "POST",
           headers: authHeaders("application/vnd.apache.arrow.stream"),
           body: arrow,
         },
+        async (response) => {
+          if (!response.ok) {
+            throw new Error(
+              `Server table upload failed (${response.status}): ${await response.text()}`,
+            );
+          }
+        },
       );
-      if (!response.ok) {
-        throw new Error(
-          `Server table upload failed (${response.status}): ${await response.text()}`,
-        );
-      }
     },
     registerServerFrame: (frameId, tableName) =>
       options.connector.registerServerFrame(frameId, tableName),

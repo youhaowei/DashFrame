@@ -423,17 +423,25 @@ const removeDataSource = wy.procedure
     // keychain side-effect outside the DB transaction. A preview executes then
     // rolls back: the row (with its refs) survives, so its credential must too.
     const source = await ctx.db.from(dataSources).where(eq("id", id)).first();
-    const ownedTables = (await ctx.db
-      .from(dataTables)
-      .where(eq("dataSourceId", id))
-      .all()) as DataTableRow[];
-    const ownedFrames = await framesForDefinitions(
-      ctx,
-      ownedTables.map((table) => table.id),
-    );
-    const staged = await stageServerFrames(ctx, ownedFrames);
+    let staged: StagedServerFrame[] = [];
     try {
       await ctx.db.transaction(async (tx) => {
+        const ownedTables = (await tx
+          .from(dataTables)
+          .where(eq("dataSourceId", id))
+          .all()) as DataTableRow[];
+        const candidateFrames = await framesByIds(
+          { ...ctx, db: tx },
+          ownedTables.flatMap((table) =>
+            table.dataFrameId ? [table.dataFrameId] : [],
+          ),
+        );
+        const ownedFrames = await framesUnreferencedOutsideTables(
+          { ...ctx, db: tx },
+          candidateFrames,
+          new Set(ownedTables.map((table) => table.id)),
+        );
+        staged = await stageServerFrames(ctx, ownedFrames);
         for (const frame of ownedFrames) {
           await tx.from(dataFrames).where(eq("id", frame.id)).delete();
         }
@@ -553,10 +561,23 @@ const removeDataTable = wy.procedure
   .input({ id: uuid })
   .mutation(async (ctx, { id }): Promise<{ ok: true }> => {
     assertCanonicalFrameSideEffects(ctx);
-    const frames = await framesForDefinitions(ctx, [id]);
-    const staged = await stageServerFrames(ctx, frames);
+    let staged: StagedServerFrame[] = [];
     try {
       await ctx.db.transaction(async (tx) => {
+        const table = (await tx
+          .from(dataTables)
+          .where(eq("id", id))
+          .first()) as DataTableRow | undefined;
+        const candidates = await framesByIds(
+          { ...ctx, db: tx },
+          table?.dataFrameId ? [table.dataFrameId] : [],
+        );
+        const frames = await framesUnreferencedOutsideTables(
+          { ...ctx, db: tx },
+          candidates,
+          new Set([id]),
+        );
+        staged = await stageServerFrames(ctx, frames);
         for (const frame of frames) {
           await tx.from(dataFrames).where(eq("id", frame.id)).delete();
         }
@@ -656,6 +677,12 @@ const putDataFrameEntry = wy.procedure
   .input({ entry: jsonb })
   .mutation(async (ctx, { entry }): Promise<{ id: string }> => {
     const value = entry as DataFrameEntry;
+    const existing = (await ctx.db
+      .from(dataFrames)
+      .where(eq("id", value.id))
+      .first()) as DataFrameRow | undefined;
+    assertExistingServerFrameImmutable(existing, value.storage);
+    assertServerFrameOwnership(value.id, value.storage);
     // Strip raw sample values before persisting — privacy floor: the artifact
     // DB holds zero raw cell values. In-memory callers that need sampleValues
     // (e.g. the suggest-mode PII classifier) operate on the runtime object
@@ -678,10 +705,6 @@ const putDataFrameEntry = wy.procedure
       analysis: safeAnalysis,
       lastRefreshedAt: nullableDateFromEpoch(value.lastRefreshedAt),
     };
-    const existing = (await ctx.db
-      .from(dataFrames)
-      .where(eq("id", value.id))
-      .first()) as DataFrameRow | undefined;
     if (existing) {
       await ctx.db.from(dataFrames).where(eq("id", value.id)).update(row);
     } else {
@@ -694,6 +717,14 @@ const updateDataFrameEntry = wy.procedure
   .input({ id: uuid, updates: jsonb })
   .mutation(async (ctx, { id, updates }): Promise<{ ok: true }> => {
     const patch = updates as Partial<DataFrameEntry>;
+    if (patch.storage !== undefined) {
+      const existing = (await ctx.db
+        .from(dataFrames)
+        .where(eq("id", id))
+        .first()) as DataFrameRow | undefined;
+      assertExistingServerFrameImmutable(existing, patch.storage);
+      assertServerFrameOwnership(id, patch.storage);
+    }
     await ctx.db
       .from(dataFrames)
       .where(eq("id", id))
@@ -745,6 +776,10 @@ const removeDataFrameEntry = wy.procedure
     const staged = await stageServerFrames(ctx, row ? [row] : []);
     try {
       await ctx.db.transaction(async (tx) => {
+        await tx
+          .from(dataTables)
+          .where(eq("dataFrameId", id))
+          .update({ dataFrameId: null, lastFetchedAt: null });
         await tx.from(dataFrames).where(eq("id", id)).delete();
       });
     } catch (error) {
@@ -1189,12 +1224,12 @@ const listNotionDatabases = wy.procedure
   });
 
 /**
- * Serializable Notion inspection/materialization result. Inspection returns
- * schema only; reviewed materialization also returns an opaque frame handle.
+ * Serializable Notion inspection/import result. Inspection returns schema
+ * only; a reviewed import or refresh also returns the current DataFrame ID.
  * Row bytes never cross the client boundary.
  */
 type NotionQueryResult = {
-  frameHandle?: UUID;
+  dataFrameId?: UUID;
   fieldIds: string[];
   fields: Field[];
   rowCount: number;
@@ -1216,9 +1251,9 @@ async function persistConnectorFrame(
   if (!storage) {
     throw new Error("Server DataFrame storage is not configured");
   }
-  const frameHandle = randomUUID() as UUID;
+  const dataFrameId = randomUUID() as UUID;
   await storage.save(
-    frameHandle,
+    dataFrameId,
     new Uint8Array(Buffer.from(args.arrowBuffer, "base64")),
   );
   let stagedPrevious: StagedServerFrame[] = [];
@@ -1227,7 +1262,7 @@ async function persistConnectorFrame(
       // Ownership validation and replacement discovery belong inside the same
       // serialized DB transaction as the link update. Otherwise a concurrent
       // DeleteNode or refresh can invalidate an earlier read and leave an
-      // unowned or duplicate materialization behind.
+      // unowned or duplicate snapshot behind.
       const table = (await tx
         .from(dataTables)
         .where(eq("id", args.tableId))
@@ -1238,14 +1273,19 @@ async function persistConnectorFrame(
           `DataTable ${args.tableId} does not belong to DataSource ${args.dataSourceId}`,
         );
       }
-      const previous = (await tx
-        .from(dataFrames)
-        .where(eq("definitionId", args.tableId))
-        .all()) as DataFrameRow[];
+      const previousCandidates = await framesByIds(
+        { ...ctx, db: tx },
+        table.dataFrameId ? [table.dataFrameId] : [],
+      );
+      const previous = await framesUnreferencedOutsideTables(
+        { ...ctx, db: tx },
+        previousCandidates,
+        new Set([args.tableId]),
+      );
       stagedPrevious = await stageServerFrames(ctx, previous);
       await tx.into(dataFrames).insert({
-        id: frameHandle,
-        storage: { type: "file", key: frameHandle },
+        id: dataFrameId,
+        storage: { type: "file", key: dataFrameId },
         fieldIds: args.fieldIds,
         name: table.name,
         sourceId: args.dataSourceId,
@@ -1256,7 +1296,7 @@ async function persistConnectorFrame(
       });
       await tx.from(dataTables).where(eq("id", args.tableId)).update({
         fields: args.approvedFields,
-        dataFrameId: frameHandle,
+        dataFrameId,
         lastFetchedAt: new Date(),
       });
       for (const oldFrame of previous) {
@@ -1265,14 +1305,14 @@ async function persistConnectorFrame(
     });
   } catch (error) {
     await rollbackStagedServerFrames(ctx, stagedPrevious);
-    await storage.delete(frameHandle).catch(() => undefined);
+    await storage.delete(dataFrameId).catch(() => undefined);
     throw error;
   }
   await commitStagedServerFrames(ctx, stagedPrevious);
-  return frameHandle;
+  return dataFrameId;
 }
 
-function approvedFieldsForMaterialization(
+function approvedFieldsForSnapshot(
   value: unknown,
   fieldIds: readonly string[],
   resultFields: readonly Field[],
@@ -1280,10 +1320,10 @@ function approvedFieldsForMaterialization(
   if (
     resultFields.some((field) => getFieldSensitivity(field) === "sensitive")
   ) {
-    throw new Error("Sensitive remote columns cannot be materialized");
+    throw new Error("Sensitive remote columns cannot be imported");
   }
   if (!Array.isArray(value)) {
-    throw new Error("Reviewed fields are required before materialization");
+    throw new Error("Reviewed fields are required before import");
   }
   const byColumn = new Map<string, Field>();
   for (const candidate of value) {
@@ -1292,9 +1332,7 @@ function approvedFieldsForMaterialization(
     }
     const field = candidate as unknown as Field;
     if (getFieldSensitivity(field) !== "cleared") {
-      throw new Error(
-        "Every remote column must be reviewed before materialization",
-      );
+      throw new Error("Every remote column must be reviewed before import");
     }
     const column = field.columnName ?? field.name;
     if (typeof column !== "string" || !column) {
@@ -1376,6 +1414,24 @@ async function commitStagedServerFrames(
   staged: StagedServerFrame[],
 ): Promise<void> {
   if (staged.length === 0) return;
+  if (ctx.flushSnapshotRetentionWindow == null) {
+    console.error(
+      "[dashframe] no retained-snapshot flush hook; leaving staged server frame deletes for startup recovery",
+    );
+    return;
+  }
+  try {
+    // The metadata deletion must reach the durable project snapshot before the
+    // staged bytes are destroyed. Recovery can otherwise restore an older
+    // snapshot that still references a frame whose bytes no longer exist.
+    await ctx.flushSnapshotRetentionWindow();
+  } catch (error) {
+    console.error(
+      "[dashframe] snapshot flush failed; leaving staged server frame deletes for startup recovery",
+      error,
+    );
+    return;
+  }
   const storage = atomicStorage(ctx);
   const results = await Promise.allSettled(
     staged.map(({ token }) => storage.commitDelete(token)),
@@ -1383,10 +1439,38 @@ async function commitStagedServerFrames(
   const failures = results.filter(
     (result): result is PromiseRejectedResult => result.status === "rejected",
   );
+  const removedIds = staged.flatMap(({ token }, index) =>
+    results[index]?.status === "fulfilled" ? [token.split(".")[0]!] : [],
+  );
+  if (removedIds.length > 0) {
+    await ctx.unregisterServerFrames?.(removedIds);
+  }
   if (failures.length > 0) {
     console.error(
       `[dashframe] ${failures.length} staged server frame delete(s) could not be finalized; startup recovery will retry`,
       failures.map(({ reason }) => reason),
+    );
+  }
+}
+
+function assertServerFrameOwnership(
+  _id: string,
+  storage: DataFrameStorageLocation,
+): void {
+  if (storage.type === "file") {
+    throw new Error("Server frame storage is server-owned");
+  }
+}
+
+function assertExistingServerFrameImmutable(
+  existing: DataFrameRow | undefined,
+  _next: DataFrameStorageLocation,
+): void {
+  if (
+    (existing?.storage as DataFrameStorageLocation | undefined)?.type === "file"
+  ) {
+    throw new Error(
+      "Server frame storage cannot be changed through public RPC",
     );
   }
 }
@@ -1402,22 +1486,41 @@ async function rollbackStagedServerFrames(
   }
 }
 
-async function framesForDefinitions(
+async function framesByIds(
   ctx: DashframeFunctionContext,
-  definitionIds: UUID[],
+  ids: readonly string[],
 ): Promise<DataFrameRow[]> {
-  if (definitionIds.length === 0) return [];
-  const allRows = (await ctx.db.from(dataFrames).all()) as DataFrameRow[];
-  const definitions = new Set(definitionIds);
-  return allRows.filter(
-    (row) =>
-      row.definitionId != null && definitions.has(row.definitionId as UUID),
-  );
+  const rows: DataFrameRow[] = [];
+  for (const id of new Set(ids)) {
+    const row = (await ctx.db.from(dataFrames).where(eq("id", id)).first()) as
+      | DataFrameRow
+      | undefined;
+    if (row) rows.push(row);
+  }
+  return rows;
+}
+
+async function framesUnreferencedOutsideTables(
+  ctx: DashframeFunctionContext,
+  frames: DataFrameRow[],
+  removedTableIds: ReadonlySet<string>,
+): Promise<DataFrameRow[]> {
+  const keep: DataFrameRow[] = [];
+  for (const frame of frames) {
+    const references = (await ctx.db
+      .from(dataTables)
+      .where(eq("dataFrameId", frame.id))
+      .all()) as DataTableRow[];
+    if (references.every((table) => removedTableIds.has(table.id))) {
+      keep.push(frame);
+    }
+  }
+  return keep;
 }
 
 /**
  * queryNotionDatabase — fetch rows from a specific Notion database server-side
- * and return schema for review or a reviewed server materialization.
+ * and return schema for review or persist a reviewed server snapshot.
  *
  * The credential resolves via the bound resolver inside `connector.query`; the
  * handler has no plaintext in scope and the client receives only data.
@@ -1430,13 +1533,13 @@ const queryNotionDatabase = wy.procedure
     // Optional cap on rows fetched for the preview. Bounds an unbounded Notion
     // database scan; the renderer passes a preview limit. Omitted = no cap.
     limit: int.optional(),
-    materialize: boolean.optional(),
+    snapshot: boolean.optional(),
     approvedFields: jsonb.optional(),
   })
   .mutation(
     async (
       ctx,
-      { dataSourceId, databaseId, tableId, limit, materialize, approvedFields },
+      { dataSourceId, databaseId, tableId, limit, snapshot, approvedFields },
     ): Promise<NotionQueryResult> => {
       const connector = await notionConnectorFor(ctx, dataSourceId);
       // Only a positive integer limit caps the fetch. Reject 0/negative — the
@@ -1449,13 +1552,13 @@ const queryNotionDatabase = wy.procedure
       // query() resolves the apiKey via the bound resolver internally and returns
       // a serializable result — no credential in scope here, no DataFrame built.
       const result = await connector.query(databaseId, tableId, pagination);
-      const frameHandle = materialize
+      const dataFrameId = snapshot
         ? await persistConnectorFrame(ctx, {
             arrowBuffer: result.arrowBuffer,
             dataSourceId,
             tableId,
             fieldIds: result.fieldIds,
-            approvedFields: approvedFieldsForMaterialization(
+            approvedFields: approvedFieldsForSnapshot(
               approvedFields,
               result.fieldIds,
               result.fields,
@@ -1464,7 +1567,7 @@ const queryNotionDatabase = wy.procedure
           })
         : undefined;
       return {
-        ...(frameHandle ? { frameHandle } : {}),
+        ...(dataFrameId ? { dataFrameId } : {}),
         fieldIds: result.fieldIds,
         fields: result.fields,
         rowCount: result.rowCount,
@@ -1524,11 +1627,11 @@ async function postgresConnectorFor(
 // ============================================================================
 
 /**
- * Serializable Postgres inspection/materialization result. The handle exists
- * only after reviewed fields pass the server privacy gate.
+ * Serializable Postgres inspection/import result. The DataFrame ID exists only
+ * after reviewed fields pass the server privacy gate and a snapshot is saved.
  */
 type PostgresQueryResult = {
-  frameHandle?: UUID;
+  dataFrameId?: UUID;
   fieldIds: string[];
   fields: Field[];
   rowCount: number;
@@ -1553,7 +1656,7 @@ const listPostgresTables = wy.procedure
 
 /**
  * queryPostgresTable — fetch rows from a Postgres table or run a SELECT
- * server-side and return schema for review or a reviewed materialization.
+ * server-side and return schema for review or persist a reviewed snapshot.
  *
  * The credential resolves via the bound resolver inside `connector.query`; the
  * handler has no plaintext in scope and the client receives only data.
@@ -1567,13 +1670,13 @@ const queryPostgresTable = wy.procedure
     tableId: uuid,
     /** Optional cap on rows fetched for the preview. */
     limit: int.optional(),
-    materialize: boolean.optional(),
+    snapshot: boolean.optional(),
     approvedFields: jsonb.optional(),
   })
   .mutation(
     async (
       ctx,
-      { dataSourceId, databaseId, tableId, limit, materialize, approvedFields },
+      { dataSourceId, databaseId, tableId, limit, snapshot, approvedFields },
     ): Promise<PostgresQueryResult> => {
       const connector = await postgresConnectorFor(ctx, dataSourceId);
       const pagination =
@@ -1581,13 +1684,13 @@ const queryPostgresTable = wy.procedure
           ? { pagination: { offset: 0, limit } }
           : undefined;
       const result = await connector.query(databaseId, tableId, pagination);
-      const frameHandle = materialize
+      const dataFrameId = snapshot
         ? await persistConnectorFrame(ctx, {
             arrowBuffer: result.arrowBuffer,
             dataSourceId,
             tableId,
             fieldIds: result.fieldIds,
-            approvedFields: approvedFieldsForMaterialization(
+            approvedFields: approvedFieldsForSnapshot(
               approvedFields,
               result.fieldIds,
               result.fields,
@@ -1596,7 +1699,7 @@ const queryPostgresTable = wy.procedure
           })
         : undefined;
       return {
-        ...(frameHandle ? { frameHandle } : {}),
+        ...(dataFrameId ? { dataFrameId } : {}),
         fieldIds: result.fieldIds,
         fields: result.fields,
         rowCount: result.rowCount,
@@ -1777,11 +1880,11 @@ const listGa4Properties = wy.procedure
   );
 
 /**
- * Serializable GA4 inspection/materialization result. Structurally identical
+ * Serializable GA4 inspection/import result. Structurally identical
  * to Postgres today, but deliberately kept per-connector here.
  */
 type Ga4QueryResult = {
-  frameHandle?: UUID;
+  dataFrameId?: UUID;
   fieldIds: string[];
   fields: Field[];
   rowCount: number;
@@ -1803,13 +1906,13 @@ const queryGa4Property = wy.procedure
     dataSourceId: uuid,
     tableId: uuid,
     limit: int.optional(),
-    materialize: boolean.optional(),
+    snapshot: boolean.optional(),
     approvedFields: jsonb.optional(),
   })
   .mutation(
     async (
       ctx,
-      { dataSourceId, tableId, limit, materialize, approvedFields },
+      { dataSourceId, tableId, limit, snapshot, approvedFields },
     ): Promise<Ga4QueryResult> => {
       const table = (await ctx.db
         .from(dataTables)
@@ -1827,13 +1930,13 @@ const queryGa4Property = wy.procedure
           ? { pagination: { offset: 0, limit } }
           : undefined;
       const result = await connector.query(table.table, tableId, pagination);
-      const frameHandle = materialize
+      const dataFrameId = snapshot
         ? await persistConnectorFrame(ctx, {
             arrowBuffer: result.arrowBuffer,
             dataSourceId,
             tableId,
             fieldIds: result.fieldIds,
-            approvedFields: approvedFieldsForMaterialization(
+            approvedFields: approvedFieldsForSnapshot(
               approvedFields,
               result.fieldIds,
               result.fields,
@@ -1842,7 +1945,7 @@ const queryGa4Property = wy.procedure
           })
         : undefined;
       return {
-        ...(frameHandle ? { frameHandle } : {}),
+        ...(dataFrameId ? { dataFrameId } : {}),
         fieldIds: result.fieldIds,
         fields: result.fields,
         rowCount: result.rowCount,

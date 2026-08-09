@@ -1,3 +1,4 @@
+import type { DuckDBConnection } from "@dashframe/engine-browser";
 import {
   DataFrame as BrowserDataFrame,
   deleteArrowData,
@@ -9,7 +10,6 @@ import type {
   DataFrameJSON,
   UUID,
 } from "@dashframe/types";
-import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
 
 import { api } from "../../wystack/api";
 import { getWyStackClient } from "../../wystack/client";
@@ -41,7 +41,7 @@ class ServerDataFrame implements DataFrame {
     this.createdAt = entry.createdAt;
   }
 
-  load(connection: AsyncDuckDBConnection): Promise<QueryBuilder> {
+  load(connection: DuckDBConnection): Promise<QueryBuilder> {
     return Promise.resolve(new QueryBuilder(this, connection));
   }
 

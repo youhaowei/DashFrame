@@ -132,7 +132,7 @@ interface VisualizationSetupProps {
  *
  * ### Web and desktop:
  * ```
- * ChartEngineProvider (native Mosaic connector — supplied by desktop host)
+ * ChartEngineProvider (native Mosaic connector — supplied by the web or desktop host)
  *     └── DuckDBProvider (server query adapter for table/pagination)
  *         └── VisualizationSetup
  *               └── VisualizationProvider (native connector → Mosaic coordinator)

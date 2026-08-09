@@ -287,12 +287,43 @@ describe("Arrow data path — /tables/:name content-type enforcement", () => {
 
     const response = await app.request(`/frames/${id}/tables/df_server`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${TOKEN}` },
+      headers: {
+        Authorization: `Bearer ${TOKEN}`,
+        "Content-Type": "application/json",
+      },
     });
 
     expect(response.status).toBe(200);
     expect(engine.registrations).toEqual([{ name: "df_server", bytes }]);
     expect(await response.json()).toEqual({ ok: true, id, name: "df_server" });
+  });
+
+  it("rejects a browser-simple frame registration before loading bytes", async () => {
+    const engine = fakeRegistrar();
+    const id = "11111111-1111-4111-8111-111111111111";
+    let loads = 0;
+    const app = createArrowDataPath({
+      engine,
+      dataFrameStorage: {
+        save: async () => {},
+        load: async () => {
+          loads += 1;
+          return new Uint8Array([1]);
+        },
+        delete: async () => {},
+        exists: async () => true,
+        list: async () => [id],
+        getUsage: async () => ({ count: 1 }),
+      },
+    });
+
+    const response = await app.request(`/frames/${id}/tables/df_server`, {
+      method: "POST",
+    });
+
+    expect(response.status).toBe(415);
+    expect(loads).toBe(0);
+    expect(engine.registrations).toEqual([]);
   });
 });
 

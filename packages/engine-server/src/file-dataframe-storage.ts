@@ -9,9 +9,44 @@ const TRASH_DIRECTORY = ".trash";
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+async function syncDirectory(directory: string): Promise<void> {
+  const handle = await fs.open(directory, "r");
+  try {
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
+async function syncDirectoryIfExists(
+  directory: string,
+  sync: (directory: string) => Promise<void>,
+): Promise<void> {
+  try {
+    await sync(directory);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return;
+    }
+    throw error;
+  }
+}
+
+async function ensureDirectory(
+  directory: string,
+  sync: (directory: string) => Promise<void>,
+): Promise<void> {
+  await fs.mkdir(directory, { recursive: true });
+  await sync(path.dirname(directory));
+  await sync(directory);
+}
+
 /** Durable Arrow IPC storage rooted inside one DashFrame project. */
 export class FileDataFrameStorage implements DataFrameStorage {
-  constructor(readonly directory: string) {}
+  constructor(
+    readonly directory: string,
+    private readonly sync = syncDirectory,
+  ) {}
 
   private framePath(id: UUID): string {
     if (!UUID_PATTERN.test(id)) {
@@ -22,14 +57,23 @@ export class FileDataFrameStorage implements DataFrameStorage {
 
   async save(id: UUID, data: Uint8Array): Promise<void> {
     const target = this.framePath(id);
-    await fs.mkdir(this.directory, { recursive: true });
+    await ensureDirectory(this.directory, this.sync);
     const temporary = path.join(
       this.directory,
       `.${id}.${process.pid}.${randomUUID()}.tmp`,
     );
     try {
-      await fs.writeFile(temporary, data, { mode: 0o600 });
+      const handle = await fs.open(temporary, "wx", 0o600);
+      try {
+        await handle.writeFile(data);
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
       await fs.rename(temporary, target);
+      // The file sync makes its bytes durable; the directory sync makes the
+      // atomic rename durable before metadata is allowed to reference it.
+      await this.sync(this.directory);
     } finally {
       await fs.rm(temporary, { force: true }).catch(() => undefined);
     }
@@ -52,15 +96,19 @@ export class FileDataFrameStorage implements DataFrameStorage {
 
   async delete(id: UUID): Promise<void> {
     await fs.rm(this.framePath(id), { force: true });
+    await syncDirectoryIfExists(this.directory, this.sync);
   }
 
   async stageDelete(id: UUID): Promise<string | null> {
     const target = this.framePath(id);
     const token = `${id}.${randomUUID()}`;
     const trashDirectory = path.join(this.directory, TRASH_DIRECTORY);
-    await fs.mkdir(trashDirectory, { recursive: true });
+    await ensureDirectory(trashDirectory, this.sync);
     try {
-      await fs.rename(target, path.join(trashDirectory, token));
+      // Preserve the active name while metadata still references it. The hard
+      // link is the recovery copy; final deletion happens only after commit.
+      await fs.link(target, path.join(trashDirectory, token));
+      await this.sync(trashDirectory);
       return token;
     } catch (error) {
       if (
@@ -75,24 +123,23 @@ export class FileDataFrameStorage implements DataFrameStorage {
   }
 
   async commitDelete(token: string): Promise<void> {
+    const [id] = token.split(".");
+    if (!id || !UUID_PATTERN.test(id)) throw new Error("Invalid delete token");
+    await fs.rm(this.framePath(id as UUID), { force: true });
+    await syncDirectoryIfExists(this.directory, this.sync);
     await fs.rm(this.trashPath(token), { force: true });
+    await syncDirectoryIfExists(
+      path.join(this.directory, TRASH_DIRECTORY),
+      this.sync,
+    );
   }
 
   async rollbackDelete(token: string): Promise<void> {
-    const [id] = token.split(".");
-    if (!id || !UUID_PATTERN.test(id)) throw new Error("Invalid delete token");
-    try {
-      await fs.rename(this.trashPath(token), this.framePath(id as UUID));
-    } catch (error) {
-      if (
-        error instanceof Error &&
-        "code" in error &&
-        error.code === "ENOENT"
-      ) {
-        return;
-      }
-      throw error;
-    }
+    await fs.rm(this.trashPath(token), { force: true });
+    await syncDirectoryIfExists(
+      path.join(this.directory, TRASH_DIRECTORY),
+      this.sync,
+    );
   }
 
   async recoverStagedDeletes(referencedIds: readonly UUID[]): Promise<void> {
@@ -115,10 +162,30 @@ export class FileDataFrameStorage implements DataFrameStorage {
       const [id] = token.split(".");
       if (!id || !UUID_PATTERN.test(id)) continue;
       if (referenced.has(id as UUID)) {
-        await this.rollbackDelete(token);
+        await this.recoverReferencedToken(id as UUID, token);
       } else {
         await this.commitDelete(token);
       }
+    }
+  }
+
+  private async recoverReferencedToken(id: UUID, token: string): Promise<void> {
+    try {
+      await this.rollbackDelete(token);
+    } catch (error) {
+      // A later save owns the active path. Keep the staged bytes intact for
+      // explicit recovery instead of replacing the newer committed frame.
+      if (
+        error instanceof Error &&
+        error.message.includes("an active frame already exists")
+      ) {
+        console.error(
+          `[dashframe] staged frame ${id} collides with an active frame; leaving staged bytes for recovery`,
+          error,
+        );
+        return;
+      }
+      throw error;
     }
   }
 

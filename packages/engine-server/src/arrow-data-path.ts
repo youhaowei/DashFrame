@@ -21,10 +21,9 @@
  *
  * `POST /tables/:name`
  *   Accepts a raw Arrow IPC stream body (`application/vnd.apache.arrow.stream`)
- *   and registers it as a named in-memory table in the engine. The renderer
- *   uploads each DataFrame's Arrow buffer before issuing chart-compute queries.
- *   Only available when the engine implements `registerArrowTable` (i.e. the
- *   native engine is wired into this process — not the WASM-backup path).
+ *   and registers it as a named in-memory table in the engine. Retained explicit
+ *   backup paths may upload Arrow here; project-owned file frames instead use
+ *   `POST /frames/:id/tables/:name` so bytes never cross the client.
  */
 import type { DataFrameStorage } from "@dashframe/engine";
 import type { UUID } from "@dashframe/types";
@@ -45,10 +44,11 @@ export interface ArrowQueryRunner {
 /**
  * Optional extension: the engine can accept Arrow IPC buffers as named tables
  * so chart-compute (and other clients) can register the same frame data the
- * server engine will query — without materializing through the WASM backup path.
+ * server engine will query — without routing bytes through the WASM backup path.
  */
 export interface ArrowTableRegistrar {
   registerArrowTable(name: string, arrow: Uint8Array): Promise<void>;
+  unregisterTable?(name: string): Promise<void>;
 }
 
 export interface ArrowDataPathOptions {
@@ -333,6 +333,10 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
   app.post("/frames/:id/tables/:name", async (c) => {
     if (!(await checkAuth(c.req.header("authorization"), options))) {
       return c.json({ error: "Unauthorized" }, 401);
+    }
+    const contentType = c.req.header("content-type")?.split(";", 1)[0]?.trim();
+    if (contentType?.toLowerCase() !== "application/json") {
+      return c.json({ error: "Content-Type must be application/json" }, 415);
     }
     if (!options.dataFrameStorage) {
       return c.json({ error: "Server DataFrame storage is unavailable" }, 503);

@@ -42,7 +42,7 @@ interface ChartEngineContextValue {
   /**
    * Upload a named Arrow IPC table to the native engine's in-memory store.
    * Retained as a dormant compatibility seam; the active server connection
-   * handles local imports directly and registers durable frames by handle.
+   * handles local imports directly and registers snapshots by DataFrame ID.
    */
   uploadArrowTable:
     | ((name: string, arrowBytes: Uint8Array) => Promise<void>)

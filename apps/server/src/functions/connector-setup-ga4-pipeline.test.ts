@@ -213,7 +213,7 @@ describe("GA4 connector setup pipeline", () => {
       { dataSourceId: result.dataSourceId, tableId },
       { principal: user },
     );
-    expect(inspected.result).not.toHaveProperty("frameHandle");
+    expect(inspected.result).not.toHaveProperty("dataFrameId");
     const approvedFields = (
       inspected.result as { fields: object[] }
     ).fields.map((field) => ({ ...field, sensitivity: "cleared" }));
@@ -222,7 +222,7 @@ describe("GA4 connector setup pipeline", () => {
       {
         dataSourceId: result.dataSourceId,
         tableId,
-        materialize: true,
+        snapshot: true,
         approvedFields,
       },
       { principal: user },
@@ -234,7 +234,7 @@ describe("GA4 connector setup pipeline", () => {
         { name: "activeUsers", type: "number" },
       ],
     });
-    expect(queried.result).toHaveProperty("frameHandle");
+    expect(queried.result).toHaveProperty("dataFrameId");
     expect(queried.result).not.toHaveProperty("arrowBuffer");
     expect(queried.result).toHaveProperty("fieldIds");
     expect(googleFetch).toHaveBeenCalledTimes(5);

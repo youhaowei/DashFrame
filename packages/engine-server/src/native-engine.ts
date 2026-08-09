@@ -331,13 +331,22 @@ export class NativeDuckDBEngine implements QueryEngine {
   }
 
   async unregisterTable(name: string): Promise<void> {
-    if (!this._registeredTables.has(name)) return;
+    await this.initialize();
+    const gate = this._registrationLock;
+    let unlock!: () => void;
+    this._registrationLock = new Promise<void>((resolve) => {
+      unlock = resolve;
+    });
+    await gate;
     try {
+      if (!this._registeredTables.has(name)) return;
       await this.conn().run(`DROP TABLE IF EXISTS ${quoteIdent(name)}`);
     } catch {
       // Best-effort; table may already be gone.
+    } finally {
+      this._registeredTables.delete(name);
+      unlock();
     }
-    this._registeredTables.delete(name);
   }
 
   hasTable(name: string): boolean {

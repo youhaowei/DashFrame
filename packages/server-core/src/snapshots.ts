@@ -136,9 +136,21 @@ export async function writeSnapshot(
   const snapshotsDir = resolveSnapshotsDir(projectDir);
   await fs.mkdir(snapshotsDir, { recursive: true });
 
-  const timestamp = new Date(nowMs()).toISOString().replace(/[:.]/g, "-");
-  const filename = `${SNAPSHOT_PREFIX}${timestamp}${SNAPSHOT_EXT}`;
-  const destPath = path.join(snapshotsDir, filename);
+  let snapshotMs = nowMs();
+  let filename: string;
+  let destPath: string;
+  while (true) {
+    const timestamp = new Date(snapshotMs).toISOString().replace(/[:.]/g, "-");
+    filename = `${SNAPSHOT_PREFIX}${timestamp}${SNAPSHOT_EXT}`;
+    destPath = path.join(snapshotsDir, filename);
+    try {
+      await fs.access(destPath);
+      snapshotMs += 1;
+    } catch (error) {
+      if (isEnoent(error)) break;
+      throw error;
+    }
+  }
   const tempPath = path.join(snapshotsDir, `.tmp-${filename}`);
 
   const blob = await pgliteClient.dumpDataDir("gzip");
@@ -146,8 +158,15 @@ export async function writeSnapshot(
 
   // Write to a temp file first; rename to final path atomically.
   try {
-    await fs.writeFile(tempPath, buffer);
+    const file = await fs.open(tempPath, "w");
+    try {
+      await file.writeFile(buffer);
+      await file.sync();
+    } finally {
+      await file.close();
+    }
     await fs.rename(tempPath, destPath);
+    await syncDirectory(snapshotsDir);
   } catch (err) {
     // Clean up temp file on any error so it doesn't accumulate.
     await fs.unlink(tempPath).catch(() => {});
@@ -230,6 +249,7 @@ async function pruneSnapshots(snapshotsDir: string): Promise<void> {
       `[dashframe] pruneSnapshots: ${failures.length} of ${toDelete.length} deletion(s) failed`,
     );
   }
+  if (toDelete.length > 0) await syncDirectory(snapshotsDir);
 }
 
 /**
@@ -345,6 +365,15 @@ function isEnoent(err: unknown): boolean {
     "code" in err &&
     (err as NodeJS.ErrnoException).code === "ENOENT"
   );
+}
+
+async function syncDirectory(directory: string): Promise<void> {
+  const handle = await fs.open(directory, "r");
+  try {
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
 }
 
 /**
@@ -489,6 +518,17 @@ export class SnapshotScheduler {
     this.inFlight = write.catch(() => {});
     // Await with error propagation — callers must handle rejection.
     await write;
+  }
+
+  /**
+   * Replace the complete retained recovery window with snapshots of the current
+   * state. Physical resources removed from that state are safe to delete only
+   * after this resolves: no retained fallback can restore a reference to them.
+   */
+  async flushRetentionWindow(): Promise<void> {
+    for (let index = 0; index < SNAPSHOT_KEEP_N; index += 1) {
+      await this.flushNow();
+    }
   }
 
   /** Cancel any pending debounced snapshot (call before close). */

@@ -48,13 +48,52 @@ describe("FileDataFrameStorage", () => {
     await storage.save(id, new Uint8Array([7]));
 
     const rollbackToken = await storage.stageDelete(id);
-    expect(await storage.exists(id)).toBe(false);
+    expect(await storage.exists(id)).toBe(true);
     await storage.rollbackDelete(rollbackToken!);
     expect(await storage.load(id)).toEqual(new Uint8Array([7]));
 
     const commitToken = await storage.stageDelete(id);
     await storage.commitDelete(commitToken!);
     expect(await storage.exists(id)).toBe(false);
+  });
+
+  it("syncs delete lifecycle directory entries before advancing metadata", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "dashframe-frames-"));
+    roots.push(root);
+    const directory = path.join(root, "frames");
+    const trash = path.join(directory, ".trash");
+    const synced: string[] = [];
+    const storage = new FileDataFrameStorage(directory, async (entry) => {
+      synced.push(entry);
+    });
+    const id = "11111111-1111-4111-8111-111111111111";
+    await storage.save(id, new Uint8Array([7]));
+    synced.length = 0;
+
+    const rollbackToken = await storage.stageDelete(id);
+    expect(synced).toEqual([directory, trash, trash]);
+    synced.length = 0;
+    await storage.rollbackDelete(rollbackToken!);
+    expect(synced).toEqual([trash]);
+
+    const commitToken = await storage.stageDelete(id);
+    synced.length = 0;
+    await storage.commitDelete(commitToken!);
+    expect(synced).toEqual([directory, trash]);
+  });
+
+  it("keeps the active frame readable while a staged delete rolls back", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "dashframe-frames-"));
+    roots.push(root);
+    const storage = new FileDataFrameStorage(path.join(root, "frames"));
+    const id = "11111111-1111-4111-8111-111111111111";
+    await storage.save(id, new Uint8Array([1]));
+
+    const token = await storage.stageDelete(id);
+    expect(token).not.toBeNull();
+    expect(await storage.load(id)).toEqual(new Uint8Array([1]));
+    await storage.rollbackDelete(token!);
+    expect(await storage.load(id)).toEqual(new Uint8Array([1]));
   });
 
   it("recovers interrupted staged deletes from committed ownership", async () => {

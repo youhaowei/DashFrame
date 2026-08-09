@@ -5,7 +5,7 @@
  *   - listNotionDatabases maps the connector's RemoteDatabase {id,name} to the
  *     renderer DTO {id,title} (the consumer renders/adds by `title`).
  *   - queryNotionDatabase persists Arrow server-side and returns an opaque
- *     frame handle plus schema metadata — no row bytes cross by default.
+ *     DataFrame ID plus schema metadata — no row bytes cross by default.
  *   - Both resolve the credential through the bound resolver (vault.withSecret)
  *     server-side, with no plaintext returned to the caller.
  *
@@ -24,9 +24,18 @@ import {
 } from "@wystack/secret-vault";
 import { applyCommands, type WyStackApp } from "@wystack/server";
 import { mkdtempSync, rmSync } from "node:fs";
+import { readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  type Mock,
+  vi,
+} from "vitest";
 
 // Mock the connector so the routes resolve the credential via the bound
 // resolver but never hit the Notion network. The mock connect()/query() call
@@ -39,6 +48,7 @@ const approvedFields = [
   { id: "f1", name: "Name", type: "string", sensitivity: "cleared" },
   { id: "f2", name: "Status", type: "string", sensitivity: "cleared" },
 ];
+let returnedFields: Array<Record<string, unknown>> = [];
 
 vi.mock("@dashframe/connector-notion", () => ({
   makeNotionConnector: (
@@ -66,10 +76,7 @@ vi.mock("@dashframe/connector-notion", () => ({
       return auth(async () => ({
         arrowBuffer: "QVJST1cx", // base64 placeholder
         fieldIds: ["f1", "f2"],
-        fields: [
-          { id: "f1", name: "Name", type: "string" },
-          { id: "f2", name: "Status", type: "string" },
-        ],
+        fields: returnedFields,
         rowCount: 2,
       }));
     },
@@ -96,17 +103,28 @@ describe("Notion data-plane routes — happy path (mocked connector)", () => {
   let vault: SecretVault;
   let backend: TestBackend;
   let frameStorage: FileDataFrameStorage;
+  let flushSnapshot: Mock<() => Promise<void>>;
+  let unregisterServerFrames: Mock<(ids: readonly string[]) => Promise<void>>;
 
   beforeEach(async () => {
     queryCalls.length = 0;
+    returnedFields = [
+      { id: "f1", name: "Name", type: "string" },
+      { id: "f2", name: "Status", type: "string" },
+    ];
     dir = mkdtempSync(join(tmpdir(), "dashframe-notion-routes-"));
     db = await openArtifactDb({ path: join(dir, "artifacts.db") });
     ({ vault, backend } = makeTestVault());
     frameStorage = new FileDataFrameStorage(join(dir, "dataframes"));
+    flushSnapshot = vi.fn(async () => {});
+    unregisterServerFrames = vi.fn(async () => {});
     app = await buildDashframeApp({
       db,
       vault,
       dataFrameStorage: frameStorage,
+      flushSnapshot,
+      flushSnapshotRetentionWindow: flushSnapshot,
+      unregisterServerFrames,
     });
   });
 
@@ -158,7 +176,7 @@ describe("Notion data-plane routes — happy path (mocked connector)", () => {
 
     // DTO the renderer consumes: title, not name.
     expect(result).toEqual([{ id: "db-1", title: "Roadmap" }]);
-    // The credential was materialized exactly once, server-side.
+    // The credential was imported exactly once, server-side.
     expect(backend.resolveCallCount).toBe(1);
   });
 
@@ -171,18 +189,18 @@ describe("Notion data-plane routes — happy path (mocked connector)", () => {
       dataSourceId: id,
       databaseId: "db-1",
       tableId,
-      materialize: true,
+      snapshot: true,
       approvedFields,
     });
 
-    // Serializable shape — opaque server frame handle + ids + fields + rowCount.
+    // Serializable shape — DataFrame ID + field ids + fields + rowCount.
     const r = result as {
-      frameHandle: string;
+      dataFrameId: string;
       fieldIds: string[];
       fields: unknown[];
       rowCount: number;
     };
-    expect(r.frameHandle).toMatch(/^[0-9a-f-]{36}$/);
+    expect(r.dataFrameId).toMatch(/^[0-9a-f-]{36}$/);
     expect(r).not.toHaveProperty("arrowBuffer");
     expect(r.fieldIds).toEqual(["f1", "f2"]);
     expect(r.fields).toHaveLength(2);
@@ -192,13 +210,13 @@ describe("Notion data-plane routes — happy path (mocked connector)", () => {
     expect(backend.resolveCallCount).toBe(1);
     expect(JSON.stringify(result)).not.toContain("secret_plaintext");
 
-    expect(await frameStorage.load(r.frameHandle)).toEqual(
+    expect(await frameStorage.load(r.dataFrameId)).toEqual(
       new Uint8Array(Buffer.from("QVJST1cx", "base64")),
     );
-    const frame = await app.call("getDataFrameEntry", { id: r.frameHandle });
+    const frame = await app.call("getDataFrameEntry", { id: r.dataFrameId });
     expect(frame.result).toMatchObject({
-      id: r.frameHandle,
-      storage: { type: "file", key: r.frameHandle },
+      id: r.dataFrameId,
+      storage: { type: "file", key: r.dataFrameId },
       definitionId: tableId,
       rowCount: 2,
       columnCount: 2,
@@ -215,13 +233,64 @@ describe("Notion data-plane routes — happy path (mocked connector)", () => {
       tableId,
     });
 
-    expect(result).not.toHaveProperty("frameHandle");
+    expect(result).not.toHaveProperty("dataFrameId");
     expect(await frameStorage.list()).toEqual([]);
     expect((await app.call("listDataFrames", {})).result).toEqual([]);
     expect(
       ((await app.call("getDataTable", { id: tableId })).result as DataTable)
         .dataFrameId,
     ).toBeUndefined();
+  });
+
+  it("rejects every unreviewed import shape before persistence", async () => {
+    const id = await seedNotionSource();
+    const tableId = await seedNotionTable(id);
+    const base = {
+      dataSourceId: id,
+      databaseId: "db-1",
+      tableId,
+      snapshot: true,
+    };
+    const expectNoPersistence = async () => {
+      expect(await frameStorage.list()).toEqual([]);
+      expect((await app.call("listDataFrames", {})).result).toEqual([]);
+      expect(
+        ((await app.call("getDataTable", { id: tableId })).result as DataTable)
+          .dataFrameId,
+      ).toBeUndefined();
+    };
+
+    await expect(app.call("queryNotionDatabase", base)).rejects.toThrow(
+      "Reviewed fields are required before import",
+    );
+    await expectNoPersistence();
+
+    await expect(
+      app.call("queryNotionDatabase", {
+        ...base,
+        approvedFields: approvedFields.map(
+          ({ sensitivity: _, ...field }) => field,
+        ),
+      }),
+    ).rejects.toThrow("Every remote column must be reviewed before import");
+    await expectNoPersistence();
+
+    await expect(
+      app.call("queryNotionDatabase", {
+        ...base,
+        approvedFields: approvedFields.slice(0, 1),
+      }),
+    ).rejects.toThrow("Reviewed fields do not match the remote result");
+    await expectNoPersistence();
+
+    returnedFields = [
+      { id: "f1", name: "Name", type: "string", sensitivity: "sensitive" },
+      { id: "f2", name: "Status", type: "string" },
+    ];
+    await expect(
+      app.call("queryNotionDatabase", { ...base, approvedFields }),
+    ).rejects.toThrow("Sensitive remote columns cannot be imported");
+    await expectNoPersistence();
   });
 
   it("forwards the preview row limit to connector.query as pagination", async () => {
@@ -248,27 +317,49 @@ describe("Notion data-plane routes — happy path (mocked connector)", () => {
       dataSourceId: id,
       databaseId: "db-1",
       tableId,
-      materialize: true,
+      snapshot: true,
       approvedFields,
     });
-    const firstHandle = (first.result as { frameHandle: string }).frameHandle;
+    const firstDataFrameId = (first.result as { dataFrameId: string })
+      .dataFrameId;
     const second = await app.call("queryNotionDatabase", {
       dataSourceId: id,
       databaseId: "db-1",
       tableId,
-      materialize: true,
+      snapshot: true,
       approvedFields,
     });
-    const secondHandle = (second.result as { frameHandle: string }).frameHandle;
+    const secondDataFrameId = (second.result as { dataFrameId: string })
+      .dataFrameId;
 
-    expect(await frameStorage.exists(firstHandle)).toBe(false);
-    expect(await frameStorage.exists(secondHandle)).toBe(true);
-    expect(await frameStorage.list()).toEqual([secondHandle]);
+    expect(await frameStorage.exists(firstDataFrameId)).toBe(false);
+    expect(await frameStorage.exists(secondDataFrameId)).toBe(true);
+    expect(await frameStorage.list()).toEqual([secondDataFrameId]);
     expect((await app.call("listDataFrames", {})).result).toHaveLength(1);
 
     await app.call("removeDataTable", { id: tableId });
-    expect(await frameStorage.exists(secondHandle)).toBe(false);
+    expect(await frameStorage.exists(secondDataFrameId)).toBe(false);
     expect((await app.call("listDataFrames", {})).result).toEqual([]);
+  });
+
+  it("does not retain an orphan when import races table deletion", async () => {
+    const id = await seedNotionSource();
+    const tableId = await seedNotionTable(id);
+    const [, removed] = await Promise.allSettled([
+      app.call("queryNotionDatabase", {
+        dataSourceId: id,
+        databaseId: "db-1",
+        tableId,
+        snapshot: true,
+        approvedFields,
+      }),
+      app.call("removeDataTable", { id: tableId }),
+    ]);
+
+    expect(removed.status).toBe("fulfilled");
+    expect((await app.call("getDataTable", { id: tableId })).result).toBeNull();
+    expect((await app.call("listDataFrames", {})).result).toEqual([]);
+    expect(await frameStorage.list()).toEqual([]);
   });
 
   it("removes a server frame after DeleteNode commits", async () => {
@@ -278,10 +369,10 @@ describe("Notion data-plane routes — happy path (mocked connector)", () => {
       dataSourceId: id,
       databaseId: "db-1",
       tableId,
-      materialize: true,
+      snapshot: true,
       approvedFields,
     });
-    const handle = (queried.result as { frameHandle: string }).frameHandle;
+    const dataFrameId = (queried.result as { dataFrameId: string }).dataFrameId;
 
     await app.call(
       "commitBatch",
@@ -295,8 +386,131 @@ describe("Notion data-plane routes — happy path (mocked connector)", () => {
       },
     );
 
-    expect(await frameStorage.exists(handle)).toBe(false);
+    expect(await frameStorage.exists(dataFrameId)).toBe(false);
+    expect(flushSnapshot).toHaveBeenCalled();
+    expect(unregisterServerFrames).toHaveBeenCalledWith([dataFrameId]);
     expect((await app.call("listDataFrames", {})).result).toEqual([]);
+  });
+
+  it("preserves a shared frame when one referencing DataTable is deleted", async () => {
+    const id = await seedNotionSource();
+    const ownerTableId = await seedNotionTable(id);
+    const otherTableId = await seedNotionTable(id);
+    const queried = await app.call("queryNotionDatabase", {
+      dataSourceId: id,
+      databaseId: "db-1",
+      tableId: ownerTableId,
+      snapshot: true,
+      approvedFields,
+    });
+    const dataFrameId = (queried.result as { dataFrameId: string }).dataFrameId;
+    await app.call("updateDataTable", {
+      id: otherTableId,
+      updates: { dataFrameId: dataFrameId },
+    });
+
+    await app.call(
+      "commitBatch",
+      { commands: [cmd("DeleteNode", { id: otherTableId })] },
+      {
+        wyStackApp: app,
+        artifactDb: db,
+        principal: { kind: "user", userId: LOCAL_USER_ID },
+      },
+    );
+
+    expect(await frameStorage.exists(dataFrameId)).toBe(true);
+    expect(
+      (await app.call("getDataFrameEntry", { id: dataFrameId })).result,
+    ).not.toBeNull();
+    expect(
+      (await app.call("getDataTable", { id: ownerTableId })).result,
+    ).toMatchObject({ dataFrameId: dataFrameId });
+  });
+
+  it("removes a shared frame when its final referencing DataTable is deleted", async () => {
+    const id = await seedNotionSource();
+    const ownerTableId = await seedNotionTable(id);
+    const otherTableId = await seedNotionTable(id);
+    const queried = await app.call("queryNotionDatabase", {
+      dataSourceId: id,
+      databaseId: "db-1",
+      tableId: ownerTableId,
+      snapshot: true,
+      approvedFields,
+    });
+    const dataFrameId = (queried.result as { dataFrameId: string }).dataFrameId;
+    await app.call("updateDataTable", {
+      id: otherTableId,
+      updates: { dataFrameId: dataFrameId },
+    });
+
+    const context = {
+      wyStackApp: app,
+      artifactDb: db,
+      principal: { kind: "user" as const, userId: LOCAL_USER_ID },
+    };
+    await app.call(
+      "commitBatch",
+      { commands: [cmd("DeleteNode", { id: ownerTableId })] },
+      context,
+    );
+
+    expect(await frameStorage.exists(dataFrameId)).toBe(true);
+    expect(
+      (await app.call("getDataFrameEntry", { id: dataFrameId })).result,
+    ).not.toBeNull();
+    expect(
+      (await app.call("getDataTable", { id: otherTableId })).result,
+    ).toMatchObject({ dataFrameId: dataFrameId });
+
+    await app.call(
+      "commitBatch",
+      { commands: [cmd("DeleteNode", { id: otherTableId })] },
+      context,
+    );
+
+    expect(await frameStorage.exists(dataFrameId)).toBe(false);
+    expect(
+      (await app.call("getDataFrameEntry", { id: dataFrameId })).result,
+    ).toBeNull();
+    expect(unregisterServerFrames).toHaveBeenCalledWith([dataFrameId]);
+  });
+
+  it("retains staged bytes when the durable snapshot flush fails", async () => {
+    const id = await seedNotionSource();
+    const tableId = await seedNotionTable(id);
+    const queried = await app.call("queryNotionDatabase", {
+      dataSourceId: id,
+      databaseId: "db-1",
+      tableId,
+      snapshot: true,
+      approvedFields,
+    });
+    const dataFrameId = (queried.result as { dataFrameId: string }).dataFrameId;
+    flushSnapshot.mockRejectedValue(new Error("injected snapshot failure"));
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await app.call(
+      "removeDataFrameEntry",
+      { id: dataFrameId },
+      { flushSnapshot, flushSnapshotRetentionWindow: flushSnapshot },
+    );
+
+    expect(
+      (await app.call("getDataFrameEntry", { id: dataFrameId })).result,
+    ).toBeNull();
+    expect(await frameStorage.exists(dataFrameId)).toBe(true);
+    expect(
+      (await app.call("getDataTable", { id: tableId })).result,
+    ).toMatchObject({ dataFrameId: undefined });
+    expect(log).toHaveBeenCalledWith(
+      expect.stringContaining("leaving staged server frame deletes"),
+      expect.any(Error),
+    );
+    const trash = await readdir(join(dir, "dataframes", ".trash"));
+    expect(trash).toHaveLength(1);
+    log.mockRestore();
   });
 
   it("reports a committed DeleteNode and schedules its snapshot when file cleanup must retry", async () => {
@@ -306,16 +520,18 @@ describe("Notion data-plane routes — happy path (mocked connector)", () => {
       dataSourceId: id,
       databaseId: "db-1",
       tableId,
-      materialize: true,
+      snapshot: true,
       approvedFields,
     });
-    const handle = (queried.result as { frameHandle: string }).frameHandle;
+    const dataFrameId = (queried.result as { dataFrameId: string }).dataFrameId;
     const onWrite = vi.fn();
     app = await buildDashframeApp({
       db,
       vault,
       dataFrameStorage: frameStorage,
       onWrite,
+      flushSnapshot: async () => {},
+      flushSnapshotRetentionWindow: async () => {},
     });
     const cleanup = vi
       .spyOn(frameStorage, "delete")
@@ -336,7 +552,7 @@ describe("Notion data-plane routes — happy path (mocked connector)", () => {
     ).resolves.toBeDefined();
 
     expect(onWrite).toHaveBeenCalled();
-    expect(await frameStorage.exists(handle)).toBe(true);
+    expect(await frameStorage.exists(dataFrameId)).toBe(true);
     expect((await app.call("listDataFrames", {})).result).toEqual([]);
     cleanup.mockRestore();
 
@@ -344,8 +560,89 @@ describe("Notion data-plane routes — happy path (mocked connector)", () => {
       db,
       vault,
       dataFrameStorage: frameStorage,
+      flushSnapshotRetentionWindow: async () => {},
     });
-    expect(await frameStorage.exists(handle)).toBe(false);
+    expect(await frameStorage.exists(dataFrameId)).toBe(false);
+  });
+
+  it("reports a committed DeleteNode when the post-commit ownership query must retry", async () => {
+    const id = await seedNotionSource();
+    const tableId = await seedNotionTable(id);
+    await app.call("queryNotionDatabase", {
+      dataSourceId: id,
+      databaseId: "db-1",
+      tableId,
+      snapshot: true,
+      approvedFields,
+    });
+    const onWrite = vi.fn();
+    const flushSnapshotRetentionWindow = vi.fn(async () => {});
+    app = await buildDashframeApp({
+      db,
+      vault,
+      dataFrameStorage: frameStorage,
+      onWrite,
+      flushSnapshot: async () => {},
+      flushSnapshotRetentionWindow,
+    });
+    flushSnapshotRetentionWindow.mockRejectedValueOnce(
+      new Error("injected post-commit snapshot failure"),
+    );
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(
+      app.call(
+        "commitBatch",
+        { commands: [cmd("DeleteNode", { id: tableId })] },
+        {
+          wyStackApp: app,
+          artifactDb: db,
+          onWrite,
+          principal: { kind: "user", userId: LOCAL_USER_ID },
+        },
+      ),
+    ).resolves.toBeDefined();
+
+    expect(onWrite).toHaveBeenCalled();
+    expect((await app.call("getDataTable", { id: tableId })).result).toBeNull();
+    expect(log).toHaveBeenCalledWith(
+      expect.stringContaining("snapshot flush failed"),
+      expect.any(Error),
+    );
+    log.mockRestore();
+  });
+
+  it("starts with an unremovable orphan and retries it on the next startup", async () => {
+    const orphan = "11111111-1111-4111-8111-111111111111";
+    await frameStorage.save(orphan, new Uint8Array([1]));
+    const cleanup = vi
+      .spyOn(frameStorage, "delete")
+      .mockRejectedValueOnce(new Error("injected startup cleanup failure"));
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(
+      buildDashframeApp({
+        db,
+        vault,
+        dataFrameStorage: frameStorage,
+        flushSnapshotRetentionWindow: async () => {},
+      }),
+    ).resolves.toBeDefined();
+    expect(await frameStorage.exists(orphan)).toBe(true);
+    expect(log).toHaveBeenCalledWith(
+      expect.stringContaining("the next start will retry"),
+      expect.any(Array),
+    );
+
+    cleanup.mockRestore();
+    log.mockRestore();
+    await buildDashframeApp({
+      db,
+      vault,
+      dataFrameStorage: frameStorage,
+      flushSnapshotRetentionWindow: async () => {},
+    });
+    expect(await frameStorage.exists(orphan)).toBe(false);
   });
 
   it("restores a staged frame when the metadata transaction fails", async () => {
@@ -355,24 +652,28 @@ describe("Notion data-plane routes — happy path (mocked connector)", () => {
       dataSourceId: id,
       databaseId: "db-1",
       tableId,
-      materialize: true,
+      snapshot: true,
       approvedFields,
     });
-    const handle = (queried.result as { frameHandle: string }).frameHandle;
-    const transaction = vi
-      .spyOn(db, "transaction")
-      .mockRejectedValueOnce(new Error("injected transaction failure"));
+    const dataFrameId = (queried.result as { dataFrameId: string }).dataFrameId;
+    await db.$client.exec(`
+      CREATE FUNCTION fail_frame_delete() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN RAISE EXCEPTION 'injected transaction failure'; END $$;
+      CREATE TRIGGER fail_frame_delete
+      BEFORE DELETE ON data_frames
+      FOR EACH ROW EXECUTE FUNCTION fail_frame_delete();
+    `);
 
     await expect(app.call("removeDataTable", { id: tableId })).rejects.toThrow(
-      "injected transaction failure",
+      'delete from "data_frames"',
     );
-    transaction.mockRestore();
+    await db.$client.exec(`DROP TRIGGER fail_frame_delete ON data_frames`);
 
-    expect(await frameStorage.exists(handle)).toBe(true);
+    expect(await frameStorage.exists(dataFrameId)).toBe(true);
     expect(
-      (await app.call("getDataFrameEntry", { id: handle })).result,
+      (await app.call("getDataFrameEntry", { id: dataFrameId })).result,
     ).toMatchObject({
-      id: handle,
+      id: dataFrameId,
       definitionId: tableId,
     });
   });
@@ -384,29 +685,33 @@ describe("Notion data-plane routes — happy path (mocked connector)", () => {
       dataSourceId: id,
       databaseId: "db-1",
       tableId,
-      materialize: true,
+      snapshot: true,
       approvedFields,
     });
-    const handle = (queried.result as { frameHandle: string }).frameHandle;
-    const transaction = vi
-      .spyOn(db, "transaction")
-      .mockRejectedValueOnce(new Error("injected replacement failure"));
+    const dataFrameId = (queried.result as { dataFrameId: string }).dataFrameId;
+    await db.$client.exec(`
+      CREATE FUNCTION fail_frame_insert() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN RAISE EXCEPTION 'injected replacement failure'; END $$;
+      CREATE TRIGGER fail_frame_insert
+      BEFORE INSERT ON data_frames
+      FOR EACH ROW EXECUTE FUNCTION fail_frame_insert();
+    `);
 
     await expect(
       app.call("queryNotionDatabase", {
         dataSourceId: id,
         databaseId: "db-1",
         tableId,
-        materialize: true,
+        snapshot: true,
         approvedFields,
       }),
-    ).rejects.toThrow("injected replacement failure");
-    transaction.mockRestore();
+    ).rejects.toThrow('insert into "data_frames"');
+    await db.$client.exec(`DROP TRIGGER fail_frame_insert ON data_frames`);
 
-    expect(await frameStorage.list()).toEqual([handle]);
+    expect(await frameStorage.list()).toEqual([dataFrameId]);
     expect(
       (await app.call("getDataTable", { id: tableId })).result,
-    ).toMatchObject({ dataFrameId: handle });
+    ).toMatchObject({ dataFrameId: dataFrameId });
     expect((await app.call("listDataFrames", {})).result).toHaveLength(1);
   });
 

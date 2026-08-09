@@ -183,6 +183,7 @@ function VisualizationDisplayContent({
     error: insightViewError,
   } = useInsightView(insightForView, {
     effectiveParams,
+    dataTables,
   });
 
   // Use insight pagination for table data (queries DuckDB directly).

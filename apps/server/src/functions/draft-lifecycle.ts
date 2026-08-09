@@ -270,7 +270,16 @@ const publishDraft = wy.procedure
       }
 
       if (framesBefore != null) {
-        await ctx.cleanupDereferencedServerFrames?.(framesBefore);
+        try {
+          await ctx.cleanupDereferencedServerFrames?.(framesBefore);
+        } catch (err) {
+          // The publish is already committed. Startup recovery retries cleanup,
+          // so never report the committed transition as a failed publish.
+          console.error(
+            "[dashframe] publishDraft: dereferenced server frame cleanup failed; startup recovery will retry",
+            err,
+          );
+        }
       }
 
       // Fire snapshot persistence. `buildDashframeApp`'s outer call wrapper does

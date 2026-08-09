@@ -5,7 +5,7 @@ import type {
   DataFrameStorageLocation,
   UUID,
 } from "@dashframe/engine";
-import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
+import type { DuckDBConnection } from "./query-builder";
 import { generateArrowKey, persistArrowData } from "./storage";
 
 /**
@@ -33,7 +33,7 @@ export class BrowserDataFrame implements DataFrame {
    * Entry point to query operations - loads data and returns QueryBuilder.
    * Import QueryBuilder dynamically to avoid circular dependency.
    */
-  async load(conn: AsyncDuckDBConnection) {
+  async load(conn: DuckDBConnection) {
     const { QueryBuilder } = await import("./query-builder");
     return new QueryBuilder(this, conn);
   }
