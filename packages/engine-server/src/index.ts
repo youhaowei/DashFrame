@@ -13,9 +13,8 @@
  *   - Stage 4 Cache     — `ParquetCache` + `CacheWriteGate` seam (sensitivity gate, see #67)
  *   - Stage 5 Transport — `createArrowDataPath` (dedicated Arrow IPC HTTP path)
  *
- * Desktop already constructs Stage 3+5 in Electron main. Headless `serve` accepts
- * an optional `arrowEngine` but does not construct one yet — that wiring is the
- * first unified-plane slice.
+ * Desktop constructs Stage 3+5 in Electron main; headless `serve` constructs
+ * the same engine lazily at its runtime edge and injects it into the same path.
  *
  * Native module: this package depends on `@duckdb/node-api`, which must be
  * externalized from the Electron main bundle (and asar-unpacked if packaged).

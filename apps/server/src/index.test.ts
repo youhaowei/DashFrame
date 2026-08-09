@@ -12,6 +12,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   assertAccessRootOutsideProject,
   assertBindIsSafe,
+  createStandaloneArrowEngine,
   createStandaloneSecretServices,
   createStandaloneServerOptions,
   parseArgs,
@@ -21,6 +22,68 @@ import {
 } from "./index";
 
 describe("dashframe serve CLI", () => {
+  describe("native engine composition", () => {
+    it("loads and initializes the server-native engine", async () => {
+      const initialize = vi.fn().mockResolvedValue(undefined);
+      const dispose = vi.fn().mockResolvedValue(undefined);
+      const queryArrow = vi.fn();
+      const registerArrowTable = vi.fn();
+
+      const engine = await createStandaloneArrowEngine(async () => ({
+        NativeDuckDBEngine: class {
+          initialize = initialize;
+          dispose = dispose;
+          queryArrow = queryArrow;
+          registerArrowTable = registerArrowTable;
+        },
+      }));
+
+      expect(initialize).toHaveBeenCalledOnce();
+      expect(engine.queryArrow).toBe(queryArrow);
+      expect(dispose).not.toHaveBeenCalled();
+    });
+
+    it("loads the installed native binding through the lazy runtime import", async () => {
+      const engine = await createStandaloneArrowEngine();
+      try {
+        const arrow = await engine.queryArrow(
+          "SELECT 1::INTEGER AS server_native",
+        );
+        expect(arrow.byteLength).toBeGreaterThan(0);
+      } finally {
+        await engine.dispose();
+      }
+    });
+
+    it("fails clearly when the native binding cannot load", async () => {
+      await expect(
+        createStandaloneArrowEngine(async () => {
+          throw new Error("native module not found");
+        }),
+      ).rejects.toThrow(
+        "Native DuckDB is required by dashframe serve but failed to initialize: native module not found",
+      );
+    });
+
+    it("disposes a partially initialized engine before failing startup", async () => {
+      const dispose = vi.fn().mockResolvedValue(undefined);
+
+      await expect(
+        createStandaloneArrowEngine(async () => ({
+          NativeDuckDBEngine: class {
+            async initialize() {
+              throw new Error("connect failed");
+            }
+            dispose = dispose;
+            queryArrow = vi.fn();
+            registerArrowTable = vi.fn();
+          },
+        })),
+      ).rejects.toThrow(/Native DuckDB is required.*connect failed/);
+      expect(dispose).toHaveBeenCalledOnce();
+    });
+  });
+
   describe("parseArgs", () => {
     it("should parse the serve subcommand with project, bind, and token", () => {
       expect(
@@ -286,14 +349,20 @@ describe("dashframe serve CLI", () => {
           touchSnapshot: vi.fn(),
           flushSnapshot: vi.fn(),
         } as unknown as ProjectHandle;
+        const arrowEngine = {
+          queryArrow: vi.fn(),
+          registerArrowTable: vi.fn(),
+        };
         const options = createStandaloneServerOptions(
           { token: "plaintext-token" },
           project,
           services,
+          arrowEngine,
         );
         expect(options.vault).toBe(services.vault);
         expect(options.accessCredentials).toBe(services.accessCredentials);
         expect(options.authToken).toBe("plaintext-token");
+        expect(options.arrowEngine).toBe(arrowEngine);
 
         // Named access tokens and connector credentials share the composed,
         // encrypted standalone vault. No other credential class is routed to
@@ -348,6 +417,7 @@ describe("dashframe serve CLI", () => {
         { token: "plaintext-token" },
         project,
         services,
+        { queryArrow: vi.fn(), registerArrowTable: vi.fn() },
       );
       expect(options.vault).toBeUndefined();
       expect(options.accessCredentials).toBeUndefined();

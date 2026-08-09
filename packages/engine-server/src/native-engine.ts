@@ -7,10 +7,9 @@
  * `@dashframe/engine-browser` is a **backup / local-first** path, not a second
  * peer `QueryEngine` and not the long-term web default.
  *
- * Wiring today: Electron main constructs this engine and mounts Stage 5. Headless
- * `serve` does not pass it yet — that is the first slice of the unified data-plane
- * work (wire `arrowEngine` into serve). Cloud remote compute is not a binding;
- * this class is the intended seam there too once that tier exists.
+ * Electron main and headless `serve` both construct this engine and mount Stage
+ * 5. Cloud remote compute is not a binding; this class is the intended seam
+ * there too once that tier exists.
  *
  * Beyond the row-shaped `QueryEngine.query`, it exposes `queryArrow` — the
  * Arrow IPC bytes the dedicated data path (Stage 5) streams. Arrow encoding is
