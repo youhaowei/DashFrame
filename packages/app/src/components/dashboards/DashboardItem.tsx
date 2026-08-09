@@ -52,6 +52,11 @@ export function DashboardItem({
   ...props
 }: DashboardItemProps) {
   const [isEditingContent, setIsEditingContent] = useState(false);
+  const [wasEditable, setWasEditable] = useState(isEditable);
+  if (wasEditable !== isEditable) {
+    setWasEditable(isEditable);
+    setIsEditingContent(false);
+  }
   const { mutateAsync: updateItem, isPending: isSavingContent } = useMutation(
     api.updateDashboardItem,
   );
@@ -135,7 +140,7 @@ export function DashboardItem({
           {item.type === "markdown" ? (
             <MarkdownWidget
               content={item.content || ""}
-              isEditing={isEditingContent}
+              isEditing={isEditable && isEditingContent}
               onSave={handleSaveContent}
               onCancel={() => setIsEditingContent(false)}
               isSaving={isSavingContent}

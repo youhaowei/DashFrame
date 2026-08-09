@@ -75,6 +75,28 @@ describe("DashboardGrid canonical layout persistence", () => {
       />,
     );
     expect(mocks.gridProps?.onLayoutChange).toBeUndefined();
+    expect(mocks.gridProps?.layouts).toMatchObject({
+      lg: [
+        { i: "first", x: 0, w: 4 },
+        { i: "second", x: 4, w: 4 },
+      ],
+      md: [
+        { i: "first", x: 0, w: 10 },
+        { i: "second", x: 0, w: 10 },
+      ],
+      sm: [
+        { i: "first", x: 0, w: 6 },
+        { i: "second", x: 0, w: 6 },
+      ],
+      xs: [
+        { i: "first", x: 0, w: 4 },
+        { i: "second", x: 0, w: 4 },
+      ],
+      xxs: [
+        { i: "first", x: 0, w: 2 },
+        { i: "second", x: 0, w: 2 },
+      ],
+    });
 
     act(() => {
       (mocks.gridProps?.onWidthChange as (width: number) => void)(800);

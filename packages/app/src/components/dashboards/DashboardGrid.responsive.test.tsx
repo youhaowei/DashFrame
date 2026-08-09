@@ -47,7 +47,7 @@ const dashboard = {
       content: "First",
       x: 0,
       y: 0,
-      width: 4,
+      width: 2,
       height: 4,
     },
   ],
@@ -142,4 +142,23 @@ describe("DashboardGrid editing availability", () => {
     );
     expect(mocks.onEditingAvailabilityChange).toHaveBeenLastCalledWith(true);
   });
+
+  it.each([601, 481, 321])(
+    "projects a stored width-2 item to the full non-lg grid span at %ipx",
+    (width) => {
+      mocks.currentWidth = width;
+
+      const { container } = render(
+        <DashboardGrid dashboard={dashboard} isEditable={false} />,
+      );
+
+      const gridItem = container.querySelector<HTMLElement>(".react-grid-item");
+      expect(gridItem).not.toBeNull();
+      // Full column span inside RGL's 16px horizontal container padding.
+      expect(Number.parseFloat(gridItem?.style.width ?? "")).toBeCloseTo(
+        width - 32,
+      );
+      expect(gridItem?.style.transform).toContain("translate(16px");
+    },
+  );
 });

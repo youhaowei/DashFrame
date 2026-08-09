@@ -117,41 +117,15 @@ export function DashboardGrid({
       minH: 2,
     }));
 
-    // Scale layouts for smaller breakpoints to prevent overflow
-    // md: 10 cols - slight scale down
-    const mdLayout = lgLayout.map((item) => ({
-      ...item,
-      x: Math.min(item.x, 10 - Math.min(item.w, 10)),
-      w: Math.min(item.w, 10),
-    }));
-
-    // sm: 6 cols - items stack more vertically
-    const smLayout = lgLayout.map((item) => ({
-      ...item,
-      x: 0,
-      w: Math.min(item.w, 6),
-    }));
-
-    // xs: 4 cols - full width items
-    const xsLayout = lgLayout.map((item) => ({
-      ...item,
-      x: 0,
-      w: Math.min(item.w, 4),
-    }));
-
-    // xxs: 2 cols - single column stacked layout
-    const xxsLayout = lgLayout.map((item) => ({
-      ...item,
-      x: 0,
-      w: 2,
-    }));
+    const fullWidthLayout = (cols: number) =>
+      lgLayout.map((item) => ({ ...item, x: 0, w: cols }));
 
     return {
       lg: lgLayout,
-      md: mdLayout,
-      sm: smLayout,
-      xs: xsLayout,
-      xxs: xxsLayout,
+      md: fullWidthLayout(DASHBOARD_GRID_COLUMNS.md),
+      sm: fullWidthLayout(DASHBOARD_GRID_COLUMNS.sm),
+      xs: fullWidthLayout(DASHBOARD_GRID_COLUMNS.xs),
+      xxs: fullWidthLayout(DASHBOARD_GRID_COLUMNS.xxs),
     };
   }, [dashboard.items]);
 
