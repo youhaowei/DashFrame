@@ -139,17 +139,20 @@ describe("DataSourcesPage query states", () => {
         await user.click(action);
       } else {
         action.focus();
-        await user.keyboard(activation === "Enter" ? "{Enter>}" : "[Space>]");
+        await user.keyboard(activation === "Enter" ? "{Enter}" : "[Space]");
       }
 
-      expect(
-        await screen.findByRole("menuitem", { name: "Delete" }),
-      ).not.toBeNull();
-      expect(mockNavigate).not.toHaveBeenCalled();
-
+      const deleteItem = await screen.findByRole("menuitem", {
+        name: "Delete",
+      });
+      expect(action.getAttribute("aria-expanded")).toBe("true");
       if (activation !== "pointer") {
-        await user.keyboard(activation === "Enter" ? "{Enter/}" : "[Space/]");
+        expect(document.activeElement).toBe(
+          screen.getByRole("menuitem", { name: "Open" }),
+        );
       }
+      expect(deleteItem).not.toBeNull();
+      expect(mockNavigate).not.toHaveBeenCalled();
     },
   );
 

@@ -1,3 +1,4 @@
+import { RoutedCardActionMenuTrigger } from "@/components/RoutedCardActionMenuTrigger";
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 import { api } from "@/wystack/api";
 import {
@@ -6,19 +7,16 @@ import {
   type Insight,
   type UUID,
 } from "@dashframe/types";
-import { groupHoverAndFocusWithinReveal } from "@dashframe/ui";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@wystack/client";
 import {
   Badge,
   Button,
-  ButtonPrimitive,
   Card,
   CardContent,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuTrigger,
   Input,
 } from "@wystack/ui-react";
 import {
@@ -26,7 +24,6 @@ import {
   DeleteIcon,
   ExternalLinkIcon,
   FileIcon,
-  MoreIcon,
   PlusIcon,
   SearchIcon,
   SettingsIcon,
@@ -312,31 +309,9 @@ export default function InsightsPage() {
           </div>
 
           {/* Actions */}
-          <div
-            className="shrink-0"
-            onClick={(event) => event.stopPropagation()}
-          >
+          <div className="shrink-0">
             <DropdownMenu>
-              <DropdownMenuTrigger
-                render={
-                  <ButtonPrimitive
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    aria-label="More options"
-                    title="More options"
-                    className={`transition-opacity ${groupHoverAndFocusWithinReveal}`}
-                    onKeyDown={(event) => {
-                      if (event.key !== "Enter" && event.key !== " ") return;
-                      event.preventDefault();
-                      if (!event.repeat) event.currentTarget.click();
-                    }}
-                  >
-                    <MoreIcon aria-hidden />
-                    <span className="sr-only">More options</span>
-                  </ButtonPrimitive>
-                }
-              />
+              <RoutedCardActionMenuTrigger />
               <DropdownMenuContent align="end">
                 <DropdownMenuItem
                   onClick={(e) => {
