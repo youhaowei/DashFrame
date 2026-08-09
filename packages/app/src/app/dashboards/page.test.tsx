@@ -210,8 +210,34 @@ describe("DashboardsPage – delete confirmation", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Delete dashboard" }));
     await act(async () => {
-      useConfirmDialogStore.getState().handleConfirm();
+      await useConfirmDialogStore.getState().handleConfirm();
     });
     expect(mockRemove).toHaveBeenCalledWith({ id: "dashboard-1" });
+  });
+
+  it("shows an error toast when confirmed deletion rejects", async () => {
+    mockUseQuery.mockReturnValue({
+      data: [
+        {
+          id: "dashboard-1",
+          name: "Quarterly plan",
+          items: [],
+          createdAt: 0,
+          updatedAt: 0,
+        },
+      ],
+      isLoading: false,
+    });
+    mockRemove.mockRejectedValueOnce(new Error("delete failed"));
+
+    render(<DashboardsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Delete dashboard" }));
+    await act(async () => {
+      await useConfirmDialogStore.getState().handleConfirm();
+    });
+
+    expect(mockShowError).toHaveBeenCalledWith(
+      "Failed to delete dashboard. Please try again.",
+    );
   });
 });

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { mockUseQuery, mockRemoveDataFrame } = vi.hoisted(() => ({
@@ -46,15 +46,20 @@ describe("DataFramesPage delete confirmation", () => {
     );
   });
 
-  it("does not remove a data frame after cancellation, but removes it after confirmation", () => {
+  it("does not remove a data frame after cancellation, but removes it after confirmation", async () => {
     render(<DataFramesPage />);
     fireEvent.click(screen.getByRole("button", { name: "Delete Sales data" }));
 
+    expect(useConfirmDialogStore.getState().config?.description).toBe(
+      'Are you sure you want to delete "Sales data"? This action cannot be undone.',
+    );
     useConfirmDialogStore.getState().handleCancel();
     expect(mockRemoveDataFrame).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Delete Sales data" }));
-    useConfirmDialogStore.getState().handleConfirm();
+    await act(async () => {
+      await useConfirmDialogStore.getState().handleConfirm();
+    });
     expect(mockRemoveDataFrame).toHaveBeenCalledWith("frame-1");
   });
 });

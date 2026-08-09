@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -66,7 +66,9 @@ describe("VisualizationsPage delete confirmation", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /more options/i }));
     fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
-    useConfirmDialogStore.getState().handleConfirm();
+    await act(async () => {
+      await useConfirmDialogStore.getState().handleConfirm();
+    });
 
     expect(mockRemoveVisualization).toHaveBeenCalledWith({ id: "viz-1" });
   });

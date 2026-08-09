@@ -473,7 +473,7 @@ describe("DataSourcePageContent — loading state contract", () => {
     });
   });
 
-  it("does not delete a data table after cancellation, but deletes it after confirmation", () => {
+  it("does not delete a data table after cancellation, but deletes it after confirmation", async () => {
     mockUseDataSources.mockReturnValue({
       data: [DATA_SOURCE],
       isLoading: false,
@@ -493,8 +493,12 @@ describe("DataSourcePageContent — loading state contract", () => {
     expect(mockRemoveDataTable).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Delete Table" }));
-    useConfirmDialogStore.getState().handleConfirm();
+    await act(async () => {
+      await useConfirmDialogStore.getState().handleConfirm();
+    });
     expect(mockRemoveDataTable).toHaveBeenCalledWith({ id: "table-orders" });
+    expect(screen.queryByRole("button", { name: "Delete Table" })).toBeNull();
+    screen.getByText("Select a table");
   });
 });
 

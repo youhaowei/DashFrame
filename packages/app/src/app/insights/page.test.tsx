@@ -1,10 +1,18 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockNavigate, mockRemoveInsight, mockUseQuery } = vi.hoisted(() => ({
+const {
+  mockClearActiveView,
+  mockNavigate,
+  mockRemoveInsight,
+  mockToastError,
+  mockUseQuery,
+} = vi.hoisted(() => ({
+  mockClearActiveView: vi.fn(),
   mockNavigate: vi.fn(),
   mockRemoveInsight: vi.fn(),
+  mockToastError: vi.fn(),
   mockUseQuery: vi.fn(),
 }));
 
@@ -23,9 +31,12 @@ vi.mock("@/components/visualizations/CreateVisualizationModal", () => ({
 }));
 vi.mock("@/lib/stores/insight-canvas-store", () => ({
   useInsightCanvasStore: (
-    selector: (state: { clearActiveView: () => void }) => unknown,
-  ) => selector({ clearActiveView: vi.fn() }),
+    selector: (state: {
+      clearActiveView: (insightId: string) => void;
+    }) => unknown,
+  ) => selector({ clearActiveView: mockClearActiveView }),
 }));
+vi.mock("sonner", () => ({ toast: { error: mockToastError } }));
 
 import { useConfirmDialogStore } from "@/lib/stores";
 import InsightsPage from "./page";
@@ -83,11 +94,14 @@ describe("InsightsPage delete confirmations", () => {
       screen.getAllByRole("button", { name: /more options/i })[0],
     );
     fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
-    useConfirmDialogStore.getState().handleConfirm();
+    await act(async () => {
+      await useConfirmDialogStore.getState().handleConfirm();
+    });
     expect(mockRemoveInsight).toHaveBeenCalledWith({ id: "insight-1" });
+    expect(mockClearActiveView).toHaveBeenCalledWith("insight-1");
   });
 
-  it("shows the draft count and does not start the bulk delete until confirmation", () => {
+  it("shows the draft count and does not start the bulk delete until confirmation", async () => {
     render(<InsightsPage />);
     fireEvent.click(screen.getByRole("button", { name: "Delete all" }));
 
@@ -98,8 +112,32 @@ describe("InsightsPage delete confirmations", () => {
     expect(mockRemoveInsight).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Delete all" }));
-    useConfirmDialogStore.getState().handleConfirm();
+    await act(async () => {
+      await useConfirmDialogStore.getState().handleConfirm();
+    });
+    expect(mockRemoveInsight).toHaveBeenCalledTimes(2);
+    expect(mockRemoveInsight).toHaveBeenNthCalledWith(1, { id: "insight-1" });
+    expect(mockRemoveInsight).toHaveBeenNthCalledWith(2, { id: "insight-2" });
+    expect(mockClearActiveView).toHaveBeenCalledTimes(2);
+    expect(mockClearActiveView).toHaveBeenNthCalledWith(1, "insight-1");
+    expect(mockClearActiveView).toHaveBeenNthCalledWith(2, "insight-2");
+  });
+
+  it("stops bulk deletion when removing a draft rejects", async () => {
+    mockRemoveInsight.mockRejectedValueOnce(new Error("delete failed"));
+
+    render(<InsightsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Delete all" }));
+    await act(async () => {
+      await useConfirmDialogStore.getState().handleConfirm();
+    });
+
+    expect(mockRemoveInsight).toHaveBeenCalledTimes(1);
     expect(mockRemoveInsight).toHaveBeenCalledWith({ id: "insight-1" });
+    expect(mockClearActiveView).not.toHaveBeenCalled();
+    expect(mockToastError).toHaveBeenCalledWith(
+      "Couldn't delete every draft — some may remain",
+    );
   });
 
   it.each(["pointer", "Enter", "Space"] as const)(

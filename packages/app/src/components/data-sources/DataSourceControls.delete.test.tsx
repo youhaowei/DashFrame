@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { mockRemoveDataSource } = vi.hoisted(() => ({
@@ -82,7 +82,7 @@ describe("DataSourceControls delete confirmation", () => {
     mockRemoveDataSource.mockResolvedValue({ ok: true });
   });
 
-  it("does not remove a data source after cancellation, but removes it after confirmation", () => {
+  it("does not remove a data source after cancellation, but removes it after confirmation", async () => {
     render(<DataSourceControls dataSourceId="source-1" />);
     fireEvent.click(screen.getByRole("button", { name: "Delete Data Source" }));
 
@@ -93,7 +93,9 @@ describe("DataSourceControls delete confirmation", () => {
     expect(mockRemoveDataSource).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Delete Data Source" }));
-    useConfirmDialogStore.getState().handleConfirm();
+    await act(async () => {
+      await useConfirmDialogStore.getState().handleConfirm();
+    });
     expect(mockRemoveDataSource).toHaveBeenCalledWith({ id: "source-1" });
   });
 });
