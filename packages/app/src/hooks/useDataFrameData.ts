@@ -36,13 +36,10 @@ export interface UseDataFrameDataResult {
 
 const DATE_PREFIX = /^(\d{4})-(\d{2})-(\d{2})/;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-const ISO_TIMESTAMP_WITH_OFFSET =
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/;
+const ISO_TIMESTAMP_PREFIX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
 
 function isDateString(value: string): boolean {
-  if (!ISO_DATE.test(value) && !ISO_TIMESTAMP_WITH_OFFSET.test(value)) {
-    return false;
-  }
+  if (!ISO_DATE.test(value) && !ISO_TIMESTAMP_PREFIX.test(value)) return false;
   if (Number.isNaN(Date.parse(value))) return false;
 
   const dateParts = DATE_PREFIX.exec(value);

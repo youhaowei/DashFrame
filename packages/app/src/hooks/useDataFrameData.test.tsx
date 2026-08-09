@@ -676,27 +676,6 @@ describe("useDataFrameData", () => {
       });
     });
 
-    it("keeps zone-less T-separated timestamps as strings", async () => {
-      const mockRows = [
-        { timestamp: "2024-01-18T00:30:00" },
-        { timestamp: "2024-01-19T11:30:00" },
-      ];
-
-      const mockDataFrame = createMockDataFrame(mockRows);
-      mockGetDataFrame.mockResolvedValue(mockDataFrame);
-      mockQuery.mockResolvedValue(createMockQueryResult(mockRows));
-
-      const { result } = renderHook(() =>
-        useDataFrameData("df-zoneless-timestamp"),
-      );
-
-      await waitFor(() => {
-        expect(result.current.data?.columns).toEqual([
-          { name: "timestamp", type: "string" },
-        ]);
-      });
-    });
-
     it("should infer 'unknown' type from all null values", async () => {
       const mockRows = [{ value: null }, { value: null }];
 

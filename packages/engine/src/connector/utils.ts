@@ -65,13 +65,24 @@ const STRING_VALUE_PARSERS = defineColumnTypeMap({
     if (normalized === "no" || normalized === "n") return false;
     return null;
   },
-  date: (raw: string): unknown => {
-    const date = new Date(raw);
-    return Number.isNaN(date.getTime()) ? null : date;
-  },
+  date: (raw: string): unknown => parseStringDate(raw),
   string: (raw: string): unknown => raw,
   unknown: (raw: string): unknown => raw,
 });
+
+// CSV date-times that have no zone are calendar values, not browser-local
+// instants. Pin the accepted ISO forms to UTC before creating the Date so the
+// Arrow timestamp and the UTC table formatter retain the written calendar day.
+const ZONELESS_ISO_DATE_TIME =
+  /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/;
+
+function parseStringDate(raw: string): Date | null {
+  const normalized = ZONELESS_ISO_DATE_TIME.test(raw)
+    ? `${raw.replace(" ", "T")}Z`
+    : raw;
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
 
 export function parsePrimitiveBoolean(
   raw: boolean | number | string | null,
