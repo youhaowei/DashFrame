@@ -1139,9 +1139,9 @@ describe("DraftController (persisted draft overlay)", () => {
   });
 
   it("snapshots each command before persisting — a caller mutating args after append does not corrupt the durable log", async () => {
-    // appendToDraft runs the handler against the live command, then persists a
-    // DEEP COPY of what ran. If the caller mutates the command/args afterward,
-    // the durable log must still replay the command as it actually executed.
+    // appendToDraft clones the command before handler execution, and the
+    // handler receives that snapshot. If the caller mutates the command/args
+    // afterward, the durable log must still replay what actually executed.
     const { tableId } = await seedTable(controller);
     const insightId = id();
 
@@ -1175,18 +1175,28 @@ describe("DraftController (persisted draft overlay)", () => {
       name,
     }));
 
-    // Deliberately plain Promise.allSettled: no barriers, spies, or injected
+    // Deliberately plain Promise.all: no barriers, spies, or injected
     // delays. This is the schedule that previously let the last replace-all
     // writer discard the first append's durable log rows.
-    const outcomes = await Promise.allSettled([
-      controller.appendToDraft(
-        draftId,
-        sent.slice(0, 2).map((source) => cmd("CreateDataSource", source)),
-      ),
-      controller.appendToDraft(
-        draftId,
-        sent.slice(2).map((source) => cmd("CreateDataSource", source)),
-      ),
+    const outcomes = await Promise.all([
+      controller
+        .appendToDraft(
+          draftId,
+          sent.slice(0, 2).map((source) => cmd("CreateDataSource", source)),
+        )
+        .then(
+          (value) => ({ status: "fulfilled" as const, value }),
+          (reason) => ({ status: "rejected" as const, reason }),
+        ),
+      controller
+        .appendToDraft(
+          draftId,
+          sent.slice(2).map((source) => cmd("CreateDataSource", source)),
+        )
+        .then(
+          (value) => ({ status: "fulfilled" as const, value }),
+          (reason) => ({ status: "rejected" as const, reason }),
+        ),
     ]);
     const log = await controller.getDraftLog(draftId);
     const loggedNames = log.map(
@@ -1223,13 +1233,23 @@ describe("DraftController (persisted draft overlay)", () => {
 
   it("rejects a stale concurrent append instead of reporting a lost update as success", async () => {
     const draftId = await controller.openDraft();
-    const outcomes = await Promise.allSettled([
-      controller.appendToDraft(draftId, [
-        cmd("CreateDataSource", { id: id(), type: "csv", name: "A" }),
-      ]),
-      controller.appendToDraft(draftId, [
-        cmd("CreateDataSource", { id: id(), type: "csv", name: "B" }),
-      ]),
+    const outcomes = await Promise.all([
+      controller
+        .appendToDraft(draftId, [
+          cmd("CreateDataSource", { id: id(), type: "csv", name: "A" }),
+        ])
+        .then(
+          (value) => ({ status: "fulfilled" as const, value }),
+          (reason) => ({ status: "rejected" as const, reason }),
+        ),
+      controller
+        .appendToDraft(draftId, [
+          cmd("CreateDataSource", { id: id(), type: "csv", name: "B" }),
+        ])
+        .then(
+          (value) => ({ status: "fulfilled" as const, value }),
+          (reason) => ({ status: "rejected" as const, reason }),
+        ),
     ]);
 
     const stale = outcomes.filter(
