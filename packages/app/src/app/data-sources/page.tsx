@@ -122,7 +122,7 @@ export default function DataSourcesPage() {
     e.preventDefault();
     confirm({
       title: "Delete data source",
-      description: `Are you sure you want to delete "${dataSourceName}"? This will remove all associated data and cannot be undone.`,
+      description: `Are you sure you want to delete "${dataSourceName}"? This deletes the data source and its data tables. Related DataFrame metadata and storage, and dependent insights, may remain. This action cannot be undone.`,
       confirmLabel: "Delete",
       variant: "destructive",
       onConfirm: async () => {

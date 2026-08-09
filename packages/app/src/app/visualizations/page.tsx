@@ -155,7 +155,7 @@ export default function VisualizationsPage() {
     e.preventDefault();
     confirm({
       title: "Delete visualization",
-      description: `Are you sure you want to delete "${name}"? This action cannot be undone.`,
+      description: `Are you sure you want to delete "${name}"? This deletes only this visualization. This action cannot be undone.`,
       confirmLabel: "Delete",
       variant: "destructive",
       onConfirm: async () => {

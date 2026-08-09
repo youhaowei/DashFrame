@@ -487,7 +487,7 @@ describe("DataSourcePageContent — loading state contract", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete Table" }));
 
     expect(useConfirmDialogStore.getState().config?.description).toBe(
-      'Are you sure you want to delete "Orders"? This action cannot be undone.',
+      'Are you sure you want to delete "Orders"? This deletes the data table. Related DataFrame metadata and storage, and dependent insights, may remain. This action cannot be undone.',
     );
     useConfirmDialogStore.getState().handleCancel();
     expect(mockRemoveDataTable).not.toHaveBeenCalled();

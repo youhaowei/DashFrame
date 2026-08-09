@@ -177,7 +177,7 @@ describe("DataSourcesPage query states", () => {
       name: "Delete data source",
     });
     expect(dialog.textContent).toContain(
-      'Are you sure you want to delete "Local Files"? This will remove all associated data and cannot be undone.',
+      'Are you sure you want to delete "Local Files"? This deletes the data source and its data tables. Related DataFrame metadata and storage, and dependent insights, may remain. This action cannot be undone.',
     );
     expect(mockRemoveDataSource).not.toHaveBeenCalled();
 

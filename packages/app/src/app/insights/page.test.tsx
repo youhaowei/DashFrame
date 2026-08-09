@@ -73,6 +73,9 @@ describe("InsightsPage delete confirmations", () => {
       screen.getAllByRole("button", { name: /more options/i })[0],
     );
     fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
+    expect(useConfirmDialogStore.getState().config?.description).toBe(
+      'Are you sure you want to delete "First draft"? This deletes the insight, but related visualizations may remain. This action cannot be undone.',
+    );
     useConfirmDialogStore.getState().handleCancel();
     expect(mockRemoveInsight).not.toHaveBeenCalled();
 
@@ -88,8 +91,8 @@ describe("InsightsPage delete confirmations", () => {
     render(<InsightsPage />);
     fireEvent.click(screen.getByRole("button", { name: "Delete all" }));
 
-    expect(useConfirmDialogStore.getState().config?.description).toContain(
-      "2 draft insights",
+    expect(useConfirmDialogStore.getState().config?.description).toBe(
+      "Are you sure you want to delete all 2 draft insights? This deletes the drafts, but related visualizations may remain. This action cannot be undone.",
     );
     useConfirmDialogStore.getState().handleCancel();
     expect(mockRemoveInsight).not.toHaveBeenCalled();

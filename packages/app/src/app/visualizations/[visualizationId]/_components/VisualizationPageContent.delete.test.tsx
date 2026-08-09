@@ -159,6 +159,10 @@ describe("VisualizationPageContent delete confirmation", () => {
     render(<VisualizationPageContent visualizationId="viz-1" />);
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
 
+    expect(useConfirmDialogStore.getState().config?.description).toBe(
+      'Are you sure you want to delete "Revenue by month"? This deletes only this visualization. This action cannot be undone.',
+    );
+
     act(() => useConfirmDialogStore.getState().handleCancel());
     expect(mockRemoveVisualization).not.toHaveBeenCalled();
 

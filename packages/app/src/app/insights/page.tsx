@@ -234,7 +234,7 @@ export default function InsightsPage() {
     e.preventDefault();
     confirm({
       title: "Delete insight",
-      description: `Are you sure you want to delete "${name}"? This action cannot be undone.`,
+      description: `Are you sure you want to delete "${name}"? This deletes the insight, but related visualizations may remain. This action cannot be undone.`,
       confirmLabel: "Delete",
       variant: "destructive",
       onConfirm: async () => {
@@ -260,7 +260,7 @@ export default function InsightsPage() {
     const draftCount = groupedInsights.drafts.length;
     confirm({
       title: "Delete drafts",
-      description: `Are you sure you want to delete all ${draftCount} draft insight${draftCount === 1 ? "" : "s"}? This action cannot be undone.`,
+      description: `Are you sure you want to delete all ${draftCount} draft insight${draftCount === 1 ? "" : "s"}? This deletes the drafts, but related visualizations may remain. This action cannot be undone.`,
       confirmLabel: "Delete",
       variant: "destructive",
       onConfirm: async () => {

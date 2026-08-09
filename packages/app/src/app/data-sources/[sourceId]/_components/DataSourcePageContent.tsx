@@ -278,7 +278,7 @@ export default function DataSourcePageContent({
     const tableName = tableDetails.dataTable.name;
     confirm({
       title: "Delete data table",
-      description: `Are you sure you want to delete "${tableName}"? This action cannot be undone.`,
+      description: `Are you sure you want to delete "${tableName}"? This deletes the data table. Related DataFrame metadata and storage, and dependent insights, may remain. This action cannot be undone.`,
       confirmLabel: "Delete",
       variant: "destructive",
       onConfirm: async () => {
