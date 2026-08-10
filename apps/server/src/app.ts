@@ -31,12 +31,14 @@
  */
 // Import from the transport-only subpath, NOT the package barrel: the barrel
 // re-exports NativeDuckDBEngine, whose module top-level-imports the native
-// `@duckdb/node-api` addon. The `dashframe serve` path imports this app without
-// passing `arrowEngine`, so pulling the native binding eagerly would break
-// startup on platforms without it. arrow-data-path has no native dependency.
+// `@duckdb/node-api` addon. Runtime composers load that platform binding only
+// when they start (`dashframe serve` does so dynamically); importing this
+// deployment-agnostic app factory remains safe. arrow-data-path has no native
+// dependency.
 import {
   createArrowDataPath,
   type ArrowQueryRunner,
+  type ArrowTableRegistrar,
 } from "@dashframe/engine-server/arrow-data-path";
 import { schema, type ApiAccessCredentials } from "@dashframe/server-core";
 import { serve as nodeServe } from "@hono/node-server";
@@ -186,15 +188,11 @@ export interface DashframeServerOptions {
    * supplied, `POST /data/arrow` streams `application/vnd.apache.arrow.stream`
    * for a compiled query — the binary path that never rides WyStack RPC.
    *
-   * Desktop is the only caller that supplies this today — Electron main
-   * constructs the native engine and passes it in. `dashframe serve`'s CLI
-   * composition (`createStandaloneServerOptions`) never sets it, so the Arrow
-   * data path stays unmounted there; wiring it in is the first slice of the
-   * unified data-plane work (see `@dashframe/engine-server`'s native-engine
-   * doc comment). Web try-it also omits it: the result already lives in
-   * renderer WASM, so there is no server data path.
+   * Desktop and `dashframe serve` both construct the native engine and pass it
+   * here. Keeping construction at the runtime edge lets this shared factory be
+   * imported without eagerly loading a platform native addon.
    */
-  arrowEngine?: ArrowQueryRunner;
+  arrowEngine?: ArrowQueryRunner & Partial<ArrowTableRegistrar>;
   /**
    * Optional hook fired after every SUCCESSFUL artifact-DB write mutation.
    * Called once per committed write (after the DB transaction commits, never
