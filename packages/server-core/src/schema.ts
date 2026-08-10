@@ -509,6 +509,9 @@ export const draftCommandLog = pgTable(
 export const draftMetadata = pgTable("draft_metadata", {
   draftId: text("draft_id").primaryKey(),
   baseVersion: timestamp("base_version", { withTimezone: true }).notNull(),
+  // Monotonic CAS token for every durable command-log replacement. Nullable so
+  // syncSchema can add it safely to existing projects; NULL is the legacy zero.
+  logRevision: integer("log_revision"),
   // Snapshot of the canonical id inventory (per conflict table) at the instant
   // the draft opened: `{ [canonicalTableName]: id[] }`. Deletes leave no
   // surviving row for the timestamp probe to see, so conflict detection diffs a

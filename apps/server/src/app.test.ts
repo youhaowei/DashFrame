@@ -1391,6 +1391,91 @@ describe("onWrite hook", () => {
     expect(callCount).toBe(0);
   });
 
+  it("fires onWrite and invalidates exactly once for a durable prefix preserved by a failed draftBatch", async () => {
+    let callCount = 0;
+    project = await openProject({ dir: join(root, "proj") });
+    server = await createDashframeServer({
+      db: project.db,
+      authToken: "renderer-token",
+      onWrite: () => {
+        callCount++;
+      },
+    });
+
+    const ws = new WebSocket(`${server.url.replace(/^http/, "ws")}/api/ws`);
+    const subscriptionId = "sub-draft-prefix-failure";
+    let invalidationCount = 0;
+    const observed = new Promise<{ status: number }>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        ws.close();
+        reject(new Error("draft prefix failure observation timed out"));
+      }, 10_000);
+      ws.onerror = () => reject(new Error("WebSocket failed"));
+      ws.onopen = () =>
+        ws.send(JSON.stringify({ type: "auth", token: "renderer-token" }));
+      ws.onmessage = (event) => {
+        const message = JSON.parse(String(event.data)) as {
+          type?: string;
+          id?: string;
+        };
+        if (message.type === "authenticated") {
+          ws.send(
+            JSON.stringify({
+              type: "subscribe",
+              id: subscriptionId,
+              path: "listDrafts",
+              args: {},
+            }),
+          );
+          return;
+        }
+        if (message.type === "invalidate" && message.id === subscriptionId) {
+          invalidationCount++;
+          return;
+        }
+        if (message.type !== "subscribed" || message.id !== subscriptionId) {
+          return;
+        }
+        postMutation(server!.url, "draftBatch", {
+          commands: [
+            cmd("CreateDataSource", {
+              id: crypto.randomUUID(),
+              type: "csv",
+              name: "durable prefix",
+            }),
+            cmd("DeleteNode", { id: crypto.randomUUID() }),
+          ],
+        }).then((response) => {
+          setTimeout(() => {
+            clearTimeout(timer);
+            resolve({ status: response.status });
+          }, 200);
+        }, reject);
+      };
+    });
+
+    const { status } = await observed;
+    const shadowRows = await project.db.select().from(schema.dataSourcesDraft);
+    const logRows = await project.db.select().from(schema.draftCommandLog);
+    console.info(
+      "[draft HTTP partial failure] HTTP",
+      status,
+      "shadow/log",
+      `${shadowRows.length}/${logRows.length}`,
+      "onWriteCalls",
+      callCount,
+      "invalidations",
+      invalidationCount,
+    );
+    ws.close();
+
+    expect(status).toBe(500);
+    expect(shadowRows).toHaveLength(1);
+    expect(logRows).toHaveLength(1);
+    expect(callCount).toBe(1);
+    expect(invalidationCount).toBe(1);
+  });
+
   it("should NOT fire onWrite for a read-only query", async () => {
     let callCount = 0;
     project = await openProject({ dir: join(root, "proj") });
@@ -1744,7 +1829,6 @@ describe("buildDashframeApp — vault injection seam", () => {
             key.description === "dashframe.draftControllerDispatch",
         ),
       ).toBe(false);
-
       const rejectedShadows = await project.db
         .select()
         .from(schema.dataSourcesDraft)
@@ -1760,6 +1844,7 @@ describe("buildDashframeApp — vault injection seam", () => {
       expect(rejectedShadows).toHaveLength(0);
       expect(rejectedLog).toHaveLength(0);
       expect(metadataAfter).toEqual(metadataBefore);
+      expect(metadataAfter?.logRevision).toBe(0);
       expect(handlerDispatches).toBe(0);
       expect(storeCallCount).toBe(0);
       expect(onWriteCalls).toBe(0);

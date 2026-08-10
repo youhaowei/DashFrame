@@ -1,3 +1,4 @@
+import { RoutedCardActionMenuTrigger } from "@/components/RoutedCardActionMenuTrigger";
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 import { api } from "@/wystack/api";
 import {
@@ -6,7 +7,6 @@ import {
   type Insight,
   type UUID,
 } from "@dashframe/types";
-import { groupHoverAndFocusWithinReveal } from "@dashframe/ui";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@wystack/client";
 import {
@@ -17,7 +17,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuTrigger,
   Input,
 } from "@wystack/ui-react";
 import {
@@ -25,7 +24,6 @@ import {
   DeleteIcon,
   ExternalLinkIcon,
   FileIcon,
-  MoreIcon,
   PlusIcon,
   SearchIcon,
   SettingsIcon,
@@ -33,6 +31,7 @@ import {
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
 import { useInsightCanvasStore } from "@/lib/stores/insight-canvas-store";
 
 // Type for insight with joined details
@@ -81,6 +80,7 @@ export default function InsightsPage() {
     refetch: refetchInsights,
   } = useQuery(api.listInsights, { args: {} });
   const { mutateAsync: removeInsight } = useMutation(api.removeInsight);
+  const { confirm } = useConfirmDialogStore();
   const clearActiveView = useInsightCanvasStore((s) => s.clearActiveView);
   const {
     data: visualizations = [],
@@ -107,6 +107,7 @@ export default function InsightsPage() {
   // Local state
   const [searchQuery, setSearchQuery] = useState("");
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const hasActiveSearch = searchQuery.trim().length > 0;
 
   // Join insights with dataTables and count visualizations
   const insightsData = useMemo((): InsightWithDetails[] => {
@@ -160,14 +161,14 @@ export default function InsightsPage() {
 
   // Filter insights by search query
   const filteredInsights = useMemo((): InsightItem[] => {
-    if (!searchQuery.trim()) return insights;
-    const query = searchQuery.toLowerCase();
+    if (!hasActiveSearch) return insights;
+    const query = searchQuery.trim().toLowerCase();
     return insights.filter(
       (item: InsightItem) =>
         item.insight.name.toLowerCase().includes(query) ||
         item.dataTable?.name.toLowerCase().includes(query),
     );
-  }, [insights, searchQuery]);
+  }, [hasActiveSearch, insights, searchQuery]);
 
   // Group insights by state
   const groupedInsights = useMemo(() => {
@@ -222,35 +223,60 @@ export default function InsightsPage() {
   };
 
   // Handle delete insight
-  const handleDeleteInsight = async (insightId: UUID, e: React.MouseEvent) => {
+  const handleDeleteInsight = (
+    insightId: UUID,
+    name: string,
+    e: React.MouseEvent,
+  ) => {
     e.stopPropagation();
     e.preventDefault();
-    try {
-      await removeInsight({ id: insightId });
-    } catch {
-      toast.error("Couldn't delete the insight");
-      return;
-    }
-    // Drop the persisted canvas-view entry so deleted insights don't
-    // accumulate stale keys in localStorage.
-    clearActiveView(insightId);
+    confirm({
+      title: "Delete insight",
+      description: `Are you sure you want to delete "${name}"? This deletes the insight and its visualizations. Dashboard items that reference those visualizations may remain and stop working. This action cannot be undone.`,
+      confirmLabel: "Delete",
+      variant: "destructive",
+      onConfirm: async () => {
+        try {
+          await removeInsight({ id: insightId });
+        } catch {
+          toast.error("Couldn't delete the insight");
+          return;
+        }
+        // Drop the persisted canvas-view entry so deleted insights don't
+        // accumulate stale keys in localStorage.
+        clearActiveView(insightId);
+      },
+    });
   };
 
   // Handle delete all drafts
-  const handleDeleteAllDrafts = async () => {
+  const handleDeleteAllDrafts = () => {
     // Never act on a classification computed while the queries are unsettled or
     // errored — during load, or after a load failure, the draft grouping is
     // untrustworthy (see the isLoading/hasLoadError note above).
     if (isLoading || hasLoadError) return;
-    for (const item of groupedInsights.drafts) {
-      try {
-        await removeInsight({ id: item.insight.id });
-      } catch {
-        toast.error("Couldn't delete every draft — some may remain");
-        return;
-      }
-      clearActiveView(item.insight.id);
-    }
+    const draftCount = groupedInsights.drafts.length;
+    const draftInsightLabel = `draft insight${draftCount === 1 ? "" : "s"}`;
+    const description = hasActiveSearch
+      ? `Are you sure you want to delete ${draftCount} matching ${draftInsightLabel}? This deletes the matching drafts and their visualizations. Dashboard items that reference those visualizations may remain and stop working. This action cannot be undone.`
+      : `Are you sure you want to delete all ${draftCount} ${draftInsightLabel}? This deletes the drafts and their visualizations. Dashboard items that reference those visualizations may remain and stop working. This action cannot be undone.`;
+    confirm({
+      title: hasActiveSearch ? "Delete matching drafts" : "Delete drafts",
+      description,
+      confirmLabel: "Delete",
+      variant: "destructive",
+      onConfirm: async () => {
+        for (const item of groupedInsights.drafts) {
+          try {
+            await removeInsight({ id: item.insight.id });
+          } catch {
+            toast.error("Couldn't delete every draft — some may remain");
+            return;
+          }
+          clearActiveView(item.insight.id);
+        }
+      },
+    });
   };
 
   // Render insight card
@@ -288,44 +314,35 @@ export default function InsightsPage() {
           </div>
 
           {/* Actions */}
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  icon={MoreIcon}
-                  iconOnly
-                  label="More options"
-                  size="sm"
-                  className={`transition-opacity ${groupHoverAndFocusWithinReveal}`}
-                  onClick={() => {}}
-                />
-              }
-            />
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                onClick={(e) => {
-                  e.stopPropagation();
-                  navigate({ to: `/insights/${item.insight.id}` } as never);
-                }}
-              >
-                <ExternalLinkIcon className="mr-2 h-4 w-4" />
-                Open
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="text-palette-danger"
-                onClick={(e) =>
-                  handleDeleteInsight(
-                    item.insight.id,
-                    e as unknown as React.MouseEvent,
-                  )
-                }
-              >
-                <DeleteIcon className="mr-2 h-4 w-4" />
-                Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <div className="shrink-0">
+            <DropdownMenu>
+              <RoutedCardActionMenuTrigger />
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate({ to: `/insights/${item.insight.id}` } as never);
+                  }}
+                >
+                  <ExternalLinkIcon className="mr-2 h-4 w-4" />
+                  Open
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="text-palette-danger"
+                  onClick={(e) =>
+                    handleDeleteInsight(
+                      item.insight.id,
+                      item.insight.name,
+                      e as unknown as React.MouseEvent,
+                    )
+                  }
+                >
+                  <DeleteIcon className="mr-2 h-4 w-4" />
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       </CardContent>
     </Card>
@@ -433,7 +450,7 @@ export default function InsightsPage() {
                     <Button
                       variant="ghost"
                       icon={DeleteIcon}
-                      label="Delete all"
+                      label={hasActiveSearch ? "Delete matching" : "Delete all"}
                       size="sm"
                       color="danger"
                       className="text-palette-danger hover:text-palette-danger"

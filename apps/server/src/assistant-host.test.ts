@@ -2,8 +2,9 @@ import {
   createAssistantRun,
   type CreateAssistantRunOptions,
 } from "@dashframe/assistant";
-import { openArtifactDb } from "@dashframe/server-core";
+import { openArtifactDb, schema } from "@dashframe/server-core";
 import type { UUID } from "@dashframe/types";
+import { eq } from "drizzle-orm";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { buildDashframeApp, createDraftController } from "./app";
 import { createDashframeAssistantHost } from "./assistant-host";
+import { recoveredDraftWriteTables } from "./draft-controller";
 import { cmd } from "./functions/commands";
 import { LOCAL_USER_ID } from "./permissions";
 
@@ -212,5 +214,62 @@ describe("DashFrame AssistantHost integration", () => {
     expect(await draftController.getDraftLog(draftId)).toEqual([
       expect.objectContaining({ path: "createDashboardCmd" }),
     ]);
+  });
+
+  it("routes a rejected assistant append through durable-prefix notifications exactly once", async () => {
+    let appCalls = 0;
+    let onWriteCalls = 0;
+    let invalidations = 0;
+    const operatedApp = {
+      ...app,
+      async call(
+        ...args: Parameters<typeof app.call>
+      ): ReturnType<typeof app.call> {
+        appCalls++;
+        try {
+          return await app.call(...args);
+        } catch (error) {
+          const recoveredTables = new Set(recoveredDraftWriteTables(error));
+          if (recoveredTables.size > 0) {
+            app.emit(recoveredTables);
+            invalidations++;
+            onWriteCalls++;
+          }
+          throw error;
+        }
+      },
+    } satisfies typeof app;
+    const host = createDashframeAssistantHost({
+      app: operatedApp,
+      draftController,
+      principal: { kind: "user", userId: LOCAL_USER_ID },
+    });
+    const draftId = await host.open();
+    const dashboardId = crypto.randomUUID();
+    const missingId = crypto.randomUUID();
+
+    await expect(
+      host.append(draftId, [
+        cmd("CreateDashboard", {
+          id: dashboardId,
+          name: "durable assistant prefix",
+        }),
+        cmd("DeleteNode", { id: missingId }),
+      ]),
+    ).rejects.toThrow(`Node ${missingId} not found`);
+
+    const shadows = await db
+      .select()
+      .from(schema.dashboardsDraft)
+      .where(eq(schema.dashboardsDraft.draftId, draftId));
+    const log = await db
+      .select()
+      .from(schema.draftCommandLog)
+      .where(eq(schema.draftCommandLog.draftId, draftId));
+    expect(shadows).toHaveLength(1);
+    expect(log).toHaveLength(1);
+    expect(appCalls).toBe(1);
+    expect(onWriteCalls).toBe(1);
+    expect(invalidations).toBe(1);
   });
 });

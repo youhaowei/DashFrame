@@ -5,6 +5,7 @@ import {
   type DataFrameEntry,
 } from "@/lib/data-access/data-frames";
 import { formatRelativeTime } from "@/lib/format-relative-time";
+import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
 import { api } from "@/wystack/api";
 import type { ColumnDef } from "@tanstack/react-table";
 import { useMutation, useQuery } from "@wystack/client";
@@ -21,6 +22,7 @@ import {
 } from "@wystack/ui-react";
 import { ArrowUpDownIcon } from "@wystack/ui-react/icons";
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 
 function resolveSourceName(
   sourceId: string | undefined,
@@ -54,6 +56,7 @@ export default function DataFramesPage() {
   const { mutateAsync: updateDataFrameEntry } = useMutation(
     api.updateDataFrameEntry,
   );
+  const { confirm } = useConfirmDialogStore();
 
   const [editingFrame, setEditingFrame] = useState<DataFrameEntry | null>(null);
   const [editedName, setEditedName] = useState("");
@@ -206,10 +209,20 @@ export default function DataFramesPage() {
     setEditingFrame(null);
   };
 
-  const handleDelete = async (entry: DataFrameEntry) => {
-    if (confirm(`Delete "${entry.name}"? This cannot be undone.`)) {
-      await removeDataFrame(entry.id);
-    }
+  const handleDelete = (entry: DataFrameEntry) => {
+    confirm({
+      title: "Delete data frame",
+      description: `Are you sure you want to delete "${entry.name}"? Data tables that reference it may remain and stop working; dependent insights and visualizations may also stop working. This action cannot be undone.`,
+      confirmLabel: "Delete",
+      variant: "destructive",
+      onConfirm: async () => {
+        try {
+          await removeDataFrame(entry.id);
+        } catch {
+          toast.error("Couldn't delete the data frame");
+        }
+      },
+    });
   };
 
   // Show loading state

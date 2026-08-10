@@ -1,4 +1,8 @@
-import type { AssistantCommand, AssistantHost } from "@dashframe/assistant";
+import type {
+  AssistantCommand,
+  AssistantCommandResult,
+  AssistantHost,
+} from "@dashframe/assistant";
 import type { Principal } from "@wystack/identity";
 import type { WyStackApp } from "@wystack/server";
 
@@ -14,8 +18,8 @@ import {
 export interface DashframeAssistantHostOptions {
   /**
    * Must be the serverContext-wrapped app (createDashframeServer's `app`, or
-   * a test equivalent): discard routes through `app.call("discardDraft")`,
-   * whose handler requires `ctx.draftController` in every call context.
+   * a test equivalent): append/discard route through the registered draft RPCs,
+   * whose handlers require `ctx.draftController` in every call context.
    */
   app: WyStackApp;
   draftController: DraftController;
@@ -38,13 +42,23 @@ export function createDashframeAssistantHost(
 ): AssistantHost {
   return {
     open: () => options.draftController.openDraft(),
-    append: (draftId, batch, context) =>
-      options.draftController.appendToDraft(draftId, batch, {
-        ...context,
-        ...(options.principal !== undefined
-          ? { principal: options.principal }
-          : {}),
-      }),
+    append: async (draftId, batch, context) => {
+      // Route through the operated draft mutation RPC. Besides authorization and
+      // command validation, this is the seam that relays a rejected batch's
+      // durable-prefix metadata to onWrite and subscription invalidation before
+      // preserving the original handler error.
+      const { result } = await options.app.call(
+        "draftBatch",
+        { draftId, commands: batch },
+        {
+          ...context,
+          ...(options.principal !== undefined
+            ? { principal: options.principal }
+            : {}),
+        },
+      );
+      return (result as { results: AssistantCommandResult[] }).results;
+    },
     discard: async (draftId) => {
       // Route through the registered command so discard runs the full
       // lifecycle (credential release, persistence scheduling), not just the

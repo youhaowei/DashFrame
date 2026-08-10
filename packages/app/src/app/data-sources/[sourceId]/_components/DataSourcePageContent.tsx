@@ -12,6 +12,7 @@ import {
   useRegistryVersion,
 } from "@/lib/connectors/registry";
 import { PerfStage, withPerfAsync } from "@/lib/perf";
+import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
 import { api } from "@/wystack/api";
 import { extractColumnAliasComponents } from "@dashframe/engine";
 import type { ColumnAnalysis, FieldSensitivity, UUID } from "@dashframe/types";
@@ -31,12 +32,6 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -168,6 +163,7 @@ export default function DataSourcePageContent({
   } = useQuery(api.listDataSources);
   const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
   const { mutateAsync: removeDataTable } = useMutation(api.removeDataTable);
+  const { confirm } = useConfirmDialogStore();
   const { mutateAsync: patchDataTableArray } = useMutation(
     api.patchDataTableArray,
   );
@@ -203,13 +199,6 @@ export default function DataSourcePageContent({
   useBindArtifact(
     useDataSourceArtifact(dataSource, sourceId, sourceName, dataTables.length),
   );
-
-  // Local state for delete confirmation
-  const [deleteConfirmState, setDeleteConfirmState] = useState<{
-    isOpen: boolean;
-    tableId: UUID | null;
-    tableName: string | null;
-  }>({ isOpen: false, tableId: null, tableName: null });
 
   // Get DataFrame entry for metadata (row/column counts)
   const dataFrameEntry = useMemo(() => {
@@ -285,28 +274,22 @@ export default function DataSourcePageContent({
   // Handle delete table
   const handleDeleteTable = () => {
     if (!selectedTableId || !tableDetails?.dataTable) return;
-
-    setDeleteConfirmState({
-      isOpen: true,
-      tableId: selectedTableId,
-      tableName: tableDetails.dataTable.name,
+    const tableId = selectedTableId;
+    const tableName = tableDetails.dataTable.name;
+    confirm({
+      title: "Delete data table",
+      description: `Are you sure you want to delete "${tableName}"? This deletes the data table. Related DataFrame metadata and storage, and dependent insights, may remain. This action cannot be undone.`,
+      confirmLabel: "Delete",
+      variant: "destructive",
+      onConfirm: async () => {
+        try {
+          await removeDataTable({ id: tableId });
+          setSelectedTableId(null);
+        } catch {
+          toast.error("Failed to delete data table");
+        }
+      },
     });
-  };
-
-  // Handle confirm delete
-  const handleConfirmDelete = async () => {
-    if (!deleteConfirmState.tableId) return;
-
-    try {
-      // Delete from local store
-      await removeDataTable({ id: deleteConfirmState.tableId });
-
-      // Clear selection and close dialog
-      setSelectedTableId(null);
-      setDeleteConfirmState({ isOpen: false, tableId: null, tableName: null });
-    } catch (error) {
-      console.error("Failed to delete table:", error);
-    }
   };
 
   // Treat both the cold initial load (isLoading) and an in-flight background
@@ -625,48 +608,6 @@ export default function DataSourcePageContent({
           </div>
         )}
       </AppLayout>
-
-      {/* Delete Confirmation Dialog */}
-      <Dialog
-        open={deleteConfirmState.isOpen}
-        onOpenChange={(open) =>
-          !open &&
-          setDeleteConfirmState({
-            isOpen: false,
-            tableId: null,
-            tableName: null,
-          })
-        }
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete Table</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete &quot;
-              {deleteConfirmState.tableName}&quot;? This action cannot be
-              undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              label="Cancel"
-              variant="outline"
-              onClick={() =>
-                setDeleteConfirmState({
-                  isOpen: false,
-                  tableId: null,
-                  tableName: null,
-                })
-              }
-            />
-            <Button
-              label="Delete Table"
-              color="danger"
-              onClick={handleConfirmDelete}
-            />
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </>
   );
 }

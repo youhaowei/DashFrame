@@ -1,7 +1,8 @@
+import { RoutedCardActionMenuTrigger } from "@/components/RoutedCardActionMenuTrigger";
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
+import { useConfirmDialogStore } from "@/lib/stores";
 import { api } from "@/wystack/api";
 import type { Insight, UUID, Visualization } from "@dashframe/types";
-import { groupHoverAndFocusWithinReveal } from "@dashframe/ui";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@wystack/client";
 import {
@@ -12,7 +13,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuTrigger,
   Input,
 } from "@wystack/ui-react";
 import {
@@ -20,12 +20,12 @@ import {
   DataPointIcon,
   DeleteIcon,
   ExternalLinkIcon,
-  MoreIcon,
   PlusIcon,
   SearchIcon,
   TableIcon,
 } from "@wystack/ui-react/icons";
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 
 // Type for visualization with joined details
 type VisualizationWithDetails = {
@@ -53,6 +53,7 @@ export default function VisualizationsPage() {
   const { mutateAsync: removeVisualization } = useMutation(
     api.removeVisualization,
   );
+  const { confirm } = useConfirmDialogStore();
 
   // Local state
   const [searchQuery, setSearchQuery] = useState("");
@@ -142,13 +143,26 @@ export default function VisualizationsPage() {
   };
 
   // Handle delete visualization
-  const handleDeleteVisualization = async (
+  const handleDeleteVisualization = (
     visualizationId: UUID,
+    name: string,
     e: React.MouseEvent,
   ) => {
     e.stopPropagation();
     e.preventDefault();
-    await removeVisualization({ id: visualizationId });
+    confirm({
+      title: "Delete visualization",
+      description: `Are you sure you want to delete "${name}"? This deletes only this visualization. Dashboard items that reference it may remain and stop working. This action cannot be undone.`,
+      confirmLabel: "Delete",
+      variant: "destructive",
+      onConfirm: async () => {
+        try {
+          await removeVisualization({ id: visualizationId });
+        } catch {
+          toast.error("Couldn't delete the visualization");
+        }
+      },
+    });
   };
 
   // Render visualization card
@@ -208,46 +222,37 @@ export default function VisualizationsPage() {
           </div>
 
           {/* Actions */}
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  icon={MoreIcon}
-                  iconOnly
-                  label="More options"
-                  size="sm"
-                  className={`transition-opacity ${groupHoverAndFocusWithinReveal}`}
-                  onClick={() => {}}
-                />
-              }
-            />
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                onClick={(e) => {
-                  e.stopPropagation();
-                  navigate({
-                    to: `/visualizations/${item.visualization.id}`,
-                  } as never);
-                }}
-              >
-                <ExternalLinkIcon className="mr-2 h-4 w-4" />
-                Open
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="text-palette-danger"
-                onClick={(e) =>
-                  handleDeleteVisualization(
-                    item.visualization.id,
-                    e as unknown as React.MouseEvent,
-                  )
-                }
-              >
-                <DeleteIcon className="mr-2 h-4 w-4" />
-                Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <div className="shrink-0">
+            <DropdownMenu>
+              <RoutedCardActionMenuTrigger />
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate({
+                      to: `/visualizations/${item.visualization.id}`,
+                    } as never);
+                  }}
+                >
+                  <ExternalLinkIcon className="mr-2 h-4 w-4" />
+                  Open
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="text-palette-danger"
+                  onClick={(e) =>
+                    handleDeleteVisualization(
+                      item.visualization.id,
+                      item.visualization.name,
+                      e as unknown as React.MouseEvent,
+                    )
+                  }
+                >
+                  <DeleteIcon className="mr-2 h-4 w-4" />
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       </CardContent>
     </Card>

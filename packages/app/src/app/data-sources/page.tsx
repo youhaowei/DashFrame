@@ -1,12 +1,13 @@
 import { ConnectorIcon } from "@/components/data-sources/renderers/ConnectorIcon";
+import { RoutedCardActionMenuTrigger } from "@/components/RoutedCardActionMenuTrigger";
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 import {
   getConnectorById,
   useRegistryVersion,
 } from "@/lib/connectors/registry";
+import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
 import { api } from "@/wystack/api";
 import type { DataSource, UUID } from "@dashframe/types";
-import { groupHoverAndFocusWithinReveal } from "@dashframe/ui";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@wystack/client";
 import {
@@ -17,7 +18,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuTrigger,
   ErrorState,
   Input,
 } from "@wystack/ui-react";
@@ -25,12 +25,12 @@ import {
   DatabaseIcon,
   DeleteIcon,
   ExternalLinkIcon,
-  MoreIcon,
   PlusIcon,
   SearchIcon,
   TableIcon,
 } from "@wystack/ui-react/icons";
 import { useCallback, useMemo, useState } from "react";
+import { toast } from "sonner";
 
 // Type for data source with table count
 type DataSourceWithTables = {
@@ -56,6 +56,7 @@ export default function DataSourcesPage() {
   const dataSources = dataSourcesQuery.data;
   const refetchDataSources = dataSourcesQuery.refetch;
   const { mutateAsync: removeDataSource } = useMutation(api.removeDataSource);
+  const { confirm } = useConfirmDialogStore();
 
   // Get all data tables to count them per source
   const dataTablesQuery = useQuery(api.listDataTables, { args: {} });
@@ -111,11 +112,24 @@ export default function DataSourcesPage() {
   // Handle delete data source
   const handleDeleteDataSource = async (
     dataSourceId: UUID,
+    dataSourceName: string,
     e: React.MouseEvent,
   ) => {
     e.stopPropagation();
     e.preventDefault();
-    await removeDataSource({ id: dataSourceId });
+    confirm({
+      title: "Delete data source",
+      description: `Are you sure you want to delete "${dataSourceName}"? This deletes the data source and its data tables. Related DataFrame metadata and storage, and dependent insights, may remain. This action cannot be undone.`,
+      confirmLabel: "Delete",
+      variant: "destructive",
+      onConfirm: async () => {
+        try {
+          await removeDataSource({ id: dataSourceId });
+        } catch {
+          toast.error("Failed to delete data source");
+        }
+      },
+    });
   };
 
   // Render data source card
@@ -157,46 +171,37 @@ export default function DataSourcesPage() {
           </div>
 
           {/* Actions */}
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  icon={MoreIcon}
-                  iconOnly
-                  label="More options"
-                  size="sm"
-                  className={`transition-opacity ${groupHoverAndFocusWithinReveal}`}
-                  onClick={() => {}}
-                />
-              }
-            />
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                onClick={(e) => {
-                  e.stopPropagation();
-                  navigate({
-                    to: `/data-sources/${item.dataSource.id}`,
-                  } as never);
-                }}
-              >
-                <ExternalLinkIcon className="mr-2 h-4 w-4" />
-                Open
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="text-palette-danger"
-                onClick={(e) =>
-                  handleDeleteDataSource(
-                    item.dataSource.id,
-                    e as unknown as React.MouseEvent,
-                  )
-                }
-              >
-                <DeleteIcon className="mr-2 h-4 w-4" />
-                Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <div className="shrink-0">
+            <DropdownMenu>
+              <RoutedCardActionMenuTrigger />
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate({
+                      to: `/data-sources/${item.dataSource.id}`,
+                    } as never);
+                  }}
+                >
+                  <ExternalLinkIcon className="mr-2 h-4 w-4" />
+                  Open
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="text-palette-danger"
+                  onClick={(e) =>
+                    handleDeleteDataSource(
+                      item.dataSource.id,
+                      item.dataSource.name,
+                      e as unknown as React.MouseEvent,
+                    )
+                  }
+                >
+                  <DeleteIcon className="mr-2 h-4 w-4" />
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       </CardContent>
     </Card>

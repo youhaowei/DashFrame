@@ -306,6 +306,29 @@ describe("confirm-dialog-store", () => {
       expect(useConfirmDialogStore.getState().isOpen).toBe(false);
       expect(useConfirmDialogStore.getState().config).toBeNull();
     });
+
+    it("catches rejected async callbacks", async () => {
+      const { confirm, handleConfirm } = useConfirmDialogStore.getState();
+      const error = new Error("delete failed");
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => undefined);
+
+      confirm({
+        title: "Test dialog",
+        description: "Test description",
+        onConfirm: vi.fn().mockRejectedValue(error),
+      });
+
+      await handleConfirm();
+
+      expect(consoleError).toHaveBeenCalledWith(
+        "Confirm dialog action failed:",
+        error,
+      );
+      expect(useConfirmDialogStore.getState().isOpen).toBe(false);
+      consoleError.mockRestore();
+    });
   });
 
   describe("handleCancel()", () => {

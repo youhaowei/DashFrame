@@ -10,6 +10,7 @@ import {
   Button,
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -69,25 +70,27 @@ export function DataGrid<TData>({
                       }
                     />
                     <DropdownMenuContent align="end">
-                      <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                      {onEdit && (
-                        <>
+                      <DropdownMenuGroup>
+                        <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                        {onEdit && (
+                          <>
+                            <DropdownMenuItem
+                              onClick={() => onEdit(row.original)}
+                            >
+                              Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                          </>
+                        )}
+                        {onDelete && (
                           <DropdownMenuItem
-                            onClick={() => onEdit(row.original)}
+                            onClick={() => onDelete(row.original)}
+                            className="text-palette-danger"
                           >
-                            Edit
+                            Delete
                           </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                        </>
-                      )}
-                      {onDelete && (
-                        <DropdownMenuItem
-                          onClick={() => onDelete(row.original)}
-                          className="text-palette-danger"
-                        >
-                          Delete
-                        </DropdownMenuItem>
-                      )}
+                        )}
+                      </DropdownMenuGroup>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 );
