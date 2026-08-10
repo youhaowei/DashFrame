@@ -6,6 +6,10 @@
  * by an on-disk DashFrame project. Web dev can point `VITE_WYSTACK_URL` at the
  * printed URL.
  */
+import type {
+  ArrowQueryRunner,
+  ArrowTableRegistrar,
+} from "@dashframe/engine-server/arrow-data-path";
 import {
   ApiAccessCredentials,
   CREDENTIAL_CLASS,
@@ -258,6 +262,50 @@ export interface StandaloneSecretServices {
   accessCredentials?: ApiAccessCredentials;
 }
 
+interface StandaloneArrowEngine extends ArrowQueryRunner, ArrowTableRegistrar {
+  initialize(): Promise<void>;
+  dispose(): Promise<void>;
+}
+
+interface NativeEngineModule {
+  NativeDuckDBEngine: new () => StandaloneArrowEngine;
+}
+
+type LoadNativeEngineModule = () => Promise<NativeEngineModule>;
+
+/**
+ * Load and initialize the native engine only when `dashframe serve` starts.
+ *
+ * Keeping the value import dynamic preserves the server app's transport-only
+ * import boundary: code that imports `@dashframe/server/app` for tests or an
+ * alternate host does not load a platform native addon. The standalone CLI,
+ * however, has one supported execution engine. If the binding is absent or
+ * cannot initialize, startup fails explicitly; there is no WASM fallback.
+ */
+export async function createStandaloneArrowEngine(
+  loadModule: LoadNativeEngineModule = () => import("@dashframe/engine-server"),
+): Promise<StandaloneArrowEngine> {
+  let engine: StandaloneArrowEngine | undefined;
+  try {
+    const { NativeDuckDBEngine } = await loadModule();
+    engine = new NativeDuckDBEngine();
+    await engine.initialize();
+    return engine;
+  } catch (error) {
+    try {
+      await engine?.dispose();
+    } catch {
+      // Preserve the startup failure as the operator-facing cause. Disposal is
+      // best-effort here; NativeDuckDBEngine also releases partial init state.
+    }
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Native DuckDB is required by dashframe serve but failed to initialize: ${reason}`,
+      { cause: error },
+    );
+  }
+}
+
 /** Resolve host-local storage independently from the copiable project path. */
 export function resolveDataDir(
   opts: CliOptions,
@@ -396,6 +444,7 @@ export function createStandaloneServerOptions(
   opts: CliOptions,
   project: ProjectHandle,
   secretServices: StandaloneSecretServices,
+  arrowEngine: ArrowQueryRunner & ArrowTableRegistrar,
 ): DashframeServerOptions {
   return {
     db: project.db,
@@ -403,6 +452,7 @@ export function createStandaloneServerOptions(
     port: opts.port,
     corsOrigin: opts.corsOrigin,
     authToken: opts.token,
+    arrowEngine,
     ...secretServices,
     // Drive the debounced snapshot scheduler on the headless serve path too, so
     // `dashframe serve` gets the same crash-durability guarantee as desktop.
@@ -414,23 +464,95 @@ export function createStandaloneServerOptions(
   };
 }
 
-function closeOnSignal(project: ProjectHandle, server: DashframeServer): void {
+function closeOnSignal(
+  project: ProjectHandle,
+  server: DashframeServer,
+  engine: StandaloneArrowEngine,
+): void {
   let closing = false;
   const close = async () => {
     if (closing) return;
     closing = true;
-    server.stop();
-    const result = await project.close();
+    await shutdownStandaloneResources({ project, server, engine });
+  };
+  process.on("SIGINT", () => void close());
+  process.on("SIGTERM", () => void close());
+}
+
+export interface StandaloneShutdownResources {
+  project: Pick<ProjectHandle, "close">;
+  server: Pick<DashframeServer, "stop">;
+  engine: Pick<StandaloneArrowEngine, "dispose">;
+}
+
+/**
+ * Drain standalone runtime resources and terminate with an honest status.
+ * Snapshot durability is part of a successful shutdown: a reported final
+ * snapshot failure or a rejected project close exits nonzero even though the
+ * server and native engine were already stopped successfully.
+ */
+export async function shutdownStandaloneResources(
+  resources: StandaloneShutdownResources,
+  exit: (code: number) => void = (code) => process.exit(code),
+): Promise<void> {
+  try {
+    resources.server.stop();
+  } catch (error) {
+    console.error("[dashframe] error stopping server:", error);
+  }
+  try {
+    await resources.engine.dispose();
+  } catch (error) {
+    console.error("[dashframe] error disposing native DuckDB engine:", error);
+  }
+
+  let exitCode = 0;
+  try {
+    const result = await resources.project.close();
     if (result.snapshotError) {
+      exitCode = 1;
       console.error(
         "[dashframe] close-time snapshot failed (data may not be persisted):",
         result.snapshotError,
       );
     }
-    process.exit(0);
-  };
-  process.on("SIGINT", () => void close());
-  process.on("SIGTERM", () => void close());
+  } catch (error) {
+    exitCode = 1;
+    console.error("[dashframe] error closing project DB:", error);
+  }
+  exit(exitCode);
+}
+
+async function disposeEngineAfterStartupFailure(
+  engine: StandaloneArrowEngine | undefined,
+): Promise<void> {
+  try {
+    await engine?.dispose();
+  } catch (error) {
+    console.error(
+      "[dashframe] error disposing native DuckDB engine after startup failure:",
+      error,
+    );
+  }
+}
+
+async function closeProjectAfterStartupFailure(
+  project: ProjectHandle,
+): Promise<void> {
+  try {
+    const result = await project.close();
+    if (result.snapshotError) {
+      console.error(
+        "[dashframe] close-time snapshot failed after startup failure:",
+        result.snapshotError,
+      );
+    }
+  } catch (error) {
+    console.error(
+      "[dashframe] error closing project DB after startup failure:",
+      error,
+    );
+  }
 }
 
 export async function main(args = process.argv.slice(2)): Promise<void> {
@@ -483,11 +605,21 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     );
   }
 
-  const server = await createDashframeServer(
-    createStandaloneServerOptions(opts, project, secretServices),
-  );
+  let engine: StandaloneArrowEngine | undefined;
+  let server: DashframeServer;
+  try {
+    engine = await createStandaloneArrowEngine();
+    console.log("[dashframe] native DuckDB engine ready");
+    server = await createDashframeServer(
+      createStandaloneServerOptions(opts, project, secretServices, engine),
+    );
+  } catch (error) {
+    await disposeEngineAfterStartupFailure(engine);
+    await closeProjectAfterStartupFailure(project);
+    throw error;
+  }
 
-  closeOnSignal(project, server);
+  closeOnSignal(project, server, engine);
 
   console.log(`[dashframe] project: ${project.dir}`);
   // Enabled/disabled only — never key material, and never a key ID derived

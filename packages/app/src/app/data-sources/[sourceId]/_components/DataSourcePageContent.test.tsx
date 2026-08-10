@@ -11,7 +11,14 @@
  *   Columns from a repeat-join have _j0 / _j1 suffixes on their aliases. The
  *   analysis map must store them under distinct keys so j1 cannot overwrite j0.
  */
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ── Mock helpers ──────────────────────────────────────────────────────────────
@@ -157,7 +164,7 @@ vi.mock("@wystack/ui-react", () => ({
     <h3>{children}</h3>
   ),
   Dialog: ({ children, open }: { children: React.ReactNode; open: boolean }) =>
-    open ? <div>{children}</div> : null,
+    open ? <div role="dialog">{children}</div> : null,
   DialogContent: ({ children }: { children: React.ReactNode }) => (
     <div>{children}</div>
   ),
@@ -234,6 +241,8 @@ vi.mock("@/components/data-sources/SensitivityBadge", () => ({
 
 // ── Component under test ──────────────────────────────────────────────────────
 
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { useConfirmDialogStore } from "@/lib/stores";
 import { extractColumnAliasComponents } from "@dashframe/engine";
 import React from "react";
 import DataSourcePageContent, {
@@ -256,6 +265,7 @@ const DATA_SOURCE = {
 describe("DataSourcePageContent — loading state contract", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useConfirmDialogStore.getState().close();
     mockPatchDataTableArray.mockResolvedValue({ ok: true });
     mockRemoveDataTable.mockResolvedValue({ ok: true });
     mockCommitBatch.mockResolvedValue({
@@ -469,6 +479,40 @@ describe("DataSourcePageContent — loading state contract", () => {
       itemId: "field-a",
       value: undefined,
     });
+  });
+
+  it("does not delete a data table after cancellation, but deletes it after confirmation", async () => {
+    const user = userEvent.setup();
+    mockUseDataSources.mockReturnValue({
+      data: [DATA_SOURCE],
+      isLoading: false,
+    });
+    mockUseDataTables.mockReturnValue({
+      data: [{ id: "table-orders", name: "Orders", fields: [], metrics: [] }],
+    });
+
+    render(
+      <>
+        <DataSourcePageContent sourceId={SOURCE_ID} />
+        <ConfirmDialog />
+      </>,
+    );
+    await user.click(screen.getByRole("button", { name: "Orders" }));
+    await user.click(screen.getByRole("button", { name: "Delete Table" }));
+
+    expect(screen.getByRole("dialog").textContent).toContain(
+      'Are you sure you want to delete "Orders"? This deletes the data table. Related DataFrame metadata and storage, and dependent insights, may remain. This action cannot be undone.',
+    );
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(mockRemoveDataTable).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Delete Table" }));
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    await waitFor(() =>
+      expect(mockRemoveDataTable).toHaveBeenCalledWith({ id: "table-orders" }),
+    );
+    expect(screen.queryByRole("button", { name: "Delete Table" })).toBeNull();
+    screen.getByText("Select a table");
   });
 });
 
