@@ -41,6 +41,11 @@ const DASHBOARD_GRID_COLUMNS = {
   xxs: 2,
 };
 
+const compareGridPosition = (
+  left: { id: string; x: number; y: number },
+  right: { id: string; x: number; y: number },
+) => left.y - right.y || left.x - right.x || left.id.localeCompare(right.id);
+
 interface DashboardGridProps {
   dashboard: Dashboard;
   isEditable: boolean;
@@ -118,7 +123,14 @@ export function DashboardGrid({
     }));
 
     const fullWidthLayout = (cols: number) =>
-      lgLayout.map((item) => ({ ...item, x: 0, w: cols }));
+      [...lgLayout]
+        .sort(
+          (left, right) =>
+            left.y - right.y ||
+            left.x - right.x ||
+            left.i.localeCompare(right.i),
+        )
+        .map((item) => ({ ...item, x: 0, w: cols }));
 
     return {
       lg: lgLayout,
@@ -128,6 +140,11 @@ export function DashboardGrid({
       xxs: fullWidthLayout(DASHBOARD_GRID_COLUMNS.xxs),
     };
   }, [dashboard.items]);
+
+  const itemsInReadingOrder = useMemo(
+    () => [...dashboard.items].sort(compareGridPosition),
+    [dashboard.items],
+  );
 
   const persistCanonicalLayout = useCallback(
     (currentLayout: Layout[]) => {
@@ -231,7 +248,7 @@ export function DashboardGrid({
           ) : undefined
         }
       >
-        {dashboard.items.map((item) => (
+        {itemsInReadingOrder.map((item) => (
           <div key={item.id}>
             <DashboardItem
               item={item}

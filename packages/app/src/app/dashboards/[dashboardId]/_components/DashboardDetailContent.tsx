@@ -131,6 +131,16 @@ export default function DashboardDetailContent({
   const [isAddPending, setIsAddPending] = useState(false);
   const [addType, setAddType] = useState<DashboardItemType>("visualization");
   const [selectedVizId, setSelectedVizId] = useState<string>("");
+  const editingSessionKey =
+    isLoading || isFetching || !dashboard ? null : dashboardId;
+  const [activeEditingSessionKey, setActiveEditingSessionKey] =
+    useState(editingSessionKey);
+  if (activeEditingSessionKey !== editingSessionKey) {
+    setActiveEditingSessionKey(editingSessionKey);
+    setIsEditingAvailable(null);
+    setIsEditable(false);
+    setIsAddOpen(false);
+  }
 
   // Redirect if not found — but only once any in-flight fetch has settled.
   // Guard on isFetching as well as isLoading: TanStack Query sets isLoading=false
@@ -216,8 +226,8 @@ export default function DashboardDetailContent({
       data-editing-available={isEditingAvailable}
     >
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-neutral-border/60 px-6 py-4">
-        <div className="flex items-center gap-4">
+      <div className="dashboard-detail-header flex min-w-0 flex-wrap items-start justify-between gap-4 border-b border-neutral-border/60 px-6 py-4">
+        <div className="flex min-w-0 flex-1 items-center gap-4">
           <Button
             variant="ghost"
             icon={ArrowLeftIcon}
@@ -225,8 +235,8 @@ export default function DashboardDetailContent({
             label="Back to dashboards"
             onClick={() => navigate({ to: "/dashboards" })}
           />
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight text-neutral-fg">
+          <div className="min-w-0 flex-1">
+            <h1 className="break-words text-xl font-semibold tracking-tight text-neutral-fg [overflow-wrap:anywhere]">
               {dashboard.name}
             </h1>
             <p className="text-sm text-neutral-fg-subtle">
@@ -234,7 +244,7 @@ export default function DashboardDetailContent({
             </p>
           </div>
         </div>
-        <div className="dashboard-edit-controls flex flex-col items-end gap-1">
+        <div className="dashboard-edit-controls flex max-w-full shrink-0 flex-col items-end gap-1">
           <div className="dashboard-edit-actions flex items-center gap-2">
             {isEditable ? (
               <Button

@@ -1,4 +1,4 @@
-import { render } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import type { ComponentType } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -29,10 +29,6 @@ vi.mock("react-grid-layout", async (importOriginal) => {
       ),
   };
 });
-
-vi.mock("./DashboardItem", () => ({
-  DashboardItem: () => <div>item</div>,
-}));
 
 import { DashboardGrid } from "./DashboardGrid";
 
@@ -159,6 +155,58 @@ describe("DashboardGrid editing availability", () => {
         width - 32,
       );
       expect(gridItem?.style.transform).toContain("translate(16px");
+
+      // Keep the real DashboardItem -> MarkdownWidget path in this suite so
+      // the full-width projection cannot pass while its content seam overflows.
+      const markdownContent = gridItem?.querySelector<HTMLElement>(".prose");
+      expect(markdownContent?.textContent).toContain("First");
+      expect(markdownContent?.classList.contains("max-w-none")).toBe(true);
+      expect(markdownContent?.classList.contains("overflow-auto")).toBe(true);
+      expect(
+        markdownContent
+          ?.closest("[data-slot='surface']")
+          ?.classList.contains("overflow-hidden"),
+      ).toBe(true);
     },
   );
+
+  it("stacks a reversed stored row in desktop reading order", () => {
+    mocks.currentWidth = 601;
+    const reversedDashboard = {
+      ...dashboard,
+      items: [
+        {
+          ...dashboard.items[0],
+          id: "right",
+          content: "Right widget",
+          x: 6,
+        },
+        {
+          ...dashboard.items[0],
+          id: "left",
+          content: "Left widget",
+          x: 0,
+        },
+      ],
+    };
+
+    render(<DashboardGrid dashboard={reversedDashboard} isEditable={false} />);
+
+    const leftItem = screen
+      .getByText("Left widget")
+      .closest<HTMLElement>(".react-grid-item");
+    const rightItem = screen
+      .getByText("Right widget")
+      .closest<HTMLElement>(".react-grid-item");
+    expect(leftItem).not.toBeNull();
+    expect(rightItem).not.toBeNull();
+
+    const verticalOffset = (item: HTMLElement | null) => {
+      const match = item?.style.transform.match(
+        /translate\([^,]+,\s*(-?[\d.]+)px\)/,
+      );
+      return Number(match?.[1]);
+    };
+    expect(verticalOffset(leftItem)).toBeLessThan(verticalOffset(rightItem));
+  });
 });

@@ -1,4 +1,4 @@
-import { act, render } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -25,10 +25,6 @@ vi.mock("react-grid-layout", () => ({
     mocks.gridProps = props;
     return <div>{props.children as React.ReactNode}</div>;
   },
-}));
-
-vi.mock("./DashboardItem", () => ({
-  DashboardItem: () => <div>item</div>,
 }));
 
 import { DashboardGrid } from "./DashboardGrid";
@@ -131,5 +127,31 @@ describe("DashboardGrid canonical layout persistence", () => {
         { itemId: "second", updates: { x: 7, y: 3, width: 4, height: 4 } },
       ],
     });
+  });
+
+  it("shuts down an unsaved markdown edit at the 960px boundary", () => {
+    render(<DashboardGrid dashboard={dashboard} isEditable />);
+
+    act(() => {
+      (mocks.gridProps?.onWidthChange as (width: number) => void)(1000);
+    });
+    const editButton = document
+      .querySelector(".lucide-pencil")
+      ?.closest("button");
+    expect(editButton).not.toBeNull();
+    fireEvent.click(editButton as HTMLButtonElement);
+    fireEvent.change(screen.getByPlaceholderText("Enter markdown..."), {
+      target: { value: "Unsaved draft" },
+    });
+    expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
+
+    act(() => {
+      (mocks.gridProps?.onWidthChange as (width: number) => void)(960);
+    });
+
+    expect(screen.queryByPlaceholderText("Enter markdown...")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+    expect(screen.getByText("First")).toBeTruthy();
+    expect(mocks.updateItems).not.toHaveBeenCalled();
   });
 });
