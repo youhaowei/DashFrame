@@ -24,12 +24,14 @@ import {
   TestBackend,
 } from "@wystack/secret-vault";
 import { applyCommands } from "@wystack/server";
+import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   assertBindAuthorized,
   buildDashframeApp,
   createDashframeServer,
+  createDraftController,
   type DashframeServer,
 } from "./app";
 import type { ProjectInfoResult } from "./functions";
@@ -1358,6 +1360,87 @@ describe("buildDashframeApp — vault injection seam", () => {
       apiKey: "threaded-key",
     });
     expect(id).toBeTruthy();
+  });
+
+  it("rejects direct draft mutations before handler effects while preserving draft-scoped queries", async () => {
+    const { vault } = makeTestVault();
+    let storeCallCount = 0;
+    let onWriteCalls = 0;
+    const realStore = vault.store.bind(vault);
+    vault.store = async (...args: Parameters<typeof vault.store>) => {
+      storeCallCount++;
+      return realStore(...args);
+    };
+    const app = await buildDashframeApp({
+      db: project.db,
+      vault,
+      onWrite: () => onWriteCalls++,
+    });
+    const controller = createDraftController(app, project.db);
+    const draftId = await controller.openDraft();
+    const rejectedId = crypto.randomUUID();
+    const context = {
+      draftId,
+      principal: { kind: "user" as const, userId: LOCAL_USER_ID },
+    };
+
+    await expect(
+      app.call(
+        "createDataSource",
+        {
+          id: rejectedId,
+          type: "notion",
+          name: "must not reach handler",
+          apiKey: "must-not-be-stored",
+        },
+        context,
+      ),
+    ).rejects.toThrow(
+      /Direct draft mutation "createDataSource" is not allowed; use draftBatch or DraftController\.appendToDraft/,
+    );
+
+    const rejectedShadows = await project.db
+      .select()
+      .from(schema.dataSourcesDraft)
+      .where(eq(schema.dataSourcesDraft.draftId, draftId));
+    const rejectedLog = await project.db
+      .select()
+      .from(schema.draftCommandLog)
+      .where(eq(schema.draftCommandLog.draftId, draftId));
+    const [metadata] = await project.db
+      .select({ revision: schema.draftMetadata.logRevision })
+      .from(schema.draftMetadata)
+      .where(eq(schema.draftMetadata.draftId, draftId));
+    expect(rejectedShadows).toHaveLength(0);
+    expect(rejectedLog).toHaveLength(0);
+    expect(metadata?.revision).toBe(0);
+    expect(storeCallCount).toBe(0);
+    expect(onWriteCalls).toBe(0);
+
+    const draftedId = crypto.randomUUID();
+    await controller.appendToDraft(
+      draftId,
+      [
+        cmd("CreateDataSource", {
+          id: draftedId,
+          type: "csv",
+          name: "query-visible draft",
+        }),
+      ],
+      { principal: context.principal },
+    );
+    const { result: drafted } = await app.call(
+      "getDataSource",
+      { id: draftedId },
+      context,
+    );
+    const { result: canonical } = await app.call("getDataSource", {
+      id: draftedId,
+    });
+    expect(drafted).toEqual(
+      expect.objectContaining({ id: draftedId, name: "query-visible draft" }),
+    );
+    expect(canonical).toBeNull();
   });
 });
 

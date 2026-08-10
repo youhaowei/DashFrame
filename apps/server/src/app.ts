@@ -498,6 +498,15 @@ export async function buildDashframeApp(opts: {
       // Static context wins over per-request context: spread per-request first
       // so static keys (vault) cannot be shadowed by a crafted request context.
       const merged = { ...(context ?? {}), ...staticContext };
+      if (
+        draftIdFromContext(merged) !== undefined &&
+        rawApp.functions.get(path)?.type === "mutation"
+      ) {
+        throw new Error(
+          `Direct draft mutation "${path}" is not allowed; use draftBatch or ` +
+            "DraftController.appendToDraft so shadow state and the command log remain atomic",
+        );
+      }
       const tracked = rawApp.createTracked();
       const effective = withDraftSeam(tracked, merged);
       const result = await rawApp.runHandler(path, args, effective, merged);
