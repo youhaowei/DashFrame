@@ -34,7 +34,7 @@ import {
   createDraftController,
   type DashframeServer,
 } from "./app";
-import type { ProjectInfoResult } from "./functions";
+import { functions, type ProjectInfoResult } from "./functions";
 import { cmd } from "./functions/commands";
 import { LOCAL_USER_ID } from "./permissions";
 
@@ -1362,7 +1362,16 @@ describe("buildDashframeApp — vault injection seam", () => {
     expect(id).toBeTruthy();
   });
 
-  it("rejects direct draft mutations before handler effects while preserving draft-scoped queries", async () => {
+  it("rejects every public draft mutation dispatch before handler effects while preserving query overlays", async () => {
+    const definition = functions.createDataSource;
+    const originalHandler = definition.handler;
+    let handlerDispatches = 0;
+    definition.handler = async (
+      ...args: Parameters<typeof originalHandler>
+    ) => {
+      handlerDispatches++;
+      return originalHandler(...args);
+    };
     const { vault } = makeTestVault();
     let storeCallCount = 0;
     let onWriteCalls = 0;
@@ -1371,76 +1380,125 @@ describe("buildDashframeApp — vault injection seam", () => {
       storeCallCount++;
       return realStore(...args);
     };
-    const app = await buildDashframeApp({
-      db: project.db,
-      vault,
-      onWrite: () => onWriteCalls++,
-    });
-    const controller = createDraftController(app, project.db);
-    const draftId = await controller.openDraft();
-    const rejectedId = crypto.randomUUID();
-    const context = {
-      draftId,
-      principal: { kind: "user" as const, userId: LOCAL_USER_ID },
-    };
+    try {
+      const app = await buildDashframeApp({
+        db: project.db,
+        vault,
+        onWrite: () => onWriteCalls++,
+      });
+      const controller = createDraftController(app, project.db);
+      const draftId = await controller.openDraft();
+      const principal = { kind: "user" as const, userId: LOCAL_USER_ID };
+      const context = { draftId, principal };
+      const rejectedCallId = crypto.randomUUID();
+      const rejectedRunHandlerId = crypto.randomUUID();
+      const rejectedDraftTrackerId = crypto.randomUUID();
+      const rejection =
+        /Direct draft mutation "createDataSource" is not allowed; use draftBatch or DraftController\.appendToDraft/;
 
-    await expect(
-      app.call(
-        "createDataSource",
-        {
-          id: rejectedId,
-          type: "notion",
-          name: "must not reach handler",
-          apiKey: "must-not-be-stored",
-        },
+      await expect(
+        app.call(
+          "createDataSource",
+          {
+            id: rejectedCallId,
+            type: "notion",
+            name: "call must not reach handler",
+            apiKey: "must-not-be-stored",
+          },
+          context,
+        ),
+      ).rejects.toThrow(rejection);
+      await expect(
+        app.runHandler(
+          "createDataSource",
+          {
+            id: rejectedRunHandlerId,
+            type: "notion",
+            name: "runHandler must not reach handler",
+            apiKey: "must-not-be-stored",
+          },
+          app.createTracked(),
+          context,
+        ),
+      ).rejects.toThrow(rejection);
+      await expect(
+        app.runHandler(
+          "createDataSource",
+          {
+            id: rejectedDraftTrackerId,
+            type: "notion",
+            name: "draft tracker must not reach handler",
+            apiKey: "must-not-be-stored",
+          },
+          app.createTracked().withDraft(draftId),
+          { principal },
+        ),
+      ).rejects.toThrow(rejection);
+
+      const rejectedShadows = await project.db
+        .select()
+        .from(schema.dataSourcesDraft)
+        .where(eq(schema.dataSourcesDraft.draftId, draftId));
+      const rejectedLog = await project.db
+        .select()
+        .from(schema.draftCommandLog)
+        .where(eq(schema.draftCommandLog.draftId, draftId));
+      const [metadata] = await project.db
+        .select({ revision: schema.draftMetadata.logRevision })
+        .from(schema.draftMetadata)
+        .where(eq(schema.draftMetadata.draftId, draftId));
+      expect(rejectedShadows).toHaveLength(0);
+      expect(rejectedLog).toHaveLength(0);
+      expect(metadata?.revision).toBe(0);
+      expect(handlerDispatches).toBe(0);
+      expect(storeCallCount).toBe(0);
+      expect(onWriteCalls).toBe(0);
+
+      const draftedId = crypto.randomUUID();
+      await controller.appendToDraft(
+        draftId,
+        [
+          cmd("CreateDataSource", {
+            id: draftedId,
+            type: "csv",
+            name: "query-visible draft",
+          }),
+        ],
+        { principal },
+      );
+      expect(handlerDispatches).toBe(1);
+
+      const { result: callQuery } = await app.call(
+        "getDataSource",
+        { id: draftedId },
         context,
-      ),
-    ).rejects.toThrow(
-      /Direct draft mutation "createDataSource" is not allowed; use draftBatch or DraftController\.appendToDraft/,
-    );
-
-    const rejectedShadows = await project.db
-      .select()
-      .from(schema.dataSourcesDraft)
-      .where(eq(schema.dataSourcesDraft.draftId, draftId));
-    const rejectedLog = await project.db
-      .select()
-      .from(schema.draftCommandLog)
-      .where(eq(schema.draftCommandLog.draftId, draftId));
-    const [metadata] = await project.db
-      .select({ revision: schema.draftMetadata.logRevision })
-      .from(schema.draftMetadata)
-      .where(eq(schema.draftMetadata.draftId, draftId));
-    expect(rejectedShadows).toHaveLength(0);
-    expect(rejectedLog).toHaveLength(0);
-    expect(metadata?.revision).toBe(0);
-    expect(storeCallCount).toBe(0);
-    expect(onWriteCalls).toBe(0);
-
-    const draftedId = crypto.randomUUID();
-    await controller.appendToDraft(
-      draftId,
-      [
-        cmd("CreateDataSource", {
-          id: draftedId,
-          type: "csv",
-          name: "query-visible draft",
-        }),
-      ],
-      { principal: context.principal },
-    );
-    const { result: drafted } = await app.call(
-      "getDataSource",
-      { id: draftedId },
-      context,
-    );
-    const { result: canonical } = await app.call("getDataSource", {
-      id: draftedId,
-    });
-    expect(drafted).toEqual(
-      expect.objectContaining({ id: draftedId, name: "query-visible draft" }),
-    );
-    expect(canonical).toBeNull();
+      );
+      const runHandlerQuery = await app.runHandler(
+        "getDataSource",
+        { id: draftedId },
+        app.createTracked(),
+        context,
+      );
+      const draftTrackerQuery = await app.runHandler(
+        "getDataSource",
+        { id: draftedId },
+        app.createTracked().withDraft(draftId),
+        { principal },
+      );
+      const { result: canonical } = await app.call("getDataSource", {
+        id: draftedId,
+      });
+      const expectedDraft = expect.objectContaining({
+        id: draftedId,
+        name: "query-visible draft",
+      });
+      expect(callQuery).toEqual(expectedDraft);
+      expect(runHandlerQuery).toEqual(expectedDraft);
+      expect(draftTrackerQuery).toEqual(expectedDraft);
+      expect(canonical).toBeNull();
+    } finally {
+      definition.handler = originalHandler;
+    }
   });
 });
 

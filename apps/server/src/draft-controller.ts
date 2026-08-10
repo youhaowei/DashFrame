@@ -89,6 +89,16 @@ import { computeLogSignature } from "./draft-log-signature";
 import { assertKnownCommandPaths } from "./functions/commands";
 
 /**
+ * Internal capability threaded by DraftController through the app's shared
+ * dispatch seam. It distinguishes an operated append (shadow + revision + log
+ * in one transaction) from a public runHandler call that merely supplies a
+ * draftId or DraftDrizzleTracker. Not part of the public WyStackApp surface.
+ */
+export const DRAFT_CONTROLLER_DISPATCH_CAPABILITY = Symbol(
+  "dashframe.draftControllerDispatch",
+);
+
+/**
  * The closed set of `<table>__draft` shadows a draft can touch. Discard
  * and post-publish teardown sweep by draftId across exactly these six — a static,
  * schema-owned set, NOT runtime discovery. A new artifact table is a schema
@@ -1184,7 +1194,20 @@ export function createDraftController(
       // whose handler reads a non-draftable table would throw on the missing
       // `<table>__draft` relation. Both withDraft entry points (call/runHandler
       // and this append) must go through the same fall-through seam.
-      const draftContext = { ...context, draftId };
+      const dispatchCapability = Reflect.get(
+        app,
+        DRAFT_CONTROLLER_DISPATCH_CAPABILITY,
+      );
+      if (dispatchCapability === undefined) {
+        throw new Error(
+          "appendToDraft: app is missing the operated draft dispatch capability — use buildDashframeApp",
+        );
+      }
+      const draftContext = {
+        ...context,
+        draftId,
+        [DRAFT_CONTROLLER_DISPATCH_CAPABILITY]: dispatchCapability,
+      };
       const results: CommandResult[] = [];
       const committedWrites = app.createTracked();
       let expectedRevision = await readLogRevision(draftId);

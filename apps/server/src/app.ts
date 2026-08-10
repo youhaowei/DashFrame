@@ -73,6 +73,7 @@ import {
 import { captureCommandCredentials } from "./credential-release";
 import {
   createDraftController,
+  DRAFT_CONTROLLER_DISPATCH_CAPABILITY,
   recoveredDraftWriteTables,
   type DraftController,
 } from "./draft-controller";
@@ -478,11 +479,11 @@ export async function buildDashframeApp(opts: {
     ...(opts.googleOAuth != null ? { googleOAuth: opts.googleOAuth } : {}),
   };
 
-  // The draft seam wraps `call` itself (not just runHandler): `rawApp.call`
-  // mints its own fresh DrizzleTracker internally, so a draftId-bearing `call` would
-  // otherwise hit canonical. We mirror rawApp.call's composition (fresh tracked
-  // → runHandler → result shape) but pass the draft-scoped handle when a draftId
-  // is present, leaving the no-draft path identical to rawApp.call.
+  // One shared dispatcher backs both public handler entry points. `call` asks it
+  // to mint a tracker lazily; `runHandler` supplies one. Draft-mutation safety is
+  // therefore decided once, before tracker creation or a supplied tracker's use,
+  // and before withDraftSeam or handler dispatch. DraftController carries the
+  // private capability for its operated shadow+revision+log transaction.
   //
   // EQUIVALENCE (load-bearing): rawApp.call is a THIN composition — `const t =
   // createTracked(); const result = await runHandler(path, args, t, context);
@@ -492,24 +493,48 @@ export async function buildDashframeApp(opts: {
   // on the no-draft path. RE-MIRROR POINT: if a wystack upgrade adds logic INSIDE
   // rawApp.call, this wrapper must be updated to match — it cannot delegate to
   // rawApp.call because that path mints an internal tracker the seam can't reach.
-  return {
+  const draftDispatchCapability = Object.freeze({});
+  async function dispatchHandler(
+    path: string,
+    args: unknown,
+    context: Record<string, unknown> | undefined,
+    suppliedTracker?: DrizzleTracker | DraftDrizzleTracker,
+  ): Promise<{
+    result: unknown;
+    tracked: DrizzleTracker | DraftDrizzleTracker;
+  }> {
+    const merged = { ...(context ?? {}), ...staticContext };
+    const isSuppliedDraftTracker =
+      suppliedTracker !== undefined && !("withDraft" in suppliedTracker);
+    const isDraftScoped =
+      draftIdFromContext(merged) !== undefined || isSuppliedDraftTracker;
+    const isOperatedDraftDispatch =
+      Reflect.get(merged, DRAFT_CONTROLLER_DISPATCH_CAPABILITY) ===
+      draftDispatchCapability;
+    if (
+      rawApp.functions.get(path)?.type === "mutation" &&
+      isDraftScoped &&
+      !isOperatedDraftDispatch
+    ) {
+      throw new Error(
+        `Direct draft mutation "${path}" is not allowed; use draftBatch or ` +
+          "DraftController.appendToDraft so shadow state and the command log remain atomic",
+      );
+    }
+
+    const tracked = suppliedTracker ?? rawApp.createTracked();
+    const effective = withDraftSeam(tracked, merged);
+    const result = await rawApp.runHandler(path, args, effective, merged);
+    return { result, tracked };
+  }
+
+  const app: WyStackApp & {
+    readonly [DRAFT_CONTROLLER_DISPATCH_CAPABILITY]: typeof draftDispatchCapability;
+  } = {
     ...rawApp,
+    [DRAFT_CONTROLLER_DISPATCH_CAPABILITY]: draftDispatchCapability,
     async call(path, args, context) {
-      // Static context wins over per-request context: spread per-request first
-      // so static keys (vault) cannot be shadowed by a crafted request context.
-      const merged = { ...(context ?? {}), ...staticContext };
-      if (
-        draftIdFromContext(merged) !== undefined &&
-        rawApp.functions.get(path)?.type === "mutation"
-      ) {
-        throw new Error(
-          `Direct draft mutation "${path}" is not allowed; use draftBatch or ` +
-            "DraftController.appendToDraft so shadow state and the command log remain atomic",
-        );
-      }
-      const tracked = rawApp.createTracked();
-      const effective = withDraftSeam(tracked, merged);
-      const result = await rawApp.runHandler(path, args, effective, merged);
+      const { result, tracked } = await dispatchHandler(path, args, context);
       // `tracked` and `effective` share the same tracker sets (withDraft reuses
       // the base tracker), so tablesWritten reflects the write either way.
       const tablesWritten = tracked.tablesWritten;
@@ -527,11 +552,10 @@ export async function buildDashframeApp(opts: {
       };
     },
     async runHandler(path, args, tracked, context) {
-      const merged = { ...(context ?? {}), ...staticContext };
-      const effective = withDraftSeam(tracked, merged);
-      return rawApp.runHandler(path, args, effective, merged);
+      return (await dispatchHandler(path, args, context, tracked)).result;
     },
   };
+  return app;
 }
 
 /**
