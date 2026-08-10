@@ -367,11 +367,12 @@ export interface DraftController {
    * then persisted to the log before the failure surfaces, so no surviving shadow
    * row is unlogged. The append is effect-free on canonical until publish.
    *
-   * Concurrent appends use an optimistic log-signature compare-and-swap. A call
-   * whose pre-handler snapshot is stale rejects with `DraftLogStaleError` rather
-   * than silently reporting success over a lost update; its successful handler
-   * snapshots are still recorded before the error is surfaced. The caller must
-   * reload the log before deciding whether to retry the requested operation.
+   * Concurrent appends use a monotonic durable revision compare-and-swap. Each
+   * command's shadow effects and compacted log replacement share one transaction,
+   * so a throwing handler or failed log write leaves neither half behind. A call
+   * whose pre-handler revision is stale rejects with `DraftLogStaleError`; earlier
+   * commands from the same batch remain durably logged as the successful prefix.
+   * The caller must reload the log before deciding whether to retry.
    * Returns per-command results (same shape as `applyCommands`).
    */
   appendToDraft(
@@ -568,6 +569,33 @@ export class DraftLogStaleError extends Error {
   }
 }
 
+const RECOVERED_DRAFT_WRITE_TABLES = Symbol("recoveredDraftWriteTables");
+
+type RecoveredDraftWriteError = Error & {
+  [RECOVERED_DRAFT_WRITE_TABLES]?: readonly string[];
+};
+
+/** Read internal write metadata carried by a rejected append with a durable prefix. */
+export function recoveredDraftWriteTables(error: unknown): readonly string[] {
+  if (!(error instanceof Error)) return [];
+  return (
+    (error as RecoveredDraftWriteError)[RECOVERED_DRAFT_WRITE_TABLES] ?? []
+  );
+}
+
+/** Add committed prefix tables without changing the original caller-visible error. */
+export function addRecoveredDraftWriteTables(
+  error: unknown,
+  tables: Iterable<string>,
+): void {
+  if (!(error instanceof Error)) return;
+  const prior = recoveredDraftWriteTables(error);
+  Object.defineProperty(error, RECOVERED_DRAFT_WRITE_TABLES, {
+    configurable: true,
+    value: [...new Set([...prior, ...tables])],
+  });
+}
+
 /**
  * Optional hooks the host injects into the controller without coupling it to
  * DashFrame-specific command knowledge.
@@ -663,47 +691,40 @@ export function createDraftController(
     );
   }
 
-  /**
-   * Append a batch to the log only if the durable log still matches the
-   * snapshot observed before its handlers ran. The read and replace-all write
-   * share one transaction; the signature comparison turns a stale snapshot into
-   * a caller-visible conflict instead of a successful lost update.
-   */
-  async function appendLogWithCas(
+  /** Read the monotonic log revision. Existing pre-column drafts treat NULL as 0. */
+  async function readLogRevision(
     draftId: string,
-    expectedSignature: string,
-    snapshots: DraftCommand[],
-  ): Promise<void> {
-    await db.transaction(async (tx) => {
-      const prior = await readLog(draftId, tx);
-      if (computeLogSignature(prior) !== expectedSignature) {
-        throw new DraftLogStaleError();
-      }
-      await writeLog(draftId, compactLog([...prior, ...snapshots]), tx);
-    });
+    exec: Pick<ArtifactDb, "select"> = db,
+  ): Promise<number> {
+    const rows = await exec
+      .select({ revision: draftMetadata.logRevision })
+      .from(draftMetadata)
+      .where(eq(draftMetadata.draftId, draftId));
+    if (rows.length !== 1) throw new DraftLogStaleError();
+    return rows[0]?.revision ?? 0;
   }
 
   /**
-   * A handler already made its shadow write. If the enclosing append then
-   * fails, retain every successful snapshot in the log so publish and discard
-   * can still account for that durable state. A concurrent append can make the
-   * recovery snapshot stale too, so retry only that bookkeeping CAS until it
-   * lands; callers still receive the original append failure.
+   * Atomically advance the durable revision iff it still matches the revision
+   * observed before command capture/handler execution. Unlike a content hash,
+   * this cannot accept an ABA-equivalent log projection.
    */
-  async function preserveRanSnapshots(
+  async function advanceLogRevision(
     draftId: string,
-    snapshots: DraftCommand[],
-  ): Promise<void> {
-    if (snapshots.length === 0) return;
-    for (;;) {
-      const expectedSignature = computeLogSignature(await readLog(draftId));
-      try {
-        await appendLogWithCas(draftId, expectedSignature, snapshots);
-        return;
-      } catch (err) {
-        if (!(err instanceof DraftLogStaleError)) throw err;
-      }
-    }
+    expectedRevision: number,
+    exec: Pick<ArtifactDb, "update">,
+  ): Promise<number> {
+    const rows = await exec
+      .update(draftMetadata)
+      .set({
+        logRevision: sql`COALESCE(${draftMetadata.logRevision}, 0) + 1`,
+      })
+      .where(
+        sql`${draftMetadata.draftId} = ${draftId} AND COALESCE(${draftMetadata.logRevision}, 0) = ${expectedRevision}`,
+      )
+      .returning({ revision: draftMetadata.logRevision });
+    if (rows.length !== 1) throw new DraftLogStaleError();
+    return rows[0]?.revision ?? expectedRevision + 1;
   }
 
   /**
@@ -1021,6 +1042,7 @@ export function createDraftController(
       await db.insert(draftMetadata).values({
         draftId,
         baseVersion: normalizeBaseVersion(baseVersion),
+        logRevision: 0,
         baseInventory: await snapshotCanonicalInventory(),
       });
       return draftId;
@@ -1097,6 +1119,7 @@ export function createDraftController(
       }
       return db.transaction(async (tx) => {
         const log = await readLog(draftId, tx);
+        const expectedRevision = await readLogRevision(draftId, tx);
 
         // Validate every address and late-bound type against the authoritative
         // log before checking drift. In particular, a category/column/unknown
@@ -1113,6 +1136,8 @@ export function createDraftController(
 
         const resulting = applyRevisionOps(log, validatedOps);
         assertKnownCommandPaths(resulting, "reviseDraft");
+
+        await advanceLogRevision(draftId, expectedRevision, tx);
 
         await tx
           .delete(draftCommandLog)
@@ -1159,25 +1184,24 @@ export function createDraftController(
       // whose handler reads a non-draftable table would throw on the missing
       // `<table>__draft` relation. Both withDraft entry points (call/runHandler
       // and this append) must go through the same fall-through seam.
-      const baseDb = app.createTracked();
       const draftContext = { ...context, draftId };
       const results: CommandResult[] = [];
-      // Record the durable state every handler was based on before any of this
-      // batch runs. appendLogWithCas re-reads inside its transaction and rejects
-      // if another append has already replaced this snapshot.
-      const expectedLogSignature = computeLogSignature(await readLog(draftId));
-      // Clone each command BEFORE handler execution, then run the handler against
-      // that snapshot. This both rejects uncloneable data before a handler can
-      // write a shadow row and guarantees handler and durable replay see identical
-      // command data if a caller mutates its original object while we await.
-      const ranSnapshots: DraftCommand[] = [];
-      // Successful handlers add their snapshots to ranSnapshots for durable-log
-      // recovery. Rollback remains armed only for captured commands whose handler
-      // did not successfully enter that preserved path, since no recovery log can
-      // then retain their minted refs.
-      const captureRollbacks: Array<() => Promise<void>> = [];
-      try {
-        for (const cmd of batch) {
+      const committedWrites = app.createTracked();
+      let expectedRevision = await readLogRevision(draftId);
+      if (batch.length === 0) {
+        // Preserve the historical effect-free compaction seam used by repair
+        // and migration callers: an empty append rewrites any raw/uncompacted
+        // durable rows without dispatching a handler.
+        await committedWrites.transaction(async (tx) => {
+          await advanceLogRevision(draftId, expectedRevision, tx.raw);
+          const prior = await readLog(draftId, tx.raw);
+          await writeLog(draftId, compactLog(prior), tx.raw);
+        });
+        return results;
+      }
+      for (const cmd of batch) {
+        let rollbackCapture: (() => Promise<void>) | undefined;
+        try {
           // Capture-before-log: the host may rewrite plaintext credential args
           // into vault refs BEFORE the command runs and is snapshotted, so the
           // durable log never holds plaintext. The rewritten command is what the
@@ -1185,6 +1209,7 @@ export function createDraftController(
           const captured = captureCredentials
             ? await captureCredentials(cmd)
             : { command: cmd, rollback: async () => {} };
+          rollbackCapture = captured.rollback;
           // Defense in depth: `assertKnownCommandPaths(batch, ...)` above
           // already rejected any out-of-vocabulary path in the caller-supplied
           // batch before this loop started. Re-check the CAPTURED command too
@@ -1194,30 +1219,35 @@ export function createDraftController(
           // able to smuggle a lifecycle path past the pre-dispatch gate by
           // producing it only after the batch-level check already passed.
           assertKnownCommandPaths([captured.command], "appendToDraft");
-          captureRollbacks.push(captured.rollback);
           const snapshot = structuredClone(captured.command) as DraftCommand;
-          const value = await app.runHandler(
-            snapshot.path,
-            snapshot.args,
-            baseDb,
-            draftContext,
-          );
-          ranSnapshots.push(snapshot);
-          results.push({ id: snapshot.id, value });
+          const committed = await committedWrites.transaction(async (tx) => {
+            const nextRevision = await advanceLogRevision(
+              draftId,
+              expectedRevision,
+              tx.raw,
+            );
+            const prior = await readLog(draftId, tx.raw);
+            const value = await app.runHandler(
+              snapshot.path,
+              snapshot.args,
+              tx,
+              draftContext,
+            );
+            await writeLog(draftId, compactLog([...prior, snapshot]), tx.raw);
+            return { value, nextRevision };
+          });
+          expectedRevision = committed.nextRevision;
+          results.push({ id: snapshot.id, value: committed.value });
+          rollbackCapture = undefined;
+        } catch (err) {
+          await rollbackCapture?.().catch(() => {});
+          if (results.length > 0) {
+            addRecoveredDraftWriteTables(err, committedWrites.tablesWritten);
+          }
+          throw err;
         }
-        await appendLogWithCas(draftId, expectedLogSignature, ranSnapshots);
-        return results;
-      } catch (err) {
-        // The batch is non-atomic by contract, but every successful handler
-        // write must remain replayable and discardable. Preserve those snapshots
-        // first; their captured refs now belong to the durable log. Only captured
-        // commands that did not successfully run are rolled back.
-        await preserveRanSnapshots(draftId, ranSnapshots);
-        for (const rollback of captureRollbacks.slice(ranSnapshots.length)) {
-          await rollback().catch(() => {});
-        }
-        throw err;
       }
+      return results;
     },
 
     async publishDraft(draftId, context = {}, options = {}) {

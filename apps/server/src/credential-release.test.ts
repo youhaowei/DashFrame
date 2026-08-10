@@ -992,19 +992,16 @@ describe("credential write path — capture-before-log + transition release", ()
     expect(rows.length).toBe(0); // nothing logged
   });
 
-  it("preserves captured refs when recovery logs a successful handler after persistence fails", async () => {
+  it("rolls back capture and shadow when the atomic handler-plus-log transaction fails", async () => {
     const id = crypto.randomUUID();
     const storeSpy = vi.spyOn(h.vault, "store");
     const delSpy = vi.spyOn(h.vault, "delete");
-    // writeLog is the only `db.transaction` call in appendToDraft — runHandler
-    // opens no transaction and readLog uses select — so failing the first
-    // `transaction` fails writeLog specifically, AFTER the handler committed the
-    // shadow row. (The shadow-row assertion below is the discriminator: if this
-    // mock ever fired during the handler instead, no shadow row would exist and
-    // this test would fail loudly rather than silently testing the wrong path.)
+    // appendToDraft now owns one transaction per command. A failure at that
+    // boundary must roll back both the handler's shadow effect and the log write,
+    // then release the captured ref because no durable state owns it.
     const txSpy = vi
       .spyOn(h.db, "transaction")
-      .mockRejectedValueOnce(new Error("simulated writeLog failure"));
+      .mockRejectedValueOnce(new Error("simulated atomic transaction failure"));
 
     const draftId = await h.controller.openDraft();
     await expect(
@@ -1016,36 +1013,101 @@ describe("credential write path — capture-before-log + transition release", ()
           apiKey: "secret-plaintext",
         }),
       ]),
-    ).rejects.toThrow(/simulated writeLog failure/);
+    ).rejects.toThrow(/simulated atomic transaction failure/);
 
-    // Capture minted a ref before the first log transaction failed. The recovery
-    // log now owns it, so rolling it back would leave the surviving shadow row
-    // pointing at a released vault ref.
+    // Capture minted a ref before the atomic command transaction failed.
     expect(storeSpy).toHaveBeenCalled();
     const mintedRef = (await storeSpy.mock.results[0]!.value) as SecretRef;
     expect(isSecretRef(mintedRef)).toBe(true);
-    expect(delSpy).not.toHaveBeenCalled();
-    expect(await h.vault.has(mintedRef)).toBe(true);
+    expect(delSpy).toHaveBeenCalledTimes(1);
+    expect(await h.vault.has(mintedRef)).toBe(false);
 
-    // DISCRIMINATOR: the shadow row exists → the handler committed before the
-    // failure → the failure was at writeLog (not the handler). Proves this test
-    // exercises the log-persistence path, not the already-covered handler path.
+    // Neither half survives: no shadow row and no log row.
     const shadowRows = await h.db
       .select()
       .from(schema.dataSourcesDraft)
       .where(eq(schema.dataSourcesDraft.draftId, draftId));
-    expect(shadowRows.length).toBe(1);
+    expect(shadowRows.length).toBe(0);
 
-    // Recovery persisted the command after the failed first attempt, so the
-    // durable log references the same live ref as the surviving shadow row.
     const logRows = await h.db
       .select()
       .from(draftCommandLog)
       .where(eq(draftCommandLog.draftId, draftId));
-    expect(logRows.length).toBe(1);
-    expect(JSON.stringify(logRows[0]?.args)).toContain(mintedRef);
+    expect(logRows.length).toBe(0);
 
     txSpy.mockRestore();
+  });
+
+  it("keeps a committed credential prefix and releases the later capture when its handler writes then fails", async () => {
+    const firstId = crypto.randomUUID();
+    const secondId = crypto.randomUUID();
+    const storeSpy = vi.spyOn(h.vault, "store");
+    const deleteSpy = vi.spyOn(h.vault, "delete");
+    const draftId = await h.controller.openDraft();
+    const failingApp: WyStackApp = {
+      ...h.app,
+      async runHandler(path, args, tracked, context) {
+        const value = await h.app.runHandler(path, args, tracked, context);
+        if ((args as { id?: unknown } | undefined)?.id === secondId) {
+          throw new Error("persistent post-write handler failure");
+        }
+        return value;
+      },
+    };
+    const controller = createDraftController(failingApp, h.db, {
+      captureCredentials: (command) =>
+        captureCommandCredentials(command, h.vault, h.db),
+    });
+
+    await expect(
+      controller.appendToDraft(draftId, [
+        cmd("CreateDataSource", {
+          id: firstId,
+          type: "notion",
+          name: "successful prefix",
+          apiKey: "first-secret",
+        }),
+        cmd("CreateDataSource", {
+          id: secondId,
+          type: "notion",
+          name: "failed later command",
+          apiKey: "unrun-secret",
+        }),
+      ]),
+    ).rejects.toThrow(/persistent post-write handler failure/);
+
+    const [prefixRef, unrunRef] = (await Promise.all(
+      storeSpy.mock.results.map((result) => result.value),
+    )) as SecretRef[];
+    const shadows = await h.db
+      .select()
+      .from(schema.dataSourcesDraft)
+      .where(eq(schema.dataSourcesDraft.draftId, draftId));
+    const logRows = await h.db
+      .select()
+      .from(draftCommandLog)
+      .where(eq(draftCommandLog.draftId, draftId));
+    console.info(
+      "[draft credential post-write failure] stores",
+      storeSpy.mock.calls.length,
+      "deletes",
+      deleteSpy.mock.calls.length,
+      "shadowCount",
+      shadows.length,
+      "logCount",
+      logRows.length,
+    );
+
+    expect(storeSpy).toHaveBeenCalledTimes(2);
+    expect(prefixRef).toBeDefined();
+    expect(unrunRef).toBeDefined();
+    expect(await h.vault.has(prefixRef!)).toBe(true);
+    expect(await h.vault.has(unrunRef!)).toBe(false);
+    expect(shadows).toHaveLength(1);
+    expect(shadows[0]?.id).toBe(firstId);
+    expect(logRows).toHaveLength(1);
+    expect(JSON.stringify(logRows[0]?.args)).toContain(prefixRef!);
+    expect(JSON.stringify(logRows[0]?.args)).not.toContain(unrunRef!);
   });
 
   it("never leaves a released captured ref behind a surviving shadow row after a clone failure", async () => {

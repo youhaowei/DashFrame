@@ -1,9 +1,11 @@
 import { jsonb, text } from "@wystack/db";
-import type { Command } from "@wystack/server";
+import type { Command, CommandResult } from "@wystack/server";
 
 import type { DashframeFunctionContext } from "../app-context";
 import {
+  addRecoveredDraftWriteTables,
   DRAFT_COMMAND_LOG_TABLE,
+  recoveredDraftWriteTables,
   type DraftController,
 } from "../draft-controller";
 import { permissions } from "../permissions";
@@ -72,9 +74,20 @@ const draftBatch = wy.procedure
     const context: Record<string, unknown> = {};
     if (ctx.principal !== undefined) context.principal = ctx.principal;
     if (ctx.vault !== undefined) context.vault = ctx.vault;
-    const results = await serializeAppend(targetDraftId, () =>
-      controller.appendToDraft(targetDraftId, commands as Command[], context),
-    );
+    let results: CommandResult[];
+    try {
+      results = await serializeAppend(targetDraftId, () =>
+        controller.appendToDraft(targetDraftId, commands as Command[], context),
+      );
+    } catch (err) {
+      // A rejected batch can still have an earlier, atomically logged prefix.
+      // Add the log table to the controller's shadow-table metadata so the host
+      // can invalidate and schedule persistence before rethrowing the same error.
+      if (recoveredDraftWriteTables(err).length > 0) {
+        addRecoveredDraftWriteTables(err, [DRAFT_COMMAND_LOG_TABLE]);
+      }
+      throw err;
+    }
 
     return {
       draftId: targetDraftId,

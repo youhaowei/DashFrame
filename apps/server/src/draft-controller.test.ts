@@ -1178,26 +1178,34 @@ describe("DraftController (persisted draft overlay)", () => {
     // Deliberately plain Promise.all: no barriers, spies, or injected
     // delays. This is the schedule that previously let the last replace-all
     // writer discard the first append's durable log rows.
-    const outcomes = await Promise.all([
-      controller
-        .appendToDraft(
-          draftId,
-          sent.slice(0, 2).map((source) => cmd("CreateDataSource", source)),
-        )
-        .then(
+    const batches = [sent.slice(0, 2), sent.slice(2)].map((sources) =>
+      sources.map((source) => cmd("CreateDataSource", source)),
+    );
+    const outcomes = await Promise.all(
+      batches.map((batch) =>
+        controller.appendToDraft(draftId, batch).then(
           (value) => ({ status: "fulfilled" as const, value }),
           (reason) => ({ status: "rejected" as const, reason }),
         ),
-      controller
-        .appendToDraft(
-          draftId,
-          sent.slice(2).map((source) => cmd("CreateDataSource", source)),
-        )
-        .then(
-          (value) => ({ status: "fulfilled" as const, value }),
-          (reason) => ({ status: "rejected" as const, reason }),
-        ),
-    ]);
+      ),
+    );
+    const staleIndex = outcomes.findIndex(
+      (outcome) =>
+        outcome.status === "rejected" &&
+        outcome.reason?.name === "DraftLogStaleError",
+    );
+    expect(
+      outcomes.filter(
+        (outcome) =>
+          outcome.status === "rejected" &&
+          outcome.reason?.name !== "DraftLogStaleError",
+      ),
+    ).toHaveLength(0);
+    if (staleIndex >= 0) {
+      // A stale batch runs no handlers under the revision CAS. Reload/retry it,
+      // as the controller contract requires, then both requests persist.
+      await controller.appendToDraft(draftId, batches[staleIndex]!);
+    }
     const log = await controller.getDraftLog(draftId);
     const loggedNames = log.map(
       (command) => (command.args as { name: string }).name,
@@ -1233,8 +1241,21 @@ describe("DraftController (persisted draft overlay)", () => {
 
   it("rejects a stale concurrent append instead of reporting a lost update as success", async () => {
     const draftId = await controller.openDraft();
+    let captures = 0;
+    let releaseCaptures!: () => void;
+    const bothCaptured = new Promise<void>((resolve) => {
+      releaseCaptures = resolve;
+    });
+    const racingController = createDraftController(app, db, {
+      captureCredentials: async (command) => {
+        captures++;
+        if (captures === 2) releaseCaptures();
+        await bothCaptured;
+        return { command, rollback: async () => {} };
+      },
+    });
     const outcomes = await Promise.all([
-      controller
+      racingController
         .appendToDraft(draftId, [
           cmd("CreateDataSource", { id: id(), type: "csv", name: "A" }),
         ])
@@ -1242,7 +1263,7 @@ describe("DraftController (persisted draft overlay)", () => {
           (value) => ({ status: "fulfilled" as const, value }),
           (reason) => ({ status: "rejected" as const, reason }),
         ),
-      controller
+      racingController
         .appendToDraft(draftId, [
           cmd("CreateDataSource", { id: id(), type: "csv", name: "B" }),
         ])
@@ -1258,7 +1279,9 @@ describe("DraftController (persisted draft overlay)", () => {
         outcome.reason?.name === "DraftLogStaleError",
     );
     expect(stale).toHaveLength(1);
-    expect(await controller.getDraftLog(draftId)).toHaveLength(2);
+    // CAS happens before the stale handler, so only the winning append has a
+    // shadow/log row. The rejected caller can safely reload and retry.
+    expect(await controller.getDraftLog(draftId)).toHaveLength(1);
   });
 
   it("persists successful commands before an ordinary later validation failure", async () => {
@@ -1318,6 +1341,131 @@ describe("DraftController (persisted draft overlay)", () => {
         (command) => (command.args as { name: string }).name,
       ),
     ).toEqual(["A-cloned"]);
+  });
+
+  it("does not leave a real handler write durable when that handler later throws", async () => {
+    const sourceId = id();
+    const draftId = await controller.openDraft();
+    const throwingApp = {
+      ...app,
+      async runHandler(
+        ...args: Parameters<typeof app.runHandler>
+      ): ReturnType<typeof app.runHandler> {
+        const value = await app.runHandler(...args);
+        if (args[0] === "createDataSource") {
+          throw new Error("injected post-write handler failure");
+        }
+        return value;
+      },
+    } satisfies typeof app;
+    const throwingController = createDraftController(throwingApp, db);
+
+    await expect(
+      throwingController.appendToDraft(draftId, [
+        cmd("CreateDataSource", {
+          id: sourceId,
+          type: "csv",
+          name: "post-write failure",
+        }),
+      ]),
+    ).rejects.toThrow(/injected post-write handler failure/);
+
+    const shadows = await draftDataSourceRows(draftId);
+    const log = await throwingController.getDraftLog(draftId);
+    console.info(
+      "[draft-log post-write failure] shadowCount",
+      shadows.length,
+      "logCount",
+      log.length,
+    );
+    expect(shadows).toHaveLength(0);
+    expect(log).toHaveLength(0);
+  });
+
+  it("rejects an append after an ABA-equivalent log revision", async () => {
+    const draftId = await controller.openDraft();
+    const revision = async () => {
+      const [row] = await db
+        .select({ value: schema.draftMetadata.logRevision })
+        .from(schema.draftMetadata)
+        .where(eq(schema.draftMetadata.draftId, draftId));
+      return row?.value;
+    };
+    expect(await revision()).toBe(0);
+    let releaseSlowCapture!: () => void;
+    const slowCaptureReleased = new Promise<void>((resolve) => {
+      releaseSlowCapture = resolve;
+    });
+    let slowCaptureStarted!: () => void;
+    const slowCaptureObserved = new Promise<void>((resolve) => {
+      slowCaptureStarted = resolve;
+    });
+    const abaController = createDraftController(app, db, {
+      captureCredentials: async (command) => {
+        const name = (command.args as { name?: unknown } | undefined)?.name;
+        if (name === "slow-after-aba") {
+          slowCaptureStarted();
+          await slowCaptureReleased;
+        }
+        return { command, rollback: async () => {} };
+      },
+    });
+
+    const slowAppend = abaController.appendToDraft(draftId, [
+      cmd("CreateDataSource", {
+        id: id(),
+        type: "csv",
+        name: "slow-after-aba",
+      }),
+    ]);
+    await slowCaptureObserved;
+
+    await controller.appendToDraft(draftId, [
+      cmd("CreateDataSource", {
+        id: id(),
+        type: "csv",
+        name: "transient-revision",
+      }),
+    ]);
+    expect(await revision()).toBe(1);
+    const transientSignature = computeLogSignature(
+      await controller.getDraftLog(draftId),
+    );
+    await controller.reviseDraft(draftId, transientSignature, [
+      { type: "removeCommand", commandIndex: 0 },
+    ]);
+    expect(await controller.getDraftLog(draftId)).toHaveLength(0);
+    expect(await revision()).toBe(2);
+
+    releaseSlowCapture();
+    await expect(slowAppend).rejects.toMatchObject({
+      name: "DraftLogStaleError",
+    });
+    expect(await controller.getDraftLog(draftId)).toHaveLength(0);
+    expect(await revision()).toBe(2);
+  });
+
+  it("upgrades a legacy draft with a null log revision on its first append", async () => {
+    const draftId = await controller.openDraft();
+    await db
+      .update(schema.draftMetadata)
+      .set({ logRevision: null })
+      .where(eq(schema.draftMetadata.draftId, draftId));
+
+    await controller.appendToDraft(draftId, [
+      cmd("CreateDataSource", {
+        id: id(),
+        type: "csv",
+        name: "legacy revision",
+      }),
+    ]);
+
+    const [metadata] = await db
+      .select({ revision: schema.draftMetadata.logRevision })
+      .from(schema.draftMetadata)
+      .where(eq(schema.draftMetadata.draftId, draftId));
+    expect(metadata?.revision).toBe(1);
+    expect(await controller.getDraftLog(draftId)).toHaveLength(1);
   });
 
   it("rolls back the canonical replay when the log delete fails mid-publish — no double-replay, draft survives for retry (GH #157)", async () => {

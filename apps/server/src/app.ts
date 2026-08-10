@@ -71,6 +71,7 @@ import {
 import { captureCommandCredentials } from "./credential-release";
 import {
   createDraftController,
+  recoveredDraftWriteTables,
   type DraftController,
 } from "./draft-controller";
 import { assertPublishLogHasNoLateBound } from "./draft-late-bound";
@@ -435,9 +436,10 @@ export function withDraftSeam(
  *
  *   2. The draft controller's `appendToDraft` — routes writes through a
  *      `withDraft(draftId)` handle, so every `ctx.db.into/update/delete` lands in
- *      `<table>__draft` shadow tables. Draft writes are not canonical; `onWrite`
- *      drives canonical snapshot persistence and must NOT fire for draft-overlay
- *      writes.
+ *      `<table>__draft` shadow tables. This wrapper must not fire `onWrite` per
+ *      handler: the owning draft RPC aggregates the whole durable transition.
+ *      In particular, `createDashframeServer` fires it exactly once when a later
+ *      command rejects after an earlier prefix already committed.
  *
  * When the controller's `publishDraft` replays the log via
  * `applyCommands(app, log, { mode: 'commit' })` and returns a `CommitResult` with
@@ -706,7 +708,17 @@ export async function createDashframeServer(
     ...vaultWrapped,
     async call(path, args, context) {
       const merged = { ...(context ?? {}), ...serverContext };
-      const callResult = await vaultWrapped.call(path, args, merged);
+      let callResult: Awaited<ReturnType<typeof vaultWrapped.call>>;
+      try {
+        callResult = await vaultWrapped.call(path, args, merged);
+      } catch (err) {
+        // A later command can fail after appendToDraft atomically committed an
+        // earlier prefix. The normal result metadata is then unavailable, so
+        // consume the prefix's private write metadata before preserving the
+        // original RPC error.
+        notifyRecoveredDraftWrites(err, emitInvalidation, opts.onWrite);
+        throw err;
+      }
 
       // Handlers that use a sub-tracker (e.g. publishDraft, which calls
       // applyCommands with its own fresh tracked context) cannot surface their
@@ -905,6 +917,22 @@ function listen(
 
 type ResolverContext = Record<string, unknown>;
 type CredentialResolver = (req: Request) => Promise<ResolverContext | null>;
+
+function notifyRecoveredDraftWrites(
+  error: unknown,
+  emitInvalidation: (tablesWritten: Set<string>) => void,
+  onWrite: (() => void) | undefined,
+): void {
+  const recoveredTables = new Set(recoveredDraftWriteTables(error));
+  if (recoveredTables.size === 0) return;
+  emitInvalidation(recoveredTables);
+  if (onWrite == null) return;
+  try {
+    onWrite();
+  } catch (onWriteError) {
+    console.error("[dashframe] onWrite hook threw:", onWriteError);
+  }
+}
 
 function bearerToken(req: Request): string {
   const auth = req.headers.get("authorization") ?? "";
