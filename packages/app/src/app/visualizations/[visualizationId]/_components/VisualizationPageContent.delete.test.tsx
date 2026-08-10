@@ -1,4 +1,5 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { mockNavigate, mockRemoveVisualization, mockToastError } = vi.hoisted(
@@ -129,6 +130,23 @@ vi.mock("@wystack/ui-react", () => ({
   CardContent: ({ children }: { children?: React.ReactNode }) => (
     <>{children}</>
   ),
+  Dialog: ({ children, open }: { children: React.ReactNode; open: boolean }) =>
+    open ? <div role="dialog">{children}</div> : null,
+  DialogContent: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  DialogDescription: ({ children }: { children: React.ReactNode }) => (
+    <p>{children}</p>
+  ),
+  DialogFooter: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  DialogHeader: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  DialogTitle: ({ children }: { children: React.ReactNode }) => (
+    <h2>{children}</h2>
+  ),
   Input: () => null,
   Spinner: () => null,
 }));
@@ -145,6 +163,7 @@ vi.mock("../_hooks/useCompiledInsight", () => ({
 }));
 vi.mock("sonner", () => ({ toast: { error: mockToastError } }));
 
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useConfirmDialogStore } from "@/lib/stores";
 import VisualizationPageContent from "./VisualizationPageContent";
 
@@ -156,38 +175,57 @@ describe("VisualizationPageContent delete confirmation", () => {
   });
 
   it("does not remove a visualization after cancellation, but removes it after confirmation", async () => {
-    render(<VisualizationPageContent visualizationId="viz-1" />);
-    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    const user = userEvent.setup();
+    render(
+      <>
+        <VisualizationPageContent visualizationId="viz-1" />
+        <ConfirmDialog />
+      </>,
+    );
+    await user.click(screen.getByRole("button", { name: "Delete" }));
 
-    expect(useConfirmDialogStore.getState().config?.description).toBe(
+    expect(screen.getByRole("dialog").textContent).toContain(
       'Are you sure you want to delete "Revenue by month"? This deletes only this visualization. Dashboard items that reference it may remain and stop working. This action cannot be undone.',
     );
 
-    act(() => useConfirmDialogStore.getState().handleCancel());
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(mockRemoveVisualization).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
-    await act(async () => {
-      await useConfirmDialogStore.getState().handleConfirm();
-    });
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    await user.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: "Delete",
+      }),
+    );
 
-    expect(mockRemoveVisualization).toHaveBeenCalledWith({ id: "viz-1" });
-    expect(mockNavigate).toHaveBeenCalledWith({ to: "/insights" });
+    await waitFor(() => {
+      expect(mockRemoveVisualization).toHaveBeenCalledWith({ id: "viz-1" });
+      expect(mockNavigate).toHaveBeenCalledWith({ to: "/insights" });
+    });
   });
 
   it("shows one error when visualization deletion fails", async () => {
+    const user = userEvent.setup();
     mockRemoveVisualization.mockRejectedValueOnce(new Error("delete failed"));
-    render(<VisualizationPageContent visualizationId="viz-1" />);
-    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
-
-    await act(async () => {
-      await useConfirmDialogStore.getState().handleConfirm();
-    });
-
-    expect(mockToastError).toHaveBeenCalledTimes(1);
-    expect(mockToastError).toHaveBeenCalledWith(
-      "Couldn't delete the visualization",
+    render(
+      <>
+        <VisualizationPageContent visualizationId="viz-1" />
+        <ConfirmDialog />
+      </>,
     );
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    await user.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: "Delete",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(mockToastError).toHaveBeenCalledTimes(1);
+      expect(mockToastError).toHaveBeenCalledWith(
+        "Couldn't delete the visualization",
+      );
+    });
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 });

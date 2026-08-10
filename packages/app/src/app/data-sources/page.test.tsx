@@ -157,6 +157,7 @@ describe("DataSourcesPage query states", () => {
   );
 
   it("does not remove a data source until the rendered confirmation is accepted", async () => {
+    const user = userEvent.setup();
     mockUseDataSources.mockReturnValue({
       ...successfulQuery(mockRefetchDataSources),
       data: [
@@ -177,8 +178,8 @@ describe("DataSourcesPage query states", () => {
       </>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "More options" }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: /delete/i }));
+    await user.click(screen.getByRole("button", { name: "More options" }));
+    await user.click(await screen.findByRole("menuitem", { name: /delete/i }));
 
     const dialog = await screen.findByRole("dialog", {
       name: "Delete data source",
@@ -188,12 +189,12 @@ describe("DataSourcesPage query states", () => {
     );
     expect(mockRemoveDataSource).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(mockRemoveDataSource).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: "More options" }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: /delete/i }));
-    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    await user.click(screen.getByRole("button", { name: "More options" }));
+    await user.click(await screen.findByRole("menuitem", { name: /delete/i }));
+    await user.click(screen.getByRole("button", { name: "Delete" }));
 
     await waitFor(() => {
       expect(mockRemoveDataSource).toHaveBeenCalledWith({ id: "source-123" });
@@ -201,6 +202,7 @@ describe("DataSourcesPage query states", () => {
   });
 
   it("shows a failure toast when confirmed deletion rejects", async () => {
+    const user = userEvent.setup();
     mockRemoveDataSource.mockRejectedValueOnce(new Error("delete failed"));
     mockUseDataSources.mockReturnValue({
       ...successfulQuery(mockRefetchDataSources),
@@ -222,9 +224,9 @@ describe("DataSourcesPage query states", () => {
       </>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "More options" }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: /delete/i }));
-    fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
+    await user.click(screen.getByRole("button", { name: "More options" }));
+    await user.click(await screen.findByRole("menuitem", { name: /delete/i }));
+    await user.click(await screen.findByRole("button", { name: "Delete" }));
 
     await waitFor(() => {
       expect(mockToastError).toHaveBeenCalledWith(

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -27,6 +27,7 @@ vi.mock("@/components/visualizations/CreateVisualizationModal", () => ({
   CreateVisualizationModal: () => null,
 }));
 
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useConfirmDialogStore } from "@/lib/stores";
 import VisualizationsPage from "./page";
 
@@ -54,23 +55,29 @@ describe("VisualizationsPage delete confirmation", () => {
   });
 
   it("does not remove a visualization after cancellation, but removes it after confirmation", async () => {
-    render(<VisualizationsPage />);
-    fireEvent.click(screen.getByRole("button", { name: /more options/i }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
+    const user = userEvent.setup();
+    render(
+      <>
+        <VisualizationsPage />
+        <ConfirmDialog />
+      </>,
+    );
+    await user.click(screen.getByRole("button", { name: /more options/i }));
+    await user.click(await screen.findByRole("menuitem", { name: "Delete" }));
 
-    expect(useConfirmDialogStore.getState().config?.description).toBe(
+    expect(screen.getByRole("dialog").textContent).toContain(
       'Are you sure you want to delete "Revenue by month"? This deletes only this visualization. Dashboard items that reference it may remain and stop working. This action cannot be undone.',
     );
-    useConfirmDialogStore.getState().handleCancel();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(mockRemoveVisualization).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: /more options/i }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
-    await act(async () => {
-      await useConfirmDialogStore.getState().handleConfirm();
-    });
+    await user.click(screen.getByRole("button", { name: /more options/i }));
+    await user.click(await screen.findByRole("menuitem", { name: "Delete" }));
+    await user.click(screen.getByRole("button", { name: "Delete" }));
 
-    expect(mockRemoveVisualization).toHaveBeenCalledWith({ id: "viz-1" });
+    await waitFor(() =>
+      expect(mockRemoveVisualization).toHaveBeenCalledWith({ id: "viz-1" }),
+    );
   });
 
   it.each(["pointer", "Enter", "Space"] as const)(

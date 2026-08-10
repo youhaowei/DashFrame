@@ -1,4 +1,5 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { mockRemoveDataSource } = vi.hoisted(() => ({
@@ -46,6 +47,23 @@ vi.mock("@wystack/ui-react", () => ({
   CollapsibleTrigger: ({ children }: { children: React.ReactNode }) => (
     <div>{children}</div>
   ),
+  Dialog: ({ children, open }: { children: React.ReactNode; open: boolean }) =>
+    open ? <div role="dialog">{children}</div> : null,
+  DialogContent: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  DialogDescription: ({ children }: { children: React.ReactNode }) => (
+    <p>{children}</p>
+  ),
+  DialogFooter: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  DialogHeader: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  DialogTitle: ({ children }: { children: React.ReactNode }) => (
+    <h2>{children}</h2>
+  ),
   Panel: ({
     children,
     footer,
@@ -73,6 +91,7 @@ vi.mock("@wystack/ui-react/icons", () => ({
 }));
 
 import { useConfirmDialogStore } from "@/lib/stores";
+import { ConfirmDialog } from "../confirm-dialog";
 import { DataSourceControls } from "./DataSourceControls";
 
 describe("DataSourceControls delete confirmation", () => {
@@ -83,19 +102,29 @@ describe("DataSourceControls delete confirmation", () => {
   });
 
   it("does not remove a data source after cancellation, but removes it after confirmation", async () => {
-    render(<DataSourceControls dataSourceId="source-1" />);
-    fireEvent.click(screen.getByRole("button", { name: "Delete Data Source" }));
+    const user = userEvent.setup();
+    render(
+      <>
+        <DataSourceControls dataSourceId="source-1" />
+        <ConfirmDialog />
+      </>,
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Delete Data Source" }),
+    );
 
-    expect(useConfirmDialogStore.getState().config?.description).toContain(
+    expect(screen.getByRole("dialog").textContent).toContain(
       "This deletes the data source and its data tables. Related DataFrame metadata and storage, and dependent insights, may remain. This action cannot be undone.",
     );
-    useConfirmDialogStore.getState().handleCancel();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(mockRemoveDataSource).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Delete Data Source" }));
-    await act(async () => {
-      await useConfirmDialogStore.getState().handleConfirm();
-    });
-    expect(mockRemoveDataSource).toHaveBeenCalledWith({ id: "source-1" });
+    await user.click(
+      screen.getByRole("button", { name: "Delete Data Source" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    await waitFor(() =>
+      expect(mockRemoveDataSource).toHaveBeenCalledWith({ id: "source-1" }),
+    );
   });
 });

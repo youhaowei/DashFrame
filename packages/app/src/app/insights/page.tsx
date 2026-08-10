@@ -107,6 +107,7 @@ export default function InsightsPage() {
   // Local state
   const [searchQuery, setSearchQuery] = useState("");
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const hasActiveSearch = searchQuery.trim().length > 0;
 
   // Join insights with dataTables and count visualizations
   const insightsData = useMemo((): InsightWithDetails[] => {
@@ -160,14 +161,14 @@ export default function InsightsPage() {
 
   // Filter insights by search query
   const filteredInsights = useMemo((): InsightItem[] => {
-    if (!searchQuery.trim()) return insights;
-    const query = searchQuery.toLowerCase();
+    if (!hasActiveSearch) return insights;
+    const query = searchQuery.trim().toLowerCase();
     return insights.filter(
       (item: InsightItem) =>
         item.insight.name.toLowerCase().includes(query) ||
         item.dataTable?.name.toLowerCase().includes(query),
     );
-  }, [insights, searchQuery]);
+  }, [hasActiveSearch, insights, searchQuery]);
 
   // Group insights by state
   const groupedInsights = useMemo(() => {
@@ -255,9 +256,13 @@ export default function InsightsPage() {
     // untrustworthy (see the isLoading/hasLoadError note above).
     if (isLoading || hasLoadError) return;
     const draftCount = groupedInsights.drafts.length;
+    const draftInsightLabel = `draft insight${draftCount === 1 ? "" : "s"}`;
+    const description = hasActiveSearch
+      ? `Are you sure you want to delete ${draftCount} matching ${draftInsightLabel}? This deletes the matching drafts and their visualizations. Dashboard items that reference those visualizations may remain and stop working. This action cannot be undone.`
+      : `Are you sure you want to delete all ${draftCount} ${draftInsightLabel}? This deletes the drafts and their visualizations. Dashboard items that reference those visualizations may remain and stop working. This action cannot be undone.`;
     confirm({
-      title: "Delete drafts",
-      description: `Are you sure you want to delete all ${draftCount} draft insight${draftCount === 1 ? "" : "s"}? This deletes the drafts and their visualizations. Dashboard items that reference those visualizations may remain and stop working. This action cannot be undone.`,
+      title: hasActiveSearch ? "Delete matching drafts" : "Delete drafts",
+      description,
       confirmLabel: "Delete",
       variant: "destructive",
       onConfirm: async () => {
@@ -445,7 +450,7 @@ export default function InsightsPage() {
                     <Button
                       variant="ghost"
                       icon={DeleteIcon}
-                      label="Delete all"
+                      label={hasActiveSearch ? "Delete matching" : "Delete all"}
                       size="sm"
                       color="danger"
                       className="text-palette-danger hover:text-palette-danger"

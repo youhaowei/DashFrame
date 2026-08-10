@@ -18,6 +18,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // ---------------------------------------------------------------------------
@@ -71,6 +72,7 @@ vi.mock("@/lib/stores", async (importOriginal) => ({
 // Import the component after mocks are set up
 // ---------------------------------------------------------------------------
 
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useConfirmDialogStore } from "@/lib/stores";
 import DashboardsPage from "./page";
 
@@ -181,6 +183,7 @@ describe("DashboardsPage – delete confirmation", () => {
   });
 
   it("does not remove a dashboard after cancellation, but removes it after confirmation", async () => {
+    const user = userEvent.setup();
     mockUseQuery.mockReturnValue({
       data: [
         {
@@ -195,27 +198,30 @@ describe("DashboardsPage – delete confirmation", () => {
     });
     mockRemove.mockResolvedValue({ ok: true });
 
-    render(<DashboardsPage />);
-    fireEvent.click(screen.getByRole("button", { name: "Delete dashboard" }));
+    render(
+      <>
+        <DashboardsPage />
+        <ConfirmDialog />
+      </>,
+    );
+    await user.click(screen.getByRole("button", { name: "Delete dashboard" }));
 
-    expect(useConfirmDialogStore.getState().config).toMatchObject({
-      title: "Delete dashboard",
-      description:
-        'Are you sure you want to delete "Quarterly plan"? This action cannot be undone.',
-      confirmLabel: "Delete",
-      variant: "destructive",
-    });
-    useConfirmDialogStore.getState().handleCancel();
+    const dialog = screen.getByRole("dialog", { name: "Delete dashboard" });
+    expect(dialog.textContent).toContain(
+      'Are you sure you want to delete "Quarterly plan"? This action cannot be undone.',
+    );
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(mockRemove).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Delete dashboard" }));
-    await act(async () => {
-      await useConfirmDialogStore.getState().handleConfirm();
-    });
-    expect(mockRemove).toHaveBeenCalledWith({ id: "dashboard-1" });
+    await user.click(screen.getByRole("button", { name: "Delete dashboard" }));
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    await waitFor(() =>
+      expect(mockRemove).toHaveBeenCalledWith({ id: "dashboard-1" }),
+    );
   });
 
   it("shows an error toast when confirmed deletion rejects", async () => {
+    const user = userEvent.setup();
     mockUseQuery.mockReturnValue({
       data: [
         {
@@ -230,14 +236,19 @@ describe("DashboardsPage – delete confirmation", () => {
     });
     mockRemove.mockRejectedValueOnce(new Error("delete failed"));
 
-    render(<DashboardsPage />);
-    fireEvent.click(screen.getByRole("button", { name: "Delete dashboard" }));
-    await act(async () => {
-      await useConfirmDialogStore.getState().handleConfirm();
-    });
+    render(
+      <>
+        <DashboardsPage />
+        <ConfirmDialog />
+      </>,
+    );
+    await user.click(screen.getByRole("button", { name: "Delete dashboard" }));
+    await user.click(screen.getByRole("button", { name: "Delete" }));
 
-    expect(mockShowError).toHaveBeenCalledWith(
-      "Failed to delete dashboard. Please try again.",
+    await waitFor(() =>
+      expect(mockShowError).toHaveBeenCalledWith(
+        "Failed to delete dashboard. Please try again.",
+      ),
     );
   });
 });

@@ -1,4 +1,5 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { mockUseQuery, mockRemoveDataFrame } = vi.hoisted(() => ({
@@ -32,6 +33,7 @@ vi.mock("@/components/data-grid", () => ({
   ),
 }));
 
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useConfirmDialogStore } from "@/lib/stores";
 import DataFramesPage from "./page";
 
@@ -47,19 +49,25 @@ describe("DataFramesPage delete confirmation", () => {
   });
 
   it("does not remove a data frame after cancellation, but removes it after confirmation", async () => {
-    render(<DataFramesPage />);
-    fireEvent.click(screen.getByRole("button", { name: "Delete Sales data" }));
+    const user = userEvent.setup();
+    render(
+      <>
+        <DataFramesPage />
+        <ConfirmDialog />
+      </>,
+    );
+    await user.click(screen.getByRole("button", { name: "Delete Sales data" }));
 
-    expect(useConfirmDialogStore.getState().config?.description).toBe(
+    expect(screen.getByRole("dialog").textContent).toContain(
       'Are you sure you want to delete "Sales data"? Data tables that reference it may remain and stop working; dependent insights and visualizations may also stop working. This action cannot be undone.',
     );
-    useConfirmDialogStore.getState().handleCancel();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(mockRemoveDataFrame).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Delete Sales data" }));
-    await act(async () => {
-      await useConfirmDialogStore.getState().handleConfirm();
-    });
-    expect(mockRemoveDataFrame).toHaveBeenCalledWith("frame-1");
+    await user.click(screen.getByRole("button", { name: "Delete Sales data" }));
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    await waitFor(() =>
+      expect(mockRemoveDataFrame).toHaveBeenCalledWith("frame-1"),
+    );
   });
 });

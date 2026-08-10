@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -38,6 +38,7 @@ vi.mock("@/lib/stores/insight-canvas-store", () => ({
 }));
 vi.mock("sonner", () => ({ toast: { error: mockToastError } }));
 
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useConfirmDialogStore } from "@/lib/stores";
 import InsightsPage from "./page";
 
@@ -79,65 +80,120 @@ describe("InsightsPage delete confirmations", () => {
   });
 
   it("does not delete one draft after cancellation, but deletes it after confirmation", async () => {
-    render(<InsightsPage />);
-    fireEvent.click(
+    const user = userEvent.setup();
+    render(
+      <>
+        <InsightsPage />
+        <ConfirmDialog />
+      </>,
+    );
+    await user.click(
       screen.getAllByRole("button", { name: /more options/i })[0],
     );
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
-    expect(useConfirmDialogStore.getState().config?.description).toBe(
+    await user.click(await screen.findByRole("menuitem", { name: "Delete" }));
+    expect(screen.getByRole("dialog").textContent).toContain(
       'Are you sure you want to delete "First draft"? This deletes the insight and its visualizations. Dashboard items that reference those visualizations may remain and stop working. This action cannot be undone.',
     );
-    useConfirmDialogStore.getState().handleCancel();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(mockRemoveInsight).not.toHaveBeenCalled();
 
-    fireEvent.click(
+    await user.click(
       screen.getAllByRole("button", { name: /more options/i })[0],
     );
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
-    await act(async () => {
-      await useConfirmDialogStore.getState().handleConfirm();
+    await user.click(await screen.findByRole("menuitem", { name: "Delete" }));
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    await waitFor(() => {
+      expect(mockRemoveInsight).toHaveBeenCalledWith({ id: "insight-1" });
+      expect(mockClearActiveView).toHaveBeenCalledWith("insight-1");
     });
-    expect(mockRemoveInsight).toHaveBeenCalledWith({ id: "insight-1" });
-    expect(mockClearActiveView).toHaveBeenCalledWith("insight-1");
   });
 
   it("shows the draft count and does not start the bulk delete until confirmation", async () => {
-    render(<InsightsPage />);
-    fireEvent.click(screen.getByRole("button", { name: "Delete all" }));
+    const user = userEvent.setup();
+    render(
+      <>
+        <InsightsPage />
+        <ConfirmDialog />
+      </>,
+    );
+    await user.click(screen.getByRole("button", { name: "Delete all" }));
 
-    expect(useConfirmDialogStore.getState().config?.description).toBe(
+    expect(
+      screen.getByRole("dialog", { name: "Delete drafts" }).textContent,
+    ).toContain(
       "Are you sure you want to delete all 2 draft insights? This deletes the drafts and their visualizations. Dashboard items that reference those visualizations may remain and stop working. This action cannot be undone.",
     );
-    useConfirmDialogStore.getState().handleCancel();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(mockRemoveInsight).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Delete all" }));
-    await act(async () => {
-      await useConfirmDialogStore.getState().handleConfirm();
+    await user.click(screen.getByRole("button", { name: "Delete all" }));
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    await waitFor(() => {
+      expect(mockRemoveInsight).toHaveBeenCalledTimes(2);
+      expect(mockRemoveInsight).toHaveBeenNthCalledWith(1, {
+        id: "insight-1",
+      });
+      expect(mockRemoveInsight).toHaveBeenNthCalledWith(2, {
+        id: "insight-2",
+      });
+      expect(mockClearActiveView).toHaveBeenCalledTimes(2);
+      expect(mockClearActiveView).toHaveBeenNthCalledWith(1, "insight-1");
+      expect(mockClearActiveView).toHaveBeenNthCalledWith(2, "insight-2");
     });
-    expect(mockRemoveInsight).toHaveBeenCalledTimes(2);
-    expect(mockRemoveInsight).toHaveBeenNthCalledWith(1, { id: "insight-1" });
-    expect(mockRemoveInsight).toHaveBeenNthCalledWith(2, { id: "insight-2" });
-    expect(mockClearActiveView).toHaveBeenCalledTimes(2);
-    expect(mockClearActiveView).toHaveBeenNthCalledWith(1, "insight-1");
-    expect(mockClearActiveView).toHaveBeenNthCalledWith(2, "insight-2");
+  });
+
+  it("deletes only matching drafts through the rendered confirmation", async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <InsightsPage />
+        <ConfirmDialog />
+      </>,
+    );
+
+    await user.type(screen.getByPlaceholderText("Search insights..."), "First");
+    expect(screen.getByText("First draft")).not.toBeNull();
+    expect(screen.queryByText("Second draft")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Delete matching" }));
+
+    expect(
+      screen.getByRole("dialog", { name: "Delete matching drafts" })
+        .textContent,
+    ).toContain(
+      "Are you sure you want to delete 1 matching draft insight? This deletes the matching drafts and their visualizations. Dashboard items that reference those visualizations may remain and stop working. This action cannot be undone.",
+    );
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => {
+      expect(mockRemoveInsight).toHaveBeenCalledTimes(1);
+      expect(mockRemoveInsight).toHaveBeenCalledWith({ id: "insight-1" });
+      expect(mockClearActiveView).toHaveBeenCalledWith("insight-1");
+    });
+    expect(mockRemoveInsight).not.toHaveBeenCalledWith({ id: "insight-2" });
+    expect(mockClearActiveView).not.toHaveBeenCalledWith("insight-2");
   });
 
   it("stops bulk deletion when removing a draft rejects", async () => {
+    const user = userEvent.setup();
     mockRemoveInsight.mockRejectedValueOnce(new Error("delete failed"));
 
-    render(<InsightsPage />);
-    fireEvent.click(screen.getByRole("button", { name: "Delete all" }));
-    await act(async () => {
-      await useConfirmDialogStore.getState().handleConfirm();
-    });
-
-    expect(mockRemoveInsight).toHaveBeenCalledTimes(1);
-    expect(mockRemoveInsight).toHaveBeenCalledWith({ id: "insight-1" });
-    expect(mockClearActiveView).not.toHaveBeenCalled();
-    expect(mockToastError).toHaveBeenCalledWith(
-      "Couldn't delete every draft — some may remain",
+    render(
+      <>
+        <InsightsPage />
+        <ConfirmDialog />
+      </>,
     );
+    await user.click(screen.getByRole("button", { name: "Delete all" }));
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => {
+      expect(mockRemoveInsight).toHaveBeenCalledTimes(1);
+      expect(mockRemoveInsight).toHaveBeenCalledWith({ id: "insight-1" });
+      expect(mockClearActiveView).not.toHaveBeenCalled();
+      expect(mockToastError).toHaveBeenCalledWith(
+        "Couldn't delete every draft — some may remain",
+      );
+    });
   });
 
   it.each(["pointer", "Enter", "Space"] as const)(
