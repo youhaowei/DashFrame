@@ -73,6 +73,8 @@ import {
 import { captureCommandCredentials } from "./credential-release";
 import {
   createDraftController,
+  DRAFT_CONTROLLER_DISPATCH_CAPABILITY,
+  recoveredDraftWriteTables,
   type DraftController,
 } from "./draft-controller";
 import { assertPublishLogHasNoLateBound } from "./draft-late-bound";
@@ -433,9 +435,10 @@ export function withDraftSeam(
  *
  *   2. The draft controller's `appendToDraft` — routes writes through a
  *      `withDraft(draftId)` handle, so every `ctx.db.into/update/delete` lands in
- *      `<table>__draft` shadow tables. Draft writes are not canonical; `onWrite`
- *      drives canonical snapshot persistence and must NOT fire for draft-overlay
- *      writes.
+ *      `<table>__draft` shadow tables. This wrapper must not fire `onWrite` per
+ *      handler: the owning draft RPC aggregates the whole durable transition.
+ *      In particular, `createDashframeServer` fires it exactly once when a later
+ *      command rejects after an earlier prefix already committed.
  *
  * When the controller's `publishDraft` replays the log via
  * `applyCommands(app, log, { mode: 'commit' })` and returns a `CommitResult` with
@@ -476,11 +479,11 @@ export async function buildDashframeApp(opts: {
     ...(opts.googleOAuth != null ? { googleOAuth: opts.googleOAuth } : {}),
   };
 
-  // The draft seam wraps `call` itself (not just runHandler): `rawApp.call`
-  // mints its own fresh DrizzleTracker internally, so a draftId-bearing `call` would
-  // otherwise hit canonical. We mirror rawApp.call's composition (fresh tracked
-  // → runHandler → result shape) but pass the draft-scoped handle when a draftId
-  // is present, leaving the no-draft path identical to rawApp.call.
+  // One shared dispatcher backs both public handler entry points. `call` asks it
+  // to mint a tracker lazily; `runHandler` supplies one. Draft-mutation safety is
+  // therefore decided once, before tracker creation or a supplied tracker's use,
+  // and before withDraftSeam or handler dispatch. DraftController carries the
+  // private capability for its operated shadow+revision+log transaction.
   //
   // EQUIVALENCE (load-bearing): rawApp.call is a THIN composition — `const t =
   // createTracked(); const result = await runHandler(path, args, t, context);
@@ -490,15 +493,48 @@ export async function buildDashframeApp(opts: {
   // on the no-draft path. RE-MIRROR POINT: if a wystack upgrade adds logic INSIDE
   // rawApp.call, this wrapper must be updated to match — it cannot delegate to
   // rawApp.call because that path mints an internal tracker the seam can't reach.
-  return {
+  const draftDispatchCapability = Object.freeze({});
+  async function dispatchHandler(
+    path: string,
+    args: unknown,
+    context: Record<string, unknown> | undefined,
+    suppliedTracker?: DrizzleTracker | DraftDrizzleTracker,
+  ): Promise<{
+    result: unknown;
+    tracked: DrizzleTracker | DraftDrizzleTracker;
+  }> {
+    const merged = { ...(context ?? {}), ...staticContext };
+    const isSuppliedDraftTracker =
+      suppliedTracker !== undefined && !("withDraft" in suppliedTracker);
+    const isDraftScoped =
+      draftIdFromContext(merged) !== undefined || isSuppliedDraftTracker;
+    const isOperatedDraftDispatch =
+      Reflect.get(merged, DRAFT_CONTROLLER_DISPATCH_CAPABILITY) ===
+      draftDispatchCapability;
+    if (
+      rawApp.functions.get(path)?.type === "mutation" &&
+      isDraftScoped &&
+      !isOperatedDraftDispatch
+    ) {
+      throw new Error(
+        `Direct draft mutation "${path}" is not allowed; use draftBatch or ` +
+          "DraftController.appendToDraft so shadow state and the command log remain atomic",
+      );
+    }
+
+    const tracked = suppliedTracker ?? rawApp.createTracked();
+    const effective = withDraftSeam(tracked, merged);
+    const result = await rawApp.runHandler(path, args, effective, merged);
+    return { result, tracked };
+  }
+
+  const app: WyStackApp & {
+    readonly [DRAFT_CONTROLLER_DISPATCH_CAPABILITY]: typeof draftDispatchCapability;
+  } = {
     ...rawApp,
+    [DRAFT_CONTROLLER_DISPATCH_CAPABILITY]: draftDispatchCapability,
     async call(path, args, context) {
-      // Static context wins over per-request context: spread per-request first
-      // so static keys (vault) cannot be shadowed by a crafted request context.
-      const merged = { ...(context ?? {}), ...staticContext };
-      const tracked = rawApp.createTracked();
-      const effective = withDraftSeam(tracked, merged);
-      const result = await rawApp.runHandler(path, args, effective, merged);
+      const { result, tracked } = await dispatchHandler(path, args, context);
       // `tracked` and `effective` share the same tracker sets (withDraft reuses
       // the base tracker), so tablesWritten reflects the write either way.
       const tablesWritten = tracked.tablesWritten;
@@ -516,11 +552,10 @@ export async function buildDashframeApp(opts: {
       };
     },
     async runHandler(path, args, tracked, context) {
-      const merged = { ...(context ?? {}), ...staticContext };
-      const effective = withDraftSeam(tracked, merged);
-      return rawApp.runHandler(path, args, effective, merged);
+      return (await dispatchHandler(path, args, context, tracked)).result;
     },
   };
+  return app;
 }
 
 /**
@@ -704,7 +739,17 @@ export async function createDashframeServer(
     ...vaultWrapped,
     async call(path, args, context) {
       const merged = { ...(context ?? {}), ...serverContext };
-      const callResult = await vaultWrapped.call(path, args, merged);
+      let callResult: Awaited<ReturnType<typeof vaultWrapped.call>>;
+      try {
+        callResult = await vaultWrapped.call(path, args, merged);
+      } catch (err) {
+        // A later command can fail after appendToDraft atomically committed an
+        // earlier prefix. The normal result metadata is then unavailable, so
+        // consume the prefix's private write metadata before preserving the
+        // original RPC error.
+        notifyRecoveredDraftWrites(err, emitInvalidation, opts.onWrite);
+        throw err;
+      }
 
       // Handlers that use a sub-tracker (e.g. publishDraft, which calls
       // applyCommands with its own fresh tracked context) cannot surface their
@@ -903,6 +948,22 @@ function listen(
 
 type ResolverContext = Record<string, unknown>;
 type CredentialResolver = (req: Request) => Promise<ResolverContext | null>;
+
+function notifyRecoveredDraftWrites(
+  error: unknown,
+  emitInvalidation: (tablesWritten: Set<string>) => void,
+  onWrite: (() => void) | undefined,
+): void {
+  const recoveredTables = new Set(recoveredDraftWriteTables(error));
+  if (recoveredTables.size === 0) return;
+  emitInvalidation(recoveredTables);
+  if (onWrite == null) return;
+  try {
+    onWrite();
+  } catch (onWriteError) {
+    console.error("[dashframe] onWrite hook threw:", onWriteError);
+  }
+}
 
 function bearerToken(req: Request): string {
   const auth = req.headers.get("authorization") ?? "";

@@ -1,9 +1,11 @@
 import { jsonb, text } from "@wystack/db";
-import type { Command } from "@wystack/server";
+import type { Command, CommandResult } from "@wystack/server";
 
 import type { DashframeFunctionContext } from "../app-context";
 import {
+  addRecoveredDraftWriteTables,
   DRAFT_COMMAND_LOG_TABLE,
+  recoveredDraftWriteTables,
   type DraftController,
 } from "../draft-controller";
 import { permissions } from "../permissions";
@@ -13,16 +15,13 @@ import { assertKnownCommandPaths } from "./commands";
 const appendTails = new Map<string, Promise<void>>();
 
 /**
- * DraftController.appendToDraft is single-writer per draftId. Every caller must
- * serialize. This RPC owns an in-process promise chain per durable draft handle
- * so concurrent `draftBatch` appends cannot race read/compact/replace-all
- * sequence allocation.
+ * This RPC owns an in-process promise chain per durable draft handle so its
+ * concurrent `draftBatch` appends avoid routine CAS stale-writer errors and
+ * present a smoother caller experience.
  *
- * SCOPE — this chain covers append-vs-append THROUGH THIS RPC only. The other
- * writers on a draft handle (the assistant host's direct `appendToDraft`, and
- * `reviseDraft`'s replace-all) do not join it, so an append concurrent with
- * either of those is still unserialized. A multi-process host, or closing that
- * gap, needs a shared per-draft lock at the controller instead of here.
+ * DraftController's CAS is the correctness mechanism for every caller,
+ * including writers outside this in-process queue: it rejects stale log
+ * snapshots instead of accepting a lost update.
  */
 async function serializeAppend<T>(
   draftId: string,
@@ -75,9 +74,20 @@ const draftBatch = wy.procedure
     const context: Record<string, unknown> = {};
     if (ctx.principal !== undefined) context.principal = ctx.principal;
     if (ctx.vault !== undefined) context.vault = ctx.vault;
-    const results = await serializeAppend(targetDraftId, () =>
-      controller.appendToDraft(targetDraftId, commands as Command[], context),
-    );
+    let results: CommandResult[];
+    try {
+      results = await serializeAppend(targetDraftId, () =>
+        controller.appendToDraft(targetDraftId, commands as Command[], context),
+      );
+    } catch (err) {
+      // A rejected batch can still have an earlier, atomically logged prefix.
+      // Add the log table to the controller's shadow-table metadata so the host
+      // can invalidate and schedule persistence before rethrowing the same error.
+      if (recoveredDraftWriteTables(err).length > 0) {
+        addRecoveredDraftWriteTables(err, [DRAFT_COMMAND_LOG_TABLE]);
+      }
+      throw err;
+    }
 
     return {
       draftId: targetDraftId,

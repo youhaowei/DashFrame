@@ -13,6 +13,7 @@ import {
   ApiAccessCredentials,
   CREDENTIAL_CLASS,
   openProject,
+  schema,
   type ProjectHandle,
 } from "@dashframe/server-core";
 import {
@@ -23,15 +24,17 @@ import {
   TestBackend,
 } from "@wystack/secret-vault";
 import { applyCommands } from "@wystack/server";
+import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   assertBindAuthorized,
   buildDashframeApp,
   createDashframeServer,
+  createDraftController,
   type DashframeServer,
 } from "./app";
-import type { ProjectInfoResult } from "./functions";
+import { functions, type ProjectInfoResult } from "./functions";
 import { cmd } from "./functions/commands";
 import { LOCAL_USER_ID } from "./permissions";
 
@@ -1027,6 +1030,91 @@ describe("onWrite hook", () => {
     expect(callCount).toBe(0);
   });
 
+  it("fires onWrite and invalidates exactly once for a durable prefix preserved by a failed draftBatch", async () => {
+    let callCount = 0;
+    project = await openProject({ dir: join(root, "proj") });
+    server = await createDashframeServer({
+      db: project.db,
+      authToken: "renderer-token",
+      onWrite: () => {
+        callCount++;
+      },
+    });
+
+    const ws = new WebSocket(`${server.url.replace(/^http/, "ws")}/api/ws`);
+    const subscriptionId = "sub-draft-prefix-failure";
+    let invalidationCount = 0;
+    const observed = new Promise<{ status: number }>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        ws.close();
+        reject(new Error("draft prefix failure observation timed out"));
+      }, 10_000);
+      ws.onerror = () => reject(new Error("WebSocket failed"));
+      ws.onopen = () =>
+        ws.send(JSON.stringify({ type: "auth", token: "renderer-token" }));
+      ws.onmessage = (event) => {
+        const message = JSON.parse(String(event.data)) as {
+          type?: string;
+          id?: string;
+        };
+        if (message.type === "authenticated") {
+          ws.send(
+            JSON.stringify({
+              type: "subscribe",
+              id: subscriptionId,
+              path: "listDrafts",
+              args: {},
+            }),
+          );
+          return;
+        }
+        if (message.type === "invalidate" && message.id === subscriptionId) {
+          invalidationCount++;
+          return;
+        }
+        if (message.type !== "subscribed" || message.id !== subscriptionId) {
+          return;
+        }
+        postMutation(server!.url, "draftBatch", {
+          commands: [
+            cmd("CreateDataSource", {
+              id: crypto.randomUUID(),
+              type: "csv",
+              name: "durable prefix",
+            }),
+            cmd("DeleteNode", { id: crypto.randomUUID() }),
+          ],
+        }).then((response) => {
+          setTimeout(() => {
+            clearTimeout(timer);
+            resolve({ status: response.status });
+          }, 200);
+        }, reject);
+      };
+    });
+
+    const { status } = await observed;
+    const shadowRows = await project.db.select().from(schema.dataSourcesDraft);
+    const logRows = await project.db.select().from(schema.draftCommandLog);
+    console.info(
+      "[draft HTTP partial failure] HTTP",
+      status,
+      "shadow/log",
+      `${shadowRows.length}/${logRows.length}`,
+      "onWriteCalls",
+      callCount,
+      "invalidations",
+      invalidationCount,
+    );
+    ws.close();
+
+    expect(status).toBe(500);
+    expect(shadowRows).toHaveLength(1);
+    expect(logRows).toHaveLength(1);
+    expect(callCount).toBe(1);
+    expect(invalidationCount).toBe(1);
+  });
+
   it("should NOT fire onWrite for a read-only query", async () => {
     let callCount = 0;
     project = await openProject({ dir: join(root, "proj") });
@@ -1272,6 +1360,145 @@ describe("buildDashframeApp — vault injection seam", () => {
       apiKey: "threaded-key",
     });
     expect(id).toBeTruthy();
+  });
+
+  it("rejects every public draft mutation dispatch before handler effects while preserving query overlays", async () => {
+    const definition = functions.createDataSource;
+    const originalHandler = definition.handler;
+    let handlerDispatches = 0;
+    definition.handler = async (
+      ...args: Parameters<typeof originalHandler>
+    ) => {
+      handlerDispatches++;
+      return originalHandler(...args);
+    };
+    const { vault } = makeTestVault();
+    let storeCallCount = 0;
+    let onWriteCalls = 0;
+    const realStore = vault.store.bind(vault);
+    vault.store = async (...args: Parameters<typeof vault.store>) => {
+      storeCallCount++;
+      return realStore(...args);
+    };
+    try {
+      const app = await buildDashframeApp({
+        db: project.db,
+        vault,
+        onWrite: () => onWriteCalls++,
+      });
+      const controller = createDraftController(app, project.db);
+      const draftId = await controller.openDraft();
+      const principal = { kind: "user" as const, userId: LOCAL_USER_ID };
+      const context = { draftId, principal };
+      const rejectedCallId = crypto.randomUUID();
+      const rejectedRunHandlerId = crypto.randomUUID();
+      const rejectedDraftTrackerId = crypto.randomUUID();
+      const rejection =
+        /Direct draft mutation "createDataSource" is not allowed; use draftBatch or DraftController\.appendToDraft/;
+
+      await expect(
+        app.call(
+          "createDataSource",
+          {
+            id: rejectedCallId,
+            type: "notion",
+            name: "call must not reach handler",
+            apiKey: "must-not-be-stored",
+          },
+          context,
+        ),
+      ).rejects.toThrow(rejection);
+      await expect(
+        app.runHandler(
+          "createDataSource",
+          {
+            id: rejectedRunHandlerId,
+            type: "notion",
+            name: "runHandler must not reach handler",
+            apiKey: "must-not-be-stored",
+          },
+          app.createTracked(),
+          context,
+        ),
+      ).rejects.toThrow(rejection);
+      await expect(
+        app.runHandler(
+          "createDataSource",
+          {
+            id: rejectedDraftTrackerId,
+            type: "notion",
+            name: "draft tracker must not reach handler",
+            apiKey: "must-not-be-stored",
+          },
+          app.createTracked().withDraft(draftId),
+          { principal },
+        ),
+      ).rejects.toThrow(rejection);
+
+      const rejectedShadows = await project.db
+        .select()
+        .from(schema.dataSourcesDraft)
+        .where(eq(schema.dataSourcesDraft.draftId, draftId));
+      const rejectedLog = await project.db
+        .select()
+        .from(schema.draftCommandLog)
+        .where(eq(schema.draftCommandLog.draftId, draftId));
+      const [metadata] = await project.db
+        .select({ revision: schema.draftMetadata.logRevision })
+        .from(schema.draftMetadata)
+        .where(eq(schema.draftMetadata.draftId, draftId));
+      expect(rejectedShadows).toHaveLength(0);
+      expect(rejectedLog).toHaveLength(0);
+      expect(metadata?.revision).toBe(0);
+      expect(handlerDispatches).toBe(0);
+      expect(storeCallCount).toBe(0);
+      expect(onWriteCalls).toBe(0);
+
+      const draftedId = crypto.randomUUID();
+      await controller.appendToDraft(
+        draftId,
+        [
+          cmd("CreateDataSource", {
+            id: draftedId,
+            type: "csv",
+            name: "query-visible draft",
+          }),
+        ],
+        { principal },
+      );
+      expect(handlerDispatches).toBe(1);
+
+      const { result: callQuery } = await app.call(
+        "getDataSource",
+        { id: draftedId },
+        context,
+      );
+      const runHandlerQuery = await app.runHandler(
+        "getDataSource",
+        { id: draftedId },
+        app.createTracked(),
+        context,
+      );
+      const draftTrackerQuery = await app.runHandler(
+        "getDataSource",
+        { id: draftedId },
+        app.createTracked().withDraft(draftId),
+        { principal },
+      );
+      const { result: canonical } = await app.call("getDataSource", {
+        id: draftedId,
+      });
+      const expectedDraft = expect.objectContaining({
+        id: draftedId,
+        name: "query-visible draft",
+      });
+      expect(callQuery).toEqual(expectedDraft);
+      expect(runHandlerQuery).toEqual(expectedDraft);
+      expect(draftTrackerQuery).toEqual(expectedDraft);
+      expect(canonical).toBeNull();
+    } finally {
+      definition.handler = originalHandler;
+    }
   });
 });
 
