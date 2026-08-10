@@ -39,8 +39,14 @@ export interface DataFrameStorage {
   stageDelete?(id: UUID): Promise<string | null>;
   commitDelete?(token: string): Promise<void>;
   rollbackDelete?(token: string): Promise<void>;
-  /** Independently optional recovery for interrupted staged deletes. */
+  /**
+   * Independently optional startup recovery for interrupted staged deletes
+   * and implementation-owned save temporaries. Referenced staged generations
+   * are restored; unreferenced generations are finalized.
+   */
   recoverStagedDeletes?(referencedIds: readonly UUID[]): Promise<void>;
+  /** Whether durable delete tokens remain and recovery needs a durability gate. */
+  hasPendingDataFrameDeletes?(): Promise<boolean>;
 
   /**
    * Check if a DataFrame exists in storage.

@@ -34,4 +34,28 @@ describe("server connector timeout", () => {
     await vi.advanceTimersByTimeAsync(11_000);
     await query;
   });
+
+  it("registers frames with JSON and auth but no request body", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+    const connector = createServerConnector({
+      serverUrl: "http://127.0.0.1:4000",
+      token: "secret",
+    });
+
+    await connector.registerServerFrame("frame-id", "df_report");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:4000/data/frames/frame-id/tables/df_report",
+      expect.objectContaining({
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer secret",
+        },
+        signal: expect.any(AbortSignal),
+      }),
+    );
+    expect(fetchMock.mock.calls[0]?.[1]).not.toHaveProperty("body");
+  });
 });

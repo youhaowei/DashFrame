@@ -80,6 +80,7 @@ import {
   type WyStackApp,
 } from "@wystack/server";
 import { eq, getTableName, sql } from "drizzle-orm";
+import { AsyncLocalStorage } from "node:async_hooks";
 
 import {
   assertPublishLogHasNoLateBound,
@@ -87,6 +88,37 @@ import {
 } from "./draft-late-bound";
 import { computeLogSignature } from "./draft-log-signature";
 import { assertKnownCommandPaths } from "./functions/commands";
+
+type OperatedDraftDispatch = {
+  consumed: boolean;
+  path: string;
+  tracker: Parameters<WyStackApp["runHandler"]>[2];
+};
+
+const operatedDraftDispatchScope =
+  new AsyncLocalStorage<OperatedDraftDispatch>();
+
+/**
+ * @internal Consumes the single dispatch opened by DraftController. The scope
+ * and its enter operation stay module-private, so importing this check cannot
+ * mint, copy, or replay authorization.
+ */
+export function consumeOperatedDraftDispatch(
+  path: string,
+  tracker: Parameters<WyStackApp["runHandler"]>[2],
+): boolean {
+  const dispatch = operatedDraftDispatchScope.getStore();
+  if (
+    dispatch == null ||
+    dispatch.consumed ||
+    dispatch.path !== path ||
+    dispatch.tracker !== tracker
+  ) {
+    return false;
+  }
+  dispatch.consumed = true;
+  return true;
+}
 
 /**
  * The closed set of `<table>__draft` shadows a draft can touch. Discard
@@ -1153,11 +1185,19 @@ export function createDraftController(
           // producing it only after the batch-level check already passed.
           assertKnownCommandPaths([captured.command], "appendToDraft");
           captureRollbacks.push(captured.rollback);
-          const value = await app.runHandler(
-            captured.command.path,
-            captured.command.args,
-            baseDb,
-            draftContext,
+          const value = await operatedDraftDispatchScope.run(
+            {
+              consumed: false,
+              path: captured.command.path,
+              tracker: baseDb,
+            },
+            () =>
+              app.runHandler(
+                captured.command.path,
+                captured.command.args,
+                baseDb,
+                draftContext,
+              ),
           );
           ranSnapshots.push(structuredClone(captured.command) as DraftCommand);
           results.push({ id: captured.command.id, value });

@@ -468,7 +468,7 @@ export function DataPickerContent({
         const queryResource = (snapshot = false, approvedFields?: Field[]) => {
           const snapshotRequest = snapshot
             ? { snapshot: true, approvedFields }
-            : {};
+            : { limit: 100 };
           if (remoteResourceState.connectorId === "notion") {
             return queryNotionDatabaseMutation({
               dataSourceId: remoteResourceState.sourceId,

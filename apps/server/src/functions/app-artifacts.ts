@@ -6,6 +6,7 @@ import { makeNotionConnector } from "@dashframe/connector-notion";
 import { makePostgresConnector } from "@dashframe/connector-postgres";
 // The canonical bound-resolver type — aliased for readability at the mint site.
 import type { SecretResolver as BoundSecretResolver } from "@dashframe/engine";
+import { inspectArrowIpc } from "@dashframe/engine-server/arrow-data-path";
 import { schema } from "@dashframe/server-core";
 import type {
   DataFrameAnalysis,
@@ -31,12 +32,14 @@ import {
   validateVisualizationEncoding,
 } from "@dashframe/types";
 import { boolean, eq, int, jsonb, text, uuid } from "@wystack/db";
+import { PermissionDeniedError } from "@wystack/permissions";
 import type { SecretRef, SecretVault } from "@wystack/secret-vault";
 import { isSecretRef } from "@wystack/secret-vault";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 import type { DashframeFunctionContext } from "../app-context";
+import { permissions } from "../permissions";
 import { wy } from "../wystack";
 import {
   decodeInsight,
@@ -430,12 +433,20 @@ const removeDataSource = wy.procedure
           .from(dataTables)
           .where(eq("dataSourceId", id))
           .all()) as DataTableRow[];
-        const candidateFrames = await framesByIds(
-          { ...ctx, db: tx },
-          ownedTables.flatMap((table) =>
-            table.dataFrameId ? [table.dataFrameId] : [],
-          ),
-        );
+        const txCtx = { ...ctx, db: tx };
+        const candidateFrames = dedupeFrames([
+          ...(await framesByIds(
+            txCtx,
+            ownedTables.flatMap((table) =>
+              table.dataFrameId ? [table.dataFrameId] : [],
+            ),
+          )),
+          ...(await framesForDefinitions(
+            txCtx,
+            ownedTables.map((table) => table.id),
+          )),
+          ...(await framesForSources(txCtx, [id])),
+        ]);
         const ownedFrames = await framesUnreferencedOutsideTables(
           { ...ctx, db: tx },
           candidateFrames,
@@ -518,30 +529,64 @@ const addDataTable = wy.procedure
     },
   );
 
+async function updateDataTableRecord(
+  ctx: DashframeFunctionContext,
+  id: UUID,
+  patch: Partial<DataTable>,
+): Promise<{ ok: true }> {
+  const dbPatch = {
+    ...(patch.name !== undefined ? { name: patch.name } : {}),
+    ...(patch.table !== undefined ? { table: patch.table } : {}),
+    ...(patch.sourceSchema !== undefined
+      ? { sourceSchema: patch.sourceSchema }
+      : {}),
+    ...(patch.fields !== undefined ? { fields: patch.fields } : {}),
+    ...(patch.metrics !== undefined ? { metrics: patch.metrics } : {}),
+    ...(patch.dataFrameId !== undefined
+      ? { dataFrameId: patch.dataFrameId }
+      : {}),
+    ...(patch.lastFetchedAt !== undefined
+      ? { lastFetchedAt: dateFromEpoch(patch.lastFetchedAt) }
+      : {}),
+  };
+  if (patch.dataFrameId === undefined || !isCanonicalContext(ctx)) {
+    await ctx.db.from(dataTables).where(eq("id", id)).update(dbPatch);
+    return { ok: true };
+  }
+  let staged: StagedServerFrame[] = [];
+  try {
+    await ctx.db.transaction(async (tx) => {
+      const table = (await tx.from(dataTables).where(eq("id", id)).first()) as
+        | DataTableRow
+        | undefined;
+      const oldFrames =
+        table?.dataFrameId && table.dataFrameId !== patch.dataFrameId
+          ? await framesUnreferencedOutsideTables(
+              { ...ctx, db: tx },
+              await framesByIds({ ...ctx, db: tx }, [table.dataFrameId]),
+              new Set([id]),
+            )
+          : [];
+      staged = await stageServerFrames(ctx, oldFrames);
+      await tx.from(dataTables).where(eq("id", id)).update(dbPatch);
+      for (const frame of oldFrames) {
+        await tx.from(dataFrames).where(eq("id", frame.id)).delete();
+      }
+    });
+  } catch (error) {
+    await rollbackStagedServerFrames(ctx, staged);
+    throw error;
+  }
+  await commitStagedServerFrames(ctx, staged);
+  return { ok: true };
+}
+
 const updateDataTable = wy.procedure
   .input({ id: uuid, updates: jsonb })
-  .mutation(async (ctx, { id, updates }): Promise<{ ok: true }> => {
-    const patch = updates as Partial<DataTable>;
-    await ctx.db
-      .from(dataTables)
-      .where(eq("id", id))
-      .update({
-        ...(patch.name !== undefined ? { name: patch.name } : {}),
-        ...(patch.table !== undefined ? { table: patch.table } : {}),
-        ...(patch.sourceSchema !== undefined
-          ? { sourceSchema: patch.sourceSchema }
-          : {}),
-        ...(patch.fields !== undefined ? { fields: patch.fields } : {}),
-        ...(patch.metrics !== undefined ? { metrics: patch.metrics } : {}),
-        ...(patch.dataFrameId !== undefined
-          ? { dataFrameId: patch.dataFrameId }
-          : {}),
-        ...(patch.lastFetchedAt !== undefined
-          ? { lastFetchedAt: dateFromEpoch(patch.lastFetchedAt) }
-          : {}),
-      });
-    return { ok: true };
-  });
+  .mutation(
+    async (ctx, { id, updates }): Promise<{ ok: true }> =>
+      updateDataTableRecord(ctx, id, updates as Partial<DataTable>),
+  );
 
 // NOTE: silently no-ops on a missing id (0-row UPDATE returns { ok: true }).
 // The command path (`refreshDataTableCmd` in commands.ts) enforces existence
@@ -550,11 +595,10 @@ const updateDataTable = wy.procedure
 const refreshDataTable = wy.procedure
   .input({ id: uuid, dataFrameId: uuid })
   .mutation(async (ctx, { id, dataFrameId }): Promise<{ ok: true }> => {
-    await ctx.db
-      .from(dataTables)
-      .where(eq("id", id))
-      .update({ dataFrameId, lastFetchedAt: new Date() });
-    return { ok: true };
+    return updateDataTableRecord(ctx, id, {
+      dataFrameId,
+      lastFetchedAt: Date.now(),
+    });
   });
 
 const removeDataTable = wy.procedure
@@ -568,10 +612,14 @@ const removeDataTable = wy.procedure
           .from(dataTables)
           .where(eq("id", id))
           .first()) as DataTableRow | undefined;
-        const candidates = await framesByIds(
-          { ...ctx, db: tx },
-          table?.dataFrameId ? [table.dataFrameId] : [],
-        );
+        const txCtx = { ...ctx, db: tx };
+        const candidates = dedupeFrames([
+          ...(await framesByIds(
+            txCtx,
+            table?.dataFrameId ? [table.dataFrameId] : [],
+          )),
+          ...(await framesForDefinitions(txCtx, [id])),
+        ]);
         const frames = await framesUnreferencedOutsideTables(
           { ...ctx, db: tx },
           candidates,
@@ -1251,11 +1299,25 @@ async function persistConnectorFrame(
   if (!storage) {
     throw new Error("Server DataFrame storage is not configured");
   }
-  const dataFrameId = randomUUID() as UUID;
-  await storage.save(
-    dataFrameId,
-    new Uint8Array(Buffer.from(args.arrowBuffer, "base64")),
+  const arrow = new Uint8Array(Buffer.from(args.arrowBuffer, "base64"));
+  let ipc: ReturnType<typeof inspectArrowIpc>;
+  try {
+    ipc = inspectArrowIpc(arrow);
+  } catch {
+    throw new Error("Connector returned malformed Arrow IPC");
+  }
+  const expectedNames = args.approvedFields.map(
+    (field) => field.columnName ?? field.name,
   );
+  if (
+    ipc.rowCount !== args.rowCount ||
+    ipc.fieldNames.length !== expectedNames.length ||
+    ipc.fieldNames.some((name, index) => name !== expectedNames[index])
+  ) {
+    throw new Error("Connector Arrow schema does not match reviewed fields");
+  }
+  const dataFrameId = randomUUID() as UUID;
+  await storage.save(dataFrameId, arrow);
   let stagedPrevious: StagedServerFrame[] = [];
   try {
     await ctx.db.transaction(async (tx) => {
@@ -1312,6 +1374,51 @@ async function persistConnectorFrame(
   return dataFrameId;
 }
 
+async function connectorTableBinding(
+  ctx: DashframeFunctionContext,
+  dataSourceId: UUID,
+  tableId: UUID,
+): Promise<DataTableRow> {
+  const table = (await ctx.db
+    .from(dataTables)
+    .where(eq("id", tableId))
+    .first()) as DataTableRow | undefined;
+  if (!table) throw new Error(`DataTable ${tableId} not found`);
+  if (table.dataSourceId !== dataSourceId) {
+    throw new Error(
+      `DataTable ${tableId} does not belong to DataSource ${dataSourceId}`,
+    );
+  }
+  return table;
+}
+
+async function requireConnectorMaterializationPermission(
+  ctx: DashframeFunctionContext,
+  snapshot: boolean | undefined,
+): Promise<void> {
+  if (snapshot && !(await ctx.can(permissions.commands.commit))) {
+    throw new PermissionDeniedError(permissions.commands.commit.id);
+  }
+}
+
+const CONNECTOR_INSPECTION_ROW_LIMIT = 100;
+
+function connectorQueryOptions(
+  limit: number | undefined,
+  snapshot: boolean | undefined,
+): { pagination: { offset: number; limit: number } } | undefined {
+  const requestedLimit =
+    limit !== undefined && Number.isInteger(limit) && limit > 0
+      ? limit
+      : undefined;
+  const effectiveLimit = snapshot
+    ? requestedLimit
+    : (requestedLimit ?? CONNECTOR_INSPECTION_ROW_LIMIT);
+  return effectiveLimit === undefined
+    ? undefined
+    : { pagination: { offset: 0, limit: effectiveLimit } };
+}
+
 function approvedFieldsForSnapshot(
   value: unknown,
   fieldIds: readonly string[],
@@ -1361,11 +1468,15 @@ function approvedFieldsForSnapshot(
 type StagedServerFrame = { token: string };
 
 function assertCanonicalFrameSideEffects(ctx: DashframeFunctionContext): void {
-  if (modeFromCtx(ctx) === "preview" || inDraftContext(ctx)) {
+  if (!isCanonicalContext(ctx)) {
     throw new Error(
       "Server frame side effects require a canonical commit context",
     );
   }
+}
+
+function isCanonicalContext(ctx: DashframeFunctionContext): boolean {
+  return modeFromCtx(ctx) !== "preview" && !inDraftContext(ctx);
 }
 
 function atomicStorage(ctx: DashframeFunctionContext) {
@@ -1391,6 +1502,10 @@ async function stageServerFrames(
     (row) => (row.storage as DataFrameStorageLocation).type === "file",
   );
   if (fileRows.length === 0) return [];
+  // This handler owns staging + retained-snapshot finalization. Suppress the
+  // generic post-handler reconciliation so it does not flush retention and
+  // attempt the same cleanup a second time.
+  ctx.markServerFrameCleanupHandled?.();
   const storage = atomicStorage(ctx);
   const staged: StagedServerFrame[] = [];
   try {
@@ -1443,7 +1558,16 @@ async function commitStagedServerFrames(
     results[index]?.status === "fulfilled" ? [token.split(".")[0]!] : [],
   );
   if (removedIds.length > 0) {
-    await ctx.unregisterServerFrames?.(removedIds);
+    try {
+      await ctx.unregisterServerFrames?.(removedIds);
+    } catch (error) {
+      // Metadata and file deletion are durable at this point. Runtime-native
+      // cleanup must not turn that committed mutation into a reported failure.
+      console.error(
+        "[dashframe] native unregister failed after durable frame deletion; runtime cleanup will retry when configured",
+        error,
+      );
+    }
   }
   if (failures.length > 0) {
     console.error(
@@ -1500,6 +1624,46 @@ async function framesByIds(
   return rows;
 }
 
+async function framesForDefinitions(
+  ctx: DashframeFunctionContext,
+  definitionIds: readonly string[],
+): Promise<DataFrameRow[]> {
+  const ids = [...new Set(definitionIds)];
+  if (ids.length === 0) return [];
+  const rows: DataFrameRow[] = [];
+  for (const definitionId of ids) {
+    rows.push(
+      ...((await ctx.db
+        .from(dataFrames)
+        .where(eq("definitionId", definitionId))
+        .all()) as DataFrameRow[]),
+    );
+  }
+  return rows;
+}
+
+async function framesForSources(
+  ctx: DashframeFunctionContext,
+  sourceIds: readonly string[],
+): Promise<DataFrameRow[]> {
+  const ids = [...new Set(sourceIds)];
+  if (ids.length === 0) return [];
+  const rows: DataFrameRow[] = [];
+  for (const sourceId of ids) {
+    rows.push(
+      ...((await ctx.db
+        .from(dataFrames)
+        .where(eq("sourceId", sourceId))
+        .all()) as DataFrameRow[]),
+    );
+  }
+  return rows;
+}
+
+function dedupeFrames(rows: readonly DataFrameRow[]): DataFrameRow[] {
+  return [...new Map(rows.map((row) => [row.id, row])).values()];
+}
+
 async function framesUnreferencedOutsideTables(
   ctx: DashframeFunctionContext,
   frames: DataFrameRow[],
@@ -1530,8 +1694,8 @@ const queryNotionDatabase = wy.procedure
     dataSourceId: uuid,
     databaseId: text,
     tableId: uuid,
-    // Optional cap on rows fetched for the preview. Bounds an unbounded Notion
-    // database scan; the renderer passes a preview limit. Omitted = no cap.
+    // Optional cap on rows fetched for preview. Inspection defaults to a small
+    // server-side bound; an approved snapshot remains unbounded when omitted.
     limit: int.optional(),
     snapshot: boolean.optional(),
     approvedFields: jsonb.optional(),
@@ -1542,16 +1706,17 @@ const queryNotionDatabase = wy.procedure
       { dataSourceId, databaseId, tableId, limit, snapshot, approvedFields },
     ): Promise<NotionQueryResult> => {
       const connector = await notionConnectorFor(ctx, dataSourceId);
-      // Only a positive integer limit caps the fetch. Reject 0/negative — the
-      // client-side page loop treats `0 || Infinity` as unbounded, so a `limit: 0`
-      // would silently become a full-database scan (the cap's whole purpose).
-      const pagination =
-        limit !== undefined && Number.isInteger(limit) && limit > 0
-          ? { pagination: { offset: 0, limit } }
-          : undefined;
+      const table = await connectorTableBinding(ctx, dataSourceId, tableId);
+      if (databaseId !== table.table) {
+        throw new Error(
+          `DataTable ${tableId} is bound to remote resource ${table.table}`,
+        );
+      }
+      await requireConnectorMaterializationPermission(ctx, snapshot);
+      const pagination = connectorQueryOptions(limit, snapshot);
       // query() resolves the apiKey via the bound resolver internally and returns
       // a serializable result — no credential in scope here, no DataFrame built.
-      const result = await connector.query(databaseId, tableId, pagination);
+      const result = await connector.query(table.table, tableId, pagination);
       const dataFrameId = snapshot
         ? await persistConnectorFrame(ctx, {
             arrowBuffer: result.arrowBuffer,
@@ -1679,11 +1844,15 @@ const queryPostgresTable = wy.procedure
       { dataSourceId, databaseId, tableId, limit, snapshot, approvedFields },
     ): Promise<PostgresQueryResult> => {
       const connector = await postgresConnectorFor(ctx, dataSourceId);
-      const pagination =
-        limit !== undefined && Number.isInteger(limit) && limit > 0
-          ? { pagination: { offset: 0, limit } }
-          : undefined;
-      const result = await connector.query(databaseId, tableId, pagination);
+      const table = await connectorTableBinding(ctx, dataSourceId, tableId);
+      if (databaseId !== table.table) {
+        throw new Error(
+          `DataTable ${tableId} is bound to remote resource ${table.table}`,
+        );
+      }
+      await requireConnectorMaterializationPermission(ctx, snapshot);
+      const pagination = connectorQueryOptions(limit, snapshot);
+      const result = await connector.query(table.table, tableId, pagination);
       const dataFrameId = snapshot
         ? await persistConnectorFrame(ctx, {
             arrowBuffer: result.arrowBuffer,
@@ -1914,21 +2083,10 @@ const queryGa4Property = wy.procedure
       ctx,
       { dataSourceId, tableId, limit, snapshot, approvedFields },
     ): Promise<Ga4QueryResult> => {
-      const table = (await ctx.db
-        .from(dataTables)
-        .where(eq("id", tableId))
-        .first()) as DataTableRow | undefined;
-      if (!table) throw new Error(`DataTable ${tableId} not found`);
-      if (table.dataSourceId !== dataSourceId) {
-        throw new Error(
-          `DataTable ${tableId} does not belong to DataSource ${dataSourceId}`,
-        );
-      }
       const connector = await ga4ConnectorFor(ctx, dataSourceId);
-      const pagination =
-        limit !== undefined && Number.isInteger(limit) && limit > 0
-          ? { pagination: { offset: 0, limit } }
-          : undefined;
+      const table = await connectorTableBinding(ctx, dataSourceId, tableId);
+      await requireConnectorMaterializationPermission(ctx, snapshot);
+      const pagination = connectorQueryOptions(limit, snapshot);
       const result = await connector.query(table.table, tableId, pagination);
       const dataFrameId = snapshot
         ? await persistConnectorFrame(ctx, {

@@ -53,7 +53,6 @@ import {
   hasCorruptWalSegment,
   restoreNewestSnapshot,
   SnapshotScheduler,
-  writeSnapshot,
   type FailedRestoreAttempt,
   type SnapshotMeta,
 } from "./snapshots";
@@ -256,15 +255,9 @@ export async function openProject(
   );
 
   const close = async (): Promise<CloseResult> => {
-    // Cancel the pending debounced timer, then await any snapshot already in
-    // flight before writing (and closing). Without the flush, a debounced/max-
-    // wait dump still running here would overlap the final dump on the same
-    // client — or worse, still be using the client when `close()` tears it down.
-    scheduler.cancel();
-    await scheduler.flush();
     let snapshotError: Error | null = null;
     try {
-      await writeSnapshot(db.$client, dir);
+      await scheduler.close();
     } catch (err) {
       snapshotError = err instanceof Error ? err : new Error(String(err));
     }

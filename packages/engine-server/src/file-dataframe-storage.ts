@@ -6,8 +6,17 @@ import path from "node:path";
 
 const FRAME_EXTENSION = ".arrow";
 const TRASH_DIRECTORY = ".trash";
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_FRAGMENT =
+  "[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}";
+const UUID_PATTERN = new RegExp(`^${UUID_FRAGMENT}$`, "i");
+const DELETE_TOKEN_PATTERN = new RegExp(
+  `^(${UUID_FRAGMENT})\\.(${UUID_FRAGMENT})$`,
+  "i",
+);
+const SAVE_TEMP_PATTERN = new RegExp(
+  `^\\.${UUID_FRAGMENT}\\.\\d+\\.${UUID_FRAGMENT}\\.tmp$`,
+  "i",
+);
 
 async function syncDirectory(directory: string): Promise<void> {
   const handle = await fs.open(directory, "r");
@@ -39,6 +48,44 @@ async function ensureDirectory(
   await fs.mkdir(directory, { recursive: true });
   await sync(path.dirname(directory));
   await sync(directory);
+}
+
+function isEnoent(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    "code" in error &&
+    (error as NodeJS.ErrnoException).code === "ENOENT"
+  );
+}
+
+async function statIfExists(
+  file: string,
+): Promise<Awaited<ReturnType<typeof fs.stat>> | null> {
+  try {
+    return await fs.stat(file);
+  } catch (error) {
+    if (isEnoent(error)) return null;
+    throw error;
+  }
+}
+
+function isSameGeneration(
+  left: Awaited<ReturnType<typeof fs.stat>>,
+  right: Awaited<ReturnType<typeof fs.stat>>,
+): boolean {
+  return left.dev === right.dev && left.ino === right.ino;
+}
+
+class StagedDeleteCollisionError extends Error {
+  constructor(
+    readonly id: UUID,
+    readonly token: string,
+  ) {
+    super(
+      `Cannot roll back staged DataFrame delete ${token}: active frame ${id} contains a newer generation`,
+    );
+    this.name = "StagedDeleteCollisionError";
+  }
 }
 
 /** Durable Arrow IPC storage rooted inside one DashFrame project. */
@@ -123,11 +170,18 @@ export class FileDataFrameStorage implements DataFrameStorage {
   }
 
   async commitDelete(token: string): Promise<void> {
-    const [id] = token.split(".");
-    if (!id || !UUID_PATTERN.test(id)) throw new Error("Invalid delete token");
-    await fs.rm(this.framePath(id as UUID), { force: true });
-    await syncDirectoryIfExists(this.directory, this.sync);
-    await fs.rm(this.trashPath(token), { force: true });
+    const { id, trash } = this.parseDeleteToken(token);
+    const staged = await statIfExists(trash);
+    if (!staged) return;
+
+    const active = this.framePath(id);
+    const activeStat = await statIfExists(active);
+    if (activeStat && isSameGeneration(staged, activeStat)) {
+      await fs.unlink(active);
+      await this.sync(this.directory);
+    }
+
+    await fs.rm(trash, { force: true });
     await syncDirectoryIfExists(
       path.join(this.directory, TRASH_DIRECTORY),
       this.sync,
@@ -135,7 +189,37 @@ export class FileDataFrameStorage implements DataFrameStorage {
   }
 
   async rollbackDelete(token: string): Promise<void> {
-    await fs.rm(this.trashPath(token), { force: true });
+    const { id, trash } = this.parseDeleteToken(token);
+    const staged = await statIfExists(trash);
+    if (!staged) return;
+
+    const active = this.framePath(id);
+    const activeStat = await statIfExists(active);
+    if (activeStat && !isSameGeneration(staged, activeStat)) {
+      throw new StagedDeleteCollisionError(id, token);
+    }
+    if (!activeStat) {
+      try {
+        await fs.link(trash, active);
+        await this.sync(this.directory);
+      } catch (error) {
+        if (
+          !(
+            error instanceof Error &&
+            "code" in error &&
+            error.code === "EEXIST"
+          )
+        ) {
+          throw error;
+        }
+        const racedActive = await fs.stat(active);
+        if (!isSameGeneration(staged, racedActive)) {
+          throw new StagedDeleteCollisionError(id, token);
+        }
+      }
+    }
+
+    await fs.rm(trash, { force: true });
     await syncDirectoryIfExists(
       path.join(this.directory, TRASH_DIRECTORY),
       this.sync,
@@ -143,6 +227,7 @@ export class FileDataFrameStorage implements DataFrameStorage {
   }
 
   async recoverStagedDeletes(referencedIds: readonly UUID[]): Promise<void> {
+    await this.removeStaleSaveTemps();
     const referenced = new Set(referencedIds);
     const trashDirectory = path.join(this.directory, TRASH_DIRECTORY);
     let tokens: string[];
@@ -159,41 +244,72 @@ export class FileDataFrameStorage implements DataFrameStorage {
       throw error;
     }
     for (const token of tokens) {
-      const [id] = token.split(".");
-      if (!id || !UUID_PATTERN.test(id)) continue;
-      if (referenced.has(id as UUID)) {
-        await this.recoverReferencedToken(id as UUID, token);
-      } else {
-        await this.commitDelete(token);
-      }
+      await this.recoverDeleteToken(token, referenced);
     }
   }
 
-  private async recoverReferencedToken(id: UUID, token: string): Promise<void> {
+  private async recoverDeleteToken(
+    token: string,
+    referenced: ReadonlySet<UUID>,
+  ): Promise<void> {
+    const match = DELETE_TOKEN_PATTERN.exec(token);
+    if (!match) return;
+    const id = match[1] as UUID;
+    if (!referenced.has(id)) {
+      await this.commitDelete(token);
+      return;
+    }
     try {
       await this.rollbackDelete(token);
     } catch (error) {
-      // A later save owns the active path. Keep the staged bytes intact for
-      // explicit recovery instead of replacing the newer committed frame.
-      if (
-        error instanceof Error &&
-        error.message.includes("an active frame already exists")
-      ) {
-        console.error(
-          `[dashframe] staged frame ${id} collides with an active frame; leaving staged bytes for recovery`,
-          error,
-        );
-        return;
-      }
+      if (!(error instanceof StagedDeleteCollisionError)) throw error;
+      // The active path is a later save and therefore the committed bytes for
+      // this ID. Finalize only the older staged generation; commitDelete
+      // compares inode generations and cannot unlink the replacement.
+      console.error(
+        `[dashframe] ${error.message}; discarding the older staged generation during recovery`,
+      );
+      await this.commitDelete(token);
+    }
+  }
+
+  async hasPendingDataFrameDeletes(): Promise<boolean> {
+    try {
+      const tokens = await fs.readdir(
+        path.join(this.directory, TRASH_DIRECTORY),
+      );
+      return tokens.some((token) => DELETE_TOKEN_PATTERN.test(token));
+    } catch (error) {
+      if (isEnoent(error)) return false;
       throw error;
     }
   }
 
-  private trashPath(token: string): string {
-    if (!/^[0-9a-f-]{36}\.[0-9a-f-]{36}$/i.test(token)) {
-      throw new Error("Invalid delete token");
+  private parseDeleteToken(token: string): { id: UUID; trash: string } {
+    const match = DELETE_TOKEN_PATTERN.exec(token);
+    if (!match) throw new Error("Invalid delete token");
+    return {
+      id: match[1] as UUID,
+      trash: path.join(this.directory, TRASH_DIRECTORY, token),
+    };
+  }
+
+  private async removeStaleSaveTemps(): Promise<void> {
+    let entries: string[];
+    try {
+      entries = await fs.readdir(this.directory);
+    } catch (error) {
+      if (isEnoent(error)) return;
+      throw error;
     }
-    return path.join(this.directory, TRASH_DIRECTORY, token);
+    const stale = entries.filter((entry) => SAVE_TEMP_PATTERN.test(entry));
+    if (stale.length === 0) return;
+    await Promise.all(
+      stale.map((entry) =>
+        fs.rm(path.join(this.directory, entry), { force: true }),
+      ),
+    );
+    await this.sync(this.directory);
   }
 
   async exists(id: UUID): Promise<boolean> {

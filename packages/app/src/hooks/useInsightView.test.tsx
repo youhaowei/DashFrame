@@ -547,6 +547,79 @@ describe("useInsightView", () => {
       expect(mockQuery).toHaveBeenCalledTimes(2);
     });
 
+    it("never lets a blocked old frame revision replace the newer GA4 view", async () => {
+      const insight = createMockInsight({
+        id: "insight-ga4-race",
+        baseTableId: "table-ga4-race",
+      });
+      const oldTable = createMockDataTable({
+        id: "table-ga4-race",
+        dataFrameId: "df-ga4-old",
+        lastFetchedAt: 1,
+      });
+      const newTable = createMockDataTable({
+        id: "table-ga4-race",
+        dataFrameId: "df-ga4-new",
+        lastFetchedAt: 2,
+      });
+      let releaseOld!: () => void;
+      const oldBlocked = new Promise<void>((resolve) => {
+        releaseOld = resolve;
+      });
+      let currentRows: Array<{ revision: string }> = [];
+
+      mockGetDataTable
+        .mockResolvedValueOnce(oldTable)
+        .mockResolvedValue(newTable);
+      mockGetDataFrame.mockImplementation((id) =>
+        Promise.resolve(createMockDataFrame(id, "file")),
+      );
+      mockEnsureTableLoaded.mockImplementation((frame: DataFrame) =>
+        frame.id === "df-ga4-old" ? oldBlocked : Promise.resolve(undefined),
+      );
+      mockBuildInsightSQL.mockImplementation((table: DataTable) =>
+        table.dataFrameId === "df-ga4-old"
+          ? "SELECT 'old' AS revision"
+          : "SELECT 'new' AS revision",
+      );
+      mockQuery.mockImplementation(async (sql: string) => {
+        if (sql.startsWith("CREATE OR REPLACE VIEW")) {
+          currentRows = [
+            { revision: sql.includes("SELECT 'new'") ? "new" : "old" },
+          ];
+        }
+        return { toArray: () => currentRows };
+      });
+
+      const { result, rerender } = renderHook(
+        ({ dataTables }) => useInsightView(insight, { dataTables }),
+        { initialProps: { dataTables: [oldTable] } },
+      );
+      await waitFor(() =>
+        expect(mockEnsureTableLoaded).toHaveBeenCalledWith(
+          expect.objectContaining({ id: "df-ga4-old" }),
+          mockConnection,
+        ),
+      );
+
+      rerender({ dataTables: [newTable] });
+      await waitFor(() => expect(result.current.isReady).toBe(true));
+      releaseOld();
+      await waitFor(() =>
+        expect(mockEnsureTableLoaded).toHaveBeenCalledTimes(2),
+      );
+
+      const createCalls = mockQuery.mock.calls.filter(([sql]) =>
+        String(sql).startsWith("CREATE OR REPLACE VIEW"),
+      );
+      expect(createCalls).toHaveLength(1);
+      expect(createCalls[0]?.[0]).toContain("SELECT 'new' AS revision");
+      const final = await mockConnection.query(
+        'SELECT * FROM "insight_view_insight_ga4_race"',
+      );
+      expect(final.toArray()).toEqual([{ revision: "new" }]);
+    });
+
     it("should clear error when config-key switches to an already-cached config", async () => {
       // Regression: config A fails (error set) → switch to config B which is
       // already in createdViewsCache → effect returns early on the cache hit

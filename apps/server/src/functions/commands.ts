@@ -642,9 +642,10 @@ const createDataTable = wy.procedure
 async function requireDataTable(
   ctx: { db: import("@wystack/db").DrizzleTracker },
   id: string,
-): Promise<void> {
+): Promise<typeof dataTables.$inferSelect> {
   const row = await ctx.db.from(dataTables).where(eq("id", id)).first();
   if (!row) throw new Error(`Data table ${id} not found`);
+  return row;
 }
 
 /** SetDataTableSchema — replaces the discovered source schema slice. */
@@ -665,11 +666,28 @@ const refreshDataTable = wy.procedure
   .input({ id: uuid, dataFrameId: uuid })
   .authorize(permissions.commands.commit)
   .mutation(async (ctx, { id, dataFrameId }): Promise<{ ok: true }> => {
-    await requireDataTable(ctx, id);
+    const table = await requireDataTable(ctx, id);
+    let replacedFrameId: string | undefined;
+    if (
+      isCanonicalCommandContext(ctx) &&
+      table.dataFrameId &&
+      table.dataFrameId !== dataFrameId
+    ) {
+      const references = await ctx.db
+        .from(dataTables)
+        .where(eq("dataFrameId", table.dataFrameId))
+        .all();
+      if (references.every((reference) => reference.id === id)) {
+        replacedFrameId = table.dataFrameId;
+      }
+    }
     await ctx.db
       .from(dataTables)
       .where(eq("id", id))
       .update({ dataFrameId, lastFetchedAt: new Date() });
+    if (replacedFrameId) {
+      await ctx.db.from(dataFrames).where(eq("id", replacedFrameId)).delete();
+    }
     return { ok: true };
   });
 
@@ -2002,7 +2020,13 @@ async function deleteInsightDataFrames(
  * tables do not produce N round-trips.
  */
 async function deleteDataSourceDependents(
-  ctx: { db: import("@wystack/db").DrizzleTracker },
+  ctx: {
+    db: import("@wystack/db").DrizzleTracker;
+    mode?: string;
+    draftId?: string;
+    __publishReplay?: boolean;
+  },
+  sourceId: string,
   ownedTables: (typeof dataTables.$inferSelect)[],
 ): Promise<OrphanedNode[]> {
   // Fetch all insights once — avoids O(N) full-table scans inside the loop.
@@ -2027,20 +2051,95 @@ async function deleteDataSourceDependents(
     }
   }
 
-  // Clean up DataFrame metadata for each owned DataTable's Arrow result.
-  for (const t of ownedTables) {
-    if (t.dataFrameId) {
-      const references = await ctx.db
-        .from(dataTables)
-        .where(eq("dataFrameId", t.dataFrameId))
-        .all();
-      if (references.every((reference) => ownedTableIds.has(reference.id))) {
-        await ctx.db.from(dataFrames).where(eq("id", t.dataFrameId)).delete();
-      }
-    }
+  // Include both the current link and source/definition ownership metadata.
+  // A clear or replacement may have removed the link before an earlier
+  // cleanup completed; those rows still belong to this deletion lifecycle.
+  if (isCanonicalCommandContext(ctx)) {
+    await deleteOwnedSourceDataFrames(
+      ctx,
+      sourceId,
+      ownedTables,
+      ownedTableIds,
+    );
   }
 
   return orphanedNodes;
+}
+
+async function deleteOwnedSourceDataFrames(
+  ctx: { db: import("@wystack/db").DrizzleTracker },
+  sourceId: string,
+  ownedTables: (typeof dataTables.$inferSelect)[],
+  ownedTableIds: ReadonlySet<string>,
+): Promise<void> {
+  const candidates = new Map<string, typeof dataFrames.$inferSelect>();
+  for (const table of ownedTables) {
+    if (table.dataFrameId) {
+      const linked = await ctx.db
+        .from(dataFrames)
+        .where(eq("id", table.dataFrameId))
+        .first();
+      if (linked) candidates.set(linked.id, linked);
+    }
+    const defined = await ctx.db
+      .from(dataFrames)
+      .where(eq("definitionId", table.id))
+      .all();
+    for (const frame of defined) candidates.set(frame.id, frame);
+  }
+  const sourced = await ctx.db
+    .from(dataFrames)
+    .where(eq("sourceId", sourceId))
+    .all();
+  for (const frame of sourced) candidates.set(frame.id, frame);
+  for (const frame of candidates.values()) {
+    const references = await ctx.db
+      .from(dataTables)
+      .where(eq("dataFrameId", frame.id))
+      .all();
+    if (references.every((reference) => ownedTableIds.has(reference.id))) {
+      await ctx.db.from(dataFrames).where(eq("id", frame.id)).delete();
+    }
+  }
+}
+
+async function deleteCanonicalTableDataFrames(
+  ctx: { db: import("@wystack/db").DrizzleTracker },
+  table: typeof dataTables.$inferSelect,
+): Promise<void> {
+  const candidates = new Map<string, typeof dataFrames.$inferSelect>();
+  if (table.dataFrameId) {
+    const linked = await ctx.db
+      .from(dataFrames)
+      .where(eq("id", table.dataFrameId))
+      .first();
+    if (linked) candidates.set(linked.id, linked);
+  }
+  const defined = await ctx.db
+    .from(dataFrames)
+    .where(eq("definitionId", table.id))
+    .all();
+  for (const frame of defined) candidates.set(frame.id, frame);
+  for (const frame of candidates.values()) {
+    const references = await ctx.db
+      .from(dataTables)
+      .where(eq("dataFrameId", frame.id))
+      .all();
+    if (references.every((reference) => reference.id === table.id)) {
+      await ctx.db.from(dataFrames).where(eq("id", frame.id)).delete();
+    }
+  }
+}
+
+function isCanonicalCommandContext(ctx: {
+  mode?: string;
+  draftId?: string;
+  __publishReplay?: boolean;
+}): boolean {
+  return (
+    ctx.__publishReplay === true ||
+    (ctx.mode !== "preview" && ctx.draftId == null)
+  );
 }
 
 /**
@@ -2274,17 +2373,8 @@ const deleteNode = wy.procedure
       .first()) as typeof dataTables.$inferSelect | undefined;
     if (table) {
       const orphanedInsights = await findOrphanedInsights(ctx, id);
-      if (table.dataFrameId) {
-        const references = await ctx.db
-          .from(dataTables)
-          .where(eq("dataFrameId", table.dataFrameId))
-          .all();
-        if (references.every((reference) => reference.id === table.id)) {
-          await ctx.db
-            .from(dataFrames)
-            .where(eq("id", table.dataFrameId))
-            .delete();
-        }
+      if (isCanonicalCommandContext(ctx)) {
+        await deleteCanonicalTableDataFrames(ctx, table);
       }
       await ctx.db.from(dataTables).where(eq("id", id)).delete();
       return {
@@ -2307,7 +2397,11 @@ const deleteNode = wy.procedure
         .from(dataTables)
         .where(eq("dataSourceId", id))
         .all()) as (typeof dataTables.$inferSelect)[];
-      const orphanedNodes = await deleteDataSourceDependents(ctx, ownedTables);
+      const orphanedNodes = await deleteDataSourceDependents(
+        ctx,
+        id,
+        ownedTables,
+      );
       // PRE-RELEASE FLUSH GATE — collect credential refs from the config BEFORE
       // deleting the row, then delete the row, then flush a snapshot (so the
       // snapshot captures the "row deleted" state and can no longer reference

@@ -21,6 +21,7 @@ export interface AppContext {
     before: ReadonlySet<string>,
   ) => Promise<void>;
   unregisterServerFrames?: (ids: readonly string[]) => Promise<void>;
+  markServerFrameCleanupHandled?: () => void;
   draftController?: DraftController;
   onWrite?: () => void;
   flushSnapshot?: () => Promise<void>;

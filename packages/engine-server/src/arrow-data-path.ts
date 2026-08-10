@@ -56,6 +56,8 @@ export interface ArrowDataPathOptions {
   engine: ArrowQueryRunner & Partial<ArrowTableRegistrar>;
   /** Project-owned frames that may be registered without crossing the client. */
   dataFrameStorage?: DataFrameStorage;
+  /** Confirms a durable frame is still canonically owned before registration. */
+  isFrameAvailable?: (id: UUID) => Promise<boolean>;
   /**
    * Per-launch loopback bearer token (plaintext). When set, every request must
    * carry `Authorization: Bearer <token>`. When unset, the path is open
@@ -78,6 +80,27 @@ export interface ArrowDataPathOptions {
    * `authRef` is set.
    */
   vault?: SecretVault;
+}
+
+async function unregisterIfPresent(
+  engine: ArrowQueryRunner & Partial<ArrowTableRegistrar>,
+  name: string,
+): Promise<boolean> {
+  try {
+    await engine.unregisterTable?.(name);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function frameIsUnavailable(
+  options: ArrowDataPathOptions,
+  id: UUID,
+): Promise<boolean> {
+  return options.isFrameAvailable
+    ? !(await options.isFrameAvailable(id))
+    : false;
 }
 
 /** Native shape: `{ sql, params? }` */
@@ -360,10 +383,32 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
     }
     const arrow = await options.dataFrameStorage.load(id as UUID);
     if (!arrow) return c.json({ error: "Frame not found" }, 404);
+    if (await frameIsUnavailable(options, id as UUID)) {
+      // Also retries cleanup from an earlier request whose post-registration
+      // ownership check lost the race but whose native DROP failed.
+      if (!(await unregisterIfPresent(options.engine, name))) {
+        return c.json(
+          { error: "Frame is unavailable and registration cleanup failed" },
+          500,
+        );
+      }
+      return c.json({ error: "Frame is no longer available" }, 404);
+    }
     try {
       await options.engine.registerArrowTable(name, arrow);
     } catch {
       return c.json({ error: "Failed to register frame" }, 500);
+    }
+    // Ownership can disappear while native registration is in flight. Undo
+    // that late registration before acknowledging it.
+    if (await frameIsUnavailable(options, id as UUID)) {
+      if (!(await unregisterIfPresent(options.engine, name))) {
+        return c.json(
+          { error: "Frame was deleted and registration cleanup failed" },
+          500,
+        );
+      }
+      return c.json({ error: "Frame is no longer available" }, 409);
     }
     return c.json({ ok: true, id, name });
   });
@@ -401,6 +446,18 @@ function arrowIpcToJsonRows(arrow: Uint8Array): Record<string, unknown>[] {
     rows.push(row);
   }
   return rows;
+}
+
+/** Decode and summarize IPC without exposing row values. Throws on bad IPC. */
+export function inspectArrowIpc(arrow: Uint8Array): {
+  fieldNames: string[];
+  rowCount: number;
+} {
+  const table = tableFromIPC(arrow);
+  return {
+    fieldNames: table.schema.fields.map((field) => field.name),
+    rowCount: table.numRows,
+  };
 }
 
 function tokenOk(authHeader: string | undefined, expected: string): boolean {

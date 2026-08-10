@@ -201,6 +201,7 @@ describe("createNativeConnector — error handling", () => {
         method: "POST",
         headers: expect.objectContaining({
           Authorization: `Bearer ${TOKEN}`,
+          "Content-Type": "application/json",
         }),
       }),
     );

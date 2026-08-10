@@ -1,5 +1,8 @@
 import type { DataFrame } from "@dashframe/engine";
-import { ensureTableLoaded } from "@dashframe/engine-browser";
+import {
+  clearAllTableCaches,
+  ensureTableLoaded,
+} from "@dashframe/engine-browser";
 import { tableFromArrays, tableToIPC } from "apache-arrow";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -17,9 +20,70 @@ function connector(
 
 describe("server data plane", () => {
   afterEach(() => {
+    clearAllTableCaches();
     vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+  });
+
+  it("replaces and reopens a GA4 frame with the fresh queryable bytes", async () => {
+    const dataFrameId = "55555555-5555-4555-8555-555555555555";
+    const oldFrameId = "66666666-6666-4666-8666-666666666666";
+    const newFrameId = "77777777-7777-4777-8777-777777777777";
+    const tableName = "df_55555555_5555_4555_8555_555555555555";
+    let registeredFrameId: string | undefined;
+    const arrow = (values: string[]) =>
+      tableToIPC(tableFromArrays({ revision: values }), "stream");
+    const fetchMock = vi.fn().mockImplementation(async (_url, init) => {
+      const sql = JSON.parse(String(init.body)).sql as string;
+      if (sql.includes("information_schema.tables")) {
+        const bytes = arrow(registeredFrameId ? ["exists"] : []);
+        return { ok: true, arrayBuffer: async () => bytes.buffer };
+      }
+      if (sql.startsWith("DROP TABLE")) {
+        registeredFrameId = undefined;
+        const bytes = arrow([]);
+        return { ok: true, arrayBuffer: async () => bytes.buffer };
+      }
+      const bytes = arrow([registeredFrameId === newFrameId ? "new" : "old"]);
+      return { ok: true, arrayBuffer: async () => bytes.buffer };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const registerServerFrame = vi.fn(async (frameId: string) => {
+      registeredFrameId = frameId;
+    });
+    const serverConnector = connector(registerServerFrame);
+    const frame = (key: string, createdAt: number) =>
+      ({
+        id: dataFrameId,
+        storage: { type: "file", key },
+        fieldIds: [],
+        createdAt,
+      }) as DataFrame;
+
+    const firstConnection = configureServerDataPlane({
+      serverUrl: "http://127.0.0.1:4000",
+      connector: serverConnector,
+    });
+    await ensureTableLoaded(frame(oldFrameId, 1), firstConnection);
+    await ensureTableLoaded(frame(newFrameId, 2), firstConnection);
+    expect(
+      (await firstConnection.query(`SELECT * FROM ${tableName}`)).toArray(),
+    ).toEqual([expect.objectContaining({ revision: "new" })]);
+
+    await firstConnection.close();
+    const reopened = configureServerDataPlane({
+      serverUrl: "http://127.0.0.1:4000",
+      connector: serverConnector,
+    });
+    await ensureTableLoaded(frame(newFrameId, 2), reopened);
+    expect(
+      (await reopened.query(`SELECT * FROM ${tableName}`)).toArray(),
+    ).toEqual([expect.objectContaining({ revision: "new" })]);
+    expect(registerServerFrame.mock.calls).toEqual([
+      [oldFrameId, tableName],
+      [newFrameId, tableName],
+    ]);
   });
 
   it("queries Arrow through the server and decodes the result", async () => {

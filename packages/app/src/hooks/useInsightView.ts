@@ -385,9 +385,12 @@ export function useInsightView(
     // eslint-disable-next-line sonarjs/cognitive-complexity -- defensive stale-state guards (currentConfigKeyRef checks) after every await legitimately raise complexity; extracting further would obscure the guard pattern
     const createView = async (): Promise<CachedView | null> => {
       try {
+        const superseded = () => currentConfigKeyRef.current !== configKey;
+        if (superseded()) return null;
         // Double-check cache in case another effect already created it
         if (createdViewsCache.has(configKey)) {
           const cached = createdViewsCache.get(configKey)!;
+          if (superseded()) return null;
           setResolvedViewName(cached.viewName);
           setResolvedConfigKey(configKey);
           // Restore the cached compatibility metadata.
@@ -397,6 +400,7 @@ export function useInsightView(
 
         // Get base table
         const baseTable = await getDataTable(baseTableId);
+        if (superseded()) return null;
         if (!baseTable || !baseTable.dataFrameId) {
           if (currentConfigKeyRef.current === configKey) {
             setError("Base table not found");
@@ -407,6 +411,7 @@ export function useInsightView(
 
         // Ensure base DataFrame is loaded
         const baseDataFrame = await getDataFrame(baseTable.dataFrameId);
+        if (superseded()) return null;
         if (!baseDataFrame) {
           if (currentConfigKeyRef.current === configKey) {
             setError("Base DataFrame not found");
@@ -437,6 +442,7 @@ export function useInsightView(
 
         // Wait for all join table resolutions
         await Promise.all(joinLoadPromises);
+        if (superseded()) return null;
 
         // Load every frame into the active native server connection. File-backed
         // server snapshots register by DataFrame ID; IndexedDB frames use the
@@ -450,6 +456,10 @@ export function useInsightView(
             await ensureTableLoaded(dataFrame, connection);
           }),
         );
+        // This is the side-effect boundary. A superseded run must not replace
+        // the shared insight view or mutate cache state after a newer frame
+        // revision has won.
+        if (superseded()) return null;
 
         // Build SQL for the model (all columns, no aggregation).
         // Metric filters are stripped (they require HAVING, incompatible with
@@ -508,6 +518,7 @@ export function useInsightView(
           : sql;
         const createViewSql = `CREATE OR REPLACE VIEW "${newViewName}" AS ${viewSql}`;
         await connection.query(createViewSql);
+        if (superseded()) return null;
 
         // Store in module-level cache (survives Strict Mode and HMR). The
         // Engine metadata travels with the view name across remounts.
@@ -526,12 +537,10 @@ export function useInsightView(
         // this async path was in-flight, discard these results (but still
         // resolve with the created view so subscribed followers get it). The
         // newer config's createView will (or already did) set the correct state.
-        if (currentConfigKeyRef.current === configKey) {
-          setResolvedViewName(newViewName);
-          setResolvedConfigKey(configKey);
-          setNativeCapable(allNativeCapable);
-          setError(null);
-        }
+        setResolvedViewName(newViewName);
+        setResolvedConfigKey(configKey);
+        setNativeCapable(allNativeCapable);
+        setError(null);
         return created;
       } catch (err) {
         console.error("[useInsightView] Failed to create view:", err);

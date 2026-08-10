@@ -10,9 +10,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  duckdbColumnsToArrowIpc,
+  FileDataFrameStorage,
+  NativeDuckDBEngine,
+} from "@dashframe/engine-server";
+import {
   ApiAccessCredentials,
   CREDENTIAL_CLASS,
   openProject,
+  schema,
   type ProjectHandle,
 } from "@dashframe/server-core";
 import {
@@ -23,15 +29,17 @@ import {
   TestBackend,
 } from "@wystack/secret-vault";
 import { applyCommands } from "@wystack/server";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { eq } from "drizzle-orm";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   assertBindAuthorized,
   buildDashframeApp,
   createDashframeServer,
+  createDraftController,
   type DashframeServer,
 } from "./app";
-import type { ProjectInfoResult } from "./functions";
+import { functions, type ProjectInfoResult } from "./functions";
 import { cmd } from "./functions/commands";
 import { LOCAL_USER_ID } from "./permissions";
 
@@ -53,6 +61,17 @@ function makeSecretServices(rootDir: string): {
 
 function makeAccessCredentials(rootDir: string): ApiAccessCredentials {
   return makeSecretServices(rootDir).accessCredentials;
+}
+
+async function waitUntil(
+  predicate: () => boolean | Promise<boolean>,
+  timeoutMs = 2_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!(await predicate())) {
+    if (Date.now() >= deadline) throw new Error("Timed out waiting for state");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
 }
 
 function waitForWsAuth(
@@ -816,6 +835,351 @@ describe("createDashframeServer", () => {
   });
 });
 
+describe("committed native frame cleanup", () => {
+  let root: string;
+  let project: ProjectHandle | null;
+  let server: DashframeServer | null;
+  let storage: FileDataFrameStorage;
+  let engine: NativeDuckDBEngine;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "dashframe-native-cleanup-"));
+    project = null;
+    server = null;
+    storage = new FileDataFrameStorage(join(root, "frames"));
+    engine = new NativeDuckDBEngine();
+  });
+
+  afterEach(async () => {
+    server?.stop();
+    await engine.dispose();
+    await project?.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  async function seedRegisteredFrame(value: string): Promise<{
+    frameId: string;
+    sourceId: string;
+    tableId: string;
+    tableName: string;
+  }> {
+    const frameId = crypto.randomUUID();
+    const sourceId = crypto.randomUUID();
+    const tableId = crypto.randomUUID();
+    const tableName = `df_${frameId.replaceAll("-", "_")}`;
+    const arrow = duckdbColumnsToArrowIpc([
+      { name: "value", typeId: 17, values: [value] },
+    ]);
+    await storage.save(frameId, arrow);
+    await project!.db.insert(schema.dataSources).values({
+      id: sourceId,
+      name: "Source",
+      kind: "csv",
+      storage: "live",
+      config: {},
+      createdBy: { kind: "user" },
+    });
+    await project!.db.insert(schema.dataFrames).values({
+      id: frameId,
+      storage: { type: "file", key: frameId },
+      fieldIds: [],
+      name: "Frame",
+      sourceId,
+      definitionId: tableId,
+    });
+    await project!.db.insert(schema.dataTables).values({
+      id: tableId,
+      dataSourceId: sourceId,
+      name: "Table",
+      table: "source.csv",
+      fields: [],
+      metrics: [],
+      dataFrameId: frameId,
+    });
+    return { frameId, sourceId, tableId, tableName };
+  }
+
+  async function registerFrame(frameId: string, tableName: string) {
+    const response = await fetch(
+      `${server!.url}/data/frames/${frameId}/tables/${tableName}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      },
+    );
+    expect(response.status).toBe(200);
+  }
+
+  async function registerRawTable(
+    tableName: string,
+    value: string,
+  ): Promise<Response> {
+    const arrow = duckdbColumnsToArrowIpc([
+      { name: "value", typeId: 17, values: [value] },
+    ]);
+    return fetch(`${server!.url}/data/tables/${tableName}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/vnd.apache.arrow.stream" },
+      body: arrow,
+    });
+  }
+
+  function failNextNativeDrop(): void {
+    const connection = (
+      engine as unknown as {
+        connection: { run(sql: string): Promise<unknown> };
+      }
+    ).connection;
+    vi.spyOn(connection, "run").mockRejectedValueOnce(
+      new Error("injected transient native DROP failure"),
+    );
+  }
+
+  it("reports committed deletion, fires onWrite, and eventually retries native unregister", async () => {
+    project = await openProject({ dir: join(root, "proj") });
+    const seeded = await seedRegisteredFrame("old");
+    const onWrite = vi.fn();
+    server = await createDashframeServer({
+      db: project.db,
+      dataFrameStorage: storage,
+      arrowEngine: engine,
+      flushSnapshotRetentionWindow: async () => {},
+      onWrite,
+    });
+    await registerFrame(seeded.frameId, seeded.tableName);
+    onWrite.mockClear();
+    failNextNativeDrop();
+
+    const ws = new WebSocket(`${server.url.replace(/^http/, "ws")}/api/ws`);
+    const subscriptionId = "deleted-table-invalidation";
+    let markSubscribed!: () => void;
+    const subscribed = new Promise<void>((resolve) => {
+      markSubscribed = resolve;
+    });
+    let markInvalidated!: () => void;
+    const invalidated = new Promise<void>((resolve) => {
+      markInvalidated = resolve;
+    });
+    ws.onopen = () => ws.send(JSON.stringify({ type: "auth", token: null }));
+    ws.onmessage = (event) => {
+      const message = JSON.parse(String(event.data)) as {
+        type?: string;
+        id?: string;
+      };
+      if (message.type === "authenticated") {
+        ws.send(
+          JSON.stringify({
+            type: "subscribe",
+            id: subscriptionId,
+            path: "listDataTables",
+            args: {},
+          }),
+        );
+      } else if (
+        message.type === "subscribed" &&
+        message.id === subscriptionId
+      ) {
+        markSubscribed();
+      } else if (
+        message.type === "invalidate" &&
+        message.id === subscriptionId
+      ) {
+        markInvalidated();
+      }
+    };
+    await subscribed;
+
+    const response = await fetch(`${server.url}/api/removeDataTable`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: seeded.tableId }),
+    });
+
+    expect(response.status).toBe(200);
+    expect((await response.json()) as unknown).not.toHaveProperty(
+      "data.deletedArrowKeys",
+    );
+    expect(await storage.exists(seeded.frameId)).toBe(false);
+    expect(
+      (await project.db.select().from(schema.dataFrames)).find(
+        (row) => row.id === seeded.frameId,
+      ),
+    ).toBeUndefined();
+    expect(onWrite).toHaveBeenCalledTimes(1);
+    await invalidated;
+    ws.close();
+    await waitUntil(() => !engine.hasTable(seeded.tableName));
+  });
+
+  it("never lets an old unregister retry drop a re-registered table generation", async () => {
+    project = await openProject({ dir: join(root, "proj") });
+    const seeded = await seedRegisteredFrame("old");
+    server = await createDashframeServer({
+      db: project.db,
+      dataFrameStorage: storage,
+      arrowEngine: engine,
+      flushSnapshotRetentionWindow: async () => {},
+    });
+    await registerFrame(seeded.frameId, seeded.tableName);
+    failNextNativeDrop();
+
+    const deleted = await fetch(`${server.url}/api/removeDataTable`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: seeded.tableId }),
+    });
+    expect(deleted.status).toBe(200);
+
+    const replacement = duckdbColumnsToArrowIpc([
+      { name: "value", typeId: 17, values: ["new"] },
+    ]);
+    await storage.save(seeded.frameId, replacement);
+    const replacementTableId = crypto.randomUUID();
+    await project.db.insert(schema.dataFrames).values({
+      id: seeded.frameId,
+      storage: { type: "file", key: seeded.frameId },
+      fieldIds: [],
+      name: "Replacement",
+      sourceId: seeded.sourceId,
+      definitionId: replacementTableId,
+    });
+    await project.db.insert(schema.dataTables).values({
+      id: replacementTableId,
+      dataSourceId: seeded.sourceId,
+      name: "Replacement table",
+      table: "replacement.csv",
+      fields: [],
+      metrics: [],
+      dataFrameId: seeded.frameId,
+    });
+    await registerFrame(seeded.frameId, seeded.tableName);
+
+    await new Promise((resolve) => setTimeout(resolve, 750));
+    expect(engine.hasTable(seeded.tableName)).toBe(true);
+    expect(
+      (await engine.query(`SELECT value FROM "${seeded.tableName}"`)).rows,
+    ).toEqual([{ value: "new" }]);
+  });
+
+  it("serializes a retry already in flight before a successful newer registration", async () => {
+    project = await openProject({ dir: join(root, "proj") });
+    const seeded = await seedRegisteredFrame("old");
+    server = await createDashframeServer({
+      db: project.db,
+      dataFrameStorage: storage,
+      arrowEngine: engine,
+      flushSnapshotRetentionWindow: async () => {},
+    });
+    await registerFrame(seeded.frameId, seeded.tableName);
+
+    const nativeUnregister = engine.unregisterTable.bind(engine);
+    let unregisterCalls = 0;
+    let markRetryStarted!: () => void;
+    const retryStarted = new Promise<void>((resolve) => {
+      markRetryStarted = resolve;
+    });
+    let releaseRetry!: () => void;
+    const retryBlocked = new Promise<void>((resolve) => {
+      releaseRetry = resolve;
+    });
+    vi.spyOn(engine, "unregisterTable").mockImplementation(async (name) => {
+      unregisterCalls += 1;
+      if (unregisterCalls === 1) {
+        throw new Error("injected initial native DROP failure");
+      }
+      if (unregisterCalls === 2) {
+        markRetryStarted();
+        await retryBlocked;
+      }
+      await nativeUnregister(name);
+    });
+
+    const deleted = await fetch(`${server.url}/api/removeDataTable`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: seeded.tableId }),
+    });
+    expect(deleted.status).toBe(200);
+    await retryStarted;
+
+    const registering = registerRawTable(seeded.tableName, "new");
+    releaseRetry();
+    expect((await registering).status).toBe(200);
+
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(engine.hasTable(seeded.tableName)).toBe(true);
+    expect(
+      (await engine.query(`SELECT value FROM "${seeded.tableName}"`)).rows,
+    ).toEqual([{ value: "new" }]);
+  });
+
+  it("keeps the previous cleanup retry alive when same-name replacement registration fails", async () => {
+    project = await openProject({ dir: join(root, "proj") });
+    const seeded = await seedRegisteredFrame("old");
+    server = await createDashframeServer({
+      db: project.db,
+      dataFrameStorage: storage,
+      arrowEngine: engine,
+      flushSnapshotRetentionWindow: async () => {},
+    });
+    await registerFrame(seeded.frameId, seeded.tableName);
+    failNextNativeDrop();
+
+    const deleted = await fetch(`${server.url}/api/removeDataTable`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: seeded.tableId }),
+    });
+    expect(deleted.status).toBe(200);
+    expect(engine.hasTable(seeded.tableName)).toBe(true);
+
+    vi.spyOn(engine, "registerArrowTable").mockRejectedValueOnce(
+      new Error("injected same-name replacement registration failure"),
+    );
+    const registration = await registerRawTable(
+      seeded.tableName,
+      "replacement",
+    );
+    expect(registration.status).toBe(500);
+
+    await waitUntil(() => !engine.hasTable(seeded.tableName));
+  });
+
+  it("cancels pending unregister retries when the server stops", async () => {
+    project = await openProject({ dir: join(root, "proj") });
+    const seeded = await seedRegisteredFrame("old");
+    server = await createDashframeServer({
+      db: project.db,
+      dataFrameStorage: storage,
+      arrowEngine: engine,
+      flushSnapshotRetentionWindow: async () => {},
+    });
+    await registerFrame(seeded.frameId, seeded.tableName);
+    const connection = (
+      engine as unknown as {
+        connection: { run(sql: string): Promise<unknown> };
+      }
+    ).connection;
+    const drop = vi
+      .spyOn(connection, "run")
+      .mockRejectedValue(new Error("persistent native DROP failure"));
+
+    const deleted = await fetch(`${server.url}/api/removeDataTable`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: seeded.tableId }),
+    });
+    expect(deleted.status).toBe(200);
+    expect(drop).toHaveBeenCalledTimes(1);
+
+    server.stop();
+    server = null;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(drop).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("write → subscription invalidation", () => {
   /**
    * Guards the RE-MIRROR POINT documented in app.ts's `call` wrapper.
@@ -1272,6 +1636,179 @@ describe("buildDashframeApp — vault injection seam", () => {
       apiKey: "threaded-key",
     });
     expect(id).toBeTruthy();
+  });
+
+  it("rejects every public draft mutation dispatch before handler effects while preserving query overlays", async () => {
+    const definition = functions.createDataSource;
+    const originalHandler = definition.handler;
+    let handlerDispatches = 0;
+    definition.handler = async (
+      ...args: Parameters<typeof originalHandler>
+    ) => {
+      handlerDispatches++;
+      return originalHandler(...args);
+    };
+    const { vault } = makeTestVault();
+    let storeCallCount = 0;
+    let onWriteCalls = 0;
+    const realStore = vault.store.bind(vault);
+    vault.store = async (...args: Parameters<typeof vault.store>) => {
+      storeCallCount++;
+      return realStore(...args);
+    };
+    try {
+      const app = await buildDashframeApp({
+        db: project.db,
+        vault,
+        onWrite: () => onWriteCalls++,
+      });
+      const controller = createDraftController(app, project.db);
+      const draftId = await controller.openDraft();
+      const [metadataBefore] = await project.db
+        .select()
+        .from(schema.draftMetadata)
+        .where(eq(schema.draftMetadata.draftId, draftId));
+      const principal = { kind: "user" as const, userId: LOCAL_USER_ID };
+      const context = { draftId, principal };
+      const rejectedCallId = crypto.randomUUID();
+      const rejectedRunHandlerId = crypto.randomUUID();
+      const rejectedDraftTrackerId = crypto.randomUUID();
+      const rejectedReplayId = crypto.randomUUID();
+      const rejection =
+        /Direct draft mutation "createDataSource" is not allowed; use draftBatch or DraftController\.appendToDraft/;
+
+      await expect(
+        app.call(
+          "createDataSource",
+          {
+            id: rejectedCallId,
+            type: "notion",
+            name: "call must not reach handler",
+            apiKey: "must-not-be-stored",
+          },
+          context,
+        ),
+      ).rejects.toThrow(rejection);
+      await expect(
+        app.runHandler(
+          "createDataSource",
+          {
+            id: rejectedRunHandlerId,
+            type: "notion",
+            name: "runHandler must not reach handler",
+            apiKey: "must-not-be-stored",
+          },
+          app.createTracked(),
+          context,
+        ),
+      ).rejects.toThrow(rejection);
+      await expect(
+        app.runHandler(
+          "createDataSource",
+          {
+            id: rejectedDraftTrackerId,
+            type: "notion",
+            name: "draft tracker must not reach handler",
+            apiKey: "must-not-be-stored",
+          },
+          app.createTracked().withDraft(draftId),
+          { principal },
+        ),
+      ).rejects.toThrow(rejection);
+
+      const reflectedDispatchSymbol =
+        Reflect.ownKeys(app).find(
+          (key): key is symbol =>
+            typeof key === "symbol" &&
+            key.description === "dashframe.draftControllerDispatch",
+        ) ?? Symbol("dashframe.draftControllerDispatch");
+      const replayedAuthorization = {
+        [reflectedDispatchSymbol]: Reflect.get(app, reflectedDispatchSymbol),
+      };
+      await expect(
+        app.call(
+          "createDataSource",
+          {
+            id: rejectedReplayId,
+            type: "notion",
+            name: "reflected capability replay must not reach handler",
+            apiKey: "must-not-be-stored",
+          },
+          { ...context, ...replayedAuthorization },
+        ),
+      ).rejects.toThrow(rejection);
+      expect(
+        Reflect.ownKeys(app).some(
+          (key) =>
+            typeof key === "symbol" &&
+            key.description === "dashframe.draftControllerDispatch",
+        ),
+      ).toBe(false);
+
+      const rejectedShadows = await project.db
+        .select()
+        .from(schema.dataSourcesDraft)
+        .where(eq(schema.dataSourcesDraft.draftId, draftId));
+      const rejectedLog = await project.db
+        .select()
+        .from(schema.draftCommandLog)
+        .where(eq(schema.draftCommandLog.draftId, draftId));
+      const [metadataAfter] = await project.db
+        .select()
+        .from(schema.draftMetadata)
+        .where(eq(schema.draftMetadata.draftId, draftId));
+      expect(rejectedShadows).toHaveLength(0);
+      expect(rejectedLog).toHaveLength(0);
+      expect(metadataAfter).toEqual(metadataBefore);
+      expect(handlerDispatches).toBe(0);
+      expect(storeCallCount).toBe(0);
+      expect(onWriteCalls).toBe(0);
+
+      const draftedId = crypto.randomUUID();
+      await controller.appendToDraft(
+        draftId,
+        [
+          cmd("CreateDataSource", {
+            id: draftedId,
+            type: "csv",
+            name: "query-visible draft",
+          }),
+        ],
+        { principal },
+      );
+      expect(handlerDispatches).toBe(1);
+
+      const { result: callQuery } = await app.call(
+        "getDataSource",
+        { id: draftedId },
+        context,
+      );
+      const runHandlerQuery = await app.runHandler(
+        "getDataSource",
+        { id: draftedId },
+        app.createTracked(),
+        context,
+      );
+      const draftTrackerQuery = await app.runHandler(
+        "getDataSource",
+        { id: draftedId },
+        app.createTracked().withDraft(draftId),
+        { principal },
+      );
+      const { result: canonical } = await app.call("getDataSource", {
+        id: draftedId,
+      });
+      const expectedDraft = expect.objectContaining({
+        id: draftedId,
+        name: "query-visible draft",
+      });
+      expect(callQuery).toEqual(expectedDraft);
+      expect(runHandlerQuery).toEqual(expectedDraft);
+      expect(draftTrackerQuery).toEqual(expectedDraft);
+      expect(canonical).toBeNull();
+    } finally {
+      definition.handler = originalHandler;
+    }
   });
 });
 

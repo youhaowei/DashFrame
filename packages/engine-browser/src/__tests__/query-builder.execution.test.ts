@@ -498,10 +498,12 @@ describe("QueryBuilder - Execution Methods", () => {
       } as unknown as AsyncDuckDBConnection;
       const first = {
         ...mockDataFrame,
+        createdAt: 1,
         storage: { type: "file" as const, key: "first-frame" },
       };
       const refreshed = {
         ...mockDataFrame,
+        createdAt: 2,
         storage: { type: "file" as const, key: "refreshed-frame" },
       };
 
@@ -517,25 +519,36 @@ describe("QueryBuilder - Execution Methods", () => {
       );
     });
 
-    it("reloads a refreshed generation that arrives during an older load", async () => {
+    it("leaves newer queryable bytes when they arrive during an older load", async () => {
       let releaseFirst!: () => void;
       const firstBlocked = new Promise<void>((resolve) => {
         releaseFirst = resolve;
       });
+      let queryableRevision: string | undefined;
       const registerServerFrame = vi
         .fn()
-        .mockImplementationOnce(() => firstBlocked)
-        .mockResolvedValueOnce(undefined);
+        .mockImplementationOnce(async () => {
+          await firstBlocked;
+          queryableRevision = "old";
+        })
+        .mockImplementationOnce(async () => {
+          queryableRevision = "new";
+        });
       const connection = {
-        query: vi.fn().mockResolvedValue({ toArray: () => [] }),
+        query: vi.fn().mockImplementation(async (sql: string) => ({
+          toArray: () =>
+            sql.startsWith("SELECT *") ? [{ revision: queryableRevision }] : [],
+        })),
         registerServerFrame,
       } as unknown as AsyncDuckDBConnection;
       const first = {
         ...mockDataFrame,
+        createdAt: 1,
         storage: { type: "file" as const, key: "first-frame" },
       };
       const refreshed = {
         ...mockDataFrame,
+        createdAt: 2,
         storage: { type: "file" as const, key: "refreshed-frame" },
       };
 
@@ -551,6 +564,53 @@ describe("QueryBuilder - Execution Methods", () => {
         ["first-frame", "df_test_df_id"],
         ["refreshed-frame", "df_test_df_id"],
       ]);
+      const final = await connection.query('SELECT * FROM "df_test_df_id"');
+      expect(final.toArray()).toEqual([{ revision: "new" }]);
+    });
+
+    it("never lets an older generation queued behind a newer load replace it", async () => {
+      let releaseNew!: () => void;
+      const newBlocked = new Promise<void>((resolve) => {
+        releaseNew = resolve;
+      });
+      let queryableRevision: string | undefined;
+      const registerServerFrame = vi.fn().mockImplementation(async () => {
+        await newBlocked;
+        queryableRevision = "new";
+      });
+      const connection = {
+        query: vi.fn().mockImplementation(async (sql: string) => ({
+          toArray: () =>
+            sql.startsWith("SELECT *") ? [{ revision: queryableRevision }] : [],
+        })),
+        registerServerFrame,
+      } as unknown as AsyncDuckDBConnection;
+      const refreshed = {
+        ...mockDataFrame,
+        createdAt: 2,
+        storage: { type: "file" as const, key: "refreshed-frame" },
+      };
+      const stale = {
+        ...mockDataFrame,
+        createdAt: 1,
+        storage: { type: "file" as const, key: "first-frame" },
+      };
+
+      const refreshedLoad = new QueryBuilder(refreshed, connection).sql();
+      await vi.waitFor(() =>
+        expect(registerServerFrame).toHaveBeenCalledOnce(),
+      );
+      const staleLoad = new QueryBuilder(stale, connection).sql();
+      releaseNew();
+      await Promise.all([refreshedLoad, staleLoad]);
+
+      expect(registerServerFrame).toHaveBeenCalledTimes(1);
+      expect(registerServerFrame).toHaveBeenCalledWith(
+        "refreshed-frame",
+        "df_test_df_id",
+      );
+      const final = await connection.query('SELECT * FROM "df_test_df_id"');
+      expect(final.toArray()).toEqual([{ revision: "new" }]);
     });
   });
 });

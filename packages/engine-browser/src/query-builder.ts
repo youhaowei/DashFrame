@@ -35,18 +35,45 @@ export type DuckDBConnection =
  */
 const tableLoadingMutex = new Map<
   string,
-  { signature: string; promise: Promise<string> }
+  { generation: TableGeneration; promise: Promise<string> }
 >();
 
+interface TableGeneration {
+  revision: number;
+  signature: string;
+}
+
+function tableGeneration(dataFrame: DataFrame): TableGeneration {
+  return {
+    revision: Number.isFinite(dataFrame.createdAt) ? dataFrame.createdAt : 0,
+    signature: JSON.stringify(dataFrame.storage),
+  };
+}
+
+function compareGeneration(
+  candidate: TableGeneration,
+  current: TableGeneration,
+): "same" | "newer" | "older" | "conflict" {
+  if (candidate.revision > current.revision) return "newer";
+  if (candidate.revision < current.revision) return "older";
+  return candidate.signature === current.signature ? "same" : "conflict";
+}
+
 async function awaitExistingLoad(
-  existing: { signature: string; promise: Promise<string> },
-  signature: string,
+  existing: { generation: TableGeneration; promise: Promise<string> },
+  generation: TableGeneration,
   dataFrame: DataFrame,
   conn: DuckDBConnection,
 ): Promise<string> {
-  if (existing.signature === signature) return existing.promise;
-  // A refreshed generation arrived while the old bytes were loading. Let the
-  // old operation settle, then re-check/reload against the new signature.
+  const order = compareGeneration(generation, existing.generation);
+  if (order === "same" || order === "older") return existing.promise;
+  if (order === "conflict") {
+    throw new Error(
+      `Conflicting DataFrame generations share revision ${generation.revision}`,
+    );
+  }
+  // A strictly newer generation arrived while old bytes were loading. Let the
+  // old operation settle, then reload against the new generation.
   await existing.promise.catch(() => undefined);
   return ensureTableLoaded(dataFrame, conn);
 }
@@ -66,11 +93,41 @@ const formatValue = (value: unknown): string => {
   return `'${String(value).replace(/'/g, "''")}'`;
 };
 
-const loadedStorageSignatures = new Map<string, string>();
+const loadedTableGenerations = new Map<string, TableGeneration>();
+
+function requiresTableLoad(
+  tableName: string,
+  generation: TableGeneration,
+  tableExists: boolean,
+): boolean {
+  const loadedGeneration = loadedTableGenerations.get(tableName);
+  const order = loadedGeneration
+    ? compareGeneration(generation, loadedGeneration)
+    : "newer";
+  if (tableExists && order === "same") {
+    loadedTableGenerations.set(tableName, generation);
+    return false;
+  }
+  if (loadedGeneration && order === "older") {
+    if (!tableExists) {
+      throw new Error(
+        `Refusing stale DataFrame generation ${generation.revision}; ` +
+          `generation ${loadedGeneration.revision} was already loaded`,
+      );
+    }
+    return false;
+  }
+  if (order === "conflict") {
+    throw new Error(
+      `Conflicting DataFrame generations share revision ${generation.revision}`,
+    );
+  }
+  return true;
+}
 
 /** Invalidate the known storage generation for a specific DataFrame. */
 export function invalidateTableCache(dataFrameId: string): void {
-  loadedStorageSignatures.delete(makeTableName(dataFrameId));
+  loadedTableGenerations.delete(makeTableName(dataFrameId));
 }
 
 /**
@@ -80,7 +137,7 @@ export function invalidateTableCache(dataFrameId: string): void {
  * storage-generation marker used to detect same-id frame replacement.
  */
 export function clearAllTableCaches(): void {
-  loadedStorageSignatures.clear();
+  loadedTableGenerations.clear();
 }
 
 // ============================================================================
@@ -233,12 +290,12 @@ export async function ensureTableLoaded(
   conn: DuckDBConnection,
 ): Promise<string> {
   const tableName = makeTableName(dataFrame.id);
-  const storageSignature = JSON.stringify(dataFrame.storage);
+  const generation = tableGeneration(dataFrame);
 
   // Check if there's an ongoing load for this table (mutex prevents concurrent loads)
   const existingLoad = tableLoadingMutex.get(tableName);
   if (existingLoad) {
-    return awaitExistingLoad(existingLoad, storageSignature, dataFrame, conn);
+    return awaitExistingLoad(existingLoad, generation, dataFrame, conn);
   }
 
   // Create mutex promise for this load
@@ -249,7 +306,7 @@ export async function ensureTableLoaded(
     rejectLoad = reject;
   });
   tableLoadingMutex.set(tableName, {
-    signature: storageSignature,
+    generation,
     promise: loadPromise,
   });
 
@@ -267,10 +324,7 @@ export async function ensureTableLoaded(
       tableExists = false;
     }
 
-    const loadedSignature = loadedStorageSignatures.get(tableName);
-    if (tableExists && loadedSignature === storageSignature) {
-      // Table already exists in DuckDB - return immediately
-      loadedStorageSignatures.set(tableName, storageSignature);
+    if (!requiresTableLoad(tableName, generation, tableExists)) {
       resolveLoad(tableName);
       return tableName;
     }
@@ -314,7 +368,7 @@ export async function ensureTableLoaded(
       }
     }
 
-    loadedStorageSignatures.set(tableName, storageSignature);
+    loadedTableGenerations.set(tableName, generation);
     resolveLoad(tableName);
     return tableName;
   } catch (err) {

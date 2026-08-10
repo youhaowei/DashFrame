@@ -15,7 +15,7 @@ import {
 } from "apache-arrow";
 import fs from "node:fs/promises";
 import os from "node:os";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { NativeDuckDBEngine } from "./native-engine";
 
@@ -25,6 +25,7 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
   let engine: NativeDuckDBEngine | null = null;
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     await engine?.dispose();
     engine = null;
   });
@@ -238,6 +239,36 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
       expect(engine.hasTable("df_tracked")).toBe(false);
       await expect(
         engine.query('SELECT * FROM "df_tracked"'),
+      ).rejects.toThrow();
+    });
+
+    it("keeps a registration retryable when native DROP fails transiently", async () => {
+      engine = new NativeDuckDBEngine();
+      await engine.registerArrowTable("df_retry_drop", producerBuffer());
+      const connection = (
+        engine as unknown as {
+          connection: { run(sql: string): Promise<unknown> };
+        }
+      ).connection;
+      vi.spyOn(connection, "run").mockRejectedValueOnce(
+        new Error("transient native DROP failure"),
+      );
+
+      await expect(engine.unregisterTable("df_retry_drop")).rejects.toThrow(
+        "transient native DROP failure",
+      );
+      expect(engine.hasTable("df_retry_drop")).toBe(true);
+      expect(
+        Number(
+          (await engine.query('SELECT COUNT(*) AS n FROM "df_retry_drop"'))
+            .rows[0]?.n,
+        ),
+      ).toBe(3);
+
+      await engine.unregisterTable("df_retry_drop");
+      expect(engine.hasTable("df_retry_drop")).toBe(false);
+      await expect(
+        engine.query('SELECT * FROM "df_retry_drop"'),
       ).rejects.toThrow();
     });
 

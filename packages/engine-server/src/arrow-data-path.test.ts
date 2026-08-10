@@ -194,6 +194,7 @@ describe("Arrow data path — /tables/:name content-type enforcement", () => {
    */
   function fakeRegistrar(): ArrowQueryRunner & {
     registerArrowTable(name: string, arrow: Uint8Array): Promise<void>;
+    unregisterTable(name: string): Promise<void>;
     registrations: Array<{ name: string; bytes: Uint8Array }>;
   } {
     const registrations: Array<{ name: string; bytes: Uint8Array }> = [];
@@ -202,6 +203,10 @@ describe("Arrow data path — /tables/:name content-type enforcement", () => {
       queryArrow: async () => new Uint8Array(),
       async registerArrowTable(name: string, arrow: Uint8Array) {
         registrations.push({ name, bytes: arrow });
+      },
+      async unregisterTable(name: string) {
+        const index = registrations.findIndex((entry) => entry.name === name);
+        if (index >= 0) registrations.splice(index, 1);
       },
       registrations,
     } as ReturnType<typeof fakeRegistrar>;
@@ -323,6 +328,49 @@ describe("Arrow data path — /tables/:name content-type enforcement", () => {
 
     expect(response.status).toBe(415);
     expect(loads).toBe(0);
+    expect(engine.registrations).toEqual([]);
+  });
+
+  it("does not register bytes whose ownership disappears while load is paused", async () => {
+    const engine = fakeRegistrar();
+    const id = "11111111-1111-4111-8111-111111111111";
+    let available = true;
+    let releaseLoad!: () => void;
+    let signalRead!: () => void;
+    const readStarted = new Promise<void>((resolve) => {
+      signalRead = resolve;
+    });
+    const loadReleased = new Promise<void>((resolve) => {
+      releaseLoad = resolve;
+    });
+    const app = createArrowDataPath({
+      engine,
+      isFrameAvailable: async () => available,
+      dataFrameStorage: {
+        save: async () => {},
+        load: async () => {
+          signalRead();
+          await loadReleased;
+          return new Uint8Array([1, 2, 3]);
+        },
+        delete: async () => {},
+        exists: async () => available,
+        list: async () => (available ? [id] : []),
+        getUsage: async () => ({ count: available ? 1 : 0 }),
+      },
+    });
+
+    const request = app.request(`/frames/${id}/tables/df_delayed`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    await readStarted;
+    available = false;
+    await engine.unregisterTable("df_delayed");
+    releaseLoad();
+
+    const response = await request;
+    expect(response.status).toBe(404);
     expect(engine.registrations).toEqual([]);
   });
 });

@@ -214,9 +214,26 @@ describe("GA4 connector setup pipeline", () => {
       { principal: user },
     );
     expect(inspected.result).not.toHaveProperty("dataFrameId");
+    expect(
+      JSON.parse(String(runReportCalls().at(-1)?.[1]?.body)),
+    ).toMatchObject({ offset: "0", limit: "100" });
     const approvedFields = (
       inspected.result as { fields: object[] }
     ).fields.map((field) => ({ ...field, sensitivity: "cleared" }));
+    const reportCallsBeforeDeniedSnapshot = runReportCalls().length;
+    await expect(
+      app.call(
+        "queryGa4Property",
+        {
+          dataSourceId: result.dataSourceId,
+          tableId,
+          snapshot: true,
+          approvedFields,
+        },
+        { principal: { kind: "service", credentialId: "inspector" } },
+      ),
+    ).rejects.toThrow("Permission denied: commands.commit");
+    expect(runReportCalls()).toHaveLength(reportCallsBeforeDeniedSnapshot);
     const queried = await app.call(
       "queryGa4Property",
       {
@@ -227,6 +244,9 @@ describe("GA4 connector setup pipeline", () => {
       },
       { principal: user },
     );
+    expect(
+      JSON.parse(String(runReportCalls().at(-1)?.[1]?.body)),
+    ).toMatchObject({ offset: "0", limit: "10000" });
     expect(queried.result).toMatchObject({
       rowCount: 2,
       fields: [

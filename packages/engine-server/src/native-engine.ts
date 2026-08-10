@@ -341,10 +341,11 @@ export class NativeDuckDBEngine implements QueryEngine {
     try {
       if (!this._registeredTables.has(name)) return;
       await this.conn().run(`DROP TABLE IF EXISTS ${quoteIdent(name)}`);
-    } catch {
-      // Best-effort; table may already be gone.
-    } finally {
+      // Forget the registration only after DuckDB confirms the DROP. A
+      // transient native failure must leave the entry discoverable so cleanup
+      // can retry instead of leaking a table the registry claims is gone.
       this._registeredTables.delete(name);
+    } finally {
       unlock();
     }
   }

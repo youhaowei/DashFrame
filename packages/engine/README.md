@@ -69,8 +69,11 @@ interface DataFrameStorage {
   stageDelete?(id: UUID): Promise<string | null>;
   commitDelete?(token: string): Promise<void>;
   rollbackDelete?(token: string): Promise<void>;
-  // Independently optional startup recovery for interrupted staged deletes.
+  // Independently optional startup recovery for staged deletes and save temps.
   recoverStagedDeletes?(referencedIds: readonly UUID[]): Promise<void>;
+  // Independently optional probe used to decide whether recovery needs a
+  // retained-snapshot durability flush before resolving delete tokens.
+  hasPendingDataFrameDeletes?(): Promise<boolean>;
   exists(id: UUID): Promise<boolean>;
   list(): Promise<UUID[]>;
   getUsage(): Promise<{ count: number; totalBytes?: number }>;
