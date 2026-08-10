@@ -12,6 +12,7 @@ import {
   computeInsightPreview,
   type PreviewResult,
 } from "@/lib/insights/compute-preview";
+import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
 import { getColumnIcon } from "@/lib/utils/field-icons";
 import {
   getSwappedChartType,
@@ -62,6 +63,7 @@ import {
   DeleteIcon,
 } from "@wystack/ui-react/icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import { useCompiledInsight } from "../_hooks/useCompiledInsight";
 
 interface VisualizationPageContentProps {
@@ -162,6 +164,7 @@ export default function VisualizationPageContent({
   const { mutateAsync: removeVisualizationMutation } = useMutation(
     api.removeVisualization,
   );
+  const { confirm } = useConfirmDialogStore();
 
   // Find the visualization
   const visualization = useMemo(
@@ -894,11 +897,22 @@ export default function VisualizationPageContent({
     : false;
 
   // Handle delete
-  const handleDelete = async () => {
-    if (confirm(`Are you sure you want to delete "${visualization?.name}"?`)) {
-      await removeVisualizationMutation({ id: visualizationId as UUID });
-      navigate({ to: "/insights" });
-    }
+  const handleDelete = () => {
+    if (!visualization) return;
+    confirm({
+      title: "Delete visualization",
+      description: `Are you sure you want to delete "${visualization.name}"? This deletes only this visualization. Dashboard items that reference it may remain and stop working. This action cannot be undone.`,
+      confirmLabel: "Delete",
+      variant: "destructive",
+      onConfirm: async () => {
+        try {
+          await removeVisualizationMutation({ id: visualizationId as UUID });
+          navigate({ to: "/insights" });
+        } catch {
+          toast.error("Couldn't delete the visualization");
+        }
+      },
+    });
   };
 
   const contextPanelContent = useMemo(() => {

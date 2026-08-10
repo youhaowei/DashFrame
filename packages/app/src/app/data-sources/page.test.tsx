@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
@@ -8,6 +9,7 @@ const {
   mockRemoveDataSource,
   mockUseDataSources,
   mockUseDataTables,
+  mockToastError,
 } = vi.hoisted(() => ({
   mockNavigate: vi.fn(),
   mockRefetchDataSources: vi.fn(),
@@ -15,6 +17,7 @@ const {
   mockRemoveDataSource: vi.fn(),
   mockUseDataSources: vi.fn(),
   mockUseDataTables: vi.fn(),
+  mockToastError: vi.fn(),
 }));
 
 vi.mock("@wystack/client", async (importOriginal) => {
@@ -43,6 +46,10 @@ vi.mock("@/components/visualizations/CreateVisualizationModal", () => ({
   CreateVisualizationModal: () => null,
 }));
 
+vi.mock("sonner", () => ({ toast: { error: mockToastError } }));
+
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { useConfirmDialogStore } from "@/lib/stores";
 import DataSourcesPage from "./page";
 
 function successfulQuery(refetch: () => Promise<unknown>) {
@@ -58,6 +65,7 @@ function successfulQuery(refetch: () => Promise<unknown>) {
 describe("DataSourcesPage query states", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useConfirmDialogStore.getState().close();
     mockRefetchDataSources.mockResolvedValue(undefined);
     mockRefetchDataTables.mockResolvedValue(undefined);
     mockRemoveDataSource.mockResolvedValue({ ok: true });
@@ -107,7 +115,49 @@ describe("DataSourcesPage query states", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  it("passes the reshaped id object to the remove mutation", async () => {
+  it.each(["pointer", "Enter", "Space"] as const)(
+    "opens a card menu with %s without navigating the card",
+    async (activation) => {
+      mockUseDataSources.mockReturnValue({
+        ...successfulQuery(mockRefetchDataSources),
+        data: [
+          {
+            id: "source-123",
+            name: "Local Files",
+            type: "local",
+            config: { hasApiKey: false, hasConnectionString: false },
+            createdAt: 0,
+          },
+        ],
+      });
+      const user = userEvent.setup();
+
+      render(<DataSourcesPage />);
+
+      const action = screen.getByRole("button", { name: "More options" });
+      if (activation === "pointer") {
+        await user.click(action);
+      } else {
+        action.focus();
+        await user.keyboard(activation === "Enter" ? "{Enter}" : "[Space]");
+      }
+
+      const deleteItem = await screen.findByRole("menuitem", {
+        name: "Delete",
+      });
+      expect(action.getAttribute("aria-expanded")).toBe("true");
+      if (activation !== "pointer") {
+        expect(document.activeElement).toBe(
+          screen.getByRole("menuitem", { name: "Open" }),
+        );
+      }
+      expect(deleteItem).not.toBeNull();
+      expect(mockNavigate).not.toHaveBeenCalled();
+    },
+  );
+
+  it("does not remove a data source until the rendered confirmation is accepted", async () => {
+    const user = userEvent.setup();
     mockUseDataSources.mockReturnValue({
       ...successfulQuery(mockRefetchDataSources),
       data: [
@@ -121,13 +171,67 @@ describe("DataSourcesPage query states", () => {
       ],
     });
 
-    render(<DataSourcesPage />);
+    render(
+      <>
+        <DataSourcesPage />
+        <ConfirmDialog />
+      </>,
+    );
 
-    fireEvent.click(screen.getByRole("button", { name: "More options" }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: /delete/i }));
+    await user.click(screen.getByRole("button", { name: "More options" }));
+    await user.click(await screen.findByRole("menuitem", { name: /delete/i }));
+
+    const dialog = await screen.findByRole("dialog", {
+      name: "Delete data source",
+    });
+    expect(dialog.textContent).toContain(
+      'Are you sure you want to delete "Local Files"? This deletes the data source and its data tables. Related DataFrame metadata and storage, and dependent insights, may remain. This action cannot be undone.',
+    );
+    expect(mockRemoveDataSource).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(mockRemoveDataSource).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "More options" }));
+    await user.click(await screen.findByRole("menuitem", { name: /delete/i }));
+    await user.click(screen.getByRole("button", { name: "Delete" }));
 
     await waitFor(() => {
       expect(mockRemoveDataSource).toHaveBeenCalledWith({ id: "source-123" });
+    });
+  });
+
+  it("shows a failure toast when confirmed deletion rejects", async () => {
+    const user = userEvent.setup();
+    mockRemoveDataSource.mockRejectedValueOnce(new Error("delete failed"));
+    mockUseDataSources.mockReturnValue({
+      ...successfulQuery(mockRefetchDataSources),
+      data: [
+        {
+          id: "source-123",
+          name: "Local Files",
+          type: "local",
+          config: { hasApiKey: false, hasConnectionString: false },
+          createdAt: 0,
+        },
+      ],
+    });
+
+    render(
+      <>
+        <DataSourcesPage />
+        <ConfirmDialog />
+      </>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "More options" }));
+    await user.click(await screen.findByRole("menuitem", { name: /delete/i }));
+    await user.click(await screen.findByRole("button", { name: "Delete" }));
+
+    await waitFor(() => {
+      expect(mockToastError).toHaveBeenCalledWith(
+        "Failed to delete data source",
+      );
     });
   });
 
