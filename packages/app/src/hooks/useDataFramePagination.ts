@@ -1,7 +1,13 @@
 import { queryDataFrame } from "@/lib/data-access/data-frames";
 import type { UUID } from "@dashframe/types";
 import type { FetchDataParams, FetchDataResult } from "@dashframe/ui";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 const MAX_PAGE_SIZE = 500;
 
@@ -13,9 +19,15 @@ export function useDataFramePagination(dataFrameId: UUID | undefined) {
   const [error, setError] = useState<string | null>(null);
   const fieldIdsByName = useRef(new Map<string, UUID>());
   const generation = useRef(0);
+  const activeDataFrameId = useRef<UUID | undefined>(dataFrameId);
+
+  useLayoutEffect(() => {
+    activeDataFrameId.current = dataFrameId;
+    generation.current += 1;
+  }, [dataFrameId]);
 
   useEffect(() => {
-    const current = ++generation.current;
+    const current = generation.current;
     if (!dataFrameId) {
       queueMicrotask(() => {
         if (current !== generation.current) return;
@@ -67,6 +79,8 @@ export function useDataFramePagination(dataFrameId: UUID | undefined) {
   const fetchData = useCallback(
     async (params: FetchDataParams): Promise<FetchDataResult> => {
       if (!dataFrameId) return { rows: [], totalCount: 0 };
+      const current = generation.current;
+      const requestedDataFrameId = dataFrameId;
       const result = await queryDataFrame(dataFrameId, {
         offset: params.offset,
         limit: Math.min(params.limit, MAX_PAGE_SIZE),
@@ -82,6 +96,11 @@ export function useDataFramePagination(dataFrameId: UUID | undefined) {
               ]
             : undefined,
       });
+      if (
+        current !== generation.current ||
+        activeDataFrameId.current !== requestedDataFrameId
+      )
+        return { rows: [], totalCount: 0 };
       return result.status === "ready"
         ? { rows: result.rows, totalCount: result.totalCount }
         : { rows: [], totalCount: 0 };

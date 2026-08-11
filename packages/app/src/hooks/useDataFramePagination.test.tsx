@@ -60,4 +60,37 @@ describe("useDataFramePagination", () => {
       sort: [{ fieldId: "field-b", direction: "desc" }],
     });
   });
+
+  it("discards a page returned for the previous DataFrame generation", async () => {
+    queryDataFrame.mockResolvedValueOnce({
+      status: "ready",
+      schema: [],
+      rows: [],
+      totalCount: 1,
+      page: {},
+    });
+    let resolvePage!: (value: unknown) => void;
+    queryDataFrame.mockImplementationOnce(
+      () => new Promise((resolve) => (resolvePage = resolve)),
+    );
+    queryDataFrame.mockResolvedValueOnce({
+      status: "ready",
+      schema: [],
+      rows: [],
+      totalCount: 2,
+      page: {},
+    });
+    const { result, rerender } = renderHook(
+      ({ id }) => useDataFramePagination(id),
+      { initialProps: { id: "frame-a" } },
+    );
+    await waitFor(() => expect(result.current.isReady).toBe(true));
+    const pending = result.current.fetchData({ offset: 0, limit: 10 });
+    rerender({ id: "frame-b" });
+    await waitFor(() => expect(queryDataFrame).toHaveBeenCalledTimes(3));
+    await act(async () =>
+      resolvePage({ status: "ready", rows: [{ stale: true }], totalCount: 1 }),
+    );
+    await expect(pending).resolves.toEqual({ rows: [], totalCount: 0 });
+  });
 });

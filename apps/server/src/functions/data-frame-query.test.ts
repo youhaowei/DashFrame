@@ -1,6 +1,7 @@
 import { duckdbColumnsToArrowIpc } from "@dashframe/engine-server";
 import { openArtifactDb, schema } from "@dashframe/server-core";
 import type { Principal } from "@wystack/identity";
+import { eq } from "drizzle-orm";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -131,5 +132,115 @@ describe("queryDataFrame", () => {
       ),
       [100, 0],
     );
+  });
+
+  it("does not query a frame revoked while its bytes are being registered", async () => {
+    const id = crypto.randomUUID();
+    await db.insert(schema.dataFrames).values({
+      id,
+      storage: { type: "file", key: id },
+      fieldIds: ["10000000-0000-4000-8000-000000000001"],
+      name: "Revoked",
+      rowCount: 1,
+      columnCount: 1,
+      analysis: {
+        schema: [
+          {
+            id: "10000000-0000-4000-8000-000000000001",
+            name: "value",
+            type: "number",
+          },
+        ],
+      },
+    });
+    const queryArrow = vi.fn();
+    const unregisterTable = vi.fn(async () => {});
+    const registerArrowTable = vi.fn(async () => {
+      await db.delete(schema.dataFrames).where(eq(schema.dataFrames.id, id));
+    });
+    const app = await wy.build({ db, functions: dataFrameQueryFunctions });
+
+    const response = await app.call(
+      "queryDataFrame",
+      { dataFrameId: id },
+      {
+        principal: user,
+        dataFrameStorage: {
+          load: vi.fn(async () => new Uint8Array([1])),
+        } as never,
+        dataPlaneRuntime: {
+          queryArrow,
+          registerArrowTable,
+          unregisterTable,
+        },
+      },
+    );
+
+    expect(response.result).toMatchObject({
+      status: "failed",
+      code: "FRAME_NOT_FOUND",
+    });
+    expect(unregisterTable).toHaveBeenCalledWith(
+      `df_${id.replaceAll("-", "_")}`,
+    );
+    expect(queryArrow).not.toHaveBeenCalled();
+  });
+
+  it("does not return bytes when a frame is revoked during the query", async () => {
+    const id = crypto.randomUUID();
+    await db.insert(schema.dataFrames).values({
+      id,
+      storage: { type: "file", key: id },
+      fieldIds: ["10000000-0000-4000-8000-000000000001"],
+      name: "Revoked during read",
+      rowCount: 1,
+      columnCount: 1,
+      analysis: {
+        schema: [
+          {
+            id: "10000000-0000-4000-8000-000000000001",
+            name: "value",
+            type: "number",
+          },
+        ],
+      },
+    });
+    let deleted = false;
+    const queryArrow = vi.fn(async (sql: string) => {
+      if (!deleted && sql.includes("SELECT *")) {
+        deleted = true;
+        await db.delete(schema.dataFrames).where(eq(schema.dataFrames.id, id));
+      }
+      return duckdbColumnsToArrowIpc(
+        sql.includes("COUNT(*)")
+          ? [{ name: "count", typeId: 4, values: [1] }]
+          : [{ name: "value", typeId: 4, values: [42] }],
+      );
+    });
+    const unregisterTable = vi.fn(async () => {});
+    const app = await wy.build({ db, functions: dataFrameQueryFunctions });
+
+    const response = await app.call(
+      "queryDataFrame",
+      { dataFrameId: id },
+      {
+        principal: user,
+        dataFrameStorage: {
+          load: vi.fn(async () => new Uint8Array([1])),
+        } as never,
+        dataPlaneRuntime: {
+          queryArrow,
+          registerArrowTable: vi.fn(async () => {}),
+          unregisterTable,
+        },
+      },
+    );
+
+    expect(response.result).toMatchObject({
+      status: "failed",
+      code: "FRAME_NOT_FOUND",
+    });
+    expect(response.result).not.toHaveProperty("rows");
+    expect(unregisterTable).toHaveBeenCalledOnce();
   });
 });

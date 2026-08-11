@@ -88,6 +88,18 @@ async function ensureRegistered(
   await runtime.registerArrowTable(name, bytes);
 }
 
+async function frameIsOwned(
+  ctx: DashframeFunctionContext,
+  id: UUID,
+): Promise<boolean> {
+  const row = (await ctx.db
+    .from(schema.dataFrames)
+    .where(eq("id", id))
+    .first()) as { id: UUID; storage: unknown } | undefined;
+  const storage = row?.storage as { type?: unknown; key?: unknown } | undefined;
+  return !!row && storage?.type === "file" && storage.key === row.id;
+}
+
 export const dataFrameQueryFunctions = {
   queryDataFrame: wy.procedure
     .input({
@@ -156,6 +168,17 @@ export const dataFrameQueryFunctions = {
       const name = tableName(row.id);
       try {
         await ensureRegistered(ctx, row.id, name);
+        // Registration crosses an asynchronous storage/runtime boundary. The
+        // frame may be revoked while bytes are loading, so re-check project
+        // ownership before executing any SQL against the registered table.
+        if (!(await frameIsOwned(ctx, row.id))) {
+          await ctx.dataPlaneRuntime?.unregisterTable?.(name);
+          return {
+            status: "failed" as const,
+            code: "FRAME_NOT_FOUND",
+            message: "The requested DataFrame is unavailable.",
+          };
+        }
         const orderBy = parsed.data.sort.length
           ? ` ORDER BY ${parsed.data.sort
               .map(
@@ -173,6 +196,17 @@ export const dataFrameQueryFunctions = {
             `SELECT COUNT(*) AS "count" FROM ${quoteIdentifier(name)}`,
           ),
         ]);
+        // A revocation can also race the DuckDB reads themselves. Never decode
+        // or return those bytes unless the project still owns the handle after
+        // both queries settle.
+        if (!(await frameIsOwned(ctx, row.id))) {
+          await ctx.dataPlaneRuntime?.unregisterTable?.(name);
+          return {
+            status: "failed" as const,
+            code: "FRAME_NOT_FOUND",
+            message: "The requested DataFrame is unavailable.",
+          };
+        }
         const rows = arrowIpcToJsonRows(pageArrow);
         const count = arrowIpcToJsonRows(countArrow)[0]?.count;
         const totalCount =
