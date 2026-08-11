@@ -475,10 +475,23 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
       }
       return c.json({ error: "Frame is no longer available" }, 409);
     }
-    return dispatchArrowQuery(options.engine, {
+    const response = await dispatchArrowQuery(options.engine, {
       ...body,
       sql: sql.split(frameIdentifier).join(quoteIdent(frameTableName(id))),
     });
+    // Query execution is another asynchronous boundary. A frame deleted while
+    // DuckDB is producing the result must not have its bytes returned after its
+    // project ownership has been revoked.
+    if (await frameIsUnavailable(options, id as UUID)) {
+      if (!(await unregisterIfPresent(options.engine, frameTableName(id)))) {
+        return c.json(
+          { error: "Frame was deleted and query cleanup failed" },
+          500,
+        );
+      }
+      return c.json({ error: "Frame is no longer available" }, 409);
+    }
+    return response;
   });
 
   return app;
