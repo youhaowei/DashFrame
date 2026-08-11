@@ -7,14 +7,45 @@ const { mockToastError } = vi.hoisted(() => ({
   mockToastError: vi.fn(),
 }));
 
-vi.mock("@dashframe/engine-browser", () => ({
-  analyzeView: vi.fn(),
-  ensureTableLoaded: vi.fn(),
-}));
 vi.mock("sonner", () => ({ toast: { error: mockToastError } }));
 
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { requestSavedVisualizationDeletion } from "./InsightView";
+import {
+  buildChartSuggestionInsight,
+  requestSavedVisualizationDeletion,
+} from "./InsightView";
+
+describe("buildChartSuggestionInsight", () => {
+  it("keeps server-resolved topology while exposing all joined fields", () => {
+    const insight = {
+      id: "insight-1",
+      name: "Saved chart",
+      baseTableId: "table-1",
+      selectedFields: ["field-product"],
+      metrics: [{ id: "metric-1", fieldId: "field-quantity", function: "sum" }],
+      filters: [
+        {
+          id: "filter-1",
+          fieldId: "field-product",
+          operator: "equals",
+          value: "A",
+        },
+      ],
+      sorts: [{ fieldId: "field-product", direction: "asc" }],
+      joins: [{ id: "join-1", rightTableId: "table-2" }],
+      createdAt: 1,
+    } as never;
+
+    expect(buildChartSuggestionInsight(insight)).toMatchObject({
+      baseTableId: "table-1",
+      selectedFields: [],
+      metrics: [],
+      filters: undefined,
+      sorts: undefined,
+      joins: [{ id: "join-1", rightTableId: "table-2" }],
+    });
+  });
+});
 
 describe("InsightView saved-visualization delete confirmation", () => {
   const removeVisualization = vi.fn();

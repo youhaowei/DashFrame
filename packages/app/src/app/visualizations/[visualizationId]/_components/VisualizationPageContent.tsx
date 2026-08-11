@@ -3,16 +3,10 @@ import { AppLayout } from "@/components/layouts/AppLayout";
 import { useContextPanelSection } from "@/components/shell/context-panel-outlet";
 import { AxisSelectField } from "@/components/visualizations/AxisSelectField";
 import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
-import { useDataFrameData } from "@/hooks/useDataFrameData";
 import { useInsightPagination } from "@/hooks/useInsightPagination";
-import { useInsightView } from "@/hooks/useInsightView";
-import { getDataFrame } from "@/lib/data-access/data-frames";
-import {
-  computeInsightPreview,
-  type PreviewResult,
-} from "@/lib/insights/compute-preview";
 import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
 import { getColumnIcon } from "@/lib/utils/field-icons";
+import { analyzeFrameSample } from "@/lib/visualizations/analyze-frame-sample";
 import {
   getSwappedChartType,
   isSwapAllowed,
@@ -27,11 +21,9 @@ import {
   isGeneratedColumnLabel,
   metricIdToColumnAlias,
 } from "@dashframe/engine";
-import type { DuckDBConnection } from "@dashframe/engine-browser";
-import { analyzeView, type ColumnAnalysis } from "@dashframe/engine-browser";
 import type {
-  DataFrameColumn,
-  DataFrameRow,
+  ColumnAnalysis,
+  ColumnType,
   Field,
   Insight as InsightType,
   UUID,
@@ -202,27 +194,6 @@ export default function VisualizationPageContent({
     ? dataTables.find((t) => t.id === insight.baseTableId)
     : undefined;
 
-  // Get the dataFrameId from the dataTable
-  const dataFrameId = dataTable?.dataFrameId;
-
-  // Load source DataFrame data async
-  const {
-    data: sourceDataFrame,
-    isLoading: isDataLoading,
-    entry: dataFrameEntry,
-  } = useDataFrameData(dataFrameId);
-
-  // DuckDB connection for join computation (initialized by DuckDBProvider during idle time)
-  const {
-    connection: duckDBConnection,
-    isInitialized: isDuckDBReady,
-    isLoading: isDuckDBLoading,
-  } = {
-    connection: null as DuckDBConnection | null,
-    isInitialized: false,
-    isLoading: false,
-  };
-
   // Build Insight object for useInsightView (needs baseTableId and joins)
   const insightForView: InsightType | null = useMemo(() => {
     if (!insight) return null;
@@ -234,9 +205,6 @@ export default function VisualizationPageContent({
     } as InsightType;
   }, [insight]);
 
-  // Get DuckDB view name for analysis (uses UUID-based column names)
-  const { viewName: analysisViewName, isReady: isAnalysisViewReady } =
-    useInsightView(insightForView, { dataTables });
   const {
     columns: modelColumns,
     columnDisplayNames: modelColumnDisplayNames,
@@ -246,167 +214,30 @@ export default function VisualizationPageContent({
     showModelPreview: true,
     enabled: !!insightForView,
   });
-  const { columnDisplayNames: renderedColumnDisplayNames } =
-    useInsightPagination({
-      insight: insightForView ?? ({} as InsightType),
-      showModelPreview: false,
-      enabled: !!insightForView,
-    });
-
-  // State for DuckDB-computed joined data (when insight has joins)
-  const [joinedData, setJoinedData] = useState<{
-    rows: DataFrameRow[];
-    columns: DataFrameColumn[];
-  } | null>(null);
-  const [isLoadingJoinedData, setIsLoadingJoinedData] = useState(false);
-
-  const hasJoins = Boolean(insight?.joins?.length);
-
-  // Compute joined data using DuckDB when insight has joins
-  useEffect(() => {
-    // Skip if no joins configured. The publicly-used `joinedData` is gated on
-    // `hasJoins` below, so we don't need to clear state here.
-    if (!hasJoins) {
-      return;
-    }
-
-    // Wait for DuckDB to be ready
-    if (isDuckDBLoading || !duckDBConnection || !isDuckDBReady) {
-      return;
-    }
-
-    // Need base dataTable for field info
-    if (!dataTable?.dataFrameId) {
-      return;
-    }
-
-    const computeJoinedData = async () => {
-      setIsLoadingJoinedData(true);
-
-      try {
-        // Get the base DataFrame
-        const baseDataFrame = await getDataFrame(dataTable.dataFrameId!);
-        if (!baseDataFrame) {
-          throw new Error("Base DataFrame not found");
-        }
-
-        // Load base table into DuckDB
-        const baseQueryBuilder = await baseDataFrame.load(duckDBConnection);
-        await baseQueryBuilder.sql(); // Triggers table creation
-
-        // Load join tables into DuckDB
-        for (const join of insight?.joins ?? []) {
-          const joinTable = dataTables.find((t) => t.id === join.rightTableId);
-          if (joinTable?.dataFrameId) {
-            const joinDataFrame = await getDataFrame(joinTable.dataFrameId);
-            if (joinDataFrame) {
-              const joinQueryBuilder =
-                await joinDataFrame.load(duckDBConnection);
-              await joinQueryBuilder.sql(); // Triggers table creation
-            }
+  const {
+    columnDisplayNames: renderedColumnDisplayNames,
+    schema: renderedSchema = [],
+    sampleRows: renderedRows = [],
+    totalCount: renderedRowCount = 0,
+    isReady: isRenderedDataReady,
+  } = useInsightPagination({
+    insight: insightForView ?? ({} as InsightType),
+    showModelPreview: false,
+    enabled: !!insightForView,
+  });
+  const dataFrame = useMemo(
+    () =>
+      isRenderedDataReady
+        ? {
+            rows: renderedRows,
+            columns: renderedSchema.map(({ id, type }) => ({
+              name: id,
+              type: type as ColumnType,
+            })),
           }
-        }
-
-        // Build and execute join SQL
-        // [Future] Generate proper SQL from insight joins configuration
-        // For now, just use the base table data
-        const sql = await baseQueryBuilder.sql();
-        const result = await duckDBConnection.query(sql);
-        const rows = result.toArray() as DataFrameRow[];
-
-        // Build columns from result
-        const columns: DataFrameColumn[] =
-          rows.length > 0
-            ? Object.keys(rows[0]!)
-                .filter((key) => !key.startsWith("_"))
-                .map((name) => ({
-                  name,
-                  type:
-                    typeof rows[0]![name] === "number"
-                      ? ("number" as const)
-                      : ("string" as const),
-                }))
-            : [];
-
-        setJoinedData({ rows, columns });
-      } catch (err) {
-        console.error(
-          "[VisualizationPage] Failed to compute joined data:",
-          err,
-        );
-        setJoinedData(null);
-      } finally {
-        setIsLoadingJoinedData(false);
-      }
-    };
-
-    computeJoinedData();
-  }, [
-    hasJoins,
-    insight?.joins,
-    insight?.id,
-    duckDBConnection,
-    isDuckDBReady,
-    isDuckDBLoading,
-    dataTable,
-    dataTables,
-  ]);
-
-  // Compute aggregated data if we have an insight with metrics/dimensions (non-join case)
-  const aggregatedPreview = useMemo<PreviewResult | null>(() => {
-    // If we have joins, use joinedData instead
-    if (insight?.joins?.length) return null;
-
-    if (!sourceDataFrame || !insight || !dataTable) return null;
-
-    // Check if insight has dimensions or metrics configured
-    const selectedFields = insight.selectedFields ?? [];
-    const metrics = insight.metrics ?? [];
-
-    // If no aggregation config, return null (use raw data)
-    if (selectedFields.length === 0 && metrics.length === 0) return null;
-
-    // Use source data directly (DataFrameData format)
-    const sourceDataFrameData = {
-      columns: sourceDataFrame.columns,
-      rows: sourceDataFrame.rows,
-    };
-
-    // Build insight object for computation
-    const insightForCompute = {
-      id: insight.id,
-      name: insight.name,
-      baseTableId: insight.baseTableId,
-      selectedFields: selectedFields,
-      metrics: metrics,
-      createdAt: insight.createdAt,
-      updatedAt: insight.updatedAt,
-    };
-
-    return computeInsightPreview(
-      insightForCompute,
-      dataTable,
-      sourceDataFrameData,
-      1000, // Allow more rows for visualization
-    );
-  }, [sourceDataFrame, insight, dataTable]);
-
-  // Use joined data if available, then aggregated data, then source data
-  const dataFrame = useMemo(() => {
-    // Priority 1: DuckDB-computed joined data (when insight has joins)
-    if (hasJoins && joinedData) {
-      return joinedData;
-    }
-    // Priority 2: Aggregated preview (non-join case with metrics/dimensions)
-    if (aggregatedPreview) {
-      return {
-        rows: aggregatedPreview.dataFrame.rows,
-        columns: aggregatedPreview.dataFrame.columns ?? [],
-      };
-    }
-    // Priority 3: Raw source data
-    return sourceDataFrame;
-  }, [hasJoins, joinedData, aggregatedPreview, sourceDataFrame]);
+        : null,
+    [isRenderedDataReady, renderedRows, renderedSchema],
+  );
 
   const axisColumnDisplayNames = useMemo(() => {
     const displayNames = { ...modelColumnDisplayNames };
@@ -428,36 +259,14 @@ export default function VisualizationPageContent({
   }, [modelColumnDisplayNames, modelColumns, renderedColumnDisplayNames]);
 
   const axisSourceColumns = useMemo(() => {
-    if (hasJoins && joinedData) return joinedData.columns;
-    if (sourceDataFrame?.columns?.length) return sourceDataFrame.columns;
-    const sourceRow = sourceDataFrame?.rows[0];
-    if (sourceRow) {
-      return Object.keys(sourceRow)
-        .filter((name) => !name.startsWith("_"))
-        .map((name) => ({ name, type: "unknown" as const }));
-    }
-    if (dataTable?.sourceSchema?.columns?.length) {
-      return dataTable.sourceSchema.columns.map((column) => ({
-        name: column.name,
-        type: "unknown" as const,
-      }));
-    }
     if (modelColumns.length) {
       return modelColumns.map((column) => ({
-        name: axisColumnDisplayNames[column.name] ?? column.name,
-        type: "unknown" as const,
+        name: column.name,
+        type: column.type ?? ("unknown" as const),
       }));
     }
     return dataFrame?.columns ?? [];
-  }, [
-    dataFrame,
-    dataTable,
-    hasJoins,
-    joinedData,
-    axisColumnDisplayNames,
-    modelColumns,
-    sourceDataFrame,
-  ]);
+  }, [dataFrame, modelColumns]);
 
   const compiledInsightForValidation = useMemo(() => {
     if (!compiledInsight) return undefined;
@@ -476,12 +285,8 @@ export default function VisualizationPageContent({
     };
   }, [compiledInsight, dataTable?.fields]);
 
-  // Include dataFrame check to prevent "Data not available" flash
-  const isLoading =
-    isVizLoading ||
-    isDataLoading ||
-    isLoadingJoinedData ||
-    (visualization && !dataFrame);
+  // Include the live saved-Insight run to prevent a data-unavailable flash.
+  const isLoading = isVizLoading || (visualization && !dataFrame);
 
   // Local edit buffer for the visualization name. While the user has not
   // typed an override, we render whatever is on the visualization itself.
@@ -497,48 +302,10 @@ export default function VisualizationPageContent({
   const vizName = vizNameOverride ?? visualization?.name ?? "";
   const setVizName = (next: string) => setVizNameOverride(next);
 
-  // Holds the last successfully analyzed view + result so the "is this still
-  // valid for the current view?" check is just a string comparison during
-  // render. Returning [] when the analyzed view doesn't match avoids having
-  // to synchronously reset state inside the analysis effect.
-  const [analysisResult, setAnalysisResult] = useState<{
-    viewName: string;
-    columns: ColumnAnalysis[];
-  } | null>(null);
   const columnAnalysis = useMemo<ColumnAnalysis[]>(
-    () =>
-      analysisViewName &&
-      isAnalysisViewReady &&
-      analysisResult?.viewName === analysisViewName
-        ? analysisResult.columns
-        : [],
-    [analysisResult, analysisViewName, isAnalysisViewReady],
+    () => analyzeFrameSample(renderedSchema, renderedRows, renderedRowCount),
+    [renderedRowCount, renderedRows, renderedSchema],
   );
-
-  // Run DuckDB analysis on the insight view (has UUID-based column names)
-  // DuckDB is lazy-loaded, so we check isDuckDBLoading before running analysis
-  useEffect(() => {
-    if (isDuckDBLoading || !duckDBConnection || !isDuckDBReady) return;
-    if (!analysisViewName || !isAnalysisViewReady) return;
-
-    const targetView = analysisViewName;
-    const runAnalysis = async () => {
-      try {
-        const results = await analyzeView(duckDBConnection, targetView);
-        setAnalysisResult({ viewName: targetView, columns: results });
-      } catch (e) {
-        console.error("[VisualizationPage] Analysis failed:", e);
-        setAnalysisResult({ viewName: targetView, columns: [] });
-      }
-    };
-    runAnalysis();
-  }, [
-    duckDBConnection,
-    isDuckDBReady,
-    isDuckDBLoading,
-    analysisViewName,
-    isAnalysisViewReady,
-  ]);
 
   // Get column options for Color/Size selects (derived from compiledInsight +
   // instance-aware fields for repeat-joins).
@@ -820,7 +587,7 @@ export default function VisualizationPageContent({
   const isScatterType = ["dot", "hexbin", "heatmap", "raster"].includes(
     visualization?.visualizationType ?? "",
   );
-  const rowCount = dataFrameEntry?.rowCount ?? 0;
+  const rowCount = renderedRowCount;
   const isLargeDataset = rowCount > 10000;
   const scatterRenderModeOptions = useMemo(
     () => [
@@ -1193,8 +960,8 @@ export default function VisualizationPageContent({
           {/* Metadata row */}
           <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-neutral-fg-subtle">
             <span>
-              {dataFrameEntry?.rowCount?.toLocaleString() ?? "?"} rows •{" "}
-              {dataFrameEntry?.columnCount ?? "?"} columns
+              {renderedRowCount.toLocaleString()} rows • {renderedSchema.length}{" "}
+              columns
             </span>
             {visualization.insightId && (
               <>

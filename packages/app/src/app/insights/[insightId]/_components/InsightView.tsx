@@ -92,6 +92,22 @@ export function requestSavedVisualizationDeletion(
   });
 }
 
+/**
+ * Chart suggestions inspect the complete joined result shape, independently of
+ * the fields selected by the currently saved visualization. The definition is
+ * still a typed, server-resolved authoring preview: callers provide no source,
+ * provider, SQL, or placement details.
+ */
+export function buildChartSuggestionInsight(insight: Insight): Insight {
+  return {
+    ...insight,
+    selectedFields: [],
+    metrics: [],
+    filters: undefined,
+    sorts: undefined,
+  };
+}
+
 interface InsightViewProps {
   insight: Insight;
   visualizeIntent?: boolean;
@@ -665,19 +681,38 @@ export function InsightView({
   // Get DuckDB view/table name for chart rendering
   // For insights with joins, creates a view with joined data
   // For simple insights, returns the base table name
+  const { isReady: isChartViewReady } = useInsightView(insight, {
+    dataTables: allDataTables,
+  });
+  const chartSuggestionInsight = useMemo(
+    () => buildChartSuggestionInsight(insight),
+    [insight],
+  );
   const {
-    viewName: chartTableName,
-    isReady: isChartViewReady,
-    schema: chartSchema,
-    sampleRows: chartSampleRows,
-    totalCount: rowCount,
-  } = useInsightView(insight, { dataTables: allDataTables });
+    dataFrameId: chartSuggestionFrameId,
+    isReady: areChartSuggestionsReady,
+    schema: chartSuggestionSchema,
+    sampleRows: chartSuggestionRows,
+    totalCount: chartSuggestionRowCount,
+  } = useInsightPagination({
+    insight: chartSuggestionInsight,
+    showModelPreview: true,
+  });
   const columnAnalysis = useMemo<ColumnAnalysis[]>(
     () =>
-      isChartViewReady
-        ? analyzeFrameSample(chartSchema, chartSampleRows, rowCount)
+      areChartSuggestionsReady
+        ? analyzeFrameSample(
+            chartSuggestionSchema,
+            chartSuggestionRows,
+            chartSuggestionRowCount,
+          )
         : [],
-    [chartSampleRows, chartSchema, isChartViewReady, rowCount],
+    [
+      areChartSuggestionsReady,
+      chartSuggestionRowCount,
+      chartSuggestionRows,
+      chartSuggestionSchema,
+    ],
   );
 
   // Get visualizations for this insight
@@ -817,7 +852,7 @@ export function InsightView({
     if (
       !insightForSuggestions ||
       columnAnalysis.length === 0 ||
-      rowCount === 0
+      chartSuggestionRowCount === 0
     ) {
       return suggestions;
     }
@@ -826,7 +861,7 @@ export function InsightView({
       const suggestion = suggestByChartType(
         insightForSuggestions,
         columnAnalysis,
-        rowCount,
+        chartSuggestionRowCount,
         fieldMap,
         chartType,
         { existingFields: existingFieldNames, seed: suggestionSeed },
@@ -839,7 +874,7 @@ export function InsightView({
   }, [
     insightForSuggestions,
     columnAnalysis,
-    rowCount,
+    chartSuggestionRowCount,
     fieldMap,
     existingFieldNames,
     suggestionSeed,
@@ -1324,9 +1359,9 @@ export function InsightView({
             )}
             {activeView.kind === "chart" && (
               <EphemeralChartCanvas
-                tableName={chartTableName ?? undefined}
+                tableName={chartSuggestionFrameId ?? undefined}
                 suggestion={activeChartSuggestion}
-                isLoading={!isChartViewReady}
+                isLoading={!areChartSuggestionsReady}
                 onRegenerate={handleRegenerate}
               />
             )}

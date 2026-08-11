@@ -65,7 +65,7 @@ export const DataPreviewSection = memo(function DataPreviewSection({
   const isResultActivated = modeState.activated.has("result");
 
   // Only run hooks for activated modes (lazy initialization)
-  // This prevents the expensive ensureTableLoaded from running twice on initial load
+  // This prevents duplicate live materialization on the initial load.
   const joinPagination = useInsightPagination({
     insight,
     showModelPreview: true,

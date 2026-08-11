@@ -27,13 +27,6 @@ vi.mock("@/components/layouts/AppLayout", () => ({
     </>
   ),
 }));
-vi.mock("@/components/providers/DuckDBProvider", () => ({
-  useDuckDB: () => ({
-    connection: null,
-    isInitialized: false,
-    isLoading: false,
-  }),
-}));
 vi.mock("@/components/shell/context-panel-outlet", () => ({
   useContextPanelSection: () => undefined,
 }));
@@ -43,28 +36,16 @@ vi.mock("@/components/visualizations/AxisSelectField", () => ({
 vi.mock("@/components/visualizations/VisualizationDisplay", () => ({
   VisualizationDisplay: () => null,
 }));
-vi.mock("@/hooks/useDataFrameData", () => ({
-  useDataFrameData: () => ({
-    data: { columns: [], rows: [] },
-    entry: { columnCount: 0, rowCount: 0 },
-    isLoading: false,
-  }),
-}));
 vi.mock("@/hooks/useInsightPagination", () => ({
   useInsightPagination: () => ({
     columnDisplayNames: {},
     columns: [],
+    isReady: true,
     resolvedFields: [],
+    sampleRows: [],
+    schema: [],
+    totalCount: 0,
   }),
-}));
-vi.mock("@/hooks/useInsightView", () => ({
-  useInsightView: () => ({ isReady: false, viewName: null }),
-}));
-vi.mock("@/lib/data-access/data-frames", () => ({
-  getDataFrame: vi.fn(),
-}));
-vi.mock("@/lib/insights/compute-preview", () => ({
-  computeInsightPreview: vi.fn(),
 }));
 vi.mock("@/lib/utils/field-icons", () => ({ getColumnIcon: vi.fn() }));
 vi.mock("@/lib/visualizations/encoding-enforcer", () => ({
@@ -91,7 +72,6 @@ vi.mock("@dashframe/engine", () => ({
   isGeneratedColumnLabel: () => false,
   metricIdToColumnAlias: vi.fn(),
 }));
-vi.mock("@dashframe/engine-browser", () => ({ analyzeView: vi.fn() }));
 vi.mock("@dashframe/types", () => ({
   buildVisualizationUpdateCommands: vi.fn(() => []),
   CHART_TYPE_METADATA: {},

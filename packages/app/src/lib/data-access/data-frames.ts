@@ -1,11 +1,4 @@
-import type { DuckDBConnection } from "@dashframe/engine-browser";
-import { QueryBuilder } from "@dashframe/engine-browser";
-import type {
-  DataFrame,
-  DataFrameAnalysis,
-  DataFrameJSON,
-  UUID,
-} from "@dashframe/types";
+import type { DataFrameAnalysis, DataFrameJSON, UUID } from "@dashframe/types";
 
 import { api } from "../../wystack/api";
 import { getWyStackClient } from "../../wystack/client";
@@ -70,109 +63,12 @@ export async function queryDataFrame(
   })) as DataFramePage;
 }
 
-/** Metadata-only reference for frames owned by the native server data plane. */
-class ServerDataFrame implements DataFrame {
-  readonly id: UUID;
-  readonly storage: DataFrameJSON["storage"];
-  readonly fieldIds: UUID[];
-  readonly primaryKey?: string | string[];
-  readonly createdAt: number;
-
-  constructor(entry: DataFrameEntry) {
-    this.id = entry.id;
-    this.storage = entry.storage;
-    this.fieldIds = entry.fieldIds;
-    this.primaryKey = entry.primaryKey;
-    this.createdAt = entry.createdAt;
-  }
-
-  load(connection: DuckDBConnection): Promise<QueryBuilder> {
-    return Promise.resolve(new QueryBuilder(this, connection));
-  }
-
-  toJSON(): DataFrameJSON {
-    return {
-      id: this.id,
-      storage: this.storage,
-      fieldIds: this.fieldIds,
-      primaryKey: this.primaryKey,
-      createdAt: this.createdAt,
-    };
-  }
-
-  getStorageType(): string {
-    return "Server File";
-  }
-}
-
-export async function addDataFrameEntry(
-  dataFrame: DataFrame,
-  metadata: {
-    name: string;
-    insightId?: UUID;
-    sourceId?: UUID;
-    definitionId?: UUID;
-    rowCount?: number;
-    columnCount?: number;
-  },
-): Promise<UUID> {
-  const entry: DataFrameEntry = {
-    ...dataFrame.toJSON(),
-    ...metadata,
-    lastRefreshedAt: Date.now(),
-  };
-  await getWyStackClient().mutate(api.putDataFrameEntry, { entry });
-  return dataFrame.id;
-}
-
-export async function updateDataFrameEntry(
-  id: UUID,
-  updates: Partial<DataFrameEntry>,
-): Promise<void> {
-  await getWyStackClient().mutate(api.updateDataFrameEntry, { id, updates });
-}
-
-export async function replaceDataFrame(
-  id: UUID,
-  newDataFrame: DataFrame,
-  metadata?: {
-    rowCount?: number;
-    columnCount?: number;
-    sourceId?: UUID;
-    definitionId?: UUID;
-  },
-): Promise<void> {
-  const serialization = newDataFrame.toJSON();
-  await updateDataFrameEntry(id, {
-    storage: serialization.storage,
-    fieldIds: serialization.fieldIds,
-    primaryKey: serialization.primaryKey,
-    createdAt: serialization.createdAt,
-    sourceId: metadata?.sourceId,
-    definitionId: metadata?.definitionId,
-    rowCount: metadata?.rowCount,
-    columnCount: metadata?.columnCount,
-    analysis: null,
-    lastRefreshedAt: Date.now(),
-  });
-}
-
 export async function removeDataFrame(id: UUID): Promise<void> {
   await getWyStackClient().mutate(api.removeDataFrameEntry, { id });
 }
 
 export async function clearAllData(): Promise<void> {
   await getWyStackClient().mutate(api.clearAllData, {});
-}
-
-export async function getDataFrame(
-  id: UUID,
-): Promise<ServerDataFrame | undefined> {
-  const entity = await getDataFrameEntry(id);
-  if (!entity) return undefined;
-  return entity.storage.type === "file"
-    ? new ServerDataFrame(entity)
-    : undefined;
 }
 
 export async function getDataFrameEntry(
