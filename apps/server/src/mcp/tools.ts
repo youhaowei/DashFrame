@@ -44,6 +44,7 @@ export interface McpTool {
   inputSchema: TSchema;
   execute(args: unknown): Promise<{
     content: Array<{ type: "text"; text: string }>;
+    isError?: boolean;
     structuredContent?: Record<string, unknown>;
   }>;
 }
@@ -72,16 +73,17 @@ function dataTool(
         principal: context.principal,
       });
       const result = response.result as Record<string, unknown>;
+      const failed = result.status === "failed";
       return {
         content: [
           {
             type: "text",
-            text:
-              result.status === "ready"
-                ? `${name} completed.`
-                : "The requested data operation failed.",
+            text: failed
+              ? "The requested data operation failed."
+              : `${name} completed.`,
           },
         ],
+        ...(failed ? { isError: true } : {}),
         structuredContent: result,
       };
     },

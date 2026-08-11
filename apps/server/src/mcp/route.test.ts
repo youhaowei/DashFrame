@@ -464,6 +464,35 @@ describe("MCP route", () => {
     }
   });
 
+  it("returns data-domain failures as MCP tool errors without exposing internals", async () => {
+    const { client, transport } = await connect();
+    try {
+      const missing = crypto.randomUUID();
+      const calls = [
+        [
+          "fetch_data",
+          {
+            insight: {
+              baseTableId: crypto.randomUUID(),
+              selectedFields: [],
+              metrics: [],
+            },
+          },
+        ],
+        ["run_insight", { insightId: missing }],
+        ["query_data_frame", { dataFrameId: missing, limit: 1 }],
+      ] as const;
+      for (const [name, arguments_] of calls) {
+        const result = await client.callTool({ name, arguments: arguments_ });
+        expect(result.isError).toBe(true);
+        expect(resultText(result)).toBe("The requested data operation failed.");
+        expect(result.structuredContent).toMatchObject({ status: "failed" });
+      }
+    } finally {
+      await transport.close();
+    }
+  });
+
   it("keeps a discarded caller-carried draft id unavailable", async () => {
     const { client, transport } = await connect();
     try {
