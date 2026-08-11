@@ -412,8 +412,8 @@ export interface DraftController {
     batch: DraftCommand[],
     context?: Record<string, unknown>,
   ): Promise<CommandResult[]>;
-  /** List every open draft from durable metadata, newest activity first. */
-  listDrafts(): Promise<DraftListEntry[]>;
+  /** List open drafts, optionally restricted to one exact durable owner. */
+  listDrafts(ownerPrincipalKey?: string): Promise<DraftListEntry[]>;
   /**
    * True when `draft_metadata` still holds this handle. That table is the
    * registry of record: `openDraft` inserts the row and both lifecycle exits
@@ -1110,10 +1110,11 @@ export function createDraftController(
       return rows.length > 0;
     },
 
-    async listDrafts(): Promise<DraftListEntry[]> {
+    async listDrafts(ownerPrincipalKey?: string): Promise<DraftListEntry[]> {
       const rows = normalizeRows(
         await db.execute(
-          sql.raw(`
+          sql`
+            ${sql.raw(`
             WITH draft_summary AS (
               SELECT
                 draft_id,
@@ -1150,8 +1151,16 @@ export function createDraftController(
             FROM draft_metadata AS metadata
             LEFT JOIN draft_summary AS summary
               ON summary.draft_id = metadata.draft_id
-            ORDER BY COALESCE(summary.updated_at, metadata.created_at) DESC
-          `),
+          `)}
+            ${
+              ownerPrincipalKey === undefined
+                ? sql``
+                : sql`WHERE metadata.owner_principal_key = ${ownerPrincipalKey}`
+            }
+            ${sql.raw(
+              "ORDER BY COALESCE(summary.updated_at, metadata.created_at) DESC",
+            )}
+          `,
         ),
       );
       return rows.map((row) => ({

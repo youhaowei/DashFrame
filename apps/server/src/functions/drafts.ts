@@ -151,17 +151,10 @@ const listDrafts = wy.procedure
     const controller =
       asDraftFunctionContext(ctx).draftController ??
       createDraftController(app, db);
-    const drafts = await controller.listDrafts();
-    if (ctx.principal?.kind === "user") return drafts;
+    if (ctx.principal?.kind === "user") return controller.listDrafts();
     const key = principalKey(ctx.principal);
     if (key === null) return [];
-    const owned = await Promise.all(
-      drafts.map(async (draft) => ({
-        draft,
-        allowed: await controller.draftOwnedBy(draft.draftId, key),
-      })),
-    );
-    return owned.filter(({ allowed }) => allowed).map(({ draft }) => draft);
+    return controller.listDrafts(key);
   });
 
 export const draftFunctions = {

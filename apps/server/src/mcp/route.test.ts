@@ -238,7 +238,9 @@ describe("MCP route", () => {
     );
 
     await expect(tool!.execute({})).rejects.toThrow(/^draft is unavailable$/);
-    expect(readDraftIds).toEqual([originalDraftId]);
+    expect(readDraftIds.length).toBeGreaterThan(0);
+    expect(new Set(readDraftIds)).toEqual(new Set([originalDraftId]));
+    expect(checks).toBe(2);
   });
 
   it("mints the credential as a user before the MCP service-principal round trip", async () => {
@@ -450,7 +452,7 @@ describe("MCP route", () => {
     }
   });
 
-  it("opens a fresh draft when a person has already discarded the supplied draft", async () => {
+  it("keeps a discarded caller-carried draft id unavailable", async () => {
     const { client, transport } = await connect();
     try {
       const write = async (name: string, draftId?: string) =>
@@ -888,6 +890,51 @@ describe("MCP route", () => {
     });
     expect(malformed.status).toBe(400);
     expect(await malformed.json()).toMatchObject({ error: { code: -32700 } });
+  });
+
+  it("rejects authenticated JSON-RPC arrays with HTTP 400", async () => {
+    const response = await fetch(`${server!.url}/mcp`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        ...bearer(serviceToken),
+      },
+      body: JSON.stringify([{ jsonrpc: "2.0", id: 1, method: "tools/list" }]),
+    });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: { code: -32600 } });
+  });
+
+  it("removes a server-opened empty draft after the first command fails", async () => {
+    const { client, transport } = await connect();
+    try {
+      const missingId = crypto.randomUUID();
+      const result = await client.callTool({
+        name: "draft_batch",
+        arguments: {
+          commands: [
+            {
+              type: "SetChartType",
+              args: { id: missingId, visualizationType: "bar" },
+            },
+          ],
+        },
+      });
+      expect(result.isError).toBe(true);
+      expect(resultText(result)).toContain(
+        `Visualization ${missingId} not found`,
+      );
+      expect(result.structuredContent).toBeUndefined();
+      expect(
+        await project!.db.select().from(schema.draftMetadata),
+      ).toHaveLength(0);
+      expect(
+        await project!.db.select().from(schema.draftCommandLog),
+      ).toHaveLength(0);
+    } finally {
+      await transport.close();
+    }
   });
 
   /** Stateful mode keeps one credential-bound session and remembered draft. */

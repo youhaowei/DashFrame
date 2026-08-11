@@ -19,9 +19,11 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  buildDashframeApp,
   createDashframeServer,
   createDraftController,
   type DashframeServer,
+  type DraftController,
 } from "../app";
 import { computeLogSignature } from "../draft-log-signature";
 import { cmd } from "./commands";
@@ -438,5 +440,138 @@ describe("draftBatch and reviseDraft", () => {
     const seqs = rows.map((r) => r.seq).sort((a, b) => a - b);
     // seed + 5 + 5 = 11 dense 0..10
     expect(seqs).toEqual(Array.from({ length: 11 }, (_, i) => i));
+  });
+
+  it("cleans an empty generated draft before a queued append can commit", async () => {
+    const app = await buildDashframeApp({ db: project!.db });
+    const baseController = createDraftController(app, project!.db);
+    const principal = {
+      kind: "service" as const,
+      credentialId: "queued-service",
+    };
+    const context = {
+      wyStackApp: app,
+      artifactDb: project!.db,
+      principal,
+    };
+
+    let resolveOpened!: (draftId: string) => void;
+    const opened = new Promise<string>((resolve) => {
+      resolveOpened = resolve;
+    });
+    let resolveFirstAppend!: () => void;
+    const firstAppend = new Promise<void>((resolve) => {
+      resolveFirstAppend = resolve;
+    });
+    let releaseFirstAppend!: () => void;
+    const firstAppendRelease = new Promise<void>((resolve) => {
+      releaseFirstAppend = resolve;
+    });
+    let resolveSecondValidated!: () => void;
+    const secondValidated = new Promise<void>((resolve) => {
+      resolveSecondValidated = resolve;
+    });
+    let resolveSecondStarted!: () => void;
+    const secondStarted = new Promise<void>((resolve) => {
+      resolveSecondStarted = resolve;
+    });
+    let resolveSecondCommitted!: () => void;
+    const secondCommitted = new Promise<void>((resolve) => {
+      resolveSecondCommitted = resolve;
+    });
+
+    let ownershipChecks = 0;
+    let appendCalls = 0;
+    let cleanupWaiting = false;
+    let cleanupFinished = false;
+    const controller: DraftController = {
+      ...baseController,
+      async openDraft(baseVersion, ownerPrincipalKey) {
+        const draftId = await baseController.openDraft(
+          baseVersion,
+          ownerPrincipalKey,
+        );
+        resolveOpened(draftId);
+        return draftId;
+      },
+      async draftOwnedBy(draftId, ownerPrincipalKey) {
+        ownershipChecks += 1;
+        if (ownershipChecks === 2) resolveSecondValidated();
+        if (cleanupWaiting && !cleanupFinished) return true;
+        return baseController.draftOwnedBy(draftId, ownerPrincipalKey);
+      },
+      async appendToDraft(draftId, batch, appendContext) {
+        appendCalls += 1;
+        if (appendCalls === 1) {
+          resolveFirstAppend();
+          await firstAppendRelease;
+          throw new Error("first batch failed before any write");
+        }
+        resolveSecondStarted();
+        const result = await baseController.appendToDraft(
+          draftId,
+          batch,
+          appendContext,
+        );
+        resolveSecondCommitted();
+        return result;
+      },
+      async discardDraft(draftId, options) {
+        cleanupWaiting = true;
+        await Promise.race([
+          secondStarted,
+          new Promise<void>((resolve) => setTimeout(resolve, 100)),
+        ]);
+        if (appendCalls > 1) await secondCommitted;
+        await baseController.discardDraft(draftId, options);
+        cleanupFinished = true;
+      },
+    };
+    const callContext = { ...context, draftController: controller };
+    const command = cmd("CreateDataSource", {
+      id: crypto.randomUUID(),
+      type: "csv",
+      name: "queued append",
+    });
+
+    const firstResult = app
+      .call("draftBatch", { commands: [command] }, callContext)
+      .then(
+        () => null,
+        (error: unknown) => error,
+      );
+    await firstAppend;
+    const draftId = await opened;
+
+    const queuedResult = app
+      .call(
+        "draftBatch",
+        {
+          draftId,
+          commands: [
+            cmd("CreateDataSource", {
+              id: crypto.randomUUID(),
+              type: "csv",
+              name: "must not be swept",
+            }),
+          ],
+        },
+        callContext,
+      )
+      .then(
+        () => null,
+        (error: unknown) => error,
+      );
+    await secondValidated;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    releaseFirstAppend();
+
+    expect(await firstResult).toEqual(
+      new Error("first batch failed before any write"),
+    );
+    expect(await queuedResult).toEqual(new Error("draft is unavailable"));
+    expect(appendCalls).toBe(1);
+    expect(await baseController.draftExists(draftId)).toBe(false);
+    expect(await baseController.getDraftLog(draftId)).toEqual([]);
   });
 });

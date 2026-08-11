@@ -65,6 +65,37 @@ function requireDraftController(
   return controller;
 }
 
+async function rethrowFailedBatch(
+  controller: DraftController,
+  targetDraftId: string,
+  openedHere: boolean,
+  error: unknown,
+): Promise<never> {
+  const recoveredWrites = recoveredDraftWriteTables(error);
+  // A rejected batch can still have an earlier, atomically logged prefix.
+  // Add the log table to the controller's shadow-table metadata so the host
+  // can invalidate and schedule persistence before rethrowing the same error.
+  if (recoveredWrites.length > 0) {
+    addRecoveredDraftWriteTables(error, [DRAFT_COMMAND_LOG_TABLE]);
+    // Only a newly opened, already-owned handle is attached. This lets the
+    // caller retain a durable successful prefix without exposing any
+    // caller-supplied or foreign handle.
+    if (openedHere && error instanceof Error) {
+      (error as DraftBatchError).draftId = targetDraftId;
+    }
+  } else if (openedHere) {
+    // A first-command failure has no durable work to recover. Remove only
+    // the handle opened by this call; caller-carried handles are untouched.
+    // Cleanup must not replace the command's original error.
+    try {
+      await controller.discardDraft(targetDraftId);
+    } catch {
+      // Preserve the original command failure for the caller.
+    }
+  }
+  throw error;
+}
+
 const draftBatch = wy.procedure
   .input({ commands: jsonb, draftId: text.optional() })
   .authorize(permissions.commands.draft)
@@ -86,47 +117,45 @@ const draftBatch = wy.procedure
     }
     const targetDraftId =
       draftId ?? (await controller.openDraft(undefined, ownerKey));
+    const openedHere = draftId === undefined;
     const context: Record<string, unknown> = {};
     if (ctx.principal !== undefined) context.principal = ctx.principal;
     if (ctx.vault !== undefined) context.vault = ctx.vault;
-    let results: CommandResult[];
-    try {
-      results = await serializeAppend(targetDraftId, async () => {
-        // The handle may close while this append waits behind another writer.
-        if (!(await controller.draftOwnedBy(targetDraftId, ownerKey))) {
-          throw new Error(DRAFT_UNAVAILABLE);
-        }
+    const results: CommandResult[] = await serializeAppend(
+      targetDraftId,
+      async () => {
         try {
-          return await controller.appendToDraft(
-            targetDraftId,
-            commands as Command[],
-            context,
-          );
-        } catch (error) {
-          if (
-            error instanceof DraftLogStaleError &&
-            !(await controller.draftOwnedBy(targetDraftId, ownerKey))
-          ) {
+          // The handle may close while this append waits behind another writer.
+          if (!(await controller.draftOwnedBy(targetDraftId, ownerKey))) {
             throw new Error(DRAFT_UNAVAILABLE);
           }
-          throw error;
+          try {
+            return await controller.appendToDraft(
+              targetDraftId,
+              commands as Command[],
+              context,
+            );
+          } catch (error) {
+            if (
+              error instanceof DraftLogStaleError &&
+              !(await controller.draftOwnedBy(targetDraftId, ownerKey))
+            ) {
+              throw new Error(DRAFT_UNAVAILABLE);
+            }
+            throw error;
+          }
+        } catch (error) {
+          // Cleanup stays inside the serialized callback so a queued append
+          // cannot commit between this failure and removal of an empty handle.
+          return rethrowFailedBatch(
+            controller,
+            targetDraftId,
+            openedHere,
+            error,
+          );
         }
-      });
-    } catch (err) {
-      // A rejected batch can still have an earlier, atomically logged prefix.
-      // Add the log table to the controller's shadow-table metadata so the host
-      // can invalidate and schedule persistence before rethrowing the same error.
-      if (recoveredDraftWriteTables(err).length > 0) {
-        addRecoveredDraftWriteTables(err, [DRAFT_COMMAND_LOG_TABLE]);
-        // Only a newly opened, already-owned handle is attached. This lets the
-        // caller retain a durable successful prefix without exposing any
-        // caller-supplied or foreign handle.
-        if (draftId === undefined && err instanceof Error) {
-          (err as DraftBatchError).draftId = targetDraftId;
-        }
-      }
-      throw err;
-    }
+      },
+    );
 
     return {
       draftId: targetDraftId,

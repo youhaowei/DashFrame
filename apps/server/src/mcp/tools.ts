@@ -167,45 +167,37 @@ function lowerCommands(commands: readonly DraftBatchCommandInput[]): Command[] {
  */
 function createDelegatingReader(
   app: WyStackApp,
-  context: McpRequestContext,
+  draftId: string | undefined,
 ): GraphReader {
-  const assertDraftOpen = async (
-    draftId: string | undefined,
-  ): Promise<void> => {
-    if (draftId === undefined) return;
-    const listed = await app.call(
-      "listDrafts",
-      {},
-      { principal: context.principal },
-    );
-    const drafts = listed.result as Array<{ draftId: string }>;
-    if (!drafts.some((draft) => draft.draftId === draftId)) {
-      throw new Error(DRAFT_UNAVAILABLE);
-    }
-  };
-
   return new Proxy({} as GraphReader, {
     get(_target, property: keyof GraphReader) {
       return async (...args: unknown[]) => {
-        // One request, one handle: a concurrent stateful write may replace the
-        // remembered draft, but this read must validate and read the snapshot it
-        // started with rather than post-validating a different handle.
-        const requestDraftId = context.draftId;
-        await assertDraftOpen(requestDraftId);
         const reader = createAssistantReadHost({
           app,
-          ...(requestDraftId === undefined ? {} : { draftId: requestDraftId }),
+          ...(draftId === undefined ? {} : { draftId }),
         });
         const method = reader[property] as (...values: unknown[]) => unknown;
-        const result = await method.apply(reader, args);
-        // A person can publish or discard between the first check and the
-        // overlay read. Refuse that result instead of returning canonical data
-        // from a draft handle whose shadow disappeared mid-request.
-        await assertDraftOpen(requestDraftId);
-        return result;
+        return method.apply(reader, args);
       };
     },
   });
+}
+
+async function assertDraftOpen(
+  app: WyStackApp,
+  context: McpRequestContext,
+  draftId: string | undefined,
+): Promise<void> {
+  if (draftId === undefined) return;
+  const listed = await app.call(
+    "listDrafts",
+    {},
+    { principal: context.principal },
+  );
+  const drafts = listed.result as Array<{ draftId: string }>;
+  if (!drafts.some((draft) => draft.draftId === draftId)) {
+    throw new Error(DRAFT_UNAVAILABLE);
+  }
 }
 
 /** Cap on the id line; a whole-graph `find_nodes` can return a lot. */
@@ -269,6 +261,8 @@ function toMcpTool(
   tool: AssistantTool,
   isReadTool: boolean,
   mode: McpMode,
+  app: WyStackApp,
+  context: McpRequestContext,
 ): McpTool {
   const inputSchema =
     isReadTool && mode === "stateless"
@@ -292,6 +286,7 @@ function toMcpTool(
     description: tool.description,
     inputSchema,
     async execute(args) {
+      const requestDraftId = isReadTool ? context.draftId : undefined;
       const isReadArgs =
         isReadTool &&
         mode === "stateless" &&
@@ -316,10 +311,19 @@ function toMcpTool(
         : args;
       const checked = validateToolArgs(tool.parameters, toolArgs);
       if (!checked.ok) throw new Error(checked.error.message);
-      const result = await tool.execute(
+      if (isReadTool) await assertDraftOpen(app, context, requestDraftId);
+      const executionTool = isReadTool
+        ? (Object.values(
+            createReadTools(createDelegatingReader(app, requestDraftId)),
+          ).find((candidate) => candidate.name === tool.name) as AssistantTool)
+        : tool;
+      const result = await executionTool.execute(
         crypto.randomUUID(),
         checked.value as never,
       );
+      // A person can close the exact captured handle during the read. Refuse
+      // that result instead of falling through to canonical or a replacement.
+      if (isReadTool) await assertDraftOpen(app, context, requestDraftId);
       const ids = isReadTool ? refLine(result.details) : null;
       return {
         content:
@@ -378,7 +382,7 @@ export function createMcpTools(
     }
   }
   const readTools = Object.values(
-    createReadTools(createDelegatingReader(app, context)),
+    createReadTools(createDelegatingReader(app, undefined)),
   ) as AssistantTool[];
 
   const writeTool = defineToolHandler({
@@ -470,7 +474,7 @@ export function createMcpTools(
   });
 
   return [
-    ...readTools.map((tool) => toMcpTool(tool, true, mode)),
-    toMcpTool(writeTool as AssistantTool, false, mode),
+    ...readTools.map((tool) => toMcpTool(tool, true, mode, app, context)),
+    toMcpTool(writeTool as AssistantTool, false, mode, app, context),
   ];
 }
