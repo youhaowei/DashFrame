@@ -2143,20 +2143,20 @@ const prepareRemoteDataTable = wy.procedure
     if (!source) throw new Error(`DataSource ${table.dataSourceId} not found`);
 
     const pagination = { pagination: { offset: 0, limit: 1 } };
-    const result =
-      source.kind === "notion"
-        ? await (
-            await notionConnectorFor(ctx, source.id)
-          ).query(table.table, table.id, pagination)
-        : source.kind === "postgres"
-          ? await (
-              await postgresConnectorFor(ctx, source.id)
-            ).query(table.table, table.id, pagination)
-          : source.kind === "googleAnalytics"
-            ? await (
-                await ga4ConnectorFor(ctx, source.id)
-              ).query(table.table, table.id, pagination)
-            : null;
+    let result = null;
+    if (source.kind === "notion") {
+      result = await (
+        await notionConnectorFor(ctx, source.id)
+      ).query(table.table, table.id, pagination);
+    } else if (source.kind === "postgres") {
+      result = await (
+        await postgresConnectorFor(ctx, source.id)
+      ).query(table.table, table.id, pagination);
+    } else if (source.kind === "googleAnalytics") {
+      result = await (
+        await ga4ConnectorFor(ctx, source.id)
+      ).query(table.table, table.id, pagination);
+    }
     if (!result) {
       throw new Error(`DataSource ${source.id} is not a remote connector`);
     }

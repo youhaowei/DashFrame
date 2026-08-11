@@ -101,7 +101,7 @@ export function useInsightPagination({
           insightId: insight.id,
           ...(stableRuntime ? { runtime: stableRuntime } : {}),
         });
-    void materialized.then(
+    materialized.then(
       async (fetchResult) => {
         if (current !== generation.current) return;
         if (fetchResult.status === "failed") {

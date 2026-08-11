@@ -3,7 +3,7 @@ import type {
   InsightRuntimeDeclaration,
   UUID,
 } from "@dashframe/types";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 interface RuntimeControlsSectionProps {
   declaration?: InsightRuntimeDeclaration;
@@ -13,13 +13,23 @@ interface RuntimeControlsSectionProps {
 }
 
 export function RuntimeControlsSection({
+  ...props
+}: RuntimeControlsSectionProps) {
+  return (
+    <RuntimeControlsEditor
+      key={JSON.stringify(props.declaration) ?? "none"}
+      {...props}
+    />
+  );
+}
+
+function RuntimeControlsEditor({
   declaration,
   filters,
   resultFields,
   onChange,
 }: RuntimeControlsSectionProps) {
   const [draft, setDraft] = useState(declaration);
-  useEffect(() => setDraft(declaration), [declaration]);
   const update = (next: InsightRuntimeDeclaration) =>
     setDraft(next.filters || next.sort || next.limit ? next : undefined);
   const dirty = JSON.stringify(draft) !== JSON.stringify(declaration);
@@ -32,11 +42,12 @@ export function RuntimeControlsSection({
         </p>
         {filters.map((filter, index) => {
           if (!filter.id) return null;
+          const filterId = filter.id;
           const existing = draft?.filters?.find(
-            (item) => item.filterId === filter.id,
+            (item) => item.filterId === filterId,
           );
           return (
-            <div key={filter.id} className="mt-2 space-y-2 rounded border p-2">
+            <div key={filterId} className="mt-2 space-y-2 rounded border p-2">
               <label className="flex items-center gap-2">
                 <input
                   type="checkbox"
@@ -44,22 +55,22 @@ export function RuntimeControlsSection({
                   onChange={(event) => {
                     const rest =
                       draft?.filters?.filter(
-                        (item) => item.filterId !== filter.id,
+                        (item) => item.filterId !== filterId,
                       ) ?? [];
+                    let nextFilters = rest.length ? rest : undefined;
+                    if (event.target.checked) {
+                      nextFilters = [
+                        ...rest,
+                        {
+                          key: `filter-${filterId}`,
+                          filterId,
+                          label: filter.field || `Filter ${index + 1}`,
+                        },
+                      ];
+                    }
                     update({
                       ...draft,
-                      filters: event.target.checked
-                        ? [
-                            ...rest,
-                            {
-                              key: `filter-${filter.id}`,
-                              filterId: filter.id!,
-                              label: filter.field || `Filter ${index + 1}`,
-                            },
-                          ]
-                        : rest.length
-                          ? rest
-                          : undefined,
+                      filters: nextFilters,
                     });
                   }}
                 />
