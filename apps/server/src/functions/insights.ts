@@ -123,7 +123,7 @@ export const insightSourceSchema = z.object({
   sourceId: z.string(),
 });
 
-const runtimeControlsSchema = z
+export const runtimeControlsSchema = z
   .object({
     filters: z
       .array(

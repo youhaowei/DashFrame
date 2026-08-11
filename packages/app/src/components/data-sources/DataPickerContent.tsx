@@ -88,6 +88,53 @@ interface RemoteResourceState {
   resources: RemoteResource[];
 }
 
+class RemoteImportUserError extends Error {}
+
+export async function importRemoteResource(args: {
+  sourceId: UUID;
+  resource: { id: string; title: string };
+  addDataTable: (input: {
+    dataSourceId: UUID;
+    name: string;
+    table: string;
+  }) => Promise<{ id: UUID }>;
+  prepareRemoteDataTable: (input: { id: UUID }) => Promise<unknown>;
+  fetchData: (input: {
+    insight: InsightFetchDefinition;
+  }) => Promise<{ status: "ready" } | { status: "failed"; message: string }>;
+  removeDataTable: (input: { id: UUID }) => Promise<unknown>;
+}): Promise<UUID> {
+  let tableId: UUID | null = null;
+  try {
+    tableId = (
+      await args.addDataTable({
+        dataSourceId: args.sourceId,
+        name: args.resource.title,
+        table: args.resource.id,
+      })
+    ).id;
+    await args.prepareRemoteDataTable({ id: tableId });
+    const result = await args.fetchData({
+      insight: { baseTableId: tableId, selectedFields: [], metrics: [] },
+    });
+    if (result.status === "failed")
+      throw new RemoteImportUserError(result.message);
+    return tableId;
+  } catch (cause) {
+    if (tableId) {
+      try {
+        await args.removeDataTable({ id: tableId });
+      } catch (cleanupError) {
+        console.error(
+          "Failed to clean up remote table onboarding",
+          cleanupError,
+        );
+      }
+    }
+    throw cause;
+  }
+}
+
 /**
  * Reusable data picker content for selecting insights or tables.
  *
@@ -117,6 +164,10 @@ export function DataPickerContent({
   const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
   const { mutateAsync: removeDataSource } = useMutation(api.removeDataSource);
   const { mutateAsync: addDataTable } = useMutation(api.addDataTable);
+  const { mutateAsync: removeDataTable } = useMutation(api.removeDataTable);
+  const { mutateAsync: prepareRemoteDataTable } = useMutation(
+    api.prepareRemoteDataTable,
+  );
   const { mutateAsync: fetchData } = useMutation(api.fetchData);
   const { mutateAsync: listNotionDatabasesMutation } = useMutation(
     api.listNotionDatabases,
@@ -425,35 +476,34 @@ export function DataPickerContent({
       if (!remoteResourceState) return;
       setImportingResourceId(resource.id);
       setError(null);
-      let tableId: UUID | null = null;
       try {
-        tableId = (
-          await addDataTable({
-            dataSourceId: remoteResourceState.sourceId,
-            name: resource.title,
-            table: resource.id,
-          })
-        ).id;
-        const insight: InsightFetchDefinition = {
-          baseTableId: tableId,
-          selectedFields: [],
-          metrics: [],
-        };
-        const result = await fetchData({ insight });
-        if (result.status === "failed") {
-          setError(result.message);
-          return;
-        }
+        const tableId = await importRemoteResource({
+          sourceId: remoteResourceState.sourceId,
+          resource,
+          addDataTable,
+          prepareRemoteDataTable,
+          fetchData,
+          removeDataTable,
+        });
         onTableSelect(tableId, resource.title);
-      } catch {
-        setError(
-          "Couldn't fetch this table. Check the connection and try again.",
-        );
+      } catch (cause) {
+        const stableError =
+          cause instanceof RemoteImportUserError
+            ? cause.message
+            : "Couldn't fetch this table. Check the connection and try again.";
+        setError(stableError);
       } finally {
         setImportingResourceId(null);
       }
     },
-    [addDataTable, onTableSelect, fetchData, remoteResourceState],
+    [
+      addDataTable,
+      onTableSelect,
+      fetchData,
+      prepareRemoteDataTable,
+      remoteResourceState,
+      removeDataTable,
+    ],
   );
 
   const hasInsights =

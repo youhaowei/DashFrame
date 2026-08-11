@@ -2111,6 +2111,86 @@ const queryGa4Property = wy.procedure
     },
   );
 
+function structuralFieldSignature(fields: readonly Field[]): string {
+  return JSON.stringify(
+    fields.map((field) => ({
+      id: field.id,
+      name: field.name,
+      columnName: field.columnName,
+      type: field.type,
+    })),
+  );
+}
+
+/**
+ * Discover and persist the structural schema for a newly-bound remote table.
+ * The connector, not the renderer, authors the Field objects. Repeated calls
+ * verify the stored schema and fail closed on drift rather than blessing it.
+ */
+const prepareRemoteDataTable = wy.procedure
+  .input({ id: uuid })
+  .authorize(permissions.commands.commit)
+  .mutation(async (ctx, { id }): Promise<{ fields: Field[] }> => {
+    const table = (await ctx.db
+      .from(dataTables)
+      .where(eq("id", id))
+      .first()) as DataTableRow | undefined;
+    if (!table) throw new Error(`DataTable ${id} not found`);
+    const source = (await ctx.db
+      .from(dataSources)
+      .where(eq("id", table.dataSourceId))
+      .first()) as DataSourceRow | undefined;
+    if (!source) throw new Error(`DataSource ${table.dataSourceId} not found`);
+
+    const pagination = { pagination: { offset: 0, limit: 1 } };
+    const result =
+      source.kind === "notion"
+        ? await (
+            await notionConnectorFor(ctx, source.id)
+          ).query(table.table, table.id, pagination)
+        : source.kind === "postgres"
+          ? await (
+              await postgresConnectorFor(ctx, source.id)
+            ).query(table.table, table.id, pagination)
+          : source.kind === "googleAnalytics"
+            ? await (
+                await ga4ConnectorFor(ctx, source.id)
+              ).query(table.table, table.id, pagination)
+            : null;
+    if (!result) {
+      throw new Error(`DataSource ${source.id} is not a remote connector`);
+    }
+
+    await ctx.db.transaction(async (tx) => {
+      const current = (await tx
+        .from(dataTables)
+        .where(eq("id", id))
+        .first()) as DataTableRow | undefined;
+      if (!current) throw new Error(`DataTable ${id} not found`);
+      if (
+        current.dataSourceId !== table.dataSourceId ||
+        current.table !== table.table
+      ) {
+        throw new Error("Remote table binding changed during schema discovery");
+      }
+      const currentFields = (current.fields ?? []) as Field[];
+      if (
+        currentFields.length > 0 &&
+        structuralFieldSignature(currentFields) !==
+          structuralFieldSignature(result.fields)
+      ) {
+        throw new Error("SOURCE_SCHEMA_CHANGED");
+      }
+      if (currentFields.length === 0) {
+        await tx
+          .from(dataTables)
+          .where(eq("id", id))
+          .update({ fields: result.fields });
+      }
+    });
+    return { fields: result.fields };
+  });
+
 export const appArtifactFunctions = {
   listDataSources,
   getDataSource,
@@ -2149,4 +2229,5 @@ export const appArtifactFunctions = {
   // Google Analytics data-plane routes (auth-blind via bound resolver)
   listGa4Properties,
   queryGa4Property,
+  prepareRemoteDataTable,
 };

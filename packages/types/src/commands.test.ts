@@ -112,12 +112,14 @@ describe("buildInsightUpdateCommands", () => {
       name: "Renamed",
       selectedFields: [midA],
       sorts: [{ field: "amount", direction: "desc" }],
+      runtimeControls: { limit: { min: 1, max: 100 } },
       metrics: [metric(midA, "Sum")],
     });
     expect(commands.map((c) => c.path)).toEqual([
       "renameNode",
       "selectFields",
       "setInsightSort",
+      "setInsightRuntimeControls",
       "addMetric",
     ]);
   });

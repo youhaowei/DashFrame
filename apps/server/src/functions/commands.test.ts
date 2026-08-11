@@ -1273,6 +1273,87 @@ describe("command vocabulary", () => {
     });
   });
 
+  describe("SetInsightRuntimeControls", () => {
+    it("persists only declarations targeting saved filters and result fields", async () => {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      const fieldId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+          selectedFields: [fieldId],
+        }),
+      );
+      await commit(
+        cmd("SetInsightFilter", {
+          id: insightId,
+          filters: [
+            {
+              id: "region-filter",
+              field: "region",
+              operator: "eq",
+              value: { kind: "value", v: "EMEA" },
+            },
+          ],
+        }),
+      );
+      const runtimeControls = {
+        filters: [
+          {
+            key: "region",
+            filterId: "region-filter",
+            label: "Region",
+          },
+        ],
+        sort: { allowedFieldIds: [fieldId], maxKeys: 1 as const },
+        limit: { min: 1, max: 100 },
+      };
+      await commit(
+        cmd("SetInsightRuntimeControls", { id: insightId, runtimeControls }),
+      );
+      const def = (await insightsById(insightId))[0]?.definition as {
+        runtimeControls: typeof runtimeControls;
+      };
+      expect(def.runtimeControls).toEqual(runtimeControls);
+
+      await commit(cmd("SelectFields", { id: insightId, fieldIds: [] }));
+      const afterFieldRemoval = (await insightsById(insightId))[0]
+        ?.definition as {
+        runtimeControls: {
+          filters?: unknown[];
+          sort?: unknown;
+          limit?: unknown;
+        };
+      };
+      expect(afterFieldRemoval.runtimeControls).toEqual({
+        filters: runtimeControls.filters,
+        limit: runtimeControls.limit,
+      });
+
+      await commit(cmd("SetInsightFilter", { id: insightId, filters: [] }));
+      const afterFilterRemoval = (await insightsById(insightId))[0]
+        ?.definition as { runtimeControls: { limit?: unknown } };
+      expect(afterFilterRemoval.runtimeControls).toEqual({
+        limit: runtimeControls.limit,
+      });
+
+      await expect(
+        commit(
+          cmd("SetInsightRuntimeControls", {
+            id: insightId,
+            runtimeControls: {
+              filters: [
+                { key: "missing", filterId: "missing", label: "Missing" },
+              ],
+            },
+          }),
+        ),
+      ).rejects.toThrow("filter target not found");
+    });
+  });
+
   // -------------------------------------------------------------------------
   // Write-boundary validation of the insight `definition` JSONB
   // -------------------------------------------------------------------------

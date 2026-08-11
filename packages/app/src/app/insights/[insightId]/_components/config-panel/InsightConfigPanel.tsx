@@ -10,11 +10,14 @@ import type {
   Insight,
   InsightFilter,
   InsightMetric,
+  InsightRuntimeDeclaration,
   InsightSort,
+  UUID,
 } from "@dashframe/types";
 import {
   buildInsightUpdateCommands,
   buildVisualizationUpdateCommands,
+  cmd,
 } from "@dashframe/types";
 import { InputField } from "@dashframe/ui";
 import { useMutation, useQuery } from "@wystack/client";
@@ -24,6 +27,7 @@ import {
   Columns3,
   ListFilter,
   Sigma,
+  SlidersHorizontal,
   Workflow,
 } from "lucide-react";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
@@ -44,6 +48,8 @@ import { InsightFieldEditorModal } from "./InsightFieldEditorModal";
 import { InsightMetricEditorModal } from "./InsightMetricEditorModal";
 import { MetricEditDialog } from "./MetricEditDialog";
 import { MetricsSection } from "./MetricsSection";
+import { pruneRuntimeControls } from "./runtime-controls";
+import { RuntimeControlsSection } from "./RuntimeControlsSection";
 import { SortSection } from "./SortSection";
 
 interface InsightConfigPanelProps {
@@ -78,7 +84,13 @@ const initialDeleteDialogState: DeleteDialogState = {
   itemType: "field",
 };
 
-type ConfigSection = "model" | "fields" | "metrics" | "filters" | "sort";
+type ConfigSection =
+  | "model"
+  | "fields"
+  | "metrics"
+  | "filters"
+  | "sort"
+  | "runtime";
 
 interface ConfigSectionButtonProps {
   active: boolean;
@@ -237,6 +249,34 @@ export function InsightConfigPanel({
     () => (insight.metrics ?? []).filter((m) => !m.name.startsWith("_")),
     [insight.metrics],
   );
+  const runtimeResultFields = useMemo(
+    () => [
+      ...selectedFields.map((field) => ({
+        id: field.id as UUID,
+        label: field.displayName,
+      })),
+      ...visibleMetrics.map((metric) => ({
+        id: metric.id,
+        label: metric.name,
+      })),
+    ],
+    [selectedFields, visibleMetrics],
+  );
+
+  const handleRuntimeControlsChange = useCallback(
+    (runtimeControls: InsightRuntimeDeclaration | undefined) => {
+      const commands = runtimeControls
+        ? buildInsightUpdateCommands(insight.id, insight, { runtimeControls })
+        : [
+            cmd("SetInsightRuntimeControls", {
+              id: insight.id,
+              runtimeControls: undefined,
+            }),
+          ];
+      return commitBatch({ commands }).then(() => undefined);
+    },
+    [commitBatch, insight],
+  );
 
   /**
    * Stable client-side ids for filters, used for SortableList keying and for
@@ -376,12 +416,25 @@ export function InsightConfigPanel({
   const handleRemoveFilter = useCallback(
     (filterId: string) => {
       const updated = filtersWithIds.filter((f) => f._id !== filterId);
+      const filters = stripFilterIds(updated);
+      const runtimeControls = pruneRuntimeControls(
+        insight.runtimeControls,
+        filters,
+        runtimeResultFields.map((field) => field.id),
+      );
       updateInsightLegacy({
         id: insight.id,
-        updates: { filters: stripFilterIds(updated) },
+        updates: { filters, runtimeControls },
       });
     },
-    [insight.id, filtersWithIds, stripFilterIds, updateInsightLegacy],
+    [
+      insight.id,
+      insight.runtimeControls,
+      filtersWithIds,
+      runtimeResultFields,
+      stripFilterIds,
+      updateInsightLegacy,
+    ],
   );
 
   const handleSaveFilter = useCallback(
@@ -452,12 +505,29 @@ export function InsightConfigPanel({
       const updated = (insight.selectedFields ?? []).filter(
         (id) => id !== deleteDialog.itemId,
       );
-      updateInsight(insight.id, { selectedFields: updated });
+      updateInsight(insight.id, {
+        selectedFields: updated,
+        runtimeControls: pruneRuntimeControls(
+          insight.runtimeControls,
+          insight.filters ?? [],
+          [...updated, ...(insight.metrics ?? []).map((metric) => metric.id)],
+        ),
+      });
     } else {
       const updated = (insight.metrics ?? []).filter(
         (m) => m.id !== deleteDialog.itemId,
       );
-      updateInsight(insight.id, { metrics: updated });
+      updateInsight(insight.id, {
+        metrics: updated,
+        runtimeControls: pruneRuntimeControls(
+          insight.runtimeControls,
+          insight.filters ?? [],
+          [
+            ...(insight.selectedFields ?? []),
+            ...updated.map((metric) => metric.id),
+          ],
+        ),
+      });
     }
   }, [
     deleteDialog.itemType,
@@ -465,6 +535,8 @@ export function InsightConfigPanel({
     insight.id,
     insight.selectedFields,
     insight.metrics,
+    insight.filters,
+    insight.runtimeControls,
     updateInsight,
   ]);
 
@@ -520,6 +592,17 @@ export function InsightConfigPanel({
               label="Sort"
               onClick={() => setActiveSection("sort")}
             />
+            <ConfigSectionButton
+              active={activeSection === "runtime"}
+              count={
+                (insight.runtimeControls?.filters?.length ?? 0) +
+                (insight.runtimeControls?.sort ? 1 : 0) +
+                (insight.runtimeControls?.limit ? 1 : 0)
+              }
+              icon={<SlidersHorizontal className="h-3.5 w-3.5" />}
+              label="Runtime"
+              onClick={() => setActiveSection("runtime")}
+            />
           </div>
         </div>
       }
@@ -574,6 +657,14 @@ export function InsightConfigPanel({
             fields={selectedFields}
             metrics={visibleMetrics}
             onChange={handleSortsChange}
+          />
+        )}
+        {activeSection === "runtime" && (
+          <RuntimeControlsSection
+            declaration={insight.runtimeControls}
+            filters={insight.filters ?? []}
+            resultFields={runtimeResultFields}
+            onChange={handleRuntimeControlsChange}
           />
         )}
       </div>

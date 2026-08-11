@@ -8,7 +8,12 @@
  * mutation handlers + `commandFunctions` registry only.
  */
 import type { Field, SourceSchema } from "./field";
-import type { Insight, InsightJoinConfig, InsightSort } from "./insights";
+import type {
+  Insight,
+  InsightJoinConfig,
+  InsightRuntimeDeclaration,
+  InsightSort,
+} from "./insights";
 import type { InsightMetric, Metric } from "./metric";
 import type { UUID } from "./uuid";
 import type {
@@ -198,6 +203,10 @@ export interface CommandPayloads {
   SelectFields: { id: UUID; fieldIds: UUID[] };
   SetInsightFilter: { id: UUID; filters: TypedInsightFilter[] };
   SetInsightSort: { id: UUID; sorts: InsightSort[] };
+  SetInsightRuntimeControls: {
+    id: UUID;
+    runtimeControls?: InsightRuntimeDeclaration;
+  };
   AddJoin: { id: UUID; join: InsightJoinConfig };
   UpdateJoin: {
     id: UUID;
@@ -272,6 +281,7 @@ export const COMMAND_PATHS = {
   SelectFields: "selectFields",
   SetInsightFilter: "setInsightFilter",
   SetInsightSort: "setInsightSort",
+  SetInsightRuntimeControls: "setInsightRuntimeControls",
   AddJoin: "addJoin",
   UpdateJoin: "updateJoin",
   RemoveJoin: "removeJoin",
@@ -429,6 +439,14 @@ export function buildInsightUpdateCommands(
   }
   if (updates.sorts !== undefined) {
     commands.push(cmd("SetInsightSort", { id, sorts: updates.sorts }));
+  }
+  if ("runtimeControls" in updates) {
+    commands.push(
+      cmd("SetInsightRuntimeControls", {
+        id,
+        runtimeControls: updates.runtimeControls,
+      }),
+    );
   }
   if (updates.metrics !== undefined) {
     commands.push(

@@ -329,6 +329,63 @@ describe("Notion data-plane routes — happy path (mocked connector)", () => {
     ).toBeUndefined();
   });
 
+  it("prepares a newly bound table from connector-authored structural fields", async () => {
+    const sourceId = await seedNotionSource();
+    const tableId = await seedNotionTable(sourceId);
+
+    const prepared = await app.call("prepareRemoteDataTable", { id: tableId });
+
+    expect(prepared.result).toEqual({ fields: returnedFields });
+    expect(
+      ((await app.call("getDataTable", { id: tableId })).result as DataTable)
+        .fields,
+    ).toEqual(returnedFields);
+    expect(queryCalls.at(-1)?.options).toEqual({
+      pagination: { offset: 0, limit: 1 },
+    });
+    expect(await frameStorage.list()).toEqual([]);
+  });
+
+  it("fails closed when preparation discovers drift after schema persistence", async () => {
+    const sourceId = await seedNotionSource();
+    const tableId = await seedNotionTable(sourceId);
+    await app.call("prepareRemoteDataTable", { id: tableId });
+    returnedFields = [
+      ...returnedFields,
+      { id: "f3", name: "Owner", type: "string", sensitivity: "cleared" },
+    ];
+
+    await expect(
+      app.call("prepareRemoteDataTable", { id: tableId }),
+    ).rejects.toThrow("SOURCE_SCHEMA_CHANGED");
+  });
+
+  it("does not attach a discovered schema after the remote binding changes", async () => {
+    const sourceId = await seedNotionSource();
+    const tableId = await seedNotionTable(sourceId);
+    let releaseQuery!: () => void;
+    pauseQuery = () =>
+      new Promise<void>((resolve) => {
+        releaseQuery = resolve;
+      });
+
+    const preparing = app.call("prepareRemoteDataTable", { id: tableId });
+    await vi.waitFor(() => expect(releaseQuery).toBeTypeOf("function"));
+    await app.call("updateDataTable", {
+      id: tableId,
+      updates: { table: "db-2" },
+    });
+    releaseQuery();
+
+    await expect(preparing).rejects.toThrow(
+      "Remote table binding changed during schema discovery",
+    );
+    expect(
+      ((await app.call("getDataTable", { id: tableId })).result as DataTable)
+        .fields,
+    ).toEqual([]);
+  });
+
   it("rejects every unreviewed import shape before persistence", async () => {
     const id = await seedNotionSource();
     const tableId = await seedNotionTable(id);
