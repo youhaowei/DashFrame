@@ -207,6 +207,7 @@ describe("registered production Insight composition", () => {
           (frame) => frame.insightId === derivedInsightId,
         ),
       ).toBe(true);
+      expect(await db.select().from(schema.dataFrames)).toHaveLength(2);
     } finally {
       await engine.dispose();
       await db.$client.close();

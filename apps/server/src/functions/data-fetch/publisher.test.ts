@@ -14,7 +14,7 @@ function materialization(
     | { kind: "ephemeral" }
     | { kind: "transient" }
     | { kind: "saved"; insightId: string },
-) {
+): PublishMaterialization {
   return {
     target,
     sources: [
@@ -48,7 +48,7 @@ function materialization(
     definitionFingerprint: "fingerprint",
     provenance: { connectorKind: "googleAnalytics", bindingVersion: "v1" },
     fetchedAt: 100,
-  } as never;
+  } as unknown as PublishMaterialization;
 }
 
 function context(
@@ -67,6 +67,7 @@ function context(
     from: () => {
       const builder = {
         where: () => builder,
+        all: async () => [],
         update: async (value: unknown) => {
           updates.push(value);
           return updatedRows;
@@ -104,7 +105,7 @@ describe("publishMaterialization", () => {
       dataFrameId: "source-frame",
       lastFetchedAt: new Date(100),
     });
-    expect(h.updates).toContainEqual({ insightId: null });
+    expect(h.updates).not.toContainEqual({ insightId: null });
   });
 
   it("does not attach an ephemeral result to an Insight", async () => {
@@ -144,6 +145,57 @@ describe("publishMaterialization", () => {
         materialization({ kind: "saved", insightId: "insight" }),
       ),
     ).rejects.toThrow("db");
+  });
+
+  it("keeps superseded saved generations owned by their Insight", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "dashframe-publish-history-"));
+    const db = await openArtifactDb({ path: join(dir, "artifacts.db") });
+    try {
+      const sourceId = crypto.randomUUID();
+      const tableId = crypto.randomUUID();
+      const insightId = crypto.randomUUID();
+      await db.insert(schema.dataSources).values({
+        id: sourceId,
+        name: "Source",
+        kind: "googleAnalytics",
+        storage: "live",
+        config: {},
+        createdBy: { kind: "user" },
+      });
+      await db.insert(schema.dataTables).values({
+        id: tableId,
+        dataSourceId: sourceId,
+        name: "Table",
+        table: "properties/1",
+        fields: [],
+        metrics: [],
+      });
+      for (const resultId of [crypto.randomUUID(), crypto.randomUUID()]) {
+        const value = materialization({ kind: "saved", insightId });
+        value.sources = [];
+        value.result.id = resultId;
+        await publishMaterialization(
+          { db: createDrizzleTracker(db) } as never,
+          value,
+        );
+      }
+
+      const owned = await db
+        .select()
+        .from(schema.dataFrames)
+        .where(eq(schema.dataFrames.insightId, insightId));
+      expect(owned).toHaveLength(2);
+      expect(
+        owned.filter(
+          (frame) =>
+            (frame.analysis as { currentInsightResult?: unknown })
+              ?.currentInsightResult === true,
+        ),
+      ).toHaveLength(1);
+    } finally {
+      await db.$client.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("inserts no frames when the conditional source pointer swap loses its race", async () => {

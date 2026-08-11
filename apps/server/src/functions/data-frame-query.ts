@@ -10,10 +10,15 @@ import { permissions } from "../permissions";
 import { wy } from "../wystack";
 
 const MAX_PAGE_SIZE = 500;
-const MAX_OFFSET = 100_000;
 
 const requestSchema = z.object({
-  offset: z.number().int().min(0).max(MAX_OFFSET).optional().default(0),
+  offset: z
+    .number()
+    .int()
+    .min(0)
+    .max(Number.MAX_SAFE_INTEGER)
+    .optional()
+    .default(0),
   limit: z.number().int().min(1).max(MAX_PAGE_SIZE).optional().default(100),
   sort: z
     .array(

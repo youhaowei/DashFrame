@@ -272,6 +272,14 @@ describe("MCP route", () => {
         "query_data_frame",
         "draft_batch",
       ]);
+      expect(
+        (
+          listed.tools.find((tool) => tool.name === "query_data_frame")!
+            .inputSchema as unknown as {
+            properties: { offset: { maximum: number } };
+          }
+        ).properties.offset.maximum,
+      ).toBe(Number.MAX_SAFE_INTEGER);
       for (const tool of listed.tools) {
         const roundTripped = JSON.parse(JSON.stringify(tool.inputSchema)) as {
           type?: string;

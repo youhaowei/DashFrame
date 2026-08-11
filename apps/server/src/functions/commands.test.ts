@@ -3792,11 +3792,7 @@ describe("command vocabulary", () => {
     // Arrow / DataFrame metadata cleanup
     // -------------------------------------------------------------------------
 
-    it("should delete the DataFrame metadata row when an Insight is deleted (Arrow cleanup signal)", async () => {
-      // The dataFrames table stores metadata-only; the actual Arrow bytes live in
-      // the renderer's IndexedDB. Deleting the metadata row signals the client-
-      // side removeDataFrame hook to clean up Arrow bytes via deleteArrowData().
-      // Test: after DeleteNode(insight), the dataFrames row with insightId is gone.
+    it("should delete server-frame metadata when an Insight is deleted", async () => {
       const { tableId } = await makeTable();
       const insightId = id();
       const frameId = id();
@@ -3812,7 +3808,7 @@ describe("command vocabulary", () => {
       // yet; we write the row via the raw Drizzle handle used by test helpers).
       await db.insert(schema.dataFrames).values({
         id: frameId,
-        storage: { type: "indexeddb", key: `arrow-${frameId}` },
+        storage: { type: "file", key: frameId },
         fieldIds: [],
         name: `Frame for ${insightId}`,
         insightId,
@@ -3824,7 +3820,6 @@ describe("command vocabulary", () => {
 
       await commit(cmd("DeleteNode", { id: insightId }));
 
-      // The DataFrame metadata row must be gone after the Insight is deleted.
       const afterRows = await db.select().from(schema.dataFrames);
       expect(afterRows.filter((r) => r.insightId === insightId)).toHaveLength(
         0,
@@ -3844,7 +3839,7 @@ describe("command vocabulary", () => {
       );
       await db.insert(schema.dataFrames).values({
         id: frameId,
-        storage: { type: "indexeddb", key: `arrow-${frameId}` },
+        storage: { type: "file", key: frameId },
         fieldIds: [],
         name: `Frame for ${insightId}`,
         insightId,

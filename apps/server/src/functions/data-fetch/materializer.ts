@@ -222,6 +222,10 @@ async function materializeOnce(
     const tables = new Map<UUID, DataTable>();
     for (const source of sources) {
       if (source.existingFrameId) {
+        await runtime.registerArrowTable(
+          dependencies.tableName(source.existingFrameId),
+          source.arrow,
+        );
         tables.set(source.table.id, source.table);
         continue;
       }

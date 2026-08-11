@@ -132,6 +132,18 @@ describe("queryDataFrame", () => {
       ),
       [100, 0],
     );
+
+    queryArrow.mockClear();
+    const deepPage = await call({
+      dataFrameId: id,
+      offset: 100_001,
+      limit: 1,
+    });
+    expect(deepPage.result).toMatchObject({ status: "ready" });
+    expect(queryArrow).toHaveBeenCalledWith(
+      expect.stringContaining("LIMIT ? OFFSET ?"),
+      [1, 100_001],
+    );
   });
 
   it("does not query a frame revoked while its bytes are being registered", async () => {

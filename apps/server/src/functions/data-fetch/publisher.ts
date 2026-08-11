@@ -53,11 +53,21 @@ export async function publishMaterialization(
     // after the outer query settles and must never become an orphan DB row.
     if (value.target.kind === "transient") return;
     if (value.target.kind === "saved") {
-      // Detach, don't delete: historical handles remain readable.
-      await tx
+      const prior = await tx
         .from(dataFrames)
         .where(eq("insightId", value.target.insightId))
-        .update({ insightId: null });
+        .all();
+      for (const frame of prior) {
+        await tx
+          .from(dataFrames)
+          .where(eq("id", frame.id))
+          .update({
+            analysis: {
+              ...((frame.analysis as Record<string, unknown> | null) ?? {}),
+              currentInsightResult: false,
+            },
+          });
+      }
     }
     await tx.into(dataFrames).insert({
       id: value.result.id,
@@ -82,6 +92,9 @@ export async function publishMaterialization(
         fetchedAt: value.fetchedAt,
         ...(value.target.kind === "ephemeral"
           ? { lifecycle: { kind: "serverSession" } }
+          : {}),
+        ...(value.target.kind === "saved"
+          ? { currentInsightResult: true }
           : {}),
       } as never,
       lastRefreshedAt: new Date(value.fetchedAt),

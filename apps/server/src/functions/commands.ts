@@ -2069,7 +2069,8 @@ async function findOrphanedInsights(
  * The `dataFrames` table stores metadata only. For server-file rows, the
  * server app reconciles unreferenced files after the enclosing command
  * transaction commits; a rolled-back batch therefore never loses live bytes.
- * Retained IndexedDB rows are still cleaned by the client data-access hook.
+ * Retained IndexedDB rows are outside the server-owned v0.3 data plane. An
+ * Insight carrying one fails deletion rather than orphaning browser bytes.
  */
 async function deleteInsightDataFrames(
   ctx: { db: import("@wystack/db").DrizzleTracker },
@@ -2079,6 +2080,13 @@ async function deleteInsightDataFrames(
     .from(dataFrames)
     .where(eq("insightId", insightId))
     .all();
+  if (
+    owned.some(
+      (frame) => (frame.storage as { type?: unknown } | null)?.type !== "file",
+    )
+  ) {
+    throw new Error("Legacy browser DataFrames are not supported");
+  }
   for (const frame of owned) {
     const references = await ctx.db
       .from(dataTables)

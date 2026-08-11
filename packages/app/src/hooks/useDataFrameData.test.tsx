@@ -12,7 +12,10 @@ vi.mock("@wystack/client", async (importOriginal) => ({
   useQuery: () => useFrames(),
 }));
 
-import { useDataFrameData } from "./useDataFrameData";
+import {
+  useDataFrameData,
+  useDataFrameDataByInsight,
+} from "./useDataFrameData";
 
 describe("useDataFrameData", () => {
   beforeEach(() => {
@@ -83,5 +86,41 @@ describe("useDataFrameData", () => {
       }),
     );
     expect(result.current.data?.rows).toEqual([{ b: "new" }]);
+  });
+
+  it("uses the canonical current Insight generation when timestamps tie", async () => {
+    useFrames.mockReturnValue({
+      data: [
+        {
+          id: "old-frame",
+          insightId: "insight-1",
+          createdAt: 100,
+          lastRefreshedAt: 200,
+        },
+        {
+          id: "current-frame",
+          insightId: "insight-1",
+          createdAt: 100,
+          lastRefreshedAt: 200,
+          currentInsightResult: true,
+        },
+      ],
+    });
+    queryDataFrame.mockResolvedValue({
+      status: "ready",
+      schema: [],
+      rows: [],
+      totalCount: 0,
+      page: { offset: 0, limit: 100, returned: 0 },
+    });
+
+    renderHook(() => useDataFrameDataByInsight("insight-1"));
+
+    await waitFor(() =>
+      expect(queryDataFrame).toHaveBeenCalledWith("current-frame", {
+        offset: 0,
+        limit: 100,
+      }),
+    );
   });
 });

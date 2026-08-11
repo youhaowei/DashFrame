@@ -223,7 +223,9 @@ function createDataTools(
       Type.Object(
         {
           dataFrameId: Type.String({ format: "uuid" }),
-          offset: Type.Optional(Type.Integer({ minimum: 0, maximum: 100_000 })),
+          offset: Type.Optional(
+            Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER }),
+          ),
           limit: Type.Optional(
             Type.Integer({ minimum: 1, maximum: DATA_QUERY_MAX_LIMIT }),
           ),

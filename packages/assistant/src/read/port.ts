@@ -64,6 +64,9 @@ export interface DataFrameRead {
   fieldIds: UUID[];
   rowCount?: number;
   columnCount?: number;
+  createdAt?: number;
+  lastRefreshedAt?: number;
+  currentInsightResult?: boolean;
 }
 
 /** A dashboard's read shape (apps/server dashboards.ts `getDashboard`). */

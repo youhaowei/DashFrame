@@ -184,6 +184,9 @@ async function resolveProductionSource(
     arrow: new Uint8Array(Buffer.from(result.arrowBuffer, "base64")),
     fields: result.fields,
     rowCount: result.rowCount,
+    ...(binding.connectorKind === "local" && binding.table.dataFrameId
+      ? { existingFrameId: binding.table.dataFrameId }
+      : {}),
     provenance: {
       connectorKind: result.provenance.connectorKind,
       bindingVersion: result.provenance.sourceBindingVersion,

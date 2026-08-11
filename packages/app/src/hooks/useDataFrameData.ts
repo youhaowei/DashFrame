@@ -99,7 +99,18 @@ export function useDataFrameDataByInsight(
 ): UseDataFrameDataResult {
   const { data: allDataFrames } = useQuery(api.listDataFrames);
   const entry = useMemo(
-    () => allDataFrames?.find((frame) => frame.insightId === insightId),
+    () =>
+      allDataFrames?.find(
+        (frame) =>
+          frame.insightId === insightId && frame.currentInsightResult === true,
+      ) ??
+      allDataFrames
+        ?.filter((frame) => frame.insightId === insightId)
+        .sort(
+          (left, right) =>
+            (right.lastRefreshedAt ?? right.createdAt) -
+            (left.lastRefreshedAt ?? left.createdAt),
+        )[0],
     [allDataFrames, insightId],
   );
   return useDataFrameData(entry?.id, options);

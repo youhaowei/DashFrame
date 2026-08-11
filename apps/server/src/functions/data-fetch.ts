@@ -460,17 +460,30 @@ async function lastSuccessfulForInsight(
   ctx: DashframeFunctionContext,
   insightId: UUID,
 ) {
-  const row = (await ctx.db
+  const rows = (await ctx.db
     .from(schema.dataFrames)
     .where(eq("insightId", insightId))
-    .first()) as
-    | {
-        id: UUID;
-        fieldIds: unknown;
-        rowCount: number | null;
-        analysis: unknown;
-        lastRefreshedAt: Date | null;
-      }
-    | undefined;
+    .all()) as Array<{
+    id: UUID;
+    fieldIds: unknown;
+    rowCount: number | null;
+    analysis: unknown;
+    lastRefreshedAt: Date | null;
+  }>;
+  const row =
+    rows.find(
+      (candidate) =>
+        (candidate.analysis as { currentInsightResult?: unknown } | null)
+          ?.currentInsightResult === true,
+    ) ??
+    rows.reduce<(typeof rows)[number] | undefined>(
+      (latest, candidate) =>
+        !latest ||
+        (candidate.lastRefreshedAt?.getTime() ?? 0) >
+          (latest.lastRefreshedAt?.getTime() ?? 0)
+          ? candidate
+          : latest,
+      undefined,
+    );
   return row ? staleFrameMetadata(row) : undefined;
 }

@@ -52,6 +52,7 @@ export type DataFrameEntry = DataFrameJSON & {
   columnCount?: number;
   analysis?: DataFrameAnalysis | null;
   lastRefreshedAt?: number;
+  currentInsightResult?: boolean;
 };
 
 export type DataFramePage =
