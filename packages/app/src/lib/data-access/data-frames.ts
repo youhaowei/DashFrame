@@ -1,4 +1,11 @@
-import type { DataFrameAnalysis, DataFrameJSON, UUID } from "@dashframe/types";
+import type {
+  DataFrameAnalysis,
+  DataFrameJSON,
+  Field,
+  Metric,
+  SourceSchema,
+  UUID,
+} from "@dashframe/types";
 
 import { api } from "../../wystack/api";
 import { getWyStackClient } from "../../wystack/client";
@@ -19,11 +26,20 @@ export async function ingestLocalDataFrame(
   dataTableId: UUID,
   arrowBuffer: Uint8Array,
   primaryKey?: string | string[],
+  replacement?: {
+    expectedDataFrameId: UUID | null;
+    name: string;
+    table: string;
+    sourceSchema: SourceSchema;
+    fields: Field[];
+    metrics: Metric[];
+  },
 ): Promise<{ dataFrameId: UUID; rowCount: number; columnCount: number }> {
   return getWyStackClient().mutate(api.ingestLocalDataFrame, {
     dataTableId,
     arrowBase64: bytesToBase64(arrowBuffer),
     primaryKey,
+    ...(replacement ? { replacement } : {}),
   });
 }
 

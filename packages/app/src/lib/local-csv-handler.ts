@@ -1,10 +1,6 @@
 import { ingestLocalDataFrame } from "@/lib/data-access/data-frames";
 import { getOrCreateDataSourceByType } from "@/lib/data-access/data-sources";
-import {
-  createDataTable,
-  getDataTable,
-  updateDataTable,
-} from "@/lib/data-access/data-tables";
+import { createDataTable, getDataTable } from "@/lib/data-access/data-tables";
 import { csvToDataFrame } from "@dashframe/csv";
 import type { FileParseResult } from "@dashframe/engine";
 import type { Field, Metric } from "@dashframe/types";
@@ -177,13 +173,20 @@ export async function handleLocalCSVUpload(
       replacementFields,
     );
 
-    await updateDataTable(dataTableId, {
-      name: tableName,
-      table: file.name,
-      sourceSchema,
-      fields: replacementFields,
-      metrics,
-    });
+    const { dataFrameId } = await ingestLocalDataFrame(
+      dataTableId,
+      arrowBuffer,
+      primaryKey,
+      {
+        expectedDataFrameId: overrideTable.dataFrameId ?? null,
+        name: tableName,
+        table: file.name,
+        sourceSchema,
+        fields: replacementFields,
+        metrics,
+      },
+    );
+    return { dataTableId, dataFrameId, dataSourceId: dataSource.id };
   } else {
     // 3b. Create DataTable via the CreateDataTable command — PRIMITIVE path.
     // CreateDataTable does NOT auto-inject metrics, so we pass the default
@@ -251,13 +254,20 @@ export async function handleFileConnectorResult(
       replacementFields,
     );
 
-    await updateDataTable(dataTableId, {
-      name: tableName,
-      table: fileName,
-      sourceSchema,
-      fields: replacementFields,
-      metrics,
-    });
+    const { dataFrameId } = await ingestLocalDataFrame(
+      dataTableId,
+      arrowBuffer,
+      primaryKey,
+      {
+        expectedDataFrameId: overrideTable.dataFrameId ?? null,
+        name: tableName,
+        table: fileName,
+        sourceSchema,
+        fields: replacementFields,
+        metrics,
+      },
+    );
+    return { dataTableId, dataFrameId, dataSourceId: dataSource.id };
   } else {
     // Create DataTable via the CreateDataTable command — PRIMITIVE path.
     // CreateDataTable does NOT auto-inject metrics, so we pass the default

@@ -41,6 +41,32 @@ describe("server-owned DataFrame access", () => {
     });
   });
 
+  it("forwards replacement metadata and the expected prior pointer", async () => {
+    const replacement = {
+      expectedDataFrameId: DATA_FRAME_ID,
+      name: "Orders v2",
+      table: "orders-v2.csv",
+      sourceSchema: { columns: [], version: 1, lastSyncedAt: 1 },
+      fields: [],
+      metrics: [],
+    };
+    mockMutate.mockResolvedValue({ dataFrameId: DATA_FRAME_ID });
+
+    await ingestLocalDataFrame(
+      DATA_TABLE_ID,
+      new Uint8Array([1, 2, 3]),
+      undefined,
+      replacement,
+    );
+
+    expect(mockMutate).toHaveBeenCalledWith("ingestLocalDataFrame", {
+      dataTableId: DATA_TABLE_ID,
+      arrowBase64: "AQID",
+      primaryKey: undefined,
+      replacement,
+    });
+  });
+
   it("queries rows only through the bounded server frame surface", async () => {
     mockQuery.mockResolvedValue({ status: "ready", rows: [] });
 
