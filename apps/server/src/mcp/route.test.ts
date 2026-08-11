@@ -267,6 +267,9 @@ describe("MCP route", () => {
         "read_artifact",
         "read_data",
         "read_source",
+        "fetch_data",
+        "run_insight",
+        "query_data_frame",
         "draft_batch",
       ]);
       for (const tool of listed.tools) {
@@ -276,7 +279,16 @@ describe("MCP route", () => {
         };
         expect(roundTripped.type).toBe("object");
         expect(Object.getOwnPropertySymbols(roundTripped)).toHaveLength(0);
-        if (tool.name !== "draft_batch") {
+        if (
+          [
+            "read_neighborhood",
+            "read_graph",
+            "find_nodes",
+            "read_artifact",
+            "read_data",
+            "read_source",
+          ].includes(tool.name)
+        ) {
           expect(roundTripped.properties?.draftId?.description).toBe(
             "Draft id from draft_batch. Pass it to read through that draft's overlay; omit to read canonical state.",
           );

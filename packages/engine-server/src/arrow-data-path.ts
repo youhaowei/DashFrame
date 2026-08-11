@@ -433,7 +433,9 @@ function parseParams(body: RequestBody): readonly unknown[] {
  * Decode an Arrow IPC stream buffer into plain JSON rows.
  * Used for Mosaic 'json' query type (column stats, DESCRIBE, etc.).
  */
-function arrowIpcToJsonRows(arrow: Uint8Array): Record<string, unknown>[] {
+export function arrowIpcToJsonRows(
+  arrow: Uint8Array,
+): Record<string, unknown>[] {
   const table = tableFromIPC(arrow);
   const rows: Record<string, unknown>[] = [];
   for (let i = 0; i < table.numRows; i++) {

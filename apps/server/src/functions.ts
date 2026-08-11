@@ -20,6 +20,7 @@ import { dashboardFunctions } from "./functions/dashboards";
 import { createDataFetchFunctions } from "./functions/data-fetch";
 import { resolveSourceBinding } from "./functions/data-fetch/bindings";
 import { createProductionFetchExecutor } from "./functions/data-fetch/production";
+import { dataFrameQueryFunctions } from "./functions/data-frame-query";
 import { draftBatchFunctions } from "./functions/draft-batch";
 import { draftLifecycleFunctions } from "./functions/draft-lifecycle";
 import { draftReviseFunctions } from "./functions/draft-revise";
@@ -76,6 +77,7 @@ export const functions = {
   ...connectorSetupFunctions,
   ...dashboardFunctions,
   ...dataFetchFunctions,
+  ...dataFrameQueryFunctions,
   ...draftLifecycleFunctions,
   ...draftBatchFunctions,
   ...draftFunctions,
