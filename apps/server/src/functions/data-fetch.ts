@@ -112,6 +112,102 @@ export type LiveFetchExecutor = (args: {
   target: MaterializationTarget;
 }) => Promise<InsightFetchResult>;
 
+type RuntimeFilterControl = NonNullable<
+  NonNullable<Insight["runtimeControls"]>["filters"]
+>[number];
+
+function declaredRuntimeFilters(
+  saved: Insight,
+): Map<string, RuntimeFilterControl> {
+  const controls = new Map<string, RuntimeFilterControl>();
+  const targetFilterIds = new Set<string>();
+  const savedFilterIds = new Map<string, number>();
+  for (const filter of saved.filters ?? []) {
+    if (filter.id) {
+      savedFilterIds.set(filter.id, (savedFilterIds.get(filter.id) ?? 0) + 1);
+    }
+  }
+  for (const control of saved.runtimeControls?.filters ?? []) {
+    if (controls.has(control.key))
+      throw new Error("RUNTIME_FILTER_KEY_DUPLICATE");
+    if (
+      targetFilterIds.has(control.filterId) ||
+      savedFilterIds.get(control.filterId) !== 1
+    ) {
+      throw new Error("RUNTIME_FILTER_DECLARATION_INVALID");
+    }
+    controls.set(control.key, control);
+    targetFilterIds.add(control.filterId);
+  }
+  return controls;
+}
+
+function applyRuntimeFilters(
+  definition: EffectiveInsightDefinition,
+  saved: Insight,
+  runtime: InsightRuntimeInput | undefined,
+): void {
+  const values = runtime?.filters ?? {};
+  const controls = declaredRuntimeFilters(saved);
+  for (const key of Object.keys(values)) {
+    if (!controls.has(key)) throw new Error("RUNTIME_FILTER_NOT_DECLARED");
+  }
+  for (const control of controls.values()) {
+    const hasValue = Object.hasOwn(values, control.key);
+    const value = values[control.key];
+    if (control.required && (!hasValue || value === null)) {
+      throw new Error("RUNTIME_FILTER_REQUIRED");
+    }
+    if (!hasValue) continue;
+    if (value === null) {
+      if (!control.allowClear)
+        throw new Error("RUNTIME_FILTER_CLEAR_NOT_ALLOWED");
+      definition.filters = definition.filters?.filter(
+        (candidate) => candidate.id !== control.filterId,
+      );
+      continue;
+    }
+    definition.filters = definition.filters?.map((candidate) =>
+      candidate.id === control.filterId ? { ...candidate, value } : candidate,
+    );
+  }
+}
+
+function applyRuntimeSort(
+  definition: EffectiveInsightDefinition,
+  saved: Insight,
+  runtime: InsightRuntimeInput | undefined,
+): void {
+  if (!runtime?.sort) return;
+  const control = saved.runtimeControls?.sort;
+  if (!control) throw new Error("RUNTIME_SORT_NOT_DECLARED");
+  if (control.maxKeys !== 1 || runtime.sort.length > control.maxKeys) {
+    throw new Error("RUNTIME_SORT_MAX_KEYS");
+  }
+  if (
+    runtime.sort.some((sort) => !control.allowedFieldIds.includes(sort.fieldId))
+  ) {
+    throw new Error("RUNTIME_SORT_FIELD_NOT_ALLOWED");
+  }
+  definition.sorts = runtime.sort.map((sort) => ({
+    field: sort.fieldId,
+    direction: sort.direction,
+  }));
+}
+
+function applyRuntimeLimit(
+  definition: EffectiveInsightDefinition,
+  saved: Insight,
+  runtime: InsightRuntimeInput | undefined,
+): void {
+  if (runtime?.limit === undefined) return;
+  const control = saved.runtimeControls?.limit;
+  if (!control || runtime.limit < control.min || runtime.limit > control.max) {
+    throw new Error("RUNTIME_LIMIT_OUT_OF_RANGE");
+  }
+  definition.limit = runtime.limit;
+}
+
 export function applyInsightRuntime(
   saved: Insight,
   runtime: InsightRuntimeInput | undefined,
@@ -124,77 +220,9 @@ export function applyInsightRuntime(
     sorts: saved.sorts,
     joins: saved.joins,
   };
-  const declared = saved.runtimeControls;
-  const values = runtime?.filters ?? {};
-  const declaredFilters = declared?.filters ?? [];
-  const controls = new Map<string, (typeof declaredFilters)[number]>();
-  const targetFilterIds = new Set<string>();
-  const savedFilterIds = new Map<string, number>();
-  for (const filter of saved.filters ?? []) {
-    if (filter.id)
-      savedFilterIds.set(filter.id, (savedFilterIds.get(filter.id) ?? 0) + 1);
-  }
-  for (const control of declaredFilters) {
-    if (controls.has(control.key))
-      throw new Error("RUNTIME_FILTER_KEY_DUPLICATE");
-    if (targetFilterIds.has(control.filterId))
-      throw new Error("RUNTIME_FILTER_DECLARATION_INVALID");
-    if (savedFilterIds.get(control.filterId) !== 1)
-      throw new Error("RUNTIME_FILTER_DECLARATION_INVALID");
-    controls.set(control.key, control);
-    targetFilterIds.add(control.filterId);
-  }
-  for (const key of Object.keys(values)) {
-    if (!controls.has(key)) throw new Error("RUNTIME_FILTER_NOT_DECLARED");
-  }
-  for (const control of controls.values()) {
-    const hasValue = Object.hasOwn(values, control.key);
-    const value = values[control.key];
-    if (control.required && (!hasValue || value === null))
-      throw new Error("RUNTIME_FILTER_REQUIRED");
-    if (!hasValue) continue;
-    const filter = (saved.filters ?? []).find(
-      (candidate) => candidate.id === control.filterId,
-    );
-    if (!filter) throw new Error("RUNTIME_FILTER_DECLARATION_INVALID");
-    if (value === null) {
-      if (!control.allowClear)
-        throw new Error("RUNTIME_FILTER_CLEAR_NOT_ALLOWED");
-      definition.filters = definition.filters?.filter(
-        (candidate) => candidate.id !== control.filterId,
-      );
-    } else {
-      definition.filters = definition.filters?.map((candidate) =>
-        candidate.id === control.filterId ? { ...candidate, value } : candidate,
-      );
-    }
-  }
-  if (runtime?.sort) {
-    const sortControl = declared?.sort;
-    if (!sortControl) throw new Error("RUNTIME_SORT_NOT_DECLARED");
-    if (
-      sortControl.maxKeys < 1 ||
-      sortControl.maxKeys > 1 ||
-      runtime.sort.length > sortControl.maxKeys
-    )
-      throw new Error("RUNTIME_SORT_MAX_KEYS");
-    if (
-      runtime.sort.some(
-        (sort) => !sortControl.allowedFieldIds.includes(sort.fieldId),
-      )
-    )
-      throw new Error("RUNTIME_SORT_FIELD_NOT_ALLOWED");
-    definition.sorts = runtime.sort.map((sort) => ({
-      field: sort.fieldId,
-      direction: sort.direction,
-    }));
-  }
-  if (runtime?.limit !== undefined) {
-    const limit = declared?.limit;
-    if (!limit || runtime.limit < limit.min || runtime.limit > limit.max)
-      throw new Error("RUNTIME_LIMIT_OUT_OF_RANGE");
-    definition.limit = runtime.limit;
-  }
+  applyRuntimeFilters(definition, saved, runtime);
+  applyRuntimeSort(definition, saved, runtime);
+  applyRuntimeLimit(definition, saved, runtime);
   return definition;
 }
 

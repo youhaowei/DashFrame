@@ -53,7 +53,9 @@ function context(failInsert = false) {
     }),
     from: () => ({
       where: () => ({
-        update: async (value: unknown) => void updates.push(value),
+        update: async (value: unknown) => {
+          updates.push(value);
+        },
       }),
     }),
   };

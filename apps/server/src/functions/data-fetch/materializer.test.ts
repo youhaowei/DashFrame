@@ -45,19 +45,25 @@ function harness(overrides: Partial<InsightMaterializerDependencies> = {}) {
   const bytes = new Map<string, Uint8Array>();
   const registered = new Map<string, Uint8Array>();
   const storage: DataFrameStorage = {
-    save: vi.fn(async (id, value) => void bytes.set(id, value)),
+    save: vi.fn(async (id, value) => {
+      bytes.set(id, value);
+    }),
     load: vi.fn(async (id) => bytes.get(id) ?? null),
-    delete: vi.fn(async (id) => void bytes.delete(id)),
+    delete: vi.fn(async (id) => {
+      bytes.delete(id);
+    }),
     exists: vi.fn(async (id) => bytes.has(id)),
     list: vi.fn(async () => [...bytes.keys()] as UUID[]),
     getUsage: vi.fn(async () => ({ count: bytes.size })),
   };
   const runtime: DataPlaneRuntime = {
     queryArrow: vi.fn(async () => new Uint8Array([9])),
-    registerArrowTable: vi.fn(
-      async (name, value) => void registered.set(name, value),
-    ),
-    unregisterTable: vi.fn(async (name) => void registered.delete(name)),
+    registerArrowTable: vi.fn(async (name, value) => {
+      registered.set(name, value);
+    }),
+    unregisterTable: vi.fn(async (name) => {
+      registered.delete(name);
+    }),
   };
   let id = 0;
   const publish = vi.fn(

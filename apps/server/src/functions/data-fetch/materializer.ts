@@ -110,7 +110,7 @@ export function createInsightMaterializer(
       const clear = () => {
         if (inFlight.get(key) === operation) inFlight.delete(key);
       };
-      void operation.then(clear, clear);
+      operation.then(clear, clear);
       return operation;
     },
   };

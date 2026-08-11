@@ -44,12 +44,11 @@ function context(rows: { table?: unknown; source?: unknown; frame?: unknown }) {
     db: {
       from: (target: unknown) => ({
         where: () => ({
-          first: async () =>
-            target === schema.dataTables
-              ? rows.table
-              : target === schema.dataFrames
-                ? rows.frame
-                : rows.source,
+          first: async () => {
+            if (target === schema.dataTables) return rows.table;
+            if (target === schema.dataFrames) return rows.frame;
+            return rows.source;
+          },
         }),
       }),
     },
