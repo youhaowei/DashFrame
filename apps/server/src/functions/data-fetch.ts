@@ -35,6 +35,7 @@ const RUNTIME_FAILURE_CODES = new Set([
   "RUNTIME_FILTER_DECLARATION_INVALID",
   "RUNTIME_FILTER_REQUIRED",
   "RUNTIME_FILTER_CLEAR_NOT_ALLOWED",
+  "RUNTIME_FILTER_VALUE_INVALID",
   "RUNTIME_SORT_NOT_DECLARED",
   "RUNTIME_SORT_MAX_KEYS",
   "RUNTIME_SORT_FIELD_NOT_ALLOWED",
@@ -108,17 +109,10 @@ const runtimeSchema = z
   })
   .strict();
 
-/** Server-owned connector selection identity; never supplied by a caller. */
-export type ConnectorBinding = Readonly<{
-  connectorKind: string;
-  sourceBindingVersion: string;
-}>;
-
 /** Implementations must atomically persist a new immutable DataFrame before ready. */
 export type LiveFetchExecutor = (args: {
   context: DashframeFunctionContext;
   insight: EffectiveInsightDefinition;
-  binding: ConnectorBinding;
   target: MaterializationTarget;
 }) => Promise<InsightFetchResult>;
 
@@ -166,24 +160,112 @@ function applyRuntimeFilters(
     if (!controls.has(key)) throw new Error("RUNTIME_FILTER_NOT_DECLARED");
   }
   for (const control of controls.values()) {
-    const hasValue = Object.hasOwn(values, control.key);
-    const value = values[control.key];
-    if (control.required && (!hasValue || value === null)) {
-      throw new Error("RUNTIME_FILTER_REQUIRED");
-    }
-    if (!hasValue) continue;
-    if (value === null) {
-      if (!control.allowClear)
-        throw new Error("RUNTIME_FILTER_CLEAR_NOT_ALLOWED");
-      definition.filters = definition.filters?.filter(
-        (candidate) => candidate.id !== control.filterId,
-      );
-      continue;
-    }
-    definition.filters = definition.filters?.map((candidate) =>
-      candidate.id === control.filterId ? { ...candidate, value } : candidate,
+    applyRuntimeFilter(definition, saved, control, values);
+  }
+}
+
+function applyRuntimeFilter(
+  definition: EffectiveInsightDefinition,
+  saved: Insight,
+  control: RuntimeFilterControl,
+  values: Record<string, unknown>,
+): void {
+  const hasValue = Object.hasOwn(values, control.key);
+  const value = values[control.key];
+  if (control.required && (!hasValue || value === null)) {
+    throw new Error("RUNTIME_FILTER_REQUIRED");
+  }
+  if (!hasValue) return;
+  if (value === null) {
+    if (!control.allowClear)
+      throw new Error("RUNTIME_FILTER_CLEAR_NOT_ALLOWED");
+    definition.filters = definition.filters?.filter(
+      (candidate) => candidate.id !== control.filterId,
+    );
+    return;
+  }
+  const savedFilter = saved.filters?.find(
+    (candidate) => candidate.id === control.filterId,
+  );
+  if (!savedFilter || !runtimeFilterValueIsValid(savedFilter, value)) {
+    throw new Error("RUNTIME_FILTER_VALUE_INVALID");
+  }
+  definition.filters = definition.filters?.map((candidate) =>
+    candidate.id === control.filterId ? { ...candidate, value } : candidate,
+  );
+}
+
+type JsonScalar = string | number | boolean;
+
+function runtimeFilterValueIsValid(
+  filter: NonNullable<Insight["filters"]>[number],
+  runtimeValue: unknown,
+): boolean {
+  const savedValue = literalOperand(filter.value);
+  if (filter.operator === "in") {
+    if (!Array.isArray(savedValue) || !Array.isArray(runtimeValue))
+      return false;
+    if (!savedValue.every(isJsonScalar) || !runtimeValue.every(isJsonScalar))
+      return false;
+    const savedKinds = new Set(savedValue.map(scalarKind));
+    return (
+      savedKinds.size > 0 &&
+      runtimeValue.every((value) => savedKinds.has(scalarKind(value)))
     );
   }
+  if (filter.operator === "between") {
+    if (!isExactRange(savedValue) || !isExactRange(runtimeValue)) return false;
+    return (
+      sameScalarType(savedValue.low, runtimeValue.low) &&
+      sameScalarType(savedValue.high, runtimeValue.high)
+    );
+  }
+  if (!isJsonScalar(savedValue) || !isJsonScalar(runtimeValue)) return false;
+  if (filter.operator === "contains" && typeof savedValue !== "string")
+    return false;
+  return sameScalarType(savedValue, runtimeValue);
+}
+
+function literalOperand(value: unknown): unknown {
+  if (isRecord(value) && value.kind === "value" && Object.hasOwn(value, "v")) {
+    return value.v;
+  }
+  return value;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isExactRange(value: unknown): value is {
+  low: JsonScalar;
+  high: JsonScalar;
+} {
+  if (!isRecord(value)) return false;
+  const keys = Object.keys(value);
+  return (
+    keys.length === 2 &&
+    keys.includes("low") &&
+    keys.includes("high") &&
+    isJsonScalar(value.low) &&
+    isJsonScalar(value.high)
+  );
+}
+
+function isJsonScalar(value: unknown): value is JsonScalar {
+  return (
+    typeof value === "string" ||
+    typeof value === "boolean" ||
+    (typeof value === "number" && Number.isFinite(value))
+  );
+}
+
+function scalarKind(value: JsonScalar): string {
+  return typeof value;
+}
+
+function sameScalarType(saved: JsonScalar, runtime: JsonScalar): boolean {
+  return scalarKind(saved) === scalarKind(runtime);
 }
 
 function applyRuntimeSort(
@@ -289,26 +371,14 @@ export function toFetchFailure(
  * Both routes are closed: validation, saved-definition, binding, compilation,
  * and connector errors all return a safe failed result rather than an RPC error.
  */
-export function createDataFetchFunctions(
-  resolveBinding: (
-    ctx: DashframeFunctionContext,
-    baseTableId: UUID,
-  ) => Promise<ConnectorBinding>,
-  execute: LiveFetchExecutor,
-) {
+export function createDataFetchFunctions(execute: LiveFetchExecutor) {
   const materialize = async (
     ctx: DashframeFunctionContext,
     insight: EffectiveInsightDefinition,
     target: MaterializationTarget,
   ): Promise<InsightFetchResult> => {
-    let binding: ConnectorBinding;
     try {
-      binding = await resolveBinding(ctx, insight.baseTableId);
-    } catch (error) {
-      return toFetchFailure(error, "FETCH_BINDING_FAILED");
-    }
-    try {
-      return await execute({ context: ctx, insight, binding, target });
+      return await execute({ context: ctx, insight, target });
     } catch (error) {
       return toFetchFailure(error, "FETCH_EXECUTION_FAILED");
     }

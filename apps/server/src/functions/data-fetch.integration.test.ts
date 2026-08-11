@@ -38,10 +38,7 @@ describe("registered live Insight fetch procedures", () => {
       fetchedAt: 1,
       ...(target.kind === "saved" ? { target } : {}),
     }));
-    const dataFetch = createDataFetchFunctions(
-      async () => ({ connectorKind: "test", sourceBindingVersion: "v1" }),
-      execute,
-    );
+    const dataFetch = createDataFetchFunctions(execute);
     app = await wy.build({
       db,
       functions: { ...commandFunctions, ...dataFetch },
@@ -216,6 +213,48 @@ describe("registered live Insight fetch procedures", () => {
       status: "failed",
       lastSuccessful: { stale: true, dataFrameId: previousId },
     });
+  });
+
+  it("returns a safe runtime failure before execution for malformed operator values", async () => {
+    const insightId = await seedSavedInsight();
+    const { applyCommands } = await import("@wystack/server");
+    await applyCommands(
+      app,
+      [
+        cmd("SetInsightFilter", {
+          id: insightId,
+          filters: [
+            {
+              id: "date-range",
+              field: "date",
+              operator: "between",
+              value: { low: "2026-01-01", high: "2026-01-31" },
+            },
+          ],
+        } as never),
+        cmd("SetInsightRuntimeControls", {
+          id: insightId,
+          runtimeControls: {
+            filters: [{ key: "dates", filterId: "date-range", label: "Dates" }],
+          },
+        }),
+      ],
+      { mode: "commit", context: { principal: user } },
+    );
+    execute.mockClear();
+
+    const result = await call("runInsight", {
+      insightId,
+      runtime: { filters: { dates: "not-a-range" } },
+    });
+
+    expect(result).toMatchObject({
+      status: "failed",
+      code: "RUNTIME_FILTER_VALUE_INVALID",
+      message: "The requested Insight runtime controls are invalid.",
+      retryable: false,
+    });
+    expect(execute).not.toHaveBeenCalled();
   });
 
   it("denies anonymous fetch and run requests before connector execution", async () => {

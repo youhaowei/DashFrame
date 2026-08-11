@@ -141,6 +141,105 @@ describe("applyInsightRuntime", () => {
     ]);
   });
 
+  it("validates runtime values against saved scalar, in, and between operands", () => {
+    const saved: Insight = {
+      ...insight,
+      filters: [
+        { id: "scalar", field: "count", operator: "gte", value: 1 },
+        { id: "members", field: "region", operator: "in", value: ["US"] },
+        {
+          id: "range",
+          field: "amount",
+          operator: "between",
+          value: { low: 1, high: 10 },
+        },
+      ],
+      runtimeControls: {
+        filters: [
+          { key: "scalar", filterId: "scalar", label: "Count" },
+          { key: "members", filterId: "members", label: "Regions" },
+          { key: "range", filterId: "range", label: "Amount" },
+        ],
+      },
+    };
+
+    expect(
+      applyInsightRuntime(saved, {
+        filters: {
+          scalar: 2,
+          members: ["US", "CA"],
+          range: { low: 2, high: 9 },
+        },
+      }).filters,
+    ).toEqual([
+      { id: "scalar", field: "count", operator: "gte", value: 2 },
+      {
+        id: "members",
+        field: "region",
+        operator: "in",
+        value: ["US", "CA"],
+      },
+      {
+        id: "range",
+        field: "amount",
+        operator: "between",
+        value: { low: 2, high: 9 },
+      },
+    ]);
+
+    for (const filters of [
+      { scalar: "2" },
+      { members: "US" },
+      { members: [1] },
+      { range: 5 },
+      { range: { low: "2", high: 9 } },
+      { range: { low: 2, high: 9, extra: true } },
+    ]) {
+      expect(() => applyInsightRuntime(saved, { filters })).toThrow(
+        "RUNTIME_FILTER_VALUE_INVALID",
+      );
+    }
+
+    const emptySavedIn: Insight = {
+      ...saved,
+      filters: [{ id: "members", field: "region", operator: "in", value: [] }],
+      runtimeControls: {
+        filters: [{ key: "members", filterId: "members", label: "Regions" }],
+      },
+    };
+    expect(() =>
+      applyInsightRuntime(emptySavedIn, {
+        filters: { members: ["US"] },
+      }),
+    ).toThrow("RUNTIME_FILTER_VALUE_INVALID");
+  });
+
+  it("uses the literal type inside a saved command operand wrapper", () => {
+    const saved: Insight = {
+      ...insight,
+      filters: [
+        {
+          id: "wrapped",
+          field: "region",
+          operator: "eq",
+          value: { kind: "value", v: "US" },
+        },
+      ],
+      runtimeControls: {
+        filters: [{ key: "wrapped", filterId: "wrapped", label: "Region" }],
+      },
+    };
+
+    expect(
+      applyInsightRuntime(saved, { filters: { wrapped: "CA" } }).filters,
+    ).toEqual([
+      { id: "wrapped", field: "region", operator: "eq", value: "CA" },
+    ]);
+    expect(() =>
+      applyInsightRuntime(saved, { filters: { wrapped: 1 } }),
+    ).toThrow("RUNTIME_FILTER_VALUE_INVALID");
+  });
+
   it("validates one-key sort by field allowlist, independently of direction", () => {
     expect(
       applyInsightRuntime(insight, {

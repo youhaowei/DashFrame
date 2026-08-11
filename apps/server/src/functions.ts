@@ -18,7 +18,6 @@ import { connectorCatalogFunctions } from "./functions/connector-catalog";
 import { connectorSetupFunctions } from "./functions/connector-setup";
 import { dashboardFunctions } from "./functions/dashboards";
 import { createDataFetchFunctions } from "./functions/data-fetch";
-import { resolveSourceBinding } from "./functions/data-fetch/bindings";
 import { localDataFrameIngestFunctions } from "./functions/data-fetch/local-ingest";
 import { createProductionFetchExecutor } from "./functions/data-fetch/production";
 import { dataFrameQueryFunctions } from "./functions/data-frame-query";
@@ -31,7 +30,6 @@ import { wy } from "./wystack";
 
 const { projectMeta } = schema;
 const dataFetchFunctions = createDataFetchFunctions(
-  resolveSourceBinding,
   createProductionFetchExecutor(),
 );
 
