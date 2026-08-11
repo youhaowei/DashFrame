@@ -11,7 +11,7 @@
 import type { DataFrame } from "@dashframe/engine";
 import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { QueryBuilder } from "../query-builder";
+import { clearAllTableCaches, QueryBuilder } from "../query-builder";
 import {
   createMockConnectionForRun,
   createMockConnectionWithResults,
@@ -36,6 +36,7 @@ describe("QueryBuilder - Execution Methods", () => {
   let mockDataFrame: DataFrame;
 
   beforeEach(() => {
+    clearAllTableCaches();
     mockDataFrame = createMockDataFrame();
     vi.clearAllMocks();
   });
@@ -455,27 +456,20 @@ describe("QueryBuilder - Execution Methods", () => {
     });
   });
 
-  describe("table existence check - parameterized query", () => {
-    it("should use prepare() with parameterized SQL and pass table name to stmt.query()", async () => {
-      // Create mock prepared statement with tracking
-      const mockStmtQuery = vi.fn().mockResolvedValue({
+  describe("table existence check - shared query contract", () => {
+    it("uses query() and reloads an existing table with an unknown generation", async () => {
+      const mockQuery = vi.fn().mockResolvedValue({
         toArray: () => [{ exists: 1 }],
       });
-      const mockStmtClose = vi.fn().mockResolvedValue(undefined);
-      const mockStmt = {
-        query: mockStmtQuery,
-        close: mockStmtClose,
-      };
-
-      // Create mock connection with prepare tracking
-      const mockPrepare = vi.fn().mockResolvedValue(mockStmt);
+      const registerServerFrame = vi.fn().mockResolvedValue(undefined);
       const mockConn = {
-        prepare: mockPrepare,
-        query: vi.fn().mockResolvedValue({
-          toArray: () => [],
-        }),
-        insertArrowFromIPCStream: vi.fn().mockResolvedValue(undefined),
+        query: mockQuery,
+        registerServerFrame,
       } as unknown as AsyncDuckDBConnection;
+      mockDataFrame = {
+        ...mockDataFrame,
+        storage: { type: "file", key: "server-frame" },
+      };
 
       // Create QueryBuilder WITHOUT tableName to trigger ensureLoaded()
       const qb = new QueryBuilder(mockDataFrame, mockConn);
@@ -483,16 +477,140 @@ describe("QueryBuilder - Execution Methods", () => {
       // Trigger table loading by calling sql()
       await qb.sql();
 
-      // Verify prepare() was called with parameterized SQL containing ? placeholder
-      expect(mockPrepare).toHaveBeenCalledWith(
-        "SELECT 1 FROM information_schema.tables WHERE table_name = ? LIMIT 1",
+      expect(mockQuery).toHaveBeenCalledWith(
+        "SELECT 1 FROM information_schema.tables WHERE table_name = 'df_test_df_id' LIMIT 1",
       );
+      expect(mockQuery).toHaveBeenCalledTimes(2);
+      expect(registerServerFrame).toHaveBeenCalledWith(
+        "server-frame",
+        "df_test_df_id",
+      );
+    });
 
-      // Verify stmt.query() was called with the table name
-      expect(mockStmtQuery).toHaveBeenCalledWith("df_test_df_id");
+    it("reloads a same-id frame when its storage generation changes", async () => {
+      const query = vi
+        .fn()
+        .mockResolvedValue({ toArray: () => [{ exists: 1 }] });
+      const registerServerFrame = vi.fn().mockResolvedValue(undefined);
+      const connection = {
+        query,
+        registerServerFrame,
+      } as unknown as AsyncDuckDBConnection;
+      const first = {
+        ...mockDataFrame,
+        createdAt: 1,
+        storage: { type: "file" as const, key: "first-frame" },
+      };
+      const refreshed = {
+        ...mockDataFrame,
+        createdAt: 2,
+        storage: { type: "file" as const, key: "refreshed-frame" },
+      };
 
-      // Verify stmt.close() was called
-      expect(mockStmtClose).toHaveBeenCalled();
+      await new QueryBuilder(first, connection).sql();
+      await new QueryBuilder(refreshed, connection).sql();
+
+      expect(query).toHaveBeenCalledWith(
+        'DROP TABLE IF EXISTS "df_test_df_id"',
+      );
+      expect(registerServerFrame).toHaveBeenCalledWith(
+        "refreshed-frame",
+        "df_test_df_id",
+      );
+    });
+
+    it("leaves newer queryable bytes when they arrive during an older load", async () => {
+      let releaseFirst!: () => void;
+      const firstBlocked = new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      });
+      let queryableRevision: string | undefined;
+      const registerServerFrame = vi
+        .fn()
+        .mockImplementationOnce(async () => {
+          await firstBlocked;
+          queryableRevision = "old";
+        })
+        .mockImplementationOnce(async () => {
+          queryableRevision = "new";
+        });
+      const connection = {
+        query: vi.fn().mockImplementation(async (sql: string) => ({
+          toArray: () =>
+            sql.startsWith("SELECT *") ? [{ revision: queryableRevision }] : [],
+        })),
+        registerServerFrame,
+      } as unknown as AsyncDuckDBConnection;
+      const first = {
+        ...mockDataFrame,
+        createdAt: 1,
+        storage: { type: "file" as const, key: "first-frame" },
+      };
+      const refreshed = {
+        ...mockDataFrame,
+        createdAt: 2,
+        storage: { type: "file" as const, key: "refreshed-frame" },
+      };
+
+      const firstLoad = new QueryBuilder(first, connection).sql();
+      await vi.waitFor(() =>
+        expect(registerServerFrame).toHaveBeenCalledOnce(),
+      );
+      const refreshedLoad = new QueryBuilder(refreshed, connection).sql();
+      releaseFirst();
+      await Promise.all([firstLoad, refreshedLoad]);
+
+      expect(registerServerFrame.mock.calls).toEqual([
+        ["first-frame", "df_test_df_id"],
+        ["refreshed-frame", "df_test_df_id"],
+      ]);
+      const final = await connection.query('SELECT * FROM "df_test_df_id"');
+      expect(final.toArray()).toEqual([{ revision: "new" }]);
+    });
+
+    it("never lets an older generation queued behind a newer load replace it", async () => {
+      let releaseNew!: () => void;
+      const newBlocked = new Promise<void>((resolve) => {
+        releaseNew = resolve;
+      });
+      let queryableRevision: string | undefined;
+      const registerServerFrame = vi.fn().mockImplementation(async () => {
+        await newBlocked;
+        queryableRevision = "new";
+      });
+      const connection = {
+        query: vi.fn().mockImplementation(async (sql: string) => ({
+          toArray: () =>
+            sql.startsWith("SELECT *") ? [{ revision: queryableRevision }] : [],
+        })),
+        registerServerFrame,
+      } as unknown as AsyncDuckDBConnection;
+      const refreshed = {
+        ...mockDataFrame,
+        createdAt: 2,
+        storage: { type: "file" as const, key: "refreshed-frame" },
+      };
+      const stale = {
+        ...mockDataFrame,
+        createdAt: 1,
+        storage: { type: "file" as const, key: "first-frame" },
+      };
+
+      const refreshedLoad = new QueryBuilder(refreshed, connection).sql();
+      await vi.waitFor(() =>
+        expect(registerServerFrame).toHaveBeenCalledOnce(),
+      );
+      const staleLoad = new QueryBuilder(stale, connection).sql();
+      releaseNew();
+      await Promise.all([refreshedLoad, staleLoad]);
+
+      expect(registerServerFrame).toHaveBeenCalledTimes(1);
+      expect(registerServerFrame).toHaveBeenCalledWith(
+        "refreshed-frame",
+        "df_test_df_id",
+      );
+      const final = await connection.query('SELECT * FROM "df_test_df_id"');
+      expect(final.toArray()).toEqual([{ revision: "new" }]);
     });
   });
 });

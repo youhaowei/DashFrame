@@ -402,7 +402,7 @@ type ResolvedTables = {
  */
 async function ensureInsightDataFrames(
   insightLike: InsightLike,
-  conn: import("@duckdb/duckdb-wasm").AsyncDuckDBConnection,
+  conn: import("@dashframe/engine-browser").DuckDBConnection,
   nodeIndex: DirectNodeIndex,
 ): Promise<ResolvedTables | null> {
   const baseTable = await resolveBaseTable(insightLike.baseTableId, nodeIndex);
@@ -463,7 +463,7 @@ function countCellToNumber(cell: unknown): number | null {
 async function computeRowCount(
   insightLike: InsightLike,
   tables: ResolvedTables,
-  conn: import("@duckdb/duckdb-wasm").AsyncDuckDBConnection,
+  conn: import("@dashframe/engine-browser").DuckDBConnection,
 ): Promise<number | null> {
   const { baseTable, joinedTables } = tables;
 
@@ -514,7 +514,7 @@ const EMPTY_COMPUTE: PreviewCompute = {
 async function computeHead(
   insightLike: InsightLike,
   tables: ResolvedTables,
-  conn: import("@duckdb/duckdb-wasm").AsyncDuckDBConnection,
+  conn: import("@dashframe/engine-browser").DuckDBConnection,
 ): Promise<Array<Record<string, unknown>>> {
   const { baseTable, joinedTables } = tables;
 
@@ -548,7 +548,7 @@ async function computeHead(
 async function computeNode(
   proposed: InsightLike,
   canonical: InsightLike | null,
-  conn: import("@duckdb/duckdb-wasm").AsyncDuckDBConnection,
+  conn: import("@dashframe/engine-browser").DuckDBConnection,
   nodeIndex: DirectNodeIndex,
 ): Promise<PreviewCompute> {
   const [proposedTables, canonicalTables] = await Promise.all([

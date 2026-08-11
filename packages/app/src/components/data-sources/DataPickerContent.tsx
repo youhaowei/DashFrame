@@ -1,5 +1,4 @@
 import { getConnectorById } from "@/lib/connectors/registry";
-import { removeDataFrame } from "@/lib/data-access/data-frames";
 import { handleFileConnectorResult } from "@/lib/local-csv-handler";
 import {
   connectRemoteSource,
@@ -10,17 +9,13 @@ import {
   reviewUnclassifiedRemoteFields,
   type RemoteFieldReviewRequest,
 } from "@/lib/remote-field-review";
-import {
-  materializeRemoteTable,
-  RemoteTableReplacementError,
-} from "@/lib/remote-table-materialization";
 import { useConfirmDialogStore, type ConfirmDialogConfig } from "@/lib/stores";
 import { api } from "@/wystack/api";
 import type {
   FileSourceConnector,
   RemoteApiConnector,
 } from "@dashframe/engine";
-import type { CreateDataSourceInput, UUID } from "@dashframe/types";
+import type { CreateDataSourceInput, Field, UUID } from "@dashframe/types";
 import {
   cmd,
   COMMAND_PATHS,
@@ -170,9 +165,9 @@ export function DataPickerContent({
   const [error, setError] = useState<string | null>(null);
   const [remoteResourceState, setRemoteResourceState] =
     useState<RemoteResourceState | null>(null);
-  const [materializingResourceId, setMaterializingResourceId] = useState<
-    string | null
-  >(null);
+  const [importingResourceId, setImportingResourceId] = useState<string | null>(
+    null,
+  );
   const isMountedRef = useRef(true);
 
   useEffect(() => {
@@ -459,10 +454,9 @@ export function DataPickerContent({
   const handleRemoteResourceSelect = useCallback(
     async (resource: { id: string; title: string }) => {
       if (!remoteResourceState) return;
-      setMaterializingResourceId(resource.id);
+      setImportingResourceId(resource.id);
       setError(null);
       let tableId: UUID | null = null;
-      let dataFrameId: UUID | null = null;
       try {
         tableId = (
           await addDataTable({
@@ -471,27 +465,35 @@ export function DataPickerContent({
             table: resource.id,
           })
         ).id;
-        let result;
-        if (remoteResourceState.connectorId === "notion") {
-          result = await queryNotionDatabaseMutation({
-            dataSourceId: remoteResourceState.sourceId,
-            databaseId: resource.id,
-            tableId,
-          });
-        } else if (remoteResourceState.connectorId === "postgres") {
-          result = await queryPostgresTableMutation({
-            dataSourceId: remoteResourceState.sourceId,
-            databaseId: resource.id,
-            tableId,
-          });
-        } else {
+        const queryResource = (snapshot = false, approvedFields?: Field[]) => {
+          const snapshotRequest = snapshot
+            ? { snapshot: true, approvedFields }
+            : { limit: 100 };
+          if (remoteResourceState.connectorId === "notion") {
+            return queryNotionDatabaseMutation({
+              dataSourceId: remoteResourceState.sourceId,
+              databaseId: resource.id,
+              tableId: tableId!,
+              ...snapshotRequest,
+            });
+          }
+          if (remoteResourceState.connectorId === "postgres") {
+            return queryPostgresTableMutation({
+              dataSourceId: remoteResourceState.sourceId,
+              databaseId: resource.id,
+              tableId: tableId!,
+              ...snapshotRequest,
+            });
+          }
           // The property is read from the DataTable row just created above,
           // so it cannot drift from the resource the user picked.
-          result = await queryGa4PropertyMutation({
+          return queryGa4PropertyMutation({
             dataSourceId: remoteResourceState.sourceId,
-            tableId,
+            tableId: tableId!,
+            ...snapshotRequest,
           });
-        }
+        };
+        const result = await queryResource();
         const explicitlySensitive = result.fields.some(
           (field) => getFieldSensitivity(field) === "sensitive",
         );
@@ -510,20 +512,11 @@ export function DataPickerContent({
           return;
         }
 
-        const materialized = await materializeRemoteTable(
-          { id: tableId },
-          { ...result, fields: reviewedFields },
-          resource.title,
-        );
-        dataFrameId = materialized.dataFrameId;
+        await queryResource(true, reviewedFields);
         onTableSelect(tableId, resource.title);
-      } catch (cause) {
-        const preserveTable = cause instanceof RemoteTableReplacementError;
+      } catch {
         const cleanupResults = await Promise.allSettled([
-          ...(dataFrameId ? [removeDataFrame(dataFrameId)] : []),
-          ...(tableId && !preserveTable
-            ? [removeDataTable({ id: tableId })]
-            : []),
+          ...(tableId ? [removeDataTable({ id: tableId })] : []),
         ]);
         const cleanupFailed = cleanupResults.some(
           ({ status }) => status === "rejected",
@@ -534,7 +527,7 @@ export function DataPickerContent({
             : "Couldn't import this table. Check the connection and try again.",
         );
       } finally {
-        setMaterializingResourceId(null);
+        setImportingResourceId(null);
       }
     },
     [
@@ -635,7 +628,7 @@ export function DataPickerContent({
                       label={resource.title}
                       variant="outline"
                       className="w-full justify-start"
-                      disabled={materializingResourceId !== null}
+                      disabled={importingResourceId !== null}
                       onClick={() => handleRemoteResourceSelect(resource)}
                     />
                   ))

@@ -35,12 +35,14 @@
 // when they start (`dashframe serve` does so dynamically); importing this
 // deployment-agnostic app factory remains safe. arrow-data-path has no native
 // dependency.
+import type { DataFrameStorage } from "@dashframe/engine";
 import {
   createArrowDataPath,
   type ArrowQueryRunner,
   type ArrowTableRegistrar,
 } from "@dashframe/engine-server/arrow-data-path";
 import { schema, type ApiAccessCredentials } from "@dashframe/server-core";
+import type { UUID } from "@dashframe/types";
 import { serve as nodeServe } from "@hono/node-server";
 import { createNodeWebSocket } from "@hono/node-ws";
 import type { DraftDrizzleTracker, DrizzleTracker } from "@wystack/db";
@@ -51,7 +53,7 @@ import {
 } from "@wystack/secret-vault";
 import { createRoutes, type WyStackApp } from "@wystack/server";
 import type { Table } from "drizzle-orm";
-import { getTableName } from "drizzle-orm";
+import { eq as drizzleEq, getTableName } from "drizzle-orm";
 import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import { createHash, timingSafeEqual } from "node:crypto";
@@ -72,8 +74,8 @@ import {
 } from "./connector-setup/oauth-provider";
 import { captureCommandCredentials } from "./credential-release";
 import {
+  consumeOperatedDraftDispatch,
   createDraftController,
-  DRAFT_CONTROLLER_DISPATCH_CAPABILITY,
   recoveredDraftWriteTables,
   type DraftController,
 } from "./draft-controller";
@@ -149,6 +151,8 @@ function allowLocalhostOrigin(origin: string): string | undefined {
 export interface DashframeServerOptions {
   /** Project artifact DB — a Drizzle/PGLite instance (e.g. `ProjectHandle.db`). */
   db: object;
+  /** Durable Arrow frame store owned by the selected project. */
+  dataFrameStorage?: DataFrameStorage;
   /** Bind host. Default `127.0.0.1` (loopback). */
   hostname?: string;
   /** Bind port. Default `0` — the OS assigns an ephemeral port. */
@@ -224,6 +228,8 @@ export interface DashframeServerOptions {
    * debounced `onWrite` behaviour in that case (existing semantics).
    */
   flushSnapshot?: () => Promise<void>;
+  /** Drain retained DB snapshots before deleting snapshot-owned frame bytes. */
+  flushSnapshotRetentionWindow?: () => Promise<void>;
   /** Google OAuth client settings used by resumable connector setup. */
   googleOAuth?: GoogleOAuthConfig;
   /**
@@ -268,6 +274,149 @@ export interface DashframeServer {
   port: number;
   /** Stop the HTTP+WS host. */
   stop(): void;
+}
+
+const NATIVE_UNREGISTER_MAX_ATTEMPTS = 3;
+const NATIVE_UNREGISTER_RETRY_MS = 250;
+
+/**
+ * Owns native table registration generations and bounded post-commit cleanup.
+ *
+ * A generation advances only after registration succeeds. Cleanup captures the
+ * current generation and re-checks it inside the same per-name operation queue
+ * used by registration. Therefore a failed replacement leaves the prior
+ * generation's cleanup live, while a successful replacement makes stale
+ * cleanup a no-op before it can drop the newer table.
+ */
+class NativeTableLifecycle {
+  readonly engine: ArrowQueryRunner & Partial<ArrowTableRegistrar>;
+  private readonly generations = new Map<string, number>();
+  private readonly operations = new Map<string, Promise<void>>();
+  private readonly retryTimers = new Map<
+    string,
+    { generation: number; timer: ReturnType<typeof setTimeout> }
+  >();
+  private closed = false;
+
+  constructor(
+    private readonly native: ArrowQueryRunner & Partial<ArrowTableRegistrar>,
+  ) {
+    this.engine = {
+      queryArrow: (sql, params) => native.queryArrow(sql, params),
+      ...(typeof native.registerArrowTable === "function"
+        ? {
+            registerArrowTable: (name: string, arrow: Uint8Array) =>
+              this.register(name, arrow),
+          }
+        : {}),
+      ...(typeof native.unregisterTable === "function"
+        ? { unregisterTable: (name: string) => this.unregisterCurrent(name) }
+        : {}),
+    };
+  }
+
+  async unregisterCommittedFrames(ids: readonly string[]): Promise<void> {
+    if (typeof this.native.unregisterTable !== "function") return;
+    await Promise.all(
+      ids.map((id) => {
+        const name = `df_${id.replaceAll("-", "_")}`;
+        return this.tryUnregister(name, this.generation(name), 1);
+      }),
+    );
+  }
+
+  close(): void {
+    this.closed = true;
+    for (const { timer } of this.retryTimers.values()) clearTimeout(timer);
+    this.retryTimers.clear();
+  }
+
+  private generation(name: string): number {
+    return this.generations.get(name) ?? 0;
+  }
+
+  private async register(name: string, arrow: Uint8Array): Promise<void> {
+    if (this.closed) throw new Error("Native table lifecycle is closed");
+    await this.enqueue(name, async () => {
+      if (this.closed) throw new Error("Native table lifecycle is closed");
+      await this.native.registerArrowTable!(name, arrow);
+      this.generations.set(name, this.generation(name) + 1);
+      this.cancelRetry(name);
+    });
+  }
+
+  private async unregisterCurrent(name: string): Promise<void> {
+    if (typeof this.native.unregisterTable !== "function") return;
+    const generation = this.generation(name);
+    await this.enqueue(name, async () => {
+      if (this.closed || this.generation(name) !== generation) return;
+      await this.native.unregisterTable!(name);
+    });
+  }
+
+  private async tryUnregister(
+    name: string,
+    generation: number,
+    attempt: number,
+  ): Promise<void> {
+    try {
+      await this.enqueue(name, async () => {
+        if (this.closed || this.generation(name) !== generation) return;
+        await this.native.unregisterTable!(name);
+      });
+    } catch (error) {
+      if (this.closed || this.generation(name) !== generation) return;
+      if (attempt >= NATIVE_UNREGISTER_MAX_ATTEMPTS) {
+        console.error(
+          `[dashframe] native table ${name} remains registered after ${attempt} cleanup attempts`,
+          error,
+        );
+        return;
+      }
+      console.error(
+        `[dashframe] native table ${name} unregister failed after durable frame deletion; retrying (${attempt + 1}/${NATIVE_UNREGISTER_MAX_ATTEMPTS})`,
+        error,
+      );
+      this.scheduleRetry(name, generation, attempt + 1);
+    }
+  }
+
+  private scheduleRetry(
+    name: string,
+    generation: number,
+    attempt: number,
+  ): void {
+    this.cancelRetry(name);
+    const timer = setTimeout(() => {
+      const pending = this.retryTimers.get(name);
+      if (pending?.generation !== generation) return;
+      this.retryTimers.delete(name);
+      this.tryUnregister(name, generation, attempt).catch((error) => {
+        console.error("[dashframe] native unregister retry failed", error);
+      });
+    }, NATIVE_UNREGISTER_RETRY_MS);
+    this.retryTimers.set(name, { generation, timer });
+  }
+
+  private cancelRetry(name: string): void {
+    const pending = this.retryTimers.get(name);
+    if (pending) clearTimeout(pending.timer);
+    this.retryTimers.delete(name);
+  }
+
+  private enqueue(name: string, operation: () => Promise<void>): Promise<void> {
+    const previous = this.operations.get(name) ?? Promise.resolve();
+    const current = previous.catch(() => undefined).then(operation);
+    const settled = current.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.operations.set(name, settled);
+    settled.then(() => {
+      if (this.operations.get(name) === settled) this.operations.delete(name);
+    });
+    return current;
+  }
 }
 
 /**
@@ -454,8 +603,12 @@ export function withDraftSeam(
  */
 export async function buildDashframeApp(opts: {
   db: object;
+  dataFrameStorage?: DataFrameStorage;
   vault?: SecretVault;
   onWrite?: () => void;
+  flushSnapshot?: () => Promise<void>;
+  flushSnapshotRetentionWindow?: () => Promise<void>;
+  unregisterServerFrames?: (ids: readonly string[]) => Promise<void>;
   accessCredentials?: ApiAccessCredentials;
   getServerEndpoint?: () => string | undefined;
   googleOAuth?: GoogleOAuthConfig;
@@ -466,24 +619,59 @@ export async function buildDashframeApp(opts: {
     expectedPermissionIds,
   });
 
+  if (opts.dataFrameStorage != null) {
+    // No requests can be in flight yet, so startup is the safe point to repair
+    // a crash-interrupted delete and remove files with no persisted owner.
+    await removeUnreferencedServerFrames(
+      opts.db as ArtifactDb,
+      opts.dataFrameStorage,
+      opts.flushSnapshotRetentionWindow,
+    );
+  }
+
   const { vault, onWrite } = opts;
 
   // Build the static context additions once so every call shares the same object
   // reference (vault identity is stable for the server lifetime).
   const staticContext: AppContext = {
     getServerEndpoint: opts.getServerEndpoint ?? (() => undefined),
+    ...(opts.dataFrameStorage != null
+      ? {
+          dataFrameStorage: opts.dataFrameStorage,
+          captureServerFrameReferences: () =>
+            referencedServerFrameIds(opts.db as ArtifactDb),
+          cleanupDereferencedServerFrames: (before: ReadonlySet<string>) =>
+            removeDereferencedServerFrames(
+              opts.db as ArtifactDb,
+              opts.dataFrameStorage!,
+              before,
+              opts.flushSnapshotRetentionWindow,
+              opts.unregisterServerFrames,
+            ),
+        }
+      : {}),
     ...(opts.accessCredentials != null
       ? { accessCredentials: opts.accessCredentials }
       : {}),
     ...(vault != null ? { vault } : {}),
     ...(opts.googleOAuth != null ? { googleOAuth: opts.googleOAuth } : {}),
+    ...(opts.flushSnapshot != null
+      ? { flushSnapshot: opts.flushSnapshot }
+      : {}),
+    ...(opts.flushSnapshotRetentionWindow != null
+      ? { flushSnapshotRetentionWindow: opts.flushSnapshotRetentionWindow }
+      : {}),
+    ...(opts.unregisterServerFrames != null
+      ? { unregisterServerFrames: opts.unregisterServerFrames }
+      : {}),
   };
 
   // One shared dispatcher backs both public handler entry points. `call` asks it
   // to mint a tracker lazily; `runHandler` supplies one. Draft-mutation safety is
   // therefore decided once, before tracker creation or a supplied tracker's use,
-  // and before withDraftSeam or handler dispatch. DraftController carries the
-  // private capability for its operated shadow+revision+log transaction.
+  // and before withDraftSeam or handler dispatch. DraftController marks its
+  // operated shadow+revision+log transaction through a module-private async
+  // scope.
   //
   // EQUIVALENCE (load-bearing): rawApp.call is a THIN composition — `const t =
   // createTracked(); const result = await runHandler(path, args, t, context);
@@ -493,12 +681,12 @@ export async function buildDashframeApp(opts: {
   // on the no-draft path. RE-MIRROR POINT: if a wystack upgrade adds logic INSIDE
   // rawApp.call, this wrapper must be updated to match — it cannot delegate to
   // rawApp.call because that path mints an internal tracker the seam can't reach.
-  const draftDispatchCapability = Object.freeze({});
   async function dispatchHandler(
     path: string,
     args: unknown,
     context: Record<string, unknown> | undefined,
     suppliedTracker?: DrizzleTracker | DraftDrizzleTracker,
+    beforeHandler?: () => Promise<void>,
   ): Promise<{
     result: unknown;
     tracked: DrizzleTracker | DraftDrizzleTracker;
@@ -508,14 +696,13 @@ export async function buildDashframeApp(opts: {
       suppliedTracker !== undefined && !("withDraft" in suppliedTracker);
     const isDraftScoped =
       draftIdFromContext(merged) !== undefined || isSuppliedDraftTracker;
-    const isOperatedDraftDispatch =
-      Reflect.get(merged, DRAFT_CONTROLLER_DISPATCH_CAPABILITY) ===
-      draftDispatchCapability;
-    if (
-      rawApp.functions.get(path)?.type === "mutation" &&
-      isDraftScoped &&
-      !isOperatedDraftDispatch
-    ) {
+    const isDraftMutation =
+      rawApp.functions.get(path)?.type === "mutation" && isDraftScoped;
+    const isOperatedDraftMutation =
+      isDraftMutation &&
+      suppliedTracker !== undefined &&
+      consumeOperatedDraftDispatch(path, suppliedTracker);
+    if (isDraftMutation && !isOperatedDraftMutation) {
       throw new Error(
         `Direct draft mutation "${path}" is not allowed; use draftBatch or ` +
           "DraftController.appendToDraft so shadow state and the command log remain atomic",
@@ -523,21 +710,52 @@ export async function buildDashframeApp(opts: {
     }
 
     const tracked = suppliedTracker ?? rawApp.createTracked();
+    await beforeHandler?.();
     const effective = withDraftSeam(tracked, merged);
     const result = await rawApp.runHandler(path, args, effective, merged);
     return { result, tracked };
   }
 
-  const app: WyStackApp & {
-    readonly [DRAFT_CONTROLLER_DISPATCH_CAPABILITY]: typeof draftDispatchCapability;
-  } = {
+  const app: WyStackApp = {
     ...rawApp,
-    [DRAFT_CONTROLLER_DISPATCH_CAPABILITY]: draftDispatchCapability,
     async call(path, args, context) {
-      const { result, tracked } = await dispatchHandler(path, args, context);
+      let serverFrameCleanupHandled = false;
+      const dispatchContext = {
+        ...(context ?? {}),
+        markServerFrameCleanupHandled: () => {
+          serverFrameCleanupHandled = true;
+        },
+      };
+      let framesBefore: Set<string> | undefined;
+      const { result, tracked } = await dispatchHandler(
+        path,
+        args,
+        dispatchContext,
+        undefined,
+        async () => {
+          framesBefore =
+            opts.dataFrameStorage != null
+              ? await referencedServerFrameIds(opts.db as ArtifactDb)
+              : undefined;
+        },
+      );
       // `tracked` and `effective` share the same tracker sets (withDraft reuses
       // the base tracker), so tablesWritten reflects the write either way.
       const tablesWritten = tracked.tablesWritten;
+      if (
+        opts.dataFrameStorage != null &&
+        framesBefore != null &&
+        !serverFrameCleanupHandled &&
+        tablesWritten.size > 0
+      ) {
+        await removeDereferencedServerFrames(
+          opts.db as ArtifactDb,
+          opts.dataFrameStorage,
+          framesBefore,
+          opts.flushSnapshotRetentionWindow,
+          opts.unregisterServerFrames,
+        );
+      }
       if (onWrite != null && tablesWritten.size > 0) {
         try {
           onWrite();
@@ -556,6 +774,118 @@ export async function buildDashframeApp(opts: {
     },
   };
   return app;
+}
+
+async function removeUnreferencedServerFrames(
+  db: ArtifactDb,
+  storage: DataFrameStorage,
+  flushSnapshotRetentionWindow: (() => Promise<void>) | undefined,
+): Promise<void> {
+  const referenced = await referencedServerFrameIds(db);
+  const pendingDeletes =
+    (await storage.hasPendingDataFrameDeletes?.()) ?? false;
+  const storedIds = await storage.list();
+  const hasUnreferencedFrames = storedIds.some((id) => !referenced.has(id));
+  if (!pendingDeletes && !hasUnreferencedFrames) {
+    await storage.recoverStagedDeletes?.([...referenced] as UUID[]);
+    return;
+  }
+  if (flushSnapshotRetentionWindow == null) {
+    console.error(
+      "[dashframe] no retained-snapshot flush hook; leaving server frame cleanup for a configured startup",
+    );
+    return;
+  }
+  await flushSnapshotRetentionWindow();
+  await storage.recoverStagedDeletes?.([...referenced] as UUID[]);
+  const ids = await storage.list();
+  const results = await Promise.allSettled(
+    ids.filter((id) => !referenced.has(id)).map((id) => storage.delete(id)),
+  );
+  const failures = results.filter(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  );
+  if (failures.length > 0) {
+    console.error(
+      `[dashframe] ${failures.length} unreferenced server frame(s) could not be removed at startup; the next start will retry`,
+      failures.map(({ reason }) => reason),
+    );
+  }
+}
+
+async function removeDereferencedServerFrames(
+  db: ArtifactDb,
+  storage: DataFrameStorage,
+  before: ReadonlySet<string>,
+  flushSnapshotRetentionWindow: (() => Promise<void>) | undefined,
+  unregister: ((ids: readonly string[]) => Promise<void>) | undefined,
+): Promise<void> {
+  const after = await referencedServerFrameIds(db);
+  const dereferenced = [...before].filter((id) => !after.has(id));
+  if (dereferenced.length === 0) return;
+  if (flushSnapshotRetentionWindow == null) {
+    console.error(
+      "[dashframe] no retained-snapshot flush hook; leaving dereferenced server frames for startup recovery",
+    );
+    return;
+  }
+  try {
+    await flushSnapshotRetentionWindow();
+  } catch (error) {
+    console.error(
+      "[dashframe] snapshot flush failed; leaving dereferenced server frames for startup recovery",
+      error,
+    );
+    return;
+  }
+  const results = await Promise.allSettled(
+    dereferenced.map((id) => storage.delete(id as UUID)),
+  );
+  await optsUnregisterSuccessful(results, dereferenced, unregister);
+  const failures = results.filter(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  );
+  if (failures.length > 0) {
+    console.error(
+      `[dashframe] ${failures.length} dereferenced server frame(s) could not be removed; startup recovery will retry`,
+      failures.map(({ reason }) => reason),
+    );
+  }
+}
+
+async function optsUnregisterSuccessful(
+  results: PromiseSettledResult<void>[],
+  ids: string[],
+  unregister: ((ids: readonly string[]) => Promise<void>) | undefined,
+): Promise<void> {
+  const removed = ids.filter(
+    (_, index) => results[index]?.status === "fulfilled",
+  );
+  if (removed.length === 0 || unregister == null) return;
+  try {
+    await unregister(removed);
+  } catch (error) {
+    // File deletion is already committed. A runtime-native cleanup failure
+    // cannot make the durable mutation untrue or suppress its onWrite hook.
+    console.error(
+      "[dashframe] native unregister failed after durable frame deletion; runtime cleanup will retry when configured",
+      error,
+    );
+  }
+}
+
+async function referencedServerFrameIds(db: ArtifactDb): Promise<Set<string>> {
+  const rows = (await db
+    .select({ storage: schema.dataFrames.storage })
+    .from(schema.dataFrames)) as Array<{ storage: unknown }>;
+  return new Set(
+    rows.flatMap((row) => {
+      const location = row.storage as { type?: string; key?: string };
+      return location.type === "file" && typeof location.key === "string"
+        ? [location.key]
+        : [];
+    }),
+  );
 }
 
 /**
@@ -623,6 +953,9 @@ export async function createDashframeServer(
   const userId = LOCAL_USER_ID;
   const serverState: { endpoint?: string } = {};
   const googleOAuth = opts.googleOAuth ?? readOptionalGoogleOAuthConfig();
+  const nativeTables = opts.arrowEngine
+    ? new NativeTableLifecycle(opts.arrowEngine)
+    : undefined;
 
   // Resolve the auth context builder: vault-backed ref takes priority over
   // plaintext token. Both produce the same (req) → context shape for WyStack.
@@ -700,8 +1033,13 @@ export async function createDashframeServer(
   // to fire `opts.onWrite` after every successful mutation.
   const vaultWrapped = await buildDashframeApp({
     db: opts.db,
+    dataFrameStorage: opts.dataFrameStorage,
     vault: opts.vault,
     onWrite: opts.onWrite,
+    flushSnapshot: opts.flushSnapshot,
+    flushSnapshotRetentionWindow: opts.flushSnapshotRetentionWindow,
+    unregisterServerFrames: (ids) =>
+      nativeTables?.unregisterCommittedFrames(ids) ?? Promise.resolve(),
     accessCredentials: opts.accessCredentials,
     getServerEndpoint: () => serverState.endpoint,
     googleOAuth,
@@ -862,11 +1200,23 @@ export async function createDashframeServer(
   // Mount the dedicated Arrow IPC data path *before* the WyStack catch-all
   // route, so `/data/arrow` is served by the binary path, not WyStack. This is
   // the hard metadata/data boundary: WyStack frames never carry Arrow bytes.
-  if (opts.arrowEngine) {
+  if (nativeTables) {
     honoApp.route(
       "/data",
       createArrowDataPath({
-        engine: opts.arrowEngine,
+        engine: nativeTables.engine,
+        dataFrameStorage: opts.dataFrameStorage,
+        isFrameAvailable: async (id) => {
+          const rows = await (opts.db as ArtifactDb)
+            .select({ storage: schema.dataFrames.storage })
+            .from(schema.dataFrames)
+            .where(drizzleEq(schema.dataFrames.id, id))
+            .limit(1);
+          const location = rows[0]?.storage as
+            | { type?: string; key?: string }
+            | undefined;
+          return location?.type === "file" && location.key === id;
+        },
         ...(opts.authRef && opts.vault
           ? { authRef: opts.authRef, vault: opts.vault }
           : { authToken: opts.authToken }),
@@ -921,7 +1271,10 @@ export async function createDashframeServer(
   return {
     url: `http://${hostname}:${port}`,
     port,
-    stop: () => server.close(),
+    stop: () => {
+      nativeTables?.close();
+      server.close();
+    },
   };
 }
 

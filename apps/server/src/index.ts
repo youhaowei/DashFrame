@@ -10,6 +10,7 @@ import type {
   ArrowQueryRunner,
   ArrowTableRegistrar,
 } from "@dashframe/engine-server/arrow-data-path";
+import { FileDataFrameStorage } from "@dashframe/engine-server/file-dataframe-storage";
 import {
   ApiAccessCredentials,
   CREDENTIAL_CLASS,
@@ -448,6 +449,9 @@ export function createStandaloneServerOptions(
 ): DashframeServerOptions {
   return {
     db: project.db,
+    dataFrameStorage: new FileDataFrameStorage(
+      path.join(project.dir, "dataframes"),
+    ),
     hostname: opts.hostname,
     port: opts.port,
     corsOrigin: opts.corsOrigin,
@@ -460,6 +464,7 @@ export function createStandaloneServerOptions(
     // Durable counterpart: used by the pre-release gate before deleting a vault
     // ref so the snapshot that drops the ref is confirmed on disk first.
     flushSnapshot: () => project.flushSnapshot(),
+    flushSnapshotRetentionWindow: () => project.flushSnapshotRetentionWindow(),
     googleOAuth: readOptionalGoogleOAuthConfig(),
   };
 }

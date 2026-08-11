@@ -48,6 +48,7 @@
     "@tanstack/react-router": "^1.169.2",
     "@tanstack/react-table": "^8.21.3",
     "@tanstack/react-virtual": "^3.13.12",
+    "@uwdata/flechette": "^2.2.5",
     "@uwdata/vgplot": "^0.21.1",
     "apache-arrow": "^21.1.0",
     "class-variance-authority": "^0.7.1",

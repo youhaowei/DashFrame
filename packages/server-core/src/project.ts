@@ -53,7 +53,6 @@ import {
   hasCorruptWalSegment,
   restoreNewestSnapshot,
   SnapshotScheduler,
-  writeSnapshot,
   type FailedRestoreAttempt,
   type SnapshotMeta,
 } from "./snapshots";
@@ -145,6 +144,8 @@ export interface ProjectHandle {
    * leave an inert orphan rather than risk a dangling live reference.
    */
   flushSnapshot(): Promise<void>;
+  /** Replace every retained recovery snapshot with the current project state. */
+  flushSnapshotRetentionWindow(): Promise<void>;
   /** Flush pending writes, write a final snapshot, and close the underlying PGlite connection. */
   close(): Promise<CloseResult>;
 }
@@ -254,15 +255,9 @@ export async function openProject(
   );
 
   const close = async (): Promise<CloseResult> => {
-    // Cancel the pending debounced timer, then await any snapshot already in
-    // flight before writing (and closing). Without the flush, a debounced/max-
-    // wait dump still running here would overlap the final dump on the same
-    // client — or worse, still be using the client when `close()` tears it down.
-    scheduler.cancel();
-    await scheduler.flush();
     let snapshotError: Error | null = null;
     try {
-      await writeSnapshot(db.$client, dir);
+      await scheduler.close();
     } catch (err) {
       snapshotError = err instanceof Error ? err : new Error(String(err));
     }
@@ -279,6 +274,7 @@ export async function openProject(
     recovery,
     touchSnapshot: () => scheduler.touch(),
     flushSnapshot: () => scheduler.flushNow(),
+    flushSnapshotRetentionWindow: () => scheduler.flushRetentionWindow(),
     close,
   };
 }

@@ -1,3 +1,4 @@
+import { FileDataFrameStorage } from "@dashframe/engine-server";
 import { openArtifactDb, schema } from "@dashframe/server-core";
 import {
   InMemoryMappingStore,
@@ -123,6 +124,7 @@ describe("GA4 connector setup pipeline", () => {
   async function makeApp(): Promise<WyStackApp> {
     const base = await buildDashframeApp({
       db,
+      dataFrameStorage: new FileDataFrameStorage(join(dir, "dataframes")),
       vault: makeVault(),
       googleOAuth: oauthConfig(),
       getServerEndpoint: () => "http://127.0.0.1:4567/api",
@@ -206,11 +208,45 @@ describe("GA4 connector setup pipeline", () => {
       { principal: user },
     );
     const tableId = (added.result as { id: string }).id;
-    const queried = await app.call(
+    const inspected = await app.call(
       "queryGa4Property",
       { dataSourceId: result.dataSourceId, tableId },
       { principal: user },
     );
+    expect(inspected.result).not.toHaveProperty("dataFrameId");
+    expect(
+      JSON.parse(String(runReportCalls().at(-1)?.[1]?.body)),
+    ).toMatchObject({ offset: "0", limit: "100" });
+    const approvedFields = (
+      inspected.result as { fields: object[] }
+    ).fields.map((field) => ({ ...field, sensitivity: "cleared" }));
+    const reportCallsBeforeDeniedSnapshot = runReportCalls().length;
+    await expect(
+      app.call(
+        "queryGa4Property",
+        {
+          dataSourceId: result.dataSourceId,
+          tableId,
+          snapshot: true,
+          approvedFields,
+        },
+        { principal: { kind: "service", credentialId: "inspector" } },
+      ),
+    ).rejects.toThrow("Permission denied: commands.commit");
+    expect(runReportCalls()).toHaveLength(reportCallsBeforeDeniedSnapshot);
+    const queried = await app.call(
+      "queryGa4Property",
+      {
+        dataSourceId: result.dataSourceId,
+        tableId,
+        snapshot: true,
+        approvedFields,
+      },
+      { principal: user },
+    );
+    expect(
+      JSON.parse(String(runReportCalls().at(-1)?.[1]?.body)),
+    ).toMatchObject({ offset: "0", limit: "10000" });
     expect(queried.result).toMatchObject({
       rowCount: 2,
       fields: [
@@ -218,9 +254,10 @@ describe("GA4 connector setup pipeline", () => {
         { name: "activeUsers", type: "number" },
       ],
     });
-    expect(queried.result).toHaveProperty("arrowBuffer");
+    expect(queried.result).toHaveProperty("dataFrameId");
+    expect(queried.result).not.toHaveProperty("arrowBuffer");
     expect(queried.result).toHaveProperty("fieldIds");
-    expect(googleFetch).toHaveBeenCalledTimes(4);
+    expect(googleFetch).toHaveBeenCalledTimes(5);
   });
 
   it("fails setup when the report probe is forbidden", async () => {

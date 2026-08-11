@@ -664,6 +664,103 @@ describe("connector factory — mintBoundResolver fail-closed", () => {
       }),
     ).rejects.toThrow(/not a notion source/i);
   });
+
+  it("queryPostgresTable throws for a wrong-kind source before a missing table", async () => {
+    dir = mkdtempSync(join(tmpdir(), "dashframe-factory-pg-kind-"));
+    db = await openArtifactDb({ path: join(dir, "artifacts.db") });
+    const { vault } = makeTestVault();
+    const rawApp = await buildUserApp(db);
+    const id = crypto.randomUUID();
+    await db.insert(dataSources).values({
+      id,
+      kind: "csv",
+      name: "Not Postgres",
+      storage: "parquet",
+      config: {},
+      createdBy: { kind: "user" as const },
+    });
+
+    await expect(
+      rawApp.call(
+        "queryPostgresTable",
+        {
+          dataSourceId: id,
+          databaseId: "public.tasks",
+          tableId: crypto.randomUUID(),
+        },
+        { vault },
+      ),
+    ).rejects.toThrow(/not a postgres source/i);
+  });
+
+  it("queryPostgresTable throws without a vault before a missing table", async () => {
+    dir = mkdtempSync(join(tmpdir(), "dashframe-factory-pg-novault-"));
+    db = await openArtifactDb({ path: join(dir, "artifacts.db") });
+    const rawApp = await buildUserApp(db);
+    const id = crypto.randomUUID();
+    await db.insert(dataSources).values({
+      id,
+      kind: "postgres",
+      name: "Postgres without vault",
+      storage: "live",
+      config: {},
+      createdBy: { kind: "user" as const },
+    });
+
+    await expect(
+      rawApp.call("queryPostgresTable", {
+        dataSourceId: id,
+        databaseId: "public.tasks",
+        tableId: crypto.randomUUID(),
+      }),
+    ).rejects.toThrow(/no vault/i);
+  });
+
+  it("queryGa4Property throws for a wrong-kind source before a missing table", async () => {
+    dir = mkdtempSync(join(tmpdir(), "dashframe-factory-ga4-kind-"));
+    db = await openArtifactDb({ path: join(dir, "artifacts.db") });
+    const { vault } = makeTestVault();
+    const rawApp = await buildUserApp(db);
+    const id = crypto.randomUUID();
+    await db.insert(dataSources).values({
+      id,
+      kind: "csv",
+      name: "Not GA4",
+      storage: "parquet",
+      config: {},
+      createdBy: { kind: "user" as const },
+    });
+
+    await expect(
+      rawApp.call(
+        "queryGa4Property",
+        { dataSourceId: id, tableId: crypto.randomUUID() },
+        { vault },
+      ),
+    ).rejects.toThrow(/not a Google Analytics source/i);
+  });
+
+  it("queryGa4Property throws without a vault before a missing table", async () => {
+    dir = mkdtempSync(join(tmpdir(), "dashframe-factory-ga4-novault-"));
+    db = await openArtifactDb({ path: join(dir, "artifacts.db") });
+    const rawApp = await buildUserApp(db);
+    const id = crypto.randomUUID();
+    await db.insert(dataSources).values({
+      id,
+      kind: "googleAnalytics",
+      name: "GA4 without vault",
+      storage: "live",
+      config: {},
+      createdBy: { kind: "user" as const },
+    });
+
+    await expect(
+      rawApp.call("queryGa4Property", {
+        dataSourceId: id,
+        tableId: crypto.randomUUID(),
+      }),
+    ).rejects.toThrow(/no vault/i);
+  });
 });
 
 // ---------------------------------------------------------------------------

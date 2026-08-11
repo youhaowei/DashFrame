@@ -26,7 +26,7 @@ import {
   openProject,
   type ProjectHandle,
 } from "./project";
-import { projectMeta } from "./schema";
+import { dataFrames, projectMeta } from "./schema";
 import {
   hasCorruptWalSegment,
   listSnapshots,
@@ -125,6 +125,54 @@ describe("writeSnapshot + listSnapshots", () => {
     }
   });
 
+  test("uses a timestamp newer than future-dated retained snapshots", async () => {
+    const projectDir = join(root, "future-retained");
+    const dbPath = join(projectDir, "artifacts.db");
+    mkdirSync(projectDir, { recursive: true });
+    const pg = await openFreshPGlite(dbPath);
+    try {
+      const futureMs = Date.parse("2099-01-01T00:00:00.000Z");
+      for (let index = 0; index < SNAPSHOT_KEEP_N; index += 1) {
+        await writeSnapshot(pg, projectDir, () => futureMs + index);
+      }
+
+      const written = await writeSnapshot(pg, projectDir, () =>
+        Date.parse("2024-01-01T00:00:00.000Z"),
+      );
+      const retained = await listSnapshots(projectDir);
+
+      expect(existsSync(written)).toBe(true);
+      expect(retained.at(-1)?.absPath).toBe(written);
+      expect(Date.parse(retained.at(-1)!.timestamp)).toBe(
+        futureMs + SNAPSHOT_KEEP_N,
+      );
+    } finally {
+      await pg.close();
+    }
+  });
+
+  test("syncs the project directory before first snapshot contents", async () => {
+    const projectDir = join(root, "directory-sync-order");
+    mkdirSync(projectDir, { recursive: true });
+    const events: string[] = [];
+    const client = {
+      dumpDataDir: async () => {
+        events.push("dump");
+        return new Blob([Buffer.from("snapshot")]);
+      },
+    } as unknown as PGlite;
+
+    await writeSnapshot(client, projectDir, Date.now, async (directory) => {
+      events.push(`sync:${basename(directory)}`);
+    });
+
+    expect(events).toEqual([
+      "sync:directory-sync-order",
+      "dump",
+      "sync:snapshots",
+    ]);
+  });
+
   test("listSnapshots returns empty array when no snapshots dir exists", async () => {
     const snaps = await listSnapshots(join(root, "nonexistent"));
     expect(snaps).toEqual([]);
@@ -146,6 +194,86 @@ describe("writeSnapshot + listSnapshots", () => {
     } finally {
       await pg.close();
     }
+  });
+});
+
+describe("retained snapshot resource safety", () => {
+  test("flushSnapshotRetentionWindow removes deleted frame metadata from every retained fallback", async () => {
+    const projectDir = tempDir();
+    const project = await openProject({ dir: projectDir });
+    const frameId = "11111111-1111-4111-8111-111111111111";
+    await project.db.insert(dataFrames).values({
+      id: frameId,
+      storage: { type: "file", key: frameId },
+      fieldIds: [],
+      name: "old snapshot frame",
+    });
+    await project.flushSnapshot();
+    await project.db.delete(dataFrames);
+
+    await project.flushSnapshotRetentionWindow();
+
+    const retained = await listSnapshots(projectDir);
+    expect(retained).toHaveLength(SNAPSHOT_KEEP_N);
+    for (const [index, snapshot] of retained.entries()) {
+      const restoredDir = join(projectDir, `retained-${index}`);
+      const restored = new PGlite(restoredDir, {
+        loadDataDir: new Blob([readFileSync(snapshot.absPath)]),
+      });
+      await restored.waitReady;
+      expect(
+        await restored.query("SELECT id FROM data_frames WHERE id = $1", [
+          frameId,
+        ]),
+      ).toMatchObject({ rows: [] });
+      await restored.close();
+    }
+    await project.close();
+    rmSync(projectDir, { recursive: true, force: true });
+  });
+
+  test("replaces future-dated retained snapshots with current state after a backward clock", async () => {
+    const projectDir = tempDir();
+    const project = await openProject({ dir: projectDir });
+    const frameId = "11111111-1111-4111-8111-111111111111";
+    await project.db.insert(dataFrames).values({
+      id: frameId,
+      storage: { type: "file", key: frameId },
+      fieldIds: [],
+      name: "future snapshot frame",
+    });
+    const futureMs = Date.parse("2099-01-01T00:00:00.000Z");
+    for (let index = 0; index < SNAPSHOT_KEEP_N; index += 1) {
+      await writeSnapshot(
+        project.db.$client,
+        projectDir,
+        () => futureMs + index,
+      );
+    }
+    await project.db.delete(dataFrames);
+
+    await project.flushSnapshotRetentionWindow();
+
+    const retained = await listSnapshots(projectDir);
+    expect(retained).toHaveLength(SNAPSHOT_KEEP_N);
+    expect(
+      retained.every(({ timestamp }) => Date.parse(timestamp) > futureMs),
+    ).toBe(true);
+    for (const [index, snapshot] of retained.entries()) {
+      const restoredDir = join(projectDir, `future-retained-${index}`);
+      const restored = new PGlite(restoredDir, {
+        loadDataDir: new Blob([readFileSync(snapshot.absPath)]),
+      });
+      await restored.waitReady;
+      expect(
+        await restored.query("SELECT id FROM data_frames WHERE id = $1", [
+          frameId,
+        ]),
+      ).toMatchObject({ rows: [] });
+      await restored.close();
+    }
+    await project.close();
+    rmSync(projectDir, { recursive: true, force: true });
   });
 });
 
@@ -326,6 +454,39 @@ describe("SnapshotScheduler", () => {
     expect(maxActive).toBe(1);
 
     sched.cancel();
+  });
+
+  test("queues the entire retention window before the final close snapshot", async () => {
+    const projectDir = join(root, "retention-before-close");
+    mkdirSync(projectDir, { recursive: true });
+    let releaseFirst!: () => void;
+    const firstBlocked = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let signalFirst!: () => void;
+    const firstStarted = new Promise<void>((resolve) => {
+      signalFirst = resolve;
+    });
+    let calls = 0;
+    const client = {
+      dumpDataDir: async () => {
+        calls += 1;
+        if (calls === 1) {
+          signalFirst();
+          await firstBlocked;
+        }
+        return new Blob([Buffer.from(`snapshot-${calls}`)]);
+      },
+    } as unknown as PGlite;
+    const sched = new SnapshotScheduler(client, projectDir);
+
+    const retention = sched.flushRetentionWindow();
+    await firstStarted;
+    const closing = sched.close();
+    releaseFirst();
+    await Promise.all([retention, closing]);
+
+    expect(calls).toBe(SNAPSHOT_KEEP_N + 1);
   });
 });
 
@@ -875,6 +1036,66 @@ describe("ProjectHandle.close() — surfaces snapshot failure (site 1)", () => {
     // Use the raw PGlite client's query() method rather than drizzle's execute()
     // so the call returns a genuine promise (drizzle's execute returns a lazy builder).
     await expect(handle.db.$client.query("SELECT 1")).rejects.toThrow();
+  });
+
+  test("serializes a blocked dump with final close and seals later snapshot work", async () => {
+    const dir = join(root, "close-serialization");
+    const handle = await openProject({ dir, snapshotDebounceMs: 100_000 });
+    openHandles.splice(0);
+    const client = handle.db.$client;
+    const originalDump = client.dumpDataDir.bind(client);
+    const originalClose = client.close.bind(client);
+    let releaseFirst!: () => void;
+    const firstBlocked = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let signalFirst!: () => void;
+    const firstStarted = new Promise<void>((resolve) => {
+      signalFirst = resolve;
+    });
+    let calls = 0;
+    let active = 0;
+    let maxActive = 0;
+    let clientClosed = false;
+    let startsAfterClientClose = 0;
+
+    client.dumpDataDir = async (...args) => {
+      calls += 1;
+      if (clientClosed) startsAfterClientClose += 1;
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      if (calls === 1) {
+        signalFirst();
+        await firstBlocked;
+      }
+      try {
+        return await originalDump(...args);
+      } finally {
+        active -= 1;
+      }
+    };
+    client.close = async () => {
+      clientClosed = true;
+      return originalClose();
+    };
+
+    const firstFlush = handle.flushSnapshot();
+    await firstStarted;
+    const closing = handle.close();
+    handle.touchSnapshot();
+    await expect(handle.flushSnapshot()).rejects.toThrow(
+      "Snapshot scheduler is closing",
+    );
+    await expect(handle.flushSnapshotRetentionWindow()).rejects.toThrow(
+      "Snapshot scheduler is closing",
+    );
+    releaseFirst();
+
+    await firstFlush;
+    expect((await closing).snapshotError).toBeNull();
+    expect(calls).toBe(2);
+    expect(maxActive).toBe(1);
+    expect(startsAfterClientClose).toBe(0);
   });
 });
 

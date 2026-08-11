@@ -1,3 +1,4 @@
+import { FileDataFrameStorage } from "@dashframe/engine-server/file-dataframe-storage";
 import {
   ApiAccessCredentials,
   CREDENTIAL_CLASS,
@@ -399,6 +400,7 @@ describe("dashframe serve CLI", () => {
 
         const project = {
           db: {},
+          dir: path.join(dataDir, "project"),
           touchSnapshot: vi.fn(),
           flushSnapshot: vi.fn(),
         } as unknown as ProjectHandle;
@@ -416,6 +418,7 @@ describe("dashframe serve CLI", () => {
         expect(options.accessCredentials).toBe(services.accessCredentials);
         expect(options.authToken).toBe("plaintext-token");
         expect(options.arrowEngine).toBe(arrowEngine);
+        expect(options.dataFrameStorage).toBeInstanceOf(FileDataFrameStorage);
 
         // Named access tokens and connector credentials share the composed,
         // encrypted standalone vault. No other credential class is routed to
@@ -463,6 +466,7 @@ describe("dashframe serve CLI", () => {
       expect(services).toEqual({});
       const project = {
         db: {},
+        dir: "/unused-project",
         touchSnapshot: vi.fn(),
         flushSnapshot: vi.fn(),
       } as unknown as ProjectHandle;

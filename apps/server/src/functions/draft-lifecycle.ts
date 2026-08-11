@@ -236,6 +236,7 @@ const publishDraft = wy.procedure
 
       // Mark the replay as the sanctioned canonical-commit path so the credential
       // command handlers' direct-call guard accepts it (release is handled here).
+      const framesBefore = await ctx.captureServerFrameReferences?.();
       let result: Awaited<ReturnType<DraftController["publishDraft"]>>;
       try {
         result = await draftController.publishDraft(
@@ -266,6 +267,19 @@ const publishDraft = wy.procedure
           throw draftConflictError(err.conflictReport);
         }
         throw err;
+      }
+
+      if (framesBefore != null) {
+        try {
+          await ctx.cleanupDereferencedServerFrames?.(framesBefore);
+        } catch (err) {
+          // The publish is already committed. Startup recovery retries cleanup,
+          // so never report the committed transition as a failed publish.
+          console.error(
+            "[dashframe] publishDraft: dereferenced server frame cleanup failed; startup recovery will retry",
+            err,
+          );
+        }
       }
 
       // Fire snapshot persistence. `buildDashframeApp`'s outer call wrapper does

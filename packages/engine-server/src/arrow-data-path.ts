@@ -21,17 +21,20 @@
  *
  * `POST /tables/:name`
  *   Accepts a raw Arrow IPC stream body (`application/vnd.apache.arrow.stream`)
- *   and registers it as a named in-memory table in the engine. The renderer
- *   uploads each DataFrame's Arrow buffer before issuing chart-compute queries.
- *   Only available when the engine implements `registerArrowTable` (i.e. the
- *   native engine is wired into this process — not the WASM-backup path).
+ *   and registers it as a named in-memory table in the engine. Retained explicit
+ *   backup paths may upload Arrow here; project-owned file frames instead use
+ *   `POST /frames/:id/tables/:name` so bytes never cross the client.
  */
+import type { DataFrameStorage } from "@dashframe/engine";
+import type { UUID } from "@dashframe/types";
 import type { SecretRef, SecretVault } from "@wystack/secret-vault";
 import { tableFromIPC } from "apache-arrow";
 import { Hono } from "hono";
 import { createHash, timingSafeEqual } from "node:crypto";
 
 export const ARROW_STREAM_CONTENT_TYPE = "application/vnd.apache.arrow.stream";
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /** What the data path needs from an engine: compiled SQL → Arrow IPC bytes. */
 export interface ArrowQueryRunner {
@@ -41,15 +44,20 @@ export interface ArrowQueryRunner {
 /**
  * Optional extension: the engine can accept Arrow IPC buffers as named tables
  * so chart-compute (and other clients) can register the same frame data the
- * server engine will query — without materializing through the WASM backup path.
+ * server engine will query — without routing bytes through the WASM backup path.
  */
 export interface ArrowTableRegistrar {
   registerArrowTable(name: string, arrow: Uint8Array): Promise<void>;
+  unregisterTable?(name: string): Promise<void>;
 }
 
 export interface ArrowDataPathOptions {
   /** The engine that executes compiled SQL and returns Arrow IPC. */
   engine: ArrowQueryRunner & Partial<ArrowTableRegistrar>;
+  /** Project-owned frames that may be registered without crossing the client. */
+  dataFrameStorage?: DataFrameStorage;
+  /** Confirms a durable frame is still canonically owned before registration. */
+  isFrameAvailable?: (id: UUID) => Promise<boolean>;
   /**
    * Per-launch loopback bearer token (plaintext). When set, every request must
    * carry `Authorization: Bearer <token>`. When unset, the path is open
@@ -72,6 +80,27 @@ export interface ArrowDataPathOptions {
    * `authRef` is set.
    */
   vault?: SecretVault;
+}
+
+async function unregisterIfPresent(
+  engine: ArrowQueryRunner & Partial<ArrowTableRegistrar>,
+  name: string,
+): Promise<boolean> {
+  try {
+    await engine.unregisterTable?.(name);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function frameIsUnavailable(
+  options: ArrowDataPathOptions,
+  id: UUID,
+): Promise<boolean> {
+  return options.isFrameAvailable
+    ? !(await options.isFrameAvailable(id))
+    : false;
 }
 
 /** Native shape: `{ sql, params? }` */
@@ -322,6 +351,68 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
     return c.json({ ok: true, name });
   });
 
+  // Register a durable project frame directly in native DuckDB. The browser
+  // sends only opaque identifiers; Arrow bytes never make a client roundtrip.
+  app.post("/frames/:id/tables/:name", async (c) => {
+    if (!(await checkAuth(c.req.header("authorization"), options))) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+    const contentType = c.req.header("content-type")?.split(";", 1)[0]?.trim();
+    if (contentType?.toLowerCase() !== "application/json") {
+      return c.json({ error: "Content-Type must be application/json" }, 415);
+    }
+    if (!options.dataFrameStorage) {
+      return c.json({ error: "Server DataFrame storage is unavailable" }, 503);
+    }
+    if (typeof options.engine.registerArrowTable !== "function") {
+      return c.json(
+        { error: "Engine does not support table registration" },
+        501,
+      );
+    }
+    const id = c.req.param("id");
+    const name = c.req.param("name");
+    if (!UUID_PATTERN.test(id)) {
+      return c.json({ error: "Invalid frame id" }, 400);
+    }
+    if (!name || !/^[a-zA-Z_]\w*$/.test(name)) {
+      return c.json(
+        { error: "Table name must be a valid SQL identifier" },
+        400,
+      );
+    }
+    const arrow = await options.dataFrameStorage.load(id as UUID);
+    if (!arrow) return c.json({ error: "Frame not found" }, 404);
+    if (await frameIsUnavailable(options, id as UUID)) {
+      // Also retries cleanup from an earlier request whose post-registration
+      // ownership check lost the race but whose native DROP failed.
+      if (!(await unregisterIfPresent(options.engine, name))) {
+        return c.json(
+          { error: "Frame is unavailable and registration cleanup failed" },
+          500,
+        );
+      }
+      return c.json({ error: "Frame is no longer available" }, 404);
+    }
+    try {
+      await options.engine.registerArrowTable(name, arrow);
+    } catch {
+      return c.json({ error: "Failed to register frame" }, 500);
+    }
+    // Ownership can disappear while native registration is in flight. Undo
+    // that late registration before acknowledging it.
+    if (await frameIsUnavailable(options, id as UUID)) {
+      if (!(await unregisterIfPresent(options.engine, name))) {
+        return c.json(
+          { error: "Frame was deleted and registration cleanup failed" },
+          500,
+        );
+      }
+      return c.json({ error: "Frame is no longer available" }, 409);
+    }
+    return c.json({ ok: true, id, name });
+  });
+
   return app;
 }
 
@@ -355,6 +446,18 @@ function arrowIpcToJsonRows(arrow: Uint8Array): Record<string, unknown>[] {
     rows.push(row);
   }
   return rows;
+}
+
+/** Decode and summarize IPC without exposing row values. Throws on bad IPC. */
+export function inspectArrowIpc(arrow: Uint8Array): {
+  fieldNames: string[];
+  rowCount: number;
+} {
+  const table = tableFromIPC(arrow);
+  return {
+    fieldNames: table.schema.fields.map((field) => field.name),
+    rowCount: table.numRows,
+  };
 }
 
 function tokenOk(authHeader: string | undefined, expected: string): boolean {

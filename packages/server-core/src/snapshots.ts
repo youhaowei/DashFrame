@@ -132,13 +132,33 @@ export async function writeSnapshot(
   projectDir: string,
   /** Injected for testing — returns the timestamp to embed in the filename. */
   nowMs: () => number = Date.now,
+  /** Injected for testing — durably syncs a directory entry sequence. */
+  sync: (directory: string) => Promise<void> = syncDirectory,
 ): Promise<string> {
   const snapshotsDir = resolveSnapshotsDir(projectDir);
   await fs.mkdir(snapshotsDir, { recursive: true });
+  await sync(projectDir);
 
-  const timestamp = new Date(nowMs()).toISOString().replace(/[:.]/g, "-");
-  const filename = `${SNAPSHOT_PREFIX}${timestamp}${SNAPSHOT_EXT}`;
-  const destPath = path.join(snapshotsDir, filename);
+  const retained = await listSnapshots(projectDir);
+  const newestRetainedMs = retained
+    .map(({ timestamp }) => Date.parse(timestamp))
+    .filter(Number.isFinite)
+    .at(-1);
+  let snapshotMs = Math.max(nowMs(), (newestRetainedMs ?? -1) + 1);
+  let filename: string;
+  let destPath: string;
+  while (true) {
+    const timestamp = new Date(snapshotMs).toISOString().replace(/[:.]/g, "-");
+    filename = `${SNAPSHOT_PREFIX}${timestamp}${SNAPSHOT_EXT}`;
+    destPath = path.join(snapshotsDir, filename);
+    try {
+      await fs.access(destPath);
+      snapshotMs += 1;
+    } catch (error) {
+      if (isEnoent(error)) break;
+      throw error;
+    }
+  }
   const tempPath = path.join(snapshotsDir, `.tmp-${filename}`);
 
   const blob = await pgliteClient.dumpDataDir("gzip");
@@ -146,8 +166,15 @@ export async function writeSnapshot(
 
   // Write to a temp file first; rename to final path atomically.
   try {
-    await fs.writeFile(tempPath, buffer);
+    const file = await fs.open(tempPath, "w");
+    try {
+      await file.writeFile(buffer);
+      await file.sync();
+    } finally {
+      await file.close();
+    }
     await fs.rename(tempPath, destPath);
+    await sync(snapshotsDir);
   } catch (err) {
     // Clean up temp file on any error so it doesn't accumulate.
     await fs.unlink(tempPath).catch(() => {});
@@ -230,6 +257,7 @@ async function pruneSnapshots(snapshotsDir: string): Promise<void> {
       `[dashframe] pruneSnapshots: ${failures.length} of ${toDelete.length} deletion(s) failed`,
     );
   }
+  if (toDelete.length > 0) await syncDirectory(snapshotsDir);
 }
 
 /**
@@ -347,6 +375,15 @@ function isEnoent(err: unknown): boolean {
   );
 }
 
+async function syncDirectory(directory: string): Promise<void> {
+  const handle = await fs.open(directory, "r");
+  try {
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
 /**
  * Manages the debounced post-write snapshot schedule, with a max-wait cap so a
  * sustained write stream still produces periodic snapshots.
@@ -385,7 +422,9 @@ export class SnapshotScheduler {
    * tail so they run strictly one-at-a-time; `flush()` lets `close()` await the
    * in-flight write before its own.
    */
-  private inFlight: Promise<unknown> = Promise.resolve();
+  private inFlight: Promise<void> = Promise.resolve();
+  private closing = false;
+  private closePromise: Promise<void> | null = null;
 
   constructor(
     private readonly pgliteClient: PGlite,
@@ -403,6 +442,7 @@ export class SnapshotScheduler {
 
   /** Notify the scheduler that a write just happened. */
   touch(): void {
+    if (this.closing) return;
     const now = this.nowMs();
     if (this.firstPendingAt === null) this.firstPendingAt = now;
 
@@ -420,6 +460,7 @@ export class SnapshotScheduler {
 
   /** Write a snapshot now and reset the pending-burst tracking. */
   private fireNow(): void {
+    if (this.closing) return;
     if (this.timer !== null) {
       clearTimeout(this.timer);
       this.timer = null;
@@ -428,13 +469,13 @@ export class SnapshotScheduler {
     // Chain onto the in-flight tail so writes never overlap on the shared
     // client. A failed write is logged and swallowed so it doesn't poison the
     // chain for the next snapshot.
-    this.inFlight = this.inFlight
-      .catch(() => {})
-      .then(() =>
-        writeSnapshot(this.pgliteClient, this.projectDir).catch((err) => {
-          console.error("[dashframe] debounced snapshot failed:", err);
-        }),
-      );
+    this.enqueue(async () => {
+      try {
+        await writeSnapshot(this.pgliteClient, this.projectDir);
+      } catch (err) {
+        console.error("[dashframe] debounced snapshot failed:", err);
+      }
+    });
   }
 
   /**
@@ -456,9 +497,8 @@ export class SnapshotScheduler {
    * ref must not be released from the vault until the snapshot that drops that
    * ref from the config is known to be durable.
    *
-   * Serialisation: the write is chained onto `inFlight` exactly as `fireNow()`
-   * does, so it cannot overlap a concurrently running debounced write or the
-   * final snapshot from `ProjectHandle.close()`.
+   * Serialisation: the complete operation is chained onto `inFlight`, so it
+   * cannot overlap a debounced, retention-window, or final close snapshot.
    *
    * Error propagation: unlike `fireNow()`, which swallows errors to keep the
    * chain healthy for the next debounced snapshot, this method surfaces write
@@ -467,6 +507,7 @@ export class SnapshotScheduler {
    * reference.
    */
   async flushNow(): Promise<void> {
+    this.assertOpen();
     // Cancel any pending debounce timer — we are writing immediately.
     if (this.timer !== null) {
       clearTimeout(this.timer);
@@ -474,21 +515,38 @@ export class SnapshotScheduler {
     }
     this.firstPendingAt = null;
 
-    // Chain onto the in-flight tail (prevents overlap) and capture a promise
-    // that both (a) updates inFlight to suppress "nothing pending" and (b)
-    // propagates the error to this caller. The chain has TWO branches:
-    //   - inFlight (error-swallowed): keeps the chain healthy for future
-    //     debounced calls if this flush is later followed by more touch() calls.
-    //   - write (error-propagated): returned to the caller so the pre-release
-    //     gate learns whether durability was achieved.
-    const write = this.inFlight
-      .catch(() => {}) // don't let a prior failure block this write
-      .then(() => writeSnapshot(this.pgliteClient, this.projectDir));
-    // Register the error-swallowed tail so future debounced writes still chain
-    // correctly even if `write` throws.
-    this.inFlight = write.catch(() => {});
-    // Await with error propagation — callers must handle rejection.
-    await write;
+    // Enqueue before awaiting so close cannot insert its final snapshot between
+    // this request and its write. The returned branch propagates errors while
+    // the scheduler tail remains healthy for later work.
+    await this.enqueue(async () => {
+      await writeSnapshot(this.pgliteClient, this.projectDir);
+    });
+  }
+
+  /**
+   * Replace the complete retained recovery window with snapshots of the current
+   * state. Physical resources removed from that state are safe to delete only
+   * after this resolves: no retained fallback can restore a reference to them.
+   */
+  async flushRetentionWindow(): Promise<void> {
+    this.assertOpen();
+    this.cancel();
+    await this.enqueue(async () => {
+      for (let index = 0; index < SNAPSHOT_KEEP_N; index += 1) {
+        await writeSnapshot(this.pgliteClient, this.projectDir);
+      }
+    });
+  }
+
+  /** Queue the final snapshot and reject all later snapshot work. */
+  close(): Promise<void> {
+    if (this.closePromise) return this.closePromise;
+    this.closing = true;
+    this.cancel();
+    this.closePromise = this.enqueue(async () => {
+      await writeSnapshot(this.pgliteClient, this.projectDir);
+    });
+    return this.closePromise;
   }
 
   /** Cancel any pending debounced snapshot (call before close). */
@@ -498,5 +556,17 @@ export class SnapshotScheduler {
       this.timer = null;
     }
     this.firstPendingAt = null;
+  }
+
+  private enqueue(operation: () => Promise<void>): Promise<void> {
+    const result = this.inFlight.catch(() => {}).then(operation);
+    this.inFlight = result.catch(() => {});
+    return result;
+  }
+
+  private assertOpen(): void {
+    if (this.closing) {
+      throw new Error("Snapshot scheduler is closing");
+    }
   }
 }

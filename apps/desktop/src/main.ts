@@ -1,4 +1,5 @@
 import {
+  FileDataFrameStorage,
   NativeDuckDBEngine,
   selectEngineBinding,
 } from "@dashframe/engine-server";
@@ -380,6 +381,9 @@ app
 
       server = await createDashframeServer({
         db: project.db,
+        dataFrameStorage: new FileDataFrameStorage(
+          path.join(project.dir, "dataframes"),
+        ),
         accessCredentials: new ApiAccessCredentials(accessVault, accessRoot),
         corsOrigin,
         // Vault path passes a ref (no plaintext at the server); the
@@ -400,6 +404,8 @@ app
         // this, the gate degrades to the debounced-schedule path and the crash
         // window reopens. The narrow callback preserves the no-import boundary.
         flushSnapshot: () => project.flushSnapshot(),
+        flushSnapshotRetentionWindow: () =>
+          project.flushSnapshotRetentionWindow(),
         // Inject the fully-composed SecretVault. The server RECEIVES this vault;
         // it never instantiates a backend itself. Control-plane mutations
         // (create/update DataSource) call vault.store → ref; reads call

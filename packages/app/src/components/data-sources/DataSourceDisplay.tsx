@@ -3,9 +3,12 @@ import {
   getConnectorById,
   useRegistryVersion,
 } from "@/lib/connectors/registry";
-import { materializeRemoteTable } from "@/lib/remote-table-materialization";
 import { api } from "@/wystack/api";
-import type { DataTable, Field } from "@dashframe/types";
+import {
+  getFieldSensitivity,
+  type DataTable,
+  type Field,
+} from "@dashframe/types";
 import { VirtualTable, type VirtualTableColumn } from "@dashframe/ui";
 import { useMutation, useQuery } from "@wystack/client";
 import {
@@ -34,7 +37,7 @@ interface DataSourceDisplayProps {
 
 // Preview data type for Notion sources.
 // rowCount is the actual fetched row count; undefined when only column schema
-// is available (e.g. the serializable query result carries no materialized rows).
+// is available (e.g. the serializable query result carries no snapshot rows).
 // tableId keys the preview to the data table it was synced from — stale preview
 // from a previously selected table is suppressed by comparing to selectedDataTable.id.
 interface PreviewData {
@@ -105,7 +108,7 @@ function getFilesDescription(fileCount: number): string {
 
 // Helper to get table stats description.
 // rowCount may be undefined when only the column schema has been fetched
-// (the serializable query result carries no materialized row count).
+// (the serializable query result carries no snapshot row count).
 function getTableStatsDescription(
   rowCount: number | undefined,
   columnCount: number | undefined,
@@ -515,7 +518,7 @@ function useNotionSync(
 
     setIsRefreshing(true);
     try {
-      // Sync materializes the FULL database (no row cap): the persisted table
+      // Refresh imports the FULL database (no row cap): the persisted table
       // must hold the whole source so it survives a reload intact. The server's
       // `limit` arg stays available for a future preview-only fetch.
       const result = await queryNotionDatabaseMutation({
@@ -554,19 +557,30 @@ function useNotionSync(
         return;
       }
 
-      // Persist the frame + fields BEFORE reporting success, so a reload finds
-      // the data and schema intact (not just a refreshed timestamp).
-      const materialized = await materializeRemoteTable(
-        selectedDataTable,
-        reviewedResult,
-        selectedDataTable.name,
-      );
+      if (
+        reviewedResult.fields.some(
+          (field) => getFieldSensitivity(field) !== "cleared",
+        )
+      ) {
+        throw new Error("Every remote column must be reviewed before refresh");
+      }
+
+      // Re-query only after the privacy gate. The server validates the reviewed
+      // schema against that result and commits bytes, schema, and linkage
+      // atomically; row bytes never transit the UI.
+      const refreshed = await queryNotionDatabaseMutation({
+        dataSourceId: dataSource.id,
+        databaseId: selectedDataTable.table,
+        tableId: selectedDataTable.id,
+        snapshot: true,
+        approvedFields: reviewedResult.fields,
+      });
 
       setNotionPreviewData({
         tableId: selectedDataTable.id,
-        rows: [], // row data lives in IndexedDB; preview shows column schema
+        rows: [], // row data stays in server storage; preview shows column schema
         columns,
-        rowCount: materialized.rowCount,
+        rowCount: refreshed.rowCount,
       });
 
       toast.success(successMsg(columns.length));

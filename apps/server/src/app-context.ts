@@ -1,3 +1,4 @@
+import type { DataFrameStorage } from "@dashframe/engine";
 import type { ApiAccessCredentials, ArtifactDb } from "@dashframe/server-core";
 import type { Principal } from "@wystack/identity";
 import type { SecretVault } from "@wystack/secret-vault";
@@ -14,9 +15,17 @@ export interface AppContext {
   vault?: SecretVault;
   wyStackApp?: WyStackApp;
   artifactDb?: ArtifactDb;
+  dataFrameStorage?: DataFrameStorage;
+  captureServerFrameReferences?: () => Promise<ReadonlySet<string>>;
+  cleanupDereferencedServerFrames?: (
+    before: ReadonlySet<string>,
+  ) => Promise<void>;
+  unregisterServerFrames?: (ids: readonly string[]) => Promise<void>;
+  markServerFrameCleanupHandled?: () => void;
   draftController?: DraftController;
   onWrite?: () => void;
   flushSnapshot?: () => Promise<void>;
+  flushSnapshotRetentionWindow?: () => Promise<void>;
   googleOAuth?: GoogleOAuthConfig;
   mode?: string;
   draftId?: string;

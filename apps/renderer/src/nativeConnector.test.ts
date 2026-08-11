@@ -7,6 +7,7 @@
  *   than hanging forever.
  * - Happy path: a valid query returns a decoded flechette Table.
  * - Table upload: uploadArrowTable posts with Arrow content-type.
+ * - Server snapshot registration: only the DataFrame ID and table name cross.
  * - Error mapping: non-2xx responses are surfaced as human-readable throws.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -61,6 +62,40 @@ describe("createNativeConnector — abort timeout", () => {
     ).rejects.toThrow("Native engine timed out");
 
     // Advance past the 10-second timeout
+    await vi.advanceTimersByTimeAsync(11_000);
+    await queryPromise;
+  });
+
+  it("times out when response headers arrive but the Arrow body stalls", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_url: string, init: RequestInit) =>
+        Promise.resolve({
+          ok: true,
+          arrayBuffer: () =>
+            new Promise<ArrayBuffer>((_resolve, reject) => {
+              (init.signal as AbortSignal | undefined)?.addEventListener(
+                "abort",
+                () =>
+                  reject(
+                    new DOMException(
+                      "The operation was aborted.",
+                      "AbortError",
+                    ),
+                  ),
+              );
+            }),
+        } as Response),
+      ),
+    );
+    const connector = createNativeConnector({
+      serverUrl: SERVER_URL,
+      token: TOKEN,
+    });
+    const queryPromise = expect(
+      connector.query({ sql: "SELECT 1" }),
+    ).rejects.toThrow("Native engine timed out");
+
     await vi.advanceTimersByTimeAsync(11_000);
     await queryPromise;
   });
@@ -144,5 +179,32 @@ describe("createNativeConnector — error handling", () => {
     await expect(
       connector.uploadArrowTable("df_test", new Uint8Array([0])),
     ).rejects.toThrow(/Failed to upload table/);
+  });
+
+  it("registers a persisted server snapshot by DataFrame ID without an Arrow body", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const connector = createNativeConnector({
+      serverUrl: SERVER_URL,
+      token: TOKEN,
+    });
+
+    await connector.registerServerFrame(
+      "0d44d605-f3be-46b6-a492-e912231cbedf",
+      "df_report",
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${SERVER_URL}/data/frames/0d44d605-f3be-46b6-a492-e912231cbedf/tables/df_report`,
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          Authorization: `Bearer ${TOKEN}`,
+          "Content-Type": "application/json",
+        }),
+      }),
+    );
+    expect(fetchMock.mock.calls[0]?.[1]).not.toHaveProperty("body");
   });
 });

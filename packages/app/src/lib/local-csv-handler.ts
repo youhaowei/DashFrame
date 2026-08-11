@@ -215,7 +215,10 @@ export async function handleLocalCSVUpload(
     }
 
     // Ensure the DataTable points to the updated DataFrame
-    await updateDataTable(dataTableId, { dataFrameId });
+    await updateDataTable(dataTableId, {
+      dataFrameId,
+      lastFetchedAt: Date.now(),
+    });
   } else {
     // 3b. Create DataTable via the CreateDataTable command — PRIMITIVE path.
     // CreateDataTable does NOT auto-inject metrics, so we pass the default
@@ -242,7 +245,10 @@ export async function handleLocalCSVUpload(
     dataFrameId = dataFrame.id;
 
     // 5. Link DataFrame to DataTable
-    await updateDataTable(dataTableId, { dataFrameId });
+    await updateDataTable(dataTableId, {
+      dataFrameId,
+      lastFetchedAt: Date.now(),
+    });
   }
 
   // Note: Column analysis is run lazily in InsightView when first needed
@@ -322,7 +328,10 @@ export async function handleFileConnectorResult(
       dataFrameId = dataFrame.id;
     }
 
-    await updateDataTable(dataTableId, { dataFrameId });
+    await updateDataTable(dataTableId, {
+      dataFrameId,
+      lastFetchedAt: Date.now(),
+    });
   } else {
     // Create DataTable via the CreateDataTable command — PRIMITIVE path.
     // CreateDataTable does NOT auto-inject metrics, so we pass the default
@@ -349,7 +358,10 @@ export async function handleFileConnectorResult(
     dataFrameId = dataFrame.id;
 
     // Link DataFrame to DataTable
-    await updateDataTable(dataTableId, { dataFrameId });
+    await updateDataTable(dataTableId, {
+      dataFrameId,
+      lastFetchedAt: Date.now(),
+    });
   }
 
   // Note: Column analysis is run lazily in InsightView when first needed

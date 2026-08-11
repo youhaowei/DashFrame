@@ -276,6 +276,82 @@ describe("privacy floor — no raw sampleValues persist in artifact DB", () => {
       lastRefreshedAt: refreshedAt,
     });
   });
+
+  it("rejects a client-authored server frame alias on insert", async () => {
+    const id = crypto.randomUUID();
+    await expect(
+      call("putDataFrameEntry", {
+        entry: {
+          ...makeDataFrameEntry(id),
+          storage: { type: "file", key: crypto.randomUUID() },
+        },
+      }),
+    ).rejects.toThrow("Server frame storage is server-owned");
+    expect(await db.select().from(dataFrames)).toEqual([]);
+  });
+
+  it("rejects client-authored file storage even when key matches the row id", async () => {
+    const id = crypto.randomUUID();
+    await expect(
+      call("putDataFrameEntry", {
+        entry: {
+          ...makeDataFrameEntry(id),
+          storage: { type: "file", key: id },
+        },
+      }),
+    ).rejects.toThrow("Server frame storage is server-owned");
+  });
+
+  it("does not let a public update convert a server-owned frame", async () => {
+    const id = crypto.randomUUID();
+    await db.insert(dataFrames).values({
+      id,
+      storage: { type: "file", key: id },
+      fieldIds: [],
+      name: "server frame",
+    });
+
+    await expect(
+      call("updateDataFrameEntry", {
+        id,
+        updates: { storage: { type: "indexeddb", key: `arrow-${id}` } },
+      }),
+    ).rejects.toThrow("Server frame storage cannot be changed");
+    expect((await db.select().from(dataFrames))[0]?.storage).toEqual({
+      type: "file",
+      key: id,
+    });
+  });
+
+  it("does not let public put replace a server-owned frame's storage", async () => {
+    const id = crypto.randomUUID();
+    await db.insert(dataFrames).values({
+      id,
+      storage: { type: "file", key: id },
+      fieldIds: [],
+      name: "server frame",
+    });
+    await expect(
+      call("putDataFrameEntry", {
+        entry: makeDataFrameEntry(id),
+      }),
+    ).rejects.toThrow("Server frame storage cannot be changed");
+  });
+
+  it("rejects changing a DataFrame to another server frame's key", async () => {
+    const id = crypto.randomUUID();
+    await call("putDataFrameEntry", { entry: makeDataFrameEntry(id) });
+
+    await expect(
+      call("updateDataFrameEntry", {
+        id,
+        updates: { storage: { type: "file", key: crypto.randomUUID() } },
+      }),
+    ).rejects.toThrow("Server frame storage is server-owned");
+
+    const [stored] = await db.select().from(dataFrames);
+    expect(stored?.storage).toEqual({ type: "indexeddb", key: `arrow-${id}` });
+  });
 });
 
 // ---------------------------------------------------------------------------

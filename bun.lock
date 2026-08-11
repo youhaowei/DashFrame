@@ -457,6 +457,7 @@
         "@tanstack/react-router": "^1.169.2",
         "@tanstack/react-table": "^8.21.3",
         "@tanstack/react-virtual": "^3.13.12",
+        "@uwdata/flechette": "^2.2.5",
         "@uwdata/vgplot": "^0.21.1",
         "@wystack/client": "workspace:*",
         "@wystack/ui-core": "workspace:*",

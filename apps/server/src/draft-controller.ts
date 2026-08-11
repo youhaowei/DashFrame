@@ -80,6 +80,7 @@ import {
   type WyStackApp,
 } from "@wystack/server";
 import { eq, getTableName, sql } from "drizzle-orm";
+import { AsyncLocalStorage } from "node:async_hooks";
 
 import {
   assertPublishLogHasNoLateBound,
@@ -88,15 +89,36 @@ import {
 import { computeLogSignature } from "./draft-log-signature";
 import { assertKnownCommandPaths } from "./functions/commands";
 
+type OperatedDraftDispatch = {
+  consumed: boolean;
+  path: string;
+  tracker: Parameters<WyStackApp["runHandler"]>[2];
+};
+
+const operatedDraftDispatchScope =
+  new AsyncLocalStorage<OperatedDraftDispatch>();
+
 /**
- * Internal capability threaded by DraftController through the app's shared
- * dispatch seam. It distinguishes an operated append (shadow + revision + log
- * in one transaction) from a public runHandler call that merely supplies a
- * draftId or DraftDrizzleTracker. Not part of the public WyStackApp surface.
+ * @internal Consumes the single dispatch opened by DraftController. The scope
+ * and its enter operation stay module-private, so importing this check cannot
+ * mint, copy, or replay authorization.
  */
-export const DRAFT_CONTROLLER_DISPATCH_CAPABILITY = Symbol(
-  "dashframe.draftControllerDispatch",
-);
+export function consumeOperatedDraftDispatch(
+  path: string,
+  tracker: Parameters<WyStackApp["runHandler"]>[2],
+): boolean {
+  const dispatch = operatedDraftDispatchScope.getStore();
+  if (
+    dispatch == null ||
+    dispatch.consumed ||
+    dispatch.path !== path ||
+    dispatch.tracker !== tracker
+  ) {
+    return false;
+  }
+  dispatch.consumed = true;
+  return true;
+}
 
 /**
  * The closed set of `<table>__draft` shadows a draft can touch. Discard
@@ -1194,20 +1216,7 @@ export function createDraftController(
       // whose handler reads a non-draftable table would throw on the missing
       // `<table>__draft` relation. Both withDraft entry points (call/runHandler
       // and this append) must go through the same fall-through seam.
-      const dispatchCapability = Reflect.get(
-        app,
-        DRAFT_CONTROLLER_DISPATCH_CAPABILITY,
-      );
-      if (dispatchCapability === undefined) {
-        throw new Error(
-          "appendToDraft: app is missing the operated draft dispatch capability — use buildDashframeApp",
-        );
-      }
-      const draftContext = {
-        ...context,
-        draftId,
-        [DRAFT_CONTROLLER_DISPATCH_CAPABILITY]: dispatchCapability,
-      };
+      const draftContext = { ...context, draftId };
       const results: CommandResult[] = [];
       const committedWrites = app.createTracked();
       let expectedRevision = await readLogRevision(draftId);
@@ -1250,11 +1259,14 @@ export function createDraftController(
               tx.raw,
             );
             const prior = await readLog(draftId, tx.raw);
-            const value = await app.runHandler(
-              snapshot.path,
-              snapshot.args,
-              tx,
-              draftContext,
+            const value = await operatedDraftDispatchScope.run(
+              {
+                consumed: false,
+                path: snapshot.path,
+                tracker: tx,
+              },
+              () =>
+                app.runHandler(snapshot.path, snapshot.args, tx, draftContext),
             );
             await writeLog(draftId, compactLog([...prior, snapshot]), tx.raw);
             return { value, nextRevision };

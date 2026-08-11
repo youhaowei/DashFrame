@@ -1,7 +1,13 @@
 import "@dashframe/app/globals.css";
 
 import type { AppRouterContext, ProviderWrapper } from "@dashframe/app";
-import { createWyStackRuntime, resolveWyStackConfig } from "@dashframe/app";
+import {
+  ChartEngineProvider,
+  configureServerDataPlane,
+  createServerConnector,
+  createWyStackRuntime,
+  resolveWyStackConfig,
+} from "@dashframe/app";
 import { createRouter, RouterProvider } from "@tanstack/react-router";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
@@ -39,13 +45,24 @@ function renderBootstrapError(error: unknown) {
 async function bootstrap() {
   const config = await resolveWyStackConfig();
   const { Provider } = createWyStackRuntime(config);
+  const connector = createServerConnector({
+    serverUrl: config.url,
+    ...(config.token ? { token: config.token } : {}),
+  });
+  configureServerDataPlane({
+    serverUrl: config.url,
+    connector,
+    ...(config.token ? { token: config.token } : {}),
+  });
 
   // WyStack Provider wraps PostHog so every data hook (and PostHogPageView's
   // router hooks) sees both contexts. The composed wrapper rides the
   // providerWrapper slot into the shared RouteRoot.
   const providerWrapper: ProviderWrapper = ({ children }) => (
     <Provider>
-      <WebProviders>{children}</WebProviders>
+      <ChartEngineProvider connector={connector}>
+        <WebProviders>{children}</WebProviders>
+      </ChartEngineProvider>
     </Provider>
   );
   router.update({ context: { providerWrapper } });

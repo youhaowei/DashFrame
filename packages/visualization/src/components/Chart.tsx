@@ -202,9 +202,8 @@ export function Chart({
 
   // Renderer bound to the enclosing VisualizationProvider's engine. Preferred
   // over the global registry so this Chart routes to ITS provider's connector.
-  // This is what makes the per-insight WASM fallback work: a nested WASM
-  // provider supplies a WASM-bound renderer here that shadows the globally
-  // registered native renderer, so the fallback chart queries WASM, not native.
+  // Provider shadowing remains a general capability, but v0.3 hosts inject the
+  // shared native-server connector and do not mount a WASM fallback provider.
   const {
     renderer: contextRenderer,
     isReady: providerReady,

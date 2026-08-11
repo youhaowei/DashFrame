@@ -53,6 +53,8 @@ export {
   clearAllTableCaches,
   ensureTableLoaded,
   invalidateTableCache,
+  type DuckDBConnection,
+  type ServerDuckDBConnectionLike,
 } from "./query-builder";
 
 // ============================================================================
