@@ -1,0 +1,307 @@
+import type { DataFrameStorage } from "@dashframe/engine";
+import type { DataTable, Field, UUID } from "@dashframe/types";
+import { describe, expect, it, vi } from "vitest";
+
+import type {
+  DashframeFunctionContext,
+  DataPlaneRuntime,
+} from "../../app-context";
+import {
+  createInsightMaterializer,
+  type InsightMaterializerDependencies,
+  type PublishMaterialization,
+  type SourceGeneration,
+} from "./materializer";
+
+const field = (id: string, tableId: string, name: string): Field => ({
+  id,
+  tableId,
+  name,
+  columnName: name,
+  type: "string",
+});
+
+function source(tableId: string, name = "value"): SourceGeneration {
+  const fields = [field(`${tableId}-field`, tableId, name)];
+  const table: DataTable = {
+    id: tableId,
+    dataSourceId: `${tableId}-source`,
+    name: tableId,
+    table: `${tableId}-remote`,
+    fields,
+    metrics: [],
+    createdAt: 0,
+  };
+  return {
+    table,
+    arrow: new Uint8Array([tableId.length]),
+    fields,
+    rowCount: 1,
+    provenance: { connectorKind: "googleAnalytics", bindingVersion: "v1" },
+  };
+}
+
+function harness(overrides: Partial<InsightMaterializerDependencies> = {}) {
+  const bytes = new Map<string, Uint8Array>();
+  const registered = new Map<string, Uint8Array>();
+  const storage: DataFrameStorage = {
+    save: vi.fn(async (id, value) => void bytes.set(id, value)),
+    load: vi.fn(async (id) => bytes.get(id) ?? null),
+    delete: vi.fn(async (id) => void bytes.delete(id)),
+    exists: vi.fn(async (id) => bytes.has(id)),
+    list: vi.fn(async () => [...bytes.keys()] as UUID[]),
+    getUsage: vi.fn(async () => ({ count: bytes.size })),
+  };
+  const runtime: DataPlaneRuntime = {
+    queryArrow: vi.fn(async () => new Uint8Array([9])),
+    registerArrowTable: vi.fn(
+      async (name, value) => void registered.set(name, value),
+    ),
+    unregisterTable: vi.fn(async (name) => void registered.delete(name)),
+  };
+  let id = 0;
+  const publish = vi.fn(
+    async (
+      _ctx: DashframeFunctionContext,
+      _materialization: PublishMaterialization,
+    ) => undefined,
+  );
+  const resolveSource = vi.fn(async (_ctx, tableId: UUID) => source(tableId));
+  const dependencies: InsightMaterializerDependencies = {
+    storage: () => storage,
+    runtime: () => runtime,
+    resolveSource,
+    compile: ({ tables }) => {
+      if ([...tables.values()].some((table) => !table.dataFrameId)) {
+        throw new Error("FETCH_COMPILE_FAILED");
+      }
+      return "select 1";
+    },
+    inspect: () => ({
+      rowCount: 2,
+      schema: [{ id: "result-field", name: "result", type: "string" }],
+    }),
+    publish,
+    fingerprint: () => "fingerprint",
+    coalescingScope: (_ctx, target, insight) =>
+      JSON.stringify([target, insight]),
+    uuid: () => `frame-${++id}`,
+    now: () => 123,
+    tableName: (frameId) => `df_${frameId}`,
+    ...overrides,
+  };
+  return {
+    bytes,
+    registered,
+    storage,
+    runtime,
+    publish,
+    resolveSource,
+    dependencies,
+  };
+}
+
+const insight = {
+  baseTableId: "base",
+  selectedFields: ["base-field"],
+  metrics: [],
+  joins: [
+    {
+      type: "left" as const,
+      rightTableId: "joined",
+      leftKey: "value",
+      rightKey: "value",
+    },
+  ],
+};
+
+describe("immutable Insight materializer", () => {
+  it("fetches every source and publishes only metadata after the result is saved", async () => {
+    const h = harness();
+    const materializer = createInsightMaterializer(h.dependencies);
+
+    const ready = await materializer.materialize({
+      ctx: {} as never,
+      target: { kind: "ephemeral" },
+      insight,
+    });
+
+    expect(h.resolveSource).toHaveBeenCalledTimes(2);
+    expect(h.publish).toHaveBeenCalledOnce();
+    expect(h.publish.mock.calls[0]![1]).toMatchObject({
+      target: { kind: "ephemeral" },
+      sources: [
+        { source: { table: { id: "base" } } },
+        { source: { table: { id: "joined" } } },
+      ],
+      result: { id: "frame-3", rowCount: 2 },
+    });
+    expect(ready).toEqual({
+      status: "ready",
+      dataFrameId: "frame-3",
+      schema: [{ id: "result-field", name: "result", type: "string" }],
+      rowCount: 2,
+      definitionFingerprint: "fingerprint",
+      provenance: { connectorKind: "googleAnalytics", bindingVersion: "v1" },
+      fetchedAt: 123,
+    });
+    expect(h.bytes.size).toBe(3);
+    expect(h.registered.size).toBe(3);
+  });
+
+  it("rejects source schema drift before saving or publishing", async () => {
+    const h = harness({
+      resolveSource: async (_ctx, tableId) => {
+        const value = source(tableId);
+        return { ...value, fields: [field("changed", tableId, "changed")] };
+      },
+    });
+    const materializer = createInsightMaterializer(h.dependencies);
+
+    await expect(
+      materializer.materialize({
+        ctx: {} as never,
+        target: { kind: "ephemeral" },
+        insight,
+      }),
+    ).rejects.toThrow("SOURCE_SCHEMA_CHANGED");
+    expect(h.storage.save).not.toHaveBeenCalled();
+    expect(h.publish).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      "compile",
+      {
+        compile: () => {
+          throw new Error("compile");
+        },
+      },
+    ],
+    [
+      "query",
+      {
+        runtime: () => ({
+          ...harness().runtime,
+          queryArrow: async () => {
+            throw new Error("query");
+          },
+        }),
+      },
+    ],
+    [
+      "inspect",
+      {
+        inspect: () => {
+          throw new Error("malformed");
+        },
+      },
+    ],
+    [
+      "publish",
+      {
+        publish: async () => {
+          throw new Error("transaction");
+        },
+      },
+    ],
+  ])("cleans every new frame when %s fails", async (_name, override) => {
+    const h = harness(override as Partial<InsightMaterializerDependencies>);
+    const materializer = createInsightMaterializer(h.dependencies);
+    await expect(
+      materializer.materialize({
+        ctx: {} as never,
+        target: { kind: "saved", insightId: "insight" },
+        insight,
+      }),
+    ).rejects.toThrow();
+    expect(h.bytes.size).toBe(0);
+    expect(h.registered.size).toBe(0);
+  });
+
+  it("retains old handles while atomically publishing the new saved association", async () => {
+    let current = "old-frame";
+    const h = harness({
+      publish: async (_ctx, value) => {
+        expect(value.target).toEqual({ kind: "saved", insightId: "insight" });
+        current = value.result.id;
+      },
+    });
+    h.bytes.set("old-frame", new Uint8Array([1]));
+    const materializer = createInsightMaterializer(h.dependencies);
+    await materializer.materialize({
+      ctx: {} as never,
+      target: { kind: "saved", insightId: "insight" },
+      insight,
+    });
+
+    expect(current).toBe("frame-3");
+    expect(h.bytes.has("old-frame")).toBe(true);
+  });
+
+  it("attempts cleanup when storage reports failure after a generation is tracked", async () => {
+    const h = harness();
+    h.dependencies.storage = () => ({
+      ...h.storage,
+      save: async () => {
+        throw new Error("save");
+      },
+    });
+    await expect(
+      createInsightMaterializer(h.dependencies).materialize({
+        ctx: {} as never,
+        target: { kind: "ephemeral" },
+        insight,
+      }),
+    ).rejects.toThrow("save");
+    expect(h.storage.delete).toHaveBeenCalledWith("frame-1");
+    expect(h.publish).not.toHaveBeenCalled();
+  });
+
+  it("removes saved bytes when native registration fails", async () => {
+    const h = harness();
+    h.dependencies.runtime = () => ({
+      ...h.runtime,
+      registerArrowTable: async () => {
+        throw new Error("register");
+      },
+    });
+    await expect(
+      createInsightMaterializer(h.dependencies).materialize({
+        ctx: {} as never,
+        target: { kind: "ephemeral" },
+        insight,
+      }),
+    ).rejects.toThrow("register");
+    expect(h.bytes.size).toBe(0);
+    expect(h.publish).not.toHaveBeenCalled();
+  });
+
+  it("coalesces only in-flight work and performs a new live run after settlement", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let resolves = 0;
+    const h = harness({
+      resolveSource: async (_ctx, tableId) => {
+        resolves += 1;
+        await gate;
+        return source(tableId);
+      },
+    });
+    const materializer = createInsightMaterializer(h.dependencies);
+    const args = {
+      ctx: {} as never,
+      target: { kind: "ephemeral" } as const,
+      insight,
+    };
+    const first = materializer.materialize(args);
+    const second = materializer.materialize(args);
+    expect(second).toBe(first);
+    release();
+    await Promise.all([first, second]);
+    expect(resolves).toBe(2);
+
+    await materializer.materialize(args);
+    expect(resolves).toBe(4);
+  });
+});
