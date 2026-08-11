@@ -108,9 +108,8 @@ export function applyInsightRuntime(
     sorts: saved.sorts,
     joins: saved.joins,
   };
-  if (!runtime) return definition;
   const declared = saved.runtimeControls;
-  const values = runtime.filters ?? {};
+  const values = runtime?.filters ?? {};
   const controls = new Map(
     (declared?.filters ?? []).map((control) => [control.key, control]),
   );
@@ -139,7 +138,7 @@ export function applyInsightRuntime(
       );
     }
   }
-  if (runtime.sort) {
+  if (runtime?.sort) {
     const sortControl = declared?.sort;
     if (!sortControl) throw new Error("RUNTIME_SORT_NOT_DECLARED");
     if (
@@ -159,7 +158,7 @@ export function applyInsightRuntime(
       direction: sort.direction,
     }));
   }
-  if (runtime.limit !== undefined) {
+  if (runtime?.limit !== undefined) {
     const limit = declared?.limit;
     if (!limit || runtime.limit < limit.min || runtime.limit > limit.max)
       throw new Error("RUNTIME_LIMIT_OUT_OF_RANGE");

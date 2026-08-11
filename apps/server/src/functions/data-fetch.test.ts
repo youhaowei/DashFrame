@@ -51,6 +51,9 @@ describe("applyInsightRuntime", () => {
     expect(() => applyInsightRuntime(insight, { filters: {} })).toThrow(
       "RUNTIME_FILTER_REQUIRED",
     );
+    expect(() => applyInsightRuntime(insight, undefined)).toThrow(
+      "RUNTIME_FILTER_REQUIRED",
+    );
   });
 
   it("defaults clear to forbidden and respects explicit clear declarations", () => {

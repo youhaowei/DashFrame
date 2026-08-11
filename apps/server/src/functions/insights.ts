@@ -26,6 +26,7 @@ import type {
   InsightFilter,
   InsightJoinConfig,
   InsightMetric,
+  InsightRuntimeDeclaration,
   InsightSort,
   UUID,
 } from "@dashframe/types";
@@ -64,6 +65,7 @@ export interface StoredInsightDefinition {
   filters?: unknown[];
   sorts?: unknown[];
   joins?: unknown[];
+  runtimeControls?: InsightRuntimeDeclaration;
 }
 
 /**
@@ -103,6 +105,7 @@ export type InsightDefinition = {
   filters?: InsightFilter[];
   sorts?: InsightSort[];
   joins?: InsightJoinConfig[];
+  runtimeControls?: InsightRuntimeDeclaration;
 };
 
 // ---------------------------------------------------------------------------
@@ -119,6 +122,35 @@ export const insightSourceSchema = z.object({
   sourceType: z.enum(["dataTable", "insight"]),
   sourceId: z.string(),
 });
+
+const runtimeControlsSchema = z
+  .object({
+    filters: z
+      .array(
+        z.object({
+          key: z.string().min(1),
+          filterId: z.string().min(1),
+          label: z.string(),
+          required: z.boolean().optional(),
+          allowClear: z.boolean().optional(),
+        }),
+      )
+      .optional(),
+    sort: z
+      .object({
+        allowedFieldIds: z.array(z.string()),
+        maxKeys: z.number().int().min(1).max(1),
+      })
+      .optional(),
+    limit: z
+      .object({
+        min: z.number().int().positive(),
+        max: z.number().int().positive(),
+      })
+      .refine((value) => value.min <= value.max)
+      .optional(),
+  })
+  .strict();
 
 /**
  * Canonical runtime schema for the `insights.definition` JSONB blob. Applied at
@@ -163,6 +195,9 @@ export const storedInsightDefinitionSchema = z.object({
     .array(z.unknown())
     .nullish()
     .transform((v) => v ?? undefined),
+  runtimeControls: runtimeControlsSchema
+    .nullish()
+    .transform((v) => v ?? undefined),
 });
 
 /**
@@ -202,6 +237,7 @@ export function toInsight(
     filters: definition.filters as InsightFilter[] | undefined,
     sorts: definition.sorts as InsightSort[] | undefined,
     joins: definition.joins as InsightJoinConfig[] | undefined,
+    runtimeControls: definition.runtimeControls,
     createdAt: tsToMillis(row.createdAt),
     updatedAt: row.updatedAt?.getTime(),
   };
@@ -244,6 +280,7 @@ export function encodeInsightDefinition(input: {
   filters?: InsightFilter[];
   sorts?: InsightSort[];
   joins?: InsightJoinConfig[];
+  runtimeControls?: InsightRuntimeDeclaration;
 }): InsightDefinition {
   return {
     baseTableId: input.baseTableId,
@@ -253,5 +290,6 @@ export function encodeInsightDefinition(input: {
     filters: input.filters,
     sorts: input.sorts,
     joins: input.joins,
+    runtimeControls: input.runtimeControls,
   };
 }
