@@ -276,3 +276,40 @@ export function resolveEncodingToSql(
     size: resolveToSql(encoding.size, context),
   };
 }
+
+/**
+ * Resolve chart channels against an already-materialized Insight result frame.
+ *
+ * Unlike a model/raw frame, an Insight result has already computed every
+ * metric. Metric encodings must therefore reference the persisted
+ * `metric_<uuid>` column instead of asking the chart engine to aggregate the
+ * source column a second time.
+ */
+export function resolveEncodingToResultFrame(
+  encoding: Parameters<typeof resolveEncodingToSql>[0],
+  context: EncodingResolutionContext,
+): ResolvedEncoding {
+  const resolved = resolveEncodingToSql(encoding, context);
+  const resolveResultChannel = (
+    stored: string | undefined,
+    value: string | undefined,
+  ) => {
+    const parsed = parseEncoding(stored);
+    // The unified result-frame path accepts only canonical typed encodings.
+    // Raw SQL/column compatibility belongs to the retired model-frame path;
+    // forwarding it here can reference columns absent from the materialized
+    // result and would also restore caller-authored SQL authority.
+    if (!parsed) return undefined;
+    if (parsed.type !== "metric") return value;
+    return context.metrics.some((metric) => metric.id === parsed.id)
+      ? metricIdToColumnAlias(parsed.id)
+      : undefined;
+  };
+
+  return {
+    x: resolveResultChannel(encoding.x, resolved.x),
+    y: resolveResultChannel(encoding.y, resolved.y),
+    color: resolveResultChannel(encoding.color, resolved.color),
+    size: resolveResultChannel(encoding.size, resolved.size),
+  };
+}

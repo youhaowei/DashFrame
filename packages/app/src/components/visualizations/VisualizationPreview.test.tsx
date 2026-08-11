@@ -50,7 +50,7 @@ vi.mock("@dashframe/engine", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@dashframe/engine")>();
   return {
     ...actual,
-    resolveEncodingToSql: vi.fn().mockReturnValue({}),
+    resolveEncodingToResultFrame: vi.fn().mockReturnValue({}),
   };
 });
 

@@ -107,6 +107,7 @@ export {
 // ============================================================================
 
 export {
+  resolveEncodingToResultFrame,
   resolveEncodingToSql,
   resolveForAnalysis,
   resolveToSql,

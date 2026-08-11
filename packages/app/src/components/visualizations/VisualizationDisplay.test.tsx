@@ -56,7 +56,7 @@ vi.mock("@wystack/client", async (importOriginal) => {
 });
 
 vi.mock("@dashframe/engine", () => ({
-  resolveEncodingToSql: vi.fn().mockReturnValue({}),
+  resolveEncodingToResultFrame: vi.fn().mockReturnValue({}),
   getMetricDisplayLabel: vi.fn().mockReturnValue(""),
 }));
 
@@ -166,6 +166,7 @@ function setupCommonMocks(currentInsight = insight, currentViz = viz) {
     fetchData: vi.fn(),
     totalCount: 5,
     columns: [],
+    resolvedFields: [],
     isReady: true,
     columnDisplayNames: {},
   });

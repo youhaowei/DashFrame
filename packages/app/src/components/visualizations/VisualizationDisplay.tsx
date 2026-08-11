@@ -2,7 +2,10 @@ import { useChartEngine } from "@/components/providers/ChartEngineProvider";
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
 import { api } from "@/wystack/api";
-import { getMetricDisplayLabel, resolveEncodingToSql } from "@dashframe/engine";
+import {
+  getMetricDisplayLabel,
+  resolveEncodingToResultFrame,
+} from "@dashframe/engine";
 import type {
   ChartEncoding,
   DashboardItemOverrides,
@@ -302,14 +305,13 @@ function VisualizationDisplayContent({
     return null;
   }, [insightViewName, isInsightViewReady]);
 
-  // Resolve encoding from storage format (field:<uuid>, metric:<uuid>) to SQL expressions
+  // Resolve encoding from storage format (field:<uuid>, metric:<uuid>) to
+  // columns in the saved Insight's materialized result frame.
   // This converts:
   // - field:<uuid> → column name (e.g., "category", "Product")
-  // - metric:<uuid> → SQL aggregation (e.g., "sum(Quantity)", "count(*)")
-  //
-  // vgplot will perform the aggregation when rendering, so we pass the actual SQL expression,
-  // not a pre-computed column alias. The insight view contains raw data (model mode),
-  // and vgplot uses the aggregation expressions to build GROUP BY queries.
+  // - metric:<uuid> → computed result alias (e.g., "metric_<uuid>")
+  // Metrics were already aggregated by runInsight; Mosaic must not aggregate
+  // their source columns again.
   const resolvedEncoding = useMemo((): ChartEncoding => {
     if (!activeViz?.encoding || !dataTable || !insight) {
       return {};
@@ -329,7 +331,7 @@ function VisualizationDisplayContent({
     };
 
     // Resolve prefixed IDs to SQL expressions
-    const resolved = resolveEncodingToSql(activeViz.encoding, context);
+    const resolved = resolveEncodingToResultFrame(activeViz.encoding, context);
     const resolveColumnReference = (value: string | undefined) => {
       if (!value) return undefined;
       if (columns.some((column) => column.name === value)) return value;

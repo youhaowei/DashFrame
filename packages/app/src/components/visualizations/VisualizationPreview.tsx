@@ -1,7 +1,7 @@
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
 import { api } from "@/wystack/api";
-import { resolveEncodingToSql } from "@dashframe/engine";
+import { resolveEncodingToResultFrame } from "@dashframe/engine";
 import type { ChartEncoding, Insight, Visualization } from "@dashframe/types";
 import { Chart } from "@dashframe/visualization";
 import { useQuery } from "@wystack/client";
@@ -96,9 +96,9 @@ function VisualizationPreviewContent({
     enabled: !!insightForView,
   });
 
-  // Resolve encoding from storage format (field:<uuid>, metric:<uuid>) to SQL expressions
+  // Resolve encoding against the saved Insight's materialized result frame.
   // - field:<uuid> → column name (e.g., "Product")
-  // - metric:<uuid> → SQL aggregation (e.g., "sum(Quantity)")
+  // - metric:<uuid> → computed result alias (e.g., "metric_<uuid>")
   const resolvedEncoding = useMemo((): ChartEncoding => {
     if (!visualization.encoding || !dataTable || !insight) {
       return {};
@@ -118,7 +118,10 @@ function VisualizationPreviewContent({
     };
 
     // Resolve prefixed IDs to SQL expressions
-    const resolved = resolveEncodingToSql(visualization.encoding, context);
+    const resolved = resolveEncodingToResultFrame(
+      visualization.encoding,
+      context,
+    );
 
     return {
       ...resolved,

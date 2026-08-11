@@ -19,6 +19,7 @@ export {
 } from "./insight-sql";
 
 export {
+  resolveEncodingToResultFrame,
   resolveEncodingToSql,
   resolveForAnalysis,
   resolveToSql,
