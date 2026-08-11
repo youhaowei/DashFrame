@@ -36,6 +36,7 @@ import {
   computeNewOverridesOnSortChange,
   deriveFieldState,
   hasOverrides,
+  resolveDeclaredRuntimeFilterId,
   withDeclaredFilterId,
 } from "./override-field-row-utils";
 
@@ -258,10 +259,67 @@ describe("withDeclaredFilterId", () => {
   it("adds the canonical saved-filter ID to a newly pinned override", () => {
     const override = filter(FIELD, { id: undefined, value: "new" });
     expect(
-      withDeclaredFilterId(FIELD, override, [
-        { id: "filter-1", field: FIELD, operator: "eq", value: "default" },
-      ]),
+      withDeclaredFilterId(
+        FIELD,
+        override,
+        [{ id: "filter-1", field: FIELD, operator: "eq", value: "default" }],
+        [{ key: "runtime", filterId: "filter-1", label: "Runtime" }],
+      ),
     ).toEqual({ ...override, id: "filter-1" });
+  });
+
+  it("pins the declared second predicate when two saved filters share a field", () => {
+    const saved = [
+      { id: "filter-1", field: FIELD, operator: "gte" as const, value: 10 },
+      { id: "filter-2", field: FIELD, operator: "lte" as const, value: 20 },
+    ];
+    const override = filter(FIELD, { id: undefined, value: 15 });
+    expect(
+      withDeclaredFilterId(FIELD, override, saved, [
+        { key: "maximum", filterId: "filter-2", label: "Maximum" },
+      ]),
+    ).toEqual({ ...override, id: "filter-2" });
+  });
+});
+
+describe("resolveDeclaredRuntimeFilterId", () => {
+  it("clears the declared second predicate when two saved filters share a field", () => {
+    const saved = [
+      { id: "filter-1", field: FIELD, operator: "gte" as const, value: 10 },
+      { id: "filter-2", field: FIELD, operator: "lte" as const, value: 20 },
+    ];
+    const declaredId = resolveDeclaredRuntimeFilterId(FIELD, saved, [
+      { key: "maximum", filterId: "filter-2", label: "Maximum" },
+    ]);
+    const result = computeNewOverridesOnClear(FIELD, undefined, declaredId);
+    expect(result.filters?.[0]).toMatchObject({
+      id: "filter-2",
+      field: FIELD,
+      cleared: true,
+    });
+  });
+
+  it.each([
+    {
+      name: "two declarations target the same field",
+      runtime: [
+        { key: "minimum", filterId: "filter-1", label: "Minimum" },
+        { key: "maximum", filterId: "filter-2", label: "Maximum" },
+      ],
+    },
+    { name: "the field is undeclared", runtime: [] },
+    {
+      name: "the declaration references a missing predicate",
+      runtime: [{ key: "missing", filterId: "missing", label: "Missing" }],
+    },
+  ])("does not guess when $name", ({ runtime }) => {
+    const saved = [
+      { id: "filter-1", field: FIELD, operator: "gte" as const, value: 10 },
+      { id: "filter-2", field: FIELD, operator: "lte" as const, value: 20 },
+    ];
+    expect(
+      resolveDeclaredRuntimeFilterId(FIELD, saved, runtime),
+    ).toBeUndefined();
   });
 });
 

@@ -12,18 +12,39 @@ import type {
   DashboardItemOverrides,
   InsightFilter,
   InsightFilterOverride,
+  InsightRuntimeDeclaration,
   InsightSort,
 } from "@dashframe/types";
 
-/** Preserve the saved predicate identity required by runtime-control lookup. */
+/** Resolve the one declared runtime predicate represented by a field row. */
+export function resolveDeclaredRuntimeFilterId(
+  fieldName: string,
+  insightFilters: readonly InsightFilter[] | undefined,
+  runtimeFilters: InsightRuntimeDeclaration["filters"],
+): string | undefined {
+  const filtersById = new Map(
+    (insightFilters ?? []).flatMap((filter) =>
+      filter.id ? [[filter.id, filter] as const] : [],
+    ),
+  );
+  const candidates = (runtimeFilters ?? []).filter(
+    (control) => filtersById.get(control.filterId)?.field === fieldName,
+  );
+  return candidates.length === 1 ? candidates[0]?.filterId : undefined;
+}
+
+/** Preserve the declared predicate identity required by runtime-control lookup. */
 export function withDeclaredFilterId(
   fieldName: string,
   filter: InsightFilterOverride,
   insightFilters: readonly InsightFilter[] | undefined,
+  runtimeFilters: InsightRuntimeDeclaration["filters"],
 ): InsightFilterOverride {
-  const declaredFilterId = insightFilters?.find(
-    (candidate) => candidate.field === fieldName,
-  )?.id;
+  const declaredFilterId = resolveDeclaredRuntimeFilterId(
+    fieldName,
+    insightFilters,
+    runtimeFilters,
+  );
   return declaredFilterId ? { ...filter, id: declaredFilterId } : filter;
 }
 

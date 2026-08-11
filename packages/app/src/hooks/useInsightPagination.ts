@@ -59,7 +59,6 @@ type ResultSchemaColumn = Readonly<{
 }>;
 
 /** Reconnect server result aliases to model fields and repeat-join labels. */
-// eslint-disable-next-line sonarjs/cognitive-complexity -- one linear reconciliation pass keeps alias, model field, join instance, and label decisions co-located.
 export function resolveInsightResultFields(
   schema: readonly ResultSchemaColumn[],
   insight: Insight,
