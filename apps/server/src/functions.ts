@@ -17,6 +17,9 @@ import { commandFunctions } from "./functions/commands";
 import { connectorCatalogFunctions } from "./functions/connector-catalog";
 import { connectorSetupFunctions } from "./functions/connector-setup";
 import { dashboardFunctions } from "./functions/dashboards";
+import { createDataFetchFunctions } from "./functions/data-fetch";
+import { resolveSourceBinding } from "./functions/data-fetch/bindings";
+import { createProductionFetchExecutor } from "./functions/data-fetch/production";
 import { draftBatchFunctions } from "./functions/draft-batch";
 import { draftLifecycleFunctions } from "./functions/draft-lifecycle";
 import { draftReviseFunctions } from "./functions/draft-revise";
@@ -25,6 +28,10 @@ import { previewDiffFunctions } from "./functions/preview-diff";
 import { wy } from "./wystack";
 
 const { projectMeta } = schema;
+const dataFetchFunctions = createDataFetchFunctions(
+  resolveSourceBinding,
+  createProductionFetchExecutor(),
+);
 
 /** Shape returned by `projectInfo`. Mirrors the persisted `project_meta` row. */
 export interface ProjectInfoResult {
@@ -68,6 +75,7 @@ export const functions = {
   ...connectorCatalogFunctions,
   ...connectorSetupFunctions,
   ...dashboardFunctions,
+  ...dataFetchFunctions,
   ...draftLifecycleFunctions,
   ...draftBatchFunctions,
   ...draftFunctions,

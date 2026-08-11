@@ -12,6 +12,7 @@ import { z } from "zod";
 
 import type { DashframeFunctionContext } from "../app-context";
 import { wy } from "../wystack";
+import type { MaterializationTarget } from "./data-fetch/materializer";
 import { decodeInsight, type InsightRow } from "./insights";
 
 type EffectiveInsightDefinition = InsightFetchDefinition & { limit?: number };
@@ -106,6 +107,7 @@ export type LiveFetchExecutor = (args: {
   context: DashframeFunctionContext;
   insight: EffectiveInsightDefinition;
   binding: ConnectorBinding;
+  target: MaterializationTarget;
 }) => Promise<InsightFetchResult>;
 
 export function applyInsightRuntime(
@@ -250,6 +252,7 @@ export function createDataFetchFunctions(
   const materialize = async (
     ctx: DashframeFunctionContext,
     insight: EffectiveInsightDefinition,
+    target: MaterializationTarget,
   ): Promise<InsightFetchResult> => {
     let binding: ConnectorBinding;
     try {
@@ -258,7 +261,7 @@ export function createDataFetchFunctions(
       return toFetchFailure(error, "FETCH_BINDING_FAILED");
     }
     try {
-      return await execute({ context: ctx, insight, binding });
+      return await execute({ context: ctx, insight, binding, target });
     } catch (error) {
       return toFetchFailure(error, "FETCH_EXECUTION_FAILED");
     }
@@ -272,7 +275,7 @@ export function createDataFetchFunctions(
           "FETCH_INVALID_DEFINITION",
           "The Insight definition is invalid.",
         );
-      return materialize(ctx, parsed.data);
+      return materialize(ctx, parsed.data, { kind: "ephemeral" });
     });
   const runInsight = wy.procedure
     .input({ insightId: uuid, runtime: jsonb.optional() })
@@ -285,7 +288,14 @@ export function createDataFetchFunctions(
         );
       try {
         const saved = await getInsightForFetch(ctx, insightId as UUID);
-        return materialize(ctx, applyInsightRuntime(saved, parsedRuntime.data));
+        return materialize(
+          ctx,
+          applyInsightRuntime(saved, parsedRuntime.data),
+          {
+            kind: "saved",
+            insightId: insightId as UUID,
+          },
+        );
       } catch (error) {
         return toFetchFailure(error, "FETCH_SOURCE_FAILED");
       }

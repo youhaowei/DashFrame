@@ -2,13 +2,39 @@
 import { buildInsightSQL } from "@dashframe/engine";
 import { inspectArrowIpc } from "@dashframe/engine-server/arrow-data-path";
 
+import { createHash, randomUUID } from "node:crypto";
 import type { DashframeFunctionContext } from "../../app-context";
+import type { LiveFetchExecutor } from "../data-fetch";
 import { fetchSourceBinding, resolveSourceBinding } from "./bindings";
 import type {
   InsightMaterializerDependencies,
   SourceGeneration,
 } from "./materializer";
+import { createInsightMaterializer } from "./materializer";
 import { publishMaterialization } from "./publisher";
+
+/** Real C1 lifecycle executor; no completed-result cache exists. */
+export function createProductionFetchExecutor(): LiveFetchExecutor {
+  const materializer = createInsightMaterializer({
+    ...productionMaterializerDependencies(),
+    fingerprint: ({ insight, sources }) =>
+      createHash("sha256")
+        .update(
+          JSON.stringify({
+            insight,
+            sources: sources.map((source) => source.table.id),
+          }),
+        )
+        .digest("hex"),
+    coalescingScope: (ctx, target, insight) =>
+      JSON.stringify([ctx.principal, target, insight]),
+    uuid: () => randomUUID(),
+    now: () => Date.now(),
+    tableName: (id) => `df_${id.replaceAll("-", "_")}`,
+  });
+  return async ({ context, insight, target }) =>
+    materializer.materialize({ ctx: context, insight, target });
+}
 
 /** Fails closed if the host did not inject its native data-plane capability. */
 export function productionMaterializerDependencies(): Pick<
