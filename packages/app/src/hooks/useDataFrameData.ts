@@ -12,6 +12,7 @@ import type {
   UUID,
 } from "@dashframe/types";
 import { useQuery } from "@wystack/client";
+import { DataType } from "apache-arrow";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 // Global mutex to prevent concurrent loads of the same DataFrame
@@ -33,29 +34,86 @@ export interface UseDataFrameDataResult {
   reload: () => void;
 }
 
-/**
- * Infer column type from values
- */
-function inferColumnType(values: unknown[]): ColumnType {
-  for (const value of values) {
-    if (value === null || value === undefined) continue;
-    if (typeof value === "number") return "number";
-    if (typeof value === "boolean") return "boolean";
-    if (value instanceof Date) return "date";
-    if (typeof value === "string") {
-      // Check if it looks like a date
-      const date = Date.parse(value);
-      if (!Number.isNaN(date) && value.includes("-")) return "date";
-    }
-    return "string";
-  }
-  return "unknown";
+const DATE_PREFIX = /^(\d{4})-(\d{2})-(\d{2})/;
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const ISO_TIMESTAMP_PREFIX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
+
+function isDateString(value: string): boolean {
+  if (!ISO_DATE.test(value) && !ISO_TIMESTAMP_PREFIX.test(value)) return false;
+  if (Number.isNaN(Date.parse(value))) return false;
+
+  const dateParts = DATE_PREFIX.exec(value);
+  if (!dateParts) return false;
+
+  const year = Number(dateParts[1]);
+  const month = Number(dateParts[2]);
+  const day = Number(dateParts[3]);
+  const calendarDate = new Date(Date.UTC(year, month - 1, day));
+  return (
+    calendarDate.getUTCFullYear() === year &&
+    calendarDate.getUTCMonth() === month - 1 &&
+    calendarDate.getUTCDate() === day
+  );
 }
 
-/**
- * Extract columns from DuckDB result rows
- */
-function extractColumns(rows: DataFrameRow[]): DataFrameColumn[] {
+function inferValueType(value: unknown): ColumnType {
+  if (typeof value === "number") return "number";
+  if (typeof value === "boolean") return "boolean";
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return "date";
+  if (typeof value === "string" && isDateString(value)) return "date";
+  return "string";
+}
+
+function widenColumnType(
+  current: ColumnType,
+  candidate: ColumnType,
+): ColumnType {
+  if (current === "unknown" || current === candidate) return candidate;
+  return "string";
+}
+
+/** Infer a column type from every non-null value in the returned data sample. */
+function inferColumnType(values: unknown[]): ColumnType {
+  let type: ColumnType = "unknown";
+  for (const value of values) {
+    if (value === null || value === undefined) continue;
+    type = widenColumnType(type, inferValueType(value));
+    if (type === "string") return type;
+  }
+  return type;
+}
+
+/** Extract declared column types from the Arrow schema, falling back to rows. */
+type ArrowField = {
+  name: string;
+  type: unknown;
+};
+
+function columnTypeFromArrow(type: unknown): ColumnType {
+  if (DataType.isNull(type)) return "unknown";
+  if (DataType.isBool(type)) return "boolean";
+  if (
+    DataType.isInt(type) ||
+    DataType.isFloat(type) ||
+    DataType.isDecimal(type)
+  ) {
+    return "number";
+  }
+  if (DataType.isDate(type) || DataType.isTimestamp(type)) return "date";
+  return "string";
+}
+
+function extractColumns(
+  rows: DataFrameRow[],
+  fields: readonly ArrowField[] = [],
+): DataFrameColumn[] {
+  if (fields.length > 0) {
+    return fields.map((field) => ({
+      name: field.name,
+      type: columnTypeFromArrow(field.type),
+    }));
+  }
+
   if (rows.length === 0) return [];
 
   const firstRow = rows[0]!;
@@ -183,7 +241,7 @@ export function useDataFrameData(
 
         // Only update state if this is still the most recent load
         if (currentLoadCount === loadCountRef.current) {
-          const columns = extractColumns(rows);
+          const columns = extractColumns(rows, result.schema.fields);
           setData({ rows, columns });
           lastLoadedIdRef.current = dataFrameId;
         }

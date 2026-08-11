@@ -962,6 +962,54 @@ describe("RestConnector", () => {
       expect(col?.get(0)).toBe(true);
       expect(col?.get(1)).toBe(false);
     });
+
+    it("preserves shared date parsing semantics in a negative-offset time zone", async () => {
+      const originalTimeZone = process.env.TZ;
+      process.env.TZ = "America/New_York";
+      try {
+        vi.stubGlobal(
+          "fetch",
+          vi.fn().mockResolvedValueOnce(
+            makeResponse([
+              {
+                zoneless: "2024-07-18T23:45:00",
+                utc: "2024-07-18T23:45:00Z",
+                offset: "2024-07-18T23:45:00-07:00",
+              },
+            ]),
+          ),
+        );
+
+        const c = makeRestConnector(noopResolver, {
+          endpoint: "https://api.example.com/data",
+        });
+        const result = await c.query("db", crypto.randomUUID());
+
+        expect(result.fields.map((field) => field.type)).toEqual([
+          "date",
+          "date",
+          "date",
+        ]);
+        const { tableFromIPC } = await import("apache-arrow");
+        const bytes = Uint8Array.from(
+          Buffer.from(result.arrowBuffer, "base64"),
+        );
+        const table = tableFromIPC(bytes);
+
+        expect(table.getChild("zoneless")?.get(0)).toBe(
+          new Date(2024, 6, 18, 23, 45).getTime(),
+        );
+        expect(table.getChild("utc")?.get(0)).toBe(
+          Date.parse("2024-07-18T23:45:00Z"),
+        );
+        expect(table.getChild("offset")?.get(0)).toBe(
+          Date.parse("2024-07-18T23:45:00-07:00"),
+        );
+      } finally {
+        if (originalTimeZone === undefined) delete process.env.TZ;
+        else process.env.TZ = originalTimeZone;
+      }
+    });
   });
 
   // -------------------------------------------------------------------------

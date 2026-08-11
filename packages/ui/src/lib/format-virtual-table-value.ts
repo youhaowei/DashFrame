@@ -31,7 +31,26 @@ function formatDate(value: unknown, type?: ColumnType): string | null {
     });
   }
 
-  if (type !== "date" || typeof value !== "string") return null;
+  if (type !== "date") return null;
+
+  if (typeof value === "number") {
+    const date = new Date(value);
+    if (!isNaN(date.getTime())) {
+      // Epoch values are rendered in UTC: an Arrow DateDay is midnight UTC, and
+      // rendering it locally shifts the displayed day for users west of UTC. The
+      // Date branch above and the string branches below still render in local
+      // time — that inconsistency is tracked in #317.
+      return date.toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        timeZone: "UTC",
+      });
+    }
+    return null;
+  }
+
+  if (typeof value !== "string") return null;
 
   const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (dateOnly) {
