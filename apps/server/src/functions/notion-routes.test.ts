@@ -360,6 +360,26 @@ describe("Notion data-plane routes — happy path (mocked connector)", () => {
     ).rejects.toThrow("SOURCE_SCHEMA_CHANGED");
   });
 
+  it("reuses persisted field identities when discovery regenerates ids", async () => {
+    const sourceId = await seedNotionSource();
+    const tableId = await seedNotionTable(sourceId);
+    const first = await app.call("prepareRemoteDataTable", { id: tableId });
+    const firstFields = (first.result as { fields: typeof returnedFields })
+      .fields;
+    returnedFields = returnedFields.map((field) => ({
+      ...field,
+      id: `regenerated-${field.id}`,
+    }));
+
+    const second = await app.call("prepareRemoteDataTable", { id: tableId });
+
+    expect(second.result).toEqual(first.result);
+    expect(
+      ((await app.call("getDataTable", { id: tableId })).result as DataTable)
+        .fields,
+    ).toEqual(firstFields);
+  });
+
   it("does not attach a discovered schema after the remote binding changes", async () => {
     const sourceId = await seedNotionSource();
     const tableId = await seedNotionTable(sourceId);

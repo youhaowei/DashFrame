@@ -63,6 +63,25 @@ describe("applyInsightRuntime", () => {
           ...insight,
           runtimeControls: {
             filters: [
+              {
+                key: "region",
+                filterId: "region-filter",
+                label: "Region",
+                required: true,
+                allowClear: true,
+              },
+            ],
+          },
+        },
+        { filters: { region: null } },
+      ),
+    ).toThrow("RUNTIME_FILTER_DECLARATION_INVALID");
+    expect(() =>
+      applyInsightRuntime(
+        {
+          ...insight,
+          runtimeControls: {
+            filters: [
               { key: "x", filterId: "region-filter", label: "X" },
               { key: "x", filterId: "date-filter", label: "X" },
             ],

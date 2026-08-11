@@ -209,7 +209,14 @@ async function materializeOnce(
         return dependencies.resolveSource(args.ctx, tableId);
       }),
     );
-    for (const source of sources) assertSourceSchema(source);
+    for (const source of sources) {
+      assertSourceSchema(source);
+      // Connector discovery may regenerate Field ids on every request. The
+      // persisted DataTable schema owns stable identity; once structure is
+      // proven equal, every published generation must carry those canonical
+      // fields rather than the connector's throwaway ids.
+      source.fields = source.table.fields.map((field) => ({ ...field }));
+    }
 
     const pendingSources: PublishMaterialization["sources"] = [];
     const tables = new Map<UUID, DataTable>();

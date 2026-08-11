@@ -1,4 +1,6 @@
 import { openArtifactDb, schema } from "@dashframe/server-core";
+import { createDrizzleTracker } from "@wystack/db";
+import { eq } from "drizzle-orm";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,7 +20,12 @@ function materialization(
     sources: [
       {
         source: {
-          table: { id: "table", dataSourceId: "source", name: "Source" },
+          table: {
+            id: "table",
+            dataSourceId: "source",
+            name: "Source",
+            table: "properties/1",
+          },
           provenance: {
             connectorKind: "googleAnalytics",
             bindingVersion: "v1",
@@ -44,7 +51,10 @@ function materialization(
   } as never;
 }
 
-function context(failInsert = false) {
+function context(
+  failInsert = false,
+  updatedRows: unknown[] = [{ id: "table" }],
+) {
   const inserts: unknown[] = [];
   const updates: unknown[] = [];
   const tx = {
@@ -54,13 +64,16 @@ function context(failInsert = false) {
         if (failInsert && inserts.length === 2) throw new Error("db");
       },
     }),
-    from: () => ({
-      where: () => ({
+    from: () => {
+      const builder = {
+        where: () => builder,
         update: async (value: unknown) => {
           updates.push(value);
+          return updatedRows;
         },
-      }),
-    }),
+      };
+      return builder;
+    },
   };
   return {
     ctx: {
@@ -98,7 +111,14 @@ describe("publishMaterialization", () => {
     const h = context();
     await publishMaterialization(h.ctx, materialization({ kind: "ephemeral" }));
     expect(h.inserts.at(-1)).toEqual(
-      expect.not.objectContaining({ insightId: expect.anything() }),
+      expect.objectContaining({
+        analysis: expect.objectContaining({
+          lifecycle: { kind: "serverSession" },
+        }),
+      }),
+    );
+    expect(h.inserts.at(-1)).not.toEqual(
+      expect.objectContaining({ insightId: expect.anything() }),
     );
   });
 
@@ -124,6 +144,17 @@ describe("publishMaterialization", () => {
         materialization({ kind: "saved", insightId: "insight" }),
       ),
     ).rejects.toThrow("db");
+  });
+
+  it("inserts no frames when the conditional source pointer swap loses its race", async () => {
+    const h = context(false, []);
+
+    await expect(
+      publishMaterialization(h.ctx, materialization({ kind: "ephemeral" })),
+    ).rejects.toThrow("SOURCE_BINDING_CHANGED");
+
+    expect(h.updates).toHaveLength(1);
+    expect(h.inserts).toEqual([]);
   });
 
   it("rolls back a real ArtifactDb publication failure without detaching the prior result", async () => {
@@ -177,7 +208,10 @@ describe("publishMaterialization", () => {
       value.result.id = collidedResultId;
 
       await expect(
-        publishMaterialization({ db } as never, value),
+        publishMaterialization(
+          { db: createDrizzleTracker(db) } as never,
+          value,
+        ),
       ).rejects.toThrow();
 
       const frames = await db.select().from(schema.dataFrames);
@@ -192,6 +226,57 @@ describe("publishMaterialization", () => {
           (row) => row.id === tableId,
         )?.dataFrameId,
       ).toBeNull();
+    } finally {
+      await db.$client.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 20_000);
+
+  it("rejects a source deleted during fetch without publishing orphan rows", async () => {
+    const dir = mkdtempSync(
+      join(tmpdir(), "dashframe-publish-deleted-source-"),
+    );
+    const db = await openArtifactDb({ path: join(dir, "artifacts.db") });
+    try {
+      const sourceId = crypto.randomUUID();
+      const tableId = crypto.randomUUID();
+      await db.insert(schema.dataSources).values({
+        id: sourceId,
+        name: "Source",
+        kind: "googleAnalytics",
+        storage: "live",
+        config: {},
+        createdBy: { kind: "user" },
+      });
+      await db.insert(schema.dataTables).values({
+        id: tableId,
+        dataSourceId: sourceId,
+        name: "Table",
+        table: "properties/1",
+        fields: [],
+        metrics: [],
+      });
+      const value = materialization({
+        kind: "ephemeral",
+      }) as PublishMaterialization;
+      value.sources[0]!.source.table = {
+        ...value.sources[0]!.source.table,
+        id: tableId,
+        dataSourceId: sourceId,
+      };
+      value.sources[0]!.frame.id = crypto.randomUUID() as never;
+      value.result.id = crypto.randomUUID() as never;
+      await db
+        .delete(schema.dataTables)
+        .where(eq(schema.dataTables.id, tableId));
+
+      await expect(
+        publishMaterialization(
+          { db: createDrizzleTracker(db) } as never,
+          value as never,
+        ),
+      ).rejects.toThrow("SOURCE_BINDING_CHANGED");
+      expect(await db.select().from(schema.dataFrames)).toEqual([]);
     } finally {
       await db.$client.close();
       rmSync(dir, { recursive: true, force: true });

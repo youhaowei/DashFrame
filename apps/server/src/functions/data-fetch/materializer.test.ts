@@ -210,6 +210,38 @@ describe("immutable Insight materializer", () => {
     expect(h.publish).not.toHaveBeenCalled();
   });
 
+  it("publishes persisted field identities after structurally equal discovery", async () => {
+    const h = harness({
+      resolveSource: async (_ctx, tableId) => {
+        const value = source(tableId);
+        return {
+          ...value,
+          fields: value.fields.map((candidate) => ({
+            ...candidate,
+            id: `regenerated-${candidate.id}`,
+          })),
+        };
+      },
+    });
+
+    await createInsightMaterializer(h.dependencies).materialize({
+      ctx: {} as never,
+      target: { kind: "ephemeral" },
+      insight,
+    });
+
+    expect(h.publish).toHaveBeenCalledOnce();
+    const published = h.publish.mock.calls[0]![1];
+    expect(published.sources.map(({ frame }) => frame.fieldIds)).toEqual([
+      ["base-field"],
+      ["joined-field"],
+    ]);
+    expect(published.sources.map(({ frame }) => frame.schema[0]?.id)).toEqual([
+      "base-field",
+      "joined-field",
+    ]);
+  });
+
   it("materializes an Insight source recursively and reuses its immutable result", async () => {
     const compile = vi.fn(({ tables }) => {
       const upstream = tables.get("upstream");

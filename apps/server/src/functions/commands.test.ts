@@ -1351,6 +1351,24 @@ describe("command vocabulary", () => {
           }),
         ),
       ).rejects.toThrow("filter target not found");
+      await expect(
+        commit(
+          cmd("SetInsightRuntimeControls", {
+            id: insightId,
+            runtimeControls: {
+              filters: [
+                {
+                  key: "region",
+                  filterId: "region-filter",
+                  label: "Region",
+                  required: true,
+                  allowClear: true,
+                },
+              ],
+            },
+          }),
+        ),
+      ).rejects.toThrow("required runtime filter cannot allow clearing");
     });
   });
 

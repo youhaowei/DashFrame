@@ -2114,7 +2114,6 @@ const queryGa4Property = wy.procedure
 function structuralFieldSignature(fields: readonly Field[]): string {
   return JSON.stringify(
     fields.map((field) => ({
-      id: field.id,
       name: field.name,
       columnName: field.columnName,
       type: field.type,
@@ -2161,6 +2160,7 @@ const prepareRemoteDataTable = wy.procedure
       throw new Error(`DataSource ${source.id} is not a remote connector`);
     }
 
+    let preparedFields = result.fields;
     await ctx.db.transaction(async (tx) => {
       const current = (await tx
         .from(dataTables)
@@ -2186,9 +2186,14 @@ const prepareRemoteDataTable = wy.procedure
           .from(dataTables)
           .where(eq("id", id))
           .update({ fields: result.fields });
+      } else {
+        // Connector discovery creates fresh Field ids on every call. Once a
+        // structural schema is prepared, its persisted ids are canonical and
+        // must be returned unchanged to every consumer.
+        preparedFields = currentFields;
       }
     });
-    return { fields: result.fields };
+    return { fields: preparedFields };
   });
 
 export const appArtifactFunctions = {

@@ -138,6 +138,9 @@ function declaredRuntimeFilters(
     }
   }
   for (const control of saved.runtimeControls?.filters ?? []) {
+    if (control.required && control.allowClear) {
+      throw new Error("RUNTIME_FILTER_DECLARATION_INVALID");
+    }
     if (controls.has(control.key))
       throw new Error("RUNTIME_FILTER_KEY_DUPLICATE");
     if (
@@ -310,6 +313,11 @@ export function createDataFetchFunctions(
       return toFetchFailure(error, "FETCH_EXECUTION_FAILED");
     }
   };
+  /**
+   * Materializes an unsaved preview. Its returned frame handle is leased for
+   * this server session; startup retires prior-session preview rows/files.
+   * Saved runInsight generations remain durable and are not session-leased.
+   */
   const fetchData = wy.procedure
     .input({ insight: jsonb })
     .authorize(permissions.data.fetchData)

@@ -18,6 +18,19 @@ export async function publishMaterialization(
 ): Promise<void> {
   await ctx.db.transaction(async (tx) => {
     for (const { source, frame } of value.sources) {
+      // The pointer swap is the binding-existence CAS. Keep every predicate on
+      // the UPDATE itself: a prior SELECT could succeed and then race a delete
+      // or rebind before an unconditional write.
+      const updated = await tx
+        .from(dataTables)
+        .where(eq("id", source.table.id))
+        .where(eq("dataSourceId", source.table.dataSourceId))
+        .where(eq("table", source.table.table))
+        .update({
+          dataFrameId: frame.id,
+          lastFetchedAt: new Date(value.fetchedAt),
+        });
+      if (updated.length !== 1) throw new Error("SOURCE_BINDING_CHANGED");
       await tx.into(dataFrames).insert({
         id: frame.id,
         storage: { type: "file", key: frame.id } as DataFrameStorageLocation,
@@ -34,13 +47,6 @@ export async function publishMaterialization(
         } as never,
         lastRefreshedAt: new Date(value.fetchedAt),
       });
-      await tx
-        .from(dataTables)
-        .where(eq("id", source.table.id))
-        .update({
-          dataFrameId: frame.id,
-          lastFetchedAt: new Date(value.fetchedAt),
-        });
     }
     // Recursive Insight inputs are query-scoped. Their source refreshes are
     // durable, but their intermediate result is removed by the materializer
@@ -74,6 +80,9 @@ export async function publishMaterialization(
         definitionFingerprint: value.definitionFingerprint,
         provenance: value.provenance,
         fetchedAt: value.fetchedAt,
+        ...(value.target.kind === "ephemeral"
+          ? { lifecycle: { kind: "serverSession" } }
+          : {}),
       } as never,
       lastRefreshedAt: new Date(value.fetchedAt),
     });

@@ -127,13 +127,17 @@ export const runtimeControlsSchema = z
   .object({
     filters: z
       .array(
-        z.object({
-          key: z.string().min(1),
-          filterId: z.string().min(1),
-          label: z.string(),
-          required: z.boolean().optional(),
-          allowClear: z.boolean().optional(),
-        }),
+        z
+          .object({
+            key: z.string().min(1),
+            filterId: z.string().min(1),
+            label: z.string(),
+            required: z.boolean().optional(),
+            allowClear: z.boolean().optional(),
+          })
+          .refine((control) => !(control.required && control.allowClear), {
+            message: "a required runtime filter cannot allow clearing",
+          }),
       )
       .refine(
         (controls) =>
