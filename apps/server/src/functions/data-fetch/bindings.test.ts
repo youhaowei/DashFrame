@@ -8,11 +8,21 @@ import {
 } from "apache-arrow";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { ga4ConnectorFor } = vi.hoisted(() => ({ ga4ConnectorFor: vi.fn() }));
-vi.mock("../app-artifacts", () => ({ ga4ConnectorFor }));
+const { ga4ConnectorFor, notionConnectorFor, postgresConnectorFor } =
+  vi.hoisted(() => ({
+    ga4ConnectorFor: vi.fn(),
+    notionConnectorFor: vi.fn(),
+    postgresConnectorFor: vi.fn(),
+  }));
+vi.mock("../app-artifacts", () => ({
+  ga4ConnectorFor,
+  notionConnectorFor,
+  postgresConnectorFor,
+}));
 
 import {
   fetchGa4Binding,
+  fetchLocalBinding,
   fetchSourceBinding,
   resolveSourceBinding,
 } from "./bindings";
@@ -29,13 +39,17 @@ const source = {
   config: {},
 };
 
-function context(rows: { table?: unknown; source?: unknown }) {
+function context(rows: { table?: unknown; source?: unknown; frame?: unknown }) {
   return {
     db: {
       from: (target: unknown) => ({
         where: () => ({
           first: async () =>
-            target === schema.dataTables ? rows.table : rows.source,
+            target === schema.dataTables
+              ? rows.table
+              : target === schema.dataFrames
+                ? rows.frame
+                : rows.source,
         }),
       }),
     },
@@ -50,7 +64,15 @@ function page(values: number[], field = "value") {
       ),
     ).toString("base64"),
     fieldIds: ["f"],
-    fields: [],
+    fields: [
+      {
+        id: "f",
+        name: field,
+        tableId: table.id,
+        columnName: field,
+        type: "number",
+      },
+    ],
     rowCount: values.length,
   };
 }
@@ -82,7 +104,7 @@ describe("Source Binding registry", () => {
     for (const bad of [
       { ...source, config: { sourceBindingVersion: 1 } },
       { ...source, config: { sourceBindingVersion: "v2" } },
-      { ...source, kind: "notion" },
+      { ...source, kind: "missing" },
     ]) {
       await expect(
         resolveSourceBinding(context({ table, source: bad }), table.id),
@@ -116,6 +138,74 @@ describe("Source Binding registry", () => {
         sourceBindingVersion: "v1",
       },
     });
+  });
+
+  it.each([
+    ["notion", notionConnectorFor],
+    ["postgres", postgresConnectorFor],
+  ])(
+    "dispatches %s through its persisted server-owned connector",
+    async (kind, connectorFor) => {
+      connectorFor.mockResolvedValue({
+        query: vi.fn().mockResolvedValue(page([])),
+      });
+      const binding = await resolveSourceBinding(
+        context({ table, source: { ...source, kind } }),
+        table.id,
+      );
+
+      await expect(
+        fetchSourceBinding(context({ table }), binding),
+      ).resolves.toMatchObject({
+        rowCount: 0,
+        provenance: { connectorKind: kind, sourceBindingVersion: "v1" },
+      });
+      expect(connectorFor).toHaveBeenCalledWith(expect.anything(), source.id);
+    },
+  );
+
+  it("reads a local table only from its current server-owned frame", async () => {
+    const localTable = {
+      ...table,
+      dataFrameId: "frame-1",
+      fields: page([]).fields,
+    };
+    const localSource = { ...source, kind: "local" };
+    const bytes = Buffer.from(page([1, 2]).arrowBuffer, "base64");
+    const frame = {
+      id: "frame-1",
+      sourceId: source.id,
+      definitionId: table.id,
+      storage: { type: "file", key: "frame-1" },
+      fieldIds: ["f"],
+      rowCount: 2,
+    };
+    const ctx = context({ table: localTable, source: localSource, frame });
+    (ctx as { dataFrameStorage?: unknown }).dataFrameStorage = {
+      load: vi.fn().mockResolvedValue(bytes),
+    };
+    const binding = await resolveSourceBinding(ctx, table.id);
+
+    await expect(fetchLocalBinding(ctx, binding)).resolves.toMatchObject({
+      rowCount: 2,
+      provenance: { connectorKind: "local", sourceBindingVersion: "v1" },
+    });
+  });
+
+  it("rejects an unprepared local table without reading storage", async () => {
+    const storage = { load: vi.fn() };
+    const localTable = { ...table, dataFrameId: null };
+    const ctx = context({
+      table: localTable,
+      source: { ...source, kind: "local" },
+    });
+    (ctx as { dataFrameStorage?: unknown }).dataFrameStorage = storage;
+    const binding = await resolveSourceBinding(ctx, table.id);
+
+    await expect(fetchSourceBinding(ctx, binding)).rejects.toThrow(
+      "TARGET_NOT_READY",
+    );
+    expect(storage.load).not.toHaveBeenCalled();
   });
 
   it("contains provider and credential failures", async () => {
@@ -201,5 +291,19 @@ describe("Source Binding registry", () => {
     await expect(
       fetchGa4Binding(context({ table, source }), binding),
     ).rejects.toThrow("SOURCE_SCHEMA_CHANGED");
+  });
+
+  it("fails closed on malformed Arrow or structural metadata", async () => {
+    ga4ConnectorFor.mockResolvedValue({
+      query: vi.fn().mockResolvedValue({ ...page([1]), rowCount: 2 }),
+    });
+    const binding = await resolveSourceBinding(
+      context({ table, source }),
+      table.id,
+    );
+
+    await expect(
+      fetchGa4Binding(context({ table, source }), binding),
+    ).rejects.toThrow("FETCH_EXECUTION_FAILED");
   });
 });

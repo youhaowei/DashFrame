@@ -1222,7 +1222,7 @@ function mintBoundResolver(
  *
  * @throws when the row is missing, not a notion source, or has no valid ref
  */
-async function notionConnectorFor(
+export async function notionConnectorFor(
   ctx: DashframeFunctionContext,
   dataSourceId: UUID,
 ): Promise<ReturnType<typeof makeNotionConnector>> {
@@ -1753,7 +1753,7 @@ const queryNotionDatabase = wy.procedure
  *
  * @throws when the row is missing, not a postgres source, or has no valid ref
  */
-async function postgresConnectorFor(
+export async function postgresConnectorFor(
   ctx: DashframeFunctionContext,
   dataSourceId: UUID,
 ): Promise<ReturnType<typeof makePostgresConnector>> {

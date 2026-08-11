@@ -5,7 +5,11 @@ import { eq } from "@wystack/db";
 import { Table, tableFromIPC, tableToIPC } from "apache-arrow";
 
 import type { DashframeFunctionContext } from "../../app-context";
-import { ga4ConnectorFor } from "../app-artifacts";
+import {
+  ga4ConnectorFor,
+  notionConnectorFor,
+  postgresConnectorFor,
+} from "../app-artifacts";
 
 const SOURCE_BINDING_VERSION = "v1";
 /** Keep each provider response bounded while exhaustively paging the source. */
@@ -13,12 +17,16 @@ const GA4_PAGE_SIZE = 10_000;
 
 type SourceRow = typeof schema.dataSources.$inferSelect;
 type TableRow = typeof schema.dataTables.$inferSelect;
+type FrameRow = typeof schema.dataFrames.$inferSelect;
 
 export type SourceBinding = Readonly<{
   connectorKind: string;
   sourceBindingVersion: typeof SOURCE_BINDING_VERSION;
   dataSourceId: UUID;
-  table: Pick<TableRow, "id" | "table" | "fields" | "dataSourceId">;
+  table: Pick<
+    TableRow,
+    "id" | "table" | "fields" | "dataSourceId" | "dataFrameId"
+  >;
 }>;
 
 export type LiveSourceResult = {
@@ -74,19 +82,40 @@ export async function resolveSourceBinding(
   };
 }
 
-/** First registry adapter. Credential refinement stays inside ga4ConnectorFor. */
-export async function fetchGa4Binding(
+type QueryConnector = {
+  query: (
+    resource: string,
+    tableId: UUID,
+    options: { pagination: { offset: number; limit: number } },
+  ) => Promise<{
+    arrowBuffer: string;
+    fieldIds: string[];
+    fields: Field[];
+    rowCount: number;
+  }>;
+};
+
+/**
+ * Runs a persisted remote binding to exhaustion. The connector factory is
+ * server-owned, so provider identity and credentials never cross this seam.
+ */
+async function fetchRemoteBinding(
   ctx: DashframeFunctionContext,
   binding: SourceBinding,
+  kind: "googleAnalytics" | "notion" | "postgres",
+  connectorFor: (
+    ctx: DashframeFunctionContext,
+    sourceId: UUID,
+  ) => Promise<QueryConnector>,
 ): Promise<LiveSourceResult> {
   if (
-    binding.connectorKind !== "googleAnalytics" ||
+    binding.connectorKind !== kind ||
     binding.sourceBindingVersion !== SOURCE_BINDING_VERSION
   )
     throw new Error("TARGET_NOT_READY");
   try {
-    const connector = await ga4ConnectorFor(ctx, binding.dataSourceId);
-    const pages: Array<Awaited<ReturnType<typeof connector.query>>> = [];
+    const connector = await connectorFor(ctx, binding.dataSourceId);
+    const pages: Array<Awaited<ReturnType<QueryConnector["query"]>>> = [];
     let offset = 0;
     let expected: string | undefined;
     for (;;) {
@@ -102,13 +131,12 @@ export async function fetchGa4Binding(
       else if (signature !== expected) throw new Error("SOURCE_SCHEMA_CHANGED");
       pages.push(page);
       // A short page, including an empty page after an exact multiple, is the
-      // provider's only completion signal. Never publish an accumulated prefix.
+      // provider's completion signal. Never publish an accumulated prefix.
       if (page.rowCount < GA4_PAGE_SIZE) break;
       offset += GA4_PAGE_SIZE;
     }
-    const result = combineGa4Pages(pages);
     return {
-      ...result,
+      ...combinePages(pages),
       provenance: {
         connectorKind: binding.connectorKind,
         sourceBindingVersion: binding.sourceBindingVersion,
@@ -126,6 +154,105 @@ export async function fetchGa4Binding(
   }
 }
 
+/** Credential refinement stays inside ga4ConnectorFor. */
+export async function fetchGa4Binding(
+  ctx: DashframeFunctionContext,
+  binding: SourceBinding,
+): Promise<LiveSourceResult> {
+  return fetchRemoteBinding(ctx, binding, "googleAnalytics", ga4ConnectorFor);
+}
+
+export async function fetchNotionBinding(
+  ctx: DashframeFunctionContext,
+  binding: SourceBinding,
+): Promise<LiveSourceResult> {
+  return fetchRemoteBinding(ctx, binding, "notion", notionConnectorFor);
+}
+
+export async function fetchPostgresBinding(
+  ctx: DashframeFunctionContext,
+  binding: SourceBinding,
+): Promise<LiveSourceResult> {
+  return fetchRemoteBinding(ctx, binding, "postgres", postgresConnectorFor);
+}
+
+/** Reads only the table's prepared, server-owned current source generation. */
+export async function fetchLocalBinding(
+  ctx: DashframeFunctionContext,
+  binding: SourceBinding,
+): Promise<LiveSourceResult> {
+  if (
+    binding.connectorKind !== "local" ||
+    binding.sourceBindingVersion !== SOURCE_BINDING_VERSION ||
+    !binding.table.dataFrameId ||
+    !ctx.dataFrameStorage
+  )
+    throw new Error("TARGET_NOT_READY");
+  try {
+    const frame = (await ctx.db
+      .from(schema.dataFrames)
+      .where(eq("id", binding.table.dataFrameId))
+      .first()) as FrameRow | undefined;
+    const storage = frame?.storage as { type?: unknown; key?: unknown } | null;
+    if (
+      !frame ||
+      frame.sourceId !== binding.dataSourceId ||
+      frame.definitionId !== binding.table.id ||
+      storage?.type !== "file" ||
+      storage.key !== frame.id
+    )
+      throw new Error("TARGET_NOT_READY");
+    const arrow = await ctx.dataFrameStorage.load(frame.id);
+    if (!arrow) throw new Error("TARGET_NOT_READY");
+    const fieldIds = frame.fieldIds;
+    const fields = binding.table.fields;
+    const rowCount = frame.rowCount;
+    if (
+      !Array.isArray(fieldIds) ||
+      !fieldIds.every((id): id is string => typeof id === "string") ||
+      !Array.isArray(fields) ||
+      !fields.every(isField) ||
+      typeof rowCount !== "number" ||
+      !Number.isSafeInteger(rowCount) ||
+      rowCount < 0
+    )
+      throw new Error("FETCH_EXECUTION_FAILED");
+    const encoded = Buffer.from(arrow).toString("base64");
+    pageSignature({
+      arrowBuffer: encoded,
+      fieldIds,
+      fields,
+      rowCount,
+    });
+    return {
+      arrowBuffer: encoded,
+      fieldIds,
+      fields,
+      rowCount,
+      provenance: {
+        connectorKind: binding.connectorKind,
+        sourceBindingVersion: binding.sourceBindingVersion,
+      },
+    };
+  } catch (error) {
+    throw new Error(
+      error instanceof Error && error.message === "TARGET_NOT_READY"
+        ? error.message
+        : "FETCH_EXECUTION_FAILED",
+    );
+  }
+}
+
+function isField(value: unknown): value is Field {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as Field).id === "string" &&
+    typeof (value as Field).name === "string" &&
+    typeof (value as Field).tableId === "string"
+  );
+}
+
 function pageSignature(page: {
   arrowBuffer: string;
   fieldIds: string[];
@@ -137,6 +264,21 @@ function pageSignature(page: {
     !Number.isSafeInteger(page.rowCount) ||
     page.rowCount < 0 ||
     table.numRows !== page.rowCount
+  )
+    throw new Error("FETCH_EXECUTION_FAILED");
+  if (
+    !Array.isArray(page.fieldIds) ||
+    new Set(page.fieldIds).size !== page.fieldIds.length ||
+    !page.fieldIds.every((id) => typeof id === "string") ||
+    page.fields.length !== page.fieldIds.length ||
+    !page.fields.every(isField) ||
+    page.fields.some((field, index) => field.id !== page.fieldIds[index]) ||
+    table.schema.fields.length !== page.fields.length ||
+    table.schema.fields.some(
+      (field, index) =>
+        field.name !==
+        (page.fields[index]?.columnName ?? page.fields[index]?.name),
+    )
   )
     throw new Error("FETCH_EXECUTION_FAILED");
   return JSON.stringify({
@@ -153,7 +295,7 @@ function pageSignature(page: {
   });
 }
 
-function combineGa4Pages(
+function combinePages(
   pages: Array<{
     arrowBuffer: string;
     fieldIds: string[];
@@ -180,6 +322,18 @@ function combineGa4Pages(
 sourceBindingRegistry.set(
   bindingKey("googleAnalytics", SOURCE_BINDING_VERSION),
   fetchGa4Binding,
+);
+sourceBindingRegistry.set(
+  bindingKey("notion", SOURCE_BINDING_VERSION),
+  fetchNotionBinding,
+);
+sourceBindingRegistry.set(
+  bindingKey("postgres", SOURCE_BINDING_VERSION),
+  fetchPostgresBinding,
+);
+sourceBindingRegistry.set(
+  bindingKey("local", SOURCE_BINDING_VERSION),
+  fetchLocalBinding,
 );
 
 /** Dispatches a resolved persisted binding; callers never select an adapter. */
