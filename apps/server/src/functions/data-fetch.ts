@@ -110,9 +110,20 @@ export function applyInsightRuntime(
   };
   const declared = saved.runtimeControls;
   const values = runtime?.filters ?? {};
-  const controls = new Map(
-    (declared?.filters ?? []).map((control) => [control.key, control]),
-  );
+  const declaredFilters = declared?.filters ?? [];
+  const controls = new Map<string, (typeof declaredFilters)[number]>();
+  const savedFilterIds = new Map<string, number>();
+  for (const filter of saved.filters ?? []) {
+    if (filter.id)
+      savedFilterIds.set(filter.id, (savedFilterIds.get(filter.id) ?? 0) + 1);
+  }
+  for (const control of declaredFilters) {
+    if (controls.has(control.key))
+      throw new Error("RUNTIME_FILTER_KEY_DUPLICATE");
+    if (savedFilterIds.get(control.filterId) !== 1)
+      throw new Error("RUNTIME_FILTER_DECLARATION_INVALID");
+    controls.set(control.key, control);
+  }
   for (const key of Object.keys(values)) {
     if (!controls.has(key)) throw new Error("RUNTIME_FILTER_NOT_DECLARED");
   }
@@ -185,10 +196,20 @@ export function toFetchFailure(
   error: unknown,
   fallback: string,
 ): InsightFetchResult {
+  const sourceCode = error instanceof Error ? error.message : "";
   const code =
-    error instanceof Error && error.message.startsWith("RUNTIME_")
-      ? error.message
+    sourceCode.startsWith("RUNTIME_") ||
+    sourceCode === "SOURCE_SCHEMA_CHANGED" ||
+    sourceCode === "TARGET_NOT_READY"
+      ? sourceCode
       : fallback;
+  if (code === "SOURCE_SCHEMA_CHANGED")
+    return failed(
+      code,
+      "The source schema changed and the Insight needs review.",
+    );
+  if (code === "TARGET_NOT_READY")
+    return failed(code, "The requested data target is not ready yet.", true);
   return failed(
     code,
     code.startsWith("RUNTIME_")

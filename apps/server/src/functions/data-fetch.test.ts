@@ -1,4 +1,4 @@
-import type { Insight } from "@dashframe/types";
+import type { Insight, InsightFetchFailed } from "@dashframe/types";
 import { describe, expect, it } from "vitest";
 
 import { applyInsightRuntime, toFetchFailure } from "./data-fetch";
@@ -54,6 +54,46 @@ describe("applyInsightRuntime", () => {
     expect(() => applyInsightRuntime(insight, undefined)).toThrow(
       "RUNTIME_FILTER_REQUIRED",
     );
+  });
+
+  it("rejects duplicate external keys and dangling filter declarations before use", () => {
+    expect(() =>
+      applyInsightRuntime(
+        {
+          ...insight,
+          runtimeControls: {
+            filters: [
+              { key: "x", filterId: "region-filter", label: "X" },
+              { key: "x", filterId: "date-filter", label: "X" },
+            ],
+          },
+        },
+        undefined,
+      ),
+    ).toThrow("RUNTIME_FILTER_KEY_DUPLICATE");
+    expect(() =>
+      applyInsightRuntime(
+        {
+          ...insight,
+          runtimeControls: {
+            filters: [{ key: "x", filterId: "missing", label: "X" }],
+          },
+        },
+        undefined,
+      ),
+    ).toThrow("RUNTIME_FILTER_DECLARATION_INVALID");
+    expect(() =>
+      applyInsightRuntime(
+        {
+          ...insight,
+          filters: [...insight.filters!, { ...insight.filters![0]! }],
+          runtimeControls: {
+            filters: [{ key: "x", filterId: "region-filter", label: "Region" }],
+          },
+        },
+        undefined,
+      ),
+    ).toThrow("RUNTIME_FILTER_DECLARATION_INVALID");
   });
 
   it("defaults clear to forbidden and respects explicit clear declarations", () => {
@@ -123,6 +163,43 @@ describe("applyInsightRuntime", () => {
       status: "failed",
       code: "RUNTIME_LIMIT_OUT_OF_RANGE",
       retryable: false,
+    });
+    expect(
+      toFetchFailure(new Error("SOURCE_SCHEMA_CHANGED"), "FETCH_SOURCE_FAILED"),
+    ).toMatchObject({
+      status: "failed",
+      code: "SOURCE_SCHEMA_CHANGED",
+      retryable: false,
+    });
+    expect(
+      toFetchFailure(new Error("TARGET_NOT_READY"), "FETCH_SOURCE_FAILED"),
+    ).toMatchObject({
+      status: "failed",
+      code: "TARGET_NOT_READY",
+      retryable: true,
+    });
+  });
+
+  it("types retained success metadata as explicitly stale", () => {
+    const result: InsightFetchFailed = {
+      status: "failed",
+      code: "SOURCE_SCHEMA_CHANGED",
+      message: "safe",
+      retryable: false,
+      diagnosticId: "diagnostic",
+      lastSuccessful: {
+        stale: true,
+        dataFrameId: "frame",
+        schema: [],
+        rowCount: 1,
+        definitionFingerprint: "fingerprint",
+        provenance: { connectorKind: "notion", bindingVersion: "v1" },
+        fetchedAt: 1,
+      },
+    };
+    expect(result.lastSuccessful).toMatchObject({
+      stale: true,
+      dataFrameId: "frame",
     });
   });
 });

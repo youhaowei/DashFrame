@@ -87,6 +87,7 @@ export type {
   InsightFetchFailed,
   InsightFetchReady,
   InsightFetchResult,
+  InsightFetchStale,
   InsightFilter,
   InsightFilterBetweenValue,
   InsightJoinConfig,

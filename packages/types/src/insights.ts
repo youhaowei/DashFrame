@@ -103,9 +103,9 @@ export type InsightFetchDefinition = Pick<
 >;
 
 /**
- * Values which may vary when running a saved Insight. Filter keys are the
- * saved filter ids, never field names; this makes the saved operator and field
- * the authority. A runtime sort can select only one already-declared sort key.
+ * Values which may vary when running a saved Insight. Filter keys are stable
+ * external control keys mapped to saved filter ids; the saved filter remains
+ * the authority for field, operator, default, and type.
  */
 export interface InsightRuntimeDeclaration {
   filters?: Array<{
@@ -138,6 +138,11 @@ export interface InsightFetchReady {
   fetchedAt: number;
 }
 
+/** Metadata for a previously successful frame retained after a failed refresh. */
+export type InsightFetchStale = Omit<InsightFetchReady, "status"> & {
+  stale: true;
+};
+
 /** Safe, localizable fetch failure. Diagnostics never contain connector data. */
 export interface InsightFetchFailed {
   status: "failed";
@@ -145,7 +150,7 @@ export interface InsightFetchFailed {
   message: string;
   retryable: boolean;
   diagnosticId: string;
-  lastSuccessful?: InsightFetchReady;
+  lastSuccessful?: InsightFetchStale;
 }
 
 export type InsightFetchResult = InsightFetchReady | InsightFetchFailed;
