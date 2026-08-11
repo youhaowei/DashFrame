@@ -36,6 +36,7 @@ import {
   computeNewOverridesOnSortChange,
   deriveFieldState,
   hasOverrides,
+  withDeclaredFilterId,
 } from "./override-field-row-utils";
 
 // ---------------------------------------------------------------------------
@@ -213,6 +214,14 @@ describe("computeNewOverridesOnPin — transition payload", () => {
 });
 
 describe("computeNewOverridesOnClear — transition payload", () => {
+  it("preserves the declared saved-filter ID for runtime lookup", () => {
+    const result = computeNewOverridesOnClear(FIELD, undefined, "filter-1");
+    expect(result.filters?.[0]).toMatchObject({
+      id: "filter-1",
+      field: FIELD,
+      cleared: true,
+    });
+  });
   it("6a. adds cleared entry when there are no existing overrides", () => {
     const result = computeNewOverridesOnClear(FIELD, undefined);
     expect(result.filters).toHaveLength(1);
@@ -242,6 +251,17 @@ describe("computeNewOverridesOnClear — transition payload", () => {
     );
     expect(result.sorts).toEqual([{ field: "name", direction: "asc" }]);
     expect(result.limit).toBe(20);
+  });
+});
+
+describe("withDeclaredFilterId", () => {
+  it("adds the canonical saved-filter ID to a newly pinned override", () => {
+    const override = filter(FIELD, { id: undefined, value: "new" });
+    expect(
+      withDeclaredFilterId(FIELD, override, [
+        { id: "filter-1", field: FIELD, operator: "eq", value: "default" },
+      ]),
+    ).toEqual({ ...override, id: "filter-1" });
   });
 });
 

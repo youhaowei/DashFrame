@@ -194,16 +194,10 @@ export default function VisualizationPageContent({
     ? dataTables.find((t) => t.id === insight.baseTableId)
     : undefined;
 
-  // Build Insight object for useInsightView (needs baseTableId and joins)
-  const insightForView: InsightType | null = useMemo(() => {
-    if (!insight) return null;
-    return {
-      id: insight.id,
-      name: insight.name,
-      baseTableId: insight.baseTableId,
-      joins: insight.joins,
-    } as InsightType;
-  }, [insight]);
+  // The model-preview mutation validates the complete ephemeral Insight
+  // definition. Keep the canonical selected fields and metrics instead of
+  // reducing the object to the older browser-view subset.
+  const insightForView: InsightType | null = insight ?? null;
 
   const {
     columns: modelColumns,

@@ -1,9 +1,14 @@
 import { queryDataFrame } from "@/lib/data-access/data-frames";
+import { buildInsightColumnDisplayNames } from "@/lib/insight-column-display-names";
 import { api } from "@/wystack/api";
 import { getWyStackClient } from "@/wystack/client";
-import { extractColumnAliasComponents } from "@dashframe/engine";
+import {
+  buildInsightAvailableFields,
+  extractColumnAliasComponents,
+} from "@dashframe/engine";
 import type {
   ColumnType,
+  DataTable,
   Field,
   Insight,
   InsightFetchDefinition,
@@ -15,7 +20,15 @@ import type {
   FetchDataResult,
   VirtualTableColumn,
 } from "@dashframe/ui";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@wystack/client";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 const MAX_PAGE_SIZE = 500;
 const SUGGESTION_SAMPLE_SIZE = 100;
@@ -39,6 +52,70 @@ function toFetchDefinition(insight: Insight): InsightFetchDefinition {
   };
 }
 
+type ResultSchemaColumn = Readonly<{
+  id: UUID;
+  name: string;
+  type: string;
+}>;
+
+/** Reconnect server result aliases to model fields and repeat-join labels. */
+// eslint-disable-next-line sonarjs/cognitive-complexity -- one linear reconciliation pass keeps alias, model field, join instance, and label decisions co-located.
+export function resolveInsightResultFields(
+  schema: readonly ResultSchemaColumn[],
+  insight: Insight,
+  dataTables: readonly DataTable[],
+): { fields: Field[]; displayNames: Record<string, string> } {
+  const baseTable = dataTables.find(
+    (table) => table.id === insight.baseTableId,
+  );
+  const joinedTables = new Map<UUID, DataTable>();
+  for (const join of insight.joins ?? []) {
+    const table = dataTables.find(
+      (candidate) => candidate.id === join.rightTableId,
+    );
+    if (table) joinedTables.set(table.id, table);
+  }
+  const availableFields = baseTable
+    ? (buildInsightAvailableFields(baseTable, joinedTables, insight) ?? [])
+    : [];
+  const availableById = new Map(
+    availableFields.map((field) => [field.id, field]),
+  );
+  const parsedColumns = schema.map((column) => ({
+    column,
+    parsed: column.id.startsWith("field_")
+      ? extractColumnAliasComponents(column.id)
+      : null,
+  }));
+  const fields: Field[] = [];
+  for (const { column, parsed } of parsedColumns) {
+    if (!parsed) continue;
+    const fieldId = `${parsed.uuid}${
+      parsed.instanceIndex > 0 ? `_j${parsed.instanceIndex}` : ""
+    }` as UUID;
+    const modelField = availableById.get(fieldId);
+    const field: Field = {
+      ...(modelField ?? {
+        id: fieldId,
+        tableId: insight.baseTableId,
+        name: column.name,
+      }),
+      columnName: column.id,
+      type: column.type as ColumnType,
+    };
+    fields.push(field);
+  }
+  const displayNames = {
+    ...Object.fromEntries(schema.map((column) => [column.id, column.name])),
+    ...buildInsightColumnDisplayNames(
+      insight,
+      fields,
+      baseTable ? { baseTable, joinedTables } : undefined,
+    ),
+  };
+  return { fields, displayNames };
+}
+
 /**
  * Materialize an Insight on the server, then page its immutable DataFrame handle.
  * Browser DuckDB is deliberately not part of this path.
@@ -49,6 +126,7 @@ export function useInsightPagination({
   enabled = true,
   runtime,
 }: UseInsightPaginationOptions) {
+  const { data: dataTables = [] } = useQuery(api.listDataTables, { args: {} });
   const [totalCount, setTotalCount] = useState(0);
   const [columns, setColumns] = useState<VirtualTableColumn[]>([]);
   const [fieldCount, setFieldCount] = useState(0);
@@ -59,15 +137,26 @@ export function useInsightPagination({
     readonly { id: UUID; name: string; type: string }[]
   >([]);
   const [sampleRows, setSampleRows] = useState<Record<string, unknown>[]>([]);
+  const [isStale, setIsStale] = useState(false);
+  const [fetchedAt, setFetchedAt] = useState<number | null>(null);
+  const [staleReason, setStaleReason] = useState<string | null>(null);
   const generation = useRef(0);
+  const activeDataFrameId = useRef<UUID | null>(dataFrameId);
+  useLayoutEffect(() => {
+    activeDataFrameId.current = dataFrameId;
+  }, [dataFrameId]);
 
   const runtimeKey = JSON.stringify(runtime ?? null);
   const insightKey = JSON.stringify(toFetchDefinition(insight));
   // eslint-disable-next-line react-hooks/exhaustive-deps -- runtimeKey is the stable structural dependency.
   const stableRuntime = useMemo(() => runtime, [runtimeKey]);
 
+  useLayoutEffect(() => {
+    generation.current += 1;
+  }, [enabled, insight.id, insightKey, runtimeKey, showModelPreview]);
+
   useEffect(() => {
-    const current = ++generation.current;
+    const current = generation.current;
     if (!enabled || !insight.id) {
       queueMicrotask(() => {
         if (current !== generation.current) return;
@@ -79,6 +168,9 @@ export function useInsightPagination({
         setFieldCount(0);
         setError(null);
         setIsReady(false);
+        setIsStale(false);
+        setFetchedAt(null);
+        setStaleReason(null);
       });
       return;
     }
@@ -92,6 +184,9 @@ export function useInsightPagination({
       setFieldCount(0);
       setIsReady(false);
       setError(null);
+      setIsStale(false);
+      setFetchedAt(null);
+      setStaleReason(null);
     });
     const materialized = showModelPreview
       ? getWyStackClient().mutate(api.fetchData, {
@@ -104,7 +199,9 @@ export function useInsightPagination({
     materialized.then(
       async (fetchResult) => {
         if (current !== generation.current) return;
-        if (fetchResult.status === "failed") {
+        const retained =
+          fetchResult.status === "failed" ? fetchResult.lastSuccessful : null;
+        if (fetchResult.status === "failed" && !retained) {
           setDataFrameId(null);
           setTotalCount(0);
           setColumns([]);
@@ -115,9 +212,11 @@ export function useInsightPagination({
           setIsReady(false);
           return;
         }
+        const resultFrame =
+          fetchResult.status === "ready" ? fetchResult : retained!;
         let page;
         try {
-          page = await queryDataFrame(fetchResult.dataFrameId, {
+          page = await queryDataFrame(resultFrame.dataFrameId, {
             offset: 0,
             limit: SUGGESTION_SAMPLE_SIZE,
           });
@@ -153,7 +252,7 @@ export function useInsightPagination({
         const nextColumns: VirtualTableColumn[] = page.schema.map(
           ({ id, type }) => ({ name: id, type: type as ColumnType }),
         );
-        setDataFrameId(fetchResult.dataFrameId);
+        setDataFrameId(resultFrame.dataFrameId);
         setTotalCount(effectiveCount);
         setColumns(nextColumns);
         setSchema(page.schema);
@@ -161,6 +260,11 @@ export function useInsightPagination({
         setFieldCount(nextColumns.length);
         setError(null);
         setIsReady(true);
+        setIsStale(fetchResult.status === "failed");
+        setFetchedAt(resultFrame.fetchedAt);
+        setStaleReason(
+          fetchResult.status === "failed" ? fetchResult.message : null,
+        );
       },
       (cause: unknown) => {
         if (current !== generation.current) return;
@@ -190,6 +294,7 @@ export function useInsightPagination({
     async (params: FetchDataParams): Promise<FetchDataResult> => {
       if (!dataFrameId) return { rows: [], totalCount: 0 };
       const current = generation.current;
+      const requestedDataFrameId = dataFrameId;
       const remaining = stableRuntime?.limit
         ? Math.max(0, stableRuntime.limit - params.offset)
         : params.limit;
@@ -212,7 +317,10 @@ export function useInsightPagination({
       } catch {
         return { rows: [], totalCount: 0 };
       }
-      if (current !== generation.current) {
+      if (
+        current !== generation.current ||
+        activeDataFrameId.current !== requestedDataFrameId
+      ) {
         return { rows: [], totalCount: 0 };
       }
       return page.status === "ready"
@@ -222,30 +330,9 @@ export function useInsightPagination({
     [dataFrameId, stableRuntime, totalCount],
   );
 
-  const columnDisplayNames = useMemo(
-    () => Object.fromEntries(schema.map((column) => [column.id, column.name])),
-    [schema],
-  );
-  const resolvedFields = useMemo(
-    () =>
-      schema.flatMap((column): Field[] => {
-        if (!column.id.startsWith("field_")) return [];
-        const parsed = extractColumnAliasComponents(column.id);
-        if (!parsed) return [];
-        const id = `${parsed.uuid}${
-          parsed.instanceIndex > 0 ? `_j${parsed.instanceIndex}` : ""
-        }` as UUID;
-        return [
-          {
-            id,
-            tableId: insight.baseTableId,
-            name: column.name,
-            columnName: column.id,
-            type: column.type as ColumnType,
-          },
-        ];
-      }),
-    [insight.baseTableId, schema],
+  const { fields: resolvedFields, displayNames: columnDisplayNames } = useMemo(
+    () => resolveInsightResultFields(schema, insight, dataTables),
+    [dataTables, insight, schema],
   );
 
   return {
@@ -258,6 +345,9 @@ export function useInsightPagination({
     error,
     schema,
     sampleRows,
+    isStale,
+    fetchedAt,
+    staleReason,
     columnDisplayNames,
     columnTypeMap: Object.fromEntries(
       schema.map((column) => [column.id, column.type as ColumnType]),

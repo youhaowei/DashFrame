@@ -15,6 +15,18 @@ import type {
   InsightSort,
 } from "@dashframe/types";
 
+/** Preserve the saved predicate identity required by runtime-control lookup. */
+export function withDeclaredFilterId(
+  fieldName: string,
+  filter: InsightFilterOverride,
+  insightFilters: readonly InsightFilter[] | undefined,
+): InsightFilterOverride {
+  const declaredFilterId = insightFilters?.find(
+    (candidate) => candidate.field === fieldName,
+  )?.id;
+  return declaredFilterId ? { ...filter, id: declaredFilterId } : filter;
+}
+
 // ---------------------------------------------------------------------------
 // Field override state machine
 // ---------------------------------------------------------------------------
@@ -129,11 +141,13 @@ export function computeNewOverridesOnPin(
 export function computeNewOverridesOnClear(
   fieldName: string,
   itemOverrides: DashboardItemOverrides | undefined,
+  declaredFilterId?: string,
 ): DashboardItemOverrides {
   const otherFilters = (itemOverrides?.filters ?? []).filter(
     (f) => f.field !== fieldName,
   );
   const clearedEntry: InsightFilterOverride = {
+    ...(declaredFilterId ? { id: declaredFilterId } : {}),
     field: fieldName,
     operator: "eq",
     value: null,

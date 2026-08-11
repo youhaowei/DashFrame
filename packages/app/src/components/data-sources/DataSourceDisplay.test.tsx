@@ -1,5 +1,11 @@
 import type { DataSource, DataTable, UUID } from "@dashframe/types";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { mockMutate, mockQueryDataFrame, queryData } = vi.hoisted(() => ({
@@ -36,6 +42,7 @@ import { DataSourceDisplay } from "./DataSourceDisplay";
 
 const SOURCE_ID = "source-1" as UUID;
 const TABLE_ID = "table-1" as UUID;
+const TABLE_B_ID = "table-2" as UUID;
 
 describe("DataSourceDisplay remote preview", () => {
   beforeEach(() => {
@@ -101,5 +108,43 @@ describe("DataSourceDisplay remote preview", () => {
     expect(await screen.findByText("Connection expired")).toBeTruthy();
     expect(screen.getByText("Fetch failed")).toBeTruthy();
     expect(screen.queryByText(/review column|approved fields/i)).toBeNull();
+  });
+
+  it("discards table A when its fetch completes after table B is selected", async () => {
+    queryData.tables.push({
+      id: TABLE_B_ID,
+      dataSourceId: SOURCE_ID,
+      name: "Accounts",
+      table: "resource-2",
+      fields: [],
+      metrics: [],
+      createdAt: 0,
+    });
+    let resolveTableA!: (value: unknown) => void;
+    mockMutate.mockImplementationOnce(
+      () => new Promise((resolve) => (resolveTableA = resolve)),
+    );
+    render(<DataSourceDisplay dataSourceId={SOURCE_ID} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Fetch data" }));
+    fireEvent.click(screen.getByRole("button", { name: "Accounts" }));
+    await act(async () => {
+      resolveTableA({
+        status: "ready",
+        dataFrameId: "frame-a",
+        schema: [],
+        rowCount: 1,
+        definitionFingerprint: "fp-a",
+        provenance: { connectorKind: "notion", bindingVersion: "1" },
+        fetchedAt: 0,
+      });
+    });
+
+    expect(screen.getAllByText("Accounts")).toHaveLength(2);
+    expect(screen.getByText("Fetch data to preview this table.")).toBeTruthy();
+    expect(mockQueryDataFrame).not.toHaveBeenCalledWith(
+      "frame-a",
+      expect.anything(),
+    );
   });
 });

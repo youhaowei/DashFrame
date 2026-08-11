@@ -1,14 +1,25 @@
-import type { Insight } from "@dashframe/types";
+import type { DataTable, Insight, UUID } from "@dashframe/types";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { useInsightPagination } from "./useInsightPagination";
+import {
+  resolveInsightResultFields,
+  useInsightPagination,
+} from "./useInsightPagination";
 
-const { queryDataFrame, client } = vi.hoisted(() => ({
+const { queryDataFrame, client, useQuery } = vi.hoisted(() => ({
   queryDataFrame: vi.fn(),
   client: { mutate: vi.fn() },
+  useQuery: vi.fn(() => ({ data: [] })),
 }));
 vi.mock("@/lib/data-access/data-frames", () => ({ queryDataFrame }));
-vi.mock("@/wystack/client", () => ({ getWyStackClient: () => client }));
+vi.mock("@/wystack/client", () => ({
+  getWyStackClient: () => client,
+  useQuery: () => ({ data: [] }),
+}));
+vi.mock("@wystack/client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@wystack/client")>()),
+  useQuery,
+}));
 
 const insight = {
   id: "insight-1",
@@ -110,6 +121,41 @@ describe("useInsightPagination", () => {
     expect(queryDataFrame).not.toHaveBeenCalled();
   });
 
+  it("keeps a retained immutable frame readable after a saved refresh failure", async () => {
+    client.mutate.mockResolvedValue({
+      status: "failed",
+      message: "Connector offline",
+      lastSuccessful: {
+        stale: true,
+        dataFrameId: "frame-stale",
+        fetchedAt: 123,
+      },
+    });
+    queryDataFrame.mockResolvedValue({
+      status: "ready",
+      schema: [],
+      rows: [{ country: "CA" }],
+      totalCount: 1,
+      page: {},
+    });
+
+    const { result } = renderHook(() => useInsightPagination({ insight }));
+
+    await waitFor(() => expect(result.current.isReady).toBe(true));
+    expect(queryDataFrame).toHaveBeenCalledWith("frame-stale", {
+      offset: 0,
+      limit: 100,
+    });
+    expect(result.current).toMatchObject({
+      dataFrameId: "frame-stale",
+      isStale: true,
+      fetchedAt: 123,
+      error: null,
+      staleReason: "Connector offline",
+      sampleRows: [{ country: "CA" }],
+    });
+  });
+
   it("discards a stale materialization after the insight changes", async () => {
     let resolveA!: (value: unknown) => void;
     client.mutate.mockImplementationOnce(
@@ -181,5 +227,114 @@ describe("useInsightPagination", () => {
       resolvePage({ status: "ready", rows: [{ value: 1 }], totalCount: 2 }),
     );
     await expect(pending).resolves.toEqual({ rows: [], totalCount: 0 });
+  });
+});
+
+describe("resolveInsightResultFields", () => {
+  it("preserves repeat-join source identity and gives each instance a distinct left-key label", () => {
+    const baseId = "10000000-0000-4000-8000-000000000010" as UUID;
+    const usersId = "10000000-0000-4000-8000-000000000020" as UUID;
+    const fieldId = "10000000-0000-4000-8000-000000000030" as UUID;
+    const tables = [
+      {
+        id: baseId,
+        dataSourceId: "10000000-0000-4000-8000-000000000040" as UUID,
+        name: "orders",
+        table: "orders",
+        dataFrameId: "10000000-0000-4000-8000-000000000013" as UUID,
+        fields: [
+          {
+            id: "10000000-0000-4000-8000-000000000011" as UUID,
+            tableId: baseId,
+            name: "Created By",
+            columnName: "created_by",
+            type: "string",
+          },
+          {
+            id: "10000000-0000-4000-8000-000000000012" as UUID,
+            tableId: baseId,
+            name: "Approved By",
+            columnName: "approved_by",
+            type: "string",
+          },
+        ],
+        metrics: [],
+        createdAt: 0,
+      },
+      {
+        id: usersId,
+        dataSourceId: "10000000-0000-4000-8000-000000000040" as UUID,
+        name: "users",
+        table: "users",
+        dataFrameId: "10000000-0000-4000-8000-000000000023" as UUID,
+        fields: [
+          {
+            id: "10000000-0000-4000-8000-000000000021" as UUID,
+            tableId: usersId,
+            name: "User ID",
+            columnName: "id",
+            type: "string",
+          },
+          {
+            id: fieldId,
+            tableId: usersId,
+            name: "User Name",
+            columnName: "name",
+            type: "string",
+          },
+        ],
+        metrics: [],
+        createdAt: 0,
+      },
+    ] satisfies DataTable[];
+    const repeatedInsight = {
+      ...insight,
+      baseTableId: baseId,
+      joins: [
+        {
+          type: "left" as const,
+          rightTableId: usersId,
+          leftKey: "missing_key",
+          rightKey: "id",
+        },
+        {
+          type: "left" as const,
+          rightTableId: usersId,
+          leftKey: "created_by",
+          rightKey: "id",
+        },
+        {
+          type: "left" as const,
+          rightTableId: usersId,
+          leftKey: "approved_by",
+          rightKey: "id",
+        },
+      ],
+    };
+    const alias = `field_${fieldId.replaceAll("-", "_")}` as UUID;
+    const aliasJ1 = `${alias}_j1` as UUID;
+    const resolved = resolveInsightResultFields(
+      [
+        { id: alias, name: "User Name", type: "string" },
+        { id: aliasJ1, name: "User Name", type: "string" },
+      ],
+      repeatedInsight,
+      tables,
+    );
+
+    expect(resolved.displayNames).toEqual({
+      [alias]: "User Name (created_by)",
+      [aliasJ1]: "User Name (approved_by)",
+    });
+    expect(
+      resolved.fields.map(({ id, tableId, columnName }) => ({
+        id,
+        tableId,
+        columnName,
+      })),
+    ).toEqual([
+      { id: fieldId, tableId: usersId, columnName: alias },
+      { id: `${fieldId}_j1`, tableId: usersId, columnName: aliasJ1 },
+    ]);
   });
 });

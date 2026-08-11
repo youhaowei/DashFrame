@@ -2,13 +2,17 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockNavigate, mockRemoveVisualization, mockToastError } = vi.hoisted(
-  () => ({
-    mockNavigate: vi.fn(),
-    mockRemoveVisualization: vi.fn(),
-    mockToastError: vi.fn(),
-  }),
-);
+const {
+  mockNavigate,
+  mockPagination,
+  mockRemoveVisualization,
+  mockToastError,
+} = vi.hoisted(() => ({
+  mockNavigate: vi.fn(),
+  mockPagination: vi.fn(),
+  mockRemoveVisualization: vi.fn(),
+  mockToastError: vi.fn(),
+}));
 
 vi.mock("@/components/assistant/artifact-context", () => ({
   useBindArtifact: () => undefined,
@@ -37,15 +41,18 @@ vi.mock("@/components/visualizations/VisualizationDisplay", () => ({
   VisualizationDisplay: () => null,
 }));
 vi.mock("@/hooks/useInsightPagination", () => ({
-  useInsightPagination: () => ({
-    columnDisplayNames: {},
-    columns: [],
-    isReady: true,
-    resolvedFields: [],
-    sampleRows: [],
-    schema: [],
-    totalCount: 0,
-  }),
+  useInsightPagination: (options: unknown) => {
+    mockPagination(options);
+    return {
+      columnDisplayNames: {},
+      columns: [],
+      isReady: true,
+      resolvedFields: [],
+      sampleRows: [],
+      schema: [],
+      totalCount: 0,
+    };
+  },
 }));
 vi.mock("@/lib/utils/field-icons", () => ({ getColumnIcon: vi.fn() }));
 vi.mock("@/lib/visualizations/encoding-enforcer", () => ({
@@ -91,8 +98,31 @@ vi.mock("@wystack/client", () => ({
           {
             encoding: {},
             id: "viz-1",
+            insightId: "insight-1",
             name: "Revenue by month",
             visualizationType: "barY",
+          },
+        ],
+        isLoading: false,
+      };
+    }
+    if (ref._path === "listInsights") {
+      return {
+        data: [
+          {
+            id: "insight-1",
+            name: "Revenue",
+            baseTableId: "table-1",
+            selectedFields: ["field-1"],
+            metrics: [
+              {
+                id: "metric-1",
+                name: "Revenue",
+                columnName: "revenue",
+                aggregation: "sum",
+              },
+            ],
+            createdAt: 0,
           },
         ],
         isLoading: false,
@@ -182,6 +212,19 @@ describe("VisualizationPageContent delete confirmation", () => {
       expect(mockRemoveVisualization).toHaveBeenCalledWith({ id: "viz-1" });
       expect(mockNavigate).toHaveBeenCalledWith({ to: "/insights" });
     });
+  });
+
+  it("passes selected fields and metrics into the model-preview definition", () => {
+    render(<VisualizationPageContent visualizationId="viz-1" />);
+    expect(mockPagination).toHaveBeenCalledWith(
+      expect.objectContaining({
+        showModelPreview: true,
+        insight: expect.objectContaining({
+          selectedFields: ["field-1"],
+          metrics: [expect.objectContaining({ id: "metric-1" })],
+        }),
+      }),
+    );
   });
 
   it("shows one error when visualization deletion fails", async () => {

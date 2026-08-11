@@ -23,7 +23,7 @@ import {
   Surface,
 } from "@wystack/ui-react";
 import { DatabaseIcon, LayersIcon, RefreshIcon } from "@wystack/ui-react/icons";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 interface DataSourceDisplayProps {
@@ -146,6 +146,7 @@ function RemoteDataSourceView({
     null,
   );
   const [isFetching, setIsFetching] = useState(false);
+  const previewGeneration = useRef(0);
   const selectedTable = useMemo(
     () =>
       dataTables.find((table) => table.id === selectedTableId) ??
@@ -161,6 +162,7 @@ function RemoteDataSourceView({
 
   const refresh = useCallback(async () => {
     if (!selectedTable) return;
+    const current = ++previewGeneration.current;
     setIsFetching(true);
     const insight: InsightFetchDefinition = {
       baseTableId: selectedTable.id,
@@ -171,9 +173,11 @@ function RemoteDataSourceView({
       const result = await getWyStackClient().mutate(api.fetchData, {
         insight,
       });
+      if (current !== previewGeneration.current) return;
       setFetchResult(result);
       if (result.status === "failed") toast.error(result.message);
     } catch {
+      if (current !== previewGeneration.current) return;
       setFetchResult({
         status: "failed",
         code: "FETCH_REQUEST_FAILED",
@@ -182,7 +186,7 @@ function RemoteDataSourceView({
         diagnosticId: crypto.randomUUID(),
       });
     } finally {
-      setIsFetching(false);
+      if (current === previewGeneration.current) setIsFetching(false);
     }
   }, [selectedTable]);
 
@@ -228,8 +232,10 @@ function RemoteDataSourceView({
                 variant={table.id === selectedTable?.id ? "outline" : "ghost"}
                 size="sm"
                 onClick={() => {
+                  ++previewGeneration.current;
                   setSelectedTableId(table.id);
                   setFetchResult(null);
+                  setIsFetching(false);
                 }}
               />
             ))}
