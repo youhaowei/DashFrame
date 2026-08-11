@@ -182,7 +182,10 @@ function failed(
   };
 }
 
-function failureFrom(error: unknown, fallback: string): InsightFetchResult {
+export function toFetchFailure(
+  error: unknown,
+  fallback: string,
+): InsightFetchResult {
   const code =
     error instanceof Error && error.message.startsWith("RUNTIME_")
       ? error.message
@@ -216,12 +219,12 @@ export function createDataFetchFunctions(
     try {
       binding = await resolveBinding(ctx, insight.baseTableId);
     } catch (error) {
-      return failureFrom(error, "FETCH_BINDING_FAILED");
+      return toFetchFailure(error, "FETCH_BINDING_FAILED");
     }
     try {
       return await execute({ context: ctx, insight, binding });
     } catch (error) {
-      return failureFrom(error, "FETCH_EXECUTION_FAILED");
+      return toFetchFailure(error, "FETCH_EXECUTION_FAILED");
     }
   };
   const fetchData = wy.procedure
@@ -248,7 +251,7 @@ export function createDataFetchFunctions(
         const saved = await getInsightForFetch(ctx, insightId as UUID);
         return materialize(ctx, applyInsightRuntime(saved, parsedRuntime.data));
       } catch (error) {
-        return failureFrom(error, "FETCH_SOURCE_FAILED");
+        return toFetchFailure(error, "FETCH_SOURCE_FAILED");
       }
     });
   return { fetchData, runInsight };

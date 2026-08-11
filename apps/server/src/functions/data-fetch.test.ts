@@ -1,7 +1,7 @@
 import type { Insight } from "@dashframe/types";
 import { describe, expect, it } from "vitest";
 
-import { applyInsightRuntime } from "./data-fetch";
+import { applyInsightRuntime, toFetchFailure } from "./data-fetch";
 
 const insight: Insight = {
   id: "insight-1",
@@ -97,5 +97,29 @@ describe("applyInsightRuntime", () => {
     expect(() =>
       applyInsightRuntime(insight, { filters: { region: "US" }, limit: 101 }),
     ).toThrow("RUNTIME_LIMIT_OUT_OF_RANGE");
+  });
+
+  it("converts internal failures to safe, row-free failed results", () => {
+    expect(
+      toFetchFailure(
+        new Error("connector password leaked"),
+        "FETCH_EXECUTION_FAILED",
+      ),
+    ).toMatchObject({
+      status: "failed",
+      code: "FETCH_EXECUTION_FAILED",
+      message: "Live data could not be fetched.",
+      retryable: true,
+    });
+    expect(
+      toFetchFailure(
+        new Error("RUNTIME_LIMIT_OUT_OF_RANGE"),
+        "FETCH_SOURCE_FAILED",
+      ),
+    ).toMatchObject({
+      status: "failed",
+      code: "RUNTIME_LIMIT_OUT_OF_RANGE",
+      retryable: false,
+    });
   });
 });
