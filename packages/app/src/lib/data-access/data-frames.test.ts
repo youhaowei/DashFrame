@@ -1,5 +1,5 @@
 import { setWyStackClient } from "@/wystack/client";
-import type { UUID } from "@dashframe/types";
+import { MAX_LOCAL_ARROW_BYTES, type UUID } from "@dashframe/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ingestLocalDataFrame, queryDataFrame } from "./data-frames";
@@ -65,6 +65,17 @@ describe("server-owned DataFrame access", () => {
       primaryKey: undefined,
       replacement,
     });
+  });
+
+  it("rejects oversized encoded Arrow before base64 allocation or transport", async () => {
+    const oversized = {
+      byteLength: MAX_LOCAL_ARROW_BYTES + 1,
+    } as Uint8Array;
+
+    await expect(
+      ingestLocalDataFrame(DATA_TABLE_ID, oversized),
+    ).rejects.toThrow("Encoded local data exceeds the 100MB ingestion limit");
+    expect(mockMutate).not.toHaveBeenCalled();
   });
 
   it("queries rows only through the bounded server frame surface", async () => {

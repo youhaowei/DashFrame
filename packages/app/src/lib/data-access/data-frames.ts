@@ -6,6 +6,10 @@ import type {
   SourceSchema,
   UUID,
 } from "@dashframe/types";
+import {
+  LOCAL_ARROW_LIMIT_MB,
+  localArrowSizeIsAllowed,
+} from "@dashframe/types";
 
 import { api } from "../../wystack/api";
 import { getWyStackClient } from "../../wystack/client";
@@ -35,6 +39,11 @@ export async function ingestLocalDataFrame(
     metrics: Metric[];
   },
 ): Promise<{ dataFrameId: UUID; rowCount: number; columnCount: number }> {
+  if (!localArrowSizeIsAllowed(arrowBuffer.byteLength)) {
+    throw new Error(
+      `Encoded local data exceeds the ${LOCAL_ARROW_LIMIT_MB}MB ingestion limit.`,
+    );
+  }
   return getWyStackClient().mutate(api.ingestLocalDataFrame, {
     dataTableId,
     arrowBase64: bytesToBase64(arrowBuffer),

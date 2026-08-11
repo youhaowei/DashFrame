@@ -8,6 +8,10 @@ import type {
   SourceSchema,
   UUID,
 } from "@dashframe/types";
+import {
+  MAX_LOCAL_ARROW_BYTES,
+  localArrowSizeIsAllowed,
+} from "@dashframe/types";
 import { eq, jsonb, uuid } from "@wystack/db";
 import { and, eq as drizzleEq, isNull } from "drizzle-orm";
 
@@ -17,7 +21,6 @@ import { wy } from "../../wystack";
 
 type TableRow = typeof schema.dataTables.$inferSelect;
 type SourceRow = typeof schema.dataSources.$inferSelect;
-const MAX_LOCAL_ARROW_BYTES = 100 * 1024 * 1024;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const COLUMN_TYPES = new Set([
@@ -61,8 +64,7 @@ function decodeArrow(value: unknown): Uint8Array {
   }
   const bytes = Buffer.from(value, "base64");
   if (
-    bytes.byteLength === 0 ||
-    bytes.byteLength > MAX_LOCAL_ARROW_BYTES ||
+    !localArrowSizeIsAllowed(bytes.byteLength) ||
     bytes.toString("base64") !== value
   ) {
     throw new Error("LOCAL_FRAME_INVALID");

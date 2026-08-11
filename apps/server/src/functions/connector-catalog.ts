@@ -7,6 +7,10 @@ import type {
   ConnectorCatalogEntry,
   ConnectorFormField,
 } from "@dashframe/types";
+import {
+  LOCAL_FILE_HELPER_TEXT,
+  LOCAL_FILE_SOURCE_LIMIT_MB,
+} from "@dashframe/types";
 
 import { wy } from "../wystack";
 
@@ -65,8 +69,8 @@ export const LOCAL_CATALOG_ENTRY: ConnectorCatalogEntry = Object.freeze({
   authKind: "none",
   formFields: Object.freeze([] as ConnectorFormField[]) as ConnectorFormField[],
   accept: ".csv,.json,text/csv,application/json",
-  maxSizeMB: 100,
-  helperText: "Supports CSV and JSON files up to 100MB (stored locally)",
+  maxSizeMB: LOCAL_FILE_SOURCE_LIMIT_MB,
+  helperText: LOCAL_FILE_HELPER_TEXT,
 });
 
 /**

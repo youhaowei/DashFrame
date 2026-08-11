@@ -186,6 +186,15 @@ export type {
 } from "./column-analysis";
 
 export {
+  LOCAL_ARROW_LIMIT_MB,
+  LOCAL_FILE_HELPER_TEXT,
+  LOCAL_FILE_SOURCE_LIMIT_MB,
+  MAX_LOCAL_ARROW_BYTES,
+  MAX_LOCAL_SOURCE_BYTES,
+  localArrowSizeIsAllowed,
+} from "./local-file-limits";
+
+export {
   CARDINALITY_THRESHOLDS,
   getLegacyCategory,
   looksLikeIdentifier,

@@ -3,7 +3,7 @@
  *
  * Tests cover:
  * - Static properties (id, name, icon, accept, maxSizeMB)
- * - File size validation (100MB limit)
+ * - File size validation (source and encoded ingestion limits)
  * - File extension validation
  * - CSV parsing delegation
  * - JSON parsing delegation
@@ -72,12 +72,14 @@ describe("LocalFileConnector", () => {
       expect(connector.accept).toContain("application/json");
     });
 
-    it("should have 100MB size limit", () => {
-      expect(connector.maxSizeMB).toBe(100);
+    it("advertises the conservative source-file limit and encoded cap", () => {
+      expect(connector.maxSizeMB).toBe(16);
+      expect(connector.helperText).toContain("16MB");
+      expect(connector.helperText).toContain("100MB");
     });
 
     it("should have helper text mentioning size limit and formats", () => {
-      expect(connector.helperText).toContain("100MB");
+      expect(connector.helperText).toContain("16MB");
       expect(connector.helperText).toContain("CSV");
       expect(connector.helperText).toContain("JSON");
     });
@@ -98,8 +100,8 @@ describe("LocalFileConnector", () => {
   });
 
   describe("parse - file size validation", () => {
-    it("should reject files exceeding 100MB", async () => {
-      const largeSize = 101 * 1024 * 1024; // 101MB
+    it("should reject files exceeding the 16MB source limit", async () => {
+      const largeSize = 17 * 1024 * 1024;
       const file = new File(["name,value\na,1"], "large.csv", {
         type: "text/csv",
       });
@@ -110,11 +112,11 @@ describe("LocalFileConnector", () => {
           file,
           "test-uuid" as `${string}-${string}-${string}-${string}-${string}`,
         ),
-      ).rejects.toThrow("File size exceeds 100MB limit");
+      ).rejects.toThrow("File size exceeds 16MB limit");
     });
 
-    it("should accept files at exactly 100MB", async () => {
-      const exactSize = 100 * 1024 * 1024; // Exactly 100MB
+    it("should accept files at exactly the 16MB source limit", async () => {
+      const exactSize = 16 * 1024 * 1024;
       const file = new File(["name,value\na,1"], "exact.csv", {
         type: "text/csv",
       });
@@ -128,7 +130,7 @@ describe("LocalFileConnector", () => {
       ).resolves.toBeDefined();
     });
 
-    it("should accept files under 100MB", async () => {
+    it("should accept files under 16MB", async () => {
       const file = new File(["name,value\na,1"], "small.csv", {
         type: "text/csv",
       });
