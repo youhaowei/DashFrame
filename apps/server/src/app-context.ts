@@ -1,6 +1,6 @@
 import type { DataFrameStorage } from "@dashframe/engine";
 import type { ApiAccessCredentials, ArtifactDb } from "@dashframe/server-core";
-import type { Principal } from "@wystack/identity";
+import { isPrincipal, type Principal } from "@wystack/identity";
 import type { SecretVault } from "@wystack/secret-vault";
 import type { FunctionContext, WyStackApp } from "@wystack/server";
 
@@ -44,3 +44,11 @@ export interface AppContext {
 }
 
 export type DashframeFunctionContext = FunctionContext<AppContext>;
+
+/** Stable, non-secret identity used to bind durable resources to a principal. */
+export function principalKey(principal: unknown): string | null {
+  if (!isPrincipal(principal)) return null;
+  return principal.kind === "service"
+    ? `service:${principal.credentialId}`
+    : `user:${principal.userId}`;
+}

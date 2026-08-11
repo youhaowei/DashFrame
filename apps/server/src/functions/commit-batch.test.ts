@@ -277,12 +277,18 @@ describe("commitBatch and draft-only API credentials", () => {
   it("allows service draft append, denies its publish/discard, and lets a user finish", async () => {
     const seedApp = await buildDashframeApp({ db: project!.db });
     const controller = createDraftController(seedApp, project!.db);
+    const serviceCredentialId =
+      await accessCredentials.authenticate(serviceToken);
+    expect(serviceCredentialId).not.toBeNull();
     const servicePrincipal = {
       kind: "service" as const,
-      credentialId: "seed-service",
+      credentialId: serviceCredentialId!,
     };
 
-    const publishDraftId = await controller.openDraft();
+    const publishDraftId = await controller.openDraft(
+      undefined,
+      `service:${servicePrincipal.credentialId}`,
+    );
     const publishedSourceId = crypto.randomUUID();
     await controller.appendToDraft(
       publishDraftId,
@@ -337,7 +343,10 @@ describe("commitBatch and draft-only API credentials", () => {
       ),
     ).toBe(true);
 
-    const discardDraftId = await controller.openDraft();
+    const discardDraftId = await controller.openDraft(
+      undefined,
+      `service:${servicePrincipal.credentialId}`,
+    );
     await controller.appendToDraft(discardDraftId, [], {
       principal: servicePrincipal,
     });

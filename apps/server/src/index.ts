@@ -30,6 +30,7 @@ import {
 } from "./app";
 import { isLoopbackHost } from "./bind-host";
 import { readOptionalGoogleOAuthConfig } from "./connector-setup/oauth-provider";
+import type { McpMode } from "./mcp/route";
 import {
   ENCRYPTED_FILE_BACKEND_NAME,
   EncryptedFileSecretBackend,
@@ -39,6 +40,7 @@ import {
 export interface CliOptions {
   hostname?: string;
   port?: number;
+  mcpMode?: McpMode;
   project?: string;
   dataDir?: string;
   name?: string;
@@ -64,6 +66,7 @@ Options:
   --token <token>         Require Bearer token auth for HTTP and WebSocket clients
   --host <host>           Bind host alias (default: 127.0.0.1)
   --port <port>           Bind port alias (default: 0, OS-assigned)
+  --mcp-mode <mode>       MCP transport: stateful (default) or stateless
   --name <name>           Project display name when initializing
   --cors-origin <origin>  Allowed browser origin; repeat or comma-separate for multiple
   --insecure              Allow a non-loopback bind without --token (opt out of the auth requirement)
@@ -108,6 +111,13 @@ function readValue(args: string[], index: number, flag: string): string {
     throw new Error(`${flag} requires a value`);
   }
   return value;
+}
+
+function parseMcpMode(raw: string): McpMode {
+  if (raw === "stateful" || raw === "stateless") return raw;
+  throw new Error(
+    `Invalid --mcp-mode "${raw}": expected "stateful" or "stateless"`,
+  );
 }
 
 export function parsePort(raw: string): number {
@@ -214,6 +224,9 @@ function parseArgAt(opts: CliOptions, args: string[], index: number): number {
       return index + 1;
     case "--port":
       opts.port = parsePort(readValue(args, index, arg));
+      return index + 1;
+    case "--mcp-mode":
+      opts.mcpMode = parseMcpMode(readValue(args, index, arg));
       return index + 1;
     case "--project":
       opts.project = readValue(args, index, arg);
@@ -454,6 +467,7 @@ export function createStandaloneServerOptions(
     ),
     hostname: opts.hostname,
     port: opts.port,
+    mcpMode: opts.mcpMode,
     corsOrigin: opts.corsOrigin,
     authToken: opts.token,
     arrowEngine,

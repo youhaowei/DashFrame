@@ -20,8 +20,10 @@ import { isSecretRef } from "@wystack/secret-vault";
 import type { WyStackApp } from "@wystack/server";
 
 import { createAssistantReadHost } from "../assistant-read-host";
+import { DRAFT_UNAVAILABLE } from "../draft-access";
 import { assertKnownCommandPaths } from "../functions/commands";
-import type { McpRequestContext } from "./route";
+import { draftIdFromBatchError } from "../functions/draft-batch";
+import type { McpMode, McpRequestContext } from "./route";
 
 type AssistantTool = {
   name: string;
@@ -64,13 +66,24 @@ function draftSafeCommandList(): string {
  * An MCP client sees tool descriptions and nothing else before it calls, so a
  * guide behind a second round trip is a guide the agent will not read.
  */
-function draftBatchDescription(): string {
+function draftBatchDescription(mode: McpMode): string {
+  const continuity =
+    mode === "stateless"
+      ? [
+          "draft, never commit. Carry the returned draftId forward: pass it on later",
+          "draft_batch calls to append, and on read tools to see the draft overlay.",
+        ]
+      : [
+          "draft, never commit. The server carries the returned draftId for this",
+          "session, so later writes and reads continue against the same overlay.",
+        ];
   return [
     "Append a batch of draft-safe DashFrame commands to a DashFrame draft.",
-    "Nothing here reaches canonical state: the draft opens on the first",
-    "successful call, and only a person can publish it. API credentials can",
-    "draft, never commit. Carry the returned draftId forward: pass it on later",
-    "draft_batch calls to append, and on read tools to see the draft overlay.",
+    "Nothing here reaches canonical state: the draft opens before commands run,",
+    "and only a person can publish it. If a later command fails after an earlier",
+    "prefix committed, the error retains the owned draftId so that work can",
+    "continue. API credentials can",
+    ...continuity,
     "",
     "Each entry is { type, args } where `type` is a command NAME from the guide",
     "below (not a registry path).",
@@ -148,58 +161,47 @@ function lowerCommands(commands: readonly DraftBatchCommandInput[]): Command[] {
 }
 
 /**
- * `draftBatch` rejects a handle it cannot find with exactly this phrasing
- * (`draftBatch: no open draft <id>`), and nothing else on that path produces
- * it. Matching the text is the narrowest available signal — the RPC layer
- * carries no error codes — so it is kept deliberately specific rather than
- * matching anything draft-shaped.
- */
-function isMissingDraftError(error: unknown): boolean {
-  if (error instanceof Error) return error.message.includes("no open draft");
-  if (typeof error === "string") return error.includes("no open draft");
-  return false;
-}
-
-/**
- * The reader is deliberately a forwarder: the request's draft id is applied
- * when each read executes, not when tools are listed.
+ * The reader is deliberately a forwarder: each read snapshots the current
+ * handle, whether caller-supplied in stateless mode or retained by a stateful
+ * session, rather than binding a handle when tools are listed.
  */
 function createDelegatingReader(
   app: WyStackApp,
   context: McpRequestContext,
 ): GraphReader {
-  const assertDraftOpen = async (): Promise<void> => {
-    if (context.draftId === undefined) return;
+  const assertDraftOpen = async (
+    draftId: string | undefined,
+  ): Promise<void> => {
+    if (draftId === undefined) return;
     const listed = await app.call(
       "listDrafts",
       {},
       { principal: context.principal },
     );
     const drafts = listed.result as Array<{ draftId: string }>;
-    if (!drafts.some((draft) => draft.draftId === context.draftId)) {
-      throw new Error(
-        `Draft ${context.draftId} is no longer open. Use the latest ` +
-          "draftId returned by draft_batch, or omit it to read canonical state.",
-      );
+    if (!drafts.some((draft) => draft.draftId === draftId)) {
+      throw new Error(DRAFT_UNAVAILABLE);
     }
   };
 
   return new Proxy({} as GraphReader, {
     get(_target, property: keyof GraphReader) {
       return async (...args: unknown[]) => {
-        await assertDraftOpen();
+        // One request, one handle: a concurrent stateful write may replace the
+        // remembered draft, but this read must validate and read the snapshot it
+        // started with rather than post-validating a different handle.
+        const requestDraftId = context.draftId;
+        await assertDraftOpen(requestDraftId);
         const reader = createAssistantReadHost({
           app,
-          ...(context.draftId === undefined
-            ? {}
-            : { draftId: context.draftId }),
+          ...(requestDraftId === undefined ? {} : { draftId: requestDraftId }),
         });
         const method = reader[property] as (...values: unknown[]) => unknown;
         const result = await method.apply(reader, args);
         // A person can publish or discard between the first check and the
         // overlay read. Refuse that result instead of returning canonical data
         // from a draft handle whose shadow disappeared mid-request.
-        await assertDraftOpen();
+        await assertDraftOpen(requestDraftId);
         return result;
       };
     },
@@ -263,23 +265,28 @@ function refLine(details: unknown): string | null {
     : `Ids: ${rendered}`;
 }
 
-function toMcpTool(tool: AssistantTool, isReadTool: boolean): McpTool {
-  const inputSchema = isReadTool
-    ? {
-        ...tool.parameters,
-        properties: {
-          ...(tool.parameters as { properties: Record<string, TSchema> })
-            .properties,
-          draftId: Type.Optional(
-            Type.String({
-              description:
-                "Draft id from draft_batch. Pass it to read through that " +
-                "draft's overlay; omit to read canonical state.",
-            }),
-          ),
-        },
-      }
-    : tool.parameters;
+function toMcpTool(
+  tool: AssistantTool,
+  isReadTool: boolean,
+  mode: McpMode,
+): McpTool {
+  const inputSchema =
+    isReadTool && mode === "stateless"
+      ? {
+          ...tool.parameters,
+          properties: {
+            ...(tool.parameters as { properties: Record<string, TSchema> })
+              .properties,
+            draftId: Type.Optional(
+              Type.String({
+                description:
+                  "Draft id from draft_batch. Pass it to read through that " +
+                  "draft's overlay; omit to read canonical state.",
+              }),
+            ),
+          },
+        }
+      : tool.parameters;
   return {
     name: tool.name,
     description: tool.description,
@@ -287,6 +294,7 @@ function toMcpTool(tool: AssistantTool, isReadTool: boolean): McpTool {
     async execute(args) {
       const isReadArgs =
         isReadTool &&
+        mode === "stateless" &&
         typeof args === "object" &&
         args !== null &&
         !Array.isArray(args);
@@ -329,24 +337,67 @@ function toMcpTool(tool: AssistantTool, isReadTool: boolean): McpTool {
 export function createMcpTools(
   app: WyStackApp,
   context: McpRequestContext,
+  mode: McpMode,
 ): McpTool[] {
+  let statefulAppendTail: Promise<void> = Promise.resolve();
+  async function serializeStatefulAppend<T>(run: () => Promise<T>): Promise<T> {
+    const current = statefulAppendTail.catch(() => {}).then(run);
+    statefulAppendTail = current.then(
+      () => undefined,
+      () => undefined,
+    );
+    return current;
+  }
+  function retainStatefulDraft(error: unknown): void {
+    if (mode !== "stateful") return;
+    const retainedDraftId = draftIdFromBatchError(error);
+    if (retainedDraftId !== undefined) context.draftId = retainedDraftId;
+  }
+  async function recoverClosedStatefulDraft<T extends { draftId: string }>(
+    error: unknown,
+    rememberedDraftId: string | undefined,
+    append: (draftId: string | undefined) => Promise<T>,
+  ): Promise<T> {
+    retainStatefulDraft(error);
+    if (
+      mode !== "stateful" ||
+      rememberedDraftId === undefined ||
+      !(error instanceof Error) ||
+      error.message !== DRAFT_UNAVAILABLE
+    ) {
+      throw error;
+    }
+    context.draftId = undefined;
+    try {
+      const result = await append(undefined);
+      context.draftId = result.draftId;
+      return result;
+    } catch (retryError) {
+      retainStatefulDraft(retryError);
+      throw retryError;
+    }
+  }
   const readTools = Object.values(
     createReadTools(createDelegatingReader(app, context)),
   ) as AssistantTool[];
 
   const writeTool = defineToolHandler({
     name: DRAFT_BATCH_TOOL_NAME,
-    description: draftBatchDescription(),
+    description: draftBatchDescription(mode),
     label: "Draft batch",
     executionMode: "sequential",
     parameters: Type.Object({
-      draftId: Type.Optional(
-        Type.String({
-          description:
-            "Draft id returned by an earlier draft_batch call. Omit " +
-            "to open a new draft; a missing or stale id also opens a new draft.",
-        }),
-      ),
+      ...(mode === "stateless"
+        ? {
+            draftId: Type.Optional(
+              Type.String({
+                description:
+                  "Draft id returned by an earlier draft_batch call. Omit " +
+                  "to open a new draft.",
+              }),
+            ),
+          }
+        : {}),
       commands: Type.Array(
         Type.Object({
           type: Type.String({
@@ -382,16 +433,26 @@ export function createMcpTools(
         return response.result as { draftId: string; results: unknown[] };
       };
 
-      const draftId = (params as { draftId?: string }).draftId;
-      let result: { draftId: string; results: unknown[] };
-      try {
-        result = await append(draftId);
-      } catch (error) {
-        if (draftId === undefined || !isMissingDraftError(error)) {
-          throw error;
+      const performAppend = async () => {
+        const draftId =
+          mode === "stateless"
+            ? (params as { draftId?: string }).draftId
+            : context.draftId;
+        try {
+          const result = await append(draftId);
+          if (mode === "stateful") context.draftId = result.draftId;
+          return result;
+        } catch (error) {
+          // A remembered stateful handle is server-owned session state. Once a
+          // person closes it, the next write starts a new owned draft. Stateless
+          // caller-supplied handles never receive this fallback.
+          return recoverClosedStatefulDraft(error, draftId, append);
         }
-        result = await append(undefined);
-      }
+      };
+      const result =
+        mode === "stateful"
+          ? await serializeStatefulAppend(performAppend)
+          : await performAppend();
       return {
         content: [
           {
@@ -409,7 +470,7 @@ export function createMcpTools(
   });
 
   return [
-    ...readTools.map((tool) => toMcpTool(tool, true)),
-    toMcpTool(writeTool as AssistantTool, false),
+    ...readTools.map((tool) => toMcpTool(tool, true, mode)),
+    toMcpTool(writeTool as AssistantTool, false, mode),
   ];
 }

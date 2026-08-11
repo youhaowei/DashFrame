@@ -2,11 +2,13 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import {
   CallToolRequestSchema,
+  isInitializeRequest,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { WyStackApp } from "@wystack/server";
 import type { Context } from "hono";
 
+import { draftIdFromBatchError } from "../functions/draft-batch";
 import { createMcpTools, type McpTool } from "./tools";
 
 export interface McpRequestContext {
@@ -14,9 +16,23 @@ export interface McpRequestContext {
   draftId?: string;
 }
 
+export type McpMode = "stateful" | "stateless";
+
 interface McpRouteOptions {
   app: WyStackApp;
+  mode?: McpMode;
+  maxStatefulSessions?: number;
+  statefulSessionTtlMs?: number;
+  now?: () => number;
   resolveContext(request: Request): Promise<Record<string, unknown>>;
+}
+
+interface ActiveMcpSession {
+  context: McpRequestContext;
+  principalKey: string;
+  transport: WebStandardStreamableHTTPServerTransport;
+  server: Server;
+  lastSeenAt: number;
 }
 
 /**
@@ -31,6 +47,14 @@ function isIdentifiedPrincipal(context: Record<string, unknown>): boolean {
   if (record.kind === "service") return typeof record.credentialId === "string";
   if (record.kind === "user") return typeof record.userId === "string";
   return false;
+}
+
+function contextPrincipalKey(context: Record<string, unknown>): string | null {
+  if (!isIdentifiedPrincipal(context)) return null;
+  const principal = context.principal as Record<string, unknown>;
+  return principal.kind === "service"
+    ? `service:${principal.credentialId as string}`
+    : `user:${principal.userId as string}`;
 }
 
 /**
@@ -69,7 +93,7 @@ function isJsonRpcBatch(body: unknown): boolean {
  * the two reads only the status line.
  */
 function jsonRpcError(
-  status: 400 | 401 | 403 | 404 | 500,
+  status: 400 | 401 | 403 | 404 | 500 | 503,
   code: number,
   message: string,
 ): Response {
@@ -81,13 +105,13 @@ function jsonRpcError(
 
 /**
  * GET (a standalone server-to-client SSE stream) and DELETE (session
- * termination) both only mean something when the server keeps sessions. This
- * one does not, so they are refused before a transport is built.
+ * termination) both only mean something when the server keeps sessions.
+ * Stateless mode does not, so it refuses them before a transport is built.
  *
  * 405 is the answer the spec reserves for exactly this, and the client acts on
  * it: it reads 405 on GET as "no server-initiated stream here" and stops
- * asking. Serving GET instead hands back an SSE stream that the per-request
- * `server.close()` tears down within milliseconds, and a connected client
+ * asking. Serving GET in stateless mode instead hands back an SSE stream that
+ * the per-request `server.close()` tears down within milliseconds, and a client
  * reopens it about once a second for as long as it stays connected — a fresh
  * Server, tool list and transport built and discarded on every pass.
  */
@@ -109,11 +133,19 @@ function methodNotAllowed(): Response {
  * Tool-level failure. The message names the offending field or command, never
  * a value — see the credential-ref gate in tools.ts.
  */
-function toolFailure(message: string): {
+function toolFailure(
+  message: string,
+  draftId?: string,
+): {
   content: Array<{ type: "text"; text: string }>;
   isError: true;
+  structuredContent?: { draftId: string };
 } {
-  return { content: [{ type: "text", text: message }], isError: true };
+  return {
+    content: [{ type: "text", text: message }],
+    isError: true,
+    ...(draftId === undefined ? {} : { structuredContent: { draftId } }),
+  };
 }
 
 function createServer(tools: McpTool[]): Server {
@@ -149,6 +181,7 @@ function createServer(tools: McpTool[]): Server {
       // isError content reaches it as "that did not work, here is why".
       return toolFailure(
         error instanceof Error ? error.message : String(error),
+        draftIdFromBatchError(error),
       );
     }
   });
@@ -157,6 +190,22 @@ function createServer(tools: McpTool[]): Server {
 
 /** In-process Streamable HTTP route; all auth remains in the server resolver. */
 export function createMcpRoute(opts: McpRouteOptions) {
+  const mode = opts.mode ?? "stateful";
+  const maxStatefulSessions = opts.maxStatefulSessions ?? 128;
+  const statefulSessionTtlMs = opts.statefulSessionTtlMs ?? 30 * 60_000;
+  const now = opts.now ?? Date.now;
+  const sessions = new Map<string, ActiveMcpSession>();
+  let admissionTail: Promise<void> = Promise.resolve();
+
+  async function serializeAdmission<T>(run: () => Promise<T>): Promise<T> {
+    const current = admissionTail.catch(() => {}).then(run);
+    admissionTail = current.then(
+      () => undefined,
+      () => undefined,
+    );
+    return current;
+  }
+
   return async (c: Context): Promise<Response> => {
     let context: Record<string, unknown>;
     try {
@@ -165,10 +214,22 @@ export function createMcpRoute(opts: McpRouteOptions) {
       // Never echo the Authorization header or any credential material.
       return jsonRpcError(401, -32001, "Unauthorized MCP request.");
     }
-    if (!isIdentifiedPrincipal(context)) {
+    const key = contextPrincipalKey(context);
+    if (key === null) {
       return jsonRpcError(401, -32001, "Unauthorized MCP request.");
     }
 
+    if (mode === "stateful") await sweepExpiredSessions();
+
+    return mode === "stateful"
+      ? handleStateful(c, context.principal, key)
+      : handleStateless(c, context.principal);
+  };
+
+  async function handleStateless(
+    c: Context,
+    principal: unknown,
+  ): Promise<Response> {
     // Checked after auth, so an unauthenticated caller learns nothing about
     // which methods this route serves.
     if (c.req.method !== "POST") {
@@ -197,10 +258,14 @@ export function createMcpRoute(opts: McpRouteOptions) {
       enableJsonResponse: true,
     });
     const server = createServer(
-      createMcpTools(opts.app, {
-        principal: context.principal,
-        draftId: requestDraftId(parsedBody),
-      }),
+      createMcpTools(
+        opts.app,
+        {
+          principal,
+          draftId: requestDraftId(parsedBody),
+        },
+        "stateless",
+      ),
     );
     try {
       await server.connect(transport);
@@ -208,5 +273,117 @@ export function createMcpRoute(opts: McpRouteOptions) {
     } finally {
       await server.close();
     }
-  };
+  }
+
+  async function handleStateful(
+    c: Context,
+    principal: unknown,
+    key: string,
+  ): Promise<Response> {
+    const requestedSessionId = c.req.header("mcp-session-id");
+    const existing = requestedSessionId
+      ? sessions.get(requestedSessionId)
+      : undefined;
+    if (existing !== undefined && existing.principalKey !== key) {
+      return jsonRpcError(
+        403,
+        -32003,
+        "MCP session is not available to this credential.",
+      );
+    }
+    if (existing !== undefined) existing.lastSeenAt = now();
+
+    let parsedBody: unknown;
+    if (c.req.method === "POST") {
+      try {
+        parsedBody = await c.req.raw.json();
+      } catch {
+        return jsonRpcError(400, -32700, "Parse error: invalid JSON body.");
+      }
+    }
+
+    let active: ActiveMcpSession;
+    if (existing !== undefined) {
+      active = existing;
+    } else if (requestedSessionId !== undefined) {
+      return jsonRpcError(
+        404,
+        -32001,
+        "Unknown MCP session. Re-initialize the connection.",
+      );
+    } else if (c.req.method === "POST" && isInitializeRequest(parsedBody)) {
+      return serializeAdmission(async () => {
+        if (sessions.size >= maxStatefulSessions) {
+          const eligible = [...sessions.entries()]
+            .filter(([, session]) => session.principalKey === key)
+            .sort(([, a], [, b]) => a.lastSeenAt - b.lastSeenAt)[0];
+          if (eligible === undefined) {
+            return jsonRpcError(
+              503,
+              -32000,
+              "MCP session capacity is unavailable.",
+            );
+          }
+          await closeSession(eligible[0]);
+        }
+        const opened = await openSession(principal, key);
+        // Keep admission reserved through handleRequest: the transport inserts
+        // into `sessions` only from onsessioninitialized during this call.
+        return opened.transport.handleRequest(c.req.raw, { parsedBody });
+      });
+    } else {
+      return jsonRpcError(
+        400,
+        -32000,
+        "Expected an initialize request or an mcp-session-id header.",
+      );
+    }
+    return active.transport.handleRequest(c.req.raw, { parsedBody });
+  }
+
+  async function openSession(
+    principal: unknown,
+    key: string,
+  ): Promise<ActiveMcpSession> {
+    const context: McpRequestContext = { principal };
+    const transport = new WebStandardStreamableHTTPServerTransport({
+      sessionIdGenerator: () => crypto.randomUUID(),
+      enableJsonResponse: true,
+      onsessioninitialized: (sessionId) => {
+        sessions.set(sessionId, {
+          context,
+          principalKey: key,
+          transport,
+          server,
+          lastSeenAt: now(),
+        });
+      },
+      onsessionclosed: async (sessionId) => {
+        const closed = sessions.get(sessionId);
+        sessions.delete(sessionId);
+        await closed?.server.close();
+      },
+    });
+    const server = createServer(createMcpTools(opts.app, context, "stateful"));
+    await server.connect(transport);
+    return { context, principalKey: key, transport, server, lastSeenAt: now() };
+  }
+
+  async function closeSession(sessionId: string): Promise<void> {
+    const active = sessions.get(sessionId);
+    if (active === undefined) return;
+    sessions.delete(sessionId);
+    try {
+      await active.transport.close();
+    } finally {
+      await active.server.close();
+    }
+  }
+
+  async function sweepExpiredSessions(): Promise<void> {
+    const cutoff = now() - statefulSessionTtlMs;
+    for (const [sessionId, active] of sessions) {
+      if (active.lastSeenAt <= cutoff) await closeSession(sessionId);
+    }
+  }
 }

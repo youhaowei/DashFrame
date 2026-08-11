@@ -6,6 +6,7 @@ import type {
 import type { Principal } from "@wystack/identity";
 import type { WyStackApp } from "@wystack/server";
 
+import { principalKey } from "./app-context";
 import { createAssistantReadHost } from "./assistant-read-host";
 import type { DraftController } from "./draft-controller";
 import {
@@ -41,7 +42,11 @@ export function createDashframeAssistantHost(
   options: DashframeAssistantHostOptions,
 ): AssistantHost {
   return {
-    open: () => options.draftController.openDraft(),
+    open: () =>
+      options.draftController.openDraft(
+        undefined,
+        principalKey(options.principal) ?? undefined,
+      ),
     append: async (draftId, batch, context) => {
       // Route through the operated draft mutation RPC. Besides authorization and
       // command validation, this is the seam that relays a rejected batch's

@@ -32,6 +32,7 @@ import {
   collectSupersededRefs,
   releaseRefsAtTransition,
 } from "../credential-release";
+import { assertDraftAccess } from "../draft-access";
 import {
   DRAFT_COMMAND_LOG_TABLE,
   DRAFT_METADATA_TABLE,
@@ -426,6 +427,7 @@ const getDraftLog = wy.procedure
       );
     }
 
+    await assertDraftAccess(draftController, ctx.principal, draftId);
     return draftController.getDraftLog(draftId);
   });
 
