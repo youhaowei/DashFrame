@@ -375,48 +375,36 @@ async function ingestLocalFrame(
       dataFrameId: frameId,
       lastFetchedAt: new Date(fetchedAt),
     };
-    if (replacement) {
-      const artifactDb = ctx.artifactDb;
-      if (!artifactDb) throw new Error("TARGET_NOT_READY");
-      await artifactDb.transaction(async (tx) => {
-        await tx.insert(schema.dataFrames).values(frameRow);
-        const updated = await tx
-          .update(schema.dataTables)
-          .set(tableUpdate)
-          .where(
-            and(
-              drizzleEq(schema.dataTables.id, table.id),
-              drizzleEq(schema.dataTables.dataSourceId, source.id),
-              replacement.expectedDataFrameId === null
-                ? isNull(schema.dataTables.dataFrameId)
-                : drizzleEq(
-                    schema.dataTables.dataFrameId,
-                    replacement.expectedDataFrameId,
-                  ),
-            ),
-          )
-          .returning({ id: schema.dataTables.id });
-        if (updated.length !== 1) {
-          throw new Error("STALE_LOCAL_REPLACEMENT");
-        }
-      });
-      // The raw ArtifactDb transaction is required for a nullable-pointer CAS.
-      // Mirror only committed writes into the request tracker so the app wrapper
-      // emits the same reactive invalidations as ordinary tracked mutations.
-      ctx.db.tablesWritten.add("data_frames");
-      ctx.db.tablesWritten.add("data_tables");
-    } else {
-      await ctx.db.transaction(async (tx) => {
-        await tx.into(schema.dataFrames).insert(frameRow);
-        await tx
-          .from(schema.dataTables)
-          .where(eq("id", table.id))
-          .update({
-            dataFrameId: frameId,
-            lastFetchedAt: new Date(fetchedAt),
-          });
-      });
-    }
+    const artifactDb = ctx.artifactDb;
+    if (!artifactDb) throw new Error("TARGET_NOT_READY");
+    const expectedDataFrameId =
+      replacement?.expectedDataFrameId ?? table.dataFrameId ?? null;
+    await artifactDb.transaction(async (tx) => {
+      const updated = await tx
+        .update(schema.dataTables)
+        .set(tableUpdate)
+        .where(
+          and(
+            drizzleEq(schema.dataTables.id, table.id),
+            drizzleEq(schema.dataTables.dataSourceId, source.id),
+            expectedDataFrameId === null
+              ? isNull(schema.dataTables.dataFrameId)
+              : drizzleEq(schema.dataTables.dataFrameId, expectedDataFrameId),
+          ),
+        )
+        .returning({ id: schema.dataTables.id });
+      if (updated.length !== 1) {
+        throw new Error(
+          replacement ? "STALE_LOCAL_REPLACEMENT" : "TARGET_NOT_READY",
+        );
+      }
+      await tx.insert(schema.dataFrames).values(frameRow);
+    });
+    // The raw ArtifactDb transaction is required for a nullable-pointer CAS.
+    // Mirror only committed writes into the request tracker so the app wrapper
+    // emits the same reactive invalidations as ordinary tracked mutations.
+    ctx.db.tablesWritten.add("data_frames");
+    ctx.db.tablesWritten.add("data_tables");
   } catch (error) {
     await ctx.dataFrameStorage.delete(frameId).catch((cleanupError) => {
       console.error("Failed to clean up unpublished local frame", cleanupError);

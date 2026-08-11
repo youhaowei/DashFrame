@@ -48,13 +48,14 @@ function preparedContext(transaction: () => Promise<never>) {
     ctx: {
       dataFrameStorage: storage,
       db: {
+        tablesWritten: new Set<string>(),
         from: (target: unknown) => ({
           where: () => ({
             first: async () => (target === schema.dataTables ? table : source),
           }),
         }),
-        transaction,
       },
+      artifactDb: { transaction },
     } as never,
   };
 }
@@ -251,6 +252,62 @@ describe("local DataFrame ingestion", () => {
       expect.objectContaining({ message: "cleanup failure" }),
     );
     logged.mockRestore();
+  });
+
+  it("fails initial ingest without an orphan when its table is deleted during durable save", async () => {
+    let deleted = false;
+    const storage = {
+      save: vi.fn(async () => {
+        // Deterministically model DeleteNode winning after bytes become durable
+        // but before the publication transaction begins.
+        deleted = true;
+      }),
+      delete: vi.fn().mockResolvedValue(undefined),
+    };
+    const insert = vi.fn().mockResolvedValue(undefined);
+    const ctx = {
+      dataFrameStorage: storage,
+      db: {
+        tablesWritten: new Set<string>(),
+        from: (target: unknown) => ({
+          where: () => ({
+            first: async () =>
+              target === schema.dataTables
+                ? {
+                    id: tableId,
+                    dataSourceId: sourceId,
+                    name: "Orders",
+                    fields,
+                    dataFrameId: null,
+                  }
+                : { id: sourceId, kind: "local" },
+          }),
+        }),
+      },
+      artifactDb: {
+        transaction: async (publish: (tx: unknown) => Promise<void>) =>
+          publish({
+            update: () => ({
+              set: () => ({
+                where: () => ({
+                  returning: async () => (deleted ? [] : [{ id: tableId }]),
+                }),
+              }),
+            }),
+            insert: () => ({ values: insert }),
+          }),
+      },
+    } as never;
+
+    await expect(ingestLocalFrame(ctx, tableId, arrowBase64())).rejects.toThrow(
+      "TARGET_NOT_READY",
+    );
+
+    expect(insert).not.toHaveBeenCalled();
+    expect(storage.delete).toHaveBeenCalledOnce();
+    expect(
+      (ctx as { db: { tablesWritten: Set<string> } }).db.tablesWritten,
+    ).toHaveProperty("size", 0);
   });
 
   it("preserves the prior frame and table metadata when replacement storage fails", async () => {
