@@ -10,7 +10,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LOCAL_USER_ID } from "../permissions";
 import { wy } from "../wystack";
 import { cmd, commandFunctions } from "./commands";
-import { createDataFetchFunctions, type LiveFetchExecutor } from "./data-fetch";
+import {
+  createDataFetchFunctions,
+  fingerprintEffectiveInsight,
+  type LiveFetchExecutor,
+} from "./data-fetch";
 
 const user: Principal = { kind: "user", userId: LOCAL_USER_ID };
 const service: Principal = { kind: "service", credentialId: "service-key" };
@@ -33,7 +37,7 @@ describe("registered live Insight fetch procedures", () => {
         type: "string",
       })),
       rowCount: 1,
-      definitionFingerprint: "deterministic",
+      definitionFingerprint: fingerprintEffectiveInsight(insight),
       provenance: { connectorKind: "test", bindingVersion: "v1" },
       fetchedAt: 1,
       ...(target.kind === "saved" ? { target } : {}),
@@ -180,9 +184,8 @@ describe("registered live Insight fetch procedures", () => {
       { mode: "commit", context: { principal: user } },
     );
 
-    await expect(
-      call("runInsight", { insightId: derivedId }),
-    ).resolves.toMatchObject({
+    const initial = await call("runInsight", { insightId: derivedId });
+    expect(initial).toMatchObject({
       status: "ready",
     });
     expect(execute).toHaveBeenLastCalledWith(
@@ -196,7 +199,8 @@ describe("registered live Insight fetch procedures", () => {
 
     const previousId = await seedLastSuccessful(derivedId, {
       schema: [{ id: "country", name: "country", type: "string" }],
-      definitionFingerprint: "composed-previous",
+      definitionFingerprint: (initial as { definitionFingerprint: string })
+        .definitionFingerprint,
       provenance: { connectorKind: "test", bindingVersion: "v1" },
       fetchedAt: 1,
     });
@@ -241,6 +245,12 @@ describe("registered live Insight fetch procedures", () => {
       ],
       { mode: "commit", context: { principal: user } },
     );
+    await seedLastSuccessful(insightId, {
+      schema: [{ id: "date", name: "date", type: "date" }],
+      definitionFingerprint: "prior-valid-invocation",
+      provenance: { connectorKind: "test", bindingVersion: "v1" },
+      fetchedAt: 1,
+    });
     execute.mockClear();
 
     const result = await call("runInsight", {
@@ -255,6 +265,9 @@ describe("registered live Insight fetch procedures", () => {
       retryable: false,
     });
     expect(execute).not.toHaveBeenCalled();
+    expect(
+      (result as { lastSuccessful?: unknown }).lastSuccessful,
+    ).toBeUndefined();
   });
 
   it("denies anonymous fetch and run requests before connector execution", async () => {
@@ -302,9 +315,12 @@ describe("registered live Insight fetch procedures", () => {
 
   it("attaches strictly validated prior metadata to a returned saved-materialization failure", async () => {
     const insightId = await seedSavedInsight();
+    const initial = (await call("runInsight", { insightId })) as {
+      definitionFingerprint: string;
+    };
     const frameId = await seedLastSuccessful(insightId, {
       schema: [{ id: "country", name: "country", type: "string" }],
-      definitionFingerprint: "previous",
+      definitionFingerprint: initial.definitionFingerprint,
       provenance: { connectorKind: "test", bindingVersion: "v1" },
       fetchedAt: 1,
     });
@@ -323,7 +339,7 @@ describe("registered live Insight fetch procedures", () => {
       lastSuccessful: {
         stale: true,
         dataFrameId: frameId,
-        definitionFingerprint: "previous",
+        definitionFingerprint: initial.definitionFingerprint,
       },
     });
     // Reading stale metadata must not detach or mutate the retained frame.
@@ -332,6 +348,30 @@ describe("registered live Insight fetch procedures", () => {
         (row) => row.id === frameId,
       )?.insightId,
     ).toBe(insightId);
+  });
+
+  it("does not attach a stale frame from a different effective invocation", async () => {
+    const insightId = await seedSavedInsight();
+    await seedLastSuccessful(insightId, {
+      schema: [{ id: "country", name: "country", type: "string" }],
+      definitionFingerprint: "different-runtime-or-definition",
+      provenance: { connectorKind: "test", bindingVersion: "v1" },
+      fetchedAt: 1,
+    });
+    execute.mockResolvedValueOnce({
+      status: "failed",
+      code: "FETCH_EXECUTION_FAILED",
+      message: "safe failure",
+      retryable: true,
+      diagnosticId: "diagnostic",
+    });
+
+    const result = await call("runInsight", { insightId });
+
+    expect(result).toMatchObject({ status: "failed" });
+    expect(
+      (result as { lastSuccessful?: unknown }).lastSuccessful,
+    ).toBeUndefined();
   });
 
   it("omits malformed or absent saved prior metadata and all ephemeral failures", async () => {

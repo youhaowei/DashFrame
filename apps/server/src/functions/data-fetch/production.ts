@@ -9,9 +9,12 @@ import { inspectArrowIpc } from "@dashframe/engine-server/arrow-data-path";
 import { schema } from "@dashframe/server-core";
 import { eq } from "@wystack/db";
 
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import type { DashframeFunctionContext } from "../../app-context";
-import type { LiveFetchExecutor } from "../data-fetch";
+import {
+  fingerprintEffectiveInsight,
+  type LiveFetchExecutor,
+} from "../data-fetch";
 import {
   decodeInsight,
   decodeStoredInsightDefinition,
@@ -41,15 +44,7 @@ export function createProductionFetchExecutor(): LiveFetchExecutor {
   };
   const materializer = createInsightMaterializer({
     ...productionMaterializerDependencies(),
-    fingerprint: ({ insight, sources }) =>
-      createHash("sha256")
-        .update(
-          JSON.stringify({
-            insight,
-            sources: sources.map((source) => source.table.id),
-          }),
-        )
-        .digest("hex"),
+    fingerprint: ({ insight }) => fingerprintEffectiveInsight(insight),
     coalescingScope: (ctx, target, insight) =>
       JSON.stringify([runtimeScope(ctx), ctx.principal, target, insight]),
     uuid: () => randomUUID(),

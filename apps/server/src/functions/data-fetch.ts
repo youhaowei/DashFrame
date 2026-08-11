@@ -9,6 +9,7 @@ import type {
   UUID,
 } from "@dashframe/types";
 import { eq, jsonb, uuid } from "@wystack/db";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 
 import type { DashframeFunctionContext } from "../app-context";
@@ -28,6 +29,13 @@ export type EffectiveInsightDefinition = InsightFetchDefinition & {
   /** Persisted composition wiring. Never accepted from fetchData callers. */
   source?: InsightSource;
 };
+
+/** Exact effective invocation identity used by publication and stale fallback. */
+export function fingerprintEffectiveInsight(
+  insight: EffectiveInsightDefinition,
+): string {
+  return createHash("sha256").update(JSON.stringify(insight)).digest("hex");
+}
 
 const RUNTIME_FAILURE_CODES = new Set([
   "RUNTIME_FILTER_NOT_DECLARED",
@@ -415,24 +423,27 @@ export function createDataFetchFunctions(execute: LiveFetchExecutor) {
           ctx,
           insightId as UUID,
         );
-        const result = await materialize(
-          ctx,
-          applyInsightRuntime(saved, parsedRuntime.data, source),
-          {
-            kind: "saved",
-            insightId: insightId as UUID,
-          },
+        const effective = applyInsightRuntime(
+          saved,
+          parsedRuntime.data,
+          source,
         );
-        const prior = await lastSuccessfulForInsight(ctx, insightId as UUID);
-        return result.status === "failed" && prior
-          ? { ...result, lastSuccessful: prior }
-          : result;
+        const invocationFingerprint = fingerprintEffectiveInsight(effective);
+        const result = await materialize(ctx, effective, {
+          kind: "saved",
+          insightId: insightId as UUID,
+        });
+        if (result.status !== "failed") return result;
+        const prior = await lastSuccessfulForInsight(
+          ctx,
+          insightId as UUID,
+          invocationFingerprint,
+        );
+        return prior ? { ...result, lastSuccessful: prior } : result;
       } catch (error) {
-        const result = toFetchFailure(error, "FETCH_SOURCE_FAILED");
-        const prior = await lastSuccessfulForInsight(ctx, insightId as UUID);
-        return result.status === "failed" && prior
-          ? { ...result, lastSuccessful: prior }
-          : result;
+        // Definition/runtime validation did not produce a valid effective
+        // invocation, so no prior frame can be proven equivalent.
+        return toFetchFailure(error, "FETCH_SOURCE_FAILED");
       }
     });
   return { fetchData, runInsight };
@@ -459,6 +470,7 @@ async function getInsightForFetch(
 async function lastSuccessfulForInsight(
   ctx: DashframeFunctionContext,
   insightId: UUID,
+  invocationFingerprint: string,
 ) {
   const rows = (await ctx.db
     .from(schema.dataFrames)
@@ -485,5 +497,8 @@ async function lastSuccessfulForInsight(
           : latest,
       undefined,
     );
-  return row ? staleFrameMetadata(row) : undefined;
+  const stale = row ? staleFrameMetadata(row) : undefined;
+  return stale?.definitionFingerprint === invocationFingerprint
+    ? stale
+    : undefined;
 }

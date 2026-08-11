@@ -275,10 +275,21 @@ describe("Source Binding registry", () => {
   });
 
   it("proves completion with an empty page after an exact page boundary", async () => {
+    const productionEmptyPage = () => {
+      const arrow = new Table({ value: vectorFromArray([]) });
+      return {
+        arrowBuffer: Buffer.from(tableToIPC(arrow, "stream")).toString(
+          "base64",
+        ),
+        rowCount: 0,
+        fieldIds: ["f"],
+        fields: page([]).fields,
+      };
+    };
     const query = vi
       .fn()
       .mockResolvedValueOnce(page(Array.from({ length: 10_000 }, (_, i) => i)))
-      .mockResolvedValueOnce(page([]));
+      .mockResolvedValueOnce(productionEmptyPage());
     ga4ConnectorFor.mockResolvedValue({ query });
     const binding = await resolveSourceBinding(
       context({ table, source }),

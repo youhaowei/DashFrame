@@ -1008,6 +1008,11 @@ const updateInsight = wy.procedure
           "updateInsight cannot repoint baseTableId; use SetInsightSource",
         );
       }
+      if (Object.hasOwn(patch, "runtimeControls")) {
+        throw new Error(
+          "updateInsight cannot set runtimeControls; use SetInsightRuntimeControls",
+        );
+      }
       await tx
         .from(insights)
         .where(eq("id", id))

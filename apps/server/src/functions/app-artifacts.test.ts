@@ -1333,6 +1333,24 @@ describe("insight writes preserve `source` (Insight-on-Insight composition)", ()
     });
   });
 
+  it("should reject runtime controls through legacy updateInsight", async () => {
+    const baseTableId = crypto.randomUUID();
+    const { id } = (await call("createInsight", {
+      name: "Runtime control target",
+      baseTableId,
+    })) as { id: string };
+
+    await expect(
+      call("updateInsight", {
+        id,
+        updates: { runtimeControls: { limit: { min: 1, max: 10 } } },
+      }),
+    ).rejects.toThrow(
+      "updateInsight cannot set runtimeControls; use SetInsightRuntimeControls",
+    );
+    expect((await storedDefinition(id)).runtimeControls).toBeUndefined();
+  });
+
   it("should reject a malformed updates payload instead of persisting it", async () => {
     const baseTableId = crypto.randomUUID();
     const { id } = (await call("createInsight", {

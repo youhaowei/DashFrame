@@ -117,7 +117,8 @@ async function fetchPagedRemoteBinding(
     const connector = await connectorFor(ctx, binding.dataSourceId);
     const pages: Array<Awaited<ReturnType<QueryConnector["query"]>>> = [];
     let offset = 0;
-    let expected: string | undefined;
+    let expectedStructure: string | undefined;
+    let expectedPopulatedArrowSchema: string | undefined;
     for (;;) {
       const page = await connector.query(
         binding.table.table,
@@ -127,9 +128,12 @@ async function fetchPagedRemoteBinding(
         },
       );
       pageSignature(page);
-      const signature = pageStructureSignature(page);
-      if (expected === undefined) expected = signature;
-      else if (signature !== expected) throw new Error("SOURCE_SCHEMA_CHANGED");
+      [expectedStructure, expectedPopulatedArrowSchema] =
+        assertCompatiblePageStructure(
+          page,
+          expectedStructure,
+          expectedPopulatedArrowSchema,
+        );
       pages.push(page);
       // A short page, including an empty page after an exact multiple, is the
       // provider's completion signal. Never publish an accumulated prefix.
@@ -357,13 +361,18 @@ function pageStructureSignature(page: {
   arrowBuffer: string;
   fields: Field[];
 }): string {
-  const table = tableFromIPC(Buffer.from(page.arrowBuffer, "base64"));
   return JSON.stringify({
     fields: page.fields.map((field) => ({
       name: field.columnName ?? field.name,
       type: field.type,
     })),
-    schema: table.schema.fields.map((field) => ({
+  });
+}
+
+function populatedArrowSchemaSignature(page: { arrowBuffer: string }): string {
+  const table = tableFromIPC(Buffer.from(page.arrowBuffer, "base64"));
+  return JSON.stringify(
+    table.schema.fields.map((field) => ({
       name: field.name,
       nullable: field.nullable,
       type: field.type.toString(),
@@ -371,7 +380,32 @@ function pageStructureSignature(page: {
         a.localeCompare(b),
       ),
     })),
-  });
+  );
+}
+
+function assertCompatiblePageStructure(
+  page: { arrowBuffer: string; fields: Field[]; rowCount: number },
+  expectedStructure: string | undefined,
+  expectedPopulatedArrowSchema: string | undefined,
+): [string, string | undefined] {
+  const structure = pageStructureSignature(page);
+  if (expectedStructure !== undefined && structure !== expectedStructure)
+    throw new Error("SOURCE_SCHEMA_CHANGED");
+  if (page.rowCount === 0)
+    return [expectedStructure ?? structure, expectedPopulatedArrowSchema];
+
+  // Arrow infers Null vectors for a terminal empty page. That is not provider
+  // schema drift; populated pages must still agree exactly.
+  const arrowSchema = populatedArrowSchemaSignature(page);
+  if (
+    expectedPopulatedArrowSchema !== undefined &&
+    arrowSchema !== expectedPopulatedArrowSchema
+  )
+    throw new Error("SOURCE_SCHEMA_CHANGED");
+  return [
+    expectedStructure ?? structure,
+    expectedPopulatedArrowSchema ?? arrowSchema,
+  ];
 }
 
 function combinePages(
@@ -384,7 +418,13 @@ function combinePages(
 ): Omit<LiveSourceResult, "provenance"> {
   const first = pages[0];
   if (!first) throw new Error("FETCH_EXECUTION_FAILED");
-  const tables = pages.map((page) =>
+  // A provider's terminal empty page may carry Arrow's inferred Null schema.
+  // It contributes no rows, so exclude it when populated pages establish the
+  // result schema. Preserve an all-empty result's first page as its schema.
+  const dataPages = pages.some((page) => page.rowCount > 0)
+    ? pages.filter((page) => page.rowCount > 0)
+    : [first];
+  const tables = dataPages.map((page) =>
     tableFromIPC(Buffer.from(page.arrowBuffer, "base64")),
   );
   const arrow = tableToIPC(
