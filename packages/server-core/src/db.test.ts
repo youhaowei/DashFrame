@@ -119,6 +119,38 @@ describe("openArtifactDb", () => {
     ]);
   });
 
+  test("reconciles nullable data frame updatedAt despite its client-side onUpdate hook", async () => {
+    const dbPath = join(dir, "artifacts.db");
+    const first = await openTestArtifactDb(dbPath);
+
+    const frameId = crypto.randomUUID();
+    await first.insert(schema.dataFrames).values({
+      id: frameId,
+      storage: { kind: "file" },
+      fieldIds: [],
+      name: "legacy-frame",
+    });
+    await first.execute(sql`ALTER TABLE data_frames DROP COLUMN updated_at`);
+    await first.$client.close();
+    openDbs = openDbs.filter((db) => db !== first);
+
+    const second = await openTestArtifactDb(dbPath);
+    const rows = await second.select().from(schema.dataFrames);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.id).toBe(frameId);
+    expect(rows[0]?.updatedAt).toBeNull();
+
+    await second
+      .update(schema.dataFrames)
+      .set({ name: "updated-frame" })
+      .where(eq(schema.dataFrames.id, frameId));
+    const [updated] = await second
+      .select()
+      .from(schema.dataFrames)
+      .where(eq(schema.dataFrames.id, frameId));
+    expect(updated?.updatedAt).toBeInstanceOf(Date);
+  });
+
   test("should declare required artifact provenance fields and parent indexes", async () => {
     const db = await openTestArtifactDb();
 
