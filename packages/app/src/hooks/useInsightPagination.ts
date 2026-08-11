@@ -32,6 +32,7 @@ import {
 
 const MAX_PAGE_SIZE = 500;
 const SUGGESTION_SAMPLE_SIZE = 100;
+const EMPTY_DATA_TABLES: readonly DataTable[] = [];
 
 export interface UseInsightPaginationOptions {
   insight: Insight;
@@ -50,6 +51,29 @@ function toFetchDefinition(insight: Insight): InsightFetchDefinition {
     sorts: insight.sorts,
     joins: insight.joins,
   };
+}
+
+/**
+ * Track only source-frame generations. Insight result publication does not
+ * touch these DataTables, so this invalidates mounted consumers without
+ * rematerializing in response to their own result pointer update.
+ */
+export function buildInsightSourceRevision(
+  insight: Insight,
+  dataTables: readonly DataTable[],
+): string {
+  const sourceTableIds = new Set<UUID>([
+    insight.baseTableId,
+    ...(insight.joins ?? []).map((join) => join.rightTableId),
+  ]);
+  return dataTables
+    .filter((table) => sourceTableIds.has(table.id))
+    .sort((left, right) => left.id.localeCompare(right.id))
+    .map(
+      (table) =>
+        `${table.id}:${table.dataFrameId ?? ""}:${table.lastFetchedAt ?? ""}`,
+    )
+    .join("|");
 }
 
 type ResultSchemaColumn = Readonly<{
@@ -125,7 +149,9 @@ export function useInsightPagination({
   enabled = true,
   runtime,
 }: UseInsightPaginationOptions) {
-  const { data: dataTables = [] } = useQuery(api.listDataTables, { args: {} });
+  const dataTablesQuery = useQuery(api.listDataTables, { args: {} });
+  const dataTables = dataTablesQuery.data ?? EMPTY_DATA_TABLES;
+  const sourcesReady = dataTablesQuery.isLoading !== true;
   const [totalCount, setTotalCount] = useState(0);
   const [columns, setColumns] = useState<VirtualTableColumn[]>([]);
   const [fieldCount, setFieldCount] = useState(0);
@@ -147,16 +173,25 @@ export function useInsightPagination({
 
   const runtimeKey = JSON.stringify(runtime ?? null);
   const insightKey = JSON.stringify(toFetchDefinition(insight));
+  const sourceRevision = buildInsightSourceRevision(insight, dataTables);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- runtimeKey is the stable structural dependency.
   const stableRuntime = useMemo(() => runtime, [runtimeKey]);
 
   useLayoutEffect(() => {
     generation.current += 1;
-  }, [enabled, insight.id, insightKey, runtimeKey, showModelPreview]);
+  }, [
+    enabled,
+    insight.id,
+    insightKey,
+    runtimeKey,
+    showModelPreview,
+    sourceRevision,
+    sourcesReady,
+  ]);
 
   useEffect(() => {
     const current = generation.current;
-    if (!enabled || !insight.id) {
+    if (!enabled || !insight.id || !sourcesReady) {
       queueMicrotask(() => {
         if (current !== generation.current) return;
         setDataFrameId(null);
@@ -286,6 +321,8 @@ export function useInsightPagination({
     insightKey,
     runtimeKey,
     showModelPreview,
+    sourceRevision,
+    sourcesReady,
     // stableRuntime is represented by runtimeKey above.
   ]);
 

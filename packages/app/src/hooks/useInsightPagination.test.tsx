@@ -2,6 +2,7 @@ import type { DataTable, Insight, UUID } from "@dashframe/types";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  buildInsightSourceRevision,
   resolveInsightResultFields,
   useInsightPagination,
 } from "./useInsightPagination";
@@ -227,6 +228,90 @@ describe("useInsightPagination", () => {
       resolvePage({ status: "ready", rows: [{ value: 1 }], totalCount: 2 }),
     );
     await expect(pending).resolves.toEqual({ rows: [], totalCount: 0 });
+  });
+
+  it("rematerializes when a mounted source table receives a new frame", async () => {
+    useQuery.mockReturnValue({
+      data: [
+        {
+          id: "table-1",
+          dataFrameId: "source-frame-1",
+          fields: [],
+        } as unknown as DataTable,
+      ],
+    });
+    client.mutate
+      .mockResolvedValueOnce({ status: "ready", dataFrameId: "result-1" })
+      .mockResolvedValueOnce({ status: "ready", dataFrameId: "result-2" });
+    queryDataFrame.mockResolvedValue({
+      status: "ready",
+      schema: [],
+      rows: [],
+      totalCount: 1,
+      page: {},
+    });
+
+    const { result, rerender } = renderHook(() =>
+      useInsightPagination({ insight }),
+    );
+    await waitFor(() => expect(result.current.dataFrameId).toBe("result-1"));
+
+    useQuery.mockReturnValue({
+      data: [
+        {
+          id: "table-1",
+          dataFrameId: "source-frame-2",
+          fields: [],
+        } as unknown as DataTable,
+      ],
+    });
+    rerender();
+
+    await waitFor(() => expect(result.current.dataFrameId).toBe("result-2"));
+    expect(client.mutate).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("buildInsightSourceRevision", () => {
+  it("changes for base and joined source replacements but ignores unrelated frames", () => {
+    const joinedTableId = "table-2" as UUID;
+    const withJoin = {
+      ...insight,
+      joins: [
+        {
+          type: "left" as const,
+          rightTableId: joinedTableId,
+          leftKey: "account_id",
+          rightKey: "id",
+        },
+      ],
+    };
+    const tables = [
+      { id: "table-1", dataFrameId: "frame-base-1" },
+      { id: joinedTableId, dataFrameId: "frame-join-1" },
+      { id: "table-unrelated", dataFrameId: "frame-other-1" },
+    ] as DataTable[];
+    const initial = buildInsightSourceRevision(withJoin, tables);
+
+    expect(
+      buildInsightSourceRevision(withJoin, [
+        ...tables.slice(0, 2),
+        { ...tables[2]!, dataFrameId: "frame-other-2" as UUID },
+      ]),
+    ).toBe(initial);
+    expect(
+      buildInsightSourceRevision(withJoin, [
+        { ...tables[0]!, dataFrameId: "frame-base-2" as UUID },
+        ...tables.slice(1),
+      ]),
+    ).not.toBe(initial);
+    expect(
+      buildInsightSourceRevision(withJoin, [
+        tables[0]!,
+        { ...tables[1]!, lastFetchedAt: 2 },
+        tables[2]!,
+      ]),
+    ).not.toBe(initial);
   });
 });
 

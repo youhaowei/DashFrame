@@ -1,7 +1,10 @@
 import type { DataTable, Field, Insight, UUID } from "@dashframe/types";
 import { describe, expect, it } from "vitest";
 
-import { buildJoinPreviewInsight } from "./JoinConfigureContent";
+import {
+  buildJoinPreviewInsight,
+  isJoinPreviewComputing,
+} from "./JoinConfigureContent";
 
 const baseTableId = "10000000-0000-4000-8000-000000000001" as UUID;
 const joinTableId = "10000000-0000-4000-8000-000000000002" as UUID;
@@ -25,6 +28,14 @@ const insight = {
   baseTableId,
   selectedFields: [leftField.id],
   metrics: [],
+  filters: [
+    {
+      field: leftField.id,
+      operator: "eq",
+      value: "active",
+    },
+  ],
+  sorts: [{ field: leftField.id, direction: "asc" }],
   joins: [],
   createdAt: 0,
 } as Insight;
@@ -48,6 +59,8 @@ describe("join preview definition", () => {
       baseTableId,
       selectedFields: [],
       metrics: [],
+      filters: [],
+      sorts: [],
       joins: [
         {
           type: "full",
@@ -60,5 +73,12 @@ describe("join preview definition", () => {
     expect(preview).not.toHaveProperty("sql");
     expect(preview).not.toHaveProperty("providerId");
     expect(preview).not.toHaveProperty("placement");
+  });
+
+  it("stops computing when the structured preview result fails", () => {
+    expect(isJoinPreviewComputing(insight, false, null)).toBe(true);
+    expect(isJoinPreviewComputing(insight, false, "Connector offline")).toBe(
+      false,
+    );
   });
 });

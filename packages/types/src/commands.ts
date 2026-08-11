@@ -440,17 +440,17 @@ export function buildInsightUpdateCommands(
   if (updates.sorts !== undefined) {
     commands.push(cmd("SetInsightSort", { id, sorts: updates.sorts }));
   }
+  if (updates.metrics !== undefined) {
+    commands.push(
+      ...buildMetricDiffCommands(id, current.metrics ?? [], updates.metrics),
+    );
+  }
   if ("runtimeControls" in updates) {
     commands.push(
       cmd("SetInsightRuntimeControls", {
         id,
         runtimeControls: updates.runtimeControls,
       }),
-    );
-  }
-  if (updates.metrics !== undefined) {
-    commands.push(
-      ...buildMetricDiffCommands(id, current.metrics ?? [], updates.metrics),
     );
   }
   if (updates.joins !== undefined) {

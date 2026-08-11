@@ -67,6 +67,8 @@ export function buildJoinPreviewInsight(
     ...insight,
     selectedFields: [],
     metrics: [],
+    filters: [],
+    sorts: [],
     joins: [
       ...(insight.joins ?? []),
       {
@@ -77,6 +79,14 @@ export function buildJoinPreviewInsight(
       },
     ],
   };
+}
+
+export function isJoinPreviewComputing(
+  previewInsight: Insight | null,
+  isReady: boolean,
+  error: string | null,
+): boolean {
+  return previewInsight !== null && !isReady && error === null;
 }
 
 /**
@@ -195,7 +205,11 @@ export default function JoinConfigureContent({
     [preview.columns, preview.isReady, preview.sampleRows],
   );
   const previewTotalCount = preview.totalCount;
-  const isComputingPreview = previewInsight !== null && !preview.isReady;
+  const isComputingPreview = isJoinPreviewComputing(
+    previewInsight,
+    preview.isReady,
+    preview.error,
+  );
 
   // Detect existing joins to this right table so the UI can label instances.
   // A non-empty list means the user is adding a second (or further) join to the
