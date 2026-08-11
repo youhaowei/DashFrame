@@ -356,4 +356,19 @@ describe("encodeInsightDefinition", () => {
       runtimeControls,
     );
   });
+
+  it("rejects runtime controls with duplicate target filter ids", () => {
+    const row = makeRow({
+      definition: {
+        baseTableId: BASE_TABLE_ID,
+        runtimeControls: {
+          filters: [
+            { key: "one", filterId: "filter-1", label: "One" },
+            { key: "two", filterId: "filter-1", label: "Two" },
+          ],
+        },
+      },
+    });
+    expect(() => decodeInsight(row)).toThrow(/invalid definition/);
+  });
 });

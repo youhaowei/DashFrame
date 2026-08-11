@@ -16,6 +16,18 @@ import { decodeInsight, type InsightRow } from "./insights";
 
 type EffectiveInsightDefinition = InsightFetchDefinition & { limit?: number };
 
+const RUNTIME_FAILURE_CODES = new Set([
+  "RUNTIME_FILTER_NOT_DECLARED",
+  "RUNTIME_FILTER_KEY_DUPLICATE",
+  "RUNTIME_FILTER_DECLARATION_INVALID",
+  "RUNTIME_FILTER_REQUIRED",
+  "RUNTIME_FILTER_CLEAR_NOT_ALLOWED",
+  "RUNTIME_SORT_NOT_DECLARED",
+  "RUNTIME_SORT_MAX_KEYS",
+  "RUNTIME_SORT_FIELD_NOT_ALLOWED",
+  "RUNTIME_LIMIT_OUT_OF_RANGE",
+]);
+
 const filterSchema = z.object({
   id: z.string().optional(),
   field: z.string().min(1),
@@ -112,6 +124,7 @@ export function applyInsightRuntime(
   const values = runtime?.filters ?? {};
   const declaredFilters = declared?.filters ?? [];
   const controls = new Map<string, (typeof declaredFilters)[number]>();
+  const targetFilterIds = new Set<string>();
   const savedFilterIds = new Map<string, number>();
   for (const filter of saved.filters ?? []) {
     if (filter.id)
@@ -120,9 +133,12 @@ export function applyInsightRuntime(
   for (const control of declaredFilters) {
     if (controls.has(control.key))
       throw new Error("RUNTIME_FILTER_KEY_DUPLICATE");
+    if (targetFilterIds.has(control.filterId))
+      throw new Error("RUNTIME_FILTER_DECLARATION_INVALID");
     if (savedFilterIds.get(control.filterId) !== 1)
       throw new Error("RUNTIME_FILTER_DECLARATION_INVALID");
     controls.set(control.key, control);
+    targetFilterIds.add(control.filterId);
   }
   for (const key of Object.keys(values)) {
     if (!controls.has(key)) throw new Error("RUNTIME_FILTER_NOT_DECLARED");
@@ -198,7 +214,7 @@ export function toFetchFailure(
 ): InsightFetchResult {
   const sourceCode = error instanceof Error ? error.message : "";
   const code =
-    sourceCode.startsWith("RUNTIME_") ||
+    RUNTIME_FAILURE_CODES.has(sourceCode) ||
     sourceCode === "SOURCE_SCHEMA_CHANGED" ||
     sourceCode === "TARGET_NOT_READY"
       ? sourceCode

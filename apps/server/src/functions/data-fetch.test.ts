@@ -86,6 +86,20 @@ describe("applyInsightRuntime", () => {
       applyInsightRuntime(
         {
           ...insight,
+          runtimeControls: {
+            filters: [
+              { key: "one", filterId: "region-filter", label: "Region" },
+              { key: "two", filterId: "region-filter", label: "Duplicate" },
+            ],
+          },
+        },
+        undefined,
+      ),
+    ).toThrow("RUNTIME_FILTER_DECLARATION_INVALID");
+    expect(() =>
+      applyInsightRuntime(
+        {
+          ...insight,
           filters: [...insight.filters!, { ...insight.filters![0]! }],
           runtimeControls: {
             filters: [{ key: "x", filterId: "region-filter", label: "Region" }],
@@ -153,6 +167,16 @@ describe("applyInsightRuntime", () => {
       code: "FETCH_EXECUTION_FAILED",
       message: "Live data could not be fetched.",
       retryable: true,
+    });
+    expect(
+      toFetchFailure(
+        new Error("RUNTIME_connector token=secret"),
+        "FETCH_EXECUTION_FAILED",
+      ),
+    ).toMatchObject({
+      status: "failed",
+      code: "FETCH_EXECUTION_FAILED",
+      message: "Live data could not be fetched.",
     });
     expect(
       toFetchFailure(

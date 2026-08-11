@@ -135,6 +135,13 @@ const runtimeControlsSchema = z
           allowClear: z.boolean().optional(),
         }),
       )
+      .refine(
+        (controls) =>
+          new Set(controls.map((control) => control.key)).size ===
+            controls.length &&
+          new Set(controls.map((control) => control.filterId)).size ===
+            controls.length,
+      )
       .optional(),
     sort: z
       .object({
