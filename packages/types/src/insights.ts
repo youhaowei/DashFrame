@@ -37,6 +37,12 @@ export interface InsightFilter {
     | "in"
     | "between";
   value: unknown;
+  /**
+   * Allows an explicitly declared runtime caller to clear this saved predicate.
+   * Omitted is deliberately false: saved filters stay authoritative unless the
+   * author opted into clearing them.
+   */
+  allowClear?: boolean;
 }
 
 /** Value shape for the `between` operator — inclusive on both bounds. */
@@ -93,6 +99,47 @@ export interface Insight {
   createdAt: number;
   updatedAt?: number;
 }
+
+/** A client-safe, unsaved definition accepted by the live fetch surface. */
+export type InsightFetchDefinition = Pick<
+  Insight,
+  "baseTableId" | "selectedFields" | "metrics" | "filters" | "sorts" | "joins"
+>;
+
+/**
+ * Values which may vary when running a saved Insight. Filter keys are the
+ * saved filter ids, never field names; this makes the saved operator and field
+ * the authority. A runtime sort can select only one already-declared sort key.
+ */
+export interface InsightRuntimeControls {
+  filterValues?: Record<string, unknown>;
+  clearFilterIds?: string[];
+  sort?: InsightSort;
+  limit?: number;
+}
+
+/** Server-minted, row-free metadata for a successfully materialized fetch. */
+export interface InsightFetchReady {
+  status: "ready";
+  dataFrameId: UUID;
+  schema: readonly { id: UUID; name: string; type: string }[];
+  rowCount: number;
+  definitionFingerprint: string;
+  provenance: { connectorKind: string; bindingVersion: string };
+  fetchedAt: number;
+}
+
+/** Safe, localizable fetch failure. Diagnostics never contain connector data. */
+export interface InsightFetchFailed {
+  status: "failed";
+  code: string;
+  message: string;
+  retryable: boolean;
+  diagnosticId: string;
+  lastSuccessful?: InsightFetchReady;
+}
+
+export type InsightFetchResult = InsightFetchReady | InsightFetchFailed;
 
 /**
  * The configuration fields that distinguish a user-modified insight from an

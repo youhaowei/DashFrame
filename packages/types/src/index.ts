@@ -83,9 +83,14 @@ export type {
   CompiledInsight,
   Insight,
   InsightDraftShape,
+  InsightFetchDefinition,
+  InsightFetchFailed,
+  InsightFetchReady,
+  InsightFetchResult,
   InsightFilter,
   InsightFilterBetweenValue,
   InsightJoinConfig,
+  InsightRuntimeControls,
   InsightSort,
 } from "./insights";
 

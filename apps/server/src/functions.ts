@@ -17,6 +17,7 @@ import { commandFunctions } from "./functions/commands";
 import { connectorCatalogFunctions } from "./functions/connector-catalog";
 import { connectorSetupFunctions } from "./functions/connector-setup";
 import { dashboardFunctions } from "./functions/dashboards";
+import { dataFetchFunctions } from "./functions/data-fetch";
 import { draftBatchFunctions } from "./functions/draft-batch";
 import { draftLifecycleFunctions } from "./functions/draft-lifecycle";
 import { draftReviseFunctions } from "./functions/draft-revise";
@@ -68,6 +69,7 @@ export const functions = {
   ...connectorCatalogFunctions,
   ...connectorSetupFunctions,
   ...dashboardFunctions,
+  ...dataFetchFunctions,
   ...draftLifecycleFunctions,
   ...draftBatchFunctions,
   ...draftFunctions,
