@@ -57,6 +57,11 @@ function frameSchema(analysis: unknown, fieldIds: unknown) {
   return {
     ids: new Set(ids),
     schema: fields.filter((field) => ids.includes(field.id)),
+    namesById: new Map(
+      fields
+        .filter((field) => ids.includes(field.id))
+        .map((field) => [field.id, field.name] as const),
+    ),
   };
 }
 
@@ -128,7 +133,13 @@ export const dataFrameQueryFunctions = {
           message: "The requested DataFrame has no readable schema.",
         };
       }
-      if (parsed.data.sort.some((key) => !structural.ids.has(key.fieldId))) {
+      if (
+        parsed.data.sort.some(
+          (key) =>
+            !structural.ids.has(key.fieldId) ||
+            !structural.namesById.has(key.fieldId),
+        )
+      ) {
         return {
           status: "failed" as const,
           code: "QUERY_SORT_NOT_ALLOWED",
@@ -142,7 +153,7 @@ export const dataFrameQueryFunctions = {
           ? ` ORDER BY ${parsed.data.sort
               .map(
                 (key) =>
-                  `${quoteIdentifier(key.fieldId)} ${key.direction.toUpperCase()}`,
+                  `${quoteIdentifier(structural.namesById.get(key.fieldId)!)} ${key.direction.toUpperCase()}`,
               )
               .join(", ")}`
           : "";

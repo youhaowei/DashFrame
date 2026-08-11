@@ -101,7 +101,7 @@ export function useInsightPagination({
           insightId: insight.id,
           ...(stableRuntime ? { runtime: stableRuntime } : {}),
         });
-    materialized.then(
+    void materialized.then(
       async (fetchResult) => {
         if (current !== generation.current) return;
         if (fetchResult.status === "failed") {
@@ -115,10 +115,26 @@ export function useInsightPagination({
           setIsReady(false);
           return;
         }
-        const page = await queryDataFrame(fetchResult.dataFrameId, {
-          offset: 0,
-          limit: SUGGESTION_SAMPLE_SIZE,
-        });
+        let page;
+        try {
+          page = await queryDataFrame(fetchResult.dataFrameId, {
+            offset: 0,
+            limit: SUGGESTION_SAMPLE_SIZE,
+          });
+        } catch (cause) {
+          if (current !== generation.current) return;
+          setDataFrameId(null);
+          setTotalCount(0);
+          setColumns([]);
+          setSchema([]);
+          setSampleRows([]);
+          setFieldCount(0);
+          setError(
+            cause instanceof Error ? cause.message : "Failed to read Insight",
+          );
+          setIsReady(false);
+          return;
+        }
         if (current !== generation.current) return;
         if (page.status === "failed") {
           setDataFrameId(null);
@@ -173,23 +189,32 @@ export function useInsightPagination({
   const fetchData = useCallback(
     async (params: FetchDataParams): Promise<FetchDataResult> => {
       if (!dataFrameId) return { rows: [], totalCount: 0 };
+      const current = generation.current;
       const remaining = stableRuntime?.limit
         ? Math.max(0, stableRuntime.limit - params.offset)
         : params.limit;
       if (remaining === 0) return { rows: [], totalCount };
-      const page = await queryDataFrame(dataFrameId, {
-        offset: params.offset,
-        limit: Math.min(params.limit, remaining, MAX_PAGE_SIZE),
-        sort:
-          params.sortColumn && params.sortDirection
-            ? [
-                {
-                  fieldId: params.sortColumn as UUID,
-                  direction: params.sortDirection,
-                },
-              ]
-            : undefined,
-      });
+      let page;
+      try {
+        page = await queryDataFrame(dataFrameId, {
+          offset: params.offset,
+          limit: Math.min(params.limit, remaining, MAX_PAGE_SIZE),
+          sort:
+            params.sortColumn && params.sortDirection
+              ? [
+                  {
+                    fieldId: params.sortColumn as UUID,
+                    direction: params.sortDirection,
+                  },
+                ]
+              : undefined,
+        });
+      } catch {
+        return { rows: [], totalCount: 0 };
+      }
+      if (current !== generation.current) {
+        return { rows: [], totalCount: 0 };
+      }
       return page.status === "ready"
         ? { rows: page.rows, totalCount }
         : { rows: [], totalCount: 0 };

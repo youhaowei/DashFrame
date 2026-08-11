@@ -29,14 +29,25 @@ describe("queryDataFrame", () => {
     await db.insert(schema.dataFrames).values({
       id,
       storage: { type: "file", key: id },
-      fieldIds: ["country", "revenue"],
+      fieldIds: [
+        "10000000-0000-4000-8000-000000000001",
+        "10000000-0000-4000-8000-000000000002",
+      ],
       name: "Revenue",
       rowCount: 2,
       columnCount: 2,
       analysis: {
         schema: [
-          { id: "country", name: "Country", type: "string" },
-          { id: "revenue", name: "Revenue", type: "number" },
+          {
+            id: "10000000-0000-4000-8000-000000000001",
+            name: "country",
+            type: "string",
+          },
+          {
+            id: "10000000-0000-4000-8000-000000000002",
+            name: "Revenue ($)",
+            type: "number",
+          },
         ],
       },
     });
@@ -66,7 +77,12 @@ describe("queryDataFrame", () => {
       dataFrameId: id,
       offset: 1,
       limit: 1,
-      sort: [{ fieldId: "revenue", direction: "desc" }],
+      sort: [
+        {
+          fieldId: "10000000-0000-4000-8000-000000000002",
+          direction: "desc",
+        },
+      ],
     });
     expect(ready.result).toMatchObject({
       status: "ready",
@@ -79,7 +95,7 @@ describe("queryDataFrame", () => {
       expect.any(Uint8Array),
     );
     expect(queryArrow).toHaveBeenCalledWith(
-      expect.stringContaining('ORDER BY "revenue" DESC LIMIT ? OFFSET ?'),
+      expect.stringContaining('ORDER BY "Revenue ($)" DESC LIMIT ? OFFSET ?'),
       [1, 1],
     );
 

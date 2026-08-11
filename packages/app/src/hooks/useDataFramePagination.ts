@@ -11,6 +11,7 @@ export function useDataFramePagination(dataFrameId: UUID | undefined) {
   const [columns, setColumns] = useState<{ name: string; type?: string }[]>([]);
   const [isReady, setIsReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const fieldIdsByName = useRef(new Map<string, UUID>());
   const generation = useRef(0);
 
   useEffect(() => {
@@ -20,6 +21,7 @@ export function useDataFramePagination(dataFrameId: UUID | undefined) {
         if (current !== generation.current) return;
         setTotalCount(0);
         setColumns([]);
+        fieldIdsByName.current = new Map();
         setError(null);
         setIsReady(false);
       });
@@ -27,6 +29,7 @@ export function useDataFramePagination(dataFrameId: UUID | undefined) {
     }
     queueMicrotask(() => {
       if (current !== generation.current) return;
+      fieldIdsByName.current = new Map();
       setIsReady(false);
       setError(null);
     });
@@ -36,11 +39,15 @@ export function useDataFramePagination(dataFrameId: UUID | undefined) {
         if (result.status === "failed") {
           setTotalCount(0);
           setColumns([]);
+          fieldIdsByName.current = new Map();
           setError(result.message);
           setIsReady(false);
           return;
         }
         setTotalCount(result.totalCount);
+        fieldIdsByName.current = new Map(
+          result.schema.map(({ id, name }) => [name, id]),
+        );
         setColumns(result.schema.map(({ name, type }) => ({ name, type })));
         setIsReady(true);
       },
@@ -48,6 +55,7 @@ export function useDataFramePagination(dataFrameId: UUID | undefined) {
         if (current !== generation.current) return;
         setTotalCount(0);
         setColumns([]);
+        fieldIdsByName.current = new Map();
         setError(
           cause instanceof Error ? cause.message : "Failed to initialize",
         );
@@ -63,10 +71,12 @@ export function useDataFramePagination(dataFrameId: UUID | undefined) {
         offset: params.offset,
         limit: Math.min(params.limit, MAX_PAGE_SIZE),
         sort:
-          params.sortColumn && params.sortDirection
+          params.sortColumn &&
+          params.sortDirection &&
+          fieldIdsByName.current.has(params.sortColumn)
             ? [
                 {
-                  fieldId: params.sortColumn as UUID,
+                  fieldId: fieldIdsByName.current.get(params.sortColumn)!,
                   direction: params.sortDirection,
                 },
               ]

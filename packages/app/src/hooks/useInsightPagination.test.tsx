@@ -139,4 +139,47 @@ describe("useInsightPagination", () => {
     expect(result.current.error).toBeNull();
     expect(result.current.totalCount).toBe(2);
   });
+
+  it("surfaces an initial page rejection without an unhandled promise", async () => {
+    client.mutate.mockResolvedValue({
+      status: "ready",
+      dataFrameId: "frame-1",
+    });
+    queryDataFrame.mockRejectedValue(new Error("Frame disappeared"));
+
+    const { result } = renderHook(() => useInsightPagination({ insight }));
+
+    await waitFor(() => expect(result.current.error).toBe("Frame disappeared"));
+    expect(result.current.isReady).toBe(false);
+    expect(result.current.dataFrameId).toBeNull();
+  });
+
+  it("discards a page that resolves after the Insight generation changes", async () => {
+    client.mutate.mockResolvedValue({
+      status: "ready",
+      dataFrameId: "frame-a",
+    });
+    queryDataFrame.mockResolvedValueOnce({
+      status: "ready",
+      schema: [],
+      rows: [],
+      totalCount: 2,
+      page: {},
+    });
+    let resolvePage!: (value: unknown) => void;
+    queryDataFrame.mockImplementationOnce(
+      () => new Promise((resolve) => (resolvePage = resolve)),
+    );
+    const { result, rerender } = renderHook(
+      ({ value, enabled }) => useInsightPagination({ insight: value, enabled }),
+      { initialProps: { value: insight, enabled: true } },
+    );
+    await waitFor(() => expect(result.current.isReady).toBe(true));
+    const pending = result.current.fetchData({ offset: 0, limit: 10 });
+    rerender({ value: insight, enabled: false });
+    await act(async () =>
+      resolvePage({ status: "ready", rows: [{ value: 1 }], totalCount: 2 }),
+    );
+    await expect(pending).resolves.toEqual({ rows: [], totalCount: 0 });
+  });
 });

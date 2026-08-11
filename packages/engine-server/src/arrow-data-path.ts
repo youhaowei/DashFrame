@@ -463,6 +463,18 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
     } catch {
       return c.json({ error: "Failed to register frame" }, 500);
     }
+    // The frame can be deleted while registration is in flight. Match the
+    // sibling registration route: remove the late native table before any
+    // Mosaic query can run against a no-longer-owned frame.
+    if (await frameIsUnavailable(options, id as UUID)) {
+      if (!(await unregisterIfPresent(options.engine, frameTableName(id)))) {
+        return c.json(
+          { error: "Frame was deleted and registration cleanup failed" },
+          500,
+        );
+      }
+      return c.json({ error: "Frame is no longer available" }, 409);
+    }
     return dispatchArrowQuery(options.engine, {
       ...body,
       sql: sql.split(frameIdentifier).join(quoteIdent(frameTableName(id))),

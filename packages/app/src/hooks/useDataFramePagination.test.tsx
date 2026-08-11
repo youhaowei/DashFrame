@@ -12,14 +12,14 @@ describe("useDataFramePagination", () => {
     queryDataFrame
       .mockResolvedValueOnce({
         status: "ready",
-        schema: [{ id: "a", name: "A", type: "string" }],
+        schema: [{ id: "field-a", name: "A", type: "string" }],
         rows: [],
         totalCount: 3,
         page: {},
       })
       .mockResolvedValueOnce({
         status: "ready",
-        schema: [],
+        schema: [{ id: "field-b", name: "B", type: "number" }],
         rows: [],
         totalCount: 0,
         page: {},
@@ -41,13 +41,15 @@ describe("useDataFramePagination", () => {
       expect(result.current.columns).toEqual([{ name: "A", type: "string" }]),
     );
     rerender({ id: "frame-b" });
-    await waitFor(() => expect(result.current.columns).toEqual([]));
+    await waitFor(() =>
+      expect(result.current.columns).toEqual([{ name: "B", type: "number" }]),
+    );
     await act(async () => {
       await expect(
         result.current.fetchData({
           offset: 5,
           limit: 900,
-          sortColumn: "field-b",
+          sortColumn: "B",
           sortDirection: "desc",
         }),
       ).resolves.toEqual({ rows: [{ b: 2 }], totalCount: 7 });
