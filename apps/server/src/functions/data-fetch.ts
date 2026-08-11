@@ -14,6 +14,7 @@ import type { DashframeFunctionContext } from "../app-context";
 import { permissions } from "../permissions";
 import { wy } from "../wystack";
 import type { MaterializationTarget } from "./data-fetch/materializer";
+import { staleFrameMetadata } from "./data-fetch/publisher";
 import { decodeInsight, type InsightRow } from "./insights";
 
 type EffectiveInsightDefinition = InsightFetchDefinition & { limit?: number };
@@ -300,7 +301,11 @@ export function createDataFetchFunctions(
           },
         );
       } catch (error) {
-        return toFetchFailure(error, "FETCH_SOURCE_FAILED");
+        const result = toFetchFailure(error, "FETCH_SOURCE_FAILED");
+        const prior = await lastSuccessfulForInsight(ctx, insightId as UUID);
+        return result.status === "failed" && prior
+          ? { ...result, lastSuccessful: prior }
+          : result;
       }
     });
   return { fetchData, runInsight };
@@ -316,4 +321,23 @@ async function getInsightForFetch(
     .first()) as InsightRow | undefined;
   if (!row) throw new Error("INSIGHT_NOT_FOUND");
   return decodeInsight(row);
+}
+
+async function lastSuccessfulForInsight(
+  ctx: DashframeFunctionContext,
+  insightId: UUID,
+) {
+  const row = (await ctx.db
+    .from(schema.dataFrames)
+    .where(eq("insightId", insightId))
+    .first()) as
+    | {
+        id: UUID;
+        fieldIds: unknown;
+        rowCount: number | null;
+        analysis: unknown;
+        lastRefreshedAt: Date | null;
+      }
+    | undefined;
+  return row ? staleFrameMetadata(row) : undefined;
 }
