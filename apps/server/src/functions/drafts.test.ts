@@ -337,7 +337,7 @@ describe("draft publish functions", () => {
           principal: { kind: "user", userId: LOCAL_USER_ID },
         },
       ),
-    ).rejects.toThrow(/no open draft/);
+    ).rejects.toThrow(/^draft is unavailable$/);
 
     // Nothing was written: an accepted append here would be permanently
     // invisible to listDrafts and unreachable by publish or discard.

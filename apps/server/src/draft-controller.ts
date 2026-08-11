@@ -79,7 +79,7 @@ import {
   type DraftCommand,
   type WyStackApp,
 } from "@wystack/server";
-import { eq, getTableName, sql } from "drizzle-orm";
+import { and, eq, getTableName, sql } from "drizzle-orm";
 import { AsyncLocalStorage } from "node:async_hooks";
 
 import {
@@ -387,7 +387,7 @@ export interface DraftController {
    * future conflict-detection pass (out of scope for this mechanism slice); it
    * is opaque and not inspected here.
    */
-  openDraft(baseVersion?: unknown): Promise<string>;
+  openDraft(baseVersion?: unknown, ownerPrincipalKey?: string): Promise<string>;
   /**
    * Apply a batch INSIDE the draft. Routes each command's writes through the
    * `withDraft(draftId)` write-path into `<table>__draft` (durable), then
@@ -412,8 +412,8 @@ export interface DraftController {
     batch: DraftCommand[],
     context?: Record<string, unknown>,
   ): Promise<CommandResult[]>;
-  /** List every open draft from durable metadata, newest activity first. */
-  listDrafts(): Promise<DraftListEntry[]>;
+  /** List open drafts, optionally restricted to one exact durable owner. */
+  listDrafts(ownerPrincipalKey?: string): Promise<DraftListEntry[]>;
   /**
    * True when `draft_metadata` still holds this handle. That table is the
    * registry of record: `openDraft` inserts the row and both lifecycle exits
@@ -424,6 +424,8 @@ export interface DraftController {
    * that `listDrafts` can never surface and no lifecycle path can ever sweep.
    */
   draftExists(draftId: string): Promise<boolean>;
+  /** One non-oracular lookup for a durably owned, still-open handle. */
+  draftOwnedBy(draftId: string, ownerPrincipalKey: string): Promise<boolean>;
   /** Atomically replace a reviewed log after guarded remove/bind operations. */
   reviseDraft(
     draftId: string,
@@ -1065,7 +1067,10 @@ export function createDraftController(
   }
 
   return {
-    async openDraft(baseVersion?: unknown): Promise<string> {
+    async openDraft(
+      baseVersion?: unknown,
+      ownerPrincipalKey?: string,
+    ): Promise<string> {
       // DashFrame owns the handle. `withDraft` accepts any id, so a UUID is the
       // durable draftId across the shadow tables and the command log.
       const draftId = crypto.randomUUID();
@@ -1073,11 +1078,28 @@ export function createDraftController(
       // base for both timestamp- and delete-based conflict detection.
       await db.insert(draftMetadata).values({
         draftId,
+        ...(ownerPrincipalKey === undefined ? {} : { ownerPrincipalKey }),
         baseVersion: normalizeBaseVersion(baseVersion),
         logRevision: 0,
         baseInventory: await snapshotCanonicalInventory(),
       });
       return draftId;
+    },
+
+    async draftOwnedBy(
+      draftId: string,
+      ownerPrincipalKey: string,
+    ): Promise<boolean> {
+      const rows = await db
+        .select({ draftId: draftMetadata.draftId })
+        .from(draftMetadata)
+        .where(
+          and(
+            eq(draftMetadata.draftId, draftId),
+            eq(draftMetadata.ownerPrincipalKey, ownerPrincipalKey),
+          ),
+        );
+      return rows.length > 0;
     },
 
     async draftExists(draftId: string): Promise<boolean> {
@@ -1088,10 +1110,11 @@ export function createDraftController(
       return rows.length > 0;
     },
 
-    async listDrafts(): Promise<DraftListEntry[]> {
+    async listDrafts(ownerPrincipalKey?: string): Promise<DraftListEntry[]> {
       const rows = normalizeRows(
         await db.execute(
-          sql.raw(`
+          sql`
+            ${sql.raw(`
             WITH draft_summary AS (
               SELECT
                 draft_id,
@@ -1128,8 +1151,16 @@ export function createDraftController(
             FROM draft_metadata AS metadata
             LEFT JOIN draft_summary AS summary
               ON summary.draft_id = metadata.draft_id
-            ORDER BY COALESCE(summary.updated_at, metadata.created_at) DESC
-          `),
+          `)}
+            ${
+              ownerPrincipalKey === undefined
+                ? sql``
+                : sql`WHERE metadata.owner_principal_key = ${ownerPrincipalKey}`
+            }
+            ${sql.raw(
+              "ORDER BY COALESCE(summary.updated_at, metadata.created_at) DESC",
+            )}
+          `,
         ),
       );
       return rows.map((row) => ({

@@ -271,7 +271,10 @@ describe("draft review RPC workflow", () => {
   });
 
   it("serializes concurrent appends to one draft into a dense log", async () => {
-    const draftId = await controller.openDraft();
+    const draftId = await controller.openDraft(
+      undefined,
+      `service:${service.credentialId}`,
+    );
     await Promise.all([
       call(
         "draftBatch",
@@ -309,5 +312,56 @@ describe("draft review RPC workflow", () => {
       .from(draftCommandLog)
       .orderBy(draftCommandLog.seq);
     expect(rows).toEqual([{ seq: 0 }, { seq: 1 }]);
+  });
+
+  it("normalizes a queued append whose owned draft closes before execution", async () => {
+    const ownerKey = `service:${service.credentialId}`;
+    const draftId = await controller.openDraft(undefined, ownerKey);
+    const original = controller;
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered!: () => void;
+    const firstEntered = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    controller = {
+      ...original,
+      appendToDraft: async (...args) => {
+        entered();
+        await blocked;
+        return original.appendToDraft(...args);
+      },
+    };
+
+    const append = () =>
+      call(
+        "draftBatch",
+        {
+          draftId,
+          commands: [
+            cmd("CreateDashboard", {
+              id: crypto.randomUUID(),
+              name: "Queued close race",
+            }),
+          ],
+        },
+        service,
+      );
+    const first = append();
+    await firstEntered;
+    const queued = append();
+    const firstRejected = expect(first).rejects.toThrow(
+      /^draft is unavailable$/,
+    );
+    const queuedRejected = expect(queued).rejects.toThrow(
+      /^draft is unavailable$/,
+    );
+    await original.discardDraft(draftId);
+    release();
+
+    await firstRejected;
+    await queuedRejected;
   });
 });

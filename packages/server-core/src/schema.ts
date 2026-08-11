@@ -508,6 +508,9 @@ export const draftCommandLog = pgTable(
 
 export const draftMetadata = pgTable("draft_metadata", {
   draftId: text("draft_id").primaryKey(),
+  // Durable owner for remote draft handles. Nullable preserves legacy and
+  // trusted in-process drafts; service principals may never claim null rows.
+  ownerPrincipalKey: text("owner_principal_key"),
   baseVersion: timestamp("base_version", { withTimezone: true }).notNull(),
   // Monotonic CAS token for every durable command-log replacement. Nullable so
   // syncSchema can add it safely to existing projects; NULL is the legacy zero.

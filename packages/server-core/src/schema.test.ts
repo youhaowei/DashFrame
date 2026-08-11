@@ -247,6 +247,7 @@ describe("draft_metadata table", () => {
   test("draft_metadata has the expected columns", async () => {
     const cols = await liveColumns("draft_metadata");
     expect(cols.has("draft_id")).toBe(true);
+    expect(cols.has("owner_principal_key")).toBe(true);
     expect(cols.has("base_version")).toBe(true);
     expect(cols.has("log_revision")).toBe(true);
     expect(cols.has("base_inventory")).toBe(true);

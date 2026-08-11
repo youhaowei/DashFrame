@@ -180,6 +180,18 @@ describe("dashframe serve CLI", () => {
       });
     });
 
+    it("should parse both MCP transport modes and reject unknown modes", () => {
+      expect(parseArgs(["--mcp-mode", "stateful"])).toEqual({
+        mcpMode: "stateful",
+      });
+      expect(parseArgs(["--mcp-mode", "stateless"])).toEqual({
+        mcpMode: "stateless",
+      });
+      expect(() => parseArgs(["--mcp-mode", "hybrid"])).toThrow(
+        /expected "stateful" or "stateless"/,
+      );
+    });
+
     it("should reject an unbracketed IPv6 bind with a bracket hint", () => {
       // eslint-disable-next-line sonarjs/no-hardcoded-ip -- the malformed literal is the input under test
       expect(() => parseArgs(["--bind", "::1:4000"])).toThrow(
@@ -215,6 +227,7 @@ describe("dashframe serve CLI", () => {
       expect(helpText).toContain("--bind <addr>");
       expect(helpText).toContain("--token <token>");
       expect(helpText).toContain("--data-dir <dir>");
+      expect(helpText).toContain("--mcp-mode <mode>");
       expect(helpText).toContain("canonical padded base64");
       expect(helpText).toContain("Security boundary:");
       expect(helpText).toContain("non-loopback bind");

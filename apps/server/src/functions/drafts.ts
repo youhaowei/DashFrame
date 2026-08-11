@@ -7,6 +7,8 @@ import type { PreviewDiff } from "@dashframe/types";
 import { text } from "@wystack/db";
 import type { Command, WyStackApp } from "@wystack/server";
 
+import { principalKey } from "../app-context";
+import { assertDraftAccess } from "../draft-access";
 import { createDraftController } from "../draft-controller";
 import { findLateBound, type LateBoundOperandRef } from "../draft-late-bound";
 import { computeLogSignature } from "../draft-log-signature";
@@ -109,6 +111,7 @@ const draftPublishReview = wy.procedure
   .query(async (ctx, { draftId }): Promise<DraftPublishReview> => {
     const { app, db } = requireServerContext(ctx);
     const controller = createDraftController(app, db);
+    await assertDraftAccess(controller, ctx.principal, draftId);
     const draftExists = await controller.draftExists(draftId);
     const commands = await controller.getDraftLog(draftId);
     const lateBound = findLateBound(commands);
@@ -148,7 +151,10 @@ const listDrafts = wy.procedure
     const controller =
       asDraftFunctionContext(ctx).draftController ??
       createDraftController(app, db);
-    return controller.listDrafts();
+    if (ctx.principal?.kind === "user") return controller.listDrafts();
+    const key = principalKey(ctx.principal);
+    if (key === null) return [];
+    return controller.listDrafts(key);
   });
 
 export const draftFunctions = {

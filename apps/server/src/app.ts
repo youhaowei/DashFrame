@@ -81,7 +81,7 @@ import {
 } from "./draft-controller";
 import { assertPublishLogHasNoLateBound } from "./draft-late-bound";
 import { functions } from "./functions";
-import { createMcpRoute } from "./mcp/route";
+import { createMcpRoute, type McpMode } from "./mcp/route";
 import {
   expectedPermissionIds,
   LOCAL_USER_ID,
@@ -157,6 +157,14 @@ export interface DashframeServerOptions {
   hostname?: string;
   /** Bind port. Default `0` — the OS assigns an ephemeral port. */
   port?: number;
+  /** Explicit MCP transport mode. Defaults to stateful. */
+  mcpMode?: McpMode;
+  /** Stateful MCP session bound; primarily configurable for deterministic tests. */
+  mcpMaxStatefulSessions?: number;
+  /** Idle stateful MCP session lifetime. */
+  mcpStatefulSessionTtlMs?: number;
+  /** Injectable stateful-session clock for deterministic lifecycle tests. */
+  mcpSessionNow?: () => number;
   /**
    * Allowed CORS origin(s) for the renderer. Defaults to local Vite/preview
    * origins (`localhost` / `127.0.0.1`) for dev and smoke verification.
@@ -1168,12 +1176,12 @@ export async function createDashframeServer(
   const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({
     app: honoApp,
   });
-  // The MCP transport needs headers and a method the rest of the surface does
-  // not: a session id it both sends and reads back, a resumption id, the
-  // negotiated protocol version, and DELETE to end a session. Scoped to /mcp
-  // rather than widening the general policy, and registered first so a
-  // preflight for /mcp is answered here and never reaches the policy below —
-  // one Access-Control-Allow-Origin on the response, not two.
+  // The MCP transport needs headers and methods the rest of the surface does
+  // not. Allow client probes through CORS so the route can answer unsupported
+  // methods with 405 instead of an opaque browser network error. Scoped to
+  // /mcp rather than
+  // widening the general policy, and registered first so a preflight for /mcp
+  // is answered here and never reaches the policy below.
   honoApp.use(
     "/mcp",
     cors({
@@ -1235,7 +1243,17 @@ export async function createDashframeServer(
     }),
   );
 
-  honoApp.all("/mcp", createMcpRoute({ app, resolveContext }));
+  honoApp.all(
+    "/mcp",
+    createMcpRoute({
+      app,
+      resolveContext,
+      mode: opts.mcpMode,
+      maxStatefulSessions: opts.mcpMaxStatefulSessions,
+      statefulSessionTtlMs: opts.mcpStatefulSessionTtlMs,
+      now: opts.mcpSessionNow,
+    }),
+  );
 
   // OAuth callback + resume are intentionally outside createRoutes: neither
   // browser request carries a bearer token. The callback reaches project writes
