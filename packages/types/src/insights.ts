@@ -73,7 +73,8 @@ export interface InsightJoinConfig {
  * - Which metrics to compute
  * - Filters, sorts, joins
  *
- * Results are computed on-demand via DuckDB, not cached.
+ * Results compute live/on-demand via DuckDB. Successful runs may durably
+ * materialize immutable frames, but there is no completed-result reuse cache.
  */
 export interface Insight {
   id: UUID;

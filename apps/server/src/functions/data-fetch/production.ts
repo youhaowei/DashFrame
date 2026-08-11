@@ -15,6 +15,18 @@ import { publishMaterialization } from "./publisher";
 
 /** Real C1 lifecycle executor; no completed-result cache exists. */
 export function createProductionFetchExecutor(): LiveFetchExecutor {
+  const runtimeScopes = new WeakMap<object, string>();
+  let nextRuntimeScope = 0;
+  const runtimeScope = (ctx: DashframeFunctionContext): string => {
+    const runtime = ctx.dataPlaneRuntime;
+    if (!runtime) return "missing-runtime";
+    let scope = runtimeScopes.get(runtime);
+    if (!scope) {
+      scope = `runtime-${++nextRuntimeScope}`;
+      runtimeScopes.set(runtime, scope);
+    }
+    return scope;
+  };
   const materializer = createInsightMaterializer({
     ...productionMaterializerDependencies(),
     fingerprint: ({ insight, sources }) =>
@@ -27,7 +39,7 @@ export function createProductionFetchExecutor(): LiveFetchExecutor {
         )
         .digest("hex"),
     coalescingScope: (ctx, target, insight) =>
-      JSON.stringify([ctx.principal, target, insight]),
+      JSON.stringify([runtimeScope(ctx), ctx.principal, target, insight]),
     uuid: () => randomUUID(),
     now: () => Date.now(),
     tableName: (id) => `df_${id.replaceAll("-", "_")}`,
