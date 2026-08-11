@@ -1880,7 +1880,7 @@ const queryPostgresTable = wy.procedure
 // GA4 connector factory + data plane — mirrors postgresConnectorFor.
 // ============================================================================
 
-async function ga4ConnectorFor(
+export async function ga4ConnectorFor(
   ctx: DashframeFunctionContext,
   dataSourceId: UUID,
 ): Promise<ReturnType<typeof makeGa4Connector>> {
