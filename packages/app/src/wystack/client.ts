@@ -3,13 +3,13 @@
  *
  * React components reach the WyStack client through context (the host's
  * `WyStackProvider` + `useWyStackClient`). But the app also has plain async
- * helpers — CSV ingest, pagination loaders — that call direct-access getters
- * (`getDataFrame`, …) outside any component. Those need the
+ * helpers — CSV ingest and pagination loaders — that call the RPC client
+ * outside any component. Those need the
  * same minted client, and the client's URL is only known at runtime.
  *
  * So the host calls `setWyStackClient(instance.client)` exactly once, right
- * after `createWyStack`, before rendering. The getters read it via
- * `getWyStackClient()`. Calling a getter before the host wires the client is a
+ * after `createWyStack`, before rendering. The helpers read it via
+ * `getWyStackClient()`. Calling a helper before the host wires the client is a
  * programming error and throws loudly rather than silently returning empty.
  */
 import type { WyStackClient } from "@wystack/client";

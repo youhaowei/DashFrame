@@ -36,6 +36,11 @@ export const ARROW_STREAM_CONTENT_TYPE = "application/vnd.apache.arrow.stream";
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+const quoteIdent = (identifier: string): string =>
+  `"${identifier.replace(/"/g, '""')}"`;
+
+const frameTableName = (id: string): string => `df_${id.replaceAll("-", "_")}`;
+
 /** What the data path needs from an engine: compiled SQL → Arrow IPC bytes. */
 export interface ArrowQueryRunner {
   queryArrow(sql: string, params?: readonly unknown[]): Promise<Uint8Array>;
@@ -413,6 +418,82 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
     return c.json({ ok: true, id, name });
   });
 
+  // Mosaic charts receive only the opaque DataFrame UUID. Resolve and register
+  // its canonical native table here, then replace the UUID identifier in the
+  // Mosaic-generated SQL. This keeps table naming and registration server-owned.
+  app.post("/frames/:id/mosaic", async (c) => {
+    if (!(await checkAuth(c.req.header("authorization"), options))) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+    const contentType = c.req.header("content-type")?.split(";", 1)[0]?.trim();
+    if (contentType?.toLowerCase() !== "application/json") {
+      return c.json({ error: "Content-Type must be application/json" }, 415);
+    }
+    if (
+      !options.dataFrameStorage ||
+      typeof options.engine.registerArrowTable !== "function"
+    ) {
+      return c.json({ error: "Server DataFrame storage is unavailable" }, 503);
+    }
+    const id = c.req.param("id");
+    if (
+      !UUID_PATTERN.test(id) ||
+      (await frameIsUnavailable(options, id as UUID))
+    ) {
+      return c.json({ error: "Frame not found" }, 404);
+    }
+    let body: RequestBody;
+    try {
+      body = (await c.req.json()) as RequestBody;
+    } catch {
+      return c.json({ error: "Invalid JSON body" }, 400);
+    }
+    const frameIdentifier = quoteIdent(id);
+    const sql = typeof body.sql === "string" ? body.sql : "";
+    if (!sql.includes(frameIdentifier)) {
+      return c.json(
+        { error: "Chart query must reference its server DataFrame" },
+        400,
+      );
+    }
+    const arrow = await options.dataFrameStorage.load(id as UUID);
+    if (!arrow) return c.json({ error: "Frame not found" }, 404);
+    try {
+      await options.engine.registerArrowTable(frameTableName(id), arrow);
+    } catch {
+      return c.json({ error: "Failed to register frame" }, 500);
+    }
+    // The frame can be deleted while registration is in flight. Match the
+    // sibling registration route: remove the late native table before any
+    // Mosaic query can run against a no-longer-owned frame.
+    if (await frameIsUnavailable(options, id as UUID)) {
+      if (!(await unregisterIfPresent(options.engine, frameTableName(id)))) {
+        return c.json(
+          { error: "Frame was deleted and registration cleanup failed" },
+          500,
+        );
+      }
+      return c.json({ error: "Frame is no longer available" }, 409);
+    }
+    const response = await dispatchArrowQuery(options.engine, {
+      ...body,
+      sql: sql.split(frameIdentifier).join(quoteIdent(frameTableName(id))),
+    });
+    // Query execution is another asynchronous boundary. A frame deleted while
+    // DuckDB is producing the result must not have its bytes returned after its
+    // project ownership has been revoked.
+    if (await frameIsUnavailable(options, id as UUID)) {
+      if (!(await unregisterIfPresent(options.engine, frameTableName(id)))) {
+        return c.json(
+          { error: "Frame was deleted and query cleanup failed" },
+          500,
+        );
+      }
+      return c.json({ error: "Frame is no longer available" }, 409);
+    }
+    return response;
+  });
+
   return app;
 }
 
@@ -433,7 +514,9 @@ function parseParams(body: RequestBody): readonly unknown[] {
  * Decode an Arrow IPC stream buffer into plain JSON rows.
  * Used for Mosaic 'json' query type (column stats, DESCRIBE, etc.).
  */
-function arrowIpcToJsonRows(arrow: Uint8Array): Record<string, unknown>[] {
+export function arrowIpcToJsonRows(
+  arrow: Uint8Array,
+): Record<string, unknown>[] {
   const table = tableFromIPC(arrow);
   const rows: Record<string, unknown>[] = [];
   for (let i = 0; i < table.numRows; i++) {

@@ -73,7 +73,8 @@ export interface InsightJoinConfig {
  * - Which metrics to compute
  * - Filters, sorts, joins
  *
- * Results are computed on-demand via DuckDB, not cached.
+ * Results compute live/on-demand via DuckDB. Successful runs may durably
+ * materialize immutable frames, but there is no completed-result reuse cache.
  */
 export interface Insight {
   id: UUID;
@@ -90,9 +91,74 @@ export interface Insight {
   sorts?: InsightSort[];
   /** Optional joins */
   joins?: InsightJoinConfig[];
+  /** Explicit, saved runtime surface. Omitted means the Insight is immutable at run time. */
+  runtimeControls?: InsightRuntimeDeclaration;
   createdAt: number;
   updatedAt?: number;
 }
+
+/** A client-safe, unsaved definition accepted by the live fetch surface. */
+export type InsightFetchDefinition = Pick<
+  Insight,
+  "baseTableId" | "selectedFields" | "metrics" | "filters" | "sorts" | "joins"
+>;
+
+/**
+ * Values which may vary when running a saved Insight. Filter keys are stable
+ * external control keys mapped to saved filter ids; the saved filter remains
+ * the authority for field, operator, default, and type.
+ */
+export interface InsightRuntimeDeclaration {
+  filters?: Array<{
+    key: string;
+    filterId: string;
+    label: string;
+    required?: boolean;
+    allowClear?: boolean;
+  }>;
+  sort?: { allowedFieldIds: UUID[]; maxKeys: number };
+  limit?: { min: number; max: number };
+}
+
+/** Values that an invocation may supply for a saved runtime declaration. */
+export interface InsightRuntimeInput {
+  /** A null value requests an explicit clear when the saved declaration allows it. */
+  filters?: Record<string, unknown>;
+  sort?: Array<{ fieldId: UUID; direction: "asc" | "desc" }>;
+  limit?: number;
+}
+
+/** Server-minted, row-free metadata for a successfully materialized fetch. */
+export interface InsightFetchReady {
+  status: "ready";
+  dataFrameId: UUID;
+  schema: readonly { id: UUID; name: string; type: string }[];
+  rowCount: number;
+  definitionFingerprint: string;
+  provenance: { connectorKind: string; bindingVersion: string };
+  fetchedAt: number;
+  /** Exact server-published source pointers for suppressing only this operation's invalidation. */
+  sourceGenerations?: readonly { tableId: UUID; dataFrameId: UUID }[];
+}
+
+/** Metadata for a previously successful frame retained after a failed refresh. */
+export type InsightFetchStale = Omit<InsightFetchReady, "status"> & {
+  stale: true;
+};
+
+/** Safe, localizable fetch failure. Diagnostics never contain connector data. */
+export interface InsightFetchFailed {
+  status: "failed";
+  code: string;
+  message: string;
+  retryable: boolean;
+  diagnosticId: string;
+  lastSuccessful?: InsightFetchStale;
+  /** Exact source pointers published before a later stage failed. */
+  sourceGenerations?: readonly { tableId: UUID; dataFrameId: UUID }[];
+}
+
+export type InsightFetchResult = InsightFetchReady | InsightFetchFailed;
 
 /**
  * The configuration fields that distinguish a user-modified insight from an

@@ -1273,6 +1273,105 @@ describe("command vocabulary", () => {
     });
   });
 
+  describe("SetInsightRuntimeControls", () => {
+    it("persists only declarations targeting saved filters and result fields", async () => {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      const fieldId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+          selectedFields: [fieldId],
+        }),
+      );
+      await commit(
+        cmd("SetInsightFilter", {
+          id: insightId,
+          filters: [
+            {
+              id: "region-filter",
+              field: "region",
+              operator: "eq",
+              value: { kind: "value", v: "EMEA" },
+            },
+          ],
+        }),
+      );
+      const runtimeControls = {
+        filters: [
+          {
+            key: "region",
+            filterId: "region-filter",
+            label: "Region",
+          },
+        ],
+        sort: { allowedFieldIds: [fieldId], maxKeys: 1 as const },
+        limit: { min: 1, max: 100 },
+      };
+      await commit(
+        cmd("SetInsightRuntimeControls", { id: insightId, runtimeControls }),
+      );
+      const def = (await insightsById(insightId))[0]?.definition as {
+        runtimeControls: typeof runtimeControls;
+      };
+      expect(def.runtimeControls).toEqual(runtimeControls);
+
+      await commit(cmd("SelectFields", { id: insightId, fieldIds: [] }));
+      const afterFieldRemoval = (await insightsById(insightId))[0]
+        ?.definition as {
+        runtimeControls: {
+          filters?: unknown[];
+          sort?: unknown;
+          limit?: unknown;
+        };
+      };
+      expect(afterFieldRemoval.runtimeControls).toEqual({
+        filters: runtimeControls.filters,
+        limit: runtimeControls.limit,
+      });
+
+      await commit(cmd("SetInsightFilter", { id: insightId, filters: [] }));
+      const afterFilterRemoval = (await insightsById(insightId))[0]
+        ?.definition as { runtimeControls: { limit?: unknown } };
+      expect(afterFilterRemoval.runtimeControls).toEqual({
+        limit: runtimeControls.limit,
+      });
+
+      await expect(
+        commit(
+          cmd("SetInsightRuntimeControls", {
+            id: insightId,
+            runtimeControls: {
+              filters: [
+                { key: "missing", filterId: "missing", label: "Missing" },
+              ],
+            },
+          }),
+        ),
+      ).rejects.toThrow("filter target not found");
+      await expect(
+        commit(
+          cmd("SetInsightRuntimeControls", {
+            id: insightId,
+            runtimeControls: {
+              filters: [
+                {
+                  key: "region",
+                  filterId: "region-filter",
+                  label: "Region",
+                  required: true,
+                  allowClear: true,
+                },
+              ],
+            },
+          }),
+        ),
+      ).rejects.toThrow("required runtime filter cannot allow clearing");
+    });
+  });
+
   // -------------------------------------------------------------------------
   // Write-boundary validation of the insight `definition` JSONB
   // -------------------------------------------------------------------------
@@ -3693,11 +3792,7 @@ describe("command vocabulary", () => {
     // Arrow / DataFrame metadata cleanup
     // -------------------------------------------------------------------------
 
-    it("should delete the DataFrame metadata row when an Insight is deleted (Arrow cleanup signal)", async () => {
-      // The dataFrames table stores metadata-only; the actual Arrow bytes live in
-      // the renderer's IndexedDB. Deleting the metadata row signals the client-
-      // side removeDataFrame hook to clean up Arrow bytes via deleteArrowData().
-      // Test: after DeleteNode(insight), the dataFrames row with insightId is gone.
+    it("should delete server-frame metadata when an Insight is deleted", async () => {
       const { tableId } = await makeTable();
       const insightId = id();
       const frameId = id();
@@ -3713,7 +3808,7 @@ describe("command vocabulary", () => {
       // yet; we write the row via the raw Drizzle handle used by test helpers).
       await db.insert(schema.dataFrames).values({
         id: frameId,
-        storage: { type: "indexeddb", key: `arrow-${frameId}` },
+        storage: { type: "file", key: frameId },
         fieldIds: [],
         name: `Frame for ${insightId}`,
         insightId,
@@ -3725,7 +3820,6 @@ describe("command vocabulary", () => {
 
       await commit(cmd("DeleteNode", { id: insightId }));
 
-      // The DataFrame metadata row must be gone after the Insight is deleted.
       const afterRows = await db.select().from(schema.dataFrames);
       expect(afterRows.filter((r) => r.insightId === insightId)).toHaveLength(
         0,
@@ -3745,7 +3839,7 @@ describe("command vocabulary", () => {
       );
       await db.insert(schema.dataFrames).values({
         id: frameId,
-        storage: { type: "indexeddb", key: `arrow-${frameId}` },
+        storage: { type: "file", key: frameId },
         fieldIds: [],
         name: `Frame for ${insightId}`,
         insightId,

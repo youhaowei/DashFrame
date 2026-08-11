@@ -91,7 +91,7 @@ function makeAnalysisWithSamples(): DataFrameAnalysis {
 function makeDataFrameEntry(id: string, analysis?: DataFrameAnalysis) {
   return {
     id,
-    storage: { type: "indexeddb" as const, key: `arrow-${id}` },
+    storage: { type: "s3" as const, bucket: "test", key: `arrow-${id}` },
     fieldIds: [],
     primaryKey: undefined,
     createdAt: Date.now(),
@@ -148,6 +148,126 @@ describe("privacy floor — no raw sampleValues persist in artifact DB", () => {
     const emailCol = stored!.columns.find((c) => c.columnName === "email");
     expect(emailCol?.cardinality).toBe(3);
     expect(emailCol?.semantic).toBe("email");
+  });
+
+  it("fails closed instead of orphaning retained browser bytes on Insight deletion", async () => {
+    const insightId = crypto.randomUUID();
+    await db.insert(schema.insights).values({
+      id: insightId,
+      name: "Historical",
+      definition: {
+        baseTableId: crypto.randomUUID(),
+        selectedFields: [],
+        metrics: [],
+      },
+      createdBy: { kind: "user" },
+    });
+    const frameIds = [crypto.randomUUID(), crypto.randomUUID()];
+    await db.insert(dataFrames).values(
+      frameIds.map((id) => ({
+        id,
+        storage: { type: "indexeddb", key: `arrow-${id}` },
+        fieldIds: [],
+        name: "Historical result",
+        insightId,
+      })),
+    );
+
+    await expect(call("removeInsight", { id: insightId })).rejects.toThrow(
+      "Legacy browser DataFrames are not supported",
+    );
+
+    expect(
+      (await db.select().from(dataFrames)).filter(
+        (frame) => frame.insightId === insightId,
+      ),
+    ).toHaveLength(2);
+    expect(
+      (await db.select().from(schema.insights)).some(
+        (insight) => insight.id === insightId,
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects direct creation and removal of retained browser DataFrames", async () => {
+    const id = crypto.randomUUID();
+    await expect(
+      call("putDataFrameEntry", {
+        entry: {
+          ...makeDataFrameEntry(id),
+          storage: { type: "indexeddb", key: `arrow-${id}` },
+        },
+      }),
+    ).rejects.toThrow("Legacy browser DataFrames are not supported");
+
+    await db.insert(dataFrames).values({
+      id,
+      storage: { type: "indexeddb", key: `arrow-${id}` },
+      fieldIds: [],
+      name: "Legacy",
+    });
+    await expect(call("removeDataFrameEntry", { id })).rejects.toThrow(
+      "Only server-owned DataFrames can be removed",
+    );
+    expect(await db.select().from(dataFrames)).toHaveLength(1);
+  });
+
+  it("does not let public analysis updates forge or clear the current marker", async () => {
+    const id = crypto.randomUUID();
+    await db.insert(dataFrames).values({
+      id,
+      storage: { type: "file", key: id },
+      fieldIds: [],
+      name: "Current",
+      analysis: {
+        ...makeAnalysisWithSamples(),
+        currentInsightResult: true,
+      },
+    });
+    await call("updateDataFrameEntry", {
+      id,
+      updates: {
+        analysis: {
+          ...makeAnalysisWithSamples(),
+          currentInsightResult: false,
+        },
+      },
+    });
+
+    expect((await db.select().from(dataFrames))[0]?.analysis).toMatchObject({
+      currentInsightResult: true,
+    });
+  });
+
+  it("resolves the canonical current Insight frame when timestamps tie", async () => {
+    const insightId = crypto.randomUUID();
+    const oldId = crypto.randomUUID();
+    const currentId = crypto.randomUUID();
+    const timestamp = new Date(100);
+    await db.insert(dataFrames).values([
+      {
+        id: oldId,
+        storage: { type: "file", key: oldId },
+        fieldIds: [],
+        name: "Old",
+        insightId,
+        lastRefreshedAt: timestamp,
+        analysis: { currentInsightResult: false },
+      },
+      {
+        id: currentId,
+        storage: { type: "file", key: currentId },
+        fieldIds: [],
+        name: "Current",
+        insightId,
+        lastRefreshedAt: timestamp,
+        analysis: { currentInsightResult: true },
+      },
+    ]);
+
+    await expect(
+      call("getDataFrameByInsight", { insightId }),
+    ).resolves.toMatchObject({ id: currentId, currentInsightResult: true });
   });
 
   it("should strip sampleValues when updating analysis via updateDataFrameEntry", async () => {
@@ -338,6 +458,42 @@ describe("privacy floor — no raw sampleValues persist in artifact DB", () => {
     ).rejects.toThrow("Server frame storage cannot be changed");
   });
 
+  it("does not let a public update move a current server frame to another Insight", async () => {
+    const id = crypto.randomUUID();
+    const insightId = crypto.randomUUID();
+    await db.insert(dataFrames).values({
+      id,
+      storage: { type: "file", key: id },
+      fieldIds: [],
+      name: "current",
+      insightId,
+      analysis: { currentInsightResult: true },
+    });
+
+    await expect(
+      call("updateDataFrameEntry", {
+        id,
+        updates: { insightId: crypto.randomUUID() },
+      }),
+    ).rejects.toThrow("Server frame ownership cannot be changed");
+    expect((await db.select().from(dataFrames))[0]?.insightId).toBe(insightId);
+  });
+
+  it("fails clear-all before deleting retained browser metadata", async () => {
+    const id = crypto.randomUUID();
+    await db.insert(dataFrames).values({
+      id,
+      storage: { type: "indexeddb", key: `arrow-${id}` },
+      fieldIds: [],
+      name: "legacy",
+    });
+
+    await expect(call("clearAllData", {})).rejects.toThrow(
+      "Only server-owned DataFrames can be removed",
+    );
+    expect(await db.select().from(dataFrames)).toHaveLength(1);
+  });
+
   it("rejects changing a DataFrame to another server frame's key", async () => {
     const id = crypto.randomUUID();
     await call("putDataFrameEntry", { entry: makeDataFrameEntry(id) });
@@ -350,7 +506,11 @@ describe("privacy floor — no raw sampleValues persist in artifact DB", () => {
     ).rejects.toThrow("Server frame storage is server-owned");
 
     const [stored] = await db.select().from(dataFrames);
-    expect(stored?.storage).toEqual({ type: "indexeddb", key: `arrow-${id}` });
+    expect(stored?.storage).toEqual({
+      type: "s3",
+      bucket: "test",
+      key: `arrow-${id}`,
+    });
   });
 });
 
@@ -1171,6 +1331,24 @@ describe("insight writes preserve `source` (Insight-on-Insight composition)", ()
       baseTableId,
       source: { sourceType: "insight", sourceId: sourceInsightId },
     });
+  });
+
+  it("should reject runtime controls through legacy updateInsight", async () => {
+    const baseTableId = crypto.randomUUID();
+    const { id } = (await call("createInsight", {
+      name: "Runtime control target",
+      baseTableId,
+    })) as { id: string };
+
+    await expect(
+      call("updateInsight", {
+        id,
+        updates: { runtimeControls: { limit: { min: 1, max: 10 } } },
+      }),
+    ).rejects.toThrow(
+      "updateInsight cannot set runtimeControls; use SetInsightRuntimeControls",
+    );
+    expect((await storedDefinition(id)).runtimeControls).toBeUndefined();
   });
 
   it("should reject a malformed updates payload instead of persisting it", async () => {

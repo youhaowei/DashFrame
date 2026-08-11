@@ -44,12 +44,213 @@ export interface McpTool {
   inputSchema: TSchema;
   execute(args: unknown): Promise<{
     content: Array<{ type: "text"; text: string }>;
+    isError?: boolean;
     structuredContent?: Record<string, unknown>;
   }>;
 }
 
 /** The write tool's name — snake_case, matching the read tools. */
 export const DRAFT_BATCH_TOOL_NAME = "draft_batch";
+
+const DATA_QUERY_MAX_LIMIT = 500;
+
+function dataTool(
+  app: WyStackApp,
+  context: McpRequestContext,
+  name: string,
+  description: string,
+  inputSchema: TSchema,
+  path: "fetchData" | "runInsight" | "queryDataFrame",
+): McpTool {
+  return {
+    name,
+    description,
+    inputSchema,
+    async execute(args) {
+      const checked = validateToolArgs(inputSchema, args);
+      if (!checked.ok) throw new Error(checked.error.message);
+      const response = await app.call(path, checked.value, {
+        principal: context.principal,
+      });
+      const result = response.result as Record<string, unknown>;
+      const failed = result.status === "failed";
+      return {
+        content: [
+          {
+            type: "text",
+            text: failed
+              ? "The requested data operation failed."
+              : `${name} completed.`,
+          },
+        ],
+        ...(failed ? { isError: true } : {}),
+        structuredContent: result,
+      };
+    },
+  };
+}
+
+function createDataTools(
+  app: WyStackApp,
+  context: McpRequestContext,
+): McpTool[] {
+  const closed = { additionalProperties: false };
+  const filter = Type.Object(
+    {
+      id: Type.Optional(Type.String()),
+      field: Type.String({ minLength: 1 }),
+      operator: Type.Union([
+        Type.Literal("eq"),
+        Type.Literal("ne"),
+        Type.Literal("gt"),
+        Type.Literal("gte"),
+        Type.Literal("lt"),
+        Type.Literal("lte"),
+        Type.Literal("contains"),
+        Type.Literal("in"),
+        Type.Literal("between"),
+      ]),
+      value: Type.Any(),
+    },
+    closed,
+  );
+  const insight = Type.Object(
+    {
+      baseTableId: Type.String({ minLength: 1 }),
+      selectedFields: Type.Array(Type.String({ minLength: 1 })),
+      metrics: Type.Array(
+        Type.Object(
+          {
+            id: Type.String(),
+            name: Type.String(),
+            sourceTable: Type.String(),
+            columnName: Type.Optional(Type.String()),
+            aggregation: Type.Union(
+              ["sum", "avg", "count", "min", "max", "count_distinct"].map(
+                (value) => Type.Literal(value),
+              ),
+            ),
+          },
+          closed,
+        ),
+      ),
+      filters: Type.Optional(Type.Array(filter)),
+      sorts: Type.Optional(
+        Type.Array(
+          Type.Object(
+            {
+              field: Type.String(),
+              direction: Type.Union([
+                Type.Literal("asc"),
+                Type.Literal("desc"),
+              ]),
+            },
+            closed,
+          ),
+        ),
+      ),
+      joins: Type.Optional(
+        Type.Array(
+          Type.Object(
+            {
+              type: Type.Union(
+                ["inner", "left", "right", "full"].map((value) =>
+                  Type.Literal(value),
+                ),
+              ),
+              rightTableId: Type.String(),
+              leftKey: Type.String(),
+              rightKey: Type.String(),
+            },
+            closed,
+          ),
+        ),
+      ),
+    },
+    closed,
+  );
+  return [
+    dataTool(
+      app,
+      context,
+      "fetch_data",
+      "Materialize an ephemeral Insight result. Returns metadata only, never rows or credentials.",
+      Type.Object({ insight }, closed),
+      "fetchData",
+    ),
+    dataTool(
+      app,
+      context,
+      "run_insight",
+      "Materialize a saved Insight result. Returns metadata only, never rows or credentials.",
+      Type.Object(
+        {
+          insightId: Type.String({ format: "uuid" }),
+          runtime: Type.Optional(
+            Type.Object(
+              {
+                filters: Type.Optional(Type.Record(Type.String(), Type.Any())),
+                sort: Type.Optional(
+                  Type.Array(
+                    Type.Object(
+                      {
+                        fieldId: Type.String(),
+                        direction: Type.Union([
+                          Type.Literal("asc"),
+                          Type.Literal("desc"),
+                        ]),
+                      },
+                      closed,
+                    ),
+                    { maxItems: 1 },
+                  ),
+                ),
+                limit: Type.Optional(Type.Integer({ minimum: 1 })),
+              },
+              closed,
+            ),
+          ),
+        },
+        closed,
+      ),
+      "runInsight",
+    ),
+    dataTool(
+      app,
+      context,
+      "query_data_frame",
+      "Read one bounded page from a project-owned DataFrame. Accepts no SQL, table name, provider, credential, or paging token.",
+      Type.Object(
+        {
+          dataFrameId: Type.String({ format: "uuid" }),
+          offset: Type.Optional(
+            Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER }),
+          ),
+          limit: Type.Optional(
+            Type.Integer({ minimum: 1, maximum: DATA_QUERY_MAX_LIMIT }),
+          ),
+          sort: Type.Optional(
+            Type.Array(
+              Type.Object(
+                {
+                  fieldId: Type.String({ minLength: 1 }),
+                  direction: Type.Union([
+                    Type.Literal("asc"),
+                    Type.Literal("desc"),
+                  ]),
+                },
+                closed,
+              ),
+              { maxItems: 5 },
+            ),
+          ),
+        },
+        closed,
+      ),
+      "queryDataFrame",
+    ),
+  ];
+}
 
 /** One entry of the write tool's batch, as the agent supplies it. */
 interface DraftBatchCommandInput {
@@ -475,6 +676,7 @@ export function createMcpTools(
 
   return [
     ...readTools.map((tool) => toMcpTool(tool, true, mode, app, context)),
+    ...createDataTools(app, context),
     toMcpTool(writeTool as AssistantTool, false, mode, app, context),
   ];
 }

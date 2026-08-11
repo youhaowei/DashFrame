@@ -8,7 +8,7 @@
  * the returned `Provider` into the shared app's `providerWrapper` slot.
  *
  * Side effect: also wires the imperative-getter singleton (`setWyStackClient`)
- * so non-React data access (`getDataFrame`, CSV ingest, …) reaches the same
+ * so non-React data access (CSV ingest, bounded frame queries) reaches the same
  * client. One call, both seams satisfied.
  */
 import { createWyStack } from "@wystack/client";

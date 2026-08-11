@@ -74,8 +74,14 @@
 export {
   VisualizationProvider,
   useVisualization,
+  type MosaicConnector,
   type VisualizationProviderProps,
 } from "./VisualizationProvider";
+
+export {
+  createServerFrameConnector,
+  type ServerFrameConnectorOptions,
+} from "./server-frame-connector";
 
 // ============================================================================
 // Registry

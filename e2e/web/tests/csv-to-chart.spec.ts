@@ -34,8 +34,8 @@ test.describe("CSV to Chart", () => {
     // both contain "bar" as a substring under Playwright's default name match.
     await page.getByRole("button", { name: "Visualize" }).click();
     await page.getByRole("button", { name: "Bar", exact: true }).click();
-    // "Save chart" appears once chart suggestions are computed (DuckDB init +
-    // column analysis run after the table loads), so allow a generous wait.
+    // "Save chart" appears once the server frame is materialized and its
+    // bounded suggestion sample is analyzed, so allow a generous wait.
     await expect(page.getByRole("button", { name: "Save chart" })).toBeVisible({
       timeout: 30_000,
     });

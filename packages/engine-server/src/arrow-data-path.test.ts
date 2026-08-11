@@ -373,6 +373,67 @@ describe("Arrow data path — /tables/:name content-type enforcement", () => {
     expect(response.status).toBe(404);
     expect(engine.registrations).toEqual([]);
   });
+
+  it("removes a Mosaic frame whose ownership disappears during registration", async () => {
+    const engine = fakeRegistrar();
+    const id = "11111111-1111-4111-8111-111111111111";
+    let ownershipChecks = 0;
+    const app = createArrowDataPath({
+      engine,
+      isFrameAvailable: async () => ++ownershipChecks === 1,
+      dataFrameStorage: {
+        save: async () => {},
+        load: async () => new Uint8Array([1, 2, 3]),
+        delete: async () => {},
+        exists: async () => true,
+        list: async () => [id],
+        getUsage: async () => ({ count: 1 }),
+      },
+    });
+
+    const response = await app.request(`/frames/${id}/mosaic`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "arrow", sql: `SELECT * FROM "${id}"` }),
+    });
+
+    expect(response.status).toBe(409);
+    expect(engine.registrations).toEqual([]);
+    expect((engine as unknown as { calls: unknown[] }).calls).toEqual([]);
+  });
+
+  it("discards a Mosaic result when frame ownership disappears during the query", async () => {
+    const engine = fakeRegistrar();
+    let queryCalls = 0;
+    engine.queryArrow = async () => {
+      queryCalls += 1;
+      return new Uint8Array();
+    };
+    const id = "11111111-1111-4111-8111-111111111111";
+    let ownershipChecks = 0;
+    const app = createArrowDataPath({
+      engine,
+      isFrameAvailable: async () => ++ownershipChecks < 3,
+      dataFrameStorage: {
+        save: async () => {},
+        load: async () => new Uint8Array([1, 2, 3]),
+        delete: async () => {},
+        exists: async () => true,
+        list: async () => [id],
+        getUsage: async () => ({ count: 1 }),
+      },
+    });
+
+    const response = await app.request(`/frames/${id}/mosaic`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "arrow", sql: `SELECT * FROM "${id}"` }),
+    });
+
+    expect(response.status).toBe(409);
+    expect(queryCalls).toBe(1);
+    expect(engine.registrations).toEqual([]);
+  });
 });
 
 describe("Arrow data path — vault-backed auth (fail-closed)", () => {

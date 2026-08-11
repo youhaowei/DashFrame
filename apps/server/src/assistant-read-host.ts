@@ -257,7 +257,21 @@ export function createAssistantReadHost(
     listDashboards: () => read<DashboardRead[]>("listDashboards", {}),
     getDataFrameByInsight: async (insightId) => {
       const all = await read<DataFrameRead[]>("listDataFrames", {});
-      return all.find((d) => d.insightId === insightId) ?? null;
+      return (
+        all.find(
+          (frame) =>
+            frame.insightId === insightId &&
+            frame.currentInsightResult === true,
+        ) ??
+        all
+          .filter((frame) => frame.insightId === insightId)
+          .sort(
+            (left, right) =>
+              (right.lastRefreshedAt ?? right.createdAt ?? 0) -
+              (left.lastRefreshedAt ?? left.createdAt ?? 0),
+          )[0] ??
+        null
+      );
     },
 
     // --- value read (floor-gated) — the single value egress ---

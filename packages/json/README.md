@@ -1,6 +1,6 @@
 # @dashframe/json
 
-JSON parsing and conversion utilities for DashFrame. Converts JSON data to DataFrames with automatic type inference and nested object flattening.
+JSON parsing and conversion utilities for DashFrame. Converts JSON data to Arrow IPC plus structural metadata with automatic type inference and nested object flattening.
 
 ## Installation
 
@@ -12,7 +12,7 @@ bun add @dashframe/json
 
 This package provides:
 
-- `jsonToDataFrame()` - Convert JSON data to DataFrame with type inference
+- `jsonToDataFrame()` - Convert JSON data to Arrow IPC with type inference
 - `flattenObject()` / `flattenObjectArray()` - Flatten nested JSON to dot-notation
 - `unflattenObject()` - Reverse flattening operation
 
@@ -21,7 +21,7 @@ This package provides:
 - Automatic type inference (number, boolean, date, string)
 - Nested object flattening (e.g., `user.address.city`)
 - Array-of-objects JSON support
-- Arrow IPC storage in IndexedDB
+- Arrow IPC output for the server-owned local ingestion path
 - Auto-detection of ID columns for primary key
 
 ## Usage
@@ -37,7 +37,7 @@ const jsonData = [
 ];
 
 const result = await jsonToDataFrame(jsonData, dataTableId);
-// result.dataFrame, result.fields, result.sourceSchema
+// result.arrowBuffer, result.fields, result.sourceSchema, result.primaryKey
 ```
 
 ### Nested Object Flattening
@@ -104,4 +104,4 @@ export {
 
 - `@dashframe/csv` - CSV parsing utilities
 - `@dashframe/connector-local` - Unified file connector (uses this package)
-- `@dashframe/engine-browser` - DataFrame implementation
+- `@dashframe/engine-server` - Server-owned DataFrame persistence and querying

@@ -332,4 +332,43 @@ describe("encodeInsightDefinition", () => {
       encodeInsightDefinition({ baseTableId: BASE_TABLE_ID, source }),
     ).toHaveProperty("source", source);
   });
+
+  it("persists and decodes declared runtime controls", () => {
+    const runtimeControls = {
+      filters: [
+        {
+          key: "region",
+          filterId: "filter-1",
+          label: "Region",
+          required: true,
+        },
+      ],
+      sort: { allowedFieldIds: [FIELD_ID], maxKeys: 1 },
+      limit: { min: 1, max: 100 },
+    };
+    const definition = encodeInsightDefinition({
+      baseTableId: BASE_TABLE_ID,
+      runtimeControls,
+    });
+
+    expect(definition.runtimeControls).toEqual(runtimeControls);
+    expect(decodeInsight(makeRow({ definition })).runtimeControls).toEqual(
+      runtimeControls,
+    );
+  });
+
+  it("rejects runtime controls with duplicate target filter ids", () => {
+    const row = makeRow({
+      definition: {
+        baseTableId: BASE_TABLE_ID,
+        runtimeControls: {
+          filters: [
+            { key: "one", filterId: "filter-1", label: "One" },
+            { key: "two", filterId: "filter-1", label: "Two" },
+          ],
+        },
+      },
+    });
+    expect(() => decodeInsight(row)).toThrow(/invalid definition/);
+  });
 });

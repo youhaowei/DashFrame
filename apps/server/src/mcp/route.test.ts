@@ -267,8 +267,19 @@ describe("MCP route", () => {
         "read_artifact",
         "read_data",
         "read_source",
+        "fetch_data",
+        "run_insight",
+        "query_data_frame",
         "draft_batch",
       ]);
+      expect(
+        (
+          listed.tools.find((tool) => tool.name === "query_data_frame")!
+            .inputSchema as unknown as {
+            properties: { offset: { maximum: number } };
+          }
+        ).properties.offset.maximum,
+      ).toBe(Number.MAX_SAFE_INTEGER);
       for (const tool of listed.tools) {
         const roundTripped = JSON.parse(JSON.stringify(tool.inputSchema)) as {
           type?: string;
@@ -276,7 +287,16 @@ describe("MCP route", () => {
         };
         expect(roundTripped.type).toBe("object");
         expect(Object.getOwnPropertySymbols(roundTripped)).toHaveLength(0);
-        if (tool.name !== "draft_batch") {
+        if (
+          [
+            "read_neighborhood",
+            "read_graph",
+            "find_nodes",
+            "read_artifact",
+            "read_data",
+            "read_source",
+          ].includes(tool.name)
+        ) {
           expect(roundTripped.properties?.draftId?.description).toBe(
             "Draft id from draft_batch. Pass it to read through that draft's overlay; omit to read canonical state.",
           );
@@ -447,6 +467,35 @@ describe("MCP route", () => {
       expect(
         await project!.db.select().from(schema.draftCommandLog),
       ).toHaveLength(2);
+    } finally {
+      await transport.close();
+    }
+  });
+
+  it("returns data-domain failures as MCP tool errors without exposing internals", async () => {
+    const { client, transport } = await connect();
+    try {
+      const missing = crypto.randomUUID();
+      const calls = [
+        [
+          "fetch_data",
+          {
+            insight: {
+              baseTableId: crypto.randomUUID(),
+              selectedFields: [],
+              metrics: [],
+            },
+          },
+        ],
+        ["run_insight", { insightId: missing }],
+        ["query_data_frame", { dataFrameId: missing, limit: 1 }],
+      ] as const;
+      for (const [name, arguments_] of calls) {
+        const result = await client.callTool({ name, arguments: arguments_ });
+        expect(result.isError).toBe(true);
+        expect(resultText(result)).toBe("The requested data operation failed.");
+        expect(result.structuredContent).toMatchObject({ status: "failed" });
+      }
     } finally {
       await transport.close();
     }

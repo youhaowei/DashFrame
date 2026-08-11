@@ -100,7 +100,7 @@ vi.mock("@wystack/ui-react/icons", async (importOriginal) => {
 });
 
 import { ConfirmDialog } from "../confirm-dialog";
-import { DataPickerContent } from "./DataPickerContent";
+import { DataPickerContent, importRemoteResource } from "./DataPickerContent";
 import { DataPickerModal } from "./DataPickerModal";
 
 const FILE_SOURCE_ID = "file-source-id" as UUID;
@@ -109,6 +109,53 @@ const FILE_TABLE_ID = "file-table-id" as UUID;
 const REMOTE_TABLE_ID = "remote-table-id" as UUID;
 const NEW_TABLE_ID = "new-table-id" as UUID;
 const PARSE_RESULT = {} as FileParseResult;
+
+describe("importRemoteResource", () => {
+  it("prepares schema before the initial unified fetch", async () => {
+    const calls: string[] = [];
+    await expect(
+      importRemoteResource({
+        sourceId: REMOTE_SOURCE_ID,
+        resource: { id: "db-1", title: "Roadmap" },
+        addDataTable: vi.fn(async () => {
+          calls.push("add");
+          return { id: REMOTE_TABLE_ID };
+        }),
+        prepareRemoteDataTable: vi.fn(async () => {
+          calls.push("prepare");
+        }),
+        fetchData: vi.fn(async () => {
+          calls.push("fetch");
+          return { status: "ready" as const };
+        }),
+        removeDataTable: vi.fn(),
+      }),
+    ).resolves.toBe(REMOTE_TABLE_ID);
+    expect(calls).toEqual(["add", "prepare", "fetch"]);
+  });
+
+  it("preserves the fetch error while cleaning up exactly the new table", async () => {
+    const removeDataTable = vi.fn(async () => {
+      throw new Error("cleanup failed");
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(
+      importRemoteResource({
+        sourceId: REMOTE_SOURCE_ID,
+        resource: { id: "db-1", title: "Roadmap" },
+        addDataTable: vi.fn(async () => ({ id: REMOTE_TABLE_ID })),
+        prepareRemoteDataTable: vi.fn(async () => undefined),
+        fetchData: vi.fn(async () => ({
+          status: "failed" as const,
+          message: "Provider unavailable",
+        })),
+        removeDataTable,
+      }),
+    ).rejects.toThrow("Provider unavailable");
+    expect(removeDataTable).toHaveBeenCalledWith({ id: REMOTE_TABLE_ID });
+    errorSpy.mockRestore();
+  });
+});
 
 class TestFileConnector extends FileSourceConnector {
   readonly id = "local";

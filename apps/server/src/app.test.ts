@@ -936,6 +936,45 @@ describe("committed native frame cleanup", () => {
     );
   }
 
+  it("expires only prior-session ephemeral result handles at startup", async () => {
+    project = await openProject({ dir: join(root, "proj") });
+    const ephemeralId = crypto.randomUUID();
+    const durableId = crypto.randomUUID();
+    const arrow = duckdbColumnsToArrowIpc([
+      { name: "value", typeId: 17, values: ["retention"] },
+    ]);
+    await storage.save(ephemeralId, arrow);
+    await storage.save(durableId, arrow);
+    await project.db.insert(schema.dataFrames).values([
+      {
+        id: ephemeralId,
+        storage: { type: "file", key: ephemeralId },
+        fieldIds: [],
+        name: "Live fetch",
+        analysis: { lifecycle: { kind: "serverSession" } },
+      },
+      {
+        id: durableId,
+        storage: { type: "file", key: durableId },
+        fieldIds: [],
+        name: "Saved result",
+        insightId: crypto.randomUUID(),
+        analysis: { lifecycle: { kind: "durable" } },
+      },
+    ]);
+
+    await buildDashframeApp({
+      db: project.db,
+      dataFrameStorage: storage,
+      flushSnapshotRetentionWindow: async () => {},
+    });
+
+    expect(await storage.exists(ephemeralId)).toBe(false);
+    expect(await storage.exists(durableId)).toBe(true);
+    const rows = await project.db.select().from(schema.dataFrames);
+    expect(rows.map((row) => row.id)).toEqual([durableId]);
+  });
+
   it("reports committed deletion, fires onWrite, and eventually retries native unregister", async () => {
     project = await openProject({ dir: join(root, "proj") });
     const seeded = await seedRegisteredFrame("old");

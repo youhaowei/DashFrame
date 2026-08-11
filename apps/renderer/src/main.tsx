@@ -3,16 +3,16 @@ import "@dashframe/app/globals.css";
 import type { AppRouterContext, ProviderWrapper } from "@dashframe/app";
 import {
   ChartEngineProvider,
-  configureServerDataPlane,
   createWyStackRuntime,
   resolveWyStackConfig,
 } from "@dashframe/app";
+import { createServerFrameConnector } from "@dashframe/visualization";
 import { createRouter, RouterProvider } from "@tanstack/react-router";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
-import { createNativeConnector } from "./nativeConnector";
 import { routeTree } from "./routeTree.gen";
+import { isServerFrameEngineLoss } from "./server-frame-engine-loss";
 
 // Router is created at module scope (so `typeof router` registers the type),
 // with an empty context. The runtime context — the WyStack Provider wrapper —
@@ -45,34 +45,25 @@ function renderBootstrapError(error: unknown) {
 // Electron main process starts. Resolve its URL via IPC, mint the client once,
 // and inject the WyStack Provider through the shared app's providerWrapper slot.
 //
-// Desktop chart compute: the native DuckDB engine sits behind the loopback
-// server's Arrow IPC endpoint (`POST /data/arrow`). We build a Mosaic Connector
-// that routes chart queries there and inject it via ChartEngineProvider — no
-// `isElectron` branching in the shared app components. VisualizationSetup reads
-// the connector from context; when present it bypasses DuckDB-WASM.
+// Desktop charts use the same server-frame Mosaic connector as web. The shared
+// tree receives no Electron-specific data-plane injection.
 async function bootstrap() {
   const config = await resolveWyStackConfig();
   const { Provider } = createWyStackRuntime(config);
 
   if (!config.token) {
     throw new Error(
-      "Desktop server info omitted its loopback token; native data plane unavailable",
+      "Desktop server info omitted its loopback token; server frame access unavailable",
     );
   }
-  const nativeConnector = createNativeConnector({
+  const connector = createServerFrameConnector({
     serverUrl: config.url,
     token: config.token,
-  });
-
-  configureServerDataPlane({
-    serverUrl: config.url,
-    token: config.token,
-    connector: nativeConnector,
   });
 
   const providerWrapper: ProviderWrapper = ({ children }) => (
     <Provider>
-      <ChartEngineProvider connector={nativeConnector}>
+      <ChartEngineProvider connector={connector}>
         {children}
       </ChartEngineProvider>
     </Provider>
@@ -101,17 +92,16 @@ bootstrap().catch(renderBootstrapError);
 // have no outer catch) and surface as unhandledrejection events. In Electron,
 // an unhandled rejection in the renderer process kills the page (CDP page count
 // → 0). Catch them here: log and swallow engine-loss rejections only.
-// Pattern matches loopback-specific strings from nativeConnector.ts so we never
+// Pattern matches the server-frame connector strings so we never
 // silence unrelated bugs (see the regex comment below).
 window.addEventListener("unhandledrejection", (event) => {
   const reason = event.reason;
   const msg =
     reason instanceof Error ? reason.message : String(reason ?? "unknown");
   // Intercept only rejections that are clearly from the loopback engine path.
-  // The patterns cover all error strings thrown by nativeConnector.ts:
-  //   "Native engine timed out…"   → fetchWithTimeout AbortError translation
-  //   "Native engine query failed" → non-OK HTTP response on /data/arrow
-  //   "Failed to upload table"     → non-OK HTTP on /data/tables/:name
+  // The patterns cover server-frame connector failures:
+  //   "Chart query timed out" → aborted server-frame query
+  //   "Chart query failed"    → non-OK server-frame response
   //   "Failed to fetch"            → browser network error (ECONNREFUSED) when
   //      the loopback server stops mid-session. This is generic, but on desktop
   //      the only in-session cross-origin fetch is to the loopback engine —
@@ -119,10 +109,7 @@ window.addEventListener("unhandledrejection", (event) => {
   //      Accept this narrow false-positive risk: swallowing a genuine "Failed
   //      to fetch" from another source on the DESKTOP path is very low risk;
   //      failing to swallow a loopback engine-loss rejection crashes the renderer.
-  const isEngineLoss =
-    /native engine|loopback server|local server|127\.0\.0\.1:\d+|data\/arrow|data\/tables|failed to upload|failed to fetch/i.test(
-      msg,
-    );
+  const isEngineLoss = isServerFrameEngineLoss(msg);
   if (isEngineLoss) {
     console.warn(
       "[DashFrame] Swallowed unhandled rejection (engine loss):",

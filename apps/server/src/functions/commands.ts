@@ -54,7 +54,8 @@
  * `{ nodeId }`. Field/metric edits on a derived Insight work with the same
  * command shape as the DataTable case — `resolveNode` dispatches on kind.
  *
- * Operand encoding: value-bearing operands in SetInsightFilter are a TAGGED union:
+ * Operand encoding: the human UI may send ordinary domain literals (including
+ * range values). Agent-authored operands use a TAGGED union:
  *   { kind: 'value'; v: unknown }      (v: null is valid — means IS NULL)
  *   | { kind: 'lateBound'; ref: ... }  (column | category | placeholder)
  * NOT property-presence. This is the mechanism that reconciles capability-parity
@@ -134,6 +135,7 @@ import {
   ensureInsightFilterIds,
   type InsightSource,
   insightSourceSchema,
+  runtimeControlsSchema,
   type StoredInsightDefinition,
   storedInsightDefinitionSchema,
 } from "./insights";
@@ -751,6 +753,42 @@ const createInsight = wy.procedure
     return { id: row.id };
   });
 
+function pruneDefinitionRuntimeControls(
+  definition: StoredInsightDefinition,
+): StoredInsightDefinition {
+  const runtime = definition.runtimeControls;
+  if (!runtime) return definition;
+  const filterIds = new Set(
+    (definition.filters ?? []).flatMap((filter) =>
+      isRecord(filter) && typeof filter.id === "string" ? [filter.id] : [],
+    ),
+  );
+  const resultIds = new Set([
+    ...definition.selectedFields,
+    ...definition.metrics.flatMap((metric) =>
+      isRecord(metric) && typeof metric.id === "string" ? [metric.id] : [],
+    ),
+  ]);
+  const filters = runtime.filters?.filter((control) =>
+    filterIds.has(control.filterId),
+  );
+  const allowedFieldIds = runtime.sort?.allowedFieldIds.filter((fieldId) =>
+    resultIds.has(fieldId),
+  );
+  const runtimeControls = {
+    ...(filters?.length ? { filters } : {}),
+    ...(allowedFieldIds?.length
+      ? { sort: { allowedFieldIds, maxKeys: 1 } }
+      : {}),
+    ...(runtime.limit ? { limit: runtime.limit } : {}),
+  };
+  return {
+    ...definition,
+    runtimeControls:
+      Object.keys(runtimeControls).length > 0 ? runtimeControls : undefined,
+  };
+}
+
 /**
  * SetInsightSource — re-points an Insight's input to a DataTable or another
  * Insight's DataFrame (Insight-on-Insight composition). Rejects a source that
@@ -812,10 +850,12 @@ const selectFields = wy.procedure
   .authorize(permissions.commands.commit)
   .mutation(async (ctx, { id, fieldIds }): Promise<{ ok: true }> => {
     const { definition } = await requireInsightDefinition(ctx, id);
-    const next = requireDefinitionShape("SelectFields", {
-      ...definition,
-      selectedFields: fieldIds,
-    });
+    const next = pruneDefinitionRuntimeControls(
+      requireDefinitionShape("SelectFields", {
+        ...definition,
+        selectedFields: fieldIds,
+      }),
+    );
     await ctx.db
       .from(insights)
       .where(eq("id", id))
@@ -824,11 +864,11 @@ const selectFields = wy.procedure
   });
 
 /**
- * SetInsightFilter — replace-all filter predicates. Each filter value operand
- * is a tagged union `{ kind: 'value', v } | { kind: 'lateBound', ref }` per
- * the tagged-union discriminant requirement (no property-presence).
- * The command stores operands opaquely — validation of the union discriminant
- * is shape-only here; unknown handles fail at publish binding (Draft spec).
+ * SetInsightFilter — replace-all filter predicates. Human UI writes carry raw
+ * domain literals, including `between` ranges. Agent writes use the tagged
+ * `{ kind: 'value', v } | { kind: 'lateBound', ref }` operand; that variant is
+ * discriminated by `kind`, never property presence. The command stores both
+ * forms opaquely; unknown late-bound handles fail at publish binding.
  */
 const setInsightFilter = wy.procedure
   .input({ id: uuid, filters: jsonb })
@@ -842,12 +882,12 @@ const setInsightFilter = wy.procedure
     // `filters` is a required input here, but the definition shape types it as
     // optional, so guard rather than assert — same shape as the patch path in
     // app-artifacts.ts, which must handle a genuinely absent key.
-    const normalized = {
+    const normalized = pruneDefinitionRuntimeControls({
       ...next,
       ...(next.filters === undefined
         ? {}
         : { filters: ensureInsightFilterIds(next.filters) }),
-    };
+    });
     await ctx.db
       .from(insights)
       .where(eq("id", id))
@@ -872,6 +912,48 @@ const setInsightSort = wy.procedure
       .from(insights)
       .where(eq("id", id))
       .update({ definition: next });
+    return { ok: true };
+  });
+
+/** Replace the explicitly authored runtime surface after validating its targets. */
+const setInsightRuntimeControls = wy.procedure
+  .input({ id: uuid, runtimeControls: jsonb.optional() })
+  .authorize(permissions.commands.commit)
+  .mutation(async (ctx, { id, runtimeControls }): Promise<{ ok: true }> => {
+    const { definition } = await requireInsightDefinition(ctx, id);
+    const parsed = runtimeControlsSchema.optional().safeParse(runtimeControls);
+    if (!parsed.success) {
+      throw new Error(
+        `SetInsightRuntimeControls: declaration is invalid: ${parsed.error.message}`,
+      );
+    }
+    const filterIds = new Set(
+      (definition.filters ?? []).flatMap((filter) =>
+        isRecord(filter) && typeof filter.id === "string" ? [filter.id] : [],
+      ),
+    );
+    const resultFieldIds = new Set([
+      ...definition.selectedFields,
+      ...definition.metrics.flatMap((metric) =>
+        isRecord(metric) && typeof metric.id === "string" ? [metric.id] : [],
+      ),
+    ]);
+    if (
+      parsed.data?.filters?.some((control) => !filterIds.has(control.filterId))
+    ) {
+      throw new Error("SetInsightRuntimeControls: filter target not found");
+    }
+    if (
+      parsed.data?.sort?.allowedFieldIds.some(
+        (fieldId) => !resultFieldIds.has(fieldId),
+      )
+    ) {
+      throw new Error("SetInsightRuntimeControls: sort field not found");
+    }
+    await ctx.db
+      .from(insights)
+      .where(eq("id", id))
+      .update({ definition: { ...definition, runtimeControls: parsed.data } });
     return { ok: true };
   });
 
@@ -1152,10 +1234,10 @@ async function patchInsightSelectedFields(
     const idx = selected.indexOf(op.itemId);
     selected.splice(idx, 1);
   }
-  const nextDefinition: StoredInsightDefinition = {
+  const nextDefinition = pruneDefinitionRuntimeControls({
     ...definition,
     selectedFields: selected,
-  };
+  });
   await ctx.db
     .from(insights)
     .where(eq("id", nodeId))
@@ -1212,7 +1294,10 @@ async function patchDataTableCollection(
       const merged = next.find((item) => item.id === op.itemId);
       requireInsightMetricShape(merged);
     }
-    const nextDefinition = { ...definition, metrics: next };
+    const nextDefinition = pruneDefinitionRuntimeControls({
+      ...definition,
+      metrics: next,
+    });
     await ctx.db
       .from(insights)
       .where(eq("id", nodeId))
@@ -1985,7 +2070,8 @@ async function findOrphanedInsights(
  * The `dataFrames` table stores metadata only. For server-file rows, the
  * server app reconciles unreferenced files after the enclosing command
  * transaction commits; a rolled-back batch therefore never loses live bytes.
- * Retained IndexedDB rows are still cleaned by the client data-access hook.
+ * Retained IndexedDB rows are outside the server-owned v0.3 data plane. An
+ * Insight carrying one fails deletion rather than orphaning browser bytes.
  */
 async function deleteInsightDataFrames(
   ctx: { db: import("@wystack/db").DrizzleTracker },
@@ -1995,6 +2081,13 @@ async function deleteInsightDataFrames(
     .from(dataFrames)
     .where(eq("insightId", insightId))
     .all();
+  if (
+    owned.some(
+      (frame) => (frame.storage as { type?: unknown } | null)?.type !== "file",
+    )
+  ) {
+    throw new Error("Legacy browser DataFrames are not supported");
+  }
   for (const frame of owned) {
     const references = await ctx.db
       .from(dataTables)
@@ -2462,6 +2555,7 @@ export const commandFunctions = {
   selectFields,
   setInsightFilter,
   setInsightSort,
+  setInsightRuntimeControls,
   addJoin,
   updateJoin,
   removeJoin,

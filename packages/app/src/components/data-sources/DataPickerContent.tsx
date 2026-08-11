@@ -5,23 +5,18 @@ import {
   type RemoteResource,
   type SupportedRemoteConnectorId,
 } from "@/lib/remote-connector-onboarding";
-import {
-  reviewUnclassifiedRemoteFields,
-  type RemoteFieldReviewRequest,
-} from "@/lib/remote-field-review";
 import { useConfirmDialogStore, type ConfirmDialogConfig } from "@/lib/stores";
 import { api } from "@/wystack/api";
 import type {
   FileSourceConnector,
   RemoteApiConnector,
 } from "@dashframe/engine";
-import type { CreateDataSourceInput, Field, UUID } from "@dashframe/types";
-import {
-  cmd,
-  COMMAND_PATHS,
-  getFieldSensitivity,
-  resultValueByCommandPath,
+import type {
+  CreateDataSourceInput,
+  InsightFetchDefinition,
+  UUID,
 } from "@dashframe/types";
+import { cmd, COMMAND_PATHS, resultValueByCommandPath } from "@dashframe/types";
 import { useMutation, useQuery } from "@wystack/client";
 import { Button, SectionList } from "@wystack/ui-react";
 import { ArrowLeftIcon } from "@wystack/ui-react/icons";
@@ -32,23 +27,6 @@ import { DataTableList } from "./DataTableList";
 import { InsightList, type InsightDisplayInfo } from "./InsightList";
 
 const FILE_TABLE_NAME_EXTENSION = /\.(csv|xlsx?|json)$/i;
-
-function requestRemoteFieldReview(
-  confirm: (config: ConfirmDialogConfig) => void,
-  resourceTitle: string,
-  { field, position, total }: RemoteFieldReviewRequest,
-): Promise<boolean> {
-  return new Promise((resolve) => {
-    confirm({
-      title: `Review column ${position} of ${total}`,
-      description: `DashFrame will store “${field.name}” from ${resourceTitle} locally. Confirm that this specific column contains no sensitive data.`,
-      confirmLabel: "Clear this column",
-      cancelLabel: "Cancel import",
-      onConfirm: () => resolve(true),
-      onCancel: () => resolve(false),
-    });
-  });
-}
 
 function requestFileTableReplacement(
   confirm: (config: ConfirmDialogConfig) => void,
@@ -110,6 +88,53 @@ interface RemoteResourceState {
   resources: RemoteResource[];
 }
 
+class RemoteImportUserError extends Error {}
+
+export async function importRemoteResource(args: {
+  sourceId: UUID;
+  resource: { id: string; title: string };
+  addDataTable: (input: {
+    dataSourceId: UUID;
+    name: string;
+    table: string;
+  }) => Promise<{ id: UUID }>;
+  prepareRemoteDataTable: (input: { id: UUID }) => Promise<unknown>;
+  fetchData: (input: {
+    insight: InsightFetchDefinition;
+  }) => Promise<{ status: "ready" } | { status: "failed"; message: string }>;
+  removeDataTable: (input: { id: UUID }) => Promise<unknown>;
+}): Promise<UUID> {
+  let tableId: UUID | null = null;
+  try {
+    tableId = (
+      await args.addDataTable({
+        dataSourceId: args.sourceId,
+        name: args.resource.title,
+        table: args.resource.id,
+      })
+    ).id;
+    await args.prepareRemoteDataTable({ id: tableId });
+    const result = await args.fetchData({
+      insight: { baseTableId: tableId, selectedFields: [], metrics: [] },
+    });
+    if (result.status === "failed")
+      throw new RemoteImportUserError(result.message);
+    return tableId;
+  } catch (cause) {
+    if (tableId) {
+      try {
+        await args.removeDataTable({ id: tableId });
+      } catch (cleanupError) {
+        console.error(
+          "Failed to clean up remote table onboarding",
+          cleanupError,
+        );
+      }
+    }
+    throw cause;
+  }
+}
+
 /**
  * Reusable data picker content for selecting insights or tables.
  *
@@ -140,23 +165,18 @@ export function DataPickerContent({
   const { mutateAsync: removeDataSource } = useMutation(api.removeDataSource);
   const { mutateAsync: addDataTable } = useMutation(api.addDataTable);
   const { mutateAsync: removeDataTable } = useMutation(api.removeDataTable);
+  const { mutateAsync: prepareRemoteDataTable } = useMutation(
+    api.prepareRemoteDataTable,
+  );
+  const { mutateAsync: fetchData } = useMutation(api.fetchData);
   const { mutateAsync: listNotionDatabasesMutation } = useMutation(
     api.listNotionDatabases,
-  );
-  const { mutateAsync: queryNotionDatabaseMutation } = useMutation(
-    api.queryNotionDatabase,
   );
   const { mutateAsync: listPostgresTablesMutation } = useMutation(
     api.listPostgresTables,
   );
-  const { mutateAsync: queryPostgresTableMutation } = useMutation(
-    api.queryPostgresTable,
-  );
   const { mutateAsync: listGa4PropertiesMutation } = useMutation(
     api.listGa4Properties,
-  );
-  const { mutateAsync: queryGa4PropertyMutation } = useMutation(
-    api.queryGa4Property,
   );
   const confirm = useConfirmDialogStore((state) => state.confirm);
 
@@ -456,87 +476,31 @@ export function DataPickerContent({
       if (!remoteResourceState) return;
       setImportingResourceId(resource.id);
       setError(null);
-      let tableId: UUID | null = null;
       try {
-        tableId = (
-          await addDataTable({
-            dataSourceId: remoteResourceState.sourceId,
-            name: resource.title,
-            table: resource.id,
-          })
-        ).id;
-        const queryResource = (snapshot = false, approvedFields?: Field[]) => {
-          const snapshotRequest = snapshot
-            ? { snapshot: true, approvedFields }
-            : { limit: 100 };
-          if (remoteResourceState.connectorId === "notion") {
-            return queryNotionDatabaseMutation({
-              dataSourceId: remoteResourceState.sourceId,
-              databaseId: resource.id,
-              tableId: tableId!,
-              ...snapshotRequest,
-            });
-          }
-          if (remoteResourceState.connectorId === "postgres") {
-            return queryPostgresTableMutation({
-              dataSourceId: remoteResourceState.sourceId,
-              databaseId: resource.id,
-              tableId: tableId!,
-              ...snapshotRequest,
-            });
-          }
-          // The property is read from the DataTable row just created above,
-          // so it cannot drift from the resource the user picked.
-          return queryGa4PropertyMutation({
-            dataSourceId: remoteResourceState.sourceId,
-            tableId: tableId!,
-            ...snapshotRequest,
-          });
-        };
-        const result = await queryResource();
-        const explicitlySensitive = result.fields.some(
-          (field) => getFieldSensitivity(field) === "sensitive",
-        );
-        if (explicitlySensitive) {
-          throw new Error("Sensitive remote columns cannot be cached locally");
-        }
-
-        const reviewedFields = await reviewUnclassifiedRemoteFields(
-          result.fields,
-          (request) =>
-            requestRemoteFieldReview(confirm, resource.title, request),
-        );
-        if (!reviewedFields) {
-          await removeDataTable({ id: tableId });
-          tableId = null;
-          return;
-        }
-
-        await queryResource(true, reviewedFields);
+        const tableId = await importRemoteResource({
+          sourceId: remoteResourceState.sourceId,
+          resource,
+          addDataTable,
+          prepareRemoteDataTable,
+          fetchData,
+          removeDataTable,
+        });
         onTableSelect(tableId, resource.title);
-      } catch {
-        const cleanupResults = await Promise.allSettled([
-          ...(tableId ? [removeDataTable({ id: tableId })] : []),
-        ]);
-        const cleanupFailed = cleanupResults.some(
-          ({ status }) => status === "rejected",
-        );
-        setError(
-          cleanupFailed
-            ? "The import failed and cleanup could not finish. Remove the partial table from Data Sources before retrying."
-            : "Couldn't import this table. Check the connection and try again.",
-        );
+      } catch (cause) {
+        const stableError =
+          cause instanceof RemoteImportUserError
+            ? cause.message
+            : "Couldn't fetch this table. Check the connection and try again.";
+        setError(stableError);
       } finally {
         setImportingResourceId(null);
       }
     },
     [
-      queryNotionDatabaseMutation,
       addDataTable,
       onTableSelect,
-      queryPostgresTableMutation,
-      queryGa4PropertyMutation,
-      confirm,
+      fetchData,
+      prepareRemoteDataTable,
       remoteResourceState,
       removeDataTable,
     ],

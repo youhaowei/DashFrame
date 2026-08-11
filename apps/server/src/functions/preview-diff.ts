@@ -212,6 +212,12 @@ const COMMAND_DESCRIPTORS: Record<CommandPath, CommandDescriptor> = {
     change: "update",
     summary: () => "Set insight sort",
   },
+  setInsightRuntimeControls: {
+    kind: "insight",
+    targetId: byId,
+    change: "update",
+    summary: () => "Set insight runtime controls",
+  },
   addJoin: {
     kind: "insight",
     targetId: byId,
@@ -330,6 +336,7 @@ const PATH_TO_NAME: Record<CommandPath, string> = {
   selectFields: "SelectFields",
   setInsightFilter: "SetInsightFilter",
   setInsightSort: "SetInsightSort",
+  setInsightRuntimeControls: "SetInsightRuntimeControls",
   addJoin: "AddJoin",
   updateJoin: "UpdateJoin",
   removeJoin: "RemoveJoin",

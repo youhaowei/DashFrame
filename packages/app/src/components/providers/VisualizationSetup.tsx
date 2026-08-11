@@ -5,10 +5,8 @@ import {
   registerRenderer,
   useVisualization,
 } from "@dashframe/visualization";
-import { ErrorState } from "@wystack/ui-react";
 import { Component, useCallback, useEffect, type ReactNode } from "react";
 import { useChartEngine } from "./ChartEngineProvider";
-import { useDuckDBContext } from "./DuckDBProvider";
 
 // ============================================================================
 // Renderer Registration
@@ -142,12 +140,7 @@ interface VisualizationSetupProps {
  */
 export function VisualizationSetup({ children }: VisualizationSetupProps) {
   const { connector } = useChartEngine();
-  const { isLoading, error, initDuckDB } = useDuckDBContext();
   const { showError } = useToastStore();
-
-  const handleRetry = useCallback(() => {
-    initDuckDB();
-  }, [initDuckDB]);
 
   // Callback fired by VisualizationBoundary on a render-phase throw. A
   // mid-session crash is a momentary event (the renderer survived; charts got
@@ -170,16 +163,6 @@ export function VisualizationSetup({ children }: VisualizationSetupProps) {
 
   // ── Native engine path (desktop host supplied a connector) ──────────────
   if (connector) {
-    const serverErrorBanner =
-      error && !isLoading ? (
-        <ErrorState
-          title="Failed to initialize data engine"
-          description={error.message}
-          retryAction={{ label: "Retry", onClick: handleRetry }}
-          className="min-h-[200px]"
-        />
-      ) : null;
-
     // VisualizationBoundary wraps the provider's setup components (renderer
     // registration and server error banner) but NOT {children}. Children include the full
     // Shell — navigation, the <Toaster>, route outlets — all of which must stay
@@ -202,26 +185,9 @@ export function VisualizationSetup({ children }: VisualizationSetupProps) {
       <VisualizationProvider connector={connector}>
         <VisualizationBoundary fallback={null} onError={handleBoundaryError}>
           <RendererRegistration />
-          {serverErrorBanner}
         </VisualizationBoundary>
         {children}
       </VisualizationProvider>
-    );
-  }
-
-  // No connector means the supported server data plane is unavailable. Keep
-  // navigation usable, but never activate the retained WASM engine implicitly.
-  if (error) {
-    return (
-      <>
-        <ErrorState
-          title="Failed to initialize data engine"
-          description={error.message}
-          retryAction={{ label: "Retry", onClick: handleRetry }}
-          className="min-h-[200px]"
-        />
-        {children}
-      </>
     );
   }
 

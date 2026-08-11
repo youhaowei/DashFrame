@@ -13,6 +13,17 @@ interface DataPreviewSectionProps {
   combinedFieldCount: number;
 }
 
+/** Build the typed ephemeral definition for raw joined authoring preview. */
+export function buildJoinPreviewInsight(insight: Insight): Insight {
+  return {
+    ...insight,
+    selectedFields: [],
+    metrics: [],
+    filters: undefined,
+    sorts: undefined,
+  };
+}
+
 /**
  * DataPreviewSection - Data preview with toggle between Join Preview and Insight Result
  *
@@ -63,11 +74,15 @@ export const DataPreviewSection = memo(function DataPreviewSection({
   // Check if a mode is activated (for lazy hook initialization)
   const isJoinActivated = modeState.activated.has("join");
   const isResultActivated = modeState.activated.has("result");
+  const joinPreviewInsight = useMemo(
+    () => buildJoinPreviewInsight(insight),
+    [insight],
+  );
 
   // Only run hooks for activated modes (lazy initialization)
-  // This prevents the expensive ensureTableLoaded from running twice on initial load
+  // This prevents duplicate live materialization on the initial load.
   const joinPagination = useInsightPagination({
-    insight,
+    insight: joinPreviewInsight,
     showModelPreview: true,
     enabled: isJoinActivated,
   });

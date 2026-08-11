@@ -1,166 +1,112 @@
-import { useDuckDB } from "@/components/providers/DuckDBProvider";
-import { getDataFrame } from "@/lib/data-access/data-frames";
-import { api } from "@/wystack/api";
+import { queryDataFrame } from "@/lib/data-access/data-frames";
 import type { UUID } from "@dashframe/types";
 import type { FetchDataParams, FetchDataResult } from "@dashframe/ui";
-import { useQuery } from "@wystack/client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
-/**
- * Hook for paginated DataFrame queries via DuckDB
- *
- * Provides a `fetchData` callback compatible with VirtualTable's async mode.
- * Uses DuckDB LIMIT/OFFSET for efficient server-side pagination.
- *
- * Triggers lazy DuckDB initialization on first call and reflects loading state
- * via the `isReady` flag while DuckDB initializes.
- *
- * @example
- * ```tsx
- * const { fetchData, totalCount, columns, isReady } = useDataFramePagination(dataFrameId);
- *
- * return isReady ? (
- *   <VirtualTable onFetchData={fetchData} />
- * ) : (
- *   <LoadingSpinner />
- * );
- * ```
- */
+const MAX_PAGE_SIZE = 500;
+
+/** Paginate a server-owned DataFrame without loading it into browser DuckDB. */
 export function useDataFramePagination(dataFrameId: UUID | undefined) {
-  const { connection, isInitialized, isLoading: isDuckDBLoading } = useDuckDB();
-  const { data: allDataFrames } = useQuery(api.listDataFrames);
-
-  const entry = useMemo(
-    () => allDataFrames?.find((df) => df.id === dataFrameId),
-    [allDataFrames, dataFrameId],
-  );
-
-  const [totalCount, setTotalCount] = useState<number>(0);
+  const [totalCount, setTotalCount] = useState(0);
   const [columns, setColumns] = useState<{ name: string; type?: string }[]>([]);
   const [isReady, setIsReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const fieldIdsByName = useRef(new Map<string, UUID>());
+  const generation = useRef(0);
+  const activeDataFrameId = useRef<UUID | undefined>(dataFrameId);
 
-  // Generation counter: incremented on every effect run so stale async
-  // completions from a superseded dataFrameId never overwrite current state.
-  const genRef = useRef(0);
+  useLayoutEffect(() => {
+    activeDataFrameId.current = dataFrameId;
+    generation.current += 1;
+  }, [dataFrameId]);
 
-  // Fetch total count and column info on mount
   useEffect(() => {
-    if (!dataFrameId || !connection || !isInitialized || isDuckDBLoading) {
-      // Bump the token on the skip path too. If the hook flips to skipped /
-      // no-id while a prior init is in flight (dataFrameId cleared, or DuckDB
-      // goes unavailable on a mounted component), incrementing here invalidates
-      // that in-flight init's gen check so its stale result is discarded
-      // instead of landing over the now-skipped state.
-      ++genRef.current;
-      requestAnimationFrame(() => setIsReady(false));
+    const current = generation.current;
+    if (!dataFrameId) {
+      queueMicrotask(() => {
+        if (current !== generation.current) return;
+        setTotalCount(0);
+        setColumns([]);
+        fieldIdsByName.current = new Map();
+        setError(null);
+        setIsReady(false);
+      });
       return;
     }
-
-    // Capture token before the first await — any earlier in-flight init that
-    // resolves after this point will see a stale token and discard its results.
-    const gen = ++genRef.current;
-
-    const init = async () => {
-      try {
-        const dataFrame = await getDataFrame(dataFrameId);
-        if (gen !== genRef.current) return; // superseded
-        if (!dataFrame) {
-          setError(`DataFrame not found: ${dataFrameId}`);
+    queueMicrotask(() => {
+      if (current !== generation.current) return;
+      fieldIdsByName.current = new Map();
+      setIsReady(false);
+      setError(null);
+    });
+    queryDataFrame(dataFrameId, { offset: 0, limit: 1 }).then(
+      (result) => {
+        if (current !== generation.current) return;
+        if (result.status === "failed") {
+          setTotalCount(0);
+          setColumns([]);
+          fieldIdsByName.current = new Map();
+          setError(result.message);
           setIsReady(false);
           return;
         }
+        setTotalCount(result.totalCount);
+        fieldIdsByName.current = new Map(
+          result.schema.map(({ id, name }) => [name, id]),
+        );
+        setColumns(result.schema.map(({ name, type }) => ({ name, type })));
+        setIsReady(true);
+      },
+      (cause: unknown) => {
+        if (current !== generation.current) return;
+        setTotalCount(0);
+        setColumns([]);
+        fieldIdsByName.current = new Map();
+        setError(
+          cause instanceof Error ? cause.message : "Failed to initialize",
+        );
+        setIsReady(false);
+      },
+    );
+  }, [dataFrameId]);
 
-        // Load table into DuckDB and get count
-        const queryBuilder = await dataFrame.load(connection);
-        if (gen !== genRef.current) return; // superseded
-
-        // Get total count
-        const countSql = `SELECT COUNT(*) as count FROM (${await queryBuilder.sql()})`;
-        const countResult = await connection.query(countSql);
-        if (gen !== genRef.current) return; // superseded
-        const count = Number(countResult.toArray()[0]?.count ?? 0);
-        setTotalCount(count);
-
-        // Get column info from first row
-        const previewSql = await queryBuilder.limit(1).sql();
-        const previewResult = await connection.query(previewSql);
-        if (gen !== genRef.current) return; // superseded
-        const rows = previewResult.toArray() as Record<string, unknown>[];
-
-        const cols =
-          rows.length > 0
-            ? Object.keys(rows[0]!)
-                .filter((key) => !key.startsWith("_"))
-                .map((name) => ({ name }))
-            : [];
-        requestAnimationFrame(() => {
-          if (gen !== genRef.current) return; // superseded inside rAF
-          setColumns(cols);
-        });
-
-        requestAnimationFrame(() => {
-          if (gen !== genRef.current) return; // superseded inside rAF
-          setIsReady(true);
-          setError(null);
-        });
-      } catch (err) {
-        console.error("Failed to initialize DataFrame pagination:", err);
-        if (gen !== genRef.current) return; // superseded
-        requestAnimationFrame(() => {
-          if (gen !== genRef.current) return; // superseded inside rAF
-          setError(err instanceof Error ? err.message : "Failed to initialize");
-          setIsReady(false);
-        });
-      }
-    };
-
-    init();
-  }, [dataFrameId, connection, isInitialized, isDuckDBLoading, entry]);
-
-  // Fetch callback for VirtualTable
   const fetchData = useCallback(
     async (params: FetchDataParams): Promise<FetchDataResult> => {
-      if (!dataFrameId || !connection || !isInitialized || isDuckDBLoading) {
+      if (!dataFrameId) return { rows: [], totalCount: 0 };
+      const current = generation.current;
+      const requestedDataFrameId = dataFrameId;
+      const result = await queryDataFrame(dataFrameId, {
+        offset: params.offset,
+        limit: Math.min(params.limit, MAX_PAGE_SIZE),
+        sort:
+          params.sortColumn &&
+          params.sortDirection &&
+          fieldIdsByName.current.has(params.sortColumn)
+            ? [
+                {
+                  fieldId: fieldIdsByName.current.get(params.sortColumn)!,
+                  direction: params.sortDirection,
+                },
+              ]
+            : undefined,
+      });
+      if (
+        current !== generation.current ||
+        activeDataFrameId.current !== requestedDataFrameId
+      )
         return { rows: [], totalCount: 0 };
-      }
-
-      const dataFrame = await getDataFrame(dataFrameId);
-      if (!dataFrame) {
-        return { rows: [], totalCount: 0 };
-      }
-
-      try {
-        let queryBuilder = await dataFrame.load(connection);
-
-        // Apply sorting if specified
-        if (params.sortColumn && params.sortDirection) {
-          queryBuilder = queryBuilder.sort([
-            { columnName: params.sortColumn, direction: params.sortDirection },
-          ]);
-        }
-
-        // Apply pagination
-        queryBuilder = queryBuilder.limit(params.limit).offset(params.offset);
-
-        const sql = await queryBuilder.sql();
-        const result = await connection.query(sql);
-        const rows = result.toArray() as Record<string, unknown>[];
-
-        return { rows, totalCount };
-      } catch (err) {
-        console.error("Failed to fetch DataFrame page:", err);
-        return { rows: [], totalCount: 0 };
-      }
+      return result.status === "ready"
+        ? { rows: result.rows, totalCount: result.totalCount }
+        : { rows: [], totalCount: 0 };
     },
-    [dataFrameId, connection, isInitialized, isDuckDBLoading, totalCount],
+    [dataFrameId],
   );
 
-  return {
-    fetchData,
-    totalCount,
-    columns,
-    isReady,
-    error,
-  };
+  return { fetchData, totalCount, columns, isReady, error };
 }

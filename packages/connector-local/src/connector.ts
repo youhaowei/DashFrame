@@ -13,6 +13,10 @@
 
 import { csvToDataFrame, parseCSV } from "@dashframe/csv";
 import {
+  LOCAL_FILE_HELPER_TEXT,
+  LOCAL_FILE_SOURCE_LIMIT_MB,
+} from "@dashframe/engine";
+import {
   FileSourceConnector,
   type FileParseResult,
   type FormField,
@@ -65,9 +69,8 @@ export class LocalFileConnector extends FileSourceConnector {
   readonly description = "Upload a CSV or JSON file from your computer.";
   readonly icon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="M9 15l3-3 3 3"/></svg>`;
   readonly accept = ".csv,.json,text/csv,application/json";
-  readonly maxSizeMB = 100;
-  readonly helperText =
-    "Supports CSV and JSON files up to 100MB (stored locally)";
+  readonly maxSizeMB = LOCAL_FILE_SOURCE_LIMIT_MB;
+  readonly helperText = LOCAL_FILE_HELPER_TEXT;
 
   getFormFields(): FormField[] {
     // No additional configuration needed

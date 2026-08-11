@@ -1,82 +1,92 @@
 import { setWyStackClient } from "@/wystack/client";
-import type { DataFrame, UUID } from "@dashframe/types";
+import { MAX_LOCAL_ARROW_BYTES, type UUID } from "@dashframe/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { getDataFrame, replaceDataFrame } from "./data-frames";
 
-const { mockDeleteArrowData, mockMutate, mockQuery } = vi.hoisted(() => ({
-  mockDeleteArrowData: vi.fn(),
+import { ingestLocalDataFrame, queryDataFrame } from "./data-frames";
+
+const { mockMutate, mockQuery } = vi.hoisted(() => ({
   mockMutate: vi.fn(),
   mockQuery: vi.fn(),
 }));
 
-vi.mock("@dashframe/engine-browser", () => ({
-  DataFrame: class {},
-  QueryBuilder: class {},
-  deleteArrowData: mockDeleteArrowData,
-}));
 vi.mock("@/wystack/api", () => ({
   api: {
-    getDataFrameEntry: "getDataFrameEntry",
-    updateDataFrameEntry: "updateDataFrameEntry",
+    ingestLocalDataFrame: "ingestLocalDataFrame",
+    queryDataFrame: "queryDataFrame",
   },
 }));
 
-const DATA_FRAME_ID = "data-frame-id" as UUID;
+const DATA_FRAME_ID = "10000000-0000-4000-8000-000000000001" as UUID;
+const DATA_TABLE_ID = "10000000-0000-4000-8000-000000000002" as UUID;
 
-describe("replaceDataFrame", () => {
+describe("server-owned DataFrame access", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockQuery.mockResolvedValue(undefined);
-    mockMutate.mockResolvedValue({ ok: true });
     setWyStackClient({ query: mockQuery, mutate: mockMutate } as never);
   });
 
-  it("clears stale column analysis while replacing frame storage", async () => {
-    const replacementFrame = {
-      id: DATA_FRAME_ID,
-      toJSON: () => ({
-        id: DATA_FRAME_ID,
-        storage: { type: "indexeddb", key: "replacement-arrow" },
-        fieldIds: ["new-field-id" as UUID],
-        primaryKey: "new-field-id",
-        createdAt: 123,
-      }),
-    } as DataFrame;
-
-    await replaceDataFrame(DATA_FRAME_ID, replacementFrame, {
-      rowCount: 20,
+  it("hands local Arrow bytes to the narrow onboarding mutation", async () => {
+    mockMutate.mockResolvedValue({
+      dataFrameId: DATA_FRAME_ID,
+      rowCount: 2,
       columnCount: 1,
     });
 
-    expect(mockMutate).toHaveBeenCalledWith("updateDataFrameEntry", {
-      id: DATA_FRAME_ID,
-      updates: expect.objectContaining({
-        storage: { type: "indexeddb", key: "replacement-arrow" },
-        fieldIds: ["new-field-id"],
-        primaryKey: "new-field-id",
-        createdAt: 123,
-        rowCount: 20,
-        columnCount: 1,
-        analysis: null,
-      }),
+    await ingestLocalDataFrame(DATA_TABLE_ID, new Uint8Array([1, 2, 3]), "id");
+
+    expect(mockMutate).toHaveBeenCalledWith("ingestLocalDataFrame", {
+      dataTableId: DATA_TABLE_ID,
+      arrowBase64: "AQID",
+      primaryKey: "id",
     });
   });
 
-  it("constructs a server reference instead of BrowserDataFrame for file storage", async () => {
-    mockQuery.mockResolvedValue({
-      id: DATA_FRAME_ID,
-      storage: { type: "file", key: DATA_FRAME_ID },
-      fieldIds: [],
-      createdAt: 123,
-      name: "Remote frame",
+  it("forwards replacement metadata and the expected prior pointer", async () => {
+    const replacement = {
+      expectedDataFrameId: DATA_FRAME_ID,
+      name: "Orders v2",
+      table: "orders-v2.csv",
+      sourceSchema: { columns: [], version: 1, lastSyncedAt: 1 },
+      fields: [],
+      metrics: [],
+    };
+    mockMutate.mockResolvedValue({ dataFrameId: DATA_FRAME_ID });
+
+    await ingestLocalDataFrame(
+      DATA_TABLE_ID,
+      new Uint8Array([1, 2, 3]),
+      undefined,
+      replacement,
+    );
+
+    expect(mockMutate).toHaveBeenCalledWith("ingestLocalDataFrame", {
+      dataTableId: DATA_TABLE_ID,
+      arrowBase64: "AQID",
+      primaryKey: undefined,
+      replacement,
     });
+  });
 
-    const frame = await getDataFrame(DATA_FRAME_ID);
+  it("rejects oversized encoded Arrow before base64 allocation or transport", async () => {
+    const oversized = {
+      byteLength: MAX_LOCAL_ARROW_BYTES + 1,
+    } as Uint8Array;
 
-    expect(frame?.getStorageType()).toBe("Server File");
-    expect(frame?.toJSON().storage).toEqual({
-      type: "file",
-      key: DATA_FRAME_ID,
+    await expect(
+      ingestLocalDataFrame(DATA_TABLE_ID, oversized),
+    ).rejects.toThrow("Encoded local data exceeds the 100MB ingestion limit");
+    expect(mockMutate).not.toHaveBeenCalled();
+  });
+
+  it("queries rows only through the bounded server frame surface", async () => {
+    mockQuery.mockResolvedValue({ status: "ready", rows: [] });
+
+    await queryDataFrame(DATA_FRAME_ID, { offset: 25, limit: 50 });
+
+    expect(mockQuery).toHaveBeenCalledWith("queryDataFrame", {
+      dataFrameId: DATA_FRAME_ID,
+      offset: 25,
+      limit: 50,
     });
   });
 });

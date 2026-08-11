@@ -21,12 +21,16 @@ describe("permissions", () => {
     expect(permissions.commands.draft.id).toBe("commands.draft");
     expect(permissions.commands.preview.id).toBe("commands.preview");
     expect(permissions.connectors.setup.id).toBe("connectors.setup");
+    expect(permissions.data.fetchData.id).toBe("data.fetchData");
+    expect(permissions.insights.runInsight.id).toBe("insights.runInsight");
     expect(expectedPermissionIds).toEqual([
       "accessCredentials.manage",
       "commands.commit",
       "commands.draft",
       "commands.preview",
       "connectors.setup",
+      "data.fetchData",
+      "insights.runInsight",
     ]);
   });
 
@@ -121,6 +125,31 @@ describe("permissions", () => {
     });
     await expect(
       evaluate(service.principal, permissions.commands.commit, service),
+    ).resolves.toBe(false);
+  });
+
+  it("allows either well-formed principal to fetch and run Insights without reusing command commit", async () => {
+    for (const principal of [
+      { kind: "user" as const, userId: LOCAL_USER_ID },
+      { kind: "service" as const, credentialId: "credential-1" },
+    ]) {
+      const ctx = context(principal);
+      await expect(
+        evaluate(ctx.principal, permissions.data.fetchData, ctx),
+      ).resolves.toBe(true);
+      await expect(
+        evaluate(ctx.principal, permissions.insights.runInsight, ctx),
+      ).resolves.toBe(true);
+    }
+  });
+
+  it("denies anonymous live Insight actions", async () => {
+    const anonymous = context(undefined);
+    await expect(
+      evaluate(anonymous.principal, permissions.data.fetchData, anonymous),
+    ).resolves.toBe(false);
+    await expect(
+      evaluate(anonymous.principal, permissions.insights.runInsight, anonymous),
     ).resolves.toBe(false);
   });
 

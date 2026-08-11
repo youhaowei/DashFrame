@@ -25,6 +25,10 @@ vi.mock("@/hooks/useInsightView", () => ({
   useInsightView: () => mockUseInsightView(),
 }));
 
+vi.mock("@/hooks/useInsightPagination", () => ({
+  useInsightPagination: () => ({ resolvedFields: [] }),
+}));
+
 const { mockUseInsight, mockUseDataTables } = vi.hoisted(() => ({
   mockUseInsight: vi.fn(),
   mockUseDataTables: vi.fn(),
@@ -46,7 +50,7 @@ vi.mock("@dashframe/engine", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@dashframe/engine")>();
   return {
     ...actual,
-    resolveEncodingToSql: vi.fn().mockReturnValue({}),
+    resolveEncodingToResultFrame: vi.fn().mockReturnValue({}),
   };
 });
 

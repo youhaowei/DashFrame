@@ -52,6 +52,8 @@ import {
   computeNewOverridesOnClear,
   deriveFieldState,
   hasOverrides,
+  resolveDeclaredRuntimeFilterId,
+  withDeclaredFilterId,
 } from "./override-field-row-utils";
 import { OverrideFieldRow } from "./OverrideFieldRow";
 
@@ -372,12 +374,26 @@ export function OverridePopover({
     persistOverride({
       kind: "filter",
       field: fieldName,
-      value: filter,
+      value: withDeclaredFilterId(
+        fieldName,
+        filter,
+        insight?.filters,
+        insight?.runtimeControls?.filters,
+      ),
     });
   }
 
   function handleClear(fieldName: string) {
-    const next = computeNewOverridesOnClear(fieldName, item.overrides);
+    const declaredFilterId = resolveDeclaredRuntimeFilterId(
+      fieldName,
+      insight?.filters,
+      insight?.runtimeControls?.filters,
+    );
+    const next = computeNewOverridesOnClear(
+      fieldName,
+      item.overrides,
+      declaredFilterId,
+    );
     const value =
       next.filters?.find((filter) => filter.field === fieldName) ?? null;
     persistOverride({

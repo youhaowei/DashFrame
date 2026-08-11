@@ -91,6 +91,7 @@ type DataFrameEntry = DataFrameJSON & {
   // doesn't read the clearing branch as dead code and revert it.
   analysis?: DataFrameAnalysis | null;
   lastRefreshedAt?: number;
+  currentInsightResult?: boolean;
 };
 
 type DataTableArrayKind = "fields" | "metrics";
@@ -335,6 +336,9 @@ function rowToDataFrame(row: DataFrameRow): DataFrameEntry {
     columnCount: row.columnCount ?? undefined,
     analysis: (row.analysis as DataFrameAnalysis | null) ?? undefined,
     lastRefreshedAt: row.lastRefreshedAt?.getTime() ?? undefined,
+    currentInsightResult:
+      (row.analysis as { currentInsightResult?: unknown } | null)
+        ?.currentInsightResult === true,
   };
 }
 
@@ -714,10 +718,24 @@ const getDataFrameEntry = wy.procedure
 const getDataFrameByInsight = wy.procedure
   .input({ insightId: uuid })
   .query(async (ctx, { insightId }): Promise<DataFrameEntry | null> => {
-    const row = (await ctx.db
+    const rows = (await ctx.db
       .from(dataFrames)
       .where(eq("insightId", insightId))
-      .first()) as DataFrameRow | undefined;
+      .all()) as DataFrameRow[];
+    const row =
+      rows.find(
+        (candidate) =>
+          (candidate.analysis as { currentInsightResult?: unknown } | null)
+            ?.currentInsightResult === true,
+      ) ??
+      rows.reduce<DataFrameRow | undefined>((latest, candidate) => {
+        if (!latest) return candidate;
+        const candidateTime =
+          candidate.lastRefreshedAt?.getTime() ?? candidate.createdAt.getTime();
+        const latestTime =
+          latest.lastRefreshedAt?.getTime() ?? latest.createdAt.getTime();
+        return candidateTime > latestTime ? candidate : latest;
+      }, undefined);
     return row ? rowToDataFrame(row) : null;
   });
 
@@ -735,9 +753,7 @@ const putDataFrameEntry = wy.procedure
     // DB holds zero raw cell values. In-memory callers that need sampleValues
     // (e.g. the suggest-mode PII classifier) operate on the runtime object
     // before it reaches this write boundary.
-    const safeAnalysis = value.analysis
-      ? stripSampleValues(value.analysis)
-      : null;
+    const safeAnalysis = sanitizePublicAnalysis(value.analysis);
     const row = {
       id: value.id,
       storage: value.storage,
@@ -765,11 +781,12 @@ const updateDataFrameEntry = wy.procedure
   .input({ id: uuid, updates: jsonb })
   .mutation(async (ctx, { id, updates }): Promise<{ ok: true }> => {
     const patch = updates as Partial<DataFrameEntry>;
+    const existing = (await ctx.db
+      .from(dataFrames)
+      .where(eq("id", id))
+      .first()) as DataFrameRow | undefined;
+    assertPublicFrameUpdate(existing, patch);
     if (patch.storage !== undefined) {
-      const existing = (await ctx.db
-        .from(dataFrames)
-        .where(eq("id", id))
-        .first()) as DataFrameRow | undefined;
       assertExistingServerFrameImmutable(existing, patch.storage);
       assertServerFrameOwnership(id, patch.storage);
     }
@@ -800,9 +817,10 @@ const updateDataFrameEntry = wy.procedure
         // Strip raw sample values at the write boundary (privacy floor).
         ...(patch.analysis !== undefined
           ? {
-              analysis: patch.analysis
-                ? stripSampleValues(patch.analysis)
-                : null,
+              analysis: preserveCurrentInsightMarker(
+                sanitizePublicAnalysis(patch.analysis),
+                existing?.analysis,
+              ),
             }
           : {}),
         ...(patch.lastRefreshedAt !== undefined
@@ -821,6 +839,9 @@ const removeDataFrameEntry = wy.procedure
     const row = (await ctx.db.from(dataFrames).where(eq("id", id)).first()) as
       | DataFrameRow
       | undefined;
+    if (row && (row.storage as DataFrameStorageLocation).type !== "file") {
+      throw new Error("Only server-owned DataFrames can be removed");
+    }
     const staged = await stageServerFrames(ctx, row ? [row] : []);
     try {
       await ctx.db.transaction(async (tx) => {
@@ -987,6 +1008,11 @@ const updateInsight = wy.procedure
           "updateInsight cannot repoint baseTableId; use SetInsightSource",
         );
       }
+      if (Object.hasOwn(patch, "runtimeControls")) {
+        throw new Error(
+          "updateInsight cannot set runtimeControls; use SetInsightRuntimeControls",
+        );
+      }
       await tx
         .from(insights)
         .where(eq("id", id))
@@ -1014,8 +1040,38 @@ const updateInsight = wy.procedure
 const removeInsight = wy.procedure
   .input({ id: uuid })
   .mutation(async (ctx, { id }): Promise<{ ok: true }> => {
-    await ctx.db.from(visualizations).where(eq("insightId", id)).delete();
-    await ctx.db.from(insights).where(eq("id", id)).delete();
+    assertCanonicalFrameSideEffects(ctx);
+    const candidates = (await ctx.db
+      .from(dataFrames)
+      .where(eq("insightId", id))
+      .all()) as DataFrameRow[];
+    if (
+      candidates.some(
+        (frame) =>
+          (frame.storage as { type?: unknown } | null)?.type !== "file",
+      )
+    ) {
+      throw new Error("Legacy browser DataFrames are not supported");
+    }
+    const owned = await framesUnreferencedOutsideTables(
+      ctx,
+      candidates,
+      new Set(),
+    );
+    const staged = await stageServerFrames(ctx, owned);
+    try {
+      await ctx.db.transaction(async (tx) => {
+        for (const frame of owned) {
+          await tx.from(dataFrames).where(eq("id", frame.id)).delete();
+        }
+        await tx.from(visualizations).where(eq("insightId", id)).delete();
+        await tx.from(insights).where(eq("id", id)).delete();
+      });
+    } catch (error) {
+      await rollbackStagedServerFrames(ctx, staged);
+      throw error;
+    }
+    await commitStagedServerFrames(ctx, staged);
     return { ok: true };
   });
 
@@ -1222,7 +1278,7 @@ function mintBoundResolver(
  *
  * @throws when the row is missing, not a notion source, or has no valid ref
  */
-async function notionConnectorFor(
+export async function notionConnectorFor(
   ctx: DashframeFunctionContext,
   dataSourceId: UUID,
 ): Promise<ReturnType<typeof makeNotionConnector>> {
@@ -1498,6 +1554,13 @@ async function stageServerFrames(
   ctx: DashframeFunctionContext,
   rows: DataFrameRow[],
 ): Promise<StagedServerFrame[]> {
+  if (
+    rows.some(
+      (row) => (row.storage as DataFrameStorageLocation).type !== "file",
+    )
+  ) {
+    throw new Error("Only server-owned DataFrames can be removed");
+  }
   const fileRows = rows.filter(
     (row) => (row.storage as DataFrameStorageLocation).type === "file",
   );
@@ -1584,6 +1647,54 @@ function assertServerFrameOwnership(
   if (storage.type === "file") {
     throw new Error("Server frame storage is server-owned");
   }
+  if (storage.type === "indexeddb") {
+    throw new Error("Legacy browser DataFrames are not supported");
+  }
+}
+
+function sanitizePublicAnalysis(
+  analysis: DataFrameAnalysis | null | undefined,
+): Record<string, unknown> | null {
+  if (!analysis) return null;
+  const safe = stripSampleValues(analysis) as unknown as Record<
+    string,
+    unknown
+  >;
+  const callerOwned = { ...safe };
+  delete callerOwned.currentInsightResult;
+  return callerOwned;
+}
+
+function assertPublicFrameUpdate(
+  existing: DataFrameRow | undefined,
+  patch: Partial<DataFrameEntry>,
+): void {
+  if (!existing) return;
+  const storage = existing.storage as DataFrameStorageLocation;
+  if (storage.type === "indexeddb") {
+    throw new Error("Legacy browser DataFrames are not supported");
+  }
+  if (storage.type !== "file") return;
+  const changesOwner =
+    (patch.insightId !== undefined &&
+      patch.insightId !== (existing.insightId ?? undefined)) ||
+    (patch.sourceId !== undefined &&
+      patch.sourceId !== (existing.sourceId ?? undefined)) ||
+    (patch.definitionId !== undefined &&
+      patch.definitionId !== (existing.definitionId ?? undefined));
+  if (changesOwner) {
+    throw new Error("Server frame ownership cannot be changed");
+  }
+}
+
+function preserveCurrentInsightMarker(
+  analysis: Record<string, unknown> | null,
+  existing: unknown,
+): Record<string, unknown> | null {
+  const marker = (existing as { currentInsightResult?: unknown } | null)
+    ?.currentInsightResult;
+  if (marker !== true && marker !== false) return analysis;
+  return { ...(analysis ?? {}), currentInsightResult: marker };
 }
 
 function assertExistingServerFrameImmutable(
@@ -1753,7 +1864,7 @@ const queryNotionDatabase = wy.procedure
  *
  * @throws when the row is missing, not a postgres source, or has no valid ref
  */
-async function postgresConnectorFor(
+export async function postgresConnectorFor(
   ctx: DashframeFunctionContext,
   dataSourceId: UUID,
 ): Promise<ReturnType<typeof makePostgresConnector>> {
@@ -1880,7 +1991,7 @@ const queryPostgresTable = wy.procedure
 // GA4 connector factory + data plane — mirrors postgresConnectorFor.
 // ============================================================================
 
-async function ga4ConnectorFor(
+export async function ga4ConnectorFor(
   ctx: DashframeFunctionContext,
   dataSourceId: UUID,
 ): Promise<ReturnType<typeof makeGa4Connector>> {
@@ -2111,6 +2222,91 @@ const queryGa4Property = wy.procedure
     },
   );
 
+function structuralFieldSignature(fields: readonly Field[]): string {
+  return JSON.stringify(
+    fields.map((field) => ({
+      name: field.name,
+      columnName: field.columnName,
+      type: field.type,
+    })),
+  );
+}
+
+/**
+ * Discover and persist the structural schema for a newly-bound remote table.
+ * The connector, not the renderer, authors the Field objects. Repeated calls
+ * verify the stored schema and fail closed on drift rather than blessing it.
+ */
+const prepareRemoteDataTable = wy.procedure
+  .input({ id: uuid })
+  .authorize(permissions.commands.commit)
+  .mutation(async (ctx, { id }): Promise<{ fields: Field[] }> => {
+    const table = (await ctx.db
+      .from(dataTables)
+      .where(eq("id", id))
+      .first()) as DataTableRow | undefined;
+    if (!table) throw new Error(`DataTable ${id} not found`);
+    const source = (await ctx.db
+      .from(dataSources)
+      .where(eq("id", table.dataSourceId))
+      .first()) as DataSourceRow | undefined;
+    if (!source) throw new Error(`DataSource ${table.dataSourceId} not found`);
+
+    const pagination = { pagination: { offset: 0, limit: 1 } };
+    let result = null;
+    if (source.kind === "notion") {
+      result = await (
+        await notionConnectorFor(ctx, source.id)
+      ).query(table.table, table.id, pagination);
+    } else if (source.kind === "postgres") {
+      result = await (
+        await postgresConnectorFor(ctx, source.id)
+      ).query(table.table, table.id, pagination);
+    } else if (source.kind === "googleAnalytics") {
+      result = await (
+        await ga4ConnectorFor(ctx, source.id)
+      ).query(table.table, table.id, pagination);
+    }
+    if (!result) {
+      throw new Error(`DataSource ${source.id} is not a remote connector`);
+    }
+
+    let preparedFields = result.fields;
+    await ctx.db.transaction(async (tx) => {
+      const current = (await tx
+        .from(dataTables)
+        .where(eq("id", id))
+        .first()) as DataTableRow | undefined;
+      if (!current) throw new Error(`DataTable ${id} not found`);
+      if (
+        current.dataSourceId !== table.dataSourceId ||
+        current.table !== table.table
+      ) {
+        throw new Error("Remote table binding changed during schema discovery");
+      }
+      const currentFields = (current.fields ?? []) as Field[];
+      if (
+        currentFields.length > 0 &&
+        structuralFieldSignature(currentFields) !==
+          structuralFieldSignature(result.fields)
+      ) {
+        throw new Error("SOURCE_SCHEMA_CHANGED");
+      }
+      if (currentFields.length === 0) {
+        await tx
+          .from(dataTables)
+          .where(eq("id", id))
+          .update({ fields: result.fields });
+      } else {
+        // Connector discovery creates fresh Field ids on every call. Once a
+        // structural schema is prepared, its persisted ids are canonical and
+        // must be returned unchanged to every consumer.
+        preparedFields = currentFields;
+      }
+    });
+    return { fields: preparedFields };
+  });
+
 export const appArtifactFunctions = {
   listDataSources,
   getDataSource,
@@ -2149,4 +2345,5 @@ export const appArtifactFunctions = {
   // Google Analytics data-plane routes (auth-blind via bound resolver)
   listGa4Properties,
   queryGa4Property,
+  prepareRemoteDataTable,
 };

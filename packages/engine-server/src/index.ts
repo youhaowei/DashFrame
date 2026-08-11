@@ -50,6 +50,7 @@ export {
 
 export {
   ARROW_STREAM_CONTENT_TYPE,
+  arrowIpcToJsonRows,
   createArrowDataPath,
   type ArrowDataPathOptions,
   type ArrowQueryRunner,

@@ -3,11 +3,10 @@ import "@dashframe/app/globals.css";
 import type { AppRouterContext, ProviderWrapper } from "@dashframe/app";
 import {
   ChartEngineProvider,
-  configureServerDataPlane,
-  createServerConnector,
   createWyStackRuntime,
   resolveWyStackConfig,
 } from "@dashframe/app";
+import { createServerFrameConnector } from "@dashframe/visualization";
 import { createRouter, RouterProvider } from "@tanstack/react-router";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
@@ -45,13 +44,8 @@ function renderBootstrapError(error: unknown) {
 async function bootstrap() {
   const config = await resolveWyStackConfig();
   const { Provider } = createWyStackRuntime(config);
-  const connector = createServerConnector({
+  const connector = createServerFrameConnector({
     serverUrl: config.url,
-    ...(config.token ? { token: config.token } : {}),
-  });
-  configureServerDataPlane({
-    serverUrl: config.url,
-    connector,
     ...(config.token ? { token: config.token } : {}),
   });
 

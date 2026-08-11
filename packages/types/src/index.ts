@@ -83,9 +83,16 @@ export type {
   CompiledInsight,
   Insight,
   InsightDraftShape,
+  InsightFetchDefinition,
+  InsightFetchFailed,
+  InsightFetchReady,
+  InsightFetchResult,
+  InsightFetchStale,
   InsightFilter,
   InsightFilterBetweenValue,
   InsightJoinConfig,
+  InsightRuntimeDeclaration,
+  InsightRuntimeInput,
   InsightSort,
 } from "./insights";
 
@@ -177,6 +184,15 @@ export type {
   UnknownAnalysis,
   UnknownSemantic,
 } from "./column-analysis";
+
+export {
+  LOCAL_ARROW_LIMIT_MB,
+  LOCAL_FILE_HELPER_TEXT,
+  LOCAL_FILE_SOURCE_LIMIT_MB,
+  MAX_LOCAL_ARROW_BYTES,
+  MAX_LOCAL_SOURCE_BYTES,
+  localArrowSizeIsAllowed,
+} from "./local-file-limits";
 
 export {
   CARDINALITY_THRESHOLDS,

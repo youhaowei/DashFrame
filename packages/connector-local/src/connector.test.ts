@@ -3,7 +3,7 @@
  *
  * Tests cover:
  * - Static properties (id, name, icon, accept, maxSizeMB)
- * - File size validation (100MB limit)
+ * - File size validation (source and encoded ingestion limits)
  * - File extension validation
  * - CSV parsing delegation
  * - JSON parsing delegation
@@ -12,7 +12,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LocalFileConnector, localFileConnector } from "./connector";
 
-// Mock the format converters to avoid IndexedDB dependencies
+// Mock the format converters to isolate connector dispatch.
 vi.mock("@dashframe/csv", () => ({
   parseCSV: vi.fn((text: string) => {
     // Simple mock implementation
@@ -20,7 +20,7 @@ vi.mock("@dashframe/csv", () => ({
     return lines.map((line) => line.split(","));
   }),
   csvToDataFrame: vi.fn().mockResolvedValue({
-    dataFrame: { id: "mock-csv-df-id" },
+    arrowBuffer: new Uint8Array([1]),
     fields: [],
     sourceSchema: { columns: [], version: 1, lastSyncedAt: Date.now() },
     rowCount: 2,
@@ -30,7 +30,7 @@ vi.mock("@dashframe/csv", () => ({
 
 vi.mock("@dashframe/json", () => ({
   jsonToDataFrame: vi.fn().mockResolvedValue({
-    dataFrame: { id: "mock-json-df-id" },
+    arrowBuffer: new Uint8Array([2]),
     fields: [],
     sourceSchema: { columns: [], version: 1, lastSyncedAt: Date.now() },
     rowCount: 1,
@@ -72,12 +72,14 @@ describe("LocalFileConnector", () => {
       expect(connector.accept).toContain("application/json");
     });
 
-    it("should have 100MB size limit", () => {
-      expect(connector.maxSizeMB).toBe(100);
+    it("advertises the conservative source-file limit and encoded cap", () => {
+      expect(connector.maxSizeMB).toBe(16);
+      expect(connector.helperText).toContain("16MB");
+      expect(connector.helperText).toContain("100MB");
     });
 
     it("should have helper text mentioning size limit and formats", () => {
-      expect(connector.helperText).toContain("100MB");
+      expect(connector.helperText).toContain("16MB");
       expect(connector.helperText).toContain("CSV");
       expect(connector.helperText).toContain("JSON");
     });
@@ -98,8 +100,8 @@ describe("LocalFileConnector", () => {
   });
 
   describe("parse - file size validation", () => {
-    it("should reject files exceeding 100MB", async () => {
-      const largeSize = 101 * 1024 * 1024; // 101MB
+    it("should reject files exceeding the 16MB source limit", async () => {
+      const largeSize = 17 * 1024 * 1024;
       const file = new File(["name,value\na,1"], "large.csv", {
         type: "text/csv",
       });
@@ -110,11 +112,11 @@ describe("LocalFileConnector", () => {
           file,
           "test-uuid" as `${string}-${string}-${string}-${string}-${string}`,
         ),
-      ).rejects.toThrow("File size exceeds 100MB limit");
+      ).rejects.toThrow("File size exceeds 16MB limit");
     });
 
-    it("should accept files at exactly 100MB", async () => {
-      const exactSize = 100 * 1024 * 1024; // Exactly 100MB
+    it("should accept files at exactly the 16MB source limit", async () => {
+      const exactSize = 16 * 1024 * 1024;
       const file = new File(["name,value\na,1"], "exact.csv", {
         type: "text/csv",
       });
@@ -128,7 +130,7 @@ describe("LocalFileConnector", () => {
       ).resolves.toBeDefined();
     });
 
-    it("should accept files under 100MB", async () => {
+    it("should accept files under 16MB", async () => {
       const file = new File(["name,value\na,1"], "small.csv", {
         type: "text/csv",
       });

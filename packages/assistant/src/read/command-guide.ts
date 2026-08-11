@@ -257,6 +257,18 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
     args: { id: "UUID", sorts: "InsightSort[] ({ field, direction })" },
   },
   {
+    name: "SetInsightRuntimeControls",
+    group: "insight",
+    summary: "Replace the viewer-adjustable controls declared by an Insight.",
+    args: {
+      id: "UUID",
+      runtimeControls:
+        "InsightRuntimeDeclaration | undefined (saved filter ids, allowed result sort fields, bounded limit)",
+    },
+    notes:
+      "Filter controls change values only; sort fields and limits must target the saved Insight definition.",
+  },
+  {
     name: "AddJoin",
     group: "insight",
     summary: "Append a join to an insight.",

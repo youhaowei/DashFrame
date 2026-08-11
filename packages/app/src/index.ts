@@ -19,13 +19,3 @@ export {
   type WyStackRuntime,
   type WyStackRuntimeConfig,
 } from "./wystack/runtime";
-
-export {
-  createServerConnector,
-  type ServerMosaicConnector,
-} from "./lib/server-connector";
-export {
-  configureServerDataPlane,
-  getServerDataPlane,
-  type ServerDuckDBConnection,
-} from "./lib/server-data-plane";

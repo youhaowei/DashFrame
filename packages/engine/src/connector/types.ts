@@ -1,5 +1,4 @@
 import type { Field, SourceSchema } from "@dashframe/types";
-import type { DataFrame } from "../interfaces/dataframe";
 
 /**
  * Discriminated union for connector source types.
@@ -77,7 +76,9 @@ export interface ValidationResult {
  * Result from parsing a file.
  */
 export interface FileParseResult {
-  dataFrame: DataFrame;
+  /** Arrow IPC bytes handed to the server-owned local connector onboarding path. */
+  arrowBuffer: Uint8Array;
+  primaryKey?: string | string[];
   fields: Field[];
   sourceSchema: SourceSchema;
   rowCount: number;

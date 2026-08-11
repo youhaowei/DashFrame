@@ -26,7 +26,7 @@ type MosaicAPI = ReturnType<typeof import("@uwdata/vgplot").createAPIContext>;
  * - `exec`   — runs a statement, returns void
  * - `json`   — returns rows as plain objects
  */
-interface MosaicConnector {
+export interface MosaicConnector {
   query(query: { type?: "arrow"; sql: string }): Promise<unknown>;
   query(query: { type: "exec"; sql: string }): Promise<void>;
   query(query: {

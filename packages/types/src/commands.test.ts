@@ -112,6 +112,7 @@ describe("buildInsightUpdateCommands", () => {
       name: "Renamed",
       selectedFields: [midA],
       sorts: [{ field: "amount", direction: "desc" }],
+      runtimeControls: { limit: { min: 1, max: 100 } },
       metrics: [metric(midA, "Sum")],
     });
     expect(commands.map((c) => c.path)).toEqual([
@@ -119,6 +120,22 @@ describe("buildInsightUpdateCommands", () => {
       "selectFields",
       "setInsightSort",
       "addMetric",
+      "setInsightRuntimeControls",
+    ]);
+  });
+
+  it("adds metrics before runtime controls validate their result aliases", () => {
+    const addedMetric = metric(midA, "Sum");
+    const commands = buildInsightUpdateCommands(id, baseInsight, {
+      metrics: [addedMetric],
+      runtimeControls: {
+        sort: { allowedFieldIds: [addedMetric.id], maxKeys: 1 },
+      },
+    });
+
+    expect(commands.map((command) => command.path)).toEqual([
+      "addMetric",
+      "setInsightRuntimeControls",
     ]);
   });
 

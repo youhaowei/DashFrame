@@ -1,7 +1,7 @@
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
 import { api } from "@/wystack/api";
-import { resolveEncodingToSql } from "@dashframe/engine";
+import { resolveEncodingToResultFrame } from "@dashframe/engine";
 import type { ChartEncoding, Insight, Visualization } from "@dashframe/types";
 import { Chart } from "@dashframe/visualization";
 import { useQuery } from "@wystack/client";
@@ -85,9 +85,8 @@ function VisualizationPreviewContent({
     } as Insight;
   }, [insight]);
 
-  // Create/get the DuckDB view using the same hook as insight pages
-  // This ensures views are created on-demand and properly cached
-  const { viewName, isReady, error } = useInsightView(insight, { dataTables });
+  // Resolve the saved Insight's current immutable server frame for Mosaic.
+  const { viewName, isReady, error } = useInsightView(insight);
 
   // Resolve instance-qualified fields for repeat-join insights so that
   // field:<uuid>_j1 encodings resolve to their SQL alias correctly.
@@ -97,9 +96,9 @@ function VisualizationPreviewContent({
     enabled: !!insightForView,
   });
 
-  // Resolve encoding from storage format (field:<uuid>, metric:<uuid>) to SQL expressions
+  // Resolve encoding against the saved Insight's materialized result frame.
   // - field:<uuid> → column name (e.g., "Product")
-  // - metric:<uuid> → SQL aggregation (e.g., "sum(Quantity)")
+  // - metric:<uuid> → computed result alias (e.g., "metric_<uuid>")
   const resolvedEncoding = useMemo((): ChartEncoding => {
     if (!visualization.encoding || !dataTable || !insight) {
       return {};
@@ -119,7 +118,10 @@ function VisualizationPreviewContent({
     };
 
     // Resolve prefixed IDs to SQL expressions
-    const resolved = resolveEncodingToSql(visualization.encoding, context);
+    const resolved = resolveEncodingToResultFrame(
+      visualization.encoding,
+      context,
+    );
 
     return {
       ...resolved,
