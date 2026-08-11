@@ -16,6 +16,7 @@ import type {
   DashframeFunctionContext,
   DataPlaneRuntime,
 } from "../../app-context";
+import { PublishedSourceMaterializationError } from "./published-source-error";
 
 export type EffectiveInsightDefinition = InsightFetchDefinition & {
   limit?: number;
@@ -109,7 +110,7 @@ export interface InsightMaterializerDependencies {
     ctx: DashframeFunctionContext,
     target: MaterializationTarget,
     insight: EffectiveInsightDefinition,
-  ): string;
+  ): string | Promise<string>;
   uuid(): UUID;
   now(): number;
   tableName(frameId: UUID): string;
@@ -123,6 +124,27 @@ export interface InsightMaterializer {
   }): Promise<InsightFetchReady>;
 }
 
+function dedupeSourceGenerations(
+  generations: readonly { tableId: UUID; dataFrameId: UUID }[],
+) {
+  return [
+    ...new Map(
+      generations.map((generation) => [generation.tableId, generation]),
+    ).values(),
+  ];
+}
+
+function withPublishedSourceGenerations(
+  error: unknown,
+  generations: readonly { tableId: UUID; dataFrameId: UUID }[],
+): unknown {
+  if (!generations.length) return error;
+  return new PublishedSourceMaterializationError(
+    error,
+    dedupeSourceGenerations(generations),
+  );
+}
+
 /**
  * Creates the lifecycle owner. Completed results are never cached: the map only
  * coalesces identical work while it is in flight and is cleared on settlement.
@@ -132,23 +154,32 @@ export function createInsightMaterializer(
 ): InsightMaterializer {
   const inFlight = new Map<string, Promise<InsightFetchReady>>();
 
+  const start = (
+    key: string,
+    args: Parameters<InsightMaterializer["materialize"]>[0],
+  ) => {
+    const existing = inFlight.get(key);
+    if (existing) return existing;
+
+    const operation = materializeOnce(dependencies, args, [], [], []);
+    inFlight.set(key, operation);
+    const clear = () => {
+      if (inFlight.get(key) === operation) inFlight.delete(key);
+    };
+    operation.then(clear, clear);
+    return operation;
+  };
+
   return {
     materialize(args) {
-      const key = dependencies.coalescingScope(
+      const scope = dependencies.coalescingScope(
         args.ctx,
         args.target,
         args.insight,
       );
-      const existing = inFlight.get(key);
-      if (existing) return existing;
-
-      const operation = materializeOnce(dependencies, args, [], []);
-      inFlight.set(key, operation);
-      const clear = () => {
-        if (inFlight.get(key) === operation) inFlight.delete(key);
-      };
-      operation.then(clear, clear);
-      return operation;
+      return typeof scope === "string"
+        ? start(scope, args)
+        : scope.then((key) => start(key, args));
     },
   };
 }
@@ -162,6 +193,7 @@ async function materializeOnce(
   },
   ancestry: readonly UUID[] = [],
   transientResults: Array<{ id: UUID; registered: boolean }> = [],
+  publishedSourceGenerations: Array<{ tableId: UUID; dataFrameId: UUID }> = [],
 ): Promise<InsightFetchReady> {
   const storage = dependencies.storage(args.ctx);
   const runtime = dependencies.runtime(args.ctx);
@@ -184,6 +216,7 @@ async function materializeOnce(
             { ctx: args.ctx, target: { kind: "transient" }, insight: upstream },
             [...ancestry, tableId],
             transientResults,
+            publishedSourceGenerations,
           );
           const arrow = await storage.load(ready.dataFrameId);
           if (!arrow) throw new Error("TARGET_NOT_READY");
@@ -294,6 +327,12 @@ async function materializeOnce(
       provenance,
       fetchedAt,
     });
+    publishedSourceGenerations.push(
+      ...pendingSources.map(({ source, frame }) => ({
+        tableId: source.table.id,
+        dataFrameId: frame.id,
+      })),
+    );
     if (args.target.kind === "transient") {
       transientResults.push({ id: result.id, registered: true });
     }
@@ -305,6 +344,7 @@ async function materializeOnce(
       definitionFingerprint,
       provenance,
       fetchedAt,
+      sourceGenerations: dedupeSourceGenerations(publishedSourceGenerations),
     };
   } catch (error) {
     await cleanupNewFrames(storage, runtime, dependencies, created);
@@ -312,7 +352,7 @@ async function materializeOnce(
       await cleanupNewFrames(storage, runtime, dependencies, transientResults);
       transientResults.length = 0;
     }
-    throw error;
+    throw withPublishedSourceGenerations(error, publishedSourceGenerations);
   }
 }
 

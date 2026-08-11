@@ -2,6 +2,7 @@ import type { Insight, InsightFetchFailed } from "@dashframe/types";
 import { describe, expect, it } from "vitest";
 
 import { applyInsightRuntime, toFetchFailure } from "./data-fetch";
+import { PublishedSourceMaterializationError } from "./data-fetch/published-source-error";
 
 const insight: Insight = {
   id: "insight-1",
@@ -342,6 +343,34 @@ describe("applyInsightRuntime", () => {
       status: "failed",
       code: "TARGET_NOT_READY",
       retryable: true,
+    });
+  });
+
+  it("accepts publication pointers only from the branded materializer failure", () => {
+    const tableId = "10000000-0000-4000-8000-000000000001";
+    const dataFrameId = "10000000-0000-4000-8000-000000000002";
+    const spoofed = new Error("provider failure") as Error & {
+      sourceGenerations: unknown[];
+    };
+    spoofed.sourceGenerations = [
+      { tableId: "secret-table", dataFrameId: "secret-frame", leak: "secret" },
+    ];
+    expect(
+      toFetchFailure(spoofed, "FETCH_EXECUTION_FAILED"),
+    ).not.toHaveProperty("sourceGenerations");
+
+    const trusted = new PublishedSourceMaterializationError(
+      new Error("FETCH_COMPILE_FAILED"),
+      [
+        { tableId, dataFrameId, extra: "discarded" },
+        { tableId: "", dataFrameId: "invalid" },
+      ],
+    );
+    expect(toFetchFailure(trusted, "FETCH_EXECUTION_FAILED")).toMatchObject({
+      status: "failed",
+      code: "FETCH_EXECUTION_FAILED",
+      message: "Live data could not be fetched.",
+      sourceGenerations: [{ tableId, dataFrameId }],
     });
   });
 

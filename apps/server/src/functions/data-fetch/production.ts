@@ -7,6 +7,7 @@ import {
 } from "@dashframe/engine";
 import { inspectArrowIpc } from "@dashframe/engine-server/arrow-data-path";
 import { schema } from "@dashframe/server-core";
+import type { UUID } from "@dashframe/types";
 import { eq } from "@wystack/db";
 
 import { randomUUID } from "node:crypto";
@@ -45,14 +46,67 @@ export function createProductionFetchExecutor(): LiveFetchExecutor {
   const materializer = createInsightMaterializer({
     ...productionMaterializerDependencies(),
     fingerprint: ({ insight }) => fingerprintEffectiveInsight(insight),
-    coalescingScope: (ctx, target, insight) =>
-      JSON.stringify([runtimeScope(ctx), ctx.principal, target, insight]),
+    coalescingScope: async (ctx, target, insight) =>
+      JSON.stringify([
+        runtimeScope(ctx),
+        ctx.principal,
+        target,
+        insight,
+        await persistedSourceRevision(ctx, insight),
+      ]),
     uuid: () => randomUUID(),
     now: () => Date.now(),
     tableName: (id) => `df_${id.replaceAll("-", "_")}`,
   });
   return async ({ context, insight, target }) =>
     materializer.materialize({ ctx: context, insight, target });
+}
+
+async function persistedSourceRevision(
+  ctx: DashframeFunctionContext,
+  insight: Parameters<LiveFetchExecutor>[0]["insight"],
+  ancestry: readonly UUID[] = [],
+): Promise<unknown[]> {
+  if (ancestry.length >= 16) throw new Error("TARGET_NOT_READY");
+  const revision: unknown[] = [];
+  const tableIds = new Set<UUID>([
+    insight.baseTableId as UUID,
+    ...((insight.joins ?? []).map((join) => join.rightTableId) as UUID[]),
+  ]);
+  if (insight.source?.sourceType === "insight") {
+    const upstreamId = insight.source.sourceId;
+    if (ancestry.includes(upstreamId)) throw new Error("TARGET_NOT_READY");
+    const row = (await ctx.db
+      .from(schema.insights)
+      .where(eq("id", upstreamId))
+      .first()) as InsightRow | undefined;
+    if (!row) throw new Error("TARGET_NOT_READY");
+    const stored = decodeStoredInsightDefinition(row);
+    if (stored.source && stored.source.sourceId !== stored.baseTableId)
+      throw new Error("TARGET_NOT_READY");
+    const upstream = { ...decodeInsight(row), source: stored.source };
+    revision.push([
+      "insight",
+      upstreamId,
+      upstream,
+      await persistedSourceRevision(ctx, upstream, [...ancestry, upstreamId]),
+    ]);
+    tableIds.delete(insight.baseTableId as UUID);
+  }
+  for (const tableId of [...tableIds].sort()) {
+    const table = await ctx.db
+      .from(schema.dataTables)
+      .where(eq("id", tableId))
+      .first();
+    if (!table) throw new Error("TARGET_NOT_READY");
+    revision.push([
+      "table",
+      table.id,
+      table.dataFrameId ?? null,
+      table.lastFetchedAt ?? null,
+    ]);
+  }
+  return revision;
 }
 
 /** Fails closed if the host did not inject its native data-plane capability. */

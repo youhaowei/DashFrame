@@ -16,6 +16,7 @@ import type { DashframeFunctionContext } from "../app-context";
 import { permissions } from "../permissions";
 import { wy } from "../wystack";
 import type { MaterializationTarget } from "./data-fetch/materializer";
+import { trustedPublishedSourceGenerations } from "./data-fetch/published-source-error";
 import { staleFrameMetadata } from "./data-fetch/publisher";
 import {
   decodeInsight,
@@ -358,20 +359,26 @@ export function toFetchFailure(
     sourceCode === "TARGET_NOT_READY"
       ? sourceCode
       : fallback;
+  let result: InsightFetchResult;
   if (code === "SOURCE_SCHEMA_CHANGED")
-    return failed(
+    result = failed(
       code,
       "The source schema changed and the Insight needs review.",
     );
-  if (code === "TARGET_NOT_READY")
-    return failed(code, "The requested data target is not ready yet.", true);
-  return failed(
-    code,
-    code.startsWith("RUNTIME_")
-      ? "The requested Insight runtime controls are invalid."
-      : "Live data could not be fetched.",
-    fallback === "FETCH_EXECUTION_FAILED",
-  );
+  else if (code === "TARGET_NOT_READY")
+    result = failed(code, "The requested data target is not ready yet.", true);
+  else
+    result = failed(
+      code,
+      code.startsWith("RUNTIME_")
+        ? "The requested Insight runtime controls are invalid."
+        : "Live data could not be fetched.",
+      fallback === "FETCH_EXECUTION_FAILED",
+    );
+  const sourceGenerations = trustedPublishedSourceGenerations(error);
+  if (result.status === "failed" && sourceGenerations)
+    result.sourceGenerations = sourceGenerations;
+  return result;
 }
 
 /**

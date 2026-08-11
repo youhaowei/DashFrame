@@ -13,6 +13,7 @@ import {
   type PublishMaterialization,
   type SourceGeneration,
 } from "./materializer";
+import { trustedPublishedSourceGenerations } from "./published-source-error";
 
 describe("fieldsFromInsightResult", () => {
   it("keeps physical result aliases while restoring source field identity", () => {
@@ -185,6 +186,10 @@ describe("immutable Insight materializer", () => {
       definitionFingerprint: "fingerprint",
       provenance: { connectorKind: "googleAnalytics", bindingVersion: "v1" },
       fetchedAt: 123,
+      sourceGenerations: [
+        { tableId: "base", dataFrameId: "frame-1" },
+        { tableId: "joined", dataFrameId: "frame-2" },
+      ],
     });
     expect(h.bytes.size).toBe(3);
     expect(h.registered.size).toBe(3);
@@ -280,6 +285,9 @@ describe("immutable Insight materializer", () => {
     });
 
     expect(ready.status).toBe("ready");
+    expect(ready.sourceGenerations).toEqual([
+      { tableId: "base", dataFrameId: "frame-1" },
+    ]);
     expect(h.resolveSource).toHaveBeenCalledOnce();
     expect(h.publish).toHaveBeenCalledTimes(2);
     expect(h.publish.mock.calls[0]![1].target).toEqual({ kind: "transient" });
@@ -289,11 +297,16 @@ describe("immutable Insight materializer", () => {
   });
 
   it("removes a recursive transient result when the outer query fails", async () => {
+    const baseId = "10000000-0000-4000-8000-000000000001" as UUID;
+    const upstreamId = "10000000-0000-4000-8000-000000000002" as UUID;
+    const derivedId = "10000000-0000-4000-8000-000000000003" as UUID;
+    const sourceFrameId = "10000000-0000-4000-8000-000000000004" as UUID;
+    const transientFrameId = "10000000-0000-4000-8000-000000000005" as UUID;
     let compileCount = 0;
     const h = harness({
       resolveInsight: vi.fn(async () => ({
-        baseTableId: "base",
-        source: { sourceType: "dataTable" as const, sourceId: "base" },
+        baseTableId: baseId,
+        source: { sourceType: "dataTable" as const, sourceId: baseId },
         selectedFields: ["base-field"],
         metrics: [],
       })),
@@ -307,24 +320,30 @@ describe("immutable Insight materializer", () => {
         schema: [{ id: "field_result_field", name: "result", type: "string" }],
       }),
     });
+    const frameIds = [sourceFrameId, transientFrameId];
+    h.dependencies.uuid = () => frameIds.shift()!;
 
-    await expect(
-      createInsightMaterializer(h.dependencies).materialize({
+    const failure = await createInsightMaterializer(h.dependencies)
+      .materialize({
         ctx: {} as never,
-        target: { kind: "saved", insightId: "derived" },
+        target: { kind: "saved", insightId: derivedId },
         insight: {
-          baseTableId: "upstream",
-          source: { sourceType: "insight", sourceId: "upstream" },
+          baseTableId: upstreamId,
+          source: { sourceType: "insight", sourceId: upstreamId },
           selectedFields: ["result-field"],
           metrics: [],
         },
-      }),
-    ).rejects.toThrow("outer compile");
+      })
+      .catch((error: unknown) => error);
+    expect(failure).toMatchObject({ message: "outer compile" });
+    expect(trustedPublishedSourceGenerations(failure)).toEqual([
+      { tableId: baseId, dataFrameId: sourceFrameId },
+    ]);
 
     expect(h.publish).toHaveBeenCalledOnce();
     expect(h.publish.mock.calls[0]![1].target).toEqual({ kind: "transient" });
-    expect([...h.bytes.keys()]).toEqual(["frame-1"]);
-    expect([...h.registered.keys()]).toEqual(["df_frame-1"]);
+    expect([...h.bytes.keys()]).toEqual([sourceFrameId]);
+    expect([...h.registered.keys()]).toEqual([`df_${sourceFrameId}`]);
   });
 
   it("fails before outer publication when transient cleanup fails", async () => {
@@ -552,5 +571,32 @@ describe("immutable Insight materializer", () => {
 
     await materializer.materialize(args);
     expect(resolves).toBe(4);
+  });
+
+  it("does not reuse an in-flight operation after its source generation changes", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let generation = "source-frame-1";
+    const h = harness({
+      resolveSource: async (_ctx, tableId) => {
+        await gate;
+        return source(tableId);
+      },
+    });
+    h.dependencies.coalescingScope = async () => generation;
+    const materializer = createInsightMaterializer(h.dependencies);
+    const args = {
+      ctx: {} as never,
+      target: { kind: "ephemeral" } as const,
+      insight,
+    };
+    const first = materializer.materialize(args);
+    await Promise.resolve();
+    generation = "source-frame-2";
+    const replacement = materializer.materialize(args);
+    release();
+
+    await Promise.all([first, replacement]);
+    expect(h.publish).toHaveBeenCalledTimes(2);
   });
 });

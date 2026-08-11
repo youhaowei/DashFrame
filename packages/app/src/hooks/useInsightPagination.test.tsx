@@ -1,3 +1,4 @@
+import { api } from "@/wystack/api";
 import type { DataTable, Insight, UUID } from "@dashframe/types";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -241,7 +242,14 @@ describe("useInsightPagination", () => {
       ],
     });
     client.mutate
-      .mockResolvedValueOnce({ status: "ready", dataFrameId: "result-1" })
+      .mockResolvedValueOnce({
+        status: "ready",
+        dataFrameId: "result-1",
+        fetchedAt: 123,
+        sourceGenerations: [
+          { tableId: "table-1", dataFrameId: "source-frame-owned" },
+        ],
+      })
       .mockResolvedValueOnce({ status: "ready", dataFrameId: "result-2" });
     queryDataFrame.mockResolvedValue({
       status: "ready",
@@ -261,6 +269,7 @@ describe("useInsightPagination", () => {
         {
           id: "table-1",
           dataFrameId: "source-frame-2",
+          lastFetchedAt: 123,
           fields: [],
         } as unknown as DataTable,
       ],
@@ -269,6 +278,184 @@ describe("useInsightPagination", () => {
 
     await waitFor(() => expect(result.current.dataFrameId).toBe("result-2"));
     expect(client.mutate).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retrigger when a remote fetch publishes its own source frame", async () => {
+    let resolveFetch!: (value: unknown) => void;
+    useQuery.mockReturnValue({
+      data: [
+        {
+          id: "table-1",
+          dataFrameId: "source-frame-1",
+          fields: [],
+        } as unknown as DataTable,
+      ],
+    });
+    client.mutate.mockReturnValue(
+      new Promise((resolve) => {
+        resolveFetch = resolve;
+      }),
+    );
+    queryDataFrame.mockResolvedValue({
+      status: "ready",
+      schema: [],
+      rows: [],
+      totalCount: 1,
+      page: {},
+    });
+    const { result, rerender } = renderHook(() =>
+      useInsightPagination({ insight }),
+    );
+    await waitFor(() => expect(client.mutate).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      resolveFetch({
+        status: "ready",
+        dataFrameId: "result-1",
+        fetchedAt: 123,
+        sourceGenerations: [
+          { tableId: "table-1", dataFrameId: "source-frame-2" },
+        ],
+      });
+    });
+    await waitFor(() => expect(result.current.dataFrameId).toBe("result-1"));
+
+    useQuery.mockReturnValue({
+      data: [
+        {
+          id: "table-1",
+          dataFrameId: "source-frame-2",
+          lastFetchedAt: 123,
+          fields: [],
+        } as unknown as DataTable,
+      ],
+    });
+    rerender();
+    await act(async () => Promise.resolve());
+    expect(client.mutate).toHaveBeenCalledTimes(1);
+  });
+
+  it("suppresses a composed upstream publication but not another frame with the same timestamp", async () => {
+    const upstream = {
+      ...insight,
+      id: "insight-upstream",
+      baseTableId: "table-1",
+      source: { sourceType: "dataTable", sourceId: "table-1" },
+    } as Insight;
+    const composed = {
+      ...insight,
+      id: "insight-composed",
+      baseTableId: upstream.id,
+      source: { sourceType: "insight", sourceId: upstream.id },
+    } as Insight;
+    let tables = [
+      {
+        id: "table-1",
+        dataFrameId: "source-frame-1",
+        fields: [],
+      } as unknown as DataTable,
+    ];
+    useQuery.mockImplementation((procedure) => ({
+      data: procedure === api.listInsights ? [upstream] : tables,
+    }));
+    client.mutate.mockResolvedValue({
+      status: "ready",
+      dataFrameId: "result-1",
+      fetchedAt: 123,
+      sourceGenerations: [
+        { tableId: "table-1", dataFrameId: "source-frame-2" },
+      ],
+    });
+    queryDataFrame.mockResolvedValue({
+      status: "ready",
+      schema: [],
+      rows: [],
+      totalCount: 1,
+      page: {},
+    });
+    const { result, rerender } = renderHook(() =>
+      useInsightPagination({ insight: composed }),
+    );
+    await waitFor(() => expect(result.current.dataFrameId).toBe("result-1"));
+
+    tables = [
+      {
+        ...tables[0]!,
+        dataFrameId: "source-frame-2",
+        lastFetchedAt: 123,
+      },
+    ];
+    rerender();
+    await act(async () => Promise.resolve());
+    expect(client.mutate).toHaveBeenCalledTimes(1);
+
+    tables = [
+      {
+        ...tables[0]!,
+        dataFrameId: "external-frame",
+        lastFetchedAt: 123,
+      },
+    ];
+    rerender();
+    await waitFor(() => expect(client.mutate).toHaveBeenCalledTimes(2));
+  });
+
+  it("settles a composed outer failure after its upstream publication", async () => {
+    const upstream = {
+      ...insight,
+      id: "insight-upstream-failure",
+      baseTableId: "table-1",
+      source: { sourceType: "dataTable", sourceId: "table-1" },
+    } as Insight;
+    const composed = {
+      ...insight,
+      id: "insight-composed-failure",
+      baseTableId: upstream.id,
+      source: { sourceType: "insight", sourceId: upstream.id },
+    } as Insight;
+    let tables = [
+      {
+        id: "table-1",
+        dataFrameId: "source-frame-1",
+        fields: [],
+      } as unknown as DataTable,
+    ];
+    useQuery.mockImplementation((procedure) => ({
+      data: procedure === api.listInsights ? [upstream] : tables,
+    }));
+    client.mutate.mockResolvedValue({
+      status: "failed",
+      code: "FETCH_COMPILE_FAILED",
+      message: "Live data could not be fetched.",
+      retryable: false,
+      diagnosticId: "outer-failure",
+      sourceGenerations: [
+        { tableId: "table-1", dataFrameId: "source-frame-2" },
+      ],
+    });
+    const { result, rerender } = renderHook(() =>
+      useInsightPagination({ insight: composed }),
+    );
+    await waitFor(() =>
+      expect(result.current.error).toBe("Live data could not be fetched."),
+    );
+
+    tables = [
+      {
+        ...tables[0]!,
+        dataFrameId: "source-frame-2",
+        lastFetchedAt: 123,
+      },
+    ];
+    rerender();
+    await act(async () => Promise.resolve());
+    expect(client.mutate).toHaveBeenCalledTimes(1);
+
+    tables = [
+      { ...tables[0]!, dataFrameId: "external-frame", lastFetchedAt: 123 },
+    ];
+    rerender();
+    await waitFor(() => expect(client.mutate).toHaveBeenCalledTimes(2));
   });
 });
 

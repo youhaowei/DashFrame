@@ -129,6 +129,35 @@ export function buildInsightSourceRevision(
   return parts.join("|");
 }
 
+export function isSelfPublishedSourceRevision(
+  before: string,
+  after: string,
+  sourceGenerations: readonly { tableId: UUID; dataFrameId: UUID }[],
+): boolean {
+  if (before === after) return false;
+  const prior = before.split("|");
+  const next = after.split("|");
+  if (prior.length !== next.length) return false;
+  let changed = false;
+  const published = new Map(
+    sourceGenerations.map(({ tableId, dataFrameId }) => [tableId, dataFrameId]),
+  );
+  for (let index = 0; index < prior.length; index += 1) {
+    if (prior[index] === next[index]) continue;
+    const priorTable = prior[index]?.split(":");
+    const nextTable = next[index]?.split(":");
+    if (
+      priorTable?.[0] !== "table" ||
+      nextTable?.[0] !== "table" ||
+      priorTable[1] !== nextTable[1] ||
+      published.get(nextTable[1] as UUID) !== nextTable[2]
+    )
+      return false;
+    changed = true;
+  }
+  return changed;
+}
+
 type ResultSchemaColumn = Readonly<{
   id: UUID;
   name: string;
@@ -222,6 +251,19 @@ export function useInsightPagination({
   const [fetchedAt, setFetchedAt] = useState<number | null>(null);
   const [staleReason, setStaleReason] = useState<string | null>(null);
   const generation = useRef(0);
+  const activeMaterialization = useRef<{
+    requestIdentity: string;
+    sourceRevision: string;
+  } | null>(null);
+  const pendingMaterialization = useRef<{
+    requestIdentity: string;
+    sourceRevision: string;
+  } | null>(null);
+  const completedPublication = useRef<{
+    sourceRevision: string;
+    sourceGenerations: readonly { tableId: UUID; dataFrameId: UUID }[];
+  } | null>(null);
+  const [sourceRetry, setSourceRetry] = useState(0);
   const activeDataFrameId = useRef<UUID | null>(dataFrameId);
   useLayoutEffect(() => {
     activeDataFrameId.current = dataFrameId;
@@ -234,6 +276,14 @@ export function useInsightPagination({
     dataTables,
     insights,
   );
+  const requestIdentity = JSON.stringify([
+    enabled,
+    insight.id,
+    insightKey,
+    runtimeKey,
+    showModelPreview,
+    sourcesReady,
+  ]);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- runtimeKey is the stable structural dependency.
   const stableRuntime = useMemo(() => runtime, [runtimeKey]);
 
@@ -245,11 +295,26 @@ export function useInsightPagination({
     insightKey,
     runtimeKey,
     showModelPreview,
-    sourceRevision,
+    sourceRetry,
     sourcesReady,
   ]);
 
   useEffect(() => {
+    if (activeMaterialization.current?.requestIdentity === requestIdentity) {
+      pendingMaterialization.current = { requestIdentity, sourceRevision };
+      return;
+    }
+    const completed = completedPublication.current;
+    completedPublication.current = null;
+    if (
+      completed &&
+      isSelfPublishedSourceRevision(
+        completed.sourceRevision,
+        sourceRevision,
+        completed.sourceGenerations,
+      )
+    )
+      return;
     const current = generation.current;
     if (!enabled || !insight.id || !sourcesReady) {
       queueMicrotask(() => {
@@ -268,6 +333,9 @@ export function useInsightPagination({
       });
       return;
     }
+    const activeRequest = { requestIdentity, sourceRevision };
+    activeMaterialization.current = activeRequest;
+    pendingMaterialization.current = null;
     queueMicrotask(() => {
       if (current !== generation.current) return;
       setDataFrameId(null);
@@ -290,31 +358,82 @@ export function useInsightPagination({
           insightId: insight.id,
           ...(stableRuntime ? { runtime: stableRuntime } : {}),
         });
-    materialized.then(
-      async (fetchResult) => {
-        if (current !== generation.current) return;
-        const retained =
-          fetchResult.status === "failed" ? fetchResult.lastSuccessful : null;
-        if (fetchResult.status === "failed" && !retained) {
-          setDataFrameId(null);
-          setTotalCount(0);
-          setColumns([]);
-          setSchema([]);
-          setSampleRows([]);
-          setFieldCount(0);
-          setError(fetchResult.message);
-          setIsReady(false);
-          return;
-        }
-        const resultFrame =
-          fetchResult.status === "ready" ? fetchResult : retained!;
-        let page;
-        try {
-          page = await queryDataFrame(resultFrame.dataFrameId, {
-            offset: 0,
-            limit: SUGGESTION_SAMPLE_SIZE,
-          });
-        } catch (cause) {
+    let completedSourceGenerations:
+      | readonly { tableId: UUID; dataFrameId: UUID }[]
+      | undefined;
+    materialized
+      .then(
+        async (fetchResult) => {
+          if (current !== generation.current) return;
+          completedSourceGenerations = fetchResult.sourceGenerations;
+          const retained =
+            fetchResult.status === "failed" ? fetchResult.lastSuccessful : null;
+          if (fetchResult.status === "failed" && !retained) {
+            setDataFrameId(null);
+            setTotalCount(0);
+            setColumns([]);
+            setSchema([]);
+            setSampleRows([]);
+            setFieldCount(0);
+            setError(fetchResult.message);
+            setIsReady(false);
+            return;
+          }
+          const resultFrame =
+            fetchResult.status === "ready" ? fetchResult : retained!;
+          let page;
+          try {
+            page = await queryDataFrame(resultFrame.dataFrameId, {
+              offset: 0,
+              limit: SUGGESTION_SAMPLE_SIZE,
+            });
+          } catch (cause) {
+            if (current !== generation.current) return;
+            setDataFrameId(null);
+            setTotalCount(0);
+            setColumns([]);
+            setSchema([]);
+            setSampleRows([]);
+            setFieldCount(0);
+            setError(
+              cause instanceof Error ? cause.message : "Failed to read Insight",
+            );
+            setIsReady(false);
+            return;
+          }
+          if (current !== generation.current) return;
+          if (page.status === "failed") {
+            setDataFrameId(null);
+            setTotalCount(0);
+            setColumns([]);
+            setSchema([]);
+            setSampleRows([]);
+            setFieldCount(0);
+            setError(page.message);
+            setIsReady(false);
+            return;
+          }
+          const effectiveCount = stableRuntime?.limit
+            ? Math.min(page.totalCount, stableRuntime.limit)
+            : page.totalCount;
+          const nextColumns: VirtualTableColumn[] = page.schema.map(
+            ({ id, type }) => ({ name: id, type: type as ColumnType }),
+          );
+          setDataFrameId(resultFrame.dataFrameId);
+          setTotalCount(effectiveCount);
+          setColumns(nextColumns);
+          setSchema(page.schema);
+          setSampleRows(page.rows);
+          setFieldCount(nextColumns.length);
+          setError(null);
+          setIsReady(true);
+          setIsStale(fetchResult.status === "failed");
+          setFetchedAt(resultFrame.fetchedAt);
+          setStaleReason(
+            fetchResult.status === "failed" ? fetchResult.message : null,
+          );
+        },
+        (cause: unknown) => {
           if (current !== generation.current) return;
           setDataFrameId(null);
           setTotalCount(0);
@@ -323,65 +442,46 @@ export function useInsightPagination({
           setSampleRows([]);
           setFieldCount(0);
           setError(
-            cause instanceof Error ? cause.message : "Failed to read Insight",
+            cause instanceof Error ? cause.message : "Failed to run Insight",
           );
           setIsReady(false);
-          return;
-        }
-        if (current !== generation.current) return;
-        if (page.status === "failed") {
-          setDataFrameId(null);
-          setTotalCount(0);
-          setColumns([]);
-          setSchema([]);
-          setSampleRows([]);
-          setFieldCount(0);
-          setError(page.message);
-          setIsReady(false);
-          return;
-        }
-        const effectiveCount = stableRuntime?.limit
-          ? Math.min(page.totalCount, stableRuntime.limit)
-          : page.totalCount;
-        const nextColumns: VirtualTableColumn[] = page.schema.map(
-          ({ id, type }) => ({ name: id, type: type as ColumnType }),
-        );
-        setDataFrameId(resultFrame.dataFrameId);
-        setTotalCount(effectiveCount);
-        setColumns(nextColumns);
-        setSchema(page.schema);
-        setSampleRows(page.rows);
-        setFieldCount(nextColumns.length);
-        setError(null);
-        setIsReady(true);
-        setIsStale(fetchResult.status === "failed");
-        setFetchedAt(resultFrame.fetchedAt);
-        setStaleReason(
-          fetchResult.status === "failed" ? fetchResult.message : null,
-        );
-      },
-      (cause: unknown) => {
-        if (current !== generation.current) return;
-        setDataFrameId(null);
-        setTotalCount(0);
-        setColumns([]);
-        setSchema([]);
-        setSampleRows([]);
-        setFieldCount(0);
-        setError(
-          cause instanceof Error ? cause.message : "Failed to run Insight",
-        );
-        setIsReady(false);
-      },
-    );
+        },
+      )
+      .finally(() => {
+        if (activeMaterialization.current !== activeRequest) return;
+        const started = activeRequest;
+        const pending = pendingMaterialization.current;
+        if (completedSourceGenerations?.length)
+          completedPublication.current = {
+            sourceRevision: started.sourceRevision,
+            sourceGenerations: completedSourceGenerations,
+          };
+        activeMaterialization.current = null;
+        pendingMaterialization.current = null;
+        if (
+          started &&
+          pending &&
+          (pending.requestIdentity !== started.requestIdentity ||
+            (pending.sourceRevision !== started.sourceRevision &&
+              (!completedSourceGenerations?.length ||
+                !isSelfPublishedSourceRevision(
+                  started.sourceRevision,
+                  pending.sourceRevision,
+                  completedSourceGenerations,
+                ))))
+        )
+          setSourceRetry((value) => value + 1);
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- structural keys intentionally gate rematerialization.
   }, [
     enabled,
     insight.id,
     insightKey,
     runtimeKey,
+    requestIdentity,
     showModelPreview,
     sourceRevision,
+    sourceRetry,
     sourcesReady,
     // stableRuntime is represented by runtimeKey above.
   ]);

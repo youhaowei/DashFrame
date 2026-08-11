@@ -137,6 +137,8 @@ export interface InsightFetchReady {
   definitionFingerprint: string;
   provenance: { connectorKind: string; bindingVersion: string };
   fetchedAt: number;
+  /** Exact server-published source pointers for suppressing only this operation's invalidation. */
+  sourceGenerations?: readonly { tableId: UUID; dataFrameId: UUID }[];
 }
 
 /** Metadata for a previously successful frame retained after a failed refresh. */
@@ -152,6 +154,8 @@ export interface InsightFetchFailed {
   retryable: boolean;
   diagnosticId: string;
   lastSuccessful?: InsightFetchStale;
+  /** Exact source pointers published before a later stage failed. */
+  sourceGenerations?: readonly { tableId: UUID; dataFrameId: UUID }[];
 }
 
 export type InsightFetchResult = InsightFetchReady | InsightFetchFailed;
