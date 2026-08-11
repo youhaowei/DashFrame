@@ -25,6 +25,31 @@ export type DataFrameEntry = DataFrameJSON & {
   lastRefreshedAt?: number;
 };
 
+export type DataFramePage =
+  | {
+      status: "ready";
+      schema: readonly { id: UUID; name: string; type: string }[];
+      rows: Record<string, unknown>[];
+      totalCount: number;
+      page: { offset: number; limit: number; returned: number };
+    }
+  | { status: "failed"; code: string; message: string };
+
+/** Read a bounded page from a server-owned DataFrame handle. */
+export async function queryDataFrame(
+  dataFrameId: UUID,
+  options: {
+    offset?: number;
+    limit?: number;
+    sort?: Array<{ fieldId: UUID; direction: "asc" | "desc" }>;
+  } = {},
+): Promise<DataFramePage> {
+  return (await getWyStackClient().query(api.queryDataFrame, {
+    dataFrameId,
+    ...options,
+  })) as DataFramePage;
+}
+
 /** Metadata-only reference for frames owned by the native server data plane. */
 class ServerDataFrame implements DataFrame {
   readonly id: UUID;
