@@ -54,7 +54,8 @@
  * `{ nodeId }`. Field/metric edits on a derived Insight work with the same
  * command shape as the DataTable case — `resolveNode` dispatches on kind.
  *
- * Operand encoding: value-bearing operands in SetInsightFilter are a TAGGED union:
+ * Operand encoding: the human UI may send ordinary domain literals (including
+ * range values). Agent-authored operands use a TAGGED union:
  *   { kind: 'value'; v: unknown }      (v: null is valid — means IS NULL)
  *   | { kind: 'lateBound'; ref: ... }  (column | category | placeholder)
  * NOT property-presence. This is the mechanism that reconciles capability-parity
@@ -863,11 +864,11 @@ const selectFields = wy.procedure
   });
 
 /**
- * SetInsightFilter — replace-all filter predicates. Each filter value operand
- * is a tagged union `{ kind: 'value', v } | { kind: 'lateBound', ref }` per
- * the tagged-union discriminant requirement (no property-presence).
- * The command stores operands opaquely — validation of the union discriminant
- * is shape-only here; unknown handles fail at publish binding (Draft spec).
+ * SetInsightFilter — replace-all filter predicates. Human UI writes carry raw
+ * domain literals, including `between` ranges. Agent writes use the tagged
+ * `{ kind: 'value', v } | { kind: 'lateBound', ref }` operand; that variant is
+ * discriminated by `kind`, never property presence. The command stores both
+ * forms opaquely; unknown late-bound handles fail at publish binding.
  */
 const setInsightFilter = wy.procedure
   .input({ id: uuid, filters: jsonb })

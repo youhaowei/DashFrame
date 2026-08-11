@@ -188,6 +188,23 @@ describe("registered production Insight composition", () => {
         functions: createDataFetchFunctions(createProductionFetchExecutor()),
       });
 
+      const ephemeral = await app.call(
+        "fetchData",
+        {
+          insight: {
+            baseTableId: upstreamInsightId,
+            selectedFields: [sourceFieldId],
+            metrics: [],
+          },
+        },
+        {
+          principal: { kind: "user", userId: LOCAL_USER_ID },
+          dataFrameStorage: storage,
+          dataPlaneRuntime: engine,
+        },
+      );
+      expect(ephemeral.result).toMatchObject({ status: "ready", rowCount: 2 });
+
       const { result } = await app.call(
         "runInsight",
         { insightId: derivedInsightId },
@@ -207,7 +224,7 @@ describe("registered production Insight composition", () => {
           (frame) => frame.insightId === derivedInsightId,
         ),
       ).toBe(true);
-      expect(await db.select().from(schema.dataFrames)).toHaveLength(2);
+      expect(await db.select().from(schema.dataFrames)).toHaveLength(3);
     } finally {
       await engine.dispose();
       await db.$client.close();

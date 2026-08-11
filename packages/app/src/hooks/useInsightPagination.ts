@@ -33,6 +33,12 @@ import {
 const MAX_PAGE_SIZE = 500;
 const SUGGESTION_SAMPLE_SIZE = 100;
 const EMPTY_DATA_TABLES: readonly DataTable[] = [];
+const EMPTY_INSIGHTS: readonly Insight[] = [];
+const MAX_COMPOSITION_DEPTH = 16;
+
+type ComposedInsight = Insight & {
+  source?: { sourceType: "dataTable" | "insight"; sourceId: UUID };
+};
 
 export interface UseInsightPaginationOptions {
   insight: Insight;
@@ -61,19 +67,66 @@ function toFetchDefinition(insight: Insight): InsightFetchDefinition {
 export function buildInsightSourceRevision(
   insight: Insight,
   dataTables: readonly DataTable[],
+  insights: readonly Insight[] = EMPTY_INSIGHTS,
 ): string {
-  const sourceTableIds = new Set<UUID>([
-    insight.baseTableId,
-    ...(insight.joins ?? []).map((join) => join.rightTableId),
-  ]);
-  return dataTables
-    .filter((table) => sourceTableIds.has(table.id))
-    .sort((left, right) => left.id.localeCompare(right.id))
-    .map(
-      (table) =>
-        `${table.id}:${table.dataFrameId ?? ""}:${table.lastFetchedAt ?? ""}`,
-    )
-    .join("|");
+  const tableById = new Map(dataTables.map((table) => [table.id, table]));
+  const insightById = new Map(
+    insights
+      .filter(
+        (candidate) =>
+          Array.isArray(candidate.selectedFields) &&
+          Array.isArray(candidate.metrics),
+      )
+      .map((candidate) => [candidate.id, candidate as ComposedInsight]),
+  );
+  const parts: string[] = [];
+
+  const visitTable = (tableId: UUID) => {
+    const table = tableById.get(tableId);
+    parts.push(
+      table
+        ? `table:${table.id}:${table.dataFrameId ?? ""}:${table.lastFetchedAt ?? ""}`
+        : `missing-table:${tableId}`,
+    );
+  };
+  const visitInsight = (
+    candidate: ComposedInsight,
+    ancestry: readonly UUID[],
+  ) => {
+    if (ancestry.includes(candidate.id)) {
+      parts.push(`cycle:${candidate.id}`);
+      return;
+    }
+    if (ancestry.length >= MAX_COMPOSITION_DEPTH) {
+      parts.push(`depth:${candidate.id}`);
+      return;
+    }
+    parts.push(
+      `insight:${candidate.id}:${JSON.stringify(toFetchDefinition(candidate))}`,
+    );
+    const source = candidate.source;
+    const upstream = insightById.get(source?.sourceId ?? candidate.baseTableId);
+    if (source?.sourceType === "insight" || upstream) {
+      if (upstream) visitInsight(upstream, [...ancestry, candidate.id]);
+      else
+        parts.push(
+          `missing-insight:${source?.sourceId ?? candidate.baseTableId}`,
+        );
+    } else visitTable(candidate.baseTableId);
+    for (const join of candidate.joins ?? []) visitTable(join.rightTableId);
+  };
+
+  const root = insight as ComposedInsight;
+  const upstream = insightById.get(root.source?.sourceId ?? root.baseTableId);
+  if (root.source?.sourceType === "insight" || upstream) {
+    if (upstream) visitInsight(upstream, [root.id]);
+    else
+      parts.push(
+        `missing-insight:${root.source?.sourceId ?? root.baseTableId}`,
+      );
+  } else visitTable(root.baseTableId);
+  for (const join of root.joins ?? []) visitTable(join.rightTableId);
+  return parts.join("|");
 }
 
 type ResultSchemaColumn = Readonly<{
@@ -151,7 +204,10 @@ export function useInsightPagination({
 }: UseInsightPaginationOptions) {
   const dataTablesQuery = useQuery(api.listDataTables, { args: {} });
   const dataTables = dataTablesQuery.data ?? EMPTY_DATA_TABLES;
-  const sourcesReady = dataTablesQuery.isLoading !== true;
+  const insightsQuery = useQuery(api.listInsights, { args: {} });
+  const insights = insightsQuery.data ?? EMPTY_INSIGHTS;
+  const sourcesReady =
+    dataTablesQuery.isLoading !== true && insightsQuery.isLoading !== true;
   const [totalCount, setTotalCount] = useState(0);
   const [columns, setColumns] = useState<VirtualTableColumn[]>([]);
   const [fieldCount, setFieldCount] = useState(0);
@@ -173,7 +229,11 @@ export function useInsightPagination({
 
   const runtimeKey = JSON.stringify(runtime ?? null);
   const insightKey = JSON.stringify(toFetchDefinition(insight));
-  const sourceRevision = buildInsightSourceRevision(insight, dataTables);
+  const sourceRevision = buildInsightSourceRevision(
+    insight,
+    dataTables,
+    insights,
+  );
   // eslint-disable-next-line react-hooks/exhaustive-deps -- runtimeKey is the stable structural dependency.
   const stableRuntime = useMemo(() => runtime, [runtimeKey]);
 

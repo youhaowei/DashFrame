@@ -313,6 +313,80 @@ describe("buildInsightSourceRevision", () => {
       ]),
     ).not.toBe(initial);
   });
+
+  it("tracks transitive Insight definitions and upstream frame generations", () => {
+    const baseTable = {
+      id: "table-base",
+      dataFrameId: "frame-1",
+    } as DataTable;
+    const upstream = {
+      ...insight,
+      id: "insight-upstream",
+      baseTableId: baseTable.id,
+      source: { sourceType: "dataTable", sourceId: baseTable.id },
+    } as Insight;
+    const derived = {
+      ...insight,
+      id: "insight-derived",
+      baseTableId: upstream.id,
+      source: { sourceType: "insight", sourceId: upstream.id },
+    } as Insight;
+    const initial = buildInsightSourceRevision(
+      derived,
+      [baseTable],
+      [upstream],
+    );
+
+    expect(
+      buildInsightSourceRevision(
+        derived,
+        [baseTable],
+        [{ ...upstream, selectedFields: ["changed-field" as UUID] }],
+      ),
+    ).not.toBe(initial);
+    expect(
+      buildInsightSourceRevision(
+        derived,
+        [{ ...baseTable, dataFrameId: "frame-2" as UUID }],
+        [upstream],
+      ),
+    ).not.toBe(initial);
+  });
+
+  it("fails closed deterministically for composition cycles", () => {
+    const a = {
+      ...insight,
+      id: "insight-a",
+      baseTableId: "insight-b",
+      source: { sourceType: "insight", sourceId: "insight-b" },
+    } as Insight;
+    const b = {
+      ...insight,
+      id: "insight-b",
+      baseTableId: "insight-a",
+      source: { sourceType: "insight", sourceId: "insight-a" },
+    } as Insight;
+
+    expect(buildInsightSourceRevision(a, [], [a, b])).toContain(
+      "cycle:insight-a",
+    );
+  });
+
+  it("caps malformed composition depth deterministically", () => {
+    const chain = Array.from({ length: 18 }, (_, index) => ({
+      ...insight,
+      id: `insight-${index}`,
+      baseTableId: `insight-${index + 1}`,
+      source: {
+        sourceType: "insight" as const,
+        sourceId: `insight-${index + 1}`,
+      },
+    })) as Insight[];
+
+    expect(buildInsightSourceRevision(chain[0]!, [], chain)).toContain(
+      "depth:insight-16",
+    );
+  });
 });
 
 describe("resolveInsightResultFields", () => {

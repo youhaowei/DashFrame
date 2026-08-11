@@ -10,6 +10,7 @@
 import type { Field, SourceSchema } from "./field";
 import type {
   Insight,
+  InsightFilter,
   InsightJoinConfig,
   InsightRuntimeDeclaration,
   InsightSort,
@@ -201,7 +202,11 @@ export interface CommandPayloads {
   };
   SetInsightSource: { id: UUID; source: InsightSourceInput };
   SelectFields: { id: UUID; fieldIds: UUID[] };
-  SetInsightFilter: { id: UUID; filters: TypedInsightFilter[] };
+  SetInsightFilter: {
+    id: UUID;
+    /** UI-authored literals stay in their domain shape; agent operands remain explicitly tagged. */
+    filters: Array<InsightFilter | TypedInsightFilter>;
+  };
   SetInsightSort: { id: UUID; sorts: InsightSort[] };
   SetInsightRuntimeControls: {
     id: UUID;

@@ -111,12 +111,28 @@ describe("registered live Insight fetch procedures", () => {
   }
 
   it("accepts a typed ephemeral definition from user and service principals without persisting an Insight row", async () => {
+    const sourceId = crypto.randomUUID();
+    const tableId = crypto.randomUUID();
+    const { applyCommands } = await import("@wystack/server");
+    await applyCommands(
+      app,
+      [
+        cmd("CreateDataSource", { id: sourceId, type: "csv", name: "Source" }),
+        cmd("CreateDataTable", {
+          id: tableId,
+          dataSourceId: sourceId,
+          name: "Table",
+          table: "source.csv",
+        }),
+      ],
+      { mode: "commit", context: { principal: user } },
+    );
     for (const principal of [user, service]) {
       const result = await call(
         "fetchData",
         {
           insight: {
-            baseTableId: crypto.randomUUID(),
+            baseTableId: tableId,
             selectedFields: ["country"],
             metrics: [],
           },
@@ -137,6 +153,22 @@ describe("registered live Insight fetch procedures", () => {
       }),
     );
     expect(await db.select().from(schema.insights)).toHaveLength(0);
+  });
+
+  it("fails ephemeral source resolution before execution for an unknown identity", async () => {
+    const result = await call("fetchData", {
+      insight: {
+        baseTableId: crypto.randomUUID(),
+        selectedFields: ["country"],
+        metrics: [],
+      },
+    });
+
+    expect(result).toMatchObject({
+      status: "failed",
+      code: "TARGET_NOT_READY",
+    });
+    expect(execute).not.toHaveBeenCalled();
   });
 
   it("uses the saved definition for runInsight for user and service principals", async () => {

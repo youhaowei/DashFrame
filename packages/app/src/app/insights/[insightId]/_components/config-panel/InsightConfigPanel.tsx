@@ -6,6 +6,7 @@ import {
 import { reorderVisibleMetrics } from "@/lib/insights/reorder-visible-metrics";
 import { api } from "@/wystack/api";
 import type {
+  Command,
   DataTable,
   Insight,
   InsightFilter,
@@ -83,6 +84,31 @@ const initialDeleteDialogState: DeleteDialogState = {
   itemName: "",
   itemType: "field",
 };
+
+export async function removeFilterThroughCommands(
+  commit: (input: { commands: Command[] }) => Promise<unknown>,
+  insight: Insight,
+  filterId: string,
+  runtimeResultFieldIds: UUID[],
+): Promise<void> {
+  const filters = withFilterIds(insight.filters)
+    .filter((filter) => filter._id !== filterId)
+    .map(({ _id: _discarded, ...filter }) => filter);
+  const runtimeControls = pruneRuntimeControls(
+    insight.runtimeControls,
+    filters,
+    runtimeResultFieldIds,
+  );
+  await commit({
+    commands: [
+      cmd("SetInsightFilter", { id: insight.id, filters }),
+      cmd("SetInsightRuntimeControls", {
+        id: insight.id,
+        runtimeControls,
+      }),
+    ],
+  });
+}
 
 type ConfigSection =
   | "model"
@@ -415,26 +441,14 @@ export function InsightConfigPanel({
 
   const handleRemoveFilter = useCallback(
     (filterId: string) => {
-      const updated = filtersWithIds.filter((f) => f._id !== filterId);
-      const filters = stripFilterIds(updated);
-      const runtimeControls = pruneRuntimeControls(
-        insight.runtimeControls,
-        filters,
+      void removeFilterThroughCommands(
+        commitBatch,
+        insight,
+        filterId,
         runtimeResultFields.map((field) => field.id),
       );
-      updateInsightLegacy({
-        id: insight.id,
-        updates: { filters, runtimeControls },
-      });
     },
-    [
-      insight.id,
-      insight.runtimeControls,
-      filtersWithIds,
-      runtimeResultFields,
-      stripFilterIds,
-      updateInsightLegacy,
-    ],
+    [commitBatch, insight, runtimeResultFields],
   );
 
   const handleSaveFilter = useCallback(

@@ -406,7 +406,19 @@ export function createDataFetchFunctions(execute: LiveFetchExecutor) {
           "FETCH_INVALID_DEFINITION",
           "The Insight definition is invalid.",
         );
-      return materialize(ctx, parsed.data, { kind: "ephemeral" });
+      try {
+        const source = await resolveEphemeralSource(
+          ctx,
+          parsed.data.baseTableId as UUID,
+        );
+        return materialize(
+          ctx,
+          { ...parsed.data, source },
+          { kind: "ephemeral" },
+        );
+      } catch (error) {
+        return toFetchFailure(error, "FETCH_SOURCE_FAILED");
+      }
     });
   const runInsight = wy.procedure
     .input({ insightId: uuid, runtime: jsonb.optional() })
@@ -447,6 +459,23 @@ export function createDataFetchFunctions(execute: LiveFetchExecutor) {
       }
     });
   return { fetchData, runInsight };
+}
+
+/** Resolve caller-supplied base identity against persisted server topology. */
+async function resolveEphemeralSource(
+  ctx: DashframeFunctionContext,
+  sourceId: UUID,
+): Promise<InsightSource> {
+  const [table, insight] = await Promise.all([
+    ctx.db.from(schema.dataTables).where(eq("id", sourceId)).first(),
+    ctx.db.from(schema.insights).where(eq("id", sourceId)).first(),
+  ]);
+  // UUID collisions across namespaces are ambiguous and must not let the
+  // caller select which persisted topology wins.
+  if (Boolean(table) === Boolean(insight)) throw new Error("TARGET_NOT_READY");
+  return table
+    ? { sourceType: "dataTable", sourceId }
+    : { sourceType: "insight", sourceId };
 }
 
 async function getInsightForFetch(
