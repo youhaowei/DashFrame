@@ -292,7 +292,7 @@ export function createDataFetchFunctions(
         );
       try {
         const saved = await getInsightForFetch(ctx, insightId as UUID);
-        return materialize(
+        const result = await materialize(
           ctx,
           applyInsightRuntime(saved, parsedRuntime.data),
           {
@@ -300,6 +300,10 @@ export function createDataFetchFunctions(
             insightId: insightId as UUID,
           },
         );
+        const prior = await lastSuccessfulForInsight(ctx, insightId as UUID);
+        return result.status === "failed" && prior
+          ? { ...result, lastSuccessful: prior }
+          : result;
       } catch (error) {
         const result = toFetchFailure(error, "FETCH_SOURCE_FAILED");
         const prior = await lastSuccessfulForInsight(ctx, insightId as UUID);

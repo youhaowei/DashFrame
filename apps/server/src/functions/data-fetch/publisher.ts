@@ -89,19 +89,30 @@ export function staleFrameMetadata(row: {
     provenance?: unknown;
     fetchedAt?: unknown;
   } | null;
+  if (
+    !analysis ||
+    !Array.isArray(analysis.schema) ||
+    typeof analysis.definitionFingerprint !== "string" ||
+    !analysis.provenance ||
+    typeof analysis.provenance !== "object" ||
+    typeof (analysis.provenance as { connectorKind?: unknown })
+      .connectorKind !== "string" ||
+    typeof (analysis.provenance as { bindingVersion?: unknown })
+      .bindingVersion !== "string" ||
+    typeof analysis.fetchedAt !== "number" ||
+    !Number.isFinite(analysis.fetchedAt) ||
+    row.rowCount == null ||
+    !Number.isInteger(row.rowCount) ||
+    row.rowCount < 0
+  )
+    return undefined;
   return {
     stale: true as const,
     dataFrameId: row.id,
-    schema: (analysis?.schema ?? []) as never,
-    rowCount: row.rowCount ?? 0,
-    definitionFingerprint: String(analysis?.definitionFingerprint ?? ""),
-    provenance: (analysis?.provenance ?? {
-      connectorKind: "unknown",
-      bindingVersion: "unknown",
-    }) as never,
-    fetchedAt:
-      typeof analysis?.fetchedAt === "number"
-        ? analysis.fetchedAt
-        : (row.lastRefreshedAt?.getTime() ?? 0),
+    schema: analysis.schema as never,
+    rowCount: row.rowCount!,
+    definitionFingerprint: analysis.definitionFingerprint,
+    provenance: analysis.provenance as never,
+    fetchedAt: analysis.fetchedAt,
   };
 }
