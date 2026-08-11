@@ -143,10 +143,15 @@ describe("Source Binding registry", () => {
     ["notion", notionConnectorFor],
     ["postgres", postgresConnectorFor],
   ])(
-    "dispatches %s through its persisted server-owned connector",
+    "lets the %s connector exhaust its provider without synthetic offsets",
     async (kind, connectorFor) => {
+      const query = vi
+        .fn()
+        .mockResolvedValue(
+          page(Array.from({ length: 10_000 }, (_, index) => index)),
+        );
       connectorFor.mockResolvedValue({
-        query: vi.fn().mockResolvedValue(page([])),
+        query,
       });
       const binding = await resolveSourceBinding(
         context({ table, source: { ...source, kind } }),
@@ -156,10 +161,12 @@ describe("Source Binding registry", () => {
       await expect(
         fetchSourceBinding(context({ table }), binding),
       ).resolves.toMatchObject({
-        rowCount: 0,
+        rowCount: 10_000,
         provenance: { connectorKind: kind, sourceBindingVersion: "v1" },
       });
       expect(connectorFor).toHaveBeenCalledWith(expect.anything(), source.id);
+      expect(query).toHaveBeenCalledTimes(1);
+      expect(query).toHaveBeenCalledWith(table.table, table.id);
     },
   );
 

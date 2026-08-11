@@ -12,7 +12,7 @@ import {
 } from "../app-artifacts";
 
 const SOURCE_BINDING_VERSION = "v1";
-/** Keep each provider response bounded while exhaustively paging the source. */
+/** GA4 supports offset windows; other adapters own their provider pagination. */
 const GA4_PAGE_SIZE = 10_000;
 
 type SourceRow = typeof schema.dataSources.$inferSelect;
@@ -86,7 +86,7 @@ type QueryConnector = {
   query: (
     resource: string,
     tableId: UUID,
-    options: { pagination: { offset: number; limit: number } },
+    options?: { pagination: { offset: number; limit: number } },
   ) => Promise<{
     arrowBuffer: string;
     fieldIds: string[];
@@ -99,7 +99,7 @@ type QueryConnector = {
  * Runs a persisted remote binding to exhaustion. The connector factory is
  * server-owned, so provider identity and credentials never cross this seam.
  */
-async function fetchRemoteBinding(
+async function fetchPagedRemoteBinding(
   ctx: DashframeFunctionContext,
   binding: SourceBinding,
   kind: "googleAnalytics" | "notion" | "postgres",
@@ -154,26 +154,82 @@ async function fetchRemoteBinding(
   }
 }
 
+/**
+ * Notion and Postgres already exhaust their source inside one connector query.
+ * Passing synthetic offsets to Notion would repeatedly fetch its first page;
+ * keep provider-specific continuation ownership below the binding seam.
+ */
+async function fetchExhaustiveRemoteBinding(
+  ctx: DashframeFunctionContext,
+  binding: SourceBinding,
+  kind: "notion" | "postgres",
+  connectorFor: (
+    ctx: DashframeFunctionContext,
+    sourceId: UUID,
+  ) => Promise<QueryConnector>,
+): Promise<LiveSourceResult> {
+  if (
+    binding.connectorKind !== kind ||
+    binding.sourceBindingVersion !== SOURCE_BINDING_VERSION
+  )
+    throw new Error("TARGET_NOT_READY");
+  try {
+    const connector = await connectorFor(ctx, binding.dataSourceId);
+    const result = await connector.query(binding.table.table, binding.table.id);
+    pageSignature(result);
+    return {
+      ...result,
+      provenance: {
+        connectorKind: binding.connectorKind,
+        sourceBindingVersion: binding.sourceBindingVersion,
+      },
+    };
+  } catch (error) {
+    throw new Error(
+      error instanceof Error &&
+        (error.message === "TARGET_NOT_READY" ||
+          error.message === "SOURCE_SCHEMA_CHANGED")
+        ? error.message
+        : "FETCH_EXECUTION_FAILED",
+    );
+  }
+}
+
 /** Credential refinement stays inside ga4ConnectorFor. */
 export async function fetchGa4Binding(
   ctx: DashframeFunctionContext,
   binding: SourceBinding,
 ): Promise<LiveSourceResult> {
-  return fetchRemoteBinding(ctx, binding, "googleAnalytics", ga4ConnectorFor);
+  return fetchPagedRemoteBinding(
+    ctx,
+    binding,
+    "googleAnalytics",
+    ga4ConnectorFor,
+  );
 }
 
 export async function fetchNotionBinding(
   ctx: DashframeFunctionContext,
   binding: SourceBinding,
 ): Promise<LiveSourceResult> {
-  return fetchRemoteBinding(ctx, binding, "notion", notionConnectorFor);
+  return fetchExhaustiveRemoteBinding(
+    ctx,
+    binding,
+    "notion",
+    notionConnectorFor,
+  );
 }
 
 export async function fetchPostgresBinding(
   ctx: DashframeFunctionContext,
   binding: SourceBinding,
 ): Promise<LiveSourceResult> {
-  return fetchRemoteBinding(ctx, binding, "postgres", postgresConnectorFor);
+  return fetchExhaustiveRemoteBinding(
+    ctx,
+    binding,
+    "postgres",
+    postgresConnectorFor,
+  );
 }
 
 /** Reads only the table's prepared, server-owned current source generation. */
