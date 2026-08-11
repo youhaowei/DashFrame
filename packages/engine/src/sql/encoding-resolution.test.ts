@@ -136,4 +136,70 @@ describe("encoding resolution — materialized Insight results", () => {
     expect(sql).toContain('AS "metric_total_revenue_id"');
     expect(resolved.y).toBe("metric_total_revenue_id");
   });
+
+  it("rolls composable result metrics up to a coarser transformed date grain", () => {
+    const context = {
+      fields: [{ id: "date-id", name: "Date", type: "date" }],
+      metrics: [
+        {
+          id: "revenue-id",
+          name: "Revenue",
+          sourceTable: "table-id",
+          columnName: "revenue",
+          aggregation: "sum",
+        },
+      ],
+    } as never;
+
+    expect(
+      resolveEncodingToResultFrame(
+        {
+          x: "field:date-id",
+          y: "metric:revenue-id",
+          xTransform: {
+            type: "date",
+            transform: { kind: "temporal", aggregation: "yearMonth" },
+          },
+        },
+        context,
+      ),
+    ).toMatchObject({
+      x: `date_trunc('month', "field_date_id")`,
+      y: "sum(metric_revenue_id)",
+    });
+  });
+
+  it("fails closed when a transformed grain cannot faithfully recombine a metric", () => {
+    const encoding = {
+      x: "field:date-id",
+      y: "metric:value-id",
+      xTransform: {
+        type: "date" as const,
+        transform: {
+          kind: "temporal" as const,
+          aggregation: "yearMonth" as const,
+        },
+      },
+    };
+    const contextFor = (aggregation: "avg" | "count_distinct") =>
+      ({
+        fields: [{ id: "date-id", name: "Date", type: "date" }],
+        metrics: [
+          {
+            id: "value-id",
+            name: "Value",
+            sourceTable: "table-id",
+            columnName: "value",
+            aggregation,
+          },
+        ],
+      }) as never;
+
+    expect(
+      resolveEncodingToResultFrame(encoding, contextFor("avg")).y,
+    ).toBeUndefined();
+    expect(
+      resolveEncodingToResultFrame(encoding, contextFor("count_distinct")).y,
+    ).toBeUndefined();
+  });
 });
