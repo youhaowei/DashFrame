@@ -73,6 +73,22 @@ export const permissions = definePermissions<AppContext>()({
         (ctx.principal.kind === "user" || ctx.principal.kind === "service"),
     },
   },
+  data: {
+    fetchData: {
+      description: "Materialize an ephemeral live Insight result",
+      check: (ctx) =>
+        isPrincipal(ctx.principal) &&
+        (ctx.principal.kind === "user" || ctx.principal.kind === "service"),
+    },
+  },
+  insights: {
+    runInsight: {
+      description: "Materialize a saved Insight result",
+      check: (ctx) =>
+        isPrincipal(ctx.principal) &&
+        (ctx.principal.kind === "user" || ctx.principal.kind === "service"),
+    },
+  },
 });
 
 /** Boot-time snapshot guarding the public permission identifiers. */
@@ -82,4 +98,6 @@ export const expectedPermissionIds = [
   "commands.draft",
   "commands.preview",
   "connectors.setup",
+  "data.fetchData",
+  "insights.runInsight",
 ] as const;

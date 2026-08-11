@@ -11,6 +11,7 @@ import { eq, jsonb, uuid } from "@wystack/db";
 import { z } from "zod";
 
 import type { DashframeFunctionContext } from "../app-context";
+import { permissions } from "../permissions";
 import { wy } from "../wystack";
 import type { MaterializationTarget } from "./data-fetch/materializer";
 import { decodeInsight, type InsightRow } from "./insights";
@@ -268,6 +269,7 @@ export function createDataFetchFunctions(
   };
   const fetchData = wy.procedure
     .input({ insight: jsonb })
+    .authorize(permissions.data.fetchData)
     .mutation(async (ctx, { insight }) => {
       const parsed = definitionSchema.safeParse(insight);
       if (!parsed.success)
@@ -279,8 +281,9 @@ export function createDataFetchFunctions(
     });
   const runInsight = wy.procedure
     .input({ insightId: uuid, runtime: jsonb.optional() })
+    .authorize(permissions.insights.runInsight)
     .mutation(async (ctx, { insightId, runtime }) => {
-      const parsedRuntime = runtimeSchema.safeParse(runtime);
+      const parsedRuntime = runtimeSchema.optional().safeParse(runtime);
       if (!parsedRuntime.success)
         return failed(
           "FETCH_INVALID_REQUEST",
