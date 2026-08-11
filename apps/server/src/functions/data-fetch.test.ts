@@ -1,62 +1,101 @@
-import type { InsightFetchDefinition } from "@dashframe/types";
+import type { Insight } from "@dashframe/types";
 import { describe, expect, it } from "vitest";
 
 import { applyInsightRuntime } from "./data-fetch";
 
-const insight: InsightFetchDefinition = {
+const insight: Insight = {
+  id: "insight-1",
+  name: "Revenue",
   baseTableId: "table-1",
-  selectedFields: ["field-1"],
+  selectedFields: ["region", "date"],
   metrics: [],
+  createdAt: 0,
   filters: [
-    { id: "region", field: "region", operator: "eq", value: "US" },
-    {
-      id: "date",
-      field: "date",
-      operator: "gte",
-      value: "2026-01-01",
-      allowClear: true,
-    },
+    { id: "region-filter", field: "region", operator: "eq", value: "US" },
+    { id: "date-filter", field: "date", operator: "gte", value: "2026-01-01" },
   ],
-  sorts: [{ field: "date", direction: "desc" }],
+  runtimeControls: {
+    filters: [
+      {
+        key: "region",
+        filterId: "region-filter",
+        label: "Region",
+        required: true,
+      },
+      { key: "from", filterId: "date-filter", label: "From", allowClear: true },
+    ],
+    sort: { allowedFieldIds: ["date"], maxKeys: 1 },
+    limit: { min: 1, max: 100 },
+  },
 };
 
 describe("applyInsightRuntime", () => {
-  it("only substitutes values for declared saved filter slots", () => {
+  it("uses only declared keys while retaining saved field and operator", () => {
     expect(
-      applyInsightRuntime(insight, { filterValues: { region: "CA" } }),
-    ).toMatchObject({
-      filters: [
-        { id: "region", value: "CA" },
-        { id: "date", value: "2026-01-01" },
-      ],
-    });
+      applyInsightRuntime(insight, { filters: { region: "CA" } }).filters,
+    ).toEqual([
+      { id: "region-filter", field: "region", operator: "eq", value: "CA" },
+      {
+        id: "date-filter",
+        field: "date",
+        operator: "gte",
+        value: "2026-01-01",
+      },
+    ]);
   });
 
-  it("rejects an undeclared filter edit before execution", () => {
+  it("rejects unknown keys and missing required values", () => {
     expect(() =>
-      applyInsightRuntime(insight, { filterValues: { providerQuery: "SQL" } }),
+      applyInsightRuntime(insight, { filters: { sql: "select" } }),
     ).toThrow("RUNTIME_FILTER_NOT_DECLARED");
+    expect(() => applyInsightRuntime(insight, { filters: {} })).toThrow(
+      "RUNTIME_FILTER_REQUIRED",
+    );
   });
 
-  it("defaults clearing to forbidden and only clears opt-in filters", () => {
+  it("defaults clear to forbidden and respects explicit clear declarations", () => {
     expect(() =>
-      applyInsightRuntime(insight, { clearFilterIds: ["region"] }),
-    ).toThrow("RUNTIME_FILTER_CLEAR_NOT_ALLOWED");
+      applyInsightRuntime(insight, { filters: { region: null } }),
+    ).toThrow("RUNTIME_FILTER_REQUIRED");
     expect(
-      applyInsightRuntime(insight, { clearFilterIds: ["date"] }).filters,
-    ).toEqual([{ id: "region", field: "region", operator: "eq", value: "US" }]);
+      applyInsightRuntime(insight, { filters: { region: "US", from: null } })
+        .filters,
+    ).toEqual([
+      { id: "region-filter", field: "region", operator: "eq", value: "US" },
+    ]);
   });
 
-  it("accepts one declared sort and rejects arbitrary sort keys", () => {
+  it("validates one-key sort by field allowlist, independently of direction", () => {
     expect(
       applyInsightRuntime(insight, {
-        sort: { field: "date", direction: "desc" },
+        filters: { region: "US" },
+        sort: [{ fieldId: "date", direction: "asc" }],
       }).sorts,
-    ).toEqual([{ field: "date", direction: "desc" }]);
+    ).toEqual([{ field: "date", direction: "asc" }]);
     expect(() =>
       applyInsightRuntime(insight, {
-        sort: { field: "secret", direction: "asc" },
+        filters: { region: "US" },
+        sort: [{ fieldId: "region", direction: "desc" }],
       }),
-    ).toThrow("RUNTIME_SORT_NOT_DECLARED");
+    ).toThrow("RUNTIME_SORT_FIELD_NOT_ALLOWED");
+    expect(() =>
+      applyInsightRuntime(insight, {
+        filters: { region: "US" },
+        sort: [
+          { fieldId: "date", direction: "asc" },
+          { fieldId: "date", direction: "desc" },
+        ],
+      }),
+    ).toThrow("RUNTIME_SORT_MAX_KEYS");
+  });
+
+  it("applies only a declared bounded limit", () => {
+    expect(
+      applyInsightRuntime(insight, { filters: { region: "US" }, limit: 50 })
+        .limit,
+    ).toBe(50);
+    expect(() =>
+      applyInsightRuntime(insight, { filters: { region: "US" }, limit: 101 }),
+    ).toThrow("RUNTIME_LIMIT_OUT_OF_RANGE");
   });
 });

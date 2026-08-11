@@ -90,7 +90,8 @@ export type {
   InsightFilter,
   InsightFilterBetweenValue,
   InsightJoinConfig,
-  InsightRuntimeControls,
+  InsightRuntimeDeclaration,
+  InsightRuntimeInput,
   InsightSort,
 } from "./insights";
 

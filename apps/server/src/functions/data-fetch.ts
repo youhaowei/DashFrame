@@ -1,17 +1,10 @@
-/**
- * Public live-data fetch contract.
- *
- * This module intentionally accepts only DashFrame's typed Insight shape. It
- * has no provider id, credential, Field object, or SQL escape hatch. Connector
- * selection remains a server concern behind a versioned binding registry.
- */
+/** Closed server-side contract for materialized live Insight fetches. */
 import { schema } from "@dashframe/server-core";
 import type {
   Insight,
   InsightFetchDefinition,
   InsightFetchResult,
-  InsightRuntimeControls,
-  InsightSort,
+  InsightRuntimeInput,
   UUID,
 } from "@dashframe/types";
 import { eq, jsonb, uuid } from "@wystack/db";
@@ -21,7 +14,7 @@ import type { DashframeFunctionContext } from "../app-context";
 import { wy } from "../wystack";
 import { decodeInsight, type InsightRow } from "./insights";
 
-const MAX_LIMIT = 10_000;
+type EffectiveInsightDefinition = InsightFetchDefinition & { limit?: number };
 
 const filterSchema = z.object({
   id: z.string().optional(),
@@ -38,11 +31,6 @@ const filterSchema = z.object({
     "between",
   ]),
   value: z.unknown(),
-  allowClear: z.boolean().optional(),
-});
-const sortSchema = z.object({
-  field: z.string().min(1),
-  direction: z.enum(["asc", "desc"]),
 });
 const definitionSchema = z
   .object({
@@ -65,7 +53,11 @@ const definitionSchema = z
       }),
     ),
     filters: z.array(filterSchema).optional(),
-    sorts: z.array(sortSchema).optional(),
+    sorts: z
+      .array(
+        z.object({ field: z.string(), direction: z.enum(["asc", "desc"]) }),
+      )
+      .optional(),
     joins: z
       .array(
         z.object({
@@ -80,72 +72,100 @@ const definitionSchema = z
   .strict();
 const runtimeSchema = z
   .object({
-    filterValues: z.record(z.string(), z.unknown()).optional(),
-    clearFilterIds: z.array(z.string()).optional(),
-    sort: sortSchema.optional(),
-    limit: z.number().int().positive().max(MAX_LIMIT).optional(),
+    filters: z.record(z.string(), z.unknown()).optional(),
+    sort: z
+      .array(
+        z.object({ fieldId: z.string(), direction: z.enum(["asc", "desc"]) }),
+      )
+      .max(1)
+      .optional(),
+    limit: z.number().int().positive().optional(),
   })
   .strict();
 
+/** Server-owned connector selection identity; never supplied by a caller. */
 export type ConnectorBinding = Readonly<{
   connectorKind: string;
-  bindingVersion: string;
+  sourceBindingVersion: string;
 }>;
 
-/** Server-only executor seam. Credentials and provider clients never cross it. */
+/** Implementations must atomically persist a new immutable DataFrame before ready. */
 export type LiveFetchExecutor = (args: {
   context: DashframeFunctionContext;
-  insight: InsightFetchDefinition;
+  insight: EffectiveInsightDefinition;
   binding: ConnectorBinding;
 }) => Promise<InsightFetchResult>;
 
-/**
- * Validates and applies the narrowly declared runtime surface before any
- * connector work. It is exported for executor implementations and focused
- * tests; the returned definition remains free of provider concerns.
- */
 export function applyInsightRuntime(
-  insight: InsightFetchDefinition,
-  runtime: InsightRuntimeControls | undefined,
-): InsightFetchDefinition {
-  if (!runtime) return insight;
-  const values = runtime.filterValues ?? {};
-  const clear = new Set(runtime.clearFilterIds ?? []);
-  const declared = new Map(
-    (insight.filters ?? []).map((filter) => [filter.id, filter]),
+  saved: Insight,
+  runtime: InsightRuntimeInput | undefined,
+): EffectiveInsightDefinition {
+  const definition: EffectiveInsightDefinition = {
+    baseTableId: saved.baseTableId,
+    selectedFields: saved.selectedFields,
+    metrics: saved.metrics,
+    filters: saved.filters,
+    sorts: saved.sorts,
+    joins: saved.joins,
+  };
+  if (!runtime) return definition;
+  const declared = saved.runtimeControls;
+  const values = runtime.filters ?? {};
+  const controls = new Map(
+    (declared?.filters ?? []).map((control) => [control.key, control]),
   );
-  for (const id of [...Object.keys(values), ...clear]) {
-    const filter = declared.get(id);
-    if (!id || !filter) throw new Error("RUNTIME_FILTER_NOT_DECLARED");
-    if (clear.has(id) && !filter.allowClear)
-      throw new Error("RUNTIME_FILTER_CLEAR_NOT_ALLOWED");
+  for (const key of Object.keys(values)) {
+    if (!controls.has(key)) throw new Error("RUNTIME_FILTER_NOT_DECLARED");
   }
-  const filters = (insight.filters ?? []).flatMap((filter) => {
-    if (filter.id && clear.has(filter.id)) return [];
-    return [
-      {
-        ...filter,
-        ...(filter.id && filter.id in values
-          ? { value: values[filter.id] }
-          : {}),
-      },
-    ];
-  });
-  if (runtime.sort) {
-    const allowed = insight.sorts ?? [];
-    if (!allowed.some((sort) => sameSortKey(sort, runtime.sort!))) {
-      throw new Error("RUNTIME_SORT_NOT_DECLARED");
+  for (const control of controls.values()) {
+    const hasValue = Object.hasOwn(values, control.key);
+    const value = values[control.key];
+    if (control.required && (!hasValue || value === null))
+      throw new Error("RUNTIME_FILTER_REQUIRED");
+    if (!hasValue) continue;
+    const filter = (saved.filters ?? []).find(
+      (candidate) => candidate.id === control.filterId,
+    );
+    if (!filter) throw new Error("RUNTIME_FILTER_DECLARATION_INVALID");
+    if (value === null) {
+      if (!control.allowClear)
+        throw new Error("RUNTIME_FILTER_CLEAR_NOT_ALLOWED");
+      definition.filters = definition.filters?.filter(
+        (candidate) => candidate.id !== control.filterId,
+      );
+    } else {
+      definition.filters = definition.filters?.map((candidate) =>
+        candidate.id === control.filterId ? { ...candidate, value } : candidate,
+      );
     }
   }
-  return {
-    ...insight,
-    filters: filters.length ? filters : undefined,
-    sorts: runtime.sort ? [runtime.sort] : insight.sorts,
-  };
-}
-
-function sameSortKey(a: InsightSort, b: InsightSort): boolean {
-  return a.field === b.field && a.direction === b.direction;
+  if (runtime.sort) {
+    const sortControl = declared?.sort;
+    if (!sortControl) throw new Error("RUNTIME_SORT_NOT_DECLARED");
+    if (
+      sortControl.maxKeys < 1 ||
+      sortControl.maxKeys > 1 ||
+      runtime.sort.length > sortControl.maxKeys
+    )
+      throw new Error("RUNTIME_SORT_MAX_KEYS");
+    if (
+      runtime.sort.some(
+        (sort) => !sortControl.allowedFieldIds.includes(sort.fieldId),
+      )
+    )
+      throw new Error("RUNTIME_SORT_FIELD_NOT_ALLOWED");
+    definition.sorts = runtime.sort.map((sort) => ({
+      field: sort.fieldId,
+      direction: sort.direction,
+    }));
+  }
+  if (runtime.limit !== undefined) {
+    const limit = declared?.limit;
+    if (!limit || runtime.limit < limit.min || runtime.limit > limit.max)
+      throw new Error("RUNTIME_LIMIT_OUT_OF_RANGE");
+    definition.limit = runtime.limit;
+  }
+  return definition;
 }
 
 function failed(
@@ -162,11 +182,24 @@ function failed(
   };
 }
 
+function failureFrom(error: unknown, fallback: string): InsightFetchResult {
+  const code =
+    error instanceof Error && error.message.startsWith("RUNTIME_")
+      ? error.message
+      : fallback;
+  return failed(
+    code,
+    code.startsWith("RUNTIME_")
+      ? "The requested Insight runtime controls are invalid."
+      : "Live data could not be fetched.",
+    fallback === "FETCH_EXECUTION_FAILED",
+  );
+}
+
 /**
- * The registry is intentionally binding-only. A caller picks neither a
- * connector nor a credential; a host wires a binding to a connector-local
- * executor. There is no generic RPC retry because re-running an arbitrary
- * fetch can duplicate provider-side effects.
+ * Host-only factory, deliberately not registered until a real executor exists.
+ * Both routes are closed: validation, saved-definition, binding, compilation,
+ * and connector errors all return a safe failed result rather than an RPC error.
  */
 export function createDataFetchFunctions(
   resolveBinding: (
@@ -175,48 +208,47 @@ export function createDataFetchFunctions(
   ) => Promise<ConnectorBinding>,
   execute: LiveFetchExecutor,
 ) {
+  const materialize = async (
+    ctx: DashframeFunctionContext,
+    insight: EffectiveInsightDefinition,
+  ): Promise<InsightFetchResult> => {
+    let binding: ConnectorBinding;
+    try {
+      binding = await resolveBinding(ctx, insight.baseTableId);
+    } catch (error) {
+      return failureFrom(error, "FETCH_BINDING_FAILED");
+    }
+    try {
+      return await execute({ context: ctx, insight, binding });
+    } catch (error) {
+      return failureFrom(error, "FETCH_EXECUTION_FAILED");
+    }
+  };
   const fetchData = wy.procedure
     .input({ insight: jsonb })
     .mutation(async (ctx, { insight }) => {
       const parsed = definitionSchema.safeParse(insight);
-      if (!parsed.success) {
+      if (!parsed.success)
         return failed(
           "FETCH_INVALID_DEFINITION",
           "The Insight definition is invalid.",
         );
-      }
-      const binding = await resolveBinding(
-        ctx,
-        parsed.data.baseTableId as UUID,
-      );
-      return execute({ context: ctx, insight: parsed.data, binding });
+      return materialize(ctx, parsed.data);
     });
   const runInsight = wy.procedure
     .input({ insightId: uuid, runtime: jsonb.optional() })
     .mutation(async (ctx, { insightId, runtime }) => {
-      // Canonical saved definition is read server-side. Runtime validation happens
-      // before binding resolution/execution, so invalid edits never reach a source.
       const parsedRuntime = runtimeSchema.safeParse(runtime);
-      if (!parsedRuntime.success) {
+      if (!parsedRuntime.success)
         return failed(
           "FETCH_INVALID_REQUEST",
           "The requested Insight runtime controls are invalid.",
         );
-      }
-      const saved = await getInsightForFetch(ctx, insightId as UUID);
       try {
-        const insight = applyInsightRuntime(saved, parsedRuntime.data);
-        const binding = await resolveBinding(ctx, insight.baseTableId);
-        return execute({ context: ctx, insight, binding });
+        const saved = await getInsightForFetch(ctx, insightId as UUID);
+        return materialize(ctx, applyInsightRuntime(saved, parsedRuntime.data));
       } catch (error) {
-        const code =
-          error instanceof Error && error.message.startsWith("RUNTIME_")
-            ? error.message
-            : "FETCH_INVALID_REQUEST";
-        return failed(
-          code,
-          "The requested Insight runtime controls are invalid.",
-        );
+        return failureFrom(error, "FETCH_SOURCE_FAILED");
       }
     });
   return { fetchData, runInsight };
@@ -233,14 +265,3 @@ async function getInsightForFetch(
   if (!row) throw new Error("INSIGHT_NOT_FOUND");
   return decodeInsight(row);
 }
-
-/** Placeholder registration keeps the public contract closed until host wiring lands. */
-export const dataFetchFunctions = createDataFetchFunctions(
-  async () => ({ connectorKind: "unconfigured", bindingVersion: "0" }),
-  async () =>
-    failed(
-      "FETCH_PIPELINE_UNAVAILABLE",
-      "Live data fetching is not configured.",
-      true,
-    ),
-);

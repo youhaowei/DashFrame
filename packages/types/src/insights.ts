@@ -37,12 +37,6 @@ export interface InsightFilter {
     | "in"
     | "between";
   value: unknown;
-  /**
-   * Allows an explicitly declared runtime caller to clear this saved predicate.
-   * Omitted is deliberately false: saved filters stay authoritative unless the
-   * author opted into clearing them.
-   */
-  allowClear?: boolean;
 }
 
 /** Value shape for the `between` operator — inclusive on both bounds. */
@@ -96,6 +90,8 @@ export interface Insight {
   sorts?: InsightSort[];
   /** Optional joins */
   joins?: InsightJoinConfig[];
+  /** Explicit, saved runtime surface. Omitted means the Insight is immutable at run time. */
+  runtimeControls?: InsightRuntimeDeclaration;
   createdAt: number;
   updatedAt?: number;
 }
@@ -111,10 +107,23 @@ export type InsightFetchDefinition = Pick<
  * saved filter ids, never field names; this makes the saved operator and field
  * the authority. A runtime sort can select only one already-declared sort key.
  */
-export interface InsightRuntimeControls {
-  filterValues?: Record<string, unknown>;
-  clearFilterIds?: string[];
-  sort?: InsightSort;
+export interface InsightRuntimeDeclaration {
+  filters?: Array<{
+    key: string;
+    filterId: string;
+    label: string;
+    required?: boolean;
+    allowClear?: boolean;
+  }>;
+  sort?: { allowedFieldIds: UUID[]; maxKeys: number };
+  limit?: { min: number; max: number };
+}
+
+/** Values that an invocation may supply for a saved runtime declaration. */
+export interface InsightRuntimeInput {
+  /** A null value requests an explicit clear when the saved declaration allows it. */
+  filters?: Record<string, unknown>;
+  sort?: Array<{ fieldId: UUID; direction: "asc" | "desc" }>;
   limit?: number;
 }
 
