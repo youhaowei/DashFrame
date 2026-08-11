@@ -72,16 +72,15 @@
       "dependencies": {
         "@dashframe/app": "workspace:*",
         "@dashframe/desktop-types": "workspace:*",
+        "@dashframe/visualization": "workspace:*",
         "@tanstack/react-query": "^5.90.0",
         "@tanstack/react-router": "^1.95.0",
-        "@uwdata/flechette": "^2.2.5",
         "@wystack/client": "workspace:*",
         "react": "^19.2.4",
         "react-dom": "^19.2.4",
       },
       "devDependencies": {
         "@dashframe/eslint-config": "workspace:*",
-        "@dashframe/server": "workspace:*",
         "@tailwindcss/postcss": "4.1.16",
         "@tanstack/router-plugin": "^1.167.35",
         "@types/react": "^19.2.7",

@@ -12,6 +12,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
 import { routeTree } from "./routeTree.gen";
+import { isServerFrameEngineLoss } from "./server-frame-engine-loss";
 
 // Router is created at module scope (so `typeof router` registers the type),
 // with an empty context. The runtime context — the WyStack Provider wrapper —
@@ -52,7 +53,7 @@ async function bootstrap() {
 
   if (!config.token) {
     throw new Error(
-      "Desktop server info omitted its loopback token; native data plane unavailable",
+      "Desktop server info omitted its loopback token; server frame access unavailable",
     );
   }
   const connector = createServerFrameConnector({
@@ -108,10 +109,7 @@ window.addEventListener("unhandledrejection", (event) => {
   //      Accept this narrow false-positive risk: swallowing a genuine "Failed
   //      to fetch" from another source on the DESKTOP path is very low risk;
   //      failing to swallow a loopback engine-loss rejection crashes the renderer.
-  const isEngineLoss =
-    /native engine|loopback server|local server|127\.0\.0\.1:\d+|data\/arrow|data\/tables|failed to upload|failed to fetch/i.test(
-      msg,
-    );
+  const isEngineLoss = isServerFrameEngineLoss(msg);
   if (isEngineLoss) {
     console.warn(
       "[DashFrame] Swallowed unhandled rejection (engine loss):",
