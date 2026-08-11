@@ -93,6 +93,22 @@ describe("registered live Insight fetch procedures", () => {
     return insightId;
   }
 
+  async function seedLastSuccessful(insightId: string, analysis: unknown) {
+    const id = crypto.randomUUID();
+    await db.insert(schema.dataFrames).values({
+      id,
+      storage: { type: "file", key: id },
+      fieldIds: ["country"],
+      name: "Previous result",
+      insightId,
+      rowCount: 3,
+      columnCount: 1,
+      analysis: analysis as never,
+      lastRefreshedAt: new Date(1),
+    });
+    return id;
+  }
+
   it("accepts a typed ephemeral definition from user and service principals without persisting an Insight row", async () => {
     for (const principal of [user, service]) {
       const result = await call(
@@ -191,5 +207,94 @@ describe("registered live Insight fetch procedures", () => {
       code: "FETCH_INVALID_DEFINITION",
     });
     expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("attaches strictly validated prior metadata to a returned saved-materialization failure", async () => {
+    const insightId = await seedSavedInsight();
+    const frameId = await seedLastSuccessful(insightId, {
+      schema: [{ id: "country", name: "country", type: "string" }],
+      definitionFingerprint: "previous",
+      provenance: { connectorKind: "test", bindingVersion: "v1" },
+      fetchedAt: 1,
+    });
+    execute.mockResolvedValueOnce({
+      status: "failed",
+      code: "FETCH_EXECUTION_FAILED",
+      message: "safe failure",
+      retryable: true,
+      diagnosticId: "diagnostic",
+    });
+
+    const result = await call("runInsight", { insightId });
+
+    expect(result).toMatchObject({
+      status: "failed",
+      lastSuccessful: {
+        stale: true,
+        dataFrameId: frameId,
+        definitionFingerprint: "previous",
+      },
+    });
+    // Reading stale metadata must not detach or mutate the retained frame.
+    expect(
+      (await db.select().from(schema.dataFrames)).find(
+        (row) => row.id === frameId,
+      )?.insightId,
+    ).toBe(insightId);
+  });
+
+  it("omits malformed or absent saved prior metadata and all ephemeral failures", async () => {
+    const insightId = await seedSavedInsight();
+    await seedLastSuccessful(insightId, {
+      schema: [],
+      // malformed: no definition fingerprint/provenance/fetchedAt
+    });
+    execute.mockResolvedValueOnce({
+      status: "failed",
+      code: "FETCH_EXECUTION_FAILED",
+      message: "safe failure",
+      retryable: true,
+      diagnosticId: "malformed",
+    });
+    const malformed = await call("runInsight", { insightId });
+    expect(malformed).toMatchObject({
+      status: "failed",
+    });
+    expect(
+      (malformed as { lastSuccessful?: unknown }).lastSuccessful,
+    ).toBeUndefined();
+
+    const noPriorInsightId = await seedSavedInsight();
+    execute.mockResolvedValueOnce({
+      status: "failed",
+      code: "FETCH_EXECUTION_FAILED",
+      message: "safe failure",
+      retryable: true,
+      diagnosticId: "none",
+    });
+    const noPrior = await call("runInsight", { insightId: noPriorInsightId });
+    expect(noPrior).toMatchObject({ status: "failed" });
+    expect(
+      (noPrior as { lastSuccessful?: unknown }).lastSuccessful,
+    ).toBeUndefined();
+
+    execute.mockResolvedValueOnce({
+      status: "failed",
+      code: "FETCH_EXECUTION_FAILED",
+      message: "safe failure",
+      retryable: true,
+      diagnosticId: "ephemeral",
+    });
+    const ephemeral = await call("fetchData", {
+      insight: {
+        baseTableId: crypto.randomUUID(),
+        selectedFields: ["country"],
+        metrics: [],
+      },
+    });
+    expect(ephemeral).toMatchObject({ status: "failed" });
+    expect(
+      (ephemeral as { lastSuccessful?: unknown }).lastSuccessful,
+    ).toBeUndefined();
   });
 });

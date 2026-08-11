@@ -1,5 +1,10 @@
+import { openArtifactDb, schema } from "@dashframe/server-core";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
+import type { PublishMaterialization } from "./materializer";
 import { publishMaterialization } from "./publisher";
 
 function materialization(
@@ -101,4 +106,76 @@ describe("publishMaterialization", () => {
       ),
     ).rejects.toThrow("db");
   });
+
+  it("rolls back a real ArtifactDb publication failure without detaching the prior result", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "dashframe-publish-rollback-"));
+    const db = await openArtifactDb({ path: join(dir, "artifacts.db") });
+    try {
+      const sourceId = crypto.randomUUID();
+      const tableId = crypto.randomUUID();
+      const insightId = crypto.randomUUID();
+      const oldId = crypto.randomUUID();
+      const collidedResultId = crypto.randomUUID();
+      await db.insert(schema.dataSources).values({
+        id: sourceId,
+        name: "Source",
+        kind: "googleAnalytics",
+        storage: "live",
+        config: {},
+        createdBy: { kind: "user" },
+      });
+      await db.insert(schema.dataTables).values({
+        id: tableId,
+        dataSourceId: sourceId,
+        name: "Table",
+        table: "properties/1",
+        fields: [],
+        metrics: [],
+      });
+      for (const [id, attached] of [
+        [oldId, insightId],
+        [collidedResultId, null],
+      ] as const) {
+        await db.insert(schema.dataFrames).values({
+          id,
+          storage: { type: "file", key: id },
+          fieldIds: [],
+          name: "Existing",
+          insightId: attached,
+        });
+      }
+      const value = materialization({
+        kind: "saved",
+        insightId,
+      }) as PublishMaterialization;
+      value.sources[0]!.source.table = {
+        ...value.sources[0]!.source.table,
+        id: tableId as never,
+        dataSourceId: sourceId as never,
+        name: "Table",
+      };
+      value.sources[0]!.frame.id = crypto.randomUUID() as never;
+      value.result.id = collidedResultId;
+
+      await expect(
+        publishMaterialization({ db } as never, value),
+      ).rejects.toThrow();
+
+      const frames = await db.select().from(schema.dataFrames);
+      expect(frames.find((frame) => frame.id === oldId)?.insightId).toBe(
+        insightId,
+      );
+      expect(
+        frames.some((frame) => frame.id === value.sources[0]!.frame.id),
+      ).toBe(false);
+      expect(
+        (await db.select().from(schema.dataTables)).find(
+          (row) => row.id === tableId,
+        )?.dataFrameId,
+      ).toBeNull();
+    } finally {
+      await db.$client.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 20_000);
 });
