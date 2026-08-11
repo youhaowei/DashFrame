@@ -110,6 +110,7 @@ export const DRAFT_SAFE_COMMANDS = new Set([
   "SelectFields",
   "SetInsightFilter",
   "SetInsightSort",
+  "SetInsightRuntimeControls",
   "AddJoin",
   "UpdateJoin",
   "RemoveJoin",
