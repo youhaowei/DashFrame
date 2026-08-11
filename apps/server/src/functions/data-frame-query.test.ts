@@ -104,5 +104,32 @@ describe("queryDataFrame", () => {
       sort: [{ fieldId: 'revenue"; DROP TABLE x; --', direction: "asc" }],
     });
     expect(unsafe.result).toMatchObject({ code: "QUERY_SORT_NOT_ALLOWED" });
+
+    const resultId = crypto.randomUUID();
+    const resultFieldId = "field_20000000_0000_4000_8000_000000000001";
+    await db.insert(schema.dataFrames).values({
+      id: resultId,
+      storage: { type: "file", key: resultId },
+      fieldIds: [resultFieldId],
+      name: "Insight result",
+      rowCount: 2,
+      columnCount: 1,
+      analysis: {
+        schema: [{ id: resultFieldId, name: "Revenue ($)", type: "number" }],
+        definitionFingerprint: "result-frame",
+      },
+    });
+    queryArrow.mockClear();
+    const sortedResult = await call({
+      dataFrameId: resultId,
+      sort: [{ fieldId: resultFieldId, direction: "asc" }],
+    });
+    expect(sortedResult.result).toMatchObject({ status: "ready" });
+    expect(queryArrow).toHaveBeenCalledWith(
+      expect.stringContaining(
+        `ORDER BY "${resultFieldId}" ASC LIMIT ? OFFSET ?`,
+      ),
+      [100, 0],
+    );
   });
 });

@@ -8,10 +8,42 @@ import type {
 } from "../../app-context";
 import {
   createInsightMaterializer,
+  fieldsFromInsightResult,
   type InsightMaterializerDependencies,
   type PublishMaterialization,
   type SourceGeneration,
 } from "./materializer";
+
+describe("fieldsFromInsightResult", () => {
+  it("keeps physical result aliases while restoring source field identity", () => {
+    expect(
+      fieldsFromInsightResult(
+        [
+          {
+            id: "field_10000000_0000_4000_8000_000000000001",
+            name: "Country",
+            type: "string",
+          },
+          {
+            id: "metric_20000000_0000_4000_8000_000000000002",
+            name: "Revenue",
+            type: "number",
+          },
+        ],
+        "upstream",
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        id: "10000000-0000-4000-8000-000000000001",
+        columnName: "field_10000000_0000_4000_8000_000000000001",
+      }),
+      expect.objectContaining({
+        id: "20000000-0000-4000-8000-000000000002",
+        columnName: "metric_20000000_0000_4000_8000_000000000002",
+      }),
+    ]);
+  });
+});
 
 const field = (id: string, tableId: string, name: string): Field => ({
   id,
@@ -179,6 +211,18 @@ describe("immutable Insight materializer", () => {
   });
 
   it("materializes an Insight source recursively and reuses its immutable result", async () => {
+    const compile = vi.fn(({ tables }) => {
+      const upstream = tables.get("upstream");
+      if (upstream) {
+        expect(upstream.fields).toEqual([
+          expect.objectContaining({
+            id: "result-field",
+            columnName: "field_result_field",
+          }),
+        ]);
+      }
+      return "select 1";
+    });
     const h = harness({
       resolveInsight: vi.fn(async () => ({
         baseTableId: "base",
@@ -186,6 +230,11 @@ describe("immutable Insight materializer", () => {
         selectedFields: ["base-field"],
         metrics: [],
       })),
+      compile,
+      inspect: () => ({
+        rowCount: 2,
+        schema: [{ id: "field_result_field", name: "result", type: "string" }],
+      }),
     });
     const ready = await createInsightMaterializer(h.dependencies).materialize({
       ctx: {} as never,
@@ -202,6 +251,7 @@ describe("immutable Insight materializer", () => {
     expect(h.resolveSource).toHaveBeenCalledOnce();
     expect(h.publish).toHaveBeenCalledTimes(2);
     expect(h.bytes.size).toBe(3);
+    expect(compile).toHaveBeenCalledTimes(2);
   });
 
   it("fails closed on a recursively corrupted Insight cycle", async () => {

@@ -1,5 +1,8 @@
 /** Internal immutable DataFrame materialization lifecycle for Insight execution. */
-import type { DataFrameStorage } from "@dashframe/engine";
+import {
+  extractColumnAliasComponents,
+  type DataFrameStorage,
+} from "@dashframe/engine";
 import type {
   ColumnType,
   DataTable,
@@ -47,6 +50,26 @@ export type PublishMaterialization = {
   provenance: InsightFetchReady["provenance"];
   fetchedAt: number;
 };
+
+export function fieldsFromInsightResult(
+  schema: InsightFetchReady["schema"],
+  tableId: UUID,
+): Field[] {
+  return schema.map((field) => {
+    const parsed = extractColumnAliasComponents(field.id);
+    if (!parsed) throw new Error("SOURCE_SCHEMA_CHANGED");
+    const id = `${parsed.uuid}${
+      parsed.instanceIndex > 0 ? `_j${parsed.instanceIndex}` : ""
+    }` as UUID;
+    return {
+      ...field,
+      id,
+      type: field.type as ColumnType,
+      tableId,
+      columnName: field.id,
+    };
+  });
+}
 
 export interface InsightMaterializerDependencies {
   storage(ctx: DashframeFunctionContext): DataFrameStorage;
@@ -161,12 +184,7 @@ async function materializeOnce(
           );
           const arrow = await storage.load(ready.dataFrameId);
           if (!arrow) throw new Error("TARGET_NOT_READY");
-          const fields: Field[] = ready.schema.map((field) => ({
-            ...field,
-            type: field.type as ColumnType,
-            tableId,
-            columnName: field.id,
-          }));
+          const fields = fieldsFromInsightResult(ready.schema, tableId);
           return {
             table: {
               id: tableId,

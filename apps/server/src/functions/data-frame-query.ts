@@ -52,15 +52,22 @@ function frameSchema(analysis: unknown, fieldIds: unknown) {
             typeof (field as { type?: unknown }).type === "string",
         )
       : [];
+  const isResultFrame =
+    typeof analysis === "object" &&
+    analysis !== null &&
+    typeof (analysis as { definitionFingerprint?: unknown })
+      .definitionFingerprint === "string";
   // The persisted structural ids are the authority. Schema is presentation
   // metadata only, and a malformed row must never widen the ORDER BY surface.
   return {
     ids: new Set(ids),
     schema: fields.filter((field) => ids.includes(field.id)),
-    namesById: new Map(
+    physicalNamesById: new Map(
       fields
         .filter((field) => ids.includes(field.id))
-        .map((field) => [field.id, field.name] as const),
+        .map(
+          (field) => [field.id, isResultFrame ? field.id : field.name] as const,
+        ),
     ),
   };
 }
@@ -137,7 +144,7 @@ export const dataFrameQueryFunctions = {
         parsed.data.sort.some(
           (key) =>
             !structural.ids.has(key.fieldId) ||
-            !structural.namesById.has(key.fieldId),
+            !structural.physicalNamesById.has(key.fieldId),
         )
       ) {
         return {
@@ -153,7 +160,7 @@ export const dataFrameQueryFunctions = {
           ? ` ORDER BY ${parsed.data.sort
               .map(
                 (key) =>
-                  `${quoteIdentifier(structural.namesById.get(key.fieldId)!)} ${key.direction.toUpperCase()}`,
+                  `${quoteIdentifier(structural.physicalNamesById.get(key.fieldId)!)} ${key.direction.toUpperCase()}`,
               )
               .join(", ")}`
           : "";
