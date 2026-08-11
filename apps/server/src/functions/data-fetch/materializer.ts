@@ -263,6 +263,18 @@ async function materializeOnce(
     });
     const provenance = sources[0]?.provenance;
     if (!provenance) throw new Error("TARGET_NOT_READY");
+    if (args.target.kind !== "transient") {
+      // Intermediate results are no longer needed once the outer query has
+      // produced its bytes. Retire them before publishing the outer pointer so
+      // a cleanup failure cannot leave committed rows pointing at rolled-back
+      // files.
+      await cleanupTransientFrames(
+        storage,
+        runtime,
+        dependencies,
+        transientResults,
+      );
+    }
     await dependencies.publish(args.ctx, {
       target: args.target,
       sources: pendingSources,
@@ -273,13 +285,6 @@ async function materializeOnce(
     });
     if (args.target.kind === "transient") {
       transientResults.push({ id: result.id, registered: true });
-    } else {
-      await cleanupTransientFrames(
-        storage,
-        runtime,
-        dependencies,
-        transientResults,
-      );
     }
     return {
       status: "ready",

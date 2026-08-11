@@ -295,6 +295,46 @@ describe("immutable Insight materializer", () => {
     expect([...h.registered.keys()]).toEqual(["df_frame-1"]);
   });
 
+  it("fails before outer publication when transient cleanup fails", async () => {
+    const h = harness({
+      resolveInsight: vi.fn(async () => ({
+        baseTableId: "base",
+        source: { sourceType: "dataTable" as const, sourceId: "base" },
+        selectedFields: ["base-field"],
+        metrics: [],
+      })),
+      inspect: () => ({
+        rowCount: 2,
+        schema: [{ id: "field_result_field", name: "result", type: "string" }],
+      }),
+    });
+    (h.storage.delete as ReturnType<typeof vi.fn>).mockImplementation(
+      async (id) => {
+        if (id === "frame-2") throw new Error("transient cleanup");
+        h.bytes.delete(id);
+      },
+    );
+
+    await expect(
+      createInsightMaterializer(h.dependencies).materialize({
+        ctx: {} as never,
+        target: { kind: "saved", insightId: "derived" },
+        insight: {
+          baseTableId: "upstream",
+          source: { sourceType: "insight", sourceId: "upstream" },
+          selectedFields: ["result-field"],
+          metrics: [],
+        },
+      }),
+    ).rejects.toThrow("transient cleanup");
+
+    expect(h.publish).toHaveBeenCalledOnce();
+    expect(h.publish.mock.calls[0]![1].target).toEqual({ kind: "transient" });
+    expect(h.bytes.has("frame-1")).toBe(true);
+    expect(h.bytes.has("frame-3")).toBe(false);
+    expect(h.registered.has("df_frame-3")).toBe(false);
+  });
+
   it("fails closed on a recursively corrupted Insight cycle", async () => {
     const h = harness({
       resolveInsight: vi.fn(async (_ctx, insightId) => ({
