@@ -26,6 +26,18 @@ export type LiveSourceResult = {
   provenance: Pick<SourceBinding, "connectorKind" | "sourceBindingVersion">;
 };
 
+type BindingAdapter = (
+  ctx: DashframeFunctionContext,
+  binding: SourceBinding,
+) => Promise<LiveSourceResult>;
+
+/** Exact kind+version registry; adding a connector never widens RPC input. */
+const sourceBindingRegistry = new Map<string, BindingAdapter>();
+
+function bindingKey(kind: string, version: string): string {
+  return `${kind}:${version}`;
+}
+
 /** Resolves only persisted IDs; caller-provided provider identity never enters. */
 export async function resolveSourceBinding(
   ctx: DashframeFunctionContext,
@@ -41,11 +53,16 @@ export async function resolveSourceBinding(
     .where(eq("id", table.dataSourceId))
     .first()) as SourceRow | undefined;
   if (!source) throw new Error("TARGET_NOT_READY");
-  const version =
-    (source.config as { sourceBindingVersion?: unknown } | null)
-      ?.sourceBindingVersion ?? SOURCE_BINDING_VERSION;
-  if (version !== SOURCE_BINDING_VERSION) throw new Error("TARGET_NOT_READY");
-  if (source.kind !== "googleAnalytics") throw new Error("TARGET_NOT_READY");
+  const config = source.config;
+  if (config !== null && (typeof config !== "object" || Array.isArray(config)))
+    throw new Error("TARGET_NOT_READY");
+  const configuredVersion = (
+    config as { sourceBindingVersion?: unknown } | null
+  )?.sourceBindingVersion;
+  const version = configuredVersion ?? SOURCE_BINDING_VERSION;
+  if (typeof version !== "string") throw new Error("TARGET_NOT_READY");
+  if (!sourceBindingRegistry.has(bindingKey(source.kind, version)))
+    throw new Error("TARGET_NOT_READY");
   return {
     connectorKind: source.kind,
     sourceBindingVersion: SOURCE_BINDING_VERSION,
@@ -82,4 +99,21 @@ export async function fetchGa4Binding(
         : "FETCH_EXECUTION_FAILED",
     );
   }
+}
+
+sourceBindingRegistry.set(
+  bindingKey("googleAnalytics", SOURCE_BINDING_VERSION),
+  fetchGa4Binding,
+);
+
+/** Dispatches a resolved persisted binding; callers never select an adapter. */
+export async function fetchSourceBinding(
+  ctx: DashframeFunctionContext,
+  binding: SourceBinding,
+): Promise<LiveSourceResult> {
+  const adapter = sourceBindingRegistry.get(
+    bindingKey(binding.connectorKind, binding.sourceBindingVersion),
+  );
+  if (!adapter) throw new Error("TARGET_NOT_READY");
+  return adapter(ctx, binding);
 }
