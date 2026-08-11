@@ -1,4 +1,5 @@
 import { eq, sql } from "drizzle-orm";
+import { integer, pgTable, text } from "drizzle-orm/pg-core";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,6 +20,7 @@ import {
   schema,
   visualizations,
 } from "./schema";
+import { renderAddNullableColumnsIfNotExists } from "./sync-schema";
 
 describe("openArtifactDb", () => {
   let dir: string;
@@ -119,6 +121,9 @@ describe("openArtifactDb", () => {
     ]);
   });
 
+  // Existing schema tests materialized the current shape from scratch; they did
+  // not reopen a populated PGlite database after this nullable hook-backed
+  // column had been absent from its original table.
   test("reconciles nullable data frame updatedAt despite its client-side onUpdate hook", async () => {
     const dbPath = join(dir, "artifacts.db");
     const first = await openTestArtifactDb(dbPath);
@@ -149,6 +154,20 @@ describe("openArtifactDb", () => {
       .from(schema.dataFrames)
       .where(eq(schema.dataFrames.id, frameId));
     expect(updated?.updatedAt).toBeInstanceOf(Date);
+  });
+
+  test("keeps generated and unique hook-backed columns off the additive path", () => {
+    const synthetic = pgTable("synthetic_additive_columns", {
+      safeHook: text("safe_hook").$onUpdate(() => "updated"),
+      uniqueHook: text("unique_hook")
+        .$onUpdate(() => "updated")
+        .unique(),
+      generatedValue: integer("generated_value").generatedAlwaysAs(sql`1 + 1`),
+    });
+
+    expect(renderAddNullableColumnsIfNotExists(synthetic)).toEqual([
+      'ALTER TABLE "synthetic_additive_columns" ADD COLUMN IF NOT EXISTS "safe_hook" text;',
+    ]);
   });
 
   test("should declare required artifact provenance fields and parent indexes", async () => {

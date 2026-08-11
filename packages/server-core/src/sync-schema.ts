@@ -182,9 +182,18 @@ export function renderAddNullableColumnsIfNotExists(table: PgTable): string[] {
     // `hasDefault` also becomes true for client-side `$onUpdate` / `$defaultFn`
     // hooks even when the column has no SQL DEFAULT. Those hooks do not affect
     // ALTER TABLE safety: an existing nullable column may be added as NULL and
-    // populated by later application writes. Only an actual SQL default needs
-    // to stay on the explicit migration path.
-    if (col.notNull || col.primary || col.default !== undefined) continue;
+    // populated by later application writes. Actual SQL defaults, generated
+    // expressions, and column-level uniqueness all require richer DDL than
+    // this additive path emits, so they stay on the explicit migration path.
+    if (
+      col.notNull ||
+      col.primary ||
+      col.default !== undefined ||
+      col.generated !== undefined ||
+      col.isUnique
+    ) {
+      continue;
+    }
     let type = col.getSQLType();
     if (col.isArray) type += "[]";
     stmts.push(
