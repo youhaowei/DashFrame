@@ -108,6 +108,24 @@ export function buildChartSuggestionInsight(insight: Insight): Insight {
   };
 }
 
+export function canAttemptVisualizeIntent(input: {
+  visualizeIntent: boolean;
+  alreadyAttempted: boolean;
+  hasVisualization: boolean;
+  hasSuggestion: boolean;
+  hasDataFrame: boolean;
+  isChartViewReady: boolean;
+}): boolean {
+  return (
+    input.visualizeIntent &&
+    !input.alreadyAttempted &&
+    !input.hasVisualization &&
+    input.hasSuggestion &&
+    input.hasDataFrame &&
+    input.isChartViewReady
+  );
+}
+
 interface InsightViewProps {
   insight: Insight;
   visualizeIntent?: boolean;
@@ -1055,9 +1073,18 @@ export function InsightView({
 
   const autoPinAttemptRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!visualizeIntent) return;
-    if (autoPinAttemptRef.current === insightId) return;
-    if (insightVisualizations.length > 0) return;
+    if (
+      !canAttemptVisualizeIntent({
+        visualizeIntent,
+        alreadyAttempted: autoPinAttemptRef.current === insightId,
+        hasVisualization: insightVisualizations.length > 0,
+        hasSuggestion: firstChartSuggestion !== null,
+        hasDataFrame: Boolean(dataTable?.dataFrameId),
+        isChartViewReady,
+      })
+    ) {
+      return;
+    }
     if (!firstChartSuggestion) return;
 
     autoPinAttemptRef.current = insightId;
@@ -1067,8 +1094,10 @@ export function InsightView({
     });
   }, [
     firstChartSuggestion,
+    dataTable?.dataFrameId,
     insightId,
     insightVisualizations.length,
+    isChartViewReady,
     pinChartSuggestion,
     visualizeIntent,
   ]);

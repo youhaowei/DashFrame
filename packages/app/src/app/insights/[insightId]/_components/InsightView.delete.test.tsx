@@ -12,6 +12,7 @@ vi.mock("sonner", () => ({ toast: { error: mockToastError } }));
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import {
   buildChartSuggestionInsight,
+  canAttemptVisualizeIntent,
   requestSavedVisualizationDeletion,
 } from "./InsightView";
 
@@ -44,6 +45,27 @@ describe("buildChartSuggestionInsight", () => {
       sorts: undefined,
       joins: [{ id: "join-1", rightTableId: "table-2" }],
     });
+  });
+});
+
+describe("canAttemptVisualizeIntent", () => {
+  const ready = {
+    visualizeIntent: true,
+    alreadyAttempted: false,
+    hasVisualization: false,
+    hasSuggestion: true,
+    hasDataFrame: true,
+    isChartViewReady: true,
+  };
+
+  it("waits for the saved Insight frame before consuming the intent", () => {
+    expect(canAttemptVisualizeIntent(ready)).toBe(true);
+    expect(
+      canAttemptVisualizeIntent({ ...ready, isChartViewReady: false }),
+    ).toBe(false);
+    expect(canAttemptVisualizeIntent({ ...ready, hasDataFrame: false })).toBe(
+      false,
+    );
   });
 });
 
