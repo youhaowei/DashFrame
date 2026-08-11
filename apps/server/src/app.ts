@@ -60,7 +60,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 
 import { type ArtifactDb } from "@dashframe/server-core";
 
-import type { AppContext } from "./app-context";
+import type { AppContext, DataPlaneRuntime } from "./app-context";
 import { handleAssistantRunRequest } from "./assistant-run-route";
 import { isLoopbackHost } from "./bind-host";
 import {
@@ -612,6 +612,8 @@ export function withDraftSeam(
 export async function buildDashframeApp(opts: {
   db: object;
   dataFrameStorage?: DataFrameStorage;
+  /** Host-owned native execution capability; absent hosts fail closed upstream. */
+  dataPlaneRuntime?: DataPlaneRuntime;
   vault?: SecretVault;
   onWrite?: () => void;
   flushSnapshot?: () => Promise<void>;
@@ -657,6 +659,9 @@ export async function buildDashframeApp(opts: {
               opts.unregisterServerFrames,
             ),
         }
+      : {}),
+    ...(opts.dataPlaneRuntime != null
+      ? { dataPlaneRuntime: opts.dataPlaneRuntime }
       : {}),
     ...(opts.accessCredentials != null
       ? { accessCredentials: opts.accessCredentials }
@@ -1042,6 +1047,7 @@ export async function createDashframeServer(
   const vaultWrapped = await buildDashframeApp({
     db: opts.db,
     dataFrameStorage: opts.dataFrameStorage,
+    ...(nativeTables ? { dataPlaneRuntime: nativeTables.engine } : {}),
     vault: opts.vault,
     onWrite: opts.onWrite,
     flushSnapshot: opts.flushSnapshot,

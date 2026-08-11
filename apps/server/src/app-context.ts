@@ -1,4 +1,8 @@
 import type { DataFrameStorage } from "@dashframe/engine";
+import type {
+  ArrowQueryRunner,
+  ArrowTableRegistrar,
+} from "@dashframe/engine-server/arrow-data-path";
 import type { ApiAccessCredentials, ArtifactDb } from "@dashframe/server-core";
 import { isPrincipal, type Principal } from "@wystack/identity";
 import type { SecretVault } from "@wystack/secret-vault";
@@ -6,6 +10,15 @@ import type { FunctionContext, WyStackApp } from "@wystack/server";
 
 import type { GoogleOAuthConfig } from "./connector-setup/oauth-provider";
 import type { DraftController } from "./draft-controller";
+
+/**
+ * Server-only native data-plane capability. It is injected by the host, never
+ * read from RPC input, and deliberately carries no provider or credential data.
+ */
+export type DataPlaneRuntime = ArrowQueryRunner &
+  Partial<Pick<ArrowTableRegistrar, "registerArrowTable">> & {
+    unregisterTable?: (name: string) => Promise<void>;
+  };
 
 /** Host capabilities and request identity available to every WyStack procedure. */
 export interface AppContext {
@@ -16,6 +29,7 @@ export interface AppContext {
   wyStackApp?: WyStackApp;
   artifactDb?: ArtifactDb;
   dataFrameStorage?: DataFrameStorage;
+  dataPlaneRuntime?: DataPlaneRuntime;
   captureServerFrameReferences?: () => Promise<ReadonlySet<string>>;
   cleanupDereferencedServerFrames?: (
     before: ReadonlySet<string>,
