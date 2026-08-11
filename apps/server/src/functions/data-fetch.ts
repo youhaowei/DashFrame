@@ -1,4 +1,5 @@
 /** Closed server-side contract for materialized live Insight fetches. */
+import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
 import { schema } from "@dashframe/server-core";
 import type {
   Insight,
@@ -15,9 +16,18 @@ import { permissions } from "../permissions";
 import { wy } from "../wystack";
 import type { MaterializationTarget } from "./data-fetch/materializer";
 import { staleFrameMetadata } from "./data-fetch/publisher";
-import { decodeInsight, type InsightRow } from "./insights";
+import {
+  decodeInsight,
+  decodeStoredInsightDefinition,
+  type InsightRow,
+  type InsightSource,
+} from "./insights";
 
-type EffectiveInsightDefinition = InsightFetchDefinition & { limit?: number };
+export type EffectiveInsightDefinition = InsightFetchDefinition & {
+  limit?: number;
+  /** Persisted composition wiring. Never accepted from fetchData callers. */
+  source?: InsightSource;
+};
 
 const RUNTIME_FAILURE_CODES = new Set([
   "RUNTIME_FILTER_NOT_DECLARED",
@@ -190,7 +200,9 @@ function applyRuntimeSort(
     throw new Error("RUNTIME_SORT_FIELD_NOT_ALLOWED");
   }
   definition.sorts = runtime.sort.map((sort) => ({
-    field: sort.fieldId,
+    field: saved.metrics.some((metric) => metric.id === sort.fieldId)
+      ? metricIdToColumnAlias(sort.fieldId)
+      : fieldIdToColumnAlias(sort.fieldId),
     direction: sort.direction,
   }));
 }
@@ -211,6 +223,7 @@ function applyRuntimeLimit(
 export function applyInsightRuntime(
   saved: Insight,
   runtime: InsightRuntimeInput | undefined,
+  source?: InsightSource,
 ): EffectiveInsightDefinition {
   const definition: EffectiveInsightDefinition = {
     baseTableId: saved.baseTableId,
@@ -219,6 +232,7 @@ export function applyInsightRuntime(
     filters: saved.filters,
     sorts: saved.sorts,
     joins: saved.joins,
+    source,
   };
   applyRuntimeFilters(definition, saved, runtime);
   applyRuntimeSort(definition, saved, runtime);
@@ -319,10 +333,13 @@ export function createDataFetchFunctions(
           "The requested Insight runtime controls are invalid.",
         );
       try {
-        const saved = await getInsightForFetch(ctx, insightId as UUID);
+        const { insight: saved, source } = await getInsightForFetch(
+          ctx,
+          insightId as UUID,
+        );
         const result = await materialize(
           ctx,
-          applyInsightRuntime(saved, parsedRuntime.data),
+          applyInsightRuntime(saved, parsedRuntime.data, source),
           {
             kind: "saved",
             insightId: insightId as UUID,
@@ -346,13 +363,19 @@ export function createDataFetchFunctions(
 async function getInsightForFetch(
   ctx: DashframeFunctionContext,
   insightId: UUID,
-): Promise<Insight> {
+): Promise<{ insight: Insight; source?: InsightSource }> {
   const row = (await ctx.db
     .from(schema.insights)
     .where(eq("id", insightId))
     .first()) as InsightRow | undefined;
   if (!row) throw new Error("INSIGHT_NOT_FOUND");
-  return decodeInsight(row);
+  const definition = decodeStoredInsightDefinition(row);
+  if (
+    definition.source &&
+    definition.source.sourceId !== definition.baseTableId
+  )
+    throw new Error("TARGET_NOT_READY");
+  return { insight: decodeInsight(row), source: definition.source };
 }
 
 async function lastSuccessfulForInsight(

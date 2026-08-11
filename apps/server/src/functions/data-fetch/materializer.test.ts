@@ -77,6 +77,9 @@ function harness(overrides: Partial<InsightMaterializerDependencies> = {}) {
     storage: () => storage,
     runtime: () => runtime,
     resolveSource,
+    resolveInsight: vi.fn(async () => {
+      throw new Error("TARGET_NOT_READY");
+    }),
     compile: ({ tables }) => {
       if ([...tables.values()].some((table) => !table.dataFrameId)) {
         throw new Error("FETCH_COMPILE_FAILED");
@@ -172,6 +175,83 @@ describe("immutable Insight materializer", () => {
       }),
     ).rejects.toThrow("SOURCE_SCHEMA_CHANGED");
     expect(h.storage.save).not.toHaveBeenCalled();
+    expect(h.publish).not.toHaveBeenCalled();
+  });
+
+  it("materializes an Insight source recursively and reuses its immutable result", async () => {
+    const h = harness({
+      resolveInsight: vi.fn(async () => ({
+        baseTableId: "base",
+        source: { sourceType: "dataTable" as const, sourceId: "base" },
+        selectedFields: ["base-field"],
+        metrics: [],
+      })),
+    });
+    const ready = await createInsightMaterializer(h.dependencies).materialize({
+      ctx: {} as never,
+      target: { kind: "saved", insightId: "derived" },
+      insight: {
+        baseTableId: "upstream",
+        source: { sourceType: "insight", sourceId: "upstream" },
+        selectedFields: ["result-field"],
+        metrics: [],
+      },
+    });
+
+    expect(ready.status).toBe("ready");
+    expect(h.resolveSource).toHaveBeenCalledOnce();
+    expect(h.publish).toHaveBeenCalledTimes(2);
+    expect(h.bytes.size).toBe(3);
+  });
+
+  it("fails closed on a recursively corrupted Insight cycle", async () => {
+    const h = harness({
+      resolveInsight: vi.fn(async (_ctx, insightId) => ({
+        baseTableId: insightId,
+        source: { sourceType: "insight" as const, sourceId: insightId },
+        selectedFields: [],
+        metrics: [],
+      })),
+    });
+    await expect(
+      createInsightMaterializer(h.dependencies).materialize({
+        ctx: {} as never,
+        target: { kind: "saved", insightId: "derived" },
+        insight: {
+          baseTableId: "upstream",
+          source: { sourceType: "insight", sourceId: "upstream" },
+          selectedFields: [],
+          metrics: [],
+        },
+      }),
+    ).rejects.toThrow("TARGET_NOT_READY");
+    expect(h.publish).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when an Insight source chain exceeds the recursion bound", async () => {
+    const h = harness({
+      resolveInsight: vi.fn(async (_ctx, insightId) => {
+        const next = `${insightId}-next`;
+        return {
+          baseTableId: next,
+          source: { sourceType: "insight" as const, sourceId: next },
+          selectedFields: [],
+          metrics: [],
+        };
+      }),
+    });
+    await expect(
+      createInsightMaterializer(h.dependencies).materialize({
+        ctx: {} as never,
+        target: { kind: "saved", insightId: "derived" },
+        insight: {
+          baseTableId: "upstream",
+          source: { sourceType: "insight", sourceId: "upstream" },
+          selectedFields: [],
+          metrics: [],
+        },
+      }),
+    ).rejects.toThrow("TARGET_NOT_READY");
     expect(h.publish).not.toHaveBeenCalled();
   });
 

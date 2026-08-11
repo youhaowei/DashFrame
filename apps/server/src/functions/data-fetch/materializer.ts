@@ -1,6 +1,7 @@
 /** Internal immutable DataFrame materialization lifecycle for Insight execution. */
 import type { DataFrameStorage } from "@dashframe/engine";
 import type {
+  ColumnType,
   DataTable,
   Field,
   InsightFetchDefinition,
@@ -15,6 +16,7 @@ import type {
 
 export type EffectiveInsightDefinition = InsightFetchDefinition & {
   limit?: number;
+  source?: { sourceType: "dataTable" | "insight"; sourceId: UUID };
 };
 
 export type MaterializationTarget =
@@ -27,6 +29,7 @@ export type SourceGeneration = {
   fields: Field[];
   rowCount: number;
   provenance: { connectorKind: string; bindingVersion: string };
+  existingFrameId?: UUID;
 };
 
 export type PendingFrame = {
@@ -52,6 +55,10 @@ export interface InsightMaterializerDependencies {
     ctx: DashframeFunctionContext,
     tableId: UUID,
   ): Promise<SourceGeneration>;
+  resolveInsight(
+    ctx: DashframeFunctionContext,
+    insightId: UUID,
+  ): Promise<EffectiveInsightDefinition>;
   compile(args: {
     insight: EffectiveInsightDefinition;
     tables: Map<UUID, DataTable>;
@@ -129,6 +136,7 @@ async function materializeOnce(
     target: MaterializationTarget;
     insight: EffectiveInsightDefinition;
   },
+  ancestry: readonly UUID[] = [],
 ): Promise<InsightFetchReady> {
   const storage = dependencies.storage(args.ctx);
   const runtime = dependencies.runtime(args.ctx);
@@ -138,13 +146,57 @@ async function materializeOnce(
   try {
     const tableIds = referencedTableIds(args.insight);
     const sources = await Promise.all(
-      tableIds.map((tableId) => dependencies.resolveSource(args.ctx, tableId)),
+      tableIds.map(async (tableId) => {
+        if (
+          tableId === args.insight.baseTableId &&
+          args.insight.source?.sourceType === "insight"
+        ) {
+          if (ancestry.includes(tableId) || ancestry.length >= 16)
+            throw new Error("TARGET_NOT_READY");
+          const upstream = await dependencies.resolveInsight(args.ctx, tableId);
+          const ready = await materializeOnce(
+            dependencies,
+            { ctx: args.ctx, target: { kind: "ephemeral" }, insight: upstream },
+            [...ancestry, tableId],
+          );
+          const arrow = await storage.load(ready.dataFrameId);
+          if (!arrow) throw new Error("TARGET_NOT_READY");
+          const fields: Field[] = ready.schema.map((field) => ({
+            ...field,
+            type: field.type as ColumnType,
+            tableId,
+            columnName: field.id,
+          }));
+          return {
+            table: {
+              id: tableId,
+              dataSourceId: tableId,
+              name: `Insight ${tableId}`,
+              table: dependencies.tableName(ready.dataFrameId),
+              fields,
+              metrics: [],
+              dataFrameId: ready.dataFrameId,
+              createdAt: ready.fetchedAt,
+            },
+            arrow,
+            fields,
+            rowCount: ready.rowCount,
+            provenance: ready.provenance,
+            existingFrameId: ready.dataFrameId,
+          } satisfies SourceGeneration;
+        }
+        return dependencies.resolveSource(args.ctx, tableId);
+      }),
     );
     for (const source of sources) assertSourceSchema(source);
 
     const pendingSources: PublishMaterialization["sources"] = [];
     const tables = new Map<UUID, DataTable>();
     for (const source of sources) {
+      if (source.existingFrameId) {
+        tables.set(source.table.id, source.table);
+        continue;
+      }
       const frameId = dependencies.uuid();
       const frame = pendingFrame(frameId, source.fields, source.rowCount);
       // Track before save: storage implementations are required to save

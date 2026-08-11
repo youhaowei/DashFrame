@@ -126,7 +126,8 @@ async function fetchPagedRemoteBinding(
           pagination: { offset, limit: GA4_PAGE_SIZE },
         },
       );
-      const signature = pageSignature(page);
+      pageSignature(page);
+      const signature = pageStructureSignature(page);
       if (expected === undefined) expected = signature;
       else if (signature !== expected) throw new Error("SOURCE_SCHEMA_CHANGED");
       pages.push(page);
@@ -340,6 +341,28 @@ function pageSignature(page: {
   return JSON.stringify({
     fieldIds: page.fieldIds,
     fields: page.fields,
+    schema: table.schema.fields.map((field) => ({
+      name: field.name,
+      nullable: field.nullable,
+      type: field.type.toString(),
+      metadata: Array.from(field.metadata ?? []).sort(([a], [b]) =>
+        a.localeCompare(b),
+      ),
+    })),
+  });
+}
+
+/** Provider pages may mint fresh Field ids; only stable result structure may drift-check. */
+function pageStructureSignature(page: {
+  arrowBuffer: string;
+  fields: Field[];
+}): string {
+  const table = tableFromIPC(Buffer.from(page.arrowBuffer, "base64"));
+  return JSON.stringify({
+    fields: page.fields.map((field) => ({
+      name: field.columnName ?? field.name,
+      type: field.type,
+    })),
     schema: table.schema.fields.map((field) => ({
       name: field.name,
       nullable: field.nullable,

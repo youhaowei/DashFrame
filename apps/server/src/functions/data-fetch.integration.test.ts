@@ -166,6 +166,58 @@ describe("registered live Insight fetch procedures", () => {
     );
   });
 
+  it("preserves saved Insight-on-Insight source wiring for recursive execution", async () => {
+    const upstreamId = await seedSavedInsight();
+    const derivedId = crypto.randomUUID();
+    const { applyCommands } = await import("@wystack/server");
+    await applyCommands(
+      app,
+      [
+        cmd("CreateInsight", {
+          id: derivedId,
+          name: "Derived",
+          source: { sourceType: "insight", sourceId: upstreamId },
+          selectedFields: ["country"],
+        }),
+      ],
+      { mode: "commit", context: { principal: user } },
+    );
+
+    await expect(
+      call("runInsight", { insightId: derivedId }),
+    ).resolves.toMatchObject({
+      status: "ready",
+    });
+    expect(execute).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        insight: expect.objectContaining({
+          baseTableId: upstreamId,
+          source: { sourceType: "insight", sourceId: upstreamId },
+        }),
+      }),
+    );
+
+    const previousId = await seedLastSuccessful(derivedId, {
+      schema: [{ id: "country", name: "country", type: "string" }],
+      definitionFingerprint: "composed-previous",
+      provenance: { connectorKind: "test", bindingVersion: "v1" },
+      fetchedAt: 1,
+    });
+    execute.mockResolvedValueOnce({
+      status: "failed",
+      code: "FETCH_EXECUTION_FAILED",
+      message: "safe failure",
+      retryable: true,
+      diagnosticId: "composed-failure",
+    });
+    await expect(
+      call("runInsight", { insightId: derivedId }),
+    ).resolves.toMatchObject({
+      status: "failed",
+      lastSuccessful: { stale: true, dataFrameId: previousId },
+    });
+  });
+
   it("denies anonymous fetch and run requests before connector execution", async () => {
     await expect(
       call(

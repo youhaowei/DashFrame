@@ -128,7 +128,7 @@ describe("applyInsightRuntime", () => {
         filters: { region: "US" },
         sort: [{ fieldId: "date", direction: "asc" }],
       }).sorts,
-    ).toEqual([{ field: "date", direction: "asc" }]);
+    ).toEqual([{ field: "field_date", direction: "asc" }]);
     expect(() =>
       applyInsightRuntime(insight, {
         filters: { region: "US" },
@@ -144,6 +144,29 @@ describe("applyInsightRuntime", () => {
         ],
       }),
     ).toThrow("RUNTIME_SORT_MAX_KEYS");
+  });
+
+  it("maps declared metric runtime sorts to their exact result alias", () => {
+    const saved = {
+      ...insight,
+      metrics: [
+        {
+          id: "revenue-total",
+          name: "Revenue",
+          sourceTable: "table-1",
+          columnName: "revenue",
+          aggregation: "sum" as const,
+        },
+      ],
+      runtimeControls: {
+        sort: { allowedFieldIds: ["revenue-total"], maxKeys: 1 },
+      },
+    };
+    expect(
+      applyInsightRuntime(saved, {
+        sort: [{ fieldId: "revenue-total", direction: "desc" }],
+      }).sorts,
+    ).toEqual([{ field: "metric_revenue_total", direction: "desc" }]);
   });
 
   it("applies only a declared bounded limit", () => {

@@ -1,4 +1,4 @@
-import { fieldIdToColumnAlias } from "@dashframe/engine";
+import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
 import type { DataTable, InsightFetchDefinition, UUID } from "@dashframe/types";
 import { Table, tableToIPC, vectorFromArray } from "apache-arrow";
 import { describe, expect, it } from "vitest";
@@ -48,6 +48,38 @@ describe("production result schema", () => {
       rowCount: 2,
       schema: [{ id: fieldAlias, name: "Revenue", type: "number" }],
     });
+  });
+
+  it("derives min and max result types from the resolved source field", () => {
+    const inspect = productionMaterializerDependencies().inspect;
+    const metricInsight: InsightFetchDefinition = {
+      baseTableId: tableId,
+      selectedFields: [],
+      metrics: [
+        {
+          id: "10000000-0000-4000-8000-000000000099",
+          name: "Earliest",
+          sourceTable: tableId,
+          columnName: "amount",
+          aggregation: "min",
+        },
+      ],
+    };
+    const alias = metricIdToColumnAlias("10000000-0000-4000-8000-000000000099");
+    expect(
+      inspect(resultArrow(alias), {
+        insight: metricInsight,
+        tables: new Map([
+          [
+            tableId,
+            {
+              ...table,
+              fields: [{ ...table.fields[0]!, type: "date" as const }],
+            },
+          ],
+        ]),
+      }).schema,
+    ).toEqual([{ id: alias, name: "Earliest", type: "date" }]);
   });
 
   it("fails closed when native execution returns an undeclared result column", () => {

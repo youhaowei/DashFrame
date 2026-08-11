@@ -55,17 +55,17 @@ function context(rows: { table?: unknown; source?: unknown; frame?: unknown }) {
   } as never;
 }
 
-function page(values: number[], field = "value") {
+function page(values: number[], field = "value", fieldId = "f") {
   return {
     arrowBuffer: Buffer.from(
       tableToIPC(
         new Table({ [field]: vectorFromArray(values, new Float64()) }),
       ),
     ).toString("base64"),
-    fieldIds: ["f"],
+    fieldIds: [fieldId],
     fields: [
       {
-        id: "f",
+        id: fieldId,
         name: field,
         tableId: table.id,
         columnName: field,
@@ -248,6 +248,30 @@ describe("Source Binding registry", () => {
     expect(
       tableFromIPC(Buffer.from(result.arrowBuffer, "base64")).numRows,
     ).toBe(10_002);
+  });
+
+  it("canonicalizes first-page field identity while accepting fresh ids on later GA4 pages", async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce(
+        page(
+          Array.from({ length: 10_000 }, (_, i) => i),
+          "value",
+          "first-id",
+        ),
+      )
+      .mockResolvedValueOnce(page([10_000], "value", "fresh-id"));
+    ga4ConnectorFor.mockResolvedValue({ query });
+    const binding = await resolveSourceBinding(
+      context({ table, source }),
+      table.id,
+    );
+
+    const result = await fetchGa4Binding(context({ table, source }), binding);
+
+    expect(result.fieldIds).toEqual(["first-id"]);
+    expect(result.fields[0]?.id).toBe("first-id");
+    expect(result.rowCount).toBe(10_001);
   });
 
   it("proves completion with an empty page after an exact page boundary", async () => {

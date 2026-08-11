@@ -6,10 +6,17 @@ import {
   metricIdToColumnAlias,
 } from "@dashframe/engine";
 import { inspectArrowIpc } from "@dashframe/engine-server/arrow-data-path";
+import { schema } from "@dashframe/server-core";
+import { eq } from "@wystack/db";
 
 import { createHash, randomUUID } from "node:crypto";
 import type { DashframeFunctionContext } from "../../app-context";
 import type { LiveFetchExecutor } from "../data-fetch";
+import {
+  decodeInsight,
+  decodeStoredInsightDefinition,
+  type InsightRow,
+} from "../insights";
 import { fetchSourceBinding, resolveSourceBinding } from "./bindings";
 import type {
   InsightMaterializerDependencies,
@@ -56,7 +63,13 @@ export function createProductionFetchExecutor(): LiveFetchExecutor {
 /** Fails closed if the host did not inject its native data-plane capability. */
 export function productionMaterializerDependencies(): Pick<
   InsightMaterializerDependencies,
-  "storage" | "runtime" | "resolveSource" | "compile" | "inspect" | "publish"
+  | "storage"
+  | "runtime"
+  | "resolveSource"
+  | "resolveInsight"
+  | "compile"
+  | "inspect"
+  | "publish"
 > {
   return {
     storage: (ctx) => {
@@ -68,6 +81,20 @@ export function productionMaterializerDependencies(): Pick<
       return ctx.dataPlaneRuntime;
     },
     resolveSource: resolveProductionSource,
+    resolveInsight: async (ctx, insightId) => {
+      const row = (await ctx.db
+        .from(schema.insights)
+        .where(eq("id", insightId))
+        .first()) as InsightRow | undefined;
+      if (!row) throw new Error("TARGET_NOT_READY");
+      const definition = decodeStoredInsightDefinition(row);
+      if (
+        definition.source &&
+        definition.source.sourceId !== definition.baseTableId
+      )
+        throw new Error("TARGET_NOT_READY");
+      return { ...decodeInsight(row), source: definition.source };
+    },
     compile: ({ insight, tables }) => {
       const base = tables.get(insight.baseTableId);
       if (!base) throw new Error("TARGET_NOT_READY");
@@ -111,17 +138,25 @@ export function productionMaterializerDependencies(): Pick<
               },
             ] as const,
         ),
-        ...insight.metrics.map(
-          (metric) =>
-            [
-              metricIdToColumnAlias(metric.id),
-              {
-                id: metricIdToColumnAlias(metric.id),
-                name: metric.name,
-                type: "number",
-              },
-            ] as const,
-        ),
+        ...insight.metrics.map((metric) => {
+          const sourceType =
+            metric.aggregation === "min" || metric.aggregation === "max"
+              ? [...tables.values()]
+                  .find((candidate) => candidate.id === metric.sourceTable)
+                  ?.fields.find(
+                    (field) =>
+                      (field.columnName ?? field.name) === metric.columnName,
+                  )?.type
+              : undefined;
+          return [
+            metricIdToColumnAlias(metric.id),
+            {
+              id: metricIdToColumnAlias(metric.id),
+              name: metric.name,
+              type: sourceType ?? "number",
+            },
+          ] as const;
+        }),
       ]);
       if (
         table.fieldNames.length !== expected.size ||
