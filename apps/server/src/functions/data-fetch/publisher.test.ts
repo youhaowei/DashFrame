@@ -8,7 +8,10 @@ import type { PublishMaterialization } from "./materializer";
 import { publishMaterialization } from "./publisher";
 
 function materialization(
-  target: { kind: "ephemeral" } | { kind: "saved"; insightId: string },
+  target:
+    | { kind: "ephemeral" }
+    | { kind: "transient" }
+    | { kind: "saved"; insightId: string },
 ) {
   return {
     target,
@@ -97,6 +100,20 @@ describe("publishMaterialization", () => {
     expect(h.inserts.at(-1)).toEqual(
       expect.not.objectContaining({ insightId: expect.anything() }),
     );
+  });
+
+  it("publishes refreshed sources without inserting a transient result", async () => {
+    const h = context();
+    await publishMaterialization(h.ctx, materialization({ kind: "transient" }));
+    expect(h.inserts).toEqual([
+      expect.objectContaining({ id: "source-frame" }),
+    ]);
+    expect(h.updates).toEqual([
+      {
+        dataFrameId: "source-frame",
+        lastFetchedAt: new Date(100),
+      },
+    ]);
   });
 
   it("propagates transaction failure for C1 cleanup without deleting old generations", async () => {

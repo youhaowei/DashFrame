@@ -250,8 +250,49 @@ describe("immutable Insight materializer", () => {
     expect(ready.status).toBe("ready");
     expect(h.resolveSource).toHaveBeenCalledOnce();
     expect(h.publish).toHaveBeenCalledTimes(2);
-    expect(h.bytes.size).toBe(3);
+    expect(h.publish.mock.calls[0]![1].target).toEqual({ kind: "transient" });
+    expect(h.bytes.size).toBe(2);
+    expect(h.registered.size).toBe(2);
     expect(compile).toHaveBeenCalledTimes(2);
+  });
+
+  it("removes a recursive transient result when the outer query fails", async () => {
+    let compileCount = 0;
+    const h = harness({
+      resolveInsight: vi.fn(async () => ({
+        baseTableId: "base",
+        source: { sourceType: "dataTable" as const, sourceId: "base" },
+        selectedFields: ["base-field"],
+        metrics: [],
+      })),
+      compile: () => {
+        compileCount += 1;
+        if (compileCount === 2) throw new Error("outer compile");
+        return "select 1";
+      },
+      inspect: () => ({
+        rowCount: 2,
+        schema: [{ id: "field_result_field", name: "result", type: "string" }],
+      }),
+    });
+
+    await expect(
+      createInsightMaterializer(h.dependencies).materialize({
+        ctx: {} as never,
+        target: { kind: "saved", insightId: "derived" },
+        insight: {
+          baseTableId: "upstream",
+          source: { sourceType: "insight", sourceId: "upstream" },
+          selectedFields: ["result-field"],
+          metrics: [],
+        },
+      }),
+    ).rejects.toThrow("outer compile");
+
+    expect(h.publish).toHaveBeenCalledOnce();
+    expect(h.publish.mock.calls[0]![1].target).toEqual({ kind: "transient" });
+    expect([...h.bytes.keys()]).toEqual(["frame-1"]);
+    expect([...h.registered.keys()]).toEqual(["df_frame-1"]);
   });
 
   it("fails closed on a recursively corrupted Insight cycle", async () => {

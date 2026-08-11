@@ -42,6 +42,10 @@ export async function publishMaterialization(
           lastFetchedAt: new Date(value.fetchedAt),
         });
     }
+    // Recursive Insight inputs are query-scoped. Their source refreshes are
+    // durable, but their intermediate result is removed by the materializer
+    // after the outer query settles and must never become an orphan DB row.
+    if (value.target.kind === "transient") return;
     if (value.target.kind === "saved") {
       // Detach, don't delete: historical handles remain readable.
       await tx

@@ -24,6 +24,7 @@ export type EffectiveInsightDefinition = InsightFetchDefinition & {
 
 export type MaterializationTarget =
   | { kind: "ephemeral" }
+  | { kind: "transient" }
   | { kind: "saved"; insightId: UUID };
 
 export type SourceGeneration = {
@@ -141,7 +142,7 @@ export function createInsightMaterializer(
       const existing = inFlight.get(key);
       if (existing) return existing;
 
-      const operation = materializeOnce(dependencies, args);
+      const operation = materializeOnce(dependencies, args, [], []);
       inFlight.set(key, operation);
       const clear = () => {
         if (inFlight.get(key) === operation) inFlight.delete(key);
@@ -160,6 +161,7 @@ async function materializeOnce(
     insight: EffectiveInsightDefinition;
   },
   ancestry: readonly UUID[] = [],
+  transientResults: Array<{ id: UUID; registered: boolean }> = [],
 ): Promise<InsightFetchReady> {
   const storage = dependencies.storage(args.ctx);
   const runtime = dependencies.runtime(args.ctx);
@@ -179,8 +181,9 @@ async function materializeOnce(
           const upstream = await dependencies.resolveInsight(args.ctx, tableId);
           const ready = await materializeOnce(
             dependencies,
-            { ctx: args.ctx, target: { kind: "ephemeral" }, insight: upstream },
+            { ctx: args.ctx, target: { kind: "transient" }, insight: upstream },
             [...ancestry, tableId],
+            transientResults,
           );
           const arrow = await storage.load(ready.dataFrameId);
           if (!arrow) throw new Error("TARGET_NOT_READY");
@@ -268,6 +271,16 @@ async function materializeOnce(
       provenance,
       fetchedAt,
     });
+    if (args.target.kind === "transient") {
+      transientResults.push({ id: result.id, registered: true });
+    } else {
+      await cleanupTransientFrames(
+        storage,
+        runtime,
+        dependencies,
+        transientResults,
+      );
+    }
     return {
       status: "ready",
       dataFrameId: result.id,
@@ -279,8 +292,27 @@ async function materializeOnce(
     };
   } catch (error) {
     await cleanupNewFrames(storage, runtime, dependencies, created);
+    if (args.target.kind !== "transient") {
+      await cleanupNewFrames(storage, runtime, dependencies, transientResults);
+      transientResults.length = 0;
+    }
     throw error;
   }
+}
+
+async function cleanupTransientFrames(
+  storage: DataFrameStorage,
+  runtime: DataPlaneRuntime,
+  dependencies: InsightMaterializerDependencies,
+  frames: Array<{ id: UUID; registered: boolean }>,
+): Promise<void> {
+  for (const frame of [...frames].reverse()) {
+    if (frame.registered && runtime.unregisterTable) {
+      await runtime.unregisterTable(dependencies.tableName(frame.id));
+    }
+    await storage.delete(frame.id);
+  }
+  frames.length = 0;
 }
 
 function referencedTableIds(insight: EffectiveInsightDefinition): UUID[] {
