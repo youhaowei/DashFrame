@@ -21,7 +21,8 @@ describe("useInsightView", () => {
       error: null,
     });
 
-    const { result } = renderHook(() => useInsightView(insight));
+    const runtime = { limit: 25 };
+    const { result } = renderHook(() => useInsightView(insight, { runtime }));
 
     expect(result.current).toMatchObject({
       viewName: "018f1a50-7bde-7cde-8dc2-5e308fcec8b4",
@@ -29,7 +30,11 @@ describe("useInsightView", () => {
       error: null,
     });
     expect(pagination).toHaveBeenCalledWith(
-      expect.objectContaining({ showModelPreview: true, enabled: true }),
+      expect.objectContaining({
+        showModelPreview: false,
+        enabled: true,
+        runtime,
+      }),
     );
   });
 

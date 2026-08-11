@@ -85,9 +85,8 @@ function VisualizationPreviewContent({
     } as Insight;
   }, [insight]);
 
-  // Create/get the DuckDB view using the same hook as insight pages
-  // This ensures views are created on-demand and properly cached
-  const { viewName, isReady, error } = useInsightView(insight, { dataTables });
+  // Resolve the saved Insight's current immutable server frame for Mosaic.
+  const { viewName, isReady, error } = useInsightView(insight);
 
   // Resolve instance-qualified fields for repeat-join insights so that
   // field:<uuid>_j1 encodings resolve to their SQL alias correctly.

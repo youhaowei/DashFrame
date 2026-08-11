@@ -2,15 +2,13 @@ import { useChartEngine } from "@/components/providers/ChartEngineProvider";
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
 import { api } from "@/wystack/api";
-import {
-  getMetricDisplayLabel,
-  resolveEffectiveParams,
-  resolveEncodingToSql,
-} from "@dashframe/engine";
+import { getMetricDisplayLabel, resolveEncodingToSql } from "@dashframe/engine";
 import type {
   ChartEncoding,
   DashboardItemOverrides,
+  DataTable,
   Insight,
+  InsightRuntimeInput,
   Visualization,
 } from "@dashframe/types";
 import { parseEncoding } from "@dashframe/types";
@@ -25,6 +23,100 @@ import { VisualizationErrorBoundary } from "./VisualizationErrorBoundary";
 
 // Minimum visible rows needed to enable "Show Both" mode
 const MIN_VISIBLE_ROWS_FOR_BOTH = 5;
+
+type DashboardRuntimeResolution = {
+  runtime?: InsightRuntimeInput;
+  error?: string;
+};
+
+function resolveRuntimeFilters(
+  insight: Insight,
+  overrides: NonNullable<DashboardItemOverrides["filters"]>,
+): DashboardRuntimeResolution {
+  const values: Record<string, unknown> = {};
+  for (const override of overrides) {
+    const declaration = insight.runtimeControls?.filters?.find(
+      (candidate) => candidate.filterId === override.id,
+    );
+    if (!declaration) {
+      return { error: "This dashboard filter is not declared by the Insight." };
+    }
+    values[declaration.key] = override.cleared ? null : override.value;
+  }
+  return { runtime: { filters: values } };
+}
+
+function resolveRuntimeSorts(
+  insight: Insight,
+  dataTables: readonly DataTable[],
+  overrides: NonNullable<DashboardItemOverrides["sorts"]>,
+): DashboardRuntimeResolution {
+  const declaration = insight.runtimeControls?.sort;
+  if (!declaration) {
+    return { error: "This dashboard sort is not declared by the Insight." };
+  }
+  const fields = dataTables.flatMap((table) => table.fields ?? []);
+  const sorts = overrides.map((sort) => {
+    const fieldId = declaration.allowedFieldIds.find((allowedId) => {
+      if (allowedId === sort.field) return true;
+      const field = fields.find((candidate) => candidate.id === allowedId);
+      if (field) return (field.columnName ?? field.name) === sort.field;
+      const metric = insight.metrics.find(
+        (candidate) => candidate.id === allowedId,
+      );
+      return metric
+        ? metric.name === sort.field || metric.columnName === sort.field
+        : false;
+    });
+    return fieldId ? { fieldId, direction: sort.direction } : null;
+  });
+  if (sorts.some((sort) => sort === null)) {
+    return {
+      error: "This dashboard sort field is not allowed by the Insight.",
+    };
+  }
+  return { runtime: { sort: sorts as InsightRuntimeInput["sort"] } };
+}
+
+/**
+ * Convert legacy dashboard cell values into the saved Insight's declared
+ * runtime-control surface. Undeclared mutations fail visibly instead of
+ * silently changing or bypassing the canonical Insight definition.
+ */
+export function resolveDashboardRuntime(
+  insight: Insight,
+  dataTables: readonly DataTable[],
+  overrides: DashboardItemOverrides | undefined,
+): DashboardRuntimeResolution {
+  if (!overrides) return {};
+  const controls = insight.runtimeControls;
+  const runtime: InsightRuntimeInput = {};
+
+  if (overrides.filters !== undefined) {
+    const resolution = resolveRuntimeFilters(insight, overrides.filters);
+    if (resolution.error) return resolution;
+    runtime.filters = resolution.runtime?.filters;
+  }
+
+  if (overrides.sorts !== undefined) {
+    const resolution = resolveRuntimeSorts(
+      insight,
+      dataTables,
+      overrides.sorts,
+    );
+    if (resolution.error) return resolution;
+    runtime.sort = resolution.runtime?.sort;
+  }
+
+  if (overrides.limit !== undefined) {
+    if (!controls?.limit) {
+      return { error: "This dashboard limit is not declared by the Insight." };
+    }
+    runtime.limit = overrides.limit;
+  }
+
+  return { runtime };
+}
 
 export function VisualizationDisplay(props: VisualizationDisplayProps) {
   // Same containment as VisualizationPreview: the full-size chart resolves the
@@ -115,57 +207,12 @@ function VisualizationDisplayContent({
     return dataTables.find((t) => t.id === insight.baseTableId);
   }, [insight, dataTables]);
 
-  // Build an Insight-compatible object for useInsightView.
-  // IMPORTANT: this is intentionally the minimal structural shape
-  // (id, name, baseTableId, joins) — exactly as the pre-override path.  It must
-  // NOT carry selectedFields/metrics/filters/sorts: this surface renders the
-  // RAW model view (vgplot computes aggregations from raw rows via the encoding).
-  // Adding metrics/selectedFields here would make the chart view emit aggregated
-  // columns that break chart column resolution.  Cell overrides are layered
-  // separately via effectiveParams (useInsightView) / paginationEffectiveParams
-  // (useInsightPagination), neither of which mutates this object.
-  const insightForView: Insight | null = useMemo(() => {
-    if (!insight) return null;
-    return {
-      id: insight.id,
-      name: insight.name,
-      baseTableId: insight.baseTableId,
-      joins: insight.joins,
-    } as Insight;
-  }, [insight]);
-
-  // Resolve the effective params for useInsightView (chart).
-  // Only computed when overrides are present — the chart view is pre-filtered
-  // only when the dashboard cell has overrides.
-  const effectiveParams = useMemo(
-    () =>
-      overrides && insight
-        ? resolveEffectiveParams(
-            insight.filters,
-            insight.sorts,
-            undefined, // insight-level limit (not stored on Insight type yet)
-            overrides,
-          )
-        : undefined,
-    [insight, overrides],
-  );
-
-  // Resolve effective params for useInsightPagination (table).
-  // When overrides are present, these are identical to `effectiveParams` above.
-  // When absent, we still forward the insight's own filters/sorts so the table
-  // reflects the saved insight config — without this the stripped `insightForView`
-  // (which has no filters/sorts) would silently drop them from buildInsightSQL.
-  const paginationEffectiveParams = useMemo(
+  const dashboardRuntime = useMemo(
     () =>
       insight
-        ? resolveEffectiveParams(
-            insight.filters,
-            insight.sorts,
-            undefined,
-            overrides,
-          )
-        : undefined,
-    [insight, overrides],
+        ? resolveDashboardRuntime(insight, dataTables, overrides)
+        : ({} satisfies DashboardRuntimeResolution),
+    [dataTables, insight, overrides],
   );
 
   // Use insight view hook to get the proper table name (handles joins).
@@ -173,24 +220,16 @@ function VisualizationDisplayContent({
   // the loopback server stopped or returned 500). Without consuming it here the
   // view never becomes ready and the component would spin forever.
   //
-  // Effective params are forwarded to useInsightView when overrides exist so that
-  // the chart view is pre-filtered/limited.  useInsightView internally strips metric
-  // filters (which require HAVING and cannot be applied in model-mode views) before
-  // building the DuckDB view SQL.
   const {
     viewName: insightViewName,
     isReady: isInsightViewReady,
     error: insightViewError,
-  } = useInsightView(insightForView, {
-    effectiveParams,
-    dataTables,
+  } = useInsightView(dashboardRuntime.error ? null : insight, {
+    runtime: dashboardRuntime.runtime,
   });
 
-  // Use insight pagination for table data (queries DuckDB directly).
-  // paginationEffectiveParams always carries the insight's own filters/sorts
-  // (merging in cell overrides when present), so buildInsightSQL receives them
-  // even when `overrides` is absent. Without this, the stripped `insightForView`
-  // (which has no filters/sorts) would silently drop the saved insight config.
+  // The table reads the same saved execution generation and declared runtime
+  // values as the chart; neither surface reconstructs query semantics locally.
   const {
     fetchData,
     totalCount,
@@ -199,10 +238,10 @@ function VisualizationDisplayContent({
     columnDisplayNames,
     resolvedFields: instanceAwareFields,
   } = useInsightPagination({
-    insight: insightForView ?? ({} as Insight),
-    showModelPreview: false, // Apply full insight transformations
-    enabled: !!insightForView, // Only enable when we have an insight
-    effectiveParams: paginationEffectiveParams,
+    insight: insight ?? ({} as Insight),
+    showModelPreview: false,
+    enabled: Boolean(insight && !dashboardRuntime.error),
+    runtime: dashboardRuntime.runtime,
   });
 
   // Helper to calculate visible rows from container dimensions
@@ -435,6 +474,18 @@ function VisualizationDisplayContent({
     return (
       <div className="flex h-full w-full items-center justify-center px-6">
         <EngineUnavailableState className="w-full max-w-lg" />
+      </div>
+    );
+  }
+
+  if (isMounted && dashboardRuntime.error) {
+    return (
+      <div className="flex h-full w-full items-center justify-center px-6">
+        <ErrorState
+          title="Dashboard control is not available"
+          description={dashboardRuntime.error}
+          className="w-full max-w-lg"
+        />
       </div>
     );
   }

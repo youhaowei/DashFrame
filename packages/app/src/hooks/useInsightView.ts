@@ -1,10 +1,8 @@
 import { useInsightPagination } from "@/hooks/useInsightPagination";
-import type { EffectiveParams } from "@dashframe/engine";
-import type { DataTable, Insight } from "@dashframe/types";
+import type { Insight, InsightRuntimeInput } from "@dashframe/types";
 
 export interface UseInsightViewOptions {
-  effectiveParams?: EffectiveParams;
-  dataTables?: readonly DataTable[];
+  runtime?: InsightRuntimeInput;
 }
 
 /**
@@ -16,12 +14,13 @@ export interface UseInsightViewOptions {
  */
 export function useInsightView(
   insight: Insight | null | undefined,
-  _options: UseInsightViewOptions = {},
+  options: UseInsightViewOptions = {},
 ) {
   const result = useInsightPagination({
     insight: insight ?? ({} as Insight),
-    showModelPreview: true,
+    showModelPreview: false,
     enabled: Boolean(insight?.id && insight.baseTableId),
+    runtime: options.runtime,
   });
 
   return {

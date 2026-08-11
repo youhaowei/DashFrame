@@ -1,10 +1,7 @@
 import { queryDataFrame } from "@/lib/data-access/data-frames";
 import { api } from "@/wystack/api";
 import { getWyStackClient } from "@/wystack/client";
-import {
-  extractColumnAliasComponents,
-  type EffectiveParams,
-} from "@dashframe/engine";
+import { extractColumnAliasComponents } from "@dashframe/engine";
 import type {
   ColumnType,
   Field,
@@ -29,8 +26,6 @@ export interface UseInsightPaginationOptions {
   showModelPreview?: boolean;
   enabled?: boolean;
   runtime?: InsightRuntimeInput;
-  /** Retained until dashboard callers are moved to explicit runtime controls. */
-  effectiveParams?: EffectiveParams;
 }
 
 function toFetchDefinition(insight: Insight): InsightFetchDefinition {

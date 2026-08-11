@@ -681,9 +681,7 @@ export function InsightView({
   // Get DuckDB view/table name for chart rendering
   // For insights with joins, creates a view with joined data
   // For simple insights, returns the base table name
-  const { isReady: isChartViewReady } = useInsightView(insight, {
-    dataTables: allDataTables,
-  });
+  const { isReady: isChartViewReady } = useInsightView(insight);
   const chartSuggestionInsight = useMemo(
     () => buildChartSuggestionInsight(insight),
     [insight],
