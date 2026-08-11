@@ -28,6 +28,10 @@ export function useInsightView(
     viewName: result.dataFrameId,
     isReady: result.isReady && result.dataFrameId !== null,
     error: result.error,
+    schema: result.schema,
+    sampleRows: result.sampleRows,
+    totalCount: result.totalCount,
+    resolvedFields: result.resolvedFields,
     nativeCapable: true,
   };
 }

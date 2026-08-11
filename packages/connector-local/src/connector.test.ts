@@ -12,7 +12,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LocalFileConnector, localFileConnector } from "./connector";
 
-// Mock the format converters to avoid IndexedDB dependencies
+// Mock the format converters to isolate connector dispatch.
 vi.mock("@dashframe/csv", () => ({
   parseCSV: vi.fn((text: string) => {
     // Simple mock implementation
@@ -20,7 +20,7 @@ vi.mock("@dashframe/csv", () => ({
     return lines.map((line) => line.split(","));
   }),
   csvToDataFrame: vi.fn().mockResolvedValue({
-    dataFrame: { id: "mock-csv-df-id" },
+    arrowBuffer: new Uint8Array([1]),
     fields: [],
     sourceSchema: { columns: [], version: 1, lastSyncedAt: Date.now() },
     rowCount: 2,
@@ -30,7 +30,7 @@ vi.mock("@dashframe/csv", () => ({
 
 vi.mock("@dashframe/json", () => ({
   jsonToDataFrame: vi.fn().mockResolvedValue({
-    dataFrame: { id: "mock-json-df-id" },
+    arrowBuffer: new Uint8Array([2]),
     fields: [],
     sourceSchema: { columns: [], version: 1, lastSyncedAt: Date.now() },
     rowCount: 1,

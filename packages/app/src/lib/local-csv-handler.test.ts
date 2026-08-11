@@ -2,24 +2,21 @@ import type { DataTable, Field, Metric, UUID } from "@dashframe/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
-  mockAddDataFrameEntry,
   mockCsvToDataFrame,
   mockGetDataTable,
   mockGetOrCreateDataSourceByType,
-  mockReplaceDataFrame,
+  mockIngestLocalDataFrame,
   mockUpdateDataTable,
 } = vi.hoisted(() => ({
-  mockAddDataFrameEntry: vi.fn(),
   mockCsvToDataFrame: vi.fn(),
   mockGetDataTable: vi.fn(),
   mockGetOrCreateDataSourceByType: vi.fn(),
-  mockReplaceDataFrame: vi.fn(),
+  mockIngestLocalDataFrame: vi.fn(),
   mockUpdateDataTable: vi.fn(),
 }));
 
 vi.mock("@/lib/data-access/data-frames", () => ({
-  addDataFrameEntry: mockAddDataFrameEntry,
-  replaceDataFrame: mockReplaceDataFrame,
+  ingestLocalDataFrame: mockIngestLocalDataFrame,
 }));
 vi.mock("@/lib/data-access/data-sources", () => ({
   getOrCreateDataSourceByType: mockGetOrCreateDataSourceByType,
@@ -81,7 +78,8 @@ const existingTable: DataTable = {
 };
 
 const parsedResult = {
-  dataFrame: { id: "replacement-data-frame-id" as UUID },
+  arrowBuffer: new Uint8Array([1, 2, 3]),
+  primaryKey: "amount",
   fields: parsedFields,
   sourceSchema: { columns: [] },
   rowCount: 1,
@@ -112,7 +110,11 @@ describe("file table replacement", () => {
     vi.clearAllMocks();
     mockGetOrCreateDataSourceByType.mockResolvedValue({ id: DATA_SOURCE_ID });
     mockGetDataTable.mockResolvedValue(existingTable);
-    mockReplaceDataFrame.mockResolvedValue(undefined);
+    mockIngestLocalDataFrame.mockResolvedValue({
+      dataFrameId: "replacement-data-frame-id" as UUID,
+      rowCount: 1,
+      columnCount: 2,
+    });
     mockUpdateDataTable.mockResolvedValue(undefined);
     mockCsvToDataFrame.mockResolvedValue(parsedResult);
   });
@@ -138,6 +140,19 @@ describe("file table replacement", () => {
         ],
         metrics: expect.any(Array),
       });
+    },
+  );
+
+  it.each(replacementHandlers)(
+    "$name hands Arrow bytes to the narrow local ingest boundary",
+    async ({ replace }) => {
+      await replace();
+
+      expect(mockIngestLocalDataFrame).toHaveBeenCalledWith(
+        TABLE_ID,
+        parsedResult.arrowBuffer,
+        parsedResult.primaryKey,
+      );
     },
   );
 

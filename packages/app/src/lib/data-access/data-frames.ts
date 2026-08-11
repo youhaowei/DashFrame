@@ -10,6 +10,30 @@ import type {
 import { api } from "../../wystack/api";
 import { getWyStackClient } from "../../wystack/client";
 
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunkSize = 32_768;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(
+      ...bytes.subarray(offset, offset + chunkSize),
+    );
+  }
+  return btoa(binary);
+}
+
+/** Connector-specific onboarding for local file bytes. */
+export async function ingestLocalDataFrame(
+  dataTableId: UUID,
+  arrowBuffer: Uint8Array,
+  primaryKey?: string | string[],
+): Promise<{ dataFrameId: UUID; rowCount: number; columnCount: number }> {
+  return getWyStackClient().mutate(api.ingestLocalDataFrame, {
+    dataTableId,
+    arrowBase64: bytesToBase64(arrowBuffer),
+    primaryKey,
+  });
+}
+
 export type DataFrameEntry = DataFrameJSON & {
   name: string;
   insightId?: UUID;

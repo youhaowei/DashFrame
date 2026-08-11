@@ -1,7 +1,4 @@
-import {
-  addDataFrameEntry,
-  replaceDataFrame,
-} from "@/lib/data-access/data-frames";
+import { ingestLocalDataFrame } from "@/lib/data-access/data-frames";
 import { getOrCreateDataSourceByType } from "@/lib/data-access/data-sources";
 import {
   createDataTable,
@@ -10,7 +7,6 @@ import {
 } from "@/lib/data-access/data-tables";
 import { csvToDataFrame } from "@dashframe/csv";
 import type { FileParseResult } from "@dashframe/engine";
-import type { BrowserDataFrame } from "@dashframe/engine-browser";
 import type { Field, Metric } from "@dashframe/types";
 
 /**
@@ -143,10 +139,9 @@ export interface LocalCSVResult {
  *
  * Flow:
  * 1. Ensure "Local Files" data source exists
- * 2. Parse CSV → DataFrame (stored in IndexedDB via Arrow IPC)
+ * 2. Parse CSV into Arrow IPC and structural metadata
  * 3. Add DataTable to local data source
- * 4. Store DataFrame reference metadata
- * 5. Link DataFrame to DataTable
+ * 4. Persist a server-owned immutable frame and link it to the DataTable
  *
  * @param file - The CSV file object
  * @param csvData - Parsed CSV data (array of rows)
@@ -167,11 +162,9 @@ export async function handleLocalCSVUpload(
     ? await getDataTable(options.overrideTableId)
     : undefined;
 
-  // 2. Convert CSV to DataFrame (data stored in IndexedDB)
-  const { dataFrame, fields, sourceSchema, rowCount, columnCount } =
+  // 2. Convert CSV to Arrow IPC for the server-owned local ingest path.
+  const { arrowBuffer, primaryKey, fields, sourceSchema } =
     await csvToDataFrame(csvData, dataTableId);
-
-  let dataFrameId: string;
 
   if (overrideTable) {
     // 3a. Override existing table instead of creating a new one
@@ -191,34 +184,6 @@ export async function handleLocalCSVUpload(
       fields: replacementFields,
       metrics,
     });
-
-    // Update or create linked DataFrame
-    if (overrideTable.dataFrameId) {
-      // Replace the DataFrame data (delete old Arrow data, store new)
-      await replaceDataFrame(overrideTable.dataFrameId, dataFrame, {
-        rowCount,
-        columnCount,
-        sourceId: dataSource.id,
-        definitionId: dataTableId,
-      });
-      dataFrameId = overrideTable.dataFrameId;
-    } else {
-      // Create new DataFrame entry
-      await addDataFrameEntry(dataFrame, {
-        name: tableName,
-        rowCount,
-        columnCount,
-        sourceId: dataSource.id,
-        definitionId: dataTableId,
-      });
-      dataFrameId = dataFrame.id;
-    }
-
-    // Ensure the DataTable points to the updated DataFrame
-    await updateDataTable(dataTableId, {
-      dataFrameId,
-      lastFetchedAt: Date.now(),
-    });
   } else {
     // 3b. Create DataTable via the CreateDataTable command — PRIMITIVE path.
     // CreateDataTable does NOT auto-inject metrics, so we pass the default
@@ -233,23 +198,13 @@ export async function handleLocalCSVUpload(
       fields,
       metrics: [makeDefaultCountMetric(dataTableId)],
     });
-
-    // 4. Create DataFrame entry
-    await addDataFrameEntry(dataFrame, {
-      name: tableName,
-      rowCount,
-      columnCount,
-      sourceId: dataSource.id,
-      definitionId: dataTableId,
-    });
-    dataFrameId = dataFrame.id;
-
-    // 5. Link DataFrame to DataTable
-    await updateDataTable(dataTableId, {
-      dataFrameId,
-      lastFetchedAt: Date.now(),
-    });
   }
+
+  const { dataFrameId } = await ingestLocalDataFrame(
+    dataTableId,
+    arrowBuffer,
+    primaryKey,
+  );
 
   // Note: Column analysis is run lazily in InsightView when first needed
   // This keeps upload fast and defers expensive DuckDB queries
@@ -258,11 +213,11 @@ export async function handleLocalCSVUpload(
 }
 
 /**
- * Handle file connector result - stores a pre-converted DataFrame
+ * Handle file connector result - stores pre-converted Arrow IPC
  *
  * Use this when you have a FileParseResult from a connector's parse() method.
  * Unlike handleLocalCSVUpload which parses CSV data, this function works with
- * pre-converted DataFrame results from any file connector (CSV, Excel, etc.)
+ * pre-converted results from any file connector (CSV, Excel, etc.)
  *
  * @param fileName - Original file name
  * @param parseResult - Result from connector.parse()
@@ -274,20 +229,16 @@ export async function handleFileConnectorResult(
   parseResult: FileParseResult,
   options?: { overrideTableId?: string },
 ): Promise<LocalCSVResult> {
-  const { fields, sourceSchema, rowCount, columnCount } = parseResult;
-  // In browser context, all DataFrames are BrowserDataFrame instances
-  const dataFrame = parseResult.dataFrame as BrowserDataFrame;
+  const { fields, sourceSchema, arrowBuffer, primaryKey } = parseResult;
 
   // 1. Ensure local data source exists (uses "local" connector type)
   const dataSource = await getOrCreateDataSourceByType("local", "Local Files");
 
   const tableName = fileName.replace(/\.(csv|xlsx?|json)$/i, "");
-  const dataTableId = options?.overrideTableId ?? dataFrame.id;
+  const dataTableId = options?.overrideTableId ?? crypto.randomUUID();
   const overrideTable = options?.overrideTableId
     ? await getDataTable(options.overrideTableId)
     : undefined;
-
-  let dataFrameId: string;
 
   if (overrideTable) {
     // Override existing table
@@ -307,31 +258,6 @@ export async function handleFileConnectorResult(
       fields: replacementFields,
       metrics,
     });
-
-    // Update or create linked DataFrame
-    if (overrideTable.dataFrameId) {
-      await replaceDataFrame(overrideTable.dataFrameId, dataFrame, {
-        rowCount,
-        columnCount,
-        sourceId: dataSource.id,
-        definitionId: dataTableId,
-      });
-      dataFrameId = overrideTable.dataFrameId;
-    } else {
-      await addDataFrameEntry(dataFrame, {
-        name: tableName,
-        rowCount,
-        columnCount,
-        sourceId: dataSource.id,
-        definitionId: dataTableId,
-      });
-      dataFrameId = dataFrame.id;
-    }
-
-    await updateDataTable(dataTableId, {
-      dataFrameId,
-      lastFetchedAt: Date.now(),
-    });
   } else {
     // Create DataTable via the CreateDataTable command — PRIMITIVE path.
     // CreateDataTable does NOT auto-inject metrics, so we pass the default
@@ -346,23 +272,13 @@ export async function handleFileConnectorResult(
       fields,
       metrics: [makeDefaultCountMetric(dataTableId)],
     });
-
-    // Create DataFrame entry
-    await addDataFrameEntry(dataFrame, {
-      name: tableName,
-      rowCount,
-      columnCount,
-      sourceId: dataSource.id,
-      definitionId: dataTableId,
-    });
-    dataFrameId = dataFrame.id;
-
-    // Link DataFrame to DataTable
-    await updateDataTable(dataTableId, {
-      dataFrameId,
-      lastFetchedAt: Date.now(),
-    });
   }
+
+  const { dataFrameId } = await ingestLocalDataFrame(
+    dataTableId,
+    arrowBuffer,
+    primaryKey,
+  );
 
   // Note: Column analysis is run lazily in InsightView when first needed
   // This keeps upload fast and defers expensive DuckDB queries

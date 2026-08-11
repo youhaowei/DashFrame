@@ -1,5 +1,10 @@
 /** Production adapters that join C1 to persisted bindings/native execution. */
-import { buildInsightSQL } from "@dashframe/engine";
+import {
+  buildInsightAvailableFields,
+  buildInsightSQL,
+  fieldIdToColumnAlias,
+  metricIdToColumnAlias,
+} from "@dashframe/engine";
 import { inspectArrowIpc } from "@dashframe/engine-server/arrow-data-path";
 
 import { createHash, randomUUID } from "node:crypto";
@@ -75,15 +80,58 @@ export function productionMaterializerDependencies(): Pick<
       if (!sql) throw new Error("FETCH_COMPILE_FAILED");
       return sql;
     },
-    inspect: (arrow) => {
+    inspect: (arrow, { insight, tables }) => {
       const table = inspectArrowIpc(arrow);
+      const base = tables.get(insight.baseTableId);
+      if (!base) throw new Error("TARGET_NOT_READY");
+      const joined = new Map([...tables].filter(([id]) => id !== base.id));
+      const available = buildInsightAvailableFields(
+        base,
+        joined,
+        insight as never,
+      );
+      if (!available) throw new Error("TARGET_NOT_READY");
+      let selected = available;
+      if (insight.selectedFields.length) {
+        selected = available.filter((field) =>
+          insight.selectedFields.includes(field.id),
+        );
+      } else if (insight.metrics.length) {
+        selected = [];
+      }
+      const expected = new Map([
+        ...selected.map(
+          (field) =>
+            [
+              fieldIdToColumnAlias(field.id),
+              {
+                id: fieldIdToColumnAlias(field.id),
+                name: field.name,
+                type: field.type,
+              },
+            ] as const,
+        ),
+        ...insight.metrics.map(
+          (metric) =>
+            [
+              metricIdToColumnAlias(metric.id),
+              {
+                id: metricIdToColumnAlias(metric.id),
+                name: metric.name,
+                type: "number",
+              },
+            ] as const,
+        ),
+      ]);
+      if (
+        table.fieldNames.length !== expected.size ||
+        table.fieldNames.some((name) => !expected.has(name))
+      ) {
+        throw new Error("SOURCE_SCHEMA_CHANGED");
+      }
       return {
         rowCount: table.rowCount,
-        schema: table.fieldNames.map((name) => ({
-          id: name,
-          name,
-          type: "unknown",
-        })),
+        schema: table.fieldNames.map((name) => expected.get(name)!),
       };
     },
     publish: publishMaterialization,

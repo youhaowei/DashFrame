@@ -14,7 +14,7 @@ const insight = {
   id: "insight-1",
   name: "Revenue",
   baseTableId: "table-1",
-  selectedFields: ["field-1"],
+  selectedFields: ["10000000-0000-4000-8000-000000000001"],
   metrics: [],
   createdAt: 0,
 } as Insight;
@@ -29,7 +29,13 @@ describe("useInsightPagination", () => {
     });
     queryDataFrame.mockResolvedValue({
       status: "ready",
-      schema: [{ id: "field-1", name: "Revenue", type: "number" }],
+      schema: [
+        {
+          id: "field_10000000_0000_4000_8000_000000000001",
+          name: "Revenue",
+          type: "number",
+        },
+      ],
       rows: [],
       totalCount: 12,
       page: {},
@@ -51,9 +57,24 @@ describe("useInsightPagination", () => {
     );
     expect(queryDataFrame).toHaveBeenCalledWith("frame-1", {
       offset: 0,
-      limit: 1,
+      limit: 100,
     });
     expect(result.current.totalCount).toBe(5);
+    expect(result.current.columns).toEqual([
+      {
+        name: "field_10000000_0000_4000_8000_000000000001",
+        type: "number",
+      },
+    ]);
+    expect(result.current.columnDisplayNames).toEqual({
+      field_10000000_0000_4000_8000_000000000001: "Revenue",
+    });
+    expect(result.current.resolvedFields).toEqual([
+      expect.objectContaining({
+        id: "10000000-0000-4000-8000-000000000001",
+        name: "Revenue",
+      }),
+    ]);
     await act(async () => {
       await expect(
         result.current.fetchData({ offset: 5, limit: 25 }),
@@ -78,7 +99,7 @@ describe("useInsightPagination", () => {
       {
         insight: {
           baseTableId: "table-1",
-          selectedFields: ["field-1"],
+          selectedFields: ["10000000-0000-4000-8000-000000000001"],
           metrics: [],
           filters: undefined,
           sorts: undefined,

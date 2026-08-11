@@ -1,14 +1,8 @@
-import type {
-  DataFrame,
-  Field,
-  SourceSchema,
-  UUID,
-} from "@dashframe/engine-browser";
+import type { Field, SourceSchema, UUID } from "@dashframe/engine-browser";
 import {
   createArrowIPCBufferFromRows,
   createFieldsFromColumns,
   createSourceSchema,
-  DataFrame as DataFrameClass,
   detectPrimaryKeyColumn,
   inferStringColumnType,
   parseStringValueByType,
@@ -23,15 +17,16 @@ export type CSVData = string[][] | string[];
 
 /**
  * CSV conversion result.
- * - dataFrame: DataFrame class instance (reference to IndexedDB storage)
+ * - arrowBuffer: Arrow IPC bytes for server-owned ingestion
  * - fields: Field definitions for the columns
  * - sourceSchema: Source column metadata
  * - rowCount: Number of data rows (for metadata)
  * - columnCount: Number of columns (for metadata)
  */
 export interface CSVConversionResult {
-  /** DataFrame class instance (data stored in IndexedDB) */
-  dataFrame: DataFrame;
+  /** Arrow IPC bytes for server-owned local connector ingestion. */
+  arrowBuffer: Uint8Array;
+  primaryKey?: string | string[];
   /** Field definitions */
   fields: Field[];
   /** Source schema metadata */
@@ -43,8 +38,7 @@ export interface CSVConversionResult {
 }
 
 /**
- * Converts CSV data into a DataFrame with IndexedDB storage.
- * Data is stored as Arrow IPC format in IndexedDB, not in localStorage.
+ * Converts CSV data into Arrow IPC plus structural metadata.
  */
 export async function csvToDataFrame(
   csvData: CSVData,
@@ -90,18 +84,9 @@ export async function csvToDataFrame(
   const fields: Field[] = createFieldsFromColumns(userColumns, dataTableId);
   const ipcBuffer = createArrowIPCBufferFromRows(rows, userColumns);
 
-  // Create DataFrame with IndexedDB storage
-  const dataFrame = await DataFrameClass.create(
-    ipcBuffer,
-    fields.map((f) => f.id),
-    {
-      storageType: "indexeddb",
-      primaryKey,
-    },
-  );
-
   return {
-    dataFrame,
+    arrowBuffer: ipcBuffer,
+    primaryKey,
     fields,
     sourceSchema,
     rowCount: rows.length,

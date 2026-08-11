@@ -1,6 +1,5 @@
 import type {
   ColumnType,
-  DataFrame,
   Field,
   SourceSchema,
   UUID,
@@ -9,7 +8,6 @@ import {
   createArrowIPCBufferFromRows,
   createFieldsFromColumns,
   createSourceSchema,
-  DataFrame as DataFrameClass,
   detectPrimaryKeyColumn,
   inferPrimitiveColumnType,
   parsePrimitiveValueByType,
@@ -73,15 +71,16 @@ const inferColumnType = (values: JsonPrimitive[]): ColumnType => {
 
 /**
  * JSON conversion result.
- * - dataFrame: DataFrame class instance (reference to IndexedDB storage)
+ * - arrowBuffer: Arrow IPC bytes for server-owned ingestion
  * - fields: Field definitions for the columns
  * - sourceSchema: Source column metadata
  * - rowCount: Number of data rows (for metadata)
  * - columnCount: Number of columns (for metadata)
  */
 export interface JSONConversionResult {
-  /** DataFrame class instance (data stored in IndexedDB) */
-  dataFrame: DataFrame;
+  /** Arrow IPC bytes for server-owned local connector ingestion. */
+  arrowBuffer: Uint8Array;
+  primaryKey?: string | string[];
   /** Field definitions */
   fields: Field[];
   /** Source schema metadata */
@@ -93,7 +92,7 @@ export interface JSONConversionResult {
 }
 
 /**
- * Converts JSON data into a DataFrame with IndexedDB storage.
+ * Converts JSON data into Arrow IPC plus structural metadata.
  * Supports both array-of-objects and nested JSON structures.
  * Nested objects are flattened using dot-notation (e.g., 'user.address.city').
  *
@@ -179,18 +178,9 @@ export async function jsonToDataFrame(
   const fields: Field[] = createFieldsFromColumns(userColumns, dataTableId);
   const ipcBuffer = createArrowIPCBufferFromRows(rows, userColumns);
 
-  // Step 8: Create DataFrame with IndexedDB storage
-  const dataFrame = await DataFrameClass.create(
-    ipcBuffer,
-    fields.map((f) => f.id),
-    {
-      storageType: "indexeddb",
-      primaryKey,
-    },
-  );
-
   return {
-    dataFrame,
+    arrowBuffer: ipcBuffer,
+    primaryKey,
     fields,
     sourceSchema,
     rowCount: rows.length,

@@ -3,7 +3,10 @@ import { VisualizationPreview } from "@/components/visualizations/VisualizationP
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
 import { formatCellValue } from "@/lib/cell-formatter";
-import { getDataFrame } from "@/lib/data-access/data-frames";
+import {
+  useConfirmDialogStore,
+  type ConfirmDialogConfig,
+} from "@/lib/stores/confirm-dialog-store";
 import {
   canvasViewsEqual,
   sanitizeInsightCanvasView,
@@ -12,7 +15,7 @@ import {
   type InsightCanvasView,
 } from "@/lib/stores/insight-canvas-store";
 import type { Insight as LocalInsight } from "@/lib/stores/types";
-import { mergeAnalyses } from "@/lib/visualizations/merge-analyses";
+import { analyzeFrameSample } from "@/lib/visualizations/analyze-frame-sample";
 import {
   suggestByChartType,
   type ChartSuggestion,
@@ -22,10 +25,9 @@ import {
   extractUUIDFromColumnAlias,
   fieldIdToColumnAlias,
 } from "@dashframe/engine";
-import { analyzeView, ensureTableLoaded } from "@dashframe/engine-browser";
 import type {
+  ChartEncoding,
   ColumnAnalysis,
-  DataFrameAnalysis,
   Field,
   Insight,
   InsightMetric,
@@ -38,6 +40,8 @@ import {
   buildInsightUpdateCommands,
   CHART_TYPE_METADATA,
   cmd,
+  fieldEncoding,
+  metricEncoding,
 } from "@dashframe/types";
 import {
   CHART_ICONS,
@@ -67,57 +71,6 @@ import { toast } from "sonner";
 import { InsightConfigPanel } from "./config-panel";
 import { NotFoundView } from "./NotFoundView";
 
-/**
- * Remap column names in analysis results from original names to UUID aliases.
- *
- * When analyzing individual DataFrame tables (e.g., `df_04de4d84_...`), DuckDB
- * returns original column names like `roomattend`. But the joined insight view
- * uses UUID-aliased names like `field_<uuid>`. This function maps the analysis
- * to use the UUID aliases expected by the visualization system.
- *
- * @param analysis - Column analysis with original column names
- * @param fields - Field array containing the columnName → id mapping
- * @returns Analysis with column names remapped to UUID aliases
- */
-function remapAnalysisColumnNames(
-  analysis: ColumnAnalysis[],
-  fields: Field[],
-): ColumnAnalysis[] {
-  // Build reverse lookup: original column name → field UUID alias
-  const columnNameToAlias = new Map<string, string>();
-  for (const field of fields) {
-    const alias = fieldIdToColumnAlias(field.id);
-    if (field.columnName) {
-      columnNameToAlias.set(field.columnName.trim().toLowerCase(), alias);
-    }
-    // Also map by field name as fallback (user-facing name often matches column name initially)
-    columnNameToAlias.set(field.name.trim().toLowerCase(), alias);
-  }
-
-  return analysis.map((col) => {
-    const alias = columnNameToAlias.get(col.columnName.toLowerCase());
-    if (alias) {
-      return { ...col, columnName: alias };
-    }
-    // If no mapping found (e.g., computed columns), keep original name
-    return col;
-  });
-}
-
-import {
-  useConfirmDialogStore,
-  type ConfirmDialogConfig,
-} from "@/lib/stores/confirm-dialog-store";
-import type { DuckDBConnection } from "@dashframe/engine-browser";
-import type { ChartEncoding } from "@dashframe/types";
-import { fieldEncoding, metricEncoding } from "@dashframe/types";
-
-/** Helper context for DataFrame analysis operations */
-interface AnalysisContext {
-  duckDBConnection: DuckDBConnection;
-  updateAnalysis: (id: UUID, analysis: DataFrameAnalysis) => Promise<void>;
-}
-
 export function requestSavedVisualizationDeletion(
   confirm: (config: ConfirmDialogConfig) => void,
   removeVisualization: (args: { id: string }) => Promise<unknown>,
@@ -137,180 +90,6 @@ export function requestSavedVisualizationDeletion(
       }
     },
   });
-}
-
-/**
- * Analyze a single DataFrame and cache the results.
- * Returns the analysis for merging with other DataFrames.
- */
-async function analyzeAndCacheDataFrame(
-  dataFrameId: UUID,
-  fields: Field[],
-  rowCount: number,
-  ctx: AnalysisContext,
-): Promise<DataFrameAnalysis | null> {
-  const dataFrame = await getDataFrame(dataFrameId);
-  if (!dataFrame) {
-    console.error("[InsightView] DataFrame entity not found:", dataFrameId);
-    return null;
-  }
-
-  const tableName = await ensureTableLoaded(dataFrame, ctx.duckDBConnection);
-  const results = await analyzeView(ctx.duckDBConnection, tableName);
-  const remappedResults = remapAnalysisColumnNames(results, fields);
-
-  const analysis: DataFrameAnalysis = {
-    columns: remappedResults,
-    rowCount,
-    analyzedAt: Date.now(),
-    fieldHash: fields
-      .map((f) => f.id)
-      .sort()
-      .join(","),
-  };
-
-  await ctx.updateAnalysis(dataFrameId, analysis);
-
-  return analysis;
-}
-
-/** Entry with optional cached analysis */
-interface DataFrameEntry {
-  id: UUID;
-  rowCount?: number;
-  // `null` is a deliberate "cleared" signal (e.g. after a table replacement
-  // invalidates cached analysis) — every read site below already treats it
-  // the same as `undefined` via a truthy check, so this is a type-only
-  // widening to match the real shape from data-access/data-frames.ts.
-  analysis?: DataFrameAnalysis | null;
-}
-
-/** Table entry with optional fields */
-interface DataTableEntry {
-  id: UUID;
-  dataFrameId?: string;
-  fields?: Field[];
-}
-
-/** Join specification */
-interface JoinSpec {
-  rightTableId: UUID;
-}
-
-/**
- * Check if all joined DataFrames are loaded (for joined insights).
- */
-function areJoinedDataFramesLoaded(
-  joins: JoinSpec[],
-  allDataTables: DataTableEntry[],
-  allDataFrameEntries: DataFrameEntry[],
-): boolean {
-  for (const join of joins) {
-    const joinedTable = allDataTables.find((t) => t.id === join.rightTableId);
-    if (!joinedTable?.dataFrameId) return false;
-    const joinedDf = allDataFrameEntries.find(
-      (df) => df.id === joinedTable.dataFrameId,
-    );
-    if (!joinedDf) return false;
-  }
-  return true;
-}
-
-/**
- * Get cached columns for single DataFrame (non-joined).
- */
-function getCachedSingleAnalysis(
-  baseDataFrameEntry: DataFrameEntry,
-  fieldHash: string,
-): ColumnAnalysis[] | null {
-  if (!baseDataFrameEntry.analysis) return null;
-  const cached = baseDataFrameEntry.analysis;
-  if (cached.fieldHash !== fieldHash) return null;
-  if (cached.columns.length === 0) return null;
-  return cached.columns;
-}
-
-/**
- * Get merged cached columns for joined insights.
- */
-function getCachedJoinedAnalysis(
-  baseDataFrameEntry: DataFrameEntry,
-  joins: JoinSpec[],
-  allDataTables: DataTableEntry[],
-  allDataFrameEntries: DataFrameEntry[],
-  baseFields: Field[],
-): ColumnAnalysis[] | null {
-  if (!baseDataFrameEntry.analysis) return null;
-
-  const analysesToMerge: DataFrameAnalysis[] = [baseDataFrameEntry.analysis];
-  for (const join of joins) {
-    const joinedTable = allDataTables.find((t) => t.id === join.rightTableId);
-    if (!joinedTable?.dataFrameId) return null;
-    const joinedDf = allDataFrameEntries.find(
-      (df) => df.id === joinedTable.dataFrameId,
-    );
-    if (!joinedDf?.analysis) return null;
-    analysesToMerge.push(joinedDf.analysis);
-  }
-  const merged = mergeAnalyses(analysesToMerge);
-  return remapAnalysisColumnNames(merged, baseFields);
-}
-
-/**
- * Analyze joined DataFrames and merge results.
- * Returns merged column analysis from all DataFrames.
- */
-async function analyzeJoinedDataFrames(
-  baseDataFrameEntry: DataFrameEntry,
-  baseFields: Field[],
-  joins: JoinSpec[],
-  allDataTables: DataTableEntry[],
-  allDataFrameEntries: DataFrameEntry[],
-  ctx: AnalysisContext,
-): Promise<ColumnAnalysis[]> {
-  const analysesToMerge: DataFrameAnalysis[] = [];
-
-  // Analyze base DataFrame if not cached
-  if (baseDataFrameEntry.analysis) {
-    analysesToMerge.push(baseDataFrameEntry.analysis);
-  } else {
-    const baseAnalysis = await analyzeAndCacheDataFrame(
-      baseDataFrameEntry.id,
-      baseFields,
-      baseDataFrameEntry.rowCount ?? 0,
-      ctx,
-    );
-    if (!baseAnalysis) return [];
-    analysesToMerge.push(baseAnalysis);
-  }
-
-  // Analyze each joined DataFrame if not cached
-  for (const join of joins) {
-    const joinedTable = allDataTables.find((t) => t.id === join.rightTableId);
-    if (!joinedTable?.dataFrameId) continue;
-
-    const joinedDfEntry = allDataFrameEntries.find(
-      (df) => df.id === joinedTable.dataFrameId,
-    );
-    if (!joinedDfEntry) continue;
-
-    if (joinedDfEntry.analysis) {
-      analysesToMerge.push(joinedDfEntry.analysis);
-    } else {
-      const joinFields = joinedTable.fields ?? [];
-      const joinAnalysis = await analyzeAndCacheDataFrame(
-        joinedDfEntry.id,
-        joinFields,
-        joinedDfEntry.rowCount ?? 0,
-        ctx,
-      );
-      if (joinAnalysis) {
-        analysesToMerge.push(joinAnalysis);
-      }
-    }
-  }
-
-  return mergeAnalyses(analysesToMerge);
 }
 
 interface InsightViewProps {
@@ -814,15 +593,7 @@ export function InsightView({
   }, [insight.name]);
   const saveTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
 
-  // Chart suggestions state. Column analysis is keyed by the chart view it
-  // was computed against, so a stale result is ignored during render rather
-  // than reset via setState-in-effect.
   const [suggestionSeed, setSuggestionSeed] = useState(0);
-  const [columnAnalysisState, setColumnAnalysisState] = useState<{
-    viewName: string;
-    columns: ColumnAnalysis[];
-  } | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   // Mutations — artifact writes go through commitBatch (one batch per user edit).
   const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
@@ -831,15 +602,6 @@ export function InsightView({
   );
   const { mutateAsync: removeVisualizationMutation } = useMutation(
     api.removeVisualization,
-  );
-  const { mutateAsync: updateDataFrameEntry } = useMutation(
-    api.updateDataFrameEntry,
-  );
-  const updateAnalysis = useCallback(
-    async (id: UUID, analysis: DataFrameAnalysis): Promise<void> => {
-      await updateDataFrameEntry({ id, updates: { analysis } });
-    },
-    [updateDataFrameEntry],
   );
   const { confirm } = useConfirmDialogStore();
 
@@ -883,7 +645,6 @@ export function InsightView({
   const { data: allDataTables = [] } = useQuery(api.listDataTables, {
     args: {},
   });
-  const { data: allDataFrameEntries = [] } = useQuery(api.listDataFrames);
   const { data: allVisualizations = [] } = useQuery(api.listVisualizations, {
     args: {},
   });
@@ -895,17 +656,6 @@ export function InsightView({
   );
   const setPersistedActiveView = useInsightCanvasStore((s) => s.setActiveView);
 
-  // DuckDB connection for chart suggestions (initialized by DuckDBProvider during idle time)
-  const {
-    connection: duckDBConnection,
-    isInitialized: isDuckDBReady,
-    isLoading: isDuckDBLoading,
-  } = {
-    connection: null as DuckDBConnection | null,
-    isInitialized: false,
-    isLoading: false,
-  };
-
   // Find data table
   const dataTable = useMemo(
     () => allDataTables.find((t) => t.id === insight.baseTableId),
@@ -915,37 +665,20 @@ export function InsightView({
   // Get DuckDB view/table name for chart rendering
   // For insights with joins, creates a view with joined data
   // For simple insights, returns the base table name
-  const { viewName: chartTableName, isReady: isChartViewReady } =
-    useInsightView(insight, { dataTables: allDataTables });
-
-  // Derived column-analysis: only return cached results if they match the
-  // currently-active chart view. Otherwise treat as empty.
-  const columnAnalysis = useMemo<ColumnAnalysis[]>(() => {
-    if (
-      chartTableName &&
-      isChartViewReady &&
-      columnAnalysisState?.viewName === chartTableName
-    ) {
-      return columnAnalysisState.columns;
-    }
-    return [];
-  }, [chartTableName, columnAnalysisState, isChartViewReady]);
-  const setColumnAnalysis = (columns: ColumnAnalysis[]) => {
-    if (chartTableName) {
-      setColumnAnalysisState({ viewName: chartTableName, columns });
-    }
-  };
-
-  // Compute metadata
-  const baseDataFrameEntry = useMemo(
+  const {
+    viewName: chartTableName,
+    isReady: isChartViewReady,
+    schema: chartSchema,
+    sampleRows: chartSampleRows,
+    totalCount: rowCount,
+  } = useInsightView(insight, { dataTables: allDataTables });
+  const columnAnalysis = useMemo<ColumnAnalysis[]>(
     () =>
-      dataTable?.dataFrameId
-        ? allDataFrameEntries.find((e) => e.id === dataTable.dataFrameId)
-        : undefined,
-    [allDataFrameEntries, dataTable],
+      isChartViewReady
+        ? analyzeFrameSample(chartSchema, chartSampleRows, rowCount)
+        : [],
+    [chartSampleRows, chartSchema, isChartViewReady, rowCount],
   );
-
-  const rowCount = baseDataFrameEntry?.rowCount ?? 0;
 
   // Get visualizations for this insight
   const insightVisualizations = useMemo(
@@ -1011,131 +744,6 @@ export function InsightView({
 
     return map;
   }, [dataTable, insight.joins, allDataTables]);
-
-  // Helper: Compute a hash of field IDs for cache invalidation
-  // When fields change (e.g., new columns added via join), the cache is invalid
-  const computeFieldHash = useCallback((): string => {
-    const fieldIds: string[] = [];
-
-    // Base table fields
-    (dataTable?.fields ?? []).forEach((f) => fieldIds.push(f.id));
-
-    // Joined table fields
-    insight.joins?.forEach((join) => {
-      const joinTable = allDataTables.find((t) => t.id === join.rightTableId);
-      (joinTable?.fields ?? []).forEach((f) => fieldIds.push(f.id));
-    });
-
-    // Sort for deterministic hash
-    fieldIds.sort();
-    return fieldIds.join(",");
-  }, [dataTable?.fields, insight.joins, allDataTables]);
-
-  // Column analysis effect - uses cached analysis from DataFrame if available
-  // DuckDB is lazy-loaded, so we check isDuckDBLoading before running analysis
-  useEffect(() => {
-    // Early returns for loading/unready states
-    if (isDuckDBLoading || !duckDBConnection || !isDuckDBReady) return;
-    // Empty/unready chart-view case is gated at render via columnAnalysisState.
-    if (!chartTableName || !isChartViewReady) return;
-    if (!baseDataFrameEntry) return;
-    if (isAnalyzing) return;
-
-    const joins = insight.joins ?? [];
-    const hasJoins = joins.length > 0;
-    const fieldHash = computeFieldHash();
-    const baseFields = dataTable?.fields ?? [];
-
-    // For joined insights, wait for all DataFrames to load
-    if (
-      hasJoins &&
-      !areJoinedDataFramesLoaded(joins, allDataTables, allDataFrameEntries)
-    ) {
-      return;
-    }
-
-    // Try cached analysis first
-    const cachedColumns = hasJoins
-      ? getCachedJoinedAnalysis(
-          baseDataFrameEntry,
-          joins,
-          allDataTables,
-          allDataFrameEntries,
-          baseFields,
-        )
-      : getCachedSingleAnalysis(baseDataFrameEntry, fieldHash);
-
-    // No valid cache - run analysis and cache results.
-    // The cached-hit path also runs through this async function so the
-    // setColumnAnalysis call is not synchronous in the effect body.
-    const runAnalysis = async () => {
-      if (cachedColumns) {
-        // For non-joined, we need to remap; for joined, already remapped
-        const result = hasJoins
-          ? cachedColumns
-          : remapAnalysisColumnNames(cachedColumns, baseFields);
-        setColumnAnalysis(result);
-        return;
-      }
-
-      setIsAnalyzing(true);
-      const ctx: AnalysisContext = { duckDBConnection, updateAnalysis };
-
-      try {
-        if (!hasJoins) {
-          const results = await analyzeView(duckDBConnection, chartTableName);
-          const remappedResults = remapAnalysisColumnNames(results, baseFields);
-          setColumnAnalysis(remappedResults);
-
-          // Cache for this DataFrame
-          const analysisToCache: DataFrameAnalysis = {
-            columns: remappedResults,
-            rowCount,
-            analyzedAt: Date.now(),
-            fieldHash,
-          };
-          await updateAnalysis(baseDataFrameEntry.id, analysisToCache);
-        } else {
-          const merged = await analyzeJoinedDataFrames(
-            baseDataFrameEntry,
-            baseFields,
-            joins,
-            allDataTables,
-            allDataFrameEntries,
-            ctx,
-          );
-          setColumnAnalysis(merged);
-        }
-      } catch (e) {
-        console.error("[InsightView] Analysis failed:", e);
-        setColumnAnalysis([]);
-      } finally {
-        setIsAnalyzing(false);
-      }
-    };
-
-    // Defer to allow React to paint first
-    const timeoutId = setTimeout(runAnalysis, 100);
-    return () => clearTimeout(timeoutId);
-    // Note: dataTable?.fields is intentionally excluded from dependencies.
-    // The computeFieldHash callback already captures field changes via its
-    // dependency on dataTable?.fields, and we use fieldHash for cache invalidation.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    duckDBConnection,
-    isDuckDBReady,
-    isDuckDBLoading,
-    chartTableName,
-    isChartViewReady,
-    baseDataFrameEntry,
-    insight.joins,
-    computeFieldHash,
-    rowCount,
-    updateAnalysis,
-    allDataTables,
-    allDataFrameEntries,
-    isAnalyzing,
-  ]);
 
   // Get existing field and metric column names from insight configuration
   // Includes fields from both base table AND joined tables
@@ -1718,7 +1326,7 @@ export function InsightView({
               <EphemeralChartCanvas
                 tableName={chartTableName ?? undefined}
                 suggestion={activeChartSuggestion}
-                isLoading={!isChartViewReady || isAnalyzing}
+                isLoading={!isChartViewReady}
                 onRegenerate={handleRegenerate}
               />
             )}

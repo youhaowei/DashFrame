@@ -56,7 +56,13 @@ export interface InsightMaterializerDependencies {
     insight: EffectiveInsightDefinition;
     tables: Map<UUID, DataTable>;
   }): string;
-  inspect(arrow: Uint8Array): {
+  inspect(
+    arrow: Uint8Array,
+    context: {
+      insight: EffectiveInsightDefinition;
+      tables: Map<UUID, DataTable>;
+    },
+  ): {
     rowCount: number;
     schema: InsightFetchReady["schema"];
   };
@@ -158,7 +164,10 @@ async function materializeOnce(
     const sql = dependencies.compile({ insight: args.insight, tables });
     if (!sql) throw new Error("FETCH_COMPILE_FAILED");
     const resultArrow = await runtime.queryArrow(sql, []);
-    const inspected = dependencies.inspect(resultArrow);
+    const inspected = dependencies.inspect(resultArrow, {
+      insight: args.insight,
+      tables,
+    });
     const resultId = dependencies.uuid();
     const result: PendingFrame = {
       id: resultId,

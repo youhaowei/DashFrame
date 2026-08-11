@@ -1,7 +1,10 @@
 import { queryDataFrame } from "@/lib/data-access/data-frames";
 import { api } from "@/wystack/api";
 import { getWyStackClient } from "@/wystack/client";
-import type { EffectiveParams } from "@dashframe/engine";
+import {
+  extractColumnAliasComponents,
+  type EffectiveParams,
+} from "@dashframe/engine";
 import type {
   ColumnType,
   Field,
@@ -18,6 +21,7 @@ import type {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const MAX_PAGE_SIZE = 500;
+const SUGGESTION_SAMPLE_SIZE = 100;
 
 export interface UseInsightPaginationOptions {
   insight: Insight;
@@ -59,6 +63,7 @@ export function useInsightPagination({
   const [schema, setSchema] = useState<
     readonly { id: UUID; name: string; type: string }[]
   >([]);
+  const [sampleRows, setSampleRows] = useState<Record<string, unknown>[]>([]);
   const generation = useRef(0);
 
   const runtimeKey = JSON.stringify(runtime ?? null);
@@ -75,6 +80,7 @@ export function useInsightPagination({
         setTotalCount(0);
         setColumns([]);
         setSchema([]);
+        setSampleRows([]);
         setFieldCount(0);
         setError(null);
         setIsReady(false);
@@ -87,6 +93,7 @@ export function useInsightPagination({
       setTotalCount(0);
       setColumns([]);
       setSchema([]);
+      setSampleRows([]);
       setFieldCount(0);
       setIsReady(false);
       setError(null);
@@ -107,6 +114,7 @@ export function useInsightPagination({
           setTotalCount(0);
           setColumns([]);
           setSchema([]);
+          setSampleRows([]);
           setFieldCount(0);
           setError(fetchResult.message);
           setIsReady(false);
@@ -114,7 +122,7 @@ export function useInsightPagination({
         }
         const page = await queryDataFrame(fetchResult.dataFrameId, {
           offset: 0,
-          limit: 1,
+          limit: SUGGESTION_SAMPLE_SIZE,
         });
         if (current !== generation.current) return;
         if (page.status === "failed") {
@@ -122,6 +130,7 @@ export function useInsightPagination({
           setTotalCount(0);
           setColumns([]);
           setSchema([]);
+          setSampleRows([]);
           setFieldCount(0);
           setError(page.message);
           setIsReady(false);
@@ -131,12 +140,13 @@ export function useInsightPagination({
           ? Math.min(page.totalCount, stableRuntime.limit)
           : page.totalCount;
         const nextColumns: VirtualTableColumn[] = page.schema.map(
-          ({ name, type }) => ({ name, type: type as ColumnType }),
+          ({ id, type }) => ({ name: id, type: type as ColumnType }),
         );
         setDataFrameId(fetchResult.dataFrameId);
         setTotalCount(effectiveCount);
         setColumns(nextColumns);
         setSchema(page.schema);
+        setSampleRows(page.rows);
         setFieldCount(nextColumns.length);
         setError(null);
         setIsReady(true);
@@ -147,6 +157,7 @@ export function useInsightPagination({
         setTotalCount(0);
         setColumns([]);
         setSchema([]);
+        setSampleRows([]);
         setFieldCount(0);
         setError(
           cause instanceof Error ? cause.message : "Failed to run Insight",
@@ -195,6 +206,27 @@ export function useInsightPagination({
     () => Object.fromEntries(schema.map((column) => [column.id, column.name])),
     [schema],
   );
+  const resolvedFields = useMemo(
+    () =>
+      schema.flatMap((column): Field[] => {
+        if (!column.id.startsWith("field_")) return [];
+        const parsed = extractColumnAliasComponents(column.id);
+        if (!parsed) return [];
+        const id = `${parsed.uuid}${
+          parsed.instanceIndex > 0 ? `_j${parsed.instanceIndex}` : ""
+        }` as UUID;
+        return [
+          {
+            id,
+            tableId: insight.baseTableId,
+            name: column.name,
+            columnName: column.id,
+            type: column.type as ColumnType,
+          },
+        ];
+      }),
+    [insight.baseTableId, schema],
+  );
 
   return {
     dataFrameId,
@@ -204,10 +236,12 @@ export function useInsightPagination({
     fieldCount,
     isReady,
     error,
+    schema,
+    sampleRows,
     columnDisplayNames,
     columnTypeMap: Object.fromEntries(
       schema.map((column) => [column.id, column.type as ColumnType]),
     ),
-    resolvedFields: [] as Field[],
+    resolvedFields,
   };
 }
