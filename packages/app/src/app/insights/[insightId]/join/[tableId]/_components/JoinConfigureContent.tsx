@@ -1,9 +1,9 @@
 /* eslint-disable sonarjs/cognitive-complexity */
 
-import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import { useDataFramePagination } from "@/hooks/useDataFramePagination";
 import { getDataFrame } from "@/lib/data-access/data-frames";
 import { api } from "@/wystack/api";
+import type { DuckDBConnection } from "@dashframe/engine-browser";
 import {
   joinTypeToSQL,
   quoteIdentifier,
@@ -182,7 +182,11 @@ export default function JoinConfigureContent({
     connection,
     isInitialized: isDuckDBReady,
     isLoading: isDuckDBLoading,
-  } = useDuckDB();
+  } = {
+    connection: null as DuckDBConnection | null,
+    isInitialized: false,
+    isLoading: false,
+  };
 
   // Pagination hooks for async VirtualTable (full dataset browsing)
   const {

@@ -22,6 +22,7 @@
     "@wystack/ui-core": "workspace:*",
     "@wystack/ui-react": "workspace:*",
     "@duckdb/duckdb-wasm": "1.32.0",
+    "@uwdata/flechette": "^2.2.5",
     "@uwdata/vgplot": "^0.21.1",
     "react": "^19.0.0"
   },

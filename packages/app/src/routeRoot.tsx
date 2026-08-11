@@ -13,7 +13,6 @@ import { AssistantRegion } from "@/components/assistant/AssistantRegion";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Navigation } from "@/components/navigation";
 import { ConnectorSetup } from "@/components/providers/ConnectorSetup";
-import { DuckDBProvider } from "@/components/providers/DuckDBProvider";
 import { StoreHydration } from "@/components/providers/StoreHydration";
 import { VisualizationSetup } from "@/components/providers/VisualizationSetup";
 import { ContextPanelProvider } from "@/components/shell/context-panel-outlet";
@@ -111,30 +110,28 @@ export function RouteRoot({
         <HostProviders>
           <TooltipProvider>
             <DatabaseProvider>
-              <DuckDBProvider>
-                <ConnectorSetup />
-                <VisualizationSetup>
-                  <StoreHydration>
-                    <ContextPanelProvider>
-                      <ArtifactContextProvider>
-                        <PlatformProvider>
-                          <Shell />
-                        </PlatformProvider>
-                      </ArtifactContextProvider>
-                    </ContextPanelProvider>
-                  </StoreHydration>
-                  <Toaster
-                    toastOptions={{
-                      style: {
-                        background: "var(--neutral-bg)",
-                        color: "var(--neutral-fg)",
-                        border: "1px solid var(--neutral-border)",
-                      },
-                    }}
-                  />
-                  <ConfirmDialog />
-                </VisualizationSetup>
-              </DuckDBProvider>
+              <ConnectorSetup />
+              <VisualizationSetup>
+                <StoreHydration>
+                  <ContextPanelProvider>
+                    <ArtifactContextProvider>
+                      <PlatformProvider>
+                        <Shell />
+                      </PlatformProvider>
+                    </ArtifactContextProvider>
+                  </ContextPanelProvider>
+                </StoreHydration>
+                <Toaster
+                  toastOptions={{
+                    style: {
+                      background: "var(--neutral-bg)",
+                      color: "var(--neutral-fg)",
+                      border: "1px solid var(--neutral-border)",
+                    },
+                  }}
+                />
+                <ConfirmDialog />
+              </VisualizationSetup>
             </DatabaseProvider>
           </TooltipProvider>
         </HostProviders>

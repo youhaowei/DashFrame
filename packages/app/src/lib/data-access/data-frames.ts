@@ -1,9 +1,5 @@
 import type { DuckDBConnection } from "@dashframe/engine-browser";
-import {
-  DataFrame as BrowserDataFrame,
-  deleteArrowData,
-  QueryBuilder,
-} from "@dashframe/engine-browser";
+import { QueryBuilder } from "@dashframe/engine-browser";
 import type {
   DataFrame,
   DataFrameAnalysis,
@@ -85,14 +81,6 @@ class ServerDataFrame implements DataFrame {
   }
 }
 
-async function deleteArrowDataBestEffort(key: string): Promise<void> {
-  try {
-    await deleteArrowData(key);
-  } catch (error) {
-    console.warn("Failed to delete Arrow data", error);
-  }
-}
-
 export async function addDataFrameEntry(
   dataFrame: DataFrame,
   metadata: {
@@ -130,7 +118,6 @@ export async function replaceDataFrame(
     definitionId?: UUID;
   },
 ): Promise<void> {
-  const oldEntity = await getDataFrameEntry(id);
   const serialization = newDataFrame.toJSON();
   await updateDataFrameEntry(id, {
     storage: serialization.storage,
@@ -144,39 +131,24 @@ export async function replaceDataFrame(
     analysis: null,
     lastRefreshedAt: Date.now(),
   });
-  if (oldEntity?.storage?.type === "indexeddb") {
-    await deleteArrowDataBestEffort(oldEntity.storage.key);
-  }
 }
 
 export async function removeDataFrame(id: UUID): Promise<void> {
-  const entity = await getDataFrameEntry(id);
   await getWyStackClient().mutate(api.removeDataFrameEntry, { id });
-  if (entity?.storage?.type === "indexeddb") {
-    await deleteArrowDataBestEffort(entity.storage.key);
-  }
 }
 
 export async function clearAllData(): Promise<void> {
-  const entities = await getAllDataFrames();
   await getWyStackClient().mutate(api.clearAllData, {});
-  for (const entity of entities) {
-    if (entity.storage?.type === "indexeddb") {
-      await deleteArrowDataBestEffort(entity.storage.key);
-    }
-  }
 }
 
 export async function getDataFrame(
   id: UUID,
-): Promise<
-  InstanceType<typeof BrowserDataFrame> | ServerDataFrame | undefined
-> {
+): Promise<ServerDataFrame | undefined> {
   const entity = await getDataFrameEntry(id);
   if (!entity) return undefined;
   return entity.storage.type === "file"
     ? new ServerDataFrame(entity)
-    : BrowserDataFrame.fromJSON(entity);
+    : undefined;
 }
 
 export async function getDataFrameEntry(

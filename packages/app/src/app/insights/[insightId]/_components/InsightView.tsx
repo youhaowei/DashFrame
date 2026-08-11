@@ -1,5 +1,4 @@
 import { AppLayout } from "@/components/layouts/AppLayout";
-import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import { VisualizationPreview } from "@/components/visualizations/VisualizationPreview";
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
@@ -901,7 +900,11 @@ export function InsightView({
     connection: duckDBConnection,
     isInitialized: isDuckDBReady,
     isLoading: isDuckDBLoading,
-  } = useDuckDB();
+  } = {
+    connection: null as DuckDBConnection | null,
+    isInitialized: false,
+    isLoading: false,
+  };
 
   // Find data table
   const dataTable = useMemo(

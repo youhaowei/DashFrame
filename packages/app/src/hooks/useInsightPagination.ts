@@ -197,6 +197,7 @@ export function useInsightPagination({
   );
 
   return {
+    dataFrameId,
     fetchData,
     totalCount,
     columns,

@@ -1,6 +1,5 @@
 import { useBindArtifact } from "@/components/assistant/artifact-context";
 import { AppLayout } from "@/components/layouts/AppLayout";
-import { useDuckDB } from "@/components/providers/DuckDBProvider";
 import { useContextPanelSection } from "@/components/shell/context-panel-outlet";
 import { AxisSelectField } from "@/components/visualizations/AxisSelectField";
 import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
@@ -28,6 +27,7 @@ import {
   isGeneratedColumnLabel,
   metricIdToColumnAlias,
 } from "@dashframe/engine";
+import type { DuckDBConnection } from "@dashframe/engine-browser";
 import { analyzeView, type ColumnAnalysis } from "@dashframe/engine-browser";
 import type {
   DataFrameColumn,
@@ -217,7 +217,11 @@ export default function VisualizationPageContent({
     connection: duckDBConnection,
     isInitialized: isDuckDBReady,
     isLoading: isDuckDBLoading,
-  } = useDuckDB();
+  } = {
+    connection: null as DuckDBConnection | null,
+    isInitialized: false,
+    isLoading: false,
+  };
 
   // Build Insight object for useInsightView (needs baseTableId and joins)
   const insightForView: InsightType | null = useMemo(() => {

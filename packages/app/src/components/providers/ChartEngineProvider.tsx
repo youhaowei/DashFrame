@@ -11,6 +11,7 @@
  * The MosaicConnector shape mirrors `@uwdata/mosaic-core`'s `Connector`
  * interface, kept inline here so this package has no direct dep on mosaic-core.
  */
+import type { MosaicConnector } from "@dashframe/visualization";
 import { createContext, useContext, useMemo, type ReactNode } from "react";
 
 /**
@@ -20,14 +21,7 @@ import { createContext, useContext, useMemo, type ReactNode } from "react";
  *   - 'exec'             — statement with no result (SET, CREATE TEMP ...)
  *   - 'json'             — query-planner call, returns row objects
  */
-export interface MosaicConnector {
-  query(query: { type?: "arrow"; sql: string }): Promise<unknown>;
-  query(query: { type: "exec"; sql: string }): Promise<void>;
-  query(query: {
-    type: "json";
-    sql: string;
-  }): Promise<Record<string, unknown>[]>;
-}
+export type { MosaicConnector } from "@dashframe/visualization";
 
 interface ChartEngineContextValue {
   /**
@@ -39,31 +33,16 @@ interface ChartEngineContextValue {
    * Shown as a visible banner — never a raw engine string.
    */
   engineError: string | null;
-  /**
-   * Upload a named Arrow IPC table to the native engine's in-memory store.
-   * Retained as a dormant compatibility seam; the active server connection
-   * handles local imports directly and registers snapshots by DataFrame ID.
-   */
-  uploadArrowTable:
-    | ((name: string, arrowBytes: Uint8Array) => Promise<void>)
-    | null;
 }
 
 const ChartEngineContext = createContext<ChartEngineContextValue>({
   connector: null,
   engineError: null,
-  uploadArrowTable: null,
 });
 
 export interface ChartEngineProviderProps {
   connector: MosaicConnector | null;
   engineError?: string | null;
-  /**
-   * Dormant Arrow upload seam. Active hosts omit it.
-   */
-  uploadArrowTable?:
-    | ((name: string, arrowBytes: Uint8Array) => Promise<void>)
-    | null;
   children: ReactNode;
 }
 
@@ -74,7 +53,6 @@ export interface ChartEngineProviderProps {
 export function ChartEngineProvider({
   connector,
   engineError = null,
-  uploadArrowTable = null,
   children,
 }: ChartEngineProviderProps) {
   // Memoize the context value. Without this, a fresh object literal every render
@@ -82,8 +60,8 @@ export function ChartEngineProvider({
   // to re-render. Hosts pass stable connector references, so this memo holds
   // steady once mounted.
   const value = useMemo(
-    () => ({ connector, engineError, uploadArrowTable }),
-    [connector, engineError, uploadArrowTable],
+    () => ({ connector, engineError }),
+    [connector, engineError],
   );
 
   return (
@@ -94,7 +72,7 @@ export function ChartEngineProvider({
 }
 
 /**
- * Read the server chart connector and frame registration seams.
+ * Read the server chart connector.
  */
 export function useChartEngine(): ChartEngineContextValue {
   return useContext(ChartEngineContext);
