@@ -246,6 +246,13 @@ describe("MCP route", () => {
 
   it("renders only a bounded, authorized frame preview without leaking frame internals", async () => {
     const dataFrameId = crypto.randomUUID();
+    const dateFieldId = crypto.randomUUID();
+    const usersFieldId = crypto.randomUUID();
+    const extraFields = Array.from({ length: 99 }, (_, index) => ({
+      id: crypto.randomUUID(),
+      name: `extra_${index}`,
+      type: "string",
+    }));
     const providerId = crypto.randomUUID();
     const fakeProjectPath = `/private/project/${crypto.randomUUID()}.arrow`;
     const fakeApp = {
@@ -268,12 +275,13 @@ describe("MCP route", () => {
             result: {
               status: "ready",
               schema: [
-                { id: "date", name: "Date", type: "date" },
-                { id: "users", name: "Users", type: "number" },
+                { id: dateFieldId, name: "date", type: "date" },
+                { id: usersFieldId, name: "users", type: "number" },
+                ...extraFields,
               ],
               rows: [
-                { date: "2026-08-11", users: 42 },
-                { date: "2026-08-12", users: 51 },
+                { date: 1_786_406_400_000, users: 42 },
+                { date: 1_786_492_800_000, users: 51 },
               ],
               totalCount: 2,
               page: { offset: 0, limit: 50, returned: 2 },
@@ -296,15 +304,79 @@ describe("MCP route", () => {
       report: {
         title: "DashFrame data report",
         dataFrameId,
+        columnCount: 101,
+        rows: [
+          { [dateFieldId]: 1_786_406_400_000, [usersFieldId]: 42 },
+          { [dateFieldId]: 1_786_492_800_000, [usersFieldId]: 51 },
+        ],
         totalCount: 2,
         freshness: { state: "stale", fetchedAt: 1_723_000_000_000 },
         page: { offset: 0, limit: 50, returned: 2 },
       },
     });
+    expect(
+      (result.structuredContent?.report as { schema: unknown[] }).schema,
+    ).toHaveLength(100);
     const serialized = JSON.stringify(result);
     expect(serialized.includes(providerId)).toBe(false);
     expect(serialized.includes(fakeProjectPath)).toBe(false);
     expect(serialized.includes("secret:")).toBe(false);
+  });
+
+  it("fails closed when a ready frame page contradicts the report schema", async () => {
+    const dataFrameId = crypto.randomUUID();
+    const fakeApp = {
+      async call(path: string) {
+        if (path === "getDataFrameEntry")
+          return { result: { id: dataFrameId } };
+        if (path === "queryDataFrame") {
+          return {
+            result: {
+              status: "ready",
+              schema: [{ id: "value", name: "value", type: "number" }],
+              rows: [{ value: 1 }],
+              totalCount: 1,
+              page: { offset: 0, limit: 50, returned: 2 },
+            },
+          };
+        }
+        throw new Error(`Unexpected call: ${path}`);
+      },
+    } as unknown as Parameters<typeof createMcpTools>[0];
+    const tool = createMcpTools(
+      fakeApp,
+      { principal: { kind: "service", credentialId: "test" } },
+      "stateless",
+    ).find((candidate) => candidate.name === "render_data_frame");
+
+    await expect(tool!.execute({ dataFrameId })).resolves.toMatchObject({
+      isError: true,
+      structuredContent: {
+        status: "failed",
+        code: "FRAME_UNAVAILABLE",
+        message: "The requested DataFrame is unavailable.",
+      },
+    });
+  });
+
+  it("returns a schema-shaped render failure for an absent frame", async () => {
+    const { client, transport } = await connect();
+    try {
+      const result = await client.callTool({
+        name: "render_data_frame",
+        arguments: { dataFrameId: crypto.randomUUID() },
+      });
+      expect(result).toMatchObject({
+        isError: true,
+        structuredContent: {
+          status: "failed",
+          code: "FRAME_NOT_FOUND",
+          message: "The requested DataFrame is unavailable.",
+        },
+      });
+    } finally {
+      await transport.close();
+    }
   });
 
   it("mints the credential as a user before the MCP service-principal round trip", async () => {
@@ -355,6 +427,12 @@ describe("MCP route", () => {
         },
       });
       expect(renderTool?.outputSchema).toBeDefined();
+      expect(
+        listed.tools.find((tool) => tool.name === "query_data_frame")?._meta,
+      ).toMatchObject({
+        ui: { visibility: ["model", "app"] },
+        "openai/widgetAccessible": true,
+      });
       expect(
         (
           listed.tools.find((tool) => tool.name === "query_data_frame")!
@@ -588,6 +666,9 @@ describe("MCP route", () => {
       expect(content.text).toContain('"ui/resource-teardown"');
       expect(content.text).toContain("ui/notifications/tool-result");
       expect(content.text).toContain('callTool("query_data_frame"');
+      expect(content.text).toContain('field.type === "number"');
+      expect(content.text).toContain("columnCount: report.columnCount");
+      expect(content.text).toContain("The host did not answer ui/initialize.");
       expect(content.text).toContain('"openai:set_globals"');
       expect(content.text).not.toMatch(/\bfetch\s*\(/);
       expect(content.text).not.toMatch(

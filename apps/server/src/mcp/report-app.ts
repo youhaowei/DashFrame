@@ -168,11 +168,13 @@ export const REPORT_APP_HTML = String.raw`<!doctype html>
 
       function finite(value) { return typeof value === "number" && Number.isFinite(value); }
       function record(value) { return value && typeof value === "object" && !Array.isArray(value); }
+      function owns(value, key) { return Object.prototype.hasOwnProperty.call(value, key); }
       function text(value, fallback) { return typeof value === "string" ? value : fallback; }
       function whole(value, fallback) { return finite(value) && value >= 0 && Number.isInteger(value) ? value : fallback; }
       function formatNumber(value) { return new Intl.NumberFormat(document.documentElement.lang || "en-US", { maximumFractionDigits: 2 }).format(value); }
-      function valueText(value) {
+      function valueText(value, type) {
         if (value === null) return "null";
+        if (type === "date" && finite(value)) return new Intl.DateTimeFormat(document.documentElement.lang || "en-US", { dateStyle: "medium", timeZone: "UTC" }).format(new Date(value));
         if (typeof value === "string") return value;
         if (typeof value === "number" || typeof value === "boolean") return String(value);
         try { return JSON.stringify(value); } catch (_) { return "[value]"; }
@@ -188,18 +190,28 @@ export const REPORT_APP_HTML = String.raw`<!doctype html>
         if (!record(value) || value.status !== "ready" || !record(value.report)) return null;
         var next = value.report;
         if (typeof next.dataFrameId !== "string" || !Array.isArray(next.schema) || !Array.isArray(next.rows) || !record(next.page)) return null;
+        var fullSchema = next.schema.filter(function (field) { return record(field) && typeof field.id === "string" && typeof field.name === "string" && typeof field.type === "string"; });
+        var schema = fullSchema.slice(0, 100);
+        var rows = next.rows.filter(record).slice(0, 100).map(function (row) {
+          var normalized = {};
+          schema.forEach(function (field) {
+            normalized[field.id] = owns(row, field.id) ? row[field.id] : owns(row, field.name) ? row[field.name] : null;
+          });
+          return normalized;
+        });
         return {
           title: text(next.title, "DashFrame data report"),
           dataFrameId: next.dataFrameId,
-          schema: next.schema.filter(function (field) { return record(field) && typeof field.id === "string" && typeof field.name === "string" && typeof field.type === "string"; }).slice(0, 100),
-          rows: next.rows.filter(record).slice(0, 100),
+          schema: schema,
+          rows: rows,
+          columnCount: whole(next.columnCount, fullSchema.length),
           totalCount: whole(next.totalCount, 0),
           page: { offset: whole(next.page.offset, 0), limit: Math.min(100, Math.max(1, whole(next.page.limit, 50))), returned: whole(next.page.returned, 0) },
           freshness: record(next.freshness) ? { state: text(next.freshness.state, "snapshot"), fetchedAt: finite(next.freshness.fetchedAt) ? next.freshness.fetchedAt : null } : { state: "snapshot", fetchedAt: null }
         };
       }
       function numericField(schema, rows) {
-        return schema.find(function (field) { return rows.some(function (row) { return finite(row[field.id]); }); }) || null;
+        return schema.find(function (field) { return field.type === "number" && rows.some(function (row) { return finite(row[field.id]); }); }) || null;
       }
       function labelField(schema, numeric) {
         return schema.find(function (field) { return !numeric || field.id !== numeric.id; }) || null;
@@ -229,16 +241,16 @@ export const REPORT_APP_HTML = String.raw`<!doctype html>
         if (current.rows.length === 0 || current.schema.length === 0) { var empty = document.createElement("div"); empty.className = "empty-table"; empty.textContent = "This frame is ready but contains no preview rows."; root.appendChild(empty); return; }
         var table = document.createElement("table"); var head = document.createElement("thead"); var headerRow = document.createElement("tr");
         current.schema.forEach(function (field) { var th = document.createElement("th"); th.textContent = field.name; th.title = field.name; headerRow.appendChild(th); }); head.appendChild(headerRow); table.appendChild(head);
-        var body = document.createElement("tbody"); current.rows.forEach(function (row) { var tr = document.createElement("tr"); current.schema.forEach(function (field) { var td = document.createElement("td"); var displayed = valueText(row[field.id]); td.textContent = displayed; td.title = displayed; tr.appendChild(td); }); body.appendChild(tr); }); table.appendChild(body); root.appendChild(table);
+        var body = document.createElement("tbody"); current.rows.forEach(function (row) { var tr = document.createElement("tr"); current.schema.forEach(function (field) { var td = document.createElement("td"); var displayed = valueText(row[field.id], field.type); td.textContent = displayed; td.title = displayed; tr.appendChild(td); }); body.appendChild(tr); }); table.appendChild(body); root.appendChild(table);
       }
       function render(current) {
         report = current; loading.hidden = true; error.hidden = true; content.hidden = false;
-        setText("title", current.title); setText("subtitle", formatNumber(current.totalCount) + " rows · " + formatNumber(current.schema.length) + " columns");
+        setText("title", current.title); setText("subtitle", formatNumber(current.totalCount) + " rows · " + formatNumber(current.columnCount) + " columns");
         var badge = document.getElementById("badge"); badge.className = "badge" + (current.freshness.state === "stale" ? " stale" : "");
         if (current.freshness.state === "stale") badge.textContent = "Stale snapshot";
         else if (current.freshness.fetchedAt) badge.textContent = "Fetched " + new Intl.DateTimeFormat(document.documentElement.lang || "en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(current.freshness.fetchedAt));
         else badge.textContent = "Snapshot ready";
-        setText("rows-kpi", formatNumber(current.totalCount)); setText("columns-kpi", formatNumber(current.schema.length));
+        setText("rows-kpi", formatNumber(current.totalCount)); setText("columns-kpi", formatNumber(current.columnCount));
         var numeric = numericField(current.schema, current.rows);
         if (numeric) { var numbers = current.rows.map(function (row) { return row[numeric.id]; }).filter(finite); var average = numbers.reduce(function (sum, value) { return sum + value; }, 0) / Math.max(1, numbers.length); setText("preview-kpi-label", "Preview avg · " + numeric.name); setText("preview-kpi", formatNumber(average)); setText("preview-kpi-note", formatNumber(numbers.length) + " values on this page"); }
         else { setText("preview-kpi-label", "Visible rows"); setText("preview-kpi", formatNumber(current.rows.length)); setText("preview-kpi-note", "Bounded preview page"); }
@@ -253,6 +265,8 @@ export const REPORT_APP_HTML = String.raw`<!doctype html>
         document.getElementById("prev").disabled = paging || report.page.offset === 0;
         document.getElementById("next").disabled = paging || report.page.offset + report.rows.length >= report.totalCount;
       }
+      // The parent window is the app's trust boundary. MCP hosts or their
+      // sandbox proxy validate origins; this opaque-origin app validates source.
       function request(method, params) {
         var id = requestId++; window.parent.postMessage({ jsonrpc: "2.0", id: id, method: method, params: params }, "*");
         return new Promise(function (resolve, reject) { pending.set(id, { resolve: resolve, reject: reject }); });
@@ -295,8 +309,8 @@ export const REPORT_APP_HTML = String.raw`<!doctype html>
         if (!record(hostContext)) return;
         if (hostContext.theme === "light" || hostContext.theme === "dark") document.documentElement.dataset.theme = hostContext.theme;
         if (typeof hostContext.locale === "string") document.documentElement.lang = hostContext.locale;
-        var variables = record(hostContext.styles) && record(hostContext.styles.variables) ? hostContext.styles.variables : null;
-        if (variables) Object.keys(variables).forEach(function (key) { if (/^--(?:color|font|border)-[a-z0-9-]+$/.test(key) && typeof variables[key] === "string") document.documentElement.style.setProperty(key, variables[key]); });
+        // The report owns a small semantic palette; host theme selects its
+        // light/dark variant instead of injecting unused style variables.
         var insets = record(hostContext.safeAreaInsets) ? hostContext.safeAreaInsets : null;
         if (insets) ["top", "right", "bottom", "left"].forEach(function (side) { var value = insets[side]; if (finite(value) && value >= 0 && value <= 200) document.documentElement.style.setProperty("--safe-" + side, value + "px"); });
       }
@@ -310,7 +324,7 @@ export const REPORT_APP_HTML = String.raw`<!doctype html>
         try {
           var result = await callTool("query_data_frame", { dataFrameId: report.dataFrameId, offset: offset, limit: report.page.limit });
           if (!record(result) || !record(result.structuredContent) || result.structuredContent.status !== "ready") throw new Error("The requested page is unavailable.");
-          var page = result.structuredContent; var next = parseReady({ status: "ready", report: { title: report.title, dataFrameId: report.dataFrameId, schema: page.schema, rows: page.rows, totalCount: page.totalCount, page: page.page, freshness: report.freshness } });
+          var page = result.structuredContent; var next = parseReady({ status: "ready", report: { title: report.title, dataFrameId: report.dataFrameId, schema: page.schema, rows: page.rows, columnCount: report.columnCount, totalCount: page.totalCount, page: page.page, freshness: report.freshness } });
           if (!next) throw new Error("The server returned an invalid page."); render(next);
         } catch (reason) { pageMessage = reason instanceof Error ? reason.message : "The requested page is unavailable."; }
         finally { paging = false; updatePaging(pageMessage); }
@@ -319,7 +333,7 @@ export const REPORT_APP_HTML = String.raw`<!doctype html>
       document.getElementById("next").addEventListener("click", function () { if (report) loadPage(report.page.offset + report.page.limit); });
       window.addEventListener("message", function (event) {
         if (event.source !== window.parent) return; var message = event.data; if (!record(message) || message.jsonrpc !== "2.0") return;
-        if (message.id !== undefined && pending.has(message.id)) { var waiting = pending.get(message.id); pending.delete(message.id); if (message.error) waiting.reject(message.error); else waiting.resolve(message.result); return; }
+        if (message.id !== undefined && pending.has(message.id)) { var waiting = pending.get(message.id); pending.delete(message.id); if (waiting.timer) window.clearTimeout(waiting.timer); if (message.error) waiting.reject(message.error); else waiting.resolve(message.result); return; }
         if (message.method === "ui/resource-teardown" && message.id !== undefined) { stopSizeReporting(); window.parent.postMessage({ jsonrpc: "2.0", id: message.id, result: {} }, "*"); return; }
         if (message.method === "ui/notifications/host-context-changed") { applyHostContext(message.params); return; }
         if (message.method === "ui/notifications/tool-result") acceptToolOutput(record(message.params) ? message.params.structuredContent : null);
@@ -330,17 +344,28 @@ export const REPORT_APP_HTML = String.raw`<!doctype html>
         if (globals && record(globals.toolOutput)) acceptToolOutput(globals.toolOutput);
         if (globals && (globals.theme === "light" || globals.theme === "dark")) applyHostContext({ theme: globals.theme });
       }, { passive: true });
-      request("ui/initialize", {
+      var initializeId = requestId;
+      var initialize = request("ui/initialize", {
         appInfo: { name: "dashframe-report", version: "1.0.0" },
         appCapabilities: { availableDisplayModes: ["inline"] },
         protocolVersion: "2026-01-26"
-      }).then(function (initialized) {
+      });
+      var initializeTimer = window.setTimeout(function () {
+        var waiting = pending.get(initializeId);
+        if (!waiting) return;
+        pending.delete(initializeId);
+        waiting.reject(new Error("The host did not answer ui/initialize."));
+      }, 2000);
+      var waitingForInitialize = pending.get(initializeId);
+      if (waitingForInitialize) waitingForInitialize.timer = initializeTimer;
+      initialize.then(function (initialized) {
         if (record(initialized)) applyHostContext(initialized.hostContext);
         notify("ui/notifications/initialized", {});
         startSizeReporting();
       }).catch(function () {
         // Compatibility hosts may deliver tool output without the standard
-        // handshake response; the tool-result listener remains usable.
+        // handshake response; content and intrinsic sizing remain usable.
+        startSizeReporting();
       });
       if (window.openai) {
         if (record(window.openai.toolOutput)) acceptToolOutput(window.openai.toolOutput);
