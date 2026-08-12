@@ -135,7 +135,9 @@ export function resolveVisualModeTarget(input: {
     return visualizationView(input.firstPinnedVisualizationId);
   }
   if (!input.suggestionsReady) return null;
-  return chartView(input.firstSuggestedChartType ?? CANVAS_CHART_TYPES[0]!);
+  return input.firstSuggestedChartType
+    ? chartView(input.firstSuggestedChartType)
+    : null;
 }
 
 export function resolvePendingVisualModeTarget(input: {
@@ -1244,6 +1246,7 @@ export function InsightView({
 
   useEffect(() => {
     if (activeView.kind !== "table") return;
+    const requestedForCurrentInsight = visualModeRequestedFor === insightId;
     const target = resolvePendingVisualModeTarget({
       requestedInsightId: visualModeRequestedFor,
       currentInsightId: insightId,
@@ -1251,12 +1254,13 @@ export function InsightView({
       suggestionsReady: areChartSuggestionsReady,
       firstSuggestedChartType: firstChartSuggestion?.chartType,
     });
-    if (!target) return;
+    if (!target && !(requestedForCurrentInsight && areChartSuggestionsReady))
+      return;
     let cancelled = false;
     queueMicrotask(() => {
       if (cancelled) return;
       setVisualModeRequestedFor(null);
-      handleSetActiveView(target);
+      if (target) handleSetActiveView(target);
     });
     return () => {
       cancelled = true;

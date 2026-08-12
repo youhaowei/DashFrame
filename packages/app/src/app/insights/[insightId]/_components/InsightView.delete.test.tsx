@@ -84,6 +84,11 @@ describe("resolveVisualModeTarget", () => {
         firstSuggestedChartType: "line",
       }),
     ).toEqual({ kind: "chart", chartType: "line" });
+    expect(
+      resolveVisualModeTarget({
+        suggestionsReady: true,
+      }),
+    ).toBeNull();
   });
 
   it("opens an existing saved visualization without waiting for suggestions", () => {
