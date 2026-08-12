@@ -7,8 +7,9 @@ MCP route with a safe acceptance fixture.
 - [Light theme](./light.png)
 - [Dark theme](./dark.png)
 
-The reference host completed the standard `ui/initialize`, tool result, resize,
-and app-initiated tool call lifecycle. These images prove the standards-compliant
-adapter in a real MCP Apps renderer; they are not presented as ChatGPT or Codex
-Desktop screenshots. Codex CLI 0.147.0 separately exercised the server's
-structured/text fallback because that host has no inline renderer.
+These images prove the adapter's visual output in a real MCP Apps renderer. The
+same acceptance run separately observed the standard `ui/initialize`, tool
+result, resize, and app-initiated tool call lifecycle in host/runtime logs. The
+images are not presented as ChatGPT or Codex Desktop screenshots. Codex CLI
+0.147.0 separately exercised the server's structured/text fallback because that
+host has no inline renderer.
