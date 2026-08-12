@@ -273,6 +273,29 @@ describe("createVgplotRenderer color domain", () => {
     vi.restoreAllMocks();
   });
 
+  it("groups colored line charts by the color column", () => {
+    const api = createMockApi();
+    const renderer = createVgplotRenderer(api as never);
+    const container = document.createElement("div");
+
+    const cleanup = renderer.render(container, "line", {
+      tableName: "weekly_acquisition",
+      encoding: { x: "yearWeek", y: "activeUsers", color: "channel" },
+    });
+
+    expect(api.lineY).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        x: "yearWeek",
+        y: "activeUsers",
+        stroke: "channel",
+        z: "channel",
+      }),
+    );
+
+    cleanup();
+  });
+
   it("includes the colorDomain directive in options passed to api.plot for a plain color column", async () => {
     const colorDomainDirective = {
       __directive: "colorDomain",
