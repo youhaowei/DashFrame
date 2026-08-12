@@ -126,6 +126,31 @@ export function canAttemptVisualizeIntent(input: {
   );
 }
 
+export function resolveVisualModeTarget(input: {
+  firstPinnedVisualizationId?: string;
+  suggestionsReady: boolean;
+  firstSuggestedChartType?: VisualizationType;
+}): InsightCanvasView | null {
+  if (input.firstPinnedVisualizationId) {
+    return visualizationView(input.firstPinnedVisualizationId);
+  }
+  if (!input.suggestionsReady) return null;
+  return input.firstSuggestedChartType
+    ? chartView(input.firstSuggestedChartType)
+    : null;
+}
+
+export function resolvePendingVisualModeTarget(input: {
+  requestedInsightId: string | null;
+  currentInsightId: string;
+  firstPinnedVisualizationId?: string;
+  suggestionsReady: boolean;
+  firstSuggestedChartType?: VisualizationType;
+}): InsightCanvasView | null {
+  if (input.requestedInsightId !== input.currentInsightId) return null;
+  return resolveVisualModeTarget(input);
+}
+
 interface InsightViewProps {
   insight: Insight;
   visualizeIntent?: boolean;
@@ -628,6 +653,9 @@ export function InsightView({
   const saveTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
 
   const [suggestionSeed, setSuggestionSeed] = useState(0);
+  const [visualModeRequestedFor, setVisualModeRequestedFor] = useState<
+    string | null
+  >(null);
 
   // Mutations — artifact writes go through commitBatch (one batch per user edit).
   const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
@@ -1200,19 +1228,51 @@ export function InsightView({
 
   const handleSelectVisualMode = useCallback(() => {
     if (activeView.kind !== "table") return;
-    const firstPinned = insightVisualizations[0];
-    if (firstPinned) {
-      handleSetActiveView(visualizationView(firstPinned.id));
-      return;
-    }
-    handleSetActiveView(
-      chartView(firstChartSuggestion?.chartType ?? CANVAS_CHART_TYPES[0]!),
-    );
+    const target = resolveVisualModeTarget({
+      firstPinnedVisualizationId: insightVisualizations[0]?.id,
+      suggestionsReady: areChartSuggestionsReady,
+      firstSuggestedChartType: firstChartSuggestion?.chartType,
+    });
+    if (target) handleSetActiveView(target);
+    else setVisualModeRequestedFor(insightId);
   }, [
     activeView.kind,
+    areChartSuggestionsReady,
     firstChartSuggestion,
     handleSetActiveView,
+    insightId,
     insightVisualizations,
+  ]);
+
+  useEffect(() => {
+    if (activeView.kind !== "table") return;
+    const requestedForCurrentInsight = visualModeRequestedFor === insightId;
+    const target = resolvePendingVisualModeTarget({
+      requestedInsightId: visualModeRequestedFor,
+      currentInsightId: insightId,
+      firstPinnedVisualizationId: insightVisualizations[0]?.id,
+      suggestionsReady: areChartSuggestionsReady,
+      firstSuggestedChartType: firstChartSuggestion?.chartType,
+    });
+    if (!target && !(requestedForCurrentInsight && areChartSuggestionsReady))
+      return;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setVisualModeRequestedFor(null);
+      if (target) handleSetActiveView(target);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeView.kind,
+    areChartSuggestionsReady,
+    firstChartSuggestion,
+    handleSetActiveView,
+    insightId,
+    insightVisualizations,
+    visualModeRequestedFor,
   ]);
 
   let activeViewLabel = "Data result";
@@ -1264,7 +1324,10 @@ export function InsightView({
                   icon={<TableIcon className="h-3.5 w-3.5" />}
                   label="Data"
                   description="View the rows produced by the current data model."
-                  onClick={() => handleSetActiveView(TABLE_CANVAS_VIEW)}
+                  onClick={() => {
+                    setVisualModeRequestedFor(null);
+                    handleSetActiveView(TABLE_CANVAS_VIEW);
+                  }}
                 />
                 <CanvasViewButton
                   active={activeView.kind !== "table"}

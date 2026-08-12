@@ -14,6 +14,8 @@ import {
   buildChartSuggestionInsight,
   canAttemptVisualizeIntent,
   requestSavedVisualizationDeletion,
+  resolvePendingVisualModeTarget,
+  resolveVisualModeTarget,
 } from "./InsightView";
 
 describe("buildChartSuggestionInsight", () => {
@@ -66,6 +68,58 @@ describe("canAttemptVisualizeIntent", () => {
     expect(canAttemptVisualizeIntent({ ...ready, hasDataFrame: false })).toBe(
       false,
     );
+  });
+});
+
+describe("resolveVisualModeTarget", () => {
+  it("waits for suggestions instead of permanently selecting an unsupported fallback", () => {
+    expect(
+      resolveVisualModeTarget({
+        suggestionsReady: false,
+      }),
+    ).toBeNull();
+    expect(
+      resolveVisualModeTarget({
+        suggestionsReady: true,
+        firstSuggestedChartType: "line",
+      }),
+    ).toEqual({ kind: "chart", chartType: "line" });
+    expect(
+      resolveVisualModeTarget({
+        suggestionsReady: true,
+      }),
+    ).toBeNull();
+  });
+
+  it("opens an existing saved visualization without waiting for suggestions", () => {
+    expect(
+      resolveVisualModeTarget({
+        firstPinnedVisualizationId: "visualization-1",
+        suggestionsReady: false,
+      }),
+    ).toEqual({
+      kind: "visualization",
+      visualizationId: "visualization-1",
+    });
+  });
+
+  it("does not carry a queued Visualize request to another insight", () => {
+    expect(
+      resolvePendingVisualModeTarget({
+        requestedInsightId: "insight-a",
+        currentInsightId: "insight-b",
+        suggestionsReady: true,
+        firstSuggestedChartType: "line",
+      }),
+    ).toBeNull();
+    expect(
+      resolvePendingVisualModeTarget({
+        requestedInsightId: "insight-a",
+        currentInsightId: "insight-a",
+        suggestionsReady: true,
+        firstSuggestedChartType: "line",
+      }),
+    ).toEqual({ kind: "chart", chartType: "line" });
   });
 });
 
