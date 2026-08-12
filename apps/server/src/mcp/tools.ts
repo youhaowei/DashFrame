@@ -23,6 +23,7 @@ import { createAssistantReadHost } from "../assistant-read-host";
 import { DRAFT_UNAVAILABLE } from "../draft-access";
 import { assertKnownCommandPaths } from "../functions/commands";
 import { draftIdFromBatchError } from "../functions/draft-batch";
+import { REPORT_APP_URI } from "./report-app";
 import type { McpMode, McpRequestContext } from "./route";
 
 type AssistantTool = {
@@ -40,8 +41,17 @@ type AssistantTool = {
 
 export interface McpTool {
   name: string;
+  title?: string;
   description: string;
   inputSchema: TSchema;
+  outputSchema?: TSchema;
+  annotations?: {
+    readOnlyHint: boolean;
+    destructiveHint: boolean;
+    idempotentHint?: boolean;
+    openWorldHint: boolean;
+  };
+  _meta?: Record<string, unknown>;
   execute(args: unknown): Promise<{
     content: Array<{ type: "text"; text: string }>;
     isError?: boolean;
@@ -53,6 +63,14 @@ export interface McpTool {
 export const DRAFT_BATCH_TOOL_NAME = "draft_batch";
 
 const DATA_QUERY_MAX_LIMIT = 500;
+const REPORT_PREVIEW_LIMIT = 50;
+
+const READ_ONLY_ANNOTATIONS = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false,
+} as const;
 
 function dataTool(
   app: WyStackApp,
@@ -66,6 +84,15 @@ function dataTool(
     name,
     description,
     inputSchema,
+    annotations:
+      path === "queryDataFrame"
+        ? READ_ONLY_ANNOTATIONS
+        : {
+            readOnlyHint: false,
+            destructiveHint: false,
+            idempotentHint: false,
+            openWorldHint: true,
+          },
     async execute(args) {
       const checked = validateToolArgs(inputSchema, args);
       if (!checked.ok) throw new Error(checked.error.message);
@@ -85,6 +112,224 @@ function dataTool(
         ],
         ...(failed ? { isError: true } : {}),
         structuredContent: result,
+      };
+    },
+  };
+}
+
+function frameFailure(page: Record<string, unknown>) {
+  const failed = {
+    status: "failed" as const,
+    code: typeof page.code === "string" ? page.code : "FRAME_UNAVAILABLE",
+    message:
+      typeof page.message === "string"
+        ? page.message
+        : "The requested DataFrame is unavailable.",
+  };
+  return {
+    content: [{ type: "text" as const, text: failed.message }],
+    isError: true,
+    structuredContent: failed,
+  };
+}
+
+function frameEntry(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function frameFreshness(entry: Record<string, unknown>): {
+  state: "fresh" | "snapshot" | "stale";
+  fetchedAt?: number;
+} {
+  const fetchedAt =
+    typeof entry.lastRefreshedAt === "number" &&
+    Number.isFinite(entry.lastRefreshedAt)
+      ? entry.lastRefreshedAt
+      : undefined;
+  let state: "fresh" | "snapshot" | "stale" = "snapshot";
+  if (typeof entry.insightId === "string") {
+    state = entry.currentInsightResult === true ? "fresh" : "stale";
+  }
+  return { state, ...(fetchedAt === undefined ? {} : { fetchedAt }) };
+}
+
+function frameTitle(value: unknown): string {
+  return typeof value === "string" ? value : "DashFrame data report";
+}
+
+function renderDataFrameTool(
+  app: WyStackApp,
+  context: McpRequestContext,
+): McpTool {
+  const closed = { additionalProperties: false };
+  const inputSchema = Type.Object(
+    {
+      dataFrameId: Type.String({
+        format: "uuid",
+        description:
+          "Server-minted immutable DataFrame id returned by fetch_data, " +
+          "run_insight, or another DashFrame read tool.",
+      }),
+      title: Type.Optional(
+        Type.String({
+          minLength: 1,
+          maxLength: 120,
+          description: "Short user-facing report title.",
+        }),
+      ),
+    },
+    closed,
+  );
+  const fieldSchema = Type.Object(
+    {
+      id: Type.String(),
+      name: Type.String(),
+      type: Type.String(),
+    },
+    closed,
+  );
+  const pageSchema = Type.Object(
+    {
+      offset: Type.Integer({ minimum: 0 }),
+      limit: Type.Integer({ minimum: 1, maximum: REPORT_PREVIEW_LIMIT }),
+      returned: Type.Integer({ minimum: 0, maximum: REPORT_PREVIEW_LIMIT }),
+    },
+    closed,
+  );
+  // MCP tool output schemas must themselves be JSON Schema objects. Keep the
+  // discriminant required and branch-specific fields optional at this wire
+  // boundary; the handler still returns one complete ready or failed shape.
+  const outputSchema = Type.Object(
+    {
+      status: Type.Union([Type.Literal("ready"), Type.Literal("failed")]),
+      report: Type.Optional(
+        Type.Object(
+          {
+            title: Type.String(),
+            dataFrameId: Type.String({ format: "uuid" }),
+            schema: Type.Array(fieldSchema),
+            rows: Type.Array(Type.Record(Type.String(), Type.Any()), {
+              maxItems: REPORT_PREVIEW_LIMIT,
+            }),
+            totalCount: Type.Integer({ minimum: 0 }),
+            page: pageSchema,
+            freshness: Type.Object(
+              {
+                state: Type.Union([
+                  Type.Literal("fresh"),
+                  Type.Literal("snapshot"),
+                  Type.Literal("stale"),
+                ]),
+                fetchedAt: Type.Optional(Type.Number()),
+              },
+              closed,
+            ),
+          },
+          closed,
+        ),
+      ),
+      code: Type.Optional(Type.String()),
+      message: Type.Optional(Type.String()),
+    },
+    closed,
+  );
+
+  return {
+    name: "render_data_frame",
+    title: "Render DashFrame report",
+    description:
+      "Use this when the user should see a DashFrame report inline. First " +
+      "materialize or locate a server-owned DataFrame with fetch_data, " +
+      "run_insight, or another read tool, then pass its dataFrameId here. " +
+      "Returns a bounded report preview and remains useful as structured data " +
+      "when the host cannot render MCP Apps.",
+    inputSchema,
+    outputSchema,
+    annotations: READ_ONLY_ANNOTATIONS,
+    _meta: {
+      ui: {
+        resourceUri: REPORT_APP_URI,
+        visibility: ["model", "app"],
+      },
+      "openai/outputTemplate": REPORT_APP_URI,
+      "openai/widgetAccessible": true,
+      "openai/toolInvocation/invoking": "Preparing report…",
+      "openai/toolInvocation/invoked": "Report ready",
+    },
+    async execute(args) {
+      const checked = validateToolArgs(inputSchema, args);
+      if (!checked.ok) throw new Error(checked.error.message);
+      const { dataFrameId } = checked.value as {
+        dataFrameId: string;
+        title?: string;
+      };
+      const [entryResponse, pageResponse] = await Promise.all([
+        app.call(
+          "getDataFrameEntry",
+          { id: dataFrameId },
+          { principal: context.principal },
+        ),
+        app.call(
+          "queryDataFrame",
+          { dataFrameId, offset: 0, limit: REPORT_PREVIEW_LIMIT },
+          { principal: context.principal },
+        ),
+      ]);
+      const page = pageResponse.result as Record<string, unknown>;
+      if (page.status !== "ready") return frameFailure(page);
+      const entry = frameEntry(entryResponse.result);
+      if (entry === null) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "The requested DataFrame is unavailable.",
+            },
+          ],
+          isError: true,
+          structuredContent: {
+            status: "failed",
+            code: "FRAME_NOT_FOUND",
+            message: "The requested DataFrame is unavailable.",
+          },
+        };
+      }
+      const freshness = frameFreshness(entry);
+      const title = frameTitle((checked.value as { title?: unknown }).title);
+      const report = {
+        status: "ready" as const,
+        report: {
+          title,
+          dataFrameId,
+          schema: page.schema as Array<{
+            id: string;
+            name: string;
+            type: string;
+          }>,
+          rows: page.rows as Array<Record<string, unknown>>,
+          totalCount: page.totalCount as number,
+          page: page.page as {
+            offset: number;
+            limit: number;
+            returned: number;
+          },
+          freshness,
+        },
+      };
+      return {
+        content: [
+          {
+            type: "text",
+            text:
+              `${title}: ${String(page.totalCount)} rows across ` +
+              `${Array.isArray(page.schema) ? page.schema.length : 0} columns. ` +
+              "The structured result contains a bounded preview; use " +
+              "query_data_frame for additional pages.",
+          },
+        ],
+        structuredContent: report,
       };
     },
   };
@@ -249,6 +494,7 @@ function createDataTools(
       ),
       "queryDataFrame",
     ),
+    renderDataFrameTool(app, context),
   ];
 }
 
