@@ -32,6 +32,7 @@ export function isTrustedRendererUrl(
   return (
     candidate.protocol === "file:" &&
     candidate.origin === expected.origin &&
+    candidate.host === expected.host &&
     candidate.pathname === expected.pathname
   );
 }

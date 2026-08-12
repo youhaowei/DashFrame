@@ -53,6 +53,12 @@ describe("desktop renderer trust", () => {
         options,
       ),
     ).toBe(false);
+    expect(
+      isTrustedRendererUrl(
+        "file://attacker.example/Applications/DashFrame/renderer/index.html",
+        options,
+      ),
+    ).toBe(false);
   });
 
   it("fails closed for a missing sender frame", () => {
