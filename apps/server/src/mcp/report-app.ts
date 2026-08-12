@@ -1,4 +1,4 @@
-export const REPORT_APP_URI = "ui://dashframe/report-v1.html";
+export const REPORT_APP_URI = "ui://dashframe/report-v2.html";
 export const REPORT_APP_MIME_TYPE = "text/html;profile=mcp-app";
 
 /**
@@ -15,11 +15,12 @@ export const REPORT_APP_HTML = String.raw`<!doctype html>
     :root {
       color-scheme: light dark;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      --bg: #ffffff;
-      --ink: #171a17;
-      --muted: #687068;
-      --line: #e0e4df;
-      --panel: #f6f7f5;
+      --canvas: #fafaf9;
+      --surface: #ffffff;
+      --ink: #172033;
+      --muted: #667085;
+      --line: #e2e5e9;
+      --panel: #f7f8f9;
       --accent: #196b4b;
       --accent-soft: #e2f2e9;
       --chart: #3970d1;
@@ -34,36 +35,35 @@ export const REPORT_APP_HTML = String.raw`<!doctype html>
     }
     * { box-sizing: border-box; }
     html, body { margin: 0; min-height: 100%; background: transparent; color: var(--ink); }
-    body { padding: calc(1px + var(--safe-top)) calc(1px + var(--safe-right)) calc(1px + var(--safe-bottom)) calc(1px + var(--safe-left)); }
+    body { padding: calc(12px + var(--safe-top)) calc(12px + var(--safe-right)) calc(12px + var(--safe-bottom)) calc(12px + var(--safe-left)); }
     button { font: inherit; }
-    .shell { border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: var(--bg); }
-    .header { padding: 18px 20px 14px; display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-    .eyebrow { margin: 0 0 5px; color: var(--muted); font-size: 10px; font-weight: 650; letter-spacing: .1em; text-transform: uppercase; }
-    h1 { margin: 0; font-size: 20px; line-height: 1.2; letter-spacing: -.025em; overflow-wrap: anywhere; }
-    .subtitle { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
-    .badge { flex: none; border-radius: 999px; padding: 6px 9px; color: var(--accent); background: var(--accent-soft); font-size: 11px; }
-    .badge.stale { color: var(--stale); background: var(--stale-soft); }
-    .metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-block: 1px solid var(--line); }
-    .metric { min-width: 0; padding: 13px 20px; border-right: 1px solid var(--line); }
-    .metric:last-child { border-right: 0; }
-    .metric-label { color: var(--muted); font-size: 10px; font-weight: 650; letter-spacing: .07em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .metric-value { margin-top: 5px; font-size: 23px; font-weight: 720; letter-spacing: -.035em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .metric-note { margin-top: 2px; color: var(--muted); font-size: 10px; }
-    .report { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(260px, 1fr); min-height: 218px; }
-    .chart { min-width: 0; padding: 16px 20px; border-right: 1px solid var(--line); }
-    .section-title { margin: 0 0 12px; font-size: 11px; font-weight: 680; }
-    svg { display: block; width: 100%; height: 150px; overflow: visible; }
-    .empty-chart { height: 150px; display: grid; place-items: center; border: 1px dashed var(--line); border-radius: 12px; color: var(--muted); font-size: 12px; text-align: center; padding: 20px; }
+    .shell { background: var(--canvas); border-radius: 14px; padding: 22px; }
+    .header { margin-bottom: 20px; display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+    h1 { margin: 0; font-size: 24px; line-height: 1.2; letter-spacing: -.03em; overflow-wrap: anywhere; }
+    .badge { flex: none; border-radius: 999px; padding: 6px 9px; color: var(--stale); background: var(--stale-soft); font-size: 11px; }
+    .report { display: grid; gap: 16px; }
+    .report.overview { grid-template-columns: minmax(0, 1.45fr) minmax(300px, 1fr); }
+    .module { min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+    .chart { padding: 18px 20px 14px; }
+    .chart-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+    .section-title { margin: 0; font-size: 14px; font-weight: 680; }
+    .chart-average { color: var(--muted); font-size: 11px; white-space: nowrap; }
+    .chart-average strong { color: var(--ink); font-size: 18px; letter-spacing: -.025em; }
+    svg { display: block; width: 100%; height: 240px; overflow: visible; }
+    .report.overview svg { height: 220px; }
+    .empty-chart { height: 220px; display: grid; place-items: center; color: var(--muted); font-size: 12px; text-align: center; padding: 20px; }
     .table-wrap { min-width: 0; overflow: auto; }
-    table { width: 100%; border-collapse: collapse; font-size: 11px; }
-    th, td { max-width: 180px; padding: 9px 12px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    th { position: sticky; top: 0; z-index: 1; color: var(--muted); background: var(--bg); font-size: 9px; font-weight: 680; letter-spacing: .07em; text-transform: uppercase; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { max-width: 240px; padding: 16px 20px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    th { position: sticky; top: 0; z-index: 1; color: var(--ink); background: var(--surface); font-size: 12px; font-weight: 680; }
+    td.numeric, th.numeric { text-align: right; font-variant-numeric: tabular-nums; }
+    tbody tr:last-child td { border-bottom: 0; }
     .empty-table { min-height: 180px; display: grid; place-items: center; color: var(--muted); font-size: 12px; padding: 20px; text-align: center; }
-    .footer { min-height: 43px; padding: 9px 14px 9px 20px; border-top: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 14px; color: var(--muted); font-size: 10px; }
+    .footer { padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); display: flex; align-items: center; justify-content: space-between; gap: 14px; color: var(--muted); font-size: 11px; }
     .controls { display: flex; align-items: center; gap: 7px; }
     .controls button { border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; color: var(--ink); background: var(--panel); cursor: pointer; }
     .controls button:disabled { cursor: default; opacity: .45; }
-    .state { min-height: 238px; display: grid; place-items: center; padding: 34px 24px; text-align: center; }
+    .state { min-height: 238px; display: grid; place-items: center; padding: 34px 24px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); text-align: center; }
     .state-card { max-width: 420px; }
     .state-mark { width: 38px; height: 38px; margin: 0 auto 12px; border-radius: 50%; display: grid; place-items: center; color: var(--accent); background: var(--accent-soft); font-weight: 750; }
     .state.error .state-mark { color: var(--danger); background: var(--danger-soft); }
@@ -72,7 +72,8 @@ export const REPORT_APP_HTML = String.raw`<!doctype html>
     [hidden] { display: none !important; }
     @media (prefers-color-scheme: dark) {
       :root {
-        --bg: #1a1e1a;
+        --canvas: #151815;
+        --surface: #1c201c;
         --ink: #f1f4f0;
         --muted: #a5ada4;
         --line: #323832;
@@ -87,7 +88,8 @@ export const REPORT_APP_HTML = String.raw`<!doctype html>
       }
     }
     :root[data-theme="dark"] {
-      --bg: #1a1e1a;
+      --canvas: #151815;
+      --surface: #1c201c;
       --ink: #f1f4f0;
       --muted: #a5ada4;
       --line: #323832;
@@ -101,7 +103,8 @@ export const REPORT_APP_HTML = String.raw`<!doctype html>
       --stale-soft: #443620;
     }
     :root[data-theme="light"] {
-      --bg: #ffffff;
+      --canvas: #fafaf9;
+      --surface: #ffffff;
       --ink: #171a17;
       --muted: #687068;
       --line: #e0e4df;
@@ -115,13 +118,14 @@ export const REPORT_APP_HTML = String.raw`<!doctype html>
       --stale-soft: #f8edd8;
     }
     @media (max-width: 680px) {
-      .header { padding: 15px 16px 12px; }
-      .metrics { grid-template-columns: 1fr 1fr; }
-      .metric { padding: 11px 16px; }
-      .metric:nth-child(2) { border-right: 0; }
-      .metric:nth-child(3) { grid-column: 1 / -1; border-top: 1px solid var(--line); }
-      .report { grid-template-columns: 1fr; }
-      .chart { border-right: 0; border-bottom: 1px solid var(--line); }
+      body { padding: calc(8px + var(--safe-top)) calc(8px + var(--safe-right)) calc(8px + var(--safe-bottom)) calc(8px + var(--safe-left)); }
+      .shell { padding: 14px; }
+      h1 { font-size: 19px; }
+      .report.overview { grid-template-columns: 1fr; }
+      .chart { padding: 16px; }
+      .chart-head { align-items: flex-start; flex-direction: column; gap: 5px; }
+      svg, .report.overview svg { height: 200px; }
+      th, td { padding: 11px 14px; }
       .footer { align-items: flex-start; flex-direction: column; }
     }
   </style>
@@ -136,19 +140,17 @@ export const REPORT_APP_HTML = String.raw`<!doctype html>
     </section>
     <section id="content" hidden>
       <header class="header">
-        <div><p class="eyebrow">DashFrame report</p><h1 id="title"></h1><p id="subtitle" class="subtitle"></p></div>
-        <span id="badge" class="badge"></span>
+        <h1 id="title"></h1>
+        <span id="badge" class="badge" hidden>Stale data</span>
       </header>
-      <div class="metrics">
-        <div class="metric"><div class="metric-label">Rows</div><div id="rows-kpi" class="metric-value"></div><div class="metric-note">Entire immutable frame</div></div>
-        <div class="metric"><div class="metric-label">Columns</div><div id="columns-kpi" class="metric-value"></div><div class="metric-note">Readable schema</div></div>
-        <div class="metric"><div id="preview-kpi-label" class="metric-label">Visible rows</div><div id="preview-kpi" class="metric-value"></div><div id="preview-kpi-note" class="metric-note">Bounded preview page</div></div>
+      <div id="report-root" class="report">
+        <section id="chart-module" class="module chart" hidden>
+          <div class="chart-head"><h2 id="chart-title" class="section-title"></h2><span id="chart-average" class="chart-average"></span></div>
+          <div id="chart-root"></div>
+        </section>
+        <section id="table-module" class="module table-wrap" aria-label="Data preview"><div id="table-root"></div></section>
       </div>
-      <div class="report">
-        <section class="chart"><h2 id="chart-title" class="section-title">Preview chart</h2><div id="chart-root"></div></section>
-        <section id="table-root" class="table-wrap" aria-label="Data preview"></section>
-      </div>
-      <footer class="footer"><span id="page-note"></span><div class="controls"><button id="prev" type="button">Previous</button><span id="page-number"></span><button id="next" type="button">Next</button></div></footer>
+      <footer id="footer" class="footer" hidden><span id="page-note"></span><div class="controls"><button id="prev" type="button">Previous</button><span id="page-number"></span><button id="next" type="button">Next</button></div></footer>
     </section>
   </main>
   <script>
@@ -201,6 +203,7 @@ export const REPORT_APP_HTML = String.raw`<!doctype html>
         });
         return {
           title: text(next.title, "DashFrame data report"),
+          view: next.view === "chart" || next.view === "overview" ? next.view : "table",
           dataFrameId: next.dataFrameId,
           schema: schema,
           rows: rows,
@@ -223,10 +226,10 @@ export const REPORT_APP_HTML = String.raw`<!doctype html>
         if (!numeric || current.rows.length < 2) {
           var empty = document.createElement("div"); empty.className = "empty-chart";
           empty.textContent = current.rows.length === 0 ? "This frame has no rows to chart." : "Add at least two numeric rows for a preview chart.";
-          root.appendChild(empty); setText("chart-title", "Preview chart"); return;
+          root.appendChild(empty); setText("chart-title", "Chart unavailable"); setText("chart-average", ""); return;
         }
         var points = current.rows.map(function (row, index) { return { index: index, value: finite(row[numeric.id]) ? row[numeric.id] : null }; }).filter(function (point) { return point.value !== null; }).slice(0, 50);
-        if (points.length < 2) { var missing = document.createElement("div"); missing.className = "empty-chart"; missing.textContent = "The current page has too few numeric values to chart."; root.appendChild(missing); return; }
+        if (points.length < 2) { var missing = document.createElement("div"); missing.className = "empty-chart"; missing.textContent = "The current page has too few numeric values to chart."; root.appendChild(missing); setText("chart-title", "Chart unavailable"); setText("chart-average", ""); return; }
         var values = points.map(function (point) { return point.value; });
         var min = Math.min.apply(Math, values); var max = Math.max.apply(Math, values); var span = max - min || 1;
         var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg"); svg.setAttribute("viewBox", "0 0 520 160"); svg.setAttribute("role", "img"); svg.setAttribute("aria-label", "Bounded preview of " + numeric.name);
@@ -234,36 +237,42 @@ export const REPORT_APP_HTML = String.raw`<!doctype html>
         var path = document.createElementNS(svg.namespaceURI, "polyline");
         path.setAttribute("points", points.map(function (point, index) { var x = points.length === 1 ? 260 : index * 520 / (points.length - 1); var y = 142 - ((point.value - min) / span) * 120; return x.toFixed(1) + "," + y.toFixed(1); }).join(" "));
         path.setAttribute("fill", "none"); path.setAttribute("stroke", "var(--chart)"); path.setAttribute("stroke-width", "3"); path.setAttribute("stroke-linejoin", "round"); path.setAttribute("stroke-linecap", "round"); svg.appendChild(path); root.appendChild(svg);
-        setText("chart-title", "Preview · " + numeric.name + (label ? " by " + label.name : ""));
+        if (label) {
+          var firstLabel = document.createElementNS(svg.namespaceURI, "text"); firstLabel.setAttribute("x", "0"); firstLabel.setAttribute("y", "158"); firstLabel.setAttribute("fill", "var(--muted)"); firstLabel.setAttribute("font-size", "10"); firstLabel.textContent = valueText(current.rows[points[0].index][label.id], label.type); svg.appendChild(firstLabel);
+          var lastLabel = document.createElementNS(svg.namespaceURI, "text"); lastLabel.setAttribute("x", "520"); lastLabel.setAttribute("y", "158"); lastLabel.setAttribute("fill", "var(--muted)"); lastLabel.setAttribute("font-size", "10"); lastLabel.setAttribute("text-anchor", "end"); lastLabel.textContent = valueText(current.rows[points[points.length - 1].index][label.id], label.type); svg.appendChild(lastLabel);
+        }
+        setText("chart-title", numeric.name + (label ? " by " + label.name : ""));
+        var average = values.reduce(function (sum, value) { return sum + value; }, 0) / values.length;
+        var averageRoot = document.getElementById("chart-average"); clear(averageRoot);
+        var averageValue = document.createElement("strong"); averageValue.textContent = formatNumber(average); averageRoot.appendChild(averageValue); averageRoot.appendChild(document.createTextNode(" average"));
       }
       function renderTable(current) {
         var root = document.getElementById("table-root"); clear(root);
         if (current.rows.length === 0 || current.schema.length === 0) { var empty = document.createElement("div"); empty.className = "empty-table"; empty.textContent = "This frame is ready but contains no preview rows."; root.appendChild(empty); return; }
         var table = document.createElement("table"); var head = document.createElement("thead"); var headerRow = document.createElement("tr");
-        current.schema.forEach(function (field) { var th = document.createElement("th"); th.textContent = field.name; th.title = field.name; headerRow.appendChild(th); }); head.appendChild(headerRow); table.appendChild(head);
-        var body = document.createElement("tbody"); current.rows.forEach(function (row) { var tr = document.createElement("tr"); current.schema.forEach(function (field) { var td = document.createElement("td"); var displayed = valueText(row[field.id], field.type); td.textContent = displayed; td.title = displayed; tr.appendChild(td); }); body.appendChild(tr); }); table.appendChild(body); root.appendChild(table);
+        current.schema.forEach(function (field) { var th = document.createElement("th"); th.textContent = field.name; th.title = field.name; if (field.type === "number") th.className = "numeric"; headerRow.appendChild(th); }); head.appendChild(headerRow); table.appendChild(head);
+        var body = document.createElement("tbody"); current.rows.forEach(function (row) { var tr = document.createElement("tr"); current.schema.forEach(function (field) { var td = document.createElement("td"); var displayed = valueText(row[field.id], field.type); td.textContent = displayed; td.title = displayed; if (field.type === "number") td.className = "numeric"; tr.appendChild(td); }); body.appendChild(tr); }); table.appendChild(body); root.appendChild(table);
       }
       function render(current) {
         report = current; loading.hidden = true; error.hidden = true; content.hidden = false;
-        setText("title", current.title); setText("subtitle", formatNumber(current.totalCount) + " rows · " + formatNumber(current.columnCount) + " columns");
-        var badge = document.getElementById("badge"); badge.className = "badge" + (current.freshness.state === "stale" ? " stale" : "");
-        if (current.freshness.state === "stale") badge.textContent = "Stale snapshot";
-        else if (current.freshness.fetchedAt) badge.textContent = "Fetched " + new Intl.DateTimeFormat(document.documentElement.lang || "en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(current.freshness.fetchedAt));
-        else badge.textContent = "Snapshot ready";
-        setText("rows-kpi", formatNumber(current.totalCount)); setText("columns-kpi", formatNumber(current.columnCount));
-        var numeric = numericField(current.schema, current.rows);
-        if (numeric) { var numbers = current.rows.map(function (row) { return row[numeric.id]; }).filter(finite); var average = numbers.reduce(function (sum, value) { return sum + value; }, 0) / Math.max(1, numbers.length); setText("preview-kpi-label", "Preview avg · " + numeric.name); setText("preview-kpi", formatNumber(average)); setText("preview-kpi-note", formatNumber(numbers.length) + " values on this page"); }
-        else { setText("preview-kpi-label", "Visible rows"); setText("preview-kpi", formatNumber(current.rows.length)); setText("preview-kpi-note", "Bounded preview page"); }
-        renderChart(current); renderTable(current); updatePaging();
+        setText("title", current.title);
+        document.getElementById("badge").hidden = current.freshness.state !== "stale";
+        var reportRoot = document.getElementById("report-root"); reportRoot.className = "report" + (current.view === "overview" ? " overview" : "");
+        var chartModule = document.getElementById("chart-module"); var tableModule = document.getElementById("table-module");
+        chartModule.hidden = current.view === "table"; tableModule.hidden = current.view === "chart";
+        if (!chartModule.hidden) renderChart(current);
+        if (!tableModule.hidden) renderTable(current);
+        updatePaging();
         reportSize();
       }
       function updatePaging(message) {
         if (!report) return;
-        var start = report.totalCount === 0 ? 0 : report.page.offset + 1; var end = Math.min(report.totalCount, report.page.offset + report.rows.length);
-        setText("page-note", message || ("Showing " + formatNumber(start) + "–" + formatNumber(end) + " of " + formatNumber(report.totalCount) + ". Preview values only; frame-wide totals are labeled."));
+        var hasPrevious = report.page.offset > 0; var hasNext = report.page.offset + report.rows.length < report.totalCount;
+        document.getElementById("footer").hidden = !message && !hasPrevious && !hasNext;
+        setText("page-note", message || "");
         setText("page-number", "Page " + formatNumber(Math.floor(report.page.offset / report.page.limit) + 1));
-        document.getElementById("prev").disabled = paging || report.page.offset === 0;
-        document.getElementById("next").disabled = paging || report.page.offset + report.rows.length >= report.totalCount;
+        document.getElementById("prev").disabled = paging || !hasPrevious;
+        document.getElementById("next").disabled = paging || !hasNext;
       }
       // The parent window is the app's trust boundary. MCP hosts or their
       // sandbox proxy validate origins; this opaque-origin app validates source.
@@ -324,7 +333,7 @@ export const REPORT_APP_HTML = String.raw`<!doctype html>
         try {
           var result = await callTool("query_data_frame", { dataFrameId: report.dataFrameId, offset: offset, limit: report.page.limit });
           if (!record(result) || !record(result.structuredContent) || result.structuredContent.status !== "ready") throw new Error("The requested page is unavailable.");
-          var page = result.structuredContent; var next = parseReady({ status: "ready", report: { title: report.title, dataFrameId: report.dataFrameId, schema: page.schema, rows: page.rows, columnCount: report.columnCount, totalCount: page.totalCount, page: page.page, freshness: report.freshness } });
+          var page = result.structuredContent; var next = parseReady({ status: "ready", report: { title: report.title, view: report.view, dataFrameId: report.dataFrameId, schema: page.schema, rows: page.rows, columnCount: report.columnCount, totalCount: page.totalCount, page: page.page, freshness: report.freshness } });
           if (!next) throw new Error("The server returned an invalid page."); render(next);
         } catch (reason) { pageMessage = reason instanceof Error ? reason.message : "The requested page is unavailable."; }
         finally { paging = false; updatePaging(pageMessage); }

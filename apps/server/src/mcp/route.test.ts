@@ -255,8 +255,9 @@ describe("MCP route", () => {
     }));
     const providerId = crypto.randomUUID();
     const fakeProjectPath = `/private/project/${crypto.randomUUID()}.arrow`;
+    const queryCalls: unknown[] = [];
     const fakeApp = {
-      async call(path: string) {
+      async call(path: string, args: unknown) {
         if (path === "getDataFrameEntry") {
           return {
             result: {
@@ -271,6 +272,7 @@ describe("MCP route", () => {
           };
         }
         if (path === "queryDataFrame") {
+          queryCalls.push(args);
           return {
             result: {
               status: "ready",
@@ -303,6 +305,7 @@ describe("MCP route", () => {
       status: "ready",
       report: {
         title: "DashFrame data report",
+        view: "table",
         dataFrameId,
         columnCount: 101,
         rows: [
@@ -321,6 +324,17 @@ describe("MCP route", () => {
     expect(serialized.includes(providerId)).toBe(false);
     expect(serialized.includes(fakeProjectPath)).toBe(false);
     expect(serialized.includes("secret:")).toBe(false);
+    expect(queryCalls[0]).toEqual({
+      dataFrameId,
+      offset: 0,
+      limit: 10,
+    });
+
+    await expect(
+      tool!.execute({ dataFrameId, view: "chart" }),
+    ).resolves.toMatchObject({
+      structuredContent: { status: "ready", report: { view: "chart" } },
+    });
   });
 
   it("fails closed when a ready frame page contradicts the report schema", async () => {
@@ -427,6 +441,17 @@ describe("MCP route", () => {
         },
       });
       expect(renderTool?.outputSchema).toBeDefined();
+      expect(renderTool?.inputSchema).toMatchObject({
+        properties: {
+          view: {
+            anyOf: [
+              { const: "table" },
+              { const: "chart" },
+              { const: "overview" },
+            ],
+          },
+        },
+      });
       expect(
         listed.tools.find((tool) => tool.name === "query_data_frame")?._meta,
       ).toMatchObject({

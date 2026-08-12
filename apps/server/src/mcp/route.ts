@@ -166,7 +166,7 @@ function createServer(tools: McpTool[]): Server {
         uri: REPORT_APP_URI,
         name: "DashFrame inline data report",
         description:
-          "A bounded KPI, chart, and table view for a server-owned immutable DataFrame.",
+          "A focused table, chart, or combined view for a server-owned immutable DataFrame.",
         mimeType: REPORT_APP_MIME_TYPE,
       },
     ],
@@ -187,7 +187,7 @@ function createServer(tools: McpTool[]): Server {
               csp: { connectDomains: [], resourceDomains: [] },
             },
             "openai/widgetDescription":
-              "DashFrame report with frame-wide KPIs, a bounded preview chart, and pageable rows.",
+              "Focused DashFrame report with a bounded table or chart and paging when needed.",
             "openai/widgetPrefersBorder": true,
             "openai/widgetCSP": {
               connect_domains: [],

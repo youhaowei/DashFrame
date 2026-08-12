@@ -64,6 +64,7 @@ export const DRAFT_BATCH_TOOL_NAME = "draft_batch";
 
 const DATA_QUERY_MAX_LIMIT = 500;
 const REPORT_PREVIEW_LIMIT = 50;
+const REPORT_INITIAL_PAGE_LIMIT = 10;
 const REPORT_SCHEMA_LIMIT = 100;
 
 const READ_ONLY_ANNOTATIONS = {
@@ -266,6 +267,17 @@ function renderDataFrameTool(
           description: "Short user-facing report title.",
         }),
       ),
+      view: Type.Optional(
+        Type.Union(
+          ["table", "chart", "overview"].map((value) => Type.Literal(value)),
+          {
+            description:
+              "Focused inline presentation. Use table by default, chart for " +
+              "a numeric trend, or overview only when chart and table both " +
+              "add distinct value.",
+          },
+        ),
+      ),
     },
     closed,
   );
@@ -295,6 +307,11 @@ function renderDataFrameTool(
         Type.Object(
           {
             title: Type.String(),
+            view: Type.Union([
+              Type.Literal("table"),
+              Type.Literal("chart"),
+              Type.Literal("overview"),
+            ]),
             dataFrameId: Type.String({ format: "uuid" }),
             schema: Type.Array(fieldSchema, { maxItems: REPORT_SCHEMA_LIMIT }),
             rows: Type.Array(Type.Record(Type.String(), Type.Any()), {
@@ -349,9 +366,10 @@ function renderDataFrameTool(
     async execute(args) {
       const checked = validateToolArgs(inputSchema, args);
       if (!checked.ok) throw new Error(checked.error.message);
-      const { dataFrameId } = checked.value as {
+      const { dataFrameId, view = "table" } = checked.value as {
         dataFrameId: string;
         title?: string;
+        view?: "table" | "chart" | "overview";
       };
       const [entryResponse, pageResponse] = await Promise.all([
         app.call(
@@ -361,7 +379,7 @@ function renderDataFrameTool(
         ),
         app.call(
           "queryDataFrame",
-          { dataFrameId, offset: 0, limit: REPORT_PREVIEW_LIMIT },
+          { dataFrameId, offset: 0, limit: REPORT_INITIAL_PAGE_LIMIT },
           { principal: context.principal },
         ),
       ]);
@@ -379,6 +397,7 @@ function renderDataFrameTool(
         status: "ready" as const,
         report: {
           title,
+          view,
           dataFrameId,
           schema,
           rows: boundedFrameRows(schema, page.rows),
