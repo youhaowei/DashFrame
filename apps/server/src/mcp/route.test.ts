@@ -24,6 +24,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createDashframeServer, type DashframeServer } from "../app";
+import { REPORT_APP_MIME_TYPE, REPORT_APP_URI } from "./report-app";
 import type { McpMode } from "./route";
 import { createMcpTools } from "./tools";
 
@@ -243,6 +244,69 @@ describe("MCP route", () => {
     expect(checks).toBe(2);
   });
 
+  it("renders only a bounded, authorized frame preview without leaking frame internals", async () => {
+    const dataFrameId = crypto.randomUUID();
+    const providerId = crypto.randomUUID();
+    const fakeProjectPath = `/private/project/${crypto.randomUUID()}.arrow`;
+    const fakeApp = {
+      async call(path: string) {
+        if (path === "getDataFrameEntry") {
+          return {
+            result: {
+              id: dataFrameId,
+              insightId: crypto.randomUUID(),
+              currentInsightResult: false,
+              lastRefreshedAt: 1_723_000_000_000,
+              sourceId: providerId,
+              storage: { type: "file", key: fakeProjectPath },
+              analysis: { credentialRef: `secret:${crypto.randomUUID()}` },
+            },
+          };
+        }
+        if (path === "queryDataFrame") {
+          return {
+            result: {
+              status: "ready",
+              schema: [
+                { id: "date", name: "Date", type: "date" },
+                { id: "users", name: "Users", type: "number" },
+              ],
+              rows: [
+                { date: "2026-08-11", users: 42 },
+                { date: "2026-08-12", users: 51 },
+              ],
+              totalCount: 2,
+              page: { offset: 0, limit: 50, returned: 2 },
+            },
+          };
+        }
+        throw new Error(`Unexpected call: ${path}`);
+      },
+    } as unknown as Parameters<typeof createMcpTools>[0];
+    const tool = createMcpTools(
+      fakeApp,
+      { principal: { kind: "service", credentialId: "test" } },
+      "stateless",
+    ).find((candidate) => candidate.name === "render_data_frame");
+
+    const result = await tool!.execute({ dataFrameId });
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      status: "ready",
+      report: {
+        title: "DashFrame data report",
+        dataFrameId,
+        totalCount: 2,
+        freshness: { state: "stale", fetchedAt: 1_723_000_000_000 },
+        page: { offset: 0, limit: 50, returned: 2 },
+      },
+    });
+    const serialized = JSON.stringify(result);
+    expect(serialized.includes(providerId)).toBe(false);
+    expect(serialized.includes(fakeProjectPath)).toBe(false);
+    expect(serialized.includes("secret:")).toBe(false);
+  });
+
   it("mints the credential as a user before the MCP service-principal round trip", async () => {
     const response = await fetch(
       `${server!.url}/api/getAccessCapabilities?args=%7B%7D`,
@@ -270,8 +334,27 @@ describe("MCP route", () => {
         "fetch_data",
         "run_insight",
         "query_data_frame",
+        "render_data_frame",
         "draft_batch",
       ]);
+      const renderTool = listed.tools.find(
+        (tool) => tool.name === "render_data_frame",
+      );
+      expect(renderTool).toMatchObject({
+        title: "Render DashFrame report",
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
+        _meta: {
+          ui: { resourceUri: REPORT_APP_URI },
+          "openai/outputTemplate": REPORT_APP_URI,
+          "openai/widgetAccessible": true,
+        },
+      });
+      expect(renderTool?.outputSchema).toBeDefined();
       expect(
         (
           listed.tools.find((tool) => tool.name === "query_data_frame")!
@@ -467,6 +550,49 @@ describe("MCP route", () => {
       expect(
         await project!.db.select().from(schema.draftCommandLog),
       ).toHaveLength(2);
+    } finally {
+      await transport.close();
+    }
+  });
+
+  it("serves the versioned, network-isolated MCP App resource", async () => {
+    const { client, transport } = await connect();
+    try {
+      const listed = await client.listResources();
+      expect(listed.resources).toEqual([
+        expect.objectContaining({
+          uri: REPORT_APP_URI,
+          mimeType: REPORT_APP_MIME_TYPE,
+          name: "DashFrame inline data report",
+        }),
+      ]);
+      const resource = await client.readResource({ uri: REPORT_APP_URI });
+      expect(resource.contents).toHaveLength(1);
+      const content = resource.contents[0] as {
+        mimeType?: string;
+        text?: string;
+        _meta?: Record<string, unknown>;
+      };
+      expect(content.mimeType).toBe(REPORT_APP_MIME_TYPE);
+      expect(content._meta).toMatchObject({
+        ui: {
+          prefersBorder: true,
+          csp: { connectDomains: [], resourceDomains: [] },
+        },
+        "openai/widgetDescription": expect.any(String),
+      });
+      expect(content.text).toContain('request("ui/initialize"');
+      expect(content.text).toContain('protocolVersion: "2026-01-26"');
+      expect(content.text).toContain('"ui/notifications/initialized"');
+      expect(content.text).toContain('"ui/notifications/size-changed"');
+      expect(content.text).toContain('"ui/resource-teardown"');
+      expect(content.text).toContain("ui/notifications/tool-result");
+      expect(content.text).toContain('callTool("query_data_frame"');
+      expect(content.text).toContain('"openai:set_globals"');
+      expect(content.text).not.toMatch(/\bfetch\s*\(/);
+      expect(content.text).not.toMatch(
+        /Authorization|Bearer|secret:|file:\/\//i,
+      );
     } finally {
       await transport.close();
     }

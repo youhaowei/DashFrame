@@ -3,12 +3,19 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import {
   CallToolRequestSchema,
   isInitializeRequest,
+  ListResourcesRequestSchema,
   ListToolsRequestSchema,
+  ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { WyStackApp } from "@wystack/server";
 import type { Context } from "hono";
 
 import { draftIdFromBatchError } from "../functions/draft-batch";
+import {
+  REPORT_APP_HTML,
+  REPORT_APP_MIME_TYPE,
+  REPORT_APP_URI,
+} from "./report-app";
 import { createMcpTools, type McpTool } from "./tools";
 
 export interface McpRequestContext {
@@ -151,16 +158,62 @@ function toolFailure(
 function createServer(tools: McpTool[]): Server {
   const server = new Server(
     { name: "dashframe", version: "0.3.0" },
-    { capabilities: { tools: {} } },
+    { capabilities: { resources: {}, tools: {} } },
   );
+  server.setRequestHandler(ListResourcesRequestSchema, () => ({
+    resources: [
+      {
+        uri: REPORT_APP_URI,
+        name: "DashFrame inline data report",
+        description:
+          "A bounded KPI, chart, and table view for a server-owned immutable DataFrame.",
+        mimeType: REPORT_APP_MIME_TYPE,
+      },
+    ],
+  }));
+  server.setRequestHandler(ReadResourceRequestSchema, (request) => {
+    if (request.params.uri !== REPORT_APP_URI) {
+      throw new Error("Unknown DashFrame MCP resource.");
+    }
+    return {
+      contents: [
+        {
+          uri: REPORT_APP_URI,
+          mimeType: REPORT_APP_MIME_TYPE,
+          text: REPORT_APP_HTML,
+          _meta: {
+            ui: {
+              prefersBorder: true,
+              csp: { connectDomains: [], resourceDomains: [] },
+            },
+            "openai/widgetDescription":
+              "DashFrame report with frame-wide KPIs, a bounded preview chart, and pageable rows.",
+            "openai/widgetPrefersBorder": true,
+            "openai/widgetCSP": {
+              connect_domains: [],
+              resource_domains: [],
+            },
+          },
+        },
+      ],
+    };
+  });
   server.setRequestHandler(ListToolsRequestSchema, () => ({
     tools: tools.map((tool) => ({
       name: tool.name,
+      ...(tool.title === undefined ? {} : { title: tool.title }),
       description: tool.description,
       // TypeBox is JSON Schema, so each tool's advertised schema is passed
       // through as-is. For a read tool that schema is its parameters plus the
       // optional draftId this surface adds — see toMcpTool in tools.ts.
       inputSchema: tool.inputSchema,
+      ...(tool.outputSchema === undefined
+        ? {}
+        : { outputSchema: tool.outputSchema }),
+      ...(tool.annotations === undefined
+        ? {}
+        : { annotations: tool.annotations }),
+      ...(tool._meta === undefined ? {} : { _meta: tool._meta }),
     })),
   }));
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
