@@ -64,6 +64,7 @@ export const DRAFT_BATCH_TOOL_NAME = "draft_batch";
 
 const DATA_QUERY_MAX_LIMIT = 500;
 const REPORT_PREVIEW_LIMIT = 50;
+const REPORT_SCHEMA_LIMIT = 100;
 
 const READ_ONLY_ANNOTATIONS = {
   readOnlyHint: true,
@@ -93,6 +94,14 @@ function dataTool(
             idempotentHint: false,
             openWorldHint: true,
           },
+    ...(path === "queryDataFrame"
+      ? {
+          _meta: {
+            ui: { visibility: ["model", "app"] },
+            "openai/widgetAccessible": true,
+          },
+        }
+      : {}),
     async execute(args) {
       const checked = validateToolArgs(inputSchema, args);
       if (!checked.ok) throw new Error(checked.error.message);
@@ -134,9 +143,87 @@ function frameFailure(page: Record<string, unknown>) {
 }
 
 function frameEntry(value: unknown): Record<string, unknown> | null {
-  return typeof value === "object" && value !== null
+  return typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+type FrameField = { id: string; name: string; type: string };
+type ReadyFramePage = {
+  schema: FrameField[];
+  rows: Array<Record<string, unknown>>;
+  totalCount: number;
+  page: { offset: number; limit: number; returned: number };
+};
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    Number.isFinite(value) &&
+    value >= 0
+  );
+}
+
+function isFrameField(value: unknown): value is FrameField {
+  const field = frameEntry(value);
+  return (
+    field !== null &&
+    typeof field.id === "string" &&
+    typeof field.name === "string" &&
+    typeof field.type === "string"
+  );
+}
+
+function readyFramePage(value: unknown): ReadyFramePage | null {
+  const result = frameEntry(value);
+  const page = frameEntry(result?.page);
+  if (
+    result?.status !== "ready" ||
+    !Array.isArray(result.schema) ||
+    !result.schema.every(isFrameField) ||
+    !Array.isArray(result.rows) ||
+    result.rows.length > REPORT_PREVIEW_LIMIT ||
+    !isNonNegativeInteger(result.totalCount) ||
+    page === null ||
+    !isNonNegativeInteger(page.offset) ||
+    !isNonNegativeInteger(page.limit) ||
+    page.limit < 1 ||
+    page.limit > REPORT_PREVIEW_LIMIT ||
+    !isNonNegativeInteger(page.returned) ||
+    page.returned > page.limit ||
+    page.returned !== result.rows.length
+  ) {
+    return null;
+  }
+  const rows = result.rows.map(frameEntry);
+  if (rows.some((row) => row === null)) return null;
+  return {
+    schema: result.schema,
+    rows: rows.filter((row): row is Record<string, unknown> => row !== null),
+    totalCount: result.totalCount,
+    page: {
+      offset: page.offset,
+      limit: page.limit,
+      returned: page.returned,
+    },
+  };
+}
+
+function boundedFrameRows(
+  schema: FrameField[],
+  rows: Array<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  return rows.map((row) => {
+    const projected: Record<string, unknown> = {};
+    for (const field of schema) {
+      if (Object.hasOwn(row, field.id)) projected[field.id] = row[field.id];
+      else if (Object.hasOwn(row, field.name))
+        projected[field.id] = row[field.name];
+      else projected[field.id] = null;
+    }
+    return projected;
+  });
 }
 
 function frameFreshness(entry: Record<string, unknown>): {
@@ -209,10 +296,11 @@ function renderDataFrameTool(
           {
             title: Type.String(),
             dataFrameId: Type.String({ format: "uuid" }),
-            schema: Type.Array(fieldSchema),
+            schema: Type.Array(fieldSchema, { maxItems: REPORT_SCHEMA_LIMIT }),
             rows: Type.Array(Type.Record(Type.String(), Type.Any()), {
               maxItems: REPORT_PREVIEW_LIMIT,
             }),
+            columnCount: Type.Integer({ minimum: 0 }),
             totalCount: Type.Integer({ minimum: 0 }),
             page: pageSchema,
             freshness: Type.Object(
@@ -277,44 +365,26 @@ function renderDataFrameTool(
           { principal: context.principal },
         ),
       ]);
-      const page = pageResponse.result as Record<string, unknown>;
-      if (page.status !== "ready") return frameFailure(page);
+      const rawPage = frameEntry(pageResponse.result) ?? {};
+      const page = readyFramePage(rawPage);
+      if (page === null) return frameFailure(rawPage);
       const entry = frameEntry(entryResponse.result);
       if (entry === null) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: "The requested DataFrame is unavailable.",
-            },
-          ],
-          isError: true,
-          structuredContent: {
-            status: "failed",
-            code: "FRAME_NOT_FOUND",
-            message: "The requested DataFrame is unavailable.",
-          },
-        };
+        return frameFailure({ code: "FRAME_NOT_FOUND" });
       }
       const freshness = frameFreshness(entry);
       const title = frameTitle((checked.value as { title?: unknown }).title);
+      const schema = page.schema.slice(0, REPORT_SCHEMA_LIMIT);
       const report = {
         status: "ready" as const,
         report: {
           title,
           dataFrameId,
-          schema: page.schema as Array<{
-            id: string;
-            name: string;
-            type: string;
-          }>,
-          rows: page.rows as Array<Record<string, unknown>>,
-          totalCount: page.totalCount as number,
-          page: page.page as {
-            offset: number;
-            limit: number;
-            returned: number;
-          },
+          schema,
+          rows: boundedFrameRows(schema, page.rows),
+          columnCount: page.schema.length,
+          totalCount: page.totalCount,
+          page: page.page,
           freshness,
         },
       };
@@ -324,7 +394,7 @@ function renderDataFrameTool(
             type: "text",
             text:
               `${title}: ${String(page.totalCount)} rows across ` +
-              `${Array.isArray(page.schema) ? page.schema.length : 0} columns. ` +
+              `${page.schema.length} columns. ` +
               "The structured result contains a bounded preview; use " +
               "query_data_frame for additional pages.",
           },
