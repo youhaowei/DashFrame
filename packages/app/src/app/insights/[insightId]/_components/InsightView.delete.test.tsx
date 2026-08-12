@@ -14,6 +14,7 @@ import {
   buildChartSuggestionInsight,
   canAttemptVisualizeIntent,
   requestSavedVisualizationDeletion,
+  resolvePendingVisualModeTarget,
   resolveVisualModeTarget,
 } from "./InsightView";
 
@@ -95,6 +96,25 @@ describe("resolveVisualModeTarget", () => {
       kind: "visualization",
       visualizationId: "visualization-1",
     });
+  });
+
+  it("does not carry a queued Visualize request to another insight", () => {
+    expect(
+      resolvePendingVisualModeTarget({
+        requestedInsightId: "insight-a",
+        currentInsightId: "insight-b",
+        suggestionsReady: true,
+        firstSuggestedChartType: "line",
+      }),
+    ).toBeNull();
+    expect(
+      resolvePendingVisualModeTarget({
+        requestedInsightId: "insight-a",
+        currentInsightId: "insight-a",
+        suggestionsReady: true,
+        firstSuggestedChartType: "line",
+      }),
+    ).toEqual({ kind: "chart", chartType: "line" });
   });
 });
 

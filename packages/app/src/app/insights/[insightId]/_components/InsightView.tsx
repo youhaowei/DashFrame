@@ -138,6 +138,17 @@ export function resolveVisualModeTarget(input: {
   return chartView(input.firstSuggestedChartType ?? CANVAS_CHART_TYPES[0]!);
 }
 
+export function resolvePendingVisualModeTarget(input: {
+  requestedInsightId: string | null;
+  currentInsightId: string;
+  firstPinnedVisualizationId?: string;
+  suggestionsReady: boolean;
+  firstSuggestedChartType?: VisualizationType;
+}): InsightCanvasView | null {
+  if (input.requestedInsightId !== input.currentInsightId) return null;
+  return resolveVisualModeTarget(input);
+}
+
 interface InsightViewProps {
   insight: Insight;
   visualizeIntent?: boolean;
@@ -640,7 +651,9 @@ export function InsightView({
   const saveTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
 
   const [suggestionSeed, setSuggestionSeed] = useState(0);
-  const [visualModeRequested, setVisualModeRequested] = useState(false);
+  const [visualModeRequestedFor, setVisualModeRequestedFor] = useState<
+    string | null
+  >(null);
 
   // Mutations — artifact writes go through commitBatch (one batch per user edit).
   const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
@@ -1219,18 +1232,21 @@ export function InsightView({
       firstSuggestedChartType: firstChartSuggestion?.chartType,
     });
     if (target) handleSetActiveView(target);
-    else setVisualModeRequested(true);
+    else setVisualModeRequestedFor(insightId);
   }, [
     activeView.kind,
     areChartSuggestionsReady,
     firstChartSuggestion,
     handleSetActiveView,
+    insightId,
     insightVisualizations,
   ]);
 
   useEffect(() => {
-    if (!visualModeRequested || activeView.kind !== "table") return;
-    const target = resolveVisualModeTarget({
+    if (activeView.kind !== "table") return;
+    const target = resolvePendingVisualModeTarget({
+      requestedInsightId: visualModeRequestedFor,
+      currentInsightId: insightId,
       firstPinnedVisualizationId: insightVisualizations[0]?.id,
       suggestionsReady: areChartSuggestionsReady,
       firstSuggestedChartType: firstChartSuggestion?.chartType,
@@ -1239,7 +1255,7 @@ export function InsightView({
     let cancelled = false;
     queueMicrotask(() => {
       if (cancelled) return;
-      setVisualModeRequested(false);
+      setVisualModeRequestedFor(null);
       handleSetActiveView(target);
     });
     return () => {
@@ -1250,8 +1266,9 @@ export function InsightView({
     areChartSuggestionsReady,
     firstChartSuggestion,
     handleSetActiveView,
+    insightId,
     insightVisualizations,
-    visualModeRequested,
+    visualModeRequestedFor,
   ]);
 
   let activeViewLabel = "Data result";
@@ -1304,7 +1321,7 @@ export function InsightView({
                   label="Data"
                   description="View the rows produced by the current data model."
                   onClick={() => {
-                    setVisualModeRequested(false);
+                    setVisualModeRequestedFor(null);
                     handleSetActiveView(TABLE_CANVAS_VIEW);
                   }}
                 />
