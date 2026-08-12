@@ -3,7 +3,7 @@ import {
   useRegistryVersion,
 } from "@/lib/connectors/registry";
 import { ItemCard } from "@wystack/ui-react";
-import { ConnectorIcon } from "./renderers/ConnectorIcon";
+import { DatabaseIcon, FileIcon } from "@wystack/ui-react/icons";
 
 export interface DataSourceInfo {
   id: string;
@@ -58,10 +58,12 @@ export function DataSourceList({
     <>
       {sources.map((source) => {
         const connector = getConnectorById(source.type);
-        const icon = connector ? (
-          <ConnectorIcon svg={connector.icon} className="h-4 w-4" />
-        ) : undefined;
         const isFileSource = connector?.sourceType === "file";
+        const icon = isFileSource ? (
+          <FileIcon className="h-4 w-4" />
+        ) : (
+          <DatabaseIcon className="h-4 w-4" />
+        );
         const itemLabel = isFileSource ? "file" : "table";
         const itemLabelPlural = isFileSource ? "files" : "tables";
         const subtitle = `${source.tableCount} ${source.tableCount === 1 ? itemLabel : itemLabelPlural}`;
