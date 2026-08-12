@@ -79,7 +79,106 @@ describe("GA4 connector", () => {
     ).toBe("Bearer fresh-token");
   });
 
-  it("runs the bounded default report and returns aligned Arrow data", async () => {
+  it("runs the bounded acquisition report and returns aligned Arrow data", async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            dimensionHeaders: [
+              { name: "yearWeek" },
+              { name: "sessionDefaultChannelGroup" },
+            ],
+            metricHeaders: [
+              { name: "activeUsers", type: "TYPE_INTEGER" },
+              { name: "newUsers", type: "TYPE_INTEGER" },
+              { name: "sessions", type: "TYPE_INTEGER" },
+              { name: "engagedSessions", type: "TYPE_INTEGER" },
+              { name: "engagementRate", type: "TYPE_FLOAT" },
+              { name: "keyEvents", type: "TYPE_FLOAT" },
+              { name: "totalRevenue", type: "TYPE_CURRENCY" },
+            ],
+            rows: [
+              {
+                dimensionValues: [
+                  { value: "202631" },
+                  { value: "Organic Search" },
+                ],
+                metricValues: [
+                  { value: "42" },
+                  { value: "12" },
+                  { value: "56" },
+                  { value: "31" },
+                  { value: "0.5536" },
+                  { value: "3" },
+                  { value: "98.75" },
+                ],
+              },
+            ],
+          }),
+          { status: 200 },
+        ),
+    );
+    const connector = makeGa4Connector(resolver(bundle()), {
+      fetch: fetchImpl as typeof fetch,
+      now: () => Date.parse("2026-08-05T12:00:00Z"),
+      reportVersion: "v2",
+    });
+    const result = await connector.query(
+      "properties/123",
+      crypto.randomUUID(),
+      { pagination: { offset: 0, limit: 25 } },
+    );
+    const arrow = tableFromIPC(Buffer.from(result.arrowBuffer, "base64"));
+    expect(result.rowCount).toBe(1);
+    expect(result.fields.map((field) => field.name)).toEqual([
+      "yearWeek",
+      "sessionDefaultChannelGroup",
+      "activeUsers",
+      "newUsers",
+      "sessions",
+      "engagedSessions",
+      "engagementRate",
+      "keyEvents",
+      "totalRevenue",
+    ]);
+    expect(result.fields.map((field) => field.type)).toEqual([
+      "string",
+      "string",
+      "number",
+      "number",
+      "number",
+      "number",
+      "number",
+      "number",
+      "number",
+    ]);
+    expect(String(arrow.schema.fields[0]?.type)).toContain("Utf8");
+    expect(arrow.numRows).toBe(1);
+    expect(JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body))).toEqual({
+      dateRanges: [{ startDate: "90daysAgo", endDate: "yesterday" }],
+      dimensions: [
+        { name: "yearWeek" },
+        { name: "sessionDefaultChannelGroup" },
+      ],
+      metrics: [
+        { name: "activeUsers" },
+        { name: "newUsers" },
+        { name: "sessions" },
+        { name: "engagedSessions" },
+        { name: "engagementRate" },
+        { name: "keyEvents" },
+        { name: "totalRevenue" },
+      ],
+      offset: "0",
+      limit: "25",
+      orderBys: [
+        { dimension: { dimensionName: "yearWeek" } },
+        { dimension: { dimensionName: "sessionDefaultChannelGroup" } },
+      ],
+    });
+  });
+
+  it("preserves the legacy v1 report shape unless acquisition is explicit", async () => {
     const fetchImpl = vi.fn(
       async () =>
         new Response(
@@ -88,7 +187,7 @@ describe("GA4 connector", () => {
             metricHeaders: [{ name: "activeUsers", type: "TYPE_INTEGER" }],
             rows: [
               {
-                dimensionValues: [{ value: "20260804" }],
+                dimensionValues: [{ value: "20260805" }],
                 metricValues: [{ value: "42" }],
               },
             ],
@@ -100,28 +199,20 @@ describe("GA4 connector", () => {
       fetch: fetchImpl as typeof fetch,
       now: () => Date.parse("2026-08-05T12:00:00Z"),
     });
-    const result = await connector.query(
-      "properties/123",
-      crypto.randomUUID(),
-      { pagination: { offset: 0, limit: 25 } },
-    );
-    const arrow = tableFromIPC(Buffer.from(result.arrowBuffer, "base64"));
-    expect(result.rowCount).toBe(1);
+
+    const result = await connector.query("properties/123", crypto.randomUUID());
+
     expect(result.fields.map((field) => field.name)).toEqual([
       "date",
       "activeUsers",
     ]);
-    expect(result.fields.map((field) => field.type)).toEqual([
-      "date",
-      "number",
-    ]);
-    expect(String(arrow.schema.fields[0]?.type)).toContain("Timestamp");
-    expect(arrow.numRows).toBe(1);
-    expect(
-      JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body)),
-    ).toMatchObject({
+    expect(JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body))).toEqual({
+      dateRanges: [{ startDate: "30daysAgo", endDate: "yesterday" }],
+      dimensions: [{ name: "date" }],
+      metrics: [{ name: "activeUsers" }],
       offset: "0",
-      limit: "25",
+      limit: "10000",
+      orderBys: [{ dimension: { dimensionName: "date" } }],
     });
   });
 

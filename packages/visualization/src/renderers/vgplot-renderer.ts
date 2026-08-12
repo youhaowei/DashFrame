@@ -279,7 +279,14 @@ function buildEncodingOptions(
   const colorProperty = isLineChart ? "stroke" : "fill";
 
   if (encoding.color) {
-    options[colorProperty] = parseEncodingValue(api, encoding.color);
+    const color = parseEncodingValue(api, encoding.color);
+    options[colorProperty] = color;
+    // Observable Plot groups connected marks by z, not by stroke. Without an
+    // explicit series channel, differently colored rows at the same x value
+    // are still joined into one path, producing vertical jumps between series.
+    if (isLineChart && !isExpressionBoundColor(encoding.color)) {
+      options.z = color;
+    }
   } else {
     const defaultColor = getDefaultFillColor();
     if (defaultColor) options[colorProperty] = defaultColor;

@@ -12,6 +12,7 @@ import {
 } from "../app-artifacts";
 
 const SOURCE_BINDING_VERSION = "v1";
+const GA4_ACQUISITION_BINDING_VERSION = "v2";
 /** GA4 supports offset windows; other adapters own their provider pagination. */
 const GA4_PAGE_SIZE = 10_000;
 
@@ -21,7 +22,7 @@ type FrameRow = typeof schema.dataFrames.$inferSelect;
 
 export type SourceBinding = Readonly<{
   connectorKind: string;
-  sourceBindingVersion: typeof SOURCE_BINDING_VERSION;
+  sourceBindingVersion: string;
   dataSourceId: UUID;
   table: Pick<
     TableRow,
@@ -76,7 +77,7 @@ export async function resolveSourceBinding(
     throw new Error("TARGET_NOT_READY");
   return {
     connectorKind: source.kind,
-    sourceBindingVersion: SOURCE_BINDING_VERSION,
+    sourceBindingVersion: version,
     dataSourceId: source.id,
     table,
   };
@@ -107,10 +108,11 @@ async function fetchPagedRemoteBinding(
     ctx: DashframeFunctionContext,
     sourceId: UUID,
   ) => Promise<QueryConnector>,
+  expectedVersion = SOURCE_BINDING_VERSION,
 ): Promise<LiveSourceResult> {
   if (
     binding.connectorKind !== kind ||
-    binding.sourceBindingVersion !== SOURCE_BINDING_VERSION
+    binding.sourceBindingVersion !== expectedVersion
   )
     throw new Error("TARGET_NOT_READY");
   try {
@@ -210,6 +212,20 @@ export async function fetchGa4Binding(
     binding,
     "googleAnalytics",
     ga4ConnectorFor,
+  );
+}
+
+/** New acquisition sources opt into the expanded report without migrating v1. */
+export async function fetchGa4AcquisitionBinding(
+  ctx: DashframeFunctionContext,
+  binding: SourceBinding,
+): Promise<LiveSourceResult> {
+  return fetchPagedRemoteBinding(
+    ctx,
+    binding,
+    "googleAnalytics",
+    (innerCtx, sourceId) => ga4ConnectorFor(innerCtx, sourceId, "v2"),
+    GA4_ACQUISITION_BINDING_VERSION,
   );
 }
 
@@ -441,6 +457,10 @@ function combinePages(
 sourceBindingRegistry.set(
   bindingKey("googleAnalytics", SOURCE_BINDING_VERSION),
   fetchGa4Binding,
+);
+sourceBindingRegistry.set(
+  bindingKey("googleAnalytics", GA4_ACQUISITION_BINDING_VERSION),
+  fetchGa4AcquisitionBinding,
 );
 sourceBindingRegistry.set(
   bindingKey("notion", SOURCE_BINDING_VERSION),

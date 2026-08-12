@@ -181,7 +181,12 @@ describe("connector setup functions", () => {
 
     const [source] = await db.select().from(dataSources);
     expect(source?.kind).toBe("googleAnalytics");
-    const ref = (source?.config as { apiKey?: unknown }).apiKey;
+    const sourceConfig = source?.config as {
+      apiKey?: unknown;
+      sourceBindingVersion?: unknown;
+    };
+    expect(sourceConfig.sourceBindingVersion).toBe("v2");
+    const ref = sourceConfig.apiKey;
     expect(isSecretRef(ref)).toBe(true);
     await expect(
       vault.withSecret(ref as never, async (value) => value),

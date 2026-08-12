@@ -273,6 +273,52 @@ describe("createVgplotRenderer color domain", () => {
     vi.restoreAllMocks();
   });
 
+  it("groups colored line charts by the color column", () => {
+    const api = createMockApi();
+    const renderer = createVgplotRenderer(api as never);
+    const container = document.createElement("div");
+
+    const cleanup = renderer.render(container, "line", {
+      tableName: "weekly_acquisition",
+      encoding: { x: "yearWeek", y: "activeUsers", color: "channel" },
+    });
+
+    expect(api.lineY).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        x: "yearWeek",
+        y: "activeUsers",
+        stroke: "channel",
+        z: "channel",
+      }),
+    );
+
+    cleanup();
+  });
+
+  it("does not split expression-bound line color into one-point series", () => {
+    const api = createMockApi();
+    const renderer = createVgplotRenderer(api as never);
+    const container = document.createElement("div");
+
+    const cleanup = renderer.render(container, "line", {
+      tableName: "sales",
+      encoding: { x: "date", y: "revenue", color: "sum(profit)" },
+    });
+
+    expect(api.lineY).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        x: "date",
+        y: "revenue",
+        stroke: expect.anything(),
+      }),
+    );
+    expect(api.lineY.mock.calls[0]?.[1]).not.toHaveProperty("z");
+
+    cleanup();
+  });
+
   it("includes the colorDomain directive in options passed to api.plot for a plain color column", async () => {
     const colorDomainDirective = {
       __directive: "colorDomain",

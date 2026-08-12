@@ -339,7 +339,7 @@ const getOrCreateDataSource = wy.procedure
       name,
       kind: type,
       storage: "live",
-      config: {},
+      config: type === "googleAnalytics" ? { sourceBindingVersion: "v2" } : {},
       createdBy: { kind: "user" },
     })) as DataSourceRow[];
     if (!row) throw new Error("insert returned no row");
@@ -395,7 +395,12 @@ const createDataSource = wy.procedure
       // lifecycle transition; on a direct canonical call, release is synchronous.
       // (A fresh create has no prior ref, so deferral only matters for symmetry.)
       const deferRelease = shouldDeferRelease(ctx);
-      const config: DataSourceConfig = {};
+      const config: DataSourceConfig = {
+        // Persisted pre-version sources remain v1. Every newly created Google
+        // source is server-bound to the acquisition contract; callers never
+        // choose a provider report shape.
+        ...(type === "googleAnalytics" ? { sourceBindingVersion: "v2" } : {}),
+      };
       // store non-empty / skip-on-empty (applyCredentialField). On a fresh config an
       // empty string is a no-op. A real store fails closed when no vault is injected.
       // In preview mode the vault write is skipped — the DB transaction rolls back
@@ -503,10 +508,12 @@ const setDataSourceConfig = wy.procedure
       // (Prior-ref release is deferred to the publish transition, not run here.)
       if (
         isRecord(extra) &&
-        ("apiKey" in extra || "connectionString" in extra)
+        ("apiKey" in extra ||
+          "connectionString" in extra ||
+          "sourceBindingVersion" in extra)
       ) {
         throw new Error(
-          "SetDataSourceConfig: 'apiKey' and 'connectionString' must use the typed credential fields, not extra",
+          "SetDataSourceConfig: 'apiKey' and 'connectionString' must use the typed credential fields, and sourceBindingVersion is server-owned; none may be set through extra",
         );
       }
       // store non-empty (replaces any existing ref with a fresh one) / clear-on-empty

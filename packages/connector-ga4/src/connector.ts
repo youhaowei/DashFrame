@@ -71,6 +71,40 @@ interface RunReportResponse {
   }>;
 }
 
+/**
+ * The v0.3 server-owned GA4 dataset used to build acquisition reviews.
+ *
+ * The connector, rather than the renderer or RPC caller, owns this provider
+ * query. GA4 owns the weekly aggregation because user metrics such as
+ * activeUsers are not additive across daily rows.
+ */
+const ACQUISITION_DATE_RANGE = {
+  startDate: "90daysAgo",
+  endDate: "yesterday",
+} as const;
+const ACQUISITION_DIMENSIONS = [
+  "yearWeek",
+  "sessionDefaultChannelGroup",
+] as const;
+const ACQUISITION_METRICS = [
+  "activeUsers",
+  "newUsers",
+  "sessions",
+  "engagedSessions",
+  "engagementRate",
+  "keyEvents",
+  "totalRevenue",
+] as const;
+
+const LEGACY_DATE_RANGE = {
+  startDate: "30daysAgo",
+  endDate: "yesterday",
+} as const;
+const LEGACY_DIMENSIONS = ["date"] as const;
+const LEGACY_METRICS = ["activeUsers"] as const;
+
+export type Ga4ReportVersion = "v1" | "v2";
+
 export interface Ga4ConnectorDependencies {
   fetch?: typeof fetch;
   now?: () => number;
@@ -87,6 +121,11 @@ export interface Ga4ConnectorDependencies {
    * refresh grant.
    */
   persistTokenBundle?: PersistTokenBundle;
+  /**
+   * Versioned server-owned report shape. Existing persisted sources default to
+   * v1; newly onboarded acquisition sources opt into v2 explicitly.
+   */
+  reportVersion?: Ga4ReportVersion;
 }
 
 function parseTokenBundle(raw: string): GoogleOAuthTokenBundle {
@@ -304,6 +343,7 @@ export class Ga4Connector extends RemoteApiConnector {
   readonly #now: () => number;
   readonly #oauthClient: GoogleOAuthClientCredentials | undefined;
   readonly #persistTokenBundle: PersistTokenBundle | undefined;
+  readonly #reportVersion: Ga4ReportVersion;
 
   constructor(
     auth: SecretResolver,
@@ -314,6 +354,7 @@ export class Ga4Connector extends RemoteApiConnector {
     this.#now = dependencies.now ?? Date.now;
     this.#oauthClient = dependencies.oauthClient;
     this.#persistTokenBundle = dependencies.persistTokenBundle;
+    this.#reportVersion = dependencies.reportVersion ?? "v1";
   }
 
   getFormFields(): FormField[] {
@@ -357,6 +398,14 @@ export class Ga4Connector extends RemoteApiConnector {
         this.#oauthClient,
         this.#persistTokenBundle,
       );
+      const acquisition = this.#reportVersion === "v2";
+      const dateRange = acquisition
+        ? ACQUISITION_DATE_RANGE
+        : LEGACY_DATE_RANGE;
+      const dimensions = acquisition
+        ? ACQUISITION_DIMENSIONS
+        : LEGACY_DIMENSIONS;
+      const metrics = acquisition ? ACQUISITION_METRICS : LEGACY_METRICS;
       const response = (await fetchJson(
         this.#fetch,
         `https://analyticsdata.googleapis.com/v1beta/${property}:runReport`,
@@ -364,12 +413,16 @@ export class Ga4Connector extends RemoteApiConnector {
         {
           method: "POST",
           body: JSON.stringify({
-            dateRanges: [{ startDate: "30daysAgo", endDate: "yesterday" }],
-            dimensions: [{ name: "date" }],
-            metrics: [{ name: "activeUsers" }],
+            dateRanges: [dateRange],
+            dimensions: dimensions.map((name) => ({ name })),
+            metrics: metrics.map((name) => ({ name })),
             offset: String(offset),
             limit: String(limit),
-            orderBys: [{ dimension: { dimensionName: "date" } }],
+            // Every dimension participates so offset pagination is stable
+            // when the report contains repeated values in its leading key.
+            orderBys: dimensions.map((dimensionName) => ({
+              dimension: { dimensionName },
+            })),
           }),
         },
       )) as RunReportResponse;
