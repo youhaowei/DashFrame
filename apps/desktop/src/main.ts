@@ -28,10 +28,28 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import { Lifecycle } from "./lifecycle.js";
+import { assertGoogleAuthorizationUrl } from "./oauth-external-url.js";
+import {
+  assertTrustedRendererUrl,
+  isTrustedRendererUrl,
+} from "./renderer-trust.js";
 import { ElectronKeychainBackend } from "./secret-keychain-backend.js";
 
 const DEV_URL = process.env.DEV_URL ?? "http://localhost:5173";
 const isDev = !app.isPackaged;
+const PRODUCTION_RENDERER_FILE = path.join(
+  import.meta.dirname,
+  "..",
+  "..",
+  "renderer",
+  "dist",
+  "index.html",
+);
+const rendererTrustOptions = {
+  dev: isDev,
+  devUrl: DEV_URL,
+  productionFile: PRODUCTION_RENDERER_FILE,
+};
 
 // Single owner of this launch's closable handles + the shutdown guard. main.ts
 // holds exactly one instance; shutdown drains whatever has been registered so
@@ -146,19 +164,16 @@ async function createWindow(): Promise<void> {
     },
   });
 
+  win.webContents.on("will-navigate", (event, url) => {
+    if (!isTrustedRendererUrl(url, rendererTrustOptions)) {
+      event.preventDefault();
+    }
+  });
+
   try {
     await (isDev
       ? win.loadURL(DEV_URL)
-      : win.loadFile(
-          path.join(
-            import.meta.dirname,
-            "..",
-            "..",
-            "renderer",
-            "dist",
-            "index.html",
-          ),
-        ));
+      : win.loadFile(PRODUCTION_RENDERER_FILE));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[dashframe] window load failed:", err);
@@ -177,24 +192,38 @@ function registerIpc(
   srv: DashframeServer,
   authToken: string,
 ): void {
-  ipcMain.handle("dashframe:project:info", () => ({
-    projectId: handle.meta.projectId,
-    name: handle.meta.name,
-    version: handle.meta.version,
-    schemaVersion: handle.meta.schemaVersion,
-    createdAt: handle.meta.createdAt.toISOString(),
-    createdBy: handle.meta.createdBy,
-  }));
-  ipcMain.handle("dashframe:project:reveal", () => {
+  ipcMain.handle("dashframe:project:info", (event) => {
+    assertTrustedRendererUrl(event.senderFrame?.url, rendererTrustOptions);
+    return {
+      projectId: handle.meta.projectId,
+      name: handle.meta.name,
+      version: handle.meta.version,
+      schemaVersion: handle.meta.schemaVersion,
+      createdAt: handle.meta.createdAt.toISOString(),
+      createdBy: handle.meta.createdBy,
+    };
+  });
+  ipcMain.handle("dashframe:project:reveal", (event) => {
+    assertTrustedRendererUrl(event.senderFrame?.url, rendererTrustOptions);
     shell.showItemInFolder(path.join(handle.dir, ARTIFACTS_DB_FILENAME));
   });
+  ipcMain.handle(
+    "dashframe:oauth:open-authorization",
+    async (event, url: unknown) => {
+      assertTrustedRendererUrl(event.senderFrame?.url, rendererTrustOptions);
+      await shell.openExternal(assertGoogleAuthorizationUrl(url));
+    },
+  );
   // The renderer connects to this loopback WyStack server as a localhost web
   // client — same client + transport as the cloud web client (per the Data
   // Path & Transport Deployment spec). It needs the ephemeral port main bound.
-  ipcMain.handle("dashframe:server:info", () => ({
-    url: srv.url,
-    token: authToken,
-  }));
+  ipcMain.handle("dashframe:server:info", (event) => {
+    assertTrustedRendererUrl(event.senderFrame?.url, rendererTrustOptions);
+    return {
+      url: srv.url,
+      token: authToken,
+    };
+  });
 }
 
 console.log("[dashframe] main process started, waiting for app ready...");
