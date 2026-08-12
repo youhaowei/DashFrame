@@ -26,6 +26,8 @@ export type DataSourceConfig = {
   connectionString?: string;
   /** Optional non-credential config for Postgres: default schema to list (default: "public"). */
   defaultSchema?: string;
+  /** Versioned server-owned connector execution contract. */
+  sourceBindingVersion?: string;
 };
 
 /**

@@ -90,7 +90,7 @@ describe("Source Binding registry", () => {
     });
   });
 
-  it("accepts explicit v1 and fail-closes malformed, unknown, wrong-kind, or missing rows", async () => {
+  it("accepts registered GA4 versions and fail-closes malformed, unknown, wrong-kind, or missing rows", async () => {
     await expect(
       resolveSourceBinding(
         context({
@@ -100,9 +100,18 @@ describe("Source Binding registry", () => {
         table.id,
       ),
     ).resolves.toBeTruthy();
+    await expect(
+      resolveSourceBinding(
+        context({
+          table,
+          source: { ...source, config: { sourceBindingVersion: "v2" } },
+        }),
+        table.id,
+      ),
+    ).resolves.toMatchObject({ sourceBindingVersion: "v2" });
     for (const bad of [
       { ...source, config: { sourceBindingVersion: 1 } },
-      { ...source, config: { sourceBindingVersion: "v2" } },
+      { ...source, config: { sourceBindingVersion: "v3" } },
       { ...source, kind: "missing" },
     ]) {
       await expect(
@@ -115,6 +124,34 @@ describe("Source Binding registry", () => {
     await expect(
       resolveSourceBinding(context({ table }), table.id),
     ).rejects.toThrow("TARGET_NOT_READY");
+  });
+
+  it("routes GA4 v2 through the acquisition connector profile", async () => {
+    ga4ConnectorFor.mockResolvedValue({
+      query: vi.fn().mockResolvedValue(page([1, 2])),
+    });
+    const v2Source = {
+      ...source,
+      config: { sourceBindingVersion: "v2" },
+    };
+    const binding = await resolveSourceBinding(
+      context({ table, source: v2Source }),
+      table.id,
+    );
+
+    await expect(
+      fetchSourceBinding(context({ table, source: v2Source }), binding),
+    ).resolves.toMatchObject({
+      provenance: {
+        connectorKind: "googleAnalytics",
+        sourceBindingVersion: "v2",
+      },
+    });
+    expect(ga4ConnectorFor).toHaveBeenCalledWith(
+      expect.anything(),
+      source.id,
+      "v2",
+    );
   });
 
   it("uses only the persisted table property and returns server provenance", async () => {

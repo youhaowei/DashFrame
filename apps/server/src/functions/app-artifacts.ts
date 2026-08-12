@@ -1,5 +1,6 @@
 import {
   makeGa4Connector,
+  type Ga4ReportVersion,
   type GoogleOAuthTokenBundle,
 } from "@dashframe/connector-ga4";
 import { makeNotionConnector } from "@dashframe/connector-notion";
@@ -1994,6 +1995,7 @@ const queryPostgresTable = wy.procedure
 export async function ga4ConnectorFor(
   ctx: DashframeFunctionContext,
   dataSourceId: UUID,
+  reportVersion?: Ga4ReportVersion,
 ): Promise<ReturnType<typeof makeGa4Connector>> {
   const vault = vaultFromCtx(ctx);
   const row = (await ctx.db
@@ -2007,6 +2009,8 @@ export async function ga4ConnectorFor(
     );
   }
   const config = (row.config ?? {}) as DataSourceConfig;
+  const persistedReportVersion =
+    config.sourceBindingVersion === "v2" ? "v2" : "v1";
   const auth = mintBoundResolver(
     vault,
     config.apiKey,
@@ -2017,6 +2021,7 @@ export async function ga4ConnectorFor(
   // of a re-write of every connected source's vault entry.
   const oauthClient = ctx.googleOAuth;
   return makeGa4Connector(auth, {
+    reportVersion: reportVersion ?? persistedReportVersion,
     ...(oauthClient
       ? {
           oauthClient: {

@@ -296,6 +296,38 @@ describe("command vocabulary", () => {
       expect(await vault.has(stored as never)).toBe(true);
     });
 
+    it("server-binds new GA4 sources to the acquisition contract", async () => {
+      const sourceId = id();
+      await expect(
+        commit(
+          cmd("CreateDataSource", {
+            id: sourceId,
+            type: "googleAnalytics",
+            name: "Acquisition",
+          }),
+        ),
+      ).resolves.toBeDefined();
+      const [stored] = await db
+        .select()
+        .from(schema.dataSources)
+        .where(eq(schema.dataSources.id, sourceId));
+      expect(stored?.config).toMatchObject({ sourceBindingVersion: "v2" });
+    });
+
+    it("does not attach the GA4 binding contract to other connector kinds", async () => {
+      const sourceId = id();
+      await commit(
+        cmd("CreateDataSource", {
+          id: sourceId,
+          type: "notion",
+          name: "Notes",
+        }),
+      );
+
+      const [stored] = await sourcesById(sourceId);
+      expect(stored?.config).not.toHaveProperty("sourceBindingVersion");
+    });
+
     it("should replace only config (not name) for SetDataSourceConfig", async () => {
       const sourceId = id();
       // Create first, then read the original ref BEFORE the config update so the

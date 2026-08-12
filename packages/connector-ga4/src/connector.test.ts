@@ -121,6 +121,7 @@ describe("GA4 connector", () => {
     const connector = makeGa4Connector(resolver(bundle()), {
       fetch: fetchImpl as typeof fetch,
       now: () => Date.parse("2026-08-05T12:00:00Z"),
+      reportVersion: "v2",
     });
     const result = await connector.query(
       "properties/123",
@@ -174,6 +175,44 @@ describe("GA4 connector", () => {
         { dimension: { dimensionName: "yearWeek" } },
         { dimension: { dimensionName: "sessionDefaultChannelGroup" } },
       ],
+    });
+  });
+
+  it("preserves the legacy v1 report shape unless acquisition is explicit", async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            dimensionHeaders: [{ name: "date" }],
+            metricHeaders: [{ name: "activeUsers", type: "TYPE_INTEGER" }],
+            rows: [
+              {
+                dimensionValues: [{ value: "20260805" }],
+                metricValues: [{ value: "42" }],
+              },
+            ],
+          }),
+          { status: 200 },
+        ),
+    );
+    const connector = makeGa4Connector(resolver(bundle()), {
+      fetch: fetchImpl as typeof fetch,
+      now: () => Date.parse("2026-08-05T12:00:00Z"),
+    });
+
+    const result = await connector.query("properties/123", crypto.randomUUID());
+
+    expect(result.fields.map((field) => field.name)).toEqual([
+      "date",
+      "activeUsers",
+    ]);
+    expect(JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body))).toEqual({
+      dateRanges: [{ startDate: "30daysAgo", endDate: "yesterday" }],
+      dimensions: [{ name: "date" }],
+      metrics: [{ name: "activeUsers" }],
+      offset: "0",
+      limit: "10000",
+      orderBys: [{ dimension: { dimensionName: "date" } }],
     });
   });
 

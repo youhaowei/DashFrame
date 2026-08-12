@@ -395,7 +395,12 @@ const createDataSource = wy.procedure
       // lifecycle transition; on a direct canonical call, release is synchronous.
       // (A fresh create has no prior ref, so deferral only matters for symmetry.)
       const deferRelease = shouldDeferRelease(ctx);
-      const config: DataSourceConfig = {};
+      const config: DataSourceConfig = {
+        // Persisted pre-version sources remain v1. Every newly created Google
+        // source is server-bound to the acquisition contract; callers never
+        // choose a provider report shape.
+        ...(type === "googleAnalytics" ? { sourceBindingVersion: "v2" } : {}),
+      };
       // store non-empty / skip-on-empty (applyCredentialField). On a fresh config an
       // empty string is a no-op. A real store fails closed when no vault is injected.
       // In preview mode the vault write is skipped — the DB transaction rolls back
