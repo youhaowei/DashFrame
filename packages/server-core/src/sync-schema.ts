@@ -178,8 +178,22 @@ export function renderAddNullableColumnsIfNotExists(table: PgTable): string[] {
     // `isArray` is a Drizzle-internal flag not on the public column type
     // (matching the cast in `renderColumn`).
     const col = rawCol as any;
-    // Skip columns that can't be added safely to a populated table.
-    if (col.notNull || col.primary || col.hasDefault) continue;
+    // Skip columns that can't be added safely to a populated table. Drizzle's
+    // `hasDefault` also becomes true for client-side `$onUpdate` / `$defaultFn`
+    // hooks even when the column has no SQL DEFAULT. Those hooks do not affect
+    // ALTER TABLE safety: an existing nullable column may be added as NULL and
+    // populated by later application writes. Actual SQL defaults, generated
+    // expressions, and column-level uniqueness all require richer DDL than
+    // this additive path emits, so they stay on the explicit migration path.
+    if (
+      col.notNull ||
+      col.primary ||
+      col.default !== undefined ||
+      col.generated !== undefined ||
+      col.isUnique
+    ) {
+      continue;
+    }
     let type = col.getSQLType();
     if (col.isArray) type += "[]";
     stmts.push(

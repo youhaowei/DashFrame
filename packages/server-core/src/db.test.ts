@@ -1,4 +1,5 @@
 import { eq, sql } from "drizzle-orm";
+import { integer, pgTable, text } from "drizzle-orm/pg-core";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,6 +20,7 @@ import {
   schema,
   visualizations,
 } from "./schema";
+import { renderAddNullableColumnsIfNotExists } from "./sync-schema";
 
 describe("openArtifactDb", () => {
   let dir: string;
@@ -116,6 +118,55 @@ describe("openArtifactDb", () => {
       .where(eq(schema.dashboards.id, dash!.id));
     expect(updated?.controls).toEqual([
       { id: "c1", field: "region", boundInstances: [] },
+    ]);
+  });
+
+  // Existing schema tests materialized the current shape from scratch; they did
+  // not reopen a populated PGlite database after this nullable hook-backed
+  // column had been absent from its original table.
+  test("reconciles nullable data frame updatedAt despite its client-side onUpdate hook", async () => {
+    const dbPath = join(dir, "artifacts.db");
+    const first = await openTestArtifactDb(dbPath);
+
+    const frameId = crypto.randomUUID();
+    await first.insert(schema.dataFrames).values({
+      id: frameId,
+      storage: { kind: "file" },
+      fieldIds: [],
+      name: "legacy-frame",
+    });
+    await first.execute(sql`ALTER TABLE data_frames DROP COLUMN updated_at`);
+    await first.$client.close();
+    openDbs = openDbs.filter((db) => db !== first);
+
+    const second = await openTestArtifactDb(dbPath);
+    const rows = await second.select().from(schema.dataFrames);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.id).toBe(frameId);
+    expect(rows[0]?.updatedAt).toBeNull();
+
+    await second
+      .update(schema.dataFrames)
+      .set({ name: "updated-frame" })
+      .where(eq(schema.dataFrames.id, frameId));
+    const [updated] = await second
+      .select()
+      .from(schema.dataFrames)
+      .where(eq(schema.dataFrames.id, frameId));
+    expect(updated?.updatedAt).toBeInstanceOf(Date);
+  });
+
+  test("keeps generated and unique hook-backed columns off the additive path", () => {
+    const synthetic = pgTable("synthetic_additive_columns", {
+      safeHook: text("safe_hook").$onUpdate(() => "updated"),
+      uniqueHook: text("unique_hook")
+        .$onUpdate(() => "updated")
+        .unique(),
+      generatedValue: integer("generated_value").generatedAlwaysAs(sql`1 + 1`),
+    });
+
+    expect(renderAddNullableColumnsIfNotExists(synthetic)).toEqual([
+      'ALTER TABLE "synthetic_additive_columns" ADD COLUMN IF NOT EXISTS "safe_hook" text;',
     ]);
   });
 
