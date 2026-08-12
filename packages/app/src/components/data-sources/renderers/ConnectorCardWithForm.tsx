@@ -1,4 +1,5 @@
 import { useConnectorForm } from "@/hooks/useConnectorForm";
+import { createOAuthAuthorizationTarget } from "@/lib/oauth-authorization-target";
 import { api } from "@/wystack/api";
 import { getWyStackClient } from "@/wystack/client";
 import {
@@ -58,18 +59,6 @@ function waitForPoll(token: PollToken): Promise<void> {
   });
 }
 
-function openAuthorizationWindow(): Window | null {
-  // Open synchronously from the click so browser popup policy cannot discard
-  // the authorization window while the start call is in flight.
-  const authWindow = window.open("about:blank", "_blank");
-  if (!authWindow) return null;
-  authWindow.opener = null;
-  authWindow.document.head.innerHTML =
-    '<meta name="referrer" content="no-referrer">';
-  authWindow.document.body.textContent = "Preparing Google authorization…";
-  return authWindow;
-}
-
 /**
  * Interpret one poll result. Returns true when the flow has reached a terminal
  * state and the loop should stop; throws when that state is a failure.
@@ -125,7 +114,7 @@ async function runOAuthSetup(
   token: PollToken,
 ): Promise<void> {
   const client = getWyStackClient();
-  const authWindow = openAuthorizationWindow();
+  const authorizationTarget = createOAuthAuthorizationTarget();
   let session: { sessionId: string; authorizeUrl?: string };
   try {
     session = await client.mutate(api.startConnectorSetup, {
@@ -133,14 +122,14 @@ async function runOAuthSetup(
       requestedName: connector.name,
     });
   } catch (error) {
-    authWindow?.close();
+    authorizationTarget?.close();
     throw error;
   }
   if (!session.authorizeUrl) {
-    authWindow?.close();
+    authorizationTarget?.close();
     throw new Error("Google authorization URL was not issued");
   }
-  if (!authWindow) {
+  if (!authorizationTarget) {
     await client.mutate(api.cancelConnectorSetup, {
       sessionId: session.sessionId,
     });
@@ -148,7 +137,15 @@ async function runOAuthSetup(
       "Google sign-in was blocked. Allow popups for DashFrame and try again.",
     );
   }
-  authWindow.location.replace(session.authorizeUrl);
+  try {
+    await authorizationTarget.open(session.authorizeUrl);
+  } catch (error) {
+    await client
+      .mutate(api.cancelConnectorSetup, { sessionId: session.sessionId })
+      .catch(() => {});
+    authorizationTarget.close();
+    throw error;
+  }
   await pollOAuthCompletion(
     connector,
     session.sessionId,

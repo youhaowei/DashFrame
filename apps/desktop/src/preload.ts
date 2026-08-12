@@ -18,6 +18,10 @@ const api: DashFrameApi = {
     revealFolder: (): Promise<void> =>
       ipcRenderer.invoke("dashframe:project:reveal"),
   },
+  oauth: {
+    openAuthorizationUrl: (url: string): Promise<void> =>
+      ipcRenderer.invoke("dashframe:oauth:open-authorization", url),
+  },
   getServerInfo: (): Promise<ServerInfo> =>
     ipcRenderer.invoke("dashframe:server:info"),
 } as const;

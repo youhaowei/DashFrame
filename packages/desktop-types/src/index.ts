@@ -27,6 +27,10 @@ export interface DashFrameApi {
     getInfo(): Promise<ProjectInfo>;
     revealFolder(): Promise<void>;
   };
+  oauth: {
+    /** Opens a server-issued Google authorization URL in the system browser. */
+    openAuthorizationUrl(url: string): Promise<void>;
+  };
   /** Returns the loopback WyStack server URL, available once main has started it. */
   getServerInfo(): Promise<ServerInfo>;
 }

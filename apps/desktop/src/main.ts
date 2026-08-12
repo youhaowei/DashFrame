@@ -28,6 +28,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import { Lifecycle } from "./lifecycle.js";
+import { assertGoogleAuthorizationUrl } from "./oauth-external-url.js";
 import { ElectronKeychainBackend } from "./secret-keychain-backend.js";
 
 const DEV_URL = process.env.DEV_URL ?? "http://localhost:5173";
@@ -188,6 +189,12 @@ function registerIpc(
   ipcMain.handle("dashframe:project:reveal", () => {
     shell.showItemInFolder(path.join(handle.dir, ARTIFACTS_DB_FILENAME));
   });
+  ipcMain.handle(
+    "dashframe:oauth:open-authorization",
+    async (_event, url: unknown) => {
+      await shell.openExternal(assertGoogleAuthorizationUrl(url));
+    },
+  );
   // The renderer connects to this loopback WyStack server as a localhost web
   // client — same client + transport as the cloud web client (per the Data
   // Path & Transport Deployment spec). It needs the ephemeral port main bound.
