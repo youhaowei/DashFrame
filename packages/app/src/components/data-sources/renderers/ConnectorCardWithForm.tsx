@@ -108,6 +108,16 @@ async function pollOAuthCompletion(
   throw new Error("Google authorization timed out");
 }
 
+export async function rejectOAuthSetupWithoutAuthorizationUrl(
+  sessionId: string,
+  authorizationTarget: ReturnType<typeof createOAuthAuthorizationTarget>,
+): Promise<never> {
+  const client = getWyStackClient();
+  await client.mutate(api.cancelConnectorSetup, { sessionId }).catch(() => {});
+  authorizationTarget?.close();
+  throw new Error("Google authorization URL was not issued");
+}
+
 async function runOAuthSetup(
   connector: RemoteApiConnector,
   onOAuthConnect: ConnectorCardWithFormProps["onOAuthConnect"],
@@ -126,8 +136,10 @@ async function runOAuthSetup(
     throw error;
   }
   if (!session.authorizeUrl) {
-    authorizationTarget?.close();
-    throw new Error("Google authorization URL was not issued");
+    return rejectOAuthSetupWithoutAuthorizationUrl(
+      session.sessionId,
+      authorizationTarget,
+    );
   }
   if (!authorizationTarget) {
     await client.mutate(api.cancelConnectorSetup, {
