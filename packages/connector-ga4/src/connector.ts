@@ -71,6 +71,31 @@ interface RunReportResponse {
   }>;
 }
 
+/**
+ * The v0.3 server-owned GA4 dataset used to build acquisition reviews.
+ *
+ * The connector, rather than the renderer or RPC caller, owns this provider
+ * query. GA4 owns the weekly aggregation because user metrics such as
+ * activeUsers are not additive across daily rows.
+ */
+const ACQUISITION_DATE_RANGE = {
+  startDate: "90daysAgo",
+  endDate: "yesterday",
+} as const;
+const ACQUISITION_DIMENSIONS = [
+  "yearWeek",
+  "sessionDefaultChannelGroup",
+] as const;
+const ACQUISITION_METRICS = [
+  "activeUsers",
+  "newUsers",
+  "sessions",
+  "engagedSessions",
+  "engagementRate",
+  "keyEvents",
+  "totalRevenue",
+] as const;
+
 export interface Ga4ConnectorDependencies {
   fetch?: typeof fetch;
   now?: () => number;
@@ -364,12 +389,16 @@ export class Ga4Connector extends RemoteApiConnector {
         {
           method: "POST",
           body: JSON.stringify({
-            dateRanges: [{ startDate: "30daysAgo", endDate: "yesterday" }],
-            dimensions: [{ name: "date" }],
-            metrics: [{ name: "activeUsers" }],
+            dateRanges: [ACQUISITION_DATE_RANGE],
+            dimensions: ACQUISITION_DIMENSIONS.map((name) => ({ name })),
+            metrics: ACQUISITION_METRICS.map((name) => ({ name })),
             offset: String(offset),
             limit: String(limit),
-            orderBys: [{ dimension: { dimensionName: "date" } }],
+            // Both dimensions participate so offset pagination is stable when
+            // a week contains several channel rows.
+            orderBys: ACQUISITION_DIMENSIONS.map((dimensionName) => ({
+              dimension: { dimensionName },
+            })),
           }),
         },
       )) as RunReportResponse;

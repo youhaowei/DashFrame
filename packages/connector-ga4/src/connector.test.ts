@@ -79,17 +79,39 @@ describe("GA4 connector", () => {
     ).toBe("Bearer fresh-token");
   });
 
-  it("runs the bounded default report and returns aligned Arrow data", async () => {
+  it("runs the bounded acquisition report and returns aligned Arrow data", async () => {
     const fetchImpl = vi.fn(
       async () =>
         new Response(
           JSON.stringify({
-            dimensionHeaders: [{ name: "date" }],
-            metricHeaders: [{ name: "activeUsers", type: "TYPE_INTEGER" }],
+            dimensionHeaders: [
+              { name: "yearWeek" },
+              { name: "sessionDefaultChannelGroup" },
+            ],
+            metricHeaders: [
+              { name: "activeUsers", type: "TYPE_INTEGER" },
+              { name: "newUsers", type: "TYPE_INTEGER" },
+              { name: "sessions", type: "TYPE_INTEGER" },
+              { name: "engagedSessions", type: "TYPE_INTEGER" },
+              { name: "engagementRate", type: "TYPE_FLOAT" },
+              { name: "keyEvents", type: "TYPE_FLOAT" },
+              { name: "totalRevenue", type: "TYPE_CURRENCY" },
+            ],
             rows: [
               {
-                dimensionValues: [{ value: "20260804" }],
-                metricValues: [{ value: "42" }],
+                dimensionValues: [
+                  { value: "202631" },
+                  { value: "Organic Search" },
+                ],
+                metricValues: [
+                  { value: "42" },
+                  { value: "12" },
+                  { value: "56" },
+                  { value: "31" },
+                  { value: "0.5536" },
+                  { value: "3" },
+                  { value: "98.75" },
+                ],
               },
             ],
           }),
@@ -108,20 +130,50 @@ describe("GA4 connector", () => {
     const arrow = tableFromIPC(Buffer.from(result.arrowBuffer, "base64"));
     expect(result.rowCount).toBe(1);
     expect(result.fields.map((field) => field.name)).toEqual([
-      "date",
+      "yearWeek",
+      "sessionDefaultChannelGroup",
       "activeUsers",
+      "newUsers",
+      "sessions",
+      "engagedSessions",
+      "engagementRate",
+      "keyEvents",
+      "totalRevenue",
     ]);
     expect(result.fields.map((field) => field.type)).toEqual([
-      "date",
+      "string",
+      "string",
+      "number",
+      "number",
+      "number",
+      "number",
+      "number",
+      "number",
       "number",
     ]);
-    expect(String(arrow.schema.fields[0]?.type)).toContain("Timestamp");
+    expect(String(arrow.schema.fields[0]?.type)).toContain("Utf8");
     expect(arrow.numRows).toBe(1);
-    expect(
-      JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body)),
-    ).toMatchObject({
+    expect(JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body))).toEqual({
+      dateRanges: [{ startDate: "90daysAgo", endDate: "yesterday" }],
+      dimensions: [
+        { name: "yearWeek" },
+        { name: "sessionDefaultChannelGroup" },
+      ],
+      metrics: [
+        { name: "activeUsers" },
+        { name: "newUsers" },
+        { name: "sessions" },
+        { name: "engagedSessions" },
+        { name: "engagementRate" },
+        { name: "keyEvents" },
+        { name: "totalRevenue" },
+      ],
       offset: "0",
       limit: "25",
+      orderBys: [
+        { dimension: { dimensionName: "yearWeek" } },
+        { dimension: { dimensionName: "sessionDefaultChannelGroup" } },
+      ],
     });
   });
 
