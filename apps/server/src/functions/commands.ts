@@ -339,7 +339,7 @@ const getOrCreateDataSource = wy.procedure
       name,
       kind: type,
       storage: "live",
-      config: {},
+      config: type === "googleAnalytics" ? { sourceBindingVersion: "v2" } : {},
       createdBy: { kind: "user" },
     })) as DataSourceRow[];
     if (!row) throw new Error("insert returned no row");
@@ -508,10 +508,12 @@ const setDataSourceConfig = wy.procedure
       // (Prior-ref release is deferred to the publish transition, not run here.)
       if (
         isRecord(extra) &&
-        ("apiKey" in extra || "connectionString" in extra)
+        ("apiKey" in extra ||
+          "connectionString" in extra ||
+          "sourceBindingVersion" in extra)
       ) {
         throw new Error(
-          "SetDataSourceConfig: 'apiKey' and 'connectionString' must use the typed credential fields, not extra",
+          "SetDataSourceConfig: 'apiKey' and 'connectionString' must use the typed credential fields, and sourceBindingVersion is server-owned; none may be set through extra",
         );
       }
       // store non-empty (replaces any existing ref with a fresh one) / clear-on-empty

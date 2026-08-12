@@ -328,6 +328,32 @@ describe("command vocabulary", () => {
       expect(stored?.config).not.toHaveProperty("sourceBindingVersion");
     });
 
+    it("server-binds get-or-created GA4 sources and rejects version rewrites", async () => {
+      const sourceId = id();
+      await commit(
+        cmd("GetOrCreateDataSource", {
+          id: sourceId,
+          type: "googleAnalytics",
+          name: "Acquisition",
+        }),
+      );
+      expect((await sourcesById(sourceId))[0]?.config).toMatchObject({
+        sourceBindingVersion: "v2",
+      });
+
+      await expect(
+        commit(
+          cmd("SetDataSourceConfig", {
+            id: sourceId,
+            extra: { sourceBindingVersion: "v1" },
+          }),
+        ),
+      ).rejects.toThrow(/sourceBindingVersion.*server-owned/u);
+      expect((await sourcesById(sourceId))[0]?.config).toMatchObject({
+        sourceBindingVersion: "v2",
+      });
+    });
+
     it("should replace only config (not name) for SetDataSourceConfig", async () => {
       const sourceId = id();
       // Create first, then read the original ref BEFORE the config update so the
