@@ -11,6 +11,8 @@ import { AssistantToggle } from "./assistant/AssistantToggle";
 
 /** Width reserved for the macOS traffic lights when the title bar is hidden. */
 const TRAFFIC_LIGHT_SPACER_PX = 64;
+/** Width occupied by Windows' minimize, maximize, and close overlay buttons. */
+const WINDOWS_CAPTION_SPACER_PX = 138;
 
 /**
  * Full-width window top bar — the macOS title-bar replacement. Spans above both
@@ -23,8 +25,9 @@ const TRAFFIC_LIGHT_SPACER_PX = 64;
  * automatically via the `button { app-region: no-drag }` rule there.
  */
 export function AppTopBar() {
-  const { isElectron, isMacOS } = usePlatform();
+  const { isElectron, isMacOS, isWindows } = usePlatform();
   const macDesktop = isElectron && isMacOS;
+  const windowsDesktop = isElectron && isWindows;
 
   const leftNavOpen = useShellStore((s) => s.leftNavOpen);
   const toggleLeftNav = useShellStore((s) => s.toggleLeftNav);
@@ -76,6 +79,13 @@ export function AppTopBar() {
               !appearanceOpen && "text-neutral-fg-subtle hover:text-neutral-fg",
             )}
           />
+          {windowsDesktop && (
+            <div
+              className="shrink-0"
+              style={{ width: WINDOWS_CAPTION_SPACER_PX }}
+              aria-hidden
+            />
+          )}
         </div>
       }
     />

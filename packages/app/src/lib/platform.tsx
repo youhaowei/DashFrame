@@ -12,13 +12,15 @@ export interface Platform {
   isElectron: boolean;
   /** macOS — where the traffic lights live top-left and need a spacer. */
   isMacOS: boolean;
+  /** Windows, where caption controls overlay the top-right of the app. */
+  isWindows: boolean;
 }
 
 const PlatformContext = createContext<Platform | null>(null);
 
 function detectPlatform(): Platform {
   if (typeof window === "undefined") {
-    return { isElectron: false, isMacOS: false };
+    return { isElectron: false, isMacOS: false, isWindows: false };
   }
   // The preload bridge exposes `window.dashframe`; its presence is the Electron
   // signal (web host never defines it).
@@ -30,7 +32,8 @@ function detectPlatform(): Platform {
     navigator.platform ??
     "";
   const isMacOS = /mac/i.test(platform);
-  return { isElectron, isMacOS };
+  const isWindows = /win/i.test(platform);
+  return { isElectron, isMacOS, isWindows };
 }
 
 /**
@@ -47,6 +50,8 @@ export function PlatformProvider({ children }: { children: React.ReactNode }) {
     else root.removeAttribute("data-electron");
     if (platform.isMacOS) root.setAttribute("data-macos", "");
     else root.removeAttribute("data-macos");
+    if (platform.isWindows) root.setAttribute("data-windows", "");
+    else root.removeAttribute("data-windows");
   }, [platform]);
 
   return <PlatformContext value={platform}>{children}</PlatformContext>;

@@ -145,17 +145,29 @@ async function storeServeToken(
 }
 
 async function createWindow(): Promise<void> {
+  let windowChrome = {};
+  if (process.platform === "darwin") {
+    windowChrome = { titleBarStyle: "hiddenInset" as const };
+  } else if (process.platform === "win32") {
+    windowChrome = {
+      titleBarStyle: "hidden" as const,
+      titleBarOverlay: {
+        color: "#00000000",
+        symbolColor: "#8a8a8a",
+        height: 40,
+      },
+    };
+  }
+
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
+    autoHideMenuBar: true,
     // macOS only: hide the title bar but keep the traffic lights, inset over the
     // app's own top bar (the renderer reserves a spacer for them in AppTopBar).
-    // On Windows/Linux `hiddenInset` would hide the title bar *without* giving
-    // back window controls, so keep the standard frame there until the app
-    // draws its own controls.
-    ...(process.platform === "darwin"
-      ? { titleBarStyle: "hiddenInset" as const }
-      : {}),
+    // Windows: merge the native caption controls into DashFrame's draggable
+    // 40px top bar. The renderer reserves the corresponding right-side space.
+    ...windowChrome,
     webPreferences: {
       preload: path.join(import.meta.dirname, "preload.cjs"),
       contextIsolation: true,
@@ -163,6 +175,10 @@ async function createWindow(): Promise<void> {
       sandbox: true,
     },
   });
+
+  // `autoHideMenuBar` still reveals the native menu when Alt is pressed.
+  // DashFrame has its own complete application navigation, so remove it.
+  win.removeMenu();
 
   win.webContents.on("will-navigate", (event, url) => {
     if (!isTrustedRendererUrl(url, rendererTrustOptions)) {
