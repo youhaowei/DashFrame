@@ -352,6 +352,69 @@ describe("MCP route", () => {
     });
   });
 
+  it("keeps server-private frame metadata out of read_artifact", async () => {
+    const dataFrameId = crypto.randomUUID();
+    const insightId = crypto.randomUUID();
+    const fieldId = crypto.randomUUID();
+    const sourceId = crypto.randomUUID();
+    const definitionId = crypto.randomUUID();
+    const storageKey = `/private/project/${crypto.randomUUID()}.arrow`;
+    const secretRef = `secret:${crypto.randomUUID()}`;
+    const fakeApp = {
+      createTracked: () => ({}),
+      async runHandler(path: string) {
+        if (path !== "getDataFrameEntry")
+          throw new Error(`Unexpected read: ${path}`);
+        return {
+          id: dataFrameId,
+          name: "Revenue result",
+          insightId,
+          fieldIds: [fieldId],
+          rowCount: 12,
+          columnCount: 1,
+          createdAt: 1_723_000_000_000,
+          lastRefreshedAt: 1_723_000_001_000,
+          currentInsightResult: true,
+          storage: { type: "file", key: storageKey },
+          primaryKey: "id",
+          sourceId,
+          definitionId,
+          analysis: { credentialRef: secretRef },
+        };
+      },
+    } as unknown as Parameters<typeof createMcpTools>[0];
+    const tool = createMcpTools(
+      fakeApp,
+      { principal: { kind: "service", credentialId: "test" } },
+      "stateless",
+    ).find((candidate) => candidate.name === "read_artifact");
+
+    const result = await tool!.execute({
+      kind: "dataFrame",
+      id: dataFrameId,
+    });
+
+    expect(result.structuredContent).toEqual({
+      kind: "dataFrame",
+      definition: {
+        id: dataFrameId,
+        name: "Revenue result",
+        insightId,
+        fieldIds: [fieldId],
+        rowCount: 12,
+        columnCount: 1,
+        createdAt: 1_723_000_000_000,
+        lastRefreshedAt: 1_723_000_001_000,
+        currentInsightResult: true,
+      },
+    });
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain(storageKey);
+    expect(serialized).not.toContain(secretRef);
+    expect(serialized).not.toContain(sourceId);
+    expect(serialized).not.toContain(definitionId);
+  });
+
   it("fails closed when a ready frame page contradicts the report schema", async () => {
     const dataFrameId = crypto.randomUUID();
     const fakeApp = {

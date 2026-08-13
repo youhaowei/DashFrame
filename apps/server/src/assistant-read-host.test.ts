@@ -158,6 +158,64 @@ describe("assistant read host (resolver over the real server seam)", () => {
     expect(await reader.getDataFrameByInsight(insightId)).toBeNull();
   });
 
+  it("projects server-private DataFrame metadata at the assistant boundary", async () => {
+    const frameId = id();
+    const insightId = id();
+    const fieldId = id();
+    const storageKey = `/private/project/${id()}.arrow`;
+    const secretRef = `secret:${id()}`;
+    const rawFrame = {
+      id: frameId,
+      name: "Revenue result",
+      insightId,
+      fieldIds: [fieldId],
+      rowCount: 12,
+      columnCount: 1,
+      createdAt: 1_723_000_000_000,
+      lastRefreshedAt: 1_723_000_001_000,
+      currentInsightResult: true,
+      storage: { type: "file", key: storageKey },
+      primaryKey: "id",
+      sourceId: id(),
+      definitionId: id(),
+      analysis: { credentialRef: secretRef },
+    };
+    const fakeApp = {
+      createTracked: () => ({}),
+      runHandler: async (path: string) => {
+        if (path === "getDataFrameEntry") return rawFrame;
+        if (path === "listDataFrames") return [rawFrame];
+        throw new Error(`Unexpected read: ${path}`);
+      },
+    } as unknown as Parameters<typeof createAssistantReadHost>[0]["app"];
+    const reader = createAssistantReadHost({ app: fakeApp });
+
+    const single = await reader.getDataFrameEntry(frameId);
+    const listed = await reader.listDataFrames();
+    const byInsight = await reader.getDataFrameByInsight(insightId);
+
+    expect(single).toEqual({
+      id: frameId,
+      name: "Revenue result",
+      insightId,
+      fieldIds: [fieldId],
+      rowCount: 12,
+      columnCount: 1,
+      createdAt: 1_723_000_000_000,
+      lastRefreshedAt: 1_723_000_001_000,
+      currentInsightResult: true,
+    });
+    expect(listed).toEqual([single]);
+    expect(byInsight).toEqual(single);
+    const serialized = JSON.stringify({ single, listed, byInsight });
+    expect(serialized).not.toContain(storageKey);
+    expect(serialized).not.toContain(secretRef);
+    expect(serialized).not.toContain("storage");
+    expect(serialized).not.toContain("sourceId");
+    expect(serialized).not.toContain("definitionId");
+    expect(serialized).not.toContain("analysis");
+  });
+
   // -------------------------------------------------------------------------
   // Inherit-source masking over REAL Field.sensitivity.
   // -------------------------------------------------------------------------
