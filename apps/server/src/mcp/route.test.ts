@@ -496,6 +496,19 @@ describe("MCP route", () => {
           openWorldHint: expect.any(Boolean),
         });
         if (
+          ["fetch_data", "run_insight", "query_data_frame"].includes(tool.name)
+        ) {
+          const oneOf = (tool.outputSchema as { oneOf?: unknown[] }).oneOf;
+          expect(oneOf).toHaveLength(2);
+          expect(oneOf).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                required: expect.arrayContaining(["status", "code", "message"]),
+              }),
+            ]),
+          );
+        }
+        if (
           [
             "read_neighborhood",
             "read_graph",
@@ -880,6 +893,25 @@ describe("MCP route", () => {
           /is not draft-safe/i,
         );
       }
+      await expectToolError(
+        client,
+        "draft_batch",
+        {
+          commands: [
+            {
+              type: "SetDataSourceConfig",
+              args: {
+                id: crypto.randomUUID(),
+                extra: { headers: { Authorization: "Bearer must-not-land" } },
+              },
+            },
+          ],
+        },
+        /not draft-safe/i,
+      );
+      expect(
+        await project!.db.select().from(schema.draftCommandLog),
+      ).toHaveLength(0);
       const rejectedRef = `secret:${crypto.randomUUID()}`;
       const refAttempt = await client.callTool({
         name: "draft_batch",

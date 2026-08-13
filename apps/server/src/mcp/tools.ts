@@ -125,6 +125,31 @@ const frameMetadataSchema = Type.Object(
   },
   CLOSED_SCHEMA,
 );
+const readyMaterializationSchema = Type.Object(
+  {
+    status: Type.Literal("ready"),
+    ...frameMetadataSchema.properties,
+  },
+  CLOSED_SCHEMA,
+);
+const failedMaterializationSchema = Type.Object(
+  {
+    status: Type.Literal("failed"),
+    code: Type.String(),
+    message: Type.String(),
+    retryable: Type.Boolean(),
+    lastSuccessful: Type.Optional(
+      Type.Object(
+        {
+          stale: Type.Literal(true),
+          ...frameMetadataSchema.properties,
+        },
+        CLOSED_SCHEMA,
+      ),
+    ),
+  },
+  CLOSED_SCHEMA,
+);
 const materializationOutputSchema = Type.Object(
   {
     status: Type.Union([Type.Literal("ready"), Type.Literal("failed")]),
@@ -154,7 +179,10 @@ const materializationOutputSchema = Type.Object(
       ),
     ),
   },
-  CLOSED_SCHEMA,
+  {
+    ...CLOSED_SCHEMA,
+    oneOf: [readyMaterializationSchema, failedMaterializationSchema],
+  },
 );
 
 function publicMaterializationResult(
@@ -802,7 +830,42 @@ function createDataTools(
       code: Type.Optional(Type.String()),
       message: Type.Optional(Type.String()),
     },
-    closed,
+    {
+      ...closed,
+      oneOf: [
+        Type.Object(
+          {
+            status: Type.Literal("ready"),
+            schema: Type.Array(frameFieldSchema),
+            rows: Type.Array(Type.Record(Type.String(), Type.Any())),
+            totalCount: Type.Integer({ minimum: 0 }),
+            page: Type.Object(
+              {
+                offset: Type.Integer({ minimum: 0 }),
+                limit: Type.Integer({
+                  minimum: 1,
+                  maximum: DATA_QUERY_MAX_LIMIT,
+                }),
+                returned: Type.Integer({
+                  minimum: 0,
+                  maximum: DATA_QUERY_MAX_LIMIT,
+                }),
+              },
+              closed,
+            ),
+          },
+          closed,
+        ),
+        Type.Object(
+          {
+            status: Type.Literal("failed"),
+            code: Type.String(),
+            message: Type.String(),
+          },
+          closed,
+        ),
+      ],
+    },
   );
   return [
     dataTool(
@@ -874,16 +937,22 @@ interface DraftBatchCommandInput {
   args: Record<string, unknown>;
 }
 
+const MCP_DENIED_DRAFT_COMMANDS = new Set(["SetDataSourceConfig"]);
+
+function isMcpDraftSafeCommand(name: string): boolean {
+  return DRAFT_SAFE_COMMANDS.has(name) && !MCP_DENIED_DRAFT_COMMANDS.has(name);
+}
+
 function draftSafeCommandList(): string {
-  return [...DRAFT_SAFE_COMMANDS].sort().join(", ");
+  return [...DRAFT_SAFE_COMMANDS]
+    .filter((name) => isMcpDraftSafeCommand(name))
+    .sort()
+    .join(", ");
 }
 
 function mcpCommandSummary(name: string, fallback: string): string {
   if (name === "CreateDataSource") {
     return "Create a credential-free data source.";
-  }
-  if (name === "SetDataSourceConfig") {
-    return "Update a data source's non-credential configuration.";
   }
   return fallback;
 }
@@ -897,7 +966,7 @@ function renderMcpCommandGuide(): string {
   ];
   let group = "";
   for (const entry of COMMAND_GUIDE) {
-    if (!DRAFT_SAFE_COMMANDS.has(entry.name)) continue;
+    if (!isMcpDraftSafeCommand(entry.name)) continue;
     if (entry.group !== group) {
       group = entry.group;
       lines.push(`## ${group}`);
@@ -962,7 +1031,9 @@ function draftBatchDescription(mode: McpMode): string {
     "  ways a draft cannot roll back. Ask a person to delete.",
     "- GetOrCreateDataSource. Use CreateDataSource without credential fields;",
     "  the get-or-create path predates the current draft treatment.",
-    "- Credential material in CreateDataSource or SetDataSourceConfig. The",
+    "- SetDataSourceConfig. Its open-ended connector config cannot prove that",
+    "  nested values are credential-free, so configuration stays in DashFrame.",
+    "- Credential material in CreateDataSource. The",
     "  ChatGPT plugin never accepts credentials. Configure them in DashFrame's",
     "  trusted UI or provider OAuth flow, then retry without credential fields.",
     "- Lifecycle procedures (publishDraft, commitBatch, discardDraft,",
@@ -994,7 +1065,7 @@ function assertDraftSafeBatch(
   commands: readonly DraftBatchCommandInput[],
 ): void {
   for (const { type, args } of commands) {
-    if (!DRAFT_SAFE_COMMANDS.has(type)) {
+    if (!isMcpDraftSafeCommand(type)) {
       throw new Error(
         `${DRAFT_BATCH_TOOL_NAME}: command "${type}" is not draft-safe. ` +
           `Use one of: ${draftSafeCommandList()}.`,
