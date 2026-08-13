@@ -11,6 +11,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const DEFAULT_APP_NAME = "dashframe";
 
@@ -98,17 +99,21 @@ function processIsRunning(pid) {
 function readManifest(path) {
   try {
     return JSON.parse(readFileSync(path, "utf8"));
-  } catch (error) {
-    if (error?.code === "ENOENT") return null;
-    throw error;
+  } catch {
+    return null;
   }
 }
 
-function writeManifest(info) {
+export function writeManifest(info) {
   const launcherPid = Number(process.env.DASHFRAME_DEV_LAUNCHER_PID);
   const serverPid = Number(process.env.DASHFRAME_DEV_SERVER_PID);
-  if (!Number.isInteger(launcherPid) || !Number.isInteger(serverPid)) {
-    throw new Error("The dev launcher and server PIDs are required");
+  if (
+    !Number.isInteger(launcherPid) ||
+    launcherPid <= 0 ||
+    !Number.isInteger(serverPid) ||
+    serverPid <= 0
+  ) {
+    throw new Error("Positive dev launcher and server PIDs are required");
   }
   if (!process.env.PORTLESS_URL || !process.env.VITE_WYSTACK_URL) {
     throw new Error("The Portless and API URLs are required");
@@ -135,14 +140,14 @@ function writeManifest(info) {
   process.stdout.write(`[dev-web] runtime manifest: ${info.manifest}\n`);
 }
 
-function clearManifest(info, expectedLauncherPid) {
+export function clearManifest(info, expectedLauncherPid) {
   const manifest = readManifest(info.manifest);
   if (manifest && manifest.launcherPid === expectedLauncherPid) {
     rmSync(info.manifest);
   }
 }
 
-function status(info) {
+export function status(info) {
   const manifest = readManifest(info.manifest);
   const running = Boolean(
     manifest &&
@@ -164,7 +169,12 @@ function usage() {
   );
 }
 
-if (import.meta.main) {
+const isMain = Boolean(
+  process.argv[1] &&
+  pathToFileURL(resolve(process.argv[1])).href === import.meta.url,
+);
+
+if (isMain) {
   const [command = "info", root = process.cwd(), launcherPid] =
     process.argv.slice(2);
   const info = getDevInfo(root);
