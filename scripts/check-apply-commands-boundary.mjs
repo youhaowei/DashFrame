@@ -32,7 +32,7 @@
 // Exit code: 0 = clean, 1 = violations found.
 
 import { readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const APPLY_COMMANDS_PATTERN = /\bapplyCommands\b/;
@@ -114,7 +114,7 @@ const allFiles = collectAllSourceFiles();
 const violations = [];
 
 for (const file of allFiles) {
-  const relPath = file.replace(repoRoot + "/", "");
+  const relPath = relative(repoRoot, file).split(sep).join("/");
   if (ALLOWED_FILES.has(relPath)) continue;
   const content = readFileSync(file, "utf8");
   const stripped = stripComments(content);

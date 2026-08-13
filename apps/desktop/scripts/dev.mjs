@@ -3,7 +3,11 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 
-import { createElectronEnvironment, parseViteUrl } from "./dev-helpers.ts";
+import {
+  createElectronArguments,
+  createElectronEnvironment,
+  parseViteUrl,
+} from "./dev-helpers.ts";
 
 const desktopDir = path.resolve(import.meta.dirname, "..");
 const rendererDir = path.resolve(desktopDir, "..", "renderer");
@@ -134,7 +138,7 @@ console.log(`[dev] launching Electron...\n`);
 // Agent hosts and Electron-based terminals may set this for their own child
 // processes. DashFrame needs the normal Chromium runtime, not Node-only mode.
 const electronEnv = createElectronEnvironment(process.env, viteUrl);
-electronProc = spawn("electron", [".", `--remote-debugging-port=${cdpPort}`], {
+electronProc = spawn("electron", createElectronArguments(cdpPort), {
   cwd: desktopDir,
   env: electronEnv,
   stdio: "inherit",

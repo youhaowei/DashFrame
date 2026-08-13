@@ -16,3 +16,8 @@ export function createElectronEnvironment(
   delete result.ELECTRON_RUN_AS_NODE;
   return result;
 }
+
+/** Build Electron CLI arguments in the order accepted by electron.exe. */
+export function createElectronArguments(cdpPort: string): string[] {
+  return [".", `--remote-debugging-port=${cdpPort}`];
+}

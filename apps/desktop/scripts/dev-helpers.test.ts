@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { createElectronEnvironment, parseViteUrl } from "./dev-helpers";
+import {
+  createElectronArguments,
+  createElectronEnvironment,
+  parseViteUrl,
+} from "./dev-helpers";
 
 describe("desktop development launcher", () => {
   it("parses a colorized Vite URL", () => {
@@ -21,5 +25,12 @@ describe("desktop development launcher", () => {
       DEV_URL: "http://localhost:5174",
       EXISTING_VALUE: "preserved",
     });
+  });
+
+  it("places the app before Chromium switches for electron.exe", () => {
+    expect(createElectronArguments("9222")).toEqual([
+      ".",
+      "--remote-debugging-port=9222",
+    ]);
   });
 });
