@@ -48,12 +48,7 @@ function writeDashboard(client: Client, name: string) {
   });
 }
 
-/**
- * The vault is shared between the access-credential store and the server, so a
- * plaintext credential written through the write tool actually goes somewhere —
- * without one the server refuses to persist and the credential path is never
- * exercised.
- */
+/** The vault is shared by the access-credential store and server fixture. */
 function makeVault(rootDir: string): {
   vault: SecretVault;
   accessCredentials: ApiAccessCredentials;
@@ -170,6 +165,26 @@ describe("MCP route", () => {
     }
     return { client, transport };
   }
+
+  it("advertises the DashFrame icon during MCP initialization", async () => {
+    const { client, transport } = await connect();
+    try {
+      const serverInfo = client.getServerVersion();
+      expect(serverInfo?.name).toBe("dashframe");
+      expect(serverInfo?.title).toBe("DashFrame");
+      const icon = serverInfo?.icons?.[0];
+      expect(icon?.mimeType).toBe("image/png");
+      expect(icon?.sizes).toEqual(["128x128"]);
+      expect(icon?.src).toMatch(/^data:image\/png;base64,/);
+      const iconData = icon?.src.split(",", 2)[1];
+      if (iconData === undefined) throw new Error("Missing MCP icon data.");
+      expect(Buffer.from(iconData, "base64").subarray(0, 8)).toEqual(
+        Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+      );
+    } finally {
+      await transport.close();
+    }
+  });
 
   it("refuses a draft read when the draft closes during the read", async () => {
     const draftId = crypto.randomUUID();
@@ -473,6 +488,26 @@ describe("MCP route", () => {
         };
         expect(roundTripped.type).toBe("object");
         expect(Object.getOwnPropertySymbols(roundTripped)).toHaveLength(0);
+        expect(tool.outputSchema).toMatchObject({ type: "object" });
+        expect(tool.annotations).toMatchObject({
+          readOnlyHint: expect.any(Boolean),
+          destructiveHint: expect.any(Boolean),
+          idempotentHint: expect.any(Boolean),
+          openWorldHint: expect.any(Boolean),
+        });
+        if (
+          ["fetch_data", "run_insight", "query_data_frame"].includes(tool.name)
+        ) {
+          const oneOf = (tool.outputSchema as { oneOf?: unknown[] }).oneOf;
+          expect(oneOf).toHaveLength(2);
+          expect(oneOf).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                required: expect.arrayContaining(["status", "code", "message"]),
+              }),
+            ]),
+          );
+        }
         if (
           [
             "read_neighborhood",
@@ -499,10 +534,13 @@ describe("MCP route", () => {
         "DeleteNode",
         "GetOrCreateDataSource",
         "publishDraft",
-        "secret:<uuid>",
+        "never accepts credentials",
       ]) {
         expect(writeTool?.description).toContain(denied);
       }
+      expect(writeTool?.description).not.toMatch(
+        /plaintext|apiKey|connectionString/i,
+      );
       expect(writeTool?.description).toContain(
         "Carry the returned draftId forward",
       );
@@ -727,6 +765,10 @@ describe("MCP route", () => {
         expect(result.isError).toBe(true);
         expect(resultText(result)).toBe("The requested data operation failed.");
         expect(result.structuredContent).toMatchObject({ status: "failed" });
+        expect(result.structuredContent).not.toHaveProperty("diagnosticId");
+        expect(result.structuredContent).not.toHaveProperty(
+          "sourceGenerations",
+        );
       }
     } finally {
       await transport.close();
@@ -851,6 +893,25 @@ describe("MCP route", () => {
           /is not draft-safe/i,
         );
       }
+      await expectToolError(
+        client,
+        "draft_batch",
+        {
+          commands: [
+            {
+              type: "SetDataSourceConfig",
+              args: {
+                id: crypto.randomUUID(),
+                extra: { headers: { Authorization: "Bearer must-not-land" } },
+              },
+            },
+          ],
+        },
+        /not draft-safe/i,
+      );
+      expect(
+        await project!.db.select().from(schema.draftCommandLog),
+      ).toHaveLength(0);
       const rejectedRef = `secret:${crypto.randomUUID()}`;
       const refAttempt = await client.callTool({
         name: "draft_batch",
@@ -870,7 +931,7 @@ describe("MCP route", () => {
       });
       expect(refAttempt.isError).toBe(true);
       expect(resultText(refAttempt)).toMatch(
-        /caller-supplied secret references/i,
+        /credential material.*not accepted/i,
       );
       // Error text may name the field, never the value. Asserted as a boolean
       // so a failure does not print the rejected reference.
@@ -993,7 +1054,7 @@ describe("MCP route", () => {
     }
   });
 
-  it("stores a plaintext credential as a vault reference and never persists the plaintext", async () => {
+  it("rejects plaintext credentials before command dispatch or persistence", async () => {
     const { client, transport } = await connect();
     // The literal never appears in an assertion message: every check below is a
     // boolean or a length, so a failing run prints no secret.
@@ -1015,16 +1076,12 @@ describe("MCP route", () => {
           ],
         },
       });
-      expect(written.isError).not.toBe(true);
+      expect(written.isError).toBe(true);
+      expect(resultText(written)).toMatch(/credential material.*not accepted/i);
       expect(JSON.stringify(written).includes(plaintextKey)).toBe(false);
 
       const log = await project!.db.select().from(schema.draftCommandLog);
-      expect(log).toHaveLength(1);
-      const loggedArgs = log[0]!.args as { apiKey?: unknown };
-      // Capture-before-log rewrote the plaintext into a vault reference before
-      // the durable log was written.
-      expect(typeof loggedArgs.apiKey === "string").toBe(true);
-      expect(String(loggedArgs.apiKey).startsWith("secret:")).toBe(true);
+      expect(log).toHaveLength(0);
       expect(JSON.stringify(log).includes(plaintextKey)).toBe(false);
 
       // And canonical gained nothing at all.
