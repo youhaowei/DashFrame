@@ -7,16 +7,29 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SERVER_LOG="$(mktemp "${TMPDIR:-/tmp}/dashframe-web-server.XXXXXX")"
 SERVER_PID=""
+PORTLESS_PID=""
+DEV_NAME="$(node "${ROOT}/scripts/dev-worktree.mjs" name "${ROOT}")"
+DEV_MANIFEST="$(node "${ROOT}/scripts/dev-worktree.mjs" manifest "${ROOT}")"
 
 # Keep concurrent worktrees off the shared ~/.DashFrame/web-project lock and
 # persist preview data across restarts. Callers can still select another project.
 export DASHFRAME_PROJECT_DIR="${DASHFRAME_PROJECT_DIR:-${ROOT}/.data/web-project}"
 
 cleanup() {
+  if [[ -n "${PORTLESS_PID}" ]] && kill -0 "${PORTLESS_PID}" 2>/dev/null; then
+    kill -TERM "${PORTLESS_PID}" 2>/dev/null || true
+    wait "${PORTLESS_PID}" 2>/dev/null || true
+  fi
   if [[ -n "${SERVER_PID}" ]] && kill -0 "${SERVER_PID}" 2>/dev/null; then
     kill -TERM "${SERVER_PID}" 2>/dev/null || true
     wait "${SERVER_PID}" 2>/dev/null || true
   fi
+  for _ in {1..100}; do
+    if node "${ROOT}/scripts/dev-worktree.mjs" clear-stopped "${ROOT}" "$$" 2>/dev/null; then
+      break
+    fi
+    sleep 0.05
+  done
   rm -f "${SERVER_LOG}"
 }
 trap cleanup EXIT
@@ -47,16 +60,21 @@ if [[ -z "${WYSTACK_URL}" ]]; then
 fi
 
 export VITE_WYSTACK_URL="${WYSTACK_URL}"
+export DASHFRAME_DEV_ROOT="${ROOT}"
+export DASHFRAME_DEV_LAUNCHER_PID="$$"
+export DASHFRAME_DEV_SERVER_PID="${SERVER_PID}"
 echo "[dev-web] API proxy: ${VITE_WYSTACK_URL}"
+echo "[dev-web] route: ${DEV_NAME}"
+echo "[dev-web] runtime manifest: ${DEV_MANIFEST} (created when the route is ready)"
 
 cd "${ROOT}/apps/web"
-PORTLESS_ARGS=(run)
+PORTLESS_ARGS=(--name "${DEV_NAME}")
 if [[ "${PORTLESS_FORCE:-0}" == "1" ]]; then
   PORTLESS_ARGS+=(--force)
 fi
 if [[ -n "${PORT:-}" ]]; then
   PORTLESS_ARGS+=(--app-port "${PORT}")
-  portless "${PORTLESS_ARGS[@]}" "$@"
-else
-  portless "${PORTLESS_ARGS[@]}" "$@"
 fi
+portless "${PORTLESS_ARGS[@]}" "${ROOT}/scripts/dev-web-child.sh" "$@" &
+PORTLESS_PID=$!
+wait "${PORTLESS_PID}"

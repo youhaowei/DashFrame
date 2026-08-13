@@ -145,6 +145,7 @@ export default defineConfig(({ mode }) => {
       "process.env.PORT": JSON.stringify(String(port)),
     },
     server: {
+      host: env.DASHFRAME_VITE_HOST?.trim() || undefined,
       port,
       strictPort: true,
       proxy: wystackUrl
