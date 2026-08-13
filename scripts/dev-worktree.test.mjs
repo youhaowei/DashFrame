@@ -86,15 +86,18 @@ describe("worktree dev identity", () => {
     expect(helpResult.stdout).toContain("status-all [root]");
   });
 
-  test("keeps unknown commands as usage errors", () => {
-    const result = spawnSync("node", [cliPath, "unknown"], {
-      cwd: process.cwd(),
-      encoding: "utf8",
-    });
+  test("keeps invalid commands and options as usage errors", () => {
+    const invalidInvocations = [["unknown"], ["status", "--unknown"]];
 
-    expect(result.status).toBe(2);
-    expect(result.stderr).toContain("too many arguments");
-    expect(result.stderr).toContain("Usage: dev-worktree");
+    for (const args of invalidInvocations) {
+      const result = spawnSync("node", [cliPath, ...args], {
+        cwd: process.cwd(),
+        encoding: "utf8",
+      });
+
+      expect(result.status).toBe(2);
+      expect(result.stderr).toContain("Usage: dev-worktree");
+    }
   });
 
   test("keeps the main checkout on the short canonical name", () => {

@@ -323,10 +323,6 @@ if (isMain) {
     await createProgram().parseAsync(process.argv);
   } catch (error) {
     if (!(error instanceof CommanderError)) throw error;
-    const isUnknownCommand = [
-      "commander.excessArguments",
-      "commander.unknownCommand",
-    ].includes(error.code);
-    process.exitCode = isUnknownCommand ? 2 : error.exitCode;
+    process.exitCode = error.exitCode === 0 ? 0 : 2;
   }
 }
