@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,6 +13,8 @@ import {
   status,
   writeManifest,
 } from "./dev-worktree.mjs";
+
+const cliPath = join(import.meta.dir, "dev-worktree.mjs");
 
 function withManifestEnvironment(run) {
   const previous = {
@@ -58,6 +61,42 @@ function withManifestEnvironment(run) {
 }
 
 describe("worktree dev identity", () => {
+  test("keeps the default info command and documents the available commands", () => {
+    const defaultResult = spawnSync("node", [cliPath], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+    });
+    const infoResult = spawnSync("node", [cliPath, "info"], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+    });
+    const helpResult = spawnSync("node", [cliPath, "--help"], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+    });
+
+    expect(defaultResult.status).toBe(0);
+    expect(defaultResult.stdout).toBe(infoResult.stdout);
+    expect(JSON.parse(defaultResult.stdout)).toMatchObject({
+      surface: "web",
+      root: process.cwd(),
+    });
+    expect(helpResult.status).toBe(0);
+    expect(helpResult.stdout).toContain("identity [root]");
+    expect(helpResult.stdout).toContain("status-all [root]");
+  });
+
+  test("keeps unknown commands as usage errors", () => {
+    const result = spawnSync("node", [cliPath, "unknown"], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+    });
+
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("too many arguments");
+    expect(result.stderr).toContain("Usage: dev-worktree");
+  });
+
   test("keeps the main checkout on the short canonical name", () => {
     expect(createDevIdentity({ root: "/repo", isMainWorktree: true })).toEqual({
       id: "main",

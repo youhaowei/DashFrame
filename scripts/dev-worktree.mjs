@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { Command, CommanderError } from "commander";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -239,10 +240,77 @@ export function allStatuses(root = process.cwd()) {
     });
 }
 
-function usage() {
-  process.stderr.write(
-    "Usage: node scripts/dev-worktree.mjs <identity|info|name|manifest|write|clear|clear-stopped|status|status-all> [root] [launcher-pid]\n",
-  );
+function printJson(value) {
+  process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
+}
+
+function infoFor(root) {
+  return getDevInfo(root ?? process.cwd());
+}
+
+export function createProgram() {
+  const program = new Command()
+    .name("dev-worktree")
+    .description("Inspect and manage worktree-local development runtimes")
+    .showHelpAfterError()
+    .exitOverride()
+    .action(() => printJson(infoFor()));
+
+  program
+    .command("identity [root]")
+    .description("Print the stable development identity for a worktree")
+    .action((root) => {
+      const info = infoFor(root);
+      printJson({ id: info.id, name: info.name, root: info.root });
+    });
+
+  program
+    .command("info [root]")
+    .description("Print development identity and manifest information")
+    .action((root) => printJson(infoFor(root)));
+
+  program
+    .command("name [root]")
+    .description("Print the stable development hostname")
+    .action((root) => process.stdout.write(`${infoFor(root).name}\n`));
+
+  program
+    .command("manifest [root]")
+    .description("Print the runtime manifest path")
+    .action((root) => process.stdout.write(`${infoFor(root).manifest}\n`));
+
+  program
+    .command("write [root]")
+    .description("Write the current surface runtime manifest")
+    .action((root) => writeManifest(infoFor(root)));
+
+  program
+    .command("clear [root] [launcher-pid]")
+    .description("Clear a runtime manifest owned by a launcher")
+    .action((root, launcherPid) => {
+      clearManifest(infoFor(root), Number(launcherPid));
+    });
+
+  program
+    .command("clear-stopped [root] [launcher-pid]")
+    .description("Clear a stopped runtime manifest owned by a launcher")
+    .action((root, launcherPid) => {
+      if (!clearStoppedManifest(infoFor(root), Number(launcherPid))) {
+        process.exitCode = 1;
+      }
+    });
+
+  program
+    .command("status [root]")
+    .description("Print the current surface runtime status")
+    .action((root) => printJson(status(infoFor(root))));
+
+  program
+    .command("status-all [root]")
+    .description("Print every surface runtime status in a worktree")
+    .action((root) => printJson(allStatuses(root ?? process.cwd())));
+
+  return program;
 }
 
 const isMain = Boolean(
@@ -251,44 +319,14 @@ const isMain = Boolean(
 );
 
 if (isMain) {
-  const [command = "info", root = process.cwd(), launcherPid] =
-    process.argv.slice(2);
-  const info = getDevInfo(root);
-
-  switch (command) {
-    case "identity":
-      process.stdout.write(
-        `${JSON.stringify({ id: info.id, name: info.name, root: info.root }, null, 2)}\n`,
-      );
-      break;
-    case "info":
-      process.stdout.write(`${JSON.stringify(info, null, 2)}\n`);
-      break;
-    case "name":
-      process.stdout.write(`${info.name}\n`);
-      break;
-    case "manifest":
-      process.stdout.write(`${info.manifest}\n`);
-      break;
-    case "write":
-      writeManifest(info);
-      break;
-    case "clear":
-      clearManifest(info, Number(launcherPid));
-      break;
-    case "clear-stopped":
-      if (!clearStoppedManifest(info, Number(launcherPid))) {
-        process.exitCode = 1;
-      }
-      break;
-    case "status":
-      process.stdout.write(`${JSON.stringify(status(info), null, 2)}\n`);
-      break;
-    case "status-all":
-      process.stdout.write(`${JSON.stringify(allStatuses(root), null, 2)}\n`);
-      break;
-    default:
-      usage();
-      process.exitCode = 2;
+  try {
+    await createProgram().parseAsync(process.argv);
+  } catch (error) {
+    if (!(error instanceof CommanderError)) throw error;
+    const isUnknownCommand = [
+      "commander.excessArguments",
+      "commander.unknownCommand",
+    ].includes(error.code);
+    process.exitCode = isUnknownCommand ? 2 : error.exitCode;
   }
 }
