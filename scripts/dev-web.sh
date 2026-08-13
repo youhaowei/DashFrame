@@ -24,6 +24,12 @@ cleanup() {
     kill -TERM "${SERVER_PID}" 2>/dev/null || true
     wait "${SERVER_PID}" 2>/dev/null || true
   fi
+  for _ in {1..100}; do
+    if node "${ROOT}/scripts/dev-worktree.mjs" clear-stopped "${ROOT}" "$$" 2>/dev/null; then
+      break
+    fi
+    sleep 0.05
+  done
   rm -f "${SERVER_LOG}"
 }
 trap cleanup EXIT

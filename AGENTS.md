@@ -263,17 +263,22 @@ processes:
    proxies `/api` (incl. ws) to `VITE_WYSTACK_URL`. Use `dev:direct` (plain
    Vite) rather than `bun run dev`, which wraps Vite in `portless`.
 
-For agent-owned interactive testing, prefer `bun run dev:web:agent` from the
-repo root. It builds dependency packages, then replaces itself with one
-foreground launcher that owns both processes. The launcher assigns a stable
-Portless hostname from the worktree path (including detached-HEAD worktrees)
-and writes `.data/dev-web.json` once the route is ready. `bun run
-dev:web:status` returns the route, PIDs, project directory, and whether the
-launcher is still live as JSON. An agent may set `DASHFRAME_DEV_NAME` to a
-short explicit hostname when a human-readable task name is more useful. Stop
-the owning terminal session rather than killing a guessed shared process; the
-launcher removes only its own manifest and server.
+Agent-owned development uses one worktree identity across both product
+surfaces. `bun run dev:info` prints that identity, and `bun run dev:status`
+lists every live or stale surface runtime discovered in `.data/dev-*.json`.
+Each manifest is private to its surface and records only local endpoints,
+owned PIDs, and the project directory; it appears after the surface is ready
+and is removed only after its owned processes stop. Stop the owning foreground
+terminal instead of killing a guessed shared process.
 
-Root `bun run dev` launches the **Electron desktop** app (embeds the server
-in-process, auto-starts the renderer on 5173). It needs a display, so it is not
-suitable for the headless VM — prefer the web+server combo above.
+- Browser web: `bun run dev:web:agent` builds dependencies and launches the
+  server, Portless, and Vite. It assigns a stable Portless hostname from the
+  worktree path, including detached-HEAD worktrees. Set `DASHFRAME_DEV_NAME`
+  when a shorter human-readable hostname is useful; inspect only this surface
+  with `bun run dev:web:status`.
+- Electron desktop: root `bun run dev` builds and launches the renderer,
+  Electron, and its embedded loopback server. In a worktree it defaults to an
+  isolated `.data/desktop-project`; Electron receives an available CDP port
+  and publishes the renderer, embedded API, and CDP endpoints. Inspect only
+  this surface with `bun run dev:desktop:status`. It needs a display, so use
+  the browser-web launcher in headless environments.

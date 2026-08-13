@@ -10,7 +10,6 @@ cleanup() {
     kill -TERM "${VITE_PID}" 2>/dev/null || true
     wait "${VITE_PID}" 2>/dev/null || true
   fi
-  node "${ROOT}/scripts/dev-worktree.mjs" clear "${ROOT}" "${DASHFRAME_DEV_LAUNCHER_PID}" 2>/dev/null || true
 }
 trap cleanup EXIT
 trap 'exit 130' INT
@@ -18,6 +17,7 @@ trap 'exit 143' TERM
 
 "$@" &
 VITE_PID=$!
+export DASHFRAME_DEV_VITE_PID="${VITE_PID}"
 
 for _ in {1..200}; do
   if curl --fail --silent --max-time 1 "http://127.0.0.1:${PORT:?PORT is required}/" >/dev/null; then

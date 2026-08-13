@@ -5,7 +5,9 @@ import { join } from "node:path";
 
 import {
   clearManifest,
+  clearStoppedManifest,
   createDevIdentity,
+  getDevInfo,
   sanitizeHostnameLabel,
   status,
   writeManifest,
@@ -15,6 +17,7 @@ function withManifestEnvironment(run) {
   const previous = {
     launcherPid: process.env.DASHFRAME_DEV_LAUNCHER_PID,
     serverPid: process.env.DASHFRAME_DEV_SERVER_PID,
+    vitePid: process.env.DASHFRAME_DEV_VITE_PID,
     portlessUrl: process.env.PORTLESS_URL,
     apiUrl: process.env.VITE_WYSTACK_URL,
     projectDir: process.env.DASHFRAME_PROJECT_DIR,
@@ -23,12 +26,14 @@ function withManifestEnvironment(run) {
   const info = {
     id: "test",
     name: "dashframe-test",
+    surface: "web",
     root,
     manifest: join(root, ".data", "dev-web.json"),
   };
 
   process.env.DASHFRAME_DEV_LAUNCHER_PID = String(process.pid);
   process.env.DASHFRAME_DEV_SERVER_PID = String(process.pid);
+  process.env.DASHFRAME_DEV_VITE_PID = String(process.pid);
   process.env.PORTLESS_URL = "https://dashframe-test.localhost";
   process.env.VITE_WYSTACK_URL = "http://127.0.0.1:4000";
   process.env.DASHFRAME_PROJECT_DIR = join(root, "project");
@@ -40,6 +45,7 @@ function withManifestEnvironment(run) {
       const environmentKey = {
         launcherPid: "DASHFRAME_DEV_LAUNCHER_PID",
         serverPid: "DASHFRAME_DEV_SERVER_PID",
+        vitePid: "DASHFRAME_DEV_VITE_PID",
         portlessUrl: "PORTLESS_URL",
         apiUrl: "VITE_WYSTACK_URL",
         projectDir: "DASHFRAME_PROJECT_DIR",
@@ -114,8 +120,14 @@ describe("worktree dev identity", () => {
       writeManifest(info);
 
       expect(JSON.parse(readFileSync(info.manifest, "utf8"))).toMatchObject({
+        schemaVersion: 2,
+        surface: "web",
         launcherPid: process.pid,
-        serverPid: process.pid,
+        processes: { server: process.pid, vite: process.pid },
+        endpoints: {
+          app: "https://dashframe-test.localhost",
+          api: "http://127.0.0.1:4000",
+        },
       });
       expect(status(info)).toMatchObject({ running: true, stale: false });
 
@@ -143,7 +155,10 @@ describe("worktree dev identity", () => {
 
       writeFileSync(
         info.manifest,
-        JSON.stringify({ launcherPid: 2147483647, serverPid: 2147483647 }),
+        JSON.stringify({
+          launcherPid: 2147483647,
+          processes: { server: 2147483647 },
+        }),
       );
       expect(status(info)).toMatchObject({ running: false, stale: true });
     });
@@ -153,8 +168,76 @@ describe("worktree dev identity", () => {
     withManifestEnvironment((info) => {
       process.env.DASHFRAME_DEV_LAUNCHER_PID = "0";
       expect(() => writeManifest(info)).toThrow(
-        "Positive dev launcher and server PIDs are required",
+        "A positive development launcher PID is required",
       );
+    });
+  });
+
+  test("clears a manifest only after every owned process stops", () => {
+    withManifestEnvironment((info) => {
+      writeManifest(info);
+      expect(clearStoppedManifest(info, process.pid)).toBe(false);
+      expect(status(info).manifest).not.toBeNull();
+
+      writeFileSync(
+        info.manifest,
+        JSON.stringify({
+          launcherPid: process.pid,
+          processes: { server: 2147483647, vite: 2147483647 },
+        }),
+      );
+      expect(clearStoppedManifest(info, process.pid + 1)).toBe(false);
+      expect(clearStoppedManifest(info, process.pid)).toBe(true);
+      expect(status(info).manifest).toBeNull();
+    });
+  });
+
+  test("keeps surface manifests separate within one worktree", () => {
+    const root = process.cwd();
+    expect(getDevInfo(root, "web").manifest).toEndWith("/.data/dev-web.json");
+    expect(getDevInfo(root, "desktop").manifest).toEndWith(
+      "/.data/dev-desktop.json",
+    );
+  });
+
+  test("records a surface-neutral desktop runtime", () => {
+    withManifestEnvironment((webInfo) => {
+      const info = {
+        ...webInfo,
+        surface: "desktop",
+        manifest: join(webInfo.root, ".data", "dev-desktop.json"),
+      };
+      writeManifest(info, {
+        launcherPid: process.pid,
+        processes: {
+          renderer: process.pid,
+          electron: process.pid,
+        },
+        endpoints: {
+          renderer: "http://127.0.0.1:5173",
+          api: "http://127.0.0.1:4000",
+          cdp: "http://127.0.0.1:9222",
+        },
+        projectDir: join(webInfo.root, "desktop-project"),
+      });
+
+      expect(status(info)).toMatchObject({
+        running: true,
+        stale: false,
+        manifest: {
+          schemaVersion: 2,
+          surface: "desktop",
+          processes: {
+            renderer: process.pid,
+            electron: process.pid,
+          },
+          endpoints: {
+            renderer: "http://127.0.0.1:5173",
+            api: "http://127.0.0.1:4000",
+            cdp: "http://127.0.0.1:9222",
+          },
+        },
+      });
     });
   });
 });
