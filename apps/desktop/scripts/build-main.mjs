@@ -42,6 +42,13 @@ const externalizeNpm = {
     // Bare specifiers only (not "./x" or "../x"). Inline workspace scopes;
     // externalize everything else (npm packages + node: builtins).
     build.onResolve({ filter: /^[^./]/ }, (args) => {
+      // Windows absolute paths begin with a drive letter, so they also match
+      // the bare-specifier filter. In particular, esbuild passes the absolute
+      // main.ts path through this hook as an entry point; externalizing it
+      // makes the Windows build fail before bundling starts.
+      if (args.kind === "entry-point" || path.isAbsolute(args.path)) {
+        return undefined;
+      }
       if (
         args.path.startsWith("@wystack/") ||
         args.path.startsWith("@dashframe/")

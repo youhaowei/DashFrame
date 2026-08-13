@@ -3,6 +3,8 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 
+import { createElectronEnvironment, parseViteUrl } from "./dev-helpers.ts";
+
 const desktopDir = path.resolve(import.meta.dirname, "..");
 const rendererDir = path.resolve(desktopDir, "..", "renderer");
 
@@ -103,11 +105,14 @@ const viteUrl = await new Promise((resolve, reject) => {
     if (settled) return;
     buffer += text;
     // Match Vite banner: "  ➜  Local:   http://localhost:5174/"
-    const match = buffer.match(/Local:\s+(https?:\/\/[^\s/]+)/);
-    if (match) {
+    // Vite colorizes its banner even when stdout is piped on Windows. Remove
+    // those control codes before matching so sequences inside "Local" and the
+    // port number do not make startup time out.
+    const parsedUrl = parseViteUrl(buffer);
+    if (parsedUrl) {
       settled = true;
       clearTimeout(timeout);
-      resolve(match[1]);
+      resolve(parsedUrl);
       buffer = "";
       return;
     }
@@ -126,9 +131,12 @@ console.log(
 console.log(`[dev] launching Electron...\n`);
 
 // 4. Launch Electron with DEV_URL env + CDP remote debugging
-electronProc = spawn("electron", [`--remote-debugging-port=${cdpPort}`, "."], {
+// Agent hosts and Electron-based terminals may set this for their own child
+// processes. DashFrame needs the normal Chromium runtime, not Node-only mode.
+const electronEnv = createElectronEnvironment(process.env, viteUrl);
+electronProc = spawn("electron", [".", `--remote-debugging-port=${cdpPort}`], {
   cwd: desktopDir,
-  env: { ...process.env, DEV_URL: viteUrl },
+  env: electronEnv,
   stdio: "inherit",
 });
 

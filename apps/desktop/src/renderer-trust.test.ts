@@ -1,3 +1,4 @@
+import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -6,6 +7,7 @@ import {
 } from "./renderer-trust";
 
 const productionFile = "/Applications/DashFrame/renderer/index.html";
+const productionUrl = pathToFileURL(productionFile).href;
 
 describe("desktop renderer trust", () => {
   const developmentUrl = "https://localhost:5173".replace("https", "http");
@@ -42,16 +44,10 @@ describe("desktop renderer trust", () => {
       productionFile,
     };
     expect(
-      isTrustedRendererUrl(
-        "file:///Applications/DashFrame/renderer/index.html#/insights/example",
-        options,
-      ),
+      isTrustedRendererUrl(`${productionUrl}#/insights/example`, options),
     ).toBe(true);
     expect(
-      isTrustedRendererUrl(
-        "file:///Applications/DashFrame/renderer/other.html",
-        options,
-      ),
+      isTrustedRendererUrl(new URL("other.html", productionUrl).href, options),
     ).toBe(false);
     expect(
       isTrustedRendererUrl(
