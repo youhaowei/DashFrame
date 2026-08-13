@@ -11,7 +11,7 @@ import path from "node:path";
 
 import { afterEach, expect, test } from "vitest";
 
-const temporaryDirectories: string[] = [];
+const temporaryDirectories = [];
 
 afterEach(() => {
   for (const directory of temporaryDirectories.splice(0)) {
@@ -38,7 +38,7 @@ test("stops desktop startup when terminated during a build", async () => {
   });
 
   await waitFor(() => readFileSync(invocationLog, "utf8").trim().length > 0);
-  const exitPromise = new Promise<number | null>((resolve, reject) => {
+  const exitPromise = new Promise((resolve, reject) => {
     child.once("error", reject);
     child.once("exit", resolve);
   });
@@ -51,7 +51,7 @@ test("stops desktop startup when terminated during a build", async () => {
   ]);
 });
 
-async function waitFor(condition: () => boolean) {
+async function waitFor(condition) {
   const deadline = Date.now() + 5_000;
   while (Date.now() < deadline) {
     try {
