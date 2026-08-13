@@ -263,6 +263,17 @@ processes:
    proxies `/api` (incl. ws) to `VITE_WYSTACK_URL`. Use `dev:direct` (plain
    Vite) rather than `bun run dev`, which wraps Vite in `portless`.
 
+For agent-owned interactive testing, prefer `bun run dev:web:agent` from the
+repo root. It builds dependency packages, then replaces itself with one
+foreground launcher that owns both processes. The launcher assigns a stable
+Portless hostname from the worktree path (including detached-HEAD worktrees)
+and writes `.data/dev-web.json` once the route is ready. `bun run
+dev:web:status` returns the route, PIDs, project directory, and whether the
+launcher is still live as JSON. An agent may set `DASHFRAME_DEV_NAME` to a
+short explicit hostname when a human-readable task name is more useful. Stop
+the owning terminal session rather than killing a guessed shared process; the
+launcher removes only its own manifest and server.
+
 Root `bun run dev` launches the **Electron desktop** app (embeds the server
 in-process, auto-starts the renderer on 5173). It needs a display, so it is not
 suitable for the headless VM — prefer the web+server combo above.
