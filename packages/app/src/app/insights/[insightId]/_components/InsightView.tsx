@@ -711,8 +711,6 @@ export function InsightView({
     args: {},
   });
   const { data: dashboards = [] } = useQuery(api.listDashboards);
-  const createDashboard = useMutation(api.createDashboard);
-  const addDashboardItem = useMutation(api.addDashboardItem);
   const persistedActiveView = useInsightCanvasStore(
     (s) => s.activeViewByInsight[insightId],
   );
@@ -1157,42 +1155,43 @@ export function InsightView({
       if (!visualizationId) return;
 
       const dashboard = dashboards[0];
-      const dashboardId =
-        dashboard?.id ??
-        (
-          await createDashboard.mutateAsync({
-            name: `${insight.name} dashboard`,
-          })
-        ).id;
+      const dashboardId = dashboard?.id ?? (crypto.randomUUID() as UUID);
       const bottomY =
         dashboard?.items.reduce(
           (max, item) => Math.max(max, item.y + item.height),
           0,
         ) ?? 0;
 
-      await addDashboardItem.mutateAsync({
-        dashboardId,
-        type: "visualization",
-        visualizationId,
-        position: {
-          x: 0,
-          y: bottomY,
-          width: 6,
-          height: 6,
-        },
+      await commitBatch({
+        commands: [
+          ...(dashboard
+            ? []
+            : [
+                cmd("CreateDashboard", {
+                  id: dashboardId,
+                  name: `${insight.name} dashboard`,
+                }),
+              ]),
+          cmd("AddDashboardItem", {
+            dashboardId,
+            item: {
+              id: crypto.randomUUID() as UUID,
+              type: "visualization",
+              visualizationId,
+              x: 0,
+              y: bottomY,
+              width: 6,
+              height: 6,
+            },
+          }),
+        ],
       });
       toast.success("Added to dashboard");
     } catch (error) {
       console.error("[InsightView] Add to dashboard failed:", error);
       toast.error("Couldn't add to dashboard");
     }
-  }, [
-    addDashboardItem,
-    createDashboard,
-    dashboards,
-    ensureActiveVisualization,
-    insight.name,
-  ]);
+  }, [commitBatch, dashboards, ensureActiveVisualization, insight.name]);
 
   // Handle duplicating a visualization
   const handleDuplicateVisualization = useCallback(

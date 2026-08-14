@@ -284,6 +284,18 @@ const COMMAND_DESCRIPTORS: Record<CommandPath, CommandDescriptor> = {
     change: "update",
     summary: (a) => `Remove dashboard item ${String(a.itemId)}`,
   },
+  patchDashboardItemOverrideCmd: {
+    kind: "dashboard",
+    targetId: byDashboardId,
+    change: "update",
+    summary: (a) => `Update dashboard item ${String(a.itemId)} overrides`,
+  },
+  setDashboardControls: {
+    kind: "dashboard",
+    targetId: byDashboardId,
+    change: "update",
+    summary: () => "Set dashboard controls",
+  },
   fanOutDashboardItemsCmd: {
     kind: "dashboard",
     targetId: byDashboardId,
@@ -348,6 +360,8 @@ const PATH_TO_NAME: Record<CommandPath, string> = {
   updateDashboardItemCmd: "UpdateDashboardItem",
   setDashboardLayout: "SetDashboardLayout",
   removeDashboardItemCmd: "RemoveDashboardItem",
+  patchDashboardItemOverrideCmd: "PatchDashboardItemOverride",
+  setDashboardControls: "SetDashboardControls",
   fanOutDashboardItemsCmd: "FanOutDashboardItems",
   renameNode: "RenameNode",
   deleteNode: "DeleteNode",

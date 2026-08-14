@@ -7,6 +7,10 @@
  * `apps/server/src/functions/commands.ts` re-exports these and owns the
  * mutation handlers + `commandFunctions` registry only.
  */
+import type {
+  DashboardControl,
+  DashboardItemOverridePatch,
+} from "./dashboards";
 import type { Field, SourceSchema } from "./field";
 import type {
   Insight,
@@ -244,6 +248,15 @@ export interface CommandPayloads {
   };
   SetDashboardLayout: { dashboardId: UUID; items: DashboardItemInput[] };
   RemoveDashboardItem: { dashboardId: UUID; itemId: UUID };
+  PatchDashboardItemOverride: {
+    dashboardId: UUID;
+    itemId: UUID;
+    patch: DashboardItemOverridePatch;
+  };
+  SetDashboardControls: {
+    dashboardId: UUID;
+    controls: DashboardControl[];
+  };
   FanOutDashboardItems: {
     dashboardId: UUID;
     sourceItemId: UUID;
@@ -298,6 +311,8 @@ export const COMMAND_PATHS = {
   UpdateDashboardItem: "updateDashboardItemCmd",
   SetDashboardLayout: "setDashboardLayout",
   RemoveDashboardItem: "removeDashboardItemCmd",
+  PatchDashboardItemOverride: "patchDashboardItemOverrideCmd",
+  SetDashboardControls: "setDashboardControls",
   FanOutDashboardItems: "fanOutDashboardItemsCmd",
   RenameNode: "renameNode",
   DeleteNode: "deleteNode",
