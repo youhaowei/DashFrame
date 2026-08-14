@@ -73,6 +73,62 @@ describe("CSV date ingestion", () => {
       invalid_hour: "2024-07-18T24:00:00",
     });
   });
+
+  it("preserves every value when a column contains mixed types", async () => {
+    const result = await csvToDataFrame(
+      [
+        ["date_or_sku", "number_or_label", "boolean_or_label"],
+        ["2024-07-18T00:30:00", "42", "true"],
+        ["SKU-A", "N/A", "pending"],
+      ],
+      DATA_TABLE_ID,
+    );
+    const rows = tableFromIPC(result.arrowBuffer)
+      .toArray()
+      .map((row) => row.toJSON());
+
+    expect(result.fields.map((field) => field.type)).toEqual([
+      "string",
+      "string",
+      "string",
+    ]);
+    expect(rows).toEqual([
+      {
+        date_or_sku: "2024-07-18T00:30:00",
+        number_or_label: "42",
+        boolean_or_label: "true",
+      },
+      {
+        date_or_sku: "SKU-A",
+        number_or_label: "N/A",
+        boolean_or_label: "pending",
+      },
+    ]);
+  });
+
+  it("does not normalize an impossible date after a valid date", async () => {
+    const result = await csvToDataFrame(
+      [["date"], ["2024-02-29"], ["2024-02-30"]],
+      DATA_TABLE_ID,
+    );
+    const values = tableFromIPC(result.arrowBuffer)
+      .toArray()
+      .map((row) => row.toJSON().date);
+
+    expect(result.fields[0]?.type).toBe("string");
+    expect(values).toEqual(["2024-02-29", "2024-02-30"]);
+  });
+
+  it("keeps fractional-second timestamps typed as dates", async () => {
+    const result = await csvToDataFrame(
+      [["date"], ["2024-07-18T00:30:00.123"]],
+      DATA_TABLE_ID,
+    );
+    const value = tableFromIPC(result.arrowBuffer).get(0)?.toJSON().date;
+
+    expect(result.fields[0]?.type).toBe("date");
+    expect(value).toBe(Date.UTC(2024, 6, 18, 0, 30, 0, 123));
+  });
 });
 
 describe("CSV Arrow ingestion budget", () => {

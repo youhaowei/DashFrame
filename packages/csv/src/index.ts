@@ -86,6 +86,27 @@ function inferCsvStringColumnType(raw: string | undefined): Field["type"] {
   return isIsoDateOrDateTime(raw) ? "date" : "string";
 }
 
+function inferCsvColumnType(
+  rows: string[][],
+  columnIndex: number,
+): Field["type"] {
+  let inferredType: Field["type"] = "unknown";
+
+  for (const row of rows) {
+    const raw = row[columnIndex];
+    if (raw === undefined || raw === "") continue;
+
+    const valueType = inferCsvStringColumnType(raw);
+    if (inferredType === "unknown") {
+      inferredType = valueType;
+    } else if (valueType !== inferredType) {
+      return "string";
+    }
+  }
+
+  return inferredType;
+}
+
 function parseCsvStringValue(
   raw: string | undefined,
   type: Field["type"],
@@ -119,13 +140,9 @@ export async function csvToDataFrame(
 
   // Create columns from CSV headers and infer types
   const userColumns = header.map((name, index) => {
-    const sampleValue =
-      rowsData.find((row) => row[index] !== undefined && row[index] !== "")?.[
-        index
-      ] ?? "";
     return {
       name,
-      type: inferCsvStringColumnType(sampleValue),
+      type: inferCsvColumnType(rowsData, index),
     };
   });
 
