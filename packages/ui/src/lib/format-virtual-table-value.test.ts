@@ -41,6 +41,12 @@ describe("defaultFormatValue", () => {
     expect(defaultFormatValue("2024-03-15", "date")).toBe("Mar 15, 2024");
   });
 
+  it("formats numeric epoch values in date columns as UTC calendar dates", () => {
+    expect(defaultFormatValue(Date.UTC(2024, 0, 18), "date")).toBe(
+      "Jan 18, 2024",
+    );
+  });
+
   it("leaves an impossible calendar date as text rather than rolling it over", () => {
     expect(defaultFormatValue("2024-02-30", "date")).toBe("2024-02-30");
   });
