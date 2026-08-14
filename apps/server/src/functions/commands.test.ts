@@ -3884,6 +3884,62 @@ describe("command vocabulary", () => {
       );
     });
 
+    it("rolls back Insight dependents when the final Insight delete fails", async () => {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      const visualizationId = id();
+      const frameId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("CreateVisualization", {
+          id: visualizationId,
+          name: "V",
+          insightId,
+          visualizationType: "barY",
+          spec: {},
+        }),
+      );
+      await db.insert(schema.dataFrames).values({
+        id: frameId,
+        storage: { type: "file", key: frameId },
+        fieldIds: [],
+        name: `Frame for ${insightId}`,
+        insightId,
+        createdAt: new Date(),
+      });
+      await db.$client.exec(`
+        CREATE FUNCTION fail_insight_delete() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN RAISE EXCEPTION 'injected insight delete failure'; END $$;
+        CREATE TRIGGER fail_insight_delete
+        BEFORE DELETE ON insights
+        FOR EACH ROW EXECUTE FUNCTION fail_insight_delete();
+      `);
+
+      try {
+        await expect(
+          commit(cmd("DeleteNode", { id: insightId })),
+        ).rejects.toThrow('delete from "insights"');
+      } finally {
+        await db.$client.exec(`
+          DROP TRIGGER fail_insight_delete ON insights;
+          DROP FUNCTION fail_insight_delete();
+        `);
+      }
+
+      expect(await insightsById(insightId)).toHaveLength(1);
+      expect(await vizsById(visualizationId)).toHaveLength(1);
+      expect(
+        await db
+          .select()
+          .from(schema.dataFrames)
+          .where(eq(schema.dataFrames.id, frameId)),
+      ).toHaveLength(1);
+    });
+
     it("preserves an Insight-owned DataFrame while a DataTable still references it", async () => {
       const { tableId } = await makeTable();
       const insightId = id();
