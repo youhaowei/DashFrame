@@ -51,6 +51,28 @@ describe("CSV date ingestion", () => {
     expect(result.fields[0]?.type).toBe("string");
     expect(row).toEqual({ legacy_date: raw });
   });
+
+  it("preserves impossible ISO-shaped calendar values as text", async () => {
+    const result = await csvToDataFrame(
+      [
+        ["invalid_date", "invalid_day", "invalid_hour"],
+        ["2024-02-30", "2024-02-30T00:00:00", "2024-07-18T24:00:00"],
+      ],
+      DATA_TABLE_ID,
+    );
+    const row = tableFromIPC(result.arrowBuffer).get(0)?.toJSON();
+
+    expect(result.fields.map((field) => field.type)).toEqual([
+      "string",
+      "string",
+      "string",
+    ]);
+    expect(row).toEqual({
+      invalid_date: "2024-02-30",
+      invalid_day: "2024-02-30T00:00:00",
+      invalid_hour: "2024-07-18T24:00:00",
+    });
+  });
 });
 
 describe("CSV Arrow ingestion budget", () => {

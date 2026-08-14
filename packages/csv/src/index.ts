@@ -42,12 +42,42 @@ const ZONELESS_ISO_DATE_TIME =
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const ISO_OFFSET = /[+-]\d{2}:\d{2}$/;
 
+function isValidIsoDate(raw: string): boolean {
+  if (!ISO_DATE.test(raw)) return false;
+  const date = new Date(`${raw}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().startsWith(raw);
+}
+
+function isValidZonelessIsoDateTime(raw: string): boolean {
+  if (!ZONELESS_ISO_DATE_TIME.test(raw)) return false;
+  const separatorIndex = raw.search(/[T ]/);
+  const datePart = raw.slice(0, separatorIndex);
+  const timeParts = raw.slice(separatorIndex + 1).split(":");
+  const hour = Number(timeParts[0]);
+  const minute = Number(timeParts[1]);
+  const second = Number(timeParts[2] ?? "0");
+  return (
+    isValidIsoDate(datePart) &&
+    Number.isInteger(hour) &&
+    hour >= 0 &&
+    hour <= 23 &&
+    Number.isInteger(minute) &&
+    minute >= 0 &&
+    minute <= 59 &&
+    second >= 0 &&
+    second < 60
+  );
+}
+
 function isIsoDateOrDateTime(raw: string): boolean {
-  if (ISO_DATE.test(raw) || ZONELESS_ISO_DATE_TIME.test(raw)) return true;
+  if (ISO_DATE.test(raw)) return isValidIsoDate(raw);
+  if (ZONELESS_ISO_DATE_TIME.test(raw)) {
+    return isValidZonelessIsoDateTime(raw);
+  }
   const zoneless = raw.endsWith("Z")
     ? raw.slice(0, -1)
     : raw.replace(ISO_OFFSET, "");
-  return zoneless !== raw && ZONELESS_ISO_DATE_TIME.test(zoneless);
+  return zoneless !== raw && isValidZonelessIsoDateTime(zoneless);
 }
 
 function inferCsvStringColumnType(raw: string | undefined): Field["type"] {
