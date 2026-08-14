@@ -9,8 +9,8 @@
     "build": "tsc -p tsconfig.json",
     "clean": "rm -rf dist *.tsbuildinfo",
     "dev": "tsc -w -p tsconfig.json --preserveWatchOutput",
-    "lint": "eslint src",
-    "test": "vitest run",
+    "lint": "vp lint src",
+    "test": "vp test run",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
@@ -19,8 +19,7 @@
     "apache-arrow": "^21.1.0"
   },
   "devDependencies": {
-    "@dashframe/eslint-config": "workspace:*",
     "typescript": "5.7.2",
-    "vitest": "^4.0.16"
+    "vite-plus": "catalog:"
   }
 }

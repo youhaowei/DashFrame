@@ -9,7 +9,7 @@
  * - Different line endings (LF, CRLF, CR)
  * - Edge cases (trailing newline, empty fields, single column)
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { parseCSV } from "./parser";
 
 describe("parseCSV", () => {

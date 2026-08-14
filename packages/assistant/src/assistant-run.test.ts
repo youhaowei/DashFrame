@@ -7,7 +7,7 @@ import {
   type ToolCall,
   type Usage,
 } from "@earendil-works/pi-ai";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import type {
   AssistantCommand,
@@ -141,12 +141,10 @@ function makeHost(): AssistantHost & {
     },
     async append(draftId, batch) {
       this.appends.push({ draftId, batch });
-      return batch.map(
-        (command): AssistantCommandResult => ({
-          id: command.id,
-          value: { path: command.path },
-        }),
-      );
+      return batch.map((command): AssistantCommandResult => ({
+        id: command.id,
+        value: { path: command.path },
+      }));
     },
     async discard(draftId) {
       this.discarded.push(draftId);

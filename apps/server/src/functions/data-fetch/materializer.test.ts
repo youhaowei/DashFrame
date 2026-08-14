@@ -1,6 +1,6 @@
 import type { DataFrameStorage } from "@dashframe/engine";
 import type { DataTable, Field, UUID } from "@dashframe/types";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import type {
   DashframeFunctionContext,

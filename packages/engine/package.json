@@ -10,7 +10,7 @@
     "build": "tsc -p tsconfig.json",
     "clean": "rm -rf dist *.tsbuildinfo",
     "dev": "tsc -w -p tsconfig.json --preserveWatchOutput",
-    "lint": "eslint src",
+    "lint": "vp lint src",
     "test": "bun test src",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },

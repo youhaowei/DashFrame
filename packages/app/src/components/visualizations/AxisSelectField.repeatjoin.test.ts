@@ -27,7 +27,7 @@ import {
 } from "@dashframe/engine";
 import type { DataTable, Field, Insight, UUID } from "@dashframe/types";
 import { fieldEncoding } from "@dashframe/types";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 // ── Fixtures (matching engine test fixture format) ────────────────────────────
 

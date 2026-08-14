@@ -11,7 +11,6 @@
     "check": "bun run typecheck"
   },
   "devDependencies": {
-    "@dashframe/eslint-config": "workspace:*",
     "typescript": "5.7.2"
   }
 }

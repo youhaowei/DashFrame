@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
   makeGa4OAuthDescriptor,
@@ -51,7 +51,7 @@ describe("Google connector OAuth provider", () => {
     expect(
       resolveOAuthRedirectUri(
         // Loopback HTTP is the installed-app OAuth contract under test.
-        // eslint-disable-next-line sonarjs/no-clear-text-protocols
+        // oxlint-disable-next-line sonarjs/no-clear-text-protocols
         "http://0.0.0.0:4000/api",
         "https://dashframe.example/api",
       ),
@@ -59,7 +59,7 @@ describe("Google connector OAuth provider", () => {
     expect(
       resolveOAuthRedirectUri(
         // Loopback HTTP is the installed-app OAuth contract under test.
-        // eslint-disable-next-line sonarjs/no-clear-text-protocols
+        // oxlint-disable-next-line sonarjs/no-clear-text-protocols
         "http://0.0.0.0:4000/api",
         "https://dashframe.example",
       ),

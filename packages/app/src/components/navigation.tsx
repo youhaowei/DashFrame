@@ -240,7 +240,7 @@ export function Navigation() {
 
   const { showError, showSuccess } = useToastStore();
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- route changes must dismiss the modal drawer.
+  // oxlint-disable-next-line react-hooks-js/set-state-in-effect -- route changes must dismiss the modal drawer.
   useEffect(() => setIsOpen(false), [pathname]);
 
   const handleClearAllData = async () => {

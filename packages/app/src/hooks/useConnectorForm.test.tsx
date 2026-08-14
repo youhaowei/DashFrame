@@ -15,7 +15,7 @@ import type {
   ValidationResult,
 } from "@dashframe/engine";
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { useConnectorForm } from "./useConnectorForm";
 
 // Create a mock connector for testing

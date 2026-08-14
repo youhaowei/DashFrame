@@ -17,14 +17,19 @@ _\* v0 exception: breaking changes allowed in minor versions during pre-stable p
 Library packages follow [Semantic Versioning 2.0.0](https://semver.org/):
 
 - `@dashframe/types`
-- `@dashframe/core-dexie`
+- `@dashframe/app`
+- `@dashframe/assistant`
 - `@dashframe/engine`
 - `@dashframe/engine-browser`
-- `@dashframe/connector-csv`
+- `@dashframe/csv`
+- `@dashframe/json`
+- `@dashframe/connector-ga4`
+- `@dashframe/connector-local`
 - `@dashframe/connector-notion`
+- `@dashframe/connector-postgres`
+- `@dashframe/connector-rest`
 - `@dashframe/visualization`
 - `@dashframe/ui`
-- `@dashframe/eslint-config`
 
 ### Version Bumps
 
@@ -218,7 +223,7 @@ Changesets are markdown files stored in `.changeset/` directory:
 
 ```markdown
 ---
-"@dashframe/connector-csv": minor
+"@dashframe/csv": minor
 "@dashframe/types": patch
 ---
 
@@ -265,7 +270,7 @@ Use "BREAKING:" prefix and link to migration guide:
 
 ```markdown
 ---
-"@dashframe/connector-csv": major
+"@dashframe/csv": minor
 ---
 
 BREAKING: Change csvToDataFrame API signature
@@ -273,7 +278,7 @@ BREAKING: Change csvToDataFrame API signature
 Previously: `csvToDataFrame(file)`
 Now: `csvToDataFrame(file, options)`
 
-See [Migration Guide](../../docs/migrations/csv-v1.0.0.md)
+See [Migration Guide](../../docs/migrations/csv-v0.2.0.md)
 ```
 
 ## Changelogs

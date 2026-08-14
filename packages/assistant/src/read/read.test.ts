@@ -23,7 +23,7 @@ import type {
   Insight,
   Visualization,
 } from "@dashframe/types";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { applyFloor, isMaskedBySource } from "./floor.js";
 import { neighbors, search, traverse } from "./graph.js";

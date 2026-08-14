@@ -5,7 +5,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from "@wystack/ui-react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { RoutedCardActionMenuTrigger } from "./RoutedCardActionMenuTrigger";
 
 function renderRoutedCardMenu(onNavigate = vi.fn(), onOpen = vi.fn()) {

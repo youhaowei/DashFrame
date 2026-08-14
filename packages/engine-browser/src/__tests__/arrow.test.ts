@@ -1,5 +1,5 @@
 import { tableFromIPC } from "apache-arrow";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { createArrowIPCBufferFromRows } from "../arrow";
 

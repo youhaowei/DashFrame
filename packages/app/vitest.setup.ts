@@ -1,5 +1,5 @@
 /**
- * Test setup. The jsdom build vitest pulls in exposes a `localStorage` object
+ * Test setup. The jsdom build Vite+ pulls in exposes a `localStorage` object
  * without working methods, so persisted-store tests fall over. Install a small
  * in-memory Storage so the real persist path (write → read-back) exercises
  * end-to-end without depending on jsdom internals.

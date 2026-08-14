@@ -1,4 +1,4 @@
-/* eslint-disable sonarjs/cognitive-complexity */
+/* oxlint-disable sonarjs/cognitive-complexity */
 import {
   applyDateTransformToSql,
   extractColumnAliasComponents,

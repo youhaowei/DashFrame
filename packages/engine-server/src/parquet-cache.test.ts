@@ -3,7 +3,14 @@ import os from "node:os";
 import path from "node:path";
 
 import { DuckDBInstance, type DuckDBConnection } from "@duckdb/node-api";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 
 import { hashCompiledQuery, type CompiledQuery } from "./compile";
 import {

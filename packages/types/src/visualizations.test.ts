@@ -7,7 +7,7 @@
  * - getTagsForChartType() - Get tags for a specific chart type
  * - CHART_TYPE_METADATA - Chart type metadata constant
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import type { ChartTag, VisualizationType } from "./visualizations";
 import {
   CHART_TAG_METADATA,

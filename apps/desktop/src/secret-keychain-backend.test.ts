@@ -3,7 +3,7 @@
  *
  * safeStorage is an Electron-main-only API; it is mocked here so the adapter
  * logic (at-rest store, has-no-decrypt, failure path, locator handling) can be
- * exercised in a plain Node/vitest environment. The mock surface mirrors the
+ * exercised in a plain Node/Vite+ test environment. The mock surface mirrors the
  * real Electron safeStorage contract (isEncryptionAvailable / encryptString /
  * decryptString). The safeStorage primitive itself is Electron-provided and is
  * exercised on a real desktop cold-start — not in this unit test suite.
@@ -19,7 +19,14 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 
 import {
   ElectronKeychainBackend,

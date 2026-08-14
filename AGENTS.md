@@ -117,7 +117,7 @@ result; the overall exit code is non-zero if any did not pass. That is deliberat
 guards each take under a second, and when they were chained with `&&` a one-line
 convention violation hid every type error and failing test behind it. The
 `--continue` flag is the same fix one level down: turbo's default is
-`--continue=never`, so without it a single eslint error cancelled every pending
+`--continue=never`, so without it a single lint error cancelled every pending
 typecheck and test task. Re-run just the one that failed with `bun run <name>`.
 
 A summary line reads `PASS`, `FAIL`, or `SKIP`. `SKIP` means the check could
@@ -128,13 +128,13 @@ not checked out; the fix is `git submodule update --init`. CI checks out
 `submodules: recursive`, so it never skips there.
 
 Formatting is **not** part of `bun run check` — run `bun run format:check`
-separately. In CI it is its own job for the same reason: a prettier diff must not
+separately. In CI it is its own job for the same reason: a formatter diff must not
 be able to hide a real failure.
 
-`@dashframe/ui`'s `test` script is `vitest run --project=unit`, deliberately
-scoped. Its vitest config also declares a `storybook` project that renders
+`@dashframe/ui`'s `test` script is `vp test run --project=unit`, deliberately
+scoped. Its Vite+ test config also declares a `storybook` project that renders
 stories in a real headless Chromium through Playwright, and the `check` CI job
-installs no browsers — an unscoped `vitest run` there fails on a clean tree.
+installs no browsers — an unscoped `vp test run` there fails on a clean tree.
 Those story tests still have no gate; running them needs a browser install in
 whichever job takes them.
 
@@ -189,7 +189,7 @@ If it fails, STOP — do not improvise another location.
 the main checkout. Bypass with `ALLOW_MAIN_CHECKOUT_COMMIT=1` only when you
 knowingly own that checkout — e.g. a cloud/VM agent working on its branch in
 the environment's single checkout, where isolation is provided by the VM
-itself. The hook still runs `lint-staged` (prettier) on staged files.
+itself. The hook still runs `lint-staged` (Oxfmt) on staged files.
 
 **Teardown:** remove worktrees with `scripts/remove-worktree.sh <path>` — never
 `git worktree remove --force` or `rm -rf`. The guard refuses when removal would

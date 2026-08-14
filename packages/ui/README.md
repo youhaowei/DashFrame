@@ -152,8 +152,8 @@ Use semantic tokens, not hardcoded colors:
 bun storybook        # Launch Storybook
 bun build-storybook  # Build static Storybook
 bun typecheck        # TypeScript checks
-bun lint             # ESLint
-bun format           # Prettier check
+bun lint             # Vite+ lint
+bun format           # Oxfmt check
 ```
 
 ## Dependencies

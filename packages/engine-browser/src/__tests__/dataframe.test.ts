@@ -7,7 +7,7 @@
  * - Storage location management
  * - Display helpers
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { BrowserDataFrame } from "../dataframe";
 
 // Mock storage module

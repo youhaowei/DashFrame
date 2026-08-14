@@ -27,7 +27,7 @@ import type {
   InsightFilterOverride,
   InsightSort,
 } from "@dashframe/types";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import {
   computeNewOverridesOnClear,
   computeNewOverridesOnInherit,

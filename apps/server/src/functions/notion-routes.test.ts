@@ -43,7 +43,7 @@ import {
   it,
   type Mock,
   vi,
-} from "vitest";
+} from "vite-plus/test";
 
 // Mock the connector so the routes resolve the credential via the bound
 // resolver but never hit the Notion network. The mock connect()/query() call

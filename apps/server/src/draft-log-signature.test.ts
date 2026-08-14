@@ -8,7 +8,7 @@
  * key-order independence is the load-bearing contract — not an edge case.
  */
 import type { Command } from "@wystack/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { computeLogSignature } from "./draft-log-signature";
 

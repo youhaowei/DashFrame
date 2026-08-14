@@ -163,8 +163,8 @@ DashFrame supports importing data directly from Notion databases:
 
 - Run `bun check` before committing to validate lint + typecheck + tests + the
   convention guards, and `bun format:check` for formatting — the two are separate
-  gates in CI, and `bun check` does not run prettier
-- Follow the shared ESLint + Prettier configs (`bun lint` / `bun format`)
+  gates in CI, and `bun check` does not run Oxfmt
+- Follow the shared Vite+ lint and format config (`bun lint` / `bun format`)
 - Architecture and design notes are maintained separately, not in this repo (release/versioning process stays in `docs/versioning.md`)
 - Prefer incremental commits per module (app, packages)
 

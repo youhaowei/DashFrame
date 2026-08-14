@@ -8,7 +8,7 @@ import { SecretVault } from "@wystack/secret-vault";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
   assertAccessRootOutsideProject,
@@ -193,7 +193,7 @@ describe("dashframe serve CLI", () => {
     });
 
     it("should reject an unbracketed IPv6 bind with a bracket hint", () => {
-      // eslint-disable-next-line sonarjs/no-hardcoded-ip -- the malformed literal is the input under test
+      // oxlint-disable-next-line sonarjs/no-hardcoded-ip -- the malformed literal is the input under test
       expect(() => parseArgs(["--bind", "::1:4000"])).toThrow(
         /bracket IPv6 addresses as \[host\]:port/,
       );

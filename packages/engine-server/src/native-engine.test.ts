@@ -15,7 +15,7 @@ import {
 } from "apache-arrow";
 import fs from "node:fs/promises";
 import os from "node:os";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { NativeDuckDBEngine } from "./native-engine";
 

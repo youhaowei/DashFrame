@@ -6,7 +6,7 @@ import { eq } from "drizzle-orm";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { buildDashframeApp } from "../../app";
 import { LOCAL_USER_ID } from "../../permissions";

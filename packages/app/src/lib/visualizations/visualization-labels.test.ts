@@ -3,7 +3,7 @@ import {
   isGeneratedColumnLabel,
 } from "@dashframe/engine";
 import type { Field, InsightMetric } from "@dashframe/types";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 
 const field = (id: string, name: string, columnName: string): Field =>
   ({ id, name, columnName, type: "string" }) as unknown as Field;

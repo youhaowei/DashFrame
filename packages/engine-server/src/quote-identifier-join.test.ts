@@ -1,5 +1,5 @@
 import { quoteIdentifier } from "@dashframe/engine";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import { NativeDuckDBEngine } from "./native-engine";
 

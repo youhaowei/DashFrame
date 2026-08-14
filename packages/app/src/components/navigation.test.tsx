@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import React from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const { mockLocation } = vi.hoisted(() => ({
   mockLocation: { pathname: "/data-sources" },

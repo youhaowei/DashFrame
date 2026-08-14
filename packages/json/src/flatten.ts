@@ -304,7 +304,7 @@ export function unflattenObject(
 
   for (const [key, value] of Object.entries(obj)) {
     const parts = key.split(separator);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Building dynamic nested structure
+    // oxlint-disable-next-line typescript/no-explicit-any -- Building dynamic nested structure
     let current: any = result;
 
     for (let i = 0; i < parts.length - 1; i++) {

@@ -3,7 +3,7 @@ import {
   MAX_LOCAL_SOURCE_BYTES,
   type UUID,
 } from "@dashframe/engine";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { csvToDataFrame } from "./index";
 
 describe("CSV Arrow ingestion budget", () => {

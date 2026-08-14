@@ -12,7 +12,7 @@
  */
 import type { VisualizationType } from "@dashframe/types";
 import { act, renderHook } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { ChartRenderer } from "./chart-renderers";
 import {
   clearRegistry,

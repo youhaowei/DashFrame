@@ -1,5 +1,5 @@
 import type { InsightMetric } from "@dashframe/types";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { reorderVisibleMetrics } from "./reorder-visible-metrics";
 

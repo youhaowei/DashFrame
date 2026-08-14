@@ -1,7 +1,7 @@
 /** VisualizationDisplay saved execution and declared runtime-control coverage. */
 import type { Insight, Visualization } from "@dashframe/types";
 import { render } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   resolveDashboardRuntime,
   VisualizationDisplay,

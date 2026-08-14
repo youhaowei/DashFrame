@@ -14,7 +14,7 @@
  * which the real navigate call satisfies without any cast.
  */
 import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 // ---------------------------------------------------------------------------
 // Hoisted mocks

@@ -1,10 +1,10 @@
 import react from "@vitejs/plugin-react";
 import path from "path";
-import { defineConfig } from "vitest/config";
+import { defineConfig } from "vite-plus";
 
 export default defineConfig({
-  // Cast to any due to Vite version mismatch between @vitejs/plugin-react and vitest
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // Cast to any due to Vite version mismatch between @vitejs/plugin-react and the test runner
+  // oxlint-disable-next-line typescript/no-explicit-any
   plugins: [react() as any],
   test: {
     environment: "jsdom",
