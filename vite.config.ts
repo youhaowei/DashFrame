@@ -34,6 +34,10 @@ export default defineConfig({
         specifier: "./scripts/oxlint-plugin-dashframe.mjs",
       },
       {
+        name: "anti-slop",
+        specifier: "./scripts/oxlint-plugin-anti-slop/index.ts",
+      },
+      {
         name: "@next/next",
         specifier: "@next/eslint-plugin-next",
       },
@@ -285,6 +289,8 @@ export default defineConfig({
         },
       ],
       "dashframe/credential-class-literals": "error",
+      "anti-slop/no-reflect-apply": "error",
+      "anti-slop/no-widen-then-assert": "error",
       "no-restricted-imports": [
         "error",
         {
