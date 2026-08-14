@@ -40,7 +40,7 @@ export interface CSVConversionResult {
 const ZONELESS_ISO_DATE_TIME =
   /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-const ISO_OFFSET = /[+-]\d{2}:\d{2}$/;
+const ISO_OFFSET = /[+-]\d{2}:?\d{2}$/;
 
 function isValidIsoDate(raw: string): boolean {
   if (!ISO_DATE.test(raw)) return false;

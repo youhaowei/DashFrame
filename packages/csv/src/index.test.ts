@@ -22,11 +22,12 @@ describe("CSV date ingestion", () => {
   it("preserves zoneless date-times as UTC calendar values", async () => {
     const result = await csvToDataFrame(
       [
-        ["zoneless_t", "zoneless_space", "explicit_offset"],
+        ["zoneless_t", "zoneless_space", "explicit_offset", "basic_offset"],
         [
           "2024-07-18T00:30:00",
           "2024-07-18 00:30:00",
           "2024-07-18T00:30:00+12:00",
+          "2024-07-18T00:30:00+1200",
         ],
       ],
       DATA_TABLE_ID,
@@ -37,6 +38,7 @@ describe("CSV date ingestion", () => {
       zoneless_t: Date.UTC(2024, 6, 18, 0, 30),
       zoneless_space: Date.UTC(2024, 6, 18, 0, 30),
       explicit_offset: Date.UTC(2024, 6, 17, 12, 30),
+      basic_offset: Date.UTC(2024, 6, 17, 12, 30),
     });
   });
 
