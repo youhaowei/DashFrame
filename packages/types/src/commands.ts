@@ -91,11 +91,9 @@ export type LateBoundRef =
  * A filter predicate where the value operand is a FilterOperandValue.
  * Mirrors InsightFilter from domain types but with the typed operand.
  *
- * No `between` operator: the operand model here is scalar (`v: unknown`), and
- * a range/"between" value can't be expressed by a single scalar. Extending
- * this to support ranges is out of scope — see the UI-side note in
- * InsightConfigPanel.tsx's filter handlers, which stay on the legacy
- * `updateInsight` write path for exactly this reason.
+ * No `between` operator: this late-bound operand model is scalar. Ordinary
+ * persisted filters, including ranges, use `InsightFilter` through
+ * `SetInsightFilter`; extending late binding to ranges is a separate concern.
  */
 export interface TypedInsightFilter {
   /** Stable identity preserved across UI round-trips when present. */
@@ -193,6 +191,11 @@ export interface CommandPayloads {
   UpdateMetric: { nodeId: UUID; metricId: UUID; updates: Partial<Metric> };
   RemoveMetric: { nodeId: UUID; metricId: UUID };
   // Insight
+  GetOrCreateInsightDraft: {
+    id: UUID;
+    name: string;
+    source: { sourceType: "dataTable"; sourceId: UUID };
+  };
   CreateInsight: {
     id: UUID;
     name: string;
@@ -281,6 +284,7 @@ export const COMMAND_PATHS = {
   AddMetric: "addMetric",
   UpdateMetric: "updateMetric",
   RemoveMetric: "removeMetric",
+  GetOrCreateInsightDraft: "getOrCreateInsightDraft",
   CreateInsight: "createInsightCmd",
   SetInsightSource: "setInsightSource",
   SelectFields: "selectFields",
@@ -414,13 +418,10 @@ export function buildMetricDiffCommands(
  * command (e.g. unknown keys) are ignored — callers should only pass known
  * domain fields.
  *
- * `filters` and `joins` are deliberately NOT handled here and throw rather than
- * being dropped, so a future caller cannot lose a write silently:
- *   - filters stay on the legacy `updateInsight` write path until the filter
- *     command model supports ranges (`between` has no single-scalar operand).
- *   - joins are edited through explicit `cmd("AddJoin")` / `cmd("RemoveJoin")`
- *     at the call site, which knows the user's intent better than an
- *     array diff can infer it.
+ * `joins` are deliberately NOT handled here and throw rather than being
+ * dropped. They are edited through explicit `cmd("AddJoin")` /
+ * `cmd("RemoveJoin")` calls, where the caller knows the user's intent better
+ * than an array diff can infer it.
  */
 export function buildInsightUpdateCommands(
   id: UUID,
@@ -438,9 +439,7 @@ export function buildInsightUpdateCommands(
     );
   }
   if (updates.filters !== undefined) {
-    throw new Error(
-      "buildInsightUpdateCommands: filters are not supported — use the legacy updateInsight write path",
-    );
+    commands.push(cmd("SetInsightFilter", { id, filters: updates.filters }));
   }
   if (updates.sorts !== undefined) {
     commands.push(cmd("SetInsightSort", { id, sorts: updates.sorts }));

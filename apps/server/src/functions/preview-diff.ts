@@ -142,6 +142,12 @@ const COMMAND_DESCRIPTORS: Record<CommandPath, CommandDescriptor> = {
     change: "update",
     summary: () => "Refresh data table",
   },
+  getOrCreateInsightDraft: {
+    kind: "insight",
+    targetId: byId,
+    change: "create",
+    summary: (a) => `Get or create insight draft "${String(a.name)}"`,
+  },
   // Field/metric commands are polymorphic over {dataTable, insight}: `nodeId`
   // resolves to either at write time. The handler reports the resolved kind on
   // `value.target.kind`, which buildDirectNodes reads (POLYMORPHIC_RESULT_KEY).
@@ -333,6 +339,7 @@ const PATH_TO_NAME: Record<CommandPath, string> = {
   addMetric: "AddMetric",
   updateMetric: "UpdateMetric",
   removeMetric: "RemoveMetric",
+  getOrCreateInsightDraft: "GetOrCreateInsightDraft",
   createInsightCmd: "CreateInsight",
   setInsightSource: "SetInsightSource",
   selectFields: "SelectFields",
@@ -769,7 +776,16 @@ async function buildDirectNodes(
     if (!isKnownPath(command.path)) continue; // non-vocabulary path — not grouped
     const descriptor = COMMAND_DESCRIPTORS[command.path];
     const args = (command.args ?? {}) as Record<string, unknown>;
-    const nodeId = descriptor.targetId(args) as UUID;
+    const resultValue = results[i]?.value as
+      | Record<string, unknown>
+      | undefined;
+    const resolvedId = resultValue?.id;
+    const nodeId = (
+      command.path === "getOrCreateInsightDraft" &&
+      typeof resolvedId === "string"
+        ? resolvedId
+        : descriptor.targetId(args)
+    ) as UUID;
     // Polymorphic commands (renameNode, deleteNode, field/metric edits) read the
     // handler's reported resolution from the positionally-matched result. Every
     // other command's kind is its descriptor kind. No re-derivation — share the

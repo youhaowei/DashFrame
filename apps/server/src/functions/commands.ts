@@ -99,6 +99,7 @@ import {
   type DashboardItemOverridesInput,
   type FilterOperandValue,
   type InsightSourceInput,
+  isUnmodifiedDraft,
   type LateBoundRef,
   type TypedInsightFilter,
   validateVisualizationEncoding,
@@ -728,6 +729,55 @@ const refreshDataTable = wy.procedure
 // ---------------------------------------------------------------------------
 
 /**
+ * GetOrCreateInsightDraft — atomically reuse the unmodified draft for a table,
+ * or insert the caller-minted id when none exists. This narrow command owns the
+ * auto-draft behavior; generic CreateInsight always creates exactly its id.
+ */
+const getOrCreateInsightDraft = wy.procedure
+  .input({ id: uuid, name: text, source: jsonb })
+  .authorize(permissions.commands.commit)
+  .mutation(async (ctx, args): Promise<{ id: string }> => {
+    const parsedSource = insightSourceSchema.safeParse(args.source);
+    if (!parsedSource.success || parsedSource.data.sourceType !== "dataTable") {
+      throw new Error(
+        "GetOrCreateInsightDraft: source must be an existing DataTable",
+      );
+    }
+    const source = parsedSource.data as InsightSource;
+    await requireSourceExists(ctx, source);
+
+    const rows = (await ctx.db.from(insights).all()) as InsightRow[];
+    const existing = rows.find((row) => {
+      const parsed = storedInsightDefinitionSchema.safeParse(row.definition);
+      if (!parsed.success) return false;
+      const storedSource = parsed.data.source;
+      return (
+        (storedSource === undefined
+          ? parsed.data.baseTableId === source.sourceId
+          : storedSource.sourceType === "dataTable" &&
+            storedSource.sourceId === source.sourceId) &&
+        isUnmodifiedDraft(parsed.data)
+      );
+    });
+    if (existing) return { id: existing.id };
+
+    const definition = requireDefinitionShape("GetOrCreateInsightDraft", {
+      baseTableId: source.sourceId,
+      source,
+      selectedFields: [],
+      metrics: [],
+    });
+    const [row] = (await ctx.db.into(insights).insert({
+      id: args.id,
+      name: args.name,
+      definition,
+      createdBy: { kind: "user" },
+    })) as InsightRow[];
+    if (!row) throw new Error("insert returned no row");
+    return { id: row.id };
+  });
+
+/**
  * CreateInsight — mints a new transform node over a DataFrame-producing input
  * (DataTable or another Insight). `source.sourceId` is written into both the
  * polymorphic `source` field and `baseTableId` (which `decodeInsight` surfaces
@@ -909,9 +959,8 @@ const setInsightFilter = wy.procedure
       ...definition,
       filters,
     });
-    // `filters` is a required input here, but the definition shape types it as
-    // optional, so guard rather than assert — same shape as the patch path in
-    // app-artifacts.ts, which must handle a genuinely absent key.
+    // `filters` is required input here, while the persisted definition keeps it
+    // optional for legacy rows, so normalize only when the parsed key exists.
     const normalized = pruneDefinitionRuntimeControls({
       ...next,
       ...(next.filters === undefined
@@ -1204,10 +1253,8 @@ async function resolveNode(
 }
 
 /**
- * Validate that `value` is an InsightMetric (sourceTable shape) and return it.
- * Mirrors requireInsightMetric in app-artifacts.ts — the same shape the read
- * path enforces — so AddMetric on an Insight node always stores a metric the
- * read path accepts. Inlined here to avoid a cross-module circular dependency.
+ * Validate that `value` is an InsightMetric (sourceTable shape) and return it,
+ * so AddMetric always stores the same shape the Insight read path accepts.
  */
 function requireInsightMetricShape(value: unknown): InsightMetric {
   if (
@@ -1228,8 +1275,7 @@ function requireInsightMetricShape(value: unknown): InsightMetric {
  * Apply a field edit to an Insight via `definition.selectedFields` — the array the
  * read path (decodeInsight) actually surfaces. An Insight does not own Field objects;
  * it SELECTS field ids from its source, so a field command resolves to a membership
- * edit of the id set, mirroring patchInsightDefinition's addField/removeField in
- * app-artifacts.ts:
+ * edit of the id set:
  *   - Add: append the field's id (reject duplicate — matches the collection guard).
  *   - Remove: drop the id (reject missing).
  *   - Update: rejected — a referenced field has no editable definition on the
@@ -1309,10 +1355,8 @@ async function patchDataTableCollection(
     // definition" error, not crash on `.metrics`.
     const { definition } = await requireInsightDefinition(ctx, nodeId);
     const items = (definition.metrics as { id: string }[]).slice();
-    // AddMetric on an Insight must store InsightMetric (sourceTable), the shape
-    // requireInsightMetric in app-artifacts.ts enforces on the read path.
-    // Validate at the write boundary so stored metrics always round-trip through
-    // the read path — same class of fix as CreateInsight.metrics (commit 72365b0).
+    // Validate InsightMetric's sourceTable shape at the write boundary so stored
+    // metrics always round-trip through the read path.
     const normalizedOp =
       op.mode === "add"
         ? { ...op, item: requireInsightMetricShape(op.item) }
@@ -1471,8 +1515,7 @@ const removeMetric = wy.procedure
 
 /**
  * Remove the `data` key from a Vega-Lite spec before persisting.
- * Keeps storage/privacy behaviour consistent with the legacy
- * createVisualization handler in app-artifacts.ts.
+ * Keeps visualization definitions data-free at the canonical write boundary.
  */
 function stripDataFromSpec(spec: VegaLiteSpec): VegaLiteSpec {
   const next = { ...spec };
@@ -2591,6 +2634,7 @@ export const commandFunctions = {
   updateMetric,
   removeMetric,
   // Insight
+  getOrCreateInsightDraft,
   createInsightCmd: createInsight,
   setInsightSource,
   selectFields,

@@ -28,6 +28,7 @@ import {
 import type {
   ChartEncoding,
   ColumnAnalysis,
+  CommandPayloads,
   Field,
   Insight,
   InsightMetric,
@@ -659,11 +660,20 @@ export function InsightView({
 
   // Mutations — artifact writes go through commitBatch (one batch per user edit).
   const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
-  const { mutateAsync: createVisualizationLocal } = useMutation(
-    api.createVisualization,
+  const createVisualizationLocal = useCallback(
+    async (input: Omit<CommandPayloads["CreateVisualization"], "id">) => {
+      const id = crypto.randomUUID() as UUID;
+      await commitBatch({
+        commands: [cmd("CreateVisualization", { id, ...input })],
+      });
+      return { id };
+    },
+    [commitBatch],
   );
-  const { mutateAsync: removeVisualizationMutation } = useMutation(
-    api.removeVisualization,
+  const removeVisualizationMutation = useCallback(
+    ({ id }: { id: string }) =>
+      commitBatch({ commands: [cmd("DeleteNode", { id: id as UUID })] }),
+    [commitBatch],
   );
   const { confirm } = useConfirmDialogStore();
 

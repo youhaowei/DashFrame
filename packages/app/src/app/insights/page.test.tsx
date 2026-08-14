@@ -5,13 +5,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const {
   mockClearActiveView,
   mockNavigate,
-  mockRemoveInsight,
+  mockCommitBatch,
   mockToastError,
   mockUseQuery,
 } = vi.hoisted(() => ({
   mockClearActiveView: vi.fn(),
   mockNavigate: vi.fn(),
-  mockRemoveInsight: vi.fn(),
+  mockCommitBatch: vi.fn(),
   mockToastError: vi.fn(),
   mockUseQuery: vi.fn(),
 }));
@@ -21,7 +21,7 @@ vi.mock("@wystack/client", async (importOriginal) => {
   return {
     ...actual,
     useQuery: (ref: { _path: string }) => mockUseQuery(ref),
-    useMutation: () => ({ mutateAsync: mockRemoveInsight }),
+    useMutation: () => ({ mutateAsync: mockCommitBatch }),
   };
 });
 
@@ -46,6 +46,7 @@ const draft = (id: string, name: string) => ({
   id,
   name,
   createdAt: 0,
+  baseTableId: "table-1",
   selectedFields: [],
   metrics: [],
 });
@@ -54,7 +55,7 @@ describe("InsightsPage delete confirmations", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useConfirmDialogStore.getState().close();
-    mockRemoveInsight.mockResolvedValue({ ok: true });
+    mockCommitBatch.mockResolvedValue({ ok: true });
     mockUseQuery.mockImplementation((ref: { _path: string }) => {
       if (ref._path === "listInsights") {
         return {
@@ -95,7 +96,7 @@ describe("InsightsPage delete confirmations", () => {
       'Are you sure you want to delete "First draft"? This deletes the insight and its visualizations. Dashboard items that reference those visualizations may remain and stop working. This action cannot be undone.',
     );
     await user.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(mockRemoveInsight).not.toHaveBeenCalled();
+    expect(mockCommitBatch).not.toHaveBeenCalled();
 
     await user.click(
       screen.getAllByRole("button", { name: /more options/i })[0],
@@ -103,7 +104,9 @@ describe("InsightsPage delete confirmations", () => {
     await user.click(await screen.findByRole("menuitem", { name: "Delete" }));
     await user.click(screen.getByRole("button", { name: "Delete" }));
     await waitFor(() => {
-      expect(mockRemoveInsight).toHaveBeenCalledWith({ id: "insight-1" });
+      expect(mockCommitBatch).toHaveBeenCalledWith({
+        commands: [{ path: "deleteNode", args: { id: "insight-1" } }],
+      });
       expect(mockClearActiveView).toHaveBeenCalledWith("insight-1");
     });
   });
@@ -124,17 +127,17 @@ describe("InsightsPage delete confirmations", () => {
       "Are you sure you want to delete all 2 draft insights? This deletes the drafts and their visualizations. Dashboard items that reference those visualizations may remain and stop working. This action cannot be undone.",
     );
     await user.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(mockRemoveInsight).not.toHaveBeenCalled();
+    expect(mockCommitBatch).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Delete all" }));
     await user.click(screen.getByRole("button", { name: "Delete" }));
     await waitFor(() => {
-      expect(mockRemoveInsight).toHaveBeenCalledTimes(2);
-      expect(mockRemoveInsight).toHaveBeenNthCalledWith(1, {
-        id: "insight-1",
+      expect(mockCommitBatch).toHaveBeenCalledTimes(2);
+      expect(mockCommitBatch).toHaveBeenNthCalledWith(1, {
+        commands: [{ path: "deleteNode", args: { id: "insight-1" } }],
       });
-      expect(mockRemoveInsight).toHaveBeenNthCalledWith(2, {
-        id: "insight-2",
+      expect(mockCommitBatch).toHaveBeenNthCalledWith(2, {
+        commands: [{ path: "deleteNode", args: { id: "insight-2" } }],
       });
       expect(mockClearActiveView).toHaveBeenCalledTimes(2);
       expect(mockClearActiveView).toHaveBeenNthCalledWith(1, "insight-1");
@@ -165,17 +168,21 @@ describe("InsightsPage delete confirmations", () => {
     await user.click(screen.getByRole("button", { name: "Delete" }));
 
     await waitFor(() => {
-      expect(mockRemoveInsight).toHaveBeenCalledTimes(1);
-      expect(mockRemoveInsight).toHaveBeenCalledWith({ id: "insight-1" });
+      expect(mockCommitBatch).toHaveBeenCalledTimes(1);
+      expect(mockCommitBatch).toHaveBeenCalledWith({
+        commands: [{ path: "deleteNode", args: { id: "insight-1" } }],
+      });
       expect(mockClearActiveView).toHaveBeenCalledWith("insight-1");
     });
-    expect(mockRemoveInsight).not.toHaveBeenCalledWith({ id: "insight-2" });
+    expect(mockCommitBatch).not.toHaveBeenCalledWith({
+      commands: [{ path: "deleteNode", args: { id: "insight-2" } }],
+    });
     expect(mockClearActiveView).not.toHaveBeenCalledWith("insight-2");
   });
 
   it("stops bulk deletion when removing a draft rejects", async () => {
     const user = userEvent.setup();
-    mockRemoveInsight.mockRejectedValueOnce(new Error("delete failed"));
+    mockCommitBatch.mockRejectedValueOnce(new Error("delete failed"));
 
     render(
       <>
@@ -187,8 +194,10 @@ describe("InsightsPage delete confirmations", () => {
     await user.click(screen.getByRole("button", { name: "Delete" }));
 
     await waitFor(() => {
-      expect(mockRemoveInsight).toHaveBeenCalledTimes(1);
-      expect(mockRemoveInsight).toHaveBeenCalledWith({ id: "insight-1" });
+      expect(mockCommitBatch).toHaveBeenCalledTimes(1);
+      expect(mockCommitBatch).toHaveBeenCalledWith({
+        commands: [{ path: "deleteNode", args: { id: "insight-1" } }],
+      });
       expect(mockClearActiveView).not.toHaveBeenCalled();
       expect(mockToastError).toHaveBeenCalledWith(
         "Couldn't delete every draft — some may remain",

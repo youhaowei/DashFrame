@@ -224,6 +224,19 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
     notes: "Validates source exists; rejects self-reference cycles.",
   },
   {
+    name: "GetOrCreateInsightDraft",
+    group: "insight",
+    summary: "Reuse an unmodified draft insight or create one.",
+    args: {
+      id: "UUID",
+      name: "display name",
+      source: "{ sourceType: 'dataTable', sourceId: UUID }",
+    },
+    notes:
+      "Human-only. Preserves the editor's idempotent create flow; assistants " +
+      "should use CreateInsight.",
+  },
+  {
     name: "SetInsightSource",
     group: "insight",
     summary: "Re-point an insight's source.",

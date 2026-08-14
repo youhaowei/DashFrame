@@ -89,24 +89,12 @@ export async function removeFilterThroughCommands(
   commit: (input: { commands: Command[] }) => Promise<unknown>,
   insight: Insight,
   filterId: string,
-  runtimeResultFieldIds: UUID[],
 ): Promise<void> {
   const filters = withFilterIds(insight.filters)
     .filter((filter) => filter._id !== filterId)
     .map(({ _id: _discarded, ...filter }) => filter);
-  const runtimeControls = pruneRuntimeControls(
-    insight.runtimeControls,
-    filters,
-    runtimeResultFieldIds,
-  );
   await commit({
-    commands: [
-      cmd("SetInsightFilter", { id: insight.id, filters }),
-      cmd("SetInsightRuntimeControls", {
-        id: insight.id,
-        runtimeControls,
-      }),
-    ],
+    commands: [cmd("SetInsightFilter", { id: insight.id, filters })],
   });
 }
 
@@ -207,12 +195,11 @@ export function InsightConfigPanel({
     },
     [commitBatch],
   );
-  const { mutateAsync: removeVisualizationMutation } = useMutation(
-    api.removeVisualization,
+  const removeVisualizationMutation = useCallback(
+    ({ id }: { id: UUID }) =>
+      commitBatch({ commands: [cmd("DeleteNode", { id })] }),
+    [commitBatch],
   );
-  // filters stay on the legacy write path until the filter command model supports ranges
-  const { mutateAsync: updateInsightLegacy } = useMutation(api.updateInsight);
-
   // Get visualizations for this insight to check dependencies
   const { data: insightVisualizations = [] } = useQuery(
     api.listVisualizations,
@@ -430,35 +417,24 @@ export function InsightConfigPanel({
 
   const handleFiltersReorder = useCallback(
     (reordered: FilterWithId[]) => {
-      updateInsightLegacy({
-        id: insight.id,
-        updates: { filters: stripFilterIds(reordered) },
-      });
+      void updateInsight(insight.id, { filters: stripFilterIds(reordered) });
     },
-    [insight.id, stripFilterIds, updateInsightLegacy],
+    [insight.id, stripFilterIds, updateInsight],
   );
 
   const handleRemoveFilter = useCallback(
     (filterId: string) => {
-      void removeFilterThroughCommands(
-        commitBatch,
-        insight,
-        filterId,
-        runtimeResultFields.map((field) => field.id),
-      );
+      void removeFilterThroughCommands(commitBatch, insight, filterId);
     },
-    [commitBatch, insight, runtimeResultFields],
+    [commitBatch, insight],
   );
 
   const handleSaveFilter = useCallback(
     async (saved: FilterWithId) => {
       const updated = applyFilterSave(filtersWithIds, saved);
-      await updateInsightLegacy({
-        id: insight.id,
-        updates: { filters: stripFilterIds(updated) },
-      });
+      await updateInsight(insight.id, { filters: stripFilterIds(updated) });
     },
-    [insight.id, filtersWithIds, stripFilterIds, updateInsightLegacy],
+    [insight.id, filtersWithIds, stripFilterIds, updateInsight],
   );
 
   // --- Delete dialog handlers ---

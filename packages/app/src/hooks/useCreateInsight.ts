@@ -1,8 +1,11 @@
 import { getAllInsights, getInsight } from "@/lib/data-access/insights";
 import { api } from "@/wystack/api";
 import {
+  cmd,
   isUnmodifiedDraft,
+  resultValueByCommandPath,
   type InsightMetric,
+  type InsightSourceInput,
   type UUID,
 } from "@dashframe/types";
 import { useNavigate } from "@tanstack/react-router";
@@ -48,29 +51,42 @@ import { toast } from "sonner";
  *   createInsightFromInsight(sourceId, sourceName);
  *   // Creates derived insight and navigates to it
  * };
- * ```
  */
 export function useCreateInsight() {
   const navigate = useNavigate();
-  const { mutateAsync: createInsightMutation } = useMutation(api.createInsight);
+  const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
   const createInsight = useCallback(
     async (
       name: string,
-      baseTableId: UUID,
+      source: InsightSourceInput,
       options?: {
         selectedFields?: UUID[];
         metrics?: InsightMetric[];
         reuseUnmodifiedDraft?: boolean;
       },
     ): Promise<UUID> => {
-      const { id } = await createInsightMutation({
-        name,
-        baseTableId,
-        options,
-      });
-      return id as UUID;
+      const id = crypto.randomUUID() as UUID;
+      const command =
+        options?.reuseUnmodifiedDraft === true &&
+        source.sourceType === "dataTable"
+          ? cmd("GetOrCreateInsightDraft", { id, name, source })
+          : cmd("CreateInsight", {
+              id,
+              name,
+              source,
+              selectedFields: options?.selectedFields,
+              metrics: options?.metrics,
+            });
+      const result = await commitBatch({ commands: [command] });
+      const value = resultValueByCommandPath(result, command.path) as {
+        id?: unknown;
+      };
+      if (typeof value?.id !== "string") {
+        throw new Error("Insight creation returned no id");
+      }
+      return value.id as UUID;
     },
-    [createInsightMutation],
+    [commitBatch],
   );
 
   /**
@@ -143,7 +159,7 @@ export function useCreateInsight() {
       //   collapse duplicate rows.
       const insightId = await createInsight(
         name,
-        tableId, // baseTableId
+        { sourceType: "dataTable", sourceId: tableId as UUID },
         { selectedFields: [], reuseUnmodifiedDraft: !hasModifiedInsights },
       );
 
@@ -161,8 +177,8 @@ export function useCreateInsight() {
   /**
    * Creates a new insight that chains from an existing insight's DataFrame.
    *
-   * The new insight uses the same base table as the source insight,
-   * allowing users to build on their previous analysis.
+   * The new insight uses the source insight as its input, allowing users to
+   * build a real composition chain from the previous analysis.
    */
   const createFromInsight = useCallback(
     async (
@@ -177,13 +193,17 @@ export function useCreateInsight() {
         return null;
       }
 
-      // Create a new insight using the same base table. Derived insights are an
+      // Create a new insight over the upstream insight's base table. Derived
+      // insights are an
       // explicit creation intent, so they don't opt into reuseUnmodifiedDraft —
       // each call gets a fresh row rather than being rerouted to an existing
-      // unmodified draft for the same baseTableId.
+      // unmodified table draft.
       const insightId = await createInsight(
         `${sourceInsightName} (derived)`,
-        sourceInsight.baseTableId,
+        {
+          sourceType: "dataTable",
+          sourceId: sourceInsight.baseTableId,
+        },
         { selectedFields: [] },
       );
 
@@ -224,8 +244,8 @@ export function useCreateInsight() {
   /**
    * Creates a new insight that chains from an existing insight's DataFrame.
    *
-   * The new insight uses the same base table as the source insight,
-   * allowing users to build on their previous analysis.
+   * The new insight uses the source insight as its input, allowing users to
+   * build a real composition chain from the previous analysis.
    *
    * Same boundary rule as createInsightFromTable: failures toast here.
    */

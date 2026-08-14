@@ -329,6 +329,33 @@ describe("PreviewDiff builder", () => {
       // the stale name/type must not masquerade as a proposed change.
       expect(node.proposedDefinition).toEqual({});
     });
+
+    it("uses the existing draft id when GetOrCreateInsightDraft reuses a row", async () => {
+      const sourceId = await seedSource();
+      const tableId = await seedTable(sourceId);
+      const existingId = await seedInsight({
+        baseTableId: tableId,
+        selectedFields: [],
+        metrics: [],
+      });
+      const requestedId = id();
+
+      const diff = await preview(
+        cmd("GetOrCreateInsightDraft", {
+          id: requestedId,
+          name: "Draft",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+
+      expect(diff.directNodes).toHaveLength(1);
+      const node = diff.directNodes[0]!;
+      expect(node.nodeId).toBe(existingId);
+      expect(node.nodeId).not.toBe(requestedId);
+      expect(node.change).toBe("noop");
+      expect((node.before as { id?: string }).id).toBe(existingId);
+      expect(node.proposedDefinition).toEqual({});
+    });
   });
 
   // --------------------------------------------------------------------------

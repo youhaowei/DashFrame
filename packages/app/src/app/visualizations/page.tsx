@@ -2,7 +2,12 @@ import { RoutedCardActionMenuTrigger } from "@/components/RoutedCardActionMenuTr
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 import { useConfirmDialogStore } from "@/lib/stores";
 import { api } from "@/wystack/api";
-import type { Insight, UUID, Visualization } from "@dashframe/types";
+import {
+  cmd,
+  type Insight,
+  type UUID,
+  type Visualization,
+} from "@dashframe/types";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@wystack/client";
 import {
@@ -50,9 +55,7 @@ export default function VisualizationsPage() {
   const { data: insights = [] } = useQuery(api.listInsights, { args: {} });
   const { data: dataSources = [] } = useQuery(api.listDataSources);
   const { data: dataTables = [] } = useQuery(api.listDataTables, { args: {} });
-  const { mutateAsync: removeVisualization } = useMutation(
-    api.removeVisualization,
-  );
+  const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
   const { confirm } = useConfirmDialogStore();
 
   // Local state
@@ -157,7 +160,9 @@ export default function VisualizationsPage() {
       variant: "destructive",
       onConfirm: async () => {
         try {
-          await removeVisualization({ id: visualizationId });
+          await commitBatch({
+            commands: [cmd("DeleteNode", { id: visualizationId })],
+          });
         } catch {
           toast.error("Couldn't delete the visualization");
         }

@@ -19,6 +19,26 @@ import {
 } from "./InsightView";
 
 describe("buildChartSuggestionInsight", () => {
+  it("preserves an Insight-backed source for composed detail views", () => {
+    const source = {
+      sourceType: "insight" as const,
+      sourceId: "insight-upstream",
+    };
+
+    expect(
+      buildChartSuggestionInsight({
+        id: "insight-derived",
+        name: "Derived chart",
+        source,
+        selectedFields: [],
+        metrics: [],
+        createdAt: 0,
+      } as never),
+    ).toMatchObject({ source });
+  });
+});
+
+describe("buildChartSuggestionInsight", () => {
   it("keeps server-resolved topology while exposing all joined fields", () => {
     const insight = {
       id: "insight-1",

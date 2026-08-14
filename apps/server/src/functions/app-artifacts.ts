@@ -17,7 +17,6 @@ import type {
   DataTable,
   Field,
   Insight,
-  InsightMetric,
   Metric,
   SourceSchema,
   UUID,
@@ -26,33 +25,17 @@ import type {
   VisualizationEncoding,
   VisualizationType,
 } from "@dashframe/types";
-import {
-  getFieldSensitivity,
-  isUnmodifiedDraft,
-  stripSampleValues,
-  validateVisualizationEncoding,
-} from "@dashframe/types";
+import { getFieldSensitivity, stripSampleValues } from "@dashframe/types";
 import { boolean, eq, int, jsonb, text, uuid } from "@wystack/db";
 import { PermissionDeniedError } from "@wystack/permissions";
 import type { SecretRef, SecretVault } from "@wystack/secret-vault";
 import { isSecretRef } from "@wystack/secret-vault";
 import { randomUUID } from "node:crypto";
-import { z } from "zod";
 
 import type { DashframeFunctionContext } from "../app-context";
 import { permissions } from "../permissions";
 import { wy } from "../wystack";
-import {
-  decodeInsight,
-  decodeStoredInsightDefinition,
-  encodeInsightDefinition,
-  ensureInsightFilterIds,
-  storedInsightDefinitionSchema,
-  toInsight,
-  type InsightDefinition,
-  type InsightRow,
-  type StoredInsightDefinition,
-} from "./insights";
+import { decodeInsight, type InsightRow } from "./insights";
 import { tsToMillis } from "./timestamps";
 import {
   applyCredentialField,
@@ -95,97 +78,6 @@ type DataFrameEntry = DataFrameJSON & {
 
 function nullableDateFromEpoch(value: number | undefined): Date | null {
   return value === undefined ? null : new Date(value);
-}
-
-function requireInsightMetric(value: unknown): InsightMetric {
-  if (
-    !isRecord(value) ||
-    typeof value.id !== "string" ||
-    typeof value.name !== "string" ||
-    typeof value.sourceTable !== "string" ||
-    typeof value.aggregation !== "string"
-  ) {
-    throw new Error(
-      "metric must include id, name, sourceTable, and aggregation",
-    );
-  }
-  return value as unknown as InsightMetric;
-}
-
-function patchInsightDefinition(
-  current: Insight,
-  args: {
-    mode: string;
-    fieldId?: string;
-    metricId?: string;
-    metric?: unknown;
-    updates?: unknown;
-  },
-): Pick<InsightDefinition, "selectedFields" | "metrics"> {
-  if (args.mode === "addField") {
-    if (!args.fieldId) throw new Error("fieldId is required for addField");
-    return {
-      selectedFields: current.selectedFields.includes(args.fieldId)
-        ? current.selectedFields
-        : [...current.selectedFields, args.fieldId],
-      metrics: current.metrics,
-    };
-  }
-  if (args.mode === "removeField") {
-    if (!args.fieldId) throw new Error("fieldId is required for removeField");
-    if (!current.selectedFields.includes(args.fieldId)) {
-      throw new Error(`Field ${args.fieldId} is not selected`);
-    }
-    return {
-      selectedFields: current.selectedFields.filter(
-        (id) => id !== args.fieldId,
-      ),
-      metrics: current.metrics,
-    };
-  }
-  if (args.mode === "addMetric") {
-    return {
-      selectedFields: current.selectedFields,
-      metrics: [...current.metrics, requireInsightMetric(args.metric)],
-    };
-  }
-  return patchInsightMetricDefinition(current, args);
-}
-
-function patchInsightMetricDefinition(
-  current: Insight,
-  args: { mode: string; metricId?: string; updates?: unknown },
-): Pick<InsightDefinition, "selectedFields" | "metrics"> {
-  if (args.mode === "updateMetric") {
-    if (!args.metricId)
-      throw new Error("metricId is required for updateMetric");
-    if (!isRecord(args.updates) || Object.keys(args.updates).length === 0) {
-      throw new Error("updates are required for updateMetric");
-    }
-    if (!current.metrics.some((metric) => metric.id === args.metricId)) {
-      throw new Error(`Metric ${args.metricId} not found`);
-    }
-    return {
-      selectedFields: current.selectedFields,
-      metrics: current.metrics.map((metric) =>
-        metric.id === args.metricId
-          ? { ...metric, ...(args.updates as Partial<InsightMetric>) }
-          : metric,
-      ),
-    };
-  }
-  if (args.mode === "removeMetric") {
-    if (!args.metricId)
-      throw new Error("metricId is required for removeMetric");
-    if (!current.metrics.some((metric) => metric.id === args.metricId)) {
-      throw new Error(`Metric ${args.metricId} not found`);
-    }
-    return {
-      selectedFields: current.selectedFields,
-      metrics: current.metrics.filter((metric) => metric.id !== args.metricId),
-    };
-  }
-  throw new Error(`Unsupported insight patch mode ${args.mode}`);
 }
 
 /**
@@ -282,12 +174,6 @@ function rowToDataFrame(row: DataFrameRow): DataFrameEntry {
   };
 }
 
-function stripDataFromSpec(spec: VegaLiteSpec): VegaLiteSpec {
-  const next = { ...spec };
-  delete next.data;
-  return next;
-}
-
 function rowToVisualization(row: VisualizationRow): Visualization {
   const options = (row.options ?? {}) as { spec?: VegaLiteSpec };
   return {
@@ -300,17 +186,6 @@ function rowToVisualization(row: VisualizationRow): Visualization {
     createdAt: tsToMillis(row.createdAt),
     updatedAt: row.updatedAt?.getTime(),
   };
-}
-
-async function loadInsightRow(
-  ctx: { db: import("@wystack/db").DrizzleTracker },
-  id: string,
-): Promise<InsightRow> {
-  const row = (await ctx.db.from(insights).where(eq("id", id)).first()) as
-    | InsightRow
-    | undefined;
-  if (!row) throw new Error(`Insight ${id} not found`);
-  return row;
 }
 
 const listDataSources = wy.procedure
@@ -548,268 +423,6 @@ const getInsight = wy.procedure
     return row ? decodeInsight(row) : null;
   });
 
-const createInsight = wy.procedure
-  .input({ name: text, baseTableId: uuid, options: jsonb.optional() })
-  .mutation(
-    async (ctx, { name, baseTableId, options }): Promise<{ id: string }> => {
-      const opts = (options ?? {}) as {
-        selectedFields?: UUID[];
-        metrics?: InsightMetric[];
-        /** Opt-in: when this would be an unmodified draft, reuse an existing
-         *  unmodified draft for the same baseTableId instead of inserting a
-         *  duplicate. The auto-draft entry point sets this; explicit creation
-         *  paths (e.g. deriving from an insight) leave it false. */
-        reuseUnmodifiedDraft?: boolean;
-      };
-
-      return ctx.db.transaction(async (tx) => {
-        // Validate BEFORE the reuse check, not merely before the insert. The
-        // guard has to sit above EVERY exit from this handler, because
-        // `isUnmodifiedDraft` reads `.length` off each array: a non-array like
-        // `selectedFields: {}` yields `undefined ?? 0 === 0` and reads as
-        // "unmodified", so a malformed request would take the reuse branch and
-        // return an existing draft's id — reporting success for input we refuse
-        // to store, and silently dropping what the caller meant to select.
-        // Parsing first makes the guard order-independent.
-        //
-        // Parsing also replaces the old hand-built draft-shape literal: the
-        // schema strips unknown keys, so `reuseUnmodifiedDraft` is already gone
-        // from `definition` and the predicate reads only definition fields.
-        const definition = storedInsightDefinitionSchema.parse(
-          // `options` arrives as opaque `jsonb` and is cast, not checked, so
-          // `encodeInsightDefinition` will pass a non-array `selectedFields`
-          // straight through (`{}` is not nullish, so `?? []` does not catch
-          // it). An unvalidated INSERT is worse than an unvalidated update: it
-          // mints a permanently undecodable row that fails the fail-closed read
-          // path for every later reader, not just this one.
-          encodeInsightDefinition({
-            baseTableId,
-            selectedFields: opts.selectedFields,
-            metrics: opts.metrics,
-          }),
-        );
-
-        // Reuse is opt-in and only applies when the incoming insight is itself an
-        // unmodified draft. A pre-populated insight (fields/metrics) or any
-        // non-auto-draft caller always inserts a fresh row.
-        const shouldReuse =
-          opts.reuseUnmodifiedDraft === true && isUnmodifiedDraft(definition);
-
-        if (shouldReuse) {
-          // Atomic check-and-create: scan-and-decide runs inside the transaction
-          // so two concurrent auto-draft calls for the same baseTableId converge
-          // on a single draft rather than racing into duplicates (TOCTOU).
-          //
-          // INVARIANT: this closes the race only while the backend is
-          // single-connection (PGlite, the desktop + `dashframe serve` target),
-          // where transactions serialize at the event loop. A multi-connection
-          // store under READ COMMITTED would let both transactions scan, find no
-          // draft, and both insert — reopening the phantom-read window. Trigger
-          // to revisit if the backend ever becomes multi-connection: add a unique
-          // index on (definition->>'baseTableId') for unmodified drafts, or take
-          // SELECT … FOR UPDATE / serializable isolation here.
-          //
-          // NOTE: baseTableId lives inside the `definition` JSONB column, and
-          // @wystack/db has no JSONB-path filtering — so the scan is a full table
-          // read filtered in JS. Acceptable at current insight-table scale.
-          // Trigger to revisit: when insight count grows enough that this scan
-          // shows up in latency, promote baseTableId to a top-level indexed
-          // column (or add a JSONB expression index) and filter at the DB layer.
-          const rows = (await tx.from(insights).all()) as InsightRow[];
-          // Fail OPEN here, unlike every read site. This scan only looks for a
-          // draft worth reusing, so an undecodable row is skipped rather than
-          // thrown: failing closed would let one corrupt row anywhere in the
-          // table block createInsight for every unrelated baseTableId, and the
-          // worst case of skipping is that we create a new draft instead of
-          // reusing one. `listInsights` still surfaces the corruption.
-          const existingDraft = rows.find((row) => {
-            let definition: StoredInsightDefinition;
-            try {
-              definition = decodeStoredInsightDefinition(row);
-            } catch {
-              return false;
-            }
-            return (
-              definition.baseTableId === baseTableId &&
-              isUnmodifiedDraft(definition)
-            );
-          });
-
-          if (existingDraft) {
-            return { id: existingDraft.id };
-          }
-        }
-
-        const [row] = (await tx.into(insights).insert({
-          name,
-          definition,
-          createdBy: { kind: "user" },
-        })) as InsightRow[];
-        if (!row) throw new Error("insert returned no row");
-        return { id: row.id };
-      });
-    },
-  );
-
-const updateInsight = wy.procedure
-  .input({ id: uuid, updates: jsonb })
-  .mutation(async (ctx, { id, updates }): Promise<{ ok: true }> => {
-    // Read-modify-write on the definition blob runs inside a transaction: an
-    // interleaved SetInsightSource would otherwise commit between the read and
-    // the write, and this write-back of the stale snapshot would silently
-    // revert the accepted source change. Same single-connection serialization
-    // INVARIANT as the createInsight dedup scan above — see the note there.
-    await ctx.db.transaction(async (tx) => {
-      const row = await loadInsightRow({ db: tx }, id);
-      const stored = decodeStoredInsightDefinition(row);
-      const patch = updates as Partial<Insight>;
-      // `name` is a row column, not part of the definition blob, so the schema
-      // parse below never sees it. Without this check an untyped `updates`
-      // could put a non-string straight into the column — the same unchecked
-      // write this procedure exists to close, just on the other field.
-      if (patch.name !== undefined && typeof patch.name !== "string") {
-        throw new Error("updateInsight: name must be a string");
-      }
-      if (
-        patch.baseTableId !== undefined &&
-        patch.baseTableId !== stored.baseTableId
-      ) {
-        throw new Error(
-          "updateInsight cannot repoint baseTableId; use SetInsightSource",
-        );
-      }
-      if (Object.hasOwn(patch, "runtimeControls")) {
-        throw new Error(
-          "updateInsight cannot set runtimeControls; use SetInsightRuntimeControls",
-        );
-      }
-      await tx
-        .from(insights)
-        .where(eq("id", id))
-        .update({
-          ...(patch.name !== undefined ? { name: patch.name } : {}),
-          definition: storedInsightDefinitionSchema.parse({
-            ...stored,
-            ...patch,
-            ...(patch.filters !== undefined
-              ? { filters: ensureInsightFilterIds(patch.filters) }
-              : {}),
-            // Pinned from the stored blob, never the patch. `source` is a valid
-            // schema key, so an untyped `updates` carrying one would otherwise
-            // win the spread and write a composition edge that never passed
-            // `requireSourceExists`/`wouldCreateCycle` — the same back-door the
-            // `baseTableId` guard above closes, and a more direct one. `Insight`
-            // has no `source`, so the cast hides this from the type checker.
-            source: stored.source,
-          }),
-        });
-    });
-    return { ok: true };
-  });
-
-const removeInsight = wy.procedure
-  .input({ id: uuid })
-  .mutation(async (ctx, { id }): Promise<{ ok: true }> => {
-    assertCanonicalFrameSideEffects(ctx);
-    const candidates = (await ctx.db
-      .from(dataFrames)
-      .where(eq("insightId", id))
-      .all()) as DataFrameRow[];
-    if (
-      candidates.some(
-        (frame) =>
-          (frame.storage as { type?: unknown } | null)?.type !== "file",
-      )
-    ) {
-      throw new Error("Legacy browser DataFrames are not supported");
-    }
-    const owned = await framesUnreferencedOutsideTables(
-      ctx,
-      candidates,
-      new Set(),
-    );
-    const staged = await stageServerFrames(ctx, owned);
-    try {
-      await ctx.db.transaction(async (tx) => {
-        for (const frame of owned) {
-          await tx.from(dataFrames).where(eq("id", frame.id)).delete();
-        }
-        await tx.from(visualizations).where(eq("insightId", id)).delete();
-        await tx.from(insights).where(eq("id", id)).delete();
-      });
-    } catch (error) {
-      await rollbackStagedServerFrames(ctx, staged);
-      throw error;
-    }
-    await commitStagedServerFrames(ctx, staged);
-    return { ok: true };
-  });
-
-// Discriminated-union guard for patchInsight mode inputs.
-// Guards the SINK — validates at the handler boundary before the helper call,
-// catching malformed payloads that arrive from any untrusted client path.
-const patchInsightArgsSchema = z.discriminatedUnion("mode", [
-  z.object({
-    mode: z.literal("addMetric"),
-    metric: z.record(z.string(), z.unknown()),
-  }),
-  z.object({
-    mode: z.literal("addField"),
-    fieldId: z.string().uuid(),
-  }),
-  z.object({
-    mode: z.literal("removeField"),
-    fieldId: z.string().uuid(),
-  }),
-  z.object({
-    mode: z.literal("updateMetric"),
-    metricId: z.string().uuid(),
-    updates: z.record(z.string(), z.unknown()),
-  }),
-  z.object({
-    mode: z.literal("removeMetric"),
-    metricId: z.string().uuid(),
-  }),
-]);
-
-const patchInsight = wy.procedure
-  .input({
-    id: uuid,
-    mode: text,
-    fieldId: uuid.optional(),
-    metricId: uuid.optional(),
-    metric: jsonb.optional(),
-    updates: jsonb.optional(),
-  })
-  .mutation(async (ctx, args): Promise<{ ok: true }> => {
-    const parsed = patchInsightArgsSchema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
-    // Transactional for the same reason as updateInsight: this is a
-    // read-modify-write of the definition blob, and an interleaved
-    // SetInsightSource would otherwise be reverted by the stale write-back.
-    await ctx.db.transaction(async (tx) => {
-      const row = await loadInsightRow({ db: tx }, args.id);
-      // One parse, two views: `toInsight` projects the already-decoded
-      // definition instead of decoding the row a second time.
-      const stored = decodeStoredInsightDefinition(row);
-      const current = toInsight(row, stored);
-      const { selectedFields, metrics } = patchInsightDefinition(current, args);
-      await tx
-        .from(insights)
-        .where(eq("id", args.id))
-        .update({
-          definition: storedInsightDefinitionSchema.parse({
-            ...stored,
-            selectedFields,
-            metrics,
-          }),
-        });
-    });
-    return { ok: true };
-  });
-
 const listVisualizations = wy.procedure
   .input({ insightId: uuid.optional() })
   .query(async (ctx, { insightId }): Promise<Visualization[]> => {
@@ -830,44 +443,6 @@ const getVisualization = wy.procedure
       .where(eq("id", id))
       .first()) as VisualizationRow | undefined;
     return row ? rowToVisualization(row) : null;
-  });
-
-const createVisualization = wy.procedure
-  .input({
-    name: text,
-    insightId: uuid,
-    visualizationType: text,
-    spec: jsonb,
-    encoding: jsonb.optional(),
-  })
-  .mutation(
-    async (
-      ctx,
-      { name, insightId, visualizationType, spec, encoding },
-    ): Promise<{ id: string }> => {
-      // Same write-time gate as the CreateVisualization command handler in
-      // commands.ts — this legacy RPC writes the same column, so leaving it
-      // unchecked would keep the malformed-encoding hole open (GH #289).
-      const problem = validateVisualizationEncoding(encoding);
-      if (problem) throw new Error(`createVisualization: ${problem}`);
-      const [row] = (await ctx.db.into(visualizations).insert({
-        name,
-        insightId,
-        chartType: visualizationType,
-        encoding: (encoding ?? {}) as VisualizationEncoding,
-        options: { spec: stripDataFromSpec(spec as VegaLiteSpec) },
-        createdBy: { kind: "user" },
-      })) as VisualizationRow[];
-      if (!row) throw new Error("insert returned no row");
-      return { id: row.id };
-    },
-  );
-
-const removeVisualization = wy.procedure
-  .input({ id: uuid })
-  .mutation(async (ctx, { id }): Promise<{ ok: true }> => {
-    await ctx.db.from(visualizations).where(eq("id", id)).delete();
-    return { ok: true };
   });
 
 const clearAllData = wy.procedure
@@ -1955,14 +1530,8 @@ export const appArtifactFunctions = {
   removeDataFrameEntry,
   listInsights,
   getInsight,
-  createInsight,
-  updateInsight,
-  removeInsight,
-  patchInsight,
   listVisualizations,
   getVisualization,
-  createVisualization,
-  removeVisualization,
   clearAllData,
   // Notion data-plane routes (auth-blind via bound resolver)
   listNotionDatabases,

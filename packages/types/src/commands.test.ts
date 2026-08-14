@@ -143,12 +143,29 @@ describe("buildInsightUpdateCommands", () => {
     expect(buildInsightUpdateCommands(id, baseInsight, {})).toEqual([]);
   });
 
-  it("throws rather than silently dropping filters or joins", () => {
-    expect(() =>
+  it("emits range filters and still rejects joins", () => {
+    expect(
       buildInsightUpdateCommands(id, baseInsight, {
-        filters: [{ field: "region", operator: "eq", value: "EMEA" }],
+        filters: [
+          {
+            field: "period",
+            operator: "between",
+            value: { low: 1, high: 6 },
+          },
+        ],
       }),
-    ).toThrow(/filters are not supported/);
+    ).toEqual([
+      cmd("SetInsightFilter", {
+        id,
+        filters: [
+          {
+            field: "period",
+            operator: "between",
+            value: { low: 1, high: 6 },
+          },
+        ],
+      }),
+    ]);
     expect(() =>
       buildInsightUpdateCommands(id, baseInsight, {
         joins: [

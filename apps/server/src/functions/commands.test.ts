@@ -1004,6 +1004,59 @@ describe("command vocabulary", () => {
     });
   });
 
+  describe("GetOrCreateInsightDraft", () => {
+    it("returns the existing unmodified draft for the same table", async () => {
+      const { tableId } = await makeTable();
+      const firstId = id();
+      const secondId = id();
+
+      const first = await commit(
+        cmd("GetOrCreateInsightDraft", {
+          id: firstId,
+          name: "Orders",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+      const second = await commit(
+        cmd("GetOrCreateInsightDraft", {
+          id: secondId,
+          name: "Orders",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+
+      expect(first.results[0]?.value).toEqual({ id: firstId });
+      expect(second.results[0]?.value).toEqual({ id: firstId });
+      expect(await insightsById(firstId)).toHaveLength(1);
+      expect(await insightsById(secondId)).toHaveLength(0);
+    });
+
+    it("does not reuse a modified insight", async () => {
+      const { tableId } = await makeTable();
+      const modifiedId = id();
+      const draftId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: modifiedId,
+          name: "Orders",
+          source: { sourceType: "dataTable", sourceId: tableId },
+          selectedFields: [id()],
+        }),
+      );
+
+      const result = await commit(
+        cmd("GetOrCreateInsightDraft", {
+          id: draftId,
+          name: "Orders (2)",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+
+      expect(result.results[0]?.value).toEqual({ id: draftId });
+      expect(await insightsById(draftId)).toHaveLength(1);
+    });
+  });
+
   describe("SetInsightSource (Insight-on-Insight composition + cycle rejection)", () => {
     it("should re-point an Insight's source to another Insight's DataFrame", async () => {
       const { tableId } = await makeTable();
@@ -1124,10 +1177,7 @@ describe("command vocabulary", () => {
         }),
       );
 
-      await app.call("updateInsight", {
-        id: bId,
-        updates: { name: "B renamed" },
-      });
+      await commit(cmd("RenameNode", { id: bId, name: "B renamed" }));
 
       await expect(
         commit(

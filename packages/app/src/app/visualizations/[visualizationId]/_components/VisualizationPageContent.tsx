@@ -33,6 +33,7 @@ import type {
 import {
   buildVisualizationUpdateCommands,
   CHART_TYPE_METADATA,
+  cmd,
   parseEncoding,
 } from "@dashframe/types";
 import { SelectField } from "@dashframe/ui";
@@ -153,8 +154,10 @@ export default function VisualizationPageContent({
     },
     [commitBatch],
   );
-  const { mutateAsync: removeVisualizationMutation } = useMutation(
-    api.removeVisualization,
+  const removeVisualizationMutation = useCallback(
+    ({ id }: { id: UUID }) =>
+      commitBatch({ commands: [cmd("DeleteNode", { id })] }),
+    [commitBatch],
   );
   const { confirm } = useConfirmDialogStore();
 
@@ -189,9 +192,8 @@ export default function VisualizationPageContent({
     visualization?.insightId,
   );
 
-  // Find the data table (React Compiler memoizes this).
   const dataTable = insight?.baseTableId
-    ? dataTables.find((t) => t.id === insight.baseTableId)
+    ? dataTables.find((table) => table.id === insight.baseTableId)
     : undefined;
 
   // The model-preview mutation validates the complete ephemeral Insight
