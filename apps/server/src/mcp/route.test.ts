@@ -24,6 +24,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 
 import { createDashframeServer, type DashframeServer } from "../app";
+import { REPORT_APP_MIME_TYPE, REPORT_APP_URI } from "./report-app";
 import type { McpMode } from "./route";
 import { createMcpTools } from "./tools";
 
@@ -47,12 +48,7 @@ function writeDashboard(client: Client, name: string) {
   });
 }
 
-/**
- * The vault is shared between the access-credential store and the server, so a
- * plaintext credential written through the write tool actually goes somewhere —
- * without one the server refuses to persist and the credential path is never
- * exercised.
- */
+/** The vault is shared by the access-credential store and server fixture. */
 function makeVault(rootDir: string): {
   vault: SecretVault;
   accessCredentials: ApiAccessCredentials;
@@ -170,6 +166,26 @@ describe("MCP route", () => {
     return { client, transport };
   }
 
+  it("advertises the DashFrame icon during MCP initialization", async () => {
+    const { client, transport } = await connect();
+    try {
+      const serverInfo = client.getServerVersion();
+      expect(serverInfo?.name).toBe("dashframe");
+      expect(serverInfo?.title).toBe("DashFrame");
+      const icon = serverInfo?.icons?.[0];
+      expect(icon?.mimeType).toBe("image/png");
+      expect(icon?.sizes).toEqual(["128x128"]);
+      expect(icon?.src).toMatch(/^data:image\/png;base64,/);
+      const iconData = icon?.src.split(",", 2)[1];
+      if (iconData === undefined) throw new Error("Missing MCP icon data.");
+      expect(Buffer.from(iconData, "base64").subarray(0, 8)).toEqual(
+        Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+      );
+    } finally {
+      await transport.close();
+    }
+  });
+
   it("refuses a draft read when the draft closes during the read", async () => {
     const draftId = crypto.randomUUID();
     let draftChecks = 0;
@@ -243,6 +259,218 @@ describe("MCP route", () => {
     expect(checks).toBe(2);
   });
 
+  it("renders only a bounded, authorized frame preview without leaking frame internals", async () => {
+    const dataFrameId = crypto.randomUUID();
+    const dateFieldId = crypto.randomUUID();
+    const usersFieldId = crypto.randomUUID();
+    const extraFields = Array.from({ length: 99 }, (_, index) => ({
+      id: crypto.randomUUID(),
+      name: `extra_${index}`,
+      type: "string",
+    }));
+    const providerId = crypto.randomUUID();
+    const fakeProjectPath = `/private/project/${crypto.randomUUID()}.arrow`;
+    const queryCalls: unknown[] = [];
+    const fakeApp = {
+      async call(path: string, args: unknown) {
+        if (path === "getDataFrameEntry") {
+          return {
+            result: {
+              id: dataFrameId,
+              insightId: crypto.randomUUID(),
+              currentInsightResult: false,
+              lastRefreshedAt: 1_723_000_000_000,
+              sourceId: providerId,
+              storage: { type: "file", key: fakeProjectPath },
+              analysis: { credentialRef: `secret:${crypto.randomUUID()}` },
+            },
+          };
+        }
+        if (path === "queryDataFrame") {
+          queryCalls.push(args);
+          return {
+            result: {
+              status: "ready",
+              schema: [
+                { id: dateFieldId, name: "date", type: "date" },
+                { id: usersFieldId, name: "users", type: "number" },
+                ...extraFields,
+              ],
+              rows: [
+                { date: 1_786_406_400_000, users: 42 },
+                { date: 1_786_492_800_000, users: 51 },
+              ],
+              totalCount: 2,
+              page: { offset: 0, limit: 50, returned: 2 },
+            },
+          };
+        }
+        throw new Error(`Unexpected call: ${path}`);
+      },
+    } as unknown as Parameters<typeof createMcpTools>[0];
+    const tool = createMcpTools(
+      fakeApp,
+      { principal: { kind: "service", credentialId: "test" } },
+      "stateless",
+    ).find((candidate) => candidate.name === "render_data_frame");
+
+    const result = await tool!.execute({ dataFrameId });
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      status: "ready",
+      report: {
+        title: "DashFrame data report",
+        view: "table",
+        dataFrameId,
+        columnCount: 101,
+        rows: [
+          { [dateFieldId]: 1_786_406_400_000, [usersFieldId]: 42 },
+          { [dateFieldId]: 1_786_492_800_000, [usersFieldId]: 51 },
+        ],
+        totalCount: 2,
+        freshness: { state: "stale", fetchedAt: 1_723_000_000_000 },
+        page: { offset: 0, limit: 50, returned: 2 },
+      },
+    });
+    expect(
+      (result.structuredContent?.report as { schema: unknown[] }).schema,
+    ).toHaveLength(100);
+    const serialized = JSON.stringify(result);
+    expect(serialized.includes(providerId)).toBe(false);
+    expect(serialized.includes(fakeProjectPath)).toBe(false);
+    expect(serialized.includes("secret:")).toBe(false);
+    expect(queryCalls[0]).toEqual({
+      dataFrameId,
+      offset: 0,
+      limit: 10,
+    });
+
+    await expect(
+      tool!.execute({ dataFrameId, view: "chart" }),
+    ).resolves.toMatchObject({
+      structuredContent: { status: "ready", report: { view: "chart" } },
+    });
+  });
+
+  it("keeps server-private frame metadata out of read_artifact", async () => {
+    const dataFrameId = crypto.randomUUID();
+    const insightId = crypto.randomUUID();
+    const fieldId = crypto.randomUUID();
+    const sourceId = crypto.randomUUID();
+    const definitionId = crypto.randomUUID();
+    const storageKey = `/private/project/${crypto.randomUUID()}.arrow`;
+    const secretRef = `secret:${crypto.randomUUID()}`;
+    const fakeApp = {
+      createTracked: () => ({}),
+      async runHandler(path: string) {
+        if (path !== "getDataFrameEntry")
+          throw new Error(`Unexpected read: ${path}`);
+        return {
+          id: dataFrameId,
+          name: "Revenue result",
+          insightId,
+          fieldIds: [fieldId],
+          rowCount: 12,
+          columnCount: 1,
+          createdAt: 1_723_000_000_000,
+          lastRefreshedAt: 1_723_000_001_000,
+          currentInsightResult: true,
+          storage: { type: "file", key: storageKey },
+          primaryKey: "id",
+          sourceId,
+          definitionId,
+          analysis: { credentialRef: secretRef },
+        };
+      },
+    } as unknown as Parameters<typeof createMcpTools>[0];
+    const tool = createMcpTools(
+      fakeApp,
+      { principal: { kind: "service", credentialId: "test" } },
+      "stateless",
+    ).find((candidate) => candidate.name === "read_artifact");
+
+    const result = await tool!.execute({
+      kind: "dataFrame",
+      id: dataFrameId,
+    });
+
+    expect(result.structuredContent).toEqual({
+      kind: "dataFrame",
+      definition: {
+        id: dataFrameId,
+        name: "Revenue result",
+        insightId,
+        fieldIds: [fieldId],
+        rowCount: 12,
+        columnCount: 1,
+        createdAt: 1_723_000_000_000,
+        lastRefreshedAt: 1_723_000_001_000,
+        currentInsightResult: true,
+      },
+    });
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain(storageKey);
+    expect(serialized).not.toContain(secretRef);
+    expect(serialized).not.toContain(sourceId);
+    expect(serialized).not.toContain(definitionId);
+  });
+
+  it("fails closed when a ready frame page contradicts the report schema", async () => {
+    const dataFrameId = crypto.randomUUID();
+    const fakeApp = {
+      async call(path: string) {
+        if (path === "getDataFrameEntry")
+          return { result: { id: dataFrameId } };
+        if (path === "queryDataFrame") {
+          return {
+            result: {
+              status: "ready",
+              schema: [{ id: "value", name: "value", type: "number" }],
+              rows: [{ value: 1 }],
+              totalCount: 1,
+              page: { offset: 0, limit: 50, returned: 2 },
+            },
+          };
+        }
+        throw new Error(`Unexpected call: ${path}`);
+      },
+    } as unknown as Parameters<typeof createMcpTools>[0];
+    const tool = createMcpTools(
+      fakeApp,
+      { principal: { kind: "service", credentialId: "test" } },
+      "stateless",
+    ).find((candidate) => candidate.name === "render_data_frame");
+
+    await expect(tool!.execute({ dataFrameId })).resolves.toMatchObject({
+      isError: true,
+      structuredContent: {
+        status: "failed",
+        code: "FRAME_UNAVAILABLE",
+        message: "The requested DataFrame is unavailable.",
+      },
+    });
+  });
+
+  it("returns a schema-shaped render failure for an absent frame", async () => {
+    const { client, transport } = await connect();
+    try {
+      const result = await client.callTool({
+        name: "render_data_frame",
+        arguments: { dataFrameId: crypto.randomUUID() },
+      });
+      expect(result).toMatchObject({
+        isError: true,
+        structuredContent: {
+          status: "failed",
+          code: "FRAME_NOT_FOUND",
+          message: "The requested DataFrame is unavailable.",
+        },
+      });
+    } finally {
+      await transport.close();
+    }
+  });
+
   it("mints the credential as a user before the MCP service-principal round trip", async () => {
     const response = await fetch(
       `${server!.url}/api/getAccessCapabilities?args=%7B%7D`,
@@ -270,8 +498,44 @@ describe("MCP route", () => {
         "fetch_data",
         "run_insight",
         "query_data_frame",
+        "render_data_frame",
         "draft_batch",
       ]);
+      const renderTool = listed.tools.find(
+        (tool) => tool.name === "render_data_frame",
+      );
+      expect(renderTool).toMatchObject({
+        title: "Render DashFrame report",
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
+        _meta: {
+          ui: { resourceUri: REPORT_APP_URI },
+          "openai/outputTemplate": REPORT_APP_URI,
+          "openai/widgetAccessible": true,
+        },
+      });
+      expect(renderTool?.outputSchema).toBeDefined();
+      expect(renderTool?.inputSchema).toMatchObject({
+        properties: {
+          view: {
+            anyOf: [
+              { const: "table" },
+              { const: "chart" },
+              { const: "overview" },
+            ],
+          },
+        },
+      });
+      expect(
+        listed.tools.find((tool) => tool.name === "query_data_frame")?._meta,
+      ).toMatchObject({
+        ui: { visibility: ["model", "app"] },
+        "openai/widgetAccessible": true,
+      });
       expect(
         (
           listed.tools.find((tool) => tool.name === "query_data_frame")!
@@ -287,6 +551,26 @@ describe("MCP route", () => {
         };
         expect(roundTripped.type).toBe("object");
         expect(Object.getOwnPropertySymbols(roundTripped)).toHaveLength(0);
+        expect(tool.outputSchema).toMatchObject({ type: "object" });
+        expect(tool.annotations).toMatchObject({
+          readOnlyHint: expect.any(Boolean),
+          destructiveHint: expect.any(Boolean),
+          idempotentHint: expect.any(Boolean),
+          openWorldHint: expect.any(Boolean),
+        });
+        if (
+          ["fetch_data", "run_insight", "query_data_frame"].includes(tool.name)
+        ) {
+          const oneOf = (tool.outputSchema as { oneOf?: unknown[] }).oneOf;
+          expect(oneOf).toHaveLength(2);
+          expect(oneOf).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                required: expect.arrayContaining(["status", "code", "message"]),
+              }),
+            ]),
+          );
+        }
         if (
           [
             "read_neighborhood",
@@ -313,10 +597,13 @@ describe("MCP route", () => {
         "DeleteNode",
         "GetOrCreateDataSource",
         "publishDraft",
-        "secret:<uuid>",
+        "never accepts credentials",
       ]) {
         expect(writeTool?.description).toContain(denied);
       }
+      expect(writeTool?.description).not.toMatch(
+        /plaintext|apiKey|connectionString/i,
+      );
       expect(writeTool?.description).toContain(
         "Carry the returned draftId forward",
       );
@@ -472,6 +759,52 @@ describe("MCP route", () => {
     }
   });
 
+  it("serves the versioned, network-isolated MCP App resource", async () => {
+    const { client, transport } = await connect();
+    try {
+      const listed = await client.listResources();
+      expect(listed.resources).toEqual([
+        expect.objectContaining({
+          uri: REPORT_APP_URI,
+          mimeType: REPORT_APP_MIME_TYPE,
+          name: "DashFrame inline data report",
+        }),
+      ]);
+      const resource = await client.readResource({ uri: REPORT_APP_URI });
+      expect(resource.contents).toHaveLength(1);
+      const content = resource.contents[0] as {
+        mimeType?: string;
+        text?: string;
+        _meta?: Record<string, unknown>;
+      };
+      expect(content.mimeType).toBe(REPORT_APP_MIME_TYPE);
+      expect(content._meta).toMatchObject({
+        ui: {
+          prefersBorder: true,
+          csp: { connectDomains: [], resourceDomains: [] },
+        },
+        "openai/widgetDescription": expect.any(String),
+      });
+      expect(content.text).toContain('request("ui/initialize"');
+      expect(content.text).toContain('protocolVersion: "2026-01-26"');
+      expect(content.text).toContain('"ui/notifications/initialized"');
+      expect(content.text).toContain('"ui/notifications/size-changed"');
+      expect(content.text).toContain('"ui/resource-teardown"');
+      expect(content.text).toContain("ui/notifications/tool-result");
+      expect(content.text).toContain('callTool("query_data_frame"');
+      expect(content.text).toContain('field.type === "number"');
+      expect(content.text).toContain("columnCount: report.columnCount");
+      expect(content.text).toContain("The host did not answer ui/initialize.");
+      expect(content.text).toContain('"openai:set_globals"');
+      expect(content.text).not.toMatch(/\bfetch\s*\(/);
+      expect(content.text).not.toMatch(
+        /Authorization|Bearer|secret:|file:\/\//i,
+      );
+    } finally {
+      await transport.close();
+    }
+  });
+
   it("returns data-domain failures as MCP tool errors without exposing internals", async () => {
     const { client, transport } = await connect();
     try {
@@ -495,6 +828,10 @@ describe("MCP route", () => {
         expect(result.isError).toBe(true);
         expect(resultText(result)).toBe("The requested data operation failed.");
         expect(result.structuredContent).toMatchObject({ status: "failed" });
+        expect(result.structuredContent).not.toHaveProperty("diagnosticId");
+        expect(result.structuredContent).not.toHaveProperty(
+          "sourceGenerations",
+        );
       }
     } finally {
       await transport.close();
@@ -619,6 +956,25 @@ describe("MCP route", () => {
           /is not draft-safe/i,
         );
       }
+      await expectToolError(
+        client,
+        "draft_batch",
+        {
+          commands: [
+            {
+              type: "SetDataSourceConfig",
+              args: {
+                id: crypto.randomUUID(),
+                extra: { headers: { Authorization: "Bearer must-not-land" } },
+              },
+            },
+          ],
+        },
+        /not draft-safe/i,
+      );
+      expect(
+        await project!.db.select().from(schema.draftCommandLog),
+      ).toHaveLength(0);
       const rejectedRef = `secret:${crypto.randomUUID()}`;
       const refAttempt = await client.callTool({
         name: "draft_batch",
@@ -638,7 +994,7 @@ describe("MCP route", () => {
       });
       expect(refAttempt.isError).toBe(true);
       expect(resultText(refAttempt)).toMatch(
-        /caller-supplied secret references/i,
+        /credential material.*not accepted/i,
       );
       // Error text may name the field, never the value. Asserted as a boolean
       // so a failure does not print the rejected reference.
@@ -761,7 +1117,7 @@ describe("MCP route", () => {
     }
   });
 
-  it("stores a plaintext credential as a vault reference and never persists the plaintext", async () => {
+  it("rejects plaintext credentials before command dispatch or persistence", async () => {
     const { client, transport } = await connect();
     // The literal never appears in an assertion message: every check below is a
     // boolean or a length, so a failing run prints no secret.
@@ -783,16 +1139,12 @@ describe("MCP route", () => {
           ],
         },
       });
-      expect(written.isError).not.toBe(true);
+      expect(written.isError).toBe(true);
+      expect(resultText(written)).toMatch(/credential material.*not accepted/i);
       expect(JSON.stringify(written).includes(plaintextKey)).toBe(false);
 
       const log = await project!.db.select().from(schema.draftCommandLog);
-      expect(log).toHaveLength(1);
-      const loggedArgs = log[0]!.args as { apiKey?: unknown };
-      // Capture-before-log rewrote the plaintext into a vault reference before
-      // the durable log was written.
-      expect(typeof loggedArgs.apiKey === "string").toBe(true);
-      expect(String(loggedArgs.apiKey).startsWith("secret:")).toBe(true);
+      expect(log).toHaveLength(0);
       expect(JSON.stringify(log).includes(plaintextKey)).toBe(false);
 
       // And canonical gained nothing at all.

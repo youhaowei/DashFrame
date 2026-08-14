@@ -67,6 +67,28 @@ export interface AssistantReadHostOptions {
   readSourceFile?: (file: string) => Promise<string>;
 }
 
+type ServerDataFrameRead = DataFrameRead & {
+  storage?: unknown;
+  primaryKey?: unknown;
+  sourceId?: UUID;
+  definitionId?: UUID;
+  analysis?: unknown;
+};
+
+function toDataFrameRead(frame: ServerDataFrameRead): DataFrameRead {
+  return {
+    id: frame.id,
+    name: frame.name,
+    insightId: frame.insightId,
+    fieldIds: frame.fieldIds,
+    rowCount: frame.rowCount,
+    columnCount: frame.columnCount,
+    createdAt: frame.createdAt,
+    lastRefreshedAt: frame.lastRefreshedAt,
+    currentInsightResult: frame.currentInsightResult,
+  };
+}
+
 /**
  * Build a draft-scoped `GraphReader` over the server app. The returned reader is
  * the assistant's single structure-and-value egress; pass it to
@@ -224,8 +246,13 @@ export function createAssistantReadHost(
     // --- structure reads (ungated) — straight through the server seam ---
     getDataSource: (id) => read<DataSource | null>("getDataSource", { id }),
     getDataTable: (id) => read<DataTable | null>("getDataTable", { id }),
-    getDataFrameEntry: (id) =>
-      read<DataFrameRead | null>("getDataFrameEntry", { id }),
+    getDataFrameEntry: async (id) => {
+      const frame = await read<ServerDataFrameRead | null>(
+        "getDataFrameEntry",
+        { id },
+      );
+      return frame === null ? null : toDataFrameRead(frame);
+    },
     getInsight: (id) => read<Insight | null>("getInsight", { id }),
     getVisualization: (id) =>
       read<Visualization | null>("getVisualization", { id }),
@@ -246,7 +273,10 @@ export function createAssistantReadHost(
         ? all
         : all.filter((t) => t.dataSourceId === dataSourceId);
     },
-    listDataFrames: () => read<DataFrameRead[]>("listDataFrames", {}),
+    listDataFrames: async () =>
+      (await read<ServerDataFrameRead[]>("listDataFrames", {})).map(
+        toDataFrameRead,
+      ),
     listInsights: () => read<Insight[]>("listInsights", {}),
     listVisualizations: async (insightId) => {
       const all = await read<Visualization[]>("listVisualizations", {});
@@ -256,7 +286,9 @@ export function createAssistantReadHost(
     },
     listDashboards: () => read<DashboardRead[]>("listDashboards", {}),
     getDataFrameByInsight: async (insightId) => {
-      const all = await read<DataFrameRead[]>("listDataFrames", {});
+      const all = (await read<ServerDataFrameRead[]>("listDataFrames", {})).map(
+        toDataFrameRead,
+      );
       return (
         all.find(
           (frame) =>
