@@ -3,7 +3,12 @@ import { DashboardControlBar } from "@/components/dashboards/DashboardControlBar
 import { DashboardGrid } from "@/components/dashboards/DashboardGrid";
 import type { CombinedField } from "@/lib/insights/compute-combined-fields";
 import { api } from "@/wystack/api";
-import type { DashboardItemType, InsightFilter } from "@dashframe/types";
+import {
+  cmd,
+  type DashboardItemType,
+  type InsightFilter,
+  type UUID,
+} from "@dashframe/types";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@wystack/client";
 import {
@@ -49,7 +54,7 @@ export default function DashboardDetailContent({
   });
   const { data: insights = [] } = useQuery(api.listInsights, { args: {} });
   const { data: dataTables = [] } = useQuery(api.listDataTables, { args: {} });
-  const addItem = useMutation(api.addDashboardItem);
+  const commitBatch = useMutation(api.commitBatch);
 
   // Find the dashboard
   const dashboard = useMemo(
@@ -99,7 +104,9 @@ export default function DashboardDetailContent({
       visualizations.filter((v) => vizIds.has(v.id)).map((v) => v.insightId),
     );
     const tableIds = new Set(
-      insights.filter((i) => insightIds.has(i.id)).map((i) => i.baseTableId),
+      insights
+        .filter((insight) => insightIds.has(insight.id))
+        .map((insight) => insight.baseTableId),
     );
 
     for (const tableId of tableIds) {
@@ -160,21 +167,28 @@ export default function DashboardDetailContent({
 
     setIsAddPending(true);
     try {
-      await addItem.mutateAsync({
-        dashboardId,
-        type: addType,
-        position: {
-          x: 0,
-          y: bottomY,
-          width: addType === "visualization" ? 6 : 4,
-          height: addType === "visualization" ? 6 : 4,
-        },
-        visualizationId:
-          addType === "visualization" ? selectedVizId : undefined,
-        content:
-          addType === "markdown"
-            ? "## New Text Widget\n\nEdit this text..."
-            : undefined,
+      await commitBatch.mutateAsync({
+        commands: [
+          cmd("AddDashboardItem", {
+            dashboardId: dashboardId as UUID,
+            item: {
+              id: crypto.randomUUID() as UUID,
+              type: addType,
+              x: 0,
+              y: bottomY,
+              width: addType === "visualization" ? 6 : 4,
+              height: addType === "visualization" ? 6 : 4,
+              visualizationId:
+                addType === "visualization"
+                  ? (selectedVizId as UUID)
+                  : undefined,
+              content:
+                addType === "markdown"
+                  ? "## New Text Widget\n\nEdit this text..."
+                  : undefined,
+            },
+          }),
+        ],
       });
     } catch (error) {
       // Keep the dialog open so the user's selection isn't lost.

@@ -124,6 +124,8 @@ export const DRAFT_SAFE_COMMANDS = new Set([
   "UpdateDashboardItem",
   "SetDashboardLayout",
   "RemoveDashboardItem",
+  "PatchDashboardItemOverride",
+  "SetDashboardControls",
   "FanOutDashboardItems",
   // Cross-cutting rename (PK-addressed, no vault, no cascade)
   "RenameNode",

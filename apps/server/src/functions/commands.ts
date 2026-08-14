@@ -80,6 +80,8 @@ import { schema } from "@dashframe/server-core";
 import type {
   ArtifactKind,
   CommandName,
+  DashboardControl,
+  DashboardItemOverridePatch,
   Field,
   InsightJoinConfig,
   InsightMetric,
@@ -1619,7 +1621,8 @@ const setChartEncoding = wy.procedure
 // Dashboard commands
 // ---------------------------------------------------------------------------
 
-// Re-use the DashboardItem interface from dashboards.ts inline (no re-export).
+// Mirrors the persisted DashboardItem shape from @dashframe/types without
+// importing renderer-facing helpers into the server command module.
 interface DashboardItem {
   id: string;
   type: "visualization" | "markdown";
@@ -1671,32 +1674,115 @@ async function requireDashboardItems(
 }
 
 /**
- * Validate a full DashboardItem before it enters `dashboards.layout`. Mirrors the
- * runtime checks in dashboards.ts (parseDashboardType + parsePosition): readers and
- * layout rendering assume `type` is a known value and `x/y/width/height` are numbers.
- * The raw command path persists args verbatim, so the same boundary that the typed
- * dashboard mutation enforces is applied here.
+ * Validate a full DashboardItem before it enters `dashboards.layout`. Readers
+ * and layout rendering assume `type` is known and `x/y/width/height` are
+ * numbers, so every full-item command passes through this canonical boundary.
  */
-function requireDashboardItem(value: unknown): DashboardItem {
+function requireDashboardItem(
+  value: unknown,
+  operation = "AddDashboardItem",
+): DashboardItem {
   if (!isRecord(value)) {
-    throw new Error("AddDashboardItem: item must be an object");
+    throw new Error(`${operation}: item must be an object`);
   }
   if (typeof value.id !== "string") {
-    throw new Error("AddDashboardItem: item.id must be a string");
+    throw new Error(`${operation}: item.id must be a string`);
   }
   if (value.type !== "visualization" && value.type !== "markdown") {
     throw new Error(
-      `AddDashboardItem: item.type must be 'visualization' or 'markdown', got ${JSON.stringify(value.type)}`,
+      `${operation}: item.type must be 'visualization' or 'markdown', got ${JSON.stringify(value.type)}`,
     );
   }
   for (const key of ["x", "y", "width", "height"] as const) {
     if (typeof value[key] !== "number") {
-      throw new Error(`AddDashboardItem: item.${key} must be a number`);
+      throw new Error(`${operation}: item.${key} must be a number`);
     }
   }
   // `overrides` is passed through as-is — it is written by the fan-out primitive
   // which controls the shape; the per-field filter pin is validated there.
   return value as unknown as DashboardItem;
+}
+
+function normalizeDashboardItemOverrides(
+  value: DashboardItemOverrides | undefined,
+): DashboardItemOverrides | undefined {
+  if (!value) return undefined;
+  const filters = value.filters?.length ? value.filters : undefined;
+  const sorts = value.sorts?.length ? value.sorts : undefined;
+  const limit =
+    typeof value.limit === "number" && value.limit > 0
+      ? value.limit
+      : undefined;
+  if (!filters && !sorts && limit === undefined) return undefined;
+  return { filters, sorts, limit };
+}
+
+function parseDashboardItemOverridePatch(
+  value: unknown,
+): DashboardItemOverridePatch {
+  if (!isRecord(value)) {
+    throw new Error("Dashboard override patch must be an object");
+  }
+  if (value.kind === "filter") {
+    if (typeof value.field !== "string" || value.field.length === 0) {
+      throw new Error("Filter override patch requires a field");
+    }
+    if (value.value !== null && !isRecord(value.value)) {
+      throw new Error("Filter override patch value must be an object or null");
+    }
+    return {
+      kind: "filter",
+      field: value.field,
+      value: value.value as Extract<
+        DashboardItemOverridePatch,
+        { kind: "filter" }
+      >["value"],
+    };
+  }
+  if (value.kind === "sorts") {
+    if (value.value !== null && !Array.isArray(value.value)) {
+      throw new Error("Sort override patch value must be an array or null");
+    }
+    return {
+      kind: "sorts",
+      value: value.value as Extract<
+        DashboardItemOverridePatch,
+        { kind: "sorts" }
+      >["value"],
+    };
+  }
+  if (value.kind === "limit") {
+    if (
+      value.value !== null &&
+      (typeof value.value !== "number" || value.value <= 0)
+    ) {
+      throw new Error("Limit override patch value must be positive or null");
+    }
+    return {
+      kind: "limit",
+      value: value.value as number | null,
+    };
+  }
+  throw new Error("Unsupported dashboard override patch kind");
+}
+
+function applyDashboardItemOverridePatch(
+  current: DashboardItemOverrides | undefined,
+  patch: DashboardItemOverridePatch,
+): DashboardItemOverrides | undefined {
+  const next: DashboardItemOverrides = { ...(current ?? {}) };
+  if (patch.kind === "filter") {
+    const filters = (next.filters ?? []).filter(
+      (candidate) => candidate.field !== patch.field,
+    );
+    if (patch.value !== null) filters.push(patch.value);
+    next.filters = filters;
+  } else if (patch.kind === "sorts") {
+    next.sorts = patch.value ?? undefined;
+  } else {
+    next.limit = patch.value ?? undefined;
+  }
+  return normalizeDashboardItemOverrides(next);
 }
 
 /**
@@ -1798,7 +1884,12 @@ const setDashboardLayout = wy.procedure
   .mutation(async (ctx, { dashboardId, items }): Promise<{ ok: true }> => {
     // Guard existence first — a missing dashboard would silently do nothing.
     await requireDashboardItems(ctx, dashboardId);
-    const parsed = items as DashboardItem[];
+    if (!Array.isArray(items)) {
+      throw new Error("SetDashboardLayout: items must be an array");
+    }
+    const parsed = items.map((item) =>
+      requireDashboardItem(item, "SetDashboardLayout"),
+    );
     const ids = parsed.map((it) => it.id);
     if (new Set(ids).size !== ids.length) {
       throw new Error("SetDashboardLayout: items contains duplicate ids");
@@ -1826,6 +1917,52 @@ const removeDashboardItem = wy.procedure
       .from(dashboards)
       .where(eq("id", dashboardId))
       .update({ layout: items.filter((it) => it.id !== itemId) });
+    return { ok: true };
+  });
+
+/** Apply one filter/sort/limit intent against the latest saved override bag. */
+const patchDashboardItemOverride = wy.procedure
+  .input({ dashboardId: uuid, itemId: uuid, patch: jsonb })
+  .authorize(permissions.commands.commit)
+  .mutation(
+    async (ctx, { dashboardId, itemId, patch }): Promise<{ ok: true }> => {
+      const parsed = parseDashboardItemOverridePatch(patch);
+      const items = await requireDashboardItems(ctx, dashboardId);
+      if (!items.some((item) => item.id === itemId)) {
+        throw new Error(`Dashboard item ${itemId} not found`);
+      }
+      const next = items.map((item) =>
+        item.id === itemId
+          ? {
+              ...item,
+              overrides: applyDashboardItemOverridePatch(
+                item.overrides,
+                parsed,
+              ),
+            }
+          : item,
+      );
+      await ctx.db
+        .from(dashboards)
+        .where(eq("id", dashboardId))
+        .update({ layout: next });
+      return { ok: true };
+    },
+  );
+
+/** Replace the saved dashboard-control declarations as one intent. */
+const setDashboardControls = wy.procedure
+  .input({ dashboardId: uuid, controls: jsonb })
+  .authorize(permissions.commands.commit)
+  .mutation(async (ctx, { dashboardId, controls }): Promise<{ ok: true }> => {
+    if (!Array.isArray(controls)) {
+      throw new Error("SetDashboardControls: controls must be an array");
+    }
+    await requireDashboardItems(ctx, dashboardId);
+    await ctx.db
+      .from(dashboards)
+      .where(eq("id", dashboardId))
+      .update({ controls: controls as DashboardControl[] });
     return { ok: true };
   });
 
@@ -2654,6 +2791,8 @@ export const commandFunctions = {
   updateDashboardItemCmd: updateDashboardItem,
   setDashboardLayout,
   removeDashboardItemCmd: removeDashboardItem,
+  patchDashboardItemOverrideCmd: patchDashboardItemOverride,
+  setDashboardControls,
   fanOutDashboardItemsCmd: fanOutDashboardItems,
   // Cross-cutting
   renameNode,

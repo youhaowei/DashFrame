@@ -28,6 +28,7 @@ import type {
   InsightFilterOverride,
   InsightSort,
 } from "@dashframe/types";
+import { cmd, type UUID } from "@dashframe/types";
 import { useMutation, useQuery } from "@wystack/client";
 import {
   Badge,
@@ -269,8 +270,7 @@ export function OverridePopover({
   dashboardId,
   controls,
 }: OverridePopoverProps) {
-  const patchItemOverride = useMutation(api.patchDashboardItemOverride);
-  const updateControls = useMutation(api.updateDashboardControls);
+  const commitBatch = useMutation(api.commitBatch);
 
   // Self-fetch visualization → insight → data table (same pattern as VisualizationDisplay).
   const { data: visualizations = [] } = useQuery(api.listVisualizations, {
@@ -362,8 +362,16 @@ export function OverridePopover({
   // ---------------------------------------------------------------------------
 
   function persistOverride(patch: DashboardItemOverridePatch) {
-    patchItemOverride
-      .mutateAsync({ dashboardId, itemId: item.id, patch })
+    commitBatch
+      .mutateAsync({
+        commands: [
+          cmd("PatchDashboardItemOverride", {
+            dashboardId: dashboardId as UUID,
+            itemId: item.id,
+            patch,
+          }),
+        ],
+      })
       .catch((error: unknown) => {
         console.error("Failed to save dashboard override:", error);
         toast.error("Failed to save dashboard override");
@@ -435,7 +443,14 @@ export function OverridePopover({
         : c,
     );
     try {
-      await updateControls.mutateAsync({ dashboardId, controls: next });
+      await commitBatch.mutateAsync({
+        commands: [
+          cmd("SetDashboardControls", {
+            dashboardId: dashboardId as UUID,
+            controls: next,
+          }),
+        ],
+      });
     } catch {
       toast.error("Couldn't bind the control");
     }
@@ -452,7 +467,14 @@ export function OverridePopover({
         : c,
     );
     try {
-      await updateControls.mutateAsync({ dashboardId, controls: next });
+      await commitBatch.mutateAsync({
+        commands: [
+          cmd("SetDashboardControls", {
+            dashboardId: dashboardId as UUID,
+            controls: next,
+          }),
+        ],
+      });
     } catch {
       toast.error("Couldn't unbind the control");
     }

@@ -2,11 +2,10 @@ import type { DashboardItem, DashboardItemOverrides } from "@dashframe/types";
 
 /**
  * Filter raw `updates` to the recognized DashboardItem fields with the correct
- * primitive types, dropping anything malformed. Mirrors sanitizeDashboardUpdates in
- * dashboards.ts so the raw command path cannot write `{ x: "left", width: null }`
- * into layout coordinates that consumers assume are numeric. Shared with the
- * preview-diff renderer so the consent surface never claims a change that
- * publication would drop.
+ * primitive types, dropping anything malformed. This is the canonical command
+ * boundary that prevents `{ x: "left", width: null }` from entering layout
+ * coordinates consumers assume are numeric. Shared with the preview-diff
+ * renderer so the consent surface never claims a change publication would drop.
  */
 export function sanitizeDashboardItemUpdates(
   updates: Record<string, unknown>,

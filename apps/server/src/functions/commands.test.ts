@@ -2652,6 +2652,51 @@ describe("command vocabulary", () => {
       expect(layout[0]?.x).toBe(2);
     });
 
+    it("preserves a newer item edit when a layout update commits afterward", async () => {
+      const dashId = id();
+      const itemId = id();
+      await commit(
+        cmd("CreateDashboard", { id: dashId, name: "D" }),
+        cmd("AddDashboardItem", {
+          dashboardId: dashId,
+          item: {
+            id: itemId,
+            type: "markdown",
+            content: "Original",
+            x: 0,
+            y: 0,
+            width: 3,
+            height: 3,
+          },
+        }),
+      );
+
+      await commit(
+        cmd("UpdateDashboardItem", {
+          dashboardId: dashId,
+          itemId,
+          updates: { content: "Concurrent edit" },
+        }),
+      );
+      await commit(
+        cmd("UpdateDashboardItem", {
+          dashboardId: dashId,
+          itemId,
+          updates: { x: 5, y: 6, width: 4, height: 2 },
+        }),
+      );
+
+      const rows = await dashboardsById(dashId);
+      const item = (rows[0]?.layout as Record<string, unknown>[])[0];
+      expect(item).toMatchObject({
+        content: "Concurrent edit",
+        x: 5,
+        y: 6,
+        width: 4,
+        height: 2,
+      });
+    });
+
     it("should update overrides on a dashboard item via UpdateDashboardItem", async () => {
       // Verifies that UpdateDashboardItem propagates the overrides field through
       // sanitizeDashboardItemUpdates — so agents can adjust a cloned panel's
@@ -2700,6 +2745,89 @@ describe("command vocabulary", () => {
       ]);
     });
 
+    it("should apply dashboard override intents without replacing sibling fields", async () => {
+      const dashId = id();
+      const itemId = id();
+      await commit(
+        cmd("CreateDashboard", { id: dashId, name: "D" }),
+        cmd("AddDashboardItem", {
+          dashboardId: dashId,
+          item: {
+            id: itemId,
+            type: "visualization",
+            visualizationId: id(),
+            x: 0,
+            y: 0,
+            width: 6,
+            height: 4,
+          },
+        }),
+      );
+
+      await commit(
+        cmd("PatchDashboardItemOverride", {
+          dashboardId: dashId,
+          itemId,
+          patch: {
+            kind: "sorts",
+            value: [{ field: "revenue", direction: "desc" }],
+          },
+        }),
+      );
+      await commit(
+        cmd("PatchDashboardItemOverride", {
+          dashboardId: dashId,
+          itemId,
+          patch: { kind: "limit", value: 25 },
+        }),
+      );
+
+      const rows = await dashboardsById(dashId);
+      const item = (
+        rows[0]?.layout as {
+          id: string;
+          overrides?: { sorts?: unknown[]; limit?: number };
+        }[]
+      ).find((candidate) => candidate.id === itemId);
+      expect(item?.overrides).toEqual({
+        sorts: [{ field: "revenue", direction: "desc" }],
+        limit: 25,
+      });
+    });
+
+    it("should replace dashboard controls through the command vocabulary", async () => {
+      const dashId = id();
+      const itemId = id();
+      const controlId = id();
+      await commit(cmd("CreateDashboard", { id: dashId, name: "D" }));
+
+      await commit(
+        cmd("SetDashboardControls", {
+          dashboardId: dashId,
+          controls: [
+            {
+              id: controlId,
+              field: "region",
+              label: "Region",
+              defaultValue: "West",
+              boundInstances: [itemId],
+            },
+          ],
+        }),
+      );
+
+      const rows = await dashboardsById(dashId);
+      expect(rows[0]?.controls).toEqual([
+        {
+          id: controlId,
+          field: "region",
+          label: "Region",
+          defaultValue: "West",
+          boundInstances: [itemId],
+        },
+      ]);
+    });
+
     it("should throw on UpdateDashboardItem with a missing itemId (no silent no-op)", async () => {
       const dashId = id();
       await commit(cmd("CreateDashboard", { id: dashId, name: "D" }));
@@ -2719,7 +2847,7 @@ describe("command vocabulary", () => {
       // rest verbatim, so `{ type: "bogus" }` or `{ x: "0" }` could land in
       // dashboards.layout — but readers and layout rendering assume a known type
       // and numeric x/y/width/height. The fix validates the shape at the write
-      // boundary (mirrors parseDashboardType + parsePosition in dashboards.ts).
+      // canonical full-item command boundary.
       const dashId = id();
       await commit(cmd("CreateDashboard", { id: dashId, name: "D" }));
 
@@ -2763,8 +2891,8 @@ describe("command vocabulary", () => {
     it("should drop malformed update fields instead of writing them into the layout (sanitize before merge)", async () => {
       // Regression: UpdateDashboardItem merged `updates` verbatim, so
       // `{ x: "left", width: null }` corrupted numeric layout coordinates. The fix
-      // filters updates to recognized fields with correct primitive types
-      // (mirrors sanitizeDashboardUpdates in dashboards.ts).
+      // filters updates to recognized fields with correct primitive types at
+      // the canonical command boundary.
       const dashId = id();
       const itemId = id();
       await commit(
@@ -2897,6 +3025,31 @@ describe("command vocabulary", () => {
           }),
         ),
       ).rejects.toThrow("duplicate ids");
+    });
+
+    it("should reject malformed SetDashboardLayout payloads before persistence", async () => {
+      const dashId = id();
+      await commit(cmd("CreateDashboard", { id: dashId, name: "D" }));
+
+      await expect(
+        commit(
+          cmd("SetDashboardLayout", {
+            dashboardId: dashId,
+            items: { id: "not-an-array" } as never,
+          }),
+        ),
+      ).rejects.toThrow("items must be an array");
+      await expect(
+        commit(
+          cmd("SetDashboardLayout", {
+            dashboardId: dashId,
+            items: [{ id: id() }] as never,
+          }),
+        ),
+      ).rejects.toThrow("item.type");
+
+      const rows = await dashboardsById(dashId);
+      expect(rows[0]?.layout).toEqual([]);
     });
 
     it("should remove a dashboard item by id", async () => {

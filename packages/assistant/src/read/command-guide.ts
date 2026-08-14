@@ -381,6 +381,26 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
     notes: "Rejects a missing itemId.",
   },
   {
+    name: "PatchDashboardItemOverride",
+    group: "dashboard",
+    summary:
+      "Apply one filter, sort, or limit override intent to a dashboard item.",
+    args: {
+      dashboardId: "UUID",
+      itemId: "UUID",
+      patch:
+        "{ kind:'filter', field, value } | { kind:'sorts', value } | { kind:'limit', value }",
+    },
+    notes:
+      "Null clears the selected override without replacing sibling overrides.",
+  },
+  {
+    name: "SetDashboardControls",
+    group: "dashboard",
+    summary: "Replace the dashboard's saved control declarations.",
+    args: { dashboardId: "UUID", controls: "DashboardControl[]" },
+  },
+  {
     name: "FanOutDashboardItems",
     group: "dashboard",
     summary:
