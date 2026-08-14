@@ -60,8 +60,6 @@ import {
   inDraftContext,
   isRecord,
   modeFromCtx,
-  releaseCredentialRefs,
-  requireRecordWithId,
   vaultFromCtx,
   type DataSourceConfig,
 } from "./utils";
@@ -95,39 +93,8 @@ type DataFrameEntry = DataFrameJSON & {
   currentInsightResult?: boolean;
 };
 
-type DataTableArrayKind = "fields" | "metrics";
-type DataTableArrayItem = { id: string };
-
-function dateFromEpoch(value: unknown): Date | undefined {
-  return typeof value === "number" ? new Date(value) : undefined;
-}
-
 function nullableDateFromEpoch(value: number | undefined): Date | null {
   return value === undefined ? null : new Date(value);
-}
-
-function withDefaultCountMetric(
-  tableId: string,
-  metrics: Metric[] = [],
-): Metric[] {
-  if (
-    metrics.some(
-      (metric) => metric.aggregation === "count" && !metric.columnName,
-    )
-  ) {
-    return metrics;
-  }
-
-  return [
-    {
-      id: crypto.randomUUID(),
-      name: "Count",
-      tableId,
-      columnName: undefined,
-      aggregation: "count",
-    },
-    ...metrics,
-  ];
 }
 
 function requireInsightMetric(value: unknown): InsightMetric {
@@ -143,34 +110,6 @@ function requireInsightMetric(value: unknown): InsightMetric {
     );
   }
   return value as unknown as InsightMetric;
-}
-
-function patchDataTableItems(
-  kind: DataTableArrayKind,
-  mode: string,
-  items: DataTableArrayItem[],
-  itemId: string | undefined,
-  value: unknown,
-): DataTableArrayItem[] {
-  if (mode === "add") return [...items, requireRecordWithId(value, kind)];
-  if (mode === "update") {
-    if (!itemId) throw new Error("itemId is required for update");
-    if (!isRecord(value)) throw new Error(`${kind} update must be an object`);
-    if (!items.some((item) => item.id === itemId)) {
-      throw new Error(`${kind} item ${itemId} not found`);
-    }
-    return items.map((item) =>
-      item.id === itemId ? { ...item, ...value } : item,
-    );
-  }
-  if (mode === "delete") {
-    if (!itemId) throw new Error("itemId is required for delete");
-    if (!items.some((item) => item.id === itemId)) {
-      throw new Error(`${kind} item ${itemId} not found`);
-    }
-    return items.filter((item) => item.id !== itemId);
-  }
-  throw new Error(`Unsupported patch mode ${mode}`);
 }
 
 function patchInsightDefinition(
@@ -363,17 +302,6 @@ function rowToVisualization(row: VisualizationRow): Visualization {
   };
 }
 
-async function loadDataTable(
-  ctx: { db: import("@wystack/db").DrizzleTracker },
-  id: string,
-): Promise<DataTable> {
-  const row = (await ctx.db.from(dataTables).where(eq("id", id)).first()) as
-    | DataTableRow
-    | undefined;
-  if (!row) throw new Error(`Data table ${id} not found`);
-  return rowToDataTable(row);
-}
-
 async function loadInsightRow(
   ctx: { db: import("@wystack/db").DrizzleTracker },
   id: string,
@@ -420,64 +348,6 @@ const getDataSourceByType = wy.procedure
 // `./commands.ts`, which keys idempotency on a client-minted primary key. See
 // that file's traceability table.
 
-const removeDataSource = wy.procedure
-  .input({ id: uuid })
-  .mutation(async (ctx, { id }): Promise<{ ok: true }> => {
-    assertCanonicalFrameSideEffects(ctx);
-    // Fetch the source config BEFORE deleting so we can release its SecretRefs.
-    // vault-absent-with-a-ref is an error (fail-closed symmetry): a ref can only
-    // exist because vault.store() succeeded, which requires a vault to be present.
-    // In preview mode vault.delete() is skipped — like vault.store(), it is a
-    // keychain side-effect outside the DB transaction. A preview executes then
-    // rolls back: the row (with its refs) survives, so its credential must too.
-    const source = await ctx.db.from(dataSources).where(eq("id", id)).first();
-    let staged: StagedServerFrame[] = [];
-    try {
-      await ctx.db.transaction(async (tx) => {
-        const ownedTables = (await tx
-          .from(dataTables)
-          .where(eq("dataSourceId", id))
-          .all()) as DataTableRow[];
-        const txCtx = { ...ctx, db: tx };
-        const candidateFrames = dedupeFrames([
-          ...(await framesByIds(
-            txCtx,
-            ownedTables.flatMap((table) =>
-              table.dataFrameId ? [table.dataFrameId] : [],
-            ),
-          )),
-          ...(await framesForDefinitions(
-            txCtx,
-            ownedTables.map((table) => table.id),
-          )),
-          ...(await framesForSources(txCtx, [id])),
-        ]);
-        const ownedFrames = await framesUnreferencedOutsideTables(
-          { ...ctx, db: tx },
-          candidateFrames,
-          new Set(ownedTables.map((table) => table.id)),
-        );
-        staged = await stageServerFrames(ctx, ownedFrames);
-        for (const frame of ownedFrames) {
-          await tx.from(dataFrames).where(eq("id", frame.id)).delete();
-        }
-        await tx.from(dataTables).where(eq("dataSourceId", id)).delete();
-        await tx.from(dataSources).where(eq("id", id)).delete();
-      });
-    } catch (error) {
-      await rollbackStagedServerFrames(ctx, staged);
-      throw error;
-    }
-    await commitStagedServerFrames(ctx, staged);
-    if (source && modeFromCtx(ctx) !== "preview") {
-      await releaseCredentialRefs(
-        (source.config ?? {}) as DataSourceConfig,
-        vaultFromCtx(ctx),
-      );
-    }
-    return { ok: true };
-  });
-
 const listDataTables = wy.procedure
   .input({ dataSourceId: uuid.optional() })
   .query(async (ctx, { dataSourceId }): Promise<DataTable[]> => {
@@ -498,207 +368,6 @@ const getDataTable = wy.procedure
       | undefined;
     return row ? rowToDataTable(row) : null;
   });
-
-const addDataTable = wy.procedure
-  .input({
-    dataSourceId: uuid,
-    name: text,
-    table: text,
-    options: jsonb.optional(),
-  })
-  .mutation(
-    async (
-      ctx,
-      { dataSourceId, name, table, options },
-    ): Promise<{ id: string }> => {
-      const opts = (options ?? {}) as {
-        id?: string;
-        sourceSchema?: SourceSchema;
-        fields?: Field[];
-        metrics?: Metric[];
-        dataFrameId?: string;
-      };
-      const id = opts.id ?? crypto.randomUUID();
-      const [row] = (await ctx.db.into(dataTables).insert({
-        id,
-        dataSourceId,
-        name,
-        table,
-        sourceSchema: opts.sourceSchema ?? null,
-        fields: opts.fields ?? [],
-        metrics: withDefaultCountMetric(id, opts.metrics),
-        dataFrameId: opts.dataFrameId ?? null,
-      })) as DataTableRow[];
-      if (!row) throw new Error("insert returned no row");
-      return { id: row.id };
-    },
-  );
-
-async function updateDataTableRecord(
-  ctx: DashframeFunctionContext,
-  id: UUID,
-  patch: Partial<DataTable>,
-): Promise<{ ok: true }> {
-  const dbPatch = {
-    ...(patch.name !== undefined ? { name: patch.name } : {}),
-    ...(patch.table !== undefined ? { table: patch.table } : {}),
-    ...(patch.sourceSchema !== undefined
-      ? { sourceSchema: patch.sourceSchema }
-      : {}),
-    ...(patch.fields !== undefined ? { fields: patch.fields } : {}),
-    ...(patch.metrics !== undefined ? { metrics: patch.metrics } : {}),
-    ...(patch.dataFrameId !== undefined
-      ? { dataFrameId: patch.dataFrameId }
-      : {}),
-    ...(patch.lastFetchedAt !== undefined
-      ? { lastFetchedAt: dateFromEpoch(patch.lastFetchedAt) }
-      : {}),
-  };
-  if (patch.dataFrameId === undefined || !isCanonicalContext(ctx)) {
-    await ctx.db.from(dataTables).where(eq("id", id)).update(dbPatch);
-    return { ok: true };
-  }
-  let staged: StagedServerFrame[] = [];
-  try {
-    await ctx.db.transaction(async (tx) => {
-      const table = (await tx.from(dataTables).where(eq("id", id)).first()) as
-        | DataTableRow
-        | undefined;
-      const oldFrames =
-        table?.dataFrameId && table.dataFrameId !== patch.dataFrameId
-          ? await framesUnreferencedOutsideTables(
-              { ...ctx, db: tx },
-              await framesByIds({ ...ctx, db: tx }, [table.dataFrameId]),
-              new Set([id]),
-            )
-          : [];
-      staged = await stageServerFrames(ctx, oldFrames);
-      await tx.from(dataTables).where(eq("id", id)).update(dbPatch);
-      for (const frame of oldFrames) {
-        await tx.from(dataFrames).where(eq("id", frame.id)).delete();
-      }
-    });
-  } catch (error) {
-    await rollbackStagedServerFrames(ctx, staged);
-    throw error;
-  }
-  await commitStagedServerFrames(ctx, staged);
-  return { ok: true };
-}
-
-const updateDataTable = wy.procedure
-  .input({ id: uuid, updates: jsonb })
-  .mutation(
-    async (ctx, { id, updates }): Promise<{ ok: true }> =>
-      updateDataTableRecord(ctx, id, updates as Partial<DataTable>),
-  );
-
-// NOTE: silently no-ops on a missing id (0-row UPDATE returns { ok: true }).
-// The command path (`refreshDataTableCmd` in commands.ts) enforces existence
-// and throws instead — divergent semantics for the same intent, bounded by the
-// legacy-caller migration window (see #66).
-const refreshDataTable = wy.procedure
-  .input({ id: uuid, dataFrameId: uuid })
-  .mutation(async (ctx, { id, dataFrameId }): Promise<{ ok: true }> => {
-    return updateDataTableRecord(ctx, id, {
-      dataFrameId,
-      lastFetchedAt: Date.now(),
-    });
-  });
-
-const removeDataTable = wy.procedure
-  .input({ id: uuid })
-  .mutation(async (ctx, { id }): Promise<{ ok: true }> => {
-    assertCanonicalFrameSideEffects(ctx);
-    let staged: StagedServerFrame[] = [];
-    try {
-      await ctx.db.transaction(async (tx) => {
-        const table = (await tx
-          .from(dataTables)
-          .where(eq("id", id))
-          .first()) as DataTableRow | undefined;
-        const txCtx = { ...ctx, db: tx };
-        const candidates = dedupeFrames([
-          ...(await framesByIds(
-            txCtx,
-            table?.dataFrameId ? [table.dataFrameId] : [],
-          )),
-          ...(await framesForDefinitions(txCtx, [id])),
-        ]);
-        const frames = await framesUnreferencedOutsideTables(
-          { ...ctx, db: tx },
-          candidates,
-          new Set([id]),
-        );
-        staged = await stageServerFrames(ctx, frames);
-        for (const frame of frames) {
-          await tx.from(dataFrames).where(eq("id", frame.id)).delete();
-        }
-        await tx.from(dataTables).where(eq("id", id)).delete();
-      });
-    } catch (error) {
-      await rollbackStagedServerFrames(ctx, staged);
-      throw error;
-    }
-    await commitStagedServerFrames(ctx, staged);
-    return { ok: true };
-  });
-
-// Discriminated-union guard for patchDataTableArray mode inputs.
-// Guards the SINK — validates at the handler boundary before the helper call,
-// catching malformed payloads that arrive from any untrusted client path.
-const patchDataTableArrayArgsSchema = z.discriminatedUnion("mode", [
-  z.object({
-    mode: z.literal("add"),
-    value: z.object({ id: z.string().uuid() }).passthrough(),
-  }),
-  z.object({
-    mode: z.literal("update"),
-    itemId: z.string().uuid(),
-    // value is optional (partial patch object); the helper validates it is an
-    // object when present. The guard only enforces itemId is present and valid.
-    value: z.record(z.string(), z.unknown()).optional(),
-  }),
-  z.object({
-    mode: z.literal("delete"),
-    itemId: z.string().uuid(),
-  }),
-]);
-
-const patchDataTableArray = wy.procedure
-  .input({
-    dataTableId: uuid,
-    kind: text,
-    mode: text,
-    itemId: uuid.optional(),
-    value: jsonb.optional(),
-  })
-  .mutation(
-    async (
-      ctx,
-      { dataTableId, kind, mode, itemId, value },
-    ): Promise<{ ok: true }> => {
-      const parsed = patchDataTableArrayArgsSchema.safeParse({
-        mode,
-        itemId,
-        value,
-      });
-      if (!parsed.success) {
-        throw new Error(parsed.error.message);
-      }
-      const table = await loadDataTable(ctx, dataTableId);
-      if (kind !== "fields" && kind !== "metrics") {
-        throw new Error(`Unsupported data table array ${kind}`);
-      }
-      const items = (table[kind] ?? []) as DataTableArrayItem[];
-      const next = patchDataTableItems(kind, mode, items, itemId, value);
-      await ctx.db
-        .from(dataTables)
-        .where(eq("id", dataTableId))
-        .update({ [kind]: next });
-      return { ok: true };
-    },
-  );
 
 const listDataFrames = wy.procedure
   .input({})
@@ -1736,46 +1405,6 @@ async function framesByIds(
   return rows;
 }
 
-async function framesForDefinitions(
-  ctx: DashframeFunctionContext,
-  definitionIds: readonly string[],
-): Promise<DataFrameRow[]> {
-  const ids = [...new Set(definitionIds)];
-  if (ids.length === 0) return [];
-  const rows: DataFrameRow[] = [];
-  for (const definitionId of ids) {
-    rows.push(
-      ...((await ctx.db
-        .from(dataFrames)
-        .where(eq("definitionId", definitionId))
-        .all()) as DataFrameRow[]),
-    );
-  }
-  return rows;
-}
-
-async function framesForSources(
-  ctx: DashframeFunctionContext,
-  sourceIds: readonly string[],
-): Promise<DataFrameRow[]> {
-  const ids = [...new Set(sourceIds)];
-  if (ids.length === 0) return [];
-  const rows: DataFrameRow[] = [];
-  for (const sourceId of ids) {
-    rows.push(
-      ...((await ctx.db
-        .from(dataFrames)
-        .where(eq("sourceId", sourceId))
-        .all()) as DataFrameRow[]),
-    );
-  }
-  return rows;
-}
-
-function dedupeFrames(rows: readonly DataFrameRow[]): DataFrameRow[] {
-  return [...new Map(rows.map((row) => [row.id, row])).values()];
-}
-
 async function framesUnreferencedOutsideTables(
   ctx: DashframeFunctionContext,
   frames: DataFrameRow[],
@@ -2316,14 +1945,8 @@ export const appArtifactFunctions = {
   listDataSources,
   getDataSource,
   getDataSourceByType,
-  removeDataSource,
   listDataTables,
   getDataTable,
-  addDataTable,
-  updateDataTable,
-  refreshDataTable,
-  removeDataTable,
-  patchDataTableArray,
   listDataFrames,
   getDataFrameEntry,
   getDataFrameByInsight,

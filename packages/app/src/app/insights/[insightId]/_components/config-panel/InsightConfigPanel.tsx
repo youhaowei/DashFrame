@@ -196,9 +196,6 @@ export function InsightConfigPanel({
     },
     [commitBatch, insight],
   );
-  const { mutateAsync: patchDataTableArray } = useMutation(
-    api.patchDataTableArray,
-  );
   const updateVisualization = useCallback(
     async (
       id: string,
@@ -365,15 +362,17 @@ export function InsightConfigPanel({
     async (field: CombinedField, newName: string) => {
       // Update the display name in the source DataTable
       // This only changes the user-facing name, not the underlying columnName
-      await patchDataTableArray({
-        dataTableId: field.sourceTableId,
-        kind: "fields",
-        mode: "update",
-        itemId: field.id,
-        value: { name: newName },
+      await commitBatch({
+        commands: [
+          cmd("UpdateField", {
+            nodeId: field.sourceTableId,
+            fieldId: field.id,
+            updates: { name: newName },
+          }),
+        ],
       });
     },
-    [patchDataTableArray],
+    [commitBatch],
   );
 
   // --- Metric handlers ---

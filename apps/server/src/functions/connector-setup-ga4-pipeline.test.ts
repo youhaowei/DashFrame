@@ -1,5 +1,6 @@
 import { FileDataFrameStorage } from "@dashframe/engine-server";
 import { openArtifactDb, schema } from "@dashframe/server-core";
+import { cmd } from "@dashframe/types";
 import {
   InMemoryMappingStore,
   SecretRegistry,
@@ -180,11 +181,13 @@ describe("GA4 connector setup pipeline", () => {
       dataSourceId?: string;
     };
     expect(result).toMatchObject({ state: "connected" });
-    expect(result.dataSourceId).toBeTruthy();
+    if (!result.dataSourceId)
+      throw new Error("setup returned no data source id");
+    const dataSourceId = result.dataSourceId;
 
     const [source] = await db.select().from(dataSources);
     expect(source).toMatchObject({
-      id: result.dataSourceId,
+      id: dataSourceId,
       kind: "googleAnalytics",
     });
 
@@ -198,19 +201,24 @@ describe("GA4 connector setup pipeline", () => {
       limit: "1",
     });
 
-    const added = await app.call(
-      "addDataTable",
+    const tableId = crypto.randomUUID();
+    await app.call(
+      "commitBatch",
       {
-        dataSourceId: result.dataSourceId,
-        name: "Example Property",
-        table: "properties/123456789",
+        commands: [
+          cmd("CreateDataTable", {
+            id: tableId,
+            dataSourceId,
+            name: "Example Property",
+            table: "properties/123456789",
+          }),
+        ],
       },
-      { principal: user },
+      { principal: user, artifactDb: db },
     );
-    const tableId = (added.result as { id: string }).id;
     const inspected = await app.call(
       "queryGa4Property",
-      { dataSourceId: result.dataSourceId, tableId },
+      { dataSourceId, tableId },
       { principal: user },
     );
     expect(inspected.result).not.toHaveProperty("dataFrameId");

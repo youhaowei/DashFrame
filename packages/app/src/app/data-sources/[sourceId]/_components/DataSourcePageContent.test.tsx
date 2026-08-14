@@ -35,11 +35,6 @@ const { mockCommitBatch } = vi.hoisted(() => ({
   mockCommitBatch: vi.fn(),
 }));
 
-const { mockPatchDataTableArray, mockRemoveDataTable } = vi.hoisted(() => ({
-  mockPatchDataTableArray: vi.fn(),
-  mockRemoveDataTable: vi.fn(),
-}));
-
 const { mockUseDataTables } = vi.hoisted(() => ({
   mockUseDataTables: vi.fn(),
 }));
@@ -61,12 +56,6 @@ vi.mock("@wystack/client", async (importOriginal) => {
     useMutation: (ref: { _path: string }) => {
       if (ref._path === "commitBatch") {
         return { mutateAsync: mockCommitBatch };
-      }
-      if (ref._path === "patchDataTableArray") {
-        return { mutateAsync: mockPatchDataTableArray };
-      }
-      if (ref._path === "removeDataTable") {
-        return { mutateAsync: mockRemoveDataTable };
       }
       throw new Error(`Unexpected mutation: ${ref._path}`);
     },
@@ -266,8 +255,6 @@ describe("DataSourcePageContent — loading state contract", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useConfirmDialogStore.getState().close();
-    mockPatchDataTableArray.mockResolvedValue({ ok: true });
-    mockRemoveDataTable.mockResolvedValue({ ok: true });
     mockCommitBatch.mockResolvedValue({
       mode: "commit",
       commands: [],
@@ -450,7 +437,7 @@ describe("DataSourcePageContent — loading state contract", () => {
     expect(mockToastError).toHaveBeenCalledWith("Failed to rename data source");
   });
 
-  it("passes the reshaped field patch object to the data-table mutation", async () => {
+  it("dispatches UpdateField via commitBatch when marking a field safe", async () => {
     mockUseDataSources.mockReturnValue({
       data: [DATA_SOURCE],
       isLoading: false,
@@ -472,12 +459,17 @@ describe("DataSourcePageContent — loading state contract", () => {
     fireEvent.click(screen.getByRole("button", { name: "Orders" }));
     fireEvent.click(screen.getByRole("button", { name: "Mark safe" }));
 
-    expect(mockPatchDataTableArray).toHaveBeenCalledWith({
-      dataTableId: "table-orders",
-      kind: "fields",
-      mode: "update",
-      itemId: "field-a",
-      value: undefined,
+    expect(mockCommitBatch).toHaveBeenCalledWith({
+      commands: [
+        {
+          path: "updateField",
+          args: {
+            nodeId: "table-orders",
+            fieldId: "field-a",
+            updates: undefined,
+          },
+        },
+      ],
     });
   });
 
@@ -504,12 +496,14 @@ describe("DataSourcePageContent — loading state contract", () => {
       'Are you sure you want to delete "Orders"? This deletes the data table. Related DataFrame metadata and storage, and dependent insights, may remain. This action cannot be undone.',
     );
     await user.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(mockRemoveDataTable).not.toHaveBeenCalled();
+    expect(mockCommitBatch).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Delete Table" }));
     await user.click(screen.getByRole("button", { name: "Delete" }));
     await waitFor(() =>
-      expect(mockRemoveDataTable).toHaveBeenCalledWith({ id: "table-orders" }),
+      expect(mockCommitBatch).toHaveBeenCalledWith({
+        commands: [{ path: "deleteNode", args: { id: "table-orders" } }],
+      }),
     );
     expect(screen.queryByRole("button", { name: "Delete Table" })).toBeNull();
     screen.getByText("Select a table");
