@@ -9,7 +9,7 @@
  * - JSON parsing delegation
  * - Error handling for invalid content
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { LocalFileConnector, localFileConnector } from "./connector";
 
 // Mock the format converters to isolate connector dispatch.

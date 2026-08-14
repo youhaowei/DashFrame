@@ -28,7 +28,7 @@ import type {
 } from "@dashframe/types";
 import { fieldEncoding } from "@dashframe/types";
 import { render } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { AxisSelectField } from "./AxisSelectField";
 
 // ── Stubs ────────────────────────────────────────────────────────────────────

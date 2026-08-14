@@ -588,9 +588,8 @@ async function updateDataTableRecord(
 
 const updateDataTable = wy.procedure
   .input({ id: uuid, updates: jsonb })
-  .mutation(
-    async (ctx, { id, updates }): Promise<{ ok: true }> =>
-      updateDataTableRecord(ctx, id, updates as Partial<DataTable>),
+  .mutation(async (ctx, { id, updates }): Promise<{ ok: true }> =>
+    updateDataTableRecord(ctx, id, updates as Partial<DataTable>),
   );
 
 // NOTE: silently no-ops on a missing id (0-row UPDATE returns { ok: true }).

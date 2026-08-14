@@ -1,11 +1,11 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { defineConfig } from "vitest/config";
+import { defineConfig } from "vite-plus";
 
 import { storybookTest } from "@storybook/addon-vitest/vitest-plugin";
 
-import { playwright } from "@vitest/browser-playwright";
+import { playwright } from "vite-plus/test/browser-playwright";
 
 const dirname =
   typeof __dirname !== "undefined"

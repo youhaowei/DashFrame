@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 import { defaultFormatValue } from "./format-virtual-table-value";
 
 // Date-only values must keep their calendar day in a zone behind UTC, so the

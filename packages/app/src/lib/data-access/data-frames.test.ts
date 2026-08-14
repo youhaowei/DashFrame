@@ -1,6 +1,6 @@
 import { setWyStackClient } from "@/wystack/client";
 import { MAX_LOCAL_ARROW_BYTES, type UUID } from "@dashframe/types";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { ingestLocalDataFrame, queryDataFrame } from "./data-frames";
 

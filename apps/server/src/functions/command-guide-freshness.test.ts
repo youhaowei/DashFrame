@@ -16,7 +16,7 @@
  */
 
 import { GUIDE_COMMAND_NAMES } from "@dashframe/assistant";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { COMMAND_PATHS } from "./commands";
 

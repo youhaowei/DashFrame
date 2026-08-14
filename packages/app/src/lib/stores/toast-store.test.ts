@@ -1,7 +1,14 @@
 /**
  * Unit tests for toast-store module
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 import { useToastStore } from "./toast-store";
 
 // Mock sonner toast

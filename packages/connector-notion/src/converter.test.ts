@@ -9,7 +9,7 @@
 import type { Field } from "@dashframe/engine";
 import type { PageObjectResponse } from "@notionhq/client/build/src/api-endpoints";
 import { tableFromIPC } from "apache-arrow";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vite-plus/test";
 import {
   convertNotionToDataFrame,
   extractPropertyValue,

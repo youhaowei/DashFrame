@@ -4,7 +4,7 @@ import {
   type AssistantMessageEvent,
   type AssistantMessageEventStream,
 } from "@earendil-works/pi-ai";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { measureAssistantStream } from "./provider-measurement";
 

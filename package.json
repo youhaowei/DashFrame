@@ -17,10 +17,12 @@
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "@types/react": "19.2.7",
-    "@types/react-dom": "19.2.3"
+    "@types/react-dom": "19.2.3",
+    "vite": "catalog:",
+    "vitest": "catalog:"
   },
   "lint-staged": {
-    "*.{js,cjs,mjs,jsx,ts,tsx,json,css,md,yml,yaml}": "prettier --write --log-level=error"
+    "*.{js,cjs,mjs,jsx,ts,tsx,json,css,md,yml,yaml}": "vp fmt"
   },
   "scripts": {
     "setup": "git submodule update --init --recursive && bun install && bun run build:wystack",
@@ -30,13 +32,13 @@
     "dev:status": "node scripts/dev-worktree.mjs status-all",
     "dev:desktop:status": "DASHFRAME_DEV_SURFACE=desktop node scripts/dev-worktree.mjs status",
     "dev:web": "turbo dev --filter=@dashframe/web",
-    "dev:web:agent": "turbo build --filter=@dashframe/web^... && sh -c 'exec scripts/dev-web.sh bunx vite'",
+    "dev:web:agent": "turbo build --filter=@dashframe/web^... && sh -c 'exec scripts/dev-web.sh vp dev'",
     "dev:web:status": "DASHFRAME_DEV_SURFACE=web node scripts/dev-worktree.mjs status",
     "dev:web:fresh": "DASHFRAME_PROJECT_DIR=\"$(mktemp -d)\" sh -c 'echo \"[dev] fresh project dir: $DASHFRAME_PROJECT_DIR\"; exec bun run dev:web'",
     "build": "turbo build",
     "lint": "turbo lint",
-    "format": "prettier --write .",
-    "format:check": "prettier --check .",
+    "format": "vp fmt .",
+    "format:check": "vp fmt --check .",
     "test": "turbo test",
     "test:coverage": "turbo test:coverage",
     "test:e2e": "turbo test:e2e",
@@ -62,27 +64,30 @@
     "@anthropic-ai/sdk": "^0.71.2",
     "@changesets/changelog-github": "^0.5.2",
     "@changesets/cli": "^2.29.8",
-    "@dashframe/eslint-config": "workspace:*",
+    "@next/eslint-plugin-next": "16.0.10",
     "@types/bun": "^1.3.10",
-    "@types/eslint": "^9.6.0",
     "@types/node": "^22.10.1",
     "commander": "^14.0.3",
-    "eslint": "^9.39.0",
-    "eslint-config-next": "16.0.10",
-    "eslint-config-prettier": "10.1.8",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-sonarjs": "^3.0.5",
+    "eslint-plugin-storybook": "10.1.11",
     "husky": "^9.1.7",
     "lint-staged": "^16.2.7",
-    "prettier": "^3.7.4",
-    "prettier-plugin-organize-imports": "^4.3.0",
-    "prettier-plugin-tailwindcss": "^0.7.2",
     "shadcn": "^3.6.1",
     "tailwindcss": "4.1.16",
     "turbo": "^2.7.3",
     "typescript": "5.7.2",
-    "typescript-eslint": "^8.46.2"
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
   },
   "dependencies": {
     "convex": "^1.29.3"
+  },
+  "catalog": {
+    "@vitest/browser-playwright": "4.1.10",
+    "@vitest/coverage-v8": "4.1.10",
+    "vite": "npm:@voidzero-dev/vite-plus-core@0.2.9",
+    "vitest": "4.1.10",
+    "vite-plus": "0.2.9"
   }
 }

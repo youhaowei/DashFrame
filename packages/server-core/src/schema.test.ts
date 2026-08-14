@@ -19,7 +19,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { getTableColumns, getTableName, sql } from "drizzle-orm";
 import { getTableConfig } from "drizzle-orm/pg-core";
 import { drizzle } from "drizzle-orm/pglite";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test } from "vite-plus/test";
 
 import {
   dashboardsDraft,
@@ -60,7 +60,7 @@ async function tableExists(tableName: string): Promise<boolean> {
     sql`SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = ${tableName}`,
   );
   // PGlite returns { rows: [...] }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // oxlint-disable-next-line typescript/no-explicit-any
   return ((res as any).rows?.length ?? 0) > 0;
 }
 
@@ -73,7 +73,7 @@ async function liveColumns(tableName: string): Promise<Set<string>> {
     sql`SELECT column_name FROM information_schema.columns
         WHERE table_schema = 'public' AND table_name = ${tableName}`,
   );
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // oxlint-disable-next-line typescript/no-explicit-any
   const rows = (res as any).rows as Array<{ column_name: string }>;
   return new Set(rows.map((r) => r.column_name));
 }

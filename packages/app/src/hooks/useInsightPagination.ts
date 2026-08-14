@@ -284,7 +284,7 @@ export function useInsightPagination({
     showModelPreview,
     sourcesReady,
   ]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- runtimeKey is the stable structural dependency.
+  // oxlint-disable-next-line react-hooks-js/exhaustive-deps -- runtimeKey is the stable structural dependency.
   const stableRuntime = useMemo(() => runtime, [runtimeKey]);
 
   useLayoutEffect(() => {
@@ -472,7 +472,7 @@ export function useInsightPagination({
         )
           setSourceRetry((value) => value + 1);
       });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- structural keys intentionally gate rematerialization.
+    // oxlint-disable-next-line react-hooks-js/exhaustive-deps -- structural keys intentionally gate rematerialization.
   }, [
     enabled,
     insight.id,

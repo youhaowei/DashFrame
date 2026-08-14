@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig, type Plugin } from "vite";
+import { defineConfig, type Plugin, lazyPlugins } from "vite-plus";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -37,7 +37,7 @@ function coopCoepPlugin(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [
+  plugins: lazyPlugins(() => [
     tanstackRouter({
       target: "react",
       autoCodeSplitting: true,
@@ -46,7 +46,7 @@ export default defineConfig({
     }),
     react(),
     coopCoepPlugin(),
-  ],
+  ]),
   resolve: {
     alias: {
       "@": appSrcDir,

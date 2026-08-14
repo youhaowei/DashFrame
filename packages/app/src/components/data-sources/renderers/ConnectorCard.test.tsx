@@ -1,7 +1,7 @@
 import type { FileSourceConnector } from "@dashframe/engine";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { ConnectorCard } from "./ConnectorCard";
 
 vi.mock("./ConnectorIcon", () => ({

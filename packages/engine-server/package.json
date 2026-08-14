@@ -22,8 +22,8 @@
   "scripts": {
     "clean": "node -e \"require('node:fs/promises').rm('dist',{recursive:true,force:true})\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "eslint src",
-    "test": "vitest run",
+    "lint": "vp lint src",
+    "test": "vp test run",
     "check": "bun run typecheck && bun run lint && bun run test"
   },
   "dependencies": {
@@ -35,10 +35,10 @@
     "hono": "^4.12.9"
   },
   "devDependencies": {
-    "@dashframe/eslint-config": "workspace:*",
     "@types/node": "^22.10.1",
     "esbuild": "^0.28.0",
     "typescript": "5.7.2",
-    "vitest": "^4.1.6"
+    "vitest": "catalog:",
+    "vite-plus": "catalog:"
   }
 }

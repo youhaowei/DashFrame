@@ -104,7 +104,7 @@ export function DataSourceSelector({
     });
     // registryVersion isn't read in the body above — it's a trigger-only
     // dependency so this recomputes once the registry hydrates after mount.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // oxlint-disable-next-line react-hooks-js/exhaustive-deps
   }, [sortedSources, selectedId, tableCountBySource, registryVersion]);
 
   const actions: ItemAction[] = useMemo(

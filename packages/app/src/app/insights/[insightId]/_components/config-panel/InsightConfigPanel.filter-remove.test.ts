@@ -1,5 +1,5 @@
 import type { Insight, UUID } from "@dashframe/types";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { removeFilterThroughCommands } from "./InsightConfigPanel";
 
 describe("InsightConfigPanel filter removal mutation", () => {

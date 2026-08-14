@@ -8,8 +8,8 @@
  * XSS vectors) to verify they are properly sanitized. These are test fixtures,
  * not executable code.
  */
-/* eslint-disable sonarjs/code-eval -- Security test file: malicious payloads are test fixtures */
-import { describe, expect, it } from "vitest";
+/* oxlint-disable sonarjs/code-eval -- Security test file: malicious payloads are test fixtures */
+import { describe, expect, it } from "vite-plus/test";
 import { sanitizeSvg, SVG_SANITIZE_CONFIG } from "./svg-sanitization";
 
 describe("SVG Sanitization Security", () => {

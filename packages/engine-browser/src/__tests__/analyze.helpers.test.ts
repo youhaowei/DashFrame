@@ -13,7 +13,7 @@ import type {
   NumberAnalysis,
   StringAnalysis,
 } from "@dashframe/types";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { CARDINALITY_THRESHOLDS, suggestJoinColumns } from "../analyze";
 
 // ============================================================================

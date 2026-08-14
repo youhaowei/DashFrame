@@ -4,7 +4,7 @@ import {
   metricIdToColumnAlias,
 } from "@dashframe/engine";
 import type { DataTable, Field, Insight, UUID } from "@dashframe/types";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { buildInsightColumnDisplayNames } from "./insight-column-display-names";
 
 const BASE_TABLE_ID = "10101010-1010-1010-1010-101010101010" as UUID;

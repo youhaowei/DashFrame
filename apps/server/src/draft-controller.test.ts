@@ -28,7 +28,7 @@ import { eq } from "drizzle-orm";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 
 import {
   buildDashframeApp,
@@ -1504,7 +1504,7 @@ describe("DraftController (persisted draft overlay)", () => {
     // The fault injector reaches into the tracked-tx seam structurally (patching
     // `tx.raw.delete` by table reference), so a few `any`s are unavoidable here —
     // scoped to this block, not the suite.
-    /* eslint-disable @typescript-eslint/no-explicit-any -- structural fault injector over the tracked-tx seam */
+    /* oxlint-disable typescript/no-explicit-any -- structural fault injector over the tracked-tx seam */
     let failLogDelete = false;
     const realCreateTracked = app.createTracked.bind(app);
     (app as any).createTracked = () => {
@@ -1523,7 +1523,7 @@ describe("DraftController (persisted draft overlay)", () => {
         }, opts)) as any;
       return t;
     };
-    /* eslint-enable @typescript-eslint/no-explicit-any */
+    /* oxlint-enable typescript/no-explicit-any */
 
     // First publish: the log delete throws inside the tx → the whole publish
     // (canonical replay included) must roll back. The rejection must carry OUR

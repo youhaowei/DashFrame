@@ -1,6 +1,6 @@
 import "@testing-library/react";
 import { cleanup } from "@testing-library/react";
-import { afterEach } from "vitest";
+import { afterEach } from "vite-plus/test";
 
 // Mock ResizeObserver for tests
 class MockResizeObserver {

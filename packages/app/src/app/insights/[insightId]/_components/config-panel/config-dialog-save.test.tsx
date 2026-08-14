@@ -2,7 +2,7 @@ import type { CombinedField } from "@/lib/insights/compute-combined-fields";
 import type { DataTable, InsightMetric } from "@dashframe/types";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { FieldRenameDialog } from "./FieldRenameDialog";
 import { FilterEditDialog } from "./FilterEditDialog";
 import { InsightMetricEditorModal } from "./InsightMetricEditorModal";

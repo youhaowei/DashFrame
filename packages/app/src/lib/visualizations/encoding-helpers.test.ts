@@ -10,7 +10,7 @@ import {
   metricEncoding,
   parseEncoding,
 } from "@dashframe/types";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 describe("encoding-helpers", () => {
   const testFieldId = "abc-123-def-456" as UUID;

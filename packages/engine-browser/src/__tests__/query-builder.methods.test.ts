@@ -13,7 +13,7 @@
  */
 import type { DataFrame } from "@dashframe/engine";
 import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { QueryBuilder } from "../query-builder";
 import {
   createMockConnection,

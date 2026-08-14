@@ -9,10 +9,10 @@
     "build": "tsc -p tsconfig.json",
     "clean": "rm -rf dist *.tsbuildinfo",
     "dev": "tsc -w -p tsconfig.json --preserveWatchOutput",
-    "lint": "eslint src",
-    "test": "vitest run",
-    "test:coverage": "vitest run --coverage",
-    "test:watch": "vitest",
+    "lint": "vp lint src",
+    "test": "vp test run",
+    "test:coverage": "vp test run --coverage",
+    "test:watch": "vp test",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
@@ -22,9 +22,10 @@
     "apache-arrow": "^21.1.0"
   },
   "devDependencies": {
-    "@vitest/coverage-v8": "^4.0.16",
+    "@vitest/coverage-v8": "catalog:",
     "@wystack/secret-vault": "workspace:*",
     "typescript": "^5.6.0",
-    "vitest": "^4.0.16"
+    "vitest": "catalog:",
+    "vite-plus": "catalog:"
   }
 }
