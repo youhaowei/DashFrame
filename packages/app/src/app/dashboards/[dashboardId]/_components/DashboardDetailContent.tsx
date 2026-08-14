@@ -93,7 +93,7 @@ export default function DashboardDetailContent({
     const map = new Map<string, CombinedField>();
     if (!dashboard) return map;
 
-    // Collect the base table ids referenced by the dashboard's items.
+    // Collect direct DataTable sources. Composed Insight ids are not table ids.
     const vizIds = new Set(
       dashboard.items
         .filter((i) => i.type === "visualization")
@@ -105,8 +105,12 @@ export default function DashboardDetailContent({
     );
     const tableIds = new Set(
       insights
-        .filter((insight) => insightIds.has(insight.id))
-        .map((insight) => insight.baseTableId),
+        .filter(
+          (insight) =>
+            insightIds.has(insight.id) &&
+            insight.source.sourceType === "dataTable",
+        )
+        .map((insight) => insight.source.sourceId),
     );
 
     for (const tableId of tableIds) {

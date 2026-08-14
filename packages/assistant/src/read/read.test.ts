@@ -97,7 +97,7 @@ const TBL_PUBLIC: DataTable = {
 const INS_REVENUE: Insight = {
   id: "insRevenue",
   name: "Revenue by email",
-  baseTableId: "tblOrders",
+  source: { sourceType: "dataTable", sourceId: "tblOrders" },
   selectedFields: ["f-email", "f-amount"],
   metrics: [],
   createdAt: 0,
@@ -105,16 +105,16 @@ const INS_REVENUE: Insight = {
 const INS_PUBLIC: Insight = {
   id: "insPublic",
   name: "Regions list",
-  baseTableId: "tblPublic",
+  source: { sourceType: "dataTable", sourceId: "tblPublic" },
   selectedFields: ["f-region"],
   metrics: [],
   createdAt: 0,
 };
-// Insight-on-insight composition: baseTableId holds an INSIGHT id, not a table.
+// Insight-on-insight composition carries an explicitly discriminated source.
 const INS_COMPOSED: Insight = {
   id: "insComposed",
   name: "Composed over revenue",
-  baseTableId: "insRevenue", // ← an insight id (the upstream source)
+  source: { sourceType: "insight", sourceId: "insRevenue" },
   selectedFields: [],
   metrics: [],
   createdAt: 0,
@@ -122,7 +122,7 @@ const INS_COMPOSED: Insight = {
 const INS_UNRESOLVED: Insight = {
   id: "insUnresolved",
   name: "Broken field reference",
-  baseTableId: "tblPublic",
+  source: { sourceType: "dataTable", sourceId: "tblPublic" },
   selectedFields: ["f-missing"],
   metrics: [],
   createdAt: 0,
@@ -169,7 +169,10 @@ function makeReader(): GraphReader {
     }
     const ins = insights.find((i) => i.id === node.id);
     if (!ins) return { fields: [], missing: true, unresolved: false };
-    const tbl = tables.find((t) => t.id === ins.baseTableId);
+    const tbl =
+      ins.source.sourceType === "dataTable"
+        ? tables.find((t) => t.id === ins.source.sourceId)
+        : undefined;
     const byId = new Map((tbl?.fields ?? []).map((f) => [f.id, f]));
     const fields = (ins.selectedFields ?? [])
       .map((id) => byId.get(id))
@@ -265,8 +268,7 @@ describe("readNeighborhood — ambient = invocation + 1 hop", () => {
       kind: "insight",
       id: "insComposed",
     });
-    // baseTableId is an insight id; the edge must resolve to that insight (down),
-    // never silently dropped by probing it as a non-existent table.
+    // The explicit Insight source resolves directly to an Insight edge.
     expect(
       hood!.downstream.some(
         (n) => n.ref.kind === "insight" && n.ref.id === "insRevenue",
@@ -345,7 +347,10 @@ describe("readArtifact — structure, ungated", () => {
     });
     expect(res.details).toMatchObject({
       kind: "insight",
-      definition: { id: "insRevenue", baseTableId: "tblOrders" },
+      definition: {
+        id: "insRevenue",
+        source: { sourceType: "dataTable", sourceId: "tblOrders" },
+      },
     });
     // Structure is ungated even though the insight touches a sensitive column.
     const def = (res.details as { definition: Insight }).definition;

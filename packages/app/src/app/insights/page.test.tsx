@@ -46,7 +46,7 @@ const draft = (id: string, name: string) => ({
   id,
   name,
   createdAt: 0,
-  baseTableId: "table-1",
+  source: { sourceType: "dataTable" as const, sourceId: "table-1" },
   selectedFields: [],
   metrics: [],
 });

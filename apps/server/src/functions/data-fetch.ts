@@ -18,12 +18,7 @@ import { wy } from "../wystack";
 import type { MaterializationTarget } from "./data-fetch/materializer";
 import { trustedPublishedSourceGenerations } from "./data-fetch/published-source-error";
 import { staleFrameMetadata } from "./data-fetch/publisher";
-import {
-  decodeInsight,
-  decodeStoredInsightDefinition,
-  type InsightRow,
-  type InsightSource,
-} from "./insights";
+import { decodeInsight, type InsightRow, type InsightSource } from "./insights";
 
 export type EffectiveInsightDefinition = InsightFetchDefinition & {
   limit?: number;
@@ -317,16 +312,15 @@ function applyRuntimeLimit(
 export function applyInsightRuntime(
   saved: Insight,
   runtime: InsightRuntimeInput | undefined,
-  source?: InsightSource,
 ): EffectiveInsightDefinition {
   const definition: EffectiveInsightDefinition = {
-    baseTableId: saved.baseTableId,
+    baseTableId: saved.source.sourceId,
     selectedFields: saved.selectedFields,
     metrics: saved.metrics,
     filters: saved.filters,
     sorts: saved.sorts,
     joins: saved.joins,
-    source,
+    source: saved.source,
   };
   applyRuntimeFilters(definition, saved, runtime);
   applyRuntimeSort(definition, saved, runtime);
@@ -438,15 +432,8 @@ export function createDataFetchFunctions(execute: LiveFetchExecutor) {
           "The requested Insight runtime controls are invalid.",
         );
       try {
-        const { insight: saved, source } = await getInsightForFetch(
-          ctx,
-          insightId as UUID,
-        );
-        const effective = applyInsightRuntime(
-          saved,
-          parsedRuntime.data,
-          source,
-        );
+        const saved = await getInsightForFetch(ctx, insightId as UUID);
+        const effective = applyInsightRuntime(saved, parsedRuntime.data);
         const invocationFingerprint = fingerprintEffectiveInsight(effective);
         const result = await materialize(ctx, effective, {
           kind: "saved",
@@ -488,19 +475,13 @@ async function resolveEphemeralSource(
 async function getInsightForFetch(
   ctx: DashframeFunctionContext,
   insightId: UUID,
-): Promise<{ insight: Insight; source?: InsightSource }> {
+): Promise<Insight> {
   const row = (await ctx.db
     .from(schema.insights)
     .where(eq("id", insightId))
     .first()) as InsightRow | undefined;
   if (!row) throw new Error("INSIGHT_NOT_FOUND");
-  const definition = decodeStoredInsightDefinition(row);
-  if (
-    definition.source &&
-    definition.source.sourceId !== definition.baseTableId
-  )
-    throw new Error("TARGET_NOT_READY");
-  return { insight: decodeInsight(row), source: definition.source };
+  return decodeInsight(row);
 }
 
 async function lastSuccessfulForInsight(

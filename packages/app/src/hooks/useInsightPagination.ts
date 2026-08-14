@@ -36,12 +36,8 @@ const EMPTY_DATA_TABLES: readonly DataTable[] = [];
 const EMPTY_INSIGHTS: readonly Insight[] = [];
 const MAX_COMPOSITION_DEPTH = 16;
 
-type ComposedInsight = Insight & {
-  source?: { sourceType: "dataTable" | "insight"; sourceId: UUID };
-};
-
 export interface UseInsightPaginationOptions {
-  insight: Insight;
+  insight: Insight | null | undefined;
   /** Unsaved previews are materialized ephemerally; saved insights use runInsight. */
   showModelPreview?: boolean;
   enabled?: boolean;
@@ -50,7 +46,7 @@ export interface UseInsightPaginationOptions {
 
 function toFetchDefinition(insight: Insight): InsightFetchDefinition {
   return {
-    baseTableId: insight.baseTableId,
+    baseTableId: insight.source.sourceId,
     selectedFields: insight.selectedFields,
     metrics: insight.metrics,
     filters: insight.filters,
@@ -65,10 +61,11 @@ function toFetchDefinition(insight: Insight): InsightFetchDefinition {
  * rematerializing in response to their own result pointer update.
  */
 export function buildInsightSourceRevision(
-  insight: Insight,
+  insight: Insight | null | undefined,
   dataTables: readonly DataTable[],
   insights: readonly Insight[] = EMPTY_INSIGHTS,
 ): string {
+  if (!insight) return "missing-insight";
   const tableById = new Map(dataTables.map((table) => [table.id, table]));
   const insightById = new Map(
     insights
@@ -77,7 +74,7 @@ export function buildInsightSourceRevision(
           Array.isArray(candidate.selectedFields) &&
           Array.isArray(candidate.metrics),
       )
-      .map((candidate) => [candidate.id, candidate as ComposedInsight]),
+      .map((candidate) => [candidate.id, candidate]),
   );
   const parts: string[] = [];
 
@@ -89,10 +86,7 @@ export function buildInsightSourceRevision(
         : `missing-table:${tableId}`,
     );
   };
-  const visitInsight = (
-    candidate: ComposedInsight,
-    ancestry: readonly UUID[],
-  ) => {
+  const visitInsight = (candidate: Insight, ancestry: readonly UUID[]) => {
     if (ancestry.includes(candidate.id)) {
       parts.push(`cycle:${candidate.id}`);
       return;
@@ -105,28 +99,50 @@ export function buildInsightSourceRevision(
       `insight:${candidate.id}:${JSON.stringify(toFetchDefinition(candidate))}`,
     );
     const source = candidate.source;
-    const upstream = insightById.get(source?.sourceId ?? candidate.baseTableId);
-    if (source?.sourceType === "insight" || upstream) {
+    if (source.sourceType === "insight") {
+      const upstream = insightById.get(source.sourceId);
       if (upstream) visitInsight(upstream, [...ancestry, candidate.id]);
-      else
-        parts.push(
-          `missing-insight:${source?.sourceId ?? candidate.baseTableId}`,
-        );
-    } else visitTable(candidate.baseTableId);
+      else parts.push(`missing-insight:${source.sourceId}`);
+    } else visitTable(source.sourceId);
     for (const join of candidate.joins ?? []) visitTable(join.rightTableId);
   };
 
-  const root = insight as ComposedInsight;
-  const upstream = insightById.get(root.source?.sourceId ?? root.baseTableId);
-  if (root.source?.sourceType === "insight" || upstream) {
+  const root = insight;
+  if (root.source.sourceType === "insight") {
+    const upstream = insightById.get(root.source.sourceId);
     if (upstream) visitInsight(upstream, [root.id]);
-    else
-      parts.push(
-        `missing-insight:${root.source?.sourceId ?? root.baseTableId}`,
-      );
-  } else visitTable(root.baseTableId);
+    else parts.push(`missing-insight:${root.source.sourceId}`);
+  } else visitTable(root.source.sourceId);
   for (const join of root.joins ?? []) visitTable(join.rightTableId);
   return parts.join("|");
+}
+
+/** Resolve a composed Insight to the DataTable at the root of its source chain. */
+export function resolveInsightSourceDataTable(
+  insight: Insight | null | undefined,
+  dataTables: readonly DataTable[],
+  insights: readonly Insight[] = EMPTY_INSIGHTS,
+): DataTable | undefined {
+  if (!insight) return undefined;
+  const tableById = new Map(dataTables.map((table) => [table.id, table]));
+  const insightById = new Map(
+    insights.map((candidate) => [candidate.id, candidate]),
+  );
+  const seen = new Set<UUID>();
+  let current: Insight | undefined = insight;
+
+  while (
+    current &&
+    !seen.has(current.id) &&
+    seen.size < MAX_COMPOSITION_DEPTH
+  ) {
+    seen.add(current.id);
+    if (current.source.sourceType === "dataTable") {
+      return tableById.get(current.source.sourceId);
+    }
+    current = insightById.get(current.source.sourceId);
+  }
+  return undefined;
 }
 
 export function isSelfPublishedSourceRevision(
@@ -167,11 +183,22 @@ type ResultSchemaColumn = Readonly<{
 /** Reconnect server result aliases to model fields and repeat-join labels. */
 export function resolveInsightResultFields(
   schema: readonly ResultSchemaColumn[],
-  insight: Insight,
+  insight: Insight | null | undefined,
   dataTables: readonly DataTable[],
+  insights: readonly Insight[] = EMPTY_INSIGHTS,
 ): { fields: Field[]; displayNames: Record<string, string> } {
-  const baseTable = dataTables.find(
-    (table) => table.id === insight.baseTableId,
+  if (!insight) {
+    return {
+      fields: [],
+      displayNames: Object.fromEntries(
+        schema.map((column) => [column.id, column.name]),
+      ),
+    };
+  }
+  const baseTable = resolveInsightSourceDataTable(
+    insight,
+    dataTables,
+    insights,
   );
   const joinedTables = new Map<UUID, DataTable>();
   for (const join of insight.joins ?? []) {
@@ -202,7 +229,7 @@ export function resolveInsightResultFields(
     const field: Field = {
       ...(modelField ?? {
         id: fieldId,
-        tableId: insight.baseTableId,
+        tableId: baseTable?.id ?? insight.source.sourceId,
         name: column.name,
       }),
       columnName: column.id,
@@ -270,7 +297,9 @@ export function useInsightPagination({
   }, [dataFrameId]);
 
   const runtimeKey = JSON.stringify(runtime ?? null);
-  const insightKey = JSON.stringify(toFetchDefinition(insight));
+  const insightKey = JSON.stringify(
+    insight ? toFetchDefinition(insight) : null,
+  );
   const sourceRevision = buildInsightSourceRevision(
     insight,
     dataTables,
@@ -278,7 +307,7 @@ export function useInsightPagination({
   );
   const requestIdentity = JSON.stringify([
     enabled,
-    insight.id,
+    insight?.id ?? null,
     insightKey,
     runtimeKey,
     showModelPreview,
@@ -291,7 +320,7 @@ export function useInsightPagination({
     generation.current += 1;
   }, [
     enabled,
-    insight.id,
+    insight?.id,
     insightKey,
     runtimeKey,
     showModelPreview,
@@ -316,7 +345,8 @@ export function useInsightPagination({
     )
       return;
     const current = generation.current;
-    if (!enabled || !insight.id || !sourcesReady) {
+    const activeInsight = insight;
+    if (!enabled || !activeInsight?.id || !sourcesReady) {
       queueMicrotask(() => {
         if (current !== generation.current) return;
         setDataFrameId(null);
@@ -352,10 +382,10 @@ export function useInsightPagination({
     });
     const materialized = showModelPreview
       ? getWyStackClient().mutate(api.fetchData, {
-          insight: toFetchDefinition(insight),
+          insight: toFetchDefinition(activeInsight),
         })
       : getWyStackClient().mutate(api.runInsight, {
-          insightId: insight.id,
+          insightId: activeInsight.id,
           ...(stableRuntime ? { runtime: stableRuntime } : {}),
         });
     let completedSourceGenerations:
@@ -475,7 +505,7 @@ export function useInsightPagination({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- structural keys intentionally gate rematerialization.
   }, [
     enabled,
-    insight.id,
+    insight?.id,
     insightKey,
     runtimeKey,
     requestIdentity,
@@ -527,8 +557,8 @@ export function useInsightPagination({
   );
 
   const { fields: resolvedFields, displayNames: columnDisplayNames } = useMemo(
-    () => resolveInsightResultFields(schema, insight, dataTables),
-    [dataTables, insight, schema],
+    () => resolveInsightResultFields(schema, insight, dataTables, insights),
+    [dataTables, insight, insights, schema],
   );
 
   return {

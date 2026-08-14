@@ -1,6 +1,8 @@
+import { resolveInsightSourceDataTable } from "@/hooks/useInsightPagination";
 import { api } from "@/wystack/api";
 import type {
   CompiledInsight,
+  DataTable,
   Insight,
   UseQueryResult,
   UUID,
@@ -19,18 +21,26 @@ export function useCompiledInsight(
     args: {},
     skip: !id,
   });
+  const insights = useQuery(api.listInsights, {
+    args: {},
+    skip: !id,
+  });
 
   const compiled = useMemo((): CompiledInsight | null | undefined => {
     if (!id) return null;
     const entity = insight.data as Insight | null | undefined;
-    const dataTables = tables.data as
-      | Array<{ id: UUID; fields?: CompiledInsight["dimensions"] }>
-      | undefined;
+    const dataTables = tables.data as DataTable[] | undefined;
     if (entity === undefined || dataTables === undefined) return undefined;
     if (!entity) return null;
+    const allInsights = insights.data as Insight[] | undefined;
+    if (entity.source.sourceType === "insight" && allInsights === undefined) {
+      return undefined;
+    }
 
-    const baseTable = dataTables.find(
-      (table) => table.id === entity.baseTableId,
+    const baseTable = resolveInsightSourceDataTable(
+      entity,
+      dataTables,
+      allInsights,
     );
     if (!baseTable) return null;
     const allFields = [...(baseTable.fields ?? [])];
@@ -49,12 +59,15 @@ export function useCompiledInsight(
       filters: entity.filters,
       sorts: entity.sorts,
     };
-  }, [id, insight.data, tables.data]);
+  }, [id, insight.data, insights.data, tables.data]);
 
   return {
     data: compiled,
     isLoading:
       Boolean(id) &&
-      (compiled === undefined || insight.isLoading || tables.isLoading),
+      (compiled === undefined ||
+        insight.isLoading ||
+        tables.isLoading ||
+        insights.isLoading),
   };
 }

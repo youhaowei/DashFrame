@@ -3,7 +3,10 @@ import { AppLayout } from "@/components/layouts/AppLayout";
 import { useContextPanelSection } from "@/components/shell/context-panel-outlet";
 import { AxisSelectField } from "@/components/visualizations/AxisSelectField";
 import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
-import { useInsightPagination } from "@/hooks/useInsightPagination";
+import {
+  resolveInsightSourceDataTable,
+  useInsightPagination,
+} from "@/hooks/useInsightPagination";
 import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
 import { getColumnIcon } from "@/lib/utils/field-icons";
 import { analyzeFrameSample } from "@/lib/visualizations/analyze-frame-sample";
@@ -192,9 +195,11 @@ export default function VisualizationPageContent({
     visualization?.insightId,
   );
 
-  const dataTable = insight?.baseTableId
-    ? dataTables.find((table) => table.id === insight.baseTableId)
-    : undefined;
+  const dataTable = resolveInsightSourceDataTable(
+    insight,
+    dataTables,
+    insights,
+  );
 
   // The model-preview mutation validates the complete ephemeral Insight
   // definition. Keep the canonical selected fields and metrics instead of
@@ -206,7 +211,7 @@ export default function VisualizationPageContent({
     columnDisplayNames: modelColumnDisplayNames,
     resolvedFields: instanceAwareFields,
   } = useInsightPagination({
-    insight: insightForView ?? ({} as InsightType),
+    insight: insightForView,
     showModelPreview: true,
     enabled: !!insightForView,
   });
@@ -217,7 +222,7 @@ export default function VisualizationPageContent({
     totalCount: renderedRowCount = 0,
     isReady: isRenderedDataReady,
   } = useInsightPagination({
-    insight: insightForView ?? ({} as InsightType),
+    insight: insightForView,
     showModelPreview: false,
     enabled: !!insightForView,
   });

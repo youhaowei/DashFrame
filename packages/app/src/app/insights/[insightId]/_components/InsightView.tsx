@@ -1,6 +1,9 @@
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { VisualizationPreview } from "@/components/visualizations/VisualizationPreview";
-import { useInsightPagination } from "@/hooks/useInsightPagination";
+import {
+  resolveInsightSourceDataTable,
+  useInsightPagination,
+} from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
 import { formatCellValue } from "@/lib/cell-formatter";
 import {
@@ -717,6 +720,7 @@ export function InsightView({
   const { data: allDataTables = [] } = useQuery(api.listDataTables, {
     args: {},
   });
+  const { data: allInsights = [] } = useQuery(api.listInsights, { args: {} });
   const { data: allVisualizations = [] } = useQuery(api.listVisualizations, {
     args: {},
   });
@@ -726,10 +730,10 @@ export function InsightView({
   );
   const setPersistedActiveView = useInsightCanvasStore((s) => s.setActiveView);
 
-  // Find data table
+  // Follow composed sources to their root DataTable for authoring metadata.
   const dataTable = useMemo(
-    () => allDataTables.find((t) => t.id === insight.baseTableId),
-    [allDataTables, insight.baseTableId],
+    () => resolveInsightSourceDataTable(insight, allDataTables, allInsights),
+    [allDataTables, allInsights, insight],
   );
 
   // Get DuckDB view/table name for chart rendering

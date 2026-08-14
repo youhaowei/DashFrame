@@ -109,7 +109,7 @@ vi.mock("@wystack/client", () => ({
           {
             id: "insight-1",
             name: "Revenue",
-            baseTableId: "table-1",
+            source: { sourceType: "dataTable", sourceId: "table-1" },
             selectedFields: ["field-1"],
             metrics: [
               {

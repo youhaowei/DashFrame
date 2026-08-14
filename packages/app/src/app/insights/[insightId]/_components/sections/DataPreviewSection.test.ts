@@ -7,7 +7,7 @@ describe("buildJoinPreviewInsight", () => {
     const insight = {
       id: "insight-1",
       name: "Configured",
-      baseTableId: "table-1",
+      source: { sourceType: "dataTable", sourceId: "table-1" },
       selectedFields: ["field-1"],
       metrics: [{ id: "metric-1" }],
       filters: [{ id: "filter-1" }],
@@ -17,7 +17,7 @@ describe("buildJoinPreviewInsight", () => {
     } as never;
 
     expect(buildJoinPreviewInsight(insight)).toMatchObject({
-      baseTableId: "table-1",
+      source: { sourceType: "dataTable", sourceId: "table-1" },
       selectedFields: [],
       metrics: [],
       filters: undefined,

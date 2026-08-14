@@ -477,10 +477,8 @@ export function buildInsightUpdateCommands(
       'buildInsightUpdateCommands: joins are not supported — use cmd("AddJoin") / cmd("RemoveJoin") directly',
     );
   }
-  if (updates.baseTableId !== undefined) {
-    throw new Error(
-      'buildInsightUpdateCommands: baseTableId cannot be repointed here — use cmd("SetInsightSource") directly',
-    );
+  if (updates.source !== undefined) {
+    commands.push(cmd("SetInsightSource", { id, source: updates.source }));
   }
 
   return commands;

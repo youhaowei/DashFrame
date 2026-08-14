@@ -43,7 +43,7 @@ describe("buildChartSuggestionInsight", () => {
     const insight = {
       id: "insight-1",
       name: "Saved chart",
-      baseTableId: "table-1",
+      source: { sourceType: "dataTable", sourceId: "table-1" },
       selectedFields: ["field-product"],
       metrics: [{ id: "metric-1", fieldId: "field-quantity", function: "sum" }],
       filters: [
@@ -60,7 +60,7 @@ describe("buildChartSuggestionInsight", () => {
     } as never;
 
     expect(buildChartSuggestionInsight(insight)).toMatchObject({
-      baseTableId: "table-1",
+      source: { sourceType: "dataTable", sourceId: "table-1" },
       selectedFields: [],
       metrics: [],
       filters: undefined,

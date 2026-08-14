@@ -297,8 +297,8 @@ export function OverridePopover({
 
   const dataTable = useMemo(
     () =>
-      insight?.baseTableId
-        ? (dataTables.find((t) => t.id === insight.baseTableId) ?? null)
+      insight?.source.sourceType === "dataTable"
+        ? (dataTables.find((t) => t.id === insight.source.sourceId) ?? null)
         : null,
     [insight, dataTables],
   );

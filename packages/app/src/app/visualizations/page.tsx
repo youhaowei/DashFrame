@@ -87,7 +87,10 @@ export default function VisualizationsPage() {
 
       // Try to determine source type from insight -> dataTable -> dataSource
       let sourceType: string | null = null;
-      const dataTableId = insight?.baseTableId;
+      const dataTableId =
+        insight?.source.sourceType === "dataTable"
+          ? insight.source.sourceId
+          : undefined;
       if (dataTableId) {
         const dataTable = dataTablesMap.get(dataTableId);
         if (dataTable) {

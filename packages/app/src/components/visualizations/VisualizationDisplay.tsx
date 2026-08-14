@@ -1,5 +1,8 @@
 import { useChartEngine } from "@/components/providers/ChartEngineProvider";
-import { useInsightPagination } from "@/hooks/useInsightPagination";
+import {
+  resolveInsightSourceDataTable,
+  useInsightPagination,
+} from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
 import { api } from "@/wystack/api";
 import {
@@ -206,9 +209,8 @@ function VisualizationDisplayContent({
 
   // Get the data table for encoding resolution
   const dataTable = useMemo(() => {
-    if (!insight?.baseTableId) return undefined;
-    return dataTables.find((t) => t.id === insight.baseTableId);
-  }, [insight, dataTables]);
+    return resolveInsightSourceDataTable(insight, dataTables, insights);
+  }, [insight, dataTables, insights]);
 
   const dashboardRuntime = useMemo(
     () =>
@@ -241,7 +243,7 @@ function VisualizationDisplayContent({
     columnDisplayNames,
     resolvedFields: instanceAwareFields,
   } = useInsightPagination({
-    insight: insight ?? ({} as Insight),
+    insight,
     showModelPreview: false,
     enabled: Boolean(insight && !dashboardRuntime.error),
     runtime: dashboardRuntime.runtime,
@@ -313,7 +315,11 @@ function VisualizationDisplayContent({
   // Metrics were already aggregated by runInsight; Mosaic must not aggregate
   // their source columns again.
   const resolvedEncoding = useMemo((): ChartEncoding => {
-    if (!activeViz?.encoding || !dataTable || !insight) {
+    if (
+      !activeViz?.encoding ||
+      !insight ||
+      (!dataTable && instanceAwareFields.length === 0)
+    ) {
       return {};
     }
 
@@ -322,11 +328,12 @@ function VisualizationDisplayContent({
     // instance-suffixed IDs (e.g. `<uuid>_j1`) that match the SQL aliases
     // DuckDB produces. Fall back to bare dataTable fields when the hook
     // hasn't resolved yet (first render or no joins).
+    const resolutionFields =
+      instanceAwareFields.length > 0
+        ? instanceAwareFields
+        : (dataTable?.fields ?? []);
     const context = {
-      fields:
-        instanceAwareFields.length > 0
-          ? instanceAwareFields
-          : (dataTable.fields ?? []),
+      fields: resolutionFields,
       metrics: insight.metrics ?? [],
     };
 
@@ -365,11 +372,7 @@ function VisualizationDisplayContent({
         // base-table field), then to the raw resolvedValue as a last resort.
         const disambiguated = columnDisplayNames[resolvedValue];
         if (disambiguated) return disambiguated;
-        const effectiveFields =
-          instanceAwareFields.length > 0
-            ? instanceAwareFields
-            : (dataTable.fields ?? []);
-        const field = effectiveFields.find((f) => f.id === parsed.id);
+        const field = resolutionFields.find((f) => f.id === parsed.id);
         return (
           field?.name ?? columnDisplayNames[resolvedValue] ?? resolvedValue
         );
@@ -377,7 +380,7 @@ function VisualizationDisplayContent({
       if (parsed?.type === "metric") {
         const metric = insight.metrics?.find((m) => m.id === parsed.id);
         return metric
-          ? getMetricDisplayLabel(metric, dataTable.fields)
+          ? getMetricDisplayLabel(metric, resolutionFields)
           : (columnDisplayNames[resolvedValue] ?? resolvedValue);
       }
 

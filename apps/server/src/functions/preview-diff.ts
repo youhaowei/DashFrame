@@ -31,7 +31,7 @@
  * direction "touch N ⇒ these are affected":
  *
  *   dataSource  → dataTable     : FK data_tables.data_source_id
- *   dataTable   → insight       : insight.definition.baseTableId
+ *   dataTable   → insight       : insight.definition.source
  *                                 + insight.definition.joins[].rightTableId
  *   insight     → dataFrame     : FK data_frames.insight_id
  *   insight     → visualization : FK visualizations.insight_id
@@ -911,8 +911,8 @@ const DOWNSTREAM_EDGES: ReadonlyArray<{
 }> = [
   { edge: "dataSource->dataTable", flag: "recompute" },
   { edge: "dataTable->insight", flag: "recompute" },
-  // Insight-on-Insight composition: B sourcing A depends on A via baseTableId
-  // (source.sourceType 'insight'). A change to A must recompute B and fan out to
+  // Insight-on-Insight composition: B sourcing A depends on A via source. A
+  // change to A must recompute B and fan out to
   // B's own DataFrames/Visualizations/Dashboards through the rest of the walk.
   { edge: "insight->insight", flag: "recompute" },
   { edge: "insight->dataFrame", flag: "stale" },
@@ -1141,20 +1141,20 @@ function classifyDownstream(
 }
 
 /**
- * The upstream-node ids an insight's stored `definition` IR references — the base
- * source (`baseTableId`) plus each join's right side (`joins[].rightTableId`).
- * `baseTableId` carries a DataTable id when `source.sourceType` is 'dataTable' and
- * an upstream Insight id when it is 'insight' (Insight-on-Insight composition); the
- * walk classifies the edge by the parent node's actual kind, so the same id under
- * `baseTableId` resolves to either `dataTable->insight` or `insight->insight`.
- * Defensive about the JSON shape: the column is `jsonb` and old rows may predate
- * fields.
+ * The upstream-node ids an insight's stored `definition` IR references — its
+ * polymorphic source plus each join's right side. Legacy base-only rows remain
+ * readable during migration.
  */
 function insightTableRefs(definition: unknown): string[] {
   if (!definition || typeof definition !== "object") return [];
-  const def = definition as { baseTableId?: unknown; joins?: unknown };
+  const def = definition as {
+    source?: { sourceId?: unknown };
+    baseTableId?: unknown;
+    joins?: unknown;
+  };
   const refs: string[] = [];
-  if (typeof def.baseTableId === "string") refs.push(def.baseTableId);
+  const sourceId = def.source?.sourceId ?? def.baseTableId;
+  if (typeof sourceId === "string") refs.push(sourceId);
   if (Array.isArray(def.joins)) {
     for (const join of def.joins) {
       const right = (join as { rightTableId?: unknown } | null)?.rightTableId;

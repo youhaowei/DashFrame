@@ -112,7 +112,8 @@ export function useCreateInsight() {
       // wrapping the check-and-insert in one transaction.
       const allInsights = await getAllInsights();
       const sameTableInsights = allInsights.filter(
-        (i) => i.baseTableId === tableId,
+        (i) =>
+          i.source.sourceType === "dataTable" && i.source.sourceId === tableId,
       );
 
       // One or more modified insights exist for this table — create a new draft
@@ -193,16 +194,15 @@ export function useCreateInsight() {
         return null;
       }
 
-      // Create a new insight over the upstream insight's base table. Derived
-      // insights are an
+      // Create a new insight over the upstream insight. Derived insights are an
       // explicit creation intent, so they don't opt into reuseUnmodifiedDraft —
       // each call gets a fresh row rather than being rerouted to an existing
       // unmodified table draft.
       const insightId = await createInsight(
         `${sourceInsightName} (derived)`,
         {
-          sourceType: "dataTable",
-          sourceId: sourceInsight.baseTableId,
+          sourceType: "insight",
+          sourceId: sourceInsightId as UUID,
         },
         { selectedFields: [] },
       );

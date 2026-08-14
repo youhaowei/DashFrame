@@ -1,5 +1,8 @@
 import { useDataFramePagination } from "@/hooks/useDataFramePagination";
-import { useInsightPagination } from "@/hooks/useInsightPagination";
+import {
+  resolveInsightSourceDataTable,
+  useInsightPagination,
+} from "@/hooks/useInsightPagination";
 import { api } from "@/wystack/api";
 import { fieldIdToColumnAlias } from "@dashframe/engine";
 import type {
@@ -129,11 +132,16 @@ export default function JoinConfigureContent({
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Resolve base table (from insight's baseTableId)
+  // Resolve composed sources to their root DataTable before configuring joins.
   const baseTable = useMemo(() => {
-    if (!insight || !allDataTables) return null;
-    return allDataTables.find((t) => t.id === insight.baseTableId) ?? null;
-  }, [insight, allDataTables]);
+    return (
+      resolveInsightSourceDataTable(
+        insight,
+        allDataTables ?? [],
+        allInsights ?? [],
+      ) ?? null
+    );
+  }, [insight, allDataTables, allInsights]);
 
   // Resolve join table (from tableId param)
   const joinTable = useMemo(() => {
@@ -187,7 +195,7 @@ export default function JoinConfigureContent({
     rightFieldId,
   ]);
   const preview = useInsightPagination({
-    insight: previewInsight ?? ({} as Insight),
+    insight: previewInsight,
     showModelPreview: true,
     enabled: previewInsight !== null,
   });

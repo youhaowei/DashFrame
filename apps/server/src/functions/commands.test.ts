@@ -933,16 +933,13 @@ describe("command vocabulary", () => {
       const rows = await insightsById(insightId);
       expect(rows).toHaveLength(1);
       const def = rows[0]?.definition as {
-        baseTableId: string;
         source: { sourceType: string; sourceId: string };
       };
-      // baseTableId mirrors source.sourceId on every write.
-      expect(def.baseTableId).toBe(tableId);
-      // New polymorphic source field.
       expect(def.source).toEqual({
         sourceType: "dataTable",
         sourceId: tableId,
       });
+      expect(def).not.toHaveProperty("baseTableId");
     });
 
     it("should batch CreateInsight + CreateVisualization in one atomic envelope (client-id invariant)", async () => {
@@ -1536,7 +1533,7 @@ describe("command vocabulary", () => {
       // fixture ever stopped persisting a definition, `json` would be the
       // string "undefined" and every byte-identity comparison built on it
       // would pass without proving anything.
-      expect(json).toContain("baseTableId");
+      expect(json).toContain('"source"');
       return json;
     }
 

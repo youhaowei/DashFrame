@@ -68,13 +68,9 @@
  * walking the source chain; it rejects a source that would make the Insight
  * transitively depend on itself.
  *
- * Storage contract: `InsightDefinition.baseTableId` is the structural source id
- * carried on every Insight. `decodeInsight` in `insights.ts` reads it, and
- * it is a field on the `Insight` domain type the renderer consumes. `source`
- * carries the polymorphic source description; `baseTableId` is written to
- * `source.sourceId` on every write so both stay in lockstep — for a DataTable
- * source the two are interchangeable, for an Insight source `baseTableId` holds
- * the upstream insight id.
+ * Storage contract: `InsightDefinition.source` is the only canonical source
+ * authority. The codec normalizes legacy `baseTableId` rows at the read seam;
+ * commands always write source-only definitions.
  */
 import { schema } from "@dashframe/server-core";
 import type {
@@ -298,7 +294,7 @@ async function wouldCreateCycle(
     }
     const def = parsed.data as StoredInsightDefinition;
     const src = def.source;
-    if (!src || src.sourceType !== "insight") break; // leaf
+    if (src.sourceType !== "insight") break; // leaf
     if (src.sourceId === startId) return true; // cycle found
     currentId = src.sourceId;
   }
@@ -751,20 +747,16 @@ const getOrCreateInsightDraft = wy.procedure
     const rows = (await ctx.db.from(insights).all()) as InsightRow[];
     const existing = rows.find((row) => {
       const parsed = storedInsightDefinitionSchema.safeParse(row.definition);
-      if (!parsed.success) return false;
-      const storedSource = parsed.data.source;
       return (
-        (storedSource === undefined
-          ? parsed.data.baseTableId === source.sourceId
-          : storedSource.sourceType === "dataTable" &&
-            storedSource.sourceId === source.sourceId) &&
+        parsed.success &&
+        parsed.data.source.sourceType === "dataTable" &&
+        parsed.data.source.sourceId === source.sourceId &&
         isUnmodifiedDraft(parsed.data)
       );
     });
     if (existing) return { id: existing.id };
 
     const definition = requireDefinitionShape("GetOrCreateInsightDraft", {
-      baseTableId: source.sourceId,
       source,
       selectedFields: [],
       metrics: [],
@@ -781,11 +773,8 @@ const getOrCreateInsightDraft = wy.procedure
 
 /**
  * CreateInsight — mints a new transform node over a DataFrame-producing input
- * (DataTable or another Insight). `source.sourceId` is written into both the
- * polymorphic `source` field and `baseTableId` (which `decodeInsight` surfaces
- * on the `Insight` domain type). When `sourceType === 'insight'` `baseTableId`
- * carries the upstream insight id; consumers resolving the structural source
- * read `source.sourceType` to disambiguate.
+ * (DataTable or another Insight). The polymorphic `source` is the only source
+ * identity written to storage and surfaced on the domain model.
  */
 const createInsight = wy.procedure
   .input({
@@ -819,7 +808,6 @@ const createInsight = wy.procedure
     // Both operands arrive as opaque `jsonb`; the schema rejects a non-array and
     // coalesces absent → [], so no cast and no `?? []` is needed here.
     const definition = requireDefinitionShape("CreateInsight", {
-      baseTableId: source.sourceId,
       source,
       selectedFields: args.selectedFields,
       // Stored as InsightMetric (sourceTable), the shape the read path expects.
@@ -912,7 +900,6 @@ const setInsightSource = wy.procedure
     // is no unvalidated value to reject.
     const next: StoredInsightDefinition = {
       ...definition,
-      baseTableId: source.sourceId,
       source,
     };
     await ctx.db
@@ -2209,9 +2196,7 @@ export interface DeleteNodeResult {
  * a TBD repair target when `sourceId` is deleted.
  *
  * The check covers:
- *   • The new `source.sourceId` field (CreateInsight / SetInsightSource).
- *   • The legacy `baseTableId` field for pre-composition rows (written before
- *     `source` was introduced; both fields are kept in lockstep on writes).
+ *   • The normalized `source.sourceId` field (including legacy base-only rows).
  *   • Any `joins[*].rightTableId` — an Insight that JOINs against the deleted
  *     node is just as broken as one that sources it directly.
  *
@@ -2244,16 +2229,14 @@ function parseRowDefinition(row: InsightRow): StoredInsightDefinition {
 /**
  * Pure orphan check against an already-parsed definition — no validation, no
  * DB access. An Insight is orphaned by `sourceId` if its primary source (or
- * legacy `baseTableId`) equals it, or any join's `rightTableId` equals it.
+ * normalized source equals it, or any join's `rightTableId` equals it.
  */
 function definitionRefers(
   def: StoredInsightDefinition,
   sourceId: string,
 ): boolean {
   // Primary source check.
-  const primaryMatch = def.source
-    ? def.source.sourceId === sourceId
-    : def.baseTableId === sourceId;
+  const primaryMatch = def.source.sourceId === sourceId;
   if (primaryMatch) return true;
   // Join-dependency check — an Insight JOINing against the deleted node
   // is also orphaned (its rightTableId no longer resolves).

@@ -7,7 +7,7 @@ import { PublishedSourceMaterializationError } from "./data-fetch/published-sour
 const insight: Insight = {
   id: "insight-1",
   name: "Revenue",
-  baseTableId: "table-1",
+  source: { sourceType: "dataTable", sourceId: "table-1" },
   selectedFields: ["region", "date"],
   metrics: [],
   createdAt: 0,

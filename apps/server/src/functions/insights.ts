@@ -14,7 +14,7 @@
  * layout.
  *
  * Validation is STRUCTURAL, not element-deep: the schema rejects a non-object
- * blob, a missing `baseTableId`, or a non-array where an array is required, but
+ * blob, a missing source identity, or a non-array where an array is required, but
  * trusts element shapes (metric/filter internals). That matches the write
  * boundary, which stores `filters`/`metrics` as opaque `unknown[]` without
  * validating their elements — a read-side element schema would be stricter than
@@ -28,6 +28,7 @@ import type {
   InsightMetric,
   InsightRuntimeDeclaration,
   InsightSort,
+  InsightSource,
   UUID,
 } from "@dashframe/types";
 import { z } from "zod";
@@ -40,14 +41,7 @@ export type InsightRow = typeof schema.insights.$inferSelect;
 // Stored insight-definition contract (owned here; consumed by commands.ts)
 // ---------------------------------------------------------------------------
 
-/**
- * The polymorphic source description stored in `insights.definition`.
- * Insight-on-Insight composition rides on `sourceType`.
- */
-export interface InsightSource {
-  sourceType: "dataTable" | "insight";
-  sourceId: UUID;
-}
+export type { InsightSource } from "@dashframe/types";
 
 /**
  * The stored `insights.definition` JSONB shape as the command handlers read and
@@ -56,10 +50,8 @@ export interface InsightSource {
  * the encoder emits).
  */
 export interface StoredInsightDefinition {
-  /** Structural source id — also surfaced on the `Insight` domain type via `decodeInsight`. */
-  baseTableId: UUID;
-  /** Polymorphic source description; `baseTableId` mirrors `source.sourceId`. */
-  source?: InsightSource;
+  /** Canonical structural source. Legacy `baseTableId` is normalized away. */
+  source: InsightSource;
   selectedFields: UUID[];
   metrics: unknown[];
   filters?: unknown[];
@@ -92,14 +84,12 @@ export function ensureInsightFilterIds(filters: unknown[]): unknown[] {
 
 /**
  * The ideal stored-definition write shape (arrays conceptually present, element
- * types known). The encoder emits this; `app-artifacts.ts` patch/dedup paths
- * consume it. Kept hand-written (not `z.infer`) and separate from the tolerant
- * runtime schema so optionality doesn't ripple into those typed call sites.
+ * types known). The encoder emits this and command handlers consume it. Kept
+ * hand-written (not `z.infer`) and separate from the tolerant runtime schema so
+ * optionality does not ripple into those typed call sites.
  */
 export type InsightDefinition = {
-  baseTableId: UUID;
-  /** Carried through every write; see {@link encodeInsightDefinition}. */
-  source?: InsightSource;
+  source: InsightSource;
   selectedFields: UUID[];
   metrics: InsightMetric[];
   filters?: InsightFilter[];
@@ -176,51 +166,74 @@ export const runtimeControlsSchema = z
  * is still rejected. Element shapes are trusted (`z.unknown()`) — see the
  * module header.
  *
- * `baseTableId` is required: canonical writes always set it, so a missing one
- * is genuine corruption, safe to throw. No `.uuid()` — legacy ids may not be
- * RFC-4122.
+ * Canonical rows carry `source` only. Legacy base-only rows normalize to a
+ * DataTable source at this boundary. Rows carrying both fields must agree;
+ * disagreement is corruption rather than a precedence rule.
  *
  * Exported so tests can assert parse-call counts (e.g. the orphan scan parses
  * each insight once, not once per owned table).
  */
-export const storedInsightDefinitionSchema = z.object({
-  baseTableId: z.string(),
-  source: insightSourceSchema.optional(),
-  selectedFields: z
-    .array(z.string())
-    .nullish()
-    .transform((v) => v ?? []),
-  metrics: z
-    .array(z.unknown())
-    .nullish()
-    .transform((v) => v ?? []),
-  filters: z
-    .array(z.unknown())
-    .nullish()
-    .transform((v) => v ?? undefined),
-  sorts: z
-    .array(z.unknown())
-    .nullish()
-    .transform((v) => v ?? undefined),
-  joins: z
-    .array(z.unknown())
-    .nullish()
-    .transform((v) => v ?? undefined),
-  runtimeControls: runtimeControlsSchema
-    .nullish()
-    .transform((v) => v ?? undefined),
-});
+export const storedInsightDefinitionSchema = z
+  .object({
+    baseTableId: z.string().optional(),
+    source: insightSourceSchema.optional(),
+    selectedFields: z
+      .array(z.string())
+      .nullish()
+      .transform((v) => v ?? []),
+    metrics: z
+      .array(z.unknown())
+      .nullish()
+      .transform((v) => v ?? []),
+    filters: z
+      .array(z.unknown())
+      .nullish()
+      .transform((v) => v ?? undefined),
+    sorts: z
+      .array(z.unknown())
+      .nullish()
+      .transform((v) => v ?? undefined),
+    joins: z
+      .array(z.unknown())
+      .nullish()
+      .transform((v) => v ?? undefined),
+    runtimeControls: runtimeControlsSchema
+      .nullish()
+      .transform((v) => v ?? undefined),
+  })
+  .superRefine((definition, context) => {
+    if (!definition.source && !definition.baseTableId) {
+      context.addIssue({
+        code: "custom",
+        message: "source is required",
+        path: ["source"],
+      });
+    }
+    if (
+      definition.source &&
+      definition.baseTableId &&
+      definition.source.sourceId !== definition.baseTableId
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "source.sourceId must match legacy baseTableId",
+        path: ["source", "sourceId"],
+      });
+    }
+  })
+  .transform(({ baseTableId, source, ...definition }) => ({
+    ...definition,
+    source:
+      source ?? ({ sourceType: "dataTable", sourceId: baseTableId! } as const),
+  }));
 
 /**
  * Decode a DB insight row into its validated **stored** definition — the shape
  * that still carries `source`. Throws (fail-closed) on structural corruption,
  * naming the offending insight id.
  *
- * Write handlers must rebuild `definition` from THIS, not from the domain
- * {@link Insight}: `Insight` deliberately omits `source` (it is storage-level
- * composition wiring, not a domain field), so a write reconstructed from a
- * decoded `Insight` silently erases it — which in turn makes a composed insight
- * look like a leaf to the cycle checker in `commands.ts`.
+ * Write handlers rebuild `definition` from this normalized shape so legacy
+ * storage keys cannot leak back into canonical writes.
  */
 export function decodeStoredInsightDefinition(
   row: InsightRow,
@@ -242,7 +255,7 @@ export function toInsight(
   return {
     id: row.id,
     name: row.name,
-    baseTableId: definition.baseTableId,
+    source: definition.source,
     selectedFields: definition.selectedFields,
     metrics: definition.metrics as InsightMetric[],
     filters: definition.filters as InsightFilter[] | undefined,
@@ -257,7 +270,7 @@ export function toInsight(
 /**
  * Decode a DB insight row into the domain `Insight`. Throws (fail-closed) when
  * the `definition` blob is structurally invalid — a non-object, a missing
- * `baseTableId`, or a non-array where an array is required — naming the
+ * source identity, or a non-array where an array is required — naming the
  * offending insight id. A throw here fails the whole `listInsights` query
  * (the settled fail-closed blast radius). Element shapes are trusted (see the
  * module header); valid-path output is identical to the former `rowToInsight`.
@@ -278,14 +291,11 @@ export function decodeInsight(row: InsightRow): Insight {
  * Assembling and validating are kept separate because some callers already hold
  * a parsed definition and would otherwise pay a redundant parse.
  *
- * `source` has no counterpart on the domain `Insight`, so every caller must
- * source it from {@link decodeStoredInsightDefinition} and pass it through
- * explicitly. Omitting it writes a source-less definition — correct only when
- * the insight genuinely has no source.
+ * Canonical writes require the polymorphic source and never emit the legacy
+ * `baseTableId` compatibility key.
  */
 export function encodeInsightDefinition(input: {
-  baseTableId: UUID;
-  source?: InsightSource;
+  source: InsightSource;
   selectedFields?: UUID[];
   metrics?: InsightMetric[];
   filters?: InsightFilter[];
@@ -294,7 +304,6 @@ export function encodeInsightDefinition(input: {
   runtimeControls?: InsightRuntimeDeclaration;
 }): InsightDefinition {
   return {
-    baseTableId: input.baseTableId,
     source: input.source,
     selectedFields: input.selectedFields ?? [],
     metrics: input.metrics ?? [],

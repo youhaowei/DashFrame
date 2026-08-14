@@ -25,7 +25,7 @@ const rightField = {
 const insight = {
   id: "10000000-0000-4000-8000-000000000005",
   name: "Accounts",
-  baseTableId,
+  source: { sourceType: "dataTable", sourceId: baseTableId },
   selectedFields: [leftField.id],
   metrics: [],
   filters: [
@@ -56,7 +56,7 @@ describe("join preview definition", () => {
     );
 
     expect(preview).toMatchObject({
-      baseTableId,
+      source: { sourceType: "dataTable", sourceId: baseTableId },
       selectedFields: [],
       metrics: [],
       filters: [],

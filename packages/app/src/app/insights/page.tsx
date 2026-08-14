@@ -117,7 +117,10 @@ export default function InsightsPage() {
       let dataTable: DataTable | null = null;
       let sourceType: string | null = null;
 
-      const dataTableId = insight.baseTableId;
+      const dataTableId =
+        insight.source.sourceType === "dataTable"
+          ? insight.source.sourceId
+          : undefined;
       if (dataTableId) {
         const table = allDataTables.find((t) => t.id === dataTableId);
         if (table) {

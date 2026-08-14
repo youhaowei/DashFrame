@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildInsightSourceRevision,
   resolveInsightResultFields,
+  resolveInsightSourceDataTable,
   useInsightPagination,
 } from "./useInsightPagination";
 
@@ -26,7 +27,7 @@ vi.mock("@wystack/client", async (importOriginal) => ({
 const insight = {
   id: "insight-1",
   name: "Revenue",
-  baseTableId: "table-1",
+  source: { sourceType: "dataTable", sourceId: "table-1" },
   selectedFields: ["10000000-0000-4000-8000-000000000001"],
   metrics: [],
   createdAt: 0,
@@ -34,6 +35,20 @@ const insight = {
 
 describe("useInsightPagination", () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it("stays idle while its insight is absent during a cold render", async () => {
+    const { result } = renderHook(() =>
+      useInsightPagination({ insight: undefined }),
+    );
+
+    await act(async () => undefined);
+    expect(client.mutate).not.toHaveBeenCalled();
+    expect(result.current).toMatchObject({
+      dataFrameId: null,
+      isReady: false,
+      resolvedFields: [],
+    });
+  });
 
   it("runs saved insights with declared runtime controls then queries the returned handle", async () => {
     client.mutate.mockResolvedValue({
@@ -339,13 +354,11 @@ describe("useInsightPagination", () => {
     const upstream = {
       ...insight,
       id: "insight-upstream",
-      baseTableId: "table-1",
       source: { sourceType: "dataTable", sourceId: "table-1" },
     } as Insight;
     const composed = {
       ...insight,
       id: "insight-composed",
-      baseTableId: upstream.id,
       source: { sourceType: "insight", sourceId: upstream.id },
     } as Insight;
     let tables = [
@@ -404,13 +417,11 @@ describe("useInsightPagination", () => {
     const upstream = {
       ...insight,
       id: "insight-upstream-failure",
-      baseTableId: "table-1",
       source: { sourceType: "dataTable", sourceId: "table-1" },
     } as Insight;
     const composed = {
       ...insight,
       id: "insight-composed-failure",
-      baseTableId: upstream.id,
       source: { sourceType: "insight", sourceId: upstream.id },
     } as Insight;
     let tables = [
@@ -509,13 +520,11 @@ describe("buildInsightSourceRevision", () => {
     const upstream = {
       ...insight,
       id: "insight-upstream",
-      baseTableId: baseTable.id,
       source: { sourceType: "dataTable", sourceId: baseTable.id },
     } as Insight;
     const derived = {
       ...insight,
       id: "insight-derived",
-      baseTableId: upstream.id,
       source: { sourceType: "insight", sourceId: upstream.id },
     } as Insight;
     const initial = buildInsightSourceRevision(
@@ -544,13 +553,11 @@ describe("buildInsightSourceRevision", () => {
     const a = {
       ...insight,
       id: "insight-a",
-      baseTableId: "insight-b",
       source: { sourceType: "insight", sourceId: "insight-b" },
     } as Insight;
     const b = {
       ...insight,
       id: "insight-b",
-      baseTableId: "insight-a",
       source: { sourceType: "insight", sourceId: "insight-a" },
     } as Insight;
 
@@ -563,7 +570,6 @@ describe("buildInsightSourceRevision", () => {
     const chain = Array.from({ length: 18 }, (_, index) => ({
       ...insight,
       id: `insight-${index}`,
-      baseTableId: `insight-${index + 1}`,
       source: {
         sourceType: "insight" as const,
         sourceId: `insight-${index + 1}`,
@@ -577,6 +583,24 @@ describe("buildInsightSourceRevision", () => {
 });
 
 describe("resolveInsightResultFields", () => {
+  it("resolves the root DataTable for a composed Insight", () => {
+    const table = { id: "table-root", fields: [] } as DataTable;
+    const upstream = {
+      ...insight,
+      id: "insight-upstream",
+      source: { sourceType: "dataTable", sourceId: table.id },
+    } as Insight;
+    const derived = {
+      ...insight,
+      id: "insight-derived",
+      source: { sourceType: "insight", sourceId: upstream.id },
+    } as Insight;
+
+    expect(
+      resolveInsightSourceDataTable(derived, [table], [derived, upstream]),
+    ).toBe(table);
+  });
+
   it("preserves repeat-join source identity and gives each instance a distinct left-key label", () => {
     const baseId = "10000000-0000-4000-8000-000000000010" as UUID;
     const usersId = "10000000-0000-4000-8000-000000000020" as UUID;
@@ -635,7 +659,7 @@ describe("resolveInsightResultFields", () => {
     ] satisfies DataTable[];
     const repeatedInsight = {
       ...insight,
-      baseTableId: baseId,
+      source: { sourceType: "dataTable" as const, sourceId: baseId },
       joins: [
         {
           type: "left" as const,

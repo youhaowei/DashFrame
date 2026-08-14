@@ -14,6 +14,10 @@ const { mockUseInsightPagination } = vi.hoisted(() => ({
 }));
 
 vi.mock("@/hooks/useInsightPagination", () => ({
+  resolveInsightSourceDataTable: (
+    _insight: unknown,
+    dataTables: readonly unknown[],
+  ) => dataTables[0],
   useInsightPagination: (opts: unknown) => mockUseInsightPagination(opts),
 }));
 
@@ -106,7 +110,7 @@ const savedSort = { field: "created_at", direction: "desc" as const };
 const insight: Insight = {
   id: "ins-1",
   name: "Active Orders",
-  baseTableId: "t1",
+  source: { sourceType: "dataTable", sourceId: "t1" },
   selectedFields: [],
   metrics: [],
   joins: [],

@@ -64,6 +64,11 @@ export interface InsightJoinConfig {
   rightKey: string;
 }
 
+/** Polymorphic upstream for an Insight. */
+export type InsightSource =
+  | { sourceType: "dataTable"; sourceId: UUID }
+  | { sourceType: "insight"; sourceId: UUID };
+
 /**
  * Insight - A configured data view/query.
  *
@@ -79,8 +84,8 @@ export interface InsightJoinConfig {
 export interface Insight {
   id: UUID;
   name: string;
-  /** Base table for the insight */
-  baseTableId: UUID;
+  /** Authoritative upstream DataTable or Insight. */
+  source: InsightSource;
   /** Selected field IDs */
   selectedFields: UUID[];
   /** Metrics to compute */
@@ -100,8 +105,11 @@ export interface Insight {
 /** A client-safe, unsaved definition accepted by the live fetch surface. */
 export type InsightFetchDefinition = Pick<
   Insight,
-  "baseTableId" | "selectedFields" | "metrics" | "filters" | "sorts" | "joins"
->;
+  "selectedFields" | "metrics" | "filters" | "sorts" | "joins"
+> & {
+  /** Execution adapter consumed by the query engine. Not a persisted model field. */
+  baseTableId: UUID;
+};
 
 /**
  * Values which may vary when running a saved Insight. Filter keys are stable

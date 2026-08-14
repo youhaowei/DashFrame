@@ -111,7 +111,10 @@ function createMockInsight(options: {
   return {
     id: options.id ?? "insight-123",
     name: options.name ?? "Test Insight",
-    baseTableId: options.baseTableId ?? "table-abc",
+    source: {
+      sourceType: "dataTable",
+      sourceId: options.baseTableId ?? "table-abc",
+    },
     selectedFields: options.selectedFields ?? [],
     metrics: [],
     joins: [],
@@ -470,7 +473,7 @@ describe("useCreateInsight", () => {
 
       expect(mockCreateInsight).toHaveBeenCalledWith(
         "Original Analysis (derived)",
-        "table-orders",
+        "source-456",
         { selectedFields: [] },
       );
     });
@@ -496,7 +499,7 @@ describe("useCreateInsight", () => {
 
       expect(mockCreateInsight).toHaveBeenCalledWith(
         "Customer Segmentation (derived)",
-        "table-customers",
+        "source-789",
         { selectedFields: [] },
       );
     });
@@ -644,7 +647,7 @@ describe("useCreateInsight", () => {
       // Should still append '(derived)', even if it already exists
       expect(mockCreateInsight).toHaveBeenCalledWith(
         "Original (derived) (derived)",
-        "table-nested",
+        "source-nested",
         { selectedFields: [] },
       );
     });

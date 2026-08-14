@@ -76,7 +76,7 @@ function groupedInsight(filters?: InsightFilter[]): Insight {
   return {
     id: "99999999-9999-9999-9999-999999999999" as UUID,
     name: "Revenue by Region",
-    baseTableId: TABLE_ID,
+    source: { sourceType: "dataTable", sourceId: TABLE_ID },
     selectedFields: [REGION_FIELD_ID],
     metrics: [REVENUE_METRIC],
     filters,
@@ -89,7 +89,7 @@ function metricsOnlyInsight(filters?: InsightFilter[]): Insight {
   return {
     id: "88888888-8888-8888-8888-888888888888" as UUID,
     name: "Total Revenue",
-    baseTableId: TABLE_ID,
+    source: { sourceType: "dataTable", sourceId: TABLE_ID },
     selectedFields: [],
     metrics: [REVENUE_METRIC],
     filters,
@@ -276,7 +276,7 @@ describe("buildInsightSQL — null handling and edge cases", () => {
     const insight: Insight = {
       id: "77777777-7777-7777-7777-777777777777" as UUID,
       name: "Amount grouped + summed",
-      baseTableId: TABLE_ID,
+      source: { sourceType: "dataTable", sourceId: TABLE_ID },
       selectedFields: [AMOUNT_FIELD_ID],
       metrics: [REVENUE_METRIC], // SUM(amount)
       filters: [{ field: "amount", operator: "gt", value: 10 }],
@@ -306,7 +306,7 @@ describe("buildInsightSQL — null handling and edge cases", () => {
     const insight: Insight = {
       id: "66666666-6666-6666-6666-666666666666" as UUID,
       name: "Row count by region",
-      baseTableId: TABLE_ID,
+      source: { sourceType: "dataTable", sourceId: TABLE_ID },
       selectedFields: [REGION_FIELD_ID],
       metrics: [
         {
@@ -418,7 +418,7 @@ describe("buildInsightSQL — filter on a dropped join key is safely skipped", (
     const insight: Insight = {
       id: "11112222-3333-4444-5555-666677778888" as UUID,
       name: "Orders joined to customers",
-      baseTableId: ORDERS_ID,
+      source: { sourceType: "dataTable", sourceId: ORDERS_ID },
       selectedFields: [O_ID_FIELD.id],
       metrics: [],
       joins: [
@@ -459,7 +459,7 @@ describe("buildInsightSQL — filter on a dropped join key is safely skipped", (
     const insight: Insight = {
       id: "abababab-cdcd-efef-0101-202020202020" as UUID,
       name: "Orders filtered by customer name",
-      baseTableId: ORDERS_ID,
+      source: { sourceType: "dataTable", sourceId: ORDERS_ID },
       selectedFields: [O_ID_FIELD.id],
       metrics: [],
       joins: [
@@ -490,7 +490,7 @@ describe("buildInsightSQL — filter on a dropped join key is safely skipped", (
     const insight: Insight = {
       id: "99990000-1111-2222-3333-444455556666" as UUID,
       name: "Orders with a stale filter",
-      baseTableId: ORDERS_ID,
+      source: { sourceType: "dataTable", sourceId: ORDERS_ID },
       selectedFields: [O_ID_FIELD.id],
       metrics: [],
       filters: [{ field: "ghost_column", operator: "eq", value: "x" }],
@@ -660,7 +660,7 @@ describe("buildInsightSQL — sink guards: invalid join type throws", () => {
     const insight: Insight = {
       id: "aaaabbbb-cccc-dddd-eeee-ffffaaaabbbb" as UUID,
       name: "Bad join",
-      baseTableId: TABLE_ID,
+      source: { sourceType: "dataTable", sourceId: TABLE_ID },
       selectedFields: [],
       metrics: [],
       // Cast to bypass TS — simulates a deserialized value from untrusted source
@@ -691,7 +691,7 @@ describe("buildInsightSQL — sink guards: invalid join type throws", () => {
       const insight: Insight = {
         id: "aaaabbbb-cccc-dddd-eeee-ffffaaaabbbb" as UUID,
         name: "Valid join",
-        baseTableId: TABLE_ID,
+        source: { sourceType: "dataTable", sourceId: TABLE_ID },
         selectedFields: [],
         metrics: [],
         joins: [
@@ -728,7 +728,7 @@ describe("buildInsightSQL — sink guards: invalid aggregation throws", () => {
     const insight: Insight = {
       id: "bbbbcccc-1111-2222-3333-444455556666" as UUID,
       name: "Insight with bad aggregation",
-      baseTableId: TABLE_ID,
+      source: { sourceType: "dataTable", sourceId: TABLE_ID },
       selectedFields: [REGION_FIELD_ID],
       metrics: [badMetric],
       createdAt: 0,
@@ -752,7 +752,7 @@ describe("buildInsightSQL — sink guards: invalid aggregation throws", () => {
     const insight: Insight = {
       id: "eeeeeeee-1111-2222-3333-444455556666" as UUID,
       name: "Bad agg with HAVING filter",
-      baseTableId: TABLE_ID,
+      source: { sourceType: "dataTable", sourceId: TABLE_ID },
       selectedFields: [REGION_FIELD_ID],
       metrics: [badMetric],
       // Filter on the metric's output alias → routes to HAVING → resolveMetricAggRef
@@ -784,7 +784,7 @@ describe("buildInsightSQL — sink guards: invalid aggregation throws", () => {
       const insight: Insight = {
         id: "ddddeeeee-1111-2222-3333-444455556666" as UUID,
         name: "Insight with valid aggregation",
-        baseTableId: TABLE_ID,
+        source: { sourceType: "dataTable", sourceId: TABLE_ID },
         selectedFields: [REGION_FIELD_ID],
         metrics: [metric],
         createdAt: 0,
@@ -913,7 +913,7 @@ describe("buildInsightSQL — COALESCE for RIGHT/FULL join key", () => {
       const insight: Insight = {
         id: "yw305000-0000-0000-0000-000000000001" as UUID,
         name: `Employees ${joinType} join departments`,
-        baseTableId: EMP_TABLE_ID,
+        source: { sourceType: "dataTable", sourceId: EMP_TABLE_ID },
         selectedFields: [EMP_ID_FIELD.id, EMP_DEPT_ID_FIELD.id],
         metrics: [],
         joins: [
@@ -950,7 +950,7 @@ describe("buildInsightSQL — COALESCE for RIGHT/FULL join key", () => {
       const insight: Insight = {
         id: "yw305000-0000-0000-0000-000000000002" as UUID,
         name: `Employees ${joinType} join departments`,
-        baseTableId: EMP_TABLE_ID,
+        source: { sourceType: "dataTable", sourceId: EMP_TABLE_ID },
         selectedFields: [EMP_ID_FIELD.id, EMP_DEPT_ID_FIELD.id],
         metrics: [],
         joins: [
@@ -1017,7 +1017,7 @@ describe("buildInsightSQL — identifier quoting: embedded double-quotes in disp
     const insight: Insight = {
       id: "77777777-7777-7777-7777-777777777777" as UUID,
       name: "Raw rows",
-      baseTableId: TABLE_ID,
+      source: { sourceType: "dataTable", sourceId: TABLE_ID },
       // No selectedFields and no metrics → buildSimpleSQL's raw-reference path.
       selectedFields: [],
       metrics: [],
@@ -1052,7 +1052,7 @@ describe("buildInsightSQL — identifier quoting: embedded double-quotes in disp
     const insight: Insight = {
       id: "66666666-6666-6666-6666-666666666666" as UUID,
       name: "Cell view",
-      baseTableId: TABLE_ID,
+      source: { sourceType: "dataTable", sourceId: TABLE_ID },
       selectedFields: [],
       metrics: [],
       filters,
@@ -1096,7 +1096,7 @@ describe("buildInsightSQL — identifier quoting: embedded double-quotes in disp
     const insight: Insight = {
       id: "44444444-4444-4444-4444-444444444444" as UUID,
       name: "Sum of a hidden column",
-      baseTableId: TABLE_ID,
+      source: { sourceType: "dataTable", sourceId: TABLE_ID },
       selectedFields: [REGION_FIELD_ID],
       metrics: [{ ...REVENUE_METRIC, columnName: WEIRD }],
       createdAt: 0,
@@ -1327,7 +1327,7 @@ describe("join-instance identity — two joins to the same table", () => {
   const doubleJoinInsight: Insight = {
     id: "50505050-5050-5050-5050-505050505050" as UUID,
     name: "Orders with creator and approver",
-    baseTableId: ORDERS_TABLE_ID,
+    source: { sourceType: "dataTable", sourceId: ORDERS_TABLE_ID },
     selectedFields: [],
     metrics: [],
     joins: [

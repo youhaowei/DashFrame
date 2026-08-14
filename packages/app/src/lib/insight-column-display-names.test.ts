@@ -65,7 +65,7 @@ describe("buildInsightColumnDisplayNames", () => {
     const insight: Insight = {
       id: "50505050-5050-5050-5050-505050505050" as UUID,
       name: "Orders with users",
-      baseTableId: BASE_TABLE_ID,
+      source: { sourceType: "dataTable", sourceId: BASE_TABLE_ID },
       selectedFields: [],
       metrics: [],
       joins: [
@@ -123,7 +123,7 @@ describe("buildInsightColumnDisplayNames", () => {
     const insight: Insight = {
       id: "50505050-5050-5050-5050-505050505050" as UUID,
       name: "Orders hierarchy",
-      baseTableId: BASE_TABLE_ID,
+      source: { sourceType: "dataTable", sourceId: BASE_TABLE_ID },
       selectedFields: [],
       metrics: [],
       joins: [
