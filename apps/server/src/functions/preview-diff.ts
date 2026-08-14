@@ -58,12 +58,14 @@ import type {
   UUID,
 } from "@dashframe/types";
 import { jsonb } from "@wystack/db";
+import type { SecretRef, SecretVault } from "@wystack/secret-vault";
 import type { Command, CommandResult } from "@wystack/server";
 import { applyCommands, type WyStackApp } from "@wystack/server";
 
 import { permissions } from "../permissions";
 import { wy } from "../wystack";
 import { assertKnownCommandPaths, commandFunctions } from "./commands";
+import { flushThenReleaseRefs } from "./utils";
 
 const {
   dataSources,
@@ -1214,6 +1216,26 @@ const previewDiff = wy.procedure
     );
   });
 
+async function releaseRolledBackCredentialRefs(
+  vault: SecretVault | undefined,
+  refs: SecretRef[],
+): Promise<void> {
+  if (vault == null || refs.length === 0) return;
+  const uniqueRefs = [...new Set(refs)];
+  const results = await Promise.allSettled(
+    uniqueRefs.map((ref) => vault.delete(ref)),
+  );
+  const failures = results.filter(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  );
+  if (failures.length > 0) {
+    console.error(
+      `[dashframe] commitBatch: ${failures.length} of ${uniqueRefs.length} newly minted credential ref(s) failed to release after rollback (inert orphan):`,
+      failures.map((failure) => failure.reason),
+    );
+  }
+}
+
 const commitBatch = wy.procedure
   .input({ commands: jsonb })
   .authorize(permissions.commands.commit)
@@ -1237,11 +1259,33 @@ const commitBatch = wy.procedure
     if (ctx.vault !== undefined) handlerContext.vault = ctx.vault;
     if (ctx.principal !== undefined) handlerContext.principal = ctx.principal;
 
+    const credentialBatchTransition = {
+      mintedRefs: [] as SecretRef[],
+      supersededRefs: [] as SecretRef[],
+    };
+    handlerContext.credentialBatchTransition = credentialBatchTransition;
+
     const framesBefore = await ctx.captureServerFrameReferences?.();
-    const result = await applyCommands(wyStackApp, commands as Command[], {
-      mode: "commit",
-      context: handlerContext,
-    });
+    let result;
+    try {
+      result = await applyCommands(wyStackApp, commands as Command[], {
+        mode: "commit",
+        context: handlerContext,
+      });
+    } catch (error) {
+      await releaseRolledBackCredentialRefs(
+        ctx.vault,
+        credentialBatchTransition.mintedRefs,
+      );
+      throw error;
+    }
+
+    await flushThenReleaseRefs(
+      ctx.flushSnapshot,
+      [...new Set(credentialBatchTransition.supersededRefs)],
+      ctx.vault,
+      "commitBatch",
+    );
 
     if (framesBefore != null) {
       try {

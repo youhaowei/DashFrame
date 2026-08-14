@@ -371,6 +371,20 @@ async function releaseFreshRefsBestEffort(
   }
 }
 
+function recordBatchMintedRef(
+  ctx: DashframeFunctionContext,
+  ref: SecretRef,
+): void {
+  ctx.credentialBatchTransition?.mintedRefs.push(ref);
+}
+
+function supersededCollectorFor(
+  ctx: DashframeFunctionContext,
+  directCollector: SecretRef[],
+): SecretRef[] {
+  return ctx.credentialBatchTransition?.supersededRefs ?? directCollector;
+}
+
 /** CreateDataSource — mints a DataSource with a client-supplied id + config. */
 const createDataSource = wy.procedure
   .input({
@@ -392,7 +406,8 @@ const createDataSource = wy.procedure
       const preview = modeFromCtx(ctx) === "preview";
       // On the draft / publish-replay path, a captured credential arrives here AS a
       // ref (pass-through, no re-store) and the prior-ref release is deferred to the
-      // lifecycle transition; on a direct canonical call, release is synchronous.
+      // lifecycle transition; direct non-draft calls store normally. A commitBatch
+      // additionally records minted refs so its outer transaction can compensate.
       // (A fresh create has no prior ref, so deferral only matters for symmetry.)
       const deferRelease = shouldDeferRelease(ctx);
       const config: DataSourceConfig = {
@@ -419,6 +434,7 @@ const createDataSource = wy.procedure
         );
         if (!preview && !deferRelease && isSecretRef(config.apiKey)) {
           minted.push(config.apiKey);
+          recordBatchMintedRef(ctx, config.apiKey);
         }
         await applyCredentialField(
           config,
@@ -429,8 +445,10 @@ const createDataSource = wy.procedure
           preview,
           deferRelease,
         );
-        if (!preview && !deferRelease && isSecretRef(config.connectionString))
+        if (!preview && !deferRelease && isSecretRef(config.connectionString)) {
           minted.push(config.connectionString);
+          recordBatchMintedRef(ctx, config.connectionString);
+        }
         const [row] = (await ctx.db.into(dataSources).insert({
           id,
           name,
@@ -491,8 +509,9 @@ const setDataSourceConfig = wy.procedure
     ): Promise<{ ok: true }> => {
       const vault = vaultFromCtx(ctx);
       const preview = modeFromCtx(ctx) === "preview";
-      // Defer prior-ref release to the publish/discard transition on the draft path;
-      // release synchronously on a direct canonical call (see createDataSource).
+      // Defer prior-ref release to the publish/discard transition on the draft path.
+      // Direct single-command calls finalize here; commitBatch supplies its own
+      // outer transition ledger and finalizes only after the batch transaction.
       const deferRelease = shouldDeferRelease(ctx);
       const current = (await ctx.db
         .from(dataSources)
@@ -525,17 +544,18 @@ const setDataSourceConfig = wy.procedure
       // is NOT released here (deferRelease): release is the publish transition's job
       // (it releases the replaced canonical ref post-commit, with a cross-draft-
       // reference check) so a rolled-back publish never deletes a still-live secret.
-      // On a direct canonical call, the prior ref is collected here and released AFTER
-      // the canonical write is committed AND a snapshot is flushed to disk, so the
-      // snapshot capturing the new config is durable before the old ref is removed.
+      // On a direct single-command call, the prior ref is collected here and released
+      // after the canonical write and snapshot flush. commitBatch redirects the same
+      // collector into its outer transition ledger and finalizes after the batch commits.
       // In preview mode vault writes are skipped (keychain is not transactional).
       //
-      // PRE-RELEASE FLUSH GATE (direct canonical path, !deferRelease, !preview):
+      // PRE-RELEASE FLUSH GATE (direct single-command path):
       //   store-new → canonical-write → flush-snapshot → release-old
       // The superseded collector captures the old ref inside applyCredentialField
       // instead of releasing it immediately, so the canonical write and snapshot
       // flush can happen first.
       const supersededRefs: SecretRef[] = [];
+      const supersededCollector = supersededCollectorFor(ctx, supersededRefs);
       const priorApiKey = config.apiKey;
       const priorConnectionString = config.connectionString;
       const minted: SecretRef[] = [];
@@ -548,7 +568,7 @@ const setDataSourceConfig = wy.procedure
           `apiKey-${id}`,
           preview,
           deferRelease,
-          supersededRefs,
+          supersededCollector,
         );
         if (
           !preview &&
@@ -557,6 +577,7 @@ const setDataSourceConfig = wy.procedure
           config.apiKey !== priorApiKey
         ) {
           minted.push(config.apiKey);
+          recordBatchMintedRef(ctx, config.apiKey);
         }
         await applyCredentialField(
           config,
@@ -566,7 +587,7 @@ const setDataSourceConfig = wy.procedure
           `connectionString-${id}`,
           preview,
           deferRelease,
-          supersededRefs,
+          supersededCollector,
         );
         if (
           !preview &&
@@ -575,19 +596,21 @@ const setDataSourceConfig = wy.procedure
           config.connectionString !== priorConnectionString
         ) {
           minted.push(config.connectionString);
+          recordBatchMintedRef(ctx, config.connectionString);
         }
         // Merge non-credential keys from `extra` into the config (guarded above).
         if (isRecord(extra)) {
           Object.assign(config, extra);
         }
-        // PHASE 2: canonical write — new config (with new ref) is now committed.
+        // PHASE 2: write the new config. For commitBatch this remains inside the
+        // outer transaction until every later command succeeds.
         await ctx.db.from(dataSources).where(eq("id", id)).update({ config });
       } catch (error) {
         await releaseFreshRefsBestEffort(vault, minted, "SetDataSourceConfig");
         throw error;
       }
 
-      // PHASE 3: flush snapshot then release old refs (direct canonical path only).
+      // PHASE 3: flush then release old refs (direct single-command path only).
       // Only relevant when the direct call actually superseded credential refs
       // (!deferRelease is implied — deferRelease callers pass an empty superseded
       // because applyCredentialField skips the collector on those paths).
@@ -2243,9 +2266,9 @@ function isCanonicalCommandContext(ctx: {
 }
 
 /**
- * After a DataSource row has been deleted, flush a durable snapshot and then
- * release any credential vault refs that were held in its config. Extracted to
- * reduce `deleteNode`'s handler cognitive complexity.
+ * After a DataSource row has been deleted, either record its credential refs in
+ * commitBatch's outer transition ledger or, for a direct call, flush a durable
+ * snapshot and release them here.
  *
  * Ordering invariant: delete-row → this function → refs released.
  * This ensures the snapshot that lands on disk already reflects the absent row,
@@ -2274,6 +2297,17 @@ async function releaseDataSourceCredentials(
     isSecretRef(sourceConfig.connectionString);
   // (a) preview, (b) no refs, (c) deferred path — all skip.
   if (preview || !hasCredentialRefs || shouldDeferRelease(ctx)) return;
+
+  const batchTransition = ctx.credentialBatchTransition;
+  if (batchTransition != null) {
+    if (isSecretRef(sourceConfig.apiKey)) {
+      batchTransition.supersededRefs.push(sourceConfig.apiKey);
+    }
+    if (isSecretRef(sourceConfig.connectionString)) {
+      batchTransition.supersededRefs.push(sourceConfig.connectionString);
+    }
+    return;
+  }
 
   const flushSnapshot = ctx.flushSnapshot;
   if (flushSnapshot == null) {
@@ -2306,7 +2340,7 @@ async function releaseDataSourceCredentials(
 }
 
 /**
- * Pre-delete vault guard for a DataSource delete (direct canonical path only).
+ * Pre-delete vault guard for a non-preview, non-draft DataSource delete.
  * Throws BEFORE the row is deleted when the config holds credential refs but
  * the server has no vault injected — this preserves the row so a correctly-
  * configured server can retry the delete.

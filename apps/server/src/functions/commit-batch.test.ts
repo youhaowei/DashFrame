@@ -1,19 +1,22 @@
 import {
   ApiAccessCredentials,
+  CREDENTIAL_CLASS,
   openProject,
   schema,
   type ProjectHandle,
 } from "@dashframe/server-core";
 import {
   InMemoryMappingStore,
+  isSecretRef,
   SecretRegistry,
   SecretVault,
   TestBackend,
+  type SecretRef,
 } from "@wystack/secret-vault";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildDashframeApp,
@@ -37,6 +40,13 @@ function makeAccessCredentials(rootDir: string): ApiAccessCredentials {
     new SecretVault(registry, new InMemoryMappingStore()),
     rootDir,
   );
+}
+
+function makeCredentialVault(): SecretVault {
+  const registry = new SecretRegistry();
+  registry.register("test", new TestBackend(), { fallback: true });
+  registry.setClassDefault(CREDENTIAL_CLASS.ConnectorKey, "test");
+  return new SecretVault(registry, new InMemoryMappingStore());
 }
 
 async function post(
@@ -162,6 +172,158 @@ describe("commitBatch and draft-only API credentials", () => {
         (row) => row.id === rollbackSourceId,
       ),
     ).toBe(false);
+  });
+
+  it("rolls back a credential rotation without releasing the live ref or leaking the replacement", async () => {
+    const vault = makeCredentialVault();
+    server = await createDashframeServer({
+      db: project!.db,
+      accessCredentials,
+      authToken: USER_TOKEN,
+      vault,
+      flushSnapshot: async () => {},
+    });
+    const sourceId = crypto.randomUUID();
+    expect(
+      (
+        await post(
+          server,
+          "commitBatch",
+          {
+            commands: [
+              cmd("CreateDataSource", {
+                id: sourceId,
+                type: "postgres",
+                name: "Credentialed source",
+                apiKey: "old-secret",
+              }),
+            ],
+          },
+          USER_TOKEN,
+        )
+      ).status,
+    ).toBe(200);
+    const [sourceBefore] = await project!.db.select().from(schema.dataSources);
+    const oldRef = (sourceBefore?.config as { apiKey?: unknown }).apiKey;
+    expect(isSecretRef(oldRef)).toBe(true);
+
+    const storeSpy = vi.spyOn(vault, "store");
+    const failed = await post(
+      server,
+      "commitBatch",
+      {
+        commands: [
+          cmd("SetDataSourceConfig", {
+            id: sourceId,
+            apiKey: "new-secret",
+          }),
+          cmd("DeleteNode", { id: crypto.randomUUID() }),
+        ],
+      },
+      USER_TOKEN,
+    );
+    expect(failed.status).toBe(500);
+    expect(storeSpy).toHaveBeenCalledTimes(1);
+    const replacementRef = await storeSpy.mock.results[0]!.value;
+    expect(isSecretRef(replacementRef)).toBe(true);
+
+    const [sourceAfter] = await project!.db.select().from(schema.dataSources);
+    expect((sourceAfter?.config as { apiKey?: unknown }).apiKey).toBe(oldRef);
+    expect(await vault.has(oldRef as SecretRef)).toBe(true);
+    expect(await vault.has(replacementRef)).toBe(false);
+  });
+
+  it("rolls back a credentialed delete without releasing the restored row's ref", async () => {
+    const vault = makeCredentialVault();
+    server = await createDashframeServer({
+      db: project!.db,
+      accessCredentials,
+      authToken: USER_TOKEN,
+      vault,
+      flushSnapshot: async () => {},
+    });
+    const sourceId = crypto.randomUUID();
+    expect(
+      (
+        await post(
+          server,
+          "commitBatch",
+          {
+            commands: [
+              cmd("CreateDataSource", {
+                id: sourceId,
+                type: "postgres",
+                name: "Credentialed source",
+                apiKey: "still-live",
+              }),
+            ],
+          },
+          USER_TOKEN,
+        )
+      ).status,
+    ).toBe(200);
+    const [sourceBefore] = await project!.db.select().from(schema.dataSources);
+    const oldRef = (sourceBefore?.config as { apiKey?: unknown }).apiKey;
+    expect(isSecretRef(oldRef)).toBe(true);
+
+    const failed = await post(
+      server,
+      "commitBatch",
+      {
+        commands: [
+          cmd("DeleteNode", { id: sourceId }),
+          cmd("DeleteNode", { id: crypto.randomUUID() }),
+        ],
+      },
+      USER_TOKEN,
+    );
+    expect(failed.status).toBe(500);
+    expect(
+      (await project!.db.select().from(schema.dataSources)).some(
+        (row) => row.id === sourceId,
+      ),
+    ).toBe(true);
+    expect(await vault.has(oldRef as SecretRef)).toBe(true);
+  });
+
+  it("releases a newly minted credential when a later command rolls the batch back", async () => {
+    const vault = makeCredentialVault();
+    server = await createDashframeServer({
+      db: project!.db,
+      accessCredentials,
+      authToken: USER_TOKEN,
+      vault,
+      flushSnapshot: async () => {},
+    });
+    const sourceId = crypto.randomUUID();
+    const storeSpy = vi.spyOn(vault, "store");
+
+    const failed = await post(
+      server,
+      "commitBatch",
+      {
+        commands: [
+          cmd("CreateDataSource", {
+            id: sourceId,
+            type: "postgres",
+            name: "Must roll back",
+            apiKey: "must-not-leak",
+          }),
+          cmd("DeleteNode", { id: crypto.randomUUID() }),
+        ],
+      },
+      USER_TOKEN,
+    );
+    expect(failed.status).toBe(500);
+    expect(storeSpy).toHaveBeenCalledTimes(1);
+    const mintedRef = await storeSpy.mock.results[0]!.value;
+    expect(isSecretRef(mintedRef)).toBe(true);
+    expect(
+      (await project!.db.select().from(schema.dataSources)).some(
+        (row) => row.id === sourceId,
+      ),
+    ).toBe(false);
+    expect(await vault.has(mintedRef)).toBe(false);
   });
 
   it("allows a service principal to preview the same command surface", async () => {
