@@ -37,6 +37,36 @@ export interface CSVConversionResult {
   columnCount: number;
 }
 
+const ZONELESS_ISO_DATE_TIME =
+  /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/;
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const ISO_OFFSET = /[+-]\d{2}:\d{2}$/;
+
+function isIsoDateOrDateTime(raw: string): boolean {
+  if (ISO_DATE.test(raw) || ZONELESS_ISO_DATE_TIME.test(raw)) return true;
+  const zoneless = raw.endsWith("Z")
+    ? raw.slice(0, -1)
+    : raw.replace(ISO_OFFSET, "");
+  return zoneless !== raw && ZONELESS_ISO_DATE_TIME.test(zoneless);
+}
+
+function inferCsvStringColumnType(raw: string | undefined): Field["type"] {
+  const type = inferStringColumnType(raw);
+  if (type !== "date" || raw === undefined) return type;
+  return isIsoDateOrDateTime(raw) ? "date" : "string";
+}
+
+function parseCsvStringValue(
+  raw: string | undefined,
+  type: Field["type"],
+): unknown {
+  const normalized =
+    type === "date" && raw !== undefined && ZONELESS_ISO_DATE_TIME.test(raw)
+      ? `${raw.replace(" ", "T")}Z`
+      : raw;
+  return parseStringValueByType(normalized, type);
+}
+
 /**
  * Converts CSV data into Arrow IPC plus structural metadata.
  */
@@ -65,7 +95,7 @@ export async function csvToDataFrame(
       ] ?? "";
     return {
       name,
-      type: inferStringColumnType(sampleValue),
+      type: inferCsvStringColumnType(sampleValue),
     };
   });
 
@@ -75,7 +105,7 @@ export async function csvToDataFrame(
   const rows = rowsData.map((row) =>
     header.reduce<Record<string, unknown>>((acc, key, colIndex) => {
       const column = userColumns[colIndex];
-      if (column) acc[key] = parseStringValueByType(row[colIndex], column.type);
+      if (column) acc[key] = parseCsvStringValue(row[colIndex], column.type);
       return acc;
     }, {}),
   );
