@@ -39,7 +39,18 @@ describe("defaultFormatValue", () => {
 
   it("formats date-only strings from their calendar parts", () => {
     expect(defaultFormatValue("2024-03-15", "date")).toBe("Mar 15, 2024");
-    expect(defaultFormatValue("0001-01-01", "date")).toBe("Jan 1, 1");
+    expect(defaultFormatValue("0000-01-01", "date")).toBe("Jan 1, 0000");
+    expect(defaultFormatValue("0001-01-01", "date")).toBe("Jan 1, 0001");
+  });
+
+  it("validates date-only strings without consulting the host timezone", () => {
+    const previousTz = process.env.TZ;
+    process.env.TZ = "Pacific/Apia";
+    try {
+      expect(defaultFormatValue("2011-12-30", "date")).toBe("Dec 30, 2011");
+    } finally {
+      process.env.TZ = previousTz;
+    }
   });
 
   it("formats numeric epoch values in date columns as UTC calendar dates", () => {
@@ -55,6 +66,12 @@ describe("defaultFormatValue", () => {
     expect(defaultFormatValue(Date.parse(instant), "date")).toBe(expected);
     expect(defaultFormatValue(new Date(instant), "date")).toBe(expected);
     expect(defaultFormatValue(instant, "date")).toBe(expected);
+  });
+
+  it("treats zone-less timestamps as UTC", () => {
+    expect(defaultFormatValue("2024-01-18T23:30:00", "date")).toBe(
+      "Jan 18, 2024",
+    );
   });
 
   it("leaves an impossible calendar date as text rather than rolling it over", () => {

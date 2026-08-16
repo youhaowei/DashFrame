@@ -16,7 +16,8 @@ describe("formatCellValue", () => {
 
   it("formats an ISO date string for date columns", () => {
     expect(formatCellValue("2024-03-25", "date")).toBe("Mar 25, 2024");
-    expect(formatCellValue("0001-01-01", "date")).toBe("Jan 1, 1");
+    expect(formatCellValue("0000-01-01", "date")).toBe("Jan 1, 0000");
+    expect(formatCellValue("0001-01-01", "date")).toBe("Jan 1, 0001");
   });
 
   it("shares one date contract across supported representations", () => {
