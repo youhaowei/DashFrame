@@ -3148,6 +3148,23 @@ describe("command vocabulary", () => {
         sorts: [{ field: "revenue", direction: "desc" }],
         limit: 25,
       });
+
+      await expect(
+        commit(
+          cmd("PatchDashboardItemOverride", {
+            dashboardId: dashId,
+            itemId,
+            patch: {
+              kind: "sorts",
+              value: [{ field: "revenue", direction: "sideways" }],
+            } as never,
+          }),
+        ),
+      ).rejects.toThrow(/overrides\.sorts\.0\.direction/);
+
+      expect((await dashboardsById(dashId))[0]?.layout).toEqual(
+        rows[0]?.layout,
+      );
     });
 
     it("should replace dashboard controls through the command vocabulary", async () => {
@@ -3252,6 +3269,28 @@ describe("command vocabulary", () => {
           }),
         ),
       ).rejects.toThrow(/must be a number/);
+
+      await expect(
+        commit(
+          cmd("AddDashboardItem", {
+            dashboardId: dashId,
+            item: {
+              id: id(),
+              type: "visualization",
+              visualizationId: id(),
+              x: 0,
+              y: 0,
+              width: 3,
+              height: 3,
+              overrides: {
+                filters: [
+                  { field: "region", operator: "bogus", value: "EMEA" },
+                ],
+              },
+            } as never,
+          }),
+        ),
+      ).rejects.toThrow(/overrides\.filters\.0\.operator/);
 
       // Neither malformed item persisted.
       const rows = await dashboardsById(dashId);
@@ -4765,11 +4804,12 @@ describe("command vocabulary", () => {
         // Corrupt the stored definition directly via the raw Drizzle handle,
         // simulating a schema-drift scenario (e.g. a future migration wrote
         // an unexpected shape, or an external process updated the row).
-        // The canonical `source` key is missing — a required field in the schema.
+        // Both canonical `source` and the tolerated legacy `baseTableId` are
+        // missing, so the schema has no source identity to normalize.
         const corruptDefinition = {
           selectedFields: [],
           metrics: [],
-          // source intentionally omitted
+          // source and legacy baseTableId intentionally omitted
         };
         await db.update(schema.insights).set({ definition: corruptDefinition });
 
@@ -4977,7 +5017,7 @@ describe("command vocabulary", () => {
           .update(schema.insights)
           .set({
             definition: {
-              // source intentionally omitted — corrupt blob
+              // source and legacy baseTableId intentionally omitted
               selectedFields: [],
               metrics: [],
             },
@@ -5016,12 +5056,12 @@ describe("command vocabulary", () => {
           }),
         );
 
-        // Corrupt the stored definition — source missing (required field).
+        // Corrupt the stored definition — both supported source identities missing.
         await db.update(schema.insights).set({
           definition: {
             selectedFields: [],
             metrics: [],
-            // source intentionally omitted
+            // source and legacy baseTableId intentionally omitted
           },
         });
 
@@ -5057,7 +5097,7 @@ describe("command vocabulary", () => {
           definition: {
             selectedFields: [],
             metrics: [],
-            // source intentionally omitted — corrupt blob
+            // source and legacy baseTableId intentionally omitted
           },
         });
 

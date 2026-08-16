@@ -1841,9 +1841,10 @@ function requireDashboardItem(
       throw new Error(`${operation}: item.${key} must be a number`);
     }
   }
-  // `overrides` is passed through as-is — it is written by the fan-out primitive
-  // which controls the shape; the per-field filter pin is validated there.
-  return value as unknown as DashboardItem;
+  return parseStoredDashboardState(
+    { layout: [value], controls: null },
+    `${operation} state`,
+  ).items[0]!;
 }
 
 function normalizeDashboardItemOverrides(
@@ -2097,10 +2098,14 @@ const patchDashboardItemOverride = wy.procedure
             }
           : item,
       );
+      const state = parseStoredDashboardState(
+        { layout: next, controls: null },
+        "PatchDashboardItemOverride state",
+      );
       await ctx.db
         .from(dashboards)
         .where(eq("id", dashboardId))
-        .update({ layout: next });
+        .update({ layout: state.items });
       return { ok: true };
     },
   );
@@ -2258,10 +2263,14 @@ const fanOutDashboardItems = wy.procedure
 
       // Write all clones into the layout in one read-modify-write.
       const next = [...items, ...clones];
+      const state = parseStoredDashboardState(
+        { layout: next, controls: null },
+        "FanOutDashboardItems state",
+      );
       await ctx.db
         .from(dashboards)
         .where(eq("id", dashboardId))
-        .update({ layout: next });
+        .update({ layout: state.items });
 
       return { ok: true, created: newIds };
     },

@@ -355,11 +355,12 @@ describe("Notion data-plane routes — happy path (mocked connector)", () => {
 
     const prepared = await app.call("prepareRemoteDataTable", { id: tableId });
 
-    expect(prepared.result).toEqual({ fields: returnedFields });
+    const ownedFields = returnedFields.map((field) => ({ ...field, tableId }));
+    expect(prepared.result).toEqual({ fields: ownedFields });
     expect(
       ((await app.call("getDataTable", { id: tableId })).result as DataTable)
         .fields,
-    ).toEqual(returnedFields);
+    ).toEqual(ownedFields);
     expect(queryCalls.at(-1)?.options).toEqual({
       pagination: { offset: 0, limit: 1 },
     });

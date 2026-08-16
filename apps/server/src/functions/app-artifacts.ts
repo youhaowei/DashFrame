@@ -766,7 +766,19 @@ async function persistConnectorFrame(
   } catch {
     throw new Error("Connector returned malformed Arrow IPC");
   }
-  const expectedNames = args.approvedFields.map(
+  // Reviewed connector fields originate outside the artifact model and do not
+  // carry ownership. Attach the canonical table id before persisting them so
+  // every stored Field satisfies the same lineage contract as command-authored
+  // fields.
+  const approvedFields = attachFieldOwnership(
+    args.approvedFields,
+    args.tableId,
+  );
+  parseStoredDataTableState(
+    { sourceSchema: null, fields: approvedFields, metrics: [] },
+    `Data table ${args.tableId} connector fields`,
+  );
+  const expectedNames = approvedFields.map(
     (field) => field.columnName ?? field.name,
   );
   if (
@@ -817,7 +829,7 @@ async function persistConnectorFrame(
         lastRefreshedAt: new Date(),
       });
       await tx.from(dataTables).where(eq("id", args.tableId)).update({
-        fields: args.approvedFields,
+        fields: approvedFields,
         dataFrameId,
         lastFetchedAt: new Date(),
       });
@@ -1603,6 +1615,13 @@ function structuralFieldSignature(fields: readonly Field[]): string {
   );
 }
 
+function attachFieldOwnership(
+  fields: readonly Field[],
+  tableId: UUID,
+): Field[] {
+  return fields.map((field) => ({ ...field, tableId }));
+}
+
 /**
  * Discover and persist the structural schema for a newly-bound remote table.
  * The connector, not the renderer, authors the Field objects. Repeated calls
@@ -1642,7 +1661,12 @@ const prepareRemoteDataTable = wy.procedure
       throw new Error(`DataSource ${source.id} is not a remote connector`);
     }
 
-    let preparedFields = result.fields;
+    const discoveredFields = attachFieldOwnership(result.fields, id);
+    parseStoredDataTableState(
+      { sourceSchema: null, fields: discoveredFields, metrics: [] },
+      `Data table ${id} discovered fields`,
+    );
+    let preparedFields = discoveredFields;
     await ctx.db.transaction(async (tx) => {
       const current = (await tx
         .from(dataTables)
@@ -1659,7 +1683,7 @@ const prepareRemoteDataTable = wy.procedure
       if (
         currentFields.length > 0 &&
         structuralFieldSignature(currentFields) !==
-          structuralFieldSignature(result.fields)
+          structuralFieldSignature(discoveredFields)
       ) {
         throw new Error("SOURCE_SCHEMA_CHANGED");
       }
@@ -1667,7 +1691,7 @@ const prepareRemoteDataTable = wy.procedure
         await tx
           .from(dataTables)
           .where(eq("id", id))
-          .update({ fields: result.fields });
+          .update({ fields: discoveredFields });
       } else {
         // Connector discovery creates fresh Field ids on every call. Once a
         // structural schema is prepared, its persisted ids are canonical and

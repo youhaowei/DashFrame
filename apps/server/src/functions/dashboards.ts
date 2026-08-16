@@ -30,6 +30,41 @@ type DashboardRow = typeof dashboards.$inferSelect;
  */
 export type DashboardResult = Dashboard;
 
+const insightFilterOverrideSchema = z
+  .object({
+    id: z.string().optional(),
+    field: z.string().min(1),
+    operator: z.enum([
+      "eq",
+      "ne",
+      "gt",
+      "gte",
+      "lt",
+      "lte",
+      "contains",
+      "in",
+      "between",
+    ]),
+    value: z.unknown(),
+    cleared: z.boolean().optional(),
+  })
+  .passthrough();
+
+const insightSortSchema = z
+  .object({
+    field: z.string().min(1),
+    direction: z.enum(["asc", "desc"]),
+  })
+  .passthrough();
+
+const storedDashboardItemOverridesSchema = z
+  .object({
+    filters: z.array(insightFilterOverrideSchema).optional(),
+    sorts: z.array(insightSortSchema).optional(),
+    limit: z.number().finite().positive().optional(),
+  })
+  .passthrough();
+
 const storedDashboardItemSchema = z
   .object({
     id: z.string(),
@@ -40,7 +75,7 @@ const storedDashboardItemSchema = z
     y: z.number(),
     width: z.number(),
     height: z.number(),
-    overrides: z.unknown().optional(),
+    overrides: storedDashboardItemOverridesSchema.optional(),
   })
   .passthrough();
 

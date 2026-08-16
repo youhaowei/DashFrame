@@ -19,9 +19,9 @@ export function sanitizeDashboardItemUpdates(
   if (typeof updates.y === "number") next.y = updates.y;
   if (typeof updates.width === "number") next.width = updates.width;
   if (typeof updates.height === "number") next.height = updates.height;
-  // `overrides` is passed through as-is — callers use this to update or clear
-  // a panel's filter/sort/limit bag. The shape is opaque jsonb; downstream
-  // rendering validates filters at query time, not at the write boundary.
+  // Callers use `overrides` to update or clear a panel's filter/sort/limit bag.
+  // The merged item is validated by the shared dashboard-state schema before
+  // the command writes it; this helper only preserves the requested patch.
   // An explicit `undefined` means "not updating overrides" (the key was absent
   // in the updates object); `null` is not in the type so omit check mirrors
   // the other field guards.
