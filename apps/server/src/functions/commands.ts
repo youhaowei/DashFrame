@@ -72,12 +72,18 @@
  * authority. The codec normalizes legacy `baseTableId` rows at the read seam;
  * commands always write source-only definitions.
  */
+import {
+  buildInsightAvailableFields,
+  fieldIdToColumnAlias,
+  metricIdToColumnAlias,
+} from "@dashframe/engine";
 import { schema } from "@dashframe/server-core";
 import type {
   ArtifactKind,
   CommandName,
   DashboardControl,
   DashboardItemOverridePatch,
+  DataTable,
   Field,
   InsightJoinConfig,
   InsightMetric,
@@ -896,33 +902,86 @@ function pruneDefinitionRuntimeControls(
   };
 }
 
-async function insightOutputFieldIds(
+async function dataTableForFieldResolution(
+  ctx: { db: import("@wystack/db").DrizzleTracker },
+  tableId: string,
+): Promise<DataTable> {
+  const table = await requireDataTable(ctx, tableId);
+  const state = parseStoredDataTableState(table, `Data table ${tableId}`);
+  return {
+    id: table.id as UUID,
+    name: table.name,
+    dataSourceId: table.dataSourceId as UUID,
+    table: table.table,
+    fields: state.fields,
+    metrics: state.metrics,
+    // Field resolution needs the same availability guard as SQL compilation,
+    // but not a materialized frame. The persisted frame ID is irrelevant here.
+    dataFrameId: (table.dataFrameId ?? table.id) as UUID,
+    createdAt: table.createdAt.getTime(),
+  };
+}
+
+async function insightOutputFields(
   ctx: { db: import("@wystack/db").DrizzleTracker },
   insightId: string,
   seen = new Set<string>(),
-): Promise<Set<string>> {
+): Promise<Field[]> {
   if (seen.has(insightId)) {
     throw new Error(`Insight ${insightId} has a cyclic source`);
   }
   seen.add(insightId);
   const { definition } = await requireInsightDefinition(ctx, insightId);
-  const configuredIds = new Set([
-    ...definition.selectedFields,
-    ...definition.metrics.flatMap((metric) =>
-      isRecord(metric) && typeof metric.id === "string" ? [metric.id] : [],
-    ),
-  ]);
-  if (configuredIds.size > 0) return configuredIds;
-
-  if (definition.source.sourceType === "insight") {
-    return insightOutputFieldIds(ctx, definition.source.sourceId, seen);
+  const joins = (definition.joins ?? []).map(requireJoinShape);
+  const metrics = definition.metrics.map(requireInsightMetricShape);
+  const baseFields =
+    definition.source.sourceType === "insight"
+      ? await insightOutputFields(ctx, definition.source.sourceId, seen)
+      : (await dataTableForFieldResolution(ctx, definition.source.sourceId))
+          .fields;
+  const baseTable: DataTable = {
+    id: definition.source.sourceId as UUID,
+    name: definition.source.sourceId,
+    dataSourceId: definition.source.sourceId as UUID,
+    table: definition.source.sourceId,
+    fields: baseFields,
+    metrics: [],
+    dataFrameId: definition.source.sourceId as UUID,
+    createdAt: 0,
+  };
+  const joinedTables = new Map<UUID, DataTable>();
+  for (const join of joins) {
+    if (!joinedTables.has(join.rightTableId)) {
+      joinedTables.set(
+        join.rightTableId,
+        await dataTableForFieldResolution(ctx, join.rightTableId),
+      );
+    }
   }
-  const table = await requireDataTable(ctx, definition.source.sourceId);
-  const state = parseStoredDataTableState(
-    table,
-    `Data table ${definition.source.sourceId}`,
-  );
-  return new Set(state.fields.map((field) => field.id));
+  const available =
+    buildInsightAvailableFields(baseTable, joinedTables, { joins }) ?? [];
+  let selected = available;
+  if (definition.selectedFields.length) {
+    selected = available.filter((field) =>
+      definition.selectedFields.includes(field.id as UUID),
+    );
+  } else if (metrics.length) {
+    selected = [];
+  }
+  return [
+    ...selected.map((field) => ({
+      ...field,
+      tableId: insightId as UUID,
+      columnName: fieldIdToColumnAlias(field.id),
+    })),
+    ...metrics.map((metric) => ({
+      id: metric.id,
+      name: metric.name,
+      tableId: insightId as UUID,
+      columnName: metricIdToColumnAlias(metric.id),
+      type: "number" as const,
+    })),
+  ];
 }
 
 async function assertSelectedFieldsAvailableFromSource(
@@ -932,8 +991,10 @@ async function assertSelectedFieldsAvailableFromSource(
   operation: string,
 ): Promise<void> {
   if (source.sourceType !== "insight" || fieldIds.length === 0) return;
-  const available = await insightOutputFieldIds(ctx, source.sourceId);
-  const missing = fieldIds.filter((fieldId) => !available.has(fieldId));
+  const available = new Set(
+    (await insightOutputFields(ctx, source.sourceId)).map((field) => field.id),
+  );
+  const missing = fieldIds.filter((fieldId) => !available.has(fieldId as UUID));
   if (missing.length > 0) {
     throw new Error(
       `${operation}: field ${missing[0]} is not output by source Insight ${source.sourceId}`,

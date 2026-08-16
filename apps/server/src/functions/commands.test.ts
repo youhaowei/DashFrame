@@ -1098,6 +1098,26 @@ describe("command vocabulary", () => {
       const invalidCreateId = id();
       const rebindId = id();
       await commit(
+        cmd("AddField", {
+          nodeId: tableId,
+          field: {
+            id: outputFieldId,
+            name: "Output field",
+            tableId,
+            columnName: "output",
+            type: "number",
+          },
+        }),
+        cmd("AddField", {
+          nodeId: tableId,
+          field: {
+            id: rootOnlyFieldId,
+            name: "Root-only field",
+            tableId,
+            columnName: "root_only",
+            type: "number",
+          },
+        }),
         cmd("CreateInsight", {
           id: upstreamId,
           name: "Upstream",
@@ -1172,6 +1192,113 @@ describe("command vocabulary", () => {
         source: { sourceType: "dataTable", sourceId: tableId },
         selectedFields: [rootOnlyFieldId],
       });
+    });
+
+    it("accepts canonical joined fields emitted by an unconfigured source Insight", async () => {
+      const { tableId } = await makeTable();
+      const { tableId: joinedTableId } = await makeTable();
+      const baseKeyId = id();
+      const secondBaseKeyId = id();
+      const joinedKeyId = id();
+      const joinedValueId = id();
+      const repeatJoinedValueId = `${joinedValueId}_j1` as ReturnType<
+        typeof id
+      >;
+      const upstreamId = id();
+      const derivedId = id();
+      const repeatedDerivedId = id();
+      await commit(
+        cmd("AddField", {
+          nodeId: tableId,
+          field: {
+            id: baseKeyId,
+            name: "Customer ID",
+            tableId,
+            columnName: "customer_id",
+            type: "string",
+          },
+        }),
+        cmd("AddField", {
+          nodeId: tableId,
+          field: {
+            id: secondBaseKeyId,
+            name: "Approver ID",
+            tableId,
+            columnName: "approver_id",
+            type: "string",
+          },
+        }),
+        cmd("AddField", {
+          nodeId: joinedTableId,
+          field: {
+            id: joinedKeyId,
+            name: "ID",
+            tableId: joinedTableId,
+            columnName: "id",
+            type: "string",
+          },
+        }),
+        cmd("AddField", {
+          nodeId: joinedTableId,
+          field: {
+            id: joinedValueId,
+            name: "Segment",
+            tableId: joinedTableId,
+            columnName: "segment",
+            type: "string",
+          },
+        }),
+        cmd("CreateInsight", {
+          id: upstreamId,
+          name: "Joined upstream",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("AddJoin", {
+          id: upstreamId,
+          join: {
+            type: "left",
+            rightTableId: joinedTableId,
+            leftKey: "customer_id",
+            rightKey: "id",
+          },
+        }),
+        cmd("AddJoin", {
+          id: upstreamId,
+          join: {
+            type: "left",
+            rightTableId: joinedTableId,
+            leftKey: "approver_id",
+            rightKey: "id",
+          },
+        }),
+        cmd("CreateInsight", {
+          id: derivedId,
+          name: "Derived",
+          source: { sourceType: "insight", sourceId: upstreamId },
+          selectedFields: [joinedValueId],
+        }),
+        cmd("CreateInsight", {
+          id: repeatedDerivedId,
+          name: "Repeat-join derived",
+          source: { sourceType: "insight", sourceId: upstreamId },
+          selectedFields: [repeatJoinedValueId],
+        }),
+      );
+
+      expect((await insightsById(derivedId))[0]?.definition).toMatchObject({
+        selectedFields: [joinedValueId],
+      });
+      expect(
+        (await insightsById(repeatedDerivedId))[0]?.definition,
+      ).toMatchObject({ selectedFields: [repeatJoinedValueId] });
+      await expect(
+        commit(
+          cmd("SelectFields", {
+            id: derivedId,
+            fieldIds: [joinedKeyId],
+          }),
+        ),
+      ).rejects.toThrow(/not output by source Insight/);
     });
 
     it("should reject a direct self-cycle (insight sourcing itself)", async () => {
