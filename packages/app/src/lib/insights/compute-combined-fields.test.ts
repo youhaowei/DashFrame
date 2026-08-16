@@ -212,6 +212,7 @@ describe("resolveInsightAuthoringTable", () => {
     const upstreamId = crypto.randomUUID() as UUID;
     const derivedId = crypto.randomUUID() as UUID;
     const metricId = crypto.randomUUID() as UUID;
+    const minMetricId = crypto.randomUUID() as UUID;
     const table = {
       ...makeTable(tableId, "orders", []),
       dataFrameId: crypto.randomUUID() as UUID,
@@ -244,6 +245,13 @@ describe("resolveInsightAuthoringTable", () => {
           sourceTable: tableId,
           aggregation: "count",
         },
+        {
+          id: minMetricId,
+          name: "First country",
+          sourceTable: tableId,
+          columnName: "country",
+          aggregation: "min",
+        },
       ],
       createdAt: 0,
     } as Insight;
@@ -271,6 +279,11 @@ describe("resolveInsightAuthoringTable", () => {
       expect.objectContaining({
         id: metricId,
         columnName: metricIdToColumnAlias(metricId),
+      }),
+      expect.objectContaining({
+        id: minMetricId,
+        columnName: metricIdToColumnAlias(minMetricId),
+        type: "string",
       }),
     ]);
     expect(source?.fields.some((field) => field.id === rootOnlyFieldId)).toBe(

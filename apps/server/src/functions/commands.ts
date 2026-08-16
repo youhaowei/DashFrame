@@ -956,34 +956,13 @@ async function insightOutputFields(
   }
   seen.add(insightId);
   const { definition } = await requireInsightDefinition(ctx, insightId);
-  const joins = (definition.joins ?? []).map(requireJoinShape);
   const metrics = definition.metrics.map(requireInsightMetricShape);
-  const baseFields =
-    definition.source.sourceType === "insight"
-      ? await insightOutputFields(ctx, definition.source.sourceId, seen)
-      : (await dataTableForFieldResolution(ctx, definition.source.sourceId))
-          .fields;
-  const baseTable: DataTable = {
-    id: definition.source.sourceId as UUID,
-    name: definition.source.sourceId,
-    dataSourceId: definition.source.sourceId as UUID,
-    table: definition.source.sourceId,
-    fields: baseFields,
-    metrics: [],
-    dataFrameId: definition.source.sourceId as UUID,
-    createdAt: 0,
-  };
-  const joinedTables = new Map<UUID, DataTable>();
-  for (const join of joins) {
-    if (!joinedTables.has(join.rightTableId)) {
-      joinedTables.set(
-        join.rightTableId,
-        await dataTableForFieldResolution(ctx, join.rightTableId),
-      );
-    }
-  }
-  const available =
-    buildInsightAvailableFields(baseTable, joinedTables, { joins }) ?? [];
+  const available = await insightAvailableFields(
+    ctx,
+    definition.source,
+    definition.joins,
+    seen,
+  );
   let selected = available;
   if (definition.selectedFields.length) {
     selected = available.filter((field) =>
@@ -1003,27 +982,49 @@ async function insightOutputFields(
       name: metric.name,
       tableId: insightId as UUID,
       columnName: metricIdToColumnAlias(metric.id),
-      type: "number" as const,
+      type:
+        metric.aggregation === "min" || metric.aggregation === "max"
+          ? (available.find(
+              (field) =>
+                field.tableId === metric.sourceTable &&
+                (field.columnName ?? field.name) === metric.columnName,
+            )?.type ?? "number")
+          : ("number" as const),
     })),
   ];
 }
 
-async function assertSelectedFieldsAvailableFromSource(
+async function insightAvailableFields(
   ctx: { db: import("@wystack/db").DrizzleTracker },
   source: InsightSource,
-  fieldIds: readonly string[],
-  operation: string,
-): Promise<void> {
-  if (source.sourceType !== "insight" || fieldIds.length === 0) return;
-  const available = new Set(
-    (await insightOutputFields(ctx, source.sourceId)).map((field) => field.id),
-  );
-  const missing = fieldIds.filter((fieldId) => !available.has(fieldId as UUID));
-  if (missing.length > 0) {
-    throw new Error(
-      `${operation}: field ${missing[0]} is not output by source Insight ${source.sourceId}`,
-    );
+  rawJoins: readonly unknown[] | undefined,
+  seen = new Set<string>(),
+): Promise<Field[]> {
+  const joins = (rawJoins ?? []).map(requireJoinShape);
+  const baseFields =
+    source.sourceType === "insight"
+      ? await insightOutputFields(ctx, source.sourceId, seen)
+      : (await dataTableForFieldResolution(ctx, source.sourceId)).fields;
+  const baseTable: DataTable = {
+    id: source.sourceId as UUID,
+    name: source.sourceId,
+    dataSourceId: source.sourceId as UUID,
+    table: source.sourceId,
+    fields: baseFields,
+    metrics: [],
+    dataFrameId: source.sourceId as UUID,
+    createdAt: 0,
+  };
+  const joinedTables = new Map<UUID, DataTable>();
+  for (const join of joins) {
+    if (!joinedTables.has(join.rightTableId)) {
+      joinedTables.set(
+        join.rightTableId,
+        await dataTableForFieldResolution(ctx, join.rightTableId),
+      );
+    }
   }
+  return buildInsightAvailableFields(baseTable, joinedTables, { joins }) ?? [];
 }
 
 async function assertDefinitionAvailableFromSource(
@@ -1034,7 +1035,11 @@ async function assertDefinitionAvailableFromSource(
 ): Promise<void> {
   if (source.sourceType !== "insight") return;
 
-  const availableFields = await insightOutputFields(ctx, source.sourceId);
+  const availableFields = await insightAvailableFields(
+    ctx,
+    source,
+    definition.joins,
+  );
   const availableById = new Map(
     availableFields.map((field) => [field.id as string, field]),
   );
@@ -1066,7 +1071,35 @@ async function assertDefinitionAvailableFromSource(
   const metricAliases = new Set(
     metrics.map((metric) => metricIdToColumnAlias(metric.id)),
   );
-  for (const filter of definition.filters ?? []) {
+  assertFilterFieldsAvailable(
+    definition.filters,
+    availableColumns,
+    metricAliases,
+    operation,
+    source.sourceId,
+  );
+
+  const resultColumns =
+    definition.selectedFields.length === 0 && metrics.length === 0
+      ? availableColumns
+      : new Set([
+          ...definition.selectedFields.flatMap((fieldId) => {
+            const field = availableById.get(fieldId);
+            return field ? [field.columnName ?? field.name] : [];
+          }),
+          ...metricAliases,
+        ]);
+  assertSortFieldsAvailable(definition.sorts, resultColumns, operation);
+}
+
+function assertFilterFieldsAvailable(
+  filters: readonly unknown[] | undefined,
+  availableColumns: ReadonlySet<string>,
+  metricAliases: ReadonlySet<string>,
+  operation: string,
+  sourceId: string,
+): void {
+  for (const filter of filters ?? []) {
     if (!isRecord(filter) || typeof filter.field !== "string") {
       throw new Error(`${operation}: filter must include a string field`);
     }
@@ -1075,19 +1108,18 @@ async function assertDefinitionAvailableFromSource(
       !metricAliases.has(filter.field)
     ) {
       throw new Error(
-        `${operation}: filter field ${filter.field} is not output by source Insight ${source.sourceId}`,
+        `${operation}: filter field ${filter.field} is not output by source Insight ${sourceId}`,
       );
     }
   }
+}
 
-  const resultColumns = new Set([
-    ...definition.selectedFields.flatMap((fieldId) => {
-      const field = availableById.get(fieldId);
-      return field ? [field.columnName ?? field.name] : [];
-    }),
-    ...metricAliases,
-  ]);
-  for (const sort of definition.sorts ?? []) {
+function assertSortFieldsAvailable(
+  sorts: readonly unknown[] | undefined,
+  resultColumns: ReadonlySet<string>,
+  operation: string,
+): void {
+  for (const sort of sorts ?? []) {
     if (!isRecord(sort) || typeof sort.field !== "string") {
       throw new Error(`${operation}: sort must include a string field`);
     }
@@ -1172,10 +1204,10 @@ const selectFields = wy.procedure
         selectedFields: fieldIds,
       }),
     );
-    await assertSelectedFieldsAvailableFromSource(
+    await assertDefinitionAvailableFromSource(
       ctx,
       definition.source,
-      next.selectedFields,
+      next,
       "SelectFields",
     );
     await ctx.db
@@ -1293,10 +1325,7 @@ const setInsightRuntimeControls = wy.procedure
 /**
  * Apply one incremental edit to the `joins` collection in an Insight definition.
  * Mirrors `patchDataTableCollection`'s guard symmetry:
- * - Add: rejects a duplicate joinIndex (we use array-position indexing, so the
- *   guard is that the array is not already longer than `joinIndex` would imply
- *   — AddJoin appends so there is no index collision; the spec uses array
- *   indices for Update/Remove because joins are ordered and anonymous).
+ * - Add: appends a validated join; joins are ordered and anonymous.
  * - Update: rejects a missing index. Pins the structure so updates cannot
  *   rewrite the whole join object in ways that clobber unrelated keys.
  * - Remove: rejects a missing index.
@@ -1383,6 +1412,12 @@ const addJoin = wy.procedure
         join: validated,
       }),
     };
+    await assertDefinitionAvailableFromSource(
+      ctx,
+      definition.source,
+      next,
+      "AddJoin",
+    );
     await ctx.db
       .from(insights)
       .where(eq("id", id))
@@ -1416,6 +1451,12 @@ const updateJoin = wy.procedure
         updates,
       }),
     };
+    await assertDefinitionAvailableFromSource(
+      ctx,
+      definition.source,
+      next,
+      "UpdateJoin",
+    );
     await ctx.db
       .from(insights)
       .where(eq("id", id))
@@ -1445,6 +1486,12 @@ const removeJoin = wy.procedure
         joinIndex,
       }),
     };
+    await assertDefinitionAvailableFromSource(
+      ctx,
+      definition.source,
+      next,
+      "RemoveJoin",
+    );
     await ctx.db
       .from(insights)
       .where(eq("id", id))
@@ -1556,12 +1603,6 @@ async function patchInsightSelectedFields(
     if (selected.includes(fieldId)) {
       throw new Error(`fields item ${fieldId} already exists`);
     }
-    await assertSelectedFieldsAvailableFromSource(
-      ctx,
-      definition.source,
-      [fieldId],
-      "AddField",
-    );
     selected.push(fieldId);
   } else {
     if (!selected.includes(op.itemId)) {
@@ -1574,6 +1615,12 @@ async function patchInsightSelectedFields(
     ...definition,
     selectedFields: selected,
   });
+  await assertDefinitionAvailableFromSource(
+    ctx,
+    definition.source,
+    nextDefinition,
+    op.mode === "add" ? "AddField" : "RemoveField",
+  );
   await ctx.db
     .from(insights)
     .where(eq("id", nodeId))
@@ -1583,9 +1630,8 @@ async function patchInsightSelectedFields(
 /**
  * Apply one incremental collection edit to a node's fields or metrics array.
  * For DataTable nodes the array lives in the row's `fields`/`metrics` columns.
- * For Insight nodes the array lives inside `definition.fields`/`definition.metrics`
- * (not the top-level jsonb `definition` structure — the Insight's own-definitions
- * section, distinct from the inherited ones from its source).
+ * For Insight nodes, field references live in `definition.selectedFields` and
+ * metric definitions live in `definition.metrics`.
  *
  * Guard symmetry:
  * - Add: rejects duplicate id (no illegal two-items-one-id state)
@@ -1632,11 +1678,14 @@ async function patchDataTableCollection(
       ...definition,
       metrics: next,
     });
+    let operation = "RemoveMetric";
+    if (op.mode === "add") operation = "AddMetric";
+    else if (op.mode === "update") operation = "UpdateMetric";
     await assertDefinitionAvailableFromSource(
       ctx,
       definition.source,
       nextDefinition,
-      op.mode === "add" ? "AddMetric" : "UpdateMetric",
+      operation,
     );
     await ctx.db
       .from(insights)

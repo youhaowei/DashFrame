@@ -63,7 +63,14 @@ function insightOutputTable(
       name: metric.name,
       tableId: insight.id,
       columnName: metricIdToColumnAlias(metric.id),
-      type: "number" as const,
+      type:
+        metric.aggregation === "min" || metric.aggregation === "max"
+          ? (available.find(
+              (field) =>
+                field.tableId === metric.sourceTable &&
+                (field.columnName ?? field.name) === metric.columnName,
+            )?.type ?? "number")
+          : ("number" as const),
     })),
   ];
   return {

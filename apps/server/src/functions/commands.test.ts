@@ -16,7 +16,7 @@
  * RemoveDashboardItem), DeleteNode, extended RenameNode, and AddField/UpdateField
  * on Insight nodes.
  */
-import { fieldIdToColumnAlias } from "@dashframe/engine";
+import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
 import {
   CREDENTIAL_CLASS,
   openArtifactDb,
@@ -1488,6 +1488,179 @@ describe("command vocabulary", () => {
       expect((await insightsById(rebindId))[0]?.definition).toMatchObject({
         source: { sourceType: "dataTable", sourceId: tableId },
         metrics: [{ columnName: "root_only" }],
+      });
+    });
+
+    it("preserves valid derived pass-through sorts and blocks field edits that strand them", async () => {
+      const { tableId } = await makeTable();
+      const firstFieldId = id();
+      const secondFieldId = id();
+      const upstreamId = id();
+      const derivedId = id();
+      const firstColumn = fieldIdToColumnAlias(firstFieldId);
+      await commit(
+        cmd("AddField", {
+          nodeId: tableId,
+          field: {
+            id: firstFieldId,
+            name: "First",
+            tableId,
+            columnName: "first",
+            type: "string",
+          },
+        }),
+        cmd("AddField", {
+          nodeId: tableId,
+          field: {
+            id: secondFieldId,
+            name: "Second",
+            tableId,
+            columnName: "second",
+            type: "string",
+          },
+        }),
+        cmd("CreateInsight", {
+          id: upstreamId,
+          name: "Upstream",
+          source: { sourceType: "dataTable", sourceId: tableId },
+          selectedFields: [firstFieldId, secondFieldId],
+        }),
+        cmd("CreateInsight", {
+          id: derivedId,
+          name: "Derived",
+          source: { sourceType: "insight", sourceId: upstreamId },
+        }),
+        cmd("SetInsightSort", {
+          id: derivedId,
+          sorts: [{ field: firstColumn, direction: "asc" }],
+        }),
+        cmd("SelectFields", {
+          id: derivedId,
+          fieldIds: [firstFieldId, secondFieldId],
+        }),
+      );
+
+      await expect(
+        commit(
+          cmd("SelectFields", {
+            id: derivedId,
+            fieldIds: [secondFieldId],
+          }),
+        ),
+      ).rejects.toThrow(/sort field/);
+      await expect(
+        commit(
+          cmd("RemoveField", {
+            nodeId: derivedId,
+            fieldId: firstFieldId,
+          }),
+        ),
+      ).rejects.toThrow(/sort field/);
+      expect((await insightsById(derivedId))[0]?.definition).toMatchObject({
+        selectedFields: [firstFieldId, secondFieldId],
+        sorts: [{ field: firstColumn, direction: "asc" }],
+      });
+
+      const metricId = id();
+      await commit(
+        cmd("AddMetric", {
+          nodeId: derivedId,
+          metric: {
+            id: metricId,
+            name: "Count",
+            sourceTable: upstreamId,
+            aggregation: "count",
+          },
+        }),
+        cmd("SetInsightSort", {
+          id: derivedId,
+          sorts: [
+            { field: metricIdToColumnAlias(metricId), direction: "desc" },
+          ],
+        }),
+      );
+      await expect(
+        commit(cmd("RemoveMetric", { nodeId: derivedId, metricId })),
+      ).rejects.toThrow(/RemoveMetric: sort field/);
+    });
+
+    it("accepts current derived joins and blocks removing a referenced join", async () => {
+      const { tableId } = await makeTable();
+      const { tableId: joinedTableId } = await makeTable();
+      const baseKeyId = id();
+      const joinedKeyId = id();
+      const joinedValueId = id();
+      const upstreamId = id();
+      const derivedId = id();
+      await commit(
+        cmd("AddField", {
+          nodeId: tableId,
+          field: {
+            id: baseKeyId,
+            name: "Region ID",
+            tableId,
+            columnName: "region_id",
+            type: "string",
+          },
+        }),
+        cmd("AddField", {
+          nodeId: joinedTableId,
+          field: {
+            id: joinedKeyId,
+            name: "ID",
+            tableId: joinedTableId,
+            columnName: "id",
+            type: "string",
+          },
+        }),
+        cmd("AddField", {
+          nodeId: joinedTableId,
+          field: {
+            id: joinedValueId,
+            name: "Region",
+            tableId: joinedTableId,
+            columnName: "region",
+            type: "string",
+          },
+        }),
+        cmd("CreateInsight", {
+          id: upstreamId,
+          name: "Upstream",
+          source: { sourceType: "dataTable", sourceId: tableId },
+          selectedFields: [baseKeyId],
+        }),
+        cmd("CreateInsight", {
+          id: derivedId,
+          name: "Derived",
+          source: { sourceType: "insight", sourceId: upstreamId },
+        }),
+        cmd("AddJoin", {
+          id: derivedId,
+          join: {
+            type: "left",
+            rightTableId: joinedTableId,
+            leftKey: fieldIdToColumnAlias(baseKeyId),
+            rightKey: "id",
+          },
+        }),
+        cmd("AddField", {
+          nodeId: derivedId,
+          field: {
+            id: joinedValueId,
+            name: "Region",
+            tableId: joinedTableId,
+            columnName: "region",
+            type: "string",
+          },
+        }),
+      );
+
+      await expect(
+        commit(cmd("RemoveJoin", { id: derivedId, joinIndex: 0 })),
+      ).rejects.toThrow(/not output by source Insight/);
+      expect((await insightsById(derivedId))[0]?.definition).toMatchObject({
+        selectedFields: [joinedValueId],
+        joins: [{ rightTableId: joinedTableId }],
       });
     });
 
