@@ -36,14 +36,12 @@ function formatInstantDate(date: Date): string | null {
   });
 }
 
-function formatDate(value: unknown, type?: ColumnType): string | null {
-  if (value instanceof Date) return formatInstantDate(value);
-
-  if (type !== "date") return null;
-
+export function formatDateValue(value: unknown): string | null {
   if (typeof value === "number") {
     return formatInstantDate(new Date(value));
   }
+
+  if (value instanceof Date) return formatInstantDate(value);
 
   if (typeof value !== "string") return null;
 
@@ -59,6 +57,22 @@ function formatDate(value: unknown, type?: ColumnType): string | null {
   const parsed = Date.parse(value);
   if (!isNaN(parsed)) {
     return formatInstantDate(new Date(parsed));
+  }
+
+  return null;
+}
+
+function formatDate(value: unknown, type?: ColumnType): string | null {
+  if (type === "date") return formatDateValue(value);
+
+  // Preserve the existing runtime-Date behavior for untyped and non-date
+  // columns; the UTC contract applies only when the column declares a date.
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
   }
 
   return null;

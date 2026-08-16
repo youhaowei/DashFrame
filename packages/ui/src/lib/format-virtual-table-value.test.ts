@@ -65,10 +65,14 @@ describe("defaultFormatValue", () => {
     expect(defaultFormatValue(undefined, "string")).toBe("—");
   });
 
-  it("continues to format Date objects and numbers", () => {
-    expect(defaultFormatValue(new Date(2024, 2, 15), "string")).toBe(
-      "Mar 15, 2024",
-    );
+  it("keeps local Date rendering outside declared date columns", () => {
+    const localEvening = new Date(2024, 0, 18, 20);
+
+    expect(defaultFormatValue(localEvening, "string")).toBe("Jan 18, 2024");
+    expect(defaultFormatValue(localEvening, "date")).toBe("Jan 19, 2024");
+  });
+
+  it("continues to format numbers", () => {
     expect(defaultFormatValue(1.5, "number")).toBe("1.5");
   });
 });
