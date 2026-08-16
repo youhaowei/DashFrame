@@ -47,6 +47,15 @@ describe("defaultFormatValue", () => {
     );
   });
 
+  it("renders the same instant consistently across supported representations", () => {
+    const instant = "2024-01-18T00:00:00.000Z";
+    const expected = "Jan 18, 2024";
+
+    expect(defaultFormatValue(Date.parse(instant), "date")).toBe(expected);
+    expect(defaultFormatValue(new Date(instant), "date")).toBe(expected);
+    expect(defaultFormatValue(instant, "date")).toBe(expected);
+  });
+
   it("leaves an impossible calendar date as text rather than rolling it over", () => {
     expect(defaultFormatValue("2024-02-30", "date")).toBe("2024-02-30");
   });

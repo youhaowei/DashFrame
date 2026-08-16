@@ -22,26 +22,27 @@ function formatCalendarDate(
   });
 }
 
+function formatInstantDate(date: Date): string | null {
+  if (Number.isNaN(date.getTime())) return null;
+
+  // Arrow supplies date and timestamp values as instants without preserving
+  // their source distinction, so use UTC consistently until timezone policy
+  // can be configured at the user and data-source levels.
+  return date.toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+}
+
 function formatDate(value: unknown, type?: ColumnType): string | null {
-  if (value instanceof Date && !isNaN(value.getTime())) {
-    return value.toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-  }
+  if (value instanceof Date) return formatInstantDate(value);
 
   if (type !== "date") return null;
 
   if (typeof value === "number") {
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return null;
-    return date.toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      timeZone: "UTC",
-    });
+    return formatInstantDate(new Date(value));
   }
 
   if (typeof value !== "string") return null;
@@ -57,11 +58,7 @@ function formatDate(value: unknown, type?: ColumnType): string | null {
 
   const parsed = Date.parse(value);
   if (!isNaN(parsed)) {
-    return new Date(parsed).toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
+    return formatInstantDate(new Date(parsed));
   }
 
   return null;
