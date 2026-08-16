@@ -568,6 +568,30 @@ describe("command vocabulary", () => {
         ),
       ).rejects.toThrow(/fields.*array/i);
 
+      for (const malformed of [
+        { fields: [42] },
+        { metrics: ["bad"] },
+        {
+          sourceSchema: {
+            columns: "bad",
+            version: 1,
+            lastSyncedAt: Date.now(),
+          },
+        },
+      ]) {
+        await expect(
+          commit(
+            cmd("CreateDataTable", {
+              id: id(),
+              dataSourceId: sourceId,
+              name: "Invalid nested state",
+              table: "invalid-nested.csv",
+              ...malformed,
+            } as never),
+          ),
+        ).rejects.toThrow(/invalid/i);
+      }
+
       const tableId = id();
       await commit(
         cmd("CreateDataTable", {
@@ -585,7 +609,16 @@ describe("command vocabulary", () => {
           }),
         ),
       ).rejects.toThrow(/sourceSchema.*object/i);
+      await expect(
+        commit(
+          cmd("AddField", {
+            nodeId: tableId,
+            field: { id: id() } as never,
+          }),
+        ),
+      ).rejects.toThrow(/fields|field/i);
       expect((await tablesById(tableId))[0]?.sourceSchema).toBeNull();
+      expect((await tablesById(tableId))[0]?.fields).toEqual([]);
     });
 
     it("rejects dangling dataFrameId references in CreateDataTable and RefreshDataTable", async () => {
@@ -630,7 +663,11 @@ describe("command vocabulary", () => {
     it("should replace the source schema slice for SetDataTableSchema", async () => {
       const sourceId = id();
       const tableId = id();
-      const sourceSchema = { columns: [{ name: "amount", type: "number" }] };
+      const sourceSchema = {
+        columns: [{ name: "amount", type: "number" }],
+        version: 1,
+        lastSyncedAt: 1,
+      };
       await commit(
         cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
         cmd("CreateDataTable", {
@@ -701,8 +738,10 @@ describe("command vocabulary", () => {
           metric: {
             id: metricId,
             name: "Sum",
-            expression: "sum(amount)",
-          } as never,
+            tableId,
+            columnName: "amount",
+            aggregation: "sum",
+          },
         }),
         cmd("UpdateMetric", {
           nodeId: tableId,
@@ -733,8 +772,10 @@ describe("command vocabulary", () => {
           metric: {
             id: metricId,
             name: "Sum",
-            expression: "sum(amount)",
-          } as never,
+            tableId,
+            columnName: "amount",
+            aggregation: "sum",
+          },
         }),
       );
 
@@ -757,7 +798,13 @@ describe("command vocabulary", () => {
         }),
         cmd("AddMetric", {
           nodeId: tableId,
-          metric: { id: metricId, name: "Sum" } as never,
+          metric: {
+            id: metricId,
+            name: "Sum",
+            tableId,
+            columnName: "amount",
+            aggregation: "sum",
+          },
         }),
       );
 
@@ -765,7 +812,13 @@ describe("command vocabulary", () => {
         commit(
           cmd("AddMetric", {
             nodeId: tableId,
-            metric: { id: metricId, name: "Sum again" } as never,
+            metric: {
+              id: metricId,
+              name: "Sum again",
+              tableId,
+              columnName: "amount",
+              aggregation: "sum",
+            },
           }),
         ),
       ).rejects.toThrow(/already exists/);
@@ -4712,11 +4765,11 @@ describe("command vocabulary", () => {
         // Corrupt the stored definition directly via the raw Drizzle handle,
         // simulating a schema-drift scenario (e.g. a future migration wrote
         // an unexpected shape, or an external process updated the row).
-        // The `baseTableId` key is missing — a required field in the schema.
+        // The canonical `source` key is missing — a required field in the schema.
         const corruptDefinition = {
           selectedFields: [],
           metrics: [],
-          // baseTableId intentionally omitted
+          // source intentionally omitted
         };
         await db.update(schema.insights).set({ definition: corruptDefinition });
 
@@ -4924,7 +4977,7 @@ describe("command vocabulary", () => {
           .update(schema.insights)
           .set({
             definition: {
-              // baseTableId intentionally omitted — corrupt blob
+              // source intentionally omitted — corrupt blob
               selectedFields: [],
               metrics: [],
             },
@@ -4963,12 +5016,12 @@ describe("command vocabulary", () => {
           }),
         );
 
-        // Corrupt the stored definition — baseTableId missing (required field).
+        // Corrupt the stored definition — source missing (required field).
         await db.update(schema.insights).set({
           definition: {
             selectedFields: [],
             metrics: [],
-            // baseTableId intentionally omitted
+            // source intentionally omitted
           },
         });
 
@@ -5004,7 +5057,7 @@ describe("command vocabulary", () => {
           definition: {
             selectedFields: [],
             metrics: [],
-            // baseTableId intentionally omitted — corrupt blob
+            // source intentionally omitted — corrupt blob
           },
         });
 

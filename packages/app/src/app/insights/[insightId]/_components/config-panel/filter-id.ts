@@ -25,33 +25,15 @@ export function deriveFilterId(filter: InsightFilter): string {
  * identical predicates — never from its absolute array index, and never
  * freshly generated: hydration runs again on every refetch, so a random id
  * would differ between the list a dialog was opened from and the list its save
- * merges into, and `applyFilterSave` would miss and append instead of update.
+ * merges into, making an existing update look like a missing target.
  *
- * Byte-identical predicates must still get distinct identities. They remain
- * separate list entries, and editing or removing one of them is not the same
- * operation as doing it to both — `applyFilterSave` replaces every `_id` match
- * and `handleRemoveFilter` drops every match, so a shared identity would edit
- * or delete the pair. The occurrence index among *identical* predicates
- * disambiguates them. It is an ordinal assigned by traversal order within the
- * identical group and reassigned on every hydration, so it identifies a SLOT,
- * not a logical row. Reordering or inserting identical predicates can transfer
- * that ordinal to another row. `applyFilterSave` still resolves and replaces
- * one entry rather than appending, but the transfer can become observable
- * after editing, because `map` preserves array position: the changed predicate
- * may land at a different position relative to the non-identical filters
- * around it. `[A, X, A]` reordered to `[A, X, A]` (the two A's swapped) and
- * then saved from an edit opened on the first A yields `[A', X, A]` where
- * following the logical row would have yielded `[A, X, A']`.
- *
- * That ordinal transfer is specific to legacy byte-identical duplicates, and
- * saving any such row promotes a persisted `id`, which closes it for good.
- *
- * The other failure is NOT legacy-specific. `applyFilterSave` appends whenever
- * the current list lacks the saved `_id`, so any concurrent delete of the row
- * being edited — legacy or persisted, duplicate or not — makes the save
- * resurrect it rather than update it. For legacy identities, deleting enough
- * identical members reaches the same state by renumbering. Tracked as issue
- * #309.
+ * Byte-identical predicates still receive distinct ordinal ids for rendering
+ * and removal, but those ordinals identify slots rather than logical rows.
+ * Saving a row opened inside such a duplicate set is therefore rejected as
+ * ambiguous, even if concurrent deletion later collapses the set to one row.
+ * Persisted ids are the only identity strong enough to route an edit through a
+ * reorder or deletion. A missing persisted target is also a conflict; only an
+ * explicit create intent may append.
  *
  * The `legacy:` prefix distinguishes these fallback identities from freshly
  * generated UUIDs. It is not a marker of being unsaved: saving a legacy row
@@ -80,6 +62,12 @@ function persistedId(filter: InsightFilter): string | undefined {
 export function withFilterIds(
   filters: InsightFilter[] | undefined,
 ): FilterWithId[] {
+  const legacyTotals = new Map<string, number>();
+  for (const filter of filters ?? []) {
+    if (persistedId(filter) !== undefined) continue;
+    const base = legacyFilterId(filter, 0);
+    legacyTotals.set(base, (legacyTotals.get(base) ?? 0) + 1);
+  }
   const seen = new Map<string, number>();
   return (filters ?? []).map((filter) => {
     // All API write paths stamp this id, so the fallback only covers rows
@@ -97,6 +85,9 @@ export function withFilterIds(
       id,
       _id: deriveFilterId({ ...filter, id }),
       _legacyFallback: stored === undefined,
+      _legacyDuplicate:
+        stored === undefined &&
+        (legacyTotals.get(legacyFilterId(filter, 0)) ?? 0) > 1,
     };
   });
 }
@@ -134,6 +125,7 @@ export function prepareFilterForSave(
       _id: id,
       _saveIntent: "create",
       _legacyFallback: false,
+      _legacyDuplicate: false,
     };
   }
   return {
@@ -164,6 +156,12 @@ export function applyFilterSave(
     throw new Error(`Filter ${saved._id} has a duplicate identity`);
   }
 
+  if (saved._legacyFallback && saved._legacyDuplicate) {
+    throw new Error(
+      "This legacy duplicate filter is ambiguous. Save a separate filter change to migrate stable ids, then retry.",
+    );
+  }
+
   if (saved._legacyFallback && matches[0]?._legacyFallback) {
     const ordinalSeparator = saved._id.lastIndexOf("#");
     const identityGroup =
@@ -176,7 +174,7 @@ export function applyFilterSave(
     ).length;
     if (duplicateCount > 1) {
       throw new Error(
-        "This legacy duplicate filter is ambiguous. Refresh after its ids are migrated, then retry.",
+        "This legacy duplicate filter is ambiguous. Save a separate filter change to migrate stable ids, then retry.",
       );
     }
   }
@@ -193,6 +191,7 @@ export function stripFilterClientMetadata(
       _id: _discardedId,
       _saveIntent: _discardedIntent,
       _legacyFallback: _discardedFallback,
+      _legacyDuplicate: _discardedDuplicate,
       ...filter
     }) => filter,
   );

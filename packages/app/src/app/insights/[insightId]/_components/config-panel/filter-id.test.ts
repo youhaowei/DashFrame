@@ -283,6 +283,17 @@ describe("prepareFilterForSave — distinct id per Add (data-loss guard)", () =>
     );
   });
 
+  it("retains ambiguity when concurrent deletion collapses duplicates to one row", () => {
+    const same = { field: "amount", operator: "eq" as const, value: 1 };
+    const opened = withFilterIds([same, same])[0]!;
+    const afterFirstRowWasDeleted = withFilterIds([same]);
+    const saved = prepareFilterForSave({ ...opened, value: 2 });
+
+    expect(() => applyFilterSave(afterFirstRowWasDeleted, saved)).toThrow(
+      /legacy duplicate.*ambiguous/i,
+    );
+  });
+
   it("treats an empty stored id as absent rather than throwing", () => {
     // `""` is not nullish, so it slips past a `??` fallback and then fails the
     // emptiness check in `deriveFilterId` — a throw during render. The server

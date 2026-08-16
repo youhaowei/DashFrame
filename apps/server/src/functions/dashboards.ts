@@ -25,8 +25,8 @@ type DashboardRow = typeof dashboards.$inferSelect;
  * The domain `Dashboard` shape returned to the client. Handlers annotate their
  * returns with this so the WyStack `api` registry infers the domain type and
  * consumers read `useQuery(api.listDashboards).data` as `Dashboard[]` with no
- * cast. The single unchecked JSONB→domain assertion lives at the
- * `rowToDashboard` boundary below, not in every client.
+ * cast. JSONB is validated by `parseStoredDashboardState` before the result is
+ * assembled, keeping the read and canonical-write contract shared.
  */
 export type DashboardResult = Dashboard;
 

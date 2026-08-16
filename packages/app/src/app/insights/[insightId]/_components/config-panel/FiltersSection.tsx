@@ -37,6 +37,8 @@ export interface FilterWithId extends InsightFilter {
   _saveIntent?: "create" | "update";
   /** True only when `_id` was derived from an id-less legacy row. */
   _legacyFallback?: boolean;
+  /** True when this row opened inside a byte-identical legacy duplicate set. */
+  _legacyDuplicate?: boolean;
 }
 
 interface FiltersSectionProps {

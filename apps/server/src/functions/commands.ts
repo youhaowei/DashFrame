@@ -81,7 +81,9 @@ import { schema } from "@dashframe/server-core";
 import type {
   ArtifactKind,
   CommandName,
+  DashboardItem,
   DashboardItemOverridePatch,
+  DashboardItemOverrides,
   DataTable,
   Field,
   InsightJoinConfig,
@@ -1552,14 +1554,20 @@ async function patchDataTableCollection(
     return "insight";
   }
 
-  // DataTable path: items live in the top-level row columns.
-  const items = ((node.row[kind] ?? []) as { id: string }[]).slice();
+  // DataTable path: validate both the stored state and the merged result with
+  // the same schema used by CreateDataTable and the read codec.
+  const state = parseStoredDataTableState(node.row, `Data table ${nodeId}`);
+  const items = (state[kind] as { id: string }[]).slice();
   const next = applyCollectionOp(items, kind, op);
+  const validated = parseStoredDataTableState(
+    { ...state, [kind]: next },
+    `${op.mode} ${kind}`,
+  );
 
   await ctx.db
     .from(dataTables)
     .where(eq("id", nodeId))
-    .update({ [kind]: next });
+    .update({ [kind]: validated[kind] });
   return "dataTable";
 }
 
@@ -1791,45 +1799,6 @@ const setChartEncoding = wy.procedure
 // ---------------------------------------------------------------------------
 // Dashboard commands
 // ---------------------------------------------------------------------------
-
-// Mirrors the persisted DashboardItem shape from @dashframe/types without
-// importing renderer-facing helpers into the server command module.
-interface DashboardItem {
-  id: string;
-  type: "visualization" | "markdown";
-  visualizationId?: string;
-  content?: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  overrides?: DashboardItemOverrides;
-}
-
-/**
- * Override bag written into `DashboardItem.overrides` by the fan-out primitive.
- * Mirrors `DashboardItemOverrides` from @dashframe/types — kept inline to avoid
- * a circular package dependency from the server layer.
- */
-interface DashboardItemOverrides {
-  filters?: {
-    field: string;
-    operator:
-      | "eq"
-      | "ne"
-      | "gt"
-      | "gte"
-      | "lt"
-      | "lte"
-      | "contains"
-      | "in"
-      | "between";
-    value: unknown;
-    cleared?: boolean;
-  }[];
-  sorts?: { field: string; direction: "asc" | "desc" }[];
-  limit?: number;
-}
 
 /** Load a dashboard's layout array, throwing if the dashboard does not exist. */
 async function requireDashboardItems(
