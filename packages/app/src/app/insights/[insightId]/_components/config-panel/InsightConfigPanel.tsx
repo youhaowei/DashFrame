@@ -411,7 +411,14 @@ export function InsightConfigPanel({
   /** Strip client-only _id before persisting */
   const stripFilterIds = useCallback(
     (fs: FilterWithId[]): InsightFilter[] =>
-      fs.map(({ _id: _discarded, ...rest }) => rest),
+      fs.map(
+        ({
+          _id: _discardedId,
+          _saveIntent: _discardedIntent,
+          _legacyFallback: _discardedFallback,
+          ...rest
+        }) => rest,
+      ),
     [],
   );
 

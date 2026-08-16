@@ -92,7 +92,12 @@ export function withFilterIds(
       seen.set(base, occurrence + 1);
       id = legacyFilterId(filter, occurrence);
     }
-    return { ...filter, id, _id: deriveFilterId({ ...filter, id }) };
+    return {
+      ...filter,
+      id,
+      _id: deriveFilterId({ ...filter, id }),
+      _legacyFallback: stored === undefined,
+    };
   });
 }
 
@@ -123,30 +128,58 @@ export function prepareFilterForSave(
 ): FilterWithId {
   if (filter._id === NEW_FILTER_ID) {
     const id = persistedId(filter) ?? genId();
-    return { ...filter, id, _id: id };
+    return {
+      ...filter,
+      id,
+      _id: id,
+      _saveIntent: "create",
+      _legacyFallback: false,
+    };
   }
-  return { ...filter, id: persistedId(filter) ?? filter._id };
+  return {
+    ...filter,
+    id: persistedId(filter) ?? filter._id,
+    _saveIntent: "update",
+  };
 }
 
 /**
- * Merge a saved filter into the current list: replace every row whose `_id`
- * matches, or append if none match.
- *
- * When the persisted id is unique within the current list, it travels with the
- * filter rather than with its index, so a concurrent reorder between open and
- * save cannot misroute the edit. Uniqueness is not enforced:
- * `ensureInsightFilterIds` stamps an id only onto a filter that arrives without
- * one, so a caller that supplies a duplicate keeps it, and a save then rewrites
- * every predicate sharing that id. Legacy identities, duplicate persisted ids,
- * and concurrent deletes are all weaker than the unique-id case — see
- * `legacyFilterId` and issue #309.
+ * Apply an explicit create/update intent against the latest filter list.
+ * Updates require exactly one resolvable target; a concurrent delete or a
+ * duplicate id is a conflict rather than permission to append or fan out.
+ * Id-less byte-identical legacy rows are also rejected while their identity is
+ * still ordinal-derived. Once any canonical write persists those generated ids,
+ * the same edit resolves normally by its stable id.
  */
 export function applyFilterSave(
   current: FilterWithId[],
   saved: FilterWithId,
 ): FilterWithId[] {
-  const exists = current.some((f) => f._id === saved._id);
-  return exists
-    ? current.map((f) => (f._id === saved._id ? saved : f))
-    : [...current, saved];
+  const matches = current.filter((filter) => filter._id === saved._id);
+  if (matches.length === 0) {
+    if (saved._saveIntent === "create") return [...current, saved];
+    throw new Error(`Filter ${saved._id} no longer exists`);
+  }
+  if (matches.length > 1) {
+    throw new Error(`Filter ${saved._id} has a duplicate identity`);
+  }
+
+  if (saved._legacyFallback && matches[0]?._legacyFallback) {
+    const ordinalSeparator = saved._id.lastIndexOf("#");
+    const identityGroup =
+      ordinalSeparator === -1
+        ? saved._id
+        : saved._id.slice(0, ordinalSeparator + 1);
+    const duplicateCount = current.filter(
+      (filter) =>
+        filter._legacyFallback && filter._id.startsWith(identityGroup),
+    ).length;
+    if (duplicateCount > 1) {
+      throw new Error(
+        "This legacy duplicate filter is ambiguous. Refresh after its ids are migrated, then retry.",
+      );
+    }
+  }
+
+  return current.map((filter) => (filter._id === saved._id ? saved : filter));
 }
