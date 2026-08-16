@@ -164,6 +164,19 @@ async function deleteRef(
   await vault.delete(ref);
 }
 
+function assertVaultPresentForStoredCredential(
+  credentialRef: unknown,
+  vault: ReturnType<typeof vaultFromCtx>,
+  operation: string,
+): void {
+  if (!isSecretRef(credentialRef) || vault != null) return;
+  throw new Error(
+    `[secret-vault] cannot ${operation}: assistant provider config holds a credential ref ` +
+      "but no vault is injected. The vault that was present at store time must also " +
+      "be present when the credential is cleared or removed.",
+  );
+}
+
 const listAssistantProviderCatalog = wy.procedure
   .input({})
   .query(
@@ -215,6 +228,13 @@ const saveAssistantProviderConfig = wy.procedure
     // secret clears the old one instead.
     const supersededByAuthKindChange =
       current != null && current.authKind !== parsed.authKind && !mintedRef;
+    if (supersededByAuthKindChange) {
+      assertVaultPresentForStoredCredential(
+        current.credentialRef,
+        vault,
+        "change assistant provider authentication kind",
+      );
+    }
 
     // The row write and the default-reset commit atomically; a failure rolls
     // back the whole transaction, so no committed row can reference mintedRef.
@@ -309,6 +329,11 @@ const removeAssistantProviderConfig = wy.procedure
           .where(eq("id", id))
           .first()) as AssistantProviderConfigRow | undefined,
         `Assistant provider config ${id}`,
+      );
+      assertVaultPresentForStoredCredential(
+        current.credentialRef,
+        vault,
+        "remove assistant provider config",
       );
       await tx.from(assistantProviderConfigs).where(eq("id", id)).delete();
       return current;
