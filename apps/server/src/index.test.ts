@@ -494,6 +494,24 @@ describe("dashframe serve CLI", () => {
       expect(options.authToken).toBe("plaintext-token");
     });
 
+    it("forwards --insecure to the server factory options", () => {
+      const project = {
+        db: {},
+        dir: "/unused-project",
+        touchSnapshot: vi.fn(),
+        flushSnapshot: vi.fn(),
+      } as unknown as ProjectHandle;
+
+      const options = createStandaloneServerOptions(
+        { hostname: "0.0.0.0", insecure: true },
+        project,
+        {},
+        { queryArrow: vi.fn(), registerArrowTable: vi.fn() },
+      );
+
+      expect(options.insecure).toBe(true);
+    });
+
     // End-to-end through the real ApiAccessCredentials + SecretVault +
     // encrypted-file backend. The unit suites prove each layer in isolation;
     // this proves the composed stack actually issues a usable credential and
