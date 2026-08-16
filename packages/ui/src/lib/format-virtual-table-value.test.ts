@@ -59,6 +59,15 @@ describe("defaultFormatValue", () => {
     );
   });
 
+  it("preserves early years after Arrow converts dates to epoch values", () => {
+    expect(defaultFormatValue(Date.parse("0000-01-01T00:00:00Z"), "date")).toBe(
+      "Jan 1, 0000",
+    );
+    expect(defaultFormatValue(Date.parse("0001-01-01T00:00:00Z"), "date")).toBe(
+      "Jan 1, 0001",
+    );
+  });
+
   it("renders the same instant consistently across supported representations", () => {
     const instant = "2024-01-18T00:00:00.000Z";
     const expected = "Jan 18, 2024";

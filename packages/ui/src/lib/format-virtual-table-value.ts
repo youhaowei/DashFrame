@@ -52,12 +52,11 @@ function formatInstantDate(date: Date): string | null {
   // Arrow supplies date and timestamp values as instants without preserving
   // their source distinction, so use UTC consistently until timezone policy
   // can be configured at the user and data-source levels.
-  return date.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  });
+  return formatCalendarDate(
+    date.getUTCFullYear(),
+    date.getUTCMonth() + 1,
+    date.getUTCDate(),
+  );
 }
 
 export function formatDateValue(value: unknown): string | null {
