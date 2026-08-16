@@ -844,6 +844,12 @@ const createInsight = wy.procedure
       // Stored as InsightMetric (sourceTable), the shape the read path expects.
       metrics: args.metrics,
     });
+    await assertSelectedFieldsAvailableFromSource(
+      ctx,
+      source,
+      definition.selectedFields,
+      "CreateInsight",
+    );
     const [row] = (await ctx.db.into(insights).insert({
       id: args.id,
       name: args.name,
@@ -890,6 +896,51 @@ function pruneDefinitionRuntimeControls(
   };
 }
 
+async function insightOutputFieldIds(
+  ctx: { db: import("@wystack/db").DrizzleTracker },
+  insightId: string,
+  seen = new Set<string>(),
+): Promise<Set<string>> {
+  if (seen.has(insightId)) {
+    throw new Error(`Insight ${insightId} has a cyclic source`);
+  }
+  seen.add(insightId);
+  const { definition } = await requireInsightDefinition(ctx, insightId);
+  const configuredIds = new Set([
+    ...definition.selectedFields,
+    ...definition.metrics.flatMap((metric) =>
+      isRecord(metric) && typeof metric.id === "string" ? [metric.id] : [],
+    ),
+  ]);
+  if (configuredIds.size > 0) return configuredIds;
+
+  if (definition.source.sourceType === "insight") {
+    return insightOutputFieldIds(ctx, definition.source.sourceId, seen);
+  }
+  const table = await requireDataTable(ctx, definition.source.sourceId);
+  const state = parseStoredDataTableState(
+    table,
+    `Data table ${definition.source.sourceId}`,
+  );
+  return new Set(state.fields.map((field) => field.id));
+}
+
+async function assertSelectedFieldsAvailableFromSource(
+  ctx: { db: import("@wystack/db").DrizzleTracker },
+  source: InsightSource,
+  fieldIds: readonly string[],
+  operation: string,
+): Promise<void> {
+  if (source.sourceType !== "insight" || fieldIds.length === 0) return;
+  const available = await insightOutputFieldIds(ctx, source.sourceId);
+  const missing = fieldIds.filter((fieldId) => !available.has(fieldId));
+  if (missing.length > 0) {
+    throw new Error(
+      `${operation}: field ${missing[0]} is not output by source Insight ${source.sourceId}`,
+    );
+  }
+}
+
 /**
  * SetInsightSource — re-points an Insight's input to a DataTable or another
  * Insight's DataFrame (Insight-on-Insight composition). Rejects a source that
@@ -924,6 +975,13 @@ const setInsightSource = wy.procedure
       }
     }
 
+    await assertSelectedFieldsAvailableFromSource(
+      ctx,
+      source,
+      definition.selectedFields,
+      "SetInsightSource",
+    );
+
     // No `requireDefinitionShape` here, deliberately: unlike the four handlers
     // that take an opaque `jsonb` array operand, every key this writes is
     // already checked — `definition` came back parsed from
@@ -955,6 +1013,12 @@ const selectFields = wy.procedure
         ...definition,
         selectedFields: fieldIds,
       }),
+    );
+    await assertSelectedFieldsAvailableFromSource(
+      ctx,
+      definition.source,
+      next.selectedFields,
+      "SelectFields",
     );
     await ctx.db
       .from(insights)
@@ -1322,6 +1386,12 @@ async function patchInsightSelectedFields(
     if (selected.includes(fieldId)) {
       throw new Error(`fields item ${fieldId} already exists`);
     }
+    await assertSelectedFieldsAvailableFromSource(
+      ctx,
+      definition.source,
+      [fieldId],
+      "AddField",
+    );
     selected.push(fieldId);
   } else {
     if (!selected.includes(op.itemId)) {

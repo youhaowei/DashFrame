@@ -1089,6 +1089,91 @@ describe("command vocabulary", () => {
       });
     });
 
+    it("rejects fields that the immediate source Insight does not output", async () => {
+      const { tableId } = await makeTable();
+      const outputFieldId = id();
+      const rootOnlyFieldId = id();
+      const upstreamId = id();
+      const derivedId = id();
+      const invalidCreateId = id();
+      const rebindId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: upstreamId,
+          name: "Upstream",
+          source: { sourceType: "dataTable", sourceId: tableId },
+          selectedFields: [outputFieldId],
+        }),
+        cmd("CreateInsight", {
+          id: derivedId,
+          name: "Derived",
+          source: { sourceType: "insight", sourceId: upstreamId },
+        }),
+        cmd("CreateInsight", {
+          id: rebindId,
+          name: "Rebind",
+          source: { sourceType: "dataTable", sourceId: tableId },
+          selectedFields: [rootOnlyFieldId],
+        }),
+      );
+
+      await expect(
+        commit(
+          cmd("CreateInsight", {
+            id: invalidCreateId,
+            name: "Invalid derived",
+            source: { sourceType: "insight", sourceId: upstreamId },
+            selectedFields: [rootOnlyFieldId],
+          }),
+        ),
+      ).rejects.toThrow(/not output by source Insight/);
+      await expect(
+        commit(
+          cmd("SelectFields", {
+            id: derivedId,
+            fieldIds: [rootOnlyFieldId],
+          }),
+        ),
+      ).rejects.toThrow(/not output by source Insight/);
+      await expect(
+        commit(
+          cmd("AddField", {
+            nodeId: derivedId,
+            field: {
+              id: rootOnlyFieldId,
+              name: "Root-only field",
+              tableId,
+              type: "number",
+            },
+          }),
+        ),
+      ).rejects.toThrow(/not output by source Insight/);
+      await expect(
+        commit(
+          cmd("SetInsightSource", {
+            id: rebindId,
+            source: { sourceType: "insight", sourceId: upstreamId },
+          }),
+        ),
+      ).rejects.toThrow(/not output by source Insight/);
+
+      await commit(
+        cmd("SelectFields", {
+          id: derivedId,
+          fieldIds: [outputFieldId],
+        }),
+      );
+      const [derived] = await insightsById(derivedId);
+      expect(
+        (derived?.definition as { selectedFields: string[] }).selectedFields,
+      ).toEqual([outputFieldId]);
+      expect(await insightsById(invalidCreateId)).toHaveLength(0);
+      expect((await insightsById(rebindId))[0]?.definition).toMatchObject({
+        source: { sourceType: "dataTable", sourceId: tableId },
+        selectedFields: [rootOnlyFieldId],
+      });
+    });
+
     it("should reject a direct self-cycle (insight sourcing itself)", async () => {
       const { tableId } = await makeTable();
       const insightId = id();
