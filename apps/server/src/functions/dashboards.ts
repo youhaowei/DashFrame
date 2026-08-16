@@ -12,6 +12,7 @@
 import { schema } from "@dashframe/server-core";
 import type { Dashboard } from "@dashframe/types";
 import { eq, uuid } from "@wystack/db";
+import { z } from "zod";
 
 import { wy } from "../wystack";
 import { tsToMillis } from "./timestamps";
@@ -29,14 +30,67 @@ type DashboardRow = typeof dashboards.$inferSelect;
  */
 export type DashboardResult = Dashboard;
 
+const storedDashboardItemSchema = z
+  .object({
+    id: z.string(),
+    type: z.enum(["visualization", "markdown"]),
+    visualizationId: z.string().optional(),
+    content: z.string().optional(),
+    x: z.number(),
+    y: z.number(),
+    width: z.number(),
+    height: z.number(),
+    overrides: z.unknown().optional(),
+  })
+  .passthrough();
+
+const storedDashboardControlSchema = z
+  .object({
+    id: z.string(),
+    field: z.string(),
+    label: z.string().optional(),
+    defaultValue: z.unknown().optional(),
+    boundInstances: z.array(z.string()),
+  })
+  .passthrough();
+
+/** Shared structural contract for dashboard JSONB reads and writes. */
+export const storedDashboardStateSchema = z.object({
+  layout: z
+    .array(storedDashboardItemSchema)
+    .nullish()
+    .transform((value) => value ?? []),
+  controls: z
+    .array(storedDashboardControlSchema)
+    .nullish()
+    .transform((value) => value ?? undefined),
+});
+
+export function parseStoredDashboardState(
+  value: unknown,
+  subject: string,
+): Pick<Dashboard, "items" | "controls"> {
+  const parsed = storedDashboardStateSchema.safeParse(value);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    const path = issue?.path.join(".") || "state";
+    throw new Error(`${subject} is invalid: ${path} ${issue?.message}`);
+  }
+  return {
+    items: parsed.data.layout as Dashboard["items"],
+    controls: parsed.data.controls as Dashboard["controls"],
+  };
+}
+
 /** Row → domain. Single source of the mapping (read paths share it). */
 function rowToDashboard(row: DashboardRow): DashboardResult {
+  const state = parseStoredDashboardState(row, `Dashboard ${row.id}`);
   return {
     id: row.id,
     name: row.name,
     description: row.description ?? undefined,
-    items: (row.layout as Dashboard["items"]) ?? [],
-    controls: (row.controls as Dashboard["controls"]) ?? undefined,
+    items: state.items,
+    controls: state.controls,
     // Null-safe via the shared `tsToMillis` (timestamps.ts): the draft overlay
     // returns NULL created_at for a dashboard created inside a draft (the sparse
     // `<table>__draft` row has no canonical base; publish stamps the real value),

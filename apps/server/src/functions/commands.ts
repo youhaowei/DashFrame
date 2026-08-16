@@ -81,7 +81,6 @@ import { schema } from "@dashframe/server-core";
 import type {
   ArtifactKind,
   CommandName,
-  DashboardControl,
   DashboardItemOverridePatch,
   DataTable,
   Field,
@@ -89,7 +88,6 @@ import type {
   InsightMetric,
   Metric,
   RenamedTarget,
-  SourceSchema,
   UUID,
   VegaLiteSpec,
   VisualizationEncoding,
@@ -136,6 +134,7 @@ import type { DashframeFunctionContext } from "../app-context";
 import { permissions } from "../permissions";
 import { wy } from "../wystack";
 import { sanitizeDashboardItemUpdates } from "./dashboard-item-updates";
+import { parseStoredDashboardState } from "./dashboards";
 import { parseStoredDataTableState } from "./data-tables";
 import {
   ensureInsightFilterIds,
@@ -688,14 +687,23 @@ const createDataTable = wy.procedure
   })
   .authorize(permissions.commands.commit)
   .mutation(async (ctx, args): Promise<{ id: string }> => {
+    const state = parseStoredDataTableState(
+      {
+        sourceSchema: args.sourceSchema,
+        fields: args.fields,
+        metrics: args.metrics,
+      },
+      "CreateDataTable state",
+    );
+    if (args.dataFrameId) await requireDataFrame(ctx, args.dataFrameId);
     const [row] = (await ctx.db.into(dataTables).insert({
       id: args.id,
       dataSourceId: args.dataSourceId,
       name: args.name,
       table: args.table,
-      sourceSchema: (args.sourceSchema as SourceSchema | undefined) ?? null,
-      fields: (args.fields as Field[] | undefined) ?? [],
-      metrics: (args.metrics as Metric[] | undefined) ?? [],
+      sourceSchema: state.sourceSchema ?? null,
+      fields: state.fields,
+      metrics: state.metrics,
       dataFrameId: args.dataFrameId ?? null,
     })) as DataTableRow[];
     if (!row) throw new Error("insert returned no row");
@@ -717,16 +725,28 @@ async function requireDataTable(
   return row;
 }
 
+async function requireDataFrame(
+  ctx: { db: import("@wystack/db").DrizzleTracker },
+  id: string,
+): Promise<void> {
+  const row = await ctx.db.from(dataFrames).where(eq("id", id)).first();
+  if (!row) throw new Error(`Data frame ${id} not found`);
+}
+
 /** SetDataTableSchema — replaces the discovered source schema slice. */
 const setDataTableSchema = wy.procedure
   .input({ id: uuid, sourceSchema: jsonb })
   .authorize(permissions.commands.commit)
   .mutation(async (ctx, { id, sourceSchema }): Promise<{ ok: true }> => {
-    await requireDataTable(ctx, id);
+    const table = await requireDataTable(ctx, id);
+    const state = parseStoredDataTableState(
+      { ...table, sourceSchema },
+      "SetDataTableSchema state",
+    );
     await ctx.db
       .from(dataTables)
       .where(eq("id", id))
-      .update({ sourceSchema: sourceSchema as SourceSchema });
+      .update({ sourceSchema: state.sourceSchema ?? null });
     return { ok: true };
   });
 
@@ -736,6 +756,7 @@ const refreshDataTable = wy.procedure
   .authorize(permissions.commands.commit)
   .mutation(async (ctx, { id, dataFrameId }): Promise<{ ok: true }> => {
     const table = await requireDataTable(ctx, id);
+    await requireDataFrame(ctx, dataFrameId);
     let replacedFrameId: string | undefined;
     if (
       isCanonicalCommandContext(ctx) &&
@@ -1820,7 +1841,10 @@ async function requireDashboardItems(
     .where(eq("id", dashboardId))
     .first()) as DashboardRow | undefined;
   if (!row) throw new Error(`Dashboard ${dashboardId} not found`);
-  return ((row.layout as DashboardItem[]) ?? []).slice();
+  return parseStoredDashboardState(
+    row,
+    `Dashboard ${dashboardId}`,
+  ).items.slice() as DashboardItem[];
 }
 
 /**
@@ -1971,10 +1995,14 @@ const addDashboardItem = wy.procedure
         throw new Error(`Dashboard item ${item.id} already exists`);
       }
       items.push(item);
+      const state = parseStoredDashboardState(
+        { layout: items, controls: null },
+        "AddDashboardItem state",
+      );
       await ctx.db
         .from(dashboards)
         .where(eq("id", dashboardId))
-        .update({ layout: items });
+        .update({ layout: state.items });
       return { ok: true };
     },
   );
@@ -2013,10 +2041,14 @@ const updateDashboardItem = wy.procedure
             }
           : it,
       );
+      const state = parseStoredDashboardState(
+        { layout: next, controls: null },
+        "UpdateDashboardItem state",
+      );
       await ctx.db
         .from(dashboards)
         .where(eq("id", dashboardId))
-        .update({ layout: next });
+        .update({ layout: state.items });
       return { ok: true };
     },
   );
@@ -2044,10 +2076,14 @@ const setDashboardLayout = wy.procedure
     if (new Set(ids).size !== ids.length) {
       throw new Error("SetDashboardLayout: items contains duplicate ids");
     }
+    const state = parseStoredDashboardState(
+      { layout: parsed, controls: null },
+      "SetDashboardLayout state",
+    );
     await ctx.db
       .from(dashboards)
       .where(eq("id", dashboardId))
-      .update({ layout: parsed });
+      .update({ layout: state.items });
     return { ok: true };
   });
 
@@ -2105,14 +2141,15 @@ const setDashboardControls = wy.procedure
   .input({ dashboardId: uuid, controls: jsonb })
   .authorize(permissions.commands.commit)
   .mutation(async (ctx, { dashboardId, controls }): Promise<{ ok: true }> => {
-    if (!Array.isArray(controls)) {
-      throw new Error("SetDashboardControls: controls must be an array");
-    }
     await requireDashboardItems(ctx, dashboardId);
+    const state = parseStoredDashboardState(
+      { layout: [], controls },
+      "SetDashboardControls state",
+    );
     await ctx.db
       .from(dashboards)
       .where(eq("id", dashboardId))
-      .update({ controls: controls as DashboardControl[] });
+      .update({ controls: state.controls });
     return { ok: true };
   });
 

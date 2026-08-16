@@ -53,8 +53,14 @@ function makeTestVault(): SecretVault {
   return new SecretVault(registry, new InMemoryMappingStore());
 }
 
-const { dataSources, dataTables, insights, visualizations, dashboards } =
-  schema;
+const {
+  dataSources,
+  dataTables,
+  dataFrames,
+  insights,
+  visualizations,
+  dashboards,
+} = schema;
 
 describe("command vocabulary", () => {
   let dir: string;
@@ -112,6 +118,15 @@ describe("command vocabulary", () => {
   async function tablesById(tableId: string) {
     const rows = await db.select().from(dataTables);
     return rows.filter((r) => r.id === tableId);
+  }
+  async function makeFrame(frameId = id()) {
+    await db.insert(dataFrames).values({
+      id: frameId,
+      storage: { type: "file", key: frameId },
+      fieldIds: [],
+      name: "Test Frame",
+    });
+    return frameId;
   }
   async function insightsById(insightId: string) {
     const rows = await db.select().from(insights);
@@ -519,6 +534,7 @@ describe("command vocabulary", () => {
       const sourceId = id();
       const tableId = id();
       const frameId = id();
+      await makeFrame(frameId);
       await commit(
         cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
         cmd("CreateDataTable", {
@@ -532,6 +548,83 @@ describe("command vocabulary", () => {
       const [row] = await tablesById(tableId);
       expect(row?.dataFrameId).toBe(frameId);
       expect(row?.lastFetchedAt).toBeInstanceOf(Date);
+    });
+
+    it("rejects malformed structured DataTable operands before persistence", async () => {
+      const sourceId = id();
+      await commit(
+        cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
+      );
+
+      await expect(
+        commit(
+          cmd("CreateDataTable", {
+            id: id(),
+            dataSourceId: sourceId,
+            name: "Invalid",
+            table: "invalid.csv",
+            fields: {} as never,
+          }),
+        ),
+      ).rejects.toThrow(/fields.*array/i);
+
+      const tableId = id();
+      await commit(
+        cmd("CreateDataTable", {
+          id: tableId,
+          dataSourceId: sourceId,
+          name: "Valid",
+          table: "valid.csv",
+        }),
+      );
+      await expect(
+        commit(
+          cmd("SetDataTableSchema", {
+            id: tableId,
+            sourceSchema: [] as never,
+          }),
+        ),
+      ).rejects.toThrow(/sourceSchema.*object/i);
+      expect((await tablesById(tableId))[0]?.sourceSchema).toBeNull();
+    });
+
+    it("rejects dangling dataFrameId references in CreateDataTable and RefreshDataTable", async () => {
+      const sourceId = id();
+      const tableId = id();
+      const missingFrameId = id();
+      await commit(
+        cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
+      );
+
+      await expect(
+        commit(
+          cmd("CreateDataTable", {
+            id: id(),
+            dataSourceId: sourceId,
+            name: "Dangling",
+            table: "dangling.csv",
+            dataFrameId: missingFrameId,
+          }),
+        ),
+      ).rejects.toThrow(new RegExp(`Data frame ${missingFrameId} not found`));
+
+      await commit(
+        cmd("CreateDataTable", {
+          id: tableId,
+          dataSourceId: sourceId,
+          name: "T",
+          table: "t.csv",
+        }),
+      );
+      await expect(
+        commit(
+          cmd("RefreshDataTable", {
+            id: tableId,
+            dataFrameId: missingFrameId,
+          }),
+        ),
+      ).rejects.toThrow(new RegExp(`Data frame ${missingFrameId} not found`));
+      expect((await tablesById(tableId))[0]?.dataFrameId).toBeNull();
     });
 
     it("should replace the source schema slice for SetDataTableSchema", async () => {
@@ -3035,6 +3128,21 @@ describe("command vocabulary", () => {
           boundInstances: [itemId],
         },
       ]);
+    });
+
+    it("rejects malformed dashboard controls before persistence", async () => {
+      const dashId = id();
+      await commit(cmd("CreateDashboard", { id: dashId, name: "D" }));
+
+      await expect(
+        commit(
+          cmd("SetDashboardControls", {
+            dashboardId: dashId,
+            controls: {} as never,
+          }),
+        ),
+      ).rejects.toThrow(/controls.*array/i);
+      expect((await dashboardsById(dashId))[0]?.controls).toBeNull();
     });
 
     it("should throw on UpdateDashboardItem with a missing itemId (no silent no-op)", async () => {

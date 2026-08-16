@@ -36,7 +36,7 @@ import { LOCAL_USER_ID } from "../permissions";
 import { wy } from "../wystack";
 import { cmd } from "./commands";
 
-const { dataFrames, dataSources } = schema;
+const { dataFrames, dataSources, dataTables, dashboards } = schema;
 
 /** Real vault (TestBackend) — matches credential-release.test.ts's idiom. */
 function makeTestVault(): { vault: SecretVault; backend: TestBackend } {
@@ -296,6 +296,45 @@ describe("privacy floor — no raw sampleValues persist in artifact DB", () => {
 
     const stored = await readAnalysis(id);
     expect(stored).toBeNull();
+  });
+
+  it("fails closed when reading malformed DataTable structured state", async () => {
+    const sourceId = crypto.randomUUID();
+    const tableId = crypto.randomUUID();
+    await db.insert(dataSources).values({
+      id: sourceId,
+      name: "Source",
+      kind: "csv",
+      storage: "live",
+      config: {},
+      createdBy: { kind: "user" },
+    });
+    await db.insert(dataTables).values({
+      id: tableId,
+      dataSourceId: sourceId,
+      name: "Corrupt",
+      table: "corrupt.csv",
+      fields: {},
+      metrics: [],
+    });
+
+    await expect(call("getDataTable", { id: tableId })).rejects.toThrow(
+      /Data table .*invalid.*fields.*array/i,
+    );
+  });
+
+  it("fails closed when reading malformed Dashboard structured state", async () => {
+    const dashboardId = crypto.randomUUID();
+    await db.insert(dashboards).values({
+      id: dashboardId,
+      name: "Corrupt",
+      layout: {},
+      createdBy: { kind: "user" },
+    });
+
+    await expect(call("getDashboard", { id: dashboardId })).rejects.toThrow(
+      /Dashboard .*invalid.*layout.*array/i,
+    );
   });
 
   it("should persist data-frame origin and refresh metadata", async () => {

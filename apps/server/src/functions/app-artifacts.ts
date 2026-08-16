@@ -17,8 +17,6 @@ import type {
   DataTable,
   Field,
   Insight,
-  Metric,
-  SourceSchema,
   UUID,
   VegaLiteSpec,
   Visualization,
@@ -35,6 +33,7 @@ import { randomUUID } from "node:crypto";
 import type { DashframeFunctionContext } from "../app-context";
 import { permissions } from "../permissions";
 import { wy } from "../wystack";
+import { parseStoredDataTableState } from "./data-tables";
 import { decodeInsight, type InsightRow } from "./insights";
 import { tsToMillis } from "./timestamps";
 import {
@@ -139,14 +138,15 @@ async function rowToDataSource(
 }
 
 function rowToDataTable(row: DataTableRow): DataTable {
+  const state = parseStoredDataTableState(row, `Data table ${row.id}`);
   return {
     id: row.id,
     dataSourceId: row.dataSourceId,
     name: row.name,
     table: row.table,
-    sourceSchema: (row.sourceSchema as SourceSchema | null) ?? undefined,
-    fields: row.fields as Field[],
-    metrics: row.metrics as Metric[],
+    sourceSchema: state.sourceSchema,
+    fields: state.fields,
+    metrics: state.metrics,
     dataFrameId: row.dataFrameId ?? undefined,
     createdAt: tsToMillis(row.createdAt),
     lastFetchedAt: row.lastFetchedAt?.getTime(),
