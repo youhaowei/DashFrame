@@ -6,6 +6,7 @@ import {
 } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
 import { formatCellValue } from "@/lib/cell-formatter";
+import { resolveInsightAuthoringTable } from "@/lib/insights/compute-combined-fields";
 import {
   useConfirmDialogStore,
   type ConfirmDialogConfig,
@@ -735,6 +736,10 @@ export function InsightView({
     () => resolveInsightSourceDataTable(insight, allDataTables, allInsights),
     [allDataTables, allInsights, insight],
   );
+  const authoringTable = useMemo(
+    () => resolveInsightAuthoringTable(insight, allDataTables, allInsights),
+    [allDataTables, allInsights, insight],
+  );
 
   // Get DuckDB view/table name for chart rendering
   // For insights with joins, creates a view with joined data
@@ -808,11 +813,11 @@ export function InsightView({
   // Key by field ID to match enrichColumnAnalysis lookup in suggest-charts.ts
   // Includes fields from both base table AND joined tables
   const fieldMap = useMemo<Record<string, Field>>(() => {
-    if (!dataTable) return {};
+    if (!authoringTable) return {};
     const map: Record<string, Field> = {};
 
     // Add base table fields (keyed by field ID)
-    (dataTable.fields ?? [])
+    (authoringTable.fields ?? [])
       .filter((f) => !f.name.startsWith("_"))
       .forEach((f) => {
         map[f.id] = f;
@@ -834,18 +839,18 @@ export function InsightView({
     });
 
     return map;
-  }, [dataTable, insight.joins, allDataTables]);
+  }, [authoringTable, insight.joins, allDataTables]);
 
   // Get existing field and metric column names from insight configuration
   // Includes fields from both base table AND joined tables
   const existingFieldNames = useMemo(() => {
-    if (!dataTable) return [];
+    if (!authoringTable) return [];
 
     const names: string[] = [];
 
     // Map selected field IDs to column names (includes base + joined tables)
     const fieldIdToName = new Map<string, string>();
-    (dataTable.fields ?? []).forEach((f) => {
+    (authoringTable.fields ?? []).forEach((f) => {
       fieldIdToName.set(f.id, f.columnName ?? f.name);
     });
 
@@ -873,7 +878,7 @@ export function InsightView({
 
     return names;
   }, [
-    dataTable,
+    authoringTable,
     insight.selectedFields,
     insight.metrics,
     insight.joins,
@@ -883,12 +888,12 @@ export function InsightView({
   // Create minimal insight object for suggestions
   // Uses LocalInsight type from stores which is expected by suggestCharts
   const insightForSuggestions = useMemo<LocalInsight | null>(() => {
-    if (!dataTable) return null;
+    if (!authoringTable) return null;
     return {
       id: insightId,
       name: insight.name,
       baseTable: {
-        tableId: dataTable.id,
+        tableId: authoringTable.id,
         selectedFields: [],
       },
       metrics: [],
@@ -900,7 +905,7 @@ export function InsightView({
     insight.name,
     insight.createdAt,
     insight.updatedAt,
-    dataTable,
+    authoringTable,
   ]);
 
   const chartSuggestionsByType = useMemo(() => {
@@ -973,13 +978,14 @@ export function InsightView({
 
   const pinChartSuggestion = useCallback(
     async (suggestion: ChartSuggestion): Promise<UUID | null> => {
-      if (!dataTable?.dataFrameId || !isChartViewReady) return null;
+      if (!dataTable?.dataFrameId || !authoringTable || !isChartViewReady)
+        return null;
 
       // Parse encoding to extract dimensions and metrics
       const { dimensionFields, metrics } = parseChartEncoding(
         suggestion.encoding,
         parseAggregateExpression,
-        dataTable.id,
+        authoringTable.id,
       );
 
       // Map dimension column names to field IDs (base table + joined tables)
@@ -988,7 +994,7 @@ export function InsightView({
       const fieldIdMap = new Map<string, UUID>();
 
       // Base table fields - add both original name and UUID alias
-      (dataTable.fields ?? []).forEach((f) => {
+      (authoringTable.fields ?? []).forEach((f) => {
         fieldIdMap.set(f.columnName ?? f.name, f.id);
         // Also add UUID-based alias (field_<uuid>) for suggestion encoding lookups
         fieldIdMap.set(fieldIdToColumnAlias(f.id), f.id);
@@ -1020,7 +1026,9 @@ export function InsightView({
       // display name for the Metrics panel; columnName stays untouched (it
       // drives SQL generation and encoding matching).
       const fieldNameById = new Map<UUID, string>();
-      (dataTable.fields ?? []).forEach((f) => fieldNameById.set(f.id, f.name));
+      (authoringTable.fields ?? []).forEach((f) =>
+        fieldNameById.set(f.id, f.name),
+      );
       insight.joins?.forEach((join) => {
         const joinTable = allDataTables.find((t) => t.id === join.rightTableId);
         (joinTable?.fields ?? []).forEach((f) =>
@@ -1094,6 +1102,7 @@ export function InsightView({
     },
     [
       dataTable,
+      authoringTable,
       allDataTables,
       isChartViewReady,
       parseAggregateExpression,
@@ -1307,7 +1316,7 @@ export function InsightView({
     (activeView.kind === "chart" && activeChartSuggestion !== undefined);
 
   // Data table not found - check after all hooks are called
-  if (!dataTable) {
+  if (!dataTable || !authoringTable) {
     return <NotFoundView type="dataTable" />;
   }
 
@@ -1320,7 +1329,7 @@ export function InsightView({
       leftPanel={
         <InsightConfigPanel
           insight={insight}
-          dataTable={dataTable}
+          dataTable={authoringTable}
           allDataTables={allDataTables}
           name={localName}
           onNameChange={handleNameChange}

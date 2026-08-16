@@ -1,8 +1,15 @@
-import type { DataTable, InsightJoinConfig } from "@dashframe/types";
+import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
+import type {
+  DataTable,
+  Insight,
+  InsightJoinConfig,
+  UUID,
+} from "@dashframe/types";
 import { describe, expect, it } from "vitest";
 import {
   computeCombinedFields,
   computeFilterableFields,
+  resolveInsightAuthoringTable,
   type CombinedField,
 } from "./compute-combined-fields";
 
@@ -194,6 +201,81 @@ describe("computeCombinedFields", () => {
     const idFields = fields.filter((f) => f.name === "id");
     expect(idFields).toHaveLength(3);
     expect(new Set(idFields.map((f) => f.displayName)).size).toBe(3);
+  });
+});
+
+describe("resolveInsightAuthoringTable", () => {
+  it("exposes only the immediate upstream Insight result schema", () => {
+    const tableId = crypto.randomUUID() as UUID;
+    const outputFieldId = crypto.randomUUID() as UUID;
+    const rootOnlyFieldId = crypto.randomUUID() as UUID;
+    const upstreamId = crypto.randomUUID() as UUID;
+    const derivedId = crypto.randomUUID() as UUID;
+    const metricId = crypto.randomUUID() as UUID;
+    const table = {
+      ...makeTable(tableId, "orders", []),
+      dataFrameId: crypto.randomUUID() as UUID,
+      fields: [
+        {
+          id: outputFieldId,
+          name: "Country",
+          tableId,
+          columnName: "country",
+          type: "string" as const,
+        },
+        {
+          id: rootOnlyFieldId,
+          name: "Revenue",
+          tableId,
+          columnName: "revenue",
+          type: "number" as const,
+        },
+      ],
+    } as DataTable;
+    const upstream = {
+      id: upstreamId,
+      name: "Countries",
+      source: { sourceType: "dataTable", sourceId: tableId },
+      selectedFields: [outputFieldId],
+      metrics: [
+        {
+          id: metricId,
+          name: "Count",
+          sourceTable: tableId,
+          aggregation: "count",
+        },
+      ],
+      createdAt: 0,
+    } as Insight;
+    const derived = {
+      id: derivedId,
+      name: "Derived",
+      source: { sourceType: "insight", sourceId: upstreamId },
+      selectedFields: [],
+      metrics: [],
+      createdAt: 0,
+    } as Insight;
+
+    const source = resolveInsightAuthoringTable(
+      derived,
+      [table],
+      [upstream, derived],
+    );
+
+    expect(source?.id).toBe(upstreamId);
+    expect(source?.fields).toEqual([
+      expect.objectContaining({
+        id: outputFieldId,
+        columnName: fieldIdToColumnAlias(outputFieldId),
+      }),
+      expect.objectContaining({
+        id: metricId,
+        columnName: metricIdToColumnAlias(metricId),
+      }),
+    ]);
+    expect(source?.fields.some((field) => field.id === rootOnlyFieldId)).toBe(
+      false,
+    );
   });
 });
 

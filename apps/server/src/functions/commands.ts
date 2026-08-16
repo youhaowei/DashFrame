@@ -874,10 +874,10 @@ const createInsight = wy.procedure
       // Stored as InsightMetric (sourceTable), the shape the read path expects.
       metrics: args.metrics,
     });
-    await assertSelectedFieldsAvailableFromSource(
+    await assertDefinitionAvailableFromSource(
       ctx,
       source,
-      definition.selectedFields,
+      definition,
       "CreateInsight",
     );
     const [row] = (await ctx.db.into(insights).insert({
@@ -1026,6 +1026,79 @@ async function assertSelectedFieldsAvailableFromSource(
   }
 }
 
+async function assertDefinitionAvailableFromSource(
+  ctx: { db: import("@wystack/db").DrizzleTracker },
+  source: InsightSource,
+  definition: StoredInsightDefinition,
+  operation: string,
+): Promise<void> {
+  if (source.sourceType !== "insight") return;
+
+  const availableFields = await insightOutputFields(ctx, source.sourceId);
+  const availableById = new Map(
+    availableFields.map((field) => [field.id as string, field]),
+  );
+  const availableColumns = new Set(
+    availableFields.map((field) => field.columnName ?? field.name),
+  );
+
+  const missingSelectedField = definition.selectedFields.find(
+    (fieldId) => !availableById.has(fieldId),
+  );
+  if (missingSelectedField) {
+    throw new Error(
+      `${operation}: field ${missingSelectedField} is not output by source Insight ${source.sourceId}`,
+    );
+  }
+
+  const metrics = definition.metrics.map(requireInsightMetricShape);
+  const invalidMetric = metrics.find(
+    (metric) =>
+      metric.columnName !== undefined &&
+      !availableColumns.has(metric.columnName),
+  );
+  if (invalidMetric) {
+    throw new Error(
+      `${operation}: metric ${invalidMetric.id} references column ${invalidMetric.columnName} that is not output by source Insight ${source.sourceId}`,
+    );
+  }
+
+  const metricAliases = new Set(
+    metrics.map((metric) => metricIdToColumnAlias(metric.id)),
+  );
+  for (const filter of definition.filters ?? []) {
+    if (!isRecord(filter) || typeof filter.field !== "string") {
+      throw new Error(`${operation}: filter must include a string field`);
+    }
+    if (
+      !availableColumns.has(filter.field) &&
+      !metricAliases.has(filter.field)
+    ) {
+      throw new Error(
+        `${operation}: filter field ${filter.field} is not output by source Insight ${source.sourceId}`,
+      );
+    }
+  }
+
+  const resultColumns = new Set([
+    ...definition.selectedFields.flatMap((fieldId) => {
+      const field = availableById.get(fieldId);
+      return field ? [field.columnName ?? field.name] : [];
+    }),
+    ...metricAliases,
+  ]);
+  for (const sort of definition.sorts ?? []) {
+    if (!isRecord(sort) || typeof sort.field !== "string") {
+      throw new Error(`${operation}: sort must include a string field`);
+    }
+    if (!resultColumns.has(sort.field)) {
+      throw new Error(
+        `${operation}: sort field ${sort.field} is not in the derived Insight result`,
+      );
+    }
+  }
+}
+
 /**
  * SetInsightSource — re-points an Insight's input to a DataTable or another
  * Insight's DataFrame (Insight-on-Insight composition). Rejects a source that
@@ -1060,10 +1133,10 @@ const setInsightSource = wy.procedure
       }
     }
 
-    await assertSelectedFieldsAvailableFromSource(
+    await assertDefinitionAvailableFromSource(
       ctx,
       source,
-      definition.selectedFields,
+      definition,
       "SetInsightSource",
     );
 
@@ -1136,6 +1209,12 @@ const setInsightFilter = wy.procedure
         ? {}
         : { filters: ensureInsightFilterIds(next.filters) }),
     });
+    await assertDefinitionAvailableFromSource(
+      ctx,
+      definition.source,
+      normalized,
+      "SetInsightFilter",
+    );
     await ctx.db
       .from(insights)
       .where(eq("id", id))
@@ -1156,6 +1235,12 @@ const setInsightSort = wy.procedure
       ...definition,
       sorts,
     });
+    await assertDefinitionAvailableFromSource(
+      ctx,
+      definition.source,
+      next,
+      "SetInsightSort",
+    );
     await ctx.db
       .from(insights)
       .where(eq("id", id))
@@ -1547,6 +1632,12 @@ async function patchDataTableCollection(
       ...definition,
       metrics: next,
     });
+    await assertDefinitionAvailableFromSource(
+      ctx,
+      definition.source,
+      nextDefinition,
+      op.mode === "add" ? "AddMetric" : "UpdateMetric",
+    );
     await ctx.db
       .from(insights)
       .where(eq("id", nodeId))
@@ -2406,8 +2497,8 @@ function parseRowDefinition(row: InsightRow): StoredInsightDefinition {
 
 /**
  * Pure orphan check against an already-parsed definition — no validation, no
- * DB access. An Insight is orphaned by `sourceId` if its primary source (or
- * normalized source equals it, or any join's `rightTableId` equals it.
+ * DB access. An Insight is orphaned by `sourceId` if its normalized source
+ * equals it, or any join's `rightTableId` equals it.
  */
 function definitionRefers(
   def: StoredInsightDefinition,

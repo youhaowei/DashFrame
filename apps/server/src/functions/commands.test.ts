@@ -16,6 +16,7 @@
  * RemoveDashboardItem), DeleteNode, extended RenameNode, and AddField/UpdateField
  * on Insight nodes.
  */
+import { fieldIdToColumnAlias } from "@dashframe/engine";
 import {
   CREDENTIAL_CLASS,
   openArtifactDb,
@@ -1337,6 +1338,156 @@ describe("command vocabulary", () => {
       expect((await insightsById(rebindId))[0]?.definition).toMatchObject({
         source: { sourceType: "dataTable", sourceId: tableId },
         selectedFields: [rootOnlyFieldId],
+      });
+    });
+
+    it("rejects derived metric, filter, and sort references outside the immediate source output", async () => {
+      const { tableId } = await makeTable();
+      const outputFieldId = id();
+      const rootOnlyFieldId = id();
+      const upstreamId = id();
+      const derivedId = id();
+      const invalidCreateId = id();
+      const rebindId = id();
+      const outputColumn = fieldIdToColumnAlias(outputFieldId);
+      const rootOnlyColumn = fieldIdToColumnAlias(rootOnlyFieldId);
+      await commit(
+        cmd("AddField", {
+          nodeId: tableId,
+          field: {
+            id: outputFieldId,
+            name: "Output field",
+            tableId,
+            columnName: "output",
+            type: "number",
+          },
+        }),
+        cmd("AddField", {
+          nodeId: tableId,
+          field: {
+            id: rootOnlyFieldId,
+            name: "Root-only field",
+            tableId,
+            columnName: "root_only",
+            type: "number",
+          },
+        }),
+        cmd("CreateInsight", {
+          id: upstreamId,
+          name: "Upstream",
+          source: { sourceType: "dataTable", sourceId: tableId },
+          selectedFields: [outputFieldId],
+        }),
+        cmd("CreateInsight", {
+          id: derivedId,
+          name: "Derived",
+          source: { sourceType: "insight", sourceId: upstreamId },
+          selectedFields: [outputFieldId],
+        }),
+        cmd("CreateInsight", {
+          id: rebindId,
+          name: "Rebind",
+          source: { sourceType: "dataTable", sourceId: tableId },
+          metrics: [
+            {
+              id: id(),
+              name: "Root-only sum",
+              sourceTable: tableId,
+              columnName: "root_only",
+              aggregation: "sum",
+            },
+          ],
+        }),
+      );
+
+      await expect(
+        commit(
+          cmd("CreateInsight", {
+            id: invalidCreateId,
+            name: "Invalid derived",
+            source: { sourceType: "insight", sourceId: upstreamId },
+            metrics: [
+              {
+                id: id(),
+                name: "Invalid sum",
+                sourceTable: upstreamId,
+                columnName: rootOnlyColumn,
+                aggregation: "sum",
+              },
+            ],
+          }),
+        ),
+      ).rejects.toThrow(/not output by source Insight/);
+      await expect(
+        commit(
+          cmd("SetInsightSource", {
+            id: rebindId,
+            source: { sourceType: "insight", sourceId: upstreamId },
+          }),
+        ),
+      ).rejects.toThrow(/not output by source Insight/);
+      await expect(
+        commit(
+          cmd("AddMetric", {
+            nodeId: derivedId,
+            metric: {
+              id: id(),
+              name: "Invalid sum",
+              sourceTable: upstreamId,
+              columnName: rootOnlyColumn,
+              aggregation: "sum",
+            },
+          }),
+        ),
+      ).rejects.toThrow(/not output by source Insight/);
+      await expect(
+        commit(
+          cmd("SetInsightFilter", {
+            id: derivedId,
+            filters: [{ field: rootOnlyColumn, operator: "gt", value: 100 }],
+          }),
+        ),
+      ).rejects.toThrow(/not output by source Insight/);
+      await expect(
+        commit(
+          cmd("SetInsightSort", {
+            id: derivedId,
+            sorts: [{ field: rootOnlyColumn, direction: "desc" }],
+          }),
+        ),
+      ).rejects.toThrow(/not in the derived Insight result/);
+
+      const metricId = id();
+      await commit(
+        cmd("AddMetric", {
+          nodeId: derivedId,
+          metric: {
+            id: metricId,
+            name: "Valid sum",
+            sourceTable: upstreamId,
+            columnName: outputColumn,
+            aggregation: "sum",
+          },
+        }),
+        cmd("SetInsightFilter", {
+          id: derivedId,
+          filters: [{ field: outputColumn, operator: "gt", value: 100 }],
+        }),
+        cmd("SetInsightSort", {
+          id: derivedId,
+          sorts: [{ field: outputColumn, direction: "desc" }],
+        }),
+      );
+      expect((await insightsById(derivedId))[0]?.definition).toMatchObject({
+        selectedFields: [outputFieldId],
+        metrics: [{ id: metricId, columnName: outputColumn }],
+        filters: [{ field: outputColumn }],
+        sorts: [{ field: outputColumn }],
+      });
+      expect(await insightsById(invalidCreateId)).toHaveLength(0);
+      expect((await insightsById(rebindId))[0]?.definition).toMatchObject({
+        source: { sourceType: "dataTable", sourceId: tableId },
+        metrics: [{ columnName: "root_only" }],
       });
     });
 
