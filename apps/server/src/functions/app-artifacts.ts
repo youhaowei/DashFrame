@@ -766,11 +766,9 @@ async function persistConnectorFrame(
   } catch {
     throw new Error("Connector returned malformed Arrow IPC");
   }
-  // Reviewed connector fields originate outside the artifact model and do not
-  // carry ownership. Attach the canonical table id before persisting them so
-  // every stored Field satisfies the same lineage contract as command-authored
-  // fields.
-  const approvedFields = attachFieldOwnership(
+  // Connector fields originate outside the artifact trust boundary. Replace
+  // their claimed ownership with the canonical target table id before writing.
+  const approvedFields = withCanonicalFieldOwnership(
     args.approvedFields,
     args.tableId,
   );
@@ -1615,7 +1613,7 @@ function structuralFieldSignature(fields: readonly Field[]): string {
   );
 }
 
-function attachFieldOwnership(
+function withCanonicalFieldOwnership(
   fields: readonly Field[],
   tableId: UUID,
 ): Field[] {
@@ -1661,7 +1659,7 @@ const prepareRemoteDataTable = wy.procedure
       throw new Error(`DataSource ${source.id} is not a remote connector`);
     }
 
-    const discoveredFields = attachFieldOwnership(result.fields, id);
+    const discoveredFields = withCanonicalFieldOwnership(result.fields, id);
     parseStoredDataTableState(
       { sourceSchema: null, fields: discoveredFields, metrics: [] },
       `Data table ${id} discovered fields`,
