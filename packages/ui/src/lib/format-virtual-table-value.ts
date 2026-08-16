@@ -6,7 +6,9 @@ function formatCalendarDate(
   month: number,
   day: number,
 ): string | null {
-  const date = new Date(year, month - 1, day);
+  const date = new Date(0);
+  date.setHours(0, 0, 0, 0);
+  date.setFullYear(year, month - 1, day);
   if (
     date.getFullYear() !== year ||
     date.getMonth() !== month - 1 ||

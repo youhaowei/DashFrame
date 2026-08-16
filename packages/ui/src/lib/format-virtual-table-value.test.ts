@@ -39,6 +39,7 @@ describe("defaultFormatValue", () => {
 
   it("formats date-only strings from their calendar parts", () => {
     expect(defaultFormatValue("2024-03-15", "date")).toBe("Mar 15, 2024");
+    expect(defaultFormatValue("0001-01-01", "date")).toBe("Jan 1, 1");
   });
 
   it("formats numeric epoch values in date columns as UTC calendar dates", () => {
