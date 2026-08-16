@@ -29,6 +29,7 @@ import { PermissionDeniedError } from "@wystack/permissions";
 import type { SecretRef, SecretVault } from "@wystack/secret-vault";
 import { isSecretRef } from "@wystack/secret-vault";
 import { randomUUID } from "node:crypto";
+import { z } from "zod";
 
 import type { DashframeFunctionContext } from "../app-context";
 import { permissions } from "../permissions";
@@ -75,6 +76,158 @@ type DataFrameEntry = DataFrameJSON & {
   lastRefreshedAt?: number;
   currentInsightResult?: boolean;
 };
+
+// #319 surviving jsonb audit: DataFrame entry/patch and reviewed-field arrays
+// are object payloads the RPC DSL cannot express, so each is parsed here before
+// reads, writes, connector calls, or early returns. `listInsights.excludeIds`
+// is expressible and therefore uses `uuid.array()` directly at its declaration.
+
+const dataFrameStorageSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("indexeddb"), key: z.string().min(1) }),
+  z.object({ type: z.literal("file"), key: z.string().min(1) }),
+  z.object({
+    type: z.literal("s3"),
+    bucket: z.string().min(1),
+    key: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal("r2"),
+    accountId: z.string().min(1),
+    key: z.string().min(1),
+  }),
+]);
+
+const columnAnalysisBaseSchema = z.object({
+  columnName: z.string().min(1),
+  fieldId: z.string().min(1).optional(),
+  cardinality: z.number().finite().nonnegative(),
+  uniqueness: z.number().finite().min(0).max(1),
+  nullCount: z.number().finite().nonnegative(),
+  sampleValues: z.array(z.unknown()),
+});
+
+const columnAnalysisSchema = z.discriminatedUnion("dataType", [
+  columnAnalysisBaseSchema
+    .extend({
+      dataType: z.literal("string"),
+      semantic: z.enum([
+        "text",
+        "identifier",
+        "email",
+        "url",
+        "uuid",
+        "categorical",
+      ]),
+      minLength: z.number().finite().optional(),
+      maxLength: z.number().finite().optional(),
+      avgLength: z.number().finite().optional(),
+      pattern: z.string().optional(),
+      maxFrequencyRatio: z.number().finite().min(0).max(1).optional(),
+    })
+    .passthrough(),
+  columnAnalysisBaseSchema
+    .extend({
+      dataType: z.literal("number"),
+      semantic: z.enum(["numerical", "identifier"]),
+      min: z.number().finite(),
+      max: z.number().finite(),
+      stdDev: z.number().finite().optional(),
+      zeroCount: z.number().finite().nonnegative().optional(),
+    })
+    .passthrough(),
+  columnAnalysisBaseSchema
+    .extend({
+      dataType: z.literal("date"),
+      semantic: z.literal("temporal"),
+      minDate: z.number().finite(),
+      maxDate: z.number().finite(),
+    })
+    .passthrough(),
+  columnAnalysisBaseSchema
+    .extend({
+      dataType: z.literal("boolean"),
+      semantic: z.literal("boolean"),
+      trueCount: z.number().finite().nonnegative(),
+      falseCount: z.number().finite().nonnegative(),
+    })
+    .passthrough(),
+  columnAnalysisBaseSchema
+    .extend({
+      dataType: z.literal("array"),
+      semantic: z.literal("reference"),
+      avgLength: z.number().finite().optional(),
+    })
+    .passthrough(),
+  columnAnalysisBaseSchema
+    .extend({
+      dataType: z.literal("unknown"),
+      semantic: z.literal("unknown"),
+    })
+    .passthrough(),
+]);
+
+const dataFrameAnalysisSchema = z
+  .object({
+    columns: z.array(columnAnalysisSchema),
+    rowCount: z.number().finite().nonnegative(),
+    analyzedAt: z.number().finite(),
+    fieldHash: z.string(),
+  })
+  .passthrough();
+
+const dataFrameEntryInputSchema = z
+  .object({
+    id: z.string().uuid(),
+    storage: dataFrameStorageSchema,
+    fieldIds: z.array(z.string().uuid()),
+    primaryKey: z.union([z.string(), z.array(z.string())]).optional(),
+    createdAt: z.number().finite(),
+    name: z.string(),
+    insightId: z.string().uuid().optional(),
+    sourceId: z.string().uuid().optional(),
+    definitionId: z.string().uuid().optional(),
+    rowCount: z.number().int().nonnegative().optional(),
+    columnCount: z.number().int().nonnegative().optional(),
+    analysis: dataFrameAnalysisSchema.nullable().optional(),
+    lastRefreshedAt: z.number().finite().optional(),
+  })
+  .strict();
+
+const dataFrameEntryUpdateSchema = dataFrameEntryInputSchema
+  .omit({ id: true })
+  .partial()
+  .strict();
+
+const reviewedFieldsInputSchema = z.array(
+  z
+    .object({
+      id: z.string().min(1),
+      name: z.string().min(1),
+      tableId: z.string().uuid().optional(),
+      columnName: z.string().min(1).optional(),
+      type: z.enum(["string", "number", "boolean", "date", "unknown"]),
+      isIdentifier: z.boolean().optional(),
+      isReference: z.boolean().optional(),
+      sensitivity: z.enum(["unclassified", "sensitive", "cleared"]).optional(),
+      sensitivityReason: z.string().optional(),
+      sensitivitySource: z.enum(["user", "classifier"]).optional(),
+    })
+    .strict(),
+);
+
+function parseDataFrameEntryInput(value: unknown): DataFrameEntry {
+  return dataFrameEntryInputSchema.parse(value) as DataFrameEntry;
+}
+
+function parseDataFrameEntryUpdate(value: unknown): Partial<DataFrameEntry> {
+  return dataFrameEntryUpdateSchema.parse(value) as Partial<DataFrameEntry>;
+}
+
+function parseReviewedFieldsInput(value: unknown): unknown {
+  return value === undefined
+    ? undefined
+    : reviewedFieldsInputSchema.parse(value);
+}
 
 function nullableDateFromEpoch(value: number | undefined): Date | null {
   return value === undefined ? null : new Date(value);
@@ -288,7 +441,7 @@ const getDataFrameByInsight = wy.procedure
 const putDataFrameEntry = wy.procedure
   .input({ entry: jsonb })
   .mutation(async (ctx, { entry }): Promise<{ id: string }> => {
-    const value = entry as DataFrameEntry;
+    const value = parseDataFrameEntryInput(entry);
     const existing = (await ctx.db
       .from(dataFrames)
       .where(eq("id", value.id))
@@ -326,7 +479,7 @@ const putDataFrameEntry = wy.procedure
 const updateDataFrameEntry = wy.procedure
   .input({ id: uuid, updates: jsonb })
   .mutation(async (ctx, { id, updates }): Promise<{ ok: true }> => {
-    const patch = updates as Partial<DataFrameEntry>;
+    const patch = parseDataFrameEntryUpdate(updates);
     const existing = requireWriteTarget(
       (await ctx.db.from(dataFrames).where(eq("id", id)).first()) as
         | DataFrameRow
@@ -411,9 +564,9 @@ const removeDataFrameEntry = wy.procedure
   });
 
 const listInsights = wy.procedure
-  .input({ excludeIds: jsonb.optional() })
+  .input({ excludeIds: uuid.array().optional() })
   .query(async (ctx, { excludeIds }): Promise<Insight[]> => {
-    const excluded = new Set((excludeIds as UUID[] | undefined) ?? []);
+    const excluded = new Set(excludeIds ?? []);
     const rows = (await ctx.db.from(insights).all()) as InsightRow[];
     return rows
       .map(decodeInsight)
@@ -1027,6 +1180,7 @@ const queryNotionDatabase = wy.procedure
       ctx,
       { dataSourceId, databaseId, tableId, limit, snapshot, approvedFields },
     ): Promise<NotionQueryResult> => {
+      const reviewedFields = parseReviewedFieldsInput(approvedFields);
       const connector = await notionConnectorFor(ctx, dataSourceId);
       const table = await connectorTableBinding(ctx, dataSourceId, tableId);
       if (databaseId !== table.table) {
@@ -1046,7 +1200,7 @@ const queryNotionDatabase = wy.procedure
             tableId,
             fieldIds: result.fieldIds,
             approvedFields: approvedFieldsForSnapshot(
-              approvedFields,
+              reviewedFields,
               result.fieldIds,
               result.fields,
             ),
@@ -1165,6 +1319,7 @@ const queryPostgresTable = wy.procedure
       ctx,
       { dataSourceId, databaseId, tableId, limit, snapshot, approvedFields },
     ): Promise<PostgresQueryResult> => {
+      const reviewedFields = parseReviewedFieldsInput(approvedFields);
       const connector = await postgresConnectorFor(ctx, dataSourceId);
       const table = await connectorTableBinding(ctx, dataSourceId, tableId);
       if (databaseId !== table.table) {
@@ -1182,7 +1337,7 @@ const queryPostgresTable = wy.procedure
             tableId,
             fieldIds: result.fieldIds,
             approvedFields: approvedFieldsForSnapshot(
-              approvedFields,
+              reviewedFields,
               result.fieldIds,
               result.fields,
             ),
@@ -1409,6 +1564,7 @@ const queryGa4Property = wy.procedure
       ctx,
       { dataSourceId, tableId, limit, snapshot, approvedFields },
     ): Promise<Ga4QueryResult> => {
+      const reviewedFields = parseReviewedFieldsInput(approvedFields);
       const connector = await ga4ConnectorFor(ctx, dataSourceId);
       const table = await connectorTableBinding(ctx, dataSourceId, tableId);
       await requireConnectorMaterializationPermission(ctx, snapshot);
@@ -1421,7 +1577,7 @@ const queryGa4Property = wy.procedure
             tableId,
             fieldIds: result.fieldIds,
             approvedFields: approvedFieldsForSnapshot(
-              approvedFields,
+              reviewedFields,
               result.fieldIds,
               result.fields,
             ),

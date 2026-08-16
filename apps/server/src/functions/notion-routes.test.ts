@@ -483,6 +483,26 @@ describe("Notion data-plane routes — happy path (mocked connector)", () => {
     await expectNoPersistence();
   });
 
+  it("rejects malformed reviewed fields before a preview query", async () => {
+    const id = await seedNotionSource();
+    const tableId = await seedNotionTable(id);
+
+    for (const malformed of [
+      "not-an-array",
+      [{ id: "f1", name: "Name", type: "string", sensitivity: 42 }],
+    ]) {
+      await expect(
+        app.call("queryNotionDatabase", {
+          dataSourceId: id,
+          databaseId: "db-1",
+          tableId,
+          approvedFields: malformed,
+        }),
+      ).rejects.toThrow();
+    }
+    expect(queryCalls).toEqual([]);
+  });
+
   it("forwards the preview row limit to connector.query as pagination", async () => {
     const id = await seedNotionSource();
     const tableId = await seedNotionTable(id);
@@ -576,6 +596,13 @@ describe("Notion data-plane routes — happy path (mocked connector)", () => {
     });
     const oldFrameId = (queried.result as { dataFrameId: string }).dataFrameId;
     const replacementId = crypto.randomUUID();
+    await frameStorage.save(replacementId, new Uint8Array([1]));
+    await db.insert(schema.dataFrames).values({
+      id: replacementId,
+      storage: { type: "file", key: replacementId },
+      fieldIds: [],
+      name: "replacement",
+    });
 
     await app.call(
       "commitBatch",
@@ -594,6 +621,7 @@ describe("Notion data-plane routes — happy path (mocked connector)", () => {
     expect(
       (await app.call("getDataTable", { id: tableId })).result,
     ).toMatchObject({ dataFrameId: replacementId });
+    expect(await frameStorage.exists(replacementId)).toBe(true);
   });
 
   it("rejects malformed or schema-mismatched IPC before replacing a healthy frame", async () => {
