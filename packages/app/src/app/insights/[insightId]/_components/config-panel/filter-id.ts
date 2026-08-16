@@ -183,3 +183,17 @@ export function applyFilterSave(
 
   return current.map((filter) => (filter._id === saved._id ? saved : filter));
 }
+
+/** Remove every client-only identity/concurrency marker before persistence. */
+export function stripFilterClientMetadata(
+  filters: FilterWithId[],
+): InsightFilter[] {
+  return filters.map(
+    ({
+      _id: _discardedId,
+      _saveIntent: _discardedIntent,
+      _legacyFallback: _discardedFallback,
+      ...filter
+    }) => filter,
+  );
+}

@@ -9,7 +9,6 @@ import type {
   Command,
   DataTable,
   Insight,
-  InsightFilter,
   InsightMetric,
   InsightRuntimeDeclaration,
   InsightSort,
@@ -42,7 +41,11 @@ import {
 } from "./DeleteConfirmDialog";
 import { FieldRenameDialog } from "./FieldRenameDialog";
 import { FieldsSection } from "./FieldsSection";
-import { applyFilterSave, withFilterIds } from "./filter-id";
+import {
+  applyFilterSave,
+  stripFilterClientMetadata,
+  withFilterIds,
+} from "./filter-id";
 import { FilterEditDialog } from "./FilterEditDialog";
 import { FiltersSection, type FilterWithId } from "./FiltersSection";
 import { InsightFieldEditorModal } from "./InsightFieldEditorModal";
@@ -90,9 +93,9 @@ export async function removeFilterThroughCommands(
   insight: Insight,
   filterId: string,
 ): Promise<void> {
-  const filters = withFilterIds(insight.filters)
-    .filter((filter) => filter._id !== filterId)
-    .map(({ _id: _discarded, ...filter }) => filter);
+  const filters = stripFilterClientMetadata(
+    withFilterIds(insight.filters).filter((filter) => filter._id !== filterId),
+  );
   await commit({
     commands: [cmd("SetInsightFilter", { id: insight.id, filters })],
   });
@@ -408,25 +411,13 @@ export function InsightConfigPanel({
   );
 
   // --- Filter handlers ---
-  /** Strip client-only _id before persisting */
-  const stripFilterIds = useCallback(
-    (fs: FilterWithId[]): InsightFilter[] =>
-      fs.map(
-        ({
-          _id: _discardedId,
-          _saveIntent: _discardedIntent,
-          _legacyFallback: _discardedFallback,
-          ...rest
-        }) => rest,
-      ),
-    [],
-  );
-
   const handleFiltersReorder = useCallback(
     (reordered: FilterWithId[]) => {
-      void updateInsight(insight.id, { filters: stripFilterIds(reordered) });
+      void updateInsight(insight.id, {
+        filters: stripFilterClientMetadata(reordered),
+      });
     },
-    [insight.id, stripFilterIds, updateInsight],
+    [insight.id, updateInsight],
   );
 
   const handleRemoveFilter = useCallback(
@@ -439,9 +430,11 @@ export function InsightConfigPanel({
   const handleSaveFilter = useCallback(
     async (saved: FilterWithId) => {
       const updated = applyFilterSave(filtersWithIds, saved);
-      await updateInsight(insight.id, { filters: stripFilterIds(updated) });
+      await updateInsight(insight.id, {
+        filters: stripFilterClientMetadata(updated),
+      });
     },
-    [insight.id, filtersWithIds, stripFilterIds, updateInsight],
+    [insight.id, filtersWithIds, updateInsight],
   );
 
   // --- Delete dialog handlers ---
