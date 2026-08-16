@@ -82,6 +82,16 @@ describe("registered live Insight fetch procedures", () => {
           name: "Table",
           table: "source.csv",
         }),
+        cmd("AddField", {
+          nodeId: tableId,
+          field: {
+            id: "country",
+            name: "Country",
+            tableId,
+            columnName: "country",
+            type: "string",
+          },
+        }),
         cmd("CreateInsight", {
           id: insightId,
           name: "Saved",
