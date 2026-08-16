@@ -298,6 +298,20 @@ describe("privacy floor — no raw sampleValues persist in artifact DB", () => {
     expect(stored).toBeNull();
   });
 
+  it("rejects DataFrame updates and removals whose id does not exist", async () => {
+    const missingId = crypto.randomUUID();
+
+    await expect(
+      call("updateDataFrameEntry", {
+        id: missingId,
+        updates: { name: "Nowhere" },
+      }),
+    ).rejects.toThrow(`Data frame ${missingId} not found`);
+    await expect(
+      call("removeDataFrameEntry", { id: missingId }),
+    ).rejects.toThrow(`Data frame ${missingId} not found`);
+  });
+
   it("fails closed when reading malformed DataTable structured state", async () => {
     const sourceId = crypto.randomUUID();
     const tableId = crypto.randomUUID();

@@ -42,6 +42,7 @@ import {
   inDraftContext,
   isRecord,
   modeFromCtx,
+  requireWriteTarget,
   vaultFromCtx,
   type DataSourceConfig,
 } from "./utils";
@@ -326,10 +327,12 @@ const updateDataFrameEntry = wy.procedure
   .input({ id: uuid, updates: jsonb })
   .mutation(async (ctx, { id, updates }): Promise<{ ok: true }> => {
     const patch = updates as Partial<DataFrameEntry>;
-    const existing = (await ctx.db
-      .from(dataFrames)
-      .where(eq("id", id))
-      .first()) as DataFrameRow | undefined;
+    const existing = requireWriteTarget(
+      (await ctx.db.from(dataFrames).where(eq("id", id)).first()) as
+        | DataFrameRow
+        | undefined,
+      `Data frame ${id}`,
+    );
     assertPublicFrameUpdate(existing, patch);
     if (patch.storage !== undefined) {
       assertExistingServerFrameImmutable(existing, patch.storage);
@@ -381,13 +384,16 @@ const removeDataFrameEntry = wy.procedure
   .input({ id: uuid })
   .mutation(async (ctx, { id }): Promise<{ ok: true }> => {
     assertCanonicalFrameSideEffects(ctx);
-    const row = (await ctx.db.from(dataFrames).where(eq("id", id)).first()) as
-      | DataFrameRow
-      | undefined;
-    if (row && (row.storage as DataFrameStorageLocation).type !== "file") {
+    const row = requireWriteTarget(
+      (await ctx.db.from(dataFrames).where(eq("id", id)).first()) as
+        | DataFrameRow
+        | undefined,
+      `Data frame ${id}`,
+    );
+    if ((row.storage as DataFrameStorageLocation).type !== "file") {
       throw new Error("Only server-owned DataFrames can be removed");
     }
-    const staged = await stageServerFrames(ctx, row ? [row] : []);
+    const staged = await stageServerFrames(ctx, [row]);
     try {
       await ctx.db.transaction(async (tx) => {
         await tx

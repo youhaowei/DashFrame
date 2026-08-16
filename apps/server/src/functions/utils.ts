@@ -474,6 +474,17 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** Reject a by-id write when its lookup/result proves that no target existed. */
+export function requireWriteTarget<T>(
+  target: T | null | undefined | false,
+  description: string,
+): T {
+  if (target === null || target === undefined || target === false) {
+    throw new Error(`${description} not found`);
+  }
+  return target;
+}
+
 export function requireRecordWithId(
   value: unknown,
   label: string,

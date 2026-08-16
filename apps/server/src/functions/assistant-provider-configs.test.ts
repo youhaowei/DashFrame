@@ -181,6 +181,13 @@ describe("assistant provider config functions", () => {
     ).toHaveLength(0);
   });
 
+  it("rejects removing a provider config that does not exist", async () => {
+    const missingId = crypto.randomUUID();
+    await expect(
+      app.call("removeAssistantProviderConfig", { id: missingId }),
+    ).rejects.toThrow(`Assistant provider config ${missingId} not found`);
+  });
+
   it("setting a non-default config's model leaves provider defaults untouched", async () => {
     const { result: defaultConfig } = (await app.call(
       "saveAssistantProviderConfig",

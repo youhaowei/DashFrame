@@ -651,6 +651,23 @@ describe("createDashframeServer", () => {
         },
       );
       expect(revokeResponse.status).toBe(200);
+
+      const missingCredentialId = crypto.randomUUID();
+      const missingRevokeResponse = await fetch(
+        `${server.url}/api/revokeAccessCredential`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...bearer("renderer-token"),
+          },
+          body: JSON.stringify({ id: missingCredentialId }),
+        },
+      );
+      expect(missingRevokeResponse.status).toBe(500);
+      expect(await missingRevokeResponse.text()).toContain(
+        `Access credential ${missingCredentialId} not found`,
+      );
       expect(
         (
           await fetch(projectInfoUrl, {

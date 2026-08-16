@@ -20,6 +20,7 @@ import { z } from "zod";
 import { wy } from "../wystack";
 import {
   flushThenReleaseRefs,
+  requireWriteTarget,
   vaultFromCtx,
   withClassBoundaryMessage,
 } from "./utils";
@@ -302,15 +303,17 @@ const removeAssistantProviderConfig = wy.procedure
     // dangling ref if the transaction aborts afterwards. Worst case post-commit
     // is a leaked (unreferenced) secret, never a dangling reference.
     const removed = await ctx.db.transaction(async (tx) => {
-      const current = (await tx
-        .from(assistantProviderConfigs)
-        .where(eq("id", id))
-        .first()) as AssistantProviderConfigRow | undefined;
-      if (!current) return undefined;
+      const current = requireWriteTarget(
+        (await tx
+          .from(assistantProviderConfigs)
+          .where(eq("id", id))
+          .first()) as AssistantProviderConfigRow | undefined,
+        `Assistant provider config ${id}`,
+      );
       await tx.from(assistantProviderConfigs).where(eq("id", id)).delete();
       return current;
     });
-    if (removed && isSecretRef(removed.credentialRef)) {
+    if (isSecretRef(removed.credentialRef)) {
       await flushThenReleaseRefs(
         flushSnapshotFromCtx(ctx),
         [removed.credentialRef],
