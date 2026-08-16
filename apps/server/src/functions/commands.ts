@@ -136,6 +136,7 @@ import type { DashframeFunctionContext } from "../app-context";
 import { permissions } from "../permissions";
 import { wy } from "../wystack";
 import { sanitizeDashboardItemUpdates } from "./dashboard-item-updates";
+import { parseStoredDataTableState } from "./data-tables";
 import {
   ensureInsightFilterIds,
   type InsightSource,
