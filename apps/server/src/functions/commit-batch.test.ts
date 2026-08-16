@@ -326,6 +326,67 @@ describe("commitBatch and draft-only API credentials", () => {
     expect(await vault.has(mintedRef)).toBe(false);
   });
 
+  it("rejects a credential clear before commit when the stored ref has no vault", async () => {
+    const vault = makeCredentialVault();
+    server = await createDashframeServer({
+      db: project!.db,
+      accessCredentials,
+      authToken: USER_TOKEN,
+      vault,
+      flushSnapshot: async () => {},
+    });
+    const sourceId = crypto.randomUUID();
+    expect(
+      (
+        await post(
+          server,
+          "commitBatch",
+          {
+            commands: [
+              cmd("CreateDataSource", {
+                id: sourceId,
+                type: "postgres",
+                name: "Credentialed source",
+                apiKey: "still-live",
+              }),
+            ],
+          },
+          USER_TOKEN,
+        )
+      ).status,
+    ).toBe(200);
+    const sourceBefore = (
+      await project!.db.select().from(schema.dataSources)
+    ).find((row) => row.id === sourceId);
+    const oldRef = (sourceBefore?.config as { apiKey?: unknown }).apiKey;
+    expect(isSecretRef(oldRef)).toBe(true);
+
+    server.stop();
+    server = await createDashframeServer({
+      db: project!.db,
+      accessCredentials,
+      authToken: USER_TOKEN,
+      flushSnapshot: async () => {},
+    });
+    const failed = await post(
+      server,
+      "commitBatch",
+      {
+        commands: [cmd("SetDataSourceConfig", { id: sourceId, apiKey: "" })],
+      },
+      USER_TOKEN,
+    );
+
+    expect(failed.status).toBe(500);
+    const sourceAfter = (
+      await project!.db.select().from(schema.dataSources)
+    ).find((row) => row.id === sourceId);
+    expect((sourceAfter?.config as { apiKey?: unknown }).apiKey).toEqual(
+      oldRef,
+    );
+    expect(await vault.has(oldRef as SecretRef)).toBe(true);
+  });
+
   it("allows a service principal to preview the same command surface", async () => {
     server = await createDashframeServer({
       db: project!.db,

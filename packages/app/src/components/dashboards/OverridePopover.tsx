@@ -7,8 +7,8 @@
  *
  * Mutations:
  * - Filter / sort / limit overrides → server-applied intent patches
- * - Bind to control → `updateControls(dashboardId, newControls)` (replace whole array)
- * - Unbind         → `updateControls(...)` removing item.id from boundInstances
+ * - Bind to control → `SetDashboardControls` through `commitBatch` (replace whole array)
+ * - Unbind         → the same command, removing item.id from boundInstances
  *
  * Fields shown = union of:
  *   • Fields with an insight-level filter (inherit or override)

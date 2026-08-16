@@ -384,6 +384,26 @@ function supersededCollectorFor(
   return ctx.credentialBatchTransition?.supersededRefs ?? directCollector;
 }
 
+function assertVaultPresentForCredentialUpdate(
+  config: DataSourceConfig,
+  apiKey: string | undefined,
+  connectionString: string | undefined,
+  vault: SecretVault | undefined,
+  preview: boolean,
+  deferRelease: boolean,
+): void {
+  if (preview || deferRelease || vault != null) return;
+  const supersedesStoredRef =
+    (apiKey !== undefined && isSecretRef(config.apiKey)) ||
+    (connectionString !== undefined && isSecretRef(config.connectionString));
+  if (!supersedesStoredRef) return;
+  throw new Error(
+    "[secret-vault] cannot update DataSource credentials: config holds a credential ref " +
+      "but no vault is injected. The vault that was present at store time must also " +
+      "be present when the credential is cleared or replaced.",
+  );
+}
+
 /** CreateDataSource — mints a DataSource with a client-supplied id + config. */
 const createDataSource = wy.procedure
   .input({
@@ -534,6 +554,17 @@ const setDataSourceConfig = wy.procedure
           "SetDataSourceConfig: 'apiKey' and 'connectionString' must use the typed credential fields, and sourceBindingVersion is server-owned; none may be set through extra",
         );
       }
+      // A clear can otherwise drop a live ref from canonical state while the
+      // batch ledger has no vault with which to release it. Reject before any
+      // credential side effect or database write, matching DataSource delete.
+      assertVaultPresentForCredentialUpdate(
+        config,
+        apiKey,
+        connectionString,
+        vault,
+        preview,
+        deferRelease,
+      );
       // store non-empty (replaces any existing ref with a fresh one) / clear-on-empty
       // (releases the prior vault ref + deletes the config key so hasApiKey reads false)
       // / leave-on-undefined.
