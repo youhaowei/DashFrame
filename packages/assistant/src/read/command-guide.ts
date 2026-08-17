@@ -362,9 +362,11 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
     args: {
       dashboardId: "UUID",
       itemId: "UUID",
-      updates: "Partial item (id and type are pinned, not editable)",
+      updates:
+        "{ visualizationId?, content?, x?, y?, width?, height? } (id, type, and overrides are not editable here)",
     },
-    notes: "Rejects a missing itemId.",
+    notes:
+      "Rejects a missing itemId. Use PatchDashboardItemOverride for filter, sort, or limit changes.",
   },
   {
     name: "SetDashboardLayout",

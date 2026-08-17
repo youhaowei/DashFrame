@@ -12,6 +12,13 @@ import type {
   UUID,
 } from "@dashframe/types";
 
+function withFieldResolutionFrame(table: DataTable): DataTable {
+  return {
+    ...table,
+    dataFrameId: table.dataFrameId ?? table.id,
+  };
+}
+
 function insightOutputTable(
   insight: Insight,
   allDataTables: DataTable[],
@@ -38,12 +45,16 @@ function insightOutputTable(
     const table = allDataTables.find(
       (candidate) => candidate.id === join.rightTableId,
     );
-    if (table) joinedTables.set(table.id, table);
+    if (table) joinedTables.set(table.id, withFieldResolutionFrame(table));
   }
   const available =
-    buildInsightAvailableFields(baseTable, joinedTables, {
-      joins: insight.joins,
-    }) ?? [];
+    buildInsightAvailableFields(
+      withFieldResolutionFrame(baseTable),
+      joinedTables,
+      {
+        joins: insight.joins,
+      },
+    ) ?? [];
   let selected = available;
   if (insight.selectedFields.length) {
     selected = available.filter((field) =>
