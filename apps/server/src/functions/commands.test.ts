@@ -2937,7 +2937,8 @@ describe("command vocabulary", () => {
           cmd("UpdateDashboardItem", {
             dashboardId: dashId,
             itemId,
-            updates: { overrides: { limit: 5 } },
+            // An untyped client can still send the retired whole-bag shape.
+            updates: { overrides: { limit: 5 } } as never,
           }),
         ),
       ).rejects.toThrow(

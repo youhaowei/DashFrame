@@ -9,8 +9,8 @@ import type { DashboardItem } from "@dashframe/types";
  */
 export function sanitizeDashboardItemUpdates(
   updates: Record<string, unknown>,
-): Partial<Omit<DashboardItem, "id" | "type">> {
-  const next: Partial<Omit<DashboardItem, "id" | "type">> = {};
+): Partial<Omit<DashboardItem, "id" | "type" | "overrides">> {
+  const next: Partial<Omit<DashboardItem, "id" | "type" | "overrides">> = {};
   if (typeof updates.visualizationId === "string") {
     next.visualizationId = updates.visualizationId;
   }
