@@ -700,7 +700,7 @@ export default function JoinConfigureContent({
               <div className="space-y-4">
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor="left-column">Base table column</Label>
+                    <Label htmlFor="left-column">Left source column</Label>
                     <Select
                       value={leftFieldId ?? ""}
                       onValueChange={(value) => setLeftFieldId(value || null)}
