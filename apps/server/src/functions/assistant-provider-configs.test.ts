@@ -427,6 +427,48 @@ describe("assistant provider config functions", () => {
     await expect(vault.has(oldRef)).resolves.toBe(true);
   });
 
+  it("fails closed and releases the new credential when the provider is deleted during OAuth", async () => {
+    const { result } = (await app.call("saveAssistantProviderConfig", {
+      input: {
+        providerId: "anthropic",
+        displayLabel: "Anthropic Pro",
+        authKind: "oauth",
+        defaultModel: "claude-haiku-4-5",
+      },
+    })) as { result: AssistantProviderConfig };
+    let finishLogin!: (credentials: OAuthCredentials) => void;
+    registerOAuthProvider({
+      id: "anthropic",
+      name: "Test Anthropic",
+      login: () =>
+        new Promise<OAuthCredentials>((resolve) => {
+          finishLogin = resolve;
+        }),
+      refreshToken: async () => {
+        throw new Error("not used");
+      },
+      getApiKey: (credentials) => credentials.access,
+    });
+    const deleteSpy = vi.spyOn(vault, "delete");
+
+    const login = app.call("startAssistantOAuthLogin", { id: result.id });
+    await vi.waitFor(() => expect(finishLogin).toBeTypeOf("function"));
+    await db
+      .delete(schema.assistantProviderConfigs)
+      .where(eq(schema.assistantProviderConfigs.id, result.id));
+    finishLogin({
+      access: "fresh-access",
+      refresh: "fresh-refresh",
+      expires: Date.now() + 60_000,
+    });
+
+    await expect(login).rejects.toThrow("Assistant provider config not found");
+    expect(deleteSpy).toHaveBeenCalledTimes(1);
+    await expect(
+      db.select().from(schema.assistantProviderConfigs),
+    ).resolves.toHaveLength(0);
+  });
+
   it("refresh rotation persists a new OAuth credential ref and releases the old ref", async () => {
     const expired: OAuthCredentials = {
       access: "old-access",

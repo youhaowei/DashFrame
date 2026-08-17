@@ -423,6 +423,9 @@ const startAssistantOAuthLogin = wy.procedure
         .from(assistantProviderConfigs)
         .where(eq("id", row.id))
         .update({ credentialRef: ref })) as AssistantProviderConfigRow[];
+      if (!updated) {
+        throw new Error("Assistant provider config not found");
+      }
     } catch (error) {
       // Update never committed → releasing the freshly minted ref is safe.
       await deleteRef(vault, ref);
@@ -439,7 +442,7 @@ const startAssistantOAuthLogin = wy.procedure
         "startAssistantOAuthLogin",
       );
     }
-    return rowToDto(updated ?? { ...row, credentialRef: ref });
+    return rowToDto(updated);
   });
 
 export async function resolveAssistantProviderConfigForRun(args: {

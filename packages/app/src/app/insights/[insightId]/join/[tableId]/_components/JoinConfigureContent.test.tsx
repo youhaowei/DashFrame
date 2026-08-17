@@ -1,9 +1,11 @@
 import type { DataTable, Field, Insight, UUID } from "@dashframe/types";
+import { fieldIdToColumnAlias } from "@dashframe/engine";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
   buildJoinPreviewInsight,
   isJoinPreviewComputing,
+  resolveJoinLeftFields,
 } from "./JoinConfigureContent";
 
 const baseTableId = "10000000-0000-4000-8000-000000000001" as UUID;
@@ -80,5 +82,29 @@ describe("join preview definition", () => {
     expect(isJoinPreviewComputing(insight, false, "Connector offline")).toBe(
       false,
     );
+  });
+
+  it("uses the immediate composed Insight output as join keys", () => {
+    const upstream = { ...insight, id: "upstream" as UUID };
+    const derived = {
+      ...insight,
+      id: "derived" as UUID,
+      source: { sourceType: "insight", sourceId: upstream.id },
+    } as Insight;
+    const table = {
+      id: baseTableId,
+      name: "Accounts",
+      fields: [leftField],
+    } as DataTable;
+
+    expect(
+      resolveJoinLeftFields(derived, [table], [upstream, derived]),
+    ).toEqual([
+      expect.objectContaining({
+        id: leftField.id,
+        tableId: upstream.id,
+        columnName: fieldIdToColumnAlias(leftField.id),
+      }),
+    ]);
   });
 });

@@ -1573,6 +1573,23 @@ function requireInsightMetricShape(value: unknown): InsightMetric {
       "InsightMetric must include id, name, sourceTable, and aggregation",
     );
   }
+  if (
+    !["sum", "avg", "count", "min", "max", "count_distinct"].includes(
+      value.aggregation,
+    )
+  ) {
+    throw new Error(
+      `InsightMetric aggregation must be one of sum, avg, count, min, max, count_distinct; got ${JSON.stringify(value.aggregation)}`,
+    );
+  }
+  if (
+    value.aggregation !== "count" &&
+    (typeof value.columnName !== "string" || value.columnName.length === 0)
+  ) {
+    throw new Error(
+      `InsightMetric ${value.id} requires columnName for ${value.aggregation}`,
+    );
+  }
   return value as unknown as InsightMetric;
 }
 
@@ -2017,6 +2034,11 @@ function parseDashboardItemOverridePatch(
     }
     if (value.value !== null && !isRecord(value.value)) {
       throw new Error("Filter override patch value must be an object or null");
+    }
+    if (value.value !== null && value.value.field !== value.field) {
+      throw new Error(
+        "Filter override patch value.field must match the patch field",
+      );
     }
     return {
       kind: "filter",

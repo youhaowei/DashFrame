@@ -956,7 +956,7 @@ async function loadGraph(db: ArtifactDb): Promise<GraphRow[]> {
       id: r.id,
       kind: "insight",
       name: r.name,
-      dependsOn: insightTableRefs(r.definition, allTables, allInsights),
+      dependsOn: insightTableRefs(r.definition),
       parentArtifactId: r.parentArtifactId,
     });
   for (const r of allFrames)
@@ -1152,8 +1152,6 @@ function classifyDownstream(
  */
 function insightTableRefs(
   definition: unknown,
-  allTables: Array<{ id: string }>,
-  allInsights: Array<{ id: string }>,
 ): Array<{ id: string; kind: "dataTable" | "insight" }> {
   if (!definition || typeof definition !== "object") return [];
   const def = definition as {
@@ -1164,13 +1162,9 @@ function insightTableRefs(
   const refs: Array<{ id: string; kind: "dataTable" | "insight" }> = [];
   const sourceId = def.source?.sourceId ?? def.baseTableId;
   if (typeof sourceId === "string") {
-    const kind =
-      def.source?.sourceType === "insight" ||
-      (!def.source &&
-        !allTables.some((table) => table.id === sourceId) &&
-        allInsights.some((insight) => insight.id === sourceId))
-        ? "insight"
-        : "dataTable";
+    // Match storedInsightDefinitionSchema: base-only legacy rows normalize to a
+    // DataTable source. Insight composition is explicit in source.sourceType.
+    const kind = def.source?.sourceType === "insight" ? "insight" : "dataTable";
     refs.push({ id: sourceId, kind });
   }
   if (Array.isArray(def.joins)) {

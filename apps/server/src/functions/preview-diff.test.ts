@@ -775,6 +775,21 @@ describe("PreviewDiff builder", () => {
       });
     });
 
+    it("treats a base-only legacy source as a DataTable even when its id matches an Insight", async () => {
+      const sourceId = await seedSource();
+      const tableId = await seedTable(sourceId);
+      const upstreamId = await seedInsight({ baseTableId: tableId });
+      const legacyId = await seedInsight({ baseTableId: upstreamId });
+
+      const diff = await preview(
+        cmd("RenameNode", { id: upstreamId, name: "Renamed" }),
+      );
+
+      expect(
+        diff.affectedDownstream.find((node) => node.nodeId === legacyId),
+      ).toBeUndefined();
+    });
+
     it("should fan out insight -> dataFrame via the FK edge, flagged stale", async () => {
       const sourceId = await seedSource();
       const tableId = await seedTable(sourceId);

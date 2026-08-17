@@ -1,4 +1,5 @@
 import { useDataFramePagination } from "@/hooks/useDataFramePagination";
+import { resolveInsightAvailableFields } from "@/lib/insights/compute-combined-fields";
 import {
   resolveInsightSourceDataTable,
   useInsightPagination,
@@ -92,6 +93,18 @@ export function isJoinPreviewComputing(
   return previewInsight !== null && !isReady && error === null;
 }
 
+export function resolveJoinLeftFields(
+  insight: Insight,
+  allDataTables: DataTable[],
+  allInsights: Insight[],
+): Field[] {
+  return resolveInsightAvailableFields(
+    insight,
+    allDataTables,
+    allInsights,
+  ).filter((field) => !field.name.startsWith("_"));
+}
+
 /**
  * Join Configuration Page
  *
@@ -164,8 +177,11 @@ export default function JoinConfigureContent({
 
   // Filter out internal fields (those starting with _)
   const baseFields = useMemo(
-    () => baseTable?.fields?.filter((f) => !f.name.startsWith("_")) ?? [],
-    [baseTable],
+    () =>
+      insight
+        ? resolveJoinLeftFields(insight, allDataTables ?? [], allInsights ?? [])
+        : [],
+    [allDataTables, allInsights, insight],
   );
 
   const joinFields = useMemo(

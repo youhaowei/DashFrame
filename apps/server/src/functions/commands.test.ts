@@ -2872,6 +2872,7 @@ describe("command vocabulary", () => {
             name: "Total Revenue",
             sourceTable: tableId,
             aggregation: "sum",
+            columnName: "revenue",
           },
         }),
       );
@@ -2919,6 +2920,47 @@ describe("command vocabulary", () => {
         ),
       ).rejects.toThrow(/sourceTable/);
     });
+
+    it("rejects unsupported aggregations and missing non-count columns", async () => {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+
+      await expect(
+        commit(
+          cmd("AddMetric", {
+            nodeId: insightId,
+            metric: {
+              id: id(),
+              name: "Broken",
+              sourceTable: tableId,
+              aggregation: "median",
+              columnName: "amount",
+            } as never,
+          }),
+        ),
+      ).rejects.toThrow(/aggregation must be one of/);
+
+      await expect(
+        commit(
+          cmd("AddMetric", {
+            nodeId: insightId,
+            metric: {
+              id: id(),
+              name: "Broken",
+              sourceTable: tableId,
+              aggregation: "sum",
+            } as never,
+          }),
+        ),
+      ).rejects.toThrow(/requires columnName for sum/);
+    });
   });
 
   describe("UpdateMetric on Insight node — merged shape re-validated", () => {
@@ -2940,6 +2982,7 @@ describe("command vocabulary", () => {
             name: "Total Revenue",
             sourceTable: tableId,
             aggregation: "sum",
+            columnName: "revenue",
           },
         }),
       );
@@ -3603,6 +3646,20 @@ describe("command vocabulary", () => {
       expect((await dashboardsById(dashId))[0]?.layout).toEqual(
         rows[0]?.layout,
       );
+
+      await expect(
+        commit(
+          cmd("PatchDashboardItemOverride", {
+            dashboardId: dashId,
+            itemId,
+            patch: {
+              kind: "filter",
+              field: "region",
+              value: { field: "status", operator: "eq", value: "active" },
+            } as never,
+          }),
+        ),
+      ).rejects.toThrow(/value\.field must match/);
     });
 
     it("normalizes cleared and empty override intents to no override bag", async () => {
@@ -3776,7 +3833,7 @@ describe("command vocabulary", () => {
       expect(rows[0]?.layout as unknown[]).toHaveLength(0);
     });
 
-    it("should drop malformed update fields instead of writing them into the layout (sanitize before merge)", async () => {
+    it("should reject malformed update fields without partially updating the layout", async () => {
       // Regression: UpdateDashboardItem merged `updates` verbatim, so
       // `{ x: "left", width: null }` corrupted numeric layout coordinates. The fix
       // filters updates to recognized fields with correct primitive types at
@@ -3799,21 +3856,19 @@ describe("command vocabulary", () => {
         }),
       );
 
-      await commit(
-        cmd("UpdateDashboardItem", {
-          dashboardId: dashId,
-          itemId,
-          // x is a valid number (applied); width is null and content is a number
-          // (both dropped — wrong primitive types).
-          updates: { x: 9, width: null, content: 5 } as never,
-        }),
-      );
+      await expect(
+        commit(
+          cmd("UpdateDashboardItem", {
+            dashboardId: dashId,
+            itemId,
+            updates: { x: 9, width: null, content: 5 } as never,
+          }),
+        ),
+      ).rejects.toThrow(/Dashboard item update/);
 
       const rows = await dashboardsById(dashId);
       const item = (rows[0]?.layout as Record<string, unknown>[])[0]!;
-      expect(item.x).toBe(9); // valid numeric update applied
-      expect(item.width).toBe(3); // null dropped, original numeric kept
-      expect(item.content).toBe("A"); // wrong-typed update dropped
+      expect(item).toMatchObject({ x: 1, width: 3, content: "A" });
     });
 
     it("should replace the whole layout for SetDashboardLayout", async () => {
