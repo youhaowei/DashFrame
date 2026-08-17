@@ -567,6 +567,48 @@ describe("PreviewDiff builder", () => {
       // Sanity: must NOT point at the dataSource which also carries sharedId.
       expect(insightHit!.via.kind).not.toBe("dataSource");
     });
+
+    it("matches dependency references by kind when a DataTable and Insight share an id", async () => {
+      const sharedId = id();
+      const downstreamId = id();
+      const sourceId = id();
+      await db.insert(insights).values([
+        {
+          id: sharedId,
+          name: "UpstreamInsight",
+          definition: {
+            source: { sourceType: "dataTable", sourceId: id() },
+            selectedFields: [],
+            metrics: [],
+          },
+          createdBy: PROV,
+        },
+        {
+          id: downstreamId,
+          name: "ComposedInsight",
+          definition: {
+            source: { sourceType: "insight", sourceId: sharedId },
+            selectedFields: [],
+            metrics: [],
+          },
+          createdBy: PROV,
+        },
+      ]);
+
+      const diff = await preview(
+        cmd("CreateDataSource", { id: sourceId, type: "csv", name: "Src" }),
+        cmd("CreateDataTable", {
+          id: sharedId,
+          dataSourceId: sourceId,
+          name: "CollisionTable",
+          table: "collision.csv",
+        }),
+      );
+
+      expect(
+        diff.affectedDownstream.some((node) => node.nodeId === downstreamId),
+      ).toBe(false);
+    });
   });
 
   // --------------------------------------------------------------------------

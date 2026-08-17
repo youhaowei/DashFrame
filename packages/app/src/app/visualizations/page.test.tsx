@@ -80,6 +80,71 @@ describe("VisualizationsPage delete confirmation", () => {
     );
   });
 
+  it("shows root source metadata for a visualization of a composed Insight", () => {
+    mockUseQuery.mockImplementation((ref: { _path: string }) => {
+      if (ref._path === "listVisualizations") {
+        return {
+          data: [
+            {
+              id: "viz-1",
+              name: "Revenue by month",
+              insightId: "composed",
+              visualizationType: "bar",
+              encoding: {},
+            },
+          ],
+          isLoading: false,
+        };
+      }
+      if (ref._path === "listInsights") {
+        return {
+          data: [
+            {
+              id: "upstream",
+              name: "Upstream",
+              source: {
+                sourceType: "dataTable",
+                sourceId: "root-table",
+              },
+              selectedFields: [],
+              metrics: [],
+              createdAt: 0,
+            },
+            {
+              id: "composed",
+              name: "Composed report",
+              source: { sourceType: "insight", sourceId: "upstream" },
+              selectedFields: [],
+              metrics: [],
+              createdAt: 0,
+            },
+          ],
+        };
+      }
+      if (ref._path === "listDataTables") {
+        return {
+          data: [
+            {
+              id: "root-table",
+              name: "Root Orders",
+              dataSourceId: "source-1",
+              fields: [],
+              metrics: [],
+            },
+          ],
+        };
+      }
+      if (ref._path === "listDataSources") {
+        return { data: [{ id: "source-1", type: "csv" }] };
+      }
+      return { data: [], isLoading: false };
+    });
+
+    render(<VisualizationsPage />);
+
+    expect(screen.getByText("From: Composed report • csv")).not.toBeNull();
+  });
+
   it.each(["pointer", "Enter", "Space"] as const)(
     "opens a card menu with %s without navigating the card",
     async (activation) => {

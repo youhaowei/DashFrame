@@ -17,8 +17,7 @@
  *   • (Additive "add filter" row for other eligible fields — not in this PR)
  */
 
-import { isControlEligible } from "@/lib/dashboards/controls";
-import { computeCombinedFields } from "@/lib/insights/compute-combined-fields";
+import { resolveInsightAvailableFields } from "@/lib/insights/compute-combined-fields";
 import { api } from "@/wystack/api";
 import type {
   DashboardControl,
@@ -295,21 +294,13 @@ export function OverridePopover({
     [visualization, insights],
   );
 
-  const dataTable = useMemo(
-    () =>
-      insight?.source.sourceType === "dataTable"
-        ? (dataTables.find((t) => t.id === insight.source.sourceId) ?? null)
-        : null,
-    [insight, dataTables],
-  );
-
   // Combined fields for type-aware value editors.
-  const { fields: combinedFields } = useMemo(
+  const combinedFields = useMemo(
     () =>
-      insight && dataTable
-        ? computeCombinedFields(dataTable, insight.joins ?? [], dataTables)
-        : { fields: [] },
-    [insight, dataTable, dataTables],
+      insight
+        ? resolveInsightAvailableFields(insight, dataTables, insights)
+        : [],
+    [insight, dataTables, insights],
   );
 
   const combinedFieldByName = useMemo(() => {
@@ -353,7 +344,7 @@ export function OverridePopover({
       (c) =>
         c.field === fieldName &&
         !c.boundInstances.includes(item.id) &&
-        isControlEligible(fieldName, dataTable ?? undefined),
+        combinedFieldByName.has(fieldName),
     );
   }
 
@@ -480,10 +471,10 @@ export function OverridePopover({
     }
   }
 
-  // Available field names for the sort row (fields in the data table).
+  // Available field names for the sort row.
   const availableFieldNames = useMemo(
-    () => (dataTable?.fields ?? []).map((f) => f.columnName ?? f.name),
-    [dataTable],
+    () => combinedFields.map((field) => field.columnName ?? field.name),
+    [combinedFields],
   );
 
   const overridePresent = hasOverrides(item.overrides);

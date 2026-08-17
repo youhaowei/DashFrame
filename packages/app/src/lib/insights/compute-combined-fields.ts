@@ -280,6 +280,45 @@ export function computeCombinedFields(
   return { fields: combined, count: combined.length };
 }
 
+/** Resolve every field available to author the given Insight definition. */
+export function resolveInsightAvailableFields(
+  insight: Insight,
+  allDataTables: DataTable[],
+  allInsights: Insight[],
+): CombinedField[] {
+  const source = resolveInsightAuthoringTable(
+    insight,
+    allDataTables,
+    allInsights,
+  );
+  if (!source) return [];
+  const joinedTables = new Map<UUID, DataTable>();
+  for (const join of insight.joins ?? []) {
+    const table = allDataTables.find(
+      (candidate) => candidate.id === join.rightTableId,
+    );
+    if (table) joinedTables.set(table.id, withFieldResolutionFrame(table));
+  }
+  const available =
+    buildInsightAvailableFields(
+      withFieldResolutionFrame(source),
+      joinedTables,
+      { joins: insight.joins },
+    ) ?? [];
+  const displayById = new Map(
+    computeCombinedFields(
+      source,
+      insight.joins ?? [],
+      allDataTables,
+    ).fields.map((field) => [field.id, field.displayName]),
+  );
+  return available.map((field) => ({
+    ...field,
+    sourceTableId: field.tableId,
+    displayName: displayById.get(field.id) ?? field.name,
+  }));
+}
+
 /**
  * Narrows combined fields to those that can actually back a filter predicate.
  *

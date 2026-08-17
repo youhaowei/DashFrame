@@ -105,7 +105,6 @@ vi.mock("@dashframe/types", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@dashframe/types")>();
   return {
     ...actual,
-    buildSensitivityUpdate: vi.fn(),
     getFieldSensitivity: () => "unclassified",
     suggestSensitivityReasons: () => [],
   };
@@ -473,7 +472,11 @@ describe("DataSourcePageContent — loading state contract", () => {
           args: {
             nodeId: "table-orders",
             fieldId: "field-a",
-            updates: undefined,
+            updates: {
+              sensitivity: "cleared",
+              sensitivityReason: "Cleared by you",
+              sensitivitySource: "user",
+            },
           },
         },
       ],

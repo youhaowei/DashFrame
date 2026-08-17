@@ -10,6 +10,7 @@ import {
   computeCombinedFields,
   computeFilterableFields,
   resolveInsightAuthoringTable,
+  resolveInsightAvailableFields,
   type CombinedField,
 } from "./compute-combined-fields";
 
@@ -360,6 +361,45 @@ describe("resolveInsightAuthoringTable", () => {
     expect(source?.fields.some((field) => field.id === rootOnlyFieldId)).toBe(
       false,
     );
+  });
+});
+
+describe("resolveInsightAvailableFields", () => {
+  it("combines a composed source output with the derived Insight's joins", () => {
+    const orders = makeTable("orders", "Orders", ["country", "account_id"]);
+    const accounts = makeTable("accounts", "Accounts", ["id", "segment"]);
+    const upstream = {
+      id: "upstream",
+      name: "Upstream",
+      source: { sourceType: "dataTable", sourceId: orders.id },
+      selectedFields: ["orders-country", "orders-account_id"],
+      metrics: [],
+      createdAt: 0,
+    } as Insight;
+    const derived = {
+      id: "derived",
+      name: "Derived",
+      source: { sourceType: "insight", sourceId: upstream.id },
+      selectedFields: [],
+      metrics: [],
+      joins: [
+        {
+          type: "inner",
+          rightTableId: accounts.id,
+          leftKey: fieldIdToColumnAlias("orders-account_id"),
+          rightKey: "id",
+        },
+      ],
+      createdAt: 0,
+    } as Insight;
+
+    expect(
+      resolveInsightAvailableFields(
+        derived,
+        [orders, accounts],
+        [upstream, derived],
+      ).map((field) => field.id),
+    ).toEqual(["orders-country", "orders-account_id", "accounts-segment"]);
   });
 });
 

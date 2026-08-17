@@ -891,8 +891,8 @@ interface GraphRow {
   kind: ArtifactKind;
   /** Human-readable artifact name — carried to the consent surface. See #65. */
   name: string;
-  /** ids of the nodes this row directly DEPENDS ON (its upstream). */
-  dependsOn: string[];
+  /** Typed identities of the nodes this row directly depends on. */
+  dependsOn: Array<{ id: string; kind: ArtifactKind }>;
   parentArtifactId: string | null;
 }
 
@@ -948,7 +948,7 @@ async function loadGraph(db: ArtifactDb): Promise<GraphRow[]> {
       id: r.id,
       kind: "dataTable",
       name: r.name,
-      dependsOn: [r.dataSourceId],
+      dependsOn: [{ id: r.dataSourceId, kind: "dataSource" }],
       parentArtifactId: null,
     });
   for (const r of allInsights)
@@ -956,7 +956,7 @@ async function loadGraph(db: ArtifactDb): Promise<GraphRow[]> {
       id: r.id,
       kind: "insight",
       name: r.name,
-      dependsOn: insightTableRefs(r.definition),
+      dependsOn: insightTableRefs(r.definition, allTables, allInsights),
       parentArtifactId: r.parentArtifactId,
     });
   for (const r of allFrames)
@@ -964,7 +964,7 @@ async function loadGraph(db: ArtifactDb): Promise<GraphRow[]> {
       id: r.id,
       kind: "dataFrame",
       name: r.name,
-      dependsOn: r.insightId ? [r.insightId] : [],
+      dependsOn: r.insightId ? [{ id: r.insightId, kind: "insight" }] : [],
       parentArtifactId: null,
     });
   for (const r of allVis)
@@ -972,7 +972,7 @@ async function loadGraph(db: ArtifactDb): Promise<GraphRow[]> {
       id: r.id,
       kind: "visualization",
       name: r.name,
-      dependsOn: [r.insightId],
+      dependsOn: [{ id: r.insightId, kind: "insight" }],
       parentArtifactId: r.parentArtifactId,
     });
   for (const r of allDashboards)
@@ -1128,7 +1128,12 @@ function classifyDownstream(
   parentId: string,
   parentKind: ArtifactKind,
 ): { edge: DownstreamEdge; flag: DownstreamFlag } | null {
-  if (row.dependsOn.includes(parentId)) {
+  if (
+    row.dependsOn.some(
+      (dependency) =>
+        dependency.id === parentId && dependency.kind === parentKind,
+    )
+  ) {
     const edge = DOWNSTREAM_EDGES.find(
       (e) => e.edge === `${parentKind}->${row.kind}`,
     );
@@ -1145,20 +1150,34 @@ function classifyDownstream(
  * polymorphic source plus each join's right side. Legacy base-only rows remain
  * readable during migration.
  */
-function insightTableRefs(definition: unknown): string[] {
+function insightTableRefs(
+  definition: unknown,
+  allTables: Array<{ id: string }>,
+  allInsights: Array<{ id: string }>,
+): Array<{ id: string; kind: "dataTable" | "insight" }> {
   if (!definition || typeof definition !== "object") return [];
   const def = definition as {
-    source?: { sourceId?: unknown };
+    source?: { sourceId?: unknown; sourceType?: unknown };
     baseTableId?: unknown;
     joins?: unknown;
   };
-  const refs: string[] = [];
+  const refs: Array<{ id: string; kind: "dataTable" | "insight" }> = [];
   const sourceId = def.source?.sourceId ?? def.baseTableId;
-  if (typeof sourceId === "string") refs.push(sourceId);
+  if (typeof sourceId === "string") {
+    const kind =
+      def.source?.sourceType === "insight" ||
+      (!def.source &&
+        !allTables.some((table) => table.id === sourceId) &&
+        allInsights.some((insight) => insight.id === sourceId))
+        ? "insight"
+        : "dataTable";
+    refs.push({ id: sourceId, kind });
+  }
   if (Array.isArray(def.joins)) {
     for (const join of def.joins) {
       const right = (join as { rightTableId?: unknown } | null)?.rightTableId;
-      if (typeof right === "string") refs.push(right);
+      if (typeof right === "string")
+        refs.push({ id: right, kind: "dataTable" });
     }
   }
   return refs;
@@ -1169,12 +1188,14 @@ function insightTableRefs(definition: unknown): string[] {
  * items of type "visualization" carry `visualizationId`. These are the
  * dashboard's upstream-visualization dependencies.
  */
-function dashboardVisRefs(layout: unknown): string[] {
+function dashboardVisRefs(
+  layout: unknown,
+): Array<{ id: string; kind: "visualization" }> {
   if (!Array.isArray(layout)) return [];
-  const refs: string[] = [];
+  const refs: Array<{ id: string; kind: "visualization" }> = [];
   for (const item of layout) {
     const vis = (item as { visualizationId?: unknown } | null)?.visualizationId;
-    if (typeof vis === "string") refs.push(vis);
+    if (typeof vis === "string") refs.push({ id: vis, kind: "visualization" });
   }
   return refs;
 }
