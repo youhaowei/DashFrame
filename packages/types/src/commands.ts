@@ -247,7 +247,7 @@ export interface CommandPayloads {
   UpdateDashboardItem: {
     dashboardId: UUID;
     itemId: UUID;
-    updates: Partial<Omit<DashboardItemInput, "id" | "type">>;
+    updates: Partial<Omit<DashboardItemInput, "id" | "type" | "overrides">>;
   };
   SetDashboardLayout: { dashboardId: UUID; items: DashboardItemInput[] };
   RemoveDashboardItem: { dashboardId: UUID; itemId: UUID };

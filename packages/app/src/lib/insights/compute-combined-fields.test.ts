@@ -205,6 +205,77 @@ describe("computeCombinedFields", () => {
 });
 
 describe("resolveInsightAuthoringTable", () => {
+  it("resolves fields from an unmaterialized upstream source", () => {
+    const table = makeTable("orders", "Orders", ["id", "country"]);
+    const upstream = {
+      id: "upstream",
+      name: "Upstream",
+      source: { sourceType: "dataTable", sourceId: table.id },
+      selectedFields: [],
+      metrics: [],
+      createdAt: 0,
+    } as Insight;
+    const derived = {
+      id: "derived",
+      name: "Derived",
+      source: { sourceType: "insight", sourceId: upstream.id },
+      selectedFields: [],
+      metrics: [],
+      createdAt: 0,
+    } as Insight;
+
+    const source = resolveInsightAuthoringTable(
+      derived,
+      [table],
+      [upstream, derived],
+    );
+
+    expect(source?.fields.map((field) => field.id)).toEqual([
+      "orders-id",
+      "orders-country",
+    ]);
+  });
+
+  it("resolves joined fields from an unmaterialized upstream source", () => {
+    const orders = makeTable("orders", "Orders", ["account_id"]);
+    const accounts = makeTable("accounts", "Accounts", ["id", "name"]);
+    const upstream = {
+      id: "upstream",
+      name: "Upstream",
+      source: { sourceType: "dataTable", sourceId: orders.id },
+      selectedFields: [],
+      metrics: [],
+      joins: [
+        {
+          type: "inner",
+          rightTableId: accounts.id,
+          leftKey: "account_id",
+          rightKey: "id",
+        },
+      ],
+      createdAt: 0,
+    } as Insight;
+    const derived = {
+      id: "derived",
+      name: "Derived",
+      source: { sourceType: "insight", sourceId: upstream.id },
+      selectedFields: [],
+      metrics: [],
+      createdAt: 0,
+    } as Insight;
+
+    const source = resolveInsightAuthoringTable(
+      derived,
+      [orders, accounts],
+      [upstream, derived],
+    );
+
+    expect(source?.fields.map((field) => field.id)).toEqual([
+      "orders-account_id",
+      "accounts-name",
+    ]);
+  });
+
   it("exposes only the immediate upstream Insight result schema", () => {
     const tableId = crypto.randomUUID() as UUID;
     const outputFieldId = crypto.randomUUID() as UUID;

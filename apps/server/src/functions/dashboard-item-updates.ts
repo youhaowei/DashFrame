@@ -1,4 +1,4 @@
-import type { DashboardItem, DashboardItemOverrides } from "@dashframe/types";
+import type { DashboardItem } from "@dashframe/types";
 
 /**
  * Filter raw `updates` to the recognized DashboardItem fields with the correct
@@ -9,8 +9,8 @@ import type { DashboardItem, DashboardItemOverrides } from "@dashframe/types";
  */
 export function sanitizeDashboardItemUpdates(
   updates: Record<string, unknown>,
-): Partial<Omit<DashboardItem, "id" | "type">> {
-  const next: Partial<Omit<DashboardItem, "id" | "type">> = {};
+): Partial<Omit<DashboardItem, "id" | "type" | "overrides">> {
+  const next: Partial<Omit<DashboardItem, "id" | "type" | "overrides">> = {};
   if (typeof updates.visualizationId === "string") {
     next.visualizationId = updates.visualizationId;
   }
@@ -19,14 +19,10 @@ export function sanitizeDashboardItemUpdates(
   if (typeof updates.y === "number") next.y = updates.y;
   if (typeof updates.width === "number") next.width = updates.width;
   if (typeof updates.height === "number") next.height = updates.height;
-  // Callers use `overrides` to update or clear a panel's filter/sort/limit bag.
-  // The merged item is validated by the shared dashboard-state schema before
-  // the command writes it; this helper only preserves the requested patch.
-  // An explicit `undefined` means "not updating overrides" (the key was absent
-  // in the updates object); `null` is not in the type so omit check mirrors
-  // the other field guards.
   if ("overrides" in updates) {
-    next.overrides = updates.overrides as DashboardItemOverrides | undefined;
+    throw new Error(
+      "Dashboard item overrides require PatchDashboardItemOverride",
+    );
   }
   return next;
 }
