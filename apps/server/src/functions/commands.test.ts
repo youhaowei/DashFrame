@@ -1348,6 +1348,7 @@ describe("command vocabulary", () => {
       const upstreamId = id();
       const derivedId = id();
       const invalidCreateId = id();
+      const wrongSourceCreateId = id();
       const rebindId = id();
       const outputColumn = fieldIdToColumnAlias(outputFieldId);
       const rootOnlyColumn = fieldIdToColumnAlias(rootOnlyFieldId);
@@ -1420,6 +1421,24 @@ describe("command vocabulary", () => {
       ).rejects.toThrow(/not output by source Insight/);
       await expect(
         commit(
+          cmd("CreateInsight", {
+            id: wrongSourceCreateId,
+            name: "Wrong source derived",
+            source: { sourceType: "insight", sourceId: upstreamId },
+            metrics: [
+              {
+                id: id(),
+                name: "Wrong source sum",
+                sourceTable: tableId,
+                columnName: outputColumn,
+                aggregation: "sum",
+              },
+            ],
+          }),
+        ),
+      ).rejects.toThrow(/not output by source Insight/);
+      await expect(
+        commit(
           cmd("SetInsightSource", {
             id: rebindId,
             source: { sourceType: "insight", sourceId: upstreamId },
@@ -1435,6 +1454,20 @@ describe("command vocabulary", () => {
               name: "Invalid sum",
               sourceTable: upstreamId,
               columnName: rootOnlyColumn,
+              aggregation: "sum",
+            },
+          }),
+        ),
+      ).rejects.toThrow(/not output by source Insight/);
+      await expect(
+        commit(
+          cmd("AddMetric", {
+            nodeId: derivedId,
+            metric: {
+              id: id(),
+              name: "Wrong source sum",
+              sourceTable: tableId,
+              columnName: outputColumn,
               aggregation: "sum",
             },
           }),
@@ -1485,6 +1518,7 @@ describe("command vocabulary", () => {
         sorts: [{ field: outputColumn }],
       });
       expect(await insightsById(invalidCreateId)).toHaveLength(0);
+      expect(await insightsById(wrongSourceCreateId)).toHaveLength(0);
       expect((await insightsById(rebindId))[0]?.definition).toMatchObject({
         source: { sourceType: "dataTable", sourceId: tableId },
         metrics: [{ columnName: "root_only" }],

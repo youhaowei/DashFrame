@@ -731,7 +731,7 @@ export function InsightView({
   );
   const setPersistedActiveView = useInsightCanvasStore((s) => s.setActiveView);
 
-  // Follow composed sources to their root DataTable for authoring metadata.
+  // The root table provides source-frame prerequisites; authoring uses the immediate output.
   const dataTable = useMemo(
     () => resolveInsightSourceDataTable(insight, allDataTables, allInsights),
     [allDataTables, allInsights, insight],

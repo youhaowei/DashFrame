@@ -1060,7 +1060,11 @@ async function assertDefinitionAvailableFromSource(
   const invalidMetric = metrics.find(
     (metric) =>
       metric.columnName !== undefined &&
-      !availableColumns.has(metric.columnName),
+      !availableFields.some(
+        (field) =>
+          field.tableId === metric.sourceTable &&
+          (field.columnName ?? field.name) === metric.columnName,
+      ),
   );
   if (invalidMetric) {
     throw new Error(
