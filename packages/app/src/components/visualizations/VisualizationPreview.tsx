@@ -69,9 +69,10 @@ function VisualizationPreviewContent({
   const { data: dataTables = [] } = useQuery(api.listDataTables, { args: {} });
 
   // Find the data table for this insight (React Compiler memoizes this).
-  const dataTable = !insight?.baseTableId
-    ? undefined
-    : dataTables.find((t) => t.id === insight.baseTableId);
+  const dataTable =
+    insight?.source.sourceType === "dataTable"
+      ? dataTables.find((t) => t.id === insight.source.sourceId)
+      : undefined;
 
   // Build a minimal insight shape for hook consumption (joins only; no
   // selectedFields/metrics/filters — preview renders raw model data).
@@ -80,7 +81,7 @@ function VisualizationPreviewContent({
     return {
       id: insight.id,
       name: insight.name,
-      baseTableId: insight.baseTableId,
+      source: insight.source,
       joins: insight.joins,
     } as Insight;
   }, [insight]);
@@ -91,7 +92,9 @@ function VisualizationPreviewContent({
   // Resolve instance-qualified fields for repeat-join insights so that
   // field:<uuid>_j1 encodings resolve to their SQL alias correctly.
   const { resolvedFields: instanceAwareFields } = useInsightPagination({
-    insight: insightForView ?? ({} as Insight),
+    insight:
+      insightForView ??
+      ({ source: { sourceType: "dataTable", sourceId: "" } } as Insight),
     showModelPreview: false,
     enabled: !!insightForView,
   });
@@ -100,7 +103,11 @@ function VisualizationPreviewContent({
   // - field:<uuid> → column name (e.g., "Product")
   // - metric:<uuid> → computed result alias (e.g., "metric_<uuid>")
   const resolvedEncoding = useMemo((): ChartEncoding => {
-    if (!visualization.encoding || !dataTable || !insight) {
+    if (
+      !visualization.encoding ||
+      !insight ||
+      (!dataTable && instanceAwareFields.length === 0)
+    ) {
       return {};
     }
 
@@ -113,7 +120,7 @@ function VisualizationPreviewContent({
       fields:
         instanceAwareFields.length > 0
           ? instanceAwareFields
-          : (dataTable.fields ?? []),
+          : (dataTable?.fields ?? []),
       metrics: insight.metrics ?? [],
     };
 

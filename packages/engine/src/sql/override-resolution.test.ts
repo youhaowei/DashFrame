@@ -74,7 +74,7 @@ const BASE_TABLE: DataTable = {
 const BASE_INSIGHT: Insight = {
   id: "99999999-9999-9999-9999-999999999999" as UUID,
   name: "Revenue by Region",
-  baseTableId: TABLE_ID,
+  source: { sourceType: "dataTable", sourceId: TABLE_ID },
   selectedFields: [REGION_FIELD_ID],
   metrics: [REVENUE_METRIC],
   filters: [{ field: "region", operator: "eq", value: "EMEA" }],

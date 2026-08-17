@@ -34,6 +34,14 @@ const commandCalls = [
   ["updateMetric", { nodeId: id, metricId: relatedId, updates: {} }],
   ["removeMetric", { nodeId: id, metricId: relatedId }],
   [
+    "getOrCreateInsightDraft",
+    {
+      id,
+      name: "Insight",
+      source: { sourceType: "dataTable", sourceId: relatedId },
+    },
+  ],
+  [
     "createInsightCmd",
     {
       id,
@@ -72,6 +80,15 @@ const commandCalls = [
   ["setDashboardLayout", { dashboardId: id, items: [] }],
   ["removeDashboardItemCmd", { dashboardId: id, itemId: relatedId }],
   [
+    "patchDashboardItemOverrideCmd",
+    {
+      dashboardId: id,
+      itemId: relatedId,
+      patch: { kind: "limit", value: 25 },
+    },
+  ],
+  ["setDashboardControls", { dashboardId: id, controls: [] }],
+  [
     "fanOutDashboardItemsCmd",
     {
       dashboardId: id,
@@ -100,8 +117,8 @@ describe("command procedure authorization", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("rejects a service principal on all 31 direct command procedures", async () => {
-    expect(commandCalls).toHaveLength(31);
+  it("rejects a service principal on all 34 direct command procedures", async () => {
+    expect(commandCalls).toHaveLength(34);
 
     for (const [path, args] of commandCalls) {
       await expect(

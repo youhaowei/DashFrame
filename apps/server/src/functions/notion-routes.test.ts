@@ -213,12 +213,16 @@ describe("Notion data-plane routes — happy path (mocked connector)", () => {
   }
 
   async function seedNotionTable(dataSourceId: string): Promise<string> {
-    const added = await app.call("addDataTable", {
-      dataSourceId,
-      name: "Roadmap",
-      table: "db-1",
-    });
-    return (added.result as { id: string }).id;
+    const id = crypto.randomUUID();
+    await commit(
+      cmd("CreateDataTable", {
+        id,
+        dataSourceId,
+        name: "Roadmap",
+        table: "db-1",
+      }),
+    );
+    return id;
   }
 
   async function seedPostgresSourceAndTable(): Promise<{
@@ -244,12 +248,28 @@ describe("Notion data-plane routes — happy path (mocked connector)", () => {
         },
       },
     );
-    const added = await app.call("addDataTable", {
-      dataSourceId: sourceId,
-      name: "Tasks",
-      table: "public.tasks",
-    });
-    return { sourceId, tableId: (added.result as { id: string }).id };
+    const tableId = crypto.randomUUID();
+    await commit(
+      cmd("CreateDataTable", {
+        id: tableId,
+        dataSourceId: sourceId,
+        name: "Tasks",
+        table: "public.tasks",
+      }),
+    );
+    return { sourceId, tableId };
+  }
+
+  async function commit(...commands: ReturnType<typeof cmd>[]) {
+    return app.call(
+      "commitBatch",
+      { commands },
+      {
+        wyStackApp: app,
+        artifactDb: db,
+        principal: { kind: "user", userId: LOCAL_USER_ID },
+      },
+    );
   }
 
   it("listNotionDatabases maps {id,name} → {id,title} and resolves via the vault", async () => {
@@ -335,11 +355,12 @@ describe("Notion data-plane routes — happy path (mocked connector)", () => {
 
     const prepared = await app.call("prepareRemoteDataTable", { id: tableId });
 
-    expect(prepared.result).toEqual({ fields: returnedFields });
+    const ownedFields = returnedFields.map((field) => ({ ...field, tableId }));
+    expect(prepared.result).toEqual({ fields: ownedFields });
     expect(
       ((await app.call("getDataTable", { id: tableId })).result as DataTable)
         .fields,
-    ).toEqual(returnedFields);
+    ).toEqual(ownedFields);
     expect(queryCalls.at(-1)?.options).toEqual({
       pagination: { offset: 0, limit: 1 },
     });
@@ -384,17 +405,23 @@ describe("Notion data-plane routes — happy path (mocked connector)", () => {
     const sourceId = await seedNotionSource();
     const tableId = await seedNotionTable(sourceId);
     let releaseQuery!: () => void;
-    pauseQuery = () =>
-      new Promise<void>((resolve) => {
+    let markQueryStarted!: () => void;
+    const queryStarted = new Promise<void>((resolve) => {
+      markQueryStarted = resolve;
+    });
+    pauseQuery = () => {
+      markQueryStarted();
+      return new Promise<void>((resolve) => {
         releaseQuery = resolve;
       });
+    };
 
     const preparing = app.call("prepareRemoteDataTable", { id: tableId });
-    await vi.waitFor(() => expect(releaseQuery).toBeTypeOf("function"));
-    await app.call("updateDataTable", {
-      id: tableId,
-      updates: { table: "db-2" },
-    });
+    await queryStarted;
+    await db
+      .update(schema.dataTables)
+      .set({ table: "db-2" })
+      .where(drizzleEq(schema.dataTables.id, tableId));
     releaseQuery();
 
     await expect(preparing).rejects.toThrow(
@@ -457,6 +484,26 @@ describe("Notion data-plane routes — happy path (mocked connector)", () => {
     await expectNoPersistence();
   });
 
+  it("rejects malformed reviewed fields before a preview query", async () => {
+    const id = await seedNotionSource();
+    const tableId = await seedNotionTable(id);
+
+    for (const malformed of [
+      "not-an-array",
+      [{ id: "f1", name: "Name", type: "string", sensitivity: 42 }],
+    ]) {
+      await expect(
+        app.call("queryNotionDatabase", {
+          dataSourceId: id,
+          databaseId: "db-1",
+          tableId,
+          approvedFields: malformed,
+        }),
+      ).rejects.toThrow();
+    }
+    expect(queryCalls).toEqual([]);
+  });
+
   it("forwards the preview row limit to connector.query as pagination", async () => {
     const id = await seedNotionSource();
     const tableId = await seedNotionTable(id);
@@ -501,47 +548,9 @@ describe("Notion data-plane routes — happy path (mocked connector)", () => {
     expect(await frameStorage.list()).toEqual([secondDataFrameId]);
     expect((await app.call("listDataFrames", {})).result).toHaveLength(1);
 
-    await app.call("removeDataTable", { id: tableId });
+    await commit(cmd("DeleteNode", { id: tableId }));
     expect(await frameStorage.exists(secondDataFrameId)).toBe(false);
     expect((await app.call("listDataFrames", {})).result).toEqual([]);
-  });
-
-  it("clearing a table link removes its old owned frame but preserves a shared frame", async () => {
-    const id = await seedNotionSource();
-    const ownerTableId = await seedNotionTable(id);
-    const sharedTableId = await seedNotionTable(id);
-    const queried = await app.call("queryNotionDatabase", {
-      dataSourceId: id,
-      databaseId: "db-1",
-      tableId: ownerTableId,
-      snapshot: true,
-      approvedFields,
-    });
-    const frameId = (queried.result as { dataFrameId: string }).dataFrameId;
-    await app.call("updateDataTable", {
-      id: sharedTableId,
-      updates: { dataFrameId: frameId },
-    });
-
-    await app.call("updateDataTable", {
-      id: ownerTableId,
-      updates: { dataFrameId: null },
-    });
-    expect(await frameStorage.exists(frameId)).toBe(true);
-    expect(
-      (await app.call("getDataFrameEntry", { id: frameId })).result,
-    ).not.toBeNull();
-
-    flushSnapshot.mockClear();
-    await app.call("updateDataTable", {
-      id: sharedTableId,
-      updates: { dataFrameId: null },
-    });
-    expect(await frameStorage.exists(frameId)).toBe(false);
-    expect(
-      (await app.call("getDataFrameEntry", { id: frameId })).result,
-    ).toBeNull();
-    expect(flushSnapshot).toHaveBeenCalledTimes(1);
   });
 
   it("source deletion discovers an old source-owned frame after its table link was already cleared", async () => {
@@ -562,7 +571,7 @@ describe("Notion data-plane routes — happy path (mocked connector)", () => {
       .set({ dataFrameId: null })
       .where(drizzleEq(schema.dataTables.id, tableId));
 
-    await app.call("removeDataSource", { id });
+    await commit(cmd("DeleteNode", { id }));
     expect(await frameStorage.exists(frameId)).toBe(false);
     expect((await app.call("listDataFrames", {})).result).toEqual([]);
     await expect(
@@ -588,6 +597,13 @@ describe("Notion data-plane routes — happy path (mocked connector)", () => {
     });
     const oldFrameId = (queried.result as { dataFrameId: string }).dataFrameId;
     const replacementId = crypto.randomUUID();
+    await frameStorage.save(replacementId, new Uint8Array([1]));
+    await db.insert(schema.dataFrames).values({
+      id: replacementId,
+      storage: { type: "file", key: replacementId },
+      fieldIds: [],
+      name: "replacement",
+    });
 
     await app.call(
       "commitBatch",
@@ -606,6 +622,7 @@ describe("Notion data-plane routes — happy path (mocked connector)", () => {
     expect(
       (await app.call("getDataTable", { id: tableId })).result,
     ).toMatchObject({ dataFrameId: replacementId });
+    expect(await frameStorage.exists(replacementId)).toBe(true);
   });
 
   it("rejects malformed or schema-mismatched IPC before replacing a healthy frame", async () => {
@@ -752,7 +769,7 @@ describe("Notion data-plane routes — happy path (mocked connector)", () => {
       approvedFields,
     });
     await queryStarted;
-    await app.call("removeDataTable", { id: tableId });
+    await commit(cmd("DeleteNode", { id: tableId }));
     release();
 
     await expect(materialize).rejects.toThrow(`DataTable ${tableId} not found`);
@@ -812,7 +829,7 @@ describe("Notion data-plane routes — happy path (mocked connector)", () => {
         snapshot: true,
         approvedFields,
       }),
-      app.call("removeDataTable", { id: tableId }),
+      commit(cmd("DeleteNode", { id: tableId })),
     ]);
 
     expect(removed.status).toBe("fulfilled");
@@ -863,10 +880,10 @@ describe("Notion data-plane routes — happy path (mocked connector)", () => {
       approvedFields,
     });
     const dataFrameId = (queried.result as { dataFrameId: string }).dataFrameId;
-    await app.call("updateDataTable", {
-      id: otherTableId,
-      updates: { dataFrameId: dataFrameId },
-    });
+    await db
+      .update(schema.dataTables)
+      .set({ dataFrameId })
+      .where(drizzleEq(schema.dataTables.id, otherTableId));
 
     await app.call(
       "commitBatch",
@@ -899,10 +916,10 @@ describe("Notion data-plane routes — happy path (mocked connector)", () => {
       approvedFields,
     });
     const dataFrameId = (queried.result as { dataFrameId: string }).dataFrameId;
-    await app.call("updateDataTable", {
-      id: otherTableId,
-      updates: { dataFrameId: dataFrameId },
-    });
+    await db
+      .update(schema.dataTables)
+      .set({ dataFrameId })
+      .where(drizzleEq(schema.dataTables.id, otherTableId));
 
     const context = {
       wyStackApp: app,
@@ -1170,7 +1187,7 @@ describe("Notion data-plane routes — happy path (mocked connector)", () => {
       FOR EACH ROW EXECUTE FUNCTION fail_frame_delete();
     `);
 
-    await expect(app.call("removeDataTable", { id: tableId })).rejects.toThrow(
+    await expect(commit(cmd("DeleteNode", { id: tableId }))).rejects.toThrow(
       'delete from "data_frames"',
     );
     await db.$client.exec(`DROP TRIGGER fail_frame_delete ON data_frames`);

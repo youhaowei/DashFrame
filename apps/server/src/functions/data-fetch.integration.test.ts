@@ -18,6 +18,7 @@ import { LOCAL_USER_ID } from "../permissions";
 import { wy } from "../wystack";
 import { cmd, commandFunctions } from "./commands";
 import {
+  compatibleInsightFingerprints,
   createDataFetchFunctions,
   fingerprintEffectiveInsight,
   type LiveFetchExecutor,
@@ -88,6 +89,16 @@ describe("registered live Insight fetch procedures", () => {
           dataSourceId: sourceId,
           name: "Table",
           table: "source.csv",
+        }),
+        cmd("AddField", {
+          nodeId: tableId,
+          field: {
+            id: "country",
+            name: "Country",
+            tableId,
+            columnName: "country",
+            type: "string",
+          },
         }),
         cmd("CreateInsight", {
           id: insightId,
@@ -387,6 +398,33 @@ describe("registered live Insight fetch procedures", () => {
         (row) => row.id === frameId,
       )?.insightId,
     ).toBe(insightId);
+  });
+
+  it("accepts the pre-source-migration fingerprint for a direct saved Insight", async () => {
+    const insightId = await seedSavedInsight();
+    await call("runInsight", { insightId });
+    const effective = execute.mock.calls.at(-1)?.[0].insight;
+    expect(effective).toBeDefined();
+    const fingerprints = compatibleInsightFingerprints(effective!);
+    expect(fingerprints).toHaveLength(2);
+    const frameId = await seedLastSuccessful(insightId, {
+      schema: [{ id: "country", name: "country", type: "string" }],
+      definitionFingerprint: fingerprints[1],
+      provenance: { connectorKind: "test", bindingVersion: "v1" },
+      fetchedAt: 1,
+    });
+    execute.mockResolvedValueOnce({
+      status: "failed",
+      code: "FETCH_EXECUTION_FAILED",
+      message: "safe failure",
+      retryable: true,
+      diagnosticId: "legacy-fingerprint",
+    });
+
+    await expect(call("runInsight", { insightId })).resolves.toMatchObject({
+      status: "failed",
+      lastSuccessful: { stale: true, dataFrameId: frameId },
+    });
   });
 
   it("does not attach a stale frame from a different effective invocation", async () => {

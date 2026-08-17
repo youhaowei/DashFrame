@@ -2,17 +2,13 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-const {
-  mockNavigate,
-  mockPagination,
-  mockRemoveVisualization,
-  mockToastError,
-} = vi.hoisted(() => ({
-  mockNavigate: vi.fn(),
-  mockPagination: vi.fn(),
-  mockRemoveVisualization: vi.fn(),
-  mockToastError: vi.fn(),
-}));
+const { mockNavigate, mockPagination, mockCommitBatch, mockToastError } =
+  vi.hoisted(() => ({
+    mockNavigate: vi.fn(),
+    mockPagination: vi.fn(),
+    mockCommitBatch: vi.fn(),
+    mockToastError: vi.fn(),
+  }));
 
 vi.mock("@/components/assistant/artifact-context", () => ({
   useBindArtifact: () => undefined,
@@ -41,6 +37,7 @@ vi.mock("@/components/visualizations/VisualizationDisplay", () => ({
   VisualizationDisplay: () => null,
 }));
 vi.mock("@/hooks/useInsightPagination", () => ({
+  resolveInsightSourceDataTable: () => undefined,
   useInsightPagination: (options: unknown) => {
     mockPagination(options);
     return {
@@ -69,7 +66,6 @@ vi.mock("@/wystack/api", () => ({
     listDataTables: { _path: "listDataTables" },
     listInsights: { _path: "listInsights" },
     listVisualizations: { _path: "listVisualizations" },
-    removeVisualization: { _path: "removeVisualization" },
   },
 }));
 vi.mock("@dashframe/engine", () => ({
@@ -79,18 +75,19 @@ vi.mock("@dashframe/engine", () => ({
   isGeneratedColumnLabel: () => false,
   metricIdToColumnAlias: vi.fn(),
 }));
-vi.mock("@dashframe/types", () => ({
-  buildVisualizationUpdateCommands: vi.fn(() => []),
-  CHART_TYPE_METADATA: {},
-  parseEncoding: vi.fn(() => ({})),
-}));
+vi.mock("@dashframe/types", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@dashframe/types")>();
+  return {
+    ...actual,
+    buildVisualizationUpdateCommands: vi.fn(() => []),
+    CHART_TYPE_METADATA: {},
+    parseEncoding: vi.fn(() => ({})),
+  };
+});
 vi.mock("@dashframe/ui", () => ({ SelectField: () => null }));
 vi.mock("@tanstack/react-router", () => ({ useNavigate: () => mockNavigate }));
 vi.mock("@wystack/client", () => ({
-  useMutation: (ref: { _path: string }) => ({
-    mutateAsync:
-      ref._path === "removeVisualization" ? mockRemoveVisualization : vi.fn(),
-  }),
+  useMutation: () => ({ mutateAsync: mockCommitBatch }),
   useQuery: (ref: { _path: string }) => {
     if (ref._path === "listVisualizations") {
       return {
@@ -112,7 +109,7 @@ vi.mock("@wystack/client", () => ({
           {
             id: "insight-1",
             name: "Revenue",
-            baseTableId: "table-1",
+            source: { sourceType: "dataTable", sourceId: "table-1" },
             selectedFields: ["field-1"],
             metrics: [
               {
@@ -181,7 +178,7 @@ describe("VisualizationPageContent delete confirmation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useConfirmDialogStore.getState().close();
-    mockRemoveVisualization.mockResolvedValue({ ok: true });
+    mockCommitBatch.mockResolvedValue({ ok: true });
   });
 
   it("does not remove a visualization after cancellation, but removes it after confirmation", async () => {
@@ -199,7 +196,7 @@ describe("VisualizationPageContent delete confirmation", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(mockRemoveVisualization).not.toHaveBeenCalled();
+    expect(mockCommitBatch).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Delete" }));
     await user.click(
@@ -209,7 +206,9 @@ describe("VisualizationPageContent delete confirmation", () => {
     );
 
     await waitFor(() => {
-      expect(mockRemoveVisualization).toHaveBeenCalledWith({ id: "viz-1" });
+      expect(mockCommitBatch).toHaveBeenCalledWith({
+        commands: [{ path: "deleteNode", args: { id: "viz-1" } }],
+      });
       expect(mockNavigate).toHaveBeenCalledWith({ to: "/insights" });
     });
   });
@@ -229,7 +228,7 @@ describe("VisualizationPageContent delete confirmation", () => {
 
   it("shows one error when visualization deletion fails", async () => {
     const user = userEvent.setup();
-    mockRemoveVisualization.mockRejectedValueOnce(new Error("delete failed"));
+    mockCommitBatch.mockRejectedValueOnce(new Error("delete failed"));
     render(
       <>
         <VisualizationPageContent visualizationId="viz-1" />

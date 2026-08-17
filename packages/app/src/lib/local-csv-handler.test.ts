@@ -22,6 +22,13 @@ vi.mock("@/lib/data-access/data-sources", () => ({
 vi.mock("@/lib/data-access/data-tables", () => ({
   createDataTable: vi.fn(),
   getDataTable: mockGetDataTable,
+  makeDefaultCountMetric: (tableId: UUID) => ({
+    id: "count-metric-id" as UUID,
+    name: "Count",
+    tableId,
+    columnName: undefined,
+    aggregation: "count" as const,
+  }),
 }));
 vi.mock("@dashframe/csv", () => ({ csvToDataFrame: mockCsvToDataFrame }));
 

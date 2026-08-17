@@ -68,24 +68,28 @@
  * walking the source chain; it rejects a source that would make the Insight
  * transitively depend on itself.
  *
- * Storage contract: `InsightDefinition.baseTableId` is the structural source id
- * carried on every Insight. `decodeInsight` in `insights.ts` reads it, and
- * it is a field on the `Insight` domain type the renderer consumes. `source`
- * carries the polymorphic source description; `baseTableId` is written to
- * `source.sourceId` on every write so both stay in lockstep — for a DataTable
- * source the two are interchangeable, for an Insight source `baseTableId` holds
- * the upstream insight id.
+ * Storage contract: `InsightDefinition.source` is the only canonical source
+ * authority. The codec normalizes legacy `baseTableId` rows at the read seam;
+ * commands always write source-only definitions.
  */
+import {
+  buildInsightAvailableFields,
+  fieldIdToColumnAlias,
+  metricIdToColumnAlias,
+} from "@dashframe/engine";
 import { schema } from "@dashframe/server-core";
 import type {
   ArtifactKind,
   CommandName,
+  DashboardItem,
+  DashboardItemOverridePatch,
+  DashboardItemOverrides,
+  DataTable,
   Field,
   InsightJoinConfig,
   InsightMetric,
   Metric,
   RenamedTarget,
-  SourceSchema,
   UUID,
   VegaLiteSpec,
   VisualizationEncoding,
@@ -99,6 +103,7 @@ import {
   type DashboardItemOverridesInput,
   type FilterOperandValue,
   type InsightSourceInput,
+  isUnmodifiedDraft,
   type LateBoundRef,
   type TypedInsightFilter,
   validateVisualizationEncoding,
@@ -131,6 +136,8 @@ import type { DashframeFunctionContext } from "../app-context";
 import { permissions } from "../permissions";
 import { wy } from "../wystack";
 import { sanitizeDashboardItemUpdates } from "./dashboard-item-updates";
+import { parseStoredDashboardState } from "./dashboards";
+import { parseStoredDataTableState } from "./data-tables";
 import {
   ensureInsightFilterIds,
   type InsightSource,
@@ -295,7 +302,7 @@ async function wouldCreateCycle(
     }
     const def = parsed.data as StoredInsightDefinition;
     const src = def.source;
-    if (!src || src.sourceType !== "insight") break; // leaf
+    if (src.sourceType !== "insight") break; // leaf
     if (src.sourceId === startId) return true; // cycle found
     currentId = src.sourceId;
   }
@@ -371,6 +378,40 @@ async function releaseFreshRefsBestEffort(
   }
 }
 
+function recordBatchMintedRef(
+  ctx: DashframeFunctionContext,
+  ref: SecretRef,
+): void {
+  ctx.credentialBatchTransition?.mintedRefs.push(ref);
+}
+
+function supersededCollectorFor(
+  ctx: DashframeFunctionContext,
+  directCollector: SecretRef[],
+): SecretRef[] {
+  return ctx.credentialBatchTransition?.supersededRefs ?? directCollector;
+}
+
+function assertVaultPresentForCredentialUpdate(
+  config: DataSourceConfig,
+  apiKey: string | undefined,
+  connectionString: string | undefined,
+  vault: SecretVault | undefined,
+  preview: boolean,
+  deferRelease: boolean,
+): void {
+  if (preview || deferRelease || vault != null) return;
+  const supersedesStoredRef =
+    (apiKey !== undefined && isSecretRef(config.apiKey)) ||
+    (connectionString !== undefined && isSecretRef(config.connectionString));
+  if (!supersedesStoredRef) return;
+  throw new Error(
+    "[secret-vault] cannot update DataSource credentials: config holds a credential ref " +
+      "but no vault is injected. The vault that was present at store time must also " +
+      "be present when the credential is cleared or replaced.",
+  );
+}
+
 /** CreateDataSource — mints a DataSource with a client-supplied id + config. */
 const createDataSource = wy.procedure
   .input({
@@ -392,7 +433,8 @@ const createDataSource = wy.procedure
       const preview = modeFromCtx(ctx) === "preview";
       // On the draft / publish-replay path, a captured credential arrives here AS a
       // ref (pass-through, no re-store) and the prior-ref release is deferred to the
-      // lifecycle transition; on a direct canonical call, release is synchronous.
+      // lifecycle transition; direct non-draft calls store normally. A commitBatch
+      // additionally records minted refs so its outer transaction can compensate.
       // (A fresh create has no prior ref, so deferral only matters for symmetry.)
       const deferRelease = shouldDeferRelease(ctx);
       const config: DataSourceConfig = {
@@ -419,6 +461,7 @@ const createDataSource = wy.procedure
         );
         if (!preview && !deferRelease && isSecretRef(config.apiKey)) {
           minted.push(config.apiKey);
+          recordBatchMintedRef(ctx, config.apiKey);
         }
         await applyCredentialField(
           config,
@@ -429,8 +472,10 @@ const createDataSource = wy.procedure
           preview,
           deferRelease,
         );
-        if (!preview && !deferRelease && isSecretRef(config.connectionString))
+        if (!preview && !deferRelease && isSecretRef(config.connectionString)) {
           minted.push(config.connectionString);
+          recordBatchMintedRef(ctx, config.connectionString);
+        }
         const [row] = (await ctx.db.into(dataSources).insert({
           id,
           name,
@@ -491,8 +536,9 @@ const setDataSourceConfig = wy.procedure
     ): Promise<{ ok: true }> => {
       const vault = vaultFromCtx(ctx);
       const preview = modeFromCtx(ctx) === "preview";
-      // Defer prior-ref release to the publish/discard transition on the draft path;
-      // release synchronously on a direct canonical call (see createDataSource).
+      // Defer prior-ref release to the publish/discard transition on the draft path.
+      // Direct single-command calls finalize here; commitBatch supplies its own
+      // outer transition ledger and finalizes only after the batch transaction.
       const deferRelease = shouldDeferRelease(ctx);
       const current = (await ctx.db
         .from(dataSources)
@@ -516,6 +562,17 @@ const setDataSourceConfig = wy.procedure
           "SetDataSourceConfig: 'apiKey' and 'connectionString' must use the typed credential fields, and sourceBindingVersion is server-owned; none may be set through extra",
         );
       }
+      // A clear can otherwise drop a live ref from canonical state while the
+      // batch ledger has no vault with which to release it. Reject before any
+      // credential side effect or database write, matching DataSource delete.
+      assertVaultPresentForCredentialUpdate(
+        config,
+        apiKey,
+        connectionString,
+        vault,
+        preview,
+        deferRelease,
+      );
       // store non-empty (replaces any existing ref with a fresh one) / clear-on-empty
       // (releases the prior vault ref + deletes the config key so hasApiKey reads false)
       // / leave-on-undefined.
@@ -525,17 +582,18 @@ const setDataSourceConfig = wy.procedure
       // is NOT released here (deferRelease): release is the publish transition's job
       // (it releases the replaced canonical ref post-commit, with a cross-draft-
       // reference check) so a rolled-back publish never deletes a still-live secret.
-      // On a direct canonical call, the prior ref is collected here and released AFTER
-      // the canonical write is committed AND a snapshot is flushed to disk, so the
-      // snapshot capturing the new config is durable before the old ref is removed.
+      // On a direct single-command call, the prior ref is collected here and released
+      // after the canonical write and snapshot flush. commitBatch redirects the same
+      // collector into its outer transition ledger and finalizes after the batch commits.
       // In preview mode vault writes are skipped (keychain is not transactional).
       //
-      // PRE-RELEASE FLUSH GATE (direct canonical path, !deferRelease, !preview):
+      // PRE-RELEASE FLUSH GATE (direct single-command path):
       //   store-new → canonical-write → flush-snapshot → release-old
       // The superseded collector captures the old ref inside applyCredentialField
       // instead of releasing it immediately, so the canonical write and snapshot
       // flush can happen first.
       const supersededRefs: SecretRef[] = [];
+      const supersededCollector = supersededCollectorFor(ctx, supersededRefs);
       const priorApiKey = config.apiKey;
       const priorConnectionString = config.connectionString;
       const minted: SecretRef[] = [];
@@ -548,7 +606,7 @@ const setDataSourceConfig = wy.procedure
           `apiKey-${id}`,
           preview,
           deferRelease,
-          supersededRefs,
+          supersededCollector,
         );
         if (
           !preview &&
@@ -557,6 +615,7 @@ const setDataSourceConfig = wy.procedure
           config.apiKey !== priorApiKey
         ) {
           minted.push(config.apiKey);
+          recordBatchMintedRef(ctx, config.apiKey);
         }
         await applyCredentialField(
           config,
@@ -566,7 +625,7 @@ const setDataSourceConfig = wy.procedure
           `connectionString-${id}`,
           preview,
           deferRelease,
-          supersededRefs,
+          supersededCollector,
         );
         if (
           !preview &&
@@ -575,19 +634,21 @@ const setDataSourceConfig = wy.procedure
           config.connectionString !== priorConnectionString
         ) {
           minted.push(config.connectionString);
+          recordBatchMintedRef(ctx, config.connectionString);
         }
         // Merge non-credential keys from `extra` into the config (guarded above).
         if (isRecord(extra)) {
           Object.assign(config, extra);
         }
-        // PHASE 2: canonical write — new config (with new ref) is now committed.
+        // PHASE 2: write the new config. For commitBatch this remains inside the
+        // outer transaction until every later command succeeds.
         await ctx.db.from(dataSources).where(eq("id", id)).update({ config });
       } catch (error) {
         await releaseFreshRefsBestEffort(vault, minted, "SetDataSourceConfig");
         throw error;
       }
 
-      // PHASE 3: flush snapshot then release old refs (direct canonical path only).
+      // PHASE 3: flush then release old refs (direct single-command path only).
       // Only relevant when the direct call actually superseded credential refs
       // (!deferRelease is implied — deferRelease callers pass an empty superseded
       // because applyCredentialField skips the collector on those paths).
@@ -628,14 +689,23 @@ const createDataTable = wy.procedure
   })
   .authorize(permissions.commands.commit)
   .mutation(async (ctx, args): Promise<{ id: string }> => {
+    const state = parseStoredDataTableState(
+      {
+        sourceSchema: args.sourceSchema,
+        fields: args.fields,
+        metrics: args.metrics,
+      },
+      "CreateDataTable state",
+    );
+    if (args.dataFrameId) await requireDataFrame(ctx, args.dataFrameId);
     const [row] = (await ctx.db.into(dataTables).insert({
       id: args.id,
       dataSourceId: args.dataSourceId,
       name: args.name,
       table: args.table,
-      sourceSchema: (args.sourceSchema as SourceSchema | undefined) ?? null,
-      fields: (args.fields as Field[] | undefined) ?? [],
-      metrics: (args.metrics as Metric[] | undefined) ?? [],
+      sourceSchema: state.sourceSchema ?? null,
+      fields: state.fields,
+      metrics: state.metrics,
       dataFrameId: args.dataFrameId ?? null,
     })) as DataTableRow[];
     if (!row) throw new Error("insert returned no row");
@@ -657,16 +727,28 @@ async function requireDataTable(
   return row;
 }
 
+async function requireDataFrame(
+  ctx: { db: import("@wystack/db").DrizzleTracker },
+  id: string,
+): Promise<void> {
+  const row = await ctx.db.from(dataFrames).where(eq("id", id)).first();
+  if (!row) throw new Error(`Data frame ${id} not found`);
+}
+
 /** SetDataTableSchema — replaces the discovered source schema slice. */
 const setDataTableSchema = wy.procedure
   .input({ id: uuid, sourceSchema: jsonb })
   .authorize(permissions.commands.commit)
   .mutation(async (ctx, { id, sourceSchema }): Promise<{ ok: true }> => {
-    await requireDataTable(ctx, id);
+    const table = await requireDataTable(ctx, id);
+    const state = parseStoredDataTableState(
+      { ...table, sourceSchema },
+      "SetDataTableSchema state",
+    );
     await ctx.db
       .from(dataTables)
       .where(eq("id", id))
-      .update({ sourceSchema: sourceSchema as SourceSchema });
+      .update({ sourceSchema: state.sourceSchema ?? null });
     return { ok: true };
   });
 
@@ -676,6 +758,7 @@ const refreshDataTable = wy.procedure
   .authorize(permissions.commands.commit)
   .mutation(async (ctx, { id, dataFrameId }): Promise<{ ok: true }> => {
     const table = await requireDataTable(ctx, id);
+    await requireDataFrame(ctx, dataFrameId);
     let replacedFrameId: string | undefined;
     if (
       isCanonicalCommandContext(ctx) &&
@@ -705,12 +788,54 @@ const refreshDataTable = wy.procedure
 // ---------------------------------------------------------------------------
 
 /**
+ * GetOrCreateInsightDraft — atomically reuse the unmodified draft for a table,
+ * or insert the caller-minted id when none exists. This narrow command owns the
+ * auto-draft behavior; generic CreateInsight always creates exactly its id.
+ */
+const getOrCreateInsightDraft = wy.procedure
+  .input({ id: uuid, name: text, source: jsonb })
+  .authorize(permissions.commands.commit)
+  .mutation(async (ctx, args): Promise<{ id: string }> => {
+    const parsedSource = insightSourceSchema.safeParse(args.source);
+    if (!parsedSource.success || parsedSource.data.sourceType !== "dataTable") {
+      throw new Error(
+        "GetOrCreateInsightDraft: source must be an existing DataTable",
+      );
+    }
+    const source = parsedSource.data as InsightSource;
+    await requireSourceExists(ctx, source);
+
+    const rows = (await ctx.db.from(insights).all()) as InsightRow[];
+    const existing = rows.find((row) => {
+      const parsed = storedInsightDefinitionSchema.safeParse(row.definition);
+      return (
+        parsed.success &&
+        parsed.data.source.sourceType === "dataTable" &&
+        parsed.data.source.sourceId === source.sourceId &&
+        isUnmodifiedDraft(parsed.data)
+      );
+    });
+    if (existing) return { id: existing.id };
+
+    const definition = requireDefinitionShape("GetOrCreateInsightDraft", {
+      source,
+      selectedFields: [],
+      metrics: [],
+    });
+    const [row] = (await ctx.db.into(insights).insert({
+      id: args.id,
+      name: args.name,
+      definition,
+      createdBy: { kind: "user" },
+    })) as InsightRow[];
+    if (!row) throw new Error("insert returned no row");
+    return { id: row.id };
+  });
+
+/**
  * CreateInsight — mints a new transform node over a DataFrame-producing input
- * (DataTable or another Insight). `source.sourceId` is written into both the
- * polymorphic `source` field and `baseTableId` (which `decodeInsight` surfaces
- * on the `Insight` domain type). When `sourceType === 'insight'` `baseTableId`
- * carries the upstream insight id; consumers resolving the structural source
- * read `source.sourceType` to disambiguate.
+ * (DataTable or another Insight). The polymorphic `source` is the only source
+ * identity written to storage and surfaced on the domain model.
  */
 const createInsight = wy.procedure
   .input({
@@ -744,12 +869,17 @@ const createInsight = wy.procedure
     // Both operands arrive as opaque `jsonb`; the schema rejects a non-array and
     // coalesces absent → [], so no cast and no `?? []` is needed here.
     const definition = requireDefinitionShape("CreateInsight", {
-      baseTableId: source.sourceId,
       source,
       selectedFields: args.selectedFields,
       // Stored as InsightMetric (sourceTable), the shape the read path expects.
       metrics: args.metrics,
     });
+    await assertDefinitionAvailableFromSource(
+      ctx,
+      source,
+      definition,
+      "CreateInsight",
+    );
     const [row] = (await ctx.db.into(insights).insert({
       id: args.id,
       name: args.name,
@@ -796,6 +926,215 @@ function pruneDefinitionRuntimeControls(
   };
 }
 
+async function dataTableForFieldResolution(
+  ctx: { db: import("@wystack/db").DrizzleTracker },
+  tableId: string,
+): Promise<DataTable> {
+  const table = await requireDataTable(ctx, tableId);
+  const state = parseStoredDataTableState(table, `Data table ${tableId}`);
+  return {
+    id: table.id as UUID,
+    name: table.name,
+    dataSourceId: table.dataSourceId as UUID,
+    table: table.table,
+    fields: state.fields,
+    metrics: state.metrics,
+    // Field resolution needs the same availability guard as SQL compilation,
+    // but not a materialized frame. The persisted frame ID is irrelevant here.
+    dataFrameId: (table.dataFrameId ?? table.id) as UUID,
+    createdAt: table.createdAt.getTime(),
+  };
+}
+
+async function insightOutputFields(
+  ctx: { db: import("@wystack/db").DrizzleTracker },
+  insightId: string,
+  seen = new Set<string>(),
+): Promise<Field[]> {
+  if (seen.has(insightId)) {
+    throw new Error(`Insight ${insightId} has a cyclic source`);
+  }
+  seen.add(insightId);
+  const { definition } = await requireInsightDefinition(ctx, insightId);
+  const metrics = definition.metrics.map(requireInsightMetricShape);
+  const available = await insightAvailableFields(
+    ctx,
+    definition.source,
+    definition.joins,
+    seen,
+  );
+  let selected = available;
+  if (definition.selectedFields.length) {
+    selected = available.filter((field) =>
+      definition.selectedFields.includes(field.id as UUID),
+    );
+  } else if (metrics.length) {
+    selected = [];
+  }
+  return [
+    ...selected.map((field) => ({
+      ...field,
+      tableId: insightId as UUID,
+      columnName: fieldIdToColumnAlias(field.id),
+    })),
+    ...metrics.map((metric) => ({
+      id: metric.id,
+      name: metric.name,
+      tableId: insightId as UUID,
+      columnName: metricIdToColumnAlias(metric.id),
+      type:
+        metric.aggregation === "min" || metric.aggregation === "max"
+          ? (available.find(
+              (field) =>
+                field.tableId === metric.sourceTable &&
+                (field.columnName ?? field.name) === metric.columnName,
+            )?.type ?? "number")
+          : ("number" as const),
+    })),
+  ];
+}
+
+async function insightAvailableFields(
+  ctx: { db: import("@wystack/db").DrizzleTracker },
+  source: InsightSource,
+  rawJoins: readonly unknown[] | undefined,
+  seen = new Set<string>(),
+): Promise<Field[]> {
+  const joins = (rawJoins ?? []).map(requireJoinShape);
+  const baseFields =
+    source.sourceType === "insight"
+      ? await insightOutputFields(ctx, source.sourceId, seen)
+      : (await dataTableForFieldResolution(ctx, source.sourceId)).fields;
+  const baseTable: DataTable = {
+    id: source.sourceId as UUID,
+    name: source.sourceId,
+    dataSourceId: source.sourceId as UUID,
+    table: source.sourceId,
+    fields: baseFields,
+    metrics: [],
+    dataFrameId: source.sourceId as UUID,
+    createdAt: 0,
+  };
+  const joinedTables = new Map<UUID, DataTable>();
+  for (const join of joins) {
+    if (!joinedTables.has(join.rightTableId)) {
+      joinedTables.set(
+        join.rightTableId,
+        await dataTableForFieldResolution(ctx, join.rightTableId),
+      );
+    }
+  }
+  return buildInsightAvailableFields(baseTable, joinedTables, { joins }) ?? [];
+}
+
+async function assertDefinitionAvailableFromSource(
+  ctx: { db: import("@wystack/db").DrizzleTracker },
+  source: InsightSource,
+  definition: StoredInsightDefinition,
+  operation: string,
+): Promise<void> {
+  if (source.sourceType !== "insight") return;
+
+  const availableFields = await insightAvailableFields(
+    ctx,
+    source,
+    definition.joins,
+  );
+  const availableById = new Map(
+    availableFields.map((field) => [field.id as string, field]),
+  );
+  const availableColumns = new Set(
+    availableFields.map((field) => field.columnName ?? field.name),
+  );
+
+  const missingSelectedField = definition.selectedFields.find(
+    (fieldId) => !availableById.has(fieldId),
+  );
+  if (missingSelectedField) {
+    throw new Error(
+      `${operation}: field ${missingSelectedField} is not output by source Insight ${source.sourceId}`,
+    );
+  }
+
+  const metrics = definition.metrics.map(requireInsightMetricShape);
+  const invalidMetric = metrics.find(
+    (metric) =>
+      metric.columnName !== undefined &&
+      !availableFields.some(
+        (field) =>
+          field.tableId === metric.sourceTable &&
+          (field.columnName ?? field.name) === metric.columnName,
+      ),
+  );
+  if (invalidMetric) {
+    throw new Error(
+      `${operation}: metric ${invalidMetric.id} references column ${invalidMetric.columnName} that is not output by source Insight ${source.sourceId}`,
+    );
+  }
+
+  const metricAliases = new Set(
+    metrics.map((metric) => metricIdToColumnAlias(metric.id)),
+  );
+  assertFilterFieldsAvailable(
+    definition.filters,
+    availableColumns,
+    metricAliases,
+    operation,
+    source.sourceId,
+  );
+
+  const resultColumns =
+    definition.selectedFields.length === 0 && metrics.length === 0
+      ? availableColumns
+      : new Set([
+          ...definition.selectedFields.flatMap((fieldId) => {
+            const field = availableById.get(fieldId);
+            return field ? [field.columnName ?? field.name] : [];
+          }),
+          ...metricAliases,
+        ]);
+  assertSortFieldsAvailable(definition.sorts, resultColumns, operation);
+}
+
+function assertFilterFieldsAvailable(
+  filters: readonly unknown[] | undefined,
+  availableColumns: ReadonlySet<string>,
+  metricAliases: ReadonlySet<string>,
+  operation: string,
+  sourceId: string,
+): void {
+  for (const filter of filters ?? []) {
+    if (!isRecord(filter) || typeof filter.field !== "string") {
+      throw new Error(`${operation}: filter must include a string field`);
+    }
+    if (
+      !availableColumns.has(filter.field) &&
+      !metricAliases.has(filter.field)
+    ) {
+      throw new Error(
+        `${operation}: filter field ${filter.field} is not output by source Insight ${sourceId}`,
+      );
+    }
+  }
+}
+
+function assertSortFieldsAvailable(
+  sorts: readonly unknown[] | undefined,
+  resultColumns: ReadonlySet<string>,
+  operation: string,
+): void {
+  for (const sort of sorts ?? []) {
+    if (!isRecord(sort) || typeof sort.field !== "string") {
+      throw new Error(`${operation}: sort must include a string field`);
+    }
+    if (!resultColumns.has(sort.field)) {
+      throw new Error(
+        `${operation}: sort field ${sort.field} is not in the derived Insight result`,
+      );
+    }
+  }
+}
+
 /**
  * SetInsightSource — re-points an Insight's input to a DataTable or another
  * Insight's DataFrame (Insight-on-Insight composition). Rejects a source that
@@ -830,6 +1169,13 @@ const setInsightSource = wy.procedure
       }
     }
 
+    await assertDefinitionAvailableFromSource(
+      ctx,
+      source,
+      definition,
+      "SetInsightSource",
+    );
+
     // No `requireDefinitionShape` here, deliberately: unlike the four handlers
     // that take an opaque `jsonb` array operand, every key this writes is
     // already checked — `definition` came back parsed from
@@ -837,7 +1183,6 @@ const setInsightSource = wy.procedure
     // is no unvalidated value to reject.
     const next: StoredInsightDefinition = {
       ...definition,
-      baseTableId: source.sourceId,
       source,
     };
     await ctx.db
@@ -863,6 +1208,12 @@ const selectFields = wy.procedure
         selectedFields: fieldIds,
       }),
     );
+    await assertDefinitionAvailableFromSource(
+      ctx,
+      definition.source,
+      next,
+      "SelectFields",
+    );
     await ctx.db
       .from(insights)
       .where(eq("id", id))
@@ -886,15 +1237,20 @@ const setInsightFilter = wy.procedure
       ...definition,
       filters,
     });
-    // `filters` is a required input here, but the definition shape types it as
-    // optional, so guard rather than assert — same shape as the patch path in
-    // app-artifacts.ts, which must handle a genuinely absent key.
+    // `filters` is required input here, while the persisted definition keeps it
+    // optional for legacy rows, so normalize only when the parsed key exists.
     const normalized = pruneDefinitionRuntimeControls({
       ...next,
       ...(next.filters === undefined
         ? {}
         : { filters: ensureInsightFilterIds(next.filters) }),
     });
+    await assertDefinitionAvailableFromSource(
+      ctx,
+      definition.source,
+      normalized,
+      "SetInsightFilter",
+    );
     await ctx.db
       .from(insights)
       .where(eq("id", id))
@@ -915,6 +1271,12 @@ const setInsightSort = wy.procedure
       ...definition,
       sorts,
     });
+    await assertDefinitionAvailableFromSource(
+      ctx,
+      definition.source,
+      next,
+      "SetInsightSort",
+    );
     await ctx.db
       .from(insights)
       .where(eq("id", id))
@@ -967,10 +1329,7 @@ const setInsightRuntimeControls = wy.procedure
 /**
  * Apply one incremental edit to the `joins` collection in an Insight definition.
  * Mirrors `patchDataTableCollection`'s guard symmetry:
- * - Add: rejects a duplicate joinIndex (we use array-position indexing, so the
- *   guard is that the array is not already longer than `joinIndex` would imply
- *   — AddJoin appends so there is no index collision; the spec uses array
- *   indices for Update/Remove because joins are ordered and anonymous).
+ * - Add: appends a validated join; joins are ordered and anonymous.
  * - Update: rejects a missing index. Pins the structure so updates cannot
  *   rewrite the whole join object in ways that clobber unrelated keys.
  * - Remove: rejects a missing index.
@@ -1057,6 +1416,12 @@ const addJoin = wy.procedure
         join: validated,
       }),
     };
+    await assertDefinitionAvailableFromSource(
+      ctx,
+      definition.source,
+      next,
+      "AddJoin",
+    );
     await ctx.db
       .from(insights)
       .where(eq("id", id))
@@ -1090,6 +1455,12 @@ const updateJoin = wy.procedure
         updates,
       }),
     };
+    await assertDefinitionAvailableFromSource(
+      ctx,
+      definition.source,
+      next,
+      "UpdateJoin",
+    );
     await ctx.db
       .from(insights)
       .where(eq("id", id))
@@ -1119,6 +1490,12 @@ const removeJoin = wy.procedure
         joinIndex,
       }),
     };
+    await assertDefinitionAvailableFromSource(
+      ctx,
+      definition.source,
+      next,
+      "RemoveJoin",
+    );
     await ctx.db
       .from(insights)
       .where(eq("id", id))
@@ -1181,10 +1558,8 @@ async function resolveNode(
 }
 
 /**
- * Validate that `value` is an InsightMetric (sourceTable shape) and return it.
- * Mirrors requireInsightMetric in app-artifacts.ts — the same shape the read
- * path enforces — so AddMetric on an Insight node always stores a metric the
- * read path accepts. Inlined here to avoid a cross-module circular dependency.
+ * Validate that `value` is an InsightMetric (sourceTable shape) and return it,
+ * so AddMetric always stores the same shape the Insight read path accepts.
  */
 function requireInsightMetricShape(value: unknown): InsightMetric {
   if (
@@ -1198,6 +1573,29 @@ function requireInsightMetricShape(value: unknown): InsightMetric {
       "InsightMetric must include id, name, sourceTable, and aggregation",
     );
   }
+  if (
+    !["sum", "avg", "count", "min", "max", "count_distinct"].includes(
+      value.aggregation,
+    )
+  ) {
+    throw new Error(
+      `InsightMetric aggregation must be one of sum, avg, count, min, max, count_distinct; got ${JSON.stringify(value.aggregation)}`,
+    );
+  }
+  if (
+    value.aggregation !== "count" &&
+    (typeof value.columnName !== "string" || value.columnName.length === 0)
+  ) {
+    throw new Error(
+      `InsightMetric ${value.id} requires columnName for ${value.aggregation}`,
+    );
+  }
+  if (
+    value.columnName !== undefined &&
+    (typeof value.columnName !== "string" || value.columnName.length === 0)
+  ) {
+    throw new Error(`InsightMetric ${value.id} columnName must be a string`);
+  }
   return value as unknown as InsightMetric;
 }
 
@@ -1205,8 +1603,7 @@ function requireInsightMetricShape(value: unknown): InsightMetric {
  * Apply a field edit to an Insight via `definition.selectedFields` — the array the
  * read path (decodeInsight) actually surfaces. An Insight does not own Field objects;
  * it SELECTS field ids from its source, so a field command resolves to a membership
- * edit of the id set, mirroring patchInsightDefinition's addField/removeField in
- * app-artifacts.ts:
+ * edit of the id set:
  *   - Add: append the field's id (reject duplicate — matches the collection guard).
  *   - Remove: drop the id (reject missing).
  *   - Update: rejected — a referenced field has no editable definition on the
@@ -1245,6 +1642,12 @@ async function patchInsightSelectedFields(
     ...definition,
     selectedFields: selected,
   });
+  await assertDefinitionAvailableFromSource(
+    ctx,
+    definition.source,
+    nextDefinition,
+    op.mode === "add" ? "AddField" : "RemoveField",
+  );
   await ctx.db
     .from(insights)
     .where(eq("id", nodeId))
@@ -1254,9 +1657,8 @@ async function patchInsightSelectedFields(
 /**
  * Apply one incremental collection edit to a node's fields or metrics array.
  * For DataTable nodes the array lives in the row's `fields`/`metrics` columns.
- * For Insight nodes the array lives inside `definition.fields`/`definition.metrics`
- * (not the top-level jsonb `definition` structure — the Insight's own-definitions
- * section, distinct from the inherited ones from its source).
+ * For Insight nodes, field references live in `definition.selectedFields` and
+ * metric definitions live in `definition.metrics`.
  *
  * Guard symmetry:
  * - Add: rejects duplicate id (no illegal two-items-one-id state)
@@ -1286,10 +1688,8 @@ async function patchDataTableCollection(
     // definition" error, not crash on `.metrics`.
     const { definition } = await requireInsightDefinition(ctx, nodeId);
     const items = (definition.metrics as { id: string }[]).slice();
-    // AddMetric on an Insight must store InsightMetric (sourceTable), the shape
-    // requireInsightMetric in app-artifacts.ts enforces on the read path.
-    // Validate at the write boundary so stored metrics always round-trip through
-    // the read path — same class of fix as CreateInsight.metrics (commit 72365b0).
+    // Validate InsightMetric's sourceTable shape at the write boundary so stored
+    // metrics always round-trip through the read path.
     const normalizedOp =
       op.mode === "add"
         ? { ...op, item: requireInsightMetricShape(op.item) }
@@ -1305,6 +1705,15 @@ async function patchDataTableCollection(
       ...definition,
       metrics: next,
     });
+    let operation = "RemoveMetric";
+    if (op.mode === "add") operation = "AddMetric";
+    else if (op.mode === "update") operation = "UpdateMetric";
+    await assertDefinitionAvailableFromSource(
+      ctx,
+      definition.source,
+      nextDefinition,
+      operation,
+    );
     await ctx.db
       .from(insights)
       .where(eq("id", nodeId))
@@ -1312,14 +1721,20 @@ async function patchDataTableCollection(
     return "insight";
   }
 
-  // DataTable path: items live in the top-level row columns.
-  const items = ((node.row[kind] ?? []) as { id: string }[]).slice();
+  // DataTable path: validate both the stored state and the merged result with
+  // the same schema used by CreateDataTable and the read codec.
+  const state = parseStoredDataTableState(node.row, `Data table ${nodeId}`);
+  const items = (state[kind] as { id: string }[]).slice();
   const next = applyCollectionOp(items, kind, op);
+  const validated = parseStoredDataTableState(
+    { ...state, [kind]: next },
+    `${op.mode} ${kind}`,
+  );
 
   await ctx.db
     .from(dataTables)
     .where(eq("id", nodeId))
-    .update({ [kind]: next });
+    .update({ [kind]: validated[kind] });
   return "dataTable";
 }
 
@@ -1448,8 +1863,7 @@ const removeMetric = wy.procedure
 
 /**
  * Remove the `data` key from a Vega-Lite spec before persisting.
- * Keeps storage/privacy behaviour consistent with the legacy
- * createVisualization handler in app-artifacts.ts.
+ * Keeps visualization definitions data-free at the canonical write boundary.
  */
 function stripDataFromSpec(spec: VegaLiteSpec): VegaLiteSpec {
   const next = { ...spec };
@@ -1553,44 +1967,6 @@ const setChartEncoding = wy.procedure
 // Dashboard commands
 // ---------------------------------------------------------------------------
 
-// Re-use the DashboardItem interface from dashboards.ts inline (no re-export).
-interface DashboardItem {
-  id: string;
-  type: "visualization" | "markdown";
-  visualizationId?: string;
-  content?: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  overrides?: DashboardItemOverrides;
-}
-
-/**
- * Override bag written into `DashboardItem.overrides` by the fan-out primitive.
- * Mirrors `DashboardItemOverrides` from @dashframe/types — kept inline to avoid
- * a circular package dependency from the server layer.
- */
-interface DashboardItemOverrides {
-  filters?: {
-    field: string;
-    operator:
-      | "eq"
-      | "ne"
-      | "gt"
-      | "gte"
-      | "lt"
-      | "lte"
-      | "contains"
-      | "in"
-      | "between";
-    value: unknown;
-    cleared?: boolean;
-  }[];
-  sorts?: { field: string; direction: "asc" | "desc" }[];
-  limit?: number;
-}
-
 /** Load a dashboard's layout array, throwing if the dashboard does not exist. */
 async function requireDashboardItems(
   ctx: { db: import("@wystack/db").DrizzleTracker },
@@ -1601,36 +1977,133 @@ async function requireDashboardItems(
     .where(eq("id", dashboardId))
     .first()) as DashboardRow | undefined;
   if (!row) throw new Error(`Dashboard ${dashboardId} not found`);
-  return ((row.layout as DashboardItem[]) ?? []).slice();
+  return parseStoredDashboardState(
+    row,
+    `Dashboard ${dashboardId}`,
+  ).items.slice() as DashboardItem[];
 }
 
 /**
- * Validate a full DashboardItem before it enters `dashboards.layout`. Mirrors the
- * runtime checks in dashboards.ts (parseDashboardType + parsePosition): readers and
- * layout rendering assume `type` is a known value and `x/y/width/height` are numbers.
- * The raw command path persists args verbatim, so the same boundary that the typed
- * dashboard mutation enforces is applied here.
+ * Validate a full DashboardItem before it enters `dashboards.layout`. Readers
+ * and layout rendering assume `type` is known and `x/y/width/height` are
+ * numbers, so every full-item command passes through this canonical boundary.
  */
-function requireDashboardItem(value: unknown): DashboardItem {
+function requireDashboardItem(
+  value: unknown,
+  operation = "AddDashboardItem",
+): DashboardItem {
   if (!isRecord(value)) {
-    throw new Error("AddDashboardItem: item must be an object");
+    throw new Error(`${operation}: item must be an object`);
   }
   if (typeof value.id !== "string") {
-    throw new Error("AddDashboardItem: item.id must be a string");
+    throw new Error(`${operation}: item.id must be a string`);
   }
   if (value.type !== "visualization" && value.type !== "markdown") {
     throw new Error(
-      `AddDashboardItem: item.type must be 'visualization' or 'markdown', got ${JSON.stringify(value.type)}`,
+      `${operation}: item.type must be 'visualization' or 'markdown', got ${JSON.stringify(value.type)}`,
     );
   }
   for (const key of ["x", "y", "width", "height"] as const) {
     if (typeof value[key] !== "number") {
-      throw new Error(`AddDashboardItem: item.${key} must be a number`);
+      throw new Error(`${operation}: item.${key} must be a number`);
     }
   }
-  // `overrides` is passed through as-is — it is written by the fan-out primitive
-  // which controls the shape; the per-field filter pin is validated there.
-  return value as unknown as DashboardItem;
+  return parseStoredDashboardState(
+    { layout: [value], controls: null },
+    `${operation} state`,
+  ).items[0]!;
+}
+
+function normalizeDashboardItemOverrides(
+  value: DashboardItemOverrides | undefined,
+): DashboardItemOverrides | undefined {
+  if (!value) return undefined;
+  const filters = value.filters?.length ? value.filters : undefined;
+  const sorts = value.sorts?.length ? value.sorts : undefined;
+  const limit =
+    typeof value.limit === "number" && value.limit > 0
+      ? value.limit
+      : undefined;
+  if (!filters && !sorts && limit === undefined) return undefined;
+  return { filters, sorts, limit };
+}
+
+function parseFilterDashboardItemOverridePatch(
+  value: Record<string, unknown>,
+): Extract<DashboardItemOverridePatch, { kind: "filter" }> {
+  if (typeof value.field !== "string" || value.field.length === 0) {
+    throw new Error("Filter override patch requires a field");
+  }
+  if (value.value !== null && !isRecord(value.value)) {
+    throw new Error("Filter override patch value must be an object or null");
+  }
+  if (value.value !== null && value.value.field !== value.field) {
+    throw new Error(
+      "Filter override patch value.field must match the patch field",
+    );
+  }
+  return {
+    kind: "filter",
+    field: value.field,
+    value: value.value as Extract<
+      DashboardItemOverridePatch,
+      { kind: "filter" }
+    >["value"],
+  };
+}
+
+function parseDashboardItemOverridePatch(
+  value: unknown,
+): DashboardItemOverridePatch {
+  if (!isRecord(value)) {
+    throw new Error("Dashboard override patch must be an object");
+  }
+  if (value.kind === "filter")
+    return parseFilterDashboardItemOverridePatch(value);
+  if (value.kind === "sorts") {
+    if (value.value !== null && !Array.isArray(value.value)) {
+      throw new Error("Sort override patch value must be an array or null");
+    }
+    return {
+      kind: "sorts",
+      value: value.value as Extract<
+        DashboardItemOverridePatch,
+        { kind: "sorts" }
+      >["value"],
+    };
+  }
+  if (value.kind === "limit") {
+    if (
+      value.value !== null &&
+      (typeof value.value !== "number" || value.value <= 0)
+    ) {
+      throw new Error("Limit override patch value must be positive or null");
+    }
+    return {
+      kind: "limit",
+      value: value.value as number | null,
+    };
+  }
+  throw new Error("Unsupported dashboard override patch kind");
+}
+
+function applyDashboardItemOverridePatch(
+  current: DashboardItemOverrides | undefined,
+  patch: DashboardItemOverridePatch,
+): DashboardItemOverrides | undefined {
+  const next: DashboardItemOverrides = { ...(current ?? {}) };
+  if (patch.kind === "filter") {
+    const filters = (next.filters ?? []).filter(
+      (candidate) => candidate.field !== patch.field,
+    );
+    if (patch.value !== null) filters.push(patch.value);
+    next.filters = filters;
+  } else if (patch.kind === "sorts") {
+    next.sorts = patch.value ?? undefined;
+  } else {
+    next.limit = patch.value ?? undefined;
+  }
+  return normalizeDashboardItemOverrides(next);
 }
 
 /**
@@ -1669,10 +2142,14 @@ const addDashboardItem = wy.procedure
         throw new Error(`Dashboard item ${item.id} already exists`);
       }
       items.push(item);
+      const state = parseStoredDashboardState(
+        { layout: items, controls: null },
+        "AddDashboardItem state",
+      );
       await ctx.db
         .from(dashboards)
         .where(eq("id", dashboardId))
-        .update({ layout: items });
+        .update({ layout: state.items });
       return { ok: true };
     },
   );
@@ -1695,8 +2172,8 @@ const updateDashboardItem = wy.procedure
       if (!items.some((it) => it.id === itemId)) {
         throw new Error(`Dashboard item ${itemId} not found`);
       }
-      // Filter `updates` to recognized fields with correct primitive types before
-      // merging — the raw command path would otherwise write `{ x: "left" }` into
+      // Validate every update field before merging — the raw command path would
+      // otherwise write `{ x: "left" }` into
       // layout coordinates consumers assume are numeric. Pin `id` and `type` last —
       // type is a structural key (determines which optional fields are valid), so
       // callers cannot rebind it via updates.
@@ -1711,10 +2188,14 @@ const updateDashboardItem = wy.procedure
             }
           : it,
       );
+      const state = parseStoredDashboardState(
+        { layout: next, controls: null },
+        "UpdateDashboardItem state",
+      );
       await ctx.db
         .from(dashboards)
         .where(eq("id", dashboardId))
-        .update({ layout: next });
+        .update({ layout: state.items });
       return { ok: true };
     },
   );
@@ -1732,15 +2213,24 @@ const setDashboardLayout = wy.procedure
   .mutation(async (ctx, { dashboardId, items }): Promise<{ ok: true }> => {
     // Guard existence first — a missing dashboard would silently do nothing.
     await requireDashboardItems(ctx, dashboardId);
-    const parsed = items as DashboardItem[];
+    if (!Array.isArray(items)) {
+      throw new Error("SetDashboardLayout: items must be an array");
+    }
+    const parsed = items.map((item) =>
+      requireDashboardItem(item, "SetDashboardLayout"),
+    );
     const ids = parsed.map((it) => it.id);
     if (new Set(ids).size !== ids.length) {
       throw new Error("SetDashboardLayout: items contains duplicate ids");
     }
+    const state = parseStoredDashboardState(
+      { layout: parsed, controls: null },
+      "SetDashboardLayout state",
+    );
     await ctx.db
       .from(dashboards)
       .where(eq("id", dashboardId))
-      .update({ layout: parsed });
+      .update({ layout: state.items });
     return { ok: true };
   });
 
@@ -1760,6 +2250,57 @@ const removeDashboardItem = wy.procedure
       .from(dashboards)
       .where(eq("id", dashboardId))
       .update({ layout: items.filter((it) => it.id !== itemId) });
+    return { ok: true };
+  });
+
+/** Apply one filter/sort/limit intent against the latest saved override bag. */
+const patchDashboardItemOverride = wy.procedure
+  .input({ dashboardId: uuid, itemId: uuid, patch: jsonb })
+  .authorize(permissions.commands.commit)
+  .mutation(
+    async (ctx, { dashboardId, itemId, patch }): Promise<{ ok: true }> => {
+      const parsed = parseDashboardItemOverridePatch(patch);
+      const items = await requireDashboardItems(ctx, dashboardId);
+      if (!items.some((item) => item.id === itemId)) {
+        throw new Error(`Dashboard item ${itemId} not found`);
+      }
+      const next = items.map((item) =>
+        item.id === itemId
+          ? {
+              ...item,
+              overrides: applyDashboardItemOverridePatch(
+                item.overrides,
+                parsed,
+              ),
+            }
+          : item,
+      );
+      const state = parseStoredDashboardState(
+        { layout: next, controls: null },
+        "PatchDashboardItemOverride state",
+      );
+      await ctx.db
+        .from(dashboards)
+        .where(eq("id", dashboardId))
+        .update({ layout: state.items });
+      return { ok: true };
+    },
+  );
+
+/** Replace the saved dashboard-control declarations as one intent. */
+const setDashboardControls = wy.procedure
+  .input({ dashboardId: uuid, controls: jsonb })
+  .authorize(permissions.commands.commit)
+  .mutation(async (ctx, { dashboardId, controls }): Promise<{ ok: true }> => {
+    await requireDashboardItems(ctx, dashboardId);
+    const state = parseStoredDashboardState(
+      { layout: [], controls },
+      "SetDashboardControls state",
+    );
+    await ctx.db
+      .from(dashboards)
+      .where(eq("id", dashboardId))
+      .update({ controls: state.controls });
     return { ok: true };
   });
 
@@ -1899,10 +2440,14 @@ const fanOutDashboardItems = wy.procedure
 
       // Write all clones into the layout in one read-modify-write.
       const next = [...items, ...clones];
+      const state = parseStoredDashboardState(
+        { layout: next, controls: null },
+        "FanOutDashboardItems state",
+      );
       await ctx.db
         .from(dashboards)
         .where(eq("id", dashboardId))
-        .update({ layout: next });
+        .update({ layout: state.items });
 
       return { ok: true, created: newIds };
     },
@@ -2006,9 +2551,7 @@ export interface DeleteNodeResult {
  * a TBD repair target when `sourceId` is deleted.
  *
  * The check covers:
- *   • The new `source.sourceId` field (CreateInsight / SetInsightSource).
- *   • The legacy `baseTableId` field for pre-composition rows (written before
- *     `source` was introduced; both fields are kept in lockstep on writes).
+ *   • The normalized `source.sourceId` field (including legacy base-only rows).
  *   • Any `joins[*].rightTableId` — an Insight that JOINs against the deleted
  *     node is just as broken as one that sources it directly.
  *
@@ -2040,17 +2583,15 @@ function parseRowDefinition(row: InsightRow): StoredInsightDefinition {
 
 /**
  * Pure orphan check against an already-parsed definition — no validation, no
- * DB access. An Insight is orphaned by `sourceId` if its primary source (or
- * legacy `baseTableId`) equals it, or any join's `rightTableId` equals it.
+ * DB access. An Insight is orphaned by `sourceId` if its normalized source
+ * equals it, or any join's `rightTableId` equals it.
  */
 function definitionRefers(
   def: StoredInsightDefinition,
   sourceId: string,
 ): boolean {
   // Primary source check.
-  const primaryMatch = def.source
-    ? def.source.sourceId === sourceId
-    : def.baseTableId === sourceId;
+  const primaryMatch = def.source.sourceId === sourceId;
   if (primaryMatch) return true;
   // Join-dependency check — an Insight JOINing against the deleted node
   // is also orphaned (its rightTableId no longer resolves).
@@ -2088,13 +2629,7 @@ async function deleteInsightDataFrames(
     .from(dataFrames)
     .where(eq("insightId", insightId))
     .all();
-  if (
-    owned.some(
-      (frame) => (frame.storage as { type?: unknown } | null)?.type !== "file",
-    )
-  ) {
-    throw new Error("Legacy browser DataFrames are not supported");
-  }
+  assertServerFileFrames(owned);
   for (const frame of owned) {
     const references = await ctx.db
       .from(dataTables)
@@ -2102,6 +2637,14 @@ async function deleteInsightDataFrames(
       .all();
     if (references.length === 0) {
       await ctx.db.from(dataFrames).where(eq("id", frame.id)).delete();
+    }
+  }
+}
+
+function assertServerFileFrames(frames: Iterable<{ storage: unknown }>): void {
+  for (const frame of frames) {
+    if ((frame.storage as { type?: unknown } | null)?.type !== "file") {
+      throw new Error("Legacy browser DataFrames are not supported");
     }
   }
 }
@@ -2192,6 +2735,7 @@ async function deleteOwnedSourceDataFrames(
     .where(eq("sourceId", sourceId))
     .all();
   for (const frame of sourced) candidates.set(frame.id, frame);
+  assertServerFileFrames(candidates.values());
   for (const frame of candidates.values()) {
     const references = await ctx.db
       .from(dataTables)
@@ -2220,6 +2764,7 @@ async function deleteCanonicalTableDataFrames(
     .where(eq("definitionId", table.id))
     .all();
   for (const frame of defined) candidates.set(frame.id, frame);
+  assertServerFileFrames(candidates.values());
   for (const frame of candidates.values()) {
     const references = await ctx.db
       .from(dataTables)
@@ -2243,9 +2788,9 @@ function isCanonicalCommandContext(ctx: {
 }
 
 /**
- * After a DataSource row has been deleted, flush a durable snapshot and then
- * release any credential vault refs that were held in its config. Extracted to
- * reduce `deleteNode`'s handler cognitive complexity.
+ * After a DataSource row has been deleted, either record its credential refs in
+ * commitBatch's outer transition ledger or, for a direct call, flush a durable
+ * snapshot and release them here.
  *
  * Ordering invariant: delete-row → this function → refs released.
  * This ensures the snapshot that lands on disk already reflects the absent row,
@@ -2274,6 +2819,17 @@ async function releaseDataSourceCredentials(
     isSecretRef(sourceConfig.connectionString);
   // (a) preview, (b) no refs, (c) deferred path — all skip.
   if (preview || !hasCredentialRefs || shouldDeferRelease(ctx)) return;
+
+  const batchTransition = ctx.credentialBatchTransition;
+  if (batchTransition != null) {
+    if (isSecretRef(sourceConfig.apiKey)) {
+      batchTransition.supersededRefs.push(sourceConfig.apiKey);
+    }
+    if (isSecretRef(sourceConfig.connectionString)) {
+      batchTransition.supersededRefs.push(sourceConfig.connectionString);
+    }
+    return;
+  }
 
   const flushSnapshot = ctx.flushSnapshot;
   if (flushSnapshot == null) {
@@ -2306,7 +2862,7 @@ async function releaseDataSourceCredentials(
 }
 
 /**
- * Pre-delete vault guard for a DataSource delete (direct canonical path only).
+ * Pre-delete vault guard for a non-preview, non-draft DataSource delete.
  * Throws BEFORE the row is deleted when the config holds credential refs but
  * the server has no vault injected — this preserves the row so a correctly-
  * configured server can retry the delete.
@@ -2557,6 +3113,7 @@ export const commandFunctions = {
   updateMetric,
   removeMetric,
   // Insight
+  getOrCreateInsightDraft,
   createInsightCmd: createInsight,
   setInsightSource,
   selectFields,
@@ -2576,6 +3133,8 @@ export const commandFunctions = {
   updateDashboardItemCmd: updateDashboardItem,
   setDashboardLayout,
   removeDashboardItemCmd: removeDashboardItem,
+  patchDashboardItemOverrideCmd: patchDashboardItemOverride,
+  setDashboardControls,
   fanOutDashboardItemsCmd: fanOutDashboardItems,
   // Cross-cutting
   renameNode,

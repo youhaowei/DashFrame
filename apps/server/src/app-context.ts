@@ -5,7 +5,7 @@ import type {
 } from "@dashframe/engine-server/arrow-data-path";
 import type { ApiAccessCredentials, ArtifactDb } from "@dashframe/server-core";
 import { isPrincipal, type Principal } from "@wystack/identity";
-import type { SecretVault } from "@wystack/secret-vault";
+import type { SecretRef, SecretVault } from "@wystack/secret-vault";
 import type { FunctionContext, WyStackApp } from "@wystack/server";
 
 import type { GoogleOAuthConfig } from "./connector-setup/oauth-provider";
@@ -40,6 +40,17 @@ export interface AppContext {
   onWrite?: () => void;
   flushSnapshot?: () => Promise<void>;
   flushSnapshotRetentionWindow?: () => Promise<void>;
+  /**
+   * Request-local credential side effects owned by `commitBatch`. Database
+   * writes roll back atomically; vault writes do not, so handlers record both
+   * sides of the transition for the outer batch boundary to finalize.
+   */
+  credentialBatchTransition?: {
+    /** New refs to release if any later command rolls the transaction back. */
+    mintedRefs: SecretRef[];
+    /** Replaced/deleted refs to release only after commit + durable snapshot. */
+    supersededRefs: SecretRef[];
+  };
   googleOAuth?: GoogleOAuthConfig;
   mode?: string;
   draftId?: string;

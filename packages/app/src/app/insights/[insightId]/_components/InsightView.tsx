@@ -1,8 +1,12 @@
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { VisualizationPreview } from "@/components/visualizations/VisualizationPreview";
-import { useInsightPagination } from "@/hooks/useInsightPagination";
+import {
+  resolveInsightSourceDataTable,
+  useInsightPagination,
+} from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
 import { formatCellValue } from "@/lib/cell-formatter";
+import { resolveInsightAuthoringTable } from "@/lib/insights/compute-combined-fields";
 import {
   useConfirmDialogStore,
   type ConfirmDialogConfig,
@@ -28,6 +32,7 @@ import {
 import type {
   ChartEncoding,
   ColumnAnalysis,
+  CommandPayloads,
   Field,
   Insight,
   InsightMetric,
@@ -183,11 +188,11 @@ function unwrapEncodingExpression(value: string): string {
 }
 
 /**
- * Resolve an encoding channel value to a CANONICAL field ID. Tries, in order:
+ * Resolve an encoding channel value to a canonical field ID. Tries, in order:
  * the raw value, the value with date-transform wrappers removed, and finally
  * the canonical UUID behind an instance-qualified repeat-join alias
- * (field_<uuid>_jN). Use this for the persisted Insight model
- * (selectedFields/metrics), which stores canonical field IDs only.
+ * (field_<uuid>_jN). Use this only for canonical field metadata lookups; a
+ * persisted selectedFields reference must preserve its repeat-join instance.
  */
 function lookupEncodingFieldId(
   fieldIdMap: Map<string, UUID>,
@@ -214,8 +219,7 @@ function lookupEncodingFieldId(
  * (VisualizationPreview resolves `field:<uuid>_jN` through the pagination
  * hook's instance-aware fields), and collapsing to canonical would silently
  * re-point the pinned chart at the FIRST join instance. Use this for
- * VisualizationEncoding values; use lookupEncodingFieldId for the Insight
- * model.
+ * VisualizationEncoding values and persisted Insight selectedFields.
  */
 function lookupEncodingFieldRef(
   fieldIdMap: Map<string, UUID>,
@@ -240,6 +244,15 @@ function lookupEncodingFieldRef(
   return instanceSuffix
     ? (`${canonicalId}${instanceSuffix}` as UUID)
     : canonicalId;
+}
+
+export function resolveSuggestionDimensionFieldIds(
+  fieldIdMap: Map<string, UUID>,
+  dimensionFields: string[],
+): UUID[] {
+  return dimensionFields
+    .map((columnName) => lookupEncodingFieldRef(fieldIdMap, columnName))
+    .filter((id): id is UUID => id !== undefined);
 }
 
 /**
@@ -659,11 +672,20 @@ export function InsightView({
 
   // Mutations — artifact writes go through commitBatch (one batch per user edit).
   const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
-  const { mutateAsync: createVisualizationLocal } = useMutation(
-    api.createVisualization,
+  const createVisualizationLocal = useCallback(
+    async (input: Omit<CommandPayloads["CreateVisualization"], "id">) => {
+      const id = crypto.randomUUID() as UUID;
+      await commitBatch({
+        commands: [cmd("CreateVisualization", { id, ...input })],
+      });
+      return { id };
+    },
+    [commitBatch],
   );
-  const { mutateAsync: removeVisualizationMutation } = useMutation(
-    api.removeVisualization,
+  const removeVisualizationMutation = useCallback(
+    ({ id }: { id: string }) =>
+      commitBatch({ commands: [cmd("DeleteNode", { id: id as UUID })] }),
+    [commitBatch],
   );
   const { confirm } = useConfirmDialogStore();
 
@@ -707,21 +729,24 @@ export function InsightView({
   const { data: allDataTables = [] } = useQuery(api.listDataTables, {
     args: {},
   });
+  const { data: allInsights = [] } = useQuery(api.listInsights, { args: {} });
   const { data: allVisualizations = [] } = useQuery(api.listVisualizations, {
     args: {},
   });
   const { data: dashboards = [] } = useQuery(api.listDashboards);
-  const createDashboard = useMutation(api.createDashboard);
-  const addDashboardItem = useMutation(api.addDashboardItem);
   const persistedActiveView = useInsightCanvasStore(
     (s) => s.activeViewByInsight[insightId],
   );
   const setPersistedActiveView = useInsightCanvasStore((s) => s.setActiveView);
 
-  // Find data table
+  // The root table provides source-frame prerequisites; authoring uses the immediate output.
   const dataTable = useMemo(
-    () => allDataTables.find((t) => t.id === insight.baseTableId),
-    [allDataTables, insight.baseTableId],
+    () => resolveInsightSourceDataTable(insight, allDataTables, allInsights),
+    [allDataTables, allInsights, insight],
+  );
+  const authoringTable = useMemo(
+    () => resolveInsightAuthoringTable(insight, allDataTables, allInsights),
+    [allDataTables, allInsights, insight],
   );
 
   // Get DuckDB view/table name for chart rendering
@@ -796,11 +821,11 @@ export function InsightView({
   // Key by field ID to match enrichColumnAnalysis lookup in suggest-charts.ts
   // Includes fields from both base table AND joined tables
   const fieldMap = useMemo<Record<string, Field>>(() => {
-    if (!dataTable) return {};
+    if (!authoringTable) return {};
     const map: Record<string, Field> = {};
 
     // Add base table fields (keyed by field ID)
-    (dataTable.fields ?? [])
+    (authoringTable.fields ?? [])
       .filter((f) => !f.name.startsWith("_"))
       .forEach((f) => {
         map[f.id] = f;
@@ -822,18 +847,18 @@ export function InsightView({
     });
 
     return map;
-  }, [dataTable, insight.joins, allDataTables]);
+  }, [authoringTable, insight.joins, allDataTables]);
 
   // Get existing field and metric column names from insight configuration
   // Includes fields from both base table AND joined tables
   const existingFieldNames = useMemo(() => {
-    if (!dataTable) return [];
+    if (!authoringTable) return [];
 
     const names: string[] = [];
 
     // Map selected field IDs to column names (includes base + joined tables)
     const fieldIdToName = new Map<string, string>();
-    (dataTable.fields ?? []).forEach((f) => {
+    (authoringTable.fields ?? []).forEach((f) => {
       fieldIdToName.set(f.id, f.columnName ?? f.name);
     });
 
@@ -861,7 +886,7 @@ export function InsightView({
 
     return names;
   }, [
-    dataTable,
+    authoringTable,
     insight.selectedFields,
     insight.metrics,
     insight.joins,
@@ -871,12 +896,12 @@ export function InsightView({
   // Create minimal insight object for suggestions
   // Uses LocalInsight type from stores which is expected by suggestCharts
   const insightForSuggestions = useMemo<LocalInsight | null>(() => {
-    if (!dataTable) return null;
+    if (!authoringTable) return null;
     return {
       id: insightId,
       name: insight.name,
       baseTable: {
-        tableId: dataTable.id,
+        tableId: authoringTable.id,
         selectedFields: [],
       },
       metrics: [],
@@ -888,7 +913,7 @@ export function InsightView({
     insight.name,
     insight.createdAt,
     insight.updatedAt,
-    dataTable,
+    authoringTable,
   ]);
 
   const chartSuggestionsByType = useMemo(() => {
@@ -961,13 +986,14 @@ export function InsightView({
 
   const pinChartSuggestion = useCallback(
     async (suggestion: ChartSuggestion): Promise<UUID | null> => {
-      if (!dataTable?.dataFrameId || !isChartViewReady) return null;
+      if (!dataTable?.dataFrameId || !authoringTable || !isChartViewReady)
+        return null;
 
       // Parse encoding to extract dimensions and metrics
       const { dimensionFields, metrics } = parseChartEncoding(
         suggestion.encoding,
         parseAggregateExpression,
-        dataTable.id,
+        authoringTable.id,
       );
 
       // Map dimension column names to field IDs (base table + joined tables)
@@ -976,7 +1002,7 @@ export function InsightView({
       const fieldIdMap = new Map<string, UUID>();
 
       // Base table fields - add both original name and UUID alias
-      (dataTable.fields ?? []).forEach((f) => {
+      (authoringTable.fields ?? []).forEach((f) => {
         fieldIdMap.set(f.columnName ?? f.name, f.id);
         // Also add UUID-based alias (field_<uuid>) for suggestion encoding lookups
         fieldIdMap.set(fieldIdToColumnAlias(f.id), f.id);
@@ -999,16 +1025,19 @@ export function InsightView({
       });
 
       // Convert dimension column names to field IDs
-      const newSelectedFieldIds = dimensionFields
-        .map((colName) => lookupEncodingFieldId(fieldIdMap, colName))
-        .filter((id): id is UUID => id !== undefined);
+      const newSelectedFieldIds = resolveSuggestionDimensionFieldIds(
+        fieldIdMap,
+        dimensionFields,
+      );
 
       // Suggestion encodings reference UUID column aliases, so metrics parsed
       // from them carry names like "sum(field_<uuid>)". Rename to the field's
       // display name for the Metrics panel; columnName stays untouched (it
       // drives SQL generation and encoding matching).
       const fieldNameById = new Map<UUID, string>();
-      (dataTable.fields ?? []).forEach((f) => fieldNameById.set(f.id, f.name));
+      (authoringTable.fields ?? []).forEach((f) =>
+        fieldNameById.set(f.id, f.name),
+      );
       insight.joins?.forEach((join) => {
         const joinTable = allDataTables.find((t) => t.id === join.rightTableId);
         (joinTable?.fields ?? []).forEach((f) =>
@@ -1082,6 +1111,7 @@ export function InsightView({
     },
     [
       dataTable,
+      authoringTable,
       allDataTables,
       isChartViewReady,
       parseAggregateExpression,
@@ -1157,42 +1187,43 @@ export function InsightView({
       if (!visualizationId) return;
 
       const dashboard = dashboards[0];
-      const dashboardId =
-        dashboard?.id ??
-        (
-          await createDashboard.mutateAsync({
-            name: `${insight.name} dashboard`,
-          })
-        ).id;
+      const dashboardId = dashboard?.id ?? (crypto.randomUUID() as UUID);
       const bottomY =
         dashboard?.items.reduce(
           (max, item) => Math.max(max, item.y + item.height),
           0,
         ) ?? 0;
 
-      await addDashboardItem.mutateAsync({
-        dashboardId,
-        type: "visualization",
-        visualizationId,
-        position: {
-          x: 0,
-          y: bottomY,
-          width: 6,
-          height: 6,
-        },
+      await commitBatch({
+        commands: [
+          ...(dashboard
+            ? []
+            : [
+                cmd("CreateDashboard", {
+                  id: dashboardId,
+                  name: `${insight.name} dashboard`,
+                }),
+              ]),
+          cmd("AddDashboardItem", {
+            dashboardId,
+            item: {
+              id: crypto.randomUUID() as UUID,
+              type: "visualization",
+              visualizationId,
+              x: 0,
+              y: bottomY,
+              width: 6,
+              height: 6,
+            },
+          }),
+        ],
       });
       toast.success("Added to dashboard");
     } catch (error) {
       console.error("[InsightView] Add to dashboard failed:", error);
       toast.error("Couldn't add to dashboard");
     }
-  }, [
-    addDashboardItem,
-    createDashboard,
-    dashboards,
-    ensureActiveVisualization,
-    insight.name,
-  ]);
+  }, [commitBatch, dashboards, ensureActiveVisualization, insight.name]);
 
   // Handle duplicating a visualization
   const handleDuplicateVisualization = useCallback(
@@ -1294,7 +1325,7 @@ export function InsightView({
     (activeView.kind === "chart" && activeChartSuggestion !== undefined);
 
   // Data table not found - check after all hooks are called
-  if (!dataTable) {
+  if (!dataTable || !authoringTable) {
     return <NotFoundView type="dataTable" />;
   }
 
@@ -1307,7 +1338,7 @@ export function InsightView({
       leftPanel={
         <InsightConfigPanel
           insight={insight}
-          dataTable={dataTable}
+          dataTable={authoringTable}
           allDataTables={allDataTables}
           name={localName}
           onNameChange={handleNameChange}

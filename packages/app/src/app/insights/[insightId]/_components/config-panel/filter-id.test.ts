@@ -65,20 +65,33 @@ describe("applyFilterSave with a stable persisted id", () => {
     expect(result.find((f) => f._id === "uuid-c")?.value).toBe("open");
   });
 
-  it("appends a brand-new filter that is not yet in the list", () => {
+  it("appends a brand-new filter that carries an explicit create intent", () => {
     const current = withFilterIds([
       { id: "uuid-a", field: "region", operator: "eq", value: "north" },
     ]);
-    const fresh: FilterWithId = {
-      id: "uuid-new",
-      _id: "uuid-new",
-      field: "amount",
-      operator: "gt",
-      value: 10,
-    };
+    const fresh = prepareFilterForSave(
+      {
+        _id: NEW_FILTER_ID,
+        field: "amount",
+        operator: "gt",
+        value: 10,
+      },
+      () => "uuid-new",
+    );
     const result = applyFilterSave(current, fresh);
     expect(result).toHaveLength(2);
     expect(result[1]._id).toBe("uuid-new");
+  });
+
+  it("rejects an edit whose row was concurrently deleted", () => {
+    const opened = withFilterIds([
+      { id: "uuid-a", field: "region", operator: "eq", value: "north" },
+    ])[0]!;
+    const saved = prepareFilterForSave({ ...opened, value: "south" });
+
+    expect(() => applyFilterSave([], saved)).toThrow(
+      "Filter uuid-a no longer exists",
+    );
   });
 
   it("keeps an API-created filter idempotent after reorder", () => {
@@ -221,14 +234,15 @@ describe("prepareFilterForSave — distinct id per Add (data-loss guard)", () =>
     expect(hydrated).toHaveLength(2);
     expect(hydrated[0]!._id).not.toBe(hydrated[1]!._id);
 
-    // Editing the first must leave the second alone.
-    const edited = applyFilterSave(
-      hydrated,
-      prepareFilterForSave({ ...hydrated[0]!, value: 2 }),
-    );
-    expect(edited).toHaveLength(2);
-    expect(edited[0]!.value).toBe(2);
-    expect(edited[1]!.value).toBe(1);
+    // The ids keep rendering/removal distinct, but an edit is rejected while
+    // they remain ordinal-derived: after a concurrent reorder there is no
+    // persisted fact that could identify which byte-identical row moved.
+    expect(() =>
+      applyFilterSave(
+        hydrated,
+        prepareFilterForSave({ ...hydrated[0]!, value: 2 }),
+      ),
+    ).toThrow(/legacy duplicate.*ambiguous/i);
 
     // Removing the second — the panel's `_id` filter — must leave the first.
     const removed = hydrated.filter((f) => f._id !== hydrated[1]!._id);
@@ -239,6 +253,44 @@ describe("prepareFilterForSave — distinct id per Add (data-loss guard)", () =>
     // from one hydration still merges into the next.
     expect(withFilterIds([same, same]).map((f) => f._id)).toEqual(
       hydrated.map((f) => f._id),
+    );
+  });
+
+  it("rejects an ambiguous legacy duplicate edit after concurrent reorder", () => {
+    const same = { field: "amount", operator: "eq" as const, value: 1 };
+    const separator = {
+      field: "region",
+      operator: "eq" as const,
+      value: "north",
+    };
+    const opened = withFilterIds([same, separator, same])[0]!;
+    const reordered = withFilterIds([same, separator, same]);
+    const saved = prepareFilterForSave({ ...opened, value: 2 });
+
+    expect(() => applyFilterSave(reordered, saved)).toThrow(
+      /legacy duplicate.*ambiguous/i,
+    );
+  });
+
+  it("rejects an ambiguous edit opened on the highest legacy duplicate ordinal", () => {
+    const same = { field: "amount", operator: "eq" as const, value: 1 };
+    const current = withFilterIds([same, same, same]);
+    const opened = withFilterIds([same, same, same])[2]!;
+    const saved = prepareFilterForSave({ ...opened, value: 2 });
+
+    expect(() => applyFilterSave(current, saved)).toThrow(
+      /legacy duplicate.*ambiguous/i,
+    );
+  });
+
+  it("retains ambiguity when concurrent deletion collapses duplicates to one row", () => {
+    const same = { field: "amount", operator: "eq" as const, value: 1 };
+    const opened = withFilterIds([same, same])[0]!;
+    const afterFirstRowWasDeleted = withFilterIds([same]);
+    const saved = prepareFilterForSave({ ...opened, value: 2 });
+
+    expect(() => applyFilterSave(afterFirstRowWasDeleted, saved)).toThrow(
+      /legacy duplicate.*ambiguous/i,
     );
   });
 

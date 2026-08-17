@@ -94,6 +94,7 @@ export type {
   InsightRuntimeDeclaration,
   InsightRuntimeInput,
   InsightSort,
+  InsightSource,
 } from "./insights";
 
 export { isUnmodifiedDraft } from "./insights";

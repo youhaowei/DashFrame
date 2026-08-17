@@ -2,8 +2,8 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-const { mockRemoveDataSource } = vi.hoisted(() => ({
-  mockRemoveDataSource: vi.fn(),
+const { mockCommitBatch } = vi.hoisted(() => ({
+  mockCommitBatch: vi.fn(),
 }));
 
 vi.mock("@wystack/client", async (importOriginal) => {
@@ -26,8 +26,7 @@ vi.mock("@wystack/client", async (importOriginal) => {
       return { data: [] };
     },
     useMutation: (ref: { _path: string }) => ({
-      mutateAsync:
-        ref._path === "removeDataSource" ? mockRemoveDataSource : vi.fn(),
+      mutateAsync: ref._path === "commitBatch" ? mockCommitBatch : vi.fn(),
     }),
   };
 });
@@ -98,7 +97,7 @@ describe("DataSourceControls delete confirmation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useConfirmDialogStore.getState().close();
-    mockRemoveDataSource.mockResolvedValue({ ok: true });
+    mockCommitBatch.mockResolvedValue({ ok: true });
   });
 
   it("does not remove a data source after cancellation, but removes it after confirmation", async () => {
@@ -117,14 +116,16 @@ describe("DataSourceControls delete confirmation", () => {
       "This deletes the data source and its data tables. Related DataFrame metadata and storage, and dependent insights, may remain. This action cannot be undone.",
     );
     await user.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(mockRemoveDataSource).not.toHaveBeenCalled();
+    expect(mockCommitBatch).not.toHaveBeenCalled();
 
     await user.click(
       screen.getByRole("button", { name: "Delete Data Source" }),
     );
     await user.click(screen.getByRole("button", { name: "Delete" }));
     await waitFor(() =>
-      expect(mockRemoveDataSource).toHaveBeenCalledWith({ id: "source-1" }),
+      expect(mockCommitBatch).toHaveBeenCalledWith({
+        commands: [{ path: "deleteNode", args: { id: "source-1" } }],
+      }),
     );
   });
 });

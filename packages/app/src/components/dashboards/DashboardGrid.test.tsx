@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
 
 // Partial-mock the WyStack client: keep `createApi` (so `api` builds real
 // refs) and replace only `useMutation`. This consumer uses a single mutation
-// (`api.updateDashboardItems`), so the mock ignores the ref and always returns
+// (`api.commitBatch`), so the mock ignores the ref and always returns
 // the same `mutateAsync` spy.
 vi.mock("@wystack/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@wystack/client")>();
@@ -93,10 +93,23 @@ describe("DashboardGrid canonical layout persistence", () => {
     });
 
     expect(mocks.updateItems).toHaveBeenCalledWith({
-      dashboardId: "dashboard",
-      patches: [
-        { itemId: "first", updates: { x: 1, y: 2, width: 4, height: 4 } },
-        { itemId: "second", updates: { x: 7, y: 3, width: 4, height: 4 } },
+      commands: [
+        {
+          path: "updateDashboardItemCmd",
+          args: {
+            dashboardId: "dashboard",
+            itemId: "first",
+            updates: { x: 1, y: 2, width: 4, height: 4 },
+          },
+        },
+        {
+          path: "updateDashboardItemCmd",
+          args: {
+            dashboardId: "dashboard",
+            itemId: "second",
+            updates: { x: 7, y: 3, width: 4, height: 4 },
+          },
+        },
       ],
     });
   });

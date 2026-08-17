@@ -20,6 +20,7 @@ import { z } from "zod";
 import { wy } from "../wystack";
 import {
   flushThenReleaseRefs,
+  requireWriteTarget,
   vaultFromCtx,
   withClassBoundaryMessage,
 } from "./utils";
@@ -163,6 +164,19 @@ async function deleteRef(
   await vault.delete(ref);
 }
 
+function assertVaultPresentForStoredCredential(
+  credentialRef: unknown,
+  vault: ReturnType<typeof vaultFromCtx>,
+  operation: string,
+): void {
+  if (!isSecretRef(credentialRef) || vault != null) return;
+  throw new Error(
+    `[secret-vault] cannot ${operation}: assistant provider config holds a credential ref ` +
+      "but no vault is injected. The vault that was present at store time must also " +
+      "be present when the credential is cleared or removed.",
+  );
+}
+
 const listAssistantProviderCatalog = wy.procedure
   .input({})
   .query(async (): Promise<AssistantProviderCatalogEntry[]> =>
@@ -213,6 +227,13 @@ const saveAssistantProviderConfig = wy.procedure
     // secret clears the old one instead.
     const supersededByAuthKindChange =
       current != null && current.authKind !== parsed.authKind && !mintedRef;
+    if (supersededByAuthKindChange) {
+      assertVaultPresentForStoredCredential(
+        current.credentialRef,
+        vault,
+        "change assistant provider authentication kind",
+      );
+    }
 
     // The row write and the default-reset commit atomically; a failure rolls
     // back the whole transaction, so no committed row can reference mintedRef.
@@ -301,15 +322,22 @@ const removeAssistantProviderConfig = wy.procedure
     // dangling ref if the transaction aborts afterwards. Worst case post-commit
     // is a leaked (unreferenced) secret, never a dangling reference.
     const removed = await ctx.db.transaction(async (tx) => {
-      const current = (await tx
-        .from(assistantProviderConfigs)
-        .where(eq("id", id))
-        .first()) as AssistantProviderConfigRow | undefined;
-      if (!current) return undefined;
+      const current = requireWriteTarget(
+        (await tx
+          .from(assistantProviderConfigs)
+          .where(eq("id", id))
+          .first()) as AssistantProviderConfigRow | undefined,
+        `Assistant provider config ${id}`,
+      );
+      assertVaultPresentForStoredCredential(
+        current.credentialRef,
+        vault,
+        "remove assistant provider config",
+      );
       await tx.from(assistantProviderConfigs).where(eq("id", id)).delete();
       return current;
     });
-    if (removed && isSecretRef(removed.credentialRef)) {
+    if (isSecretRef(removed.credentialRef)) {
       await flushThenReleaseRefs(
         flushSnapshotFromCtx(ctx),
         [removed.credentialRef],
@@ -395,6 +423,9 @@ const startAssistantOAuthLogin = wy.procedure
         .from(assistantProviderConfigs)
         .where(eq("id", row.id))
         .update({ credentialRef: ref })) as AssistantProviderConfigRow[];
+      if (!updated) {
+        throw new Error("Assistant provider config not found");
+      }
     } catch (error) {
       // Update never committed → releasing the freshly minted ref is safe.
       await deleteRef(vault, ref);
@@ -411,7 +442,7 @@ const startAssistantOAuthLogin = wy.procedure
         "startAssistantOAuthLogin",
       );
     }
-    return rowToDto(updated ?? { ...row, credentialRef: ref });
+    return rowToDto(updated);
   });
 
 export async function resolveAssistantProviderConfigForRun(args: {

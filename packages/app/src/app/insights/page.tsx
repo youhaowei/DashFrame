@@ -2,6 +2,7 @@ import { RoutedCardActionMenuTrigger } from "@/components/RoutedCardActionMenuTr
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 import { api } from "@/wystack/api";
 import {
+  cmd,
   isUnmodifiedDraft,
   type DataTable,
   type Insight,
@@ -33,6 +34,7 @@ import { toast } from "sonner";
 
 import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
 import { useInsightCanvasStore } from "@/lib/stores/insight-canvas-store";
+import { resolveInsightSourceDataTable } from "@/hooks/useInsightPagination";
 
 // Type for insight with joined details
 type InsightWithDetails = {
@@ -79,7 +81,7 @@ export default function InsightsPage() {
     isLoadingError: insightsLoadError,
     refetch: refetchInsights,
   } = useQuery(api.listInsights, { args: {} });
-  const { mutateAsync: removeInsight } = useMutation(api.removeInsight);
+  const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
   const { confirm } = useConfirmDialogStore();
   const clearActiveView = useInsightCanvasStore((s) => s.clearActiveView);
   const {
@@ -116,16 +118,16 @@ export default function InsightsPage() {
       let dataTable: DataTable | null = null;
       let sourceType: string | null = null;
 
-      const dataTableId = insight.baseTableId;
-      if (dataTableId) {
-        const table = allDataTables.find((t) => t.id === dataTableId);
-        if (table) {
-          dataTable = table;
-          // Find the data source for this table
-          const ds = dataSources.find((s) => s.id === table.dataSourceId);
-          if (ds) {
-            sourceType = ds.type;
-          }
+      const table = resolveInsightSourceDataTable(
+        insight,
+        allDataTables,
+        allInsights,
+      );
+      if (table) {
+        dataTable = table;
+        const ds = dataSources.find((s) => s.id === table.dataSourceId);
+        if (ds) {
+          sourceType = ds.type;
         }
       }
 
@@ -237,7 +239,9 @@ export default function InsightsPage() {
       variant: "destructive",
       onConfirm: async () => {
         try {
-          await removeInsight({ id: insightId });
+          await commitBatch({
+            commands: [cmd("DeleteNode", { id: insightId })],
+          });
         } catch {
           toast.error("Couldn't delete the insight");
           return;
@@ -268,7 +272,9 @@ export default function InsightsPage() {
       onConfirm: async () => {
         for (const item of groupedInsights.drafts) {
           try {
-            await removeInsight({ id: item.insight.id });
+            await commitBatch({
+              commands: [cmd("DeleteNode", { id: item.insight.id })],
+            });
           } catch {
             toast.error("Couldn't delete every draft — some may remain");
             return;

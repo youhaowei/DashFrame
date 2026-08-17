@@ -6,7 +6,7 @@ const {
   mockNavigate,
   mockRefetchDataSources,
   mockRefetchDataTables,
-  mockRemoveDataSource,
+  mockCommitBatch,
   mockUseDataSources,
   mockUseDataTables,
   mockToastError,
@@ -14,7 +14,7 @@ const {
   mockNavigate: vi.fn(),
   mockRefetchDataSources: vi.fn(),
   mockRefetchDataTables: vi.fn(),
-  mockRemoveDataSource: vi.fn(),
+  mockCommitBatch: vi.fn(),
   mockUseDataSources: vi.fn(),
   mockUseDataTables: vi.fn(),
   mockToastError: vi.fn(),
@@ -30,8 +30,8 @@ vi.mock("@wystack/client", async (importOriginal) => {
       throw new Error(`Unexpected query: ${ref._path}`);
     },
     useMutation: (ref: { _path: string }) => {
-      if (ref._path === "removeDataSource") {
-        return { mutateAsync: mockRemoveDataSource };
+      if (ref._path === "commitBatch") {
+        return { mutateAsync: mockCommitBatch };
       }
       throw new Error(`Unexpected mutation: ${ref._path}`);
     },
@@ -68,7 +68,7 @@ describe("DataSourcesPage query states", () => {
     useConfirmDialogStore.getState().close();
     mockRefetchDataSources.mockResolvedValue(undefined);
     mockRefetchDataTables.mockResolvedValue(undefined);
-    mockRemoveDataSource.mockResolvedValue({ ok: true });
+    mockCommitBatch.mockResolvedValue({ ok: true });
     mockUseDataSources.mockReturnValue(successfulQuery(mockRefetchDataSources));
     mockUseDataTables.mockReturnValue(successfulQuery(mockRefetchDataTables));
   });
@@ -187,23 +187,25 @@ describe("DataSourcesPage query states", () => {
     expect(dialog.textContent).toContain(
       'Are you sure you want to delete "Local Files"? This deletes the data source and its data tables. Related DataFrame metadata and storage, and dependent insights, may remain. This action cannot be undone.',
     );
-    expect(mockRemoveDataSource).not.toHaveBeenCalled();
+    expect(mockCommitBatch).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(mockRemoveDataSource).not.toHaveBeenCalled();
+    expect(mockCommitBatch).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "More options" }));
     await user.click(await screen.findByRole("menuitem", { name: /delete/i }));
     await user.click(screen.getByRole("button", { name: "Delete" }));
 
     await waitFor(() => {
-      expect(mockRemoveDataSource).toHaveBeenCalledWith({ id: "source-123" });
+      expect(mockCommitBatch).toHaveBeenCalledWith({
+        commands: [{ path: "deleteNode", args: { id: "source-123" } }],
+      });
     });
   });
 
   it("shows a failure toast when confirmed deletion rejects", async () => {
     const user = userEvent.setup();
-    mockRemoveDataSource.mockRejectedValueOnce(new Error("delete failed"));
+    mockCommitBatch.mockRejectedValueOnce(new Error("delete failed"));
     mockUseDataSources.mockReturnValue({
       ...successfulQuery(mockRefetchDataSources),
       data: [

@@ -41,4 +41,12 @@ describe("command guide — self consistency", () => {
     expect(text).toContain("AddField");
     expect(text).toContain("apps/server/src/functions/commands.ts");
   });
+
+  it("routes dashboard override edits through the intent patch command", () => {
+    const update = COMMAND_GUIDE.find(
+      (entry) => entry.name === "UpdateDashboardItem",
+    );
+    expect(update?.args.updates).toContain("overrides are not editable");
+    expect(update?.notes).toContain("PatchDashboardItemOverride");
+  });
 });

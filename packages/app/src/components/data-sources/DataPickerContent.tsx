@@ -1,4 +1,5 @@
 import { getConnectorById } from "@/lib/connectors/registry";
+import { makeDefaultCountMetric } from "@/lib/data-access/data-tables";
 import { handleFileConnectorResult } from "@/lib/local-csv-handler";
 import {
   connectRemoteSource,
@@ -162,9 +163,6 @@ export function DataPickerContent({
   const { data: allInsights = [] } = useQuery(api.listInsights, { args: {} });
   const { data: dataFrames = [] } = useQuery(api.listDataFrames);
   const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
-  const { mutateAsync: removeDataSource } = useMutation(api.removeDataSource);
-  const { mutateAsync: addDataTable } = useMutation(api.addDataTable);
-  const { mutateAsync: removeDataTable } = useMutation(api.removeDataTable);
   const { mutateAsync: prepareRemoteDataTable } = useMutation(
     api.prepareRemoteDataTable,
   );
@@ -439,7 +437,9 @@ export function DataPickerContent({
             return created.id as UUID;
           },
           removeSource: async (id) => {
-            await removeDataSource({ id });
+            await commitBatch({
+              commands: [cmd("DeleteNode", { id })],
+            });
           },
           listNotionDatabases: (id) =>
             listNotionDatabasesMutation({ dataSourceId: id }),
@@ -448,12 +448,7 @@ export function DataPickerContent({
         }),
       );
     },
-    [
-      commitBatch,
-      listNotionDatabasesMutation,
-      listPostgresTablesMutation,
-      removeDataSource,
-    ],
+    [commitBatch, listNotionDatabasesMutation, listPostgresTablesMutation],
   );
 
   const handleOAuthConnect = useCallback(
@@ -480,10 +475,26 @@ export function DataPickerContent({
         const tableId = await importRemoteResource({
           sourceId: remoteResourceState.sourceId,
           resource,
-          addDataTable,
+          addDataTable: async (input) => {
+            const id = crypto.randomUUID() as UUID;
+            await commitBatch({
+              commands: [
+                cmd("CreateDataTable", {
+                  id,
+                  ...input,
+                  metrics: [makeDefaultCountMetric(id)],
+                }),
+              ],
+            });
+            return { id };
+          },
           prepareRemoteDataTable,
           fetchData,
-          removeDataTable,
+          removeDataTable: async ({ id }) => {
+            await commitBatch({
+              commands: [cmd("DeleteNode", { id })],
+            });
+          },
         });
         onTableSelect(tableId, resource.title);
       } catch (cause) {
@@ -497,12 +508,11 @@ export function DataPickerContent({
       }
     },
     [
-      addDataTable,
+      commitBatch,
       onTableSelect,
       fetchData,
       prepareRemoteDataTable,
       remoteResourceState,
-      removeDataTable,
     ],
   );
 

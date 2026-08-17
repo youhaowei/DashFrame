@@ -129,7 +129,7 @@ async function dataTableNeighbors(
   }
   for (const i of await reader.listInsights()) {
     const readsThisTable =
-      i.baseTableId === id ||
+      (i.source.sourceType === "dataTable" && i.source.sourceId === id) ||
       (i.joins ?? []).some((j) => j.rightTableId === id);
     if (readsThisTable)
       acc.add(acc.upstream, { kind: "insight", id: i.id }, i.name);
@@ -147,32 +147,6 @@ async function dataFrameNeighbors(
     await acc.push(acc.upstream, { kind: "insight", id: df.insightId });
 }
 
-/**
- * Resolve an insight's base-source ref. `Insight.baseTableId` is polymorphic:
- * for a dataTable source it is a table id; for an insight source (insight-on-
- * insight composition) it holds the UPSTREAM INSIGHT id. The domain `Insight`
- * type carries no `sourceType` discriminator (only `baseTableId`), so the kind
- * must be probed — table-first, then insight, the same probe order the server's
- * own polymorphic rename/delete resolvers use.
- *
- * Probe order is unambiguous because artifact ids are globally-unique UUIDs: a
- * single id resolves to AT MOST one artifact kind, so "table-first" can only win
- * when the id IS a table. A cross-table id collision would be a server data-
- * integrity violation (duplicate UUID across tables), not a case this read layer
- * papers over. Returns the correctly-kinded ref, or null if neither resolves (a
- * dangling base — dropped, not errored).
- */
-async function resolveBaseSource(
-  reader: GraphReader,
-  baseId: UUID,
-): Promise<NodeRef | null> {
-  if ((await reader.getDataTable(baseId)) !== null)
-    return { kind: "dataTable", id: baseId };
-  if ((await reader.getInsight(baseId)) !== null)
-    return { kind: "insight", id: baseId };
-  return null;
-}
-
 /** insight: down to base source (table OR upstream insight) + join tables +
  * result dataframe; up to its vizzes AND any insights composed ON this one. */
 async function insightNeighbors(
@@ -182,10 +156,10 @@ async function insightNeighbors(
 ): Promise<void> {
   const i = await reader.getInsight(id);
   if (i) {
-    // Base source is polymorphic (dataTable | upstream insight) — resolve its
-    // real kind so a composed insight's edge isn't silently dropped.
-    const base = await resolveBaseSource(reader, i.baseTableId);
-    if (base !== null) await acc.push(acc.downstream, base);
+    await acc.push(acc.downstream, {
+      kind: i.source.sourceType,
+      id: i.source.sourceId,
+    });
     for (const j of i.joins ?? [])
       await acc.push(acc.downstream, { kind: "dataTable", id: j.rightTableId });
     const df = await reader.getDataFrameByInsight(id);
@@ -194,10 +168,13 @@ async function insightNeighbors(
   for (const v of await reader.listVisualizations(id))
     acc.add(acc.upstream, { kind: "visualization", id: v.id }, v.name);
   // up: insights COMPOSED on this insight (insight-on-insight). Their
-  // `baseTableId` holds THIS insight's id — the reverse of the base edge above,
-  // so a composed child appears in its parent's neighborhood.
+  // A composed child's explicit Insight source is the reverse of the edge above.
   for (const child of await reader.listInsights()) {
-    if (child.id !== id && child.baseTableId === id)
+    if (
+      child.id !== id &&
+      child.source.sourceType === "insight" &&
+      child.source.sourceId === id
+    )
       acc.add(acc.upstream, { kind: "insight", id: child.id }, child.name);
   }
 }

@@ -16,11 +16,7 @@ import {
   fingerprintEffectiveInsight,
   type LiveFetchExecutor,
 } from "../data-fetch";
-import {
-  decodeInsight,
-  decodeStoredInsightDefinition,
-  type InsightRow,
-} from "../insights";
+import { decodeInsight, type InsightRow } from "../insights";
 import { fetchSourceBinding, resolveSourceBinding } from "./bindings";
 import type {
   InsightMaterializerDependencies,
@@ -81,10 +77,11 @@ async function persistedSourceRevision(
       .where(eq("id", upstreamId))
       .first()) as InsightRow | undefined;
     if (!row) throw new Error("TARGET_NOT_READY");
-    const stored = decodeStoredInsightDefinition(row);
-    if (stored.source && stored.source.sourceId !== stored.baseTableId)
-      throw new Error("TARGET_NOT_READY");
-    const upstream = { ...decodeInsight(row), source: stored.source };
+    const decoded = decodeInsight(row);
+    const upstream = {
+      ...decoded,
+      baseTableId: decoded.source.sourceId,
+    };
     revision.push([
       "insight",
       upstreamId,
@@ -136,13 +133,8 @@ export function productionMaterializerDependencies(): Pick<
         .where(eq("id", insightId))
         .first()) as InsightRow | undefined;
       if (!row) throw new Error("TARGET_NOT_READY");
-      const definition = decodeStoredInsightDefinition(row);
-      if (
-        definition.source &&
-        definition.source.sourceId !== definition.baseTableId
-      )
-        throw new Error("TARGET_NOT_READY");
-      return { ...decodeInsight(row), source: definition.source };
+      const decoded = decodeInsight(row);
+      return { ...decoded, baseTableId: decoded.source.sourceId };
     },
     compile: ({ insight, tables }) => {
       const base = tables.get(insight.baseTableId);

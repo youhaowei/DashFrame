@@ -1,9 +1,17 @@
 import { useBindArtifact } from "@/components/assistant/artifact-context";
 import { DashboardControlBar } from "@/components/dashboards/DashboardControlBar";
 import { DashboardGrid } from "@/components/dashboards/DashboardGrid";
-import type { CombinedField } from "@/lib/insights/compute-combined-fields";
+import {
+  resolveInsightAvailableFields,
+  type CombinedField,
+} from "@/lib/insights/compute-combined-fields";
 import { api } from "@/wystack/api";
-import type { DashboardItemType, InsightFilter } from "@dashframe/types";
+import {
+  cmd,
+  type DashboardItemType,
+  type InsightFilter,
+  type UUID,
+} from "@dashframe/types";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@wystack/client";
 import {
@@ -49,7 +57,7 @@ export default function DashboardDetailContent({
   });
   const { data: insights = [] } = useQuery(api.listInsights, { args: {} });
   const { data: dataTables = [] } = useQuery(api.listDataTables, { args: {} });
-  const addItem = useMutation(api.addDashboardItem);
+  const commitBatch = useMutation(api.commitBatch);
 
   // Find the dashboard
   const dashboard = useMemo(
@@ -88,7 +96,6 @@ export default function DashboardDetailContent({
     const map = new Map<string, CombinedField>();
     if (!dashboard) return map;
 
-    // Collect the base table ids referenced by the dashboard's items.
     const vizIds = new Set(
       dashboard.items
         .filter((i) => i.type === "visualization")
@@ -98,24 +105,17 @@ export default function DashboardDetailContent({
     const insightIds = new Set(
       visualizations.filter((v) => vizIds.has(v.id)).map((v) => v.insightId),
     );
-    const tableIds = new Set(
-      insights.filter((i) => insightIds.has(i.id)).map((i) => i.baseTableId),
-    );
-
-    for (const tableId of tableIds) {
-      const table = dataTables.find((t) => t.id === tableId);
-      if (!table) continue;
-      for (const field of table.fields ?? []) {
+    for (const insight of insights.filter((candidate) =>
+      insightIds.has(candidate.id),
+    )) {
+      const fields = resolveInsightAvailableFields(
+        insight,
+        dataTables,
+        insights,
+      );
+      for (const field of fields) {
         const key = field.columnName ?? field.name;
-        if (!map.has(key)) {
-          // Cast to CombinedField — no display-name dedup needed here since we
-          // only use it for type detection in the control bar.
-          map.set(key, {
-            ...field,
-            sourceTableId: table.id,
-            displayName: field.name,
-          });
-        }
+        if (!map.has(key)) map.set(key, field);
       }
     }
     return map;
@@ -160,21 +160,28 @@ export default function DashboardDetailContent({
 
     setIsAddPending(true);
     try {
-      await addItem.mutateAsync({
-        dashboardId,
-        type: addType,
-        position: {
-          x: 0,
-          y: bottomY,
-          width: addType === "visualization" ? 6 : 4,
-          height: addType === "visualization" ? 6 : 4,
-        },
-        visualizationId:
-          addType === "visualization" ? selectedVizId : undefined,
-        content:
-          addType === "markdown"
-            ? "## New Text Widget\n\nEdit this text..."
-            : undefined,
+      await commitBatch.mutateAsync({
+        commands: [
+          cmd("AddDashboardItem", {
+            dashboardId: dashboardId as UUID,
+            item: {
+              id: crypto.randomUUID() as UUID,
+              type: addType,
+              x: 0,
+              y: bottomY,
+              width: addType === "visualization" ? 6 : 4,
+              height: addType === "visualization" ? 6 : 4,
+              visualizationId:
+                addType === "visualization"
+                  ? (selectedVizId as UUID)
+                  : undefined,
+              content:
+                addType === "markdown"
+                  ? "## New Text Widget\n\nEdit this text..."
+                  : undefined,
+            },
+          }),
+        ],
       });
     } catch (error) {
       // Keep the dialog open so the user's selection isn't lost.

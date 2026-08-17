@@ -1,7 +1,8 @@
 import { getConnectorById } from "@/lib/connectors/registry";
+import { makeDefaultCountMetric } from "@/lib/data-access/data-tables";
 import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
 import { api } from "@/wystack/api";
-import { cmd } from "@dashframe/types";
+import { cmd, type UUID } from "@dashframe/types";
 import { InputField } from "@dashframe/ui";
 import { useMutation, useQuery } from "@wystack/client";
 import {
@@ -199,9 +200,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
     args: { dataSourceId: dataSourceId ?? undefined },
   });
   const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
-  const { mutateAsync: removeDataSource } = useMutation(api.removeDataSource);
   const { confirm } = useConfirmDialogStore();
-  const { mutateAsync: addDataTable } = useMutation(api.addDataTable);
 
   const dataSource = useMemo(
     () => dataSources?.find((s) => s.id === dataSourceId) ?? null,
@@ -275,10 +274,17 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
     if (!dataSource || !isRemoteApi) return;
 
     try {
-      await addDataTable({
-        dataSourceId: dataSource.id,
-        name: database.title,
-        table: database.id,
+      const tableId = crypto.randomUUID() as UUID;
+      await commitBatch({
+        commands: [
+          cmd("CreateDataTable", {
+            id: tableId,
+            dataSourceId: dataSource.id,
+            name: database.title,
+            table: database.id,
+            metrics: [makeDefaultCountMetric(tableId)],
+          }),
+        ],
       });
       toast.success(`Added "${database.title}"`);
     } catch (error) {
@@ -310,7 +316,9 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
       variant: "destructive",
       onConfirm: async () => {
         try {
-          await removeDataSource({ id: dataSource.id });
+          await commitBatch({
+            commands: [cmd("DeleteNode", { id: dataSource.id })],
+          });
         } catch {
           toast.error("Failed to delete data source");
           return;

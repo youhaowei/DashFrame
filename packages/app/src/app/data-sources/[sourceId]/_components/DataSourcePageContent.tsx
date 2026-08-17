@@ -162,11 +162,7 @@ export default function DataSourcePageContent({
     isFetching,
   } = useQuery(api.listDataSources);
   const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
-  const { mutateAsync: removeDataTable } = useMutation(api.removeDataTable);
   const { confirm } = useConfirmDialogStore();
-  const { mutateAsync: patchDataTableArray } = useMutation(
-    api.patchDataTableArray,
-  );
   const { data: allDataFrames = [] } = useQuery(api.listDataFrames);
 
   // Find the data source
@@ -257,12 +253,14 @@ export default function DataSourcePageContent({
   ) => {
     if (!effectiveSelectedTableId) return;
     try {
-      await patchDataTableArray({
-        dataTableId: effectiveSelectedTableId,
-        kind: "fields",
-        mode: "update",
-        itemId: fieldId,
-        value: buildSensitivityUpdate(sensitivity, reasons),
+      await commitBatch({
+        commands: [
+          cmd("UpdateField", {
+            nodeId: effectiveSelectedTableId,
+            fieldId,
+            updates: buildSensitivityUpdate(sensitivity, reasons),
+          }),
+        ],
       });
     } catch {
       toast.error("Failed to update field sensitivity");
@@ -283,7 +281,9 @@ export default function DataSourcePageContent({
       variant: "destructive",
       onConfirm: async () => {
         try {
-          await removeDataTable({ id: tableId });
+          await commitBatch({
+            commands: [cmd("DeleteNode", { id: tableId })],
+          });
           setSelectedTableId(null);
         } catch {
           toast.error("Failed to delete data table");

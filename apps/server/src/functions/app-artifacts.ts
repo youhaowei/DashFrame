@@ -17,21 +17,13 @@ import type {
   DataTable,
   Field,
   Insight,
-  InsightMetric,
-  Metric,
-  SourceSchema,
   UUID,
   VegaLiteSpec,
   Visualization,
   VisualizationEncoding,
   VisualizationType,
 } from "@dashframe/types";
-import {
-  getFieldSensitivity,
-  isUnmodifiedDraft,
-  stripSampleValues,
-  validateVisualizationEncoding,
-} from "@dashframe/types";
+import { getFieldSensitivity, stripSampleValues } from "@dashframe/types";
 import { boolean, eq, int, jsonb, text, uuid } from "@wystack/db";
 import { PermissionDeniedError } from "@wystack/permissions";
 import type { SecretRef, SecretVault } from "@wystack/secret-vault";
@@ -42,17 +34,8 @@ import { z } from "zod";
 import type { DashframeFunctionContext } from "../app-context";
 import { permissions } from "../permissions";
 import { wy } from "../wystack";
-import {
-  decodeInsight,
-  decodeStoredInsightDefinition,
-  encodeInsightDefinition,
-  ensureInsightFilterIds,
-  storedInsightDefinitionSchema,
-  toInsight,
-  type InsightDefinition,
-  type InsightRow,
-  type StoredInsightDefinition,
-} from "./insights";
+import { parseStoredDataTableState } from "./data-tables";
+import { decodeInsight, type InsightRow } from "./insights";
 import { tsToMillis } from "./timestamps";
 import {
   applyCredentialField,
@@ -60,8 +43,7 @@ import {
   inDraftContext,
   isRecord,
   modeFromCtx,
-  releaseCredentialRefs,
-  requireRecordWithId,
+  requireWriteTarget,
   vaultFromCtx,
   type DataSourceConfig,
 } from "./utils";
@@ -95,158 +77,160 @@ type DataFrameEntry = DataFrameJSON & {
   currentInsightResult?: boolean;
 };
 
-type DataTableArrayKind = "fields" | "metrics";
-type DataTableArrayItem = { id: string };
+// #319 surviving jsonb audit: DataFrame entry/patch and reviewed-field arrays
+// are object payloads the RPC DSL cannot express, so each is parsed here before
+// reads, writes, connector calls, or early returns. `listInsights.excludeIds`
+// is expressible and therefore uses `uuid.array()` directly at its declaration.
 
-function dateFromEpoch(value: unknown): Date | undefined {
-  return typeof value === "number" ? new Date(value) : undefined;
+const dataFrameStorageSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("indexeddb"), key: z.string().min(1) }),
+  z.object({ type: z.literal("file"), key: z.string().min(1) }),
+  z.object({
+    type: z.literal("s3"),
+    bucket: z.string().min(1),
+    key: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal("r2"),
+    accountId: z.string().min(1),
+    key: z.string().min(1),
+  }),
+]);
+
+const columnAnalysisBaseSchema = z.object({
+  columnName: z.string().min(1),
+  fieldId: z.string().min(1).optional(),
+  cardinality: z.number().finite().nonnegative(),
+  uniqueness: z.number().finite().min(0).max(1),
+  nullCount: z.number().finite().nonnegative(),
+  sampleValues: z.array(z.unknown()),
+});
+
+const columnAnalysisSchema = z.discriminatedUnion("dataType", [
+  columnAnalysisBaseSchema
+    .extend({
+      dataType: z.literal("string"),
+      semantic: z.enum([
+        "text",
+        "identifier",
+        "email",
+        "url",
+        "uuid",
+        "categorical",
+      ]),
+      minLength: z.number().finite().optional(),
+      maxLength: z.number().finite().optional(),
+      avgLength: z.number().finite().optional(),
+      pattern: z.string().optional(),
+      maxFrequencyRatio: z.number().finite().min(0).max(1).optional(),
+    })
+    .passthrough(),
+  columnAnalysisBaseSchema
+    .extend({
+      dataType: z.literal("number"),
+      semantic: z.enum(["numerical", "identifier"]),
+      min: z.number().finite(),
+      max: z.number().finite(),
+      stdDev: z.number().finite().optional(),
+      zeroCount: z.number().finite().nonnegative().optional(),
+    })
+    .passthrough(),
+  columnAnalysisBaseSchema
+    .extend({
+      dataType: z.literal("date"),
+      semantic: z.literal("temporal"),
+      minDate: z.number().finite(),
+      maxDate: z.number().finite(),
+    })
+    .passthrough(),
+  columnAnalysisBaseSchema
+    .extend({
+      dataType: z.literal("boolean"),
+      semantic: z.literal("boolean"),
+      trueCount: z.number().finite().nonnegative(),
+      falseCount: z.number().finite().nonnegative(),
+    })
+    .passthrough(),
+  columnAnalysisBaseSchema
+    .extend({
+      dataType: z.literal("array"),
+      semantic: z.literal("reference"),
+      avgLength: z.number().finite().optional(),
+    })
+    .passthrough(),
+  columnAnalysisBaseSchema
+    .extend({
+      dataType: z.literal("unknown"),
+      semantic: z.literal("unknown"),
+    })
+    .passthrough(),
+]);
+
+const dataFrameAnalysisSchema = z
+  .object({
+    columns: z.array(columnAnalysisSchema),
+    rowCount: z.number().finite().nonnegative(),
+    analyzedAt: z.number().finite(),
+    fieldHash: z.string(),
+  })
+  .passthrough();
+
+const dataFrameEntryInputSchema = z
+  .object({
+    id: z.string().uuid(),
+    storage: dataFrameStorageSchema,
+    fieldIds: z.array(z.string().uuid()),
+    primaryKey: z.union([z.string(), z.array(z.string())]).optional(),
+    createdAt: z.number().finite(),
+    name: z.string(),
+    insightId: z.string().uuid().optional(),
+    sourceId: z.string().uuid().optional(),
+    definitionId: z.string().uuid().optional(),
+    rowCount: z.number().int().nonnegative().optional(),
+    columnCount: z.number().int().nonnegative().optional(),
+    analysis: dataFrameAnalysisSchema.nullable().optional(),
+    lastRefreshedAt: z.number().finite().optional(),
+  })
+  .strict();
+
+const dataFrameEntryUpdateSchema = dataFrameEntryInputSchema
+  .omit({ id: true })
+  .partial()
+  .strict();
+
+const reviewedFieldsInputSchema = z.array(
+  z
+    .object({
+      id: z.string().min(1),
+      name: z.string().min(1),
+      tableId: z.string().uuid().optional(),
+      columnName: z.string().min(1).optional(),
+      type: z.enum(["string", "number", "boolean", "date", "unknown"]),
+      isIdentifier: z.boolean().optional(),
+      isReference: z.boolean().optional(),
+      sensitivity: z.enum(["unclassified", "sensitive", "cleared"]).optional(),
+      sensitivityReason: z.string().optional(),
+      sensitivitySource: z.enum(["user", "classifier"]).optional(),
+    })
+    .strict(),
+);
+
+function parseDataFrameEntryInput(value: unknown): DataFrameEntry {
+  return dataFrameEntryInputSchema.parse(value) as DataFrameEntry;
+}
+
+function parseDataFrameEntryUpdate(value: unknown): Partial<DataFrameEntry> {
+  return dataFrameEntryUpdateSchema.parse(value) as Partial<DataFrameEntry>;
+}
+
+function parseReviewedFieldsInput(value: unknown): unknown {
+  return value === undefined
+    ? undefined
+    : reviewedFieldsInputSchema.parse(value);
 }
 
 function nullableDateFromEpoch(value: number | undefined): Date | null {
   return value === undefined ? null : new Date(value);
-}
-
-function withDefaultCountMetric(
-  tableId: string,
-  metrics: Metric[] = [],
-): Metric[] {
-  if (
-    metrics.some(
-      (metric) => metric.aggregation === "count" && !metric.columnName,
-    )
-  ) {
-    return metrics;
-  }
-
-  return [
-    {
-      id: crypto.randomUUID(),
-      name: "Count",
-      tableId,
-      columnName: undefined,
-      aggregation: "count",
-    },
-    ...metrics,
-  ];
-}
-
-function requireInsightMetric(value: unknown): InsightMetric {
-  if (
-    !isRecord(value) ||
-    typeof value.id !== "string" ||
-    typeof value.name !== "string" ||
-    typeof value.sourceTable !== "string" ||
-    typeof value.aggregation !== "string"
-  ) {
-    throw new Error(
-      "metric must include id, name, sourceTable, and aggregation",
-    );
-  }
-  return value as unknown as InsightMetric;
-}
-
-function patchDataTableItems(
-  kind: DataTableArrayKind,
-  mode: string,
-  items: DataTableArrayItem[],
-  itemId: string | undefined,
-  value: unknown,
-): DataTableArrayItem[] {
-  if (mode === "add") return [...items, requireRecordWithId(value, kind)];
-  if (mode === "update") {
-    if (!itemId) throw new Error("itemId is required for update");
-    if (!isRecord(value)) throw new Error(`${kind} update must be an object`);
-    if (!items.some((item) => item.id === itemId)) {
-      throw new Error(`${kind} item ${itemId} not found`);
-    }
-    return items.map((item) =>
-      item.id === itemId ? { ...item, ...value } : item,
-    );
-  }
-  if (mode === "delete") {
-    if (!itemId) throw new Error("itemId is required for delete");
-    if (!items.some((item) => item.id === itemId)) {
-      throw new Error(`${kind} item ${itemId} not found`);
-    }
-    return items.filter((item) => item.id !== itemId);
-  }
-  throw new Error(`Unsupported patch mode ${mode}`);
-}
-
-function patchInsightDefinition(
-  current: Insight,
-  args: {
-    mode: string;
-    fieldId?: string;
-    metricId?: string;
-    metric?: unknown;
-    updates?: unknown;
-  },
-): Pick<InsightDefinition, "selectedFields" | "metrics"> {
-  if (args.mode === "addField") {
-    if (!args.fieldId) throw new Error("fieldId is required for addField");
-    return {
-      selectedFields: current.selectedFields.includes(args.fieldId)
-        ? current.selectedFields
-        : [...current.selectedFields, args.fieldId],
-      metrics: current.metrics,
-    };
-  }
-  if (args.mode === "removeField") {
-    if (!args.fieldId) throw new Error("fieldId is required for removeField");
-    if (!current.selectedFields.includes(args.fieldId)) {
-      throw new Error(`Field ${args.fieldId} is not selected`);
-    }
-    return {
-      selectedFields: current.selectedFields.filter(
-        (id) => id !== args.fieldId,
-      ),
-      metrics: current.metrics,
-    };
-  }
-  if (args.mode === "addMetric") {
-    return {
-      selectedFields: current.selectedFields,
-      metrics: [...current.metrics, requireInsightMetric(args.metric)],
-    };
-  }
-  return patchInsightMetricDefinition(current, args);
-}
-
-function patchInsightMetricDefinition(
-  current: Insight,
-  args: { mode: string; metricId?: string; updates?: unknown },
-): Pick<InsightDefinition, "selectedFields" | "metrics"> {
-  if (args.mode === "updateMetric") {
-    if (!args.metricId)
-      throw new Error("metricId is required for updateMetric");
-    if (!isRecord(args.updates) || Object.keys(args.updates).length === 0) {
-      throw new Error("updates are required for updateMetric");
-    }
-    if (!current.metrics.some((metric) => metric.id === args.metricId)) {
-      throw new Error(`Metric ${args.metricId} not found`);
-    }
-    return {
-      selectedFields: current.selectedFields,
-      metrics: current.metrics.map((metric) =>
-        metric.id === args.metricId
-          ? { ...metric, ...(args.updates as Partial<InsightMetric>) }
-          : metric,
-      ),
-    };
-  }
-  if (args.mode === "removeMetric") {
-    if (!args.metricId)
-      throw new Error("metricId is required for removeMetric");
-    if (!current.metrics.some((metric) => metric.id === args.metricId)) {
-      throw new Error(`Metric ${args.metricId} not found`);
-    }
-    return {
-      selectedFields: current.selectedFields,
-      metrics: current.metrics.filter((metric) => metric.id !== args.metricId),
-    };
-  }
-  throw new Error(`Unsupported insight patch mode ${args.mode}`);
 }
 
 /**
@@ -308,14 +292,15 @@ async function rowToDataSource(
 }
 
 function rowToDataTable(row: DataTableRow): DataTable {
+  const state = parseStoredDataTableState(row, `Data table ${row.id}`);
   return {
     id: row.id,
     dataSourceId: row.dataSourceId,
     name: row.name,
     table: row.table,
-    sourceSchema: (row.sourceSchema as SourceSchema | null) ?? undefined,
-    fields: row.fields as Field[],
-    metrics: row.metrics as Metric[],
+    sourceSchema: state.sourceSchema,
+    fields: state.fields,
+    metrics: state.metrics,
     dataFrameId: row.dataFrameId ?? undefined,
     createdAt: tsToMillis(row.createdAt),
     lastFetchedAt: row.lastFetchedAt?.getTime(),
@@ -343,12 +328,6 @@ function rowToDataFrame(row: DataFrameRow): DataFrameEntry {
   };
 }
 
-function stripDataFromSpec(spec: VegaLiteSpec): VegaLiteSpec {
-  const next = { ...spec };
-  delete next.data;
-  return next;
-}
-
 function rowToVisualization(row: VisualizationRow): Visualization {
   const options = (row.options ?? {}) as { spec?: VegaLiteSpec };
   return {
@@ -361,28 +340,6 @@ function rowToVisualization(row: VisualizationRow): Visualization {
     createdAt: tsToMillis(row.createdAt),
     updatedAt: row.updatedAt?.getTime(),
   };
-}
-
-async function loadDataTable(
-  ctx: { db: import("@wystack/db").DrizzleTracker },
-  id: string,
-): Promise<DataTable> {
-  const row = (await ctx.db.from(dataTables).where(eq("id", id)).first()) as
-    | DataTableRow
-    | undefined;
-  if (!row) throw new Error(`Data table ${id} not found`);
-  return rowToDataTable(row);
-}
-
-async function loadInsightRow(
-  ctx: { db: import("@wystack/db").DrizzleTracker },
-  id: string,
-): Promise<InsightRow> {
-  const row = (await ctx.db.from(insights).where(eq("id", id)).first()) as
-    | InsightRow
-    | undefined;
-  if (!row) throw new Error(`Insight ${id} not found`);
-  return row;
 }
 
 const listDataSources = wy.procedure
@@ -420,64 +377,6 @@ const getDataSourceByType = wy.procedure
 // `./commands.ts`, which keys idempotency on a client-minted primary key. See
 // that file's traceability table.
 
-const removeDataSource = wy.procedure
-  .input({ id: uuid })
-  .mutation(async (ctx, { id }): Promise<{ ok: true }> => {
-    assertCanonicalFrameSideEffects(ctx);
-    // Fetch the source config BEFORE deleting so we can release its SecretRefs.
-    // vault-absent-with-a-ref is an error (fail-closed symmetry): a ref can only
-    // exist because vault.store() succeeded, which requires a vault to be present.
-    // In preview mode vault.delete() is skipped — like vault.store(), it is a
-    // keychain side-effect outside the DB transaction. A preview executes then
-    // rolls back: the row (with its refs) survives, so its credential must too.
-    const source = await ctx.db.from(dataSources).where(eq("id", id)).first();
-    let staged: StagedServerFrame[] = [];
-    try {
-      await ctx.db.transaction(async (tx) => {
-        const ownedTables = (await tx
-          .from(dataTables)
-          .where(eq("dataSourceId", id))
-          .all()) as DataTableRow[];
-        const txCtx = { ...ctx, db: tx };
-        const candidateFrames = dedupeFrames([
-          ...(await framesByIds(
-            txCtx,
-            ownedTables.flatMap((table) =>
-              table.dataFrameId ? [table.dataFrameId] : [],
-            ),
-          )),
-          ...(await framesForDefinitions(
-            txCtx,
-            ownedTables.map((table) => table.id),
-          )),
-          ...(await framesForSources(txCtx, [id])),
-        ]);
-        const ownedFrames = await framesUnreferencedOutsideTables(
-          { ...ctx, db: tx },
-          candidateFrames,
-          new Set(ownedTables.map((table) => table.id)),
-        );
-        staged = await stageServerFrames(ctx, ownedFrames);
-        for (const frame of ownedFrames) {
-          await tx.from(dataFrames).where(eq("id", frame.id)).delete();
-        }
-        await tx.from(dataTables).where(eq("dataSourceId", id)).delete();
-        await tx.from(dataSources).where(eq("id", id)).delete();
-      });
-    } catch (error) {
-      await rollbackStagedServerFrames(ctx, staged);
-      throw error;
-    }
-    await commitStagedServerFrames(ctx, staged);
-    if (source && modeFromCtx(ctx) !== "preview") {
-      await releaseCredentialRefs(
-        (source.config ?? {}) as DataSourceConfig,
-        vaultFromCtx(ctx),
-      );
-    }
-    return { ok: true };
-  });
-
 const listDataTables = wy.procedure
   .input({ dataSourceId: uuid.optional() })
   .query(async (ctx, { dataSourceId }): Promise<DataTable[]> => {
@@ -498,206 +397,6 @@ const getDataTable = wy.procedure
       | undefined;
     return row ? rowToDataTable(row) : null;
   });
-
-const addDataTable = wy.procedure
-  .input({
-    dataSourceId: uuid,
-    name: text,
-    table: text,
-    options: jsonb.optional(),
-  })
-  .mutation(
-    async (
-      ctx,
-      { dataSourceId, name, table, options },
-    ): Promise<{ id: string }> => {
-      const opts = (options ?? {}) as {
-        id?: string;
-        sourceSchema?: SourceSchema;
-        fields?: Field[];
-        metrics?: Metric[];
-        dataFrameId?: string;
-      };
-      const id = opts.id ?? crypto.randomUUID();
-      const [row] = (await ctx.db.into(dataTables).insert({
-        id,
-        dataSourceId,
-        name,
-        table,
-        sourceSchema: opts.sourceSchema ?? null,
-        fields: opts.fields ?? [],
-        metrics: withDefaultCountMetric(id, opts.metrics),
-        dataFrameId: opts.dataFrameId ?? null,
-      })) as DataTableRow[];
-      if (!row) throw new Error("insert returned no row");
-      return { id: row.id };
-    },
-  );
-
-async function updateDataTableRecord(
-  ctx: DashframeFunctionContext,
-  id: UUID,
-  patch: Partial<DataTable>,
-): Promise<{ ok: true }> {
-  const dbPatch = {
-    ...(patch.name !== undefined ? { name: patch.name } : {}),
-    ...(patch.table !== undefined ? { table: patch.table } : {}),
-    ...(patch.sourceSchema !== undefined
-      ? { sourceSchema: patch.sourceSchema }
-      : {}),
-    ...(patch.fields !== undefined ? { fields: patch.fields } : {}),
-    ...(patch.metrics !== undefined ? { metrics: patch.metrics } : {}),
-    ...(patch.dataFrameId !== undefined
-      ? { dataFrameId: patch.dataFrameId }
-      : {}),
-    ...(patch.lastFetchedAt !== undefined
-      ? { lastFetchedAt: dateFromEpoch(patch.lastFetchedAt) }
-      : {}),
-  };
-  if (patch.dataFrameId === undefined || !isCanonicalContext(ctx)) {
-    await ctx.db.from(dataTables).where(eq("id", id)).update(dbPatch);
-    return { ok: true };
-  }
-  let staged: StagedServerFrame[] = [];
-  try {
-    await ctx.db.transaction(async (tx) => {
-      const table = (await tx.from(dataTables).where(eq("id", id)).first()) as
-        | DataTableRow
-        | undefined;
-      const oldFrames =
-        table?.dataFrameId && table.dataFrameId !== patch.dataFrameId
-          ? await framesUnreferencedOutsideTables(
-              { ...ctx, db: tx },
-              await framesByIds({ ...ctx, db: tx }, [table.dataFrameId]),
-              new Set([id]),
-            )
-          : [];
-      staged = await stageServerFrames(ctx, oldFrames);
-      await tx.from(dataTables).where(eq("id", id)).update(dbPatch);
-      for (const frame of oldFrames) {
-        await tx.from(dataFrames).where(eq("id", frame.id)).delete();
-      }
-    });
-  } catch (error) {
-    await rollbackStagedServerFrames(ctx, staged);
-    throw error;
-  }
-  await commitStagedServerFrames(ctx, staged);
-  return { ok: true };
-}
-
-const updateDataTable = wy.procedure
-  .input({ id: uuid, updates: jsonb })
-  .mutation(async (ctx, { id, updates }): Promise<{ ok: true }> =>
-    updateDataTableRecord(ctx, id, updates as Partial<DataTable>),
-  );
-
-// NOTE: silently no-ops on a missing id (0-row UPDATE returns { ok: true }).
-// The command path (`refreshDataTableCmd` in commands.ts) enforces existence
-// and throws instead — divergent semantics for the same intent, bounded by the
-// legacy-caller migration window (see #66).
-const refreshDataTable = wy.procedure
-  .input({ id: uuid, dataFrameId: uuid })
-  .mutation(async (ctx, { id, dataFrameId }): Promise<{ ok: true }> => {
-    return updateDataTableRecord(ctx, id, {
-      dataFrameId,
-      lastFetchedAt: Date.now(),
-    });
-  });
-
-const removeDataTable = wy.procedure
-  .input({ id: uuid })
-  .mutation(async (ctx, { id }): Promise<{ ok: true }> => {
-    assertCanonicalFrameSideEffects(ctx);
-    let staged: StagedServerFrame[] = [];
-    try {
-      await ctx.db.transaction(async (tx) => {
-        const table = (await tx
-          .from(dataTables)
-          .where(eq("id", id))
-          .first()) as DataTableRow | undefined;
-        const txCtx = { ...ctx, db: tx };
-        const candidates = dedupeFrames([
-          ...(await framesByIds(
-            txCtx,
-            table?.dataFrameId ? [table.dataFrameId] : [],
-          )),
-          ...(await framesForDefinitions(txCtx, [id])),
-        ]);
-        const frames = await framesUnreferencedOutsideTables(
-          { ...ctx, db: tx },
-          candidates,
-          new Set([id]),
-        );
-        staged = await stageServerFrames(ctx, frames);
-        for (const frame of frames) {
-          await tx.from(dataFrames).where(eq("id", frame.id)).delete();
-        }
-        await tx.from(dataTables).where(eq("id", id)).delete();
-      });
-    } catch (error) {
-      await rollbackStagedServerFrames(ctx, staged);
-      throw error;
-    }
-    await commitStagedServerFrames(ctx, staged);
-    return { ok: true };
-  });
-
-// Discriminated-union guard for patchDataTableArray mode inputs.
-// Guards the SINK — validates at the handler boundary before the helper call,
-// catching malformed payloads that arrive from any untrusted client path.
-const patchDataTableArrayArgsSchema = z.discriminatedUnion("mode", [
-  z.object({
-    mode: z.literal("add"),
-    value: z.object({ id: z.string().uuid() }).passthrough(),
-  }),
-  z.object({
-    mode: z.literal("update"),
-    itemId: z.string().uuid(),
-    // value is optional (partial patch object); the helper validates it is an
-    // object when present. The guard only enforces itemId is present and valid.
-    value: z.record(z.string(), z.unknown()).optional(),
-  }),
-  z.object({
-    mode: z.literal("delete"),
-    itemId: z.string().uuid(),
-  }),
-]);
-
-const patchDataTableArray = wy.procedure
-  .input({
-    dataTableId: uuid,
-    kind: text,
-    mode: text,
-    itemId: uuid.optional(),
-    value: jsonb.optional(),
-  })
-  .mutation(
-    async (
-      ctx,
-      { dataTableId, kind, mode, itemId, value },
-    ): Promise<{ ok: true }> => {
-      const parsed = patchDataTableArrayArgsSchema.safeParse({
-        mode,
-        itemId,
-        value,
-      });
-      if (!parsed.success) {
-        throw new Error(parsed.error.message);
-      }
-      const table = await loadDataTable(ctx, dataTableId);
-      if (kind !== "fields" && kind !== "metrics") {
-        throw new Error(`Unsupported data table array ${kind}`);
-      }
-      const items = (table[kind] ?? []) as DataTableArrayItem[];
-      const next = patchDataTableItems(kind, mode, items, itemId, value);
-      await ctx.db
-        .from(dataTables)
-        .where(eq("id", dataTableId))
-        .update({ [kind]: next });
-      return { ok: true };
-    },
-  );
 
 const listDataFrames = wy.procedure
   .input({})
@@ -742,7 +441,7 @@ const getDataFrameByInsight = wy.procedure
 const putDataFrameEntry = wy.procedure
   .input({ entry: jsonb })
   .mutation(async (ctx, { entry }): Promise<{ id: string }> => {
-    const value = entry as DataFrameEntry;
+    const value = parseDataFrameEntryInput(entry);
     const existing = (await ctx.db
       .from(dataFrames)
       .where(eq("id", value.id))
@@ -780,11 +479,13 @@ const putDataFrameEntry = wy.procedure
 const updateDataFrameEntry = wy.procedure
   .input({ id: uuid, updates: jsonb })
   .mutation(async (ctx, { id, updates }): Promise<{ ok: true }> => {
-    const patch = updates as Partial<DataFrameEntry>;
-    const existing = (await ctx.db
-      .from(dataFrames)
-      .where(eq("id", id))
-      .first()) as DataFrameRow | undefined;
+    const patch = parseDataFrameEntryUpdate(updates);
+    const existing = requireWriteTarget(
+      (await ctx.db.from(dataFrames).where(eq("id", id)).first()) as
+        | DataFrameRow
+        | undefined,
+      `Data frame ${id}`,
+    );
     assertPublicFrameUpdate(existing, patch);
     if (patch.storage !== undefined) {
       assertExistingServerFrameImmutable(existing, patch.storage);
@@ -836,13 +537,16 @@ const removeDataFrameEntry = wy.procedure
   .input({ id: uuid })
   .mutation(async (ctx, { id }): Promise<{ ok: true }> => {
     assertCanonicalFrameSideEffects(ctx);
-    const row = (await ctx.db.from(dataFrames).where(eq("id", id)).first()) as
-      | DataFrameRow
-      | undefined;
-    if (row && (row.storage as DataFrameStorageLocation).type !== "file") {
+    const row = requireWriteTarget(
+      (await ctx.db.from(dataFrames).where(eq("id", id)).first()) as
+        | DataFrameRow
+        | undefined,
+      `Data frame ${id}`,
+    );
+    if ((row.storage as DataFrameStorageLocation).type !== "file") {
       throw new Error("Only server-owned DataFrames can be removed");
     }
-    const staged = await stageServerFrames(ctx, row ? [row] : []);
+    const staged = await stageServerFrames(ctx, [row]);
     try {
       await ctx.db.transaction(async (tx) => {
         await tx
@@ -860,9 +564,9 @@ const removeDataFrameEntry = wy.procedure
   });
 
 const listInsights = wy.procedure
-  .input({ excludeIds: jsonb.optional() })
+  .input({ excludeIds: uuid.array().optional() })
   .query(async (ctx, { excludeIds }): Promise<Insight[]> => {
-    const excluded = new Set((excludeIds as UUID[] | undefined) ?? []);
+    const excluded = new Set(excludeIds ?? []);
     const rows = (await ctx.db.from(insights).all()) as InsightRow[];
     return rows
       .map(decodeInsight)
@@ -876,268 +580,6 @@ const getInsight = wy.procedure
       | InsightRow
       | undefined;
     return row ? decodeInsight(row) : null;
-  });
-
-const createInsight = wy.procedure
-  .input({ name: text, baseTableId: uuid, options: jsonb.optional() })
-  .mutation(
-    async (ctx, { name, baseTableId, options }): Promise<{ id: string }> => {
-      const opts = (options ?? {}) as {
-        selectedFields?: UUID[];
-        metrics?: InsightMetric[];
-        /** Opt-in: when this would be an unmodified draft, reuse an existing
-         *  unmodified draft for the same baseTableId instead of inserting a
-         *  duplicate. The auto-draft entry point sets this; explicit creation
-         *  paths (e.g. deriving from an insight) leave it false. */
-        reuseUnmodifiedDraft?: boolean;
-      };
-
-      return ctx.db.transaction(async (tx) => {
-        // Validate BEFORE the reuse check, not merely before the insert. The
-        // guard has to sit above EVERY exit from this handler, because
-        // `isUnmodifiedDraft` reads `.length` off each array: a non-array like
-        // `selectedFields: {}` yields `undefined ?? 0 === 0` and reads as
-        // "unmodified", so a malformed request would take the reuse branch and
-        // return an existing draft's id — reporting success for input we refuse
-        // to store, and silently dropping what the caller meant to select.
-        // Parsing first makes the guard order-independent.
-        //
-        // Parsing also replaces the old hand-built draft-shape literal: the
-        // schema strips unknown keys, so `reuseUnmodifiedDraft` is already gone
-        // from `definition` and the predicate reads only definition fields.
-        const definition = storedInsightDefinitionSchema.parse(
-          // `options` arrives as opaque `jsonb` and is cast, not checked, so
-          // `encodeInsightDefinition` will pass a non-array `selectedFields`
-          // straight through (`{}` is not nullish, so `?? []` does not catch
-          // it). An unvalidated INSERT is worse than an unvalidated update: it
-          // mints a permanently undecodable row that fails the fail-closed read
-          // path for every later reader, not just this one.
-          encodeInsightDefinition({
-            baseTableId,
-            selectedFields: opts.selectedFields,
-            metrics: opts.metrics,
-          }),
-        );
-
-        // Reuse is opt-in and only applies when the incoming insight is itself an
-        // unmodified draft. A pre-populated insight (fields/metrics) or any
-        // non-auto-draft caller always inserts a fresh row.
-        const shouldReuse =
-          opts.reuseUnmodifiedDraft === true && isUnmodifiedDraft(definition);
-
-        if (shouldReuse) {
-          // Atomic check-and-create: scan-and-decide runs inside the transaction
-          // so two concurrent auto-draft calls for the same baseTableId converge
-          // on a single draft rather than racing into duplicates (TOCTOU).
-          //
-          // INVARIANT: this closes the race only while the backend is
-          // single-connection (PGlite, the desktop + `dashframe serve` target),
-          // where transactions serialize at the event loop. A multi-connection
-          // store under READ COMMITTED would let both transactions scan, find no
-          // draft, and both insert — reopening the phantom-read window. Trigger
-          // to revisit if the backend ever becomes multi-connection: add a unique
-          // index on (definition->>'baseTableId') for unmodified drafts, or take
-          // SELECT … FOR UPDATE / serializable isolation here.
-          //
-          // NOTE: baseTableId lives inside the `definition` JSONB column, and
-          // @wystack/db has no JSONB-path filtering — so the scan is a full table
-          // read filtered in JS. Acceptable at current insight-table scale.
-          // Trigger to revisit: when insight count grows enough that this scan
-          // shows up in latency, promote baseTableId to a top-level indexed
-          // column (or add a JSONB expression index) and filter at the DB layer.
-          const rows = (await tx.from(insights).all()) as InsightRow[];
-          // Fail OPEN here, unlike every read site. This scan only looks for a
-          // draft worth reusing, so an undecodable row is skipped rather than
-          // thrown: failing closed would let one corrupt row anywhere in the
-          // table block createInsight for every unrelated baseTableId, and the
-          // worst case of skipping is that we create a new draft instead of
-          // reusing one. `listInsights` still surfaces the corruption.
-          const existingDraft = rows.find((row) => {
-            let definition: StoredInsightDefinition;
-            try {
-              definition = decodeStoredInsightDefinition(row);
-            } catch {
-              return false;
-            }
-            return (
-              definition.baseTableId === baseTableId &&
-              isUnmodifiedDraft(definition)
-            );
-          });
-
-          if (existingDraft) {
-            return { id: existingDraft.id };
-          }
-        }
-
-        const [row] = (await tx.into(insights).insert({
-          name,
-          definition,
-          createdBy: { kind: "user" },
-        })) as InsightRow[];
-        if (!row) throw new Error("insert returned no row");
-        return { id: row.id };
-      });
-    },
-  );
-
-const updateInsight = wy.procedure
-  .input({ id: uuid, updates: jsonb })
-  .mutation(async (ctx, { id, updates }): Promise<{ ok: true }> => {
-    // Read-modify-write on the definition blob runs inside a transaction: an
-    // interleaved SetInsightSource would otherwise commit between the read and
-    // the write, and this write-back of the stale snapshot would silently
-    // revert the accepted source change. Same single-connection serialization
-    // INVARIANT as the createInsight dedup scan above — see the note there.
-    await ctx.db.transaction(async (tx) => {
-      const row = await loadInsightRow({ db: tx }, id);
-      const stored = decodeStoredInsightDefinition(row);
-      const patch = updates as Partial<Insight>;
-      // `name` is a row column, not part of the definition blob, so the schema
-      // parse below never sees it. Without this check an untyped `updates`
-      // could put a non-string straight into the column — the same unchecked
-      // write this procedure exists to close, just on the other field.
-      if (patch.name !== undefined && typeof patch.name !== "string") {
-        throw new Error("updateInsight: name must be a string");
-      }
-      if (
-        patch.baseTableId !== undefined &&
-        patch.baseTableId !== stored.baseTableId
-      ) {
-        throw new Error(
-          "updateInsight cannot repoint baseTableId; use SetInsightSource",
-        );
-      }
-      if (Object.hasOwn(patch, "runtimeControls")) {
-        throw new Error(
-          "updateInsight cannot set runtimeControls; use SetInsightRuntimeControls",
-        );
-      }
-      await tx
-        .from(insights)
-        .where(eq("id", id))
-        .update({
-          ...(patch.name !== undefined ? { name: patch.name } : {}),
-          definition: storedInsightDefinitionSchema.parse({
-            ...stored,
-            ...patch,
-            ...(patch.filters !== undefined
-              ? { filters: ensureInsightFilterIds(patch.filters) }
-              : {}),
-            // Pinned from the stored blob, never the patch. `source` is a valid
-            // schema key, so an untyped `updates` carrying one would otherwise
-            // win the spread and write a composition edge that never passed
-            // `requireSourceExists`/`wouldCreateCycle` — the same back-door the
-            // `baseTableId` guard above closes, and a more direct one. `Insight`
-            // has no `source`, so the cast hides this from the type checker.
-            source: stored.source,
-          }),
-        });
-    });
-    return { ok: true };
-  });
-
-const removeInsight = wy.procedure
-  .input({ id: uuid })
-  .mutation(async (ctx, { id }): Promise<{ ok: true }> => {
-    assertCanonicalFrameSideEffects(ctx);
-    const candidates = (await ctx.db
-      .from(dataFrames)
-      .where(eq("insightId", id))
-      .all()) as DataFrameRow[];
-    if (
-      candidates.some(
-        (frame) =>
-          (frame.storage as { type?: unknown } | null)?.type !== "file",
-      )
-    ) {
-      throw new Error("Legacy browser DataFrames are not supported");
-    }
-    const owned = await framesUnreferencedOutsideTables(
-      ctx,
-      candidates,
-      new Set(),
-    );
-    const staged = await stageServerFrames(ctx, owned);
-    try {
-      await ctx.db.transaction(async (tx) => {
-        for (const frame of owned) {
-          await tx.from(dataFrames).where(eq("id", frame.id)).delete();
-        }
-        await tx.from(visualizations).where(eq("insightId", id)).delete();
-        await tx.from(insights).where(eq("id", id)).delete();
-      });
-    } catch (error) {
-      await rollbackStagedServerFrames(ctx, staged);
-      throw error;
-    }
-    await commitStagedServerFrames(ctx, staged);
-    return { ok: true };
-  });
-
-// Discriminated-union guard for patchInsight mode inputs.
-// Guards the SINK — validates at the handler boundary before the helper call,
-// catching malformed payloads that arrive from any untrusted client path.
-const patchInsightArgsSchema = z.discriminatedUnion("mode", [
-  z.object({
-    mode: z.literal("addMetric"),
-    metric: z.record(z.string(), z.unknown()),
-  }),
-  z.object({
-    mode: z.literal("addField"),
-    fieldId: z.string().uuid(),
-  }),
-  z.object({
-    mode: z.literal("removeField"),
-    fieldId: z.string().uuid(),
-  }),
-  z.object({
-    mode: z.literal("updateMetric"),
-    metricId: z.string().uuid(),
-    updates: z.record(z.string(), z.unknown()),
-  }),
-  z.object({
-    mode: z.literal("removeMetric"),
-    metricId: z.string().uuid(),
-  }),
-]);
-
-const patchInsight = wy.procedure
-  .input({
-    id: uuid,
-    mode: text,
-    fieldId: uuid.optional(),
-    metricId: uuid.optional(),
-    metric: jsonb.optional(),
-    updates: jsonb.optional(),
-  })
-  .mutation(async (ctx, args): Promise<{ ok: true }> => {
-    const parsed = patchInsightArgsSchema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(parsed.error.message);
-    }
-    // Transactional for the same reason as updateInsight: this is a
-    // read-modify-write of the definition blob, and an interleaved
-    // SetInsightSource would otherwise be reverted by the stale write-back.
-    await ctx.db.transaction(async (tx) => {
-      const row = await loadInsightRow({ db: tx }, args.id);
-      // One parse, two views: `toInsight` projects the already-decoded
-      // definition instead of decoding the row a second time.
-      const stored = decodeStoredInsightDefinition(row);
-      const current = toInsight(row, stored);
-      const { selectedFields, metrics } = patchInsightDefinition(current, args);
-      await tx
-        .from(insights)
-        .where(eq("id", args.id))
-        .update({
-          definition: storedInsightDefinitionSchema.parse({
-            ...stored,
-            selectedFields,
-            metrics,
-          }),
-        });
-    });
-    return { ok: true };
   });
 
 const listVisualizations = wy.procedure
@@ -1160,44 +602,6 @@ const getVisualization = wy.procedure
       .where(eq("id", id))
       .first()) as VisualizationRow | undefined;
     return row ? rowToVisualization(row) : null;
-  });
-
-const createVisualization = wy.procedure
-  .input({
-    name: text,
-    insightId: uuid,
-    visualizationType: text,
-    spec: jsonb,
-    encoding: jsonb.optional(),
-  })
-  .mutation(
-    async (
-      ctx,
-      { name, insightId, visualizationType, spec, encoding },
-    ): Promise<{ id: string }> => {
-      // Same write-time gate as the CreateVisualization command handler in
-      // commands.ts — this legacy RPC writes the same column, so leaving it
-      // unchecked would keep the malformed-encoding hole open (GH #289).
-      const problem = validateVisualizationEncoding(encoding);
-      if (problem) throw new Error(`createVisualization: ${problem}`);
-      const [row] = (await ctx.db.into(visualizations).insert({
-        name,
-        insightId,
-        chartType: visualizationType,
-        encoding: (encoding ?? {}) as VisualizationEncoding,
-        options: { spec: stripDataFromSpec(spec as VegaLiteSpec) },
-        createdBy: { kind: "user" },
-      })) as VisualizationRow[];
-      if (!row) throw new Error("insert returned no row");
-      return { id: row.id };
-    },
-  );
-
-const removeVisualization = wy.procedure
-  .input({ id: uuid })
-  .mutation(async (ctx, { id }): Promise<{ ok: true }> => {
-    await ctx.db.from(visualizations).where(eq("id", id)).delete();
-    return { ok: true };
   });
 
 const clearAllData = wy.procedure
@@ -1362,7 +766,17 @@ async function persistConnectorFrame(
   } catch {
     throw new Error("Connector returned malformed Arrow IPC");
   }
-  const expectedNames = args.approvedFields.map(
+  // Connector fields originate outside the artifact trust boundary. Replace
+  // their claimed ownership with the canonical target table id before writing.
+  const approvedFields = withCanonicalFieldOwnership(
+    args.approvedFields,
+    args.tableId,
+  );
+  parseStoredDataTableState(
+    { sourceSchema: null, fields: approvedFields, metrics: [] },
+    `Data table ${args.tableId} connector fields`,
+  );
+  const expectedNames = approvedFields.map(
     (field) => field.columnName ?? field.name,
   );
   if (
@@ -1413,7 +827,7 @@ async function persistConnectorFrame(
         lastRefreshedAt: new Date(),
       });
       await tx.from(dataTables).where(eq("id", args.tableId)).update({
-        fields: args.approvedFields,
+        fields: approvedFields,
         dataFrameId,
         lastFetchedAt: new Date(),
       });
@@ -1735,46 +1149,6 @@ async function framesByIds(
   return rows;
 }
 
-async function framesForDefinitions(
-  ctx: DashframeFunctionContext,
-  definitionIds: readonly string[],
-): Promise<DataFrameRow[]> {
-  const ids = [...new Set(definitionIds)];
-  if (ids.length === 0) return [];
-  const rows: DataFrameRow[] = [];
-  for (const definitionId of ids) {
-    rows.push(
-      ...((await ctx.db
-        .from(dataFrames)
-        .where(eq("definitionId", definitionId))
-        .all()) as DataFrameRow[]),
-    );
-  }
-  return rows;
-}
-
-async function framesForSources(
-  ctx: DashframeFunctionContext,
-  sourceIds: readonly string[],
-): Promise<DataFrameRow[]> {
-  const ids = [...new Set(sourceIds)];
-  if (ids.length === 0) return [];
-  const rows: DataFrameRow[] = [];
-  for (const sourceId of ids) {
-    rows.push(
-      ...((await ctx.db
-        .from(dataFrames)
-        .where(eq("sourceId", sourceId))
-        .all()) as DataFrameRow[]),
-    );
-  }
-  return rows;
-}
-
-function dedupeFrames(rows: readonly DataFrameRow[]): DataFrameRow[] {
-  return [...new Map(rows.map((row) => [row.id, row])).values()];
-}
-
 async function framesUnreferencedOutsideTables(
   ctx: DashframeFunctionContext,
   frames: DataFrameRow[],
@@ -1816,6 +1190,7 @@ const queryNotionDatabase = wy.procedure
       ctx,
       { dataSourceId, databaseId, tableId, limit, snapshot, approvedFields },
     ): Promise<NotionQueryResult> => {
+      const reviewedFields = parseReviewedFieldsInput(approvedFields);
       const connector = await notionConnectorFor(ctx, dataSourceId);
       const table = await connectorTableBinding(ctx, dataSourceId, tableId);
       if (databaseId !== table.table) {
@@ -1835,7 +1210,7 @@ const queryNotionDatabase = wy.procedure
             tableId,
             fieldIds: result.fieldIds,
             approvedFields: approvedFieldsForSnapshot(
-              approvedFields,
+              reviewedFields,
               result.fieldIds,
               result.fields,
             ),
@@ -1954,6 +1329,7 @@ const queryPostgresTable = wy.procedure
       ctx,
       { dataSourceId, databaseId, tableId, limit, snapshot, approvedFields },
     ): Promise<PostgresQueryResult> => {
+      const reviewedFields = parseReviewedFieldsInput(approvedFields);
       const connector = await postgresConnectorFor(ctx, dataSourceId);
       const table = await connectorTableBinding(ctx, dataSourceId, tableId);
       if (databaseId !== table.table) {
@@ -1971,7 +1347,7 @@ const queryPostgresTable = wy.procedure
             tableId,
             fieldIds: result.fieldIds,
             approvedFields: approvedFieldsForSnapshot(
-              approvedFields,
+              reviewedFields,
               result.fieldIds,
               result.fields,
             ),
@@ -2198,6 +1574,7 @@ const queryGa4Property = wy.procedure
       ctx,
       { dataSourceId, tableId, limit, snapshot, approvedFields },
     ): Promise<Ga4QueryResult> => {
+      const reviewedFields = parseReviewedFieldsInput(approvedFields);
       const connector = await ga4ConnectorFor(ctx, dataSourceId);
       const table = await connectorTableBinding(ctx, dataSourceId, tableId);
       await requireConnectorMaterializationPermission(ctx, snapshot);
@@ -2210,7 +1587,7 @@ const queryGa4Property = wy.procedure
             tableId,
             fieldIds: result.fieldIds,
             approvedFields: approvedFieldsForSnapshot(
-              approvedFields,
+              reviewedFields,
               result.fieldIds,
               result.fields,
             ),
@@ -2234,6 +1611,13 @@ function structuralFieldSignature(fields: readonly Field[]): string {
       type: field.type,
     })),
   );
+}
+
+function withCanonicalFieldOwnership(
+  fields: readonly Field[],
+  tableId: UUID,
+): Field[] {
+  return fields.map((field) => ({ ...field, tableId }));
 }
 
 /**
@@ -2275,7 +1659,12 @@ const prepareRemoteDataTable = wy.procedure
       throw new Error(`DataSource ${source.id} is not a remote connector`);
     }
 
-    let preparedFields = result.fields;
+    const discoveredFields = withCanonicalFieldOwnership(result.fields, id);
+    parseStoredDataTableState(
+      { sourceSchema: null, fields: discoveredFields, metrics: [] },
+      `Data table ${id} discovered fields`,
+    );
+    let preparedFields = discoveredFields;
     await ctx.db.transaction(async (tx) => {
       const current = (await tx
         .from(dataTables)
@@ -2292,7 +1681,7 @@ const prepareRemoteDataTable = wy.procedure
       if (
         currentFields.length > 0 &&
         structuralFieldSignature(currentFields) !==
-          structuralFieldSignature(result.fields)
+          structuralFieldSignature(discoveredFields)
       ) {
         throw new Error("SOURCE_SCHEMA_CHANGED");
       }
@@ -2300,7 +1689,7 @@ const prepareRemoteDataTable = wy.procedure
         await tx
           .from(dataTables)
           .where(eq("id", id))
-          .update({ fields: result.fields });
+          .update({ fields: discoveredFields });
       } else {
         // Connector discovery creates fresh Field ids on every call. Once a
         // structural schema is prepared, its persisted ids are canonical and
@@ -2315,14 +1704,8 @@ export const appArtifactFunctions = {
   listDataSources,
   getDataSource,
   getDataSourceByType,
-  removeDataSource,
   listDataTables,
   getDataTable,
-  addDataTable,
-  updateDataTable,
-  refreshDataTable,
-  removeDataTable,
-  patchDataTableArray,
   listDataFrames,
   getDataFrameEntry,
   getDataFrameByInsight,
@@ -2331,14 +1714,8 @@ export const appArtifactFunctions = {
   removeDataFrameEntry,
   listInsights,
   getInsight,
-  createInsight,
-  updateInsight,
-  removeInsight,
-  patchInsight,
   listVisualizations,
   getVisualization,
-  createVisualization,
-  removeVisualization,
   clearAllData,
   // Notion data-plane routes (auth-blind via bound resolver)
   listNotionDatabases,
