@@ -27,8 +27,22 @@ function metric(mid: UUID, name: string): InsightMetric {
   };
 }
 
-const baseInsight: Pick<Insight, "metrics"> = {
+const baseInsight: Pick<
+  Insight,
+  | "source"
+  | "selectedFields"
+  | "metrics"
+  | "filters"
+  | "sorts"
+  | "joins"
+  | "runtimeControls"
+> = {
+  source: { sourceType: "dataTable", sourceId: tableId },
+  selectedFields: [],
   metrics: [],
+  filters: [],
+  sorts: [],
+  joins: [],
 };
 
 describe("cmd + COMMAND_PATHS", () => {
@@ -137,6 +151,40 @@ describe("buildInsightUpdateCommands", () => {
       "addMetric",
       "setInsightRuntimeControls",
     ]);
+  });
+
+  it("builds an atomic source transition through an empty valid definition", () => {
+    const priorMetric = metric(midA, "Prior");
+    const nextMetric = metric(midB, "Next");
+    const current = {
+      ...baseInsight,
+      selectedFields: [midA],
+      metrics: [priorMetric],
+      filters: [{ field: "amount", operator: "eq" as const, value: 1 }],
+      sorts: [{ field: "amount", direction: "asc" as const }],
+      runtimeControls: { limit: { min: 1, max: 10 } },
+    };
+    const commands = buildInsightUpdateCommands(id, current, {
+      source: { sourceType: "dataTable", sourceId: midB },
+      selectedFields: [midB],
+      metrics: [nextMetric],
+    });
+
+    expect(commands.map((command) => command.path)).toEqual([
+      "setInsightFilter",
+      "setInsightSort",
+      "setInsightRuntimeControls",
+      "removeMetric",
+      "selectFields",
+      "setInsightSource",
+      "selectFields",
+      "addMetric",
+      "setInsightFilter",
+      "setInsightSort",
+      "setInsightRuntimeControls",
+    ]);
+    expect(commands[4]).toEqual(cmd("SelectFields", { id, fieldIds: [] }));
+    expect(commands[6]).toEqual(cmd("SelectFields", { id, fieldIds: [midB] }));
   });
 
   it("returns empty when no known slices are present", () => {

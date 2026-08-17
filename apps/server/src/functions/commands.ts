@@ -2596,13 +2596,7 @@ async function deleteInsightDataFrames(
     .from(dataFrames)
     .where(eq("insightId", insightId))
     .all();
-  if (
-    owned.some(
-      (frame) => (frame.storage as { type?: unknown } | null)?.type !== "file",
-    )
-  ) {
-    throw new Error("Legacy browser DataFrames are not supported");
-  }
+  assertServerFileFrames(owned);
   for (const frame of owned) {
     const references = await ctx.db
       .from(dataTables)
@@ -2610,6 +2604,14 @@ async function deleteInsightDataFrames(
       .all();
     if (references.length === 0) {
       await ctx.db.from(dataFrames).where(eq("id", frame.id)).delete();
+    }
+  }
+}
+
+function assertServerFileFrames(frames: Iterable<{ storage: unknown }>): void {
+  for (const frame of frames) {
+    if ((frame.storage as { type?: unknown } | null)?.type !== "file") {
+      throw new Error("Legacy browser DataFrames are not supported");
     }
   }
 }
@@ -2700,6 +2702,7 @@ async function deleteOwnedSourceDataFrames(
     .where(eq("sourceId", sourceId))
     .all();
   for (const frame of sourced) candidates.set(frame.id, frame);
+  assertServerFileFrames(candidates.values());
   for (const frame of candidates.values()) {
     const references = await ctx.db
       .from(dataTables)
@@ -2728,6 +2731,7 @@ async function deleteCanonicalTableDataFrames(
     .where(eq("definitionId", table.id))
     .all();
   for (const frame of defined) candidates.set(frame.id, frame);
+  assertServerFileFrames(candidates.values());
   for (const frame of candidates.values()) {
     const references = await ctx.db
       .from(dataTables)
