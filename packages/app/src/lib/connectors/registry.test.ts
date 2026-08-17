@@ -20,7 +20,7 @@ import { localFileConnector } from "@dashframe/connector-local";
 import { makeNotionConnector } from "@dashframe/connector-notion";
 import type { AnyConnector } from "@dashframe/engine";
 import type { ConnectorCatalogEntry } from "@dashframe/types";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vite-plus/test";
 import {
   clearConnectorRegistry,
   getConnectorById,

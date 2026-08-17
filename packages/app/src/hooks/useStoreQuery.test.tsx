@@ -11,7 +11,7 @@
  * - Type safety guarantees
  */
 import { act, renderHook } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { useStoreQuery } from "./useStoreQuery";
 
 // Type for our mock store state

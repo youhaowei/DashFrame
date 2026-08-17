@@ -66,7 +66,7 @@ export function useConnectorForm<T extends BaseConnector>(connector: T) {
    * (see BaseConnector in @dashframe/engine). If dynamic form fields become
    * needed, consider adding a version/hash property to BaseConnector.
    */
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- see comment above
+  // oxlint-disable-next-line react-hooks-js/exhaustive-deps -- see comment above
   const formFields = useMemo(() => connector.getFormFields(), [connector.id]);
 
   // Build default values from form field definitions

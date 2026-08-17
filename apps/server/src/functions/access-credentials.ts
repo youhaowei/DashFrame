@@ -77,9 +77,8 @@ const getAccessCapabilities = wy.procedure
 
 const listAccessCredentials = configuredAccessCredentialProcedure
   .input({})
-  .query(
-    async (ctx): Promise<AccessCredential[]> =>
-      (await credentials(ctx).list()).map(toDto),
+  .query(async (ctx): Promise<AccessCredential[]> =>
+    (await credentials(ctx).list()).map(toDto),
   );
 
 const issueAccessCredential = configuredAccessCredentialProcedure

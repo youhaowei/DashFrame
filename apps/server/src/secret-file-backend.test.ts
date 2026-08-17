@@ -15,7 +15,14 @@ import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 
 import {
   deriveKeyId,
@@ -207,7 +214,7 @@ describe("AC-2: plaintext never at rest", () => {
     // restored backup can be group-writable, which would let another local user
     // unlink or replace blobs.
     await fs.mkdir(blobs, { recursive: true, mode: 0o700 });
-    // eslint-disable-next-line sonarjs/file-permissions -- deliberately insecure mode under test
+    // oxlint-disable-next-line sonarjs/file-permissions -- deliberately insecure mode under test
     await fs.chmod(blobs, 0o755);
     await expect(backend().store("secret")).rejects.toThrow(
       /must not be group- or world-accessible/,
@@ -336,7 +343,7 @@ describe("AC-3: has() never decrypts", () => {
     await fs.writeFile(path.join(blobs, wideOpen), "irrelevant", {
       mode: 0o600,
     });
-    // eslint-disable-next-line sonarjs/file-permissions -- deliberately insecure mode under test
+    // oxlint-disable-next-line sonarjs/file-permissions -- deliberately insecure mode under test
     await fs.chmod(path.join(blobs, wideOpen), 0o644);
 
     const directory = "c".repeat(32);
@@ -636,7 +643,7 @@ describe("AC-6: key validation at startup", () => {
   it("rejects group/world-readable key-file permissions", async () => {
     const file = path.join(root, "wide-key");
     await fs.writeFile(file, key(1).toString("base64"), { mode: 0o600 });
-    // eslint-disable-next-line sonarjs/file-permissions -- deliberately insecure mode under test
+    // oxlint-disable-next-line sonarjs/file-permissions -- deliberately insecure mode under test
     await fs.chmod(file, 0o644);
     await expect(
       loadSecretKeyring({ DASHFRAME_SECRET_KEY_FILE: file }),
@@ -923,7 +930,7 @@ describe("AC-9: error-message hygiene", () => {
 
   it("never leaks the storage path when the directory is mis-permissioned", async () => {
     await fs.mkdir(blobs, { recursive: true, mode: 0o700 });
-    // eslint-disable-next-line sonarjs/file-permissions -- deliberately insecure mode under test
+    // oxlint-disable-next-line sonarjs/file-permissions -- deliberately insecure mode under test
     await fs.chmod(blobs, 0o755);
     await expect(backend().store("secret")).rejects.toThrow(
       expectsNoPathOrLocator(),

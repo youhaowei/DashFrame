@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import type { KeychainOAuth } from "./keychain.js";
 import type { RefreshedCredentials } from "./refresh.js";

@@ -9,7 +9,7 @@
  * the bug class cannot recur silently at either call site.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { JOIN_TYPE_TO_SQL_KEYWORD, joinTypeToSQL } from "../join-sql";
 
 describe("joinTypeToSQL", () => {

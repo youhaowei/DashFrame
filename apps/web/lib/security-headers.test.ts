@@ -4,7 +4,7 @@
  * These tests ensure that all expected security headers are present
  * and properly configured for both development and production environments.
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 import { getSecurityHeaders } from "./security-headers";
 
 describe("Security Headers", () => {

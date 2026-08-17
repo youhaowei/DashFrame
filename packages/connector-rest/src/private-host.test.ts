@@ -6,11 +6,11 @@
  * for a public host. This is the sink-guard for connector URL validation — the
  * test pins each blocked range so a future edit cannot silently re-open one.
  */
-/* eslint-disable sonarjs/no-hardcoded-ip --
+/* oxlint-disable sonarjs/no-hardcoded-ip --
  * Hardcoded IP literals are intrinsic to this file: it tests an IP-range
  * classifier, so each blocked/allowed range MUST be asserted by literal. These
  * are test fixtures, never a runtime connection target. */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { isPrivateHost } from "./private-host.js";
 
@@ -105,7 +105,7 @@ describe("isPrivateHost (SSRF sink-guard)", () => {
   // assertions pin the classifier against what URL actually emits (the dotted
   // literal a unit test feeds it never appears in production).
   describe("via new URL().hostname (the production code path)", () => {
-    /* eslint-disable sonarjs/no-clear-text-protocols -- SSRF fixtures: internal http targets the classifier must reject; plain http is the realistic attacker form. */
+    /* oxlint-disable sonarjs/no-clear-text-protocols -- SSRF fixtures: internal http targets the classifier must reject; plain http is the realistic attacker form. */
     it.each([
       ["http://[::ffff:10.0.0.1]/data", "IPv4-mapped private"],
       [
@@ -129,6 +129,6 @@ describe("isPrivateHost (SSRF sink-guard)", () => {
     ])("allows %s (%s)", (url) => {
       expect(isPrivateHost(new URL(url).hostname)).toBe(false);
     });
-    /* eslint-enable sonarjs/no-clear-text-protocols */
+    /* oxlint-enable sonarjs/no-clear-text-protocols */
   });
 });

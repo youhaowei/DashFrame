@@ -2,7 +2,7 @@ import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 import { fileURLToPath } from "url";
-import { defineConfig, loadEnv, type Plugin } from "vite";
+import { defineConfig, loadEnv, type Plugin, lazyPlugins } from "vite-plus";
 
 import { getSecurityHeaders } from "./lib/security-headers";
 
@@ -18,7 +18,7 @@ const appRoutesDir = path.resolve(appSrcDir, "routes");
 // across to:
 //   - Vite's dev + preview servers (middleware)
 //   - Static deployments (emits `_headers` for CloudFlare Pages / Netlify
-//     and `vercel.json` for Vercel during `vite build` so the production
+//     and `vercel.json` for Vercel during `vp build` so the production
 //     dist/ ships with the same CSP + COOP/COEP)
 // Also emits `_redirects` for SPA-history fallback so deep links don't 404
 // on a static host that doesn't auto-fallback to index.html.
@@ -110,7 +110,7 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
-    plugins: [
+    plugins: lazyPlugins(() => [
       tanstackRouter({
         target: "react",
         autoCodeSplitting: true,
@@ -122,7 +122,7 @@ export default defineConfig(({ mode }) => {
       }),
       react(),
       securityHeadersPlugin(env),
-    ],
+    ]),
     resolve: {
       alias: {
         // `@` now resolves into the shared package — the moved files' `@/...`

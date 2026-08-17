@@ -32,9 +32,9 @@
   "scripts": {
     "dev": "bun run src/index.ts",
     "start": "bun run src/index.ts",
-    "test": "vitest run",
+    "test": "vp test run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "eslint src",
+    "lint": "vp lint src",
     "check": "bun run typecheck && bun run lint"
   },
   "dependencies": {
@@ -61,11 +61,11 @@
   },
   "devDependencies": {
     "@dashframe/connector-local": "workspace:*",
-    "@dashframe/eslint-config": "workspace:*",
     "@types/bun": "^1.2.0",
     "@wystack/client": "workspace:*",
     "esbuild": "^0.28.0",
     "typescript": "5.7.2",
-    "vitest": "^4.1.6"
+    "vitest": "catalog:",
+    "vite-plus": "catalog:"
   }
 }

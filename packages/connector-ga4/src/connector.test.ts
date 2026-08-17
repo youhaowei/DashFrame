@@ -1,5 +1,5 @@
 import { tableFromIPC } from "apache-arrow";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { makeGa4Connector, type GoogleOAuthTokenBundle } from "./connector";
 

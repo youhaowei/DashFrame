@@ -1,9 +1,9 @@
 import {
+  COMMAND_GUIDE,
   createReadTools,
   CREDENTIAL_COMMAND_ARG_FIELDS,
   defineToolHandler,
   DRAFT_SAFE_COMMANDS,
-  renderCommandGuide,
   Type,
   validateToolArgs,
   type GraphReader,
@@ -23,6 +23,7 @@ import { createAssistantReadHost } from "../assistant-read-host";
 import { DRAFT_UNAVAILABLE } from "../draft-access";
 import { assertKnownCommandPaths } from "../functions/commands";
 import { draftIdFromBatchError } from "../functions/draft-batch";
+import { REPORT_APP_URI } from "./report-app";
 import type { McpMode, McpRequestContext } from "./route";
 
 type AssistantTool = {
@@ -40,8 +41,17 @@ type AssistantTool = {
 
 export interface McpTool {
   name: string;
+  title?: string;
   description: string;
   inputSchema: TSchema;
+  outputSchema?: TSchema;
+  annotations?: {
+    readOnlyHint: boolean;
+    destructiveHint: boolean;
+    idempotentHint?: boolean;
+    openWorldHint: boolean;
+  };
+  _meta?: Record<string, unknown>;
   execute(args: unknown): Promise<{
     content: Array<{ type: "text"; text: string }>;
     isError?: boolean;
@@ -53,6 +63,293 @@ export interface McpTool {
 export const DRAFT_BATCH_TOOL_NAME = "draft_batch";
 
 const DATA_QUERY_MAX_LIMIT = 500;
+const REPORT_PREVIEW_LIMIT = 50;
+const REPORT_INITIAL_PAGE_LIMIT = 10;
+const REPORT_SCHEMA_LIMIT = 100;
+
+const READ_ONLY_ANNOTATIONS = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false,
+} as const;
+
+const CLOSED_SCHEMA = { additionalProperties: false } as const;
+const ARTIFACT_KINDS = [
+  "dataSource",
+  "dataTable",
+  "dataFrame",
+  "insight",
+  "visualization",
+  "dashboard",
+] as const;
+
+const artifactKindSchema = Type.Union(
+  ARTIFACT_KINDS.map((kind) => Type.Literal(kind)),
+);
+const nodeRefSchema = Type.Object(
+  {
+    kind: artifactKindSchema,
+    id: Type.String({ format: "uuid" }),
+  },
+  CLOSED_SCHEMA,
+);
+const nodeSummarySchema = Type.Object(
+  {
+    ref: nodeRefSchema,
+    name: Type.String(),
+  },
+  CLOSED_SCHEMA,
+);
+const frameFieldSchema = Type.Object(
+  {
+    id: Type.String(),
+    name: Type.String(),
+    type: Type.String(),
+  },
+  CLOSED_SCHEMA,
+);
+const frameMetadataSchema = Type.Object(
+  {
+    dataFrameId: Type.String({ format: "uuid" }),
+    schema: Type.Array(frameFieldSchema),
+    rowCount: Type.Integer({ minimum: 0 }),
+    provenance: Type.Object(
+      {
+        connectorKind: Type.String(),
+        bindingVersion: Type.String(),
+      },
+      CLOSED_SCHEMA,
+    ),
+    fetchedAt: Type.Number(),
+  },
+  CLOSED_SCHEMA,
+);
+const readyMaterializationSchema = Type.Object(
+  {
+    status: Type.Literal("ready"),
+    ...frameMetadataSchema.properties,
+  },
+  CLOSED_SCHEMA,
+);
+const failedMaterializationSchema = Type.Object(
+  {
+    status: Type.Literal("failed"),
+    code: Type.String(),
+    message: Type.String(),
+    retryable: Type.Boolean(),
+    lastSuccessful: Type.Optional(
+      Type.Object(
+        {
+          stale: Type.Literal(true),
+          ...frameMetadataSchema.properties,
+        },
+        CLOSED_SCHEMA,
+      ),
+    ),
+  },
+  CLOSED_SCHEMA,
+);
+const materializationOutputSchema = Type.Object(
+  {
+    status: Type.Union([Type.Literal("ready"), Type.Literal("failed")]),
+    dataFrameId: Type.Optional(Type.String({ format: "uuid" })),
+    schema: Type.Optional(Type.Array(frameFieldSchema)),
+    rowCount: Type.Optional(Type.Integer({ minimum: 0 })),
+    provenance: Type.Optional(
+      Type.Object(
+        {
+          connectorKind: Type.String(),
+          bindingVersion: Type.String(),
+        },
+        CLOSED_SCHEMA,
+      ),
+    ),
+    fetchedAt: Type.Optional(Type.Number()),
+    code: Type.Optional(Type.String()),
+    message: Type.Optional(Type.String()),
+    retryable: Type.Optional(Type.Boolean()),
+    lastSuccessful: Type.Optional(
+      Type.Object(
+        {
+          stale: Type.Literal(true),
+          ...frameMetadataSchema.properties,
+        },
+        CLOSED_SCHEMA,
+      ),
+    ),
+  },
+  {
+    ...CLOSED_SCHEMA,
+    oneOf: [readyMaterializationSchema, failedMaterializationSchema],
+  },
+);
+
+function publicMaterializationResult(
+  value: Record<string, unknown>,
+): Record<string, unknown> {
+  if (value.status === "ready") {
+    return {
+      status: "ready",
+      dataFrameId: value.dataFrameId,
+      schema: value.schema,
+      rowCount: value.rowCount,
+      provenance: value.provenance,
+      fetchedAt: value.fetchedAt,
+    };
+  }
+  return {
+    status: "failed",
+    code: value.code,
+    message: value.message,
+    retryable: value.retryable,
+    ...(typeof value.lastSuccessful === "object" &&
+    value.lastSuccessful !== null
+      ? {
+          lastSuccessful: publicStaleFrame(
+            value.lastSuccessful as Record<string, unknown>,
+          ),
+        }
+      : {}),
+  };
+}
+
+function publicStaleFrame(value: Record<string, unknown>) {
+  return {
+    stale: true,
+    dataFrameId: value.dataFrameId,
+    schema: value.schema,
+    rowCount: value.rowCount,
+    provenance: value.provenance,
+    fetchedAt: value.fetchedAt,
+  };
+}
+
+const readToolOutputSchemas: Readonly<Record<string, TSchema>> = {
+  read_neighborhood: Type.Object(
+    {
+      neighborhood: Type.Optional(
+        Type.Object(
+          {
+            center: nodeSummarySchema,
+            downstream: Type.Array(nodeSummarySchema),
+            upstream: Type.Array(nodeSummarySchema),
+          },
+          CLOSED_SCHEMA,
+        ),
+      ),
+      error: Type.Optional(Type.String()),
+    },
+    CLOSED_SCHEMA,
+  ),
+  read_graph: Type.Object(
+    {
+      reached: Type.Array(
+        Type.Object(
+          {
+            ...nodeSummarySchema.properties,
+            depth: Type.Integer({ minimum: 0, maximum: 6 }),
+          },
+          CLOSED_SCHEMA,
+        ),
+      ),
+    },
+    CLOSED_SCHEMA,
+  ),
+  find_nodes: Type.Object(
+    { hits: Type.Array(nodeSummarySchema) },
+    CLOSED_SCHEMA,
+  ),
+  read_artifact: Type.Object(
+    {
+      kind: Type.Optional(artifactKindSchema),
+      definition: Type.Optional(Type.Any()),
+      error: Type.Optional(Type.String()),
+    },
+    CLOSED_SCHEMA,
+  ),
+  read_data: Type.Object(
+    {
+      node: Type.Optional(nodeRefSchema),
+      masked: Type.Optional(Type.Boolean()),
+      resolution: Type.Optional(
+        Type.Union([Type.Literal("complete"), Type.Literal("unresolved")]),
+      ),
+      unresolvedReason: Type.Optional(Type.String()),
+      columns: Type.Optional(
+        Type.Array(
+          Type.Object(
+            {
+              name: Type.String(),
+              type: Type.String(),
+              sensitivity: Type.Union([
+                Type.Literal("unclassified"),
+                Type.Literal("sensitive"),
+                Type.Literal("cleared"),
+              ]),
+              stats: Type.Optional(
+                Type.Object(
+                  {
+                    rowCount: Type.Optional(Type.Integer({ minimum: 0 })),
+                    nullCount: Type.Optional(Type.Integer({ minimum: 0 })),
+                    distinctCount: Type.Optional(Type.Integer({ minimum: 0 })),
+                  },
+                  CLOSED_SCHEMA,
+                ),
+              ),
+            },
+            CLOSED_SCHEMA,
+          ),
+        ),
+      ),
+      sample: Type.Optional(
+        Type.Object(
+          {
+            tier: Type.Union([
+              Type.Literal("raw"),
+              Type.Literal("mixed"),
+              Type.Literal("obfuscated"),
+            ]),
+            rows: Type.Array(Type.Record(Type.String(), Type.Any())),
+            rowCount: Type.Integer({ minimum: 0 }),
+            truncated: Type.Boolean(),
+          },
+          CLOSED_SCHEMA,
+        ),
+      ),
+      error: Type.Optional(Type.String()),
+    },
+    CLOSED_SCHEMA,
+  ),
+  read_source: Type.Object(
+    {
+      file: Type.Optional(Type.String()),
+      text: Type.Optional(Type.String()),
+      error: Type.Optional(Type.String()),
+    },
+    CLOSED_SCHEMA,
+  ),
+};
+
+const draftBatchOutputSchema = Type.Object(
+  {
+    draftId: Type.String({ format: "uuid" }),
+    commandCount: Type.Integer({ minimum: 1 }),
+  },
+  CLOSED_SCHEMA,
+);
+
+function outputSchemaForAssistantTool(
+  name: string,
+  isReadTool: boolean,
+): TSchema {
+  if (!isReadTool) return draftBatchOutputSchema;
+  const schema = readToolOutputSchemas[name];
+  if (schema === undefined) {
+    throw new Error(`Missing MCP output schema for read tool "${name}".`);
+  }
+  return schema;
+}
 
 function dataTool(
   app: WyStackApp,
@@ -60,19 +357,42 @@ function dataTool(
   name: string,
   description: string,
   inputSchema: TSchema,
+  outputSchema: TSchema,
   path: "fetchData" | "runInsight" | "queryDataFrame",
 ): McpTool {
   return {
     name,
     description,
     inputSchema,
+    outputSchema,
+    annotations:
+      path === "queryDataFrame"
+        ? READ_ONLY_ANNOTATIONS
+        : {
+            readOnlyHint: false,
+            destructiveHint: false,
+            idempotentHint: false,
+            openWorldHint: true,
+          },
+    ...(path === "queryDataFrame"
+      ? {
+          _meta: {
+            ui: { visibility: ["model", "app"] },
+            "openai/widgetAccessible": true,
+          },
+        }
+      : {}),
     async execute(args) {
       const checked = validateToolArgs(inputSchema, args);
       if (!checked.ok) throw new Error(checked.error.message);
       const response = await app.call(path, checked.value, {
         principal: context.principal,
       });
-      const result = response.result as Record<string, unknown>;
+      const rawResult = response.result as Record<string, unknown>;
+      const result =
+        path === "queryDataFrame"
+          ? rawResult
+          : publicMaterializationResult(rawResult);
       const failed = result.status === "failed";
       return {
         content: [
@@ -85,6 +405,303 @@ function dataTool(
         ],
         ...(failed ? { isError: true } : {}),
         structuredContent: result,
+      };
+    },
+  };
+}
+
+function frameFailure(page: Record<string, unknown>) {
+  const failed = {
+    status: "failed" as const,
+    code: typeof page.code === "string" ? page.code : "FRAME_UNAVAILABLE",
+    message:
+      typeof page.message === "string"
+        ? page.message
+        : "The requested DataFrame is unavailable.",
+  };
+  return {
+    content: [{ type: "text" as const, text: failed.message }],
+    isError: true,
+    structuredContent: failed,
+  };
+}
+
+function frameEntry(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+type FrameField = { id: string; name: string; type: string };
+type ReadyFramePage = {
+  schema: FrameField[];
+  rows: Array<Record<string, unknown>>;
+  totalCount: number;
+  page: { offset: number; limit: number; returned: number };
+};
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    Number.isFinite(value) &&
+    value >= 0
+  );
+}
+
+function isFrameField(value: unknown): value is FrameField {
+  const field = frameEntry(value);
+  return (
+    field !== null &&
+    typeof field.id === "string" &&
+    typeof field.name === "string" &&
+    typeof field.type === "string"
+  );
+}
+
+function readyFramePage(value: unknown): ReadyFramePage | null {
+  const result = frameEntry(value);
+  const page = frameEntry(result?.page);
+  if (
+    result?.status !== "ready" ||
+    !Array.isArray(result.schema) ||
+    !result.schema.every(isFrameField) ||
+    !Array.isArray(result.rows) ||
+    result.rows.length > REPORT_PREVIEW_LIMIT ||
+    !isNonNegativeInteger(result.totalCount) ||
+    page === null ||
+    !isNonNegativeInteger(page.offset) ||
+    !isNonNegativeInteger(page.limit) ||
+    page.limit < 1 ||
+    page.limit > REPORT_PREVIEW_LIMIT ||
+    !isNonNegativeInteger(page.returned) ||
+    page.returned > page.limit ||
+    page.returned !== result.rows.length
+  ) {
+    return null;
+  }
+  const rows = result.rows.map(frameEntry);
+  if (rows.some((row) => row === null)) return null;
+  return {
+    schema: result.schema,
+    rows: rows.filter((row): row is Record<string, unknown> => row !== null),
+    totalCount: result.totalCount,
+    page: {
+      offset: page.offset,
+      limit: page.limit,
+      returned: page.returned,
+    },
+  };
+}
+
+function boundedFrameRows(
+  schema: FrameField[],
+  rows: Array<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  return rows.map((row) => {
+    const projected: Record<string, unknown> = {};
+    for (const field of schema) {
+      if (Object.hasOwn(row, field.id)) projected[field.id] = row[field.id];
+      else if (Object.hasOwn(row, field.name))
+        projected[field.id] = row[field.name];
+      else projected[field.id] = null;
+    }
+    return projected;
+  });
+}
+
+function frameFreshness(entry: Record<string, unknown>): {
+  state: "fresh" | "snapshot" | "stale";
+  fetchedAt?: number;
+} {
+  const fetchedAt =
+    typeof entry.lastRefreshedAt === "number" &&
+    Number.isFinite(entry.lastRefreshedAt)
+      ? entry.lastRefreshedAt
+      : undefined;
+  let state: "fresh" | "snapshot" | "stale" = "snapshot";
+  if (typeof entry.insightId === "string") {
+    state = entry.currentInsightResult === true ? "fresh" : "stale";
+  }
+  return { state, ...(fetchedAt === undefined ? {} : { fetchedAt }) };
+}
+
+function frameTitle(value: unknown): string {
+  return typeof value === "string" ? value : "DashFrame data report";
+}
+
+function renderDataFrameTool(
+  app: WyStackApp,
+  context: McpRequestContext,
+): McpTool {
+  const closed = { additionalProperties: false };
+  const inputSchema = Type.Object(
+    {
+      dataFrameId: Type.String({
+        format: "uuid",
+        description:
+          "Server-minted immutable DataFrame id returned by fetch_data, " +
+          "run_insight, or another DashFrame data tool.",
+      }),
+      title: Type.Optional(
+        Type.String({
+          minLength: 1,
+          maxLength: 120,
+          description: "Short user-facing report title.",
+        }),
+      ),
+      view: Type.Optional(
+        Type.Union(
+          ["table", "chart", "overview"].map((value) => Type.Literal(value)),
+          {
+            description:
+              "Focused inline presentation. Use table by default, chart for " +
+              "a numeric trend, or overview only when chart and table both " +
+              "add distinct value.",
+          },
+        ),
+      ),
+    },
+    closed,
+  );
+  const fieldSchema = Type.Object(
+    {
+      id: Type.String(),
+      name: Type.String(),
+      type: Type.String(),
+    },
+    closed,
+  );
+  const pageSchema = Type.Object(
+    {
+      offset: Type.Integer({ minimum: 0 }),
+      limit: Type.Integer({ minimum: 1, maximum: REPORT_PREVIEW_LIMIT }),
+      returned: Type.Integer({ minimum: 0, maximum: REPORT_PREVIEW_LIMIT }),
+    },
+    closed,
+  );
+  // MCP tool output schemas must themselves be JSON Schema objects. Keep the
+  // discriminant required and branch-specific fields optional at this wire
+  // boundary; the handler still returns one complete ready or failed shape.
+  const outputSchema = Type.Object(
+    {
+      status: Type.Union([Type.Literal("ready"), Type.Literal("failed")]),
+      report: Type.Optional(
+        Type.Object(
+          {
+            title: Type.String(),
+            view: Type.Union([
+              Type.Literal("table"),
+              Type.Literal("chart"),
+              Type.Literal("overview"),
+            ]),
+            dataFrameId: Type.String({ format: "uuid" }),
+            schema: Type.Array(fieldSchema, { maxItems: REPORT_SCHEMA_LIMIT }),
+            rows: Type.Array(Type.Record(Type.String(), Type.Any()), {
+              maxItems: REPORT_PREVIEW_LIMIT,
+            }),
+            columnCount: Type.Integer({ minimum: 0 }),
+            totalCount: Type.Integer({ minimum: 0 }),
+            page: pageSchema,
+            freshness: Type.Object(
+              {
+                state: Type.Union([
+                  Type.Literal("fresh"),
+                  Type.Literal("snapshot"),
+                  Type.Literal("stale"),
+                ]),
+                fetchedAt: Type.Optional(Type.Number()),
+              },
+              closed,
+            ),
+          },
+          closed,
+        ),
+      ),
+      code: Type.Optional(Type.String()),
+      message: Type.Optional(Type.String()),
+    },
+    closed,
+  );
+
+  return {
+    name: "render_data_frame",
+    title: "Render DashFrame report",
+    description:
+      "Use this when the user should see a DashFrame report inline. First " +
+      "materialize or locate a server-owned DataFrame with fetch_data, " +
+      "run_insight, or another data tool, then pass its dataFrameId here. " +
+      "Returns a bounded report preview and remains useful as structured data " +
+      "when the host cannot render MCP Apps.",
+    inputSchema,
+    outputSchema,
+    annotations: READ_ONLY_ANNOTATIONS,
+    _meta: {
+      ui: {
+        resourceUri: REPORT_APP_URI,
+        visibility: ["model", "app"],
+      },
+      "openai/outputTemplate": REPORT_APP_URI,
+      "openai/widgetAccessible": true,
+      "openai/toolInvocation/invoking": "Preparing report…",
+      "openai/toolInvocation/invoked": "Report ready",
+    },
+    async execute(args) {
+      const checked = validateToolArgs(inputSchema, args);
+      if (!checked.ok) throw new Error(checked.error.message);
+      const { dataFrameId, view = "table" } = checked.value as {
+        dataFrameId: string;
+        title?: string;
+        view?: "table" | "chart" | "overview";
+      };
+      const [entryResponse, pageResponse] = await Promise.all([
+        app.call(
+          "getDataFrameEntry",
+          { id: dataFrameId },
+          { principal: context.principal },
+        ),
+        app.call(
+          "queryDataFrame",
+          { dataFrameId, offset: 0, limit: REPORT_INITIAL_PAGE_LIMIT },
+          { principal: context.principal },
+        ),
+      ]);
+      const rawPage = frameEntry(pageResponse.result) ?? {};
+      const page = readyFramePage(rawPage);
+      if (page === null) return frameFailure(rawPage);
+      const entry = frameEntry(entryResponse.result);
+      if (entry === null) {
+        return frameFailure({ code: "FRAME_NOT_FOUND" });
+      }
+      const freshness = frameFreshness(entry);
+      const title = frameTitle((checked.value as { title?: unknown }).title);
+      const schema = page.schema.slice(0, REPORT_SCHEMA_LIMIT);
+      const report = {
+        status: "ready" as const,
+        report: {
+          title,
+          view,
+          dataFrameId,
+          schema,
+          rows: boundedFrameRows(schema, page.rows),
+          columnCount: page.schema.length,
+          totalCount: page.totalCount,
+          page: page.page,
+          freshness,
+        },
+      };
+      return {
+        content: [
+          {
+            type: "text",
+            text:
+              `${title}: ${String(page.totalCount)} rows across ` +
+              `${page.schema.length} columns. ` +
+              "The structured result contains a bounded preview; use " +
+              "query_data_frame for additional pages.",
+          },
+        ],
+        structuredContent: report,
       };
     },
   };
@@ -169,50 +786,110 @@ function createDataTools(
     },
     closed,
   );
+  const savedRuntime = Type.Object(
+    {
+      filters: Type.Optional(Type.Record(Type.String(), Type.Any())),
+      sort: Type.Optional(
+        Type.Array(
+          Type.Object(
+            {
+              fieldId: Type.String(),
+              direction: Type.Union([
+                Type.Literal("asc"),
+                Type.Literal("desc"),
+              ]),
+            },
+            closed,
+          ),
+          { maxItems: 1 },
+        ),
+      ),
+      limit: Type.Optional(Type.Integer({ minimum: 1 })),
+    },
+    closed,
+  );
+  const queryOutputSchema = Type.Object(
+    {
+      status: Type.Union([Type.Literal("ready"), Type.Literal("failed")]),
+      schema: Type.Optional(Type.Array(frameFieldSchema)),
+      rows: Type.Optional(Type.Array(Type.Record(Type.String(), Type.Any()))),
+      totalCount: Type.Optional(Type.Integer({ minimum: 0 })),
+      page: Type.Optional(
+        Type.Object(
+          {
+            offset: Type.Integer({ minimum: 0 }),
+            limit: Type.Integer({ minimum: 1, maximum: DATA_QUERY_MAX_LIMIT }),
+            returned: Type.Integer({
+              minimum: 0,
+              maximum: DATA_QUERY_MAX_LIMIT,
+            }),
+          },
+          closed,
+        ),
+      ),
+      code: Type.Optional(Type.String()),
+      message: Type.Optional(Type.String()),
+    },
+    {
+      ...closed,
+      oneOf: [
+        Type.Object(
+          {
+            status: Type.Literal("ready"),
+            schema: Type.Array(frameFieldSchema),
+            rows: Type.Array(Type.Record(Type.String(), Type.Any())),
+            totalCount: Type.Integer({ minimum: 0 }),
+            page: Type.Object(
+              {
+                offset: Type.Integer({ minimum: 0 }),
+                limit: Type.Integer({
+                  minimum: 1,
+                  maximum: DATA_QUERY_MAX_LIMIT,
+                }),
+                returned: Type.Integer({
+                  minimum: 0,
+                  maximum: DATA_QUERY_MAX_LIMIT,
+                }),
+              },
+              closed,
+            ),
+          },
+          closed,
+        ),
+        Type.Object(
+          {
+            status: Type.Literal("failed"),
+            code: Type.String(),
+            message: Type.String(),
+          },
+          closed,
+        ),
+      ],
+    },
+  );
   return [
     dataTool(
       app,
       context,
       "fetch_data",
-      "Materialize an ephemeral Insight result. Returns metadata only, never rows or credentials.",
+      "Materialize an ephemeral Insight result from an already configured DashFrame source. Returns reusable frame metadata only, never rows or credentials.",
       Type.Object({ insight }, closed),
+      materializationOutputSchema,
       "fetchData",
     ),
     dataTool(
       app,
       context,
       "run_insight",
-      "Materialize a saved Insight result. Returns metadata only, never rows or credentials.",
+      "Materialize a saved Insight under its distinct authorization and durable-generation lifecycle. Returns reusable frame metadata only, never rows or credentials.",
       Type.Object(
         {
           insightId: Type.String({ format: "uuid" }),
-          runtime: Type.Optional(
-            Type.Object(
-              {
-                filters: Type.Optional(Type.Record(Type.String(), Type.Any())),
-                sort: Type.Optional(
-                  Type.Array(
-                    Type.Object(
-                      {
-                        fieldId: Type.String(),
-                        direction: Type.Union([
-                          Type.Literal("asc"),
-                          Type.Literal("desc"),
-                        ]),
-                      },
-                      closed,
-                    ),
-                    { maxItems: 1 },
-                  ),
-                ),
-                limit: Type.Optional(Type.Integer({ minimum: 1 })),
-              },
-              closed,
-            ),
-          ),
+          runtime: Type.Optional(savedRuntime),
         },
         closed,
       ),
+      materializationOutputSchema,
       "runInsight",
     ),
     dataTool(
@@ -247,8 +924,10 @@ function createDataTools(
         },
         closed,
       ),
+      queryOutputSchema,
       "queryDataFrame",
     ),
+    renderDataFrameTool(app, context),
   ];
 }
 
@@ -258,8 +937,65 @@ interface DraftBatchCommandInput {
   args: Record<string, unknown>;
 }
 
+const MCP_DENIED_DRAFT_COMMANDS = new Set(["SetDataSourceConfig"]);
+
+function isMcpDraftSafeCommand(name: string): boolean {
+  return DRAFT_SAFE_COMMANDS.has(name) && !MCP_DENIED_DRAFT_COMMANDS.has(name);
+}
+
 function draftSafeCommandList(): string {
-  return [...DRAFT_SAFE_COMMANDS].sort().join(", ");
+  return [...DRAFT_SAFE_COMMANDS]
+    .filter((name) => isMcpDraftSafeCommand(name))
+    .sort()
+    .join(", ");
+}
+
+function mcpCommandSummary(name: string, fallback: string): string {
+  if (name === "CreateDataSource") {
+    return "Create a credential-free data source.";
+  }
+  return fallback;
+}
+
+function renderMcpCommandGuide(): string {
+  const lines = [
+    "# Command vocabulary (primary reference)",
+    "Each command is applied by name. Credential setup is intentionally",
+    "excluded from this MCP surface.",
+    "",
+  ];
+  let group = "";
+  for (const entry of COMMAND_GUIDE) {
+    if (!isMcpDraftSafeCommand(entry.name)) continue;
+    if (entry.group !== group) {
+      group = entry.group;
+      lines.push(`## ${group}`);
+    }
+    const credentialFields = new Set(
+      CREDENTIAL_COMMAND_ARG_FIELDS[entry.name] ?? [],
+    );
+    const args = Object.entries(entry.args)
+      .filter(
+        ([name]) =>
+          !credentialFields.has(
+            name.replace(/\?$/, "") as "apiKey" | "connectionString",
+          ),
+      )
+      .map(([name, description]) => `${name}: ${description}`)
+      .join(", ");
+    const summary = mcpCommandSummary(entry.name, entry.summary);
+    lines.push(`- ${entry.name} — ${summary}`);
+    lines.push(`  args: { ${args} }`);
+    if (entry.name in CREDENTIAL_COMMAND_ARG_FIELDS) {
+      lines.push(
+        "  note: Credential fields and secret references are rejected. Configure " +
+          "credentials in DashFrame's trusted UI or provider OAuth flow.",
+      );
+    } else if (entry.notes) {
+      lines.push(`  note: ${entry.notes}`);
+    }
+  }
+  return lines.join("\n");
 }
 
 /**
@@ -283,7 +1019,7 @@ function draftBatchDescription(mode: McpMode): string {
     "Nothing here reaches canonical state: the draft opens before commands run,",
     "and only a person can publish it. If a later command fails after an earlier",
     "prefix committed, the error retains the owned draftId so that work can",
-    "continue. API credentials can",
+    "continue.",
     ...continuity,
     "",
     "Each entry is { type, args } where `type` is a command NAME from the guide",
@@ -293,25 +1029,31 @@ function draftBatchDescription(mode: McpMode): string {
     "Refused at this boundary — do not retry these, they will never succeed:",
     "- DeleteNode. Deleting a node touches the credential vault and cascades in",
     "  ways a draft cannot roll back. Ask a person to delete.",
-    "- GetOrCreateDataSource. Use CreateDataSource, which handles credentials",
-    "  correctly; the get-or-create path predates that treatment.",
+    "- GetOrCreateDataSource. Use CreateDataSource without credential fields;",
+    "  the get-or-create path predates the current draft treatment.",
+    "- SetDataSourceConfig. Its open-ended connector config cannot prove that",
+    "  nested values are credential-free, so configuration stays in DashFrame.",
+    "- Credential material in CreateDataSource. The",
+    "  ChatGPT plugin never accepts credentials. Configure them in DashFrame's",
+    "  trusted UI or provider OAuth flow, then retry without credential fields.",
     "- Lifecycle procedures (publishDraft, commitBatch, discardDraft,",
     "  reviseDraft). These are not commands and are not on this surface at all.",
     "  Publishing is a person's decision.",
-    "- A secret reference (secret:<uuid>) in a credential field. Send the",
-    "  plaintext value; the server stores it and hands back the reference.",
     "",
-    renderCommandGuide(),
+    renderMcpCommandGuide(),
   ].join("\n");
 }
 
-function hasCallerSuppliedSecretRef(value: unknown): boolean {
+function containsCredentialMaterial(value: unknown): boolean {
   if (isSecretRef(value)) return true;
-  if (Array.isArray(value)) return value.some(hasCallerSuppliedSecretRef);
-  if (typeof value === "object" && value !== null) {
-    return Object.values(value).some(hasCallerSuppliedSecretRef);
-  }
-  return false;
+  if (Array.isArray(value)) return value.some(containsCredentialMaterial);
+  if (typeof value !== "object" || value === null) return false;
+  return Object.entries(value).some(
+    ([key, child]) =>
+      /api.?key|connection.?string|password|secret|token|auth.?ref/i.test(
+        key,
+      ) || containsCredentialMaterial(child),
+  );
 }
 
 /**
@@ -323,7 +1065,7 @@ function assertDraftSafeBatch(
   commands: readonly DraftBatchCommandInput[],
 ): void {
   for (const { type, args } of commands) {
-    if (!DRAFT_SAFE_COMMANDS.has(type)) {
+    if (!isMcpDraftSafeCommand(type)) {
       throw new Error(
         `${DRAFT_BATCH_TOOL_NAME}: command "${type}" is not draft-safe. ` +
           `Use one of: ${draftSafeCommandList()}.`,
@@ -337,11 +1079,12 @@ function assertDraftSafeBatch(
     }
     if (
       type in CREDENTIAL_COMMAND_ARG_FIELDS &&
-      hasCallerSuppliedSecretRef(args)
+      containsCredentialMaterial(args)
     ) {
       throw new Error(
-        `${DRAFT_BATCH_TOOL_NAME}: credential arguments must contain plaintext ` +
-          "values, not caller-supplied secret references.",
+        `${DRAFT_BATCH_TOOL_NAME}: credential material is not accepted through ` +
+          "MCP. Configure the source credential in DashFrame's trusted UI or " +
+          "provider OAuth flow, then retry without credential fields.",
       );
     }
   }
@@ -434,11 +1177,8 @@ function collectRefs(
 
 /**
  * The read tools narrate results by name, and put the ids only in `details`.
- * That is fine for a client that reads structured output, but this server
- * declares no outputSchema, so whether a client surfaces `structuredContent`
- * to the model is the client's choice. An agent that only sees the text would
- * know an artifact exists and have no id to pass to the next call, so the ids
- * go in the text too.
+ * Keep the ids in text as a compatibility fallback for clients that do not
+ * surface structured output even though every MCP tool now declares a schema.
  */
 function refLine(details: unknown): string | null {
   const refs = new Map<string, { kind: string; id: string; name?: string }>();
@@ -486,6 +1226,15 @@ function toMcpTool(
     name: tool.name,
     description: tool.description,
     inputSchema,
+    outputSchema: outputSchemaForAssistantTool(tool.name, isReadTool),
+    annotations: isReadTool
+      ? READ_ONLY_ANNOTATIONS
+      : {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: false,
+        },
     async execute(args) {
       const requestDraftId = isReadTool ? context.draftId : undefined;
       const isReadArgs =
@@ -612,8 +1361,8 @@ export function createMcpTools(
           }),
           args: Type.Record(Type.String(), Type.Any(), {
             description:
-              "Arguments for that command. Credential fields carry the " +
-              "plaintext value, never a secret reference.",
+              "Arguments for that command. Credential-bearing commands and " +
+              "credential fields are not available through this plugin.",
           }),
         }),
         {
@@ -629,13 +1378,13 @@ export function createMcpTools(
 
       const append = async (
         draftId: string | undefined,
-      ): Promise<{ draftId: string; results: unknown[] }> => {
+      ): Promise<{ draftId: string }> => {
         const response = await app.call(
           "draftBatch",
           { commands, ...(draftId === undefined ? {} : { draftId }) },
           { principal: context.principal },
         );
-        return response.result as { draftId: string; results: unknown[] };
+        return response.result as { draftId: string };
       };
 
       const performAppend = async () => {
@@ -668,7 +1417,6 @@ export function createMcpTools(
         details: {
           draftId: result.draftId,
           commandCount: commands.length,
-          results: result.results,
         },
       };
     },

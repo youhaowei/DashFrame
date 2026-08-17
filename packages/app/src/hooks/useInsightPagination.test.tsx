@@ -1,7 +1,7 @@
 import { api } from "@/wystack/api";
 import type { DataTable, Insight, UUID } from "@dashframe/types";
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   buildInsightSourceRevision,
   resolveInsightResultFields,

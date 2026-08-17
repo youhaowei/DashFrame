@@ -1,5 +1,5 @@
 import type { UUID } from "@dashframe/types";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { makeDefaultCountMetric } from "./data-tables";
 

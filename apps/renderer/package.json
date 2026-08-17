@@ -4,12 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
-    "preview": "vite preview",
+    "dev": "vp dev",
+    "build": "tsc -b && vp build",
+    "preview": "vp preview",
     "typecheck": "tsc -b --noEmit",
-    "lint": "eslint src",
-    "test": "vitest run",
+    "lint": "vp lint src",
+    "test": "vp test run",
     "check": "bun run typecheck && bun run lint && bun run test"
   },
   "dependencies": {
@@ -23,15 +23,15 @@
     "react-dom": "^19.2.4"
   },
   "devDependencies": {
-    "@dashframe/eslint-config": "workspace:*",
     "@tailwindcss/postcss": "4.1.16",
     "tailwindcss": "4.1.16",
     "@tanstack/router-plugin": "^1.167.35",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^4.3.4",
+    "@vitejs/plugin-react": "6.0.5",
     "typescript": "5.7.2",
-    "vite": "^6.0.5",
-    "vitest": "^4.1.6"
+    "vite": "catalog:",
+    "vitest": "catalog:",
+    "vite-plus": "catalog:"
   }
 }

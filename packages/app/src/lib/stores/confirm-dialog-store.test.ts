@@ -1,7 +1,14 @@
 /**
  * Unit tests for confirm-dialog-store module
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 import {
   useConfirmDialogStore,
   type ConfirmDialogConfig,

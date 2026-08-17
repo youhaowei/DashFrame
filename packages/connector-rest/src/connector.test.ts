@@ -16,7 +16,7 @@ import {
   SecretVault,
   TestBackend,
 } from "@wystack/secret-vault";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   RestConnector,
   applyFieldMap,
@@ -206,7 +206,7 @@ describe("RestConnector", () => {
     // http:// (not https://) is deliberate — an internal/metadata target is
     // typically plain-http; these are rejected-by-design fixtures, not real
     // connection targets.
-    /* eslint-disable sonarjs/no-clear-text-protocols -- SSRF fixtures: internal http targets that validate() must reject. */
+    /* oxlint-disable sonarjs/no-clear-text-protocols -- SSRF fixtures: internal http targets that validate() must reject. */
     it.each([
       ["http://10.0.0.1/data", "RFC-1918 private"],
       ["http://192.168.1.1/data", "RFC-1918 private"],
@@ -227,7 +227,7 @@ describe("RestConnector", () => {
       expect(result.valid).toBe(false);
       expect(result.errors?.["endpoint"]).toBeTruthy();
     });
-    /* eslint-enable sonarjs/no-clear-text-protocols */
+    /* oxlint-enable sonarjs/no-clear-text-protocols */
 
     it("passes for a public IP-literal URL", () => {
       const result = c.validate({ endpoint: "https://8.8.8.8/api" });
@@ -240,7 +240,7 @@ describe("RestConnector", () => {
   // form-side UX; this is what every authoring path inherits)
   // -------------------------------------------------------------------------
 
-  /* eslint-disable sonarjs/no-clear-text-protocols -- SSRF fixtures: internal http targets the fetch sink must refuse. */
+  /* oxlint-disable sonarjs/no-clear-text-protocols -- SSRF fixtures: internal http targets the fetch sink must refuse. */
   describe("fetch-sink SSRF guard", () => {
     it("query() refuses a private endpoint BEFORE any fetch", async () => {
       const mockFetch = vi.fn();
@@ -405,7 +405,7 @@ describe("RestConnector", () => {
       expect(secondHeaders?.["Authorization"]).toBeUndefined();
     });
   });
-  /* eslint-enable sonarjs/no-clear-text-protocols */
+  /* oxlint-enable sonarjs/no-clear-text-protocols */
 
   // -------------------------------------------------------------------------
   // 1. Offset pagination

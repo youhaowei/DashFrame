@@ -1,5 +1,5 @@
 import type { DataTable, Field, Metric, UUID } from "@dashframe/types";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const {
   mockCsvToDataFrame,

@@ -1,7 +1,7 @@
 import { fieldIdToColumnAlias } from "@dashframe/engine";
 import type { DataTable, Insight } from "@dashframe/types";
 import { renderHook } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const { mockUseQuery } = vi.hoisted(() => ({
   mockUseQuery: vi.fn(),

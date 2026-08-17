@@ -179,9 +179,8 @@ function assertVaultPresentForStoredCredential(
 
 const listAssistantProviderCatalog = wy.procedure
   .input({})
-  .query(
-    async (): Promise<AssistantProviderCatalogEntry[]> =>
-      getAssistantProviderCatalog(),
+  .query(async (): Promise<AssistantProviderCatalogEntry[]> =>
+    getAssistantProviderCatalog(),
   );
 
 const listAssistantProviderConfigs = wy.procedure
