@@ -1,4 +1,5 @@
 import type { CombinedField } from "@/lib/insights/compute-combined-fields";
+import { metricIdToColumnAlias } from "@dashframe/engine";
 import type { InsightMetric, InsightSort } from "@dashframe/types";
 import {
   Button,
@@ -28,7 +29,10 @@ export function SortSection({
       value: field.columnName ?? field.name,
       label: field.displayName,
     })),
-    ...metrics.map((metric) => ({ value: metric.name, label: metric.name })),
+    ...metrics.map((metric) => ({
+      value: metricIdToColumnAlias(metric.id),
+      label: metric.name,
+    })),
   ];
 
   const addSort = () => {

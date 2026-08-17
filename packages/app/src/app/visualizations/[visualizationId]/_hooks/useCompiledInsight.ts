@@ -1,5 +1,6 @@
-import { resolveInsightSourceDataTable } from "@/hooks/useInsightPagination";
+import { resolveInsightAuthoringTable } from "@/lib/insights/compute-combined-fields";
 import { api } from "@/wystack/api";
+import { buildInsightAvailableFields } from "@dashframe/engine";
 import type {
   CompiledInsight,
   DataTable,
@@ -37,17 +38,19 @@ export function useCompiledInsight(
       return undefined;
     }
 
-    const baseTable = resolveInsightSourceDataTable(
+    const baseTable = resolveInsightAuthoringTable(
       entity,
       dataTables,
-      allInsights,
+      allInsights ?? [],
     );
     if (!baseTable) return null;
-    const allFields = [...(baseTable.fields ?? [])];
+    const joinedTables = new Map<UUID, DataTable>();
     for (const join of entity.joins ?? []) {
       const joined = dataTables.find((table) => table.id === join.rightTableId);
-      allFields.push(...(joined?.fields ?? []));
+      if (joined) joinedTables.set(joined.id, joined);
     }
+    const allFields =
+      buildInsightAvailableFields(baseTable, joinedTables, entity) ?? [];
 
     return {
       id: entity.id,
