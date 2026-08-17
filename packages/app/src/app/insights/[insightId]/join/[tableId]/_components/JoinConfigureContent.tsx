@@ -156,7 +156,8 @@ export default function JoinConfigureContent({
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Resolve composed sources to their root DataTable before configuring joins.
+  // The root table is the direct-source preview and the prerequisite for
+  // resolving a composed source. Composed joins preview the immediate Insight.
   const baseTable = useMemo(() => {
     return (
       resolveInsightSourceDataTable(
@@ -579,11 +580,11 @@ export default function JoinConfigureContent({
       {/* Main Content */}
       <main className="flex-1 overflow-auto">
         <div className="container mx-auto space-y-6 px-6 py-6">
-          {/* Dual Table Previews */}
+          {/* Left source and right table previews */}
           <div className="grid gap-6 md:grid-cols-2">
-            {/* Base Table Preview */}
+            {/* Left source preview */}
             <TablePreviewSection
-              title="Base Table"
+              title="Left Source"
               name={leftSourceName}
               totalCount={leftTotalCount}
               isReady={isLeftReady}
