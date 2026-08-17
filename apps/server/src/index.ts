@@ -63,21 +63,22 @@ Options:
   --project <dir>         Project directory (default: DASHFRAME_PROJECT_DIR or ~/.DashFrame/web-project)
   --data-dir <dir>        Host-local data directory (default: DASHFRAME_DATA_DIR or ~/.DashFrame/data)
   --bind <addr>           Bind address as host[:port] (default: 127.0.0.1:0)
-  --token <token>         Require Bearer token auth for HTTP and WebSocket clients
+  --token <token>         Require Bearer token auth (or set DASHFRAME_AUTH_TOKEN)
   --host <host>           Bind host alias (default: 127.0.0.1)
   --port <port>           Bind port alias (default: 0, OS-assigned)
   --mcp-mode <mode>       MCP transport: stateful (default) or stateless
   --name <name>           Project display name when initializing
   --cors-origin <origin>  Allowed browser origin; repeat or comma-separate for multiple
-  --insecure              Allow a non-loopback bind without --token (opt out of the auth requirement)
+  --insecure              Allow a non-loopback bind without a token (opt out of the auth requirement)
   --help                  Show this help
 
 Security boundary:
   The server exposes the selected local DashFrame project over HTTP and WebSocket.
   The default bind is loopback-only and safe to run without a token. Binding to
   0.0.0.0 or another network interface makes the project reachable from that
-  network, so a non-loopback bind requires --token; pass --insecure to opt out
-  deliberately. A token is not TLS and not multi-user authorization.
+  network, so a non-loopback bind requires --token or DASHFRAME_AUTH_TOKEN;
+  pass --insecure to opt out deliberately. A token is not TLS and not
+  multi-user authorization.
 
 Secret encryption:
   Set DASHFRAME_SECRET_KEY_FILE to an owner-only key file (the group and world
@@ -257,7 +258,8 @@ function parseArgAt(opts: CliOptions, args: string[], index: number): number {
 /**
  * Fail-closed auth gate. Loopback binds are reachable only from this machine,
  * so a token is optional there. A non-loopback bind exposes the project to the
- * network and must carry `--token`; `--insecure` is the deliberate opt-out.
+ * network and must carry a CLI or environment token; `--insecure` is the
+ * deliberate opt-out.
  * Throws (rather than warns) so a forgotten token never silently exposes data.
  */
 export function assertBindIsSafe(opts: CliOptions): void {
@@ -265,9 +267,10 @@ export function assertBindIsSafe(opts: CliOptions): void {
     return;
   }
   throw new Error(
-    `Refusing to bind ${opts.hostname} without --token: a non-loopback bind ` +
-      `exposes this project to the network. Pass --token <token>, or ` +
-      `--insecure to opt out deliberately.`,
+    `Refusing to bind ${opts.hostname} without an authentication token: ` +
+      `a non-loopback bind exposes this project to the network. Pass ` +
+      `--token <token>, set DASHFRAME_AUTH_TOKEN, or use --insecure to opt ` +
+      `out deliberately.`,
   );
 }
 
@@ -335,6 +338,15 @@ export function resolveProjectDirectory(
   return (
     opts.project ?? environment.DASHFRAME_PROJECT_DIR ?? DEFAULT_WEB_PROJECT_DIR
   );
+}
+
+/** Prefer an explicit CLI token, with an environment fallback for hosted runtimes. */
+export function resolveAuthToken(
+  opts: CliOptions,
+  environment: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  const token = opts.token ?? environment.DASHFRAME_AUTH_TOKEN;
+  return token === "" ? undefined : token;
 }
 
 /** Refuse any configuration that places host-local access data in the project. */
@@ -575,17 +587,21 @@ async function closeProjectAfterStartupFailure(
 }
 
 export async function main(args = process.argv.slice(2)): Promise<void> {
-  const opts = parseArgs(args);
-  if (opts.help) {
+  const parsedOptions = parseArgs(args);
+  if (parsedOptions.help) {
     printHelp();
     return;
   }
+  const opts = {
+    ...parsedOptions,
+    token: resolveAuthToken(parsedOptions),
+  };
 
   assertBindIsSafe(opts);
 
   if (opts.insecure && !opts.token && !isLoopbackHost(opts.hostname)) {
     console.warn(
-      "[dashframe] warning: --insecure non-loopback bind without --token exposes this project to the network",
+      "[dashframe] warning: --insecure non-loopback bind without authentication exposes this project to the network",
     );
   }
 

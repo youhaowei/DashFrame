@@ -18,6 +18,7 @@ import {
   createStandaloneServerOptions,
   parseArgs,
   printHelp,
+  resolveAuthToken,
   resolveDataDir,
   resolveProjectDirectory,
   shutdownStandaloneResources,
@@ -226,6 +227,10 @@ describe("dashframe serve CLI", () => {
       const helpText = output.join("\n");
       expect(helpText).toContain("--bind <addr>");
       expect(helpText).toContain("--token <token>");
+      expect(helpText).toContain("DASHFRAME_AUTH_TOKEN");
+      expect(helpText).toContain(
+        "non-loopback bind requires --token or DASHFRAME_AUTH_TOKEN",
+      );
       expect(helpText).toContain("--data-dir <dir>");
       expect(helpText).toContain("--mcp-mode <mode>");
       expect(helpText).toContain("canonical padded base64");
@@ -267,7 +272,7 @@ describe("dashframe serve CLI", () => {
 
     it("should reject a non-loopback bind without a token", () => {
       expect(() => assertBindIsSafe({ hostname: "0.0.0.0" })).toThrow(
-        /Refusing to bind 0\.0\.0\.0 without --token/,
+        /Refusing to bind 0\.0\.0\.0 without an authentication token/,
       );
     });
 
@@ -288,7 +293,9 @@ describe("dashframe serve CLI", () => {
       // this one is over-strict by design, not a bypass.
       "127.1",
     ])("should reject the non-loopback host %s without a token", (hostname) => {
-      expect(() => assertBindIsSafe({ hostname })).toThrow(/without --token/);
+      expect(() => assertBindIsSafe({ hostname })).toThrow(
+        /without an authentication token/,
+      );
     });
 
     it("should still allow real 127.0.0.0/8 literals without a token", () => {
@@ -311,6 +318,26 @@ describe("dashframe serve CLI", () => {
       expect(() =>
         assertBindIsSafe({ hostname: "0.0.0.0", insecure: true }),
       ).not.toThrow();
+    });
+  });
+
+  describe("resolveAuthToken", () => {
+    it("prefers the CLI token over the hosted environment", () => {
+      expect(
+        resolveAuthToken(
+          { token: "cli-token" },
+          { DASHFRAME_AUTH_TOKEN: "environment-token" },
+        ),
+      ).toBe("cli-token");
+    });
+
+    it("reads hosted credentials without placing them in process arguments", () => {
+      expect(
+        resolveAuthToken({}, { DASHFRAME_AUTH_TOKEN: "environment-token" }),
+      ).toBe("environment-token");
+      expect(
+        resolveAuthToken({}, { DASHFRAME_AUTH_TOKEN: "" }),
+      ).toBeUndefined();
     });
   });
 

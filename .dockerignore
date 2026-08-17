@@ -1,0 +1,16 @@
+.git
+.env
+.env.*
+.data
+node_modules
+**/node_modules
+**/.turbo
+**/dist
+**/build
+**/coverage
+**/*.tsbuildinfo
+.vercel
+.wystack
+.codex-cockpit
+docs/screenshots
+e2e/web/test-results
