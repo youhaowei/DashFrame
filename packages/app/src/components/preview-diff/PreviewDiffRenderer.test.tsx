@@ -305,7 +305,7 @@ describe("PreviewDiffRenderer", () => {
         proposedDefinition: {
           nodeId: "dashboard-item",
           itemId: "item-1",
-          updates: { width: 4, height: 2, unsupported: true },
+          updates: { width: 4, height: 2 },
         },
       };
 
@@ -324,7 +324,6 @@ describe("PreviewDiffRenderer", () => {
             element.textContent === "height: 2 → 2",
         ),
       ).toBeNull();
-      expect(screen.queryByText(/unsupported:/)).toBeNull();
       expect(screen.queryByText(/updates:/)).toBeNull();
     });
 

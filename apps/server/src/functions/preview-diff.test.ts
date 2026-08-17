@@ -280,6 +280,7 @@ describe("PreviewDiff builder", () => {
             name: "Total",
             sourceTable: tableId,
             aggregation: "sum",
+            columnName: "amount",
           },
         }),
       );

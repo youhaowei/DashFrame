@@ -2022,33 +2022,38 @@ function normalizeDashboardItemOverrides(
   return { filters, sorts, limit };
 }
 
+function parseFilterDashboardItemOverridePatch(
+  value: Record<string, unknown>,
+): Extract<DashboardItemOverridePatch, { kind: "filter" }> {
+  if (typeof value.field !== "string" || value.field.length === 0) {
+    throw new Error("Filter override patch requires a field");
+  }
+  if (value.value !== null && !isRecord(value.value)) {
+    throw new Error("Filter override patch value must be an object or null");
+  }
+  if (value.value !== null && value.value.field !== value.field) {
+    throw new Error(
+      "Filter override patch value.field must match the patch field",
+    );
+  }
+  return {
+    kind: "filter",
+    field: value.field,
+    value: value.value as Extract<
+      DashboardItemOverridePatch,
+      { kind: "filter" }
+    >["value"],
+  };
+}
+
 function parseDashboardItemOverridePatch(
   value: unknown,
 ): DashboardItemOverridePatch {
   if (!isRecord(value)) {
     throw new Error("Dashboard override patch must be an object");
   }
-  if (value.kind === "filter") {
-    if (typeof value.field !== "string" || value.field.length === 0) {
-      throw new Error("Filter override patch requires a field");
-    }
-    if (value.value !== null && !isRecord(value.value)) {
-      throw new Error("Filter override patch value must be an object or null");
-    }
-    if (value.value !== null && value.value.field !== value.field) {
-      throw new Error(
-        "Filter override patch value.field must match the patch field",
-      );
-    }
-    return {
-      kind: "filter",
-      field: value.field,
-      value: value.value as Extract<
-        DashboardItemOverridePatch,
-        { kind: "filter" }
-      >["value"],
-    };
-  }
+  if (value.kind === "filter")
+    return parseFilterDashboardItemOverridePatch(value);
   if (value.kind === "sorts") {
     if (value.value !== null && !Array.isArray(value.value)) {
       throw new Error("Sort override patch value must be an array or null");

@@ -1,5 +1,23 @@
 import type { DashboardItem } from "@dashframe/types";
 
+type DashboardItemUpdates = Partial<
+  Omit<DashboardItem, "id" | "type" | "overrides">
+>;
+
+function copyTypedUpdate(
+  next: DashboardItemUpdates,
+  updates: Record<string, unknown>,
+  key: keyof DashboardItemUpdates,
+  expected: "string" | "number",
+): void {
+  if (!(key in updates)) return;
+  const value = updates[key];
+  if (typeof value !== expected) {
+    throw new Error(`Dashboard item update ${key} must be a ${expected}`);
+  }
+  Object.assign(next, { [key]: value });
+}
+
 /**
  * Validate raw `updates` against the recognized DashboardItem fields. This is
  * the canonical command
@@ -9,8 +27,8 @@ import type { DashboardItem } from "@dashframe/types";
  */
 export function sanitizeDashboardItemUpdates(
   updates: Record<string, unknown>,
-): Partial<Omit<DashboardItem, "id" | "type" | "overrides">> {
-  const next: Partial<Omit<DashboardItem, "id" | "type" | "overrides">> = {};
+): DashboardItemUpdates {
+  const next: DashboardItemUpdates = {};
   if ("overrides" in updates) {
     throw new Error(
       "Dashboard item overrides require PatchDashboardItemOverride",
@@ -33,21 +51,11 @@ export function sanitizeDashboardItemUpdates(
       throw new Error(`Unsupported dashboard item update field: ${key}`);
     }
   }
-  for (const key of ["visualizationId", "content"] as const) {
-    if (key in updates) {
-      if (typeof updates[key] !== "string") {
-        throw new Error(`Dashboard item update ${key} must be a string`);
-      }
-      next[key] = updates[key];
-    }
-  }
-  for (const key of ["x", "y", "width", "height"] as const) {
-    if (key in updates) {
-      if (typeof updates[key] !== "number") {
-        throw new Error(`Dashboard item update ${key} must be a number`);
-      }
-      next[key] = updates[key];
-    }
-  }
+  copyTypedUpdate(next, updates, "visualizationId", "string");
+  copyTypedUpdate(next, updates, "content", "string");
+  copyTypedUpdate(next, updates, "x", "number");
+  copyTypedUpdate(next, updates, "y", "number");
+  copyTypedUpdate(next, updates, "width", "number");
+  copyTypedUpdate(next, updates, "height", "number");
   return next;
 }
