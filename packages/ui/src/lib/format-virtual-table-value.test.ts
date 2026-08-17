@@ -39,6 +39,18 @@ describe("defaultFormatValue", () => {
 
   it("formats date-only strings from their calendar parts", () => {
     expect(defaultFormatValue("2024-03-15", "date")).toBe("Mar 15, 2024");
+    expect(defaultFormatValue("0000-01-01", "date")).toBe("Jan 1, 0000");
+    expect(defaultFormatValue("0001-01-01", "date")).toBe("Jan 1, 0001");
+  });
+
+  it("validates date-only strings without consulting the host timezone", () => {
+    const previousTz = process.env.TZ;
+    process.env.TZ = "Pacific/Apia";
+    try {
+      expect(defaultFormatValue("2011-12-30", "date")).toBe("Dec 30, 2011");
+    } finally {
+      process.env.TZ = previousTz;
+    }
   });
 
   it("formats numeric epoch values in date columns as UTC calendar dates", () => {
@@ -47,8 +59,35 @@ describe("defaultFormatValue", () => {
     );
   });
 
+  it("preserves early years after Arrow converts dates to epoch values", () => {
+    expect(defaultFormatValue(Date.parse("0000-01-01T00:00:00Z"), "date")).toBe(
+      "Jan 1, 0000",
+    );
+    expect(defaultFormatValue(Date.parse("0001-01-01T00:00:00Z"), "date")).toBe(
+      "Jan 1, 0001",
+    );
+  });
+
+  it("renders the same instant consistently across supported representations", () => {
+    const instant = "2024-01-18T00:00:00.000Z";
+    const expected = "Jan 18, 2024";
+
+    expect(defaultFormatValue(Date.parse(instant), "date")).toBe(expected);
+    expect(defaultFormatValue(new Date(instant), "date")).toBe(expected);
+    expect(defaultFormatValue(instant, "date")).toBe(expected);
+  });
+
+  it("treats zone-less timestamps as UTC", () => {
+    expect(defaultFormatValue("2024-01-18T23:30:00", "date")).toBe(
+      "Jan 18, 2024",
+    );
+  });
+
   it("leaves an impossible calendar date as text rather than rolling it over", () => {
     expect(defaultFormatValue("2024-02-30", "date")).toBe("2024-02-30");
+    expect(defaultFormatValue("2024-02-30T00:00:00Z", "date")).toBe(
+      "2024-02-30T00:00:00Z",
+    );
   });
 
   it("renders null and undefined as the empty placeholder", () => {
@@ -56,10 +95,14 @@ describe("defaultFormatValue", () => {
     expect(defaultFormatValue(undefined, "string")).toBe("—");
   });
 
-  it("continues to format Date objects and numbers", () => {
-    expect(defaultFormatValue(new Date(2024, 2, 15), "string")).toBe(
-      "Mar 15, 2024",
-    );
+  it("keeps local Date rendering outside declared date columns", () => {
+    const localEvening = new Date(2024, 0, 18, 20);
+
+    expect(defaultFormatValue(localEvening, "string")).toBe("Jan 18, 2024");
+    expect(defaultFormatValue(localEvening, "date")).toBe("Jan 19, 2024");
+  });
+
+  it("continues to format numbers", () => {
     expect(defaultFormatValue(1.5, "number")).toBe("1.5");
   });
 });

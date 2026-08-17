@@ -4,18 +4,29 @@ import { formatCellValue } from "./cell-formatter";
 describe("formatCellValue", () => {
   // ── date type ─────────────────────────────────────────────────────────────
 
-  it("formats an epoch-millisecond number as YYYY-MM-DD for date columns", () => {
+  it("formats an epoch-millisecond number for date columns", () => {
     // 2024-01-18T00:00:00.000Z in epoch ms
-    expect(formatCellValue(1705536000000, "date")).toBe("2024-01-18");
+    expect(formatCellValue(1705536000000, "date")).toBe("Jan 18, 2024");
   });
 
-  it("formats a Date object as YYYY-MM-DD for date columns", () => {
+  it("formats a Date object for date columns", () => {
     const date = new Date("2024-06-15T00:00:00.000Z");
-    expect(formatCellValue(date, "date")).toBe("2024-06-15");
+    expect(formatCellValue(date, "date")).toBe("Jun 15, 2024");
   });
 
-  it("formats an ISO date string as YYYY-MM-DD for date columns", () => {
-    expect(formatCellValue("2024-03-25", "date")).toBe("2024-03-25");
+  it("formats an ISO date string for date columns", () => {
+    expect(formatCellValue("2024-03-25", "date")).toBe("Mar 25, 2024");
+    expect(formatCellValue("0000-01-01", "date")).toBe("Jan 1, 0000");
+    expect(formatCellValue("0001-01-01", "date")).toBe("Jan 1, 0001");
+  });
+
+  it("shares one date contract across supported representations", () => {
+    const instant = "2024-01-18T00:00:00.000Z";
+    const expected = "Jan 18, 2024";
+
+    expect(formatCellValue(Date.parse(instant), "date")).toBe(expected);
+    expect(formatCellValue(new Date(instant), "date")).toBe(expected);
+    expect(formatCellValue(instant, "date")).toBe(expected);
   });
 
   it("returns — for null in a date column", () => {
