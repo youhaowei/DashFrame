@@ -62,7 +62,7 @@ Options:
   --project <dir>         Project directory (default: DASHFRAME_PROJECT_DIR or ~/.DashFrame/web-project)
   --data-dir <dir>        Host-local data directory (default: DASHFRAME_DATA_DIR or ~/.DashFrame/data)
   --bind <addr>           Bind address as host[:port] (default: 127.0.0.1:0)
-  --token <token>         Require Bearer token auth for HTTP and WebSocket clients
+  --token <token>         Require Bearer token auth (or set DASHFRAME_AUTH_TOKEN)
   --host <host>           Bind host alias (default: 127.0.0.1)
   --port <port>           Bind port alias (default: 0, OS-assigned)
   --mcp-mode <mode>       MCP transport: stateful (default) or stateless
@@ -74,8 +74,8 @@ Security boundary:
   The server exposes the selected local DashFrame project over HTTP and WebSocket.
   The default bind is loopback-only and safe to run without a token. Binding to
   0.0.0.0 or another network interface makes the project reachable from that
-  network, so a non-loopback bind requires --token. A token is not TLS and
-  not multi-user authorization.
+  network, so a non-loopback bind requires --token or DASHFRAME_AUTH_TOKEN.
+  A token is not TLS and not multi-user authorization.
 
 Secret encryption:
   Set DASHFRAME_SECRET_KEY_FILE to an owner-only key file (the group and world
@@ -252,16 +252,17 @@ function parseArgAt(opts: CliOptions, args: string[], index: number): number {
 /**
  * Fail-closed auth gate. Loopback binds are reachable only from this machine,
  * so a token is optional there. A non-loopback bind exposes the project to the
- * network and must carry `--token`; there is no opt-out. Throws (rather than
- * warns) so a forgotten token never silently exposes data.
+ * network and must carry a CLI or environment token; there is no opt-out.
+ * Throws (rather than warns) so a forgotten token never silently exposes data.
  */
 export function assertBindIsSafe(opts: CliOptions): void {
   if (isLoopbackHost(opts.hostname) || opts.token) {
     return;
   }
   throw new Error(
-    `Refusing to bind ${opts.hostname} without --token: a non-loopback bind ` +
-      `exposes this project to the network. Pass --token <token>.`,
+    `Refusing to bind ${opts.hostname} without an authentication token: ` +
+      `a non-loopback bind exposes this project to the network. Pass ` +
+      `--token <token> or set DASHFRAME_AUTH_TOKEN.`,
   );
 }
 
@@ -329,6 +330,15 @@ export function resolveProjectDirectory(
   return (
     opts.project ?? environment.DASHFRAME_PROJECT_DIR ?? DEFAULT_WEB_PROJECT_DIR
   );
+}
+
+/** Prefer an explicit CLI token, with an environment fallback for hosted runtimes. */
+export function resolveAuthToken(
+  opts: CliOptions,
+  environment: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  const token = opts.token ?? environment.DASHFRAME_AUTH_TOKEN;
+  return token === "" ? undefined : token;
 }
 
 /** Refuse any configuration that places host-local access data in the project. */
@@ -529,11 +539,15 @@ async function closeProjectAfterStartupFailure(
 }
 
 export async function main(args = process.argv.slice(2)): Promise<void> {
-  const opts = parseArgs(args);
-  if (opts.help) {
+  const parsedOptions = parseArgs(args);
+  if (parsedOptions.help) {
     printHelp();
     return;
   }
+  const opts = {
+    ...parsedOptions,
+    token: resolveAuthToken(parsedOptions),
+  };
 
   assertBindIsSafe(opts);
 
