@@ -21,10 +21,10 @@ import { toast } from "sonner";
  * 2. `createInsightFromInsight` - Chain from an existing insight's DataFrame
  *
  * Both methods create a draft insight with empty selectedFields and navigate
- * to the insight page. The canvas still opens with a populated result table:
- * an unconfigured insight's query falls back to the raw base table, and
- * pre-selecting every field would instead run query mode with all fields as
- * GROUP BY dimensions — silently collapsing duplicate source rows.
+ * to the insight page. A table-sourced draft initially reads its raw table; a
+ * derived draft initially reads its upstream Insight result. Pre-selecting
+ * every field would instead run query mode with all fields as GROUP BY
+ * dimensions — silently collapsing duplicate source rows.
  *
  * Auto-draft deduplication (createInsightFromTable only):
  * - If an unmodified draft for the same source table already exists, the
@@ -51,6 +51,7 @@ import { toast } from "sonner";
  *   createInsightFromInsight(sourceId, sourceName);
  *   // Creates derived insight and navigates to it
  * };
+ * ```
  */
 export function useCreateInsight() {
   const navigate = useNavigate();

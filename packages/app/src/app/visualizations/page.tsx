@@ -1,6 +1,7 @@
 import { RoutedCardActionMenuTrigger } from "@/components/RoutedCardActionMenuTrigger";
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 import { useConfirmDialogStore } from "@/lib/stores";
+import { resolveInsightSourceDataTable } from "@/hooks/useInsightPagination";
 import { api } from "@/wystack/api";
 import {
   cmd,
@@ -68,11 +69,6 @@ export default function VisualizationsPage() {
     [insights],
   );
 
-  const dataTablesMap = useMemo(
-    () => new Map(dataTables.map((t) => [t.id, t])),
-    [dataTables],
-  );
-
   const dataSourcesMap = useMemo(
     () => new Map(dataSources.map((s) => [s.id, s])),
     [dataSources],
@@ -87,16 +83,14 @@ export default function VisualizationsPage() {
 
       // Try to determine source type from insight -> dataTable -> dataSource
       let sourceType: string | null = null;
-      const dataTableId =
-        insight?.source.sourceType === "dataTable"
-          ? insight.source.sourceId
-          : undefined;
-      if (dataTableId) {
-        const dataTable = dataTablesMap.get(dataTableId);
-        if (dataTable) {
-          const dataSource = dataSourcesMap.get(dataTable.dataSourceId);
-          sourceType = dataSource?.type ?? null;
-        }
+      const dataTable = resolveInsightSourceDataTable(
+        insight,
+        dataTables,
+        insights,
+      );
+      if (dataTable) {
+        const dataSource = dataSourcesMap.get(dataTable.dataSourceId);
+        sourceType = dataSource?.type ?? null;
       }
 
       return {
@@ -105,7 +99,7 @@ export default function VisualizationsPage() {
         sourceType,
       };
     });
-  }, [visualizations, insightsMap, dataTablesMap, dataSourcesMap]);
+  }, [visualizations, insightsMap, dataTables, insights, dataSourcesMap]);
 
   // Filter visualizations by search query
   const filteredVisualizations = useMemo((): VisualizationWithDetails[] => {

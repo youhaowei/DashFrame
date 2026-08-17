@@ -13,6 +13,7 @@ import { text, uuid } from "@wystack/db";
 import type { DashframeFunctionContext } from "../app-context";
 import { permissions } from "../permissions";
 import { wy } from "../wystack";
+import { requireWriteTarget } from "./utils";
 
 function toDto(record: AccessCredentialRecord): AccessCredential {
   return {
@@ -93,7 +94,10 @@ const issueAccessCredential = configuredAccessCredentialProcedure
 const revokeAccessCredential = configuredAccessCredentialProcedure
   .input({ id: uuid })
   .mutation(async (ctx, { id }): Promise<{ ok: true }> => {
-    await credentials(ctx).revoke(id);
+    requireWriteTarget(
+      await credentials(ctx).revoke(id),
+      `Access credential ${id}`,
+    );
     return { ok: true };
   });
 

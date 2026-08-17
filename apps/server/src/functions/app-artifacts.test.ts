@@ -43,7 +43,7 @@ import { LOCAL_USER_ID } from "../permissions";
 import { wy } from "../wystack";
 import { cmd } from "./commands";
 
-const { dataFrames, dataSources } = schema;
+const { dataFrames, dataSources, dataTables, dashboards } = schema;
 
 /** Real vault (TestBackend) — matches credential-release.test.ts's idiom. */
 function makeTestVault(): { vault: SecretVault; backend: TestBackend } {
@@ -131,6 +131,34 @@ describe("privacy floor — no raw sampleValues persist in artifact DB", () => {
     const { result } = await app.call(path, args);
     return result;
   }
+
+  it("rejects a malformed DataFrame entry before persistence", async () => {
+    await expect(
+      call("putDataFrameEntry", {
+        entry: {
+          ...makeDataFrameEntry(crypto.randomUUID()),
+          storage: "s3",
+        },
+      }),
+    ).rejects.toThrow();
+    expect(await db.select().from(dataFrames)).toEqual([]);
+  });
+
+  it("rejects malformed DataFrame updates without changing the row", async () => {
+    const id = crypto.randomUUID();
+    await call("putDataFrameEntry", { entry: makeDataFrameEntry(id) });
+
+    await expect(
+      call("updateDataFrameEntry", { id, updates: { name: 42 } }),
+    ).rejects.toThrow();
+    expect((await db.select().from(dataFrames))[0]?.name).toBe("Test Frame");
+  });
+
+  it("rejects a malformed insight exclusion list at the RPC boundary", async () => {
+    await expect(
+      call("listInsights", { excludeIds: [crypto.randomUUID(), 42] }),
+    ).rejects.toThrow();
+  });
 
   it("should strip sampleValues when writing analysis via putDataFrameEntry", async () => {
     const id = crypto.randomUUID();
@@ -303,6 +331,59 @@ describe("privacy floor — no raw sampleValues persist in artifact DB", () => {
 
     const stored = await readAnalysis(id);
     expect(stored).toBeNull();
+  });
+
+  it("rejects DataFrame updates and removals whose id does not exist", async () => {
+    const missingId = crypto.randomUUID();
+
+    await expect(
+      call("updateDataFrameEntry", {
+        id: missingId,
+        updates: { name: "Nowhere" },
+      }),
+    ).rejects.toThrow(`Data frame ${missingId} not found`);
+    await expect(
+      call("removeDataFrameEntry", { id: missingId }),
+    ).rejects.toThrow(`Data frame ${missingId} not found`);
+  });
+
+  it("fails closed when reading malformed DataTable structured state", async () => {
+    const sourceId = crypto.randomUUID();
+    const tableId = crypto.randomUUID();
+    await db.insert(dataSources).values({
+      id: sourceId,
+      name: "Source",
+      kind: "csv",
+      storage: "live",
+      config: {},
+      createdBy: { kind: "user" },
+    });
+    await db.insert(dataTables).values({
+      id: tableId,
+      dataSourceId: sourceId,
+      name: "Corrupt",
+      table: "corrupt.csv",
+      fields: {},
+      metrics: [],
+    });
+
+    await expect(call("getDataTable", { id: tableId })).rejects.toThrow(
+      /Data table .*invalid.*fields.*array/i,
+    );
+  });
+
+  it("fails closed when reading malformed Dashboard structured state", async () => {
+    const dashboardId = crypto.randomUUID();
+    await db.insert(dashboards).values({
+      id: dashboardId,
+      name: "Corrupt",
+      layout: {},
+      createdBy: { kind: "user" },
+    });
+
+    await expect(call("getDashboard", { id: dashboardId })).rejects.toThrow(
+      /Dashboard .*invalid.*layout.*array/i,
+    );
   });
 
   it("should persist data-frame origin and refresh metadata", async () => {

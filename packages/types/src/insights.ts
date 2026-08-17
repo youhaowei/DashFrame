@@ -107,7 +107,10 @@ export type InsightFetchDefinition = Pick<
   Insight,
   "selectedFields" | "metrics" | "filters" | "sorts" | "joins"
 > & {
-  /** Execution adapter consumed by the query engine. Not a persisted model field. */
+  /**
+   * Execution source id: a DataTable id for table sources or an Insight id for
+   * composed sources. Branch on the source type before resolving it. Not persisted.
+   */
   baseTableId: UUID;
 };
 

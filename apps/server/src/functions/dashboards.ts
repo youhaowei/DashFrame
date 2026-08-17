@@ -12,6 +12,7 @@
 import { schema } from "@dashframe/server-core";
 import type { Dashboard } from "@dashframe/types";
 import { eq, uuid } from "@wystack/db";
+import { z } from "zod";
 
 import { wy } from "../wystack";
 import { tsToMillis } from "./timestamps";
@@ -24,19 +25,107 @@ type DashboardRow = typeof dashboards.$inferSelect;
  * The domain `Dashboard` shape returned to the client. Handlers annotate their
  * returns with this so the WyStack `api` registry infers the domain type and
  * consumers read `useQuery(api.listDashboards).data` as `Dashboard[]` with no
- * cast. The single unchecked JSONB→domain assertion lives at the
- * `rowToDashboard` boundary below, not in every client.
+ * cast. JSONB is validated by `parseStoredDashboardState` before the result is
+ * assembled, keeping the read and canonical-write contract shared.
  */
 export type DashboardResult = Dashboard;
 
+const insightFilterOverrideSchema = z
+  .object({
+    id: z.string().optional(),
+    field: z.string().min(1),
+    operator: z.enum([
+      "eq",
+      "ne",
+      "gt",
+      "gte",
+      "lt",
+      "lte",
+      "contains",
+      "in",
+      "between",
+    ]),
+    value: z.unknown(),
+    cleared: z.boolean().optional(),
+  })
+  .passthrough();
+
+const insightSortSchema = z
+  .object({
+    field: z.string().min(1),
+    direction: z.enum(["asc", "desc"]),
+  })
+  .passthrough();
+
+const storedDashboardItemOverridesSchema = z
+  .object({
+    filters: z.array(insightFilterOverrideSchema).optional(),
+    sorts: z.array(insightSortSchema).optional(),
+    limit: z.number().finite().positive().optional(),
+  })
+  .passthrough();
+
+const storedDashboardItemSchema = z
+  .object({
+    id: z.string(),
+    type: z.enum(["visualization", "markdown"]),
+    visualizationId: z.string().optional(),
+    content: z.string().optional(),
+    x: z.number(),
+    y: z.number(),
+    width: z.number(),
+    height: z.number(),
+    overrides: storedDashboardItemOverridesSchema.optional(),
+  })
+  .passthrough();
+
+const storedDashboardControlSchema = z
+  .object({
+    id: z.string(),
+    field: z.string(),
+    label: z.string().optional(),
+    defaultValue: z.unknown().optional(),
+    boundInstances: z.array(z.string()),
+  })
+  .passthrough();
+
+/** Shared structural contract for dashboard JSONB reads and writes. */
+export const storedDashboardStateSchema = z.object({
+  layout: z
+    .array(storedDashboardItemSchema)
+    .nullish()
+    .transform((value) => value ?? []),
+  controls: z
+    .array(storedDashboardControlSchema)
+    .nullish()
+    .transform((value) => value ?? undefined),
+});
+
+export function parseStoredDashboardState(
+  value: unknown,
+  subject: string,
+): Pick<Dashboard, "items" | "controls"> {
+  const parsed = storedDashboardStateSchema.safeParse(value);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    const path = issue?.path.join(".") || "state";
+    throw new Error(`${subject} is invalid: ${path} ${issue?.message}`);
+  }
+  return {
+    items: parsed.data.layout as Dashboard["items"],
+    controls: parsed.data.controls as Dashboard["controls"],
+  };
+}
+
 /** Row → domain. Single source of the mapping (read paths share it). */
 function rowToDashboard(row: DashboardRow): DashboardResult {
+  const state = parseStoredDashboardState(row, `Dashboard ${row.id}`);
   return {
     id: row.id,
     name: row.name,
     description: row.description ?? undefined,
-    items: (row.layout as Dashboard["items"]) ?? [],
-    controls: (row.controls as Dashboard["controls"]) ?? undefined,
+    items: state.items,
+    controls: state.controls,
     // Null-safe via the shared `tsToMillis` (timestamps.ts): the draft overlay
     // returns NULL created_at for a dashboard created inside a draft (the sparse
     // `<table>__draft` row has no canonical base; publish stamps the real value),

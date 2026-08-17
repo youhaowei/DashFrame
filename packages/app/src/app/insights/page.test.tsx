@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
@@ -109,6 +109,58 @@ describe("InsightsPage delete confirmations", () => {
       });
       expect(mockClearActiveView).toHaveBeenCalledWith("insight-1");
     });
+  });
+
+  it("shows root table metadata for a composed Insight", () => {
+    const upstream = {
+      ...draft("upstream", "Upstream"),
+      source: { sourceType: "dataTable" as const, sourceId: "root-table" },
+    };
+    const composed = {
+      ...draft("composed", "Composed report"),
+      source: { sourceType: "insight" as const, sourceId: upstream.id },
+    };
+    mockUseQuery.mockImplementation((ref: { _path: string }) => {
+      if (ref._path === "listInsights") {
+        return {
+          data: [upstream, composed],
+          isPending: false,
+          isLoadingError: false,
+          refetch: vi.fn(),
+        };
+      }
+      if (ref._path === "listVisualizations") {
+        return {
+          data: [],
+          isPending: false,
+          isLoadingError: false,
+          refetch: vi.fn(),
+        };
+      }
+      if (ref._path === "listDataTables") {
+        return {
+          data: [
+            {
+              id: "root-table",
+              name: "Root Orders",
+              dataSourceId: "source-1",
+              fields: [],
+              metrics: [],
+            },
+          ],
+        };
+      }
+      if (ref._path === "listDataSources") {
+        return { data: [{ id: "source-1", type: "csv" }] };
+      }
+      return { data: [] };
+    });
+
+    render(<InsightsPage />);
+
+    const card = screen.getByText("Composed report").closest(".group");
+    expect(card).not.toBeNull();
+    expect(within(card!).getByText("Root Orders • csv")).not.toBeNull();
   });
 
   it("shows the draft count and does not start the bulk delete until confirmation", async () => {
@@ -227,8 +279,10 @@ describe("InsightsPage delete confirmations", () => {
       });
       expect(action.getAttribute("aria-expanded")).toBe("true");
       if (activation !== "pointer") {
-        expect(document.activeElement).toBe(
-          screen.getByRole("menuitem", { name: "Open" }),
+        await waitFor(() =>
+          expect(document.activeElement).toBe(
+            screen.getByRole("menuitem", { name: "Open" }),
+          ),
         );
       }
       expect(deleteItem).not.toBeNull();

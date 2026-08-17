@@ -166,8 +166,8 @@ export function DashboardItem({
         </div>
 
         {/* Customize button + override badge — visualization cells only, editor-mode only.
-            Hidden from non-editors: a non-editor invoking updateItem/updateControls
-            would persist their changes, which is not the intended v0.3 scope.
+            Hidden from non-editors: the underlying commitBatch commands persist
+            changes, which is not the intended v0.3 viewer scope.
             Visible on hover or focus within, anchored bottom-right inside the surface. */}
         {item.type === "visualization" && isEditable && (
           <div

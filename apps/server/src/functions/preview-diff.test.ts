@@ -280,6 +280,7 @@ describe("PreviewDiff builder", () => {
             name: "Total",
             sourceTable: tableId,
             aggregation: "sum",
+            columnName: "amount",
           },
         }),
       );
@@ -567,6 +568,48 @@ describe("PreviewDiff builder", () => {
       // Sanity: must NOT point at the dataSource which also carries sharedId.
       expect(insightHit!.via.kind).not.toBe("dataSource");
     });
+
+    it("matches dependency references by kind when a DataTable and Insight share an id", async () => {
+      const sharedId = id();
+      const downstreamId = id();
+      const sourceId = id();
+      await db.insert(insights).values([
+        {
+          id: sharedId,
+          name: "UpstreamInsight",
+          definition: {
+            source: { sourceType: "dataTable", sourceId: id() },
+            selectedFields: [],
+            metrics: [],
+          },
+          createdBy: PROV,
+        },
+        {
+          id: downstreamId,
+          name: "ComposedInsight",
+          definition: {
+            source: { sourceType: "insight", sourceId: sharedId },
+            selectedFields: [],
+            metrics: [],
+          },
+          createdBy: PROV,
+        },
+      ]);
+
+      const diff = await preview(
+        cmd("CreateDataSource", { id: sourceId, type: "csv", name: "Src" }),
+        cmd("CreateDataTable", {
+          id: sharedId,
+          dataSourceId: sourceId,
+          name: "CollisionTable",
+          table: "collision.csv",
+        }),
+      );
+
+      expect(
+        diff.affectedDownstream.some((node) => node.nodeId === downstreamId),
+      ).toBe(false);
+    });
   });
 
   // --------------------------------------------------------------------------
@@ -731,6 +774,43 @@ describe("PreviewDiff builder", () => {
         kind: "visualization",
         edge: "insight->visualization",
       });
+    });
+
+    it("treats a base-only legacy source as a DataTable even when its id matches an Insight", async () => {
+      const sourceId = await seedSource();
+      const tableId = await seedTable(sourceId);
+      const upstreamId = await seedInsight({ baseTableId: tableId });
+      const legacyId = await seedInsight({ baseTableId: upstreamId });
+
+      const diff = await preview(
+        cmd("RenameNode", { id: upstreamId, name: "Renamed" }),
+      );
+
+      expect(
+        diff.affectedDownstream.find((node) => node.nodeId === legacyId),
+      ).toBeUndefined();
+    });
+
+    it("fails closed when a stored Insight source discriminant is corrupt", async () => {
+      const sourceId = await seedSource();
+      const tableId = await seedTable(sourceId);
+      await db.insert(insights).values({
+        id: id(),
+        name: "Corrupt",
+        definition: {
+          source: { sourceType: "bogus", sourceId: tableId },
+          selectedFields: [],
+          metrics: [],
+          filters: [],
+          sorts: [],
+          joins: [],
+        },
+        createdBy: PROV,
+      });
+
+      await expect(
+        preview(cmd("RenameNode", { id: tableId, name: "Renamed" })),
+      ).rejects.toThrow(/sourceType/);
     });
 
     it("should fan out insight -> dataFrame via the FK edge, flagged stale", async () => {

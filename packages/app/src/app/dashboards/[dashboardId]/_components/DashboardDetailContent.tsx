@@ -1,7 +1,10 @@
 import { useBindArtifact } from "@/components/assistant/artifact-context";
 import { DashboardControlBar } from "@/components/dashboards/DashboardControlBar";
 import { DashboardGrid } from "@/components/dashboards/DashboardGrid";
-import type { CombinedField } from "@/lib/insights/compute-combined-fields";
+import {
+  resolveInsightAvailableFields,
+  type CombinedField,
+} from "@/lib/insights/compute-combined-fields";
 import { api } from "@/wystack/api";
 import {
   cmd,
@@ -93,7 +96,6 @@ export default function DashboardDetailContent({
     const map = new Map<string, CombinedField>();
     if (!dashboard) return map;
 
-    // Collect direct DataTable sources. Composed Insight ids are not table ids.
     const vizIds = new Set(
       dashboard.items
         .filter((i) => i.type === "visualization")
@@ -103,30 +105,17 @@ export default function DashboardDetailContent({
     const insightIds = new Set(
       visualizations.filter((v) => vizIds.has(v.id)).map((v) => v.insightId),
     );
-    const tableIds = new Set(
-      insights
-        .filter(
-          (insight) =>
-            insightIds.has(insight.id) &&
-            insight.source.sourceType === "dataTable",
-        )
-        .map((insight) => insight.source.sourceId),
-    );
-
-    for (const tableId of tableIds) {
-      const table = dataTables.find((t) => t.id === tableId);
-      if (!table) continue;
-      for (const field of table.fields ?? []) {
+    for (const insight of insights.filter((candidate) =>
+      insightIds.has(candidate.id),
+    )) {
+      const fields = resolveInsightAvailableFields(
+        insight,
+        dataTables,
+        insights,
+      );
+      for (const field of fields) {
         const key = field.columnName ?? field.name;
-        if (!map.has(key)) {
-          // Cast to CombinedField — no display-name dedup needed here since we
-          // only use it for type detection in the control bar.
-          map.set(key, {
-            ...field,
-            sourceTableId: table.id,
-            displayName: field.name,
-          });
-        }
+        if (!map.has(key)) map.set(key, field);
       }
     }
     return map;

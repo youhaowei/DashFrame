@@ -188,11 +188,11 @@ function unwrapEncodingExpression(value: string): string {
 }
 
 /**
- * Resolve an encoding channel value to a CANONICAL field ID. Tries, in order:
+ * Resolve an encoding channel value to a canonical field ID. Tries, in order:
  * the raw value, the value with date-transform wrappers removed, and finally
  * the canonical UUID behind an instance-qualified repeat-join alias
- * (field_<uuid>_jN). Use this for the persisted Insight model
- * (selectedFields/metrics), which stores canonical field IDs only.
+ * (field_<uuid>_jN). Use this only for canonical field metadata lookups; a
+ * persisted selectedFields reference must preserve its repeat-join instance.
  */
 function lookupEncodingFieldId(
   fieldIdMap: Map<string, UUID>,
@@ -219,8 +219,7 @@ function lookupEncodingFieldId(
  * (VisualizationPreview resolves `field:<uuid>_jN` through the pagination
  * hook's instance-aware fields), and collapsing to canonical would silently
  * re-point the pinned chart at the FIRST join instance. Use this for
- * VisualizationEncoding values; use lookupEncodingFieldId for the Insight
- * model.
+ * VisualizationEncoding values and persisted Insight selectedFields.
  */
 function lookupEncodingFieldRef(
   fieldIdMap: Map<string, UUID>,
@@ -245,6 +244,15 @@ function lookupEncodingFieldRef(
   return instanceSuffix
     ? (`${canonicalId}${instanceSuffix}` as UUID)
     : canonicalId;
+}
+
+export function resolveSuggestionDimensionFieldIds(
+  fieldIdMap: Map<string, UUID>,
+  dimensionFields: string[],
+): UUID[] {
+  return dimensionFields
+    .map((columnName) => lookupEncodingFieldRef(fieldIdMap, columnName))
+    .filter((id): id is UUID => id !== undefined);
 }
 
 /**
@@ -1017,9 +1025,10 @@ export function InsightView({
       });
 
       // Convert dimension column names to field IDs
-      const newSelectedFieldIds = dimensionFields
-        .map((colName) => lookupEncodingFieldId(fieldIdMap, colName))
-        .filter((id): id is UUID => id !== undefined);
+      const newSelectedFieldIds = resolveSuggestionDimensionFieldIds(
+        fieldIdMap,
+        dimensionFields,
+      );
 
       // Suggestion encodings reference UUID column aliases, so metrics parsed
       // from them carry names like "sum(field_<uuid>)". Rename to the field's

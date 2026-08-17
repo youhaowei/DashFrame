@@ -33,6 +33,12 @@ interface FilterSortableItem extends SortableListItem {
 export interface FilterWithId extends InsightFilter {
   /** Stable client-only id for sortable list keying */
   _id: string;
+  /** Whether the next save may append or must update an existing row. */
+  _saveIntent?: "create" | "update";
+  /** True only when `_id` was derived from an id-less legacy row. */
+  _legacyFallback?: boolean;
+  /** True when this row opened inside a byte-identical legacy duplicate set. */
+  _legacyDuplicate?: boolean;
 }
 
 interface FiltersSectionProps {

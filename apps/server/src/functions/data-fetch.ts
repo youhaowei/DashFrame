@@ -33,6 +33,15 @@ export function fingerprintEffectiveInsight(
   return createHash("sha256").update(JSON.stringify(insight)).digest("hex");
 }
 
+export function compatibleInsightFingerprints(
+  insight: EffectiveInsightDefinition,
+): string[] {
+  const current = fingerprintEffectiveInsight(insight);
+  if (insight.source?.sourceType !== "dataTable") return [current];
+  const { source: _source, ...legacy } = insight;
+  return [current, fingerprintEffectiveInsight(legacy)];
+}
+
 const RUNTIME_FAILURE_CODES = new Set([
   "RUNTIME_FILTER_NOT_DECLARED",
   "RUNTIME_FILTER_KEY_DUPLICATE",
@@ -434,7 +443,7 @@ export function createDataFetchFunctions(execute: LiveFetchExecutor) {
       try {
         const saved = await getInsightForFetch(ctx, insightId as UUID);
         const effective = applyInsightRuntime(saved, parsedRuntime.data);
-        const invocationFingerprint = fingerprintEffectiveInsight(effective);
+        const invocationFingerprints = compatibleInsightFingerprints(effective);
         const result = await materialize(ctx, effective, {
           kind: "saved",
           insightId: insightId as UUID,
@@ -443,7 +452,7 @@ export function createDataFetchFunctions(execute: LiveFetchExecutor) {
         const prior = await lastSuccessfulForInsight(
           ctx,
           insightId as UUID,
-          invocationFingerprint,
+          invocationFingerprints,
         );
         return prior ? { ...result, lastSuccessful: prior } : result;
       } catch (error) {
@@ -487,7 +496,7 @@ async function getInsightForFetch(
 async function lastSuccessfulForInsight(
   ctx: DashframeFunctionContext,
   insightId: UUID,
-  invocationFingerprint: string,
+  invocationFingerprints: readonly string[],
 ) {
   const rows = (await ctx.db
     .from(schema.dataFrames)
@@ -515,7 +524,8 @@ async function lastSuccessfulForInsight(
       undefined,
     );
   const stale = row ? staleFrameMetadata(row) : undefined;
-  return stale?.definitionFingerprint === invocationFingerprint
+  return stale?.definitionFingerprint &&
+    invocationFingerprints.includes(stale.definitionFingerprint)
     ? stale
     : undefined;
 }

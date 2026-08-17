@@ -65,6 +65,7 @@ import { applyCommands, type WyStackApp } from "@wystack/server";
 import { permissions } from "../permissions";
 import { wy } from "../wystack";
 import { assertKnownCommandPaths, commandFunctions } from "./commands";
+import { storedInsightDefinitionSchema } from "./insights";
 import { flushThenReleaseRefs } from "./utils";
 
 const {
@@ -891,8 +892,8 @@ interface GraphRow {
   kind: ArtifactKind;
   /** Human-readable artifact name — carried to the consent surface. See #65. */
   name: string;
-  /** ids of the nodes this row directly DEPENDS ON (its upstream). */
-  dependsOn: string[];
+  /** Typed identities of the nodes this row directly depends on. */
+  dependsOn: Array<{ id: string; kind: ArtifactKind }>;
   parentArtifactId: string | null;
 }
 
@@ -948,7 +949,7 @@ async function loadGraph(db: ArtifactDb): Promise<GraphRow[]> {
       id: r.id,
       kind: "dataTable",
       name: r.name,
-      dependsOn: [r.dataSourceId],
+      dependsOn: [{ id: r.dataSourceId, kind: "dataSource" }],
       parentArtifactId: null,
     });
   for (const r of allInsights)
@@ -964,7 +965,7 @@ async function loadGraph(db: ArtifactDb): Promise<GraphRow[]> {
       id: r.id,
       kind: "dataFrame",
       name: r.name,
-      dependsOn: r.insightId ? [r.insightId] : [],
+      dependsOn: r.insightId ? [{ id: r.insightId, kind: "insight" }] : [],
       parentArtifactId: null,
     });
   for (const r of allVis)
@@ -972,7 +973,7 @@ async function loadGraph(db: ArtifactDb): Promise<GraphRow[]> {
       id: r.id,
       kind: "visualization",
       name: r.name,
-      dependsOn: [r.insightId],
+      dependsOn: [{ id: r.insightId, kind: "insight" }],
       parentArtifactId: r.parentArtifactId,
     });
   for (const r of allDashboards)
@@ -1128,7 +1129,12 @@ function classifyDownstream(
   parentId: string,
   parentKind: ArtifactKind,
 ): { edge: DownstreamEdge; flag: DownstreamFlag } | null {
-  if (row.dependsOn.includes(parentId)) {
+  if (
+    row.dependsOn.some(
+      (dependency) =>
+        dependency.id === parentId && dependency.kind === parentKind,
+    )
+  ) {
     const edge = DOWNSTREAM_EDGES.find(
       (e) => e.edge === `${parentKind}->${row.kind}`,
     );
@@ -1145,23 +1151,29 @@ function classifyDownstream(
  * polymorphic source plus each join's right side. Legacy base-only rows remain
  * readable during migration.
  */
-function insightTableRefs(definition: unknown): string[] {
-  if (!definition || typeof definition !== "object") return [];
-  const def = definition as {
-    source?: { sourceId?: unknown };
-    baseTableId?: unknown;
-    joins?: unknown;
-  };
-  const refs: string[] = [];
-  const sourceId = def.source?.sourceId ?? def.baseTableId;
-  if (typeof sourceId === "string") refs.push(sourceId);
-  if (Array.isArray(def.joins)) {
-    for (const join of def.joins) {
-      const right = (join as { rightTableId?: unknown } | null)?.rightTableId;
-      if (typeof right === "string") refs.push(right);
-    }
-  }
-  return refs;
+function insightTableRefs(
+  definition: unknown,
+): Array<{ id: string; kind: "dataTable" | "insight" }> {
+  const def = storedInsightDefinitionSchema.parse(definition);
+  return [
+    {
+      id: def.source.sourceId,
+      kind: def.source.sourceType === "insight" ? "insight" : "dataTable",
+    },
+    ...(def.joins ?? []).map((join) => {
+      if (
+        join === null ||
+        typeof join !== "object" ||
+        typeof (join as { rightTableId?: unknown }).rightTableId !== "string"
+      ) {
+        throw new Error("Insight join has an invalid rightTableId");
+      }
+      return {
+        id: (join as { rightTableId: string }).rightTableId,
+        kind: "dataTable" as const,
+      };
+    }),
+  ];
 }
 
 /**
@@ -1169,12 +1181,14 @@ function insightTableRefs(definition: unknown): string[] {
  * items of type "visualization" carry `visualizationId`. These are the
  * dashboard's upstream-visualization dependencies.
  */
-function dashboardVisRefs(layout: unknown): string[] {
+function dashboardVisRefs(
+  layout: unknown,
+): Array<{ id: string; kind: "visualization" }> {
   if (!Array.isArray(layout)) return [];
-  const refs: string[] = [];
+  const refs: Array<{ id: string; kind: "visualization" }> = [];
   for (const item of layout) {
     const vis = (item as { visualizationId?: unknown } | null)?.visualizationId;
-    if (typeof vis === "string") refs.push(vis);
+    if (typeof vis === "string") refs.push({ id: vis, kind: "visualization" });
   }
   return refs;
 }
@@ -1200,8 +1214,8 @@ function dashboardVisRefs(layout: unknown): string[] {
  * `wyStackApp` and `artifactDb` are injected into the handler context via
  * `staticContext` in `createDashframeServer`.
  *
- * Partial-failure response: `buildPreviewDiff` never throws — it returns a
- * renderable `PreviewDiff` with an `error` slot on partial failure. The caller
+ * Command partial failures return a renderable `PreviewDiff` with an `error`
+ * slot. Corrupt canonical state still fails closed as an RPC error. The caller
  * must inspect `result.error` to distinguish a successful diff from a
  * partial/failed one. Infrastructure failures (missing context keys) do throw
  * and surface as RPC errors.

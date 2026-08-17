@@ -16,6 +16,7 @@
  * RemoveDashboardItem), DeleteNode, extended RenameNode, and AddField/UpdateField
  * on Insight nodes.
  */
+import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
 import {
   CREDENTIAL_CLASS,
   openArtifactDb,
@@ -29,6 +30,7 @@ import {
   TestBackend,
 } from "@wystack/secret-vault";
 import type { Command, WyStackApp } from "@wystack/server";
+import { buildInsightUpdateCommands, type Insight } from "@dashframe/types";
 import { eq } from "drizzle-orm";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -60,8 +62,14 @@ function makeTestVault(): SecretVault {
   return new SecretVault(registry, new InMemoryMappingStore());
 }
 
-const { dataSources, dataTables, insights, visualizations, dashboards } =
-  schema;
+const {
+  dataSources,
+  dataTables,
+  dataFrames,
+  insights,
+  visualizations,
+  dashboards,
+} = schema;
 
 describe("command vocabulary", () => {
   let dir: string;
@@ -119,6 +127,15 @@ describe("command vocabulary", () => {
   async function tablesById(tableId: string) {
     const rows = await db.select().from(dataTables);
     return rows.filter((r) => r.id === tableId);
+  }
+  async function makeFrame(frameId = id()) {
+    await db.insert(dataFrames).values({
+      id: frameId,
+      storage: { type: "file", key: frameId },
+      fieldIds: [],
+      name: "Test Frame",
+    });
+    return frameId;
   }
   async function insightsById(insightId: string) {
     const rows = await db.select().from(insights);
@@ -526,6 +543,7 @@ describe("command vocabulary", () => {
       const sourceId = id();
       const tableId = id();
       const frameId = id();
+      await makeFrame(frameId);
       await commit(
         cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
         cmd("CreateDataTable", {
@@ -541,10 +559,124 @@ describe("command vocabulary", () => {
       expect(row?.lastFetchedAt).toBeInstanceOf(Date);
     });
 
+    it("rejects malformed structured DataTable operands before persistence", async () => {
+      const sourceId = id();
+      await commit(
+        cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
+      );
+
+      await expect(
+        commit(
+          cmd("CreateDataTable", {
+            id: id(),
+            dataSourceId: sourceId,
+            name: "Invalid",
+            table: "invalid.csv",
+            fields: {} as never,
+          }),
+        ),
+      ).rejects.toThrow(/fields.*array/i);
+
+      for (const malformed of [
+        { fields: [42] },
+        { metrics: ["bad"] },
+        {
+          sourceSchema: {
+            columns: "bad",
+            version: 1,
+            lastSyncedAt: Date.now(),
+          },
+        },
+      ]) {
+        await expect(
+          commit(
+            cmd("CreateDataTable", {
+              id: id(),
+              dataSourceId: sourceId,
+              name: "Invalid nested state",
+              table: "invalid-nested.csv",
+              ...malformed,
+            } as never),
+          ),
+        ).rejects.toThrow(/invalid/i);
+      }
+
+      const tableId = id();
+      await commit(
+        cmd("CreateDataTable", {
+          id: tableId,
+          dataSourceId: sourceId,
+          name: "Valid",
+          table: "valid.csv",
+        }),
+      );
+      await expect(
+        commit(
+          cmd("SetDataTableSchema", {
+            id: tableId,
+            sourceSchema: [] as never,
+          }),
+        ),
+      ).rejects.toThrow(/sourceSchema.*object/i);
+      await expect(
+        commit(
+          cmd("AddField", {
+            nodeId: tableId,
+            field: { id: id() } as never,
+          }),
+        ),
+      ).rejects.toThrow(/fields|field/i);
+      expect((await tablesById(tableId))[0]?.sourceSchema).toBeNull();
+      expect((await tablesById(tableId))[0]?.fields).toEqual([]);
+    });
+
+    it("rejects dangling dataFrameId references in CreateDataTable and RefreshDataTable", async () => {
+      const sourceId = id();
+      const tableId = id();
+      const missingFrameId = id();
+      await commit(
+        cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
+      );
+
+      await expect(
+        commit(
+          cmd("CreateDataTable", {
+            id: id(),
+            dataSourceId: sourceId,
+            name: "Dangling",
+            table: "dangling.csv",
+            dataFrameId: missingFrameId,
+          }),
+        ),
+      ).rejects.toThrow(new RegExp(`Data frame ${missingFrameId} not found`));
+
+      await commit(
+        cmd("CreateDataTable", {
+          id: tableId,
+          dataSourceId: sourceId,
+          name: "T",
+          table: "t.csv",
+        }),
+      );
+      await expect(
+        commit(
+          cmd("RefreshDataTable", {
+            id: tableId,
+            dataFrameId: missingFrameId,
+          }),
+        ),
+      ).rejects.toThrow(new RegExp(`Data frame ${missingFrameId} not found`));
+      expect((await tablesById(tableId))[0]?.dataFrameId).toBeNull();
+    });
+
     it("should replace the source schema slice for SetDataTableSchema", async () => {
       const sourceId = id();
       const tableId = id();
-      const sourceSchema = { columns: [{ name: "amount", type: "number" }] };
+      const sourceSchema = {
+        columns: [{ name: "amount", type: "number" }],
+        version: 1,
+        lastSyncedAt: 1,
+      };
       await commit(
         cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
         cmd("CreateDataTable", {
@@ -615,8 +747,10 @@ describe("command vocabulary", () => {
           metric: {
             id: metricId,
             name: "Sum",
-            expression: "sum(amount)",
-          } as never,
+            tableId,
+            columnName: "amount",
+            aggregation: "sum",
+          },
         }),
         cmd("UpdateMetric", {
           nodeId: tableId,
@@ -647,8 +781,10 @@ describe("command vocabulary", () => {
           metric: {
             id: metricId,
             name: "Sum",
-            expression: "sum(amount)",
-          } as never,
+            tableId,
+            columnName: "amount",
+            aggregation: "sum",
+          },
         }),
       );
 
@@ -671,7 +807,13 @@ describe("command vocabulary", () => {
         }),
         cmd("AddMetric", {
           nodeId: tableId,
-          metric: { id: metricId, name: "Sum" } as never,
+          metric: {
+            id: metricId,
+            name: "Sum",
+            tableId,
+            columnName: "amount",
+            aggregation: "sum",
+          },
         }),
       );
 
@@ -679,7 +821,13 @@ describe("command vocabulary", () => {
         commit(
           cmd("AddMetric", {
             nodeId: tableId,
-            metric: { id: metricId, name: "Sum again" } as never,
+            metric: {
+              id: metricId,
+              name: "Sum again",
+              tableId,
+              columnName: "amount",
+              aggregation: "sum",
+            },
           }),
         ),
       ).rejects.toThrow(/already exists/);
@@ -1062,6 +1210,66 @@ describe("command vocabulary", () => {
   });
 
   describe("SetInsightSource (Insight-on-Insight composition + cycle rejection)", () => {
+    it("atomically moves selected fields with their source", async () => {
+      const first = await makeTable();
+      const second = await makeTable();
+      const firstFieldId = id();
+      const secondFieldId = id();
+      const insightId = id();
+      await commit(
+        cmd("AddField", {
+          nodeId: first.tableId,
+          field: {
+            id: firstFieldId,
+            name: "First",
+            tableId: first.tableId,
+            columnName: "first",
+            type: "string",
+          },
+        }),
+        cmd("AddField", {
+          nodeId: second.tableId,
+          field: {
+            id: secondFieldId,
+            name: "Second",
+            tableId: second.tableId,
+            columnName: "second",
+            type: "string",
+          },
+        }),
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "Moving",
+          source: { sourceType: "dataTable", sourceId: first.tableId },
+          selectedFields: [firstFieldId],
+        }),
+      );
+      const current = {
+        id: insightId,
+        name: "Moving",
+        source: { sourceType: "dataTable", sourceId: first.tableId },
+        selectedFields: [firstFieldId],
+        metrics: [],
+        filters: [],
+        sorts: [],
+        joins: [],
+        createdAt: 0,
+      } as Insight;
+
+      await commit(
+        ...buildInsightUpdateCommands(insightId, current, {
+          source: { sourceType: "dataTable", sourceId: second.tableId },
+          selectedFields: [secondFieldId],
+        }),
+      );
+
+      const [stored] = await insightsById(insightId);
+      expect(stored?.definition).toMatchObject({
+        source: { sourceType: "dataTable", sourceId: second.tableId },
+        selectedFields: [secondFieldId],
+      });
+    });
+
     it("should re-point an Insight's source to another Insight's DataFrame", async () => {
       const { tableId } = await makeTable();
       const baseInsightId = id();
@@ -1198,6 +1406,363 @@ describe("command vocabulary", () => {
       expect((await insightsById(rebindId))[0]?.definition).toMatchObject({
         source: { sourceType: "dataTable", sourceId: tableId },
         selectedFields: [rootOnlyFieldId],
+      });
+    });
+
+    it("rejects derived metric, filter, and sort references outside the immediate source output", async () => {
+      const { tableId } = await makeTable();
+      const outputFieldId = id();
+      const rootOnlyFieldId = id();
+      const upstreamId = id();
+      const derivedId = id();
+      const invalidCreateId = id();
+      const wrongSourceCreateId = id();
+      const rebindId = id();
+      const outputColumn = fieldIdToColumnAlias(outputFieldId);
+      const rootOnlyColumn = fieldIdToColumnAlias(rootOnlyFieldId);
+      await commit(
+        cmd("AddField", {
+          nodeId: tableId,
+          field: {
+            id: outputFieldId,
+            name: "Output field",
+            tableId,
+            columnName: "output",
+            type: "number",
+          },
+        }),
+        cmd("AddField", {
+          nodeId: tableId,
+          field: {
+            id: rootOnlyFieldId,
+            name: "Root-only field",
+            tableId,
+            columnName: "root_only",
+            type: "number",
+          },
+        }),
+        cmd("CreateInsight", {
+          id: upstreamId,
+          name: "Upstream",
+          source: { sourceType: "dataTable", sourceId: tableId },
+          selectedFields: [outputFieldId],
+        }),
+        cmd("CreateInsight", {
+          id: derivedId,
+          name: "Derived",
+          source: { sourceType: "insight", sourceId: upstreamId },
+          selectedFields: [outputFieldId],
+        }),
+        cmd("CreateInsight", {
+          id: rebindId,
+          name: "Rebind",
+          source: { sourceType: "dataTable", sourceId: tableId },
+          metrics: [
+            {
+              id: id(),
+              name: "Root-only sum",
+              sourceTable: tableId,
+              columnName: "root_only",
+              aggregation: "sum",
+            },
+          ],
+        }),
+      );
+
+      await expect(
+        commit(
+          cmd("CreateInsight", {
+            id: invalidCreateId,
+            name: "Invalid derived",
+            source: { sourceType: "insight", sourceId: upstreamId },
+            metrics: [
+              {
+                id: id(),
+                name: "Invalid sum",
+                sourceTable: upstreamId,
+                columnName: rootOnlyColumn,
+                aggregation: "sum",
+              },
+            ],
+          }),
+        ),
+      ).rejects.toThrow(/not output by source Insight/);
+      await expect(
+        commit(
+          cmd("CreateInsight", {
+            id: wrongSourceCreateId,
+            name: "Wrong source derived",
+            source: { sourceType: "insight", sourceId: upstreamId },
+            metrics: [
+              {
+                id: id(),
+                name: "Wrong source sum",
+                sourceTable: tableId,
+                columnName: outputColumn,
+                aggregation: "sum",
+              },
+            ],
+          }),
+        ),
+      ).rejects.toThrow(/not output by source Insight/);
+      await expect(
+        commit(
+          cmd("SetInsightSource", {
+            id: rebindId,
+            source: { sourceType: "insight", sourceId: upstreamId },
+          }),
+        ),
+      ).rejects.toThrow(/not output by source Insight/);
+      await expect(
+        commit(
+          cmd("AddMetric", {
+            nodeId: derivedId,
+            metric: {
+              id: id(),
+              name: "Invalid sum",
+              sourceTable: upstreamId,
+              columnName: rootOnlyColumn,
+              aggregation: "sum",
+            },
+          }),
+        ),
+      ).rejects.toThrow(/not output by source Insight/);
+      await expect(
+        commit(
+          cmd("AddMetric", {
+            nodeId: derivedId,
+            metric: {
+              id: id(),
+              name: "Wrong source sum",
+              sourceTable: tableId,
+              columnName: outputColumn,
+              aggregation: "sum",
+            },
+          }),
+        ),
+      ).rejects.toThrow(/not output by source Insight/);
+      await expect(
+        commit(
+          cmd("SetInsightFilter", {
+            id: derivedId,
+            filters: [{ field: rootOnlyColumn, operator: "gt", value: 100 }],
+          }),
+        ),
+      ).rejects.toThrow(/not output by source Insight/);
+      await expect(
+        commit(
+          cmd("SetInsightSort", {
+            id: derivedId,
+            sorts: [{ field: rootOnlyColumn, direction: "desc" }],
+          }),
+        ),
+      ).rejects.toThrow(/not in the derived Insight result/);
+
+      const metricId = id();
+      await commit(
+        cmd("AddMetric", {
+          nodeId: derivedId,
+          metric: {
+            id: metricId,
+            name: "Valid sum",
+            sourceTable: upstreamId,
+            columnName: outputColumn,
+            aggregation: "sum",
+          },
+        }),
+        cmd("SetInsightFilter", {
+          id: derivedId,
+          filters: [{ field: outputColumn, operator: "gt", value: 100 }],
+        }),
+        cmd("SetInsightSort", {
+          id: derivedId,
+          sorts: [{ field: outputColumn, direction: "desc" }],
+        }),
+      );
+      expect((await insightsById(derivedId))[0]?.definition).toMatchObject({
+        selectedFields: [outputFieldId],
+        metrics: [{ id: metricId, columnName: outputColumn }],
+        filters: [{ field: outputColumn }],
+        sorts: [{ field: outputColumn }],
+      });
+      expect(await insightsById(invalidCreateId)).toHaveLength(0);
+      expect(await insightsById(wrongSourceCreateId)).toHaveLength(0);
+      expect((await insightsById(rebindId))[0]?.definition).toMatchObject({
+        source: { sourceType: "dataTable", sourceId: tableId },
+        metrics: [{ columnName: "root_only" }],
+      });
+    });
+
+    it("preserves valid derived pass-through sorts and blocks field edits that strand them", async () => {
+      const { tableId } = await makeTable();
+      const firstFieldId = id();
+      const secondFieldId = id();
+      const upstreamId = id();
+      const derivedId = id();
+      const firstColumn = fieldIdToColumnAlias(firstFieldId);
+      await commit(
+        cmd("AddField", {
+          nodeId: tableId,
+          field: {
+            id: firstFieldId,
+            name: "First",
+            tableId,
+            columnName: "first",
+            type: "string",
+          },
+        }),
+        cmd("AddField", {
+          nodeId: tableId,
+          field: {
+            id: secondFieldId,
+            name: "Second",
+            tableId,
+            columnName: "second",
+            type: "string",
+          },
+        }),
+        cmd("CreateInsight", {
+          id: upstreamId,
+          name: "Upstream",
+          source: { sourceType: "dataTable", sourceId: tableId },
+          selectedFields: [firstFieldId, secondFieldId],
+        }),
+        cmd("CreateInsight", {
+          id: derivedId,
+          name: "Derived",
+          source: { sourceType: "insight", sourceId: upstreamId },
+        }),
+        cmd("SetInsightSort", {
+          id: derivedId,
+          sorts: [{ field: firstColumn, direction: "asc" }],
+        }),
+        cmd("SelectFields", {
+          id: derivedId,
+          fieldIds: [firstFieldId, secondFieldId],
+        }),
+      );
+
+      await expect(
+        commit(
+          cmd("SelectFields", {
+            id: derivedId,
+            fieldIds: [secondFieldId],
+          }),
+        ),
+      ).rejects.toThrow(/sort field/);
+      await expect(
+        commit(
+          cmd("RemoveField", {
+            nodeId: derivedId,
+            fieldId: firstFieldId,
+          }),
+        ),
+      ).rejects.toThrow(/sort field/);
+      expect((await insightsById(derivedId))[0]?.definition).toMatchObject({
+        selectedFields: [firstFieldId, secondFieldId],
+        sorts: [{ field: firstColumn, direction: "asc" }],
+      });
+
+      const metricId = id();
+      await commit(
+        cmd("AddMetric", {
+          nodeId: derivedId,
+          metric: {
+            id: metricId,
+            name: "Count",
+            sourceTable: upstreamId,
+            aggregation: "count",
+          },
+        }),
+        cmd("SetInsightSort", {
+          id: derivedId,
+          sorts: [
+            { field: metricIdToColumnAlias(metricId), direction: "desc" },
+          ],
+        }),
+      );
+      await expect(
+        commit(cmd("RemoveMetric", { nodeId: derivedId, metricId })),
+      ).rejects.toThrow(/RemoveMetric: sort field/);
+    });
+
+    it("accepts current derived joins and blocks removing a referenced join", async () => {
+      const { tableId } = await makeTable();
+      const { tableId: joinedTableId } = await makeTable();
+      const baseKeyId = id();
+      const joinedKeyId = id();
+      const joinedValueId = id();
+      const upstreamId = id();
+      const derivedId = id();
+      await commit(
+        cmd("AddField", {
+          nodeId: tableId,
+          field: {
+            id: baseKeyId,
+            name: "Region ID",
+            tableId,
+            columnName: "region_id",
+            type: "string",
+          },
+        }),
+        cmd("AddField", {
+          nodeId: joinedTableId,
+          field: {
+            id: joinedKeyId,
+            name: "ID",
+            tableId: joinedTableId,
+            columnName: "id",
+            type: "string",
+          },
+        }),
+        cmd("AddField", {
+          nodeId: joinedTableId,
+          field: {
+            id: joinedValueId,
+            name: "Region",
+            tableId: joinedTableId,
+            columnName: "region",
+            type: "string",
+          },
+        }),
+        cmd("CreateInsight", {
+          id: upstreamId,
+          name: "Upstream",
+          source: { sourceType: "dataTable", sourceId: tableId },
+          selectedFields: [baseKeyId],
+        }),
+        cmd("CreateInsight", {
+          id: derivedId,
+          name: "Derived",
+          source: { sourceType: "insight", sourceId: upstreamId },
+        }),
+        cmd("AddJoin", {
+          id: derivedId,
+          join: {
+            type: "left",
+            rightTableId: joinedTableId,
+            leftKey: fieldIdToColumnAlias(baseKeyId),
+            rightKey: "id",
+          },
+        }),
+        cmd("AddField", {
+          nodeId: derivedId,
+          field: {
+            id: joinedValueId,
+            name: "Region",
+            tableId: joinedTableId,
+            columnName: "region",
+            type: "string",
+          },
+        }),
+      );
+
+      await expect(
+        commit(cmd("RemoveJoin", { id: derivedId, joinIndex: 0 })),
+      ).rejects.toThrow(/not output by source Insight/);
+      expect((await insightsById(derivedId))[0]?.definition).toMatchObject({
+        selectedFields: [joinedValueId],
+        joins: [{ rightTableId: joinedTableId }],
       });
     });
 
@@ -2307,6 +2872,7 @@ describe("command vocabulary", () => {
             name: "Total Revenue",
             sourceTable: tableId,
             aggregation: "sum",
+            columnName: "revenue",
           },
         }),
       );
@@ -2354,6 +2920,62 @@ describe("command vocabulary", () => {
         ),
       ).rejects.toThrow(/sourceTable/);
     });
+
+    it("rejects unsupported aggregations and missing non-count columns", async () => {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+
+      await expect(
+        commit(
+          cmd("AddMetric", {
+            nodeId: insightId,
+            metric: {
+              id: id(),
+              name: "Broken",
+              sourceTable: tableId,
+              aggregation: "median",
+              columnName: "amount",
+            } as never,
+          }),
+        ),
+      ).rejects.toThrow(/aggregation must be one of/);
+
+      await expect(
+        commit(
+          cmd("AddMetric", {
+            nodeId: insightId,
+            metric: {
+              id: id(),
+              name: "Broken",
+              sourceTable: tableId,
+              aggregation: "sum",
+            } as never,
+          }),
+        ),
+      ).rejects.toThrow(/requires columnName for sum/);
+
+      await expect(
+        commit(
+          cmd("AddMetric", {
+            nodeId: insightId,
+            metric: {
+              id: id(),
+              name: "Broken count",
+              sourceTable: tableId,
+              aggregation: "count",
+              columnName: 42,
+            } as never,
+          }),
+        ),
+      ).rejects.toThrow(/columnName must be a string/);
+    });
   });
 
   describe("UpdateMetric on Insight node — merged shape re-validated", () => {
@@ -2375,6 +2997,7 @@ describe("command vocabulary", () => {
             name: "Total Revenue",
             sourceTable: tableId,
             aggregation: "sum",
+            columnName: "revenue",
           },
         }),
       );
@@ -3021,6 +3644,37 @@ describe("command vocabulary", () => {
         sorts: [{ field: "revenue", direction: "desc" }],
         limit: 25,
       });
+
+      await expect(
+        commit(
+          cmd("PatchDashboardItemOverride", {
+            dashboardId: dashId,
+            itemId,
+            patch: {
+              kind: "sorts",
+              value: [{ field: "revenue", direction: "sideways" }],
+            } as never,
+          }),
+        ),
+      ).rejects.toThrow(/overrides\.sorts\.0\.direction/);
+
+      expect((await dashboardsById(dashId))[0]?.layout).toEqual(
+        rows[0]?.layout,
+      );
+
+      await expect(
+        commit(
+          cmd("PatchDashboardItemOverride", {
+            dashboardId: dashId,
+            itemId,
+            patch: {
+              kind: "filter",
+              field: "region",
+              value: { field: "status", operator: "eq", value: "active" },
+            } as never,
+          }),
+        ),
+      ).rejects.toThrow(/value\.field must match/);
     });
 
     it("normalizes cleared and empty override intents to no override bag", async () => {
@@ -3097,6 +3751,21 @@ describe("command vocabulary", () => {
       ]);
     });
 
+    it("rejects malformed dashboard controls before persistence", async () => {
+      const dashId = id();
+      await commit(cmd("CreateDashboard", { id: dashId, name: "D" }));
+
+      await expect(
+        commit(
+          cmd("SetDashboardControls", {
+            dashboardId: dashId,
+            controls: {} as never,
+          }),
+        ),
+      ).rejects.toThrow(/controls.*array/i);
+      expect((await dashboardsById(dashId))[0]?.controls).toBeNull();
+    });
+
     it("should throw on UpdateDashboardItem with a missing itemId (no silent no-op)", async () => {
       const dashId = id();
       await commit(cmd("CreateDashboard", { id: dashId, name: "D" }));
@@ -3152,12 +3821,34 @@ describe("command vocabulary", () => {
         ),
       ).rejects.toThrow(/must be a number/);
 
+      await expect(
+        commit(
+          cmd("AddDashboardItem", {
+            dashboardId: dashId,
+            item: {
+              id: id(),
+              type: "visualization",
+              visualizationId: id(),
+              x: 0,
+              y: 0,
+              width: 3,
+              height: 3,
+              overrides: {
+                filters: [
+                  { field: "region", operator: "bogus", value: "EMEA" },
+                ],
+              },
+            } as never,
+          }),
+        ),
+      ).rejects.toThrow(/overrides\.filters\.0\.operator/);
+
       // Neither malformed item persisted.
       const rows = await dashboardsById(dashId);
       expect(rows[0]?.layout as unknown[]).toHaveLength(0);
     });
 
-    it("should drop malformed update fields instead of writing them into the layout (sanitize before merge)", async () => {
+    it("should reject malformed update fields without partially updating the layout", async () => {
       // Regression: UpdateDashboardItem merged `updates` verbatim, so
       // `{ x: "left", width: null }` corrupted numeric layout coordinates. The fix
       // filters updates to recognized fields with correct primitive types at
@@ -3180,21 +3871,19 @@ describe("command vocabulary", () => {
         }),
       );
 
-      await commit(
-        cmd("UpdateDashboardItem", {
-          dashboardId: dashId,
-          itemId,
-          // x is a valid number (applied); width is null and content is a number
-          // (both dropped — wrong primitive types).
-          updates: { x: 9, width: null, content: 5 } as never,
-        }),
-      );
+      await expect(
+        commit(
+          cmd("UpdateDashboardItem", {
+            dashboardId: dashId,
+            itemId,
+            updates: { x: 9, width: null, content: 5 } as never,
+          }),
+        ),
+      ).rejects.toThrow(/Dashboard item update/);
 
       const rows = await dashboardsById(dashId);
       const item = (rows[0]?.layout as Record<string, unknown>[])[0]!;
-      expect(item.x).toBe(9); // valid numeric update applied
-      expect(item.width).toBe(3); // null dropped, original numeric kept
-      expect(item.content).toBe("A"); // wrong-typed update dropped
+      expect(item).toMatchObject({ x: 1, width: 3, content: "A" });
     });
 
     it("should replace the whole layout for SetDashboardLayout", async () => {
@@ -4322,6 +5011,40 @@ describe("command vocabulary", () => {
     // Arrow / DataFrame metadata cleanup
     // -------------------------------------------------------------------------
 
+    it("fails closed before deleting a table or source with retained browser bytes", async () => {
+      const { sourceId, tableId } = await makeTable();
+      const frameId = id();
+      await db.insert(schema.dataFrames).values({
+        id: frameId,
+        storage: { type: "indexeddb", key: `arrow-${frameId}` },
+        fieldIds: [],
+        name: "Legacy browser frame",
+        sourceId,
+        definitionId: tableId,
+        createdAt: new Date(),
+      });
+      await db
+        .update(schema.dataTables)
+        .set({ dataFrameId: frameId })
+        .where(eq(schema.dataTables.id, tableId));
+
+      await expect(commit(cmd("DeleteNode", { id: tableId }))).rejects.toThrow(
+        "Legacy browser DataFrames are not supported",
+      );
+      await expect(commit(cmd("DeleteNode", { id: sourceId }))).rejects.toThrow(
+        "Legacy browser DataFrames are not supported",
+      );
+
+      expect(await sourcesById(sourceId)).toHaveLength(1);
+      expect(await tablesById(tableId)).toHaveLength(1);
+      expect(
+        await db
+          .select()
+          .from(schema.dataFrames)
+          .where(eq(schema.dataFrames.id, frameId)),
+      ).toHaveLength(1);
+    });
+
     it("should delete server-frame metadata when an Insight is deleted", async () => {
       const { tableId } = await makeTable();
       const insightId = id();
@@ -4664,11 +5387,12 @@ describe("command vocabulary", () => {
         // Corrupt the stored definition directly via the raw Drizzle handle,
         // simulating a schema-drift scenario (e.g. a future migration wrote
         // an unexpected shape, or an external process updated the row).
-        // The `baseTableId` key is missing — a required field in the schema.
+        // Both canonical `source` and the tolerated legacy `baseTableId` are
+        // missing, so the schema has no source identity to normalize.
         const corruptDefinition = {
           selectedFields: [],
           metrics: [],
-          // baseTableId intentionally omitted
+          // source and legacy baseTableId intentionally omitted
         };
         await db.update(schema.insights).set({ definition: corruptDefinition });
 
@@ -4876,7 +5600,7 @@ describe("command vocabulary", () => {
           .update(schema.insights)
           .set({
             definition: {
-              // baseTableId intentionally omitted — corrupt blob
+              // source and legacy baseTableId intentionally omitted
               selectedFields: [],
               metrics: [],
             },
@@ -4915,12 +5639,12 @@ describe("command vocabulary", () => {
           }),
         );
 
-        // Corrupt the stored definition — baseTableId missing (required field).
+        // Corrupt the stored definition — both supported source identities missing.
         await db.update(schema.insights).set({
           definition: {
             selectedFields: [],
             metrics: [],
-            // baseTableId intentionally omitted
+            // source and legacy baseTableId intentionally omitted
           },
         });
 
@@ -4956,7 +5680,7 @@ describe("command vocabulary", () => {
           definition: {
             selectedFields: [],
             metrics: [],
-            // baseTableId intentionally omitted — corrupt blob
+            // source and legacy baseTableId intentionally omitted
           },
         });
 

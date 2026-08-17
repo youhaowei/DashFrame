@@ -188,6 +188,60 @@ describe("assistant provider config functions", () => {
     ).toHaveLength(0);
   });
 
+  it("preserves a stored credential when a vaultless server clears or removes it", async () => {
+    const { result: created } = (await app.call("saveAssistantProviderConfig", {
+      input: {
+        providerId: "anthropic",
+        displayLabel: "Anthropic API",
+        authKind: "api-key",
+        credential: "must-remain-recoverable",
+        defaultModel: "claude-sonnet-4-5",
+      },
+    })) as { result: AssistantProviderConfig };
+    const [before] = await db.select().from(schema.assistantProviderConfigs);
+    const oldRef = before!.credentialRef! as SecretRef;
+    const noVaultApp = await buildDashframeApp({ db });
+    const noVaultContext = { flushSnapshot: async () => {} };
+
+    await expect(
+      noVaultApp.call(
+        "saveAssistantProviderConfig",
+        {
+          input: {
+            id: created.id,
+            providerId: "anthropic",
+            displayLabel: "Anthropic OAuth",
+            authKind: "oauth",
+            defaultModel: "claude-sonnet-4-5",
+          },
+        },
+        noVaultContext,
+      ),
+    ).rejects.toThrow(/no vault is injected/i);
+    await expect(
+      noVaultApp.call(
+        "removeAssistantProviderConfig",
+        { id: created.id },
+        noVaultContext,
+      ),
+    ).rejects.toThrow(/no vault is injected/i);
+
+    const [after] = await db.select().from(schema.assistantProviderConfigs);
+    expect(after).toMatchObject({
+      id: created.id,
+      authKind: "api-key",
+      credentialRef: oldRef,
+    });
+    expect(await vault.has(oldRef)).toBe(true);
+  });
+
+  it("rejects removing a provider config that does not exist", async () => {
+    const missingId = crypto.randomUUID();
+    await expect(
+      app.call("removeAssistantProviderConfig", { id: missingId }),
+    ).rejects.toThrow(`Assistant provider config ${missingId} not found`);
+  });
+
   it("setting a non-default config's model leaves provider defaults untouched", async () => {
     const { result: defaultConfig } = (await app.call(
       "saveAssistantProviderConfig",
@@ -371,6 +425,48 @@ describe("assistant provider config functions", () => {
     ).resolves.toMatchObject({ access: "fresh-access" });
     // The failed release leaves the replaced ref as an inert orphan.
     await expect(vault.has(oldRef)).resolves.toBe(true);
+  });
+
+  it("fails closed and releases the new credential when the provider is deleted during OAuth", async () => {
+    const { result } = (await app.call("saveAssistantProviderConfig", {
+      input: {
+        providerId: "anthropic",
+        displayLabel: "Anthropic Pro",
+        authKind: "oauth",
+        defaultModel: "claude-haiku-4-5",
+      },
+    })) as { result: AssistantProviderConfig };
+    let finishLogin!: (credentials: OAuthCredentials) => void;
+    registerOAuthProvider({
+      id: "anthropic",
+      name: "Test Anthropic",
+      login: () =>
+        new Promise<OAuthCredentials>((resolve) => {
+          finishLogin = resolve;
+        }),
+      refreshToken: async () => {
+        throw new Error("not used");
+      },
+      getApiKey: (credentials) => credentials.access,
+    });
+    const deleteSpy = vi.spyOn(vault, "delete");
+
+    const login = app.call("startAssistantOAuthLogin", { id: result.id });
+    await vi.waitFor(() => expect(finishLogin).toBeTypeOf("function"));
+    await db
+      .delete(schema.assistantProviderConfigs)
+      .where(eq(schema.assistantProviderConfigs.id, result.id));
+    finishLogin({
+      access: "fresh-access",
+      refresh: "fresh-refresh",
+      expires: Date.now() + 60_000,
+    });
+
+    await expect(login).rejects.toThrow("Assistant provider config not found");
+    expect(deleteSpy).toHaveBeenCalledTimes(1);
+    await expect(
+      db.select().from(schema.assistantProviderConfigs),
+    ).resolves.toHaveLength(0);
   });
 
   it("refresh rotation persists a new OAuth credential ref and releases the old ref", async () => {

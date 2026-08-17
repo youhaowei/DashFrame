@@ -34,6 +34,7 @@ import { toast } from "sonner";
 
 import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
 import { useInsightCanvasStore } from "@/lib/stores/insight-canvas-store";
+import { resolveInsightSourceDataTable } from "@/hooks/useInsightPagination";
 
 // Type for insight with joined details
 type InsightWithDetails = {
@@ -117,19 +118,16 @@ export default function InsightsPage() {
       let dataTable: DataTable | null = null;
       let sourceType: string | null = null;
 
-      const dataTableId =
-        insight.source.sourceType === "dataTable"
-          ? insight.source.sourceId
-          : undefined;
-      if (dataTableId) {
-        const table = allDataTables.find((t) => t.id === dataTableId);
-        if (table) {
-          dataTable = table;
-          // Find the data source for this table
-          const ds = dataSources.find((s) => s.id === table.dataSourceId);
-          if (ds) {
-            sourceType = ds.type;
-          }
+      const table = resolveInsightSourceDataTable(
+        insight,
+        allDataTables,
+        allInsights,
+      );
+      if (table) {
+        dataTable = table;
+        const ds = dataSources.find((s) => s.id === table.dataSourceId);
+        if (ds) {
+          sourceType = ds.type;
         }
       }
 

@@ -846,8 +846,8 @@ function processSingleJoin(
   // For repeat-join instances, create synthetic Fields with instance-suffixed IDs
   // so that subsequent join iterations see the correct suffixed aliases when
   // building their passthrough SELECTs — not the original IDs from a prior instance.
-  // Note: selectedFields / metrics / filters in the Insight model still reference
-  // canonical (un-suffixed) field IDs — they map to the first join instance.
+  // These synthetic IDs may be persisted by downstream Insights in
+  // selectedFields so a repeated join instance remains addressable.
   const instanceFields = nonKeyJoinFields.map((f) => ({
     ...f,
     id: joinInstanceFieldId(f.id, joinInstanceIndex) as UUID,
