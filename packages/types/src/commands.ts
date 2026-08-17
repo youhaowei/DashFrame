@@ -440,9 +440,79 @@ export function buildMetricDiffCommands(
  */
 export function buildInsightUpdateCommands(
   id: UUID,
-  current: Pick<Insight, "metrics">,
+  current: Pick<
+    Insight,
+    | "source"
+    | "selectedFields"
+    | "metrics"
+    | "filters"
+    | "sorts"
+    | "joins"
+    | "runtimeControls"
+  >,
   updates: Partial<Omit<Insight, "id" | "createdAt">>,
 ): Command[] {
+  const sourceChanges =
+    updates.source !== undefined && !jsonEqual(updates.source, current.source);
+  if (sourceChanges) {
+    if (updates.joins !== undefined) {
+      throw new Error(
+        'buildInsightUpdateCommands: joins are not supported — use cmd("AddJoin") / cmd("RemoveJoin") directly',
+      );
+    }
+
+    const commands: Command[] = [];
+    if (updates.name !== undefined) {
+      commands.push(cmd("RenameNode", { id, name: updates.name }));
+    }
+    if (current.filters?.length) {
+      commands.push(cmd("SetInsightFilter", { id, filters: [] }));
+    }
+    if (current.sorts?.length) {
+      commands.push(cmd("SetInsightSort", { id, sorts: [] }));
+    }
+    if (current.runtimeControls !== undefined) {
+      commands.push(
+        cmd("SetInsightRuntimeControls", { id, runtimeControls: undefined }),
+      );
+    }
+    commands.push(...buildMetricDiffCommands(id, current.metrics ?? [], []));
+    if (current.selectedFields.length) {
+      commands.push(cmd("SelectFields", { id, fieldIds: [] }));
+    }
+    for (let index = (current.joins?.length ?? 0) - 1; index >= 0; index--) {
+      commands.push(cmd("RemoveJoin", { id, joinIndex: index }));
+    }
+
+    commands.push(cmd("SetInsightSource", { id, source: updates.source! }));
+    for (const join of current.joins ?? []) {
+      commands.push(cmd("AddJoin", { id, join }));
+    }
+
+    const selectedFields = updates.selectedFields ?? current.selectedFields;
+    if (selectedFields.length) {
+      commands.push(cmd("SelectFields", { id, fieldIds: selectedFields }));
+    }
+    const metrics = updates.metrics ?? current.metrics;
+    commands.push(...buildMetricDiffCommands(id, [], metrics));
+    const filters = updates.filters ?? current.filters;
+    if (filters?.length) {
+      commands.push(cmd("SetInsightFilter", { id, filters }));
+    }
+    const sorts = updates.sorts ?? current.sorts;
+    if (sorts?.length) {
+      commands.push(cmd("SetInsightSort", { id, sorts }));
+    }
+    const runtimeControls =
+      "runtimeControls" in updates
+        ? updates.runtimeControls
+        : current.runtimeControls;
+    if (runtimeControls !== undefined) {
+      commands.push(cmd("SetInsightRuntimeControls", { id, runtimeControls }));
+    }
+    return commands;
+  }
+
   const commands: Command[] = [];
 
   if (updates.name !== undefined) {

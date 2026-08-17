@@ -29,6 +29,7 @@ import {
   TestBackend,
 } from "@wystack/secret-vault";
 import type { Command, WyStackApp } from "@wystack/server";
+import { buildInsightUpdateCommands, type Insight } from "@dashframe/types";
 import { eq } from "drizzle-orm";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -1062,6 +1063,66 @@ describe("command vocabulary", () => {
   });
 
   describe("SetInsightSource (Insight-on-Insight composition + cycle rejection)", () => {
+    it("atomically moves selected fields with their source", async () => {
+      const first = await makeTable();
+      const second = await makeTable();
+      const firstFieldId = id();
+      const secondFieldId = id();
+      const insightId = id();
+      await commit(
+        cmd("AddField", {
+          nodeId: first.tableId,
+          field: {
+            id: firstFieldId,
+            name: "First",
+            tableId: first.tableId,
+            columnName: "first",
+            type: "string",
+          },
+        }),
+        cmd("AddField", {
+          nodeId: second.tableId,
+          field: {
+            id: secondFieldId,
+            name: "Second",
+            tableId: second.tableId,
+            columnName: "second",
+            type: "string",
+          },
+        }),
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "Moving",
+          source: { sourceType: "dataTable", sourceId: first.tableId },
+          selectedFields: [firstFieldId],
+        }),
+      );
+      const current = {
+        id: insightId,
+        name: "Moving",
+        source: { sourceType: "dataTable", sourceId: first.tableId },
+        selectedFields: [firstFieldId],
+        metrics: [],
+        filters: [],
+        sorts: [],
+        joins: [],
+        createdAt: 0,
+      } as Insight;
+
+      await commit(
+        ...buildInsightUpdateCommands(insightId, current, {
+          source: { sourceType: "dataTable", sourceId: second.tableId },
+          selectedFields: [secondFieldId],
+        }),
+      );
+
+      const [stored] = await insightsById(insightId);
+      expect(stored?.definition).toMatchObject({
+        source: { sourceType: "dataTable", sourceId: second.tableId },
+        selectedFields: [secondFieldId],
+      });
+    });
+
     it("should re-point an Insight's source to another Insight's DataFrame", async () => {
       const { tableId } = await makeTable();
       const baseInsightId = id();
@@ -4321,6 +4382,40 @@ describe("command vocabulary", () => {
     // -------------------------------------------------------------------------
     // Arrow / DataFrame metadata cleanup
     // -------------------------------------------------------------------------
+
+    it("fails closed before deleting a table or source with retained browser bytes", async () => {
+      const { sourceId, tableId } = await makeTable();
+      const frameId = id();
+      await db.insert(schema.dataFrames).values({
+        id: frameId,
+        storage: { type: "indexeddb", key: `arrow-${frameId}` },
+        fieldIds: [],
+        name: "Legacy browser frame",
+        sourceId,
+        definitionId: tableId,
+        createdAt: new Date(),
+      });
+      await db
+        .update(schema.dataTables)
+        .set({ dataFrameId: frameId })
+        .where(eq(schema.dataTables.id, tableId));
+
+      await expect(commit(cmd("DeleteNode", { id: tableId }))).rejects.toThrow(
+        "Legacy browser DataFrames are not supported",
+      );
+      await expect(commit(cmd("DeleteNode", { id: sourceId }))).rejects.toThrow(
+        "Legacy browser DataFrames are not supported",
+      );
+
+      expect(await sourcesById(sourceId)).toHaveLength(1);
+      expect(await tablesById(tableId)).toHaveLength(1);
+      expect(
+        await db
+          .select()
+          .from(schema.dataFrames)
+          .where(eq(schema.dataFrames.id, frameId)),
+      ).toHaveLength(1);
+    });
 
     it("should delete server-frame metadata when an Insight is deleted", async () => {
       const { tableId } = await makeTable();
