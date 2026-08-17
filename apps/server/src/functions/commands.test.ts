@@ -2913,10 +2913,7 @@ describe("command vocabulary", () => {
       });
     });
 
-    it("should update overrides on a dashboard item via UpdateDashboardItem", async () => {
-      // Verifies that UpdateDashboardItem propagates the overrides field through
-      // sanitizeDashboardItemUpdates — so agents can adjust a cloned panel's
-      // filter pin without re-creating it.
+    it("rejects whole override-bag replacement through UpdateDashboardItem", async () => {
       const dashId = id();
       const itemId = id();
       await commit(
@@ -2935,33 +2932,29 @@ describe("command vocabulary", () => {
         }),
       );
 
-      await commit(
-        cmd("UpdateDashboardItem", {
-          dashboardId: dashId,
-          itemId,
-          updates: {
-            overrides: {
-              filters: [
-                { field: "region", operator: "eq" as const, value: "EMEA" },
-              ],
-            },
-          },
-        }),
+      await expect(
+        commit(
+          cmd("UpdateDashboardItem", {
+            dashboardId: dashId,
+            itemId,
+            updates: { overrides: { limit: 5 } },
+          }),
+        ),
+      ).rejects.toThrow(
+        "Dashboard item overrides require PatchDashboardItemOverride",
       );
 
       const rows = await dashboardsById(dashId);
       const item = (
         rows[0]?.layout as {
           id: string;
-          overrides?: { filters?: { field: string; value: unknown }[] };
+          overrides?: unknown;
         }[]
       ).find((it) => it.id === itemId)!;
-      expect(item.overrides?.filters).toEqual([
-        { field: "region", operator: "eq", value: "EMEA" },
-      ]);
+      expect(item.overrides).toBeUndefined();
     });
 
-    it("should apply dashboard override intents without replacing sibling fields", async () => {
+    it("serializes concurrent override intents without dropping sibling fields", async () => {
       const dashId = id();
       const itemId = id();
       await commit(
@@ -2980,35 +2973,94 @@ describe("command vocabulary", () => {
         }),
       );
 
-      await commit(
-        cmd("PatchDashboardItemOverride", {
-          dashboardId: dashId,
-          itemId,
-          patch: {
-            kind: "sorts",
-            value: [{ field: "revenue", direction: "desc" }],
-          },
-        }),
-      );
-      await commit(
-        cmd("PatchDashboardItemOverride", {
-          dashboardId: dashId,
-          itemId,
-          patch: { kind: "limit", value: 25 },
-        }),
-      );
+      await Promise.all([
+        commit(
+          cmd("PatchDashboardItemOverride", {
+            dashboardId: dashId,
+            itemId,
+            patch: {
+              kind: "sorts",
+              value: [{ field: "revenue", direction: "desc" }],
+            },
+          }),
+        ),
+        commit(
+          cmd("PatchDashboardItemOverride", {
+            dashboardId: dashId,
+            itemId,
+            patch: { kind: "limit", value: 25 },
+          }),
+        ),
+        commit(
+          cmd("PatchDashboardItemOverride", {
+            dashboardId: dashId,
+            itemId,
+            patch: {
+              kind: "filter",
+              field: "region",
+              value: { field: "region", operator: "eq", value: "West" },
+            },
+          }),
+        ),
+      ]);
 
       const rows = await dashboardsById(dashId);
       const item = (
         rows[0]?.layout as {
           id: string;
-          overrides?: { sorts?: unknown[]; limit?: number };
+          overrides?: {
+            filters?: unknown[];
+            sorts?: unknown[];
+            limit?: number;
+          };
         }[]
       ).find((candidate) => candidate.id === itemId);
       expect(item?.overrides).toEqual({
+        filters: [{ field: "region", operator: "eq", value: "West" }],
         sorts: [{ field: "revenue", direction: "desc" }],
         limit: 25,
       });
+    });
+
+    it("normalizes cleared and empty override intents to no override bag", async () => {
+      const dashId = id();
+      const itemId = id();
+      await commit(
+        cmd("CreateDashboard", { id: dashId, name: "D" }),
+        cmd("AddDashboardItem", {
+          dashboardId: dashId,
+          item: {
+            id: itemId,
+            type: "visualization",
+            visualizationId: id(),
+            x: 0,
+            y: 0,
+            width: 6,
+            height: 4,
+          },
+        }),
+        cmd("PatchDashboardItemOverride", {
+          dashboardId: dashId,
+          itemId,
+          patch: { kind: "limit", value: 25 },
+        }),
+        cmd("PatchDashboardItemOverride", {
+          dashboardId: dashId,
+          itemId,
+          patch: { kind: "limit", value: null },
+        }),
+        cmd("PatchDashboardItemOverride", {
+          dashboardId: dashId,
+          itemId,
+          patch: { kind: "sorts", value: [] },
+        }),
+      );
+
+      const rows = await dashboardsById(dashId);
+      const item = (
+        rows[0]?.layout as { id: string; overrides?: unknown }[]
+      ).find((candidate) => candidate.id === itemId);
+      expect(item?.overrides).toBeUndefined();
     });
 
     it("should replace dashboard controls through the command vocabulary", async () => {
