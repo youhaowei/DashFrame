@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 import { defaultFormatValue } from "./format-virtual-table-value";
 
 // Date-only values must keep their calendar day in a zone behind UTC, so the
@@ -39,6 +39,12 @@ describe("defaultFormatValue", () => {
 
   it("formats date-only strings from their calendar parts", () => {
     expect(defaultFormatValue("2024-03-15", "date")).toBe("Mar 15, 2024");
+  });
+
+  it("formats numeric epoch values in date columns as UTC calendar dates", () => {
+    expect(defaultFormatValue(Date.UTC(2024, 0, 18), "date")).toBe(
+      "Jan 18, 2024",
+    );
   });
 
   it("leaves an impossible calendar date as text rather than rolling it over", () => {

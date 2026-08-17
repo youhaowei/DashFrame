@@ -13,7 +13,7 @@
  *   D. shutdown is safe when handles are partially or fully unset (a startup
  *      error can fire before any handle is registered).
  */
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import type { CloseResult } from "@dashframe/server-core";
 import { Lifecycle } from "./lifecycle.js";

@@ -114,8 +114,8 @@ export function getConnectorCatalogEntries(): ConnectorCatalogEntry[] {
 
 const getConnectorCatalog = wy.procedure
   .input({})
-  .query(
-    async (): Promise<ConnectorCatalogEntry[]> => getConnectorCatalogEntries(),
+  .query(async (): Promise<ConnectorCatalogEntry[]> =>
+    getConnectorCatalogEntries(),
   );
 
 export const connectorCatalogFunctions = {

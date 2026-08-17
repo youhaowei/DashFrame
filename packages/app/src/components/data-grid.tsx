@@ -102,7 +102,7 @@ export function DataGrid<TData>({
     [columns, onEdit, onDelete],
   );
 
-  // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Table returns unstable references by design; this is expected behavior
+  // oxlint-disable-next-line react-hooks-js/incompatible-library -- TanStack Table returns unstable references by design; this is expected behavior
   const table = useReactTable({
     data,
     columns: columnsWithActions,

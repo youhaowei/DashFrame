@@ -7,7 +7,7 @@ import type { SuggestionEncoding } from "./suggest-charts";
  * Uses column categorization to make intelligent defaults.
  * Prefers metrics over raw fields for Y-axis when available.
  */
-// eslint-disable-next-line sonarjs/cognitive-complexity -- Complex by design: intelligent axis selection based on chart type, column analysis, and heuristics
+// oxlint-disable-next-line sonarjs/cognitive-complexity -- Complex by design: intelligent axis selection based on chart type, column analysis, and heuristics
 export function autoSelectEncoding(
   type: VisualizationType,
   dataFrame: DataFrameData,

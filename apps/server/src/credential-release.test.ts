@@ -42,7 +42,14 @@ import { eq } from "drizzle-orm";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 
 import { CREDENTIAL_COMMAND_ARG_FIELDS } from "@dashframe/assistant";
 import { buildDashframeApp } from "./app";
@@ -694,7 +701,7 @@ describe("credential write path — capture-before-log + transition release", ()
     // `collectSupersededRefs`) has ALREADY run by this point — proving that even
     // though collection observed the superseded ref, a rolled-back transaction
     // still releases nothing.
-    /* eslint-disable @typescript-eslint/no-explicit-any -- structural fault injector over the tracked-tx seam, mirrors draft-controller.test.ts GH#157 */
+    /* oxlint-disable typescript/no-explicit-any -- structural fault injector over the tracked-tx seam, mirrors draft-controller.test.ts GH#157 */
     const realCreateTracked = h.app.createTracked.bind(h.app);
     (h.app as any).createTracked = () => {
       const t = realCreateTracked();
@@ -712,7 +719,7 @@ describe("credential write path — capture-before-log + transition release", ()
         }, opts)) as any;
       return t;
     };
-    /* eslint-enable @typescript-eslint/no-explicit-any */
+    /* oxlint-enable typescript/no-explicit-any */
 
     try {
       await expect(h.app.call("publishDraft", { draftId })).rejects.toThrow(
@@ -726,7 +733,7 @@ describe("credential write path — capture-before-log + transition release", ()
       expect(await h.vault.has(oldRef)).toBe(true);
       expect(await h.vault.has(mintedRef)).toBe(true);
     } finally {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- undo the structural fault injector patched above
+      // oxlint-disable-next-line typescript/no-explicit-any -- undo the structural fault injector patched above
       (h.app as any).createTracked = realCreateTracked;
     }
   });

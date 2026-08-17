@@ -1,5 +1,5 @@
 import type { UUID } from "@dashframe/types";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { connectRemoteSource } from "./remote-connector-onboarding";
 

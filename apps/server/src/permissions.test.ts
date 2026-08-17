@@ -1,5 +1,5 @@
 import { evaluate } from "@wystack/permissions";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import type { AppContext } from "./app-context";
 import {

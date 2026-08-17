@@ -8,7 +8,7 @@ import {
 } from "@dashframe/engine";
 import type { Field, InsightMetric, UUID } from "@dashframe/types";
 import { fieldEncoding, metricEncoding } from "@dashframe/types";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 describe("encoding-resolution", () => {
   // Test fixtures

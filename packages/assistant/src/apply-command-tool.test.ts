@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { createApplyCommandTool } from "./apply-command-tool.js";
 import type { AssistantCommand, AssistantHost } from "./assistant-host.js";

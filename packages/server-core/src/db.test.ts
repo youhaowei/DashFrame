@@ -3,7 +3,7 @@ import { integer, pgTable, text } from "drizzle-orm/pg-core";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test } from "vite-plus/test";
 
 import {
   type ArtifactDb,

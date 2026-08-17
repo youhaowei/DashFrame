@@ -18,9 +18,9 @@
   "scripts": {
     "clean": "node -e \"require('node:fs/promises').rm('dist',{recursive:true,force:true})\"",
     "build": "bun build src/index.ts --target=node --format=esm --outdir=dist --entry-naming='[name].[ext]' --sourcemap=linked && tsc -p tsconfig.build.json",
-    "test": "vitest run",
+    "test": "vp test run",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "lint": "eslint src",
+    "lint": "vp lint src",
     "measure:providers": "bun src/provider-measurement.cli.ts",
     "check": "bun run typecheck && bun run lint && bun run test"
   },
@@ -32,9 +32,9 @@
     "typebox": "1.1.38"
   },
   "devDependencies": {
-    "@dashframe/eslint-config": "workspace:*",
     "@types/bun": "^1.2.0",
     "typescript": "5.7.2",
-    "vitest": "^4.1.6"
+    "vitest": "catalog:",
+    "vite-plus": "catalog:"
   }
 }

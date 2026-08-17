@@ -10,7 +10,7 @@
  * - isValidEncoding() - Type guard for valid encodings
  * - isEncodingValue() / validateVisualizationEncoding() - write-time validation
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import {
   fieldEncoding,
   isEncodingValue,

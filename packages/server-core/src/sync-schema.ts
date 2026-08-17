@@ -18,7 +18,7 @@
  * non-default schemas. Drift is a migration concern.
  */
 
-/* eslint-disable @typescript-eslint/no-explicit-any, sonarjs/cognitive-complexity */
+/* oxlint-disable typescript/no-explicit-any, sonarjs/cognitive-complexity */
 
 import { sql } from "drizzle-orm";
 import { getTableConfig, type PgTable } from "drizzle-orm/pg-core";

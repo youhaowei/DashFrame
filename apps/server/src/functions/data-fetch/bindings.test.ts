@@ -6,7 +6,7 @@ import {
   tableToIPC,
   vectorFromArray,
 } from "apache-arrow";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const { ga4ConnectorFor, notionConnectorFor, postgresConnectorFor } =
   vi.hoisted(() => ({

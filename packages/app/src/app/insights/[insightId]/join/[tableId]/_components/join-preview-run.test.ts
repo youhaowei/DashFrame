@@ -19,7 +19,7 @@
  *   - A resolved mutation runs onSuccess and restores the button with no error.
  */
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { createLatestRunGuard, runJoinSubmit } from "./join-preview-run";
 
 // ---------------------------------------------------------------------------

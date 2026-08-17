@@ -1,6 +1,6 @@
 import type { Field } from "@dashframe/types";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { SensitivityBadge } from "./SensitivityBadge";
 

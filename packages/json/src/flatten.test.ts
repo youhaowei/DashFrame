@@ -12,7 +12,7 @@
  * - extractKeys function
  * - unflattenObject (inverse operation)
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import {
   extractKeys,
   flattenObject,

@@ -24,7 +24,7 @@ The CLI will prompt you:
 
 ### 2. Choosing Version Bump Type
 
-**Library Packages** (`@dashframe/types`, `@dashframe/core-dexie`, `@dashframe/engine`, `@dashframe/engine-browser`, `@dashframe/connector-csv`, `@dashframe/connector-notion`, `@dashframe/visualization`, `@dashframe/ui`, `@dashframe/eslint-config`):
+**Library Packages** (`@dashframe/app`, `@dashframe/assistant`, `@dashframe/types`, `@dashframe/engine`, `@dashframe/engine-browser`, `@dashframe/csv`, `@dashframe/json`, `@dashframe/connector-ga4`, `@dashframe/connector-local`, `@dashframe/connector-notion`, `@dashframe/connector-postgres`, `@dashframe/connector-rest`, `@dashframe/visualization`, `@dashframe/ui`):
 
 **While in v0.x (pre-stable):**
 
@@ -58,7 +58,7 @@ git push
 
 ```bash
 bun changeset
-# Select: @dashframe/connector-csv
+# Select: @dashframe/csv
 # Type: patch
 # Summary: "Fix edge case in quoted field parsing"
 ```
@@ -67,7 +67,7 @@ Creates `.changeset/funny-wolves-dance.md`:
 
 ```markdown
 ---
-"@dashframe/connector-csv": patch
+"@dashframe/csv": patch
 ---
 
 Fix edge case in quoted field parsing
@@ -87,7 +87,7 @@ bun changeset
 ```bash
 bun changeset
 # Select: @dashframe/types
-# Type: major
+# Type: minor
 # Summary: "BREAKING: Change DataFrame constructor signature"
 ```
 

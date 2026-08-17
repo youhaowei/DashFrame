@@ -1,6 +1,13 @@
 import type { VisualizationType } from "@dashframe/types";
 import { render } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 import type { ChartConfig, ChartRenderer } from "../chart-renderers";
 import { clearRegistry, registerRenderer } from "../registry";
 

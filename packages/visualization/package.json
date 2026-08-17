@@ -10,9 +10,9 @@
     "build": "tsc -p tsconfig.json",
     "clean": "rm -rf dist *.tsbuildinfo",
     "dev": "tsc -w -p tsconfig.json --preserveWatchOutput",
-    "lint": "eslint src",
-    "test": "vitest run --passWithNoTests",
-    "test:coverage": "vitest run --coverage --passWithNoTests",
+    "lint": "vp lint src",
+    "test": "vp test run --passWithNoTests",
+    "test:coverage": "vp test run --coverage --passWithNoTests",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
@@ -32,9 +32,10 @@
   "devDependencies": {
     "@testing-library/react": "^16.1.0",
     "@types/react": "^19.0.0",
-    "@vitest/coverage-v8": "^4.0.16",
+    "@vitest/coverage-v8": "catalog:",
     "jsdom": "^26.1.0",
     "typescript": "^5.6.0",
-    "vitest": "^4.0.16"
+    "vitest": "catalog:",
+    "vite-plus": "catalog:"
   }
 }

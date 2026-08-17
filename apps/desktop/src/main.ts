@@ -37,6 +37,12 @@ import { ElectronKeychainBackend } from "./secret-keychain-backend.js";
 
 const DEV_URL = process.env.DEV_URL ?? "http://localhost:5173";
 const isDev = !app.isPackaged;
+const APP_ICON_FILE = path.join(
+  import.meta.dirname,
+  "..",
+  "assets",
+  "icon.png",
+);
 const PRODUCTION_RENDERER_FILE = path.join(
   import.meta.dirname,
   "..",
@@ -145,9 +151,14 @@ async function storeServeToken(
 }
 
 async function createWindow(): Promise<void> {
+  if (process.platform === "darwin") {
+    app.dock?.setIcon(APP_ICON_FILE);
+  }
+
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
+    icon: APP_ICON_FILE,
     // macOS only: hide the title bar but keep the traffic lights, inset over the
     // app's own top bar (the renderer reserves a spacer for them in AppTopBar).
     // On Windows/Linux `hiddenInset` would hide the title bar *without* giving

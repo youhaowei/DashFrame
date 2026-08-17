@@ -1,5 +1,5 @@
 import type { Insight, InsightFetchFailed } from "@dashframe/types";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { applyInsightRuntime, toFetchFailure } from "./data-fetch";
 import { PublishedSourceMaterializationError } from "./data-fetch/published-source-error";

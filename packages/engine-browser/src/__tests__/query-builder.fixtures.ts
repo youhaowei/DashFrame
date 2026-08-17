@@ -14,7 +14,7 @@
  */
 import type { DataFrame } from "@dashframe/engine";
 import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
-import { vi } from "vitest";
+import { vi } from "vite-plus/test";
 import { QueryBuilder } from "../query-builder";
 
 /**

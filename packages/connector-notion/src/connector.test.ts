@@ -19,7 +19,7 @@ import {
   SecretVault,
   TestBackend,
 } from "@wystack/secret-vault";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { makeNotionConnector, NotionConnector } from "./connector";
 
 // Mock the Notion client so tests don't hit the network

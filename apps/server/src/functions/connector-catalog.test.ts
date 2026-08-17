@@ -1,5 +1,5 @@
 import { localFileConnector } from "@dashframe/connector-local";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import {
   getConnectorCatalogEntries,

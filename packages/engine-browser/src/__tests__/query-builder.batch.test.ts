@@ -8,7 +8,7 @@
  * - Result partitioning by _batch_idx
  * - Error handling
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { QueryBuilder } from "../query-builder";
 import {
   createMockConnection,

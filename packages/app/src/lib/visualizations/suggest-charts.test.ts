@@ -17,7 +17,7 @@
  * identity is tracked via `instanceIndex` / `instanceIdSuffix` instead.
  */
 import type { ColumnAnalysis, UUID } from "@dashframe/types";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import type { Insight } from "../stores/types";
 import { suggestByChartType, suggestCharts } from "./suggest-charts";
 

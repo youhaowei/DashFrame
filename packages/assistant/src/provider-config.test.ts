@@ -9,7 +9,7 @@ import {
   SecretVault,
   TestBackend,
 } from "@wystack/secret-vault";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import { resolveAssistantProvider } from "./provider-config";
 

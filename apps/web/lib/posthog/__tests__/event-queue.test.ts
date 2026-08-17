@@ -5,7 +5,7 @@
  * is initialized and correctly flushed once initialization completes.
  */
 import type { PostHog } from "posthog-js";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   PostHogEventQueue,
   flushEventQueue,

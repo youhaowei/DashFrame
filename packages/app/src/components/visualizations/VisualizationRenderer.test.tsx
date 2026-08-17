@@ -1,5 +1,5 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 // Partial-mock the WyStack client: keep `createApi` real and replace hooks.
 vi.mock("@wystack/client", async (importOriginal) => {

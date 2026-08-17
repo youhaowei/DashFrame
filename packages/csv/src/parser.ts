@@ -19,7 +19,7 @@
  * // [['name', 'age'], ['Alice', '30'], ['Bob', '25']]
  * ```
  */
-// eslint-disable-next-line sonarjs/cognitive-complexity -- State machine parser inherently complex; extracting helpers would hurt readability
+// oxlint-disable-next-line sonarjs/cognitive-complexity -- State machine parser inherently complex; extracting helpers would hurt readability
 export function parseCSV(text: string): string[][] {
   const rows: string[][] = [];
   let currentRow: string[] = [];
@@ -35,7 +35,7 @@ export function parseCSV(text: string): string[][] {
         if (nextChar === '"') {
           // Escaped quote - add single quote and skip the second quote
           currentField += '"';
-          // eslint-disable-next-line sonarjs/updated-loop-counter -- Intentional: skip second quote, then continue skips rest of iteration
+          // oxlint-disable-next-line sonarjs/updated-loop-counter -- Intentional: skip second quote, then continue skips rest of iteration
           i++;
           continue;
         } else {
@@ -59,7 +59,7 @@ export function parseCSV(text: string): string[][] {
         }
         currentRow = [];
         currentField = "";
-        // eslint-disable-next-line sonarjs/updated-loop-counter -- Intentional: skip \n in CRLF line ending
+        // oxlint-disable-next-line sonarjs/updated-loop-counter -- Intentional: skip \n in CRLF line ending
         i++;
       } else if (char === "\n" || char === "\r") {
         // Unix or old Mac line ending

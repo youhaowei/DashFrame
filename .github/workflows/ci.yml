@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   # Formatting is deliberately its own job, not a step in `check`. As a step it
-  # ran first and short-circuited the rest: a one-file prettier diff skipped
+  # ran first and short-circuited the rest: a one-file formatter diff skipped
   # lint, typecheck and unit tests, and skipped the `e2e` job gated on this one
   # (PR #272, run 31006228705). Both are required for merge, and a formatting
   # failure can no longer hide a lint, typecheck, test or E2E result.
@@ -38,7 +38,7 @@ jobs:
   # worth doing only once the new `Format` context has reported green.
   # Until then the stale name is a trap: the `Format` context is NOT redundant
   # with it, and dropping `Format` from branch protection because this job's
-  # name mentions format would stop prettier gating merges entirely.
+  # name mentions format would stop formatter gating merges entirely.
   format:
     name: Format
     runs-on: ubuntu-latest
@@ -110,7 +110,7 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      # The web E2E target runs a production `vite build`, which resolves
+      # The web E2E target runs a production `vp build`, which resolves
       # @wystack/* via their `import`/`default` conditions → `dist/*.js`. Those
       # dist files only exist after the submodule is built. (Typecheck/lint jobs
       # consume wystack *source* via the `bun` condition, so they don't need

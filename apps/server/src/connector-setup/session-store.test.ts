@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 
 import { functions } from "../functions";
 import { wy } from "../wystack";
@@ -32,7 +32,7 @@ const { connectorSetupSessions, dataSources } = schema;
  * `toSql()` is captured at the moment a read executes, since clause methods
  * return copies rather than mutating the builder.
  */
-/* eslint-disable @typescript-eslint/no-explicit-any -- test double mirrors the builder's dynamic surface */
+/* oxlint-disable typescript/no-explicit-any -- test double mirrors the builder's dynamic surface */
 function recordingDb(tracked: any): { db: any; selects: string[] } {
   const selects: string[] = [];
   const wrap = (builder: any): any =>
@@ -61,7 +61,7 @@ function recordingDb(tracked: any): { db: any; selects: string[] } {
     },
   };
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
+/* oxlint-enable typescript/no-explicit-any */
 
 describe("connector setup session store", () => {
   let dir: string;
