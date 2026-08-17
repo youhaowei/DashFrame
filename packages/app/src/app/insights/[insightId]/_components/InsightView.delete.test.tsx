@@ -2,6 +2,9 @@ import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { fieldIdToColumnAlias } from "@dashframe/engine";
+import { buildInsightUpdateCommands } from "@dashframe/types";
+import type { Insight, UUID } from "@dashframe/types";
 
 const { mockToastError } = vi.hoisted(() => ({
   mockToastError: vi.fn(),
@@ -14,16 +17,62 @@ import {
   buildChartSuggestionInsight,
   canAttemptVisualizeIntent,
   requestSavedVisualizationDeletion,
+  resolveSuggestionDimensionFieldIds,
   resolvePendingVisualModeTarget,
   resolveVisualModeTarget,
 } from "./InsightView";
+
+describe("resolveSuggestionDimensionFieldIds", () => {
+  it("preserves repeat-join identity in the persisted SelectFields command", () => {
+    const fieldId = "11111111-1111-4111-8111-111111111111" as UUID;
+    const instanceFieldId = `${fieldId}_j1` as UUID;
+    const selectedFields = resolveSuggestionDimensionFieldIds(
+      new Map([[fieldIdToColumnAlias(fieldId), fieldId]]),
+      [`${fieldIdToColumnAlias(fieldId)}_j1`],
+    );
+    const insight = {
+      id: "22222222-2222-4222-8222-222222222222",
+      selectedFields: [],
+      metrics: [],
+    } as Insight;
+
+    expect(
+      buildInsightUpdateCommands(insight.id, insight, { selectedFields }),
+    ).toEqual([
+      expect.objectContaining({
+        path: "selectFields",
+        args: expect.objectContaining({ fieldIds: [instanceFieldId] }),
+      }),
+    ]);
+  });
+});
+
+describe("buildChartSuggestionInsight", () => {
+  it("preserves an Insight-backed source for composed detail views", () => {
+    const source = {
+      sourceType: "insight" as const,
+      sourceId: "insight-upstream",
+    };
+
+    expect(
+      buildChartSuggestionInsight({
+        id: "insight-derived",
+        name: "Derived chart",
+        source,
+        selectedFields: [],
+        metrics: [],
+        createdAt: 0,
+      } as never),
+    ).toMatchObject({ source });
+  });
+});
 
 describe("buildChartSuggestionInsight", () => {
   it("keeps server-resolved topology while exposing all joined fields", () => {
     const insight = {
       id: "insight-1",
       name: "Saved chart",
-      baseTableId: "table-1",
+      source: { sourceType: "dataTable", sourceId: "table-1" },
       selectedFields: ["field-product"],
       metrics: [{ id: "metric-1", fieldId: "field-quantity", function: "sum" }],
       filters: [
@@ -40,7 +89,7 @@ describe("buildChartSuggestionInsight", () => {
     } as never;
 
     expect(buildChartSuggestionInsight(insight)).toMatchObject({
-      baseTableId: "table-1",
+      source: { sourceType: "dataTable", sourceId: "table-1" },
       selectedFields: [],
       metrics: [],
       filters: undefined,

@@ -7,8 +7,8 @@
  *
  * Mutations:
  * - Filter / sort / limit overrides → server-applied intent patches
- * - Bind to control → `updateControls(dashboardId, newControls)` (replace whole array)
- * - Unbind         → `updateControls(...)` removing item.id from boundInstances
+ * - Bind to control → `SetDashboardControls` through `commitBatch` (replace whole array)
+ * - Unbind         → the same command, removing item.id from boundInstances
  *
  * Fields shown = union of:
  *   • Fields with an insight-level filter (inherit or override)
@@ -17,8 +17,7 @@
  *   • (Additive "add filter" row for other eligible fields — not in this PR)
  */
 
-import { isControlEligible } from "@/lib/dashboards/controls";
-import { computeCombinedFields } from "@/lib/insights/compute-combined-fields";
+import { resolveInsightAvailableFields } from "@/lib/insights/compute-combined-fields";
 import { api } from "@/wystack/api";
 import type {
   DashboardControl,
@@ -28,6 +27,7 @@ import type {
   InsightFilterOverride,
   InsightSort,
 } from "@dashframe/types";
+import { cmd, type UUID } from "@dashframe/types";
 import { useMutation, useQuery } from "@wystack/client";
 import {
   Badge,
@@ -269,8 +269,7 @@ export function OverridePopover({
   dashboardId,
   controls,
 }: OverridePopoverProps) {
-  const patchItemOverride = useMutation(api.patchDashboardItemOverride);
-  const updateControls = useMutation(api.updateDashboardControls);
+  const commitBatch = useMutation(api.commitBatch);
 
   // Self-fetch visualization → insight → data table (same pattern as VisualizationDisplay).
   const { data: visualizations = [] } = useQuery(api.listVisualizations, {
@@ -295,21 +294,13 @@ export function OverridePopover({
     [visualization, insights],
   );
 
-  const dataTable = useMemo(
-    () =>
-      insight?.baseTableId
-        ? (dataTables.find((t) => t.id === insight.baseTableId) ?? null)
-        : null,
-    [insight, dataTables],
-  );
-
   // Combined fields for type-aware value editors.
-  const { fields: combinedFields } = useMemo(
+  const combinedFields = useMemo(
     () =>
-      insight && dataTable
-        ? computeCombinedFields(dataTable, insight.joins ?? [], dataTables)
-        : { fields: [] },
-    [insight, dataTable, dataTables],
+      insight
+        ? resolveInsightAvailableFields(insight, dataTables, insights)
+        : [],
+    [insight, dataTables, insights],
   );
 
   const combinedFieldByName = useMemo(() => {
@@ -353,7 +344,7 @@ export function OverridePopover({
       (c) =>
         c.field === fieldName &&
         !c.boundInstances.includes(item.id) &&
-        isControlEligible(fieldName, dataTable ?? undefined),
+        combinedFieldByName.has(fieldName),
     );
   }
 
@@ -362,8 +353,16 @@ export function OverridePopover({
   // ---------------------------------------------------------------------------
 
   function persistOverride(patch: DashboardItemOverridePatch) {
-    patchItemOverride
-      .mutateAsync({ dashboardId, itemId: item.id, patch })
+    commitBatch
+      .mutateAsync({
+        commands: [
+          cmd("PatchDashboardItemOverride", {
+            dashboardId: dashboardId as UUID,
+            itemId: item.id,
+            patch,
+          }),
+        ],
+      })
       .catch((error: unknown) => {
         console.error("Failed to save dashboard override:", error);
         toast.error("Failed to save dashboard override");
@@ -435,7 +434,14 @@ export function OverridePopover({
         : c,
     );
     try {
-      await updateControls.mutateAsync({ dashboardId, controls: next });
+      await commitBatch.mutateAsync({
+        commands: [
+          cmd("SetDashboardControls", {
+            dashboardId: dashboardId as UUID,
+            controls: next,
+          }),
+        ],
+      });
     } catch {
       toast.error("Couldn't bind the control");
     }
@@ -452,16 +458,23 @@ export function OverridePopover({
         : c,
     );
     try {
-      await updateControls.mutateAsync({ dashboardId, controls: next });
+      await commitBatch.mutateAsync({
+        commands: [
+          cmd("SetDashboardControls", {
+            dashboardId: dashboardId as UUID,
+            controls: next,
+          }),
+        ],
+      });
     } catch {
       toast.error("Couldn't unbind the control");
     }
   }
 
-  // Available field names for the sort row (fields in the data table).
+  // Available field names for the sort row.
   const availableFieldNames = useMemo(
-    () => (dataTable?.fields ?? []).map((f) => f.columnName ?? f.name),
-    [dataTable],
+    () => combinedFields.map((field) => field.columnName ?? field.name),
+    [combinedFields],
   );
 
   const overridePresent = hasOverrides(item.overrides);

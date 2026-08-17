@@ -658,6 +658,23 @@ describe("createDashframeServer", () => {
         },
       );
       expect(revokeResponse.status).toBe(200);
+
+      const missingCredentialId = crypto.randomUUID();
+      const missingRevokeResponse = await fetch(
+        `${server.url}/api/revokeAccessCredential`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...bearer("renderer-token"),
+          },
+          body: JSON.stringify({ id: missingCredentialId }),
+        },
+      );
+      expect(missingRevokeResponse.status).toBe(500);
+      expect(await missingRevokeResponse.text()).toContain(
+        `Access credential ${missingCredentialId} not found`,
+      );
       expect(
         (
           await fetch(projectInfoUrl, {
@@ -1036,10 +1053,12 @@ describe("committed native frame cleanup", () => {
     };
     await subscribed;
 
-    const response = await fetch(`${server.url}/api/removeDataTable`, {
+    const response = await fetch(`${server.url}/api/commitBatch`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: seeded.tableId }),
+      body: JSON.stringify({
+        commands: [cmd("DeleteNode", { id: seeded.tableId })],
+      }),
     });
 
     expect(response.status).toBe(200);
@@ -1070,10 +1089,12 @@ describe("committed native frame cleanup", () => {
     await registerFrame(seeded.frameId, seeded.tableName);
     failNextNativeDrop();
 
-    const deleted = await fetch(`${server.url}/api/removeDataTable`, {
+    const deleted = await fetch(`${server.url}/api/commitBatch`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: seeded.tableId }),
+      body: JSON.stringify({
+        commands: [cmd("DeleteNode", { id: seeded.tableId })],
+      }),
     });
     expect(deleted.status).toBe(200);
 
@@ -1141,10 +1162,12 @@ describe("committed native frame cleanup", () => {
       await nativeUnregister(name);
     });
 
-    const deleted = await fetch(`${server.url}/api/removeDataTable`, {
+    const deleted = await fetch(`${server.url}/api/commitBatch`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: seeded.tableId }),
+      body: JSON.stringify({
+        commands: [cmd("DeleteNode", { id: seeded.tableId })],
+      }),
     });
     expect(deleted.status).toBe(200);
     await retryStarted;
@@ -1172,10 +1195,12 @@ describe("committed native frame cleanup", () => {
     await registerFrame(seeded.frameId, seeded.tableName);
     failNextNativeDrop();
 
-    const deleted = await fetch(`${server.url}/api/removeDataTable`, {
+    const deleted = await fetch(`${server.url}/api/commitBatch`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: seeded.tableId }),
+      body: JSON.stringify({
+        commands: [cmd("DeleteNode", { id: seeded.tableId })],
+      }),
     });
     expect(deleted.status).toBe(200);
     expect(engine.hasTable(seeded.tableName)).toBe(true);
@@ -1211,10 +1236,12 @@ describe("committed native frame cleanup", () => {
       .spyOn(connection, "run")
       .mockRejectedValue(new Error("persistent native DROP failure"));
 
-    const deleted = await fetch(`${server.url}/api/removeDataTable`, {
+    const deleted = await fetch(`${server.url}/api/commitBatch`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: seeded.tableId }),
+      body: JSON.stringify({
+        commands: [cmd("DeleteNode", { id: seeded.tableId })],
+      }),
     });
     expect(deleted.status).toBe(200);
     expect(drop).toHaveBeenCalledTimes(1);

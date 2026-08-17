@@ -5,6 +5,7 @@ import type {
   DashboardItemOverrides,
   InsightFilter,
 } from "@dashframe/types";
+import { cmd } from "@dashframe/types";
 import { useMutation } from "@wystack/client";
 import { useCallback, useMemo, useState } from "react";
 import { Responsive, WidthProvider, type Layout } from "react-grid-layout";
@@ -32,7 +33,7 @@ export function DashboardGrid({
   // Destructure the stable `mutateAsync` — the `useMutation` result object is a
   // fresh reference every render, so depending on it would defeat the
   // `onLayoutChange` memoization. `mutateAsync` is referentially stable.
-  const { mutateAsync: saveLayout } = useMutation(api.updateDashboardItems);
+  const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
   const [activeBreakpoint, setActiveBreakpoint] = useState("lg");
 
   const layouts = useMemo(() => {
@@ -88,21 +89,21 @@ export function DashboardGrid({
   const persistCanonicalLayout = useCallback(
     (currentLayout: Layout[]) => {
       if (!isEditable || activeBreakpoint !== "lg") return;
-      const patches = currentLayout.flatMap((layoutItem) => {
-        const item = dashboard.items.find(
-          (candidate) => candidate.id === layoutItem.i,
-        );
+      const layoutById = new Map(currentLayout.map((item) => [item.i, item]));
+      const commands = dashboard.items.flatMap((item) => {
+        const layoutItem = layoutById.get(item.id);
+        if (!layoutItem) return [];
         if (
-          !item ||
-          (item.x === layoutItem.x &&
-            item.y === layoutItem.y &&
-            item.width === layoutItem.w &&
-            item.height === layoutItem.h)
+          item.x === layoutItem.x &&
+          item.y === layoutItem.y &&
+          item.width === layoutItem.w &&
+          item.height === layoutItem.h
         ) {
           return [];
         }
         return [
-          {
+          cmd("UpdateDashboardItem", {
+            dashboardId: dashboard.id,
             itemId: item.id,
             updates: {
               x: layoutItem.x,
@@ -110,19 +111,17 @@ export function DashboardGrid({
               width: layoutItem.w,
               height: layoutItem.h,
             },
-          },
+          }),
         ];
       });
-      if (patches.length > 0) {
-        saveLayout({ dashboardId: dashboard.id, patches }).catch(
-          (error: unknown) => {
-            console.error("Failed to save dashboard layout:", error);
-            toast.error("Failed to save dashboard layout");
-          },
-        );
+      if (commands.length > 0) {
+        commitBatch({ commands }).catch((error: unknown) => {
+          console.error("Failed to save dashboard layout:", error);
+          toast.error("Failed to save dashboard layout");
+        });
       }
     },
-    [activeBreakpoint, dashboard.id, dashboard.items, isEditable, saveLayout],
+    [activeBreakpoint, commitBatch, dashboard.id, dashboard.items, isEditable],
   );
 
   // Pre-compute effective overrides for every item.  Merges the item's own

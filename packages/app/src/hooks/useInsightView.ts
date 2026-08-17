@@ -17,9 +17,9 @@ export function useInsightView(
   options: UseInsightViewOptions = {},
 ) {
   const result = useInsightPagination({
-    insight: insight ?? ({} as Insight),
+    insight,
     showModelPreview: false,
-    enabled: Boolean(insight?.id && insight.baseTableId),
+    enabled: Boolean(insight?.id && insight.source?.sourceId),
     runtime: options.runtime,
   });
 

@@ -10,7 +10,7 @@ vi.mock("./useInsightPagination", () => ({
 
 const insight = {
   id: "insight-1",
-  baseTableId: "table-1",
+  source: { sourceType: "dataTable", sourceId: "table-1" },
 } as never;
 
 describe("useInsightView", () => {

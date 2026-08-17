@@ -5,6 +5,7 @@ import type {
   DashboardItemOverrides,
   DashboardItem as DashboardItemType,
 } from "@dashframe/types";
+import { cmd, type UUID } from "@dashframe/types";
 import { groupHoverAndFocusWithinReveal } from "@dashframe/ui";
 import { useMutation } from "@wystack/client";
 import { Button, cn, Surface } from "@wystack/ui-react";
@@ -52,14 +53,20 @@ export function DashboardItem({
   ...props
 }: DashboardItemProps) {
   const [isEditingContent, setIsEditingContent] = useState(false);
-  const { mutateAsync: updateItem, isPending: isSavingContent } = useMutation(
-    api.updateDashboardItem,
+  const { mutateAsync: commitBatch, isPending: isSavingContent } = useMutation(
+    api.commitBatch,
   );
-  const { mutateAsync: removeItem } = useMutation(api.removeDashboardItem);
 
   const handleRemove = async () => {
     try {
-      await removeItem({ dashboardId, itemId: item.id });
+      await commitBatch({
+        commands: [
+          cmd("RemoveDashboardItem", {
+            dashboardId: dashboardId as UUID,
+            itemId: item.id,
+          }),
+        ],
+      });
     } catch {
       toast.error("Couldn't remove the widget");
     }
@@ -67,7 +74,15 @@ export function DashboardItem({
 
   const handleSaveContent = async (content: string) => {
     try {
-      await updateItem({ dashboardId, itemId: item.id, updates: { content } });
+      await commitBatch({
+        commands: [
+          cmd("UpdateDashboardItem", {
+            dashboardId: dashboardId as UUID,
+            itemId: item.id,
+            updates: { content },
+          }),
+        ],
+      });
     } catch {
       // Keep the editor open on failure so the user's text isn't lost.
       toast.error("Couldn't save the widget");
@@ -151,8 +166,8 @@ export function DashboardItem({
         </div>
 
         {/* Customize button + override badge — visualization cells only, editor-mode only.
-            Hidden from non-editors: a non-editor invoking updateItem/updateControls
-            would persist their changes, which is not the intended v0.3 scope.
+            Hidden from non-editors: the underlying commitBatch commands persist
+            changes, which is not the intended v0.3 viewer scope.
             Visible on hover or focus within, anchored bottom-right inside the surface. */}
         {item.type === "visualization" && isEditable && (
           <div

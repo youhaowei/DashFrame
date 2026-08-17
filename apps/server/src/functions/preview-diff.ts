@@ -31,7 +31,7 @@
  * direction "touch N ⇒ these are affected":
  *
  *   dataSource  → dataTable     : FK data_tables.data_source_id
- *   dataTable   → insight       : insight.definition.baseTableId
+ *   dataTable   → insight       : insight.definition.source
  *                                 + insight.definition.joins[].rightTableId
  *   insight     → dataFrame     : FK data_frames.insight_id
  *   insight     → visualization : FK visualizations.insight_id
@@ -58,12 +58,15 @@ import type {
   UUID,
 } from "@dashframe/types";
 import { jsonb } from "@wystack/db";
+import type { SecretRef, SecretVault } from "@wystack/secret-vault";
 import type { Command, CommandResult } from "@wystack/server";
 import { applyCommands, type WyStackApp } from "@wystack/server";
 
 import { permissions } from "../permissions";
 import { wy } from "../wystack";
 import { assertKnownCommandPaths, commandFunctions } from "./commands";
+import { storedInsightDefinitionSchema } from "./insights";
+import { flushThenReleaseRefs } from "./utils";
 
 const {
   dataSources,
@@ -139,6 +142,12 @@ const COMMAND_DESCRIPTORS: Record<CommandPath, CommandDescriptor> = {
     targetId: byId,
     change: "update",
     summary: () => "Refresh data table",
+  },
+  getOrCreateInsightDraft: {
+    kind: "insight",
+    targetId: byId,
+    change: "create",
+    summary: (a) => `Get or create insight draft "${String(a.name)}"`,
   },
   // Field/metric commands are polymorphic over {dataTable, insight}: `nodeId`
   // resolves to either at write time. The handler reports the resolved kind on
@@ -284,6 +293,18 @@ const COMMAND_DESCRIPTORS: Record<CommandPath, CommandDescriptor> = {
     change: "update",
     summary: (a) => `Remove dashboard item ${String(a.itemId)}`,
   },
+  patchDashboardItemOverrideCmd: {
+    kind: "dashboard",
+    targetId: byDashboardId,
+    change: "update",
+    summary: (a) => `Update dashboard item ${String(a.itemId)} overrides`,
+  },
+  setDashboardControls: {
+    kind: "dashboard",
+    targetId: byDashboardId,
+    change: "update",
+    summary: () => "Set dashboard controls",
+  },
   fanOutDashboardItemsCmd: {
     kind: "dashboard",
     targetId: byDashboardId,
@@ -331,6 +352,7 @@ const PATH_TO_NAME: Record<CommandPath, string> = {
   addMetric: "AddMetric",
   updateMetric: "UpdateMetric",
   removeMetric: "RemoveMetric",
+  getOrCreateInsightDraft: "GetOrCreateInsightDraft",
   createInsightCmd: "CreateInsight",
   setInsightSource: "SetInsightSource",
   selectFields: "SelectFields",
@@ -348,6 +370,8 @@ const PATH_TO_NAME: Record<CommandPath, string> = {
   updateDashboardItemCmd: "UpdateDashboardItem",
   setDashboardLayout: "SetDashboardLayout",
   removeDashboardItemCmd: "RemoveDashboardItem",
+  patchDashboardItemOverrideCmd: "PatchDashboardItemOverride",
+  setDashboardControls: "SetDashboardControls",
   fanOutDashboardItemsCmd: "FanOutDashboardItems",
   renameNode: "RenameNode",
   deleteNode: "DeleteNode",
@@ -767,7 +791,16 @@ async function buildDirectNodes(
     if (!isKnownPath(command.path)) continue; // non-vocabulary path — not grouped
     const descriptor = COMMAND_DESCRIPTORS[command.path];
     const args = (command.args ?? {}) as Record<string, unknown>;
-    const nodeId = descriptor.targetId(args) as UUID;
+    const resultValue = results[i]?.value as
+      | Record<string, unknown>
+      | undefined;
+    const resolvedId = resultValue?.id;
+    const nodeId = (
+      command.path === "getOrCreateInsightDraft" &&
+      typeof resolvedId === "string"
+        ? resolvedId
+        : descriptor.targetId(args)
+    ) as UUID;
     // Polymorphic commands (renameNode, deleteNode, field/metric edits) read the
     // handler's reported resolution from the positionally-matched result. Every
     // other command's kind is its descriptor kind. No re-derivation — share the
@@ -859,8 +892,8 @@ interface GraphRow {
   kind: ArtifactKind;
   /** Human-readable artifact name — carried to the consent surface. See #65. */
   name: string;
-  /** ids of the nodes this row directly DEPENDS ON (its upstream). */
-  dependsOn: string[];
+  /** Typed identities of the nodes this row directly depends on. */
+  dependsOn: Array<{ id: string; kind: ArtifactKind }>;
   parentArtifactId: string | null;
 }
 
@@ -879,8 +912,8 @@ const DOWNSTREAM_EDGES: ReadonlyArray<{
 }> = [
   { edge: "dataSource->dataTable", flag: "recompute" },
   { edge: "dataTable->insight", flag: "recompute" },
-  // Insight-on-Insight composition: B sourcing A depends on A via baseTableId
-  // (source.sourceType 'insight'). A change to A must recompute B and fan out to
+  // Insight-on-Insight composition: B sourcing A depends on A via source. A
+  // change to A must recompute B and fan out to
   // B's own DataFrames/Visualizations/Dashboards through the rest of the walk.
   { edge: "insight->insight", flag: "recompute" },
   { edge: "insight->dataFrame", flag: "stale" },
@@ -916,7 +949,7 @@ async function loadGraph(db: ArtifactDb): Promise<GraphRow[]> {
       id: r.id,
       kind: "dataTable",
       name: r.name,
-      dependsOn: [r.dataSourceId],
+      dependsOn: [{ id: r.dataSourceId, kind: "dataSource" }],
       parentArtifactId: null,
     });
   for (const r of allInsights)
@@ -932,7 +965,7 @@ async function loadGraph(db: ArtifactDb): Promise<GraphRow[]> {
       id: r.id,
       kind: "dataFrame",
       name: r.name,
-      dependsOn: r.insightId ? [r.insightId] : [],
+      dependsOn: r.insightId ? [{ id: r.insightId, kind: "insight" }] : [],
       parentArtifactId: null,
     });
   for (const r of allVis)
@@ -940,7 +973,7 @@ async function loadGraph(db: ArtifactDb): Promise<GraphRow[]> {
       id: r.id,
       kind: "visualization",
       name: r.name,
-      dependsOn: [r.insightId],
+      dependsOn: [{ id: r.insightId, kind: "insight" }],
       parentArtifactId: r.parentArtifactId,
     });
   for (const r of allDashboards)
@@ -1096,7 +1129,12 @@ function classifyDownstream(
   parentId: string,
   parentKind: ArtifactKind,
 ): { edge: DownstreamEdge; flag: DownstreamFlag } | null {
-  if (row.dependsOn.includes(parentId)) {
+  if (
+    row.dependsOn.some(
+      (dependency) =>
+        dependency.id === parentId && dependency.kind === parentKind,
+    )
+  ) {
     const edge = DOWNSTREAM_EDGES.find(
       (e) => e.edge === `${parentKind}->${row.kind}`,
     );
@@ -1109,27 +1147,33 @@ function classifyDownstream(
 }
 
 /**
- * The upstream-node ids an insight's stored `definition` IR references — the base
- * source (`baseTableId`) plus each join's right side (`joins[].rightTableId`).
- * `baseTableId` carries a DataTable id when `source.sourceType` is 'dataTable' and
- * an upstream Insight id when it is 'insight' (Insight-on-Insight composition); the
- * walk classifies the edge by the parent node's actual kind, so the same id under
- * `baseTableId` resolves to either `dataTable->insight` or `insight->insight`.
- * Defensive about the JSON shape: the column is `jsonb` and old rows may predate
- * fields.
+ * The upstream-node ids an insight's stored `definition` IR references — its
+ * polymorphic source plus each join's right side. Legacy base-only rows remain
+ * readable during migration.
  */
-function insightTableRefs(definition: unknown): string[] {
-  if (!definition || typeof definition !== "object") return [];
-  const def = definition as { baseTableId?: unknown; joins?: unknown };
-  const refs: string[] = [];
-  if (typeof def.baseTableId === "string") refs.push(def.baseTableId);
-  if (Array.isArray(def.joins)) {
-    for (const join of def.joins) {
-      const right = (join as { rightTableId?: unknown } | null)?.rightTableId;
-      if (typeof right === "string") refs.push(right);
-    }
-  }
-  return refs;
+function insightTableRefs(
+  definition: unknown,
+): Array<{ id: string; kind: "dataTable" | "insight" }> {
+  const def = storedInsightDefinitionSchema.parse(definition);
+  return [
+    {
+      id: def.source.sourceId,
+      kind: def.source.sourceType === "insight" ? "insight" : "dataTable",
+    },
+    ...(def.joins ?? []).map((join) => {
+      if (
+        join === null ||
+        typeof join !== "object" ||
+        typeof (join as { rightTableId?: unknown }).rightTableId !== "string"
+      ) {
+        throw new Error("Insight join has an invalid rightTableId");
+      }
+      return {
+        id: (join as { rightTableId: string }).rightTableId,
+        kind: "dataTable" as const,
+      };
+    }),
+  ];
 }
 
 /**
@@ -1137,12 +1181,14 @@ function insightTableRefs(definition: unknown): string[] {
  * items of type "visualization" carry `visualizationId`. These are the
  * dashboard's upstream-visualization dependencies.
  */
-function dashboardVisRefs(layout: unknown): string[] {
+function dashboardVisRefs(
+  layout: unknown,
+): Array<{ id: string; kind: "visualization" }> {
   if (!Array.isArray(layout)) return [];
-  const refs: string[] = [];
+  const refs: Array<{ id: string; kind: "visualization" }> = [];
   for (const item of layout) {
     const vis = (item as { visualizationId?: unknown } | null)?.visualizationId;
-    if (typeof vis === "string") refs.push(vis);
+    if (typeof vis === "string") refs.push({ id: vis, kind: "visualization" });
   }
   return refs;
 }
@@ -1168,8 +1214,8 @@ function dashboardVisRefs(layout: unknown): string[] {
  * `wyStackApp` and `artifactDb` are injected into the handler context via
  * `staticContext` in `createDashframeServer`.
  *
- * Partial-failure response: `buildPreviewDiff` never throws — it returns a
- * renderable `PreviewDiff` with an `error` slot on partial failure. The caller
+ * Command partial failures return a renderable `PreviewDiff` with an `error`
+ * slot. Corrupt canonical state still fails closed as an RPC error. The caller
  * must inspect `result.error` to distinguish a successful diff from a
  * partial/failed one. Infrastructure failures (missing context keys) do throw
  * and surface as RPC errors.
@@ -1214,6 +1260,26 @@ const previewDiff = wy.procedure
     );
   });
 
+async function releaseRolledBackCredentialRefs(
+  vault: SecretVault | undefined,
+  refs: SecretRef[],
+): Promise<void> {
+  if (vault == null || refs.length === 0) return;
+  const uniqueRefs = [...new Set(refs)];
+  const results = await Promise.allSettled(
+    uniqueRefs.map((ref) => vault.delete(ref)),
+  );
+  const failures = results.filter(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  );
+  if (failures.length > 0) {
+    console.error(
+      `[dashframe] commitBatch: ${failures.length} of ${uniqueRefs.length} newly minted credential ref(s) failed to release after rollback (inert orphan):`,
+      failures.map((failure) => failure.reason),
+    );
+  }
+}
+
 const commitBatch = wy.procedure
   .input({ commands: jsonb })
   .authorize(permissions.commands.commit)
@@ -1237,11 +1303,33 @@ const commitBatch = wy.procedure
     if (ctx.vault !== undefined) handlerContext.vault = ctx.vault;
     if (ctx.principal !== undefined) handlerContext.principal = ctx.principal;
 
+    const credentialBatchTransition = {
+      mintedRefs: [] as SecretRef[],
+      supersededRefs: [] as SecretRef[],
+    };
+    handlerContext.credentialBatchTransition = credentialBatchTransition;
+
     const framesBefore = await ctx.captureServerFrameReferences?.();
-    const result = await applyCommands(wyStackApp, commands as Command[], {
-      mode: "commit",
-      context: handlerContext,
-    });
+    let result;
+    try {
+      result = await applyCommands(wyStackApp, commands as Command[], {
+        mode: "commit",
+        context: handlerContext,
+      });
+    } catch (error) {
+      await releaseRolledBackCredentialRefs(
+        ctx.vault,
+        credentialBatchTransition.mintedRefs,
+      );
+      throw error;
+    }
+
+    await flushThenReleaseRefs(
+      ctx.flushSnapshot,
+      [...new Set(credentialBatchTransition.supersededRefs)],
+      ctx.vault,
+      "commitBatch",
+    );
 
     if (framesBefore != null) {
       try {

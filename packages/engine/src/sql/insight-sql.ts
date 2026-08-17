@@ -64,9 +64,10 @@ export function fieldIdToColumnAlias(fieldId: string): string {
  *   `buildInsightAvailableFields` and `processSingleJoin` so display-name / type maps
  *   keyed on `fieldIdToColumnAlias(field.id)` match the emitted aliases exactly.
  *
- * The instance-qualified ID is NEVER stored in the persisted Insight model; it
- * exists only in transient in-memory synthetic Field objects produced during a
- * single SQL-build or field-accumulation pass.
+ * The source Insight does not store the instance-qualified ID in its own join
+ * definition; it is synthesized while resolving that Insight's output fields.
+ * A downstream Insight may persist the ID in `selectedFields` as a reference to
+ * that specific repeated-join output.
  */
 function joinInstanceFieldId(
   fieldId: string,
@@ -845,8 +846,8 @@ function processSingleJoin(
   // For repeat-join instances, create synthetic Fields with instance-suffixed IDs
   // so that subsequent join iterations see the correct suffixed aliases when
   // building their passthrough SELECTs — not the original IDs from a prior instance.
-  // Note: selectedFields / metrics / filters in the Insight model still reference
-  // canonical (un-suffixed) field IDs — they map to the first join instance.
+  // These synthetic IDs may be persisted by downstream Insights in
+  // selectedFields so a repeated join instance remains addressable.
   const instanceFields = nonKeyJoinFields.map((f) => ({
     ...f,
     id: joinInstanceFieldId(f.id, joinInstanceIndex) as UUID,

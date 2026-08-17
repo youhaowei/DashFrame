@@ -2,20 +2,18 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-const { mockNavigate, mockRemoveVisualization, mockUseQuery } = vi.hoisted(
-  () => ({
-    mockNavigate: vi.fn(),
-    mockRemoveVisualization: vi.fn(),
-    mockUseQuery: vi.fn(),
-  }),
-);
+const { mockCommitBatch, mockNavigate, mockUseQuery } = vi.hoisted(() => ({
+  mockNavigate: vi.fn(),
+  mockCommitBatch: vi.fn(),
+  mockUseQuery: vi.fn(),
+}));
 
 vi.mock("@wystack/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@wystack/client")>();
   return {
     ...actual,
     useQuery: (ref: { _path: string }) => mockUseQuery(ref),
-    useMutation: () => ({ mutateAsync: mockRemoveVisualization }),
+    useMutation: () => ({ mutateAsync: mockCommitBatch }),
   };
 });
 
@@ -35,7 +33,7 @@ describe("VisualizationsPage delete confirmation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useConfirmDialogStore.getState().close();
-    mockRemoveVisualization.mockResolvedValue({ ok: true });
+    mockCommitBatch.mockResolvedValue({ ok: true });
     mockUseQuery.mockImplementation((ref: { _path: string }) => {
       if (ref._path === "listVisualizations") {
         return {
@@ -69,15 +67,82 @@ describe("VisualizationsPage delete confirmation", () => {
       'Are you sure you want to delete "Revenue by month"? This deletes only this visualization. Dashboard items that reference it may remain and stop working. This action cannot be undone.',
     );
     await user.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(mockRemoveVisualization).not.toHaveBeenCalled();
+    expect(mockCommitBatch).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: /more options/i }));
     await user.click(await screen.findByRole("menuitem", { name: "Delete" }));
     await user.click(screen.getByRole("button", { name: "Delete" }));
 
     await waitFor(() =>
-      expect(mockRemoveVisualization).toHaveBeenCalledWith({ id: "viz-1" }),
+      expect(mockCommitBatch).toHaveBeenCalledWith({
+        commands: [{ path: "deleteNode", args: { id: "viz-1" } }],
+      }),
     );
+  });
+
+  it("shows root source metadata for a visualization of a composed Insight", () => {
+    mockUseQuery.mockImplementation((ref: { _path: string }) => {
+      if (ref._path === "listVisualizations") {
+        return {
+          data: [
+            {
+              id: "viz-1",
+              name: "Revenue by month",
+              insightId: "composed",
+              visualizationType: "bar",
+              encoding: {},
+            },
+          ],
+          isLoading: false,
+        };
+      }
+      if (ref._path === "listInsights") {
+        return {
+          data: [
+            {
+              id: "upstream",
+              name: "Upstream",
+              source: {
+                sourceType: "dataTable",
+                sourceId: "root-table",
+              },
+              selectedFields: [],
+              metrics: [],
+              createdAt: 0,
+            },
+            {
+              id: "composed",
+              name: "Composed report",
+              source: { sourceType: "insight", sourceId: "upstream" },
+              selectedFields: [],
+              metrics: [],
+              createdAt: 0,
+            },
+          ],
+        };
+      }
+      if (ref._path === "listDataTables") {
+        return {
+          data: [
+            {
+              id: "root-table",
+              name: "Root Orders",
+              dataSourceId: "source-1",
+              fields: [],
+              metrics: [],
+            },
+          ],
+        };
+      }
+      if (ref._path === "listDataSources") {
+        return { data: [{ id: "source-1", type: "csv" }] };
+      }
+      return { data: [], isLoading: false };
+    });
+
+    render(<VisualizationsPage />);
+
+    expect(screen.getByText("From: Composed report • csv")).not.toBeNull();
   });
 
   it.each(["pointer", "Enter", "Space"] as const)(

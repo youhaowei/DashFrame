@@ -30,12 +30,7 @@ describe("InsightConfigPanel filter removal mutation", () => {
     } satisfies Insight;
     const commitBatch = vi.fn(async (_input: { commands: unknown[] }) => ({}));
 
-    await removeFilterThroughCommands(
-      commitBatch,
-      insight,
-      "region",
-      insight.selectedFields,
-    );
+    await removeFilterThroughCommands(commitBatch, insight, "region");
 
     expect(commitBatch).toHaveBeenCalledOnce();
     expect(commitBatch).toHaveBeenCalledWith({
@@ -52,16 +47,6 @@ describe("InsightConfigPanel filter removal mutation", () => {
                 value: { low: 1, high: 6 },
               },
             ],
-          },
-        },
-        {
-          path: "setInsightRuntimeControls",
-          args: {
-            id: insight.id,
-            runtimeControls: {
-              filters: [{ key: "period", filterId: "period", label: "Period" }],
-              limit: { min: 1, max: 100 },
-            },
           },
         },
       ],

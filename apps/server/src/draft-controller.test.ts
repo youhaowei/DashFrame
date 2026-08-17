@@ -834,7 +834,7 @@ describe("DraftController (persisted draft overlay)", () => {
       baseTableId?: string;
     };
     expect(def?.source?.sourceId).toBe(tableId2);
-    expect(def?.baseTableId).toBe(tableId2);
+    expect(def).not.toHaveProperty("baseTableId");
     // Canonical never saw the draft-only insight.
     expect(
       (await canonicalInsights()).find((r) => r.id === insightId),

@@ -17,16 +17,19 @@ import { VisualizationPreview } from "./VisualizationPreview";
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
-const { mockUseInsightView } = vi.hoisted(() => ({
-  mockUseInsightView: vi.fn(),
-}));
+const { mockUseInsightView, mockUseInsightPagination, mockResolveEncoding } =
+  vi.hoisted(() => ({
+    mockUseInsightView: vi.fn(),
+    mockUseInsightPagination: vi.fn(() => ({ resolvedFields: [] })),
+    mockResolveEncoding: vi.fn().mockReturnValue({}),
+  }));
 
 vi.mock("@/hooks/useInsightView", () => ({
   useInsightView: () => mockUseInsightView(),
 }));
 
 vi.mock("@/hooks/useInsightPagination", () => ({
-  useInsightPagination: () => ({ resolvedFields: [] }),
+  useInsightPagination: () => mockUseInsightPagination(),
 }));
 
 const { mockUseInsight, mockUseDataTables } = vi.hoisted(() => ({
@@ -50,7 +53,7 @@ vi.mock("@dashframe/engine", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@dashframe/engine")>();
   return {
     ...actual,
-    resolveEncodingToResultFrame: vi.fn().mockReturnValue({}),
+    resolveEncodingToResultFrame: mockResolveEncoding,
   };
 });
 
@@ -73,7 +76,7 @@ const visualization = {
 const insight = {
   id: "ins-1",
   name: "Test",
-  baseTableId: "t1",
+  source: { sourceType: "dataTable", sourceId: "t1" },
   selectedFields: [],
   metrics: [],
   joins: [],
@@ -228,5 +231,35 @@ describe("VisualizationPreview — (c) encoding-missing branch", () => {
     expect(screen.getByText("Encoding missing")).not.toBeNull();
     expect(container.querySelector("svg")).toBeNull();
     expect(screen.queryByTestId("chart")).toBeNull();
+  });
+
+  it("resolves a composed Insight from its materialized result fields", () => {
+    mockUseInsight.mockReturnValue({
+      data: {
+        ...insight,
+        source: { sourceType: "insight", sourceId: "upstream" },
+      },
+      isLoading: false,
+    });
+    mockUseDataTables.mockReturnValue({ data: [] });
+    mockUseInsightPagination.mockReturnValue({
+      resolvedFields: [{ id: "f1", name: "Revenue", tableId: "upstream" }],
+    });
+    mockResolveEncoding.mockReturnValue({ x: "field_f1" });
+    mockUseInsightView.mockReturnValue({
+      viewName: "frame-composed",
+      isReady: true,
+      error: null,
+    });
+
+    render(<VisualizationPreview visualization={visualization} />);
+
+    expect(mockResolveEncoding).toHaveBeenCalledWith(
+      visualization.encoding,
+      expect.objectContaining({
+        fields: [expect.objectContaining({ id: "f1" })],
+      }),
+    );
+    expect(screen.getByTestId("chart")).not.toBeNull();
   });
 });

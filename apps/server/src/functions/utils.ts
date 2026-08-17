@@ -1,8 +1,4 @@
-/**
- * Helpers shared between the legacy coarse handlers (`app-artifacts.ts`) and
- * the command vocabulary (`commands.ts`) while both write paths coexist
- * (transition window while legacy coarse handlers and the command vocabulary coexist).
- */
+/** Shared server-function helpers for credentials, provenance, and validation. */
 import {
   CREDENTIAL_CLASS,
   type ArtifactProvenance,
@@ -242,10 +238,9 @@ export async function withClassBoundaryMessage<T>(
 
 /**
  * Release every `SecretRef` present in a `DataSourceConfig` from the vault.
- * Called in three places: (1) before a data-source row is deleted, (2) when a
- * credential field is cleared (CLEAR branch in {@link applyCredentialField}),
- * (3) when a credential is overwritten with a new value (ROTATE branch). In all
- * cases the goal is to avoid orphaned keychain blobs + mapping rows.
+ * Used after a data-source delete and by the direct clear/rotate branches in
+ * {@link applyCredentialField}. In all cases the goal is to avoid orphaned
+ * keychain blobs and mapping rows.
  *
  * Callers may pass a full config or a single-field slice
  * (`{ [field]: prior }`); only fields that satisfy {@link isSecretRef} are
@@ -383,7 +378,7 @@ async function pushOrRelease(
  * transaction. In preview mode the transaction rolls back, so neither the new store
  * nor a release of the old ref should touch the keychain. The clear and rotate
  * release calls are skipped when `preview` is `true`, mirroring the guard that the
- * DeleteNode / removeDataSource paths apply via `modeFromCtx()`.
+ * DeleteNode applies via `modeFromCtx()`.
  *
  * **Vault-absent (clear):** `storeCredential` throws on vault-absent + non-empty
  * plaintext, so a real `SecretRef` in `config[field]` could only have been written
@@ -400,8 +395,8 @@ async function pushOrRelease(
  * @param deferRelease When `true`, the release of the PRIOR ref (clear / rotate)
  *   is SKIPPED — it is deferred to a lifecycle transition (publish releases the
  *   replaced canonical ref; discard releases the draft-minted ref). The
- *   deferred-release credential commands (CreateDataSource/SetDataSourceConfig)
- *   pass this; the legacy coarse handlers leave it `false` (synchronous release).
+ *   credential commands pass this during draft append and publish replay;
+ *   direct command calls leave it `false`.
  *
  * **Ref pass-through (capture-before-log):** on the deferred path (`deferRelease`
  * — a draft append or publish replay) a `SecretRef` value is ADOPTED verbatim,
@@ -425,9 +420,9 @@ export async function applyCredentialField(
    * `flushSnapshot()` to ensure the snapshot capturing the new config is durable,
    * and (3) calling `releaseCredentialRefs` (or equivalent) on the collected refs.
    *
-   * This deferred-release collector is the fix for the legacy synchronous release
-   * path's crash window: previously the prior ref was released inside this function
-   * BEFORE the caller wrote the new config to the DB and flushed the snapshot,
+   * This deferred-release collector closes the direct synchronous release path's
+   * crash window: without it, the prior ref is released inside this function
+   * BEFORE the caller writes the new config to the DB and flushes the snapshot,
    * leaving a window where the ref was gone from the vault but the snapshot could
    * still reference it. With the collector, the caller can guarantee the ordering:
    *   store-new → canonical-write → flush-snapshot → release-old.
@@ -477,6 +472,17 @@ export async function applyCredentialField(
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Reject a by-id write when its lookup/result proves that no target existed. */
+export function requireWriteTarget<T>(
+  target: T | null | undefined | false,
+  description: string,
+): T {
+  if (target === null || target === undefined || target === false) {
+    throw new Error(`${description} not found`);
+  }
+  return target;
 }
 
 export function requireRecordWithId(

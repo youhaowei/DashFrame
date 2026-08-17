@@ -162,8 +162,8 @@ export type DownstreamFlag = "recompute" | "orphaned" | "stale";
  */
 export type DownstreamEdge =
   | "dataSource->dataTable" // FK data_tables.data_source_id
-  | "dataTable->insight" // insight.definition baseTableId / joins[].rightTableId
-  | "insight->insight" // insight.definition baseTableId (source.sourceType 'insight')
+  | "dataTable->insight" // insight.definition source / joins[].rightTableId
+  | "insight->insight" // insight.definition source (sourceType 'insight')
   | "insight->dataFrame" // FK data_frames.insight_id
   | "insight->visualization" // FK visualizations.insight_id
   | "visualization->dashboard" // dashboards.layout[].visualizationId

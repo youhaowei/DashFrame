@@ -439,7 +439,7 @@ describe("assistant read host (resolver over the real server seam)", () => {
   });
 
   it("masks a composed insight (insight-on-insight) whose upstream source is sensitive", async () => {
-    // baseTableId of an insight-sourced insight holds the UPSTREAM INSIGHT id.
+    // The source discriminator identifies the upstream Insight directly.
     // Resolving it as a table would yield null → empty set → fail OPEN.
     const sourceId = id();
     const tableId = id();

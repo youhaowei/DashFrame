@@ -1,5 +1,6 @@
 import { useConfirmDialogStore, useToastStore } from "@/lib/stores";
 import { api } from "@/wystack/api";
+import { cmd, type UUID } from "@dashframe/types";
 import { groupHoverAndFocusWithinReveal } from "@dashframe/ui";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@wystack/client";
@@ -20,8 +21,7 @@ import { useState } from "react";
 export default function DashboardsPage() {
   const navigate = useNavigate();
   const { data: dashboards = [], isLoading } = useQuery(api.listDashboards);
-  const createDashboard = useMutation(api.createDashboard);
-  const removeDashboard = useMutation(api.removeDashboard);
+  const commitBatch = useMutation(api.commitBatch);
   const { showError } = useToastStore();
   const { confirm } = useConfirmDialogStore();
 
@@ -36,7 +36,9 @@ export default function DashboardsPage() {
       variant: "destructive",
       onConfirm: async () => {
         try {
-          await removeDashboard.mutateAsync({ id });
+          await commitBatch.mutateAsync({
+            commands: [cmd("DeleteNode", { id: id as UUID })],
+          });
         } catch {
           showError("Failed to delete dashboard. Please try again.");
         }
@@ -47,16 +49,13 @@ export default function DashboardsPage() {
   const handleCreate = async () => {
     if (!newDashboardName.trim()) return;
 
-    let id: string | undefined;
+    const id = crypto.randomUUID() as UUID;
     try {
-      id = (await createDashboard.mutateAsync({ name: newDashboardName })).id;
+      await commitBatch.mutateAsync({
+        commands: [cmd("CreateDashboard", { id, name: newDashboardName })],
+      });
     } catch {
       showError("Failed to create dashboard. Please try again.");
-      return;
-    }
-
-    if (!id) {
-      showError("Dashboard creation returned an unexpected result.");
       return;
     }
 

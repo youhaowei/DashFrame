@@ -16,27 +16,48 @@ import { useCreateInsight } from "./useCreateInsight";
 // Mock functions must be hoisted with vi.mock
 const {
   mockCreateInsight,
-  mockCreateInsightMutation,
+  mockCommitBatchMutation,
   mockGetInsight,
   mockGetAllInsights,
 } = vi.hoisted(() => {
   const create = vi.fn();
-  const createMutation = vi.fn(
+  const commitMutation = vi.fn(
     async ({
-      name,
-      baseTableId,
-      options,
+      commands,
     }: {
-      name: string;
-      baseTableId: string;
-      options?: unknown;
-    }) => ({
-      id: await create(name, baseTableId, options),
-    }),
+      commands: Array<{ path: string; args: unknown }>;
+    }) => {
+      const command = commands[0];
+      if (
+        !command ||
+        typeof command.args !== "object" ||
+        command.args === null ||
+        !("name" in command.args) ||
+        !("source" in command.args) ||
+        typeof command.args.name !== "string" ||
+        typeof command.args.source !== "object" ||
+        command.args.source === null ||
+        !("sourceId" in command.args.source) ||
+        typeof command.args.source.sourceId !== "string"
+      ) {
+        throw new Error("Unexpected insight command");
+      }
+      const selectedFields =
+        "selectedFields" in command.args &&
+        Array.isArray(command.args.selectedFields)
+          ? command.args.selectedFields
+          : [];
+      const reuseUnmodifiedDraft = command.path === "getOrCreateInsightDraft";
+      const id = await create(command.args.name, command.args.source.sourceId, {
+        selectedFields,
+        ...(reuseUnmodifiedDraft ? { reuseUnmodifiedDraft: true } : {}),
+      });
+      return { commands, results: [{ value: { id } }] };
+    },
   );
   return {
     mockCreateInsight: create,
-    mockCreateInsightMutation: createMutation,
+    mockCommitBatchMutation: commitMutation,
     mockGetInsight: vi.fn(),
     mockGetAllInsights: vi.fn(),
   };
@@ -52,8 +73,8 @@ vi.mock("@wystack/client", async (importOriginal) => {
   return {
     ...actual,
     useMutation: (ref: { _path: string }) => {
-      if (ref._path === "createInsight") {
-        return { mutateAsync: mockCreateInsightMutation };
+      if (ref._path === "commitBatch") {
+        return { mutateAsync: mockCommitBatchMutation };
       }
       throw new Error(`Unexpected mutation: ${ref._path}`);
     },
@@ -90,7 +111,10 @@ function createMockInsight(options: {
   return {
     id: options.id ?? "insight-123",
     name: options.name ?? "Test Insight",
-    baseTableId: options.baseTableId ?? "table-abc",
+    source: {
+      sourceType: "dataTable",
+      sourceId: options.baseTableId ?? "table-abc",
+    },
     selectedFields: options.selectedFields ?? [],
     metrics: [],
     joins: [],
@@ -123,10 +147,16 @@ describe("useCreateInsight", () => {
         "table-abc", // baseTableId
         { selectedFields: [], reuseUnmodifiedDraft: true },
       );
-      expect(mockCreateInsightMutation).toHaveBeenCalledWith({
-        name: "Sales Data",
-        baseTableId: "table-abc",
-        options: { selectedFields: [], reuseUnmodifiedDraft: true },
+      expect(mockCommitBatchMutation).toHaveBeenCalledWith({
+        commands: [
+          expect.objectContaining({
+            path: "getOrCreateInsightDraft",
+            args: expect.objectContaining({
+              name: "Sales Data",
+              source: { sourceType: "dataTable", sourceId: "table-abc" },
+            }),
+          }),
+        ],
       });
     });
 
@@ -309,7 +339,7 @@ describe("useCreateInsight", () => {
       expect(mockCreateInsight).toHaveBeenCalledWith(
         "orders (2)",
         "table-orders",
-        { selectedFields: [], reuseUnmodifiedDraft: false },
+        { selectedFields: [] },
       );
       expect(mockPush).toHaveBeenCalledWith("/insights/new-draft-2");
     });
@@ -338,7 +368,7 @@ describe("useCreateInsight", () => {
       expect(mockCreateInsight).toHaveBeenCalledWith(
         "orders (2)",
         "table-orders",
-        { selectedFields: [], reuseUnmodifiedDraft: false },
+        { selectedFields: [] },
       );
     });
 
@@ -394,7 +424,7 @@ describe("useCreateInsight", () => {
       expect(mockCreateInsight).toHaveBeenCalledWith(
         "orders (2)", // gap-free: (2) is missing, not (4)
         "table-orders",
-        { selectedFields: [], reuseUnmodifiedDraft: false },
+        { selectedFields: [] },
       );
     });
   });
@@ -422,7 +452,7 @@ describe("useCreateInsight", () => {
       expect(mockGetInsight).toHaveBeenCalledWith("source-123");
     });
 
-    it("should create derived insight with same base table", async () => {
+    it("should create a derived insight over the source insight", async () => {
       const sourceInsight = createMockInsight({
         id: "source-456",
         name: "Original Analysis",
@@ -443,7 +473,7 @@ describe("useCreateInsight", () => {
 
       expect(mockCreateInsight).toHaveBeenCalledWith(
         "Original Analysis (derived)",
-        "table-orders", // Same baseTableId as source
+        "source-456",
         { selectedFields: [] },
       );
     });
@@ -469,7 +499,7 @@ describe("useCreateInsight", () => {
 
       expect(mockCreateInsight).toHaveBeenCalledWith(
         "Customer Segmentation (derived)",
-        "table-customers",
+        "source-789",
         { selectedFields: [] },
       );
     });
@@ -617,7 +647,7 @@ describe("useCreateInsight", () => {
       // Should still append '(derived)', even if it already exists
       expect(mockCreateInsight).toHaveBeenCalledWith(
         "Original (derived) (derived)",
-        "table-nested",
+        "source-nested",
         { selectedFields: [] },
       );
     });
@@ -665,7 +695,6 @@ describe("useCreateInsight", () => {
         "table-shared",
         {
           selectedFields: [],
-          reuseUnmodifiedDraft: false,
         },
       );
       expect(mockPush).toHaveBeenCalledWith("/insights/insight-2");

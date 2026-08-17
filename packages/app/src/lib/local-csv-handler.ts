@@ -1,27 +1,13 @@
 import { ingestLocalDataFrame } from "@/lib/data-access/data-frames";
 import { getOrCreateDataSourceByType } from "@/lib/data-access/data-sources";
-import { createDataTable, getDataTable } from "@/lib/data-access/data-tables";
+import {
+  createDataTable,
+  getDataTable,
+  makeDefaultCountMetric,
+} from "@/lib/data-access/data-tables";
 import { csvToDataFrame } from "@dashframe/csv";
 import type { FileParseResult } from "@dashframe/engine";
 import type { Field, Metric } from "@dashframe/types";
-
-/**
- * Build the default Count metric for a new DataTable.
- *
- * `CreateDataTable` is a PRIMITIVE — it does not auto-inject metrics.
- * Callers that want the default Count metric must pass it explicitly.
- * This helper produces the same shape that `withDefaultCountMetric` in
- * `app-artifacts.ts` used to inject, preserving the row-shape contract.
- */
-function makeDefaultCountMetric(tableId: string): Metric {
-  return {
-    id: crypto.randomUUID(),
-    name: "Count",
-    tableId,
-    columnName: undefined,
-    aggregation: "count",
-  };
-}
 
 const ensureCountMetric = (
   existing: Metric[] = [],

@@ -131,9 +131,8 @@ export function createAssistantReadHost(
    *
    *   - dataTable: its own fields.
    *   - insight: the union of EVERY contributing column —
-   *       • base-source fields (the base may be a dataTable OR another insight —
-   *         insight-on-insight composition writes the upstream INSIGHT id into
-   *         `baseTableId`; the chain is walked, cycle-guarded),
+   *       • source fields (the source may be a DataTable OR another Insight;
+   *         the discriminated chain is walked, cycle-guarded),
    *       • join-table fields (joins read those tables; the join KEYS are columns
    *         too),
    *       • metric columns (`metric.columnName` over `metric.sourceTable`; an
@@ -203,18 +202,13 @@ export function createAssistantReadHost(
       } else fields.push(...table.fields);
     };
 
-    // Base source: a dataTable, OR an upstream insight (composition). Probe as a
-    // table first; if it resolves to a table, add its fields (fail closed on
-    // empty fields via addTableFields). If NOT a table, it is an insight id —
-    // recurse into its source.
-    const baseTable = await read<DataTable | null>("getDataTable", {
-      id: insight.baseTableId,
-    });
-    if (baseTable !== null) {
-      await addTableFields(insight.baseTableId);
+    // Follow the explicit source discriminant. An Insight source must never be
+    // probed as a DataTable even if ids happen to collide across namespaces.
+    if (insight.source.sourceType === "dataTable") {
+      await addTableFields(insight.source.sourceId);
     } else {
       const upstreamInsight = await read<Insight | null>("getInsight", {
-        id: insight.baseTableId,
+        id: insight.source.sourceId,
       });
       if (upstreamInsight === null) {
         forceMask = true;

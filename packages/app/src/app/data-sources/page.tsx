@@ -7,7 +7,7 @@ import {
 } from "@/lib/connectors/registry";
 import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
 import { api } from "@/wystack/api";
-import type { DataSource, UUID } from "@dashframe/types";
+import { cmd, type DataSource, type UUID } from "@dashframe/types";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@wystack/client";
 import {
@@ -55,7 +55,7 @@ export default function DataSourcesPage() {
   const dataSourcesQuery = useQuery(api.listDataSources);
   const dataSources = dataSourcesQuery.data;
   const refetchDataSources = dataSourcesQuery.refetch;
-  const { mutateAsync: removeDataSource } = useMutation(api.removeDataSource);
+  const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
   const { confirm } = useConfirmDialogStore();
 
   // Get all data tables to count them per source
@@ -124,7 +124,9 @@ export default function DataSourcesPage() {
       variant: "destructive",
       onConfirm: async () => {
         try {
-          await removeDataSource({ id: dataSourceId });
+          await commitBatch({
+            commands: [cmd("DeleteNode", { id: dataSourceId })],
+          });
         } catch {
           toast.error("Failed to delete data source");
         }

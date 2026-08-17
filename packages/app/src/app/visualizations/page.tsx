@@ -1,8 +1,14 @@
 import { RoutedCardActionMenuTrigger } from "@/components/RoutedCardActionMenuTrigger";
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 import { useConfirmDialogStore } from "@/lib/stores";
+import { resolveInsightSourceDataTable } from "@/hooks/useInsightPagination";
 import { api } from "@/wystack/api";
-import type { Insight, UUID, Visualization } from "@dashframe/types";
+import {
+  cmd,
+  type Insight,
+  type UUID,
+  type Visualization,
+} from "@dashframe/types";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@wystack/client";
 import {
@@ -50,9 +56,7 @@ export default function VisualizationsPage() {
   const { data: insights = [] } = useQuery(api.listInsights, { args: {} });
   const { data: dataSources = [] } = useQuery(api.listDataSources);
   const { data: dataTables = [] } = useQuery(api.listDataTables, { args: {} });
-  const { mutateAsync: removeVisualization } = useMutation(
-    api.removeVisualization,
-  );
+  const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
   const { confirm } = useConfirmDialogStore();
 
   // Local state
@@ -63,11 +67,6 @@ export default function VisualizationsPage() {
   const insightsMap = useMemo(
     () => new Map(insights.map((i) => [i.id, i])),
     [insights],
-  );
-
-  const dataTablesMap = useMemo(
-    () => new Map(dataTables.map((t) => [t.id, t])),
-    [dataTables],
   );
 
   const dataSourcesMap = useMemo(
@@ -84,13 +83,14 @@ export default function VisualizationsPage() {
 
       // Try to determine source type from insight -> dataTable -> dataSource
       let sourceType: string | null = null;
-      const dataTableId = insight?.baseTableId;
-      if (dataTableId) {
-        const dataTable = dataTablesMap.get(dataTableId);
-        if (dataTable) {
-          const dataSource = dataSourcesMap.get(dataTable.dataSourceId);
-          sourceType = dataSource?.type ?? null;
-        }
+      const dataTable = resolveInsightSourceDataTable(
+        insight,
+        dataTables,
+        insights,
+      );
+      if (dataTable) {
+        const dataSource = dataSourcesMap.get(dataTable.dataSourceId);
+        sourceType = dataSource?.type ?? null;
       }
 
       return {
@@ -99,7 +99,7 @@ export default function VisualizationsPage() {
         sourceType,
       };
     });
-  }, [visualizations, insightsMap, dataTablesMap, dataSourcesMap]);
+  }, [visualizations, insightsMap, dataTables, insights, dataSourcesMap]);
 
   // Filter visualizations by search query
   const filteredVisualizations = useMemo((): VisualizationWithDetails[] => {
@@ -157,7 +157,9 @@ export default function VisualizationsPage() {
       variant: "destructive",
       onConfirm: async () => {
         try {
-          await removeVisualization({ id: visualizationId });
+          await commitBatch({
+            commands: [cmd("DeleteNode", { id: visualizationId })],
+          });
         } catch {
           toast.error("Couldn't delete the visualization");
         }

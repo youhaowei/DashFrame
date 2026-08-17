@@ -224,6 +224,19 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
     notes: "Validates source exists; rejects self-reference cycles.",
   },
   {
+    name: "GetOrCreateInsightDraft",
+    group: "insight",
+    summary: "Reuse an unmodified draft insight or create one.",
+    args: {
+      id: "UUID",
+      name: "display name",
+      source: "{ sourceType: 'dataTable', sourceId: UUID }",
+    },
+    notes:
+      "Human-only. Preserves the editor's idempotent create flow; assistants " +
+      "should use CreateInsight.",
+  },
+  {
     name: "SetInsightSource",
     group: "insight",
     summary: "Re-point an insight's source.",
@@ -349,9 +362,11 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
     args: {
       dashboardId: "UUID",
       itemId: "UUID",
-      updates: "Partial item (id and type are pinned, not editable)",
+      updates:
+        "{ visualizationId?, content?, x?, y?, width?, height? } (id, type, and overrides are not editable here)",
     },
-    notes: "Rejects a missing itemId.",
+    notes:
+      "Rejects a missing itemId. Use PatchDashboardItemOverride for filter, sort, or limit changes.",
   },
   {
     name: "SetDashboardLayout",
@@ -366,6 +381,26 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
     summary: "Remove one panel from a dashboard.",
     args: { dashboardId: "UUID", itemId: "UUID" },
     notes: "Rejects a missing itemId.",
+  },
+  {
+    name: "PatchDashboardItemOverride",
+    group: "dashboard",
+    summary:
+      "Apply one filter, sort, or limit override intent to a dashboard item.",
+    args: {
+      dashboardId: "UUID",
+      itemId: "UUID",
+      patch:
+        "{ kind:'filter', field, value } | { kind:'sorts', value } | { kind:'limit', value }",
+    },
+    notes:
+      "Null clears the selected override without replacing sibling overrides.",
+  },
+  {
+    name: "SetDashboardControls",
+    group: "dashboard",
+    summary: "Replace the dashboard's saved control declarations.",
+    args: { dashboardId: "UUID", controls: "DashboardControl[]" },
   },
   {
     name: "FanOutDashboardItems",

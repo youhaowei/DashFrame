@@ -1,5 +1,9 @@
 import { useDataFramePagination } from "@/hooks/useDataFramePagination";
-import { useInsightPagination } from "@/hooks/useInsightPagination";
+import { resolveInsightAvailableFields } from "@/lib/insights/compute-combined-fields";
+import {
+  resolveInsightSourceDataTable,
+  useInsightPagination,
+} from "@/hooks/useInsightPagination";
 import { api } from "@/wystack/api";
 import { fieldIdToColumnAlias } from "@dashframe/engine";
 import type {
@@ -89,6 +93,29 @@ export function isJoinPreviewComputing(
   return previewInsight !== null && !isReady && error === null;
 }
 
+export function resolveJoinLeftFields(
+  insight: Insight,
+  allDataTables: DataTable[],
+  allInsights: Insight[],
+): Field[] {
+  return resolveInsightAvailableFields(
+    insight,
+    allDataTables,
+    allInsights,
+  ).filter((field) => !field.name.startsWith("_"));
+}
+
+export function resolveJoinImmediateSourceInsight(
+  insight: Insight,
+  allInsights: Insight[],
+): Insight | null {
+  return insight.source.sourceType === "insight"
+    ? (allInsights.find(
+        (candidate) => candidate.id === insight.source.sourceId,
+      ) ?? null)
+    : null;
+}
+
 /**
  * Join Configuration Page
  *
@@ -129,11 +156,25 @@ export default function JoinConfigureContent({
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Resolve base table (from insight's baseTableId)
+  // The root table is the direct-source preview and the prerequisite for
+  // resolving a composed source. Composed joins preview the immediate Insight.
   const baseTable = useMemo(() => {
-    if (!insight || !allDataTables) return null;
-    return allDataTables.find((t) => t.id === insight.baseTableId) ?? null;
-  }, [insight, allDataTables]);
+    return (
+      resolveInsightSourceDataTable(
+        insight,
+        allDataTables ?? [],
+        allInsights ?? [],
+      ) ?? null
+    );
+  }, [insight, allDataTables, allInsights]);
+
+  const immediateSourceInsight = useMemo(
+    () =>
+      insight
+        ? resolveJoinImmediateSourceInsight(insight, allInsights ?? [])
+        : null,
+    [allInsights, insight],
+  );
 
   // Resolve join table (from tableId param)
   const joinTable = useMemo(() => {
@@ -147,6 +188,21 @@ export default function JoinConfigureContent({
     totalCount: baseTotalCount,
     isReady: isBaseReady,
   } = useDataFramePagination(baseTable?.dataFrameId);
+  const sourceInsightPreview = useInsightPagination({
+    insight: immediateSourceInsight,
+    enabled: immediateSourceInsight !== null,
+  });
+  const fetchLeftData = immediateSourceInsight
+    ? sourceInsightPreview.fetchData
+    : fetchBaseData;
+  const leftTotalCount = immediateSourceInsight
+    ? sourceInsightPreview.totalCount
+    : baseTotalCount;
+  const isLeftReady = immediateSourceInsight
+    ? sourceInsightPreview.isReady
+    : isBaseReady;
+  const leftSourceName =
+    immediateSourceInsight?.name ?? baseTable?.name ?? "Source";
 
   const {
     fetchData: fetchJoinData,
@@ -156,8 +212,11 @@ export default function JoinConfigureContent({
 
   // Filter out internal fields (those starting with _)
   const baseFields = useMemo(
-    () => baseTable?.fields?.filter((f) => !f.name.startsWith("_")) ?? [],
-    [baseTable],
+    () =>
+      insight
+        ? resolveJoinLeftFields(insight, allDataTables ?? [], allInsights ?? [])
+        : [],
+    [allDataTables, allInsights, insight],
   );
 
   const joinFields = useMemo(
@@ -187,7 +246,7 @@ export default function JoinConfigureContent({
     rightFieldId,
   ]);
   const preview = useInsightPagination({
-    insight: previewInsight ?? ({} as Insight),
+    insight: previewInsight,
     showModelPreview: true,
     enabled: previewInsight !== null,
   });
@@ -499,8 +558,8 @@ export default function JoinConfigureContent({
               <div>
                 <h1 className="text-xl font-semibold">
                   {existingJoinsToThisTable.length > 0
-                    ? `Join ${existingJoinsToThisTable.length + 1}: ${baseTable.name} + ${joinTable.name}`
-                    : `Join: ${baseTable.name} + ${joinTable.name}`}
+                    ? `Join ${existingJoinsToThisTable.length + 1}: ${leftSourceName} + ${joinTable.name}`
+                    : `Join: ${leftSourceName} + ${joinTable.name}`}
                 </h1>
                 <p className="text-sm text-neutral-fg-subtle">
                   Configure how to combine these datasets
@@ -521,16 +580,16 @@ export default function JoinConfigureContent({
       {/* Main Content */}
       <main className="flex-1 overflow-auto">
         <div className="container mx-auto space-y-6 px-6 py-6">
-          {/* Dual Table Previews */}
+          {/* Left source and right table previews */}
           <div className="grid gap-6 md:grid-cols-2">
-            {/* Base Table Preview */}
+            {/* Left source preview */}
             <TablePreviewSection
-              title="Base Table"
-              table={baseTable}
-              totalCount={baseTotalCount}
-              isReady={isBaseReady}
-              onFetchData={fetchBaseData}
-              fields={baseTable.fields}
+              title="Left Source"
+              name={leftSourceName}
+              totalCount={leftTotalCount}
+              isReady={isLeftReady}
+              onFetchData={fetchLeftData}
+              fields={baseFields}
               columnConfigs={baseColumnConfigs}
               onHeaderClick={(colName) => {
                 const field = baseFields.find(
@@ -543,7 +602,7 @@ export default function JoinConfigureContent({
             {/* Join Table Preview */}
             <TablePreviewSection
               title="Join Table"
-              table={joinTable}
+              name={joinTable.name}
               totalCount={joinTotalCount}
               isReady={isJoinReady}
               onFetchData={fetchJoinData}
@@ -641,7 +700,7 @@ export default function JoinConfigureContent({
               <div className="space-y-4">
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor="left-column">Base table column</Label>
+                    <Label htmlFor="left-column">Left source column</Label>
                     <Select
                       value={leftFieldId ?? ""}
                       onValueChange={(value) => setLeftFieldId(value || null)}
@@ -776,7 +835,7 @@ export default function JoinConfigureContent({
                     <div className="flex items-center gap-1.5">
                       <div className="h-3 w-3 rounded bg-palette-info" />
                       <span className="text-neutral-fg-subtle">
-                        From {baseTable.name ?? "base table"}
+                        From {leftSourceName}
                       </span>
                     </div>
                     <div className="flex items-center gap-1.5">
@@ -838,7 +897,7 @@ export default function JoinConfigureContent({
 
 interface TablePreviewSectionProps {
   title: string;
-  table: DataTable;
+  name: string;
   totalCount: number;
   isReady: boolean;
   onFetchData: (
@@ -851,7 +910,7 @@ interface TablePreviewSectionProps {
 
 function TablePreviewSection({
   title,
-  table,
+  name,
   totalCount,
   isReady,
   onFetchData,
@@ -869,7 +928,7 @@ function TablePreviewSection({
             <p className="text-xs tracking-wide text-neutral-fg-subtle uppercase">
               {title}
             </p>
-            <p className="font-semibold">{table.name}</p>
+            <p className="font-semibold">{name}</p>
           </div>
           <p className="text-xs text-neutral-fg-subtle">
             {totalCount.toLocaleString()} rows · {colCount} columns

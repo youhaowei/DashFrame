@@ -37,7 +37,9 @@ function makeRow(
   return {
     id: overrides.id ?? INSIGHT_ID,
     name: overrides.name ?? "Test Insight",
-    definition: overrides.definition ?? { baseTableId: BASE_TABLE_ID },
+    definition: overrides.definition ?? {
+      source: { sourceType: "dataTable", sourceId: BASE_TABLE_ID },
+    },
     createdAt:
       overrides.createdAt === undefined ? CREATED_AT : overrides.createdAt,
     updatedAt:
@@ -52,7 +54,7 @@ describe("decodeInsight", () => {
   it("returns the exact domain Insight for a fully-populated row", () => {
     const row = makeRow({
       definition: {
-        baseTableId: BASE_TABLE_ID,
+        source: { sourceType: "dataTable", sourceId: BASE_TABLE_ID },
         selectedFields: [FIELD_ID],
         metrics: [
           {
@@ -86,7 +88,7 @@ describe("decodeInsight", () => {
     const expected: Insight = {
       id: INSIGHT_ID,
       name: "Test Insight",
-      baseTableId: BASE_TABLE_ID,
+      source: { sourceType: "dataTable", sourceId: BASE_TABLE_ID },
       selectedFields: [FIELD_ID],
       metrics: [
         {
@@ -121,7 +123,7 @@ describe("decodeInsight", () => {
     expect(decodeInsight(row)).toEqual(expected);
   });
 
-  it("tolerates a minimal/auto-draft definition with only baseTableId", () => {
+  it("normalizes a legacy base-only definition to a DataTable source", () => {
     const row = makeRow({
       definition: { baseTableId: BASE_TABLE_ID },
       updatedAt: null,
@@ -129,7 +131,10 @@ describe("decodeInsight", () => {
 
     const result = decodeInsight(row);
 
-    expect(result.baseTableId).toBe(BASE_TABLE_ID);
+    expect(result.source).toEqual({
+      sourceType: "dataTable",
+      sourceId: BASE_TABLE_ID,
+    });
     expect(result.selectedFields).toEqual([]);
     expect(result.metrics).toEqual([]);
     expect(result.filters).toBeUndefined();
@@ -140,17 +145,22 @@ describe("decodeInsight", () => {
   });
 
   it("round-trips the encoder's minimal output without throwing", () => {
-    const definition = encodeInsightDefinition({ baseTableId: BASE_TABLE_ID });
+    const source = {
+      sourceType: "dataTable" as const,
+      sourceId: BASE_TABLE_ID,
+    };
+    const definition = encodeInsightDefinition({ source });
     const row = makeRow({ definition });
 
     const result = decodeInsight(row);
 
     expect(result.selectedFields).toEqual([]);
     expect(result.metrics).toEqual([]);
-    expect(result.baseTableId).toBe(BASE_TABLE_ID);
+    expect(result.source).toEqual(source);
+    expect(definition).not.toHaveProperty("baseTableId");
   });
 
-  it("throws with the insight id when baseTableId is missing", () => {
+  it("throws with the insight id when both source identities are missing", () => {
     const row = makeRow({
       definition: { selectedFields: [], metrics: [] },
     });
@@ -163,7 +173,7 @@ describe("decodeInsight", () => {
   it("throws with the insight id when metrics is not an array", () => {
     const row = makeRow({
       definition: {
-        baseTableId: BASE_TABLE_ID,
+        source: { sourceType: "dataTable", sourceId: BASE_TABLE_ID },
         metrics: "not-an-array",
       },
     });
@@ -178,7 +188,7 @@ describe("decodeInsight", () => {
     // path coalesced these to `[]`/undefined; decode must not reject them.
     const row = makeRow({
       definition: {
-        baseTableId: BASE_TABLE_ID,
+        source: { sourceType: "dataTable", sourceId: BASE_TABLE_ID },
         selectedFields: null,
         metrics: null,
         filters: null,
@@ -202,7 +212,7 @@ describe("decodeInsight", () => {
     // `unknown[]`), so it flows through rather than throwing.
     const row = makeRow({
       definition: {
-        baseTableId: BASE_TABLE_ID,
+        source: { sourceType: "dataTable", sourceId: BASE_TABLE_ID },
         metrics: [
           {
             id: METRIC_ID,
@@ -228,7 +238,9 @@ describe("decodeInsight", () => {
   it("coalesces null createdAt to epoch 0 via tsToMillis", () => {
     const row = makeRow({
       createdAt: null,
-      definition: { baseTableId: BASE_TABLE_ID },
+      definition: {
+        source: { sourceType: "dataTable", sourceId: BASE_TABLE_ID },
+      },
     });
 
     expect(decodeInsight(row).createdAt).toBe(0);
@@ -238,7 +250,6 @@ describe("decodeInsight", () => {
 describe("decodeStoredInsightDefinition", () => {
   it("round-trips every stored key", () => {
     const definition = {
-      baseTableId: BASE_TABLE_ID,
       source: { sourceType: "insight" as const, sourceId: INSIGHT_ID },
       selectedFields: [FIELD_ID],
       metrics: [{ id: METRIC_ID }],
@@ -252,20 +263,32 @@ describe("decodeStoredInsightDefinition", () => {
     );
   });
 
-  it("returns source where decodeInsight drops it", () => {
+  it("returns source from both stored and domain decoders", () => {
     const source = { sourceType: "insight" as const, sourceId: INSIGHT_ID };
     const row = makeRow({
-      definition: { baseTableId: BASE_TABLE_ID, source },
+      definition: { source },
     });
 
     expect(decodeStoredInsightDefinition(row).source).toEqual(source);
-    expect(decodeInsight(row)).not.toHaveProperty("source");
+    expect(decodeInsight(row).source).toEqual(source);
+  });
+
+  it("rejects conflicting canonical and legacy source ids", () => {
+    const row = makeRow({
+      definition: {
+        baseTableId: BASE_TABLE_ID,
+        source: { sourceType: "insight", sourceId: INSIGHT_ID },
+      },
+    });
+
+    expect(() => decodeStoredInsightDefinition(row)).toThrow(
+      /source\.sourceId must match legacy baseTableId/,
+    );
   });
 
   it("throws with the insight id for a malformed source discriminant", () => {
     const row = makeRow({
       definition: {
-        baseTableId: BASE_TABLE_ID,
         source: { sourceType: "dashboard", sourceId: INSIGHT_ID },
       },
     });
@@ -278,8 +301,12 @@ describe("decodeStoredInsightDefinition", () => {
 
 describe("encodeInsightDefinition", () => {
   it("round-trips mapped fields and defaults selectedFields/metrics to []", () => {
-    expect(encodeInsightDefinition({ baseTableId: BASE_TABLE_ID })).toEqual({
-      baseTableId: BASE_TABLE_ID,
+    const source = {
+      sourceType: "dataTable" as const,
+      sourceId: BASE_TABLE_ID,
+    };
+    expect(encodeInsightDefinition({ source })).toEqual({
+      source,
       selectedFields: [],
       metrics: [],
       filters: undefined,
@@ -308,7 +335,7 @@ describe("encodeInsightDefinition", () => {
 
     expect(
       encodeInsightDefinition({
-        baseTableId: BASE_TABLE_ID,
+        source,
         selectedFields: [FIELD_ID],
         metrics,
         filters,
@@ -316,7 +343,7 @@ describe("encodeInsightDefinition", () => {
         joins,
       }),
     ).toEqual({
-      baseTableId: BASE_TABLE_ID,
+      source,
       selectedFields: [FIELD_ID],
       metrics,
       filters,
@@ -328,9 +355,10 @@ describe("encodeInsightDefinition", () => {
   it("carries source into the stored definition", () => {
     const source = { sourceType: "insight" as const, sourceId: INSIGHT_ID };
 
-    expect(
-      encodeInsightDefinition({ baseTableId: BASE_TABLE_ID, source }),
-    ).toHaveProperty("source", source);
+    expect(encodeInsightDefinition({ source })).toHaveProperty(
+      "source",
+      source,
+    );
   });
 
   it("persists and decodes declared runtime controls", () => {
@@ -347,7 +375,7 @@ describe("encodeInsightDefinition", () => {
       limit: { min: 1, max: 100 },
     };
     const definition = encodeInsightDefinition({
-      baseTableId: BASE_TABLE_ID,
+      source: { sourceType: "dataTable", sourceId: BASE_TABLE_ID },
       runtimeControls,
     });
 
@@ -360,7 +388,7 @@ describe("encodeInsightDefinition", () => {
   it("rejects runtime controls with duplicate target filter ids", () => {
     const row = makeRow({
       definition: {
-        baseTableId: BASE_TABLE_ID,
+        source: { sourceType: "dataTable", sourceId: BASE_TABLE_ID },
         runtimeControls: {
           filters: [
             { key: "one", filterId: "filter-1", label: "One" },

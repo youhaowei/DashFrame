@@ -7,6 +7,10 @@
  * `apps/server/src/functions/commands.ts` re-exports these and owns the
  * mutation handlers + `commandFunctions` registry only.
  */
+import type {
+  DashboardControl,
+  DashboardItemOverridePatch,
+} from "./dashboards";
 import type { Field, SourceSchema } from "./field";
 import type {
   Insight,
@@ -91,11 +95,9 @@ export type LateBoundRef =
  * A filter predicate where the value operand is a FilterOperandValue.
  * Mirrors InsightFilter from domain types but with the typed operand.
  *
- * No `between` operator: the operand model here is scalar (`v: unknown`), and
- * a range/"between" value can't be expressed by a single scalar. Extending
- * this to support ranges is out of scope — see the UI-side note in
- * InsightConfigPanel.tsx's filter handlers, which stay on the legacy
- * `updateInsight` write path for exactly this reason.
+ * No `between` operator: this late-bound operand model is scalar. Ordinary
+ * persisted filters, including ranges, use `InsightFilter` through
+ * `SetInsightFilter`; extending late binding to ranges is a separate concern.
  */
 export interface TypedInsightFilter {
   /** Stable identity preserved across UI round-trips when present. */
@@ -193,6 +195,11 @@ export interface CommandPayloads {
   UpdateMetric: { nodeId: UUID; metricId: UUID; updates: Partial<Metric> };
   RemoveMetric: { nodeId: UUID; metricId: UUID };
   // Insight
+  GetOrCreateInsightDraft: {
+    id: UUID;
+    name: string;
+    source: { sourceType: "dataTable"; sourceId: UUID };
+  };
   CreateInsight: {
     id: UUID;
     name: string;
@@ -240,10 +247,19 @@ export interface CommandPayloads {
   UpdateDashboardItem: {
     dashboardId: UUID;
     itemId: UUID;
-    updates: Partial<Omit<DashboardItemInput, "id" | "type">>;
+    updates: Partial<Omit<DashboardItemInput, "id" | "type" | "overrides">>;
   };
   SetDashboardLayout: { dashboardId: UUID; items: DashboardItemInput[] };
   RemoveDashboardItem: { dashboardId: UUID; itemId: UUID };
+  PatchDashboardItemOverride: {
+    dashboardId: UUID;
+    itemId: UUID;
+    patch: DashboardItemOverridePatch;
+  };
+  SetDashboardControls: {
+    dashboardId: UUID;
+    controls: DashboardControl[];
+  };
   FanOutDashboardItems: {
     dashboardId: UUID;
     sourceItemId: UUID;
@@ -281,6 +297,7 @@ export const COMMAND_PATHS = {
   AddMetric: "addMetric",
   UpdateMetric: "updateMetric",
   RemoveMetric: "removeMetric",
+  GetOrCreateInsightDraft: "getOrCreateInsightDraft",
   CreateInsight: "createInsightCmd",
   SetInsightSource: "setInsightSource",
   SelectFields: "selectFields",
@@ -298,6 +315,8 @@ export const COMMAND_PATHS = {
   UpdateDashboardItem: "updateDashboardItemCmd",
   SetDashboardLayout: "setDashboardLayout",
   RemoveDashboardItem: "removeDashboardItemCmd",
+  PatchDashboardItemOverride: "patchDashboardItemOverrideCmd",
+  SetDashboardControls: "setDashboardControls",
   FanOutDashboardItems: "fanOutDashboardItemsCmd",
   RenameNode: "renameNode",
   DeleteNode: "deleteNode",
@@ -414,19 +433,86 @@ export function buildMetricDiffCommands(
  * command (e.g. unknown keys) are ignored — callers should only pass known
  * domain fields.
  *
- * `filters` and `joins` are deliberately NOT handled here and throw rather than
- * being dropped, so a future caller cannot lose a write silently:
- *   - filters stay on the legacy `updateInsight` write path until the filter
- *     command model supports ranges (`between` has no single-scalar operand).
- *   - joins are edited through explicit `cmd("AddJoin")` / `cmd("RemoveJoin")`
- *     at the call site, which knows the user's intent better than an
- *     array diff can infer it.
+ * `joins` are deliberately NOT handled here and throw rather than being
+ * dropped. They are edited through explicit `cmd("AddJoin")` /
+ * `cmd("RemoveJoin")` calls, where the caller knows the user's intent better
+ * than an array diff can infer it.
  */
 export function buildInsightUpdateCommands(
   id: UUID,
-  current: Pick<Insight, "metrics">,
+  current: Pick<
+    Insight,
+    | "source"
+    | "selectedFields"
+    | "metrics"
+    | "filters"
+    | "sorts"
+    | "joins"
+    | "runtimeControls"
+  >,
   updates: Partial<Omit<Insight, "id" | "createdAt">>,
 ): Command[] {
+  const sourceChanges =
+    updates.source !== undefined && !jsonEqual(updates.source, current.source);
+  if (sourceChanges) {
+    if (updates.joins !== undefined) {
+      throw new Error(
+        'buildInsightUpdateCommands: joins are not supported — use cmd("AddJoin") / cmd("RemoveJoin") directly',
+      );
+    }
+
+    const commands: Command[] = [];
+    if (updates.name !== undefined) {
+      commands.push(cmd("RenameNode", { id, name: updates.name }));
+    }
+    if (current.filters?.length) {
+      commands.push(cmd("SetInsightFilter", { id, filters: [] }));
+    }
+    if (current.sorts?.length) {
+      commands.push(cmd("SetInsightSort", { id, sorts: [] }));
+    }
+    if (current.runtimeControls !== undefined) {
+      commands.push(
+        cmd("SetInsightRuntimeControls", { id, runtimeControls: undefined }),
+      );
+    }
+    commands.push(...buildMetricDiffCommands(id, current.metrics ?? [], []));
+    if (current.selectedFields.length) {
+      commands.push(cmd("SelectFields", { id, fieldIds: [] }));
+    }
+    for (let index = (current.joins?.length ?? 0) - 1; index >= 0; index--) {
+      commands.push(cmd("RemoveJoin", { id, joinIndex: index }));
+    }
+
+    commands.push(cmd("SetInsightSource", { id, source: updates.source! }));
+    for (const join of current.joins ?? []) {
+      commands.push(cmd("AddJoin", { id, join }));
+    }
+
+    const selectedFields = updates.selectedFields ?? current.selectedFields;
+    if (selectedFields.length) {
+      commands.push(cmd("SelectFields", { id, fieldIds: selectedFields }));
+    }
+    const metrics = updates.metrics ?? current.metrics;
+    commands.push(...buildMetricDiffCommands(id, [], metrics));
+    const filters = updates.filters ?? current.filters;
+    if (filters?.length) {
+      commands.push(cmd("SetInsightFilter", { id, filters }));
+    }
+    const sorts = updates.sorts ?? current.sorts;
+    if (sorts?.length) {
+      commands.push(cmd("SetInsightSort", { id, sorts }));
+    }
+    const runtimeControls =
+      "runtimeControls" in updates
+        ? updates.runtimeControls
+        : current.runtimeControls;
+    if (runtimeControls !== undefined) {
+      commands.push(cmd("SetInsightRuntimeControls", { id, runtimeControls }));
+    }
+    return commands;
+  }
+
   const commands: Command[] = [];
 
   if (updates.name !== undefined) {
@@ -438,9 +524,7 @@ export function buildInsightUpdateCommands(
     );
   }
   if (updates.filters !== undefined) {
-    throw new Error(
-      "buildInsightUpdateCommands: filters are not supported — use the legacy updateInsight write path",
-    );
+    commands.push(cmd("SetInsightFilter", { id, filters: updates.filters }));
   }
   if (updates.sorts !== undefined) {
     commands.push(cmd("SetInsightSort", { id, sorts: updates.sorts }));
@@ -463,10 +547,8 @@ export function buildInsightUpdateCommands(
       'buildInsightUpdateCommands: joins are not supported — use cmd("AddJoin") / cmd("RemoveJoin") directly',
     );
   }
-  if (updates.baseTableId !== undefined) {
-    throw new Error(
-      'buildInsightUpdateCommands: baseTableId cannot be repointed here — use cmd("SetInsightSource") directly',
-    );
+  if (updates.source !== undefined) {
+    commands.push(cmd("SetInsightSource", { id, source: updates.source }));
   }
 
   return commands;
