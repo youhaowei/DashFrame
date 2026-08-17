@@ -77,6 +77,18 @@ export function formatDateValue(value: unknown): string | null {
     );
   }
 
+  const timestampDate = /^(\d{4})-(\d{2})-(\d{2})[ T]/.exec(value);
+  if (
+    timestampDate &&
+    !formatCalendarDate(
+      Number(timestampDate[1]),
+      Number(timestampDate[2]),
+      Number(timestampDate[3]),
+    )
+  ) {
+    return null;
+  }
+
   // Match the server's timestamp boundary: a date-time without a zone is UTC,
   // while explicit zones are preserved and hour-only offsets are normalized
   // to a form Date.parse accepts.

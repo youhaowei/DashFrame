@@ -85,6 +85,9 @@ describe("defaultFormatValue", () => {
 
   it("leaves an impossible calendar date as text rather than rolling it over", () => {
     expect(defaultFormatValue("2024-02-30", "date")).toBe("2024-02-30");
+    expect(defaultFormatValue("2024-02-30T00:00:00Z", "date")).toBe(
+      "2024-02-30T00:00:00Z",
+    );
   });
 
   it("renders null and undefined as the empty placeholder", () => {
