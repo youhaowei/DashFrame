@@ -2960,6 +2960,21 @@ describe("command vocabulary", () => {
           }),
         ),
       ).rejects.toThrow(/requires columnName for sum/);
+
+      await expect(
+        commit(
+          cmd("AddMetric", {
+            nodeId: insightId,
+            metric: {
+              id: id(),
+              name: "Broken count",
+              sourceTable: tableId,
+              aggregation: "count",
+              columnName: 42,
+            } as never,
+          }),
+        ),
+      ).rejects.toThrow(/columnName must be a string/);
     });
   });
 

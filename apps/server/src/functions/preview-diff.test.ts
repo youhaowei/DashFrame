@@ -791,6 +791,28 @@ describe("PreviewDiff builder", () => {
       ).toBeUndefined();
     });
 
+    it("fails closed when a stored Insight source discriminant is corrupt", async () => {
+      const sourceId = await seedSource();
+      const tableId = await seedTable(sourceId);
+      await db.insert(insights).values({
+        id: id(),
+        name: "Corrupt",
+        definition: {
+          source: { sourceType: "bogus", sourceId: tableId },
+          selectedFields: [],
+          metrics: [],
+          filters: [],
+          sorts: [],
+          joins: [],
+        },
+        createdBy: PROV,
+      });
+
+      await expect(
+        preview(cmd("RenameNode", { id: tableId, name: "Renamed" })),
+      ).rejects.toThrow(/sourceType/);
+    });
+
     it("should fan out insight -> dataFrame via the FK edge, flagged stale", async () => {
       const sourceId = await seedSource();
       const tableId = await seedTable(sourceId);

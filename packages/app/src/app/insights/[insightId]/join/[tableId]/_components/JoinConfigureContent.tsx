@@ -105,6 +105,17 @@ export function resolveJoinLeftFields(
   ).filter((field) => !field.name.startsWith("_"));
 }
 
+export function resolveJoinImmediateSourceInsight(
+  insight: Insight,
+  allInsights: Insight[],
+): Insight | null {
+  return insight.source.sourceType === "insight"
+    ? (allInsights.find(
+        (candidate) => candidate.id === insight.source.sourceId,
+      ) ?? null)
+    : null;
+}
+
 /**
  * Join Configuration Page
  *
@@ -156,6 +167,14 @@ export default function JoinConfigureContent({
     );
   }, [insight, allDataTables, allInsights]);
 
+  const immediateSourceInsight = useMemo(
+    () =>
+      insight
+        ? resolveJoinImmediateSourceInsight(insight, allInsights ?? [])
+        : null,
+    [allInsights, insight],
+  );
+
   // Resolve join table (from tableId param)
   const joinTable = useMemo(() => {
     if (!allDataTables) return null;
@@ -168,6 +187,21 @@ export default function JoinConfigureContent({
     totalCount: baseTotalCount,
     isReady: isBaseReady,
   } = useDataFramePagination(baseTable?.dataFrameId);
+  const sourceInsightPreview = useInsightPagination({
+    insight: immediateSourceInsight,
+    enabled: immediateSourceInsight !== null,
+  });
+  const fetchLeftData = immediateSourceInsight
+    ? sourceInsightPreview.fetchData
+    : fetchBaseData;
+  const leftTotalCount = immediateSourceInsight
+    ? sourceInsightPreview.totalCount
+    : baseTotalCount;
+  const isLeftReady = immediateSourceInsight
+    ? sourceInsightPreview.isReady
+    : isBaseReady;
+  const leftSourceName =
+    immediateSourceInsight?.name ?? baseTable?.name ?? "Source";
 
   const {
     fetchData: fetchJoinData,
@@ -523,8 +557,8 @@ export default function JoinConfigureContent({
               <div>
                 <h1 className="text-xl font-semibold">
                   {existingJoinsToThisTable.length > 0
-                    ? `Join ${existingJoinsToThisTable.length + 1}: ${baseTable.name} + ${joinTable.name}`
-                    : `Join: ${baseTable.name} + ${joinTable.name}`}
+                    ? `Join ${existingJoinsToThisTable.length + 1}: ${leftSourceName} + ${joinTable.name}`
+                    : `Join: ${leftSourceName} + ${joinTable.name}`}
                 </h1>
                 <p className="text-sm text-neutral-fg-subtle">
                   Configure how to combine these datasets
@@ -550,11 +584,11 @@ export default function JoinConfigureContent({
             {/* Base Table Preview */}
             <TablePreviewSection
               title="Base Table"
-              table={baseTable}
-              totalCount={baseTotalCount}
-              isReady={isBaseReady}
-              onFetchData={fetchBaseData}
-              fields={baseTable.fields}
+              name={leftSourceName}
+              totalCount={leftTotalCount}
+              isReady={isLeftReady}
+              onFetchData={fetchLeftData}
+              fields={baseFields}
               columnConfigs={baseColumnConfigs}
               onHeaderClick={(colName) => {
                 const field = baseFields.find(
@@ -567,7 +601,7 @@ export default function JoinConfigureContent({
             {/* Join Table Preview */}
             <TablePreviewSection
               title="Join Table"
-              table={joinTable}
+              name={joinTable.name}
               totalCount={joinTotalCount}
               isReady={isJoinReady}
               onFetchData={fetchJoinData}
@@ -800,7 +834,7 @@ export default function JoinConfigureContent({
                     <div className="flex items-center gap-1.5">
                       <div className="h-3 w-3 rounded bg-palette-info" />
                       <span className="text-neutral-fg-subtle">
-                        From {baseTable.name ?? "base table"}
+                        From {leftSourceName}
                       </span>
                     </div>
                     <div className="flex items-center gap-1.5">
@@ -862,7 +896,7 @@ export default function JoinConfigureContent({
 
 interface TablePreviewSectionProps {
   title: string;
-  table: DataTable;
+  name: string;
   totalCount: number;
   isReady: boolean;
   onFetchData: (
@@ -875,7 +909,7 @@ interface TablePreviewSectionProps {
 
 function TablePreviewSection({
   title,
-  table,
+  name,
   totalCount,
   isReady,
   onFetchData,
@@ -893,7 +927,7 @@ function TablePreviewSection({
             <p className="text-xs tracking-wide text-neutral-fg-subtle uppercase">
               {title}
             </p>
-            <p className="font-semibold">{table.name}</p>
+            <p className="font-semibold">{name}</p>
           </div>
           <p className="text-xs text-neutral-fg-subtle">
             {totalCount.toLocaleString()} rows · {colCount} columns

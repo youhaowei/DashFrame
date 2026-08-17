@@ -1590,6 +1590,12 @@ function requireInsightMetricShape(value: unknown): InsightMetric {
       `InsightMetric ${value.id} requires columnName for ${value.aggregation}`,
     );
   }
+  if (
+    value.columnName !== undefined &&
+    (typeof value.columnName !== "string" || value.columnName.length === 0)
+  ) {
+    throw new Error(`InsightMetric ${value.id} columnName must be a string`);
+  }
   return value as unknown as InsightMetric;
 }
 
@@ -2166,8 +2172,8 @@ const updateDashboardItem = wy.procedure
       if (!items.some((it) => it.id === itemId)) {
         throw new Error(`Dashboard item ${itemId} not found`);
       }
-      // Filter `updates` to recognized fields with correct primitive types before
-      // merging — the raw command path would otherwise write `{ x: "left" }` into
+      // Validate every update field before merging — the raw command path would
+      // otherwise write `{ x: "left" }` into
       // layout coordinates consumers assume are numeric. Pin `id` and `type` last —
       // type is a structural key (determines which optional fields are valid), so
       // callers cannot rebind it via updates.

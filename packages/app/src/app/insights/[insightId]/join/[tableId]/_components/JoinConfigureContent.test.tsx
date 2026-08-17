@@ -5,6 +5,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   buildJoinPreviewInsight,
   isJoinPreviewComputing,
+  resolveJoinImmediateSourceInsight,
   resolveJoinLeftFields,
 } from "./JoinConfigureContent";
 
@@ -106,5 +107,8 @@ describe("join preview definition", () => {
         columnName: fieldIdToColumnAlias(leftField.id),
       }),
     ]);
+    expect(
+      resolveJoinImmediateSourceInsight(derived, [upstream, derived]),
+    ).toBe(upstream);
   });
 });

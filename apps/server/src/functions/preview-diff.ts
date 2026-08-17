@@ -65,6 +65,7 @@ import { applyCommands, type WyStackApp } from "@wystack/server";
 import { permissions } from "../permissions";
 import { wy } from "../wystack";
 import { assertKnownCommandPaths, commandFunctions } from "./commands";
+import { storedInsightDefinitionSchema } from "./insights";
 import { flushThenReleaseRefs } from "./utils";
 
 const {
@@ -1153,28 +1154,26 @@ function classifyDownstream(
 function insightTableRefs(
   definition: unknown,
 ): Array<{ id: string; kind: "dataTable" | "insight" }> {
-  if (!definition || typeof definition !== "object") return [];
-  const def = definition as {
-    source?: { sourceId?: unknown; sourceType?: unknown };
-    baseTableId?: unknown;
-    joins?: unknown;
-  };
-  const refs: Array<{ id: string; kind: "dataTable" | "insight" }> = [];
-  const sourceId = def.source?.sourceId ?? def.baseTableId;
-  if (typeof sourceId === "string") {
-    // Match storedInsightDefinitionSchema: base-only legacy rows normalize to a
-    // DataTable source. Insight composition is explicit in source.sourceType.
-    const kind = def.source?.sourceType === "insight" ? "insight" : "dataTable";
-    refs.push({ id: sourceId, kind });
-  }
-  if (Array.isArray(def.joins)) {
-    for (const join of def.joins) {
-      const right = (join as { rightTableId?: unknown } | null)?.rightTableId;
-      if (typeof right === "string")
-        refs.push({ id: right, kind: "dataTable" });
-    }
-  }
-  return refs;
+  const def = storedInsightDefinitionSchema.parse(definition);
+  return [
+    {
+      id: def.source.sourceId,
+      kind: def.source.sourceType === "insight" ? "insight" : "dataTable",
+    },
+    ...(def.joins ?? []).map((join) => {
+      if (
+        join === null ||
+        typeof join !== "object" ||
+        typeof (join as { rightTableId?: unknown }).rightTableId !== "string"
+      ) {
+        throw new Error("Insight join has an invalid rightTableId");
+      }
+      return {
+        id: (join as { rightTableId: string }).rightTableId,
+        kind: "dataTable" as const,
+      };
+    }),
+  ];
 }
 
 /**
@@ -1215,8 +1214,8 @@ function dashboardVisRefs(
  * `wyStackApp` and `artifactDb` are injected into the handler context via
  * `staticContext` in `createDashframeServer`.
  *
- * Partial-failure response: `buildPreviewDiff` never throws — it returns a
- * renderable `PreviewDiff` with an `error` slot on partial failure. The caller
+ * Command partial failures return a renderable `PreviewDiff` with an `error`
+ * slot. Corrupt canonical state still fails closed as an RPC error. The caller
  * must inspect `result.error` to distinguish a successful diff from a
  * partial/failed one. Infrastructure failures (missing context keys) do throw
  * and surface as RPC errors.
