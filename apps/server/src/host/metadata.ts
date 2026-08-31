@@ -1,11 +1,11 @@
 import type {
+  PublicationMetadata,
   DataSourceRow,
   DataTableRow,
   DataFrameRow,
   InsightRow,
 } from "@dashframe/convex-backend/model";
 import type { Field } from "@dashframe/types";
-import type { PublishMaterialization } from "./data-fetch/materializer";
 import type { Principal } from "@wystack/identity";
 import type { Command } from "@dashframe/types";
 import type { ConnectorSetupStore } from "../connector-setup/session-store";
@@ -87,7 +87,7 @@ export interface HostMetadata {
     tableUpdate: Partial<DataTableRow>;
   }): Promise<void>;
   revokeCredential(credentialId: string): Promise<void>;
-  publishMaterialization(value: PublishMaterialization): Promise<void>;
+  publishMaterialization(value: PublicationMetadata): Promise<void>;
   replaceDataSourceConfig(input: {
     id: string;
     expectedConfig: unknown;

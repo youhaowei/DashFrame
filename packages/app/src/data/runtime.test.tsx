@@ -127,18 +127,15 @@ describe("native Convex runtime bootstrap", () => {
   it.each(["malformed", "denied", "network"])(
     "ends authentication loading after a %s host response",
     async (failure) => {
-      vi.stubGlobal(
-        "fetch",
-        failure === "network"
-          ? vi.fn().mockRejectedValue(new Error("offline"))
-          : vi
-              .fn()
-              .mockResolvedValue(
-                failure === "denied"
-                  ? new Response("Unauthorized", { status: 401 })
-                  : Response.json({ token: "" }),
-              ),
-      );
+      const response =
+        failure === "denied"
+          ? new Response("Unauthorized", { status: 401 })
+          : Response.json({ token: "" });
+      const fetchMock = vi.fn();
+      if (failure === "network")
+        fetchMock.mockRejectedValue(new Error("offline"));
+      else fetchMock.mockResolvedValue(response);
+      vi.stubGlobal("fetch", fetchMock);
       const runtime = createAppRuntime({
         url: "http://127.0.0.1:4000",
         convexUrl: "http://127.0.0.1:9137",

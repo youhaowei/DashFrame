@@ -28,6 +28,7 @@ import { createApplicationOperations } from "./host/dispatch";
 import { hostOperationByName } from "./host/registry";
 import { NativeTableLifecycle } from "./host/native-tables";
 import { mountConvexProxy } from "./host/convex-proxy";
+import { closeHostServer } from "./host/server-lifecycle";
 import { handleAssistantRunRequest } from "./assistant-run-route";
 import { createMcpRoute, type McpMode } from "./mcp/route";
 import {
@@ -152,7 +153,9 @@ export async function createDashframeServer(
     });
     const app = new Hono();
     const sockets = new Set<Socket>();
-    const { upgradeWebSocket, injectWebSocket } = createNodeWebSocket({ app });
+    const { upgradeWebSocket, injectWebSocket, wss } = createNodeWebSocket({
+      app,
+    });
     const allowedOrigin = async (
       origin: string,
       c: Context,
@@ -312,10 +315,8 @@ export async function createDashframeServer(
     stop = () =>
       (stopping ??= (async () => {
         native?.close();
-        const closed = closeServer(server);
-        for (const socket of sockets) socket.destroy();
         try {
-          await closed;
+          await closeHostServer(server, wss.clients, sockets);
         } finally {
           await convex.stop();
         }
@@ -326,12 +327,6 @@ export async function createDashframeServer(
     await convex.stop();
     throw error;
   }
-}
-
-function closeServer(server: ReturnType<typeof nodeServe>): Promise<void> {
-  return new Promise((resolve, reject) =>
-    server.close((error) => (error ? reject(error) : resolve())),
-  );
 }
 
 /** initializeProject is idempotent; a freshly deployed backend may briefly throttle it. */

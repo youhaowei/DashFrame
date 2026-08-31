@@ -1,5 +1,6 @@
 /** Native metadata publication for immutable live-fetch generations. */
 import { isDeepStrictEqual } from "node:util";
+import type { PublicationMetadata } from "@dashframe/convex-backend/model";
 import type { UUID } from "@dashframe/types";
 
 import type { HostContext } from "../context";
@@ -47,11 +48,47 @@ export async function publishMaterialization(
   ctx: HostContext,
   value: PublishMaterialization,
 ): Promise<void> {
+  // Project explicitly so Arrow buffers and field sample values never cross
+  // into Convex or its durable idempotency receipt.
+  const frameMetadata = (frame: PublishMaterialization["result"]) => ({
+    id: frame.id,
+    fieldIds: [...frame.fieldIds],
+    rowCount: frame.rowCount,
+    schema: frame.schema.map(({ id, name, type }) => ({ id, name, type })),
+  });
+  const provenanceMetadata = (
+    provenance: PublishMaterialization["provenance"],
+  ) => ({
+    connectorKind: provenance.connectorKind,
+    bindingVersion: provenance.bindingVersion,
+  });
+  const request: PublicationMetadata = {
+    target:
+      value.target.kind === "saved"
+        ? { kind: "saved", insightId: value.target.insightId }
+        : { kind: value.target.kind },
+    sources: value.sources.map(({ source, frame }) => ({
+      source: {
+        table: {
+          id: source.table.id,
+          dataSourceId: source.table.dataSourceId,
+          table: source.table.table,
+          name: source.table.name,
+        },
+        provenance: provenanceMetadata(source.provenance),
+      },
+      frame: frameMetadata(frame),
+    })),
+    result: frameMetadata(value.result),
+    definitionFingerprint: value.definitionFingerprint,
+    provenance: provenanceMetadata(value.provenance),
+    fetchedAt: value.fetchedAt,
+  };
   await publishWithConfirmation(
     ctx.metadata,
     `materialize:${value.result.id}`,
-    value,
-    () => ctx.metadata.publishMaterialization(value),
+    request,
+    () => ctx.metadata.publishMaterialization(request),
   );
 }
 

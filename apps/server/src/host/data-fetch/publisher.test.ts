@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import { api, internal } from "@dashframe/convex-backend/api";
+import type { PublicationMetadata } from "@dashframe/convex-backend/model";
 import schema from "@dashframe/convex-backend/schema";
 import { convexTest } from "convex-test";
 import type { FunctionArgs } from "convex/server";
@@ -30,7 +31,7 @@ describe("publication acknowledgement recovery", () => {
         name: "source value",
         tableId,
         type: "number" as const,
-        sampleValues: [],
+        sampleValues: ["HOST_ONLY_SAMPLE"],
       },
     ];
     const table = {
@@ -55,7 +56,7 @@ describe("publication acknowledgement recovery", () => {
         {
           source: {
             table,
-            arrow: new Uint8Array([7]),
+            arrow: new Uint8Array(2 * 1024 * 1024).fill(7),
             fields,
             rowCount: 1,
             provenance: { connectorKind: "local", bindingVersion: "v1" },
@@ -78,7 +79,7 @@ describe("publication acknowledgement recovery", () => {
       provenance: { connectorKind: "local", bindingVersion: "v1" },
       fetchedAt: 100,
     };
-    const publish = vi.fn(async (request: PublishMaterialization) => {
+    const publish = vi.fn(async (request: PublicationMetadata) => {
       const args = JSON.parse(
         JSON.stringify({ workspaceId: "workspace", value: request }),
       ) as FunctionArgs<typeof internal.host.publishMaterialization>;
@@ -100,6 +101,20 @@ describe("publication acknowledgement recovery", () => {
       ),
     ).resolves.toBeUndefined();
     expect(publish).toHaveBeenCalledOnce();
+    const request = publish.mock.calls[0]![0];
+    expect(request.sources[0]!.source).toEqual({
+      table: {
+        id: tableId,
+        dataSourceId: sourceId,
+        name: "Source table",
+        table: "remote",
+      },
+      provenance: { connectorKind: "local", bindingVersion: "v1" },
+    });
+    expect(JSON.stringify(request).length).toBeLessThan(2_000);
+    expect(JSON.stringify(request)).not.toContain("HOST_ONLY_SAMPLE");
+    const receipt = await getOperation(`materialize:${id}`);
+    expect(receipt?.request).toEqual(request);
     expect(
       await native.query(internal.host.getDataTable, {
         workspaceId: "workspace",
