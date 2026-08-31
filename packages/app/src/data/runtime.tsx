@@ -44,25 +44,29 @@ export function createAppRuntime(config: AppRuntimeConfig): AppRuntime {
   convexClient = client;
   const queryClient = new QueryClient();
 
-  async function fetchAccessToken() {
-    const response = await fetch(new URL("/api/convex-token", config.url), {
-      method: "POST",
-      headers: hostHeaders(config),
-      credentials: "same-origin",
-    });
-    if (!response.ok)
-      throw new Error("Could not authenticate with the DashFrame host");
-    const body: unknown = await response.json();
-    if (
-      !body ||
-      typeof body !== "object" ||
-      !("token" in body) ||
-      typeof body.token !== "string" ||
-      !body.token
-    ) {
-      throw new Error("Host returned an invalid Convex token");
+  async function fetchAccessToken(): Promise<string | null> {
+    try {
+      const response = await fetch(new URL("/api/convex-token", config.url), {
+        method: "POST",
+        headers: hostHeaders(config),
+        credentials: "same-origin",
+      });
+      if (!response.ok) return null;
+      const body: unknown = await response.json();
+      if (
+        !body ||
+        typeof body !== "object" ||
+        !("token" in body) ||
+        typeof body.token !== "string" ||
+        !body.token
+      )
+        return null;
+      return body.token;
+    } catch {
+      // Convex needs null to leave AuthLoading and show Unauthenticated. A thrown
+      // token fetch leaves the client waiting indefinitely after a host failure.
+      return null;
     }
-    return body.token;
   }
 
   function useHostAuth() {

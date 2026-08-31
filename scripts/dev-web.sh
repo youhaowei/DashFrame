@@ -36,11 +36,11 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-(cd "${ROOT}" && bun run apps/server/src/index.ts --port 0) >"${SERVER_LOG}" 2>&1 &
+(cd "${ROOT}" && exec bun run apps/server/src/index.ts --port 0 --cors-origin "https://${DEV_NAME}.localhost" --cors-origin "http://${DEV_NAME}.localhost") >"${SERVER_LOG}" 2>&1 &
 SERVER_PID=$!
 
 DASHFRAME_URL=""
-for _ in {1..200}; do
+for _ in {1..1200}; do
   DASHFRAME_URL="$(sed -n 's/^\[dashframe\] listening: //p' "${SERVER_LOG}" | tail -n 1)"
   if [[ -n "${DASHFRAME_URL}" ]]; then
     break
@@ -50,7 +50,7 @@ for _ in {1..200}; do
     sed 's/^/[dev-web]   /' "${SERVER_LOG}" >&2
     exit 1
   fi
-  sleep 0.05
+  sleep 0.25
 done
 
 if [[ -z "${DASHFRAME_URL}" ]]; then

@@ -81,6 +81,7 @@ describe.runIf(live)("native host and local Convex integration", () => {
     server = await createDashframeServer({
       project,
       authToken: token,
+      corsOrigin: ["https://native-qa.localhost"],
       vault,
       accessCredentials: credentials,
       arrowEngine: engine,
@@ -130,6 +131,17 @@ describe.runIf(live)("native host and local Convex integration", () => {
     expect(await user.query(api.app.projectInfo, {})).toMatchObject({
       name: "Native integration",
     });
+    const allowed = await fetch(`${server.url}/api/convex-token`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        origin: "https://native-qa.localhost",
+      },
+    });
+    expect(allowed.status).toBe(200);
+    expect(allowed.headers.get("access-control-allow-origin")).toBe(
+      "https://native-qa.localhost",
+    );
     const denied = await fetch(`${server.url}/api/convex-token`, {
       method: "POST",
       headers: {

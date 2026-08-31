@@ -11,7 +11,9 @@ import type { ReactNode } from "react";
 
 const { connection, auth } = vi.hoisted(() => ({
   connection: { close: vi.fn().mockResolvedValue(undefined) },
-  auth: { fetchAccessToken: undefined as undefined | (() => Promise<string>) },
+  auth: {
+    fetchAccessToken: undefined as undefined | (() => Promise<string | null>),
+  },
 }));
 
 vi.mock("convex/react", () => ({
@@ -23,7 +25,7 @@ vi.mock("convex/react", () => ({
     useAuth,
   }: {
     children: ReactNode;
-    useAuth: () => { fetchAccessToken: () => Promise<string> };
+    useAuth: () => { fetchAccessToken: () => Promise<string | null> };
   }) => {
     auth.fetchAccessToken = useAuth().fetchAccessToken;
     return children;
@@ -122,23 +124,32 @@ describe("native Convex runtime bootstrap", () => {
     expect(() => getRuntimeConfig()).toThrow("has not started");
   });
 
-  it("does not accept a malformed authentication response", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(Response.json({ token: "" })),
-    );
-    const runtime = createAppRuntime({
-      url: "http://127.0.0.1:4000",
-      convexUrl: "http://127.0.0.1:9137",
-    });
-    render(
-      <runtime.Provider>
-        <span>Application</span>
-      </runtime.Provider>,
-    );
-    await expect(auth.fetchAccessToken!()).rejects.toThrow(
-      "invalid Convex token",
-    );
-    await runtime.close();
-  });
+  it.each(["malformed", "denied", "network"])(
+    "ends authentication loading after a %s host response",
+    async (failure) => {
+      vi.stubGlobal(
+        "fetch",
+        failure === "network"
+          ? vi.fn().mockRejectedValue(new Error("offline"))
+          : vi
+              .fn()
+              .mockResolvedValue(
+                failure === "denied"
+                  ? new Response("Unauthorized", { status: 401 })
+                  : Response.json({ token: "" }),
+              ),
+      );
+      const runtime = createAppRuntime({
+        url: "http://127.0.0.1:4000",
+        convexUrl: "http://127.0.0.1:9137",
+      });
+      render(
+        <runtime.Provider>
+          <span>Application</span>
+        </runtime.Provider>,
+      );
+      await expect(auth.fetchAccessToken!()).resolves.toBeNull();
+      await runtime.close();
+    },
+  );
 });

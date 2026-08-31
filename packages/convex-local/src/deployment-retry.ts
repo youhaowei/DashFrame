@@ -16,7 +16,7 @@ export function isTransientDeploymentDiagnostic(diagnostic: string): boolean {
     /Error fetching (?:POST|GET) http:\/\/127\.0\.0\.1:\d+\/\S+ 429(?:\s|:)/.test(
       diagnostic,
     ) ||
-    /Hit an error while evaluating your schema: Function execution timed out \(maximum duration: 1s\)/.test(
+    /Hit an error while evaluating your schema:\s+Function execution timed out \(maximum duration: 1s\)/.test(
       diagnostic,
     )
   );

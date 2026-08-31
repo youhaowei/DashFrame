@@ -11,7 +11,11 @@ const rateLimited =
   "Error fetching POST http://127.0.0.1:62065/api/deploy2/start_push 429 Too Many Requests: Try again later";
 
 describe("bounded local deployment retries", () => {
-  it.each([schemaTimeout, rateLimited])(
+  it.each([
+    schemaTimeout,
+    schemaTimeout.replace("schema: Function", "schema:\nFunction"),
+    rateLimited,
+  ])(
     "retries a recognized cold-start failure after cleanup",
     async (diagnostic) => {
       const events: string[] = [];
