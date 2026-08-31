@@ -7,7 +7,7 @@ vi.mock("./runtime", () => ({
   }),
   hostHeaders: () => ({ Authorization: "Bearer host-token" }),
 }));
-import { requestHost } from "./host";
+import { requestHost, HostOperationError } from "./host";
 
 describe("host resource transport", () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -51,4 +51,45 @@ describe("host resource transport", () => {
       "Access credential revoked",
     );
   });
+  it.each(["network", "unconfirmed", "malformed"])(
+    "preserves the batch retry identity after a %s response",
+    async (failure) => {
+      const fetch = vi.fn();
+      if (failure === "network") fetch.mockRejectedValue(new Error("offline"));
+      else if (failure === "malformed")
+        fetch.mockResolvedValue(new Response("invalid json"));
+      else
+        fetch.mockResolvedValue(
+          Response.json(
+            { error: "Unknown outcome", code: "HOST_BATCH_OUTCOME_UNKNOWN" },
+            { status: 503 },
+          ),
+        );
+      vi.stubGlobal("fetch", fetch);
+      const result = await requestHost("commitBatch", { commands: [] }).catch(
+        (error: unknown) => error,
+      );
+      expect(result).toBeInstanceOf(HostOperationError);
+      const sent = JSON.parse(fetch.mock.calls[0]![1].body) as {
+        operationId: string;
+      };
+      expect(result).toMatchObject({
+        operationId: sent.operationId,
+        code: "HOST_BATCH_OUTCOME_UNKNOWN",
+      });
+      fetch.mockResolvedValue(
+        Response.json({
+          mode: "commit",
+          commands: [],
+          results: [],
+          tablesWritten: [],
+        }),
+      );
+      await requestHost("commitBatch", {
+        commands: [],
+        operationId: sent.operationId,
+      });
+      expect(JSON.parse(fetch.mock.calls[1]![1].body)).toMatchObject(sent);
+    },
+  );
 });

@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 import { ConvexClient, ConvexHttpClient } from "convex/browser";
 import { api } from "@dashframe/convex-backend/api";
 import { NativeDuckDBEngine } from "@dashframe/engine-server";
@@ -152,6 +152,29 @@ describe.runIf(live)("native host and local Convex integration", () => {
     expect(denied.status).toBe(403);
   });
 
+  it("allows stateful MCP reconnect headers on cross-origin preflights", async () => {
+    const response = await fetch(`${server.url}/mcp`, {
+      method: "OPTIONS",
+      headers: {
+        origin: "https://native-qa.localhost",
+        "access-control-request-method": "GET",
+        "access-control-request-headers":
+          "authorization,mcp-session-id,last-event-id",
+      },
+    });
+    expect(response.status).toBe(204);
+    expect(response.headers.get("access-control-allow-origin")).toBe(
+      "https://native-qa.localhost",
+    );
+    expect(
+      response.headers
+        .get("access-control-allow-headers")
+        ?.toLowerCase()
+        .split(",")
+        .map((header) => header.trim()),
+    ).toContain("last-event-id");
+  });
+
   it("stores metadata natively and rehydrates host-owned Arrow after restart", async () => {
     await user.mutation(api.app.commitBatch, {
       commands: [
@@ -299,4 +322,67 @@ describe.runIf(live)("native host and local Convex integration", () => {
     );
     expect(ordinary.status).toBe(401);
   });
+  it("cleans Arrow, DuckDB and vault resources after a direct native DeleteNode", async () => {
+    const deletedSourceId = randomUUID(),
+      deletedTableId = randomUUID();
+    const stored = vi.spyOn(vault, "store");
+    try {
+      await host("commitBatch", {
+        commands: [
+          cmd("CreateDataSource", {
+            id: deletedSourceId,
+            name: "Disposable",
+            type: "local",
+            apiKey: "synthetic-disposable-key",
+          }),
+          cmd("CreateDataTable", {
+            id: deletedTableId,
+            dataSourceId: deletedSourceId,
+            name: "Disposable table",
+            table: "disposable",
+            fields: [
+              {
+                id: randomUUID(),
+                tableId: deletedTableId,
+                name: "value",
+                columnName: "value",
+                type: "number",
+                sensitivity: "cleared",
+              },
+            ],
+          }),
+        ],
+      });
+      const ref = await stored.mock.results[0]!.value;
+      expect(await vault.has(ref)).toBe(true);
+      const arrow = await engine.queryArrow("SELECT 42::double AS value");
+      const imported = (await host("ingestLocalDataFrame", {
+        dataTableId: deletedTableId,
+        arrowBase64: Buffer.from(arrow).toString("base64"),
+        operationId: randomUUID(),
+      })) as { dataFrameId: string };
+      await host("queryDataFrame", { dataFrameId: imported.dataFrameId });
+      const storage = new FileDataFrameStorage(path.join(dir, "frames"));
+      expect(await storage.exists(imported.dataFrameId)).toBe(true);
+      await user.mutation(api.app.commitBatch, {
+        commands: [cmd("DeleteNode", { id: deletedSourceId })],
+      });
+      await expect
+        .poll(() => storage.exists(imported.dataFrameId), { timeout: 10_000 })
+        .toBe(false);
+      await expect.poll(() => vault.has(ref), { timeout: 10_000 }).toBe(false);
+      await expect(
+        engine.queryArrow(
+          `SELECT * FROM df_${imported.dataFrameId.replaceAll("-", "_")}`,
+        ),
+      ).rejects.toThrow();
+      expect(
+        await user.query(api.app.getDataFrameEntry, {
+          id: imported.dataFrameId,
+        }),
+      ).toBeNull();
+    } finally {
+      stored.mockRestore();
+    }
+  }, 30_000);
 });

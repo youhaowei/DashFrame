@@ -8,6 +8,7 @@ export interface ApplicationOperations {
     context?: {
       principal?: unknown;
       draftId?: string;
+      operationId?: string;
     },
   ): Promise<unknown>;
   forPrincipal(principal: Principal): ApplicationOperations;

@@ -93,6 +93,7 @@ export function createApplicationOperations(
         const batch = hostOperationByName("commitBatch")!;
         const result = (await batch.execute(host, {
           commands: [{ path: name, args: input }],
+          ...(context?.operationId ? { operationId: context.operationId } : {}),
         })) as { results: Array<{ value: unknown }> };
         return result.results[0]?.value;
       }

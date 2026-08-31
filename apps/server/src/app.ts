@@ -28,6 +28,8 @@ import { createApplicationOperations } from "./host/dispatch";
 import { hostOperationByName } from "./host/registry";
 import { NativeTableLifecycle } from "./host/native-tables";
 import { mountConvexProxy } from "./host/convex-proxy";
+import { HostBatchOutcomeUnknownError } from "./host/commands";
+import { HostResourceCleanup } from "./host/resource-cleanup";
 import { closeHostServer } from "./host/server-lifecycle";
 import { handleAssistantRunRequest } from "./assistant-run-route";
 import { createMcpRoute, type McpMode } from "./mcp/route";
@@ -118,6 +120,7 @@ export async function createDashframeServer(
       );
     },
   });
+  let cleanup: HostResourceCleanup | undefined;
   const native = options.arrowEngine
     ? new NativeTableLifecycle(options.arrowEngine)
     : undefined;
@@ -134,12 +137,23 @@ export async function createDashframeServer(
       options.project.workspaceId,
     );
     const serverState: { endpoint?: string } = {};
+    cleanup = new HostResourceCleanup({
+      principal: { kind: "user", userId: "local-user" },
+      metadata,
+      vault: options.vault,
+      dataFrameStorage: options.dataFrameStorage,
+      dataPlaneRuntime: native?.engine,
+      getServerEndpoint: () => serverState.endpoint,
+    });
+    await cleanup.recoverPendingBatches();
+    await cleanup.run();
     const application = createApplicationOperations({
       convexUrl: convex.url,
       identity,
       context: (principal) => ({
         principal,
         metadata,
+        cleanupResources: () => cleanup!.run(),
         vault: options.vault,
         accessCredentials: options.accessCredentials,
         getServerEndpoint: () => serverState.endpoint,
@@ -200,6 +214,7 @@ export async function createDashframeServer(
           "Content-Type",
           "Mcp-Session-Id",
           "Mcp-Protocol-Version",
+          "Last-Event-ID",
         ],
         allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
         exposeHeaders: ["Mcp-Session-Id", "Mcp-Protocol-Version"],
@@ -245,6 +260,16 @@ export async function createDashframeServer(
           }),
         );
       } catch (error) {
+        if (error instanceof HostBatchOutcomeUnknownError) {
+          return c.json(
+            {
+              error: error.message,
+              code: error.code,
+              operationId: error.operationId,
+            },
+            503,
+          );
+        }
         const message =
           error instanceof Error ? error.message : "Host operation failed";
         return c.json({ error: message }, message === "FORBIDDEN" ? 403 : 400);
@@ -308,12 +333,14 @@ export async function createDashframeServer(
       });
     });
     injectWebSocket(server);
+    cleanup.start();
     const address = hostname.includes(":") ? `[${hostname}]` : hostname;
     const url = `http://${address}:${port}`;
     serverState.endpoint = `${url}/api`;
     let stopping: Promise<void> | undefined;
     stop = () =>
       (stopping ??= (async () => {
+        await cleanup?.close();
         native?.close();
         try {
           await closeHostServer(server, wss.clients, sockets);
@@ -323,6 +350,7 @@ export async function createDashframeServer(
       })());
     return { url, port, convexUrl: convex.url, stop };
   } catch (error) {
+    await cleanup?.close();
     native?.close();
     await convex.stop();
     throw error;

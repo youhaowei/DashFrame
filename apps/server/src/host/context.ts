@@ -14,6 +14,7 @@ import type { ApplicationOperations } from "./application";
 export interface HostContext {
   principal: Principal;
   metadata: HostMetadata;
+  cleanupResources?: () => Promise<void>;
   accessCredentials?: ApiAccessCredentials;
   getServerEndpoint: () => string | undefined;
   vault?: SecretVault;

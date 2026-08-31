@@ -2,7 +2,7 @@ import { z } from "zod";
 import { COMMAND_PATHS } from "@dashframe/types";
 import type { HostContext } from "./context";
 import { requireUser } from "./context";
-import { stageCommandCredentials } from "./commands";
+import { executeHostCommandBatch } from "./commands";
 import * as access from "./access-credentials";
 import * as providers from "./assistant-providers";
 import * as connectors from "./connectors";
@@ -33,6 +33,7 @@ function operation<Input, Result>(
 }
 const batch = z
   .object({
+    operationId: z.string().uuid().optional(),
     commands: z
       .array(
         z.object({
@@ -48,19 +49,11 @@ const batch = z
 export const hostOperations = {
   commitBatch: operation(batch, async (ctx, input) => {
     requireUser(ctx);
-    return ctx.metadata.commitBatch(
-      ctx.principal,
-      await stageCommandCredentials(ctx, input.commands),
-    );
+    return executeHostCommandBatch(ctx, input, "commit");
   }),
   draftBatch: operation(
     batch.extend({ draftId: z.string().uuid().optional() }),
-    async (ctx, input) =>
-      ctx.metadata.draftBatch(
-        ctx.principal,
-        await stageCommandCredentials(ctx, input.commands),
-        input.draftId,
-      ),
+    async (ctx, input) => executeHostCommandBatch(ctx, input, "draft"),
   ),
   getOrCreateDataSource: operation(
     z

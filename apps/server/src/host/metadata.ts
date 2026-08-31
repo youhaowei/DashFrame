@@ -1,3 +1,5 @@
+import type { internal } from "@dashframe/convex-backend/api";
+import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import type {
   PublicationMetadata,
   DataSourceRow,
@@ -38,6 +40,43 @@ export interface LocalImportClaim {
 /** Domain operations offered to trusted host code; no SQL or arbitrary writes. */
 export interface HostMetadata {
   connectorSetup: ConnectorSetupStore;
+  prepareHostBatch(
+    input: Omit<
+      FunctionArgs<typeof internal.host.prepareHostBatch>,
+      "workspaceId"
+    >,
+  ): Promise<FunctionReturnType<typeof internal.host.prepareHostBatch>>;
+  executeHostBatch(
+    input: Omit<
+      FunctionArgs<typeof internal.host.executeHostBatch>,
+      "workspaceId"
+    >,
+  ): Promise<FunctionReturnType<typeof internal.host.executeHostBatch>>;
+  getHostBatch(
+    input: Omit<FunctionArgs<typeof internal.host.getHostBatch>, "workspaceId">,
+  ): Promise<FunctionReturnType<typeof internal.host.getHostBatch>>;
+  settleHostBatch(
+    input: Omit<
+      FunctionArgs<typeof internal.host.settleHostBatch>,
+      "workspaceId"
+    >,
+  ): Promise<FunctionReturnType<typeof internal.host.settleHostBatch>>;
+  listPendingHostBatches(
+    input: Omit<
+      FunctionArgs<typeof internal.host.listPendingHostBatches>,
+      "workspaceId"
+    >,
+  ): Promise<FunctionReturnType<typeof internal.host.listPendingHostBatches>>;
+  listCleanup(
+    input: Omit<FunctionArgs<typeof internal.host.listCleanup>, "workspaceId">,
+  ): Promise<FunctionReturnType<typeof internal.host.listCleanup>>;
+  claimCleanup(
+    input: Omit<FunctionArgs<typeof internal.host.claimCleanup>, "workspaceId">,
+  ): Promise<FunctionReturnType<typeof internal.host.claimCleanup>>;
+  ackCleanup(
+    input: Omit<FunctionArgs<typeof internal.host.ackCleanup>, "workspaceId">,
+  ): Promise<FunctionReturnType<typeof internal.host.ackCleanup>>;
+
   beginLocalImport(input: {
     operationId: string;
     requestHash: string;

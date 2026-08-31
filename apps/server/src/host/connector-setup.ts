@@ -1,3 +1,4 @@
+import { persistVerifiedSource } from "./verified-source";
 import { makeGa4Connector } from "@dashframe/connector-ga4";
 import { z } from "zod";
 
@@ -318,7 +319,7 @@ export const completeConnectorOAuth = hostOperation({
     }
 
     const dataSourceId = crypto.randomUUID();
-    await markVerifying(
+    const verifying = await markVerifying(
       ctx.metadata.connectorSetup,
       session.id,
       dataSourceId,
@@ -359,21 +360,16 @@ export const completeConnectorOAuth = hostOperation({
       return fullDto(ctx, failed);
     }
 
-    const app = ctx.application;
-    if (!app) throw new Error("Connector setup app context is unavailable");
     try {
       // The host vault consumes plaintext directly; it never enters a draft
       // command log or a public Convex mutation argument.
-      await app.execute(
-        "createDataSource",
-        {
-          id: dataSourceId,
-          type: session.connectorId,
-          name: session.requestedName,
-          apiKey: tokenBundle,
-        },
-        { principal: ctx.principal },
-      );
+      const confirmed = await persistVerifiedSource(ctx, {
+        id: dataSourceId,
+        type: session.connectorId,
+        name: session.requestedName,
+        apiKey: tokenBundle,
+      });
+      if (!confirmed) return fullDto(ctx, verifying);
     } catch {
       const failed = await failConsumedSession(
         ctx,

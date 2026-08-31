@@ -10,6 +10,63 @@ export function createHostMetadata(
   workspaceId: string,
 ): HostMetadata {
   return {
+    prepareHostBatch: (input) =>
+      client.mutation(
+        internal.host.prepareHostBatch,
+        wire({ workspaceId, ...input }) as FunctionArgs<
+          typeof internal.host.prepareHostBatch
+        >,
+      ),
+    executeHostBatch: (input) =>
+      client.mutation(
+        internal.host.executeHostBatch,
+        wire({ workspaceId, ...input }) as FunctionArgs<
+          typeof internal.host.executeHostBatch
+        >,
+      ),
+    getHostBatch: (input) =>
+      client.query(
+        internal.host.getHostBatch,
+        wire({ workspaceId, ...input }) as FunctionArgs<
+          typeof internal.host.getHostBatch
+        >,
+      ),
+    settleHostBatch: (input) =>
+      client.mutation(
+        internal.host.settleHostBatch,
+        wire({ workspaceId, ...input }) as FunctionArgs<
+          typeof internal.host.settleHostBatch
+        >,
+      ),
+    listPendingHostBatches: (input) =>
+      client.query(
+        internal.host.listPendingHostBatches,
+        wire({ workspaceId, ...input }) as FunctionArgs<
+          typeof internal.host.listPendingHostBatches
+        >,
+      ),
+    listCleanup: (input) =>
+      client.query(
+        internal.host.listCleanup,
+        wire({ workspaceId, ...input }) as FunctionArgs<
+          typeof internal.host.listCleanup
+        >,
+      ),
+    claimCleanup: (input) =>
+      client.mutation(
+        internal.host.claimCleanup,
+        wire({ workspaceId, ...input }) as FunctionArgs<
+          typeof internal.host.claimCleanup
+        >,
+      ),
+    ackCleanup: (input) =>
+      client.mutation(
+        internal.host.ackCleanup,
+        wire({ workspaceId, ...input }) as FunctionArgs<
+          typeof internal.host.ackCleanup
+        >,
+      ),
+
     beginLocalImport: (input) =>
       client.mutation(internal.host.beginLocalImport, {
         workspaceId,
