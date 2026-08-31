@@ -6,16 +6,14 @@ import {
   type AssistantRunTerminationReason,
   type CreateAssistantRunOptions,
 } from "@dashframe/assistant";
-import { schema, type ArtifactDb } from "@dashframe/server-core";
+import type { HostMetadata, AssistantProviderConfigRow } from "./host/metadata";
 import { isPrincipal } from "@wystack/identity";
 import type { SecretVault } from "@wystack/secret-vault";
-import type { WyStackApp } from "@wystack/server";
-import { eq } from "drizzle-orm";
+import type { ApplicationOperations } from "./host/application";
 import type { Context } from "hono";
 
 import { createDashframeAssistantHost } from "./assistant-host";
-import type { DraftController } from "./draft-controller";
-import { resolveAssistantProviderConfigForRun } from "./functions/assistant-provider-configs";
+import { resolveAssistantProviderConfigForRun } from "./host/assistant-providers";
 
 export type AssistantSidebarEvent =
   | { type: "run-start" }
@@ -51,11 +49,9 @@ export type AssistantSidebarEvent =
   | { type: "error"; message: string };
 
 interface AssistantRunRouteOptions {
-  app: WyStackApp;
-  db: ArtifactDb;
-  draftController: DraftController;
+  app: ApplicationOperations;
+  metadata: HostMetadata;
   vault?: SecretVault;
-  flushSnapshot?: () => Promise<void>;
   resolveContext?: (req: Request) => Promise<Record<string, unknown>>;
 }
 
@@ -65,9 +61,6 @@ interface AssistantRunRequestBody {
   provider?: unknown;
   modelId?: unknown;
 }
-
-type AssistantProviderConfigRow =
-  typeof schema.assistantProviderConfigs.$inferSelect;
 
 type AgentEvent = Parameters<
   NonNullable<CreateAssistantRunOptions["onEvent"]>
@@ -226,13 +219,11 @@ function requestedText(value: unknown): string | undefined {
 }
 
 async function selectAssistantProviderConfigForRun(args: {
-  db: ArtifactDb;
+  metadata: HostMetadata;
   provider?: string;
   modelId?: string;
 }): Promise<AssistantProviderConfigRow | undefined> {
-  const rows = (await args.db
-    .select()
-    .from(schema.assistantProviderConfigs)) as AssistantProviderConfigRow[];
+  const rows = await args.metadata.listAssistantProviderConfigs();
   if (rows.length === 0) {
     if (args.provider) {
       throw new Error(
@@ -257,9 +248,8 @@ async function selectAssistantProviderConfigForRun(args: {
 
 async function resolveRunProvider(args: {
   body: AssistantRunRequestBody;
-  db: ArtifactDb;
+  metadata: HostMetadata;
   vault?: SecretVault;
-  flushSnapshot?: () => Promise<void>;
 }): Promise<{
   model: ReturnType<typeof resolveDefaultAnthropicModel>;
   getApiKey: CreateAssistantRunOptions["getApiKey"];
@@ -267,7 +257,7 @@ async function resolveRunProvider(args: {
   const provider = requestedText(args.body.provider);
   const modelId = requestedText(args.body.modelId);
   const row = await selectAssistantProviderConfigForRun({
-    db: args.db,
+    metadata: args.metadata,
     provider,
     modelId,
   });
@@ -280,12 +270,11 @@ async function resolveRunProvider(args: {
   const resolved = await resolveAssistantProviderConfigForRun({
     row,
     vault: args.vault,
-    flushSnapshot: args.flushSnapshot,
     updateCredentialRef: async (ref) => {
-      await args.db
-        .update(schema.assistantProviderConfigs)
-        .set({ credentialRef: ref })
-        .where(eq(schema.assistantProviderConfigs.id, row.id));
+      await args.metadata.saveAssistantProviderConfig({
+        row: { ...row, credentialRef: ref, updatedAt: Date.now() },
+        expected: row,
+      });
     },
   });
   const apiKey = (resolved.options as { apiKey?: string }).apiKey;
@@ -339,9 +328,8 @@ export async function handleAssistantRunRequest(
   try {
     runProvider = await resolveRunProvider({
       body,
-      db: options.db,
+      metadata: options.metadata,
       vault: options.vault,
-      flushSnapshot: options.flushSnapshot,
     });
   } catch (err) {
     // Unknown requested model id is a client error; a failure to resolve
@@ -361,7 +349,6 @@ export async function handleAssistantRunRequest(
   }
   const host = createDashframeAssistantHost({
     app: options.app,
-    draftController: options.draftController,
     principal: isPrincipal(resolved?.principal)
       ? resolved.principal
       : undefined,

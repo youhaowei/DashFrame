@@ -39,10 +39,10 @@ trap 'exit 143' TERM
 (cd "${ROOT}" && bun run apps/server/src/index.ts --port 0) >"${SERVER_LOG}" 2>&1 &
 SERVER_PID=$!
 
-WYSTACK_URL=""
+DASHFRAME_URL=""
 for _ in {1..200}; do
-  WYSTACK_URL="$(sed -n 's/^\[dashframe\] listening: //p' "${SERVER_LOG}" | tail -n 1)"
-  if [[ -n "${WYSTACK_URL}" ]]; then
+  DASHFRAME_URL="$(sed -n 's/^\[dashframe\] listening: //p' "${SERVER_LOG}" | tail -n 1)"
+  if [[ -n "${DASHFRAME_URL}" ]]; then
     break
   fi
   if ! kill -0 "${SERVER_PID}" 2>/dev/null; then
@@ -53,17 +53,17 @@ for _ in {1..200}; do
   sleep 0.05
 done
 
-if [[ -z "${WYSTACK_URL}" ]]; then
+if [[ -z "${DASHFRAME_URL}" ]]; then
   echo "[dev-web] timed out waiting for the DashFrame server" >&2
   sed 's/^/[dev-web]   /' "${SERVER_LOG}" >&2
   exit 1
 fi
 
-export VITE_WYSTACK_URL="${WYSTACK_URL}"
+export VITE_DASHFRAME_URL="${DASHFRAME_URL}"
 export DASHFRAME_DEV_ROOT="${ROOT}"
 export DASHFRAME_DEV_LAUNCHER_PID="$$"
 export DASHFRAME_DEV_SERVER_PID="${SERVER_PID}"
-echo "[dev-web] API proxy: ${VITE_WYSTACK_URL}"
+echo "[dev-web] API proxy: ${VITE_DASHFRAME_URL}"
 echo "[dev-web] route: ${DEV_NAME}"
 echo "[dev-web] runtime manifest: ${DEV_MANIFEST} (created when the route is ready)"
 

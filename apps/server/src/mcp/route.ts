@@ -7,10 +7,10 @@ import {
   ListToolsRequestSchema,
   ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import type { WyStackApp } from "@wystack/server";
+import type { ApplicationOperations } from "../host/application";
 import type { Context } from "hono";
 
-import { draftIdFromBatchError } from "../functions/draft-batch";
+import { draftIdFromBatchError } from "../host/commands";
 import {
   REPORT_APP_HTML,
   REPORT_APP_MIME_TYPE,
@@ -29,7 +29,7 @@ export interface McpRequestContext {
 export type McpMode = "stateful" | "stateless";
 
 interface McpRouteOptions {
-  app: WyStackApp;
+  app: ApplicationOperations;
   mode?: McpMode;
   maxStatefulSessions?: number;
   statefulSessionTtlMs?: number;
