@@ -34,7 +34,7 @@ function validateIdentity(args: Identity) {
   )
     throw new Error("Invalid host batch identity");
 }
-async function lookup(ctx: QueryCtx, args: Identity) {
+async function lookup(ctx: QueryCtx, args: Identity, requireMatch = true) {
   validateIdentity(args);
   const row = await ctx.db
     .query("hostBatches")
@@ -43,6 +43,7 @@ async function lookup(ctx: QueryCtx, args: Identity) {
     )
     .unique();
   if (
+    requireMatch &&
     row &&
     (row.owner !== principalOwner(args.principal) ||
       row.requestHash !== args.requestHash)
@@ -157,7 +158,17 @@ export const settleHostBatch = internalMutation({
   returns: hostBatchState,
   handler: async (ctx, args) => {
     const supplied = secretResources(args.stagedRefs),
-      row = await lookup(ctx, args);
+      row = await lookup(ctx, args, false);
+    if (
+      row &&
+      (row.owner !== principalOwner(args.principal) ||
+        row.requestHash !== args.requestHash)
+    ) {
+      // A competing request already owns this ID. Retire only this caller's
+      // staged refs, without exposing or changing the winner's state.
+      await enqueueCleanup(ctx, args.workspaceId, supplied);
+      return { status: "cancelled" as const, result: null };
+    }
     if (row) {
       await enqueueCleanup(ctx, args.workspaceId, supplied);
       if (row.status === "completed") return state(row);

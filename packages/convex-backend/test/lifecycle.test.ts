@@ -453,3 +453,134 @@ it("cancels pending host writes during clear and refuses service canonical batch
     ),
   ).rejects.toThrow("User permission");
 });
+it("settles losing preparations with a different hash without altering the winning operation", async () => {
+  const winner = batch(),
+    loserRef = secret();
+  await t.mutation(internal.host.prepareHostBatch, winner);
+  const loser = {
+    ...winner,
+    requestHash: "b".repeat(64),
+    stagedRefs: [loserRef],
+  };
+  await expect(
+    t.mutation(internal.host.prepareHostBatch, loser),
+  ).rejects.toThrow("identity mismatch");
+  expect(
+    await t.mutation(internal.host.settleHostBatch, {
+      ...identity(loser),
+      stagedRefs: [loserRef, ...winner.stagedRefs],
+    }),
+  ).toEqual({ status: "cancelled", result: null });
+  expect(await t.query(internal.host.getHostBatch, identity(winner))).toEqual({
+    status: "pending",
+    result: null,
+  });
+  expect(await claim("secret", loserRef)).not.toBeNull();
+  expect(await claim("secret", winner.stagedRefs[0]!)).toBeNull();
+  expect(
+    (await t.mutation(internal.host.executeHostBatch, identity(winner))).status,
+  ).toBe("completed");
+  await expect(
+    t.query(internal.host.getHostBatch, identity(loser)),
+  ).rejects.toThrow("identity mismatch");
+});
+it("queues staged refs removed by draft revision and protects refs shared by canonical rows", async () => {
+  const args = batch({ mode: "draft" });
+  await t.mutation(internal.host.prepareHostBatch, args);
+  const completed = await t.mutation(
+    internal.host.executeHostBatch,
+    identity(args),
+  );
+  if (!completed.result || !("draftId" in completed.result))
+    throw new Error("Expected draft result");
+  const draftId = completed.result.draftId;
+  const review = await user().query(api.app.draftPublishReview, { draftId });
+  await user().mutation(api.app.reviseDraft, {
+    draftId,
+    expectedLogSignature: review.logSignature,
+    ops: [{ type: "removeCommand", commandIndex: 0 }],
+  });
+  expect(await claim("secret", args.stagedRefs[0]!)).not.toBeNull();
+  const { sourceId, ref } = await seed(),
+    secondId = uuid();
+  await t.mutation(internal.host.commitBatch, {
+    workspaceId: "w",
+    principal,
+    commands: [
+      {
+        path: "createDataSource",
+        args: { id: secondId, name: "Shared", type: "csv", apiKey: ref },
+      },
+    ],
+  });
+  await user().mutation(api.app.commitBatch, {
+    commands: [cmd("DeleteNode", { id: sourceId })],
+  });
+  expect(await claim("secret", ref)).toBeNull();
+  await user().mutation(api.app.commitBatch, {
+    commands: [cmd("DeleteNode", { id: secondId })],
+  });
+  expect(await claim("secret", ref)).not.toBeNull();
+});
+it("queues provider rotation and removal while keeping the replacement credential live", async () => {
+  const ref = secret(),
+    next = secret(),
+    row = {
+      id: uuid(),
+      providerId: "openai",
+      displayLabel: "Test",
+      authKind: "api-key" as const,
+      baseUrl: null,
+      credentialRef: ref,
+      defaultModel: "model",
+      isDefault: true,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+  await t.mutation(internal.host.saveAssistantProviderConfig, {
+    workspaceId: "w",
+    row,
+    expected: null,
+  });
+  const updated = { ...row, credentialRef: next, updatedAt: 2 };
+  await t.mutation(internal.host.saveAssistantProviderConfig, {
+    workspaceId: "w",
+    row: updated,
+    expected: row,
+  });
+  expect(await claim("secret", ref)).not.toBeNull();
+  expect((await list()).page.some((job) => job.resourceId === next)).toBe(
+    false,
+  );
+  await t.mutation(internal.host.removeAssistantProviderConfig, {
+    workspaceId: "w",
+    id: row.id,
+    expected: updated,
+  });
+  expect(await claim("secret", next)).not.toBeNull();
+});
+it("does not let a revoked service execute a prepared draft while allowing cancellation", async () => {
+  const args = batch({
+    mode: "draft",
+    principal: { kind: "service", credentialId: "bot" },
+    commands: [],
+    stagedRefs: [],
+  });
+  await t.mutation(internal.host.prepareHostBatch, args);
+  await t.mutation(internal.host.revokeCredential, {
+    workspaceId: "w",
+    credentialId: "bot",
+  });
+  await expect(
+    t.mutation(internal.host.executeHostBatch, identity(args)),
+  ).rejects.toThrow("revoked");
+  expect(
+    (
+      await t.mutation(internal.host.settleHostBatch, {
+        ...identity(args),
+        stagedRefs: [],
+      })
+    ).status,
+  ).toBe("cancelled");
+  expect(await user().query(api.app.listDrafts, {})).toEqual([]);
+});
