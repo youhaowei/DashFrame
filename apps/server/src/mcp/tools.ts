@@ -1020,6 +1020,8 @@ function draftBatchDescription(mode: McpMode): string {
     "The batch is atomic: if any command fails, none of its commands are saved.",
     "An existing draft stays unchanged; a failed first batch creates no draftId.",
     "After a command validation failure, correct and resubmit the entire batch.",
+    "If the outcome is unconfirmed, retry the unchanged batch with the returned",
+    "operationId. It may already be saved; do not submit it as a new operation.",
     ...continuity,
     "",
     "Each entry is { type, args } where `type` is a command NAME from the guide",
@@ -1339,6 +1341,14 @@ export function createMcpTools(
     label: "Draft batch",
     executionMode: "sequential",
     parameters: Type.Object({
+      operationId: Type.Optional(
+        Type.String({
+          format: "uuid",
+          description:
+            "Retry ID from an unconfirmed result. Reuse it with the unchanged " +
+            "batch and draftId; omit for a new operation.",
+        }),
+      ),
       ...(mode === "stateless"
         ? {
             draftId: Type.Optional(
@@ -1373,13 +1383,18 @@ export function createMcpTools(
       const batch = params.commands as DraftBatchCommandInput[];
       assertDraftSafeBatch(batch);
       const commands = lowerCommands(batch);
+      let operationId = params.operationId ?? crypto.randomUUID();
 
       const append = async (
         draftId: string | undefined,
       ): Promise<{ draftId: string }> => {
         const response = await app.execute(
           "draftBatch",
-          { commands, ...(draftId === undefined ? {} : { draftId }) },
+          {
+            commands,
+            operationId,
+            ...(draftId === undefined ? {} : { draftId }),
+          },
           { principal: context.principal },
         );
         return response as { draftId: string };
@@ -1398,7 +1413,12 @@ export function createMcpTools(
           // A remembered stateful handle is server-owned session state. Once a
           // person closes it, the next write starts a new owned draft. Stateless
           // caller-supplied handles never receive this fallback.
-          return recoverClosedStatefulDraft(error, draftId, append);
+          return recoverClosedStatefulDraft(error, draftId, (newDraftId) => {
+            // The rejected append was durably cancelled. A new target is a
+            // different request and must not reuse that operation identity.
+            operationId = crypto.randomUUID();
+            return append(newDraftId);
+          });
         }
       };
       const result =

@@ -8,6 +8,7 @@ import {
   ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { ApplicationOperations } from "../host/application";
+import { HostBatchOutcomeUnknownError } from "../host/commands";
 import type { Context } from "hono";
 
 import {
@@ -233,6 +234,15 @@ function createServer(tools: McpTool[]): Server {
     try {
       return await tool.execute(request.params.arguments ?? {});
     } catch (error) {
+      if (error instanceof HostBatchOutcomeUnknownError) {
+        return {
+          ...toolFailure(`${error.message}: ${error.operationId}`),
+          structuredContent: {
+            code: error.code,
+            operationId: error.operationId,
+          },
+        };
+      }
       // A rejected tool call is a result the agent can act on, not a protocol
       // fault. Thrown JSON-RPC errors reach the agent as a broken connection;
       // isError content reaches it as "that did not work, here is why".

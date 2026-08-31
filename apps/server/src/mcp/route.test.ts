@@ -145,6 +145,9 @@ describe("MCP route", () => {
           ...(input as Record<string, Value>),
           ...(context?.draftId ? { draftId: context.draftId } : {}),
         };
+        // Native metadata fixture: the durable operation ID belongs to the
+        // host journal, exercised through the real dispatcher in retry.test.ts.
+        delete (args as Record<string, Value>).operationId;
         const mutations = [
           "draftBatch",
           "discardDraft",
