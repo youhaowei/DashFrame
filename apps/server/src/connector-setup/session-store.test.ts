@@ -221,6 +221,16 @@ describe("native Convex connector setup sessions", () => {
     if (!("stateNonce" in next)) throw new Error("Expected reissued session");
     await consumeCallback(db, next.stateNonce, later);
     await expect(
+      publicResumeInfo(
+        db,
+        first.session.id,
+        later,
+        true,
+        true,
+        first.session.stateNonceHash,
+      ),
+    ).rejects.toMatchObject({ code: "session-raced" });
+    await expect(
       markVerifying(
         db,
         first.session.id,

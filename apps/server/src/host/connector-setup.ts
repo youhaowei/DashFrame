@@ -301,6 +301,7 @@ export const completeConnectorOAuth = hostOperation({
           new Date(),
           true,
           true,
+          session.stateNonceHash,
         );
         if (!("stateNonce" in issuance)) {
           return fullDto(ctx, issuance.session);

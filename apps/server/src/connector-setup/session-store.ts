@@ -139,8 +139,12 @@ export async function publicResumeInfo(
   now = new Date(),
   reissue = true,
   recoverExchange = false,
+  expectedNonceHash?: string,
 ): Promise<SessionIssuance | { session: ConnectorSetupSessionRow }> {
   let row = await readSession(db, id);
+  if (expectedNonceHash && row.stateNonceHash !== expectedNonceHash) {
+    throw new ConnectorSetupGateError("session-raced");
+  }
   if (row.state === "awaiting-user-auth" && row.expiresAt <= now.getTime()) {
     return {
       session:
