@@ -68,6 +68,18 @@ verified cached binary without downloading or registering a cloud deployment.
 New projects store metadata in `.convex/`; existing WyStack/PGlite projects are
 not migrated. See [local runtime details](packages/convex-local/README.md).
 
+Metadata deletion and credential rotation record host cleanup in the same Convex
+transaction. The host checks remaining references before deleting Arrow files,
+unregistering DuckDB tables, or releasing vault entries, and retries unfinished
+cleanup while running and after restart. Resources still used by a draft remain
+available. Cleanup fails closed if a reference table exceeds 1,000 rows.
+
+Credential-bearing host batches carry an operation ID. After an uncertain
+response, retry the same payload with the same ID; `HostOperationError.operationId`
+preserves it for browser callers. Startup cancels unfinished batches before
+recovering connector setup sessions. Unreferenced Arrow generations from an
+unconfirmed materialization are outside this cleanup process.
+
 ### Working on the libraries
 
 `libs/wystack` and `libs/stdui` are full clones of their own repos. Edit them
