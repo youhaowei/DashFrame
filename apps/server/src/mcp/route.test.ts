@@ -1,15 +1,10 @@
+/// <reference types="vite/client" />
 /**
- * MCP protocol round trip. The fixture deliberately mints an access credential
- * through the user-authenticated HTTP surface, then uses only that credential
- * for MCP calls so the tested principal is a service principal.
+ * MCP protocol round trips through the real SDK and Hono route, backed by native
+ * Convex transactions. The test-only metadata gateway is not the host HTTP API;
+ * app.test.ts covers host startup, credential issuance, CORS, and authentication.
  */
-import {
-  ApiAccessCredentials,
-  CREDENTIAL_CLASS,
-  openProject,
-  schema,
-  type ProjectHandle,
-} from "@dashframe/server-core";
+import { ApiAccessCredentials, CREDENTIAL_CLASS } from "@dashframe/server-core";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import {
@@ -23,12 +18,24 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 
-import { createDashframeServer, type DashframeServer } from "../app";
+import { Hono } from "hono";
+import { convexTest } from "convex-test";
+import { makeFunctionReference } from "convex/server";
+import type { Value } from "convex/values";
+import { isPrincipal, type Principal } from "@wystack/identity";
+import schema from "@dashframe/convex-backend/schema";
+import { api } from "@dashframe/convex-backend/api";
+import type { ApplicationOperations } from "../host/application";
 import { REPORT_APP_MIME_TYPE, REPORT_APP_URI } from "./report-app";
-import type { McpMode } from "./route";
+import { createMcpRoute, type McpMode } from "./route";
 import { createMcpTools } from "./tools";
 
 const USER_TOKEN = "mcp-test-user-token";
+const modules = import.meta.glob(
+  "../../../../packages/convex-backend/convex/**/*.ts",
+);
+const makeNative = () => convexTest(schema, modules);
+const userPrincipal: Principal = { kind: "user", userId: "local-user" };
 
 function bearer(token: string): { Authorization: string } {
   return { Authorization: `Bearer ${token}` };
@@ -91,10 +98,76 @@ async function expectToolError(
 
 describe("MCP route", () => {
   let root = "";
-  let project: ProjectHandle | null = null;
-  let server: DashframeServer | null = null;
+  let native: ReturnType<typeof makeNative>;
+  let server: { url: string; fetch: (request: Request) => Promise<Response> };
   let serviceToken: string;
   let accessCredentials: ApiAccessCredentials;
+
+  const fetch = (input: string | URL, init?: RequestInit) =>
+    server.fetch(new Request(input, init));
+
+  function application(bound?: Principal): ApplicationOperations {
+    return {
+      forPrincipal: (principal) => application(principal),
+      async execute(name, input, context) {
+        const principal = bound ?? context?.principal;
+        if (!isPrincipal(principal)) throw new Error("Unauthorized");
+        const client = native.withIdentity({
+          subject:
+            principal.kind === "user"
+              ? principal.userId
+              : principal.credentialId,
+          issuer: "https://mcp.test",
+          workspaceId: "mcp-workspace",
+          principalKind: principal.kind,
+          ...(principal.kind === "user"
+            ? { userId: principal.userId }
+            : { credentialId: principal.credentialId }),
+        });
+        if (["fetchData", "runInsight", "queryDataFrame"].includes(name)) {
+          // Host data-plane failure DTO: exercise the MCP privacy projection,
+          // without inventing a DuckDB or provider fixture in a protocol suite.
+          return name === "queryDataFrame"
+            ? {
+                status: "failed",
+                code: "FRAME_NOT_FOUND",
+                message: "The requested DataFrame is unavailable.",
+              }
+            : {
+                status: "failed",
+                code: "FRAME_UNAVAILABLE",
+                message: "private diagnostic",
+                diagnosticId: "private-id",
+                sourceGenerations: ["private-generation"],
+              };
+        }
+        const args = {
+          ...(input as Record<string, Value>),
+          ...(context?.draftId ? { draftId: context.draftId } : {}),
+        };
+        const mutations = [
+          "draftBatch",
+          "discardDraft",
+          "commitBatch",
+          "reviseDraft",
+          "publishDraft",
+        ];
+        return mutations.includes(name)
+          ? client.mutation(
+              makeFunctionReference<"mutation", Record<string, Value>, unknown>(
+                `app:${name}`,
+              ),
+              args,
+            )
+          : client.query(
+              makeFunctionReference<"query", Record<string, Value>, unknown>(
+                `app:${name}`,
+              ),
+              args,
+            );
+      },
+    };
+  }
 
   async function start(
     mode: McpMode,
@@ -104,47 +177,68 @@ describe("MCP route", () => {
       mcpSessionNow?: () => number;
     } = {},
   ): Promise<void> {
-    server?.stop();
-    await project?.close();
-    server = null;
-    project = null;
     if (root !== "") rmSync(root, { recursive: true, force: true });
     root = mkdtempSync(join(tmpdir(), "dashframe-mcp-"));
-    project = await openProject({ dir: join(root, "project") });
-    const vaultBundle = makeVault(join(root, "credentials"));
-    const { vault } = vaultBundle;
-    accessCredentials = vaultBundle.accessCredentials;
-    server = await createDashframeServer({
-      db: project.db,
-      accessCredentials,
-      vault,
-      authToken: USER_TOKEN,
-      mcpMode: mode,
-      ...sessionOptions,
-    });
-
-    const issued = await fetch(`${server.url}/api/issueAccessCredential`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...bearer(USER_TOKEN) },
-      body: JSON.stringify({ name: "MCP integration test" }),
-    });
-    expect(issued.status).toBe(200);
-    const payload = (await issued.json()) as {
-      data: { accessCredential: string };
+    native = makeNative();
+    accessCredentials = makeVault(join(root, "credentials")).accessCredentials;
+    serviceToken = (await accessCredentials.issue("MCP integration test"))
+      .token;
+    const resolveContext = async (request: Request) => {
+      const token = request.headers
+        .get("Authorization")
+        ?.replace(/^Bearer /, "");
+      if (token === USER_TOKEN) return { principal: userPrincipal };
+      const credentialId = token
+        ? await accessCredentials.authenticate(token)
+        : null;
+      if (!credentialId) throw new Error("Unauthorized");
+      return { principal: { kind: "service" as const, credentialId } };
     };
-    serviceToken = payload.data.accessCredential;
+    const app = application();
+    const http = new Hono();
+    http.all(
+      "/mcp",
+      createMcpRoute({
+        app,
+        mode,
+        resolveContext,
+        maxStatefulSessions: sessionOptions.mcpMaxStatefulSessions,
+        statefulSessionTtlMs: sessionOptions.mcpStatefulSessionTtlMs,
+        now: sessionOptions.mcpSessionNow,
+      }),
+    );
+    // Only native operations are exposed here to arrange/inspect state. This
+    // gateway intentionally makes no claim about production host URL wiring.
+    http.all("/test/native/:operation", async (c) => {
+      const context = await resolveContext(c.req.raw);
+      const input: unknown =
+        c.req.method === "GET"
+          ? JSON.parse(c.req.query("args") ?? "{}")
+          : await c.req.json();
+      try {
+        return c.json({
+          data: await app.execute(c.req.param("operation"), input, context),
+        });
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Operation failed";
+        return c.json(
+          { error: message },
+          /permission|forbidden/i.test(message) ? 403 : 400,
+        );
+      }
+    });
+    server = {
+      url: "http://mcp.test",
+      fetch: async (request) => http.fetch(request),
+    };
   }
 
   beforeEach(async () => {
     await start("stateless");
   });
-
-  afterEach(async () => {
-    server?.stop();
-    await project?.close();
+  afterEach(() => {
     rmSync(root, { recursive: true, force: true });
-    server = null;
-    project = null;
     root = "";
   });
 
@@ -155,7 +249,10 @@ describe("MCP route", () => {
     const client = new Client({ name: "dashframe-mcp-test", version: "1.0.0" });
     const transport = new StreamableHTTPClientTransport(
       new URL(`${server!.url}/mcp`),
-      { requestInit: { headers: bearer(token) } },
+      {
+        requestInit: { headers: bearer(token) },
+        fetch: async (input, init) => server.fetch(new Request(input, init)),
+      },
     );
     try {
       await client.connect(transport);
@@ -189,29 +286,24 @@ describe("MCP route", () => {
   it("refuses a draft read when the draft closes during the read", async () => {
     const draftId = crypto.randomUUID();
     let draftChecks = 0;
-    const fakeApp = {
-      createTracked() {
-        return {};
+    const fakeApp: ApplicationOperations = {
+      forPrincipal() {
+        return this;
       },
-      async runHandler() {
-        return [];
+      async execute(path) {
+        return path === "listDrafts" && draftChecks++ === 0
+          ? [{ draftId }]
+          : [];
       },
-      async call(path: string) {
-        if (path === "listDrafts") {
-          return {
-            result: draftChecks++ === 0 ? [{ draftId }] : [],
-          };
-        }
-        return { result: [] };
-      },
-    } as unknown as Parameters<typeof createMcpTools>[0];
+    };
     const tool = createMcpTools(
       fakeApp,
       { principal: { kind: "service", credentialId: "test" }, draftId },
       "stateless",
     ).find((candidate) => candidate.name === "find_nodes");
-
-    await expect(tool!.execute({})).rejects.toThrow(/draft is unavailable/i);
+    await expect(tool!.execute({})).rejects.toThrow(
+      /draft (?:is )?unavailable/i,
+    );
   });
 
   it("validates and reads one snapshotted stateful draft handle", async () => {
@@ -223,37 +315,26 @@ describe("MCP route", () => {
     };
     let checks = 0;
     const readDraftIds: unknown[] = [];
-    const fakeApp = {
-      createTracked() {
-        return {};
+    const fakeApp: ApplicationOperations = {
+      forPrincipal() {
+        return this;
       },
-      async runHandler(
-        _path: string,
-        _args: unknown,
-        _tracked: unknown,
-        context: Record<string, unknown>,
-      ) {
-        readDraftIds.push(context.draftId);
+      async execute(path, _args, context) {
+        if (path === "listDrafts")
+          return [
+            { draftId: checks++ === 0 ? originalDraftId : replacementDraftId },
+          ];
+        readDraftIds.push(context?.draftId);
         requestContext.draftId = replacementDraftId;
         return [];
       },
-      async call(path: string) {
-        if (path === "listDrafts") {
-          return {
-            result:
-              checks++ === 0
-                ? [{ draftId: originalDraftId }]
-                : [{ draftId: replacementDraftId }],
-          };
-        }
-        return { result: [] };
-      },
-    } as unknown as Parameters<typeof createMcpTools>[0];
+    };
     const tool = createMcpTools(fakeApp, requestContext, "stateful").find(
       (candidate) => candidate.name === "find_nodes",
     );
-
-    await expect(tool!.execute({})).rejects.toThrow(/^draft is unavailable$/);
+    await expect(tool!.execute({})).rejects.toThrow(
+      /^draft (?:is )?unavailable$/i,
+    );
     expect(readDraftIds.length).toBeGreaterThan(0);
     expect(new Set(readDraftIds)).toEqual(new Set([originalDraftId]));
     expect(checks).toBe(2);
@@ -271,43 +352,42 @@ describe("MCP route", () => {
     const providerId = crypto.randomUUID();
     const fakeProjectPath = `/private/project/${crypto.randomUUID()}.arrow`;
     const queryCalls: unknown[] = [];
-    const fakeApp = {
-      async call(path: string, args: unknown) {
+    const fakeApp: ApplicationOperations = {
+      forPrincipal() {
+        return this;
+      },
+      async execute(path: string, args: unknown) {
         if (path === "getDataFrameEntry") {
           return {
-            result: {
-              id: dataFrameId,
-              insightId: crypto.randomUUID(),
-              currentInsightResult: false,
-              lastRefreshedAt: 1_723_000_000_000,
-              sourceId: providerId,
-              storage: { type: "file", key: fakeProjectPath },
-              analysis: { credentialRef: `secret:${crypto.randomUUID()}` },
-            },
+            id: dataFrameId,
+            insightId: crypto.randomUUID(),
+            currentInsightResult: false,
+            lastRefreshedAt: 1_723_000_000_000,
+            sourceId: providerId,
+            storage: { type: "file", key: fakeProjectPath },
+            analysis: { credentialRef: `secret:${crypto.randomUUID()}` },
           };
         }
         if (path === "queryDataFrame") {
           queryCalls.push(args);
           return {
-            result: {
-              status: "ready",
-              schema: [
-                { id: dateFieldId, name: "date", type: "date" },
-                { id: usersFieldId, name: "users", type: "number" },
-                ...extraFields,
-              ],
-              rows: [
-                { date: 1_786_406_400_000, users: 42 },
-                { date: 1_786_492_800_000, users: 51 },
-              ],
-              totalCount: 2,
-              page: { offset: 0, limit: 50, returned: 2 },
-            },
+            status: "ready",
+            schema: [
+              { id: dateFieldId, name: "date", type: "date" },
+              { id: usersFieldId, name: "users", type: "number" },
+              ...extraFields,
+            ],
+            rows: [
+              { date: 1_786_406_400_000, users: 42 },
+              { date: 1_786_492_800_000, users: 51 },
+            ],
+            totalCount: 2,
+            page: { offset: 0, limit: 50, returned: 2 },
           };
         }
         throw new Error(`Unexpected call: ${path}`);
       },
-    } as unknown as Parameters<typeof createMcpTools>[0];
+    };
     const tool = createMcpTools(
       fakeApp,
       { principal: { kind: "service", credentialId: "test" } },
@@ -360,9 +440,11 @@ describe("MCP route", () => {
     const definitionId = crypto.randomUUID();
     const storageKey = `/private/project/${crypto.randomUUID()}.arrow`;
     const secretRef = `secret:${crypto.randomUUID()}`;
-    const fakeApp = {
-      createTracked: () => ({}),
-      async runHandler(path: string) {
+    const fakeApp: ApplicationOperations = {
+      forPrincipal() {
+        return this;
+      },
+      async execute(path: string) {
         if (path !== "getDataFrameEntry")
           throw new Error(`Unexpected read: ${path}`);
         return {
@@ -382,7 +464,7 @@ describe("MCP route", () => {
           analysis: { credentialRef: secretRef },
         };
       },
-    } as unknown as Parameters<typeof createMcpTools>[0];
+    };
     const tool = createMcpTools(
       fakeApp,
       { principal: { kind: "service", credentialId: "test" } },
@@ -417,24 +499,24 @@ describe("MCP route", () => {
 
   it("fails closed when a ready frame page contradicts the report schema", async () => {
     const dataFrameId = crypto.randomUUID();
-    const fakeApp = {
-      async call(path: string) {
-        if (path === "getDataFrameEntry")
-          return { result: { id: dataFrameId } };
+    const fakeApp: ApplicationOperations = {
+      forPrincipal() {
+        return this;
+      },
+      async execute(path: string) {
+        if (path === "getDataFrameEntry") return { id: dataFrameId };
         if (path === "queryDataFrame") {
           return {
-            result: {
-              status: "ready",
-              schema: [{ id: "value", name: "value", type: "number" }],
-              rows: [{ value: 1 }],
-              totalCount: 1,
-              page: { offset: 0, limit: 50, returned: 2 },
-            },
+            status: "ready",
+            schema: [{ id: "value", name: "value", type: "number" }],
+            rows: [{ value: 1 }],
+            totalCount: 1,
+            page: { offset: 0, limit: 50, returned: 2 },
           };
         }
         throw new Error(`Unexpected call: ${path}`);
       },
-    } as unknown as Parameters<typeof createMcpTools>[0];
+    };
     const tool = createMcpTools(
       fakeApp,
       { principal: { kind: "service", credentialId: "test" } },
@@ -469,19 +551,6 @@ describe("MCP route", () => {
     } finally {
       await transport.close();
     }
-  });
-
-  it("mints the credential as a user before the MCP service-principal round trip", async () => {
-    const response = await fetch(
-      `${server!.url}/api/getAccessCapabilities?args=%7B%7D`,
-      {
-        headers: bearer(serviceToken),
-      },
-    );
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
-      data: { canManageCredentials: false },
-    });
   });
 
   it("lists the existing read tools, reads through the service principal, and drafts without changing canonical", async () => {
@@ -653,8 +722,8 @@ describe("MCP route", () => {
           text: `No data artifact found for dataTable ${missingId}.`,
         },
         {
-          // The fixture project is an empty temp directory, so nothing is
-          // allowlisted for source reads. That refusal is a normal result and
+          // No source reader is injected into this fixture, so source
+          // contents are unavailable. That refusal is a normal result and
           // must not reach the agent as a failure — which is precisely what a
           // bare `isError` assertion could not tell apart.
           name: "read_source",
@@ -688,11 +757,11 @@ describe("MCP route", () => {
       expect(first.isError).not.toBe(true);
       const firstDraft = first.structuredContent as { draftId: string };
       expect(firstDraft.draftId).toEqual(expect.any(String));
-      expect(await project!.db.select().from(schema.dataSources)).toHaveLength(
-        0,
-      );
       expect(
-        await project!.db.select().from(schema.draftCommandLog),
+        await native.run((ctx) => ctx.db.query("dataSources").collect()),
+      ).toHaveLength(0);
+      expect(
+        await native.run((ctx) => ctx.db.query("draftLog").collect()),
       ).toHaveLength(1);
 
       const draftScopedRead = await client.callTool({
@@ -717,7 +786,7 @@ describe("MCP route", () => {
       expect(canonicalRead.structuredContent).toMatchObject({ hits: [] });
 
       const listedDrafts = await fetch(
-        `${server!.url}/api/listDrafts?args=%7B%7D`,
+        `${server!.url}/test/native/listDrafts?args=%7B%7D`,
         {
           headers: bearer(USER_TOKEN),
         },
@@ -748,11 +817,11 @@ describe("MCP route", () => {
       expect((second.structuredContent as { draftId: string }).draftId).toBe(
         firstDraft.draftId,
       );
-      expect(await project!.db.select().from(schema.dashboards)).toHaveLength(
-        0,
-      );
       expect(
-        await project!.db.select().from(schema.draftCommandLog),
+        await native.run((ctx) => ctx.db.query("dashboards").collect()),
+      ).toHaveLength(0);
+      expect(
+        await native.run((ctx) => ctx.db.query("draftLog").collect()),
       ).toHaveLength(2);
     } finally {
       await transport.close();
@@ -867,7 +936,7 @@ describe("MCP route", () => {
       );
 
       // Out of band, as a person: the draft the agent is carrying goes away.
-      const discarded = await fetch(`${server!.url}/api/discardDraft`, {
+      const discarded = await fetch(`${server!.url}/test/native/discardDraft`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...bearer(USER_TOKEN) },
         body: JSON.stringify({ draftId: firstId }),
@@ -878,7 +947,7 @@ describe("MCP route", () => {
         client,
         "find_nodes",
         { name: "Before the discard", draftId: firstId },
-        /draft is unavailable/i,
+        /draft (?:is )?unavailable/i,
       );
 
       await expectToolError(
@@ -897,10 +966,10 @@ describe("MCP route", () => {
             },
           ],
         },
-        /draft is unavailable/i,
+        /draft (?:is )?unavailable/i,
       );
       expect(
-        await project!.db.select().from(schema.draftCommandLog),
+        await native.run((ctx) => ctx.db.query("draftLog").collect()),
       ).toHaveLength(0);
     } finally {
       await transport.close();
@@ -973,7 +1042,7 @@ describe("MCP route", () => {
         /not draft-safe/i,
       );
       expect(
-        await project!.db.select().from(schema.draftCommandLog),
+        await native.run((ctx) => ctx.db.query("draftLog").collect()),
       ).toHaveLength(0);
       const rejectedRef = `secret:${crypto.randomUUID()}`;
       const refAttempt = await client.callTool({
@@ -1001,7 +1070,7 @@ describe("MCP route", () => {
       expect(resultText(refAttempt).includes(rejectedRef)).toBe(false);
       expect(JSON.stringify(refAttempt).includes(rejectedRef)).toBe(false);
       expect(
-        await project!.db.select().from(schema.draftCommandLog),
+        await native.run((ctx) => ctx.db.query("draftLog").collect()),
       ).toHaveLength(0);
     } finally {
       await transport.close();
@@ -1026,15 +1095,9 @@ describe("MCP route", () => {
       });
       const draftId = (opened.structuredContent as { draftId: string }).draftId;
 
-      const issued = await fetch(`${server!.url}/api/issueAccessCredential`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...bearer(USER_TOKEN) },
-        body: JSON.stringify({ name: "Other MCP integration" }),
-      });
-      expect(issued.status).toBe(200);
       const otherToken = (
-        (await issued.json()) as { data: { accessCredential: string } }
-      ).data.accessCredential;
+        await accessCredentials.issue("Other MCP integration")
+      ).token;
       expect(otherToken).not.toBe(serviceToken);
       const ownerCredentialId =
         await accessCredentials.authenticate(serviceToken);
@@ -1042,18 +1105,16 @@ describe("MCP route", () => {
         await accessCredentials.authenticate(otherToken);
       expect(otherCredentialId).not.toBe(ownerCredentialId);
       expect(
-        (
-          await project!.db
-            .select({ owner: schema.draftMetadata.ownerPrincipalKey })
-            .from(schema.draftMetadata)
-        )[0]?.owner,
+        (await native.run((ctx) => ctx.db.query("drafts").collect()))[0]?.owner,
       ).toBe(`service:${ownerCredentialId}`);
-      const legacyDraftId = crypto.randomUUID();
-      await project!.db.insert(schema.draftMetadata).values({
-        draftId: legacyDraftId,
-        baseVersion: new Date(),
-        logRevision: 0,
-      });
+      const { draftId: humanDraftId } = await native
+        .withIdentity({
+          subject: "local-user",
+          workspaceId: "mcp-workspace",
+          principalKind: "user",
+          userId: "local-user",
+        })
+        .mutation(api.app.draftBatch, { commands: [] });
       other = await connect(otherToken);
 
       await expectToolError(
@@ -1068,16 +1129,16 @@ describe("MCP route", () => {
             },
           ],
         },
-        /^draft is unavailable$/i,
+        /^draft (?:is )?unavailable$/i,
       );
       await expectToolError(
         other.client,
         "find_nodes",
         { name: "Owner only", draftId },
-        /^draft is unavailable$/i,
+        /^draft (?:is )?unavailable$/i,
       );
 
-      const listUrl = new URL(`${server!.url}/api/listDrafts`);
+      const listUrl = new URL(`${server!.url}/test/native/listDrafts`);
       listUrl.searchParams.set("args", JSON.stringify({}));
       const otherList = await fetch(listUrl, { headers: bearer(otherToken) });
       expect((await otherList.json()) as unknown).toMatchObject({ data: [] });
@@ -1087,15 +1148,15 @@ describe("MCP route", () => {
         (await humanList.json()) as { data: Array<{ draftId: string }> }
       ).data.map(({ draftId: id }) => id);
       expect(humanDraftIds).toEqual(
-        expect.arrayContaining([draftId, legacyDraftId]),
+        expect.arrayContaining([draftId, humanDraftId]),
       );
 
       for (const path of ["getDraftLog", "draftPublishReview"]) {
-        const url = new URL(`${server!.url}/api/${path}`);
+        const url = new URL(`${server!.url}/test/native/${path}`);
         url.searchParams.set("args", JSON.stringify({ draftId }));
         const denied = await fetch(url, { headers: bearer(otherToken) });
         const body = await denied.text();
-        expect(body).toMatch(/draft is unavailable/i);
+        expect(body).toMatch(/draft (?:is )?unavailable/i);
         expect(body).not.toContain(draftId);
         expect(body).not.toContain(sourceId);
       }
@@ -1106,7 +1167,9 @@ describe("MCP route", () => {
       });
       expect(ownerRead.isError).not.toBe(true);
 
-      const humanReview = new URL(`${server!.url}/api/draftPublishReview`);
+      const humanReview = new URL(
+        `${server!.url}/test/native/draftPublishReview`,
+      );
       humanReview.searchParams.set("args", JSON.stringify({ draftId }));
       expect(
         await fetch(humanReview, { headers: bearer(USER_TOKEN) }),
@@ -1143,46 +1206,20 @@ describe("MCP route", () => {
       expect(resultText(written)).toMatch(/credential material.*not accepted/i);
       expect(JSON.stringify(written).includes(plaintextKey)).toBe(false);
 
-      const log = await project!.db.select().from(schema.draftCommandLog);
+      const log = await native.run((ctx) => ctx.db.query("draftLog").collect());
       expect(log).toHaveLength(0);
       expect(JSON.stringify(log).includes(plaintextKey)).toBe(false);
 
       // And canonical gained nothing at all.
-      expect(await project!.db.select().from(schema.dataSources)).toHaveLength(
-        0,
-      );
+      expect(
+        await native.run((ctx) => ctx.db.query("dataSources").collect()),
+      ).toHaveLength(0);
     } finally {
       await transport.close();
     }
   });
 
-  it("answers an MCP preflight with exactly one allow-origin and the session headers", async () => {
-    const preflight = await fetch(`${server!.url}/mcp`, {
-      method: "OPTIONS",
-      headers: {
-        Origin: "http://localhost:5173",
-        "Access-Control-Request-Method": "POST",
-        "Access-Control-Request-Headers": "authorization,mcp-session-id",
-      },
-    });
-    expect(preflight.status).toBe(204);
-    // getSetCookie-style duplication check: one value, not two concatenated.
-    const allowOrigin = preflight.headers.get("access-control-allow-origin");
-    expect(allowOrigin?.includes(",")).toBe(false);
-    const allowHeaders =
-      preflight.headers.get("access-control-allow-headers")?.toLowerCase() ??
-      "";
-    expect(allowHeaders).toContain("mcp-session-id");
-    expect(allowHeaders).toContain("mcp-protocol-version");
-    expect(
-      preflight.headers.get("access-control-allow-methods")?.toUpperCase(),
-    ).toContain("DELETE");
-    expect(
-      preflight.headers.get("access-control-expose-headers")?.toLowerCase(),
-    ).toContain("mcp-session-id");
-  });
-
-  it("keeps the service principal out of commit and revise routes", async () => {
+  it("keeps the service principal out of canonical commits and draft revision", async () => {
     const { client, transport } = await connect();
     try {
       const drafted = await client.callTool({
@@ -1198,7 +1235,7 @@ describe("MCP route", () => {
       });
       const draftId = (drafted.structuredContent as { draftId: string })
         .draftId;
-      const commit = await fetch(`${server!.url}/api/commitBatch`, {
+      const commit = await fetch(`${server!.url}/test/native/commitBatch`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1209,13 +1246,13 @@ describe("MCP route", () => {
       expect(commit.status).toBe(403);
 
       const review = await fetch(
-        `${server!.url}/api/draftPublishReview?args=${encodeURIComponent(JSON.stringify({ draftId }))}`,
+        `${server!.url}/test/native/draftPublishReview?args=${encodeURIComponent(JSON.stringify({ draftId }))}`,
         { headers: bearer(USER_TOKEN) },
       );
       const reviewPayload = (await review.json()) as {
         data: { logSignature: string };
       };
-      const revise = await fetch(`${server!.url}/api/reviseDraft`, {
+      const revise = await fetch(`${server!.url}/test/native/reviseDraft`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1277,7 +1314,7 @@ describe("MCP route", () => {
       result: { structuredContent: { draftId } },
     });
     expect(
-      await project!.db.select().from(schema.draftCommandLog),
+      await native.run((ctx) => ctx.db.query("draftLog").collect()),
     ).toHaveLength(2);
 
     const malformed = await fetch(`${server!.url}/mcp`, {
@@ -1307,7 +1344,7 @@ describe("MCP route", () => {
     expect(await response.json()).toMatchObject({ error: { code: -32600 } });
   });
 
-  it("removes a server-opened empty draft after the first command fails", async () => {
+  it("leaves no draft after the first command fails", async () => {
     const { client, transport } = await connect();
     try {
       const missingId = crypto.randomUUID();
@@ -1324,14 +1361,14 @@ describe("MCP route", () => {
       });
       expect(result.isError).toBe(true);
       expect(resultText(result)).toContain(
-        `Visualization ${missingId} not found`,
+        `visualization ${missingId} not found`,
       );
       expect(result.structuredContent).toBeUndefined();
       expect(
-        await project!.db.select().from(schema.draftMetadata),
+        await native.run((ctx) => ctx.db.query("drafts").collect()),
       ).toHaveLength(0);
       expect(
-        await project!.db.select().from(schema.draftCommandLog),
+        await native.run((ctx) => ctx.db.query("draftLog").collect()),
       ).toHaveLength(0);
     } finally {
       await transport.close();
@@ -1365,7 +1402,7 @@ describe("MCP route", () => {
         ),
       ).toEqual(expect.arrayContaining(["Stateful first", "Stateful second"]));
 
-      const discarded = await fetch(`${server!.url}/api/discardDraft`, {
+      const discarded = await fetch(`${server!.url}/test/native/discardDraft`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...bearer(USER_TOKEN) },
         body: JSON.stringify({ draftId }),
@@ -1375,7 +1412,7 @@ describe("MCP route", () => {
         client,
         "find_nodes",
         { name: "Stateful" },
-        /^draft is unavailable$/i,
+        /^draft (?:is )?unavailable$/i,
       );
       const afterClose = await writeDashboard(client, "Stateful replacement");
       expect(afterClose.isError).not.toBe(true);
@@ -1396,10 +1433,10 @@ describe("MCP route", () => {
       const firstId = (first.structuredContent as { draftId: string }).draftId;
       expect(second.structuredContent).toMatchObject({ draftId: firstId });
       expect(
-        await project!.db.select().from(schema.draftMetadata),
+        await native.run((ctx) => ctx.db.query("drafts").collect()),
       ).toHaveLength(1);
       expect(
-        await project!.db.select().from(schema.draftCommandLog),
+        await native.run((ctx) => ctx.db.query("draftLog").collect()),
       ).toHaveLength(2);
     } finally {
       await transport.close();
@@ -1407,7 +1444,7 @@ describe("MCP route", () => {
   });
 
   for (const mode of ["stateless", "stateful"] as const) {
-    it(`retains a recoverable owned handle after a ${mode} partial-prefix failure`, async () => {
+    it(`rolls back all commands after a ${mode} batch failure`, async () => {
       await start(mode);
       const { client, transport } = await connect();
       try {
@@ -1419,7 +1456,7 @@ describe("MCP route", () => {
                 type: "CreateDashboard",
                 args: {
                   id: crypto.randomUUID(),
-                  name: `${mode} retained prefix`,
+                  name: `${mode} rolled back`,
                 },
               },
               {
@@ -1430,15 +1467,21 @@ describe("MCP route", () => {
           },
         });
         expect(result.isError).toBe(true);
-        const draftId = (result.structuredContent as { draftId: string })
-          .draftId;
-        expect(draftId).toEqual(expect.any(String));
+        expect(result.structuredContent).toBeUndefined();
         expect(resultText(result)).toMatch(/not found/i);
+        expect(
+          await native.run((ctx) => ctx.db.query("drafts").collect()),
+        ).toHaveLength(0);
+        expect(
+          await native.run((ctx) => ctx.db.query("draftLog").collect()),
+        ).toHaveLength(0);
+        expect(
+          await native.run((ctx) => ctx.db.query("dashboards").collect()),
+        ).toHaveLength(0);
 
         const continued = await client.callTool({
           name: "draft_batch",
           arguments: {
-            ...(mode === "stateless" ? { draftId } : {}),
             commands: [
               {
                 type: "CreateDashboard",
@@ -1448,7 +1491,73 @@ describe("MCP route", () => {
           },
         });
         expect(continued.isError).not.toBe(true);
+        expect(continued.structuredContent).toMatchObject({
+          draftId: expect.any(String),
+        });
+        expect(
+          await native.run((ctx) => ctx.db.query("draftLog").collect()),
+        ).toHaveLength(1);
+      } finally {
+        await transport.close();
+      }
+    });
+  }
+
+  for (const mode of ["stateless", "stateful"] as const) {
+    it(`preserves the existing ${mode} draft when an append batch fails`, async () => {
+      await start(mode);
+      const { client, transport } = await connect();
+      try {
+        const accepted = await writeDashboard(client, "Already accepted");
+        const { draftId } = accepted.structuredContent as { draftId: string };
+        const carry = mode === "stateless" ? { draftId } : {};
+        const rejected = await client.callTool({
+          name: "draft_batch",
+          arguments: {
+            ...carry,
+            commands: [
+              {
+                type: "CreateDashboard",
+                args: { id: crypto.randomUUID(), name: "Must roll back" },
+              },
+              {
+                type: "SetChartType",
+                args: { id: crypto.randomUUID(), visualizationType: "bar" },
+              },
+            ],
+          },
+        });
+        expect(rejected.isError).toBe(true);
+        expect(
+          await native.run((ctx) => ctx.db.query("drafts").collect()),
+        ).toHaveLength(1);
+        expect(
+          await native.run((ctx) => ctx.db.query("draftLog").collect()),
+        ).toHaveLength(1);
+        const read = await client.callTool({
+          name: "find_nodes",
+          arguments: carry,
+        });
+        expect(read.structuredContent).toMatchObject({
+          hits: [expect.objectContaining({ name: "Already accepted" })],
+        });
+        expect(JSON.stringify(read)).not.toContain("Must roll back");
+        const continued = await client.callTool({
+          name: "draft_batch",
+          arguments: {
+            ...carry,
+            commands: [
+              {
+                type: "CreateDashboard",
+                args: { id: crypto.randomUUID(), name: "Accepted next" },
+              },
+            ],
+          },
+        });
         expect(continued.structuredContent).toMatchObject({ draftId });
+        expect(
+          await native.run((ctx) => ctx.db.query("draftLog").collect()),
+        ).toHaveLength(2);
       } finally {
         await transport.close();
       }
@@ -1530,15 +1639,9 @@ describe("MCP route", () => {
     await start("stateful", { mcpMaxStatefulSessions: 1 });
     const owner = await connect();
     try {
-      const issued = await fetch(`${server!.url}/api/issueAccessCredential`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...bearer(USER_TOKEN) },
-        body: JSON.stringify({ name: "Capacity challenger" }),
-      });
-      expect(issued.status).toBe(200);
       const challengerToken = (
-        (await issued.json()) as { data: { accessCredential: string } }
-      ).data.accessCredential;
+        await accessCredentials.issue("Capacity challenger")
+      ).token;
 
       await expect(connect(challengerToken)).rejects.toThrow();
       await expect(owner.client.listTools()).resolves.toMatchObject({
@@ -1596,11 +1699,11 @@ describe("MCP route", () => {
         error: { code: -32001, message: "Unauthorized MCP request." },
       });
     }
-    expect(await project!.db.select().from(schema.draftMetadata)).toHaveLength(
-      0,
-    );
     expect(
-      await project!.db.select().from(schema.draftCommandLog),
+      await native.run((ctx) => ctx.db.query("drafts").collect()),
+    ).toHaveLength(0);
+    expect(
+      await native.run((ctx) => ctx.db.query("draftLog").collect()),
     ).toHaveLength(0);
   });
 });
