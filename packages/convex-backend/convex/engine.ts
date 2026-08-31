@@ -277,12 +277,16 @@ function validateEncoding(value: Json | undefined) {
 }
 function safeExtra(extra: ObjectValue) {
   if (
-    ["apiKey", "connectionString", "sourceBindingVersion"].some(
-      (k) => k in extra,
-    )
+    [
+      "apiKey",
+      "connectionString",
+      "hasApiKey",
+      "hasConnectionString",
+      "sourceBindingVersion",
+    ].some((k) => k in extra)
   )
     throw new Error(
-      "Credential fields and sourceBindingVersion cannot be set through extra",
+      "Credential fields, credential flags, and sourceBindingVersion cannot be set through extra",
     );
   if (stable(extra).includes("secret:"))
     throw new Error("Secret references are restricted to credential slots");

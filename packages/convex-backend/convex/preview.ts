@@ -56,9 +56,9 @@ export function publicRow(table: ArtifactTable, row: ArtifactRow): ObjectValue {
       ...base,
       type: row.kind,
       config: {
+        ...record(redact(row.config ?? {})),
         hasApiKey: !!row.config?.apiKey,
         hasConnectionString: !!row.config?.connectionString,
-        ...record(redact(row.config ?? {})),
       },
     }) as ObjectValue;
   if (table === "dataTables")
