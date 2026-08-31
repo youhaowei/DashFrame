@@ -5,6 +5,8 @@ import { cn } from "@wystack/ui-react";
 import type { ReactNode } from "react";
 
 export interface AppLayoutProps {
+  /** Complete page header, when the page uses the shared artifact identity. */
+  pageHeader?: ReactNode;
   /** Breadcrumb navigation items */
   breadcrumbs?: BreadcrumbItem[];
   /** Optional header content (shown after breadcrumbs) */
@@ -45,6 +47,7 @@ export interface AppLayoutProps {
  * ```
  */
 export function AppLayout({
+  pageHeader,
   breadcrumbs,
   headerContent,
   leftPanel,
@@ -67,19 +70,21 @@ export function AppLayout({
       )}
     >
       {/* Sticky Header */}
-      <header className="sticky top-0 z-10 shrink-0 border-b bg-neutral-bg/90 backdrop-blur-sm">
-        <div className="container mx-auto px-8 py-4">
-          <div className="flex items-center justify-between gap-6">
-            {/* Breadcrumb navigation */}
-            {breadcrumbs && breadcrumbs.length > 0 && (
-              <Breadcrumb LinkComponent={Link} items={breadcrumbs} />
-            )}
+      {pageHeader ?? (
+        <header className="sticky top-0 z-10 shrink-0 border-b bg-neutral-bg/90 backdrop-blur-sm">
+          <div className="container mx-auto px-8 py-4">
+            <div className="flex items-center justify-between gap-6">
+              {/* Breadcrumb navigation */}
+              {breadcrumbs && breadcrumbs.length > 0 && (
+                <Breadcrumb LinkComponent={Link} items={breadcrumbs} />
+              )}
 
-            {/* Additional header content */}
-            {headerContent && <div className="flex-1">{headerContent}</div>}
+              {/* Additional header content */}
+              {headerContent && <div className="flex-1">{headerContent}</div>}
+            </div>
           </div>
-        </div>
-      </header>
+        </header>
+      )}
 
       {/* Main Layout Body */}
       <div className="flex min-h-0 flex-1 overflow-hidden">

@@ -1,4 +1,10 @@
-import { DataGrid } from "@/components/data-grid";
+import { RoutedCardActionMenuTrigger } from "@/components/RoutedCardActionMenuTrigger";
+import {
+  ArtifactCard,
+  ArtifactCollection,
+  ArtifactEmptyState,
+  ArtifactGrid,
+} from "@/components/artifacts/ArtifactCollection";
 import { useNow } from "@/hooks/useNow";
 import {
   removeDataFrame,
@@ -7,7 +13,6 @@ import {
 import { formatRelativeTime } from "@/lib/format-relative-time";
 import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
 import { api } from "@/wystack/api";
-import type { ColumnDef } from "@tanstack/react-table";
 import { useMutation, useQuery } from "@wystack/client";
 import {
   Button,
@@ -17,12 +22,24 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
   Input,
   Label,
 } from "@wystack/ui-react";
-import { ArrowUpDownIcon } from "@wystack/ui-react/icons";
+import { DeleteIcon, TableIcon } from "@wystack/ui-react/icons";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
+
+const SORT_OPTIONS = [
+  { value: "name-asc", label: "Name (A–Z)" },
+  { value: "name-desc", label: "Name (Z–A)" },
+  { value: "createdAt-asc", label: "Created (oldest)" },
+  { value: "createdAt-desc", label: "Created (newest)" },
+] as const;
+
+type SortValue = (typeof SORT_OPTIONS)[number]["value"];
 
 function resolveSourceName(
   sourceId: string | undefined,
@@ -60,6 +77,8 @@ export default function DataFramesPage() {
 
   const [editingFrame, setEditingFrame] = useState<DataFrameEntry | null>(null);
   const [editedName, setEditedName] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortValue, setSortValue] = useState<SortValue>("name-asc");
 
   const now = useNow();
 
@@ -75,124 +94,24 @@ export default function DataFramesPage() {
     return map;
   }, [dataTables]);
 
-  const columns = useMemo<ColumnDef<DataFrameEntry>[]>(
-    () => [
-      {
-        accessorKey: "name",
-        header: ({ column }) => {
-          return (
-            <Button
-              variant="ghost"
-              icon={ArrowUpDownIcon}
-              label="Name"
-              onClick={() =>
-                column.toggleSorting(column.getIsSorted() === "asc")
-              }
-            />
-          );
-        },
-        cell: ({ row }) => (
-          <div className="font-medium">{row.original.name}</div>
-        ),
-      },
-      {
-        id: "source",
-        header: "Source",
-        cell: ({ row }) => {
-          const { sourceId, insightId } = row.original;
-          const sourceName = resolveSourceName(
-            sourceId,
-            isLoadingDataSources,
-            dataSourceNameById,
-          );
-          return (
-            <span className="text-neutral-fg-subtle">
-              {sourceName ?? (insightId ? "From Insight" : "Direct Load")}
-            </span>
-          );
-        },
-      },
-      {
-        id: "definition",
-        header: "Definition",
-        cell: ({ row }) => {
-          const { definitionId } = row.original;
-          return (
-            <span className="text-neutral-fg-subtle">
-              {resolveDefinitionName(
-                definitionId,
-                isLoadingDataTables,
-                dataTableNameById,
-              )}
-            </span>
-          );
-        },
-      },
-      {
-        id: "lastRefreshedAt",
-        header: "Last Refreshed",
-        cell: ({ row }) => {
-          const { lastRefreshedAt } = row.original;
-          return (
-            <span className="text-neutral-fg-subtle">
-              {lastRefreshedAt ? formatRelativeTime(now, lastRefreshedAt) : "—"}
-            </span>
-          );
-        },
-      },
-      {
-        id: "dimensions",
-        header: "Dimensions",
-        cell: ({ row }) => {
-          const { rowCount, columnCount } = row.original;
-          return (
-            <span className="text-neutral-fg-subtle">
-              {rowCount ?? "?"} rows × {columnCount ?? "?"} columns
-            </span>
-          );
-        },
-      },
-      {
-        id: "storage",
-        header: "Storage",
-        cell: ({ row }) => {
-          const storageType = row.original.storage?.type;
-          return (
-            <span className="text-neutral-fg-subtle capitalize">
-              {storageType ?? "Unknown"}
-            </span>
-          );
-        },
-      },
-      {
-        accessorKey: "createdAt",
-        header: ({ column }) => {
-          return (
-            <Button
-              variant="ghost"
-              icon={ArrowUpDownIcon}
-              label="Created"
-              onClick={() =>
-                column.toggleSorting(column.getIsSorted() === "asc")
-              }
-            />
-          );
-        },
-        cell: ({ row }) => (
-          <span className="text-neutral-fg-subtle">
-            {new Date(row.original.createdAt).toLocaleDateString()}
-          </span>
-        ),
-      },
-    ],
-    [
-      dataSourceNameById,
-      dataTableNameById,
-      now,
-      isLoadingDataSources,
-      isLoadingDataTables,
-    ],
-  );
+  const filteredDataFrames = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    const [sortKey, sortDirection] = sortValue.split("-") as [
+      "name" | "createdAt",
+      "asc" | "desc",
+    ];
+
+    return (dataFrames ?? [])
+      .filter((entry) => entry.name.toLowerCase().includes(query))
+      .slice()
+      .sort((left, right) => {
+        const comparison =
+          sortKey === "name"
+            ? left.name.localeCompare(right.name)
+            : left.createdAt - right.createdAt;
+        return sortDirection === "asc" ? comparison : -comparison;
+      });
+  }, [dataFrames, searchQuery, sortValue]);
 
   const handleEdit = (entry: DataFrameEntry) => {
     setEditingFrame(entry);
@@ -225,6 +144,63 @@ export default function DataFramesPage() {
     });
   };
 
+  const renderDataFrameCard = (entry: DataFrameEntry) => {
+    const sourceName = resolveSourceName(
+      entry.sourceId,
+      isLoadingDataSources,
+      dataSourceNameById,
+    );
+    const definitionName = resolveDefinitionName(
+      entry.definitionId,
+      isLoadingDataTables,
+      dataTableNameById,
+    );
+    const sourceDisplayName =
+      sourceName ?? (entry.insightId ? "From Insight" : "Direct Load");
+    const dimensions = `${entry.rowCount ?? "?"} rows × ${entry.columnCount ?? "?"} columns`;
+    const lastRefreshed = entry.lastRefreshedAt
+      ? formatRelativeTime(now, entry.lastRefreshedAt)
+      : "—";
+    const storageType = entry.storage?.type ?? "Unknown";
+
+    return (
+      <ArtifactCard
+        key={entry.id}
+        name={entry.name}
+        icon={<TableIcon aria-hidden className="h-5 w-5" />}
+        metadata={
+          <>
+            <span className="block">Source: {sourceDisplayName}</span>
+            <span className="block">Definition: {definitionName}</span>
+            <span className="block">Dimensions: {dimensions}</span>
+            <span className="block">Last refreshed: {lastRefreshed}</span>
+            <span className="block capitalize">Storage: {storageType}</span>
+            <span className="block">
+              Created: {new Date(entry.createdAt).toLocaleDateString()}
+            </span>
+          </>
+        }
+        actions={
+          <DropdownMenu>
+            <RoutedCardActionMenuTrigger />
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => handleEdit(entry)}>
+                Rename
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="text-palette-danger"
+                onClick={() => handleDelete(entry)}
+              >
+                <DeleteIcon className="mr-2 h-4 w-4" />
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        }
+      />
+    );
+  };
+
   // Show loading state
   if (isLoading) {
     return (
@@ -235,26 +211,56 @@ export default function DataFramesPage() {
   }
 
   return (
-    <div className="flex flex-1 flex-col gap-4">
-      <header className="rounded-2xl border border-neutral-border/60 bg-neutral-bg/80 px-6 py-6 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-neutral-bg/60">
-        <h1 className="text-3xl font-bold text-neutral-fg">Data Frames</h1>
-        <p className="mt-2 text-sm text-neutral-fg-subtle">
-          View and manage processed data from your sources
-        </p>
-      </header>
-
-      <section className="flex flex-1 flex-col rounded-2xl border border-neutral-border/60 bg-neutral-bg/80 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-neutral-bg/60">
-        <div className="flex-1 p-6">
-          <DataGrid
-            data={dataFrames ?? []}
-            columns={columns}
-            onEdit={handleEdit}
-            onDelete={handleDelete}
-            emptyMessage="No data frames yet"
-            emptyDescription="Create visualizations from your data sources to generate data frames."
-          />
-        </div>
-      </section>
+    <ArtifactCollection
+      title="Data Frames"
+      description={`${dataFrames?.length ?? 0} data frame${dataFrames?.length === 1 ? "" : "s"}`}
+      searchLabel="Search data frames"
+      searchPlaceholder="Search data frames..."
+      searchQuery={searchQuery}
+      onSearchQueryChange={setSearchQuery}
+      tools={
+        <label className="flex items-center gap-2 text-sm text-neutral-fg-subtle">
+          <span>Sort</span>
+          <select
+            aria-label="Sort data frames"
+            value={sortValue}
+            onChange={(event) => setSortValue(event.target.value as SortValue)}
+            className="h-9 rounded-md border border-neutral-border bg-neutral-bg px-2 text-sm text-neutral-fg"
+          >
+            {SORT_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      }
+    >
+      {filteredDataFrames.length > 0 ? (
+        <ArtifactGrid>
+          {filteredDataFrames.map(renderDataFrameCard)}
+        </ArtifactGrid>
+      ) : (
+        <ArtifactEmptyState
+          title={
+            searchQuery.trim() ? "No data frames found" : "No data frames yet"
+          }
+          description={
+            searchQuery.trim()
+              ? `No data frames match "${searchQuery}"`
+              : "Create visualizations from your data sources to generate data frames."
+          }
+          action={
+            searchQuery.trim() ? (
+              <Button
+                variant="outline"
+                label="Clear search"
+                onClick={() => setSearchQuery("")}
+              />
+            ) : undefined
+          }
+        />
+      )}
 
       <Dialog open={!!editingFrame} onOpenChange={() => setEditingFrame(null)}>
         <DialogContent>
@@ -284,6 +290,6 @@ export default function DataFramesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </ArtifactCollection>
   );
 }

@@ -18,7 +18,6 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import {
   afterEach,
   beforeEach,
@@ -114,14 +113,17 @@ vi.mock("@dashframe/types", async (importOriginal) => {
 vi.mock("@/components/layouts/AppLayout", () => ({
   AppLayout: ({
     children,
+    pageHeader,
     headerContent,
     leftPanel,
   }: {
     children: React.ReactNode;
+    pageHeader?: React.ReactNode;
     headerContent?: React.ReactNode;
     leftPanel?: React.ReactNode;
   }) => (
     <div>
+      {pageHeader}
       {headerContent}
       {leftPanel}
       {children}
@@ -139,83 +141,147 @@ vi.mock("@dashframe/ui", () => ({
   VirtualTable: () => null,
 }));
 
+vi.mock("@/components/artifacts/ArtifactSwitcher", () => ({
+  ArtifactSwitcher: ({
+    label,
+    items,
+    selectedId,
+    onSelect,
+  }: {
+    label: string;
+    items: Array<{ id: string; name: string }>;
+    selectedId: string | null;
+    onSelect: (id: string) => void;
+  }) => (
+    <div data-testid={`${label.toLowerCase()}-switcher`}>
+      <button type="button">
+        {label}:{" "}
+        {items.find((item) => item.id === selectedId)?.name ?? "Select"}
+      </button>
+      {items.map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          aria-label={`${label} option ${item.name}`}
+          onClick={() => onSelect(item.id)}
+        >
+          {item.name}
+        </button>
+      ))}
+    </div>
+  ),
+}));
+
 // Stub UI components — only Button needs a real label so the "Go to Data Sources"
 // button text shows up in the DOM for the not-found assertion.
-vi.mock("@wystack/ui-react", () => ({
-  Badge: ({ children }: { children: React.ReactNode }) => (
-    <span>{children}</span>
-  ),
-  Button: ({ label, onClick }: { label: string; onClick?: () => void }) => (
-    <button onClick={onClick}>{label}</button>
-  ),
-  Card: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  CardContent: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
-  CardHeader: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
-  CardTitle: ({ children }: { children: React.ReactNode }) => (
-    <h3>{children}</h3>
-  ),
-  Dialog: ({ children, open }: { children: React.ReactNode; open: boolean }) =>
-    open ? <div role="dialog">{children}</div> : null,
-  DialogContent: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
-  DialogDescription: ({ children }: { children: React.ReactNode }) => (
-    <p>{children}</p>
-  ),
-  DialogFooter: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
-  DialogHeader: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
-  DialogTitle: ({ children }: { children: React.ReactNode }) => (
-    <h2>{children}</h2>
-  ),
-  DropdownMenu: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
-  DropdownMenuContent: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
-  DropdownMenuItem: ({
-    children,
-    onClick,
-  }: {
-    children: React.ReactNode;
-    onClick?: () => void;
-  }) => <button onClick={onClick}>{children}</button>,
-  DropdownMenuTrigger: ({ render: r }: { render: React.ReactNode }) => <>{r}</>,
-  Input: ({
-    value,
-    onChange,
-    placeholder,
-  }: {
-    value: string;
-    onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void;
-    placeholder?: string;
-  }) => (
-    <input
-      value={value}
-      onChange={onChange}
-      placeholder={placeholder}
-      readOnly={!onChange}
-    />
-  ),
-  ItemCard: ({
-    title,
-    onClick,
-  }: {
-    title: string;
-    onClick?: () => void;
-    icon?: React.ReactNode;
-    subtitle?: string;
-    active?: boolean;
-  }) => <button onClick={onClick}>{title}</button>,
-}));
+vi.mock("@wystack/ui-react", async () => {
+  const React = await import("react");
+  const PopoverContext = React.createContext<{
+    open: boolean;
+    setOpen: (open: boolean) => void;
+  } | null>(null);
+
+  return {
+    Badge: ({ children }: { children: React.ReactNode }) => (
+      <span>{children}</span>
+    ),
+    Button: ({ label, onClick }: { label: string; onClick?: () => void }) => (
+      <button onClick={onClick}>{label}</button>
+    ),
+    Card: ({ children }: { children: React.ReactNode }) => (
+      <div>{children}</div>
+    ),
+    CardContent: ({ children }: { children: React.ReactNode }) => (
+      <div>{children}</div>
+    ),
+    CardHeader: ({ children }: { children: React.ReactNode }) => (
+      <div>{children}</div>
+    ),
+    CardTitle: ({ children }: { children: React.ReactNode }) => (
+      <h3>{children}</h3>
+    ),
+    Dialog: ({
+      children,
+      open,
+    }: {
+      children: React.ReactNode;
+      open: boolean;
+    }) => (open ? <div role="dialog">{children}</div> : null),
+    DialogContent: ({ children }: { children: React.ReactNode }) => (
+      <div>{children}</div>
+    ),
+    DialogDescription: ({ children }: { children: React.ReactNode }) => (
+      <p>{children}</p>
+    ),
+    DialogFooter: ({ children }: { children: React.ReactNode }) => (
+      <div>{children}</div>
+    ),
+    DialogHeader: ({ children }: { children: React.ReactNode }) => (
+      <div>{children}</div>
+    ),
+    DialogTitle: ({ children }: { children: React.ReactNode }) => (
+      <h2>{children}</h2>
+    ),
+    DropdownMenu: ({ children }: { children: React.ReactNode }) => (
+      <div>{children}</div>
+    ),
+    DropdownMenuContent: ({ children }: { children: React.ReactNode }) => (
+      <div>{children}</div>
+    ),
+    DropdownMenuItem: ({
+      children,
+      onClick,
+    }: {
+      children: React.ReactNode;
+      onClick?: () => void;
+    }) => <button onClick={onClick}>{children}</button>,
+    DropdownMenuTrigger: ({ render: r }: { render: React.ReactNode }) => (
+      <>{r}</>
+    ),
+    Popover: ({ children }: { children: React.ReactNode }) => {
+      const [open, setOpen] = React.useState(false);
+      return (
+        <PopoverContext.Provider value={{ open, setOpen }}>
+          <div>{children}</div>
+        </PopoverContext.Provider>
+      );
+    },
+    PopoverTrigger: ({ render: r }: { render: React.ReactNode }) => {
+      const context = React.useContext(PopoverContext);
+      return <span onClick={() => context?.setOpen(!context.open)}>{r}</span>;
+    },
+    PopoverContent: ({ children }: { children: React.ReactNode }) => {
+      const context = React.useContext(PopoverContext);
+      return context?.open ? <div>{children}</div> : null;
+    },
+    Input: ({
+      value,
+      onChange,
+      placeholder,
+    }: {
+      value: string;
+      onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void;
+      placeholder?: string;
+    }) => (
+      <input
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        readOnly={!onChange}
+      />
+    ),
+    ItemCard: ({
+      title,
+      onClick,
+    }: {
+      title: string;
+      onClick?: () => void;
+      icon?: React.ReactNode;
+      subtitle?: string;
+      active?: boolean;
+    }) => <button onClick={onClick}>{title}</button>,
+  };
+});
 
 vi.mock("@wystack/ui-react/icons", () => ({
   DatabaseIcon: () => <span data-testid="db-icon" />,
@@ -254,6 +320,11 @@ const DATA_SOURCE = {
   config: { hasApiKey: false, hasConnectionString: false },
   createdAt: 0,
 } satisfies import("@dashframe/types").DataSource;
+
+function openRenameSource() {
+  fireEvent.click(screen.getByRole("button", { name: "Rename source" }));
+  return screen.getByDisplayValue("My Database");
+}
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
@@ -297,7 +368,7 @@ describe("DataSourcePageContent — loading state contract", () => {
 
     // The source name is rendered in the content (input value);
     // getByDisplayValue throws if absent
-    screen.getByDisplayValue("My Database");
+    openRenameSource();
   });
 
   it("shows 'not found' only after loading completes and the source is genuinely absent", async () => {
@@ -361,7 +432,7 @@ describe("DataSourcePageContent — loading state contract", () => {
 
     // Content renders; not-found never appeared for the real source
     expect(screen.queryByText("Data source not found")).toBeNull();
-    screen.getByDisplayValue("My Database");
+    openRenameSource();
   });
 
   it("creates and opens a visualize-intent insight from the selected table", async () => {
@@ -384,9 +455,6 @@ describe("DataSourcePageContent — loading state contract", () => {
     render(<DataSourcePageContent sourceId={SOURCE_ID} />);
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Orders" }));
-    });
-    await act(async () => {
       fireEvent.click(
         screen.getByRole("button", { name: "Visualize this data" }),
       );
@@ -408,8 +476,9 @@ describe("DataSourcePageContent — loading state contract", () => {
 
     render(<DataSourcePageContent sourceId={SOURCE_ID} />);
 
+    const nameInput = openRenameSource();
     await act(async () => {
-      fireEvent.change(screen.getByDisplayValue("My Database"), {
+      fireEvent.change(nameInput, {
         target: { value: "Renamed Source" },
       });
     });
@@ -434,8 +503,9 @@ describe("DataSourcePageContent — loading state contract", () => {
 
     render(<DataSourcePageContent sourceId={SOURCE_ID} />);
 
+    const nameInput = openRenameSource();
     await act(async () => {
-      fireEvent.change(screen.getByDisplayValue("My Database"), {
+      fireEvent.change(nameInput, {
         target: { value: "Renamed Source" },
       });
     });
@@ -462,7 +532,6 @@ describe("DataSourcePageContent — loading state contract", () => {
 
     render(<DataSourcePageContent sourceId={SOURCE_ID} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Orders" }));
     fireEvent.click(screen.getByRole("button", { name: "Mark safe" }));
 
     expect(mockCommitBatch).toHaveBeenCalledWith({
@@ -484,7 +553,6 @@ describe("DataSourcePageContent — loading state contract", () => {
   });
 
   it("does not delete a data table after cancellation, but deletes it after confirmation", async () => {
-    const user = userEvent.setup();
     mockUseDataSources.mockReturnValue({
       data: [DATA_SOURCE],
       isLoading: false,
@@ -493,30 +561,76 @@ describe("DataSourcePageContent — loading state contract", () => {
       data: [{ id: "table-orders", name: "Orders", fields: [], metrics: [] }],
     });
 
-    render(
+    const view = render(
       <>
         <DataSourcePageContent sourceId={SOURCE_ID} />
         <ConfirmDialog />
       </>,
     );
-    await user.click(screen.getByRole("button", { name: "Orders" }));
-    await user.click(screen.getByRole("button", { name: "Delete Table" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete Table" }));
 
     expect(screen.getByRole("dialog").textContent).toContain(
       'Are you sure you want to delete "Orders"? This deletes the data table. Related DataFrame metadata and storage, and dependent insights, may remain. This action cannot be undone.',
     );
-    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(mockCommitBatch).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("button", { name: "Delete Table" }));
-    await user.click(screen.getByRole("button", { name: "Delete" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete Table" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
     await waitFor(() =>
       expect(mockCommitBatch).toHaveBeenCalledWith({
         commands: [{ path: "deleteNode", args: { id: "table-orders" } }],
       }),
     );
+    mockUseDataTables.mockReturnValue({ data: [] });
+    await act(async () => {
+      view.rerender(
+        <>
+          <DataSourcePageContent sourceId={SOURCE_ID} />
+          <ConfirmDialog />
+        </>,
+      );
+    });
     expect(screen.queryByRole("button", { name: "Delete Table" })).toBeNull();
     screen.getByText("Select a table");
+  });
+
+  it("defaults to the first table and drops a stale selection after the table list changes", async () => {
+    mockUseDataSources.mockReturnValue({
+      data: [DATA_SOURCE],
+      isLoading: false,
+    });
+    mockUseDataTables.mockReturnValue({
+      data: [
+        { id: "table-first", name: "First", fields: [], metrics: [] },
+        { id: "table-second", name: "Second", fields: [], metrics: [] },
+      ],
+    });
+
+    const view = render(<DataSourcePageContent sourceId={SOURCE_ID} />);
+    expect(screen.getByRole("heading", { name: "First" })).toBeTruthy();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Tables option Second" }),
+    );
+    expect(screen.getByRole("heading", { name: "Second" })).toBeTruthy();
+
+    mockUseDataTables.mockReturnValue({
+      data: [
+        {
+          id: "table-replacement",
+          name: "Replacement",
+          fields: [],
+          metrics: [],
+        },
+      ],
+    });
+    await act(async () => {
+      view.rerender(<DataSourcePageContent sourceId={SOURCE_ID} />);
+    });
+
+    expect(screen.getByRole("heading", { name: "Replacement" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Second" })).toBeNull();
   });
 });
 

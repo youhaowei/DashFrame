@@ -1,4 +1,10 @@
 import { RoutedCardActionMenuTrigger } from "@/components/RoutedCardActionMenuTrigger";
+import {
+  ArtifactCollection,
+  ArtifactGrid,
+  ArtifactEmptyState,
+  ArtifactCard,
+} from "@/components/artifacts/ArtifactCollection";
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 import { api } from "@/wystack/api";
 import {
@@ -11,23 +17,16 @@ import {
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@wystack/client";
 import {
-  Badge,
   Button,
-  Card,
-  CardContent,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  Input,
 } from "@wystack/ui-react";
 import {
-  ChartIcon,
   DeleteIcon,
   ExternalLinkIcon,
   FileIcon,
   PlusIcon,
-  SearchIcon,
-  SettingsIcon,
 } from "@wystack/ui-react/icons";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -185,45 +184,6 @@ export default function InsightsPage() {
     };
   }, [filteredInsights]);
 
-  // Get state badge
-  const getStateBadge = (
-    state: "with-viz" | "configured" | "draft",
-    vizCount?: number,
-  ) => {
-    switch (state) {
-      case "with-viz":
-        return (
-          <Badge variant="soft" className="text-xs">
-            {vizCount} viz{vizCount !== 1 ? "s" : ""}
-          </Badge>
-        );
-      case "configured":
-        return (
-          <Badge variant="soft" className="text-xs">
-            Configured
-          </Badge>
-        );
-      case "draft":
-        return (
-          <Badge variant="outline" className="text-xs">
-            Draft
-          </Badge>
-        );
-    }
-  };
-
-  // Get icon for state
-  const getStateIcon = (state: "with-viz" | "configured" | "draft") => {
-    switch (state) {
-      case "with-viz":
-        return <ChartIcon className="h-5 w-5 text-palette-primary" />;
-      case "configured":
-        return <SettingsIcon className="h-5 w-5 text-neutral-fg-subtle" />;
-      case "draft":
-        return <FileIcon className="h-5 w-5 text-neutral-fg-subtle" />;
-    }
-  };
-
   // Handle delete insight
   const handleDeleteInsight = (
     insightId: UUID,
@@ -285,237 +245,190 @@ export default function InsightsPage() {
     });
   };
 
-  // Render insight card
+  // Render insight row
   const renderInsightCard = (item: (typeof insights)[0]) => (
-    <Card
+    <ArtifactCard
       key={item.insight.id}
-      className="group cursor-pointer transition-shadow hover:shadow-md"
-      onClick={() => navigate({ to: `/insights/${item.insight.id}` } as never)}
-    >
-      <CardContent className="p-4">
-        <div className="flex items-start gap-4">
-          {/* Icon */}
-          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-neutral-bg-muted">
-            {getStateIcon(item.state)}
-          </div>
-
-          {/* Info */}
-          <div className="min-w-0 flex-1">
-            <div className="mb-1 flex items-center gap-2">
-              <h4 className="truncate font-medium">{item.insight.name}</h4>
-              {getStateBadge(item.state, item.visualizationCount)}
-            </div>
-            <p className="text-xs text-neutral-fg-subtle">
-              {item.dataTable?.name || "Unknown table"}
-              {item.sourceType && ` • ${item.sourceType}`}
-            </p>
-            <p className="mt-1 text-xs text-neutral-fg-subtle">
-              Created{" "}
-              {new Date(item.insight.createdAt).toLocaleDateString("en-US", {
-                month: "short",
-                day: "numeric",
-                year: "numeric",
-              })}
-            </p>
-          </div>
-
-          {/* Actions */}
-          <div className="shrink-0">
-            <DropdownMenu>
-              <RoutedCardActionMenuTrigger />
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    navigate({ to: `/insights/${item.insight.id}` } as never);
-                  }}
-                >
-                  <ExternalLinkIcon className="mr-2 h-4 w-4" />
-                  Open
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  className="text-palette-danger"
-                  onClick={(e) =>
-                    handleDeleteInsight(
-                      item.insight.id,
-                      item.insight.name,
-                      e as unknown as React.MouseEvent,
-                    )
-                  }
-                >
-                  <DeleteIcon className="mr-2 h-4 w-4" />
-                  Delete
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
+      to={`/insights/${item.insight.id}`}
+      name={item.insight.name}
+      icon={<FileIcon className="h-5 w-5" />}
+      metadata={
+        <>
+          {item.dataTable?.name || "Unknown table"}
+          {item.sourceType && (
+            <>
+              <span aria-hidden="true"> · </span> {item.sourceType}
+            </>
+          )}
+        </>
+      }
+      actions={
+        <DropdownMenu>
+          <RoutedCardActionMenuTrigger />
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              onClick={(e) => {
+                e.stopPropagation();
+                navigate({ to: `/insights/${item.insight.id}` } as never);
+              }}
+            >
+              <ExternalLinkIcon className="mr-2 h-4 w-4" />
+              Open
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="text-palette-danger"
+              onClick={(e) =>
+                handleDeleteInsight(
+                  item.insight.id,
+                  item.insight.name,
+                  e as unknown as React.MouseEvent,
+                )
+              }
+            >
+              <DeleteIcon className="mr-2 h-4 w-4" />
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      }
+    />
   );
 
   return (
-    <div className="flex h-full flex-col bg-neutral-bg">
-      {/* Header */}
-      <header className="sticky top-0 z-10 border-b bg-neutral-bg/90 backdrop-blur-sm">
-        <div className="container mx-auto px-6 py-4">
-          <div className="mb-4 flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold">Insights</h1>
-              <p className="text-sm text-neutral-fg-subtle">
-                {insights.length} insight{insights.length !== 1 ? "s" : ""}{" "}
-                total
-              </p>
+    <ArtifactCollection
+      title="Insights"
+      description={
+        <>
+          {insights.length} insight{insights.length !== 1 ? "s" : ""}
+        </>
+      }
+      actions={
+        <Button
+          icon={PlusIcon}
+          label="New Insight"
+          onClick={() => setIsCreateModalOpen(true)}
+        />
+      }
+      searchLabel="Search insights"
+      searchPlaceholder="Search insights..."
+      searchQuery={searchQuery}
+      onSearchQueryChange={setSearchQuery}
+    >
+      <div className="w-full space-y-8">
+        {isLoading && (
+          <div className="flex items-center justify-center py-16">
+            <p className="text-sm text-neutral-fg-subtle">Loading insights…</p>
+          </div>
+        )}
+        {!isLoading && hasLoadError && (
+          <div className="flex flex-col items-center justify-center py-16">
+            <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-neutral-bg-muted">
+              <FileIcon className="h-8 w-8 text-neutral-fg-subtle" />
             </div>
+            <h3 className="mb-2 text-lg font-semibold">
+              Couldn&apos;t load insights
+            </h3>
+            <p className="mb-4 text-sm text-neutral-fg-subtle">
+              Something went wrong. Check your connection and try again.
+            </p>
             <Button
-              icon={PlusIcon}
-              label="New Insight"
-              onClick={() => setIsCreateModalOpen(true)}
+              variant="outline"
+              label="Try again"
+              onClick={() => {
+                refetchInsights();
+                refetchVisualizations();
+              }}
             />
           </div>
-          <div className="relative">
-            <SearchIcon className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-neutral-fg-subtle" />
-            <Input
-              placeholder="Search insights..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9"
-            />
-          </div>
-        </div>
-      </header>
-
-      {/* Content */}
-      <main className="flex-1 overflow-y-auto">
-        <div className="container mx-auto max-w-4xl space-y-8 px-6 py-6">
-          {isLoading && (
-            <div className="flex items-center justify-center py-16">
-              <p className="text-sm text-neutral-fg-subtle">
-                Loading insights…
-              </p>
-            </div>
-          )}
-          {!isLoading && hasLoadError && (
-            <div className="flex flex-col items-center justify-center py-16">
-              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-neutral-bg-muted">
-                <FileIcon className="h-8 w-8 text-neutral-fg-subtle" />
-              </div>
-              <h3 className="mb-2 text-lg font-semibold">
-                Couldn&apos;t load insights
-              </h3>
-              <p className="mb-4 text-sm text-neutral-fg-subtle">
-                Something went wrong. Check your connection and try again.
-              </p>
-              <Button
-                variant="outline"
-                label="Try again"
-                onClick={() => {
-                  refetchInsights();
-                  refetchVisualizations();
-                }}
-              />
-            </div>
-          )}
-          {!isLoading && !hasLoadError && (
-            <>
-              {/* With Visualizations */}
-              {groupedInsights.withViz.length > 0 && (
-                <section className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h2 className="text-sm font-semibold text-neutral-fg-subtle">
-                      With Visualizations ({groupedInsights.withViz.length})
-                    </h2>
-                  </div>
-                  <div className="grid gap-3">
-                    {groupedInsights.withViz.map(renderInsightCard)}
-                  </div>
-                </section>
-              )}
-
-              {/* Configured */}
-              {groupedInsights.configured.length > 0 && (
-                <section className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h2 className="text-sm font-semibold text-neutral-fg-subtle">
-                      Configured ({groupedInsights.configured.length})
-                    </h2>
-                  </div>
-                  <div className="grid gap-3">
-                    {groupedInsights.configured.map(renderInsightCard)}
-                  </div>
-                </section>
-              )}
-
-              {/* Drafts */}
-              {groupedInsights.drafts.length > 0 && (
-                <section className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h2 className="text-sm font-semibold text-neutral-fg-subtle">
-                      Drafts ({groupedInsights.drafts.length})
-                    </h2>
-                    <Button
-                      variant="ghost"
-                      icon={DeleteIcon}
-                      label={hasActiveSearch ? "Delete matching" : "Delete all"}
-                      size="sm"
-                      color="danger"
-                      className="text-palette-danger hover:text-palette-danger"
-                      onClick={handleDeleteAllDrafts}
-                    />
-                  </div>
-                  <div className="grid gap-3">
-                    {groupedInsights.drafts.map(renderInsightCard)}
-                  </div>
-                </section>
-              )}
-
-              {/* Empty State */}
-              {filteredInsights.length === 0 && (
-                <div className="flex flex-col items-center justify-center py-16">
-                  <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-neutral-bg-muted">
-                    <FileIcon className="h-8 w-8 text-neutral-fg-subtle" />
-                  </div>
-                  {searchQuery ? (
-                    <>
-                      <h3 className="mb-2 text-lg font-semibold">
-                        No insights found
-                      </h3>
-                      <p className="mb-4 text-sm text-neutral-fg-subtle">
-                        No insights match &quot;{searchQuery}&quot;
-                      </p>
-                      <Button
-                        variant="outline"
-                        label="Clear search"
-                        onClick={() => setSearchQuery("")}
-                      />
-                    </>
-                  ) : (
-                    <>
-                      <h3 className="mb-2 text-lg font-semibold">
-                        No insights yet
-                      </h3>
-                      <p className="mb-4 text-sm text-neutral-fg-subtle">
-                        Create your first insight to start analyzing data
-                      </p>
-                      <Button
-                        icon={PlusIcon}
-                        label="New Insight"
-                        onClick={() => setIsCreateModalOpen(true)}
-                      />
-                    </>
-                  )}
+        )}
+        {!isLoading && !hasLoadError && (
+          <>
+            {/* With Visualizations */}
+            {groupedInsights.withViz.length > 0 && (
+              <section className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-sm font-semibold text-neutral-fg-subtle">
+                    With Visualizations ({groupedInsights.withViz.length})
+                  </h2>
                 </div>
-              )}
-            </>
-          )}
-        </div>
-      </main>
+                <ArtifactGrid>
+                  {groupedInsights.withViz.map(renderInsightCard)}
+                </ArtifactGrid>
+              </section>
+            )}
+
+            {/* Configured */}
+            {groupedInsights.configured.length > 0 && (
+              <section className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-sm font-semibold text-neutral-fg-subtle">
+                    Configured ({groupedInsights.configured.length})
+                  </h2>
+                </div>
+                <ArtifactGrid>
+                  {groupedInsights.configured.map(renderInsightCard)}
+                </ArtifactGrid>
+              </section>
+            )}
+
+            {/* Drafts */}
+            {groupedInsights.drafts.length > 0 && (
+              <section className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-sm font-semibold text-neutral-fg-subtle">
+                    Drafts ({groupedInsights.drafts.length})
+                  </h2>
+                  <Button
+                    variant="ghost"
+                    icon={DeleteIcon}
+                    label={hasActiveSearch ? "Delete matching" : "Delete all"}
+                    size="sm"
+                    color="danger"
+                    className="text-palette-danger hover:text-palette-danger"
+                    onClick={handleDeleteAllDrafts}
+                  />
+                </div>
+                <ArtifactGrid>
+                  {groupedInsights.drafts.map(renderInsightCard)}
+                </ArtifactGrid>
+              </section>
+            )}
+
+            {/* Empty State */}
+            {filteredInsights.length === 0 && (
+              <ArtifactEmptyState
+                title={searchQuery ? "No insights found" : "No insights yet"}
+                description={
+                  searchQuery
+                    ? `No insights match "${searchQuery}"`
+                    : "Create your first insight to start analyzing data"
+                }
+                action={
+                  searchQuery ? (
+                    <Button
+                      variant="outline"
+                      label="Clear search"
+                      onClick={() => setSearchQuery("")}
+                    />
+                  ) : (
+                    <Button
+                      icon={PlusIcon}
+                      label="New Insight"
+                      onClick={() => setIsCreateModalOpen(true)}
+                    />
+                  )
+                }
+              />
+            )}
+          </>
+        )}
+      </div>
 
       {/* Create Modal */}
       <CreateVisualizationModal
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
       />
-    </div>
+    </ArtifactCollection>
   );
 }

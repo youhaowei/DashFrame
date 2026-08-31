@@ -1,4 +1,10 @@
 import { RoutedCardActionMenuTrigger } from "@/components/RoutedCardActionMenuTrigger";
+import {
+  ArtifactCollection,
+  ArtifactGrid,
+  ArtifactEmptyState,
+  ArtifactCard,
+} from "@/components/artifacts/ArtifactCollection";
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 import { useConfirmDialogStore } from "@/lib/stores";
 import { resolveInsightSourceDataTable } from "@/hooks/useInsightPagination";
@@ -12,14 +18,10 @@ import {
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@wystack/client";
 import {
-  Badge,
   Button,
-  Card,
-  CardContent,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  Input,
 } from "@wystack/ui-react";
 import {
   ChartIcon,
@@ -27,7 +29,6 @@ import {
   DeleteIcon,
   ExternalLinkIcon,
   PlusIcon,
-  SearchIcon,
   TableIcon,
 } from "@wystack/ui-react/icons";
 import { useMemo, useState } from "react";
@@ -167,97 +168,73 @@ export default function VisualizationsPage() {
     });
   };
 
-  // Render visualization card
+  // Render visualization row
   const renderVisualizationCard = (item: VisualizationWithDetails) => (
-    <Card
+    <ArtifactCard
       key={item.visualization.id}
-      className="group cursor-pointer transition-shadow hover:shadow-md"
-      onClick={() =>
-        navigate({ to: `/visualizations/${item.visualization.id}` } as never)
-      }
-    >
-      <CardContent className="p-4">
-        <div className="flex items-start gap-4">
-          {/* Icon */}
-          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-neutral-bg-muted">
-            {getTypeIcon(item.visualization.visualizationType)}
-          </div>
-
-          {/* Info */}
-          <div className="min-w-0 flex-1">
-            <div className="mb-1 flex items-center gap-2">
-              <h4 className="truncate font-medium">
-                {item.visualization.name}
-              </h4>
-              <Badge variant="soft" className="text-xs">
-                {getTypeLabel(item.visualization.visualizationType)}
-              </Badge>
-            </div>
-            {item.insight && (
-              <p className="text-xs text-neutral-fg-subtle">
-                From: {item.insight.name}
-                {item.sourceType && ` • ${item.sourceType}`}
-              </p>
-            )}
-            {item.visualization.encoding && (
-              <p className="text-xs text-neutral-fg-subtle">
-                {item.visualization.encoding.x &&
-                  `X: ${item.visualization.encoding.x}`}
-                {item.visualization.encoding.x &&
-                  item.visualization.encoding.y &&
-                  " • "}
-                {item.visualization.encoding.y &&
-                  `Y: ${item.visualization.encoding.y}`}
-              </p>
-            )}
-            <p className="mt-1 text-xs text-neutral-fg-subtle">
-              Created{" "}
-              {new Date(item.visualization.createdAt).toLocaleDateString(
-                "en-US",
-                {
-                  month: "short",
-                  day: "numeric",
-                  year: "numeric",
-                },
+      to={`/visualizations/${item.visualization.id}`}
+      name={item.visualization.name}
+      icon={getTypeIcon(item.visualization.visualizationType)}
+      metadata={
+        <>
+          {getTypeLabel(item.visualization.visualizationType)}
+          {item.insight && (
+            <>
+              <span aria-hidden="true"> · </span> From: {item.insight.name}
+              {item.sourceType && (
+                <>
+                  <span aria-hidden="true"> · </span> {item.sourceType}
+                </>
               )}
-            </p>
-          </div>
-
-          {/* Actions */}
-          <div className="shrink-0">
-            <DropdownMenu>
-              <RoutedCardActionMenuTrigger />
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    navigate({
-                      to: `/visualizations/${item.visualization.id}`,
-                    } as never);
-                  }}
-                >
-                  <ExternalLinkIcon className="mr-2 h-4 w-4" />
-                  Open
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  className="text-palette-danger"
-                  onClick={(e) =>
-                    handleDeleteVisualization(
-                      item.visualization.id,
-                      item.visualization.name,
-                      e as unknown as React.MouseEvent,
-                    )
-                  }
-                >
-                  <DeleteIcon className="mr-2 h-4 w-4" />
-                  Delete
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
+            </>
+          )}
+          {(item.visualization.encoding?.x ||
+            item.visualization.encoding?.y) && (
+            <>
+              <span aria-hidden="true"> · </span>{" "}
+              {item.visualization.encoding.x &&
+                `X: ${item.visualization.encoding.x}`}
+              {item.visualization.encoding.x &&
+                item.visualization.encoding.y &&
+                " · "}
+              {item.visualization.encoding.y &&
+                `Y: ${item.visualization.encoding.y}`}
+            </>
+          )}
+        </>
+      }
+      actions={
+        <DropdownMenu>
+          <RoutedCardActionMenuTrigger />
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              onClick={(e) => {
+                e.stopPropagation();
+                navigate({
+                  to: `/visualizations/${item.visualization.id}`,
+                } as never);
+              }}
+            >
+              <ExternalLinkIcon className="mr-2 h-4 w-4" />
+              Open
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="text-palette-danger"
+              onClick={(e) =>
+                handleDeleteVisualization(
+                  item.visualization.id,
+                  item.visualization.name,
+                  e as unknown as React.MouseEvent,
+                )
+              }
+            >
+              <DeleteIcon className="mr-2 h-4 w-4" />
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      }
+    />
   );
 
   // Show loading state
@@ -270,83 +247,57 @@ export default function VisualizationsPage() {
   }
 
   return (
-    <div className="flex h-full flex-col bg-neutral-bg">
-      {/* Header */}
-      <header className="sticky top-0 z-10 border-b bg-neutral-bg/90 backdrop-blur-sm">
-        <div className="container mx-auto px-6 py-4">
-          <div className="mb-4 flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold">Visualizations</h1>
-              <p className="text-sm text-neutral-fg-subtle">
-                {visualizationsData.length} visualization
-                {visualizationsData.length !== 1 ? "s" : ""} created
-              </p>
-            </div>
-            <Button
-              icon={PlusIcon}
-              label="New Visualization"
-              onClick={() => setIsCreateModalOpen(true)}
-            />
-          </div>
-          <div className="relative">
-            <SearchIcon className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-neutral-fg-subtle" />
-            <Input
-              placeholder="Search visualizations..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9"
-            />
-          </div>
-        </div>
-      </header>
-
-      {/* Content */}
-      <main className="flex-1 overflow-y-auto">
-        <div className="container mx-auto max-w-4xl px-6 py-6">
-          {/* Visualizations List */}
-          {filteredVisualizations.length > 0 ? (
-            <div className="grid gap-3">
-              {filteredVisualizations.map(renderVisualizationCard)}
-            </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center py-16">
-              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-neutral-bg-muted">
-                <ChartIcon className="h-8 w-8 text-neutral-fg-subtle" />
-              </div>
-              {searchQuery ? (
-                <>
-                  <h3 className="mb-2 text-lg font-semibold">
-                    No visualizations found
-                  </h3>
-                  <p className="mb-4 text-sm text-neutral-fg-subtle">
-                    No visualizations match &quot;{searchQuery}&quot;
-                  </p>
-                  <Button
-                    variant="outline"
-                    label="Clear search"
-                    onClick={() => setSearchQuery("")}
-                  />
-                </>
-              ) : (
-                <>
-                  <h3 className="mb-2 text-lg font-semibold">
-                    No visualizations yet
-                  </h3>
-                  <p className="mb-4 text-sm text-neutral-fg-subtle">
-                    Create your first visualization to see your data come to
-                    life
-                  </p>
-                  <Button
-                    icon={PlusIcon}
-                    label="New Visualization"
-                    onClick={() => setIsCreateModalOpen(true)}
-                  />
-                </>
-              )}
-            </div>
-          )}
-        </div>
-      </main>
+    <ArtifactCollection
+      title="Visualizations"
+      description={
+        <>
+          {visualizationsData.length} visualization
+          {visualizationsData.length !== 1 ? "s" : ""}
+        </>
+      }
+      actions={
+        <Button
+          icon={PlusIcon}
+          label="New Visualization"
+          onClick={() => setIsCreateModalOpen(true)}
+        />
+      }
+      searchLabel="Search visualizations"
+      searchPlaceholder="Search visualizations..."
+      searchQuery={searchQuery}
+      onSearchQueryChange={setSearchQuery}
+    >
+      {filteredVisualizations.length > 0 ? (
+        <ArtifactGrid>
+          {filteredVisualizations.map(renderVisualizationCard)}
+        </ArtifactGrid>
+      ) : (
+        <ArtifactEmptyState
+          title={
+            searchQuery ? "No visualizations found" : "No visualizations yet"
+          }
+          description={
+            searchQuery
+              ? `No visualizations match "${searchQuery}"`
+              : "Create your first visualization to see your data come to life"
+          }
+          action={
+            searchQuery ? (
+              <Button
+                variant="outline"
+                label="Clear search"
+                onClick={() => setSearchQuery("")}
+              />
+            ) : (
+              <Button
+                icon={PlusIcon}
+                label="New Visualization"
+                onClick={() => setIsCreateModalOpen(true)}
+              />
+            )
+          }
+        />
+      )}
 
       {/* Create Modal */}
       <CreateVisualizationModal
@@ -354,6 +305,6 @@ export default function VisualizationsPage() {
         onClose={() => setIsCreateModalOpen(false)}
         visualizeOnCreate
       />
-    </div>
+    </ArtifactCollection>
   );
 }

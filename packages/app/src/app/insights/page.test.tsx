@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
@@ -25,7 +25,22 @@ vi.mock("@wystack/client", async (importOriginal) => {
   };
 });
 
-vi.mock("@tanstack/react-router", () => ({ useNavigate: () => mockNavigate }));
+vi.mock("@tanstack/react-router", () => ({
+  Link: ({
+    children,
+    to,
+    className,
+  }: {
+    children: React.ReactNode;
+    to: string;
+    className?: string;
+  }) => (
+    <a href={to} className={className}>
+      {children}
+    </a>
+  ),
+  useNavigate: () => mockNavigate,
+}));
 vi.mock("@/components/visualizations/CreateVisualizationModal", () => ({
   CreateVisualizationModal: () => null,
 }));
@@ -158,9 +173,10 @@ describe("InsightsPage delete confirmations", () => {
 
     render(<InsightsPage />);
 
-    const card = screen.getByText("Composed report").closest(".group");
-    expect(card).not.toBeNull();
-    expect(within(card!).getByText("Root Orders • csv")).not.toBeNull();
+    const link = screen.getByRole("link", {
+      name: /Composed report.*Root Orders.*csv/,
+    });
+    expect(link.getAttribute("href")).toBe("/insights/composed");
   });
 
   it("shows the draft count and does not start the bulk delete until confirmation", async () => {

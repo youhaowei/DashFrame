@@ -1,3 +1,5 @@
+import { ArtifactPageHeader } from "@/components/artifacts/ArtifactPageHeader";
+import { Breadcrumb } from "@dashframe/ui";
 import { useBindArtifact } from "@/components/assistant/artifact-context";
 import { DashboardControlBar } from "@/components/dashboards/DashboardControlBar";
 import { DashboardGrid } from "@/components/dashboards/DashboardGrid";
@@ -12,7 +14,7 @@ import {
   type InsightFilter,
   type UUID,
 } from "@dashframe/types";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@wystack/client";
 import {
   Button,
@@ -28,7 +30,6 @@ import {
   SelectValue,
 } from "@wystack/ui-react";
 import {
-  ArrowLeftIcon,
   ChartIcon,
   CheckIcon,
   EditIcon,
@@ -199,50 +200,45 @@ export default function DashboardDetailContent({
 
   return (
     <div className="flex h-full flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-neutral-border/60 px-6 py-4">
-        <div className="flex items-center gap-4">
-          <Button
-            variant="ghost"
-            icon={ArrowLeftIcon}
-            iconOnly
-            label="Back to dashboards"
-            onClick={() => navigate({ to: "/dashboards" })}
+      <ArtifactPageHeader
+        title={dashboard.name}
+        description={`${dashboard.items.length} items`}
+        navigation={
+          <Breadcrumb
+            LinkComponent={Link}
+            items={[
+              { label: "Dashboards", to: "/dashboards" },
+              { label: dashboard.name },
+            ]}
           />
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight text-neutral-fg">
-              {dashboard.name}
-            </h1>
-            <p className="text-sm text-neutral-fg-subtle">
-              {dashboard.items.length} items
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {isEditable ? (
-            <Button
-              icon={CheckIcon}
-              label="Done Editing"
-              onClick={() => setIsEditable(false)}
-            />
-          ) : (
-            <Button
-              variant="outline"
-              icon={EditIcon}
-              label="Edit Dashboard"
-              onClick={() => setIsEditable(true)}
-            />
-          )}
-          {isEditable && (
-            <Button
-              color="secondary"
-              icon={PlusIcon}
-              label="Add Widget"
-              onClick={() => setIsAddOpen(true)}
-            />
-          )}
-        </div>
-      </div>
+        }
+        actions={
+          <>
+            {isEditable ? (
+              <Button
+                icon={CheckIcon}
+                label="Done Editing"
+                onClick={() => setIsEditable(false)}
+              />
+            ) : (
+              <Button
+                variant="outline"
+                icon={EditIcon}
+                label="Edit Dashboard"
+                onClick={() => setIsEditable(true)}
+              />
+            )}
+            {isEditable && (
+              <Button
+                color="secondary"
+                icon={PlusIcon}
+                label="Add Widget"
+                onClick={() => setIsAddOpen(true)}
+              />
+            )}
+          </>
+        }
+      />
 
       {/* Control Bar — only rendered when the dashboard has controls */}
       {(dashboard.controls ?? []).length > 0 && (
