@@ -45,7 +45,8 @@ async function expectFieldSaved(page: Page, name: string, present: boolean) {
       const field = tables
         .find((table) => table.id === insight.source.sourceId)
         ?.fields.find((field) => field.name === name);
-      return !!field && insight.selectedFields.includes(field.id);
+      expect(field, `Source field ${name} remains available`).toBeDefined();
+      return insight.selectedFields.includes(field!.id);
     })
     .toBe(present);
 }

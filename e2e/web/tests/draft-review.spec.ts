@@ -177,7 +177,7 @@ test.describe("draft review", () => {
 
     await expect(
       mutate("commitBatch", { commands: [] }, serviceToken),
-    ).rejects.toThrow("User permission required");
+    ).rejects.toThrow();
     await expect(
       mutate(
         "reviseDraft",
@@ -188,13 +188,29 @@ test.describe("draft review", () => {
         },
         serviceToken,
       ),
-    ).rejects.toThrow("User permission required");
+    ).rejects.toThrow();
     expect(
       (await query<{ logSignature: string }>("draftPublishReview", { draftId }))
         .logSignature,
     ).toBe(review.logSignature);
 
-    // The denials left the draft intact and canonical untouched.
+    // Production Convex hides plain server error messages. Verify the denials
+    // left state intact, then prove these same payloads are valid for a user.
+    expect(await query<unknown[]>("listDataSources", {})).toHaveLength(0);
+    await mutate("commitBatch", { commands: [] }, USER_TOKEN);
+    await mutate(
+      "reviseDraft",
+      {
+        draftId,
+        expectedLogSignature: review.logSignature,
+        ops: [{ type: "removeCommand", commandIndex: 4 }],
+      },
+      USER_TOKEN,
+    );
+    expect(
+      (await query<{ logSignature: string }>("draftPublishReview", { draftId }))
+        .logSignature,
+    ).not.toBe(review.logSignature);
     expect(await query<unknown[]>("listDataSources", {})).toHaveLength(0);
   });
 

@@ -1,7 +1,7 @@
 # DashFrame web E2E tests
 
 The Playwright specs in `tests/` cover CSV and JSON imports, chart editing,
-compound insight edits, dashboards, draft review, and error handling. Test files
+compound insight edits, dashboards, draft review, and error handling. Sample data files
 live in `fixtures/`; shared browser and API helpers live in `lib/`.
 
 From the repository root, install dependencies, build the vendored packages,
