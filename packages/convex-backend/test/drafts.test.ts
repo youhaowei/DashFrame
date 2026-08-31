@@ -472,3 +472,29 @@ it("rejects an oversized append before it creates an unpublishable draft", async
     (await user().query(api.app.getDataTable, { id: tableId }))?.name,
   ).toBe("Name 199");
 });
+it("reports initialized project identity only inside the authenticated workspace", async () => {
+  await expect(user().query(api.app.projectInfo, {})).rejects.toThrow(
+    "not initialized",
+  );
+  const projectId = uuid();
+  await t.mutation(internal.host.initializeProject, {
+    workspaceId: "w",
+    projectId,
+    name: "Workspace",
+    version: "0.3.0",
+    schemaVersion: 1,
+    createdBy: "u",
+  });
+  const info = await user().query(api.app.projectInfo, {});
+  expect(info).toMatchObject({
+    projectId,
+    name: "Workspace",
+    version: "0.3.0",
+    schemaVersion: 1,
+    createdBy: "u",
+  });
+  expect(new Date(info.createdAt).toISOString()).toBe(info.createdAt);
+  await expect(user("other").query(api.app.projectInfo, {})).rejects.toThrow(
+    "not initialized",
+  );
+});

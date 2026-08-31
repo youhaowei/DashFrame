@@ -7,7 +7,8 @@
     "./api": "./convex/_generated/api.ts",
     "./model": "./convex/model.ts",
     "./package.json": "./package.json",
-    "./codecs": "./convex/codecs.ts"
+    "./codecs": "./convex/codecs.ts",
+    "./schema": "./convex/schema.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

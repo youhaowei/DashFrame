@@ -637,3 +637,30 @@ export const updateDataFrameEntry = mutation({
     return { ok: true as const };
   },
 });
+export const projectInfo = query({
+  args: {},
+  returns: v.object({
+    projectId: v.string(),
+    name: v.string(),
+    version: v.string(),
+    schemaVersion: v.number(),
+    createdAt: v.string(),
+    createdBy: v.string(),
+  }),
+  handler: async (ctx) => {
+    const who = await principal(ctx);
+    const row = await ctx.db
+      .query("workspaces")
+      .withIndex("by_workspaceId", (q) => q.eq("workspaceId", who.workspaceId))
+      .unique();
+    if (!row) throw new Error("Project not initialized");
+    return {
+      projectId: row.projectId,
+      name: row.name,
+      version: row.version,
+      schemaVersion: row.schemaVersion,
+      createdAt: new Date(row.createdAt).toISOString(),
+      createdBy: row.createdBy,
+    };
+  },
+});
