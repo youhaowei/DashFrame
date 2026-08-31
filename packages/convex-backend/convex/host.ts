@@ -10,7 +10,7 @@ import {
   type QueryCtx,
   type MutationCtx,
 } from "./_generated/server";
-import { artifact } from "./schema";
+import { artifact, localImportState } from "./schema";
 import {
   object,
   json,
@@ -201,9 +201,40 @@ export const commitImportedFrame = internalMutation({
     frameRow: object,
     tableUpdate: object,
     operationId: v.optional(v.string()),
+    requestHash: v.optional(v.string()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    let claim: Awaited<ReturnType<typeof importClaim>> = null;
+    if (args.requestHash !== undefined) {
+      if (!args.operationId)
+        throw new Error("Import requestHash requires operationId");
+      claim = await importClaim(
+        ctx,
+        args.workspaceId,
+        args.operationId,
+        args.requestHash,
+      );
+      if (!claim) throw new Error("Local import claim missing");
+      if (claim.frameId !== args.frameRow.id)
+        throw new Error("Local import frame differs from claim");
+      if (claim.status === "complete") return null;
+      if (
+        args.tableUpdate.lastFetchedAt !== claim.fetchedAt ||
+        args.frameRow.lastRefreshedAt !== claim.fetchedAt
+      )
+        throw new Error("Local import timestamp differs from claim");
+      for (const key of ["rowCount", "columnCount"]) {
+        const count = args.frameRow[key];
+        if (
+          typeof count !== "number" ||
+          !Number.isSafeInteger(count) ||
+          count < 0
+        )
+          throw new Error(`Invalid imported ${key}`);
+      }
+    }
+
     const request = clean({
         dataTableId: args.dataTableId,
         dataSourceId: args.dataSourceId,
@@ -211,7 +242,9 @@ export const commitImportedFrame = internalMutation({
         frameRow: sanitizedAnalysis(args.frameRow),
         tableUpdate: args.tableUpdate,
       }),
-      op = args.operationId ?? `import:${String(args.frameRow.id)}`;
+      op = claim
+        ? `local-import:${args.operationId}`
+        : (args.operationId ?? `import:${String(args.frameRow.id)}`);
     if (await operation(ctx, args.workspaceId, op, request)) return null;
     const table = await find(
       ctx,
@@ -264,6 +297,16 @@ export const commitImportedFrame = internalMutation({
       request,
       result: null,
     });
+    if (claim)
+      await ctx.db.patch(claim._id, {
+        status: "complete",
+        result: {
+          dataFrameId: claim.frameId,
+          rowCount: args.frameRow.rowCount as number,
+          columnCount: args.frameRow.columnCount as number,
+          fetchedAt: claim.fetchedAt,
+        },
+      });
     return null;
   },
 });
@@ -751,5 +794,70 @@ export const clearAllData = internalMutation({
       for (const row of rows) await ctx.db.delete(row._id);
     }
     return null;
+  },
+});
+
+async function importClaim(
+  ctx: QueryCtx,
+  workspaceId: string,
+  operationId: string,
+  requestHash: string,
+) {
+  if (!operationId || operationId.length > 200)
+    throw new Error("Invalid local import operationId");
+  if (!/^[0-9a-f]{64}$/i.test(requestHash))
+    throw new Error("Local import requestHash must be SHA256");
+  const row = await ctx.db
+    .query("localImports")
+    .withIndex("by_workspaceId_and_operationId", (q) =>
+      q.eq("workspaceId", workspaceId).eq("operationId", operationId),
+    )
+    .unique();
+  if (row && row.requestHash !== requestHash)
+    throw new Error("Local import operationId reused with different request");
+  return row;
+}
+const importClaimArgs = {
+  ...workspace,
+  operationId: v.string(),
+  requestHash: v.string(),
+};
+export const beginLocalImport = internalMutation({
+  args: importClaimArgs,
+  returns: localImportState,
+  handler: async (ctx, args) => {
+    const current = await importClaim(
+      ctx,
+      args.workspaceId,
+      args.operationId,
+      args.requestHash,
+    );
+    if (current) {
+      const { frameId, fetchedAt, status, result } = current;
+      return { frameId, fetchedAt, status, result };
+    }
+    const state = {
+      frameId: crypto.randomUUID(),
+      fetchedAt: Date.now(),
+      status: "pending" as const,
+      result: null,
+    };
+    await ctx.db.insert("localImports", { ...args, ...state });
+    return state;
+  },
+});
+export const getLocalImport = internalQuery({
+  args: importClaimArgs,
+  returns: v.union(localImportState, v.null()),
+  handler: async (ctx, args) => {
+    const current = await importClaim(
+      ctx,
+      args.workspaceId,
+      args.operationId,
+      args.requestHash,
+    );
+    if (!current) return null;
+    const { frameId, fetchedAt, status, result } = current;
+    return { frameId, fetchedAt, status, result };
   },
 });

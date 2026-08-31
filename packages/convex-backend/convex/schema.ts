@@ -41,6 +41,18 @@ export const artifactFields = {
   controls: v.optional(json),
 };
 export const artifact = v.object(artifactFields);
+export const localImportResult = v.object({
+  dataFrameId: v.string(),
+  rowCount: v.number(),
+  columnCount: v.number(),
+  fetchedAt: v.number(),
+});
+export const localImportState = v.object({
+  frameId: v.string(),
+  fetchedAt: v.number(),
+  status: v.union(v.literal("pending"), v.literal("complete")),
+  result: v.union(localImportResult, v.null()),
+});
 const artifactTable = () =>
   defineTable(artifactFields)
     .index("by_workspaceId_and_id", ["workspaceId", "id"])
@@ -116,6 +128,12 @@ export default defineSchema({
     id: v.string(),
     value: object,
   }).index("by_workspaceId_and_kind_and_id", ["workspaceId", "kind", "id"]),
+  localImports: defineTable({
+    workspaceId: v.string(),
+    operationId: v.string(),
+    requestHash: v.string(),
+    ...localImportState.fields,
+  }).index("by_workspaceId_and_operationId", ["workspaceId", "operationId"]),
   operations: defineTable({
     workspaceId: v.string(),
     operationId: v.string(),
