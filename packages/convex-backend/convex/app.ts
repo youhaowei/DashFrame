@@ -263,8 +263,8 @@ export async function replaceDraft(
   after: Graph,
   oldBase = true,
 ) {
-  if (commands.length > 1000)
-    throw new ConvexError("Draft command limit exceeded");
+  if (commands.length > 200)
+    throw new ConvexError("Draft is limited to 200 commands");
   const prior = await draftChanges(ctx, row.workspaceId, row.draftId);
   const baseByKey = new Map(prior.map((c) => [`${c.table}:${c.id}`, c.base]));
   for (const c of prior) await ctx.db.delete(c._id);

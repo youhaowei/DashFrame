@@ -497,6 +497,18 @@ function run(
         def.runtimeControls = a.runtimeControls;
         const controls = record(a.runtimeControls);
         const filters = objects(def.filters ?? [], "filters");
+        if (controls.sort) {
+          const allowed = array(
+            record(controls.sort).allowedFieldIds,
+            "allowedFieldIds",
+          );
+          const resultIds = new Set([
+            ...array(def.selectedFields, "selectedFields"),
+            ...objects(def.metrics, "metrics").map((m) => m.id),
+          ]);
+          if (allowed.some((field) => !resultIds.has(field)))
+            throw new Error("Runtime control sort field not found");
+        }
         for (const c of objects(controls.filters ?? [], "controls.filters"))
           if (!filters.some((f) => f.id === c.filterId))
             throw new Error("Runtime control references missing filter");

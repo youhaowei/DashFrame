@@ -428,3 +428,47 @@ it("previews shared UUID artifact kinds separately and reports reused insights a
   });
   expect(reused.tablesWritten).toEqual([]);
 });
+it("rejects runtime sort declarations outside saved result fields", async () => {
+  const { tableId } = await seed(),
+    insightId = uuid();
+  await user().mutation(api.app.commitBatch, {
+    commands: [
+      cmd("CreateInsight", {
+        id: insightId,
+        name: "I",
+        source: { sourceType: "dataTable", sourceId: tableId },
+      }),
+    ],
+  });
+  await expect(
+    user().mutation(api.app.commitBatch, {
+      commands: [
+        cmd("SetInsightRuntimeControls", {
+          id: insightId,
+          runtimeControls: { sort: { allowedFieldIds: [uuid()], maxKeys: 1 } },
+        }),
+      ],
+    }),
+  ).rejects.toThrow("sort field");
+});
+it("rejects an oversized append before it creates an unpublishable draft", async () => {
+  const { tableId } = await seed();
+  const { draftId } = await user().mutation(api.app.draftBatch, {
+    commands: Array.from({ length: 200 }, (_, i) =>
+      rename(tableId, `Name ${i}`),
+    ),
+  });
+  await expect(
+    user().mutation(api.app.draftBatch, {
+      draftId,
+      commands: [rename(tableId, "Too many")],
+    }),
+  ).rejects.toThrow("200 commands");
+  expect(
+    (await user().query(api.app.draftPublishReview, { draftId })).commandCount,
+  ).toBe(200);
+  await user().mutation(api.app.publishDraft, await publication(draftId));
+  expect(
+    (await user().query(api.app.getDataTable, { id: tableId }))?.name,
+  ).toBe("Name 199");
+});
