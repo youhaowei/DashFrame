@@ -162,13 +162,24 @@ async function reservePort() {
 function ownedProcess(
   command: string,
   args: string[],
-  options: { cwd?: string; env?: NodeJS.ProcessEnv } = {},
+  options: {
+    cwd?: string;
+    env?: NodeJS.ProcessEnv;
+    captureOutput?: boolean;
+  } = {},
 ) {
   const child = spawn(command, args, {
-    ...options,
+    cwd: options.cwd,
+    env: options.env,
     detached: true,
-    stdio: "ignore",
+    stdio: options.captureOutput ? ["ignore", "pipe", "pipe"] : "ignore",
   });
+  let output = "";
+  const recordOutput = (chunk: Buffer) => {
+    output = (output + chunk.toString("utf8")).slice(-8192);
+  };
+  child.stdout?.on("data", recordOutput);
+  child.stderr?.on("data", recordOutput);
   let exited = false;
   let successful = false;
   const closed = new Promise<void>((resolve) => {
@@ -202,6 +213,9 @@ function ownedProcess(
   return {
     pid: child.pid,
     closed,
+    get output() {
+      return output;
+    },
     get exited() {
       return exited;
     },
@@ -340,6 +354,7 @@ async function deployFunctions(
     {
       cwd: options.functionsDirectory,
       env,
+      captureOutput: true,
     },
   );
   const deadline = setTimeout(() => {
@@ -347,10 +362,14 @@ async function deployFunctions(
   }, 120_000);
   try {
     await deployment.closed;
-    if (!deployment.successful)
+    if (!deployment.successful) {
+      const diagnostic = deployment.output
+        .replaceAll(config.adminKey, "[redacted]")
+        .replaceAll(config.instanceSecret, "[redacted]");
       throw new Error(
-        "Local Convex function deployment failed; run the backend package typecheck and check its generated bindings.",
+        `Local Convex function deployment failed: ${diagnostic.trim() || "CLI exited without diagnostic output"}`,
       );
+    }
   } finally {
     clearTimeout(deadline);
     await deployment.stop();
