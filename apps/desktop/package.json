@@ -7,14 +7,15 @@
   "scripts": {
     "build:main": "node scripts/build-main.mjs",
     "build:preload": "esbuild src/preload.ts --bundle --platform=node --external:electron --format=cjs --outfile=dist/preload.cjs",
-    "build": "bun run build:main && bun run build:preload",
+    "build": "bun run stage:convex && bun run build:main && bun run build:preload",
     "dev": "bun scripts/dev.mjs",
     "test": "vp test run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "vp lint src",
     "check": "bun run typecheck && bun run lint && bun run test",
     "verify:engine": "bun scripts/verify-native-engine.mjs",
-    "stage:convex": "bun scripts/stage-convex.ts"
+    "stage:convex": "bun scripts/stage-convex.ts",
+    "package:dir": "bun run build && (cd ../renderer && bun run typecheck && bunx vp build --base=./) && electron-builder --dir --config electron-builder.mjs"
   },
   "dependencies": {
     "@dashframe/desktop-types": "workspace:*",
@@ -30,7 +31,6 @@
     "@notionhq/client": "^2.2.0",
     "@wystack/secret-vault": "workspace:*",
     "apache-arrow": "^21.1.0",
-    "electron": "^33.2.1",
     "hono": "^4.12.9",
     "pg": "^8.13.3",
     "postgres": "^3.4.9",
@@ -43,9 +43,11 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.1",
+    "electron-builder": "26.15.3",
     "esbuild": "^0.28.0",
     "typescript": "5.7.2",
+    "vite-plus": "catalog:",
     "vitest": "catalog:",
-    "vite-plus": "catalog:"
+    "electron": "^33.2.1"
   }
 }
