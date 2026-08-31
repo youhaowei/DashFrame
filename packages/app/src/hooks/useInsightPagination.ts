@@ -322,17 +322,16 @@ export function useInsightPagination({
   // oxlint-disable-next-line react-hooks-js/exhaustive-deps -- runtimeKey is the stable structural dependency.
   const stableRuntime = useMemo(() => runtime, [runtimeKey]);
 
+  const generationIdentity = JSON.stringify([requestIdentity, sourceRetry]);
+  const lastGenerationIdentity = useRef<string | null>(null);
   useLayoutEffect(() => {
-    generation.current += 1;
-  }, [
-    enabled,
-    insight?.id,
-    insightKey,
-    runtimeKey,
-    showModelPreview,
-    sourceRetry,
-    sourcesReady,
-  ]);
+    // StrictMode replays effects for the same request. Keep its in-flight
+    // response valid; only a changed request or explicit retry supersedes it.
+    if (lastGenerationIdentity.current !== generationIdentity) {
+      lastGenerationIdentity.current = generationIdentity;
+      generation.current += 1;
+    }
+  }, [generationIdentity]);
 
   useEffect(() => {
     if (activeMaterialization.current?.requestIdentity === requestIdentity) {

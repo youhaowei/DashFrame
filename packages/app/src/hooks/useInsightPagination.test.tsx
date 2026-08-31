@@ -1,6 +1,7 @@
 import { nativeQueryMock, hostQueryMock } from "@/test/native-query-fixture";
 import type { DataTable, Insight, UUID } from "@dashframe/types";
 import { act, renderHook, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   buildInsightSourceRevision,
@@ -53,6 +54,27 @@ describe("useInsightPagination", () => {
       isReady: false,
       resolvedFields: [],
     });
+  });
+
+  it("finishes the active materialization when StrictMode replays effects", async () => {
+    client.mutate.mockResolvedValue({
+      status: "ready",
+      dataFrameId: "frame-strict",
+    });
+    queryDataFrame.mockResolvedValue({
+      status: "ready",
+      schema: [],
+      rows: [{ value: 3 }],
+      totalCount: 1,
+      page: {},
+    });
+    const { result } = renderHook(() => useInsightPagination({ insight }), {
+      wrapper: StrictMode,
+    });
+    await waitFor(() => expect(result.current.isReady).toBe(true));
+    expect(client.mutate).toHaveBeenCalledTimes(1);
+    expect(queryDataFrame).toHaveBeenCalledTimes(1);
+    expect(result.current.sampleRows).toEqual([{ value: 3 }]);
   });
 
   it("runs saved insights with declared runtime controls then queries the returned handle", async () => {
