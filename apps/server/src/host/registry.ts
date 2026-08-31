@@ -49,11 +49,19 @@ const batch = z
 export const hostOperations = {
   commitBatch: operation(batch, async (ctx, input) => {
     requireUser(ctx);
-    return executeHostCommandBatch(ctx, input, "commit");
+    const result = await executeHostCommandBatch(ctx, input, "commit");
+    if (!result || !("mode" in result) || result.mode !== "commit")
+      throw new Error("Unexpected host commit result");
+    return result;
   }),
   draftBatch: operation(
     batch.extend({ draftId: z.string().uuid().optional() }),
-    async (ctx, input) => executeHostCommandBatch(ctx, input, "draft"),
+    async (ctx, input) => {
+      const result = await executeHostCommandBatch(ctx, input, "draft");
+      if (!result || !("draftId" in result))
+        throw new Error("Unexpected host draft result");
+      return result;
+    },
   ),
   getOrCreateDataSource: operation(
     z
