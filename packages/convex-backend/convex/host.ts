@@ -793,6 +793,44 @@ export const clearAllData = internalMutation({
       if (rows.length > 1000) throw new Error("Workspace limit exceeded");
       for (const row of rows) await ctx.db.delete(row._id);
     }
+    const [drafts, draftLog, draftChanges, imports] = await Promise.all([
+      ctx.db
+        .query("drafts")
+        .withIndex("by_workspaceId_and_draftId", (q) =>
+          q.eq("workspaceId", args.workspaceId),
+        )
+        .take(1001),
+      ctx.db
+        .query("draftLog")
+        .withIndex("by_workspaceId_and_draftId_and_sequence", (q) =>
+          q.eq("workspaceId", args.workspaceId),
+        )
+        .take(1001),
+      ctx.db
+        .query("draftChanges")
+        .withIndex("by_workspaceId_and_draftId", (q) =>
+          q.eq("workspaceId", args.workspaceId),
+        )
+        .take(1001),
+      ctx.db
+        .query("localImports")
+        .withIndex("by_workspaceId_and_operationId", (q) =>
+          q.eq("workspaceId", args.workspaceId),
+        )
+        .take(1001),
+    ]);
+    if (
+      [drafts, draftLog, draftChanges, imports].some(
+        (rows) => rows.length > 1000,
+      )
+    )
+      throw new Error("Workspace limit exceeded");
+    for (const rows of [drafts, draftLog, draftChanges])
+      for (const row of rows) await ctx.db.delete(row._id);
+    // Keep request tombstones so delayed imports cannot restore cleared data,
+    // even if the caller later recreates the same source and table UUIDs.
+    for (const row of imports)
+      if (!row.cancelled) await ctx.db.patch(row._id, { cancelled: true });
     return null;
   },
 });
@@ -815,6 +853,8 @@ async function importClaim(
     .unique();
   if (row && row.requestHash !== requestHash)
     throw new Error("Local import operationId reused with different request");
+  if (row?.cancelled)
+    throw new Error("Local import invalidated by workspace clear");
   return row;
 }
 const importClaimArgs = {

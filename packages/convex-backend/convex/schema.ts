@@ -132,6 +132,7 @@ export default defineSchema({
     workspaceId: v.string(),
     operationId: v.string(),
     requestHash: v.string(),
+    cancelled: v.optional(v.boolean()),
     ...localImportState.fields,
   }).index("by_workspaceId_and_operationId", ["workspaceId", "operationId"]),
   operations: defineTable({
