@@ -51,3 +51,10 @@ export const artifactKinds = {
   visualizations: "visualization",
   dashboards: "dashboard",
 } as const;
+
+export type HostBatchState = Infer<
+  typeof import("./lifecycleValues").hostBatchState
+>;
+export type CleanupClaim = Infer<
+  typeof import("./lifecycleValues").cleanupClaim
+>;

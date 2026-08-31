@@ -1,3 +1,11 @@
+import {
+  assertResourcesWritable,
+  enqueueCleanup,
+  enqueueRemovedResources,
+  resources,
+  secretResources,
+} from "./cleanup";
+import { hostPrincipal } from "./lifecycleValues";
 import { stable } from "./values";
 import { publicationMetadata } from "./publication";
 import { artifactTables } from "./model";
@@ -155,6 +163,7 @@ async function putFrame(
   workspaceId: string,
   input: ObjectValue,
 ): Promise<void> {
+  await assertResourcesWritable(ctx, workspaceId, input);
   const id = String(input.id),
     storage = record(input.storage);
   if (storage.type !== "file" || storage.key !== id)
@@ -440,6 +449,13 @@ export const replaceDataSourceConfig = internalMutation({
           !/^secret:[0-9a-f-]{36}$/i.test(String(args.config[key])))
       )
         throw new Error("Credential must be a staged SecretRef");
+    await assertResourcesWritable(ctx, args.workspaceId, args.config);
+    await enqueueRemovedResources(
+      ctx,
+      args.workspaceId,
+      row.config,
+      args.config,
+    );
     await ctx.db.patch(row._id, {
       config: args.config,
       revision: row.revision + 1,
@@ -562,6 +578,13 @@ export const saveAssistantProviderConfig = internalMutation({
       !/^secret:[0-9a-f-]{36}$/i.test(args.row.credentialRef)
     )
       throw new Error("Only staged SecretRefs may be stored");
+    await assertResourcesWritable(ctx, args.workspaceId, args.row);
+    await enqueueRemovedResources(
+      ctx,
+      args.workspaceId,
+      current?.value,
+      args.row,
+    );
     if (args.row.isDefault)
       for (const other of await settings(
         ctx,
@@ -595,15 +618,12 @@ export const removeAssistantProviderConfig = internalMutation({
     );
     if (!row || stable(row.value) !== stable(args.expected))
       throw new Error("Provider config changed");
+    await enqueueCleanup(ctx, args.workspaceId, resources(row.value).values());
     await ctx.db.delete(row._id);
     return null;
   },
 });
-const hostPrincipal = v.union(
-  v.object({ kind: v.literal("user"), userId: v.string() }),
-  v.object({ kind: v.literal("service"), credentialId: v.string() }),
-);
-async function hostIdentity(
+export async function hostIdentity(
   ctx: QueryCtx,
   workspaceId: string,
   p: typeof hostPrincipal.type,
@@ -636,47 +656,57 @@ export const commitBatch = internalMutation({
     results: v.array(v.object({ id: v.optional(v.string()), value: json })),
     tablesWritten: v.array(v.string()),
   }),
-  handler: async (ctx, args) => {
-    const who = await hostIdentity(ctx, args.workspaceId, args.principal);
-    if (who.kind !== "user") throw new Error("User permission required");
-    if (findLateBound(args.commands).length)
-      throw new Error("Unbound operands cannot be committed");
-    const op = args.operationId;
-    if (op) {
-      const old = await operation(ctx, args.workspaceId, op, args.commands);
-      if (old)
-        return old.result as {
-          mode: "commit";
-          commands: typeof args.commands;
-          results: { id?: string; value: Json }[];
-          tablesWritten: string[];
-        };
-    }
-    const before = await loadGraph(ctx, args.workspaceId),
-      after = cloneGraph(before),
-      results = execute(after, args.commands, args.workspaceId, Date.now(), {
-        host: true,
-      }),
-      tablesWritten = await persist(ctx, args.workspaceId, before, after);
-    const result = {
-      mode: "commit" as const,
-      commands: args.commands.map((c) => ({
-        ...c,
-        args: record(redact(c.args)),
-      })),
-      results,
-      tablesWritten,
-    };
-    if (op)
-      await ctx.db.insert("operations", {
-        workspaceId: args.workspaceId,
-        operationId: op,
-        request: args.commands,
-        result,
-      });
-    return result;
-  },
+  handler: runHostCommit,
 });
+export async function runHostCommit(
+  ctx: MutationCtx,
+  args: {
+    workspaceId: string;
+    principal: typeof hostPrincipal.type;
+    commands: (typeof command.type)[];
+    operationId?: string;
+  },
+) {
+  const who = await hostIdentity(ctx, args.workspaceId, args.principal);
+  if (who.kind !== "user") throw new Error("User permission required");
+  if (findLateBound(args.commands).length)
+    throw new Error("Unbound operands cannot be committed");
+  const op = args.operationId;
+  if (op) {
+    const old = await operation(ctx, args.workspaceId, op, args.commands);
+    if (old)
+      return old.result as {
+        mode: "commit";
+        commands: typeof args.commands;
+        results: { id?: string; value: Json }[];
+        tablesWritten: string[];
+      };
+  }
+  const before = await loadGraph(ctx, args.workspaceId),
+    after = cloneGraph(before),
+    results = execute(after, args.commands, args.workspaceId, Date.now(), {
+      host: true,
+    }),
+    tablesWritten = await persist(ctx, args.workspaceId, before, after);
+  const result = {
+    mode: "commit" as const,
+    commands: args.commands.map((c) => ({
+      ...c,
+      args: record(redact(c.args)),
+    })),
+    results,
+    tablesWritten,
+  };
+  if (op)
+    await ctx.db.insert("operations", {
+      workspaceId: args.workspaceId,
+      operationId: op,
+      request: args.commands,
+      result,
+    });
+  return result;
+}
+
 export const draftBatch = internalMutation({
   args: {
     ...workspace,
@@ -688,40 +718,48 @@ export const draftBatch = internalMutation({
     draftId: v.string(),
     results: v.array(v.object({ id: v.optional(v.string()), value: json })),
   }),
-  handler: async (ctx, args) => {
-    const who = await hostIdentity(ctx, args.workspaceId, args.principal);
-    let row;
-    if (args.draftId) row = await draft(ctx, who, args.draftId, true);
-    else {
-      const now = Date.now(),
-        draftId = crypto.randomUUID(),
-        id = await ctx.db.insert("drafts", {
-          workspaceId: args.workspaceId,
-          draftId,
-          owner: who.owner,
-          revision: 0,
-          createdAt: now,
-          updatedAt: now,
-          commandCount: 0,
-        });
-      row = (await ctx.db.get(id))!;
-    }
-    const before = await loadGraph(ctx, args.workspaceId),
-      after = await readGraph(ctx, who, row.draftId),
-      commands = [
-        ...(await log(ctx, args.workspaceId, row.draftId)).map(
-          (e) => e.command,
-        ),
-        ...args.commands,
-      ],
-      results = execute(after, args.commands, args.workspaceId, Date.now(), {
-        host: true,
-        service: who.kind === "service",
-      });
-    await replaceDraft(ctx, row, commands, before, after);
-    return { draftId: row.draftId, results };
-  },
+  handler: runHostDraft,
 });
+export async function runHostDraft(
+  ctx: MutationCtx,
+  args: {
+    workspaceId: string;
+    principal: typeof hostPrincipal.type;
+    commands: (typeof command.type)[];
+    draftId?: string;
+  },
+) {
+  const who = await hostIdentity(ctx, args.workspaceId, args.principal);
+  let row;
+  if (args.draftId) row = await draft(ctx, who, args.draftId, true);
+  else {
+    const now = Date.now(),
+      draftId = crypto.randomUUID(),
+      id = await ctx.db.insert("drafts", {
+        workspaceId: args.workspaceId,
+        draftId,
+        owner: who.owner,
+        revision: 0,
+        createdAt: now,
+        updatedAt: now,
+        commandCount: 0,
+      });
+    row = (await ctx.db.get(id))!;
+  }
+  const before = await loadGraph(ctx, args.workspaceId),
+    after = await readGraph(ctx, who, row.draftId),
+    commands = [
+      ...(await log(ctx, args.workspaceId, row.draftId)).map((e) => e.command),
+      ...args.commands,
+    ],
+    results = execute(after, args.commands, args.workspaceId, Date.now(), {
+      host: true,
+      service: who.kind === "service",
+    });
+  await replaceDraft(ctx, row, commands, before, after);
+  return { draftId: row.draftId, results };
+}
+
 export const listDataFrames = internalQuery({
   args: workspace,
   returns: typed<DataFrameRow[]>(v.array(object)),
@@ -759,6 +797,7 @@ export const removeDataFrame = internalMutation({
           revision: table.revision + 1,
           updatedAt: Date.now(),
         });
+    await enqueueCleanup(ctx, args.workspaceId, resources(frame).values());
     await ctx.db.delete(frame._id);
     return null;
   },
@@ -775,6 +814,7 @@ export const clearAllData = internalMutation({
         )
         .take(1001);
       if (rows.length > 1000) throw new Error("Workspace limit exceeded");
+      await enqueueCleanup(ctx, args.workspaceId, resources(rows).values());
       for (const row of rows) await ctx.db.delete(row._id);
     }
     const [drafts, draftLog, draftChanges, imports] = await Promise.all([
@@ -809,6 +849,26 @@ export const clearAllData = internalMutation({
       )
     )
       throw new Error("Workspace limit exceeded");
+    await enqueueCleanup(
+      ctx,
+      args.workspaceId,
+      resources([draftLog, draftChanges]).values(),
+    );
+    const batches = await ctx.db
+      .query("hostBatches")
+      .withIndex("by_workspaceId_and_status", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("status", "pending"),
+      )
+      .take(1001);
+    if (batches.length > 1000) throw new Error("Workspace limit exceeded");
+    for (const batch of batches) {
+      await ctx.db.patch(batch._id, { status: "cancelled", result: null });
+      await enqueueCleanup(
+        ctx,
+        args.workspaceId,
+        secretResources(batch.stagedRefs),
+      );
+    }
     for (const rows of [drafts, draftLog, draftChanges])
       for (const row of rows) await ctx.db.delete(row._id);
     // Keep request tombstones so delayed imports cannot restore cleared data,
@@ -885,3 +945,12 @@ export const getLocalImport = internalQuery({
     return { frameId, fetchedAt, status, result };
   },
 });
+
+export { listCleanup, claimCleanup, ackCleanup } from "./cleanup";
+export {
+  getHostBatch,
+  prepareHostBatch,
+  executeHostBatch,
+  settleHostBatch,
+  listPendingHostBatches,
+} from "./hostBatches";

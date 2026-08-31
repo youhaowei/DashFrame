@@ -1,3 +1,4 @@
+import { assertResourcesWritable, enqueueCleanup, resources } from "./cleanup";
 import { stable } from "./values";
 import { v, ConvexError } from "convex/values";
 import type {
@@ -265,7 +266,16 @@ export async function replaceDraft(
 ) {
   if (commands.length > 200)
     throw new ConvexError("Draft is limited to 200 commands");
+  await assertResourcesWritable(ctx, row.workspaceId, [
+    commands,
+    changes(before, after).map((c) => c.value),
+  ]);
   const prior = await draftChanges(ctx, row.workspaceId, row.draftId);
+  await enqueueCleanup(
+    ctx,
+    row.workspaceId,
+    resources([prior, await log(ctx, row.workspaceId, row.draftId)]).values(),
+  );
   const baseByKey = new Map(prior.map((c) => [`${c.table}:${c.id}`, c.base]));
   for (const c of prior) await ctx.db.delete(c._id);
   for (const c of changes(before, after)) {

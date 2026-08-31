@@ -1,6 +1,11 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { json, object, command } from "./values";
+import {
+  cleanupResource,
+  hostPrincipal,
+  hostBatchState,
+} from "./lifecycleValues";
 export const artifactFields = {
   workspaceId: v.string(),
   id: v.string(),
@@ -135,6 +140,44 @@ export default defineSchema({
     cancelled: v.optional(v.boolean()),
     ...localImportState.fields,
   }).index("by_workspaceId_and_operationId", ["workspaceId", "operationId"]),
+  cleanupJobs: defineTable({
+    workspaceId: v.string(),
+    cleanupId: v.string(),
+    ...cleanupResource.fields,
+    state: v.union(v.literal("pending"), v.literal("claimed")),
+    claimToken: v.union(v.string(), v.null()),
+    createdAt: v.number(),
+  })
+    .index("by_workspaceId", ["workspaceId"])
+    .index("by_workspaceId_and_cleanupId", ["workspaceId", "cleanupId"])
+    .index("by_workspaceId_and_kind_and_resourceId", [
+      "workspaceId",
+      "kind",
+      "resourceId",
+    ]),
+  resourceTombstones: defineTable({
+    workspaceId: v.string(),
+    ...cleanupResource.fields,
+  }).index("by_workspaceId_and_kind_and_resourceId", [
+    "workspaceId",
+    "kind",
+    "resourceId",
+  ]),
+  hostBatches: defineTable({
+    workspaceId: v.string(),
+    operationId: v.string(),
+    owner: v.string(),
+    principal: hostPrincipal,
+    requestHash: v.string(),
+    ...hostBatchState.fields,
+    commands: v.optional(v.array(command)),
+    mode: v.optional(v.union(v.literal("commit"), v.literal("draft"))),
+    draftId: v.optional(v.string()),
+    stagedRefs: v.array(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_workspaceId_and_operationId", ["workspaceId", "operationId"])
+    .index("by_workspaceId_and_status", ["workspaceId", "status"]),
   operations: defineTable({
     workspaceId: v.string(),
     operationId: v.string(),

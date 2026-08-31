@@ -1,3 +1,9 @@
+import {
+  assertResourcesWritable,
+  enqueueRemovedResources,
+  enqueueCleanup,
+  resources,
+} from "./cleanup";
 import { ConvexError } from "convex/values";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
@@ -78,6 +84,17 @@ export async function persist(
   after: Graph,
 ) {
   const diff = changes(before, after);
+  await assertResourcesWritable(
+    ctx,
+    workspaceId,
+    diff.map((change) => change.value),
+  );
+  await enqueueRemovedResources(
+    ctx,
+    workspaceId,
+    diff.map((change) => change.base),
+    diff.map((change) => change.value),
+  );
   for (const change of diff) {
     const current = await find(ctx, workspaceId, change.table, change.id);
     if (change.value === null) {
@@ -159,9 +176,14 @@ export async function readGraph(
   return graph;
 }
 export async function eraseDraft(ctx: MutationCtx, row: Doc<"drafts">) {
-  for (const entry of await log(ctx, row.workspaceId, row.draftId))
-    await ctx.db.delete(entry._id);
-  for (const c of await draftChanges(ctx, row.workspaceId, row.draftId))
-    await ctx.db.delete(c._id);
+  const entries = await log(ctx, row.workspaceId, row.draftId),
+    pending = await draftChanges(ctx, row.workspaceId, row.draftId);
+  await enqueueCleanup(
+    ctx,
+    row.workspaceId,
+    resources([entries, pending]).values(),
+  );
+  for (const entry of entries) await ctx.db.delete(entry._id);
+  for (const c of pending) await ctx.db.delete(c._id);
   await ctx.db.delete(row._id);
 }
