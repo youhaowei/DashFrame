@@ -25,6 +25,9 @@ either script.
 
 ## Pull requests
 
+Use the `type(scope): subject` convention in `AGENTS.md` → **Commit messages and
+PR titles**. Do not prefix titles with agent names.
+
 Every PR description follows `.github/pull_request_template.md`. The **Screenshots** section is required on all UI-touching PRs: capture proof from the running app (relevant states — hover/focus, light + dark when they changed). Backend-only PRs state "No UI change".
 
 **Do not commit screenshot PNGs or add per-PR/per-ticket capture scripts to this repo.** Capture to `/tmp`, then attach with **`pr-screenshots`** (`~/.local/share/pr-screenshots`, any agent/shell) and [@vercel/before-and-after](https://jm.sv/before-and-after) when needed. A diff cannot show hover, focus, spacing, or dark mode — visual evidence in the PR body is merge-blocking for UI changes.

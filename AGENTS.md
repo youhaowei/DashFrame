@@ -9,6 +9,29 @@ sessions, connectors, secrets, and DuckDB access.
 Package manager is **Bun** (pinned `bun@1.3.5`); orchestration is Turborepo.
 `bun` is on `PATH`; where it is installed from varies by machine.
 
+## Commit messages and PR titles
+
+Use `type(scope): subject` for commits and PR titles. The PR title becomes the
+squash-merge commit subject, so it follows the same rule.
+
+- Types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`,
+  `revert`. Choose the type that describes the change, not the tool used.
+- Scope: use a short module or feature name, such as `convex`, `desktop`,
+  `insights`, or `connectors`; use `all` for changes spanning the application.
+- Subject: start with a lowercase imperative verb, describe the concrete change,
+  and omit the trailing period. Use one space after the colon.
+- Do not add agent labels such as `[codex]` or `[claude]` to the subject.
+- Keep each commit focused on one logical change. Add a body when the reason or
+  a tradeoff is not clear from the subject; do not repeat the file inventory.
+
+Examples:
+
+```text
+refactor(all): replace WyStack metadata with native local Convex
+fix(insights): preserve pending requests during StrictMode replay
+docs(all): define commit and PR title conventions
+```
+
 ## Local review gate (run before every push)
 
 Every change is reviewed **locally before it is pushed** — CI _confirms_ a clean
