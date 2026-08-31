@@ -30,6 +30,12 @@ import {
   verifyBackendBinary,
 } from "./binary.js";
 
+import {
+  DeploymentFailure,
+  isTransientDeploymentDiagnostic,
+  retryDeployment,
+} from "./deployment-retry.js";
+
 export interface LocalConvexOptions {
   projectDir: string;
   /** Package root containing convex.json, convex/, and generated bindings. */
@@ -336,22 +342,28 @@ async function deployFunctions(
   url: string,
   config: Config,
 ) {
-  const response = await fetch(`${url}/api/update_environment_variables`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Convex ${config.adminKey}`,
-    },
-    body: JSON.stringify({
-      changes: [
-        { name: "DASHFRAME_AUTH_ISSUER", value: options.auth.issuer },
-        { name: "DASHFRAME_AUTH_JWKS", value: options.auth.jwksDataUri },
-      ],
-    }),
-    signal: AbortSignal.timeout(10_000),
+  await retryDeployment(async () => {
+    const response = await fetch(`${url}/api/update_environment_variables`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Convex ${config.adminKey}`,
+      },
+      body: JSON.stringify({
+        changes: [
+          { name: "DASHFRAME_AUTH_ISSUER", value: options.auth.issuer },
+          { name: "DASHFRAME_AUTH_JWKS", value: options.auth.jwksDataUri },
+        ],
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    await response.body?.cancel();
+    if (!response.ok)
+      throw new DeploymentFailure(
+        "Could not configure local Convex authentication.",
+        response.status === 429,
+      );
   });
-  if (!response.ok)
-    throw new Error("Could not configure local Convex authentication.");
 
   const require = createRequire(import.meta.url);
   const convexPackagePath = require.resolve("convex/package.json");
@@ -382,40 +394,55 @@ async function deployFunctions(
     "CONVEX_SELF_HOSTED_ADMIN_KEY",
   ])
     delete env[key];
-  const deployment = ownedProcess(
-    process.execPath,
-    [
-      path.join(path.dirname(convexPackagePath), "bin/main.js"),
-      "deploy",
-      "--env-file",
-      envFile,
-      "--typecheck",
-      "disable",
-      "--codegen",
-      "disable",
-    ],
-    {
-      cwd: options.functionsDirectory,
-      env,
-      captureOutput: true,
-    },
-  );
-  const deadline = setTimeout(() => {
-    deployment.stop();
-  }, 120_000);
   try {
-    await deployment.closed;
-    if (!deployment.successful) {
-      const diagnostic = deployment.output
-        .replaceAll(config.adminKey, "[redacted]")
-        .replaceAll(config.instanceSecret, "[redacted]");
-      throw new Error(
-        `Local Convex function deployment failed: ${diagnostic.trim() || "CLI exited without diagnostic output"}`,
+    await retryDeployment(async () => {
+      const deployment = ownedProcess(
+        process.execPath,
+        [
+          path.join(path.dirname(convexPackagePath), "bin/main.js"),
+          "deploy",
+          "--env-file",
+          envFile,
+          "--typecheck",
+          "disable",
+          "--codegen",
+          "disable",
+        ],
+        { cwd: options.functionsDirectory, env, captureOutput: true },
       );
-    }
+      let deadline: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          deployment.closed,
+          new Promise<never>((_, reject) => {
+            deadline = setTimeout(
+              () =>
+                reject(
+                  new DeploymentFailure(
+                    "Local Convex function deployment timed out.",
+                    false,
+                  ),
+                ),
+              120_000,
+            );
+          }),
+        ]);
+        if (!deployment.successful) {
+          const diagnostic = deployment.output
+            .replaceAll(config.adminKey, "[redacted]")
+            .replaceAll(config.instanceSecret, "[redacted]");
+          throw new DeploymentFailure(
+            `Local Convex function deployment failed: ${diagnostic.trim() || "CLI exited without diagnostic output"}`,
+            isTransientDeploymentDiagnostic(diagnostic),
+          );
+        }
+      } finally {
+        clearTimeout(deadline);
+        // Fully stop each owned CLI before another deploy can begin.
+        await deployment.stop();
+      }
+    });
   } finally {
-    clearTimeout(deadline);
-    await deployment.stop();
     await rm(envFile, { force: true });
   }
 }
