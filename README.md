@@ -10,7 +10,7 @@ DashFrame is a local-first business intelligence tool focused on the data → ch
 - **Convex** stores artifact metadata and drafts and serves reactive queries; each project owns a local backend process
 - **Hono** host API (`apps/server`, `packages/server-core`) owns sessions, connectors, secrets, and data access
 - **DuckDB** for query — native (`@duckdb/node-api`) on desktop, **DuckDB-WASM** in the browser
-- **WyStack** (`libs/wystack`) — shared identity, permissions, and secret-vault support; **stdui** (`libs/stdui`) — the `@wystack/ui-*` design system (both git submodules)
+- **WyStack** (`libs/wystack`) — shared identity and secret-vault support; **stdui** (`libs/stdui`) — the `@wystack/ui-*` design system (both git submodules)
 - **Bun** for package management and runtime, **Turborepo** for workspace orchestration
 - **Tailwind CSS v4**, **Vega-Lite** for declarative chart rendering
 - Connectors for CSV, Notion, Postgres, and REST sources
@@ -142,14 +142,14 @@ DashFrame supports importing data directly from Notion databases:
 
 3. **Import Data in DashFrame**:
    - Click the "Notion DB" tab in the web app
-   - Paste your API key (it's stored in browser localStorage)
+   - Paste your API key (the host stores it in SecretVault)
    - Click "Connect" to see your databases
    - Select a database from the dropdown
    - Choose which properties (columns) to import
    - Click "Import Data" to load into DashFrame
    - Use the "Refresh" button to sync latest data from Notion
 
-**Security Note**: Your Notion API key is stored in browser localStorage for convenience. For production use, consider implementing OAuth or server-side key management.
+**Security Note**: The host stores your Notion API key in SecretVault. Convex stores only its opaque reference; connector requests resolve the key on the host.
 
 ## Current Status
 

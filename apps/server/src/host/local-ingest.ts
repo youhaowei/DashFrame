@@ -1,4 +1,5 @@
 /** Local connector onboarding: persist uploaded Arrow as a server-owned frame. */
+import type { DataFrameStorage } from "@dashframe/engine";
 import { inspectArrowIpc } from "@dashframe/engine-server/arrow-data-path";
 import type {
   DataFrameStorageLocation,
@@ -329,14 +330,7 @@ async function ingestLocalFrame(
 
   const frameId = (claim?.frameId ?? crypto.randomUUID()) as UUID;
   const fetchedAt = claim?.fetchedAt ?? Date.now();
-  // A retried reservation may already own durable bytes. Never overwrite them.
-  const existing = await ctx.dataFrameStorage.load(frameId);
-  if (existing) {
-    if (!Buffer.from(existing).equals(arrow))
-      throw new Error("LOCAL_FRAME_CONTENT_CONFLICT");
-  } else {
-    await ctx.dataFrameStorage.save(frameId, arrow);
-  }
+  await saveReservedFrame(ctx.dataFrameStorage, frameId, arrow);
   try {
     const frameRow = {
       id: frameId,
@@ -479,4 +473,19 @@ async function serializeImport<T>(
   } finally {
     if (queues.get(key) === current) queues.delete(key);
   }
+}
+
+async function saveReservedFrame(
+  storage: DataFrameStorage,
+  frameId: UUID,
+  arrow: Uint8Array,
+): Promise<void> {
+  // A retried reservation may already own durable bytes. Never overwrite them.
+  const existing = await storage.load(frameId);
+  if (existing) {
+    if (!Buffer.from(existing).equals(arrow))
+      throw new Error("LOCAL_FRAME_CONTENT_CONFLICT");
+    return;
+  }
+  await storage.save(frameId, arrow);
 }

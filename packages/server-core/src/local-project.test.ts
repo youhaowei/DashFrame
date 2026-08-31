@@ -44,3 +44,20 @@ describe("local project identity", () => {
     }
   });
 });
+
+it("does not assign a new workspace to an existing backend with a missing identity", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "dashframe-lost-identity-"));
+  try {
+    await openLocalProject({ dir });
+    await rm(path.join(dir, ".convex", "project-id"));
+    await writeFile(path.join(dir, ".convex", "backend.sqlite3"), "sentinel");
+    await expect(openLocalProject({ dir })).rejects.toThrow(
+      "refusing to replace existing Convex data",
+    );
+    expect(
+      await readFile(path.join(dir, ".convex", "backend.sqlite3"), "utf8"),
+    ).toBe("sentinel");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

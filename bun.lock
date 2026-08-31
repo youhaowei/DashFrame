@@ -32,6 +32,8 @@
       "name": "@dashframe/desktop",
       "version": "0.0.0",
       "dependencies": {
+        "@dashframe/convex-backend": "workspace:*",
+        "@dashframe/convex-local": "workspace:*",
         "@dashframe/desktop-types": "workspace:*",
         "@dashframe/engine-server": "workspace:*",
         "@dashframe/server": "workspace:*",
@@ -39,14 +41,13 @@
         "@duckdb/node-api": "1.5.3-r.3",
         "@earendil-works/pi-agent-core": "0.79.6",
         "@earendil-works/pi-ai": "0.79.6",
-        "@electric-sql/pglite": "^0.3.14",
         "@hono/node-server": "^1.19.12",
         "@hono/node-ws": "^1.3.0",
         "@modelcontextprotocol/sdk": "1.30.0",
         "@notionhq/client": "^2.2.0",
         "@wystack/secret-vault": "workspace:*",
         "apache-arrow": "^21.1.0",
-        "drizzle-orm": "^0.45.1",
+        "convex": "1.37.0",
         "electron": "^33.2.1",
         "hono": "^4.12.9",
         "pg": "^8.13.3",
@@ -72,7 +73,6 @@
         "@dashframe/visualization": "workspace:*",
         "@tanstack/react-query": "^5.90.0",
         "@tanstack/react-router": "^1.95.0",
-        "@wystack/client": "workspace:*",
         "react": "^19.2.4",
         "react-dom": "^19.2.4",
       },
@@ -100,6 +100,8 @@
         "@dashframe/connector-ga4": "workspace:*",
         "@dashframe/connector-notion": "workspace:*",
         "@dashframe/connector-postgres": "workspace:*",
+        "@dashframe/convex-backend": "workspace:*",
+        "@dashframe/convex-local": "workspace:*",
         "@dashframe/engine": "workspace:*",
         "@dashframe/engine-server": "workspace:*",
         "@dashframe/server-core": "workspace:*",
@@ -107,20 +109,19 @@
         "@hono/node-server": "^1.19.12",
         "@hono/node-ws": "^1.3.0",
         "@modelcontextprotocol/sdk": "1.30.0",
-        "@wystack/db": "workspace:*",
         "@wystack/identity": "workspace:*",
-        "@wystack/permissions": "workspace:*",
         "@wystack/secret-vault": "workspace:*",
-        "@wystack/server": "workspace:*",
         "apache-arrow": "^21.1.0",
-        "drizzle-orm": "^0.45.1",
+        "convex": "1.37.0",
         "hono": "^4.12.9",
+        "ws": "^8.18.0",
         "zod": "^4.1.12",
       },
       "devDependencies": {
         "@dashframe/connector-local": "workspace:*",
         "@types/bun": "^1.2.0",
-        "@wystack/client": "workspace:*",
+        "@types/ws": "^8.18.0",
+        "convex-test": "^0.0.41",
         "esbuild": "^0.28.0",
         "typescript": "5.7.2",
         "vite-plus": "catalog:",
@@ -427,6 +428,7 @@
         "@dashframe/connector-local": "workspace:*",
         "@dashframe/connector-notion": "workspace:*",
         "@dashframe/connector-postgres": "workspace:*",
+        "@dashframe/convex-backend": "workspace:*",
         "@dashframe/csv": "workspace:*",
         "@dashframe/engine": "workspace:*",
         "@dashframe/engine-browser": "workspace:*",
@@ -456,12 +458,12 @@
         "@tanstack/react-virtual": "^3.13.12",
         "@uwdata/flechette": "^2.2.5",
         "@uwdata/vgplot": "^0.21.1",
-        "@wystack/client": "workspace:*",
         "@wystack/ui-core": "workspace:*",
         "@wystack/ui-react": "workspace:*",
         "apache-arrow": "^21.1.0",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
+        "convex": "1.37.0",
         "dompurify": "^3.2.4",
         "idb-keyval": "^6.2.2",
         "immer": "^11.0.1",
@@ -585,6 +587,33 @@
         "vitest": "catalog:",
       },
     },
+    "packages/convex-backend": {
+      "name": "@dashframe/convex-backend",
+      "version": "0.0.0",
+      "dependencies": {
+        "@dashframe/types": "workspace:*",
+        "convex": "1.37.0",
+        "zod": "^4.1.12",
+      },
+      "devDependencies": {
+        "convex-test": "^0.0.41",
+        "typescript": "5.7.2",
+        "vitest": "^3.2.4",
+      },
+    },
+    "packages/convex-local": {
+      "name": "@dashframe/convex-local",
+      "version": "0.0.0",
+      "dependencies": {
+        "convex": "1.37.0",
+      },
+      "devDependencies": {
+        "@types/node": "^22.10.1",
+        "typescript": "5.7.2",
+        "vite-plus": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
     "packages/csv": {
       "name": "@dashframe/csv",
       "version": "0.1.0",
@@ -672,9 +701,7 @@
       "name": "@dashframe/server-core",
       "version": "0.0.0",
       "dependencies": {
-        "@electric-sql/pglite": "^0.3.14",
         "@wystack/secret-vault": "workspace:*",
-        "drizzle-orm": "^0.45.1",
       },
       "devDependencies": {
         "esbuild": "^0.28.0",
@@ -971,6 +998,10 @@
     "@dashframe/connector-postgres": ["@dashframe/connector-postgres@workspace:packages/connector-postgres"],
 
     "@dashframe/connector-rest": ["@dashframe/connector-rest@workspace:packages/connector-rest"],
+
+    "@dashframe/convex-backend": ["@dashframe/convex-backend@workspace:packages/convex-backend"],
+
+    "@dashframe/convex-local": ["@dashframe/convex-local@workspace:packages/convex-local"],
 
     "@dashframe/csv": ["@dashframe/csv@workspace:packages/csv"],
 
@@ -2157,6 +2188,8 @@
     "convert-source-map": ["convert-source-map@2.0.0", "", {}, "sha512-Kvp459HrV2FEJ1CAsi1Ku+MY3kasH19TFykTz2xWmMeq6bk2NU3XXvfJ+Q61m0xktWwt+1HSYf3JZsTms3aRJg=="],
 
     "convex": ["convex@1.37.0", "", { "dependencies": { "esbuild": "0.27.0", "prettier": "^3.0.0", "ws": "8.18.0" }, "peerDependencies": { "@auth0/auth0-react": "^2.0.1", "@clerk/clerk-react": "^4.12.8 || ^5.0.0", "@clerk/react": "^6.4.3", "react": "^18.0.0 || ^19.0.0-0 || ^19.0.0" }, "optionalPeers": ["@auth0/auth0-react", "@clerk/clerk-react", "@clerk/react", "react"], "bin": { "convex": "bin/main.js" } }, "sha512-xGSx5edIsXCEex3OU2U2N0oyB/cOa9qGwKiImF9yOWqjqZgOkx39idtpdlwNBTBSt4S30oAvs4yeXY5xxPIX3A=="],
+
+    "convex-test": ["convex-test@0.0.41", "", { "peerDependencies": { "convex": "^1.16.4" } }, "sha512-GPHeYFOi70n7UtW0eCEQFVhzl/+m8PvbWkDCbKpHLybI1MrScf4sVpGeM0cC2qmtxiduxa2nLPbehPalhh9oyQ=="],
 
     "cookie": ["cookie@1.1.1", "", {}, "sha512-ei8Aos7ja0weRpFzJnEA9UHJ/7XQmqglbRwnf2ATjcB9Wq874VKH9kfjjirM6UhU2/E5fFYadylyhFldcqSidQ=="],
 

@@ -28,6 +28,16 @@ export async function openLocalProject(
   } catch (error) {
     if (!(error instanceof Error && "code" in error && error.code === "ENOENT"))
       throw error;
+    const stateFiles = await fs.readdir(stateDir);
+    if (
+      stateFiles.some(
+        (name) => name.startsWith("backend.sqlite3") || name === "storage",
+      )
+    ) {
+      throw new Error(
+        "Local project identity is missing; refusing to replace existing Convex data",
+      );
+    }
     const temporary = path.join(stateDir, `.project-id.${randomUUID()}.tmp`);
     const handle = await fs.open(temporary, "wx", 0o600);
     try {

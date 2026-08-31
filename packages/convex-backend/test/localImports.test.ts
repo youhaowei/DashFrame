@@ -23,19 +23,17 @@ const request = {
 async function seed() {
   const sourceId = crypto.randomUUID(),
     tableId = crypto.randomUUID();
-  await t
-    .withIdentity(identity)
-    .mutation(api.app.commitBatch, {
-      commands: [
-        cmd("CreateDataSource", { id: sourceId, name: "S", type: "csv" }),
-        cmd("CreateDataTable", {
-          id: tableId,
-          dataSourceId: sourceId,
-          name: "T",
-          table: "t.csv",
-        }),
-      ],
-    });
+  await t.withIdentity(identity).mutation(api.app.commitBatch, {
+    commands: [
+      cmd("CreateDataSource", { id: sourceId, name: "S", type: "csv" }),
+      cmd("CreateDataTable", {
+        id: tableId,
+        dataSourceId: sourceId,
+        name: "T",
+        table: "t.csv",
+      }),
+    ],
+  });
   return { sourceId, tableId };
 }
 function frameCommit(
