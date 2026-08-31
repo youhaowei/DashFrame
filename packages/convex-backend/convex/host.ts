@@ -1,4 +1,5 @@
 import { stable } from "./values";
+import { publicationMetadata } from "./publication";
 import { artifactTables } from "./model";
 import { replaceDraft } from "./app";
 import { findLateBound } from "./lateBound";
@@ -326,30 +327,20 @@ export const getOperation = internalQuery({
   },
 });
 export const publishMaterialization = internalMutation({
-  args: { ...workspace, value: object },
+  args: { ...workspace, value: publicationMetadata },
   returns: v.null(),
   handler: async (ctx, args) => {
     const value = args.value,
-      target = record(value.target),
-      result = record(value.result),
-      sources = value.sources;
-    if (!Array.isArray(sources)) throw new Error("Invalid source list");
-    const op = `materialize:${String(result.id)}`;
+      { target, result, sources } = value;
+    const op = `materialize:${result.id}`;
     if (await operation(ctx, args.workspaceId, op, value)) return null;
     const fetchedAt = value.fetchedAt;
     if (typeof fetchedAt !== "number")
       throw new Error("Invalid fetch timestamp");
     for (const item of sources) {
-      const { source: rawSource, frame: rawFrame } = record(item),
-        source = record(rawSource),
-        binding = record(source.table),
-        frame = record(rawFrame);
-      const table = await find(
-        ctx,
-        args.workspaceId,
-        "dataTables",
-        String(binding.id),
-      );
+      const { source, frame } = item,
+        binding = source.table;
+      const table = await find(ctx, args.workspaceId, "dataTables", binding.id);
       if (
         !table ||
         table.dataSourceId !== binding.dataSourceId ||
@@ -357,21 +348,23 @@ export const publishMaterialization = internalMutation({
       )
         throw new Error("SOURCE_BINDING_CHANGED");
       await putFrame(ctx, args.workspaceId, {
-        ...frame,
-        storage: { type: "file", key: frame.id! },
-        name: binding.name!,
-        sourceId: binding.dataSourceId!,
-        definitionId: binding.id!,
-        columnCount: Array.isArray(frame.fieldIds) ? frame.fieldIds.length : 0,
+        id: frame.id,
+        fieldIds: frame.fieldIds,
+        rowCount: frame.rowCount,
+        storage: { type: "file", key: frame.id },
+        name: binding.name,
+        sourceId: binding.dataSourceId,
+        definitionId: binding.id,
+        columnCount: frame.fieldIds.length,
         analysis: {
-          schema: frame.schema!,
-          provenance: source.provenance!,
+          schema: frame.schema,
+          provenance: source.provenance,
           fetchedAt,
         },
         lastRefreshedAt: fetchedAt,
       });
       await ctx.db.patch(table._id, {
-        dataFrameId: String(frame.id),
+        dataFrameId: frame.id,
         lastFetchedAt: fetchedAt,
         revision: table.revision + 1,
         updatedAt: Date.now(),
@@ -379,21 +372,14 @@ export const publishMaterialization = internalMutation({
     }
     if (target.kind !== "transient") {
       if (target.kind === "saved") {
-        if (
-          !(await find(
-            ctx,
-            args.workspaceId,
-            "insights",
-            String(target.insightId),
-          ))
-        )
+        if (!(await find(ctx, args.workspaceId, "insights", target.insightId)))
           throw new Error("Insight unavailable");
         const prior = await ctx.db
           .query("dataFrames")
           .withIndex("by_workspaceId_and_insightId", (q) =>
             q
               .eq("workspaceId", args.workspaceId)
-              .eq("insightId", String(target.insightId)),
+              .eq("insightId", target.insightId),
           )
           .take(1001);
         if (prior.length > 1000)
@@ -408,22 +394,20 @@ export const publishMaterialization = internalMutation({
           });
       }
       await putFrame(ctx, args.workspaceId, {
-        id: result.id!,
-        fieldIds: result.fieldIds!,
-        rowCount: result.rowCount!,
-        storage: { type: "file", key: result.id! },
+        id: result.id,
+        fieldIds: result.fieldIds,
+        rowCount: result.rowCount,
+        storage: { type: "file", key: result.id },
         name:
           target.kind === "saved"
             ? `Insight ${target.insightId}`
             : "Live fetch",
-        ...(target.kind === "saved" ? { insightId: target.insightId! } : {}),
-        columnCount: Array.isArray(result.fieldIds)
-          ? result.fieldIds.length
-          : 0,
+        ...(target.kind === "saved" ? { insightId: target.insightId } : {}),
+        columnCount: result.fieldIds.length,
         analysis: {
-          schema: result.schema!,
-          definitionFingerprint: value.definitionFingerprint!,
-          provenance: value.provenance!,
+          schema: result.schema,
+          definitionFingerprint: value.definitionFingerprint,
+          provenance: value.provenance,
           fetchedAt,
           ...(target.kind === "saved" ? { currentInsightResult: true } : {}),
           ...(target.kind === "ephemeral"

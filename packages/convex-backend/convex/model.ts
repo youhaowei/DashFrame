@@ -1,5 +1,8 @@
 import type { Infer } from "convex/values";
 import type { artifact } from "./schema";
+export type PublicationMetadata = Infer<
+  typeof import("./publication").publicationMetadata
+>;
 export type ArtifactRow = Infer<typeof artifact>;
 type HostRow = Omit<ArtifactRow, "workspaceId" | "revision">;
 export type DataSourceRow = HostRow & {
