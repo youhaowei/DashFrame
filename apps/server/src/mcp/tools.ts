@@ -23,7 +23,6 @@ import { createAssistantReadHost } from "../assistant-read-host";
 import { isPrincipal } from "@wystack/identity";
 const DRAFT_UNAVAILABLE = "Draft unavailable";
 import { assertKnownCommandPaths } from "../host/commands";
-import { draftIdFromBatchError } from "../host/commands";
 import { REPORT_APP_URI } from "./report-app";
 import type { McpMode, McpRequestContext } from "./route";
 
@@ -1017,10 +1016,10 @@ function draftBatchDescription(mode: McpMode): string {
         ];
   return [
     "Append a batch of draft-safe DashFrame commands to a DashFrame draft.",
-    "Nothing here reaches canonical state: the draft opens before commands run,",
-    "and only a person can publish it. If a later command fails after an earlier",
-    "prefix committed, the error retains the owned draftId so that work can",
-    "continue.",
+    "Nothing here reaches canonical state; only a person can publish the draft.",
+    "The batch is atomic: if any command fails, none of its commands are saved.",
+    "An existing draft stays unchanged; a failed first batch creates no draftId.",
+    "After a command validation failure, correct and resubmit the entire batch.",
     ...continuity,
     "",
     "Each entry is { type, args } where `type` is a command NAME from the guide",
@@ -1028,8 +1027,7 @@ function draftBatchDescription(mode: McpMode): string {
     `Allowed here: ${draftSafeCommandList()}.`,
     "",
     "Refused at this boundary — do not retry these, they will never succeed:",
-    "- DeleteNode. Deleting a node touches the credential vault and cascades in",
-    "  ways a draft cannot roll back. Ask a person to delete.",
+    "- DeleteNode. Deletion includes host resource cleanup. Ask a person to delete.",
     "- GetOrCreateDataSource. Use CreateDataSource without credential fields;",
     "  the get-or-create path predates the current draft treatment.",
     "- SetDataSourceConfig. Its open-ended connector config cannot prove that",
@@ -1313,17 +1311,11 @@ export function createMcpTools(
     );
     return current;
   }
-  function retainStatefulDraft(error: unknown): void {
-    if (mode !== "stateful") return;
-    const retainedDraftId = draftIdFromBatchError(error);
-    if (retainedDraftId !== undefined) context.draftId = retainedDraftId;
-  }
   async function recoverClosedStatefulDraft<T extends { draftId: string }>(
     error: unknown,
     rememberedDraftId: string | undefined,
     append: (draftId: string | undefined) => Promise<T>,
   ): Promise<T> {
-    retainStatefulDraft(error);
     if (
       mode !== "stateful" ||
       rememberedDraftId === undefined ||
@@ -1333,14 +1325,9 @@ export function createMcpTools(
       throw error;
     }
     context.draftId = undefined;
-    try {
-      const result = await append(undefined);
-      context.draftId = result.draftId;
-      return result;
-    } catch (retryError) {
-      retainStatefulDraft(retryError);
-      throw retryError;
-    }
+    const result = await append(undefined);
+    context.draftId = result.draftId;
+    return result;
   }
   const readTools = Object.values(
     createReadTools(createDelegatingReader(app, undefined)),

@@ -10,7 +10,6 @@ import {
 import type { ApplicationOperations } from "../host/application";
 import type { Context } from "hono";
 
-import { draftIdFromBatchError } from "../host/commands";
 import {
   REPORT_APP_HTML,
   REPORT_APP_MIME_TYPE,
@@ -143,18 +142,13 @@ function methodNotAllowed(): Response {
  * Tool-level failure. The message names the offending field or command, never
  * a value — see the credential-ref gate in tools.ts.
  */
-function toolFailure(
-  message: string,
-  draftId?: string,
-): {
+function toolFailure(message: string): {
   content: Array<{ type: "text"; text: string }>;
   isError: true;
-  structuredContent?: { draftId: string };
 } {
   return {
     content: [{ type: "text", text: message }],
     isError: true,
-    ...(draftId === undefined ? {} : { structuredContent: { draftId } }),
   };
 }
 
@@ -244,7 +238,6 @@ function createServer(tools: McpTool[]): Server {
       // isError content reaches it as "that did not work, here is why".
       return toolFailure(
         error instanceof Error ? error.message : String(error),
-        draftIdFromBatchError(error),
       );
     }
   });

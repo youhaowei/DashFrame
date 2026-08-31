@@ -662,6 +662,9 @@ describe("MCP route", () => {
         (tool) => tool.name === "draft_batch",
       );
       expect(writeTool?.description).toContain("# Command vocabulary");
+      expect(writeTool?.description).toContain("The batch is atomic");
+      expect(writeTool?.description).toContain("resubmit the entire batch");
+      expect(writeTool?.description).not.toContain("prefix committed");
       for (const denied of [
         "DeleteNode",
         "GetOrCreateDataSource",
