@@ -1,6 +1,8 @@
-import { api } from "@/wystack/api";
+import { useQuery_experimental as useQuery } from "convex/react";
+import { queryStatus } from "@/data/query-status";
+import { api } from "@dashframe/convex-backend/api";
 import { useNavigate } from "@tanstack/react-router";
-import { useQuery } from "@wystack/client";
+
 import { SparklesIcon } from "@wystack/ui-react/icons";
 import { useMemo } from "react";
 
@@ -9,12 +11,14 @@ import { DashboardSection } from "./DashboardSection";
 /**
  * RecentInsightsSection - Displays the 3 most recent insights
  *
- * Self-contained section that fetches its own data via the WyStack server.
+ * Self-contained section that fetches its own data via the Convex backend.
  */
 export function RecentInsightsSection() {
   const navigate = useNavigate();
 
-  const { data: insights = [] } = useQuery(api.listInsights, { args: {} });
+  const { data: insights = [] } = queryStatus(
+    useQuery({ query: api.app.listInsights, args: {} }),
+  );
 
   const recentInsights = useMemo(() => {
     return [...insights]

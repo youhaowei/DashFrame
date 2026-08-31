@@ -1,4 +1,4 @@
-import { api } from "@/wystack/api";
+import { nativeQueryMock, hostQueryMock } from "@/test/native-query-fixture";
 import type { DataTable, Insight, UUID } from "@dashframe/types";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -15,13 +15,18 @@ const { queryDataFrame, client, useQuery } = vi.hoisted(() => ({
   useQuery: vi.fn(() => ({ data: [] })),
 }));
 vi.mock("@/lib/data-access/data-frames", () => ({ queryDataFrame }));
-vi.mock("@/wystack/client", () => ({
-  getWyStackClient: () => client,
+vi.mock("@/data/runtime", () => ({
+  getConvexClient: () => client,
   useQuery: () => ({ data: [] }),
 }));
-vi.mock("@wystack/client", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@wystack/client")>()),
-  useQuery,
+vi.mock("convex/react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("convex/react")>()),
+  useQuery_experimental: nativeQueryMock(useQuery),
+}));
+vi.mock("@/data/host", () => ({
+  requestHost: (operation: string, args: unknown) =>
+    client.mutate({ _path: operation }, args),
+  useHostQuery: hostQueryMock(useQuery),
 }));
 
 const insight = {
@@ -369,7 +374,7 @@ describe("useInsightPagination", () => {
       } as unknown as DataTable,
     ];
     useQuery.mockImplementation((procedure) => ({
-      data: procedure === api.listInsights ? [upstream] : tables,
+      data: procedure._path === "listInsights" ? [upstream] : tables,
     }));
     client.mutate.mockResolvedValue({
       status: "ready",
@@ -432,7 +437,7 @@ describe("useInsightPagination", () => {
       } as unknown as DataTable,
     ];
     useQuery.mockImplementation((procedure) => ({
-      data: procedure === api.listInsights ? [upstream] : tables,
+      data: procedure._path === "listInsights" ? [upstream] : tables,
     }));
     client.mutate.mockResolvedValue({
       status: "failed",

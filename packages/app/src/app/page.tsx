@@ -1,6 +1,8 @@
+import { useQuery_experimental as useQuery } from "convex/react";
+import { queryStatus } from "@/data/query-status";
 import { DraftListItem } from "@/components/drafts/DraftListItem";
-import { api } from "@/wystack/api";
-import { useQuery } from "@wystack/client";
+import { api } from "@dashframe/convex-backend/api";
+
 import { Spinner } from "@wystack/ui-react";
 import { HomeView } from "./_components/HomeView";
 import { OnboardingView } from "./_components/OnboardingView";
@@ -12,11 +14,12 @@ import { OnboardingView } from "./_components/OnboardingView";
  * or a dashboard overview when visualizations are present.
  */
 export default function HomePage() {
-  const { data: visualizations = [], isLoading } = useQuery(
-    api.listVisualizations,
-    { args: {} },
+  const { data: visualizations = [], isLoading } = queryStatus(
+    useQuery({ query: api.app.listVisualizations, args: {} }),
   );
-  const { data: drafts = [] } = useQuery(api.listDrafts, { args: {} });
+  const { data: drafts = [] } = queryStatus(
+    useQuery({ query: api.app.listDrafts, args: {} }),
+  );
 
   const hasVisualizations = visualizations.length > 0;
 

@@ -1,10 +1,12 @@
+import { useQuery_experimental as useQuery } from "convex/react";
+import { queryStatus } from "@/data/query-status";
 import { useChartEngine } from "@/components/providers/ChartEngineProvider";
 import {
   resolveInsightSourceDataTable,
   useInsightPagination,
 } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
-import { api } from "@/wystack/api";
+import { api } from "@dashframe/convex-backend/api";
 import {
   getMetricDisplayLabel,
   resolveEncodingToResultFrame,
@@ -20,7 +22,7 @@ import type {
 import { parseEncoding } from "@dashframe/types";
 import { VirtualTable, type VirtualTableColumnConfig } from "@dashframe/ui";
 import { Chart, useVisualization } from "@dashframe/visualization";
-import { useQuery } from "@wystack/client";
+
 import { ErrorState, Spinner, Surface, Toggle } from "@wystack/ui-react";
 import { ChartIcon, LayersIcon, TableIcon } from "@wystack/ui-react/icons";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -136,9 +138,9 @@ export function VisualizationDisplay(props: VisualizationDisplayProps) {
   // card until the user navigated away. The query is the one the content
   // component already issues, so this shares its cache rather than adding a
   // fetch.
-  const { data: visualizations = [] } = useQuery(api.listVisualizations, {
-    args: {},
-  });
+  const { data: visualizations = [] } = queryStatus(
+    useQuery({ query: api.app.listVisualizations, args: {} }),
+  );
   const active = visualizations.find(
     (candidate) => candidate.id === props.visualizationId,
   );
@@ -188,12 +190,15 @@ function VisualizationDisplayContent({
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  const { data: visualizations = [], isLoading: isVizLoading } = useQuery(
-    api.listVisualizations,
-    { args: {} },
+  const { data: visualizations = [], isLoading: isVizLoading } = queryStatus(
+    useQuery({ query: api.app.listVisualizations, args: {} }),
   );
-  const { data: insights = [] } = useQuery(api.listInsights, { args: {} });
-  const { data: dataTables = [] } = useQuery(api.listDataTables, { args: {} });
+  const { data: insights = [] } = queryStatus(
+    useQuery({ query: api.app.listInsights, args: {} }),
+  );
+  const { data: dataTables = [] } = queryStatus(
+    useQuery({ query: api.app.listDataTables, args: {} }),
+  );
 
   // Get the visualization
   const activeViz = useMemo((): Visualization | null => {

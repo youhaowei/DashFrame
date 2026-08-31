@@ -1,3 +1,5 @@
+import { useQuery_experimental as useQuery, useMutation } from "convex/react";
+import { queryStatus } from "@/data/query-status";
 import { DataGrid } from "@/components/data-grid";
 import { useNow } from "@/hooks/useNow";
 import {
@@ -6,9 +8,9 @@ import {
 } from "@/lib/data-access/data-frames";
 import { formatRelativeTime } from "@/lib/format-relative-time";
 import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
-import { api } from "@/wystack/api";
+import { api } from "@dashframe/convex-backend/api";
 import type { ColumnDef } from "@tanstack/react-table";
-import { useMutation, useQuery } from "@wystack/client";
+
 import {
   Button,
   Dialog,
@@ -45,17 +47,16 @@ function resolveDefinitionName(
 }
 
 export default function DataFramesPage() {
-  const { data: dataFrames, isLoading } = useQuery(api.listDataFrames);
-  const { data: dataSources, isLoading: isLoadingDataSources } = useQuery(
-    api.listDataSources,
+  const { data: dataFrames, isLoading } = queryStatus(
+    useQuery({ query: api.app.listDataFrames, args: {} }),
   );
-  const { data: dataTables, isLoading: isLoadingDataTables } = useQuery(
-    api.listDataTables,
-    { args: {} },
+  const { data: dataSources, isLoading: isLoadingDataSources } = queryStatus(
+    useQuery({ query: api.app.listDataSources, args: {} }),
   );
-  const { mutateAsync: updateDataFrameEntry } = useMutation(
-    api.updateDataFrameEntry,
+  const { data: dataTables, isLoading: isLoadingDataTables } = queryStatus(
+    useQuery({ query: api.app.listDataTables, args: {} }),
   );
+  const updateDataFrameEntry = useMutation(api.app.updateDataFrameEntry);
   const { confirm } = useConfirmDialogStore();
 
   const [editingFrame, setEditingFrame] = useState<DataFrameEntry | null>(null);

@@ -1,10 +1,12 @@
+import { useQuery_experimental as useQuery } from "convex/react";
+import { queryStatus } from "@/data/query-status";
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
-import { api } from "@/wystack/api";
+import { api } from "@dashframe/convex-backend/api";
 import { resolveEncodingToResultFrame } from "@dashframe/engine";
 import type { ChartEncoding, Insight, Visualization } from "@dashframe/types";
 import { Chart } from "@dashframe/visualization";
-import { useQuery } from "@wystack/client";
+
 import { Spinner } from "@wystack/ui-react";
 import { useMemo } from "react";
 
@@ -60,13 +62,17 @@ function VisualizationPreviewContent({
   fallback = null,
 }: VisualizationPreviewProps) {
   // Fetch the insight for this visualization
-  const { data: insight, isLoading: isLoadingInsight } = useQuery(
-    api.getInsight,
-    { args: { id: visualization.insightId } },
+  const { data: insight, isLoading: isLoadingInsight } = queryStatus(
+    useQuery({
+      query: api.app.getInsight,
+      args: { id: visualization.insightId },
+    }),
   );
 
   // Fetch data tables for encoding resolution
-  const { data: dataTables = [] } = useQuery(api.listDataTables, { args: {} });
+  const { data: dataTables = [] } = queryStatus(
+    useQuery({ query: api.app.listDataTables, args: {} }),
+  );
 
   // Find the data table for this insight (React Compiler memoizes this).
   const dataTable =

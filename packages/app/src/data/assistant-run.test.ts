@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { parseAssistantSseChunk, runAssistantPrompt } from "./assistant-run";
 
 vi.mock("./runtime", () => ({
-  getWyStackRuntimeConfig: () => ({ url: "http://localhost:4000" }),
+  getRuntimeConfig: () => ({ url: "http://localhost:4000" }),
 }));
 
 describe("assistant SSE parsing", () => {

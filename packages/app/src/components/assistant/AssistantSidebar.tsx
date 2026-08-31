@@ -1,7 +1,8 @@
+import { useHostQuery } from "@/data/host";
 import { useEffect, useRef, useState } from "react";
 
 import { runAssistantPrompt } from "@/data";
-import { useQuery } from "@wystack/client";
+
 import { Button, Textarea, cn } from "@wystack/ui-react";
 import {
   ArrowRightIcon,
@@ -16,7 +17,6 @@ import {
   type AssistantTurn,
   useAssistantStore,
 } from "@/lib/stores/assistant-store";
-import { api } from "@/wystack/api";
 
 import { AssistantModelPicker } from "./AssistantModelPicker";
 import { DraftReviewPanel } from "./DraftReviewPanel";
@@ -59,7 +59,7 @@ function AssistantPanelBody() {
     (s) => s.selectedProviderConfigId,
   );
   const selectedModelId = useAssistantStore((s) => s.selectedModelId);
-  const providerConfigsResult = useQuery(api.listAssistantProviderConfigs);
+  const providerConfigsResult = useHostQuery("listAssistantProviderConfigs");
   const hasConfiguredProvider = (providerConfigsResult.data?.length ?? 0) > 0;
   const [prompt, setPrompt] = useState("");
   const isRunning = runStatus === "running";

@@ -1,7 +1,6 @@
+import { requestHost } from "@/data/host";
 import { useConnectorForm } from "@/hooks/useConnectorForm";
 import { createOAuthAuthorizationTarget } from "@/lib/oauth-authorization-target";
-import { api } from "@/wystack/api";
-import { getWyStackClient } from "@/wystack/client";
 import {
   isFileConnector,
   isRemoteApiConnector,
@@ -22,7 +21,7 @@ interface ConnectorCardWithFormProps {
    * Called when a remote-api connector's form is submitted with validated
    * credentials. The renderer never calls `connector.connect()` itself — that
    * resolves the credential and lists databases SERVER-SIDE (via the
-   * `listNotionDatabases` WyStack mutation, keyed off the created DataSource's
+   * `listNotionDatabases` host operation, keyed off the created DataSource's
    * id). This callback hands the validated form values up so the parent can
    * create the DataSource (storing the credential as a vault SecretRef); the
    * database list is fetched afterward through the server path.
@@ -89,7 +88,6 @@ async function pollOAuthCompletion(
   onOAuthConnect: ConnectorCardWithFormProps["onOAuthConnect"],
   token: PollToken,
 ): Promise<void> {
-  const client = getWyStackClient();
   for (
     let elapsed = 0;
     elapsed < POLL_TIMEOUT_MS;
@@ -97,7 +95,7 @@ async function pollOAuthCompletion(
   ) {
     await waitForPoll(token);
     if (token.cancelled) return;
-    const current = await client.query(api.getConnectorSetupSession, {
+    const current = await requestHost("getConnectorSetupSession", {
       sessionId,
     });
     // Checked again after the round trip: the component can unmount while the
@@ -112,8 +110,7 @@ export async function rejectOAuthSetupWithoutAuthorizationUrl(
   sessionId: string,
   authorizationTarget: ReturnType<typeof createOAuthAuthorizationTarget>,
 ): Promise<never> {
-  const client = getWyStackClient();
-  await client.mutate(api.cancelConnectorSetup, { sessionId }).catch(() => {});
+  await requestHost("cancelConnectorSetup", { sessionId }).catch(() => {});
   authorizationTarget?.close();
   throw new Error("Google authorization URL was not issued");
 }
@@ -123,11 +120,10 @@ async function runOAuthSetup(
   onOAuthConnect: ConnectorCardWithFormProps["onOAuthConnect"],
   token: PollToken,
 ): Promise<void> {
-  const client = getWyStackClient();
   const authorizationTarget = createOAuthAuthorizationTarget();
   let session: { sessionId: string; authorizeUrl?: string };
   try {
-    session = await client.mutate(api.startConnectorSetup, {
+    session = await requestHost("startConnectorSetup", {
       connectorId: connector.id,
       requestedName: connector.name,
     });
@@ -142,7 +138,7 @@ async function runOAuthSetup(
     );
   }
   if (!authorizationTarget) {
-    await client.mutate(api.cancelConnectorSetup, {
+    await requestHost("cancelConnectorSetup", {
       sessionId: session.sessionId,
     });
     throw new Error(
@@ -152,9 +148,9 @@ async function runOAuthSetup(
   try {
     await authorizationTarget.open(session.authorizeUrl);
   } catch (error) {
-    await client
-      .mutate(api.cancelConnectorSetup, { sessionId: session.sessionId })
-      .catch(() => {});
+    await requestHost("cancelConnectorSetup", {
+      sessionId: session.sessionId,
+    }).catch(() => {});
     authorizationTarget.close();
     throw error;
   }

@@ -1,3 +1,9 @@
+import {
+  nativeQueryMock,
+  nativeMutationMock,
+  hostQueryMock,
+  hostMutationMock,
+} from "@/test/native-query-fixture";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -7,14 +13,17 @@ const { mockUseQuery, mockRemoveDataFrame } = vi.hoisted(() => ({
   mockRemoveDataFrame: vi.fn(),
 }));
 
-vi.mock("@wystack/client", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@wystack/client")>();
-  return {
-    ...actual,
-    useQuery: (ref: { _path: string }) => mockUseQuery(ref),
-    useMutation: () => ({ mutateAsync: vi.fn() }),
-  };
-});
+vi.mock("convex/react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("convex/react")>()),
+  useQuery_experimental: nativeQueryMock((ref: { _path: string }) =>
+    mockUseQuery(ref),
+  ),
+  useMutation: nativeMutationMock(() => ({ mutateAsync: vi.fn() })),
+}));
+vi.mock("@/data/host", () => ({
+  useHostQuery: hostQueryMock((ref: { _path: string }) => mockUseQuery(ref)),
+  useHostMutation: hostMutationMock(() => ({ mutateAsync: vi.fn() })),
+}));
 
 vi.mock("@/lib/data-access/data-frames", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/data-access/data-frames")>()),

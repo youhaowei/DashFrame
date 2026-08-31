@@ -1,7 +1,9 @@
+import { requestHost } from "@/data/host";
+import { useQuery_experimental as useQuery } from "convex/react";
+import { queryStatus } from "@/data/query-status";
 import { queryDataFrame } from "@/lib/data-access/data-frames";
 import { buildInsightColumnDisplayNames } from "@/lib/insight-column-display-names";
-import { api } from "@/wystack/api";
-import { getWyStackClient } from "@/wystack/client";
+import { api } from "@dashframe/convex-backend/api";
 import {
   buildInsightAvailableFields,
   extractColumnAliasComponents,
@@ -20,7 +22,7 @@ import type {
   FetchDataResult,
   VirtualTableColumn,
 } from "@dashframe/ui";
-import { useQuery } from "@wystack/client";
+
 import {
   useCallback,
   useEffect,
@@ -258,9 +260,13 @@ export function useInsightPagination({
   enabled = true,
   runtime,
 }: UseInsightPaginationOptions) {
-  const dataTablesQuery = useQuery(api.listDataTables, { args: {} });
+  const dataTablesQuery = queryStatus(
+    useQuery({ query: api.app.listDataTables, args: {} }),
+  );
   const dataTables = dataTablesQuery.data ?? EMPTY_DATA_TABLES;
-  const insightsQuery = useQuery(api.listInsights, { args: {} });
+  const insightsQuery = queryStatus(
+    useQuery({ query: api.app.listInsights, args: {} }),
+  );
   const insights = insightsQuery.data ?? EMPTY_INSIGHTS;
   const sourcesReady =
     dataTablesQuery.isLoading !== true && insightsQuery.isLoading !== true;
@@ -381,10 +387,10 @@ export function useInsightPagination({
       setStaleReason(null);
     });
     const materialized = showModelPreview
-      ? getWyStackClient().mutate(api.fetchData, {
+      ? requestHost("fetchData", {
           insight: toFetchDefinition(activeInsight),
         })
-      : getWyStackClient().mutate(api.runInsight, {
+      : requestHost("runInsight", {
           insightId: activeInsight.id,
           ...(stableRuntime ? { runtime: stableRuntime } : {}),
         });

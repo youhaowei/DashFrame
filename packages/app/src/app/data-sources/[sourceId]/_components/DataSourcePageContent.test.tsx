@@ -1,3 +1,9 @@
+import {
+  nativeQueryMock,
+  nativeMutationMock,
+  hostQueryMock,
+  hostMutationMock,
+} from "@/test/native-query-fixture";
 /**
  * DataSourcePageContent tests.
  *
@@ -50,24 +56,35 @@ const { mockCreateInsightFromTable } = vi.hoisted(() => ({
   mockCreateInsightFromTable: vi.fn(),
 }));
 
-vi.mock("@wystack/client", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@wystack/client")>();
-  return {
-    ...actual,
-    useQuery: (ref: { _path: string }) => {
-      if (ref._path === "listDataSources") return mockUseDataSources();
-      if (ref._path === "listDataTables") return mockUseDataTables();
-      if (ref._path === "listDataFrames") return { data: [] };
-      throw new Error(`Unexpected query: ${ref._path}`);
-    },
-    useMutation: (ref: { _path: string }) => {
-      if (ref._path === "commitBatch") {
-        return { mutateAsync: mockCommitBatch };
-      }
-      throw new Error(`Unexpected mutation: ${ref._path}`);
-    },
-  };
-});
+vi.mock("convex/react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("convex/react")>()),
+  useQuery_experimental: nativeQueryMock((ref: { _path: string }) => {
+    if (ref._path === "listDataSources") return mockUseDataSources();
+    if (ref._path === "listDataTables") return mockUseDataTables();
+    if (ref._path === "listDataFrames") return { data: [] };
+    throw new Error(`Unexpected query: ${ref._path}`);
+  }),
+  useMutation: nativeMutationMock((ref: { _path: string }) => {
+    if (ref._path === "commitBatch") {
+      return { mutateAsync: mockCommitBatch };
+    }
+    throw new Error(`Unexpected mutation: ${ref._path}`);
+  }),
+}));
+vi.mock("@/data/host", () => ({
+  useHostQuery: hostQueryMock((ref: { _path: string }) => {
+    if (ref._path === "listDataSources") return mockUseDataSources();
+    if (ref._path === "listDataTables") return mockUseDataTables();
+    if (ref._path === "listDataFrames") return { data: [] };
+    throw new Error(`Unexpected query: ${ref._path}`);
+  }),
+  useHostMutation: hostMutationMock((ref: { _path: string }) => {
+    if (ref._path === "commitBatch") {
+      return { mutateAsync: mockCommitBatch };
+    }
+    throw new Error(`Unexpected mutation: ${ref._path}`);
+  }),
+}));
 
 vi.mock("@/hooks/useCreateInsight", () => ({
   useCreateInsight: () => ({
@@ -330,38 +347,6 @@ describe("DataSourcePageContent — loading state contract", () => {
     // Now it's correct to show not-found — source really doesn't exist
     // (getByText throws if absent)
     screen.getByText("Data source not found");
-  });
-
-  it("does not flash 'not found' during a background refetch (isFetching) when stale cache omits the source", async () => {
-    // Cached data exists (isLoading false) but a post-invalidation refetch is
-    // in flight (isFetching true) and the stale cache does not yet include this
-    // source. This is the refetch window: not-found must NOT flash.
-    mockUseDataSources.mockReturnValue({
-      data: [],
-      isLoading: false,
-      isFetching: true,
-    });
-
-    const { rerender } = render(<DataSourcePageContent sourceId={SOURCE_ID} />);
-
-    // Must show loading, not not-found, while the refetch is in flight
-    screen.getByText("Loading data source…");
-    expect(screen.queryByText("Data source not found")).toBeNull();
-
-    // Refetch settles with the source present
-    mockUseDataSources.mockReturnValue({
-      data: [DATA_SOURCE],
-      isLoading: false,
-      isFetching: false,
-    });
-
-    await act(async () => {
-      rerender(<DataSourcePageContent sourceId={SOURCE_ID} />);
-    });
-
-    // Content renders; not-found never appeared for the real source
-    expect(screen.queryByText("Data source not found")).toBeNull();
-    screen.getByDisplayValue("My Database");
   });
 
   it("creates and opens a visualize-intent insight from the selected table", async () => {

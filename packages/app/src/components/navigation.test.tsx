@@ -1,3 +1,4 @@
+import { nativeQueryMock, hostQueryMock } from "@/test/native-query-fixture";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -27,8 +28,13 @@ vi.mock("@/lib/stores/shell-store", () => ({
   useShellStore: (select: (state: { leftNavOpen: boolean }) => unknown) =>
     select({ leftNavOpen: true }),
 }));
-vi.mock("@/wystack/api", () => ({ api: { listDrafts: {} } }));
-vi.mock("@wystack/client", () => ({ useQuery: () => ({ data: [] }) }));
+vi.mock("convex/react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("convex/react")>()),
+  useQuery_experimental: nativeQueryMock(() => ({ data: [] })),
+}));
+vi.mock("@/data/host", () => ({
+  useHostQuery: hostQueryMock(() => ({ data: [] })),
+}));
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ to, onClick, children, ...props }: React.ComponentProps<"a">) => (
     <a

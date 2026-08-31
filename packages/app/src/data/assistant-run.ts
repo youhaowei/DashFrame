@@ -1,4 +1,4 @@
-import { getWyStackRuntimeConfig } from "./runtime";
+import { getRuntimeConfig } from "./runtime";
 
 export type AssistantSidebarEvent =
   | { type: "run-start" }
@@ -77,7 +77,7 @@ export async function runAssistantPrompt({
   signal,
   onEvent,
 }: RunAssistantPromptOptions): Promise<void> {
-  const runtime = getWyStackRuntimeConfig();
+  const runtime = getRuntimeConfig();
   const res = await fetch(`${runtime.url.replace(/\/$/, "")}/assistant/run`, {
     method: "POST",
     headers: {

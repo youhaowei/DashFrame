@@ -1,10 +1,12 @@
+import { useQuery_experimental as useQuery, useMutation } from "convex/react";
+import { queryStatus } from "@/data/query-status";
 import { useDataFramePagination } from "@/hooks/useDataFramePagination";
 import { resolveInsightAvailableFields } from "@/lib/insights/compute-combined-fields";
 import {
   resolveInsightSourceDataTable,
   useInsightPagination,
 } from "@/hooks/useInsightPagination";
-import { api } from "@/wystack/api";
+import { api } from "@dashframe/convex-backend/api";
 import { fieldIdToColumnAlias } from "@dashframe/engine";
 import type {
   DataFrameRow,
@@ -20,7 +22,7 @@ import {
   type VirtualTableColumnConfig,
 } from "@dashframe/ui";
 import { useNavigate } from "@tanstack/react-router";
-import { useMutation, useQuery } from "@wystack/client";
+
 import {
   Alert,
   AlertDescription,
@@ -131,15 +133,13 @@ export default function JoinConfigureContent({
 }: JoinConfigureContentProps) {
   const navigate = useNavigate();
 
-  const { data: allInsights, isLoading: isInsightsLoading } = useQuery(
-    api.listInsights,
-    { args: {} },
+  const { data: allInsights, isLoading: isInsightsLoading } = queryStatus(
+    useQuery({ query: api.app.listInsights, args: {} }),
   );
-  const { data: allDataTables, isLoading: isTablesLoading } = useQuery(
-    api.listDataTables,
-    { args: {} },
+  const { data: allDataTables, isLoading: isTablesLoading } = queryStatus(
+    useQuery({ query: api.app.listDataTables, args: {} }),
   );
-  const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
+  const commitBatch = useMutation(api.app.commitBatch);
 
   const isLoading = isInsightsLoading || isTablesLoading;
 

@@ -8,26 +8,26 @@ import type { AnyConnector } from "@dashframe/engine";
 import { useEffect } from "react";
 
 // Static-metadata-only instances — connect()/query() are never called from the
-// renderer (they go through the WyStack server mutations). Unchanged from the
+// renderer (they go through the DashFrame host operations). Unchanged from the
 // previous version of this file, just no longer registered unconditionally.
 const notionConnectorForRegistry = makeNotionConnector(() => {
   throw new Error(
     "[connector-registry] connect()/query() must not be called from the renderer — " +
-      "use the WyStack server mutations instead.",
+      "use the DashFrame host operations instead.",
   );
 });
 
 const postgresConnectorForRegistry = makePostgresConnector(() => {
   throw new Error(
     "[connector-registry] connect()/query() must not be called from the renderer — " +
-      "use the WyStack server mutations instead.",
+      "use the DashFrame host operations instead.",
   );
 }, {});
 
 const ga4ConnectorForRegistry = makeGa4Connector(() => {
   throw new Error(
     "[connector-registry] connect()/query() must not be called from the renderer — " +
-      "use the WyStack server mutations instead.",
+      "use the DashFrame host operations instead.",
   );
 });
 

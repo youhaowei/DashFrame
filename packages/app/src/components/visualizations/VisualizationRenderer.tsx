@@ -1,6 +1,8 @@
-import { api } from "@/wystack/api";
+import { useQuery_experimental as useQuery } from "convex/react";
+import { queryStatus } from "@/data/query-status";
+import { api } from "@dashframe/convex-backend/api";
 import type { UUID } from "@dashframe/types";
-import { useQuery } from "@wystack/client";
+
 import { Spinner } from "@wystack/ui-react";
 import { useMemo } from "react";
 
@@ -27,9 +29,9 @@ export function VisualizationRenderer({
   height = "container",
   preview = false,
 }: VisualizationRendererProps) {
-  const { data: visualizations = [] } = useQuery(api.listVisualizations, {
-    args: {},
-  });
+  const { data: visualizations = [] } = queryStatus(
+    useQuery({ query: api.app.listVisualizations, args: {} }),
+  );
   const visualization = useMemo(
     () => visualizations.find((candidate) => candidate.id === visualizationId),
     [visualizationId, visualizations],

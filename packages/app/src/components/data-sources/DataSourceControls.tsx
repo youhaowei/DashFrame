@@ -1,10 +1,13 @@
+import { useHostMutation, requestHost } from "@/data/host";
+import { useQuery_experimental as useQuery, useMutation } from "convex/react";
+import { queryStatus } from "@/data/query-status";
 import { getConnectorById } from "@/lib/connectors/registry";
 import { makeDefaultCountMetric } from "@/lib/data-access/data-tables";
 import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
-import { api } from "@/wystack/api";
+import { api } from "@dashframe/convex-backend/api";
 import { cmd, type UUID } from "@dashframe/types";
 import { InputField } from "@dashframe/ui";
-import { useMutation, useQuery } from "@wystack/client";
+
 import {
   Button,
   cn,
@@ -195,11 +198,16 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
     getNowServerSnapshot,
   );
 
-  const { data: dataSources } = useQuery(api.listDataSources);
-  const { data: allTables } = useQuery(api.listDataTables, {
-    args: { dataSourceId: dataSourceId ?? undefined },
-  });
-  const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
+  const { data: dataSources } = queryStatus(
+    useQuery({ query: api.app.listDataSources, args: {} }),
+  );
+  const { data: allTables } = queryStatus(
+    useQuery({
+      query: api.app.listDataTables,
+      args: { dataSourceId: dataSourceId ?? undefined },
+    }),
+  );
+  const commitBatch = useMutation(api.app.commitBatch);
   const { confirm } = useConfirmDialogStore();
 
   const dataSource = useMemo(
@@ -218,8 +226,8 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
   const isNotionSource = connector?.id === "notion";
 
   // Notion data-plane mutations — resolved server-side via the bound resolver.
-  const { mutateAsync: listNotionDatabasesMutation } = useMutation(
-    api.listNotionDatabases,
+  const { mutateAsync: listNotionDatabasesMutation } = useHostMutation(
+    "listNotionDatabases",
   );
 
   // Get configured DataTables (only meaningful for remote-api connectors)
@@ -342,7 +350,7 @@ export function DataSourceControls({ dataSourceId }: DataSourceControlsProps) {
     setApiKeyInput(newApiKey);
     if (isRemoteApi) {
       try {
-        await commitBatch({
+        await requestHost("commitBatch", {
           commands: [
             cmd("SetDataSourceConfig", {
               id: dataSource.id,
