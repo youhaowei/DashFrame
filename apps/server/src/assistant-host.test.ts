@@ -2,18 +2,10 @@ import {
   createAssistantRun,
   type CreateAssistantRunOptions,
 } from "@dashframe/assistant";
-import { openArtifactDb, schema } from "@dashframe/server-core";
-import type { UUID } from "@dashframe/types";
-import { eq } from "drizzle-orm";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
-
-import { buildDashframeApp, createDraftController } from "./app";
+import { cmd, type Command, type UUID } from "@dashframe/types";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { createDashframeAssistantHost } from "./assistant-host";
-import { recoveredDraftWriteTables } from "./draft-controller";
-import { cmd } from "./functions/commands";
+import type { ApplicationOperations } from "./host/application";
 import { LOCAL_USER_ID } from "./permissions";
 
 const usage = {
@@ -93,41 +85,40 @@ function scriptedStream(messages: ReturnType<typeof assistantMessage>[]) {
   >;
 }
 
-describe("DashFrame AssistantHost integration", () => {
-  let dir: string;
-  let db: Awaited<ReturnType<typeof openArtifactDb>>;
-  let app: Awaited<ReturnType<typeof buildDashframeApp>>;
-  let draftController: ReturnType<typeof createDraftController>;
+describe("DashFrame AssistantHost ApplicationOperations integration", () => {
+  const principal = { kind: "user" as const, userId: LOCAL_USER_ID };
+  const draftId = "assistant-draft";
+  let execute: ReturnType<typeof vi.fn<ApplicationOperations["execute"]>>;
+  let forPrincipal: ReturnType<
+    typeof vi.fn<ApplicationOperations["forPrincipal"]>
+  >;
+  let app: ApplicationOperations;
 
-  beforeEach(async () => {
-    dir = mkdtempSync(join(tmpdir(), "dashframe-assistant-host-"));
-    db = await openArtifactDb({ path: join(dir, "artifacts.db") });
-    // Mirror createDashframeServer's serverContext composition: the host's
-    // discard routes through app.call("discardDraft"), whose handler requires
-    // ctx.draftController (and reads ctx.artifactDb for credential release).
-    const serverContext: Record<string, unknown> = {};
-    const rawApp = await buildDashframeApp({ db });
-    app = {
-      ...rawApp,
-      call: (path, args, context) =>
-        rawApp.call(path, args, { ...(context ?? {}), ...serverContext }),
-    };
-    draftController = createDraftController(app, db);
-    serverContext.draftController = draftController;
-    serverContext.artifactDb = db;
-  });
-
-  afterEach(async () => {
-    await db.$client.close();
-    rmSync(dir, { recursive: true, force: true });
+  beforeEach(() => {
+    execute = vi.fn<ApplicationOperations["execute"]>(
+      async (operation, input) => {
+        if (operation === "discardDraft") return null;
+        if (operation === "getDashboard") return null;
+        if (operation !== "draftBatch")
+          throw new Error(`Unexpected operation: ${operation}`);
+        const { commands } = input as { commands: Command[] };
+        if (commands.some((command) => command.path === "deleteNode"))
+          throw new Error("Node not found");
+        return {
+          draftId,
+          results: commands.map((command) => ({ value: command.args })),
+        };
+      },
+    );
+    forPrincipal = vi.fn(() => app);
+    app = { execute, forPrincipal };
   });
 
   it("binds the single host port through a full run lifecycle", async () => {
     const dashboardId = crypto.randomUUID() as UUID;
     const host = createDashframeAssistantHost({
       app,
-      draftController,
-      principal: { kind: "user", userId: LOCAL_USER_ID },
+      principal,
     });
     const firstMutations: string[] = [];
     const toolErrors: boolean[] = [];
@@ -178,28 +169,50 @@ describe("DashFrame AssistantHost integration", () => {
     expect(toolErrors).toEqual([true, false, false]);
     expect(result.messages.at(-1)?.role).toBe("assistant");
 
-    const log = await draftController.getDraftLog(result.draftId);
-    expect(log.map((entry) => entry.path)).toEqual([
-      "createDashboardCmd",
-      "renameNode",
-    ]);
-
-    await result.discard();
-
-    expect(await draftController.getDraftLog(result.draftId)).toEqual([]);
-    const canonical = await app.runHandler(
-      "getDashboard",
-      { id: dashboardId },
-      app.createTracked(),
-      {},
+    const draftCalls = execute.mock.calls.filter(
+      ([operation]) => operation === "draftBatch",
     );
-    expect(canonical).toBeNull();
+    expect(draftCalls).toEqual([
+      ["draftBatch", { commands: [] }, { principal }],
+      [
+        "draftBatch",
+        {
+          draftId,
+          commands: [
+            cmd("CreateDashboard", { id: dashboardId, name: "Recovered" }),
+          ],
+        },
+        { principal },
+      ],
+      [
+        "draftBatch",
+        {
+          draftId,
+          commands: [
+            cmd("RenameNode", { id: dashboardId, name: "Recovered Overview" }),
+          ],
+        },
+        { principal },
+      ],
+    ]);
+    await result.discard();
+    expect(execute).toHaveBeenLastCalledWith(
+      "discardDraft",
+      { draftId },
+      { principal },
+    );
+    // The host exposes only draft writes; a successful run never commits canonical state.
+    expect(
+      execute.mock.calls.some(
+        ([operation]) =>
+          operation === "commitBatch" || operation === "publishDraft",
+      ),
+    ).toBe(false);
   });
 
   it("forwards a service principal into draft append dispatch", async () => {
     const host = createDashframeAssistantHost({
       app,
-      draftController,
       principal: { kind: "service", credentialId: "credential-1" },
     });
     const draftId = await host.open();
@@ -211,65 +224,56 @@ describe("DashFrame AssistantHost integration", () => {
       {},
     );
 
-    expect(await draftController.getDraftLog(draftId)).toEqual([
-      expect.objectContaining({ path: "createDashboardCmd" }),
-    ]);
+    expect(execute).toHaveBeenLastCalledWith(
+      "draftBatch",
+      {
+        draftId,
+        commands: [
+          cmd("CreateDashboard", { id: dashboardId, name: "Service draft" }),
+        ],
+      },
+      { principal: { kind: "service", credentialId: "credential-1" } },
+    );
   });
 
-  it("routes a rejected assistant append through durable-prefix notifications exactly once", async () => {
-    let appCalls = 0;
-    let onWriteCalls = 0;
-    let invalidations = 0;
-    const operatedApp = {
-      ...app,
-      async call(
-        ...args: Parameters<typeof app.call>
-      ): ReturnType<typeof app.call> {
-        appCalls++;
-        try {
-          return await app.call(...args);
-        } catch (error) {
-          const recoveredTables = new Set(recoveredDraftWriteTables(error));
-          if (recoveredTables.size > 0) {
-            app.emit(recoveredTables);
-            invalidations++;
-            onWriteCalls++;
-          }
-          throw error;
-        }
-      },
-    } satisfies typeof app;
-    const host = createDashframeAssistantHost({
-      app: operatedApp,
-      draftController,
-      principal: { kind: "user", userId: LOCAL_USER_ID },
+  it("propagates a rejected batch once without retrying or splitting its commands", async () => {
+    const rejected = new Error("Native transaction rejected");
+    execute.mockRejectedValueOnce(rejected);
+    const host = createDashframeAssistantHost({ app, principal });
+    const commands = [
+      cmd("CreateDashboard", { id: crypto.randomUUID(), name: "Atomic draft" }),
+      cmd("DeleteNode", { id: crypto.randomUUID() }),
+    ];
+    await expect(host.append(draftId, commands)).rejects.toBe(rejected);
+    expect(execute).toHaveBeenCalledExactlyOnceWith(
+      "draftBatch",
+      { draftId, commands },
+      { principal },
+    );
+  });
+
+  it("binds reads to the supplied principal and draft without leaking that context into arguments", async () => {
+    const scopedExecute = vi
+      .fn<ApplicationOperations["execute"]>()
+      .mockResolvedValue({ id: "dashboard-1", name: "Draft dashboard" });
+    const scoped: ApplicationOperations = {
+      execute: scopedExecute,
+      forPrincipal: () => scoped,
+    };
+    forPrincipal.mockReturnValue(scoped);
+    const service = { kind: "service" as const, credentialId: "credential-1" };
+    const host = createDashframeAssistantHost({ app, principal: service });
+    const reader = host.reader(draftId);
+    await expect(reader.getDashboard("dashboard-1")).resolves.toEqual({
+      id: "dashboard-1",
+      name: "Draft dashboard",
     });
-    const draftId = await host.open();
-    const dashboardId = crypto.randomUUID();
-    const missingId = crypto.randomUUID();
-
-    await expect(
-      host.append(draftId, [
-        cmd("CreateDashboard", {
-          id: dashboardId,
-          name: "durable assistant prefix",
-        }),
-        cmd("DeleteNode", { id: missingId }),
-      ]),
-    ).rejects.toThrow(`Node ${missingId} not found`);
-
-    const shadows = await db
-      .select()
-      .from(schema.dashboardsDraft)
-      .where(eq(schema.dashboardsDraft.draftId, draftId));
-    const log = await db
-      .select()
-      .from(schema.draftCommandLog)
-      .where(eq(schema.draftCommandLog.draftId, draftId));
-    expect(shadows).toHaveLength(1);
-    expect(log).toHaveLength(1);
-    expect(appCalls).toBe(1);
-    expect(onWriteCalls).toBe(1);
-    expect(invalidations).toBe(1);
+    expect(forPrincipal).toHaveBeenCalledExactlyOnceWith(service);
+    expect(scopedExecute).toHaveBeenCalledExactlyOnceWith(
+      "getDashboard",
+      { id: "dashboard-1" },
+      { draftId },
+    );
+    expect(execute).not.toHaveBeenCalled();
   });
 });
