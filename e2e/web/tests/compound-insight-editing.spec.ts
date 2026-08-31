@@ -1,7 +1,7 @@
 /**
  * Compound-insight field/metric editing
  *
- * Verifies the server-side read-modify-write on `insights.definition` (jsonb)
+ * Verifies the server-side read-modify-write on `insights.definition` (native metadata)
  * for all five COMPOUND mutations:
  *   addField / removeField / addMetric / updateMetric / removeMetric
  *
@@ -24,6 +24,39 @@
  * mutations from that state.
  */
 import { expect, test } from "../lib/test-fixtures";
+import { query } from "../lib/native-api";
+import type { Page } from "@playwright/test";
+
+async function savedInsight(page: Page) {
+  const id = new URL(page.url()).pathname.split("/")[2];
+  return query<{
+    source: { sourceId: string };
+    selectedFields: string[];
+    metrics: { name: string }[];
+  }>("getInsight", { id });
+}
+async function expectFieldSaved(page: Page, name: string, present: boolean) {
+  await expect
+    .poll(async () => {
+      const insight = await savedInsight(page),
+        tables = await query<
+          { id: string; fields: { id: string; name: string }[] }[]
+        >("listDataTables", {});
+      const field = tables
+        .find((table) => table.id === insight.source.sourceId)
+        ?.fields.find((field) => field.name === name);
+      return !!field && insight.selectedFields.includes(field.id);
+    })
+    .toBe(present);
+}
+async function expectMetricSaved(page: Page, name: string, present: boolean) {
+  await expect
+    .poll(async () => {
+      const insight = await savedInsight(page);
+      return insight.metrics.some((metric) => metric.name === name);
+    })
+    .toBe(present);
+}
 
 test.describe("compound-insight field/metric editing", () => {
   async function openSection(
@@ -75,17 +108,12 @@ test.describe("compound-insight field/metric editing", () => {
     await expect(fieldButton).toBeVisible({ timeout: 10_000 });
     await fieldButton.waitFor({ state: "visible" });
 
-    // Intercept the commitBatch mutation (field edits migrated off updateInsight
-    // onto typed commands) to confirm it fires and succeeds.
-    const updateResponse = page.waitForResponse(
-      (resp) => resp.url().includes("/api/commitBatch"),
-      { timeout: 20_000 },
-    );
+    // Verify the native mutation persisted the selected field.
     await fieldButton.click();
     await expect(
       page.getByRole("dialog", { name: "Add field" }),
     ).not.toBeVisible({ timeout: 5_000 });
-    expect((await updateResponse).status()).toBe(200);
+    await expectFieldSaved(page, name, true);
   }
 
   // ---------------------------------------------------------------------------
@@ -114,15 +142,11 @@ test.describe("compound-insight field/metric editing", () => {
       page.getByRole("dialog", { name: "Delete field" }),
     ).toBeVisible({ timeout: 10_000 });
 
-    const removeFieldResponse = page.waitForResponse(
-      (resp) => resp.url().includes("/api/commitBatch"),
-      { timeout: 10_000 },
-    );
     await page.getByRole("button", { name: "Delete field" }).click();
     await expect(
       page.getByRole("dialog", { name: "Delete field" }),
     ).not.toBeVisible({ timeout: 5_000 });
-    expect((await removeFieldResponse).status()).toBe(200);
+    await expectFieldSaved(page, "Product", false);
 
     // Reload to verify removal was persisted — back to the empty state
     await page.reload();
@@ -158,12 +182,7 @@ test.describe("compound-insight field/metric editing", () => {
       page.getByRole("textbox", { name: /metric name/i }),
     ).toHaveValue("Count");
 
-    // Intercept the commitBatch mutation (metric edits migrated off
-    // updateInsight onto typed commands) to confirm it fires and succeeds
-    const updateInsightResponse = page.waitForResponse(
-      (resp) => resp.url().includes("/api/commitBatch"),
-      { timeout: 10_000 },
-    );
+    // Save through the UI, then verify native metadata independently.
 
     // Save the metric
     await page.getByRole("button", { name: "Add metric" }).click();
@@ -171,9 +190,8 @@ test.describe("compound-insight field/metric editing", () => {
       page.getByRole("dialog", { name: "Add metric" }),
     ).not.toBeVisible({ timeout: 5_000 });
 
-    // Confirm the mutation reached the server. Assert the status explicitly so a
-    // non-200 surfaces as a clear assertion failure instead of a waitForResponse timeout.
-    expect((await updateInsightResponse).status()).toBe(200);
+    // Assert the saved definition, not only the optimistic UI state.
+    await expectMetricSaved(page, "Count", true);
 
     // Reload the page to get fresh server state — confirms server persisted correctly
     await page.reload();
@@ -194,7 +212,7 @@ test.describe("compound-insight field/metric editing", () => {
 
   // ---------------------------------------------------------------------------
   // Full compound path: all five mutations in sequence
-  // Proves the jsonb read-modify-write chain is correct at runtime,
+  // Proves the atomic metadata update chain is correct at runtime,
   // not just at typecheck. Each step asserts an observable state change.
   // NOTE: the observable state here is the config panel + persistence
   // (reload survives), not the result table's cells — the "computed result"
@@ -230,15 +248,11 @@ test.describe("compound-insight field/metric editing", () => {
       page.getByRole("textbox", { name: /metric name/i }),
     ).toHaveValue("Count");
 
-    const addMetricResponse = page.waitForResponse(
-      (resp) => resp.url().includes("/api/commitBatch"),
-      { timeout: 10_000 },
-    );
     await page.getByRole("button", { name: "Add metric" }).click();
     await expect(
       page.getByRole("dialog", { name: "Add metric" }),
     ).not.toBeVisible({ timeout: 5_000 });
-    expect((await addMetricResponse).status()).toBe(200);
+    await expectMetricSaved(page, "Count", true);
 
     // Reload to verify metric was persisted
     await page.reload();
@@ -261,15 +275,11 @@ test.describe("compound-insight field/metric editing", () => {
     await nameInput.clear();
     await nameInput.fill("Row Count");
 
-    const updateMetricResponse = page.waitForResponse(
-      (resp) => resp.url().includes("/api/commitBatch"),
-      { timeout: 10_000 },
-    );
     await page.getByRole("button", { name: "Save" }).click();
     await expect(
       page.getByRole("dialog", { name: "Edit metric" }),
     ).not.toBeVisible({ timeout: 5_000 });
-    expect((await updateMetricResponse).status()).toBe(200);
+    await expectMetricSaved(page, "Row Count", true);
 
     // Reload to verify metric rename was persisted
     await page.reload();
@@ -293,15 +303,11 @@ test.describe("compound-insight field/metric editing", () => {
       page.getByRole("dialog", { name: "Delete field" }),
     ).toBeVisible({ timeout: 10_000 });
 
-    const removeFieldResponse = page.waitForResponse(
-      (resp) => resp.url().includes("/api/commitBatch"),
-      { timeout: 10_000 },
-    );
     await page.getByRole("button", { name: "Delete field" }).click();
     await expect(
       page.getByRole("dialog", { name: "Delete field" }),
     ).not.toBeVisible({ timeout: 5_000 });
-    expect((await removeFieldResponse).status()).toBe(200);
+    await expectFieldSaved(page, "Product", false);
 
     // Reload to verify field removal was persisted
     await page.reload();
@@ -325,15 +331,11 @@ test.describe("compound-insight field/metric editing", () => {
       page.getByRole("dialog", { name: "Delete metric" }),
     ).toBeVisible({ timeout: 10_000 });
 
-    const removeMetricResponse = page.waitForResponse(
-      (resp) => resp.url().includes("/api/commitBatch"),
-      { timeout: 10_000 },
-    );
     await page.getByRole("button", { name: "Delete metric" }).click();
     await expect(
       page.getByRole("dialog", { name: "Delete metric" }),
     ).not.toBeVisible({ timeout: 5_000 });
-    expect((await removeMetricResponse).status()).toBe(200);
+    await expectMetricSaved(page, "Row Count", false);
 
     // Reload to verify metric removal was persisted
     await page.reload();

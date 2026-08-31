@@ -118,6 +118,9 @@ jobs:
       - name: Build WyStack submodule
         run: bun run build:wystack
 
+      - name: Provision pinned Convex backend
+        run: bun run --filter @dashframe/convex-local provision
+
       - name: Install Playwright browsers
         run: cd e2e/web && bun playwright install --with-deps chromium chromium-headless-shell
 
