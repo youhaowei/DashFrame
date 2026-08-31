@@ -381,3 +381,50 @@ it("publishes imported frames and pointer CAS atomically, strips samples, and re
     await t.query(internal.host.getDataFrame, { workspaceId: "w", id: second }),
   ).toBeNull();
 });
+it("previews shared UUID artifact kinds separately and reports reused insights as no-ops", async () => {
+  const same = uuid();
+  const diff = await user().query(api.app.previewDiff, {
+    commands: [
+      cmd("CreateDataSource", { id: same, name: "Source", type: "csv" }),
+      cmd("CreateDataTable", {
+        id: same,
+        name: "Table",
+        table: "t.csv",
+        dataSourceId: same,
+      }),
+    ],
+  });
+  expect(diff.directNodes.map((n) => n.kind)).toEqual([
+    "dataSource",
+    "dataTable",
+  ]);
+  expect(diff.tablesWritten).toEqual(["dataSources", "dataTables"]);
+  const { tableId } = await seed(),
+    first = uuid();
+  await user().mutation(api.app.commitBatch, {
+    commands: [
+      cmd("GetOrCreateInsightDraft", {
+        id: first,
+        name: "Existing",
+        source: { sourceType: "dataTable", sourceId: tableId },
+      }),
+    ],
+  });
+  const reused = await user().query(api.app.previewDiff, {
+    commands: [
+      cmd("GetOrCreateInsightDraft", {
+        id: uuid(),
+        name: "Would create",
+        source: { sourceType: "dataTable", sourceId: tableId },
+      }),
+    ],
+  });
+  expect(reused.directNodes).toHaveLength(1);
+  expect(reused.directNodes[0]).toMatchObject({
+    nodeId: first,
+    kind: "insight",
+    change: "noop",
+    proposedDefinition: {},
+  });
+  expect(reused.tablesWritten).toEqual([]);
+});

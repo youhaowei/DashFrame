@@ -16,7 +16,7 @@ import {
   type ArtifactRow,
   type ArtifactTable,
 } from "./model";
-import { cloneGraph, execute, type Graph } from "./engine";
+import { cloneGraph, execute, changes, type Graph } from "./engine";
 import {
   clean,
   record,
@@ -179,25 +179,51 @@ export function preview(
     try {
       const result = execute(after, [command], workspaceId, now, { host })[0]!
         .value;
-      const a = record(command.args),
-        key = String(a.nodeId ?? a.dashboardId ?? a.id ?? "");
-      let target: ArtifactTable | undefined;
-      if (
-        result &&
-        typeof result === "object" &&
-        !Array.isArray(result) &&
-        (result.target || result.renamed || result.deleted)
-      ) {
-        const kind = record(
-          result.target ?? result.renamed ?? result.deleted,
-        ).kind;
-        target = artifactTables.find((t) => artifactKinds[t] === kind);
+      const a = record(command.args);
+      let key = String(a.nodeId ?? a.dashboardId ?? a.id ?? "");
+      const fixed: Record<string, ArtifactTable> = {
+        getOrCreateDataSource: "dataSources",
+        createDataSource: "dataSources",
+        setDataSourceConfig: "dataSources",
+        createDataTable: "dataTables",
+        setDataTableSchema: "dataTables",
+        refreshDataTableCmd: "dataTables",
+        getOrCreateInsightDraft: "insights",
+        createInsightCmd: "insights",
+        setInsightSource: "insights",
+        selectFields: "insights",
+        setInsightFilter: "insights",
+        setInsightSort: "insights",
+        setInsightRuntimeControls: "insights",
+        addJoin: "insights",
+        updateJoin: "insights",
+        removeJoin: "insights",
+        createVisualizationCmd: "visualizations",
+        setChartType: "visualizations",
+        setChartEncoding: "visualizations",
+        createDashboardCmd: "dashboards",
+        addDashboardItemCmd: "dashboards",
+        updateDashboardItemCmd: "dashboards",
+        setDashboardLayout: "dashboards",
+        removeDashboardItemCmd: "dashboards",
+        patchDashboardItemOverrideCmd: "dashboards",
+        setDashboardControls: "dashboards",
+        fanOutDashboardItemsCmd: "dashboards",
+      };
+      let target = fixed[command.path];
+      if (result && typeof result === "object" && !Array.isArray(result)) {
+        const resolved = result.target ?? result.renamed ?? result.deleted;
+        if (resolved) {
+          const location = record(resolved);
+          target = artifactTables.find(
+            (t) => artifactKinds[t] === location.kind,
+          )!;
+          key = String(location.id);
+        } else if (typeof result.id === "string") key = result.id;
       }
       if (!target)
-        target = artifactTables.find(
-          (t) => after.get(t)!.has(key) || prior.get(t)!.has(key),
-        );
-      if (!target) continue;
+        throw new Error(`Missing preview target for ${command.path}`);
+      for (const change of changes(prior, after)) tables.add(change.table);
       const name =
         Object.entries(COMMAND_PATHS).find(
           ([, p]) => p === command.path,
@@ -225,9 +251,12 @@ export function preview(
           },
         ],
         before: base ? record(redact(publicRow(target, base))) : null,
-        proposedDefinition: value
-          ? record(redact(publicRow(target, value)))
-          : { deleted: true },
+        proposedDefinition:
+          !changed && existing?.change !== "update"
+            ? {}
+            : value
+              ? record(redact(publicRow(target, value)))
+              : { deleted: true },
       });
     } catch (e) {
       error = {
