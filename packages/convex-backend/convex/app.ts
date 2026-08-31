@@ -1,3 +1,4 @@
+import { stable } from "./values";
 import { v, ConvexError } from "convex/values";
 import type {
   DataSource,
@@ -211,7 +212,7 @@ export const commitBatch = mutation({
         )
         .unique();
       if (prior) {
-        if (JSON.stringify(prior.request) !== JSON.stringify(args.commands))
+        if (stable(prior.request) !== stable(args.commands))
           throw new ConvexError("Operation ID reused with different commands");
         return prior.result as {
           mode: "commit";
@@ -485,8 +486,8 @@ export const publishDraft = mutation({
               (key) =>
                 key !== "revision" &&
                 key !== "updatedAt" &&
-                JSON.stringify(record(change.base)[key]) !==
-                  JSON.stringify(record(change.value)[key]),
+                stable(record(change.base)[key]) !==
+                  stable(record(change.value)[key]),
             )
           : Object.keys(change.base).filter(
               (key) => key !== "revision" && key !== "updatedAt",
@@ -494,8 +495,7 @@ export const publishDraft = mutation({
         if (
           changedKeys.some(
             (key) =>
-              JSON.stringify(record(current)[key]) !==
-              JSON.stringify(record(change.base)[key]),
+              stable(record(current)[key]) !== stable(record(change.base)[key]),
           )
         )
           throw new ConvexError("Draft conflicts with canonical changes");

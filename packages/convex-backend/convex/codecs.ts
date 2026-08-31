@@ -1,3 +1,3 @@
-export * from "./table-codec";
-export * from "./dashboard-codec";
-export * from "./insight-codec";
+export * from "./tableCodec";
+export * from "./dashboardCodec";
+export * from "./insightCodec";

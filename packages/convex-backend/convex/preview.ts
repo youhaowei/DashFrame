@@ -1,3 +1,7 @@
+import { parseStoredDataTableState } from "./tableCodec";
+import { storedInsightDefinitionSchema } from "./insightCodec";
+import { parseStoredDashboardState } from "./dashboardCodec";
+import { stable } from "./values";
 import type {
   PreviewDiff,
   PreviewDirectNode,
@@ -36,6 +40,11 @@ export function redact(value: Json): Json {
   return value;
 }
 export function publicRow(table: ArtifactTable, row: ArtifactRow): ObjectValue {
+  if (table === "dataTables")
+    parseStoredDataTableState(row, `Data table ${row.id}`);
+  if (table === "insights") storedInsightDefinitionSchema.parse(row.definition);
+  if (table === "dashboards")
+    parseStoredDashboardState(row, `Dashboard ${row.id}`);
   const base = {
     id: row.id,
     name: row.name,
@@ -100,10 +109,10 @@ export function publicRow(table: ArtifactTable, row: ArtifactRow): ObjectValue {
         : false,
   }) as ObjectValue;
 }
-export { findLateBound as lateBound } from "./late-bound";
+export { findLateBound as lateBound } from "./lateBound";
 export function signature(revision: number, commands: Command[]) {
   let hash = 2166136261;
-  for (const c of JSON.stringify(commands)) {
+  for (const c of stable(commands)) {
     hash ^= c.charCodeAt(0);
     hash = Math.imul(hash, 16777619);
   }
@@ -177,9 +186,11 @@ export function preview(
         result &&
         typeof result === "object" &&
         !Array.isArray(result) &&
-        result.target
+        (result.target || result.renamed || result.deleted)
       ) {
-        const kind = record(result.target).kind;
+        const kind = record(
+          result.target ?? result.renamed ?? result.deleted,
+        ).kind;
         target = artifactTables.find((t) => artifactKinds[t] === kind);
       }
       if (!target)
@@ -194,8 +205,7 @@ export function preview(
       const mapKey = `${target}:${key}`,
         base = before.get(target)!.get(key),
         value = after.get(target)!.get(key),
-        changed =
-          JSON.stringify(prior.get(target)!.get(key)) !== JSON.stringify(value);
+        changed = stable(prior.get(target)!.get(key)) !== stable(value);
       if (changed) tables.add(target);
       const existing = direct.get(mapKey);
       direct.set(mapKey, {

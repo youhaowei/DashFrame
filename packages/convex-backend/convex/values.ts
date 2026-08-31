@@ -36,3 +36,13 @@ export function record(value: unknown): ObjectValue {
     throw new Error("Expected object");
   return value as ObjectValue;
 }
+/** Stable object ordering survives Convex's canonical object serialization. */
+export function stable(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
+  if (value !== null && typeof value === "object")
+    return `{${Object.entries(value)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stable(entry)}`)
+      .join(",")}}`;
+  return JSON.stringify(value) ?? "undefined";
+}

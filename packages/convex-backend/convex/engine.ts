@@ -1,5 +1,7 @@
+import { stable } from "./values";
 import {
   COMMAND_PATHS,
+  isUnmodifiedDraft,
   validateVisualizationEncoding,
   type VisualizationEncoding,
 } from "@dashframe/types";
@@ -16,12 +18,12 @@ import {
   type ObjectValue,
   type Command,
 } from "./values";
-import { parseStoredDataTableState } from "./table-codec";
-import { parseStoredDashboardState } from "./dashboard-codec";
+import { parseStoredDataTableState } from "./tableCodec";
+import { parseStoredDashboardState } from "./dashboardCodec";
 import {
   storedInsightDefinitionSchema,
   runtimeControlsSchema,
-} from "./insight-codec";
+} from "./insightCodec";
 export type Graph = Map<ArtifactTable, Map<string, ArtifactRow>>;
 export function emptyGraph(): Graph {
   return new Map(artifactTables.map((t) => [t, new Map()]));
@@ -69,7 +71,7 @@ function definition(row: ArtifactRow): ObjectValue {
   ) as unknown as ObjectValue;
 }
 function same(a: unknown, b: unknown): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
+  return stable(a) === stable(b);
 }
 export function changes(before: Graph, after: Graph) {
   return artifactTables.flatMap((table) =>
@@ -123,13 +125,13 @@ function outputFields(
       .map((f) => ({
         ...f,
         tableId: key,
-        columnName: `f_${str(f.id, "field.id").replaceAll("-", "")}`,
+        columnName: `field_${str(f.id, "field.id").replaceAll("-", "_")}`,
       })),
     ...metrics.map((m) => ({
       id: m.id!,
       name: m.name!,
       tableId: key,
-      columnName: `m_${str(m.id, "metric.id").replaceAll("-", "")}`,
+      columnName: `metric_${str(m.id, "metric.id").replaceAll("-", "_")}`,
       type: "number",
     })),
   ];
@@ -139,14 +141,33 @@ function availableFields(
   def: ObjectValue,
   seen = new Set<string>(),
 ): ObjectValue[] {
-  const fields = outputFields(graph, record(def.source), seen);
+  let fields = outputFields(graph, record(def.source), seen).filter(
+    (f) => !String(f.name).startsWith("_"),
+  );
+  const counts = new Map<string, number>();
   for (const join of objects(def.joins ?? [], "joins")) {
-    const right = get(
-      graph,
-      "dataTables",
-      str(join.rightTableId, "rightTableId"),
+    const tableId = str(join.rightTableId, "rightTableId"),
+      right = get(graph, "dataTables", tableId),
+      rightFields = (right.fields ?? []).filter(
+        (f) => !String(f.name).startsWith("_"),
+      );
+    const leftKey = fields.find(
+        (f) => (f.columnName ?? f.name) === join.leftKey,
+      ),
+      rightKey = rightFields.find(
+        (f) => (f.columnName ?? f.name) === join.rightKey,
+      );
+    if (!leftKey || !rightKey) continue;
+    const instance = counts.get(tableId) ?? 0;
+    fields.push(
+      ...rightFields
+        .filter(
+          (f) =>
+            (f.columnName ?? f.name) !== (rightKey.columnName ?? rightKey.name),
+        )
+        .map((f) => ({ ...f, id: instance ? `${f.id}_j${instance}` : f.id! })),
     );
-    fields.push(...(right.fields ?? []));
+    counts.set(tableId, instance + 1);
   }
   return fields;
 }
@@ -167,28 +188,43 @@ function validateDerived(graph: Graph, def: ObjectValue) {
     )
       throw new Error("Metric column is not output by source Insight");
   const columns = new Set(fields.map((f) => f.columnName ?? f.name));
+  const selected = array(def.selectedFields, "selectedFields"),
+    metrics = objects(def.metrics, "metrics");
+  const resultColumns = new Set(
+    selected.length === 0 && metrics.length === 0
+      ? fields.map((f) => f.columnName ?? f.name)
+      : [
+          ...fields
+            .filter((f) => selected.includes(f.id!))
+            .map((f) => f.columnName ?? f.name),
+          ...metrics.map(
+            (m) => `metric_${str(m.id, "metric.id").replaceAll("-", "_")}`,
+          ),
+        ],
+  );
   for (const m of objects(def.metrics, "metrics"))
-    columns.add(`m_${str(m.id, "metric.id").replaceAll("-", "")}`);
+    columns.add(`metric_${str(m.id, "metric.id").replaceAll("-", "_")}`);
   for (const f of objects(def.filters ?? [], "filters"))
     if (!columns.has(f.field))
       throw new Error("Filter field is not output by source Insight");
   for (const s of objects(def.sorts ?? [], "sorts"))
-    if (!columns.has(s.field))
+    if (!resultColumns.has(s.field))
       throw new Error("Sort field is not output by source Insight");
 }
 function prune(def: ObjectValue) {
   if (!def.runtimeControls) return;
-  const controls = record(def.runtimeControls);
+  const controls = record(def.runtimeControls),
+    next: ObjectValue = {};
   const filterIds = new Set(
     objects(def.filters ?? [], "filters").map((f) => f.id),
   );
-  if (controls.filters)
-    controls.filters = objects(controls.filters, "runtime filters").filter(
-      (f) => filterIds.has(f.filterId),
-    );
+  const filters = objects(controls.filters ?? [], "runtime filters").filter(
+    (f) => filterIds.has(f.filterId),
+  );
+  if (filters.length) next.filters = filters;
   if (controls.sort) {
     const sort = record(controls.sort);
-    sort.allowedFieldIds = array(
+    const allowedFieldIds = array(
       sort.allowedFieldIds,
       "allowedFieldIds",
     ).filter(
@@ -196,8 +232,11 @@ function prune(def: ObjectValue) {
         array(def.selectedFields, "selectedFields").includes(v) ||
         objects(def.metrics, "metrics").some((m) => m.id === v),
     );
+    if (allowedFieldIds.length) next.sort = { allowedFieldIds, maxKeys: 1 };
   }
-  def.runtimeControls = controls;
+  if (controls.limit) next.limit = controls.limit;
+  if (Object.keys(next).length) def.runtimeControls = next;
+  else delete def.runtimeControls;
 }
 function validateMetric(metric: ObjectValue, derived: boolean) {
   str(metric.id, "metric.id");
@@ -209,7 +248,8 @@ function validateMetric(metric: ObjectValue, derived: boolean) {
     )
   )
     throw new Error("Invalid aggregation");
-  if (metric.aggregation !== "count") str(metric.columnName, "columnName");
+  if (metric.aggregation !== "count" || metric.columnName !== undefined)
+    str(metric.columnName, "columnName");
 }
 function validateJoin(graph: Graph, join: ObjectValue) {
   if (!["inner", "left", "right", "full"].includes(str(join.type, "join.type")))
@@ -244,7 +284,7 @@ function safeExtra(extra: ObjectValue) {
     throw new Error(
       "Credential fields and sourceBindingVersion cannot be set through extra",
     );
-  if (JSON.stringify(extra).includes("secret:"))
+  if (stable(extra).includes("secret:"))
     throw new Error("Secret references are restricted to credential slots");
 }
 function configEdit(config: ObjectValue, args: ObjectValue, host: boolean) {
@@ -357,7 +397,7 @@ function run(
     return create("dataTables", {
       dataSourceId: id(a.dataSourceId),
       table: str(a.table, "table"),
-      sourceSchema: state.sourceSchema as unknown as Json,
+      sourceSchema: (state.sourceSchema ?? null) as unknown as Json,
       fields: state.fields as unknown as ObjectValue[],
       metrics: state.metrics as unknown as ObjectValue[],
       dataFrameId: a.dataFrameId ? str(a.dataFrameId, "dataFrameId") : null,
@@ -377,9 +417,21 @@ function run(
     return { ok: true };
   }
   if (p === "getOrCreateInsightDraft" || p === "createInsightCmd") {
-    const existing = graph.get("insights")!.get(id(a.id));
-    if (existing && p === "getOrCreateInsightDraft") return { id: existing.id };
     const source = record(a.source);
+    if (p === "getOrCreateInsightDraft") {
+      if (source.sourceType !== "dataTable")
+        throw new Error("GetOrCreateInsightDraft source must be a DataTable");
+      requireSource(graph, source);
+      const existing = [...graph.get("insights")!.values()].find((row) => {
+        const def = storedInsightDefinitionSchema.parse(row.definition);
+        return (
+          def.source.sourceType === "dataTable" &&
+          def.source.sourceId === source.sourceId &&
+          isUnmodifiedDraft(def)
+        );
+      });
+      if (existing) return { id: existing.id };
+    }
     requireSource(graph, source, id(a.id));
     const def: ObjectValue = {
       source,
@@ -389,6 +441,7 @@ function run(
       sorts: [],
       joins: [],
     };
+    storedInsightDefinitionSchema.parse(def);
     for (const metric of objects(def.metrics, "metrics"))
       validateMetric(metric, true);
     validateDerived(graph, def);
@@ -577,6 +630,7 @@ function run(
     return create("dashboards", {
       description: typeof a.description === "string" ? a.description : null,
       layout: [],
+      controls: null,
       createdBy: { kind: "user" },
     });
   if (
@@ -594,12 +648,26 @@ function run(
   if (p === "renameNode") {
     const { t, row } = find();
     row.name = str(a.name, "name");
-    return { ok: true, target: { kind: artifactKinds[t], id: row.id } };
+    return { ok: true, renamed: { kind: artifactKinds[t], id: row.id } };
   }
   if (p === "deleteNode") {
-    const { t, row } = find();
-    removeNode(graph, t, row.id);
-    return { ok: true, target: { kind: artifactKinds[t], id: row.id } };
+    const key = id(a.id);
+    const table = (
+      [
+        "visualizations",
+        "dashboards",
+        "insights",
+        "dataTables",
+        "dataSources",
+      ] as const
+    ).find((t) => graph.get(t)!.has(key));
+    if (!table) throw new Error(`Node ${key} not found`);
+    const orphanedNodes = removeNode(graph, table, key);
+    return {
+      ok: true,
+      deleted: { kind: artifactKinds[table], id: key },
+      orphanedNodes,
+    };
   }
   throw new Error(`Unimplemented command ${p}`);
 }
@@ -654,7 +722,12 @@ function dashboardCommand(graph: Graph, p: string, a: ObjectValue): Json {
       if (patch.value === null) delete overrides[patch.kind];
       else overrides[patch.kind] = patch.value!;
     } else throw new Error("Unknown override patch");
-    item.overrides = overrides;
+    if (Array.isArray(overrides.filters) && overrides.filters.length === 0)
+      delete overrides.filters;
+    if (Array.isArray(overrides.sorts) && overrides.sorts.length === 0)
+      delete overrides.sorts;
+    if (Object.keys(overrides).length) item.overrides = overrides;
+    else delete item.overrides;
   }
   if (p === "setDashboardControls") row.controls = a.controls!;
   if (p === "fanOutDashboardItemsCmd") {
@@ -665,6 +738,8 @@ function dashboardCommand(graph: Graph, p: string, a: ObjectValue): Json {
     if (!placements.length) throw new Error("Placements must not be empty");
     const field = str(a.field, "field");
     for (const placement of placements) {
+      if (!Object.hasOwn(placement, "value"))
+        throw new Error("Placement value is required");
       const key = id(placement.id);
       const overrides = clean(source.overrides ? record(source.overrides) : {});
       overrides.filters = [
@@ -692,25 +767,68 @@ function dashboardCommand(graph: Graph, p: string, a: ObjectValue): Json {
   row.layout = state.items as unknown as ObjectValue[];
   return p === "fanOutDashboardItemsCmd" ? { ok: true, created } : { ok: true };
 }
-function removeNode(graph: Graph, table: ArtifactTable, id: string) {
-  graph.get(table)!.delete(id);
+function removeNode(
+  graph: Graph,
+  table: ArtifactTable,
+  id: string,
+): ObjectValue[] {
+  const row = get(graph, table, id),
+    deletedTables = new Set<string>(),
+    deletedViz = new Set<string>(),
+    orphaned: ObjectValue[] = [];
   if (table === "dataSources")
-    for (const row of [...graph.get("dataTables")!.values()])
-      if (row.dataSourceId === id) removeNode(graph, "dataTables", row.id);
-  if (table === "dataTables" || table === "insights")
-    for (const row of [...graph.get("insights")!.values()]) {
-      const def = definition(row),
-        source = record(def.source);
-      if (
-        source.sourceId === id ||
-        objects(def.joins ?? [], "joins").some((j) => j.rightTableId === id)
-      )
-        removeNode(graph, "insights", row.id);
-    }
+    for (const item of graph.get("dataTables")!.values())
+      if (item.dataSourceId === id) deletedTables.add(item.id);
+  if (table === "dataTables") deletedTables.add(id);
+  if (table === "visualizations") deletedViz.add(id);
   if (table === "insights")
-    for (const row of [...graph.get("visualizations")!.values()])
-      if (row.insightId === id) removeNode(graph, "visualizations", row.id);
-  if (table === "visualizations")
-    for (const row of graph.get("dashboards")!.values())
-      row.layout = (row.layout ?? []).filter((i) => i.visualizationId !== id);
+    for (const item of graph.get("visualizations")!.values())
+      if (item.insightId === id) deletedViz.add(item.id);
+  for (const insight of graph.get("insights")!.values()) {
+    if (table === "insights" && insight.id === id) continue;
+    const def = definition(insight),
+      source = record(def.source);
+    if (
+      deletedTables.has(String(source.sourceId)) ||
+      (table === "insights" && source.sourceId === id) ||
+      objects(def.joins ?? [], "joins").some((j) =>
+        deletedTables.has(String(j.rightTableId)),
+      )
+    )
+      orphaned.push({ id: insight.id, kind: "insight" });
+  }
+  for (const dashboard of graph.get("dashboards")!.values())
+    if (
+      dashboard.layout?.some((i) => deletedViz.has(String(i.visualizationId)))
+    )
+      orphaned.push({ id: dashboard.id, kind: "dashboard" });
+  const linked = new Set(
+    [...deletedTables].flatMap((key) => {
+      const tableRow = get(graph, "dataTables", key);
+      return tableRow.dataFrameId ? [tableRow.dataFrameId] : [];
+    }),
+  );
+  for (const frame of [...graph.get("dataFrames")!.values()]) {
+    const candidate =
+      (table === "insights" && frame.insightId === id) ||
+      (table === "dataSources" && frame.sourceId === id) ||
+      deletedTables.has(String(frame.definitionId)) ||
+      linked.has(frame.id);
+    if (!candidate) continue;
+    if (
+      !frame.storage ||
+      typeof frame.storage !== "object" ||
+      Array.isArray(frame.storage) ||
+      frame.storage.type !== "file"
+    )
+      throw new Error("Legacy browser DataFrames are not supported");
+    const outside = [...graph.get("dataTables")!.values()].some(
+      (t) => t.dataFrameId === frame.id && !deletedTables.has(t.id),
+    );
+    if (!outside) graph.get("dataFrames")!.delete(frame.id);
+  }
+  for (const key of deletedTables) graph.get("dataTables")!.delete(key);
+  for (const key of deletedViz) graph.get("visualizations")!.delete(key);
+  graph.get(table)!.delete(row.id);
+  return orphaned;
 }

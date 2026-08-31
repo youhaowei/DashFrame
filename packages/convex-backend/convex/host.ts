@@ -1,5 +1,7 @@
+import { stable } from "./values";
+import { artifactTables } from "./model";
 import { replaceDraft } from "./app";
-import { findLateBound } from "./late-bound";
+import { findLateBound } from "./lateBound";
 import { redact } from "./preview";
 import { v } from "convex/values";
 import {
@@ -29,8 +31,15 @@ import {
   log,
 } from "./store";
 import { cloneGraph, execute } from "./engine";
-import { type ArtifactTable, type ArtifactRow } from "./model";
-import { parseStoredDataTableState } from "./table-codec";
+import {
+  type ArtifactTable,
+  type ArtifactRow,
+  type DataSourceRow,
+  type DataTableRow,
+  type DataFrameRow,
+  type InsightRow,
+} from "./model";
+import { parseStoredDataTableState } from "./tableCodec";
 const workspace = { workspaceId: v.string() };
 export const runtimeReady = internalQuery({
   args: {},
@@ -67,23 +76,41 @@ export const initializeProject = internalMutation({
     return null;
   },
 });
-function getter(table: ArtifactTable) {
-  return internalQuery({
-    args: { ...workspace, id: v.string() },
-    returns: v.union(artifact, v.null()),
-    handler: async (ctx, args) => {
-      const row = await find(ctx, args.workspaceId, table, args.id);
-      return row ? rowValue(row) : null;
-    },
-  });
-}
-export const getDataSource = getter("dataSources");
-export const getDataTable = getter("dataTables");
-export const getDataFrame = getter("dataFrames");
-export const getInsight = getter("insights");
+export const getDataSource = internalQuery({
+  args: { ...workspace, id: v.string() },
+  returns: typed<DataSourceRow | null>(v.union(object, v.null())),
+  handler: async (ctx, args) => {
+    const row = await find(ctx, args.workspaceId, "dataSources", args.id);
+    return row ? (rowValue(row) as unknown as DataSourceRow) : null;
+  },
+});
+export const getDataTable = internalQuery({
+  args: { ...workspace, id: v.string() },
+  returns: typed<DataTableRow | null>(v.union(object, v.null())),
+  handler: async (ctx, args) => {
+    const row = await find(ctx, args.workspaceId, "dataTables", args.id);
+    return row ? (rowValue(row) as unknown as DataTableRow) : null;
+  },
+});
+export const getDataFrame = internalQuery({
+  args: { ...workspace, id: v.string() },
+  returns: typed<DataFrameRow | null>(v.union(object, v.null())),
+  handler: async (ctx, args) => {
+    const row = await find(ctx, args.workspaceId, "dataFrames", args.id);
+    return row ? (rowValue(row) as unknown as DataFrameRow) : null;
+  },
+});
+export const getInsight = internalQuery({
+  args: { ...workspace, id: v.string() },
+  returns: typed<InsightRow | null>(v.union(object, v.null())),
+  handler: async (ctx, args) => {
+    const row = await find(ctx, args.workspaceId, "insights", args.id);
+    return row ? (rowValue(row) as unknown as InsightRow) : null;
+  },
+});
 export const listDataFramesByInsight = internalQuery({
   args: { ...workspace, insightId: v.string() },
-  returns: v.array(artifact),
+  returns: typed<DataFrameRow[]>(v.array(object)),
   handler: async (ctx, args) => {
     const rows = await ctx.db
       .query("dataFrames")
@@ -92,7 +119,7 @@ export const listDataFramesByInsight = internalQuery({
       )
       .take(1001);
     if (rows.length > 1000) throw new Error("Frame history limit exceeded");
-    return rows.map(rowValue);
+    return rows.map((row) => rowValue(row) as unknown as DataFrameRow);
   },
 });
 export const revokeCredential = internalMutation({
@@ -161,7 +188,7 @@ async function operation(
       q.eq("workspaceId", workspaceId).eq("operationId", operationId),
     )
     .unique();
-  if (existing && JSON.stringify(existing.request) !== JSON.stringify(request))
+  if (existing && stable(existing.request) !== stable(request))
     throw new Error("Operation ID reused with different payload");
   return existing;
 }
@@ -181,7 +208,7 @@ export const commitImportedFrame = internalMutation({
         dataTableId: args.dataTableId,
         dataSourceId: args.dataSourceId,
         expectedDataFrameId: args.expectedDataFrameId,
-        frameRow: args.frameRow,
+        frameRow: sanitizedAnalysis(args.frameRow),
         tableUpdate: args.tableUpdate,
       }),
       op = args.operationId ?? `import:${String(args.frameRow.id)}`;
@@ -377,10 +404,7 @@ export const replaceDataSourceConfig = internalMutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     const row = await find(ctx, args.workspaceId, "dataSources", args.id);
-    if (
-      !row ||
-      JSON.stringify(row.config ?? {}) !== JSON.stringify(args.expectedConfig)
-    )
+    if (!row || stable(row.config ?? {}) !== stable(args.expectedConfig))
       throw new Error("DataSource config changed");
     for (const key of ["apiKey", "connectionString"])
       if (
@@ -415,7 +439,7 @@ export const prepareRemoteDataTable = internalMutation({
     )
       throw new Error("SOURCE_BINDING_CHANGED");
     const structural = (fields: ObjectValue[]) =>
-      JSON.stringify(
+      stable(
         fields
           .map((f) => ({ name: f.columnName ?? f.name, type: f.type }))
           .sort((a, b) => String(a.name).localeCompare(String(b.name))),
@@ -432,42 +456,6 @@ export const prepareRemoteDataTable = internalMutation({
       updatedAt: Date.now(),
     });
     return args.fields;
-  },
-});
-export const commitStagedCommands = internalMutation({
-  args: { ...workspace, commands: v.array(command), operationId: v.string() },
-  returns: v.object({
-    mode: v.literal("commit"),
-    results: v.array(v.object({ id: v.optional(v.string()), value: json })),
-    tablesWritten: v.array(v.string()),
-  }),
-  handler: async (ctx, args) => {
-    const prior = await operation(
-      ctx,
-      args.workspaceId,
-      args.operationId,
-      args.commands as unknown as Json,
-    );
-    if (prior)
-      return prior.result as {
-        mode: "commit";
-        results: { id?: string; value: Json }[];
-        tablesWritten: string[];
-      };
-    const before = await loadGraph(ctx, args.workspaceId),
-      after = cloneGraph(before),
-      results = execute(after, args.commands, args.workspaceId, Date.now(), {
-        host: true,
-      }),
-      tablesWritten = await persist(ctx, args.workspaceId, before, after),
-      result = { mode: "commit" as const, results, tablesWritten };
-    await ctx.db.insert("operations", {
-      workspaceId: args.workspaceId,
-      operationId: args.operationId,
-      request: args.commands as unknown as Json,
-      result,
-    });
-    return result;
   },
 });
 const provider = v.object({
@@ -540,9 +528,7 @@ export const saveAssistantProviderConfig = internalMutation({
       "assistantProviderConfig",
       args.row.id,
     );
-    if (
-      JSON.stringify(current?.value ?? null) !== JSON.stringify(args.expected)
-    )
+    if (stable(current?.value ?? null) !== stable(args.expected))
       throw new Error("Provider config changed");
     if (
       args.row.credentialRef &&
@@ -580,7 +566,7 @@ export const removeAssistantProviderConfig = internalMutation({
       "assistantProviderConfig",
       args.id,
     );
-    if (!row || JSON.stringify(row.value) !== JSON.stringify(args.expected))
+    if (!row || stable(row.value) !== stable(args.expected))
       throw new Error("Provider config changed");
     await ctx.db.delete(row._id);
     return null;
@@ -707,5 +693,63 @@ export const draftBatch = internalMutation({
       });
     await replaceDraft(ctx, row, commands, before, after);
     return { draftId: row.draftId, results };
+  },
+});
+export const listDataFrames = internalQuery({
+  args: workspace,
+  returns: typed<DataFrameRow[]>(v.array(object)),
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("dataFrames")
+      .withIndex("by_workspaceId_and_id", (q) =>
+        q.eq("workspaceId", args.workspaceId),
+      )
+      .take(1001);
+    if (rows.length > 1000) throw new Error("Frame list limit exceeded");
+    return rows.map((row) => rowValue(row) as unknown as DataFrameRow);
+  },
+});
+export const removeDataFrame = internalMutation({
+  args: { ...workspace, id: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const frame = await find(ctx, args.workspaceId, "dataFrames", args.id);
+    if (!frame) return null;
+    if (record(frame.storage).type !== "file")
+      throw new Error("Only server-owned frames may be removed");
+    const tables = await ctx.db
+      .query("dataTables")
+      .withIndex("by_workspaceId_and_id", (q) =>
+        q.eq("workspaceId", args.workspaceId),
+      )
+      .take(1001);
+    if (tables.length > 1000) throw new Error("Table limit exceeded");
+    for (const table of tables)
+      if (table.dataFrameId === args.id)
+        await ctx.db.patch(table._id, {
+          dataFrameId: null,
+          lastFetchedAt: null,
+          revision: table.revision + 1,
+          updatedAt: Date.now(),
+        });
+    await ctx.db.delete(frame._id);
+    return null;
+  },
+});
+export const clearAllData = internalMutation({
+  args: workspace,
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    for (const table of artifactTables) {
+      const rows = await ctx.db
+        .query(table)
+        .withIndex("by_workspaceId_and_id", (q) =>
+          q.eq("workspaceId", args.workspaceId),
+        )
+        .take(1001);
+      if (rows.length > 1000) throw new Error("Workspace limit exceeded");
+      for (const row of rows) await ctx.db.delete(row._id);
+    }
+    return null;
   },
 });
