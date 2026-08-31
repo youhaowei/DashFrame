@@ -2,14 +2,15 @@
 
 [![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/youhaowei/DashFrame)](https://coderabbit.ai)
 
-DashFrame is a local-first business intelligence tool focused on the data → chart journey: import data, query it with DuckDB, and build visualizations. It ships as **two surfaces of the same UI** (`packages/app`) — an Electron **desktop** app and a browser **web** app — both backed by the same Hono HTTP+WS server. Architecture and design docs are maintained separately (not in this repo).
+DashFrame is a local-first business intelligence tool focused on the data → chart journey: import data, query it with DuckDB, and build visualizations. It ships as **two surfaces of the same UI** (`packages/app`) — an Electron **desktop** app and a browser **web** app — both backed by local Convex and the same Hono host API. Architecture and design docs are maintained separately (not in this repo).
 
 ## Stack
 
 - **Electron** desktop app + **Vite/React 19** web app — one shared UI (`packages/app`)
-- **Hono** HTTP+WS server (`apps/server`, `packages/server-core`) — the web app is _not_ purely client-side; it talks to this backend
+- **Convex** stores artifact metadata and drafts and serves reactive queries; each project owns a local backend process
+- **Hono** host API (`apps/server`, `packages/server-core`) owns sessions, connectors, secrets, and data access
 - **DuckDB** for query — native (`@duckdb/node-api`) on desktop, **DuckDB-WASM** in the browser
-- **WyStack** (`libs/wystack`) — the RPC/data substrate; **stdui** (`libs/stdui`) — the `@wystack/ui-*` design system (both git submodules)
+- **WyStack** (`libs/wystack`) — shared identity, permissions, and secret-vault support; **stdui** (`libs/stdui`) — the `@wystack/ui-*` design system (both git submodules)
 - **Bun** for package management and runtime, **Turborepo** for workspace orchestration
 - **Tailwind CSS v4**, **Vega-Lite** for declarative chart rendering
 - Connectors for CSV, Notion, Postgres, and REST sources
@@ -25,7 +26,9 @@ apps/
 packages/
   app/              # The shared React UI (desktop + web render the same code)
   types/            # Pure type contracts
-  core/             # Client data layer / hooks
+  core/             # Shared client utilities and query planning
+  convex-backend/   # Native Convex schema, queries, and mutations
+  convex-local/     # Pinned local backend provisioning and process ownership
   engine/           # Abstract engine interfaces (TS-only)
   engine-browser/   # DuckDB-WASM implementation
   engine-server/    # Native DuckDB implementation
@@ -37,7 +40,7 @@ packages/
   visualization/    # Chart rendering system
   ui/               # App-local UI primitives
 libs/
-  wystack/          # RPC/data substrate (submodule)
+  wystack/          # Identity, permissions, and secret-vault support (submodule)
   stdui/            # @wystack/ui-* design system (submodule)
 ```
 
@@ -51,6 +54,7 @@ libs/
 
 ```bash
 bun run setup     # init submodules, install deps, build the vendored @wystack/* packages
+bun --filter @dashframe/convex-local provision # download and verify the pinned local backend
 bun dev           # launch the Electron desktop app (embeds the server; renderer on Vite)
 bun check         # lint + typecheck + tests + convention guards (the project gate)
 bun format:check  # formatting only — separate from `bun check`, also required to merge
@@ -59,7 +63,10 @@ bun run test      # run all tests
 
 `bun run setup` is required on a fresh clone — it initializes the `libs/wystack`
 and `libs/stdui` git submodules and builds the `@wystack/*` packages the app
-depends on.
+depends on. Provision Convex once before running either surface. Startup uses the
+verified cached binary without downloading or registering a cloud deployment.
+New projects store metadata in `.convex/`; existing WyStack/PGlite projects are
+not migrated. See [local runtime details](packages/convex-local/README.md).
 
 ### Working on the libraries
 
@@ -104,12 +111,12 @@ can only fetch commits that exist upstream.
 ### Running the app
 
 - **Desktop (default):** `bun dev` runs `@dashframe/desktop` — the Electron shell with
-  the server embedded in-process and native DuckDB.
+  the host server embedded in-process, an owned local Convex process, and native DuckDB.
 - **Web + server:** the web app needs the backend API running, or data import fails
   with `404` on `/api/*`. Start the server on a fixed port
   (`cd apps/server && bun run src/index.ts --host 127.0.0.1 --port 4000`) and point
   the web app at it
-  (`cd apps/web && VITE_WYSTACK_URL=http://127.0.0.1:4000 bun run dev:direct`).
+  (`cd apps/web && VITE_DASHFRAME_URL=http://127.0.0.1:4000 bun run dev:direct`).
 
 ### Packages
 
@@ -147,7 +154,7 @@ DashFrame supports importing data directly from Notion databases:
 ## Current Status
 
 - ✅ **Electron desktop app** with native DuckDB and an in-process server
-- ✅ **Web app** backed by the same Hono server (shared `packages/app` UI)
+- ✅ **Web app** backed by the same local Convex and Hono host (shared `packages/app` UI)
 - ✅ **Query engine** over DuckDB — native on desktop, WASM in the browser
 - ✅ Route-based shell — `/data-sources`, `/insights`, `/visualizations`, `/dashboards`
 - ✅ Data → Vega-Lite charts

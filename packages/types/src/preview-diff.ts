@@ -1,32 +1,18 @@
 /**
- * PreviewDiff — the renderable, artifact-grouped diff a human reviews
- * before publishing a command batch.
+ * Artifact-grouped metadata a human reviews before publishing a command batch.
+ * The native Convex preview evaluates commands against a copy of the workspace
+ * graph without writing canonical artifacts. It returns before/after definitions
+ * and downstream impact, with credentials redacted.
  *
- * Produced by the Layer-B `buildPreviewDiff` wrapper (apps/server) over
- * `@wystack/server`'s `applyCommands(batch, { mode: 'preview' })` MECHANISM
- * (execute-then-rollback). The mechanism returns a vocabulary-free
- * `PreviewResult` (which paths ran, what tables they touched); THIS type is the
- * DashFrame-specific reading: grouped by the artifact node each command touches,
- * carrying intent lines + the proposed definition, plus the downstream blast
- * radius walked from the implicit artifact DAG.
- *
- * SPLIT-TIER (settled architecture — do not re-embed data here): the server
- * assembles and returns this skeleton METADATA ONLY — direct nodes with their
- * proposed definitions + affected-downstream flags. It does NOT compute or
- * embed row data. The WyStack RPC boundary carries metadata; data rides its own
- * path. The renderer fills the `compute` slot lazily on preview-open via local
- * DuckDB, resolving from the proposed definition VALUE (the insight IR→SQL path
- * takes a definition value, not a persisted id — so it works AFTER the preview
- * transaction has rolled the canonical graph back). Hence `compute` is typed as
- * an explicitly-deferred slot: `undefined` everywhere the server produces, a
- * `PreviewCompute` once the client has filled it.
+ * Row data stays outside this contract. The renderer fills `compute` lazily
+ * from the proposed definition through DuckDB; Convex leaves that slot absent.
  */
 
 import type { UUID } from "./uuid";
 
 /**
  * The artifact node kinds the diff distinguishes. Mirrors the persisted artifact
- * tables (`data_sources`, `data_tables`, `insights`, `data_frames`,
+ * tables (`dataSources`, `dataTables`, `insights`, `dataFrames`,
  * `visualizations`, `dashboards`). A command's target id resolves to exactly one
  * of these.
  */
@@ -39,15 +25,9 @@ export type ArtifactKind =
   | "dashboard";
 
 /**
- * What a polymorphic `RenameNode` ACTUALLY resolved to, reported by the handler
- * itself. The `renameNode` mutation probes the live transaction (canonical rows
- * UNIONed with anything earlier commands in the same batch created) in a fixed
- * kind order and renames the first hit. That resolution is data the preview
- * MUST read rather than re-derive: the preview reads canonical and in-batch
- * state through separate lookups and can never reproduce a single merged-tx
- * probe (public issue #64 — every mirroring attempt diverged). The handler
- * surfaces this on its result so the preview builder reads the decision instead
- * of guessing it.
+ * The artifact resolved by a polymorphic `RenameNode` command. The engine
+ * returns its choice from the evolving batch graph, so preview uses that
+ * decision instead of repeating the lookup against canonical state.
  */
 export interface RenamedTarget {
   kind: ArtifactKind;
@@ -91,8 +71,7 @@ export interface PreviewCompute {
  * slot. `proposedDefinition` is the metadata the client needs to fill `compute`
  * lazily — for an Insight it is the IR the renderer lowers to SQL; for a
  * DataTable it is the field/metric/schema metadata. It is captured from the
- * COMMAND ARGS (the proposed value), not read back from the DB (the preview
- * transaction has rolled back — canonical is untouched).
+ * evaluated preview graph; canonical artifacts remain untouched.
  */
 export interface PreviewDirectNode {
   nodeId: UUID;
@@ -124,14 +103,14 @@ export interface PreviewDirectNode {
    */
   before: Record<string, unknown> | null;
   /**
-   * The proposed (post-batch) definition slice, assembled from the command args.
+   * The proposed (post-batch) definition slice from the evaluated preview graph.
    * The client resolves `compute` from this VALUE. Empty `{}` for a `noop` node
    * (the get-or-create wrote nothing, so there is no proposed change).
    */
   proposedDefinition: Record<string, unknown>;
   /**
    * Deferred compute — `undefined` from the server, filled client-side on
-   * preview-open. The split-tier boundary: metadata over RPC, data over DuckDB.
+   * preview-open. Metadata comes from Convex; row data comes from DuckDB.
    */
   compute?: PreviewCompute | undefined;
 }
@@ -145,13 +124,8 @@ export interface PreviewDirectNode {
  *   prompt the user to re-run.
  * - `stale`: an upstream change leaves this node's cached/derived data out of
  *   date but still structurally valid. The renderer shows it as stale.
- * - `orphaned`: an upstream node this node depends on is being REMOVED. The
- *   reference will dangle after commit. **RESERVED — not yet emitted.** The
- *   preview vocabulary has no delete command yet, so no path through
- *   `buildPreviewDiff` currently produces `orphaned`. Renderer authors MUST
- *   NOT build UI affordances that only fire on `orphaned` — they will never
- *   trigger until a delete command is added to the vocabulary and the DAG walk
- *   is extended to emit this flag.
+ * - `orphaned`: a deleted upstream artifact leaves a downstream reference
+ *   dangling. The native preview reports this from the proposed deletion.
  */
 export type DownstreamFlag = "recompute" | "orphaned" | "stale";
 
@@ -161,13 +135,13 @@ export type DownstreamFlag = "recompute" | "orphaned" | "stale";
  * queries the changed table") and so the traversal is auditable, not magic.
  */
 export type DownstreamEdge =
-  | "dataSource->dataTable" // FK data_tables.data_source_id
+  | "dataSource->dataTable" // dataTables.dataSourceId
   | "dataTable->insight" // insight.definition source / joins[].rightTableId
   | "insight->insight" // insight.definition source (sourceType 'insight')
-  | "insight->dataFrame" // FK data_frames.insight_id
-  | "insight->visualization" // FK visualizations.insight_id
+  | "insight->dataFrame" // dataFrames.insightId
+  | "insight->visualization" // visualizations.insightId
   | "visualization->dashboard" // dashboards.layout[].visualizationId
-  | "parentArtifact"; // cross-cutting parent_artifact_id lineage pointer
+  | "parentArtifact"; // cross-cutting parentArtifactId lineage pointer
 
 /**
  * A node downstream of a touched node — FLAGGED ONLY, never computed (the spec's
