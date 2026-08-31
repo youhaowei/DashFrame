@@ -1,3 +1,4 @@
+import { backendExecutableName } from "@dashframe/convex-local";
 import {
   FileDataFrameStorage,
   NativeDuckDBEngine,
@@ -406,7 +407,7 @@ app
                 binaryPath: path.join(
                   process.resourcesPath,
                   "convex",
-                  "convex-local-backend",
+                  backendExecutableName(),
                 ),
                 functionsDirectory: path.join(
                   process.resourcesPath,

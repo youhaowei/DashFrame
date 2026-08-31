@@ -1,8 +1,11 @@
-import { cp, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { build } from "esbuild";
-import { verifyBackendBinary } from "@dashframe/convex-local";
+import {
+  backendExecutableName,
+  verifyBackendBinary,
+} from "@dashframe/convex-local";
 
 // Stage this directory as Electron extraResources/convex, outside app.asar.
 const destination = path.resolve(
@@ -16,7 +19,7 @@ const convex = path.dirname(require.resolve("convex/package.json"));
 const binary = await verifyBackendBinary(process.env.DASHFRAME_CONVEX_BINARY);
 const functions = path.join(destination, "functions");
 await mkdir(functions, { recursive: true });
-await cp(binary, path.join(destination, "convex-local-backend"));
+await cp(binary, path.join(destination, backendExecutableName()));
 await cp(
   path.join(path.dirname(binary), "LICENSE.md"),
   path.join(destination, "LICENSE.md"),
@@ -40,12 +43,15 @@ await writeFile(
 const entries = (await readdir(path.join(source, "convex")))
   .filter((file) => file.endsWith(".ts") && !file.endsWith(".d.ts"))
   .map((file) => path.join(source, "convex", file));
+// Discard prior generated modules so removed or renamed functions cannot ship.
+await rm(path.join(functions, "convex"), { recursive: true, force: true });
 await build({
   entryPoints: entries,
   outdir: path.join(functions, "convex"),
   bundle: true,
   format: "esm",
   platform: "neutral",
+  mainFields: ["module", "main"],
   conditions: ["import", "default"],
   external: ["convex/*"],
   sourcemap: false,

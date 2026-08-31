@@ -1,10 +1,11 @@
-import { spawn, execFile } from "node:child_process";
+import { spawn, execFile, execFileSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import {
   chmod,
   mkdir,
   open,
   readFile,
+  readdir,
   realpath,
   rename,
   rm,
@@ -76,6 +77,7 @@ function isConfig(value: unknown): value is Config {
     typeof config.instanceSecret === "string" &&
     /^[a-f0-9]{64}$/.test(config.instanceSecret) &&
     typeof config.adminKey === "string" &&
+    /^dashframe_[a-f0-9]{32}\|[a-f0-9]+$/.test(config.adminKey) &&
     config.adminKey.startsWith(`${config.deploymentName}|`)
   );
 }
@@ -86,7 +88,15 @@ async function loadOrCreateConfig(
 ): Promise<Config> {
   const file = path.join(state, "config.json");
   try {
-    const value: unknown = JSON.parse(await readFile(file, "utf8"));
+    const source = await readFile(file, "utf8");
+    let value: unknown;
+    try {
+      value = JSON.parse(source);
+    } catch {
+      throw new Error(
+        "Local Convex config is malformed; existing state was preserved.",
+      );
+    }
     if (!isConfig(value))
       throw new Error(
         "Local Convex config is invalid or uses another backend version. Explicit upgrade required; existing state was preserved.",
@@ -96,6 +106,16 @@ async function loadOrCreateConfig(
   } catch (error) {
     if (!(error instanceof Error && "code" in error && error.code === "ENOENT"))
       throw error;
+  }
+  const files = await readdir(state);
+  if (
+    files.some(
+      (name) => name.startsWith("backend.sqlite3") || name === "storage",
+    )
+  ) {
+    throw new Error(
+      "Local Convex identity config is missing but backend state exists. Restore its original config; existing data was preserved.",
+    );
   }
   const deploymentName = `dashframe_${randomUUID().replaceAll("-", "")}`;
   const instanceSecret = randomBytes(32).toString("hex");
@@ -172,6 +192,7 @@ function ownedProcess(
     cwd: options.cwd,
     env: options.env,
     detached: true,
+    windowsHide: true,
     stdio: options.captureOutput ? ["ignore", "pipe", "pipe"] : "ignore",
   });
   let output = "";
@@ -196,7 +217,23 @@ function ownedProcess(
   function signal(signal: NodeJS.Signals) {
     if (!child.pid) return;
     try {
-      process.kill(-child.pid, signal);
+      if (process.platform === "win32") {
+        // Node cannot signal a Windows process group. Terminate only the tree
+        // rooted at this owned PID; taskkill /T includes the CLI's esbuild child.
+        execFileSync(
+          path.win32.join(
+            process.env.SystemRoot ?? "C:\\Windows",
+            "System32",
+            "taskkill.exe",
+          ),
+          ["/PID", String(child.pid), "/T", "/F"],
+          {
+            stdio: "ignore",
+            windowsHide: true,
+            timeout: 10_000,
+          },
+        );
+      } else process.kill(-child.pid, signal);
     } catch (error) {
       if (
         !(error instanceof Error && "code" in error && error.code === "ESRCH")
@@ -205,7 +242,13 @@ function ownedProcess(
     }
   }
   const onHostExit = () => {
-    if (!exited) signal("SIGKILL");
+    if (!exited) {
+      try {
+        signal("SIGKILL");
+      } catch {
+        /* A terminating host cannot recover; preserve the ownership lock. */
+      }
+    }
   };
   process.once("exit", onHostExit);
   closed.then(() => process.removeListener("exit", onHostExit));
@@ -423,8 +466,11 @@ export async function startLocalConvex(
       "Local Convex project is already owned, or has an unclean-shutdown lock. Stop its owner before removing .convex/runtime.lock; existing data was preserved.",
     );
   }
-  await lock.writeFile(JSON.stringify({ ownerPid: process.pid }));
-  await lock.close();
+  try {
+    await lock.writeFile(JSON.stringify({ ownerPid: process.pid }));
+  } finally {
+    await lock.close();
+  }
   let backend: ReturnType<typeof ownedProcess> | undefined;
   let released = false;
   let stopping: Promise<void> | undefined;

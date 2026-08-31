@@ -18,6 +18,56 @@ import { startLocalConvex } from "./runtime.js";
 import { verifyBackendBinary } from "./binary.js";
 
 describe("official local Convex lifecycle", () => {
+  it.skipIf(process.env.DASHFRAME_CONVEX_INTEGRATION !== "1")(
+    "preserves state when the private identity config is missing or malformed",
+    async () => {
+      const directory = await mkdtemp(
+        path.join(tmpdir(), "dashframe-convex-private-config-"),
+      );
+      const state = path.join(directory, ".convex");
+      const options = {
+        projectDir: directory,
+        functionsDirectory: directory,
+        auth: {
+          issuer: "https://dashframe.local/test",
+          jwksDataUri: "data:application/json;base64,eyJrZXlzIjpbXX0=",
+          audience: "dashframe" as const,
+        },
+      };
+      try {
+        await mkdir(state);
+        await writeFile(
+          path.join(state, "backend.sqlite3"),
+          "existing database bytes",
+        );
+        await expect(startLocalConvex(options)).rejects.toThrow(
+          "identity config is missing",
+        );
+        await expect(
+          readFile(path.join(state, "config.json")),
+        ).rejects.toThrow();
+        await writeFile(
+          path.join(state, "config.json"),
+          "PRIVATE-INSTANCE-SECRET invalid json",
+        );
+        const failure = await startLocalConvex(options).catch(
+          (error) => error as Error,
+        );
+        expect(failure).toBeInstanceOf(Error);
+        expect(String(failure)).toContain("config is malformed");
+        expect(String(failure)).not.toContain("PRIVATE-INSTANCE-SECRET");
+        expect(
+          await readFile(path.join(state, "backend.sqlite3"), "utf8"),
+        ).toBe("existing database bytes");
+        await expect(
+          readFile(path.join(state, "runtime.lock")),
+        ).rejects.toThrow();
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+  );
+
   it("fails closed when the pinned binary is missing", async () => {
     const directory = await mkdtemp(
       path.join(tmpdir(), "dashframe-convex-missing-"),
@@ -103,19 +153,24 @@ export const read = internalQuery({args:{},returns:v.array(v.string()),handler:a
         const lock = JSON.parse(
           await readFile(path.join(projectDir, ".convex/runtime.lock"), "utf8"),
         ) as { backendPid: number };
-        const sockets = await promisify(execFile)("/usr/sbin/lsof", [
-          "-nP",
-          "-a",
-          "-p",
-          String(lock.backendPid),
-          "-iTCP",
-          "-sTCP:LISTEN",
-        ]);
-        const listeners = sockets.stdout.trim().split("\n").slice(1);
-        expect(listeners).toHaveLength(2);
-        expect(listeners.every((line) => line.includes("127.0.0.1:"))).toBe(
-          true,
-        );
+        if (process.platform !== "win32") {
+          const sockets = await promisify(execFile)(
+            process.platform === "darwin" ? "/usr/sbin/lsof" : "lsof",
+            [
+              "-nP",
+              "-a",
+              "-p",
+              String(lock.backendPid),
+              "-iTCP",
+              "-sTCP:LISTEN",
+            ],
+          );
+          const listeners = sockets.stdout.trim().split("\n").slice(1);
+          expect(listeners).toHaveLength(2);
+          expect(listeners.every((line) => line.includes("127.0.0.1:"))).toBe(
+            true,
+          );
+        }
         await expect(startLocalConvex(options)).rejects.toThrow(
           "already owned",
         );
@@ -180,13 +235,17 @@ export const read = internalQuery({args:{},returns:v.array(v.string()),handler:a
         await expect(
           readFile(path.join(directory, ".convex/deploy.env")),
         ).rejects.toThrow();
-        const processes = await promisify(execFile)("/bin/ps", [
-          "-axo",
-          "command=",
-        ]);
-        expect(processes.stdout).not.toContain(
-          path.join(directory, ".convex/backend.sqlite3"),
-        );
+        if (process.platform !== "win32") {
+          const processes = await promisify(execFile)("/bin/ps", [
+            "-axo",
+            "command=",
+          ]);
+          expect(
+            processes.stdout.includes(
+              path.join(directory, ".convex/backend.sqlite3"),
+            ),
+          ).toBe(false);
+        }
       } finally {
         await rm(directory, { recursive: true, force: true });
       }
