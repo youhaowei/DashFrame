@@ -13,6 +13,7 @@ import { createRoot } from "react-dom/client";
 
 import { routeTree } from "./routeTree.gen";
 import { isServerFrameEngineLoss } from "./server-frame-engine-loss";
+import { createRendererHistory } from "./renderer-history";
 
 // Router is created at module scope (so `typeof router` registers the type),
 // with an empty context. The runtime context — the Convex Provider wrapper —
@@ -20,6 +21,7 @@ import { isServerFrameEngineLoss } from "./server-frame-engine-loss";
 // first render.
 const router = createRouter({
   routeTree,
+  history: createRendererHistory(),
   context: {} as AppRouterContext,
 });
 
