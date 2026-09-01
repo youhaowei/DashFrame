@@ -2,6 +2,7 @@ import { spawn, execFile, execFileSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import {
   chmod,
+  link,
   mkdir,
   open,
   readFile,
@@ -485,53 +486,77 @@ function ownerIsAlive(ownerPid: number) {
 }
 
 async function acquireRuntimeLock(lockPath: string) {
-  try {
-    return await open(lockPath, "wx", 0o600);
-  } catch (error) {
-    if (!hasErrorCode(error, "EEXIST")) throw error;
-  }
+  const attemptId = randomUUID();
+  const candidatePath = `${lockPath}.${attemptId}.candidate`;
+  const candidate = await open(candidatePath, "wx", 0o600);
+  let acquired = false;
 
-  // Serialize the read-check-remove-create sequence so concurrent stale-lock
-  // reclaimers cannot remove a lock that another reclaimer just acquired.
+  // Every launcher takes this guard, including the uncontended path. That
+  // keeps the current owner from changing between snapshot and replacement.
   const reclaimPath = `${lockPath}.reclaim`;
   let reclaim: Awaited<ReturnType<typeof open>>;
   try {
-    reclaim = await open(reclaimPath, "wx", 0o600);
-  } catch (error) {
-    if (hasErrorCode(error, "EEXIST")) throw new Error(PROJECT_OWNED_MESSAGE);
-    throw error;
-  }
-  try {
-    let ownerPid: number | undefined;
+    await candidate.writeFile(JSON.stringify({ ownerPid: process.pid }));
+    await candidate.sync();
     try {
-      const value = JSON.parse(await readFile(lockPath, "utf8")) as {
-        ownerPid?: unknown;
-      };
-      if (
-        typeof value.ownerPid === "number" &&
-        Number.isSafeInteger(value.ownerPid) &&
-        value.ownerPid > 0
-      ) {
-        ownerPid = value.ownerPid;
-      }
-    } catch {
-      // A missing, unreadable, or malformed lock is not provably stale.
-    }
-    if (ownerPid === undefined || ownerIsAlive(ownerPid))
-      throw new Error(PROJECT_OWNED_MESSAGE);
-
-    await rm(lockPath);
-    try {
-      return await open(lockPath, "wx", 0o600);
+      reclaim = await open(reclaimPath, "wx", 0o600);
     } catch (error) {
       if (hasErrorCode(error, "EEXIST")) throw new Error(PROJECT_OWNED_MESSAGE);
       throw error;
     }
-  } finally {
     try {
-      await reclaim.close();
+      const snapshotPath = `${lockPath}.${attemptId}.snapshot`;
+      let snapshot: Awaited<ReturnType<typeof open>> | undefined;
+      try {
+        try {
+          await link(lockPath, snapshotPath);
+        } catch (error) {
+          if (!hasErrorCode(error, "ENOENT")) throw error;
+          await rename(candidatePath, lockPath);
+          acquired = true;
+          return candidate;
+        }
+
+        snapshot = await open(snapshotPath, "r");
+        let ownerPid: number | undefined;
+        try {
+          const value = JSON.parse(await snapshot.readFile("utf8")) as {
+            ownerPid?: unknown;
+          };
+          if (
+            typeof value.ownerPid === "number" &&
+            Number.isSafeInteger(value.ownerPid) &&
+            value.ownerPid > 0
+          ) {
+            ownerPid = value.ownerPid;
+          }
+        } catch {
+          // A missing, unreadable, or malformed lock is not provably stale.
+        }
+        if (ownerPid === undefined || ownerIsAlive(ownerPid))
+          throw new Error(PROJECT_OWNED_MESSAGE);
+
+        await rename(candidatePath, lockPath);
+        acquired = true;
+        return candidate;
+      } finally {
+        await snapshot?.close();
+        await rm(snapshotPath, { force: true });
+      }
     } finally {
-      await rm(reclaimPath, { force: true });
+      try {
+        await reclaim.close();
+      } finally {
+        await rm(reclaimPath, { force: true });
+      }
+    }
+  } finally {
+    if (!acquired) {
+      try {
+        await candidate.close();
+      } finally {
+        await rm(candidatePath, { force: true });
+      }
     }
   }
 }
@@ -556,11 +581,7 @@ export async function startLocalConvex(
   await chmod(state, 0o700);
   const lockPath = path.join(state, "runtime.lock");
   const lock = await acquireRuntimeLock(lockPath);
-  try {
-    await lock.writeFile(JSON.stringify({ ownerPid: process.pid }));
-  } finally {
-    await lock.close();
-  }
+  await lock.close();
   let backend: ReturnType<typeof ownedProcess> | undefined;
   let released = false;
   let stopping: Promise<void> | undefined;
