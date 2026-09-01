@@ -61,6 +61,31 @@ function stable(value: unknown): string {
   return JSON.stringify(value) ?? "null";
 }
 
+function redactCredentialSlots(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactCredentialSlots);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, child]) => [
+      key,
+      (key === "apiKey" || key === "connectionString") &&
+      child !== undefined &&
+      child !== ""
+        ? { credentialField: key }
+        : redactCredentialSlots(child),
+    ]),
+  );
+}
+
+function gateHostBatchStatus(
+  status: string,
+  operationId: string,
+  cause?: unknown,
+) {
+  if (status === "conflict")
+    throw new HostBatchOutcomeUnknownError(operationId);
+  if (status === "cancelled") throw new HostBatchRejectedError(cause);
+}
+
 /** Record every minted ref before the next vault write can fail. */
 async function stageCommandCredentials(
   ctx: HostContext,
@@ -71,6 +96,7 @@ async function stageCommandCredentials(
   for (const command of commands) {
     const args = { ...command.args };
     if (
+      command.path === COMMAND_PATHS.GetOrCreateDataSource ||
       command.path === COMMAND_PATHS.CreateDataSource ||
       command.path === COMMAND_PATHS.SetDataSourceConfig
     ) {
@@ -125,7 +151,13 @@ export async function executeHostCommandBatch(
     operationId: input.operationId ?? randomUUID(),
     principal: ctx.principal,
     requestHash: createHash("sha256")
-      .update(stable({ commands, mode, draftId: input.draftId }))
+      .update(
+        stable({
+          commands: redactCredentialSlots(commands),
+          mode,
+          draftId: input.draftId,
+        }),
+      )
       .digest("hex"),
   };
   let prior;
@@ -134,7 +166,7 @@ export async function executeHostCommandBatch(
   } catch {
     throw new HostBatchOutcomeUnknownError(identity.operationId);
   }
-  if (prior?.status === "cancelled") throw new HostBatchRejectedError();
+  if (prior) gateHostBatchStatus(prior.status, identity.operationId);
   if (prior?.status === "completed") {
     await flushCleanup(ctx);
     return prior.result;
@@ -142,7 +174,7 @@ export async function executeHostCommandBatch(
   const stagedRefs: SecretRef[] = [];
   let prepareAttempted = prior !== null;
   try {
-    if (!prior) {
+    if (!prior || prior.status === "pending") {
       const staged = await stageCommandCredentials(ctx, commands, stagedRefs);
       prepareAttempted = true;
       prior = await ctx.metadata.prepareHostBatch({
@@ -153,7 +185,7 @@ export async function executeHostCommandBatch(
         ...(input.draftId ? { draftId: input.draftId } : {}),
       });
     }
-    if (prior.status === "cancelled") throw new HostBatchRejectedError();
+    gateHostBatchStatus(prior.status, identity.operationId);
     const completed =
       prior.status === "completed"
         ? prior
@@ -173,6 +205,24 @@ async function settleFailure(
   prepareAttempted: boolean,
   error: unknown,
 ) {
+  try {
+    const observed = await ctx.metadata.getHostBatch(identity);
+    if (observed) {
+      gateHostBatchStatus(observed.status, identity.operationId, error);
+      if (observed.status === "completed") {
+        await flushCleanup(ctx);
+        return observed.result;
+      }
+      if (observed.status === "pending")
+        return settleRetryablePending(ctx, identity, stagedRefs, error);
+    }
+  } catch (observationError) {
+    if (
+      observationError instanceof HostBatchRejectedError ||
+      observationError instanceof HostBatchOutcomeUnknownError
+    )
+      throw observationError;
+  }
   let terminal;
   try {
     terminal = await ctx.metadata.settleHostBatch({
@@ -189,5 +239,28 @@ async function settleFailure(
   }
   await flushCleanup(ctx);
   if (terminal.status === "completed") return terminal.result;
+  gateHostBatchStatus(terminal.status, identity.operationId, error);
   throw new HostBatchRejectedError(error);
+}
+
+async function settleRetryablePending(
+  ctx: HostContext,
+  identity: Parameters<HostContext["metadata"]["getHostBatch"]>[0],
+  stagedRefs: SecretRef[],
+  error: unknown,
+) {
+  let terminal;
+  try {
+    terminal = await ctx.metadata.settleHostBatch({
+      ...identity,
+      stagedRefs,
+      retryable: true,
+    });
+  } catch {
+    throw new HostBatchOutcomeUnknownError(identity.operationId);
+  }
+  await flushCleanup(ctx);
+  if (terminal.status === "completed") return terminal.result;
+  gateHostBatchStatus(terminal.status, identity.operationId, error);
+  throw new HostBatchOutcomeUnknownError(identity.operationId);
 }

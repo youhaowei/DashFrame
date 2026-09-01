@@ -466,6 +466,76 @@ async function waitUntil(
   throw new Error(`Local Convex ${stage} readiness timed out.`);
 }
 
+const PROJECT_OWNED_MESSAGE =
+  "Local Convex project is already owned, or has an unclean-shutdown lock. Stop its owner before removing .convex/runtime.lock; existing data was preserved.";
+
+function hasErrorCode(error: unknown, code: string) {
+  return error instanceof Error && "code" in error && error.code === code;
+}
+
+function ownerIsAlive(ownerPid: number) {
+  try {
+    process.kill(ownerPid, 0);
+    return true;
+  } catch (error) {
+    // EPERM still proves that a process occupies this PID. Only ESRCH proves
+    // that the recorded owner is gone.
+    return !hasErrorCode(error, "ESRCH");
+  }
+}
+
+async function acquireRuntimeLock(lockPath: string) {
+  try {
+    return await open(lockPath, "wx", 0o600);
+  } catch (error) {
+    if (!hasErrorCode(error, "EEXIST")) throw error;
+  }
+
+  // Serialize the read-check-remove-create sequence so concurrent stale-lock
+  // reclaimers cannot remove a lock that another reclaimer just acquired.
+  const reclaimPath = `${lockPath}.reclaim`;
+  let reclaim: Awaited<ReturnType<typeof open>>;
+  try {
+    reclaim = await open(reclaimPath, "wx", 0o600);
+  } catch (error) {
+    if (hasErrorCode(error, "EEXIST")) throw new Error(PROJECT_OWNED_MESSAGE);
+    throw error;
+  }
+  try {
+    let ownerPid: number | undefined;
+    try {
+      const value = JSON.parse(await readFile(lockPath, "utf8")) as {
+        ownerPid?: unknown;
+      };
+      if (
+        typeof value.ownerPid === "number" &&
+        Number.isSafeInteger(value.ownerPid) &&
+        value.ownerPid > 0
+      ) {
+        ownerPid = value.ownerPid;
+      }
+    } catch {
+      // A missing, unreadable, or malformed lock is not provably stale.
+    }
+    if (ownerPid === undefined || ownerIsAlive(ownerPid))
+      throw new Error(PROJECT_OWNED_MESSAGE);
+
+    await rm(lockPath);
+    try {
+      return await open(lockPath, "wx", 0o600);
+    } catch (error) {
+      if (hasErrorCode(error, "EEXIST")) throw new Error(PROJECT_OWNED_MESSAGE);
+      throw error;
+    }
+  } finally {
+    try {
+      await reclaim.close();
+    } finally {
+      await rm(reclaimPath, { force: true });
+    }
+  }
+}
+
 /** One owned backend per private project state directory; never attach to a port owner. */
 export async function startLocalConvex(
   options: LocalConvexOptions,
@@ -485,14 +555,7 @@ export async function startLocalConvex(
   await mkdir(state, { recursive: true, mode: 0o700 });
   await chmod(state, 0o700);
   const lockPath = path.join(state, "runtime.lock");
-  let lock;
-  try {
-    lock = await open(lockPath, "wx", 0o600);
-  } catch {
-    throw new Error(
-      "Local Convex project is already owned, or has an unclean-shutdown lock. Stop its owner before removing .convex/runtime.lock; existing data was preserved.",
-    );
-  }
+  const lock = await acquireRuntimeLock(lockPath);
   try {
     await lock.writeFile(JSON.stringify({ ownerPid: process.pid }));
   } finally {

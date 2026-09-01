@@ -60,10 +60,20 @@ describe("MCP durable batch retries", () => {
       const client = new Client({ name: "retry-test", version: "1" });
       try {
         await client.connect(transport);
+        let failNextObservation = false;
+        const getHostBatch = metadata.getHostBatch.bind(metadata);
+        vi.spyOn(metadata, "getHostBatch").mockImplementation(async (input) => {
+          if (failNextObservation) {
+            failNextObservation = false;
+            throw new Error("backend unavailable");
+          }
+          return getHostBatch(input);
+        });
         const execute = metadata.executeHostBatch.bind(metadata);
         vi.spyOn(metadata, "executeHostBatch").mockImplementationOnce(
           async (input) => {
             await execute(input);
+            failNextObservation = true;
             throw new Error("lost response after commit");
           },
         );

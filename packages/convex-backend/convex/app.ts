@@ -34,6 +34,7 @@ import {
   user,
   find,
   rowValue,
+  LIMIT,
   loadGraph,
   readGraph,
   persist,
@@ -108,7 +109,71 @@ export type FrameEntry = DataFrameJSON & {
   lastRefreshedAt?: number;
   currentInsightResult?: boolean;
 };
-export const listDataFrames = listQuery<FrameEntry>("dataFrames");
+/**
+ * Data frame history can outgrow the full-graph transaction. Keep this query
+ * explicitly recoverable so the Data Frames page can request a bounded batch
+ * and delete it through the host until full-graph reads resume. Other callers
+ * retain complete-list semantics and the full-graph safety bound.
+ */
+export const listDataFrames = query({
+  args: {
+    ...draftArg,
+    dataSourceId: v.optional(v.string()),
+    insightId: v.optional(v.string()),
+    excludeIds: v.optional(v.array(v.string())),
+    recovery: v.optional(v.boolean()),
+  },
+  returns: typed<FrameEntry[]>(v.array(object)),
+  handler: async (ctx, args) => {
+    const who = await principal(ctx),
+      dataSourceId = args.dataSourceId,
+      insightId = args.insightId;
+    if (!args.recovery || args.draftId) {
+      const graph = await readGraph(ctx, who, args.draftId);
+      return [...graph.get("dataFrames")!.values()]
+        .filter(
+          (row) =>
+            (!args.dataSourceId || row.dataSourceId === args.dataSourceId) &&
+            (!args.insightId || row.insightId === args.insightId) &&
+            !args.excludeIds?.includes(row.id),
+        )
+        .map((row) => publicRow("dataFrames", row) as unknown as FrameEntry);
+    }
+    const rows = dataSourceId
+      ? await ctx.db
+          .query("dataFrames")
+          .withIndex("by_workspaceId_and_dataSourceId", (q) =>
+            q
+              .eq("workspaceId", who.workspaceId)
+              .eq("dataSourceId", dataSourceId),
+          )
+          .take(LIMIT)
+      : insightId
+        ? await ctx.db
+            .query("dataFrames")
+            .withIndex("by_workspaceId_and_insightId", (q) =>
+              q.eq("workspaceId", who.workspaceId).eq("insightId", insightId),
+            )
+            .take(LIMIT)
+        : await ctx.db
+            .query("dataFrames")
+            .withIndex("by_workspaceId_and_id", (q) =>
+              q.eq("workspaceId", who.workspaceId),
+            )
+            .take(LIMIT);
+    return rows
+      .filter(
+        (row) =>
+          (!dataSourceId || row.dataSourceId === dataSourceId) &&
+          (!insightId || row.insightId === insightId) &&
+          !args.excludeIds?.includes(row.id),
+      )
+      .map(
+        (row) =>
+          publicRow("dataFrames", rowValue(row)) as unknown as FrameEntry,
+      );
+  },
+});
 export const getDataFrameEntry = query({
   args: { id: v.string(), ...draftArg },
   returns: typed<FrameEntry | null>(v.union(object, v.null())),

@@ -109,6 +109,26 @@ export function publicRow(table: ArtifactTable, row: ArtifactRow): ObjectValue {
         : false,
   }) as ObjectValue;
 }
+const previewMetadataKeys = new Set(["id", "createdAt", "updatedAt"]);
+function changedDefinition(
+  table: ArtifactTable,
+  before: ArtifactRow,
+  after: ArtifactRow,
+): ObjectValue {
+  const prior = record(redact(publicRow(table, before)));
+  const next = record(redact(publicRow(table, after)));
+  const keys = new Set([...Object.keys(prior), ...Object.keys(next)]);
+  return Object.fromEntries(
+    [...keys].flatMap((key) => {
+      if (
+        previewMetadataKeys.has(key) ||
+        stable(prior[key]) === stable(next[key])
+      )
+        return [];
+      return [[key, key in next ? next[key]! : null]];
+    }),
+  );
+}
 export { findLateBound as lateBound } from "./lateBound";
 export function signature(revision: number, commands: Command[]) {
   let hash = 2166136261;
@@ -255,7 +275,16 @@ export function preview(
           !changed && existing?.change !== "update"
             ? {}
             : value
-              ? record(redact(publicRow(target, value)))
+              ? !base
+                ? record(redact(publicRow(target, value)))
+                : {
+                    ...(existing?.proposedDefinition ?? {}),
+                    ...changedDefinition(
+                      target,
+                      prior.get(target)!.get(key)!,
+                      value,
+                    ),
+                  }
               : { deleted: true },
       });
     } catch (e) {

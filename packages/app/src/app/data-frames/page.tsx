@@ -48,7 +48,7 @@ function resolveDefinitionName(
 
 export default function DataFramesPage() {
   const { data: dataFrames, isLoading } = queryStatus(
-    useQuery({ query: api.app.listDataFrames, args: {} }),
+    useQuery({ query: api.app.listDataFrames, args: { recovery: true } }),
   );
   const { data: dataSources, isLoading: isLoadingDataSources } = queryStatus(
     useQuery({ query: api.app.listDataSources, args: {} }),

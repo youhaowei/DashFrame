@@ -2,6 +2,33 @@ import type { UUID } from "@dashframe/types";
 import type { SecretRef } from "@wystack/secret-vault";
 import type { HostContext } from "./context";
 
+const REFERENCE_SCAN_CAP_PREFIX = "resource reference scan cap exceeded for ";
+const REFERENCE_SCAN_CAP_SUFFIX = "; cleanup outbox halted";
+
+function errorDetail(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (
+    error &&
+    typeof error === "object" &&
+    "data" in error &&
+    typeof error.data === "string"
+  )
+    return error.data;
+  return String(error);
+}
+
+function reportCleanupFailure(error: unknown, retained: string): void {
+  const detail = errorDetail(error);
+  if (
+    detail.includes(REFERENCE_SCAN_CAP_PREFIX) &&
+    detail.includes(REFERENCE_SCAN_CAP_SUFFIX)
+  ) {
+    console.error(`[dashframe] ${detail}`, error);
+    return;
+  }
+  console.warn(`[dashframe] Resource cleanup deferred; ${retained}`);
+}
+
 /** Drain committed cleanup records; retain failures for a later pass or restart. */
 export class HostResourceCleanup {
   private active: Promise<void> | undefined;
@@ -36,10 +63,8 @@ export class HostResourceCleanup {
     if (this.closed) return Promise.resolve();
     if (!this.active) {
       this.active = this.drain()
-        .catch(() => {
-          console.warn(
-            "[dashframe] Resource cleanup deferred; durable records retained",
-          );
+        .catch((error: unknown) => {
+          reportCleanupFailure(error, "durable records retained");
         })
         .finally(() => {
           this.active = undefined;
@@ -85,10 +110,8 @@ export class HostResourceCleanup {
         cleanupId: job.cleanupId,
         claimToken: job.claimToken,
       });
-    } catch {
-      console.warn(
-        "[dashframe] Resource cleanup deferred; durable record retained",
-      );
+    } catch (error: unknown) {
+      reportCleanupFailure(error, "durable record retained");
     }
   }
 }

@@ -19,6 +19,10 @@ import {
   secretResources,
 } from "./cleanup";
 import { hostIdentity, runHostCommit, runHostDraft } from "./host";
+const hostBatchSettlement = v.union(
+  hostBatchState,
+  v.object({ status: v.literal("conflict"), result: v.null() }),
+);
 type Identity = {
   workspaceId: string;
   operationId: string;
@@ -101,6 +105,25 @@ export const prepareHostBatch = internalMutation({
       throw new Error("User permission required");
     const old = await lookup(ctx, args);
     if (old) {
+      if (old.status === "pending" && (!old.commands || !old.mode)) {
+        await assertResourcesWritable(ctx, args.workspaceId, [
+          args.commands,
+          ...refs.map((r) => ({ credentialRef: r.resourceId })),
+        ]);
+        await enqueueCleanup(
+          ctx,
+          args.workspaceId,
+          secretResources(old.stagedRefs),
+        );
+        await ctx.db.patch(old._id, {
+          commands: args.commands,
+          mode: args.mode,
+          draftId: args.draftId,
+          stagedRefs: args.stagedRefs,
+          result: null,
+        });
+        return { status: "pending" as const, result: null };
+      }
       await enqueueCleanup(
         ctx,
         args.workspaceId,
@@ -154,8 +177,12 @@ export const executeHostBatch = internalMutation({
   },
 });
 export const settleHostBatch = internalMutation({
-  args: { ...hostBatchIdentity, stagedRefs: v.array(v.string()) },
-  returns: hostBatchState,
+  args: {
+    ...hostBatchIdentity,
+    stagedRefs: v.array(v.string()),
+    retryable: v.optional(v.boolean()),
+  },
+  returns: hostBatchSettlement,
   handler: async (ctx, args) => {
     const supplied = secretResources(args.stagedRefs),
       row = await lookup(ctx, args, false);
@@ -167,7 +194,7 @@ export const settleHostBatch = internalMutation({
       // A competing request already owns this ID. Retire only this caller's
       // staged refs, without exposing or changing the winner's state.
       await enqueueCleanup(ctx, args.workspaceId, supplied);
-      return { status: "cancelled" as const, result: null };
+      return { status: "conflict" as const, result: null };
     }
     if (row) {
       await enqueueCleanup(ctx, args.workspaceId, supplied);
@@ -177,9 +204,33 @@ export const settleHostBatch = internalMutation({
         args.workspaceId,
         secretResources(row.stagedRefs),
       );
+      if (args.retryable && row.status === "pending") {
+        await ctx.db.patch(row._id, {
+          commands: undefined,
+          mode: undefined,
+          draftId: undefined,
+          stagedRefs: [],
+        });
+        return { status: "pending" as const, result: null };
+      }
       if (row.status === "pending")
         await ctx.db.patch(row._id, { status: "cancelled", result: null });
       return { status: "cancelled" as const, result: null };
+    }
+    if (args.retryable) {
+      await ctx.db.insert("hostBatches", {
+        workspaceId: args.workspaceId,
+        operationId: args.operationId,
+        principal: args.principal,
+        requestHash: args.requestHash,
+        owner: principalOwner(args.principal),
+        status: "pending",
+        result: null,
+        stagedRefs: [],
+        createdAt: Date.now(),
+      });
+      await enqueueCleanup(ctx, args.workspaceId, supplied);
+      return { status: "pending" as const, result: null };
     }
     await ctx.db.insert("hostBatches", {
       ...args,

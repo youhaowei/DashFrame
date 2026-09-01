@@ -291,24 +291,54 @@ function safeExtra(extra: ObjectValue) {
   if (stable(extra).includes("secret:"))
     throw new Error("Secret references are restricted to credential slots");
 }
-function configEdit(config: ObjectValue, args: ObjectValue, host: boolean) {
+const secretRefPattern = /^secret:[0-9a-f-]{36}$/i;
+function assertNoInheritedCredentialExfil(
+  config: ObjectValue,
+  args: ObjectValue,
+  extra: ObjectValue | undefined,
+) {
+  if (!extra || Object.keys(extra).length === 0) return;
+  const inherited = Object.entries(config)
+    .filter(
+      ([, value]) => typeof value === "string" && secretRefPattern.test(value),
+    )
+    .map(([key]) => key);
+  const carried = inherited.filter(
+    (key) => args[key] === undefined && !(key in extra),
+  );
+  if (carried.length)
+    throw new Error(
+      `Cannot change connector configuration while carrying inherited credential(s) [${carried.join(
+        ", ",
+      )}] without re-affirming or clearing them`,
+    );
+}
+function configEdit(
+  config: ObjectValue,
+  args: ObjectValue,
+  host: boolean,
+  protectInheritedCredentials = false,
+) {
+  const credentials: [string, string][] = [];
   for (const k of ["apiKey", "connectionString"]) {
     if (args[k] === undefined) continue;
     const value = args[k];
     if (typeof value !== "string")
       throw new Error("Credential must be a string");
-    if (value && !host)
-      throw new Error("Credentials must be staged through the host");
-    if (value && !/^secret:[0-9a-f-]{36}$/i.test(value))
+    if (!host) throw new Error("Credentials must be staged through the host");
+    if (value && !secretRefPattern.test(value))
       throw new Error("Only staged SecretRefs may be persisted");
+    credentials.push([k, value]);
+  }
+  const extra = args.extra ? record(args.extra) : undefined;
+  if (extra) safeExtra(extra);
+  if (protectInheritedCredentials)
+    assertNoInheritedCredentialExfil(config, args, extra);
+  for (const [k, value] of credentials) {
     if (value) config[k] = value;
     else delete config[k];
   }
-  if (args.extra) {
-    const extra = record(args.extra);
-    safeExtra(extra);
-    Object.assign(config, extra);
-  }
+  if (extra) Object.assign(config, extra);
 }
 export function execute(
   graph: Graph,
@@ -390,7 +420,10 @@ function run(
   if (p === "setDataSourceConfig") {
     const row = get(graph, "dataSources", id(a.id));
     const config = { ...row.config };
-    configEdit(config, a, options.host ?? false);
+    // Persisted rows have positive revisions. Revision zero identifies a source
+    // created only in this batch/draft, whose credential came from this caller
+    // rather than being inherited from canonical state.
+    configEdit(config, a, options.host ?? false, row.revision > 0);
     row.config = config;
     return { ok: true };
   }

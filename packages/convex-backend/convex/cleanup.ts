@@ -1,5 +1,5 @@
 import { paginationOptsValidator } from "convex/server";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import {
   internalMutation,
   internalQuery,
@@ -109,13 +109,16 @@ export async function enqueueRemovedResources(
 }
 async function referencedResources(ctx: QueryCtx, workspaceId: string) {
   const found = new Map<string, Resource>();
-  const add = (rows: unknown[]) => {
+  const add = (table: string, rows: unknown[]) => {
     if (rows.length > 1000)
-      throw new Error("Resource reference scan limit exceeded");
+      throw new ConvexError(
+        `resource reference scan cap exceeded for ${table}; cleanup outbox halted`,
+      );
     for (const [k, v] of resources(rows)) found.set(k, v);
   };
   for (const table of artifactTables)
     add(
+      table,
       await ctx.db
         .query(table)
         .withIndex("by_workspaceId_and_id", (q) =>
@@ -124,6 +127,7 @@ async function referencedResources(ctx: QueryCtx, workspaceId: string) {
         .take(1001),
     );
   add(
+    "draftChanges",
     await ctx.db
       .query("draftChanges")
       .withIndex("by_workspaceId_and_draftId", (q) =>
@@ -132,6 +136,7 @@ async function referencedResources(ctx: QueryCtx, workspaceId: string) {
       .take(1001),
   );
   add(
+    "draftLog",
     await ctx.db
       .query("draftLog")
       .withIndex("by_workspaceId_and_draftId_and_sequence", (q) =>
@@ -140,6 +145,7 @@ async function referencedResources(ctx: QueryCtx, workspaceId: string) {
       .take(1001),
   );
   add(
+    "hostSettings",
     await ctx.db
       .query("hostSettings")
       .withIndex("by_workspaceId_and_kind_and_id", (q) =>
@@ -148,6 +154,7 @@ async function referencedResources(ctx: QueryCtx, workspaceId: string) {
       .take(1001),
   );
   add(
+    "connectorSetupSessions",
     await ctx.db
       .query("connectorSetupSessions")
       .withIndex("by_workspaceId", (q) => q.eq("workspaceId", workspaceId))
@@ -159,7 +166,7 @@ async function referencedResources(ctx: QueryCtx, workspaceId: string) {
       q.eq("workspaceId", workspaceId).eq("status", "pending"),
     )
     .take(1001);
-  add(pending);
+  add("hostBatches", pending);
   for (const batch of pending)
     for (const r of secretResources(batch.stagedRefs)) found.set(key(r), r);
   return found;

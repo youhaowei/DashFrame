@@ -111,8 +111,15 @@ it("protects resources retained by a draft until discard", async () => {
       cmd("RenameNode", { id: tableId, name: "Draft table" }),
     ],
   });
-  await user().mutation(api.app.commitBatch, {
-    commands: [cmd("SetDataSourceConfig", { id: sourceId, apiKey: "" })],
+  await t.mutation(internal.host.commitBatch, {
+    workspaceId: "w",
+    principal,
+    commands: [
+      {
+        path: "setDataSourceConfig",
+        args: { id: sourceId, apiKey: "" },
+      },
+    ],
   });
   await t.mutation(internal.host.removeDataFrame, {
     workspaceId: "w",
@@ -470,7 +477,7 @@ it("settles losing preparations with a different hash without altering the winni
       ...identity(loser),
       stagedRefs: [loserRef, ...winner.stagedRefs],
     }),
-  ).toEqual({ status: "cancelled", result: null });
+  ).toEqual({ status: "conflict", result: null });
   expect(await t.query(internal.host.getHostBatch, identity(winner))).toEqual({
     status: "pending",
     result: null,

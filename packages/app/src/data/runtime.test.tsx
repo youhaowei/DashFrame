@@ -86,7 +86,10 @@ describe("native Convex runtime bootstrap", () => {
     };
     vi.stubGlobal("dashframe", { getServerInfo: async () => config });
     vi.stubGlobal("fetch", vi.fn());
-    await expect(resolveAppConfig()).resolves.toEqual(config);
+    await expect(resolveAppConfig()).resolves.toEqual({
+      ...config,
+      convexUrl: "http://127.0.0.1:4000/api/convex",
+    });
     expect(fetch).not.toHaveBeenCalled();
   });
 

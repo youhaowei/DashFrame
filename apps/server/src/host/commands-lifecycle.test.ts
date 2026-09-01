@@ -113,26 +113,49 @@ describe("staged credential lifecycle", () => {
     expect(refs).toHaveLength(1);
     expect(await ctx.vault!.has(refs[0]!)).toBe(false);
   });
-  it("releases every staged credential after a later command rolls back", async () => {
-    const input = create();
+  it("reaps a failed attempt's credentials while keeping its operation ID retryable", async () => {
+    const sourceId = crypto.randomUUID();
+    const targetId = crypto.randomUUID();
+    const input = {
+      operationId: crypto.randomUUID(),
+      commands: [
+        ...create(sourceId).commands,
+        cmd("SetDataSourceConfig", {
+          id: targetId,
+          apiKey: "other",
+        }),
+      ],
+    };
     await expect(
-      executeHostCommandBatch(
-        ctx,
-        {
-          commands: [
-            ...input.commands,
-            cmd("SetDataSourceConfig", {
-              id: crypto.randomUUID(),
-              apiKey: "other",
-            }),
-          ],
-        },
-        "commit",
-      ),
-    ).rejects.toBeInstanceOf(HostBatchRejectedError);
+      executeHostCommandBatch(ctx, input, "commit"),
+    ).rejects.toBeInstanceOf(HostBatchOutcomeUnknownError);
     expect(refs).toHaveLength(2);
     for (const ref of refs) expect(await ctx.vault!.has(ref)).toBe(false);
     expect(await user().query(api.app.listDataSources, {})).toEqual([]);
+
+    await executeHostCommandBatch(
+      ctx,
+      {
+        commands: [
+          cmd("CreateDataSource", {
+            id: targetId,
+            name: "Target",
+            type: "http",
+          }),
+        ],
+      },
+      "commit",
+    );
+    await expect(
+      executeHostCommandBatch(ctx, input, "commit"),
+    ).resolves.toMatchObject({ mode: "commit" });
+    expect(refs).toHaveLength(4);
+    expect((await ctx.metadata.getDataSource(sourceId))?.config.apiKey).toBe(
+      refs[2],
+    );
+    expect((await ctx.metadata.getDataSource(targetId))?.config.apiKey).toBe(
+      refs[3],
+    );
   });
   it("deletes the superseded ref after a confirmed rotation but keeps the current one", async () => {
     const id = crypto.randomUUID();
@@ -182,9 +205,6 @@ describe("staged credential lifecycle", () => {
     const execute = vi
       .spyOn(ctx.metadata, "executeHostBatch")
       .mockRejectedValueOnce(new Error("offline"));
-    vi.spyOn(ctx.metadata, "settleHostBatch").mockRejectedValueOnce(
-      new Error("offline"),
-    );
     const input = create();
     const error = await executeHostCommandBatch(ctx, input, "commit").catch(
       (failure: unknown) => failure,
@@ -201,7 +221,9 @@ describe("staged credential lifecycle", () => {
       "commit",
     );
     expect(result).toMatchObject({ mode: "commit" });
-    expect(refs).toHaveLength(1);
+    expect(refs).toHaveLength(2);
+    expect(await ctx.vault!.has(refs[0]!)).toBe(false);
+    expect(await ctx.vault!.has(refs[1]!)).toBe(true);
   });
   it("retries failed vault deletion from the durable cleanup record", async () => {
     const id = crypto.randomUUID();
@@ -217,5 +239,73 @@ describe("staged credential lifecycle", () => {
     expect(await ctx.vault!.has(refs[0]!)).toBe(true);
     await cleanup.run();
     expect(await ctx.vault!.has(refs[0]!)).toBe(false);
+  });
+});
+
+describe("cleanup failure reporting", () => {
+  it("reports a reference scan cap at error level and retains the claim", async () => {
+    const cleanupId = crypto.randomUUID();
+    const resourceId = `secret:${crypto.randomUUID()}` as SecretRef;
+    await native.run(async (database) => {
+      for (let index = 0; index < 1001; index++)
+        await database.db.insert("dataSources", {
+          workspaceId: "w",
+          id: crypto.randomUUID(),
+          revision: 1,
+          name: `Source ${index}`,
+          createdAt: Date.now(),
+        });
+      await database.db.insert("cleanupJobs", {
+        workspaceId: "w",
+        cleanupId,
+        kind: "secret",
+        resourceId,
+        state: "pending",
+        claimToken: null,
+        createdAt: Date.now(),
+      });
+    });
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const remove = vi.spyOn(ctx.vault!, "delete");
+
+    await cleanup.run();
+
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "resource reference scan cap exceeded for dataSources; cleanup outbox halted",
+      ),
+      expect.any(Error),
+    );
+    expect(warn).not.toHaveBeenCalled();
+    expect(remove).not.toHaveBeenCalled();
+    expect(
+      (
+        await ctx.metadata.listCleanup({
+          paginationOpts: { cursor: null, numItems: 100 },
+        })
+      ).page,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ cleanupId, resourceId }),
+      ]),
+    );
+  });
+
+  it("keeps a normal null cleanup claim silent", async () => {
+    const cleanupId = crypto.randomUUID();
+    vi.spyOn(ctx.metadata, "listCleanup").mockResolvedValue({
+      page: [{ cleanupId, kind: "frame", resourceId: "retained-frame" }],
+      isDone: true,
+      continueCursor: "",
+    });
+    vi.spyOn(ctx.metadata, "claimCleanup").mockResolvedValue(null);
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await cleanup.run();
+
+    expect(error).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
   });
 });

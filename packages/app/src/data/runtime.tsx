@@ -128,6 +128,10 @@ export async function resolveAppConfig(): Promise<AppRuntimeConfig> {
     config = await desktop.getServerInfo();
     if (!config.token)
       throw new Error("Desktop getServerInfo returned no loopback token");
+    return {
+      ...config,
+      convexUrl: new URL("/api/convex", config.url).toString(),
+    };
   } else {
     const override = import.meta.env?.VITE_DASHFRAME_URL;
     config = {
@@ -137,7 +141,6 @@ export async function resolveAppConfig(): Promise<AppRuntimeConfig> {
           : globalThis.location.origin,
     };
   }
-  if (config.convexUrl) return config;
   const response = await fetch(new URL("/api/runtime", config.url), {
     headers: hostHeaders(config),
   });
@@ -154,8 +157,6 @@ export async function resolveAppConfig(): Promise<AppRuntimeConfig> {
   }
   return {
     ...config,
-    convexUrl: desktop
-      ? body.convexUrl
-      : new URL("/api/convex", config.url).toString(),
+    convexUrl: new URL("/api/convex", config.url).toString(),
   };
 }

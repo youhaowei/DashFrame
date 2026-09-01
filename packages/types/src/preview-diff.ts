@@ -68,10 +68,10 @@ export interface PreviewCompute {
 /**
  * A node a command DIRECTLY touches — fully shown. Carries the intent lines, the
  * before/after definition slices for drill-down, and the (deferred) compute
- * slot. `proposedDefinition` is the metadata the client needs to fill `compute`
- * lazily — for an Insight it is the IR the renderer lowers to SQL; for a
- * DataTable it is the field/metric/schema metadata. It is captured from the
- * evaluated preview graph; canonical artifacts remain untouched.
+ * slot. `proposedDefinition` is captured from the evaluated preview graph: it
+ * contains the full public definition for a `create`, only the changed public
+ * fields for an `update`, and no fields for a `noop`. Canonical artifacts remain
+ * untouched.
  */
 export interface PreviewDirectNode {
   nodeId: UUID;
@@ -103,9 +103,9 @@ export interface PreviewDirectNode {
    */
   before: Record<string, unknown> | null;
   /**
-   * The proposed (post-batch) definition slice from the evaluated preview graph.
-   * The client resolves `compute` from this VALUE. Empty `{}` for a `noop` node
-   * (the get-or-create wrote nothing, so there is no proposed change).
+   * The proposed definition slice from the evaluated preview graph. It contains
+   * the full public definition for `create`, only changed public fields for
+   * `update` (or `{ deleted: true }` for deletion), and empty `{}` for `noop`.
    */
   proposedDefinition: Record<string, unknown>;
   /**

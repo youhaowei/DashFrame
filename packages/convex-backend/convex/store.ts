@@ -71,7 +71,9 @@ export async function loadGraph(
       .take(LIMIT + 1);
     if (rows.length > LIMIT)
       throw new ConvexError(
-        `Workspace exceeds ${LIMIT} ${table}; pagination required`,
+        table === "dataFrames"
+          ? `Workspace exceeds ${LIMIT} dataFrames; use the Data Frames recovery list to delete rows`
+          : `Workspace exceeds ${LIMIT} ${table}; pagination required`,
       );
     for (const row of rows) graph.get(table)!.set(row.id, rowValue(row));
   }
