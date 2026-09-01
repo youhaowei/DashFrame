@@ -1,3 +1,7 @@
+import {
+  nativeMutationMock,
+  hostMutationMock,
+} from "@/test/native-query-fixture";
 /**
  * Unit tests for useCreateInsight hook
  *
@@ -68,18 +72,23 @@ vi.mock("@/lib/data-access/insights", () => ({
   getAllInsights: mockGetAllInsights,
 }));
 
-vi.mock("@wystack/client", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@wystack/client")>();
-  return {
-    ...actual,
-    useMutation: (ref: { _path: string }) => {
-      if (ref._path === "commitBatch") {
-        return { mutateAsync: mockCommitBatchMutation };
-      }
-      throw new Error(`Unexpected mutation: ${ref._path}`);
-    },
-  };
-});
+vi.mock("convex/react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("convex/react")>()),
+  useMutation: nativeMutationMock((ref: { _path: string }) => {
+    if (ref._path === "commitBatch") {
+      return { mutateAsync: mockCommitBatchMutation };
+    }
+    throw new Error(`Unexpected mutation: ${ref._path}`);
+  }),
+}));
+vi.mock("@/data/host", () => ({
+  useHostMutation: hostMutationMock((ref: { _path: string }) => {
+    if (ref._path === "commitBatch") {
+      return { mutateAsync: mockCommitBatchMutation };
+    }
+    throw new Error(`Unexpected mutation: ${ref._path}`);
+  }),
+}));
 
 const { mockPush, mockNavigate } = vi.hoisted(() => {
   const push = vi.fn();

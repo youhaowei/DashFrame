@@ -1,5 +1,5 @@
 import type { NativeDuckDBEngine } from "@dashframe/engine-server";
-import type { ProjectHandle } from "@dashframe/server-core";
+
 import type { DashframeServer } from "@dashframe/server/app";
 
 /**
@@ -13,7 +13,7 @@ import type { DashframeServer } from "@dashframe/server/app";
 export interface Closable {
   server: Pick<DashframeServer, "stop"> | null;
   engine: Pick<NativeDuckDBEngine, "dispose"> | null;
-  project: Pick<ProjectHandle, "close"> | null;
+  project: { close(): Promise<void> } | null;
 }
 
 /** Terminates the process. Injected so tests can observe the exit code. */
@@ -72,7 +72,7 @@ export class Lifecycle {
     this.isShuttingDown = true;
 
     try {
-      this.handles.server?.stop();
+      await this.handles.server?.stop();
     } catch (err) {
       console.error("[dashframe] error stopping server:", err);
     }
@@ -82,15 +82,9 @@ export class Lifecycle {
       console.error("[dashframe] error disposing engine:", err);
     }
     try {
-      const result = await this.handles.project?.close();
-      if (result?.snapshotError) {
-        console.error(
-          "[dashframe] close-time snapshot failed (data may not be persisted):",
-          result.snapshotError,
-        );
-      }
+      await this.handles.project?.close();
     } catch (err) {
-      console.error("[dashframe] error closing project DB:", err);
+      console.error("[dashframe] error closing project:", err);
     }
 
     this.exit(exitCode);

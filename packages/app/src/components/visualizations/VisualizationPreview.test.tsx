@@ -1,3 +1,4 @@
+import { nativeQueryMock, hostQueryMock } from "@/test/native-query-fixture";
 /**
  * Tests for VisualizationPreview terminal-state routing.
  *
@@ -37,17 +38,21 @@ const { mockUseInsight, mockUseDataTables } = vi.hoisted(() => ({
   mockUseDataTables: vi.fn(),
 }));
 
-vi.mock("@wystack/client", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@wystack/client")>();
-  return {
-    ...actual,
-    useQuery: (ref: { _path: string }) => {
-      if (ref._path === "getInsight") return mockUseInsight();
-      if (ref._path === "listDataTables") return mockUseDataTables();
-      throw new Error(`Unexpected query: ${ref._path}`);
-    },
-  };
-});
+vi.mock("convex/react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("convex/react")>()),
+  useQuery_experimental: nativeQueryMock((ref: { _path: string }) => {
+    if (ref._path === "getInsight") return mockUseInsight();
+    if (ref._path === "listDataTables") return mockUseDataTables();
+    throw new Error(`Unexpected query: ${ref._path}`);
+  }),
+}));
+vi.mock("@/data/host", () => ({
+  useHostQuery: hostQueryMock((ref: { _path: string }) => {
+    if (ref._path === "getInsight") return mockUseInsight();
+    if (ref._path === "listDataTables") return mockUseDataTables();
+    throw new Error(`Unexpected query: ${ref._path}`);
+  }),
+}));
 
 vi.mock("@dashframe/engine", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@dashframe/engine")>();

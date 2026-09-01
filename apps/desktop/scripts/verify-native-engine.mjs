@@ -1,6 +1,6 @@
 /**
  * End-to-end smoke check for the desktop engine seam: boots the real loopback
- * server backed by native DuckDB and an on-disk PGLite project, then exercises
+ * server backed by native DuckDB and an local Convex project, then exercises
  * the Arrow IPC data path over HTTP with the loopback bearer token — proving
  * engine selection, Arrow bytes over the wire, and token auth.
  */
@@ -8,7 +8,7 @@ import {
   NativeDuckDBEngine,
   selectEngineBinding,
 } from "@dashframe/engine-server";
-import { openProject } from "@dashframe/server-core";
+import { openLocalProject } from "@dashframe/server-core";
 import { createDashframeServer } from "@dashframe/server/app";
 import { tableFromIPC } from "apache-arrow";
 import { randomBytes } from "node:crypto";
@@ -31,7 +31,7 @@ async function run() {
   if (binding !== "native")
     throw new Error("expected native binding on desktop");
 
-  project = await openProject({ dir, name: "verify" });
+  project = await openLocalProject({ dir, name: "verify" });
   engine = new NativeDuckDBEngine();
   await engine.initialize();
   console.log(
@@ -39,7 +39,7 @@ async function run() {
   );
 
   server = await createDashframeServer({
-    db: project.db,
+    project,
     authToken: token,
     arrowEngine: engine,
   });
@@ -96,7 +96,7 @@ try {
     "\n[verify] PASS — native engine selected, Arrow IPC streamed over loopback HTTP, token auth enforced, result decoded.",
   );
 } finally {
-  server?.stop();
+  await server?.stop();
   await engine?.dispose();
   await project?.close();
   await fs.rm(dir, { recursive: true, force: true });

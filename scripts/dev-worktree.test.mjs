@@ -22,7 +22,7 @@ function withManifestEnvironment(run) {
     serverPid: process.env.DASHFRAME_DEV_SERVER_PID,
     vitePid: process.env.DASHFRAME_DEV_VITE_PID,
     portlessUrl: process.env.PORTLESS_URL,
-    apiUrl: process.env.VITE_WYSTACK_URL,
+    apiUrl: process.env.VITE_DASHFRAME_URL,
     projectDir: process.env.DASHFRAME_PROJECT_DIR,
   };
   const root = mkdtempSync(join(tmpdir(), "dashframe-dev-worktree-"));
@@ -38,7 +38,7 @@ function withManifestEnvironment(run) {
   process.env.DASHFRAME_DEV_SERVER_PID = String(process.pid);
   process.env.DASHFRAME_DEV_VITE_PID = String(process.pid);
   process.env.PORTLESS_URL = "https://dashframe-test.localhost";
-  process.env.VITE_WYSTACK_URL = "http://127.0.0.1:4000";
+  process.env.VITE_DASHFRAME_URL = "http://127.0.0.1:4000";
   process.env.DASHFRAME_PROJECT_DIR = join(root, "project");
 
   try {
@@ -50,7 +50,7 @@ function withManifestEnvironment(run) {
         serverPid: "DASHFRAME_DEV_SERVER_PID",
         vitePid: "DASHFRAME_DEV_VITE_PID",
         portlessUrl: "PORTLESS_URL",
-        apiUrl: "VITE_WYSTACK_URL",
+        apiUrl: "VITE_DASHFRAME_URL",
         projectDir: "DASHFRAME_PROJECT_DIR",
       }[key];
       if (value === undefined) delete process.env[environmentKey];

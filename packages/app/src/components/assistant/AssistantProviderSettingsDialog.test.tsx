@@ -1,3 +1,9 @@
+import {
+  nativeQueryMock,
+  nativeMutationMock,
+  hostQueryMock,
+  hostMutationMock,
+} from "@/test/native-query-fixture";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
@@ -7,47 +13,81 @@ const { saveConfigMutation } = vi.hoisted(() => ({
   saveConfigMutation: vi.fn(),
 }));
 
-vi.mock("@wystack/client", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@wystack/client")>();
-  return {
-    ...actual,
-    useQuery: (ref: { _path: string }) => {
-      if (ref._path === "listAssistantProviderConfigs") {
-        return {
-          data: [
-            {
-              id: "provider-1",
-              providerId: "openai",
-              displayLabel: "OpenAI",
-              authKind: "api-key",
-              defaultModel: "gpt-4.1",
-              hasCredential: true,
-              isDefault: true,
-            },
-          ],
-          isLoading: false,
-        };
-      }
+vi.mock("convex/react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("convex/react")>()),
+  useQuery_experimental: nativeQueryMock((ref: { _path: string }) => {
+    if (ref._path === "listAssistantProviderConfigs") {
       return {
         data: [
           {
+            id: "provider-1",
             providerId: "openai",
-            label: "OpenAI",
-            authKinds: ["api-key", "oauth", "local"],
-            models: [{ id: "gpt-4.1", name: "GPT 4.1" }],
+            displayLabel: "OpenAI",
+            authKind: "api-key",
+            defaultModel: "gpt-4.1",
+            hasCredential: true,
+            isDefault: true,
           },
         ],
         isLoading: false,
       };
-    },
-    useMutation: (ref: { _path: string }) => ({
-      mutateAsync:
-        ref._path === "saveAssistantProviderConfig"
-          ? saveConfigMutation
-          : vi.fn(),
-    }),
-  };
-});
+    }
+    return {
+      data: [
+        {
+          providerId: "openai",
+          label: "OpenAI",
+          authKinds: ["api-key", "oauth", "local"],
+          models: [{ id: "gpt-4.1", name: "GPT 4.1" }],
+        },
+      ],
+      isLoading: false,
+    };
+  }),
+  useMutation: nativeMutationMock((ref: { _path: string }) => ({
+    mutateAsync:
+      ref._path === "saveAssistantProviderConfig"
+        ? saveConfigMutation
+        : vi.fn(),
+  })),
+}));
+vi.mock("@/data/host", () => ({
+  useHostQuery: hostQueryMock((ref: { _path: string }) => {
+    if (ref._path === "listAssistantProviderConfigs") {
+      return {
+        data: [
+          {
+            id: "provider-1",
+            providerId: "openai",
+            displayLabel: "OpenAI",
+            authKind: "api-key",
+            defaultModel: "gpt-4.1",
+            hasCredential: true,
+            isDefault: true,
+          },
+        ],
+        isLoading: false,
+      };
+    }
+    return {
+      data: [
+        {
+          providerId: "openai",
+          label: "OpenAI",
+          authKinds: ["api-key", "oauth", "local"],
+          models: [{ id: "gpt-4.1", name: "GPT 4.1" }],
+        },
+      ],
+      isLoading: false,
+    };
+  }),
+  useHostMutation: hostMutationMock((ref: { _path: string }) => ({
+    mutateAsync:
+      ref._path === "saveAssistantProviderConfig"
+        ? saveConfigMutation
+        : vi.fn(),
+  })),
+}));
 
 vi.mock("@wystack/ui-react", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@wystack/ui-react")>();

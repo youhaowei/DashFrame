@@ -128,7 +128,7 @@ export function writeManifest(
     },
     endpoints: {
       app: process.env.PORTLESS_URL,
-      api: process.env.VITE_WYSTACK_URL,
+      api: process.env.VITE_DASHFRAME_URL,
     },
     requiredEndpoints: ["app", "api"],
     projectDir: process.env.DASHFRAME_PROJECT_DIR,

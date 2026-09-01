@@ -1,12 +1,12 @@
-import type { WyStackApp } from "@wystack/server";
+import type { ApplicationOperations } from "./host/application";
 import type { Context } from "hono";
 
 import type {
   ConnectorSetupSessionDto,
   PublicConnectorSetupResumeDto,
-} from "./functions/connector-setup";
-import { connectorSetupGateCode } from "./functions/connector-setup";
-import { LOCAL_USER_ID } from "./permissions";
+} from "./host/connector-setup";
+import { connectorSetupGateCode } from "./host/connector-setup";
+const LOCAL_USER_ID = "local-user";
 
 const INTERNAL_PRINCIPAL = {
   kind: "user" as const,
@@ -28,20 +28,20 @@ function secureHtml(c: Context, title: string, message: string, status = 200) {
 
 export async function handleConnectorOAuthCallback(
   c: Context,
-  app: WyStackApp,
+  app: ApplicationOperations,
 ) {
   const state = c.req.query("state") ?? "";
   const code = c.req.query("code");
   const oauthError = c.req.query("error");
   try {
-    const call = await app.call(
+    const call = await app.execute(
       "completeConnectorOAuth",
       { state, code, oauthError },
       // Fixed server-owned identity. No callback query/header value can select
       // or alter the principal used for the project mutation.
       { principal: INTERNAL_PRINCIPAL },
     );
-    const result = call.result as ConnectorSetupSessionDto;
+    const result = call as ConnectorSetupSessionDto;
     if (result.state === "connected") {
       return secureHtml(
         c,
@@ -82,19 +82,22 @@ export async function handleConnectorOAuthCallback(
   }
 }
 
-export async function handleConnectorSetupResume(c: Context, app: WyStackApp) {
+export async function handleConnectorSetupResume(
+  c: Context,
+  app: ApplicationOperations,
+) {
   c.header("Cache-Control", "no-store");
   c.header("Referrer-Policy", "no-referrer");
   try {
     // Resuming means handing back a working authorize URL, which rotates the
     // state nonce. That is a write, so this calls the mutation rather than the
     // read-only query.
-    const call = await app.call(
+    const call = await app.execute(
       "reissueConnectorSetupResume",
       { sessionId: c.req.param("sessionId") },
       { principal: INTERNAL_PRINCIPAL },
     );
-    return c.json(call.result as PublicConnectorSetupResumeDto);
+    return c.json(call as PublicConnectorSetupResumeDto);
   } catch {
     return c.json({ error: "Connector setup session is unavailable" }, 404);
   }
@@ -102,7 +105,7 @@ export async function handleConnectorSetupResume(c: Context, app: WyStackApp) {
 
 export async function handleConnectorResumeLanding(
   c: Context,
-  app: WyStackApp,
+  app: ApplicationOperations,
 ) {
   const sessionId = c.req.query("resumeConnector");
   if (!sessionId) {
@@ -110,12 +113,12 @@ export async function handleConnectorResumeLanding(
   }
 
   try {
-    const call = await app.call(
+    const call = await app.execute(
       "reissueConnectorSetupResume",
       { sessionId },
       { principal: INTERNAL_PRINCIPAL },
     );
-    const result = call.result as PublicConnectorSetupResumeDto;
+    const result = call as PublicConnectorSetupResumeDto;
     if (result.state === "awaiting-user-auth" && result.authorizeUrl) {
       c.header("Cache-Control", "no-store");
       c.header("Referrer-Policy", "no-referrer");

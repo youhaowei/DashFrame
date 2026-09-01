@@ -1,15 +1,19 @@
+import { nativeQueryMock, hostQueryMock } from "@/test/native-query-fixture";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-const { queryDataFrame, useFrames } = vi.hoisted(() => ({
+const { queryDataFrame, mockFrames } = vi.hoisted(() => ({
   queryDataFrame: vi.fn(),
-  useFrames: vi.fn(),
+  mockFrames: vi.fn(),
 }));
 
 vi.mock("@/lib/data-access/data-frames", () => ({ queryDataFrame }));
-vi.mock("@wystack/client", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@wystack/client")>()),
-  useQuery: () => useFrames(),
+vi.mock("convex/react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("convex/react")>()),
+  useQuery_experimental: nativeQueryMock(() => mockFrames()),
+}));
+vi.mock("@/data/host", () => ({
+  useHostQuery: hostQueryMock(() => mockFrames()),
 }));
 
 import {
@@ -20,7 +24,7 @@ import {
 describe("useDataFrameData", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    useFrames.mockReturnValue({ data: [] });
+    mockFrames.mockReturnValue({ data: [] });
   });
 
   it("reads a bounded server page and uses its schema", async () => {
@@ -89,7 +93,7 @@ describe("useDataFrameData", () => {
   });
 
   it("uses the canonical current Insight generation when timestamps tie", async () => {
-    useFrames.mockReturnValue({
+    mockFrames.mockReturnValue({
       data: [
         {
           id: "old-frame",

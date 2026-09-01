@@ -1,3 +1,6 @@
+import { useHostMutation, requestHost } from "@/data/host";
+import { useQuery_experimental as useQuery, useMutation } from "convex/react";
+import { queryStatus } from "@/data/query-status";
 import { getConnectorById } from "@/lib/connectors/registry";
 import { makeDefaultCountMetric } from "@/lib/data-access/data-tables";
 import { handleFileConnectorResult } from "@/lib/local-csv-handler";
@@ -7,7 +10,7 @@ import {
   type SupportedRemoteConnectorId,
 } from "@/lib/remote-connector-onboarding";
 import { useConfirmDialogStore, type ConfirmDialogConfig } from "@/lib/stores";
-import { api } from "@/wystack/api";
+import { api } from "@dashframe/convex-backend/api";
 import type {
   FileSourceConnector,
   RemoteApiConnector,
@@ -18,7 +21,7 @@ import type {
   UUID,
 } from "@dashframe/types";
 import { cmd, COMMAND_PATHS, resultValueByCommandPath } from "@dashframe/types";
-import { useMutation, useQuery } from "@wystack/client";
+
 import { Button, SectionList } from "@wystack/ui-react";
 import { ArrowLeftIcon } from "@wystack/ui-react/icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -154,28 +157,34 @@ export function DataPickerContent({
   onCancel,
   showInsights = true,
 }: DataPickerContentProps) {
-  const dataSourcesQuery = useQuery(api.listDataSources);
+  const dataSourcesQuery = queryStatus(
+    useQuery({ query: api.app.listDataSources, args: {} }),
+  );
   const { data: dataSources = [], isLoading: isLoadingDataSources } =
     dataSourcesQuery;
-  const dataTablesQuery = useQuery(api.listDataTables, { args: {} });
+  const dataTablesQuery = queryStatus(
+    useQuery({ query: api.app.listDataTables, args: {} }),
+  );
   const { data: allDataTables = [], isLoading: isLoadingDataTables } =
     dataTablesQuery;
-  const { data: allInsights = [] } = useQuery(api.listInsights, { args: {} });
-  const { data: dataFrames = [] } = useQuery(api.listDataFrames);
-  const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
-  const { mutateAsync: prepareRemoteDataTable } = useMutation(
-    api.prepareRemoteDataTable,
+  const { data: allInsights = [] } = queryStatus(
+    useQuery({ query: api.app.listInsights, args: {} }),
   );
-  const { mutateAsync: fetchData } = useMutation(api.fetchData);
-  const { mutateAsync: listNotionDatabasesMutation } = useMutation(
-    api.listNotionDatabases,
+  const { data: dataFrames = [] } = queryStatus(
+    useQuery({ query: api.app.listDataFrames, args: {} }),
   );
-  const { mutateAsync: listPostgresTablesMutation } = useMutation(
-    api.listPostgresTables,
+  const commitBatch = useMutation(api.app.commitBatch);
+  const { mutateAsync: prepareRemoteDataTable } = useHostMutation(
+    "prepareRemoteDataTable",
   );
-  const { mutateAsync: listGa4PropertiesMutation } = useMutation(
-    api.listGa4Properties,
+  const { mutateAsync: fetchData } = useHostMutation("fetchData");
+  const { mutateAsync: listNotionDatabasesMutation } = useHostMutation(
+    "listNotionDatabases",
   );
+  const { mutateAsync: listPostgresTablesMutation } =
+    useHostMutation("listPostgresTables");
+  const { mutateAsync: listGa4PropertiesMutation } =
+    useHostMutation("listGa4Properties");
   const confirm = useConfirmDialogStore((state) => state.confirm);
 
   // Local state
@@ -426,7 +435,7 @@ export function DataPickerContent({
                 }),
               );
             }
-            const batch = await commitBatch({ commands });
+            const batch = await requestHost("commitBatch", { commands });
             const created = resultValueByCommandPath(
               batch,
               COMMAND_PATHS.CreateDataSource,

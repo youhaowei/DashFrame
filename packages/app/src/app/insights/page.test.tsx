@@ -1,3 +1,9 @@
+import {
+  nativeQueryMock,
+  nativeMutationMock,
+  hostQueryMock,
+  hostMutationMock,
+} from "@/test/native-query-fixture";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -16,14 +22,17 @@ const {
   mockUseQuery: vi.fn(),
 }));
 
-vi.mock("@wystack/client", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@wystack/client")>();
-  return {
-    ...actual,
-    useQuery: (ref: { _path: string }) => mockUseQuery(ref),
-    useMutation: () => ({ mutateAsync: mockCommitBatch }),
-  };
-});
+vi.mock("convex/react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("convex/react")>()),
+  useQuery_experimental: nativeQueryMock((ref: { _path: string }) =>
+    mockUseQuery(ref),
+  ),
+  useMutation: nativeMutationMock(() => ({ mutateAsync: mockCommitBatch })),
+}));
+vi.mock("@/data/host", () => ({
+  useHostQuery: hostQueryMock((ref: { _path: string }) => mockUseQuery(ref)),
+  useHostMutation: hostMutationMock(() => ({ mutateAsync: mockCommitBatch })),
+}));
 
 vi.mock("@tanstack/react-router", () => ({ useNavigate: () => mockNavigate }));
 vi.mock("@/components/visualizations/CreateVisualizationModal", () => ({

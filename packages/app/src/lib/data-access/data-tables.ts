@@ -7,8 +7,8 @@ import {
   type UUID,
 } from "@dashframe/types";
 
-import { api } from "../../wystack/api";
-import { getWyStackClient } from "../../wystack/client";
+import { api } from "@dashframe/convex-backend/api";
+import { getConvexClient } from "@/data/runtime";
 
 /** Build the explicit default Count metric for a newly minted DataTable. */
 export function makeDefaultCountMetric(tableId: UUID): Metric {
@@ -39,13 +39,13 @@ export async function createDataTable(args: {
   metrics?: Metric[];
   dataFrameId?: UUID;
 }): Promise<UUID> {
-  await getWyStackClient().mutate(api.commitBatch, {
+  await getConvexClient().mutation(api.app.commitBatch, {
     commands: [cmd("CreateDataTable", args)],
   });
   return args.id;
 }
 
 export async function getDataTable(id: UUID): Promise<DataTable | undefined> {
-  const result = await getWyStackClient().query(api.getDataTable, { id });
+  const result = await getConvexClient().query(api.app.getDataTable, { id });
   return (result as DataTable | null) ?? undefined;
 }

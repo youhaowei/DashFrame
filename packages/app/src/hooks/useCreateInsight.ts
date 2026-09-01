@@ -1,5 +1,6 @@
+import { useMutation } from "convex/react";
 import { getAllInsights, getInsight } from "@/lib/data-access/insights";
-import { api } from "@/wystack/api";
+import { api } from "@dashframe/convex-backend/api";
 import {
   cmd,
   isUnmodifiedDraft,
@@ -9,7 +10,7 @@ import {
   type UUID,
 } from "@dashframe/types";
 import { useNavigate } from "@tanstack/react-router";
-import { useMutation } from "@wystack/client";
+
 import { useCallback } from "react";
 import { toast } from "sonner";
 
@@ -55,7 +56,7 @@ import { toast } from "sonner";
  */
 export function useCreateInsight() {
   const navigate = useNavigate();
-  const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
+  const commitBatch = useMutation(api.app.commitBatch);
   const createInsight = useCallback(
     async (
       name: string,

@@ -1,3 +1,9 @@
+import {
+  nativeQueryMock,
+  nativeMutationMock,
+  hostQueryMock,
+  hostMutationMock,
+} from "@/test/native-query-fixture";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -6,30 +12,47 @@ const { mockCommitBatch } = vi.hoisted(() => ({
   mockCommitBatch: vi.fn(),
 }));
 
-vi.mock("@wystack/client", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@wystack/client")>();
-  return {
-    ...actual,
-    useQuery: (ref: { _path: string }) => {
-      if (ref._path === "listDataSources") {
-        return {
-          data: [
-            {
-              id: "source-1",
-              name: "Orders CSV",
-              type: "local",
-              config: {},
-            },
-          ],
-        };
-      }
-      return { data: [] };
-    },
-    useMutation: (ref: { _path: string }) => ({
-      mutateAsync: ref._path === "commitBatch" ? mockCommitBatch : vi.fn(),
-    }),
-  };
-});
+vi.mock("convex/react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("convex/react")>()),
+  useQuery_experimental: nativeQueryMock((ref: { _path: string }) => {
+    if (ref._path === "listDataSources") {
+      return {
+        data: [
+          {
+            id: "source-1",
+            name: "Orders CSV",
+            type: "local",
+            config: {},
+          },
+        ],
+      };
+    }
+    return { data: [] };
+  }),
+  useMutation: nativeMutationMock((ref: { _path: string }) => ({
+    mutateAsync: ref._path === "commitBatch" ? mockCommitBatch : vi.fn(),
+  })),
+}));
+vi.mock("@/data/host", () => ({
+  useHostQuery: hostQueryMock((ref: { _path: string }) => {
+    if (ref._path === "listDataSources") {
+      return {
+        data: [
+          {
+            id: "source-1",
+            name: "Orders CSV",
+            type: "local",
+            config: {},
+          },
+        ],
+      };
+    }
+    return { data: [] };
+  }),
+  useHostMutation: hostMutationMock((ref: { _path: string }) => ({
+    mutateAsync: ref._path === "commitBatch" ? mockCommitBatch : vi.fn(),
+  })),
+}));
 
 vi.mock("@/lib/connectors/registry", () => ({ getConnectorById: () => null }));
 vi.mock("@wystack/ui-react", () => ({

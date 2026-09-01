@@ -1,9 +1,7 @@
+import { useHostQuery } from "@/data/host";
 import { useEffect } from "react";
 
-import { useQuery } from "@wystack/client";
-
 import { useAssistantStore } from "@/lib/stores/assistant-store";
-import { api } from "@/wystack/api";
 
 /**
  * Global keyboard summon for the assistant: ⌘J (mac) / Ctrl+J toggles the
@@ -14,7 +12,7 @@ export function useAssistantHotkey(): void {
   const close = useAssistantStore((s) => s.close);
   const toggle = useAssistantStore((s) => s.toggle);
   const setSetupOpen = useAssistantStore((s) => s.setSetupOpen);
-  const configsResult = useQuery(api.listAssistantProviderConfigs);
+  const configsResult = useHostQuery("listAssistantProviderConfigs");
   const configsLoaded =
     configsResult.data !== undefined && !configsResult.isLoading;
   const configsFailed = configsResult.isError;

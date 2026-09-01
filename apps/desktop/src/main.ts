@@ -1,3 +1,4 @@
+import { backendExecutableName } from "@dashframe/convex-local";
 import {
   FileDataFrameStorage,
   NativeDuckDBEngine,
@@ -5,12 +6,10 @@ import {
 } from "@dashframe/engine-server";
 import {
   ApiAccessCredentials,
-  ARTIFACTS_DB_FILENAME,
   CREDENTIAL_CLASS,
-  DrizzleMappingStore,
   FileMappingStore,
-  openProject,
-  type ProjectHandle,
+  openLocalProject,
+  type LocalProjectHandle,
 } from "@dashframe/server-core";
 import {
   createDashframeServer,
@@ -199,24 +198,20 @@ async function createWindow(): Promise<void> {
 }
 
 function registerIpc(
-  handle: ProjectHandle,
+  handle: LocalProjectHandle,
   srv: DashframeServer,
   authToken: string,
 ): void {
   ipcMain.handle("dashframe:project:info", (event) => {
     assertTrustedRendererUrl(event.senderFrame?.url, rendererTrustOptions);
     return {
-      projectId: handle.meta.projectId,
-      name: handle.meta.name,
-      version: handle.meta.version,
-      schemaVersion: handle.meta.schemaVersion,
-      createdAt: handle.meta.createdAt.toISOString(),
-      createdBy: handle.meta.createdBy,
+      workspaceId: handle.workspaceId,
+      name: handle.name,
     };
   });
   ipcMain.handle("dashframe:project:reveal", (event) => {
     assertTrustedRendererUrl(event.senderFrame?.url, rendererTrustOptions);
-    shell.showItemInFolder(path.join(handle.dir, ARTIFACTS_DB_FILENAME));
+    shell.showItemInFolder(handle.dir);
   });
   ipcMain.handle(
     "dashframe:oauth:open-authorization",
@@ -225,14 +220,14 @@ function registerIpc(
       await shell.openExternal(assertGoogleAuthorizationUrl(url));
     },
   );
-  // The renderer connects to this loopback WyStack server as a localhost web
-  // client — same client + transport as the cloud web client (per the Data
-  // Path & Transport Deployment spec). It needs the ephemeral port main bound.
+  // Only application connection details cross IPC. The private Convex admin
+  // client, deployment config, and instance secret remain in the host.
   ipcMain.handle("dashframe:server:info", (event) => {
     assertTrustedRendererUrl(event.senderFrame?.url, rendererTrustOptions);
     return {
       url: srv.url,
       token: authToken,
+      convexUrl: srv.convexUrl,
     };
   });
 }
@@ -244,6 +239,12 @@ app.on("window-all-closed", () => {
     app.quit();
   }
 });
+
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.on(signal, () => {
+    lifecycle.shutdown(0);
+  });
+}
 
 app.on("before-quit", (event) => {
   if (!lifecycle.hasProject()) return;
@@ -273,10 +274,10 @@ app
       });
     });
 
-    let project: ProjectHandle;
+    let project: LocalProjectHandle;
     let authToken: string;
     try {
-      project = await openProject();
+      project = await openLocalProject();
       lifecycle.setProject(project);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -317,40 +318,15 @@ app
       CREDENTIAL_CLASS.AssistantProvider,
       "electron-keychain",
     );
-    // Compose the vault from the registry. The mapping store persists the
-    // ref→{backend, locator} binding in the project DB (`secret_mappings` table)
-    // so refs stay resolvable across restarts: the ref in `data_sources.config`,
-    // the encrypted blob in the keychain, and this mapping all share one
-    // transactional/backup boundary and can never drift. An in-memory store would
-    // drop the mapping on restart, leaving every persisted credential permanently
-    // unresolvable (has(ref) → false, withSecret(ref) → throw).
+    // Opaque secret references map to encrypted host blobs. Convex stores the
+    // references only; the mapping and keychain material remain host-local.
     secretVault = new SecretVault(
       secretRegistry,
-      new DrizzleMappingStore(project.db),
+      new FileMappingStore(path.join(project.dir, "secret-mappings.json")),
     );
     console.log(
       `[dashframe] keychain backend registered, vault composed (storageDir=${keychainStorageDir})`,
     );
-
-    // No plaintext-credential migration: this is pre-release and no data source
-    // has ever stored a plaintext credential. New sources store vault refs from
-    // creation via the fail-closed write path, so there is nothing to convert.
-
-    // Surface recovery notice when the project was restored from a snapshot.
-    if (project.recovery) {
-      const { restoredSnapshot, quarantinedPath } = project.recovery;
-      const snapshotLine = restoredSnapshot
-        ? `Your project was restored from a snapshot taken at ${new Date(restoredSnapshot.timestamp).toLocaleString()}.`
-        : "No snapshot was available — a fresh empty project has been created.";
-      const quarantineLine = `The damaged database has been saved to:\n${quarantinedPath}`;
-      dialog.showMessageBoxSync({
-        type: "warning",
-        title: "Project recovered",
-        message: "DashFrame recovered your project after an unclean shutdown.",
-        detail: `${snapshotLine}\n\nAny changes made since the last snapshot are not recoverable.\n\n${quarantineLine}`,
-        buttons: ["Continue"],
-      });
-    }
 
     let server: DashframeServer;
     try {
@@ -420,7 +396,27 @@ app
       );
 
       server = await createDashframeServer({
-        db: project.db,
+        project: {
+          dir: project.dir,
+          workspaceId: project.workspaceId,
+          name: project.name,
+        },
+        ...(app.isPackaged
+          ? {
+              convexRuntime: {
+                binaryPath: path.join(
+                  process.resourcesPath,
+                  "convex",
+                  backendExecutableName(),
+                ),
+                functionsDirectory: path.join(
+                  process.resourcesPath,
+                  "convex",
+                  "functions",
+                ),
+              },
+            }
+          : {}),
         dataFrameStorage: new FileDataFrameStorage(
           path.join(project.dir, "dataframes"),
         ),
@@ -432,20 +428,6 @@ app
         authRef: authResult.authRef,
         authToken: authResult.authToken,
         arrowEngine: engine,
-        // Wire the debounced snapshot scheduler: fire touchSnapshot after every
-        // committed artifact-DB write so a crash mid-session loses at most
-        // SNAPSHOT_DEBOUNCE_MS (30 s) of changes rather than the whole session.
-        // The server owns no reference to ProjectHandle — the narrow callback
-        // is the boundary (#88).
-        onWrite: () => project.touchSnapshot(),
-        // Durable counterpart to onWrite: used by the pre-release flush gate so
-        // a credential ref is deleted from the vault only AFTER the snapshot that
-        // drops it from the config has been confirmed written to disk. Without
-        // this, the gate degrades to the debounced-schedule path and the crash
-        // window reopens. The narrow callback preserves the no-import boundary.
-        flushSnapshot: () => project.flushSnapshot(),
-        flushSnapshotRetentionWindow: () =>
-          project.flushSnapshotRetentionWindow(),
         // Inject the fully-composed SecretVault. The server RECEIVES this vault;
         // it never instantiates a backend itself. Control-plane mutations
         // (create/update DataSource) call vault.store → ref; reads call

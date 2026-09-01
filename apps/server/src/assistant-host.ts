@@ -4,26 +4,19 @@ import type {
   AssistantHost,
 } from "@dashframe/assistant";
 import type { Principal } from "@wystack/identity";
-import type { WyStackApp } from "@wystack/server";
+import type { ApplicationOperations } from "./host/application";
 
-import { principalKey } from "./app-context";
 import { createAssistantReadHost } from "./assistant-read-host";
-import type { DraftController } from "./draft-controller";
 import {
   cmd,
   COMMAND_PATHS,
   type CommandName,
   type CommandPayloads,
-} from "./functions/commands";
+} from "@dashframe/types";
 
 export interface DashframeAssistantHostOptions {
-  /**
-   * Must be the serverContext-wrapped app (createDashframeServer's `app`, or
-   * a test equivalent): append/discard route through the registered draft RPCs,
-   * whose handlers require `ctx.draftController` in every call context.
-   */
-  app: WyStackApp;
-  draftController: DraftController;
+  /** Verified host application dispatch; draft ownership is enforced in Convex. */
+  app: ApplicationOperations;
   principal?: Principal;
   readSourceFile?: (file: string) => Promise<string>;
 }
@@ -42,46 +35,35 @@ export function createDashframeAssistantHost(
   options: DashframeAssistantHostOptions,
 ): AssistantHost {
   return {
-    open: () =>
-      options.draftController.openDraft(
-        undefined,
-        principalKey(options.principal) ?? undefined,
-      ),
-    append: async (draftId, batch, context) => {
-      // Route through the operated draft mutation RPC. Besides authorization and
-      // command validation, this is the seam that relays a rejected batch's
-      // durable-prefix metadata to onWrite and subscription invalidation before
-      // preserving the original handler error.
-      const { result } = await options.app.call(
+    open: async () => {
+      const result = await options.app.execute(
+        "draftBatch",
+        { commands: [] },
+        { principal: options.principal },
+      );
+      return (result as { draftId: string }).draftId;
+    },
+    append: async (draftId, batch) => {
+      const result = await options.app.execute(
         "draftBatch",
         { draftId, commands: batch },
-        {
-          ...context,
-          ...(options.principal !== undefined
-            ? { principal: options.principal }
-            : {}),
-        },
+        { principal: options.principal },
       );
       return (result as { results: AssistantCommandResult[] }).results;
     },
     discard: async (draftId) => {
-      // Route through the registered command so discard runs the full
-      // lifecycle (credential release, persistence scheduling), not just the
-      // controller's in-memory drop.
-      await options.app.call(
+      await options.app.execute(
         "discardDraft",
         { draftId },
-        {
-          ...(options.principal !== undefined
-            ? { principal: options.principal }
-            : {}),
-        },
+        { principal: options.principal },
       );
     },
     buildCommand,
     reader: (draftId) =>
       createAssistantReadHost({
-        app: options.app,
+        app: options.principal
+          ? options.app.forPrincipal(options.principal)
+          : options.app,
         draftId,
         readSourceFile: options.readSourceFile,
       }),

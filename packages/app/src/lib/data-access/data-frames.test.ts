@@ -1,4 +1,3 @@
-import { setWyStackClient } from "@/wystack/client";
 import { MAX_LOCAL_ARROW_BYTES, type UUID } from "@dashframe/types";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
@@ -9,11 +8,9 @@ const { mockMutate, mockQuery } = vi.hoisted(() => ({
   mockQuery: vi.fn(),
 }));
 
-vi.mock("@/wystack/api", () => ({
-  api: {
-    ingestLocalDataFrame: "ingestLocalDataFrame",
-    queryDataFrame: "queryDataFrame",
-  },
+vi.mock("@/data/host", () => ({
+  requestHost: (operation: string, args: unknown) =>
+    (operation === "queryDataFrame" ? mockQuery : mockMutate)(operation, args),
 }));
 
 const DATA_FRAME_ID = "10000000-0000-4000-8000-000000000001" as UUID;
@@ -22,7 +19,6 @@ const DATA_TABLE_ID = "10000000-0000-4000-8000-000000000002" as UUID;
 describe("server-owned DataFrame access", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    setWyStackClient({ query: mockQuery, mutate: mockMutate } as never);
   });
 
   it("hands local Arrow bytes to the narrow onboarding mutation", async () => {
@@ -36,6 +32,7 @@ describe("server-owned DataFrame access", () => {
 
     expect(mockMutate).toHaveBeenCalledWith("ingestLocalDataFrame", {
       dataTableId: DATA_TABLE_ID,
+      operationId: expect.any(String),
       arrowBase64: "AQID",
       primaryKey: "id",
     });
@@ -61,6 +58,7 @@ describe("server-owned DataFrame access", () => {
 
     expect(mockMutate).toHaveBeenCalledWith("ingestLocalDataFrame", {
       dataTableId: DATA_TABLE_ID,
+      operationId: expect.any(String),
       arrowBase64: "AQID",
       primaryKey: undefined,
       replacement,

@@ -1,49 +1,10 @@
 import { expect, test } from "../lib/test-fixtures";
-import { API_URL } from "../playwright.config";
-
+import { query, mutate, hostCall } from "../lib/native-api";
 const USER_TOKEN = process.env.E2E_USER_TOKEN ?? "dashframe-e2e-user";
-
-async function mutate<T>(
-  path: string,
-  args: unknown,
-  token: string,
-): Promise<T> {
-  const response = await fetch(`${API_URL}/api/${path}`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(args),
-  });
-  if (!response.ok) {
-    throw new Error(
-      `${path} failed: ${response.status} ${await response.text()}`,
-    );
-  }
-  return ((await response.json()) as { data: T }).data;
-}
-
-async function query<T>(
-  path: string,
-  args: unknown,
-  token = USER_TOKEN,
-): Promise<T> {
-  const response = await fetch(
-    `${API_URL}/api/${path}?args=${encodeURIComponent(JSON.stringify(args))}`,
-    { headers: { Authorization: `Bearer ${token}` } },
-  );
-  if (!response.ok) {
-    throw new Error(
-      `${path} failed: ${response.status} ${await response.text()}`,
-    );
-  }
-  return ((await response.json()) as { data: T }).data;
-}
 
 /** Mint a service credential — the stand-in for an external API caller. */
 async function issueServiceToken(): Promise<string> {
-  const issued = await mutate<{ accessCredential: string }>(
+  const issued = await hostCall<{ accessCredential: string }>(
     "issueAccessCredential",
     { name: "draft review fixture" },
     USER_TOKEN,
@@ -134,23 +95,7 @@ async function seedDraft({
   return { draftId: drafted.draftId, serviceToken, sourceId, insightId };
 }
 
-/**
- * `clearAllData` resets canonical state but leaves the draft registry standing,
- * so open drafts would otherwise leak from one test into the next and break the
- * empty-inbox assertions. Sweep them explicitly.
- */
-async function discardAllDrafts(): Promise<void> {
-  const drafts = await query<Array<{ draftId: string }>>("listDrafts", {});
-  for (const draft of drafts) {
-    await mutate("discardDraft", { draftId: draft.draftId }, USER_TOKEN);
-  }
-}
-
 test.describe("draft review", () => {
-  test.beforeEach(async () => {
-    await discardAllDrafts();
-  });
-
   test("an API draft never touches canonical until the reviewer publishes it", async ({
     page,
     workerBaseURL,
@@ -230,31 +175,42 @@ test.describe("draft review", () => {
       draftId,
     });
 
-    const deniedCommit = await fetch(`${API_URL}/api/commitBatch`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        Authorization: `Bearer ${serviceToken}`,
-      },
-      body: JSON.stringify({ commands: [] }),
-    });
-    expect(deniedCommit.status).toBe(403);
+    await expect(
+      mutate("commitBatch", { commands: [] }, serviceToken),
+    ).rejects.toThrow();
+    await expect(
+      mutate(
+        "reviseDraft",
+        {
+          draftId,
+          expectedLogSignature: review.logSignature,
+          ops: [{ type: "removeCommand", commandIndex: 4 }],
+        },
+        serviceToken,
+      ),
+    ).rejects.toThrow();
+    expect(
+      (await query<{ logSignature: string }>("draftPublishReview", { draftId }))
+        .logSignature,
+    ).toBe(review.logSignature);
 
-    const deniedRevision = await fetch(`${API_URL}/api/reviseDraft`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        Authorization: `Bearer ${serviceToken}`,
-      },
-      body: JSON.stringify({
+    // Production Convex hides plain server error messages. Verify the denials
+    // left state intact, then prove these same payloads are valid for a user.
+    expect(await query<unknown[]>("listDataSources", {})).toHaveLength(0);
+    await mutate("commitBatch", { commands: [] }, USER_TOKEN);
+    await mutate(
+      "reviseDraft",
+      {
         draftId,
         expectedLogSignature: review.logSignature,
         ops: [{ type: "removeCommand", commandIndex: 4 }],
-      }),
-    });
-    expect(deniedRevision.status).toBe(403);
-
-    // The denials left the draft intact and canonical untouched.
+      },
+      USER_TOKEN,
+    );
+    expect(
+      (await query<{ logSignature: string }>("draftPublishReview", { draftId }))
+        .logSignature,
+    ).not.toBe(review.logSignature);
     expect(await query<unknown[]>("listDataSources", {})).toHaveLength(0);
   });
 
@@ -279,13 +235,8 @@ test.describe("draft review", () => {
     page,
     workerBaseURL,
   }) => {
-    // Publish and discard delete the draft's registry rows inside the
-    // controller's own transaction, which the outer request tracker never sees.
-    // The review page hides that by re-querying `listDrafts` by hand after its
-    // own publish — so the gap is only visible from a surface that did NOT
-    // perform the exit. This test is that surface: the inbox sits mounted while
-    // the lifecycle call happens over the API, and only the server's
-    // invalidation can empty it.
+    // Observe lifecycle mutations from an already-mounted native subscription.
+    // No reload or explicit query invalidation may be needed in this tab.
     const publishable = await seedDraft({ lateBound: false });
     const discardable = await seedDraft({ lateBound: false });
 

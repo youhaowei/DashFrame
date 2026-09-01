@@ -1,3 +1,5 @@
+import { useQuery_experimental as useQuery, useMutation } from "convex/react";
+import { queryStatus } from "@/data/query-status";
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { VisualizationPreview } from "@/components/visualizations/VisualizationPreview";
 import {
@@ -24,7 +26,7 @@ import {
   suggestByChartType,
   type ChartSuggestion,
 } from "@/lib/visualizations/suggest-charts";
-import { api } from "@/wystack/api";
+import { api } from "@dashframe/convex-backend/api";
 import {
   extractUUIDFromColumnAlias,
   fieldIdToColumnAlias,
@@ -56,7 +58,7 @@ import {
 } from "@dashframe/ui";
 import { Chart } from "@dashframe/visualization";
 import { useNavigate } from "@tanstack/react-router";
-import { useMutation, useQuery } from "@wystack/client";
+
 import { Button, cn } from "@wystack/ui-react";
 import {
   DashboardIcon,
@@ -671,7 +673,7 @@ export function InsightView({
   >(null);
 
   // Mutations — artifact writes go through commitBatch (one batch per user edit).
-  const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
+  const commitBatch = useMutation(api.app.commitBatch);
   const createVisualizationLocal = useCallback(
     async (input: Omit<CommandPayloads["CreateVisualization"], "id">) => {
       const id = crypto.randomUUID() as UUID;
@@ -726,14 +728,18 @@ export function InsightView({
   }, []);
 
   // Fetch related data
-  const { data: allDataTables = [] } = useQuery(api.listDataTables, {
-    args: {},
-  });
-  const { data: allInsights = [] } = useQuery(api.listInsights, { args: {} });
-  const { data: allVisualizations = [] } = useQuery(api.listVisualizations, {
-    args: {},
-  });
-  const { data: dashboards = [] } = useQuery(api.listDashboards);
+  const { data: allDataTables = [] } = queryStatus(
+    useQuery({ query: api.app.listDataTables, args: {} }),
+  );
+  const { data: allInsights = [] } = queryStatus(
+    useQuery({ query: api.app.listInsights, args: {} }),
+  );
+  const { data: allVisualizations = [] } = queryStatus(
+    useQuery({ query: api.app.listVisualizations, args: {} }),
+  );
+  const { data: dashboards = [] } = queryStatus(
+    useQuery({ query: api.app.listDashboards, args: {} }),
+  );
   const persistedActiveView = useInsightCanvasStore(
     (s) => s.activeViewByInsight[insightId],
   );
