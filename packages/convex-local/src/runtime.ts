@@ -486,69 +486,71 @@ function ownerIsAlive(ownerPid: number) {
 }
 
 async function acquireRuntimeLock(lockPath: string) {
+  const reclaimPath = `${lockPath}.reclaim`;
+  let reclaim: Awaited<ReturnType<typeof open>>;
+  try {
+    reclaim = await open(reclaimPath, "wx", 0o600);
+  } catch (error) {
+    if (hasErrorCode(error, "EEXIST")) throw new Error(PROJECT_OWNED_MESSAGE);
+    throw error;
+  }
+  try {
+    return await acquireRuntimeLockWithGuard(lockPath);
+  } finally {
+    try {
+      await reclaim.close();
+    } finally {
+      await rm(reclaimPath, { force: true });
+    }
+  }
+}
+
+async function acquireRuntimeLockWithGuard(lockPath: string) {
   const attemptId = randomUUID();
   const candidatePath = `${lockPath}.${attemptId}.candidate`;
   const candidate = await open(candidatePath, "wx", 0o600);
   let acquired = false;
 
-  // Every launcher takes this guard, including the uncontended path. That
-  // keeps the current owner from changing between snapshot and replacement.
-  const reclaimPath = `${lockPath}.reclaim`;
-  let reclaim: Awaited<ReturnType<typeof open>>;
   try {
     await candidate.writeFile(JSON.stringify({ ownerPid: process.pid }));
     await candidate.sync();
+    const snapshotPath = `${lockPath}.${attemptId}.snapshot`;
+    let snapshot: Awaited<ReturnType<typeof open>> | undefined;
     try {
-      reclaim = await open(reclaimPath, "wx", 0o600);
-    } catch (error) {
-      if (hasErrorCode(error, "EEXIST")) throw new Error(PROJECT_OWNED_MESSAGE);
-      throw error;
-    }
-    try {
-      const snapshotPath = `${lockPath}.${attemptId}.snapshot`;
-      let snapshot: Awaited<ReturnType<typeof open>> | undefined;
       try {
-        try {
-          await link(lockPath, snapshotPath);
-        } catch (error) {
-          if (!hasErrorCode(error, "ENOENT")) throw error;
-          await rename(candidatePath, lockPath);
-          acquired = true;
-          return candidate;
-        }
-
-        snapshot = await open(snapshotPath, "r");
-        let ownerPid: number | undefined;
-        try {
-          const value = JSON.parse(await snapshot.readFile("utf8")) as {
-            ownerPid?: unknown;
-          };
-          if (
-            typeof value.ownerPid === "number" &&
-            Number.isSafeInteger(value.ownerPid) &&
-            value.ownerPid > 0
-          ) {
-            ownerPid = value.ownerPid;
-          }
-        } catch {
-          // A missing, unreadable, or malformed lock is not provably stale.
-        }
-        if (ownerPid === undefined || ownerIsAlive(ownerPid))
-          throw new Error(PROJECT_OWNED_MESSAGE);
-
+        await link(lockPath, snapshotPath);
+      } catch (error) {
+        if (!hasErrorCode(error, "ENOENT")) throw error;
         await rename(candidatePath, lockPath);
         acquired = true;
         return candidate;
-      } finally {
-        await snapshot?.close();
-        await rm(snapshotPath, { force: true });
       }
-    } finally {
+
+      snapshot = await open(snapshotPath, "r");
+      let ownerPid: number | undefined;
       try {
-        await reclaim.close();
-      } finally {
-        await rm(reclaimPath, { force: true });
+        const value = JSON.parse(await snapshot.readFile("utf8")) as {
+          ownerPid?: unknown;
+        };
+        if (
+          typeof value.ownerPid === "number" &&
+          Number.isSafeInteger(value.ownerPid) &&
+          value.ownerPid > 0
+        ) {
+          ownerPid = value.ownerPid;
+        }
+      } catch {
+        // A missing, unreadable, or malformed lock is not provably stale.
       }
+      if (ownerPid === undefined || ownerIsAlive(ownerPid))
+        throw new Error(PROJECT_OWNED_MESSAGE);
+
+      await rename(candidatePath, lockPath);
+      acquired = true;
+      return candidate;
+    } finally {
+      await snapshot?.close();
+      await rm(snapshotPath, { force: true });
     }
   } finally {
     if (!acquired) {
