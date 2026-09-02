@@ -123,3 +123,40 @@ it("reaps a failed attempt while allowing the same operation to prepare fresh re
     ).status,
   ).toBe("completed");
 });
+
+it("stores a non-retryable settlement without persisting the control flag", async () => {
+  const t = convexTest(schema, modules);
+  const args = {
+    workspaceId: "w",
+    operationId: crypto.randomUUID(),
+    principal: { kind: "user" as const, userId: "u" },
+    requestHash: "a".repeat(64),
+    stagedRefs: [],
+    retryable: false,
+  };
+
+  expect(await t.mutation(internal.host.settleHostBatch, args)).toEqual({
+    status: "cancelled",
+    result: null,
+  });
+  expect(
+    await t.query(internal.host.getHostBatch, {
+      workspaceId: args.workspaceId,
+      operationId: args.operationId,
+      principal: args.principal,
+      requestHash: args.requestHash,
+    }),
+  ).toEqual({ status: "cancelled", result: null });
+  const stored = await t.run((ctx) =>
+    ctx.db
+      .query("hostBatches")
+      .withIndex("by_workspaceId_and_operationId", (q) =>
+        q
+          .eq("workspaceId", args.workspaceId)
+          .eq("operationId", args.operationId),
+      )
+      .unique(),
+  );
+  expect(stored).not.toBeNull();
+  expect(stored).not.toHaveProperty("retryable");
+});
