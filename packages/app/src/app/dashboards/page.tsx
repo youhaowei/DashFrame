@@ -32,15 +32,77 @@ import {
   SparklesIcon,
 } from "@wystack/ui-react/icons";
 import { Input } from "@wystack/ui-react";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
+
+function ReportsCollectionContent({
+  hasLoadError,
+  isEmpty,
+  searchQuery,
+  onClearSearch,
+  onCreateReport,
+  children,
+}: {
+  hasLoadError: boolean;
+  isEmpty: boolean;
+  searchQuery: string;
+  onClearSearch: () => void;
+  onCreateReport: () => void;
+  children: ReactNode;
+}) {
+  if (hasLoadError) {
+    return (
+      <ArtifactEmptyState
+        title="Couldn't load reports"
+        description="Something went wrong. Check your connection and try again."
+      />
+    );
+  }
+
+  if (!isEmpty) return children;
+
+  if (searchQuery) {
+    return (
+      <ArtifactEmptyState
+        title="No reports found"
+        description={`No reports match "${searchQuery}"`}
+        action={
+          <Button
+            variant="outline"
+            label="Clear search"
+            onClick={onClearSearch}
+          />
+        }
+      />
+    );
+  }
+
+  return (
+    <ArtifactEmptyState
+      title="No reports yet"
+      description="Create your first report to organize questions and saved views."
+      action={
+        <Button
+          icon={PlusIcon}
+          label="Create report"
+          onClick={onCreateReport}
+        />
+      }
+    />
+  );
+}
 
 export default function DashboardsPage() {
   const navigate = useNavigate();
-  const { data: dashboards = [], isLoading: dashboardsLoading } = queryStatus(
-    useQuery({ query: api.app.listDashboards, args: {} }),
-  );
-  const { data: visualizations = [], isLoading: visualizationsLoading } =
-    queryStatus(useQuery({ query: api.app.listVisualizations, args: {} }));
+  const {
+    data: dashboards = [],
+    isLoading: dashboardsLoading,
+    isError: dashboardsLoadError,
+  } = queryStatus(useQuery({ query: api.app.listDashboards, args: {} }));
+  const {
+    data: visualizations = [],
+    isLoading: visualizationsLoading,
+    isError: visualizationsLoadError,
+  } = queryStatus(useQuery({ query: api.app.listVisualizations, args: {} }));
   const commitBatch = useMutation(api.app.commitBatch);
   const { showError } = useToastStore();
   const { confirm } = useConfirmDialogStore();
@@ -90,6 +152,7 @@ export default function DashboardsPage() {
         dashboard.name.toLowerCase().includes(searchQuery.trim().toLowerCase()),
       )
     : dashboards;
+  const hasLoadError = dashboardsLoadError || visualizationsLoadError;
 
   if (dashboardsLoading || visualizationsLoading) {
     return (
@@ -103,9 +166,11 @@ export default function DashboardsPage() {
     <ArtifactCollection
       title="Reports"
       description={
-        <>
-          {dashboards.length} report{dashboards.length !== 1 ? "s" : ""}
-        </>
+        hasLoadError ? undefined : (
+          <>
+            {dashboards.length} report{dashboards.length !== 1 ? "s" : ""}
+          </>
+        )
       }
       actions={
         <>
@@ -124,35 +189,17 @@ export default function DashboardsPage() {
       }
       searchLabel="Search reports"
       searchPlaceholder="Search reports..."
-      itemCount={dashboards.length}
+      itemCount={hasLoadError ? undefined : dashboards.length}
       searchQuery={searchQuery}
       onSearchQueryChange={setSearchQuery}
     >
-      {filteredDashboards.length === 0 ? (
-        <ArtifactEmptyState
-          title={searchQuery ? "No reports found" : "No reports yet"}
-          description={
-            searchQuery
-              ? `No reports match "${searchQuery}"`
-              : "Create your first report to organize questions and saved views."
-          }
-          action={
-            searchQuery ? (
-              <Button
-                variant="outline"
-                label="Clear search"
-                onClick={() => setSearchQuery("")}
-              />
-            ) : (
-              <Button
-                icon={PlusIcon}
-                label="Create report"
-                onClick={() => setIsCreateOpen(true)}
-              />
-            )
-          }
-        />
-      ) : (
+      <ReportsCollectionContent
+        hasLoadError={hasLoadError}
+        isEmpty={filteredDashboards.length === 0}
+        searchQuery={searchQuery}
+        onClearSearch={() => setSearchQuery("")}
+        onCreateReport={() => setIsCreateOpen(true)}
+      >
         <ArtifactGrid>
           {filteredDashboards.map((dashboard) => {
             const contents = resolveReportContents(
@@ -207,7 +254,7 @@ export default function DashboardsPage() {
             );
           })}
         </ArtifactGrid>
-      )}
+      </ReportsCollectionContent>
 
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
         <DialogContent>

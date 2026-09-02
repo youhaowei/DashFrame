@@ -332,6 +332,35 @@ describe("DashboardsPage – delete confirmation", () => {
     expect(mockNavigate).toHaveBeenCalledWith({ to: "/insights" });
   });
 
+  it("does not present false zero counts when report contents fail to load", () => {
+    mockUseQuery.mockImplementation((ref: { _path: string }) => {
+      if (ref._path === "listDashboards") {
+        return {
+          data: [
+            {
+              id: "dashboard-1",
+              name: "Quarterly plan",
+              items: [{ type: "visualization", visualizationId: "view-1" }],
+              createdAt: 0,
+              updatedAt: 0,
+            },
+          ],
+          isLoading: false,
+        };
+      }
+      if (ref._path === "listVisualizations") {
+        return { isError: true, error: new Error("offline") };
+      }
+      return { data: [], isLoading: false };
+    });
+
+    render(<DashboardsPage />);
+
+    screen.getByRole("heading", { name: "Couldn't load reports" });
+    expect(screen.queryByText(/0 saved views/)).toBeNull();
+    expect(screen.queryByText("Quarterly plan")).toBeNull();
+  });
+
   it.each(["pointer", "Enter", "Space"] as const)(
     "opens the card menu with %s without navigating the card",
     async (activation) => {
