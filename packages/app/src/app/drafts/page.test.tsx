@@ -33,5 +33,6 @@ describe("DraftsPage", () => {
     expect(
       screen.getByRole("textbox", { name: "Search drafts" }),
     ).not.toBeNull();
+    expect(screen.queryByRole("main")).toBeNull();
   });
 });

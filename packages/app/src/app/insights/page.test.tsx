@@ -118,6 +118,7 @@ describe("InsightsPage delete confirmations", () => {
     expect(
       screen.getByRole("textbox", { name: "Search insights" }),
     ).not.toBeNull();
+    expect(screen.queryByRole("main")).toBeNull();
   });
 
   it("does not delete one draft after cancellation, but deletes it after confirmation", async () => {
@@ -202,6 +203,14 @@ describe("InsightsPage delete confirmations", () => {
       name: /Composed report.*Root Orders.*csv/,
     });
     expect(link.getAttribute("href")).toBe("/insights/composed");
+  });
+
+  it("renders one level-three heading for each insight card", () => {
+    render(<InsightsPage />);
+
+    expect(screen.getAllByRole("heading", { level: 3 })).toHaveLength(2);
+    screen.getByRole("heading", { level: 3, name: "First draft" });
+    screen.getByRole("heading", { level: 3, name: "Second draft" });
   });
 
   it("shows the draft count and does not start the bulk delete until confirmation", async () => {

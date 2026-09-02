@@ -46,6 +46,20 @@ function renderSwitcher(onSelect = vi.fn()) {
 }
 
 describe("ArtifactSwitcher", () => {
+  it("exposes its popover state to assistive technology", async () => {
+    const { unmount } = renderSwitcher();
+    const user = userEvent.setup();
+    const trigger = screen.getByRole("button", { name: "Tables: Orders" });
+
+    expect(trigger.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+
+    await user.click(trigger);
+
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    unmount();
+  });
+
   it("filters items by name", () => {
     const { unmount } = renderSwitcher();
 

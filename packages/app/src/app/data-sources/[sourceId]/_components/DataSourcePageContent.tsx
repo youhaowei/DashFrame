@@ -7,6 +7,7 @@ import {
   useBindArtifact,
 } from "@/components/assistant/artifact-context";
 import { SensitivityBadge } from "@/components/data-sources/SensitivityBadge";
+import { ConnectorIcon } from "@/components/data-sources/renderers/ConnectorIcon";
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { useCreateInsight } from "@/hooks/useCreateInsight";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
@@ -31,6 +32,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import {
   Badge,
   Button,
+  ButtonPrimitive,
   Card,
   CardContent,
   CardHeader,
@@ -163,7 +165,7 @@ export default function DataSourcePageContent({
   // Find the data source
   const dataSource = allDataSources.find((s) => s.id === sourceId);
 
-  const { data: dataTables = [] } = queryStatus(
+  const { data: dataTables = [], isLoading: isLoadingDataTables } = queryStatus(
     useQuery({
       query: api.app.listDataTables,
       args: { dataSourceId: sourceId },
@@ -190,6 +192,7 @@ export default function DataSourcePageContent({
 
   // Use source name directly - mutations update database which triggers re-render
   const sourceName = dataSource?.name ?? "";
+  const connector = dataSource ? getConnectorById(dataSource.type) : null;
 
   // Bind the assistant to this data source so its sidebar is contextual to what
   // the user is looking at. Cleared automatically on unmount.
@@ -323,33 +326,30 @@ export default function DataSourcePageContent({
     );
   }
 
-  const emptyTableState =
-    dataTables.length === 0 ? (
+  if (isLoadingDataTables) {
+    return (
       <div className="flex h-full items-center justify-center">
-        <div className="text-center">
-          <TableIcon className="mx-auto mb-4 h-12 w-12 text-neutral-fg-subtle" />
-          <h3 className="mb-2 text-lg font-semibold">No tables yet</h3>
-          <p className="mb-4 text-sm text-neutral-fg-subtle">
-            Use Add Source on the Data Sources page to import a table.
-          </p>
-          <Button
-            variant="outline"
-            label="Go to Data Sources"
-            onClick={() => navigate({ to: "/data-sources" } as never)}
-          />
-        </div>
-      </div>
-    ) : (
-      <div className="flex h-full items-center justify-center">
-        <div className="text-center">
-          <TableIcon className="mx-auto mb-4 h-12 w-12 text-neutral-fg-subtle" />
-          <h3 className="mb-2 text-lg font-semibold">Select a table</h3>
-          <p className="text-sm text-neutral-fg-subtle">
-            Choose a table from the Tables switcher above to view its details.
-          </p>
-        </div>
+        <p className="text-sm text-neutral-fg-subtle">Loading tables…</p>
       </div>
     );
+  }
+
+  const emptyTableState = (
+    <div className="flex h-full items-center justify-center">
+      <div className="text-center">
+        <TableIcon className="mx-auto mb-4 h-12 w-12 text-neutral-fg-subtle" />
+        <h3 className="mb-2 text-lg font-semibold">No tables yet</h3>
+        <p className="mb-4 text-sm text-neutral-fg-subtle">
+          Use Add Source on the Data Sources page to import a table.
+        </p>
+        <Button
+          variant="outline"
+          label="Go to Data Sources"
+          onClick={() => navigate({ to: "/data-sources" } as never)}
+        />
+      </div>
+    </div>
+  );
 
   return (
     <>
@@ -357,11 +357,24 @@ export default function DataSourcePageContent({
         pageHeader={
           <ArtifactPageHeader
             title={sourceName || "Untitled Source"}
-            description={`${getConnectorById(dataSource.type)?.name ?? dataSource.type} · ${dataTables.length} table${dataTables.length === 1 ? "" : "s"}`}
+            titleIcon={
+              connector ? (
+                <ConnectorIcon svg={connector.icon} className="h-6 w-6" />
+              ) : undefined
+            }
+            description={`${connector?.name ?? dataSource.type} · ${dataTables.length} table${dataTables.length === 1 ? "" : "s"}`}
             actions={
               <Popover>
                 <PopoverTrigger
-                  render={<Button variant="outline" label="Rename source" />}
+                  render={
+                    <ButtonPrimitive
+                      type="button"
+                      variant="outline"
+                      aria-label="Rename source"
+                    >
+                      Rename source
+                    </ButtonPrimitive>
+                  }
                 />
                 <PopoverContent align="end">
                   <label className="flex min-w-0 flex-wrap items-center gap-2 text-sm text-neutral-fg-subtle">

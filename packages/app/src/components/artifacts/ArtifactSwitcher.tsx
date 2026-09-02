@@ -1,5 +1,5 @@
 import {
-  Button,
+  ButtonPrimitive,
   Command,
   CommandEmpty,
   CommandInput,
@@ -56,15 +56,15 @@ export function ArtifactSwitcher({
     >
       <PopoverTrigger
         render={
-          <Button
+          <ButtonPrimitive
+            type="button"
             variant="outline"
-            icon={ChevronDownIcon}
-            label={`${label}: ${selected?.name ?? "Select"}`}
+            aria-label={`${label}: ${selected?.name ?? "Select"}`}
             className="max-w-full"
           >
             <ChevronDownIcon aria-hidden className="shrink-0" />
             <span className="truncate">{`${label}: ${selected?.name ?? "Select"}`}</span>
-          </Button>
+          </ButtonPrimitive>
         }
       />
       <PopoverContent

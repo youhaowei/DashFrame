@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { Input } from "@wystack/ui-react";
 import { SearchIcon } from "@wystack/ui-react/icons";
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 
 import { ArtifactPageHeader } from "./ArtifactPageHeader";
 
@@ -34,12 +34,26 @@ export function ArtifactCollection({
   children,
   tools,
 }: ArtifactCollectionProps) {
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  const previousSearchQueryRef = useRef(searchQuery);
   const showSearch =
     itemCount === undefined || itemCount > 0 || searchQuery.length > 0;
+
+  useEffect(() => {
+    const searchWasCleared =
+      previousSearchQueryRef.current.length > 0 && searchQuery.length === 0;
+    previousSearchQueryRef.current = searchQuery;
+
+    if (searchWasCleared && itemCount === 0) {
+      titleRef.current?.focus();
+    }
+  }, [itemCount, searchQuery]);
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-neutral-bg">
       <ArtifactPageHeader
         title={title}
+        titleRef={titleRef}
         description={description}
         actions={actions}
         navigation={navigation}
@@ -65,9 +79,9 @@ export function ArtifactCollection({
           </>
         )}
       </ArtifactPageHeader>
-      <main className="min-w-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6">
+      <div className="min-w-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6">
         {children}
-      </main>
+      </div>
     </div>
   );
 }
@@ -91,7 +105,7 @@ export function ArtifactEmptyState({
 }) {
   return (
     <div className="flex flex-col items-center justify-center py-16 text-center">
-      <h3 className="mb-2 text-lg font-semibold">{title}</h3>
+      <h2 className="mb-2 text-lg font-semibold">{title}</h2>
       {description && (
         <p className="mb-4 text-sm text-neutral-fg-subtle">{description}</p>
       )}
@@ -131,9 +145,9 @@ export function ArtifactCard({
         </span>
       )}
       <span className="min-w-0 flex-1">
-        <span className="block break-words font-medium text-neutral-fg">
+        <h3 className="block break-words font-medium text-neutral-fg">
           {name}
-        </span>
+        </h3>
         {metadata && (
           <span className="mt-2 block break-words text-xs text-neutral-fg-subtle">
             {metadata}

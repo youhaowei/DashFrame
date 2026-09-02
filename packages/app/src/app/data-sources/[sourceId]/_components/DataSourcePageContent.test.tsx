@@ -100,7 +100,8 @@ vi.mock("@/hooks/useDataFrameData", () => ({
 }));
 
 vi.mock("@/lib/connectors/registry", () => ({
-  getConnectorById: () => null,
+  getConnectorById: (id: string) =>
+    id === "csv" ? { name: "CSV", icon: "<svg>csv</svg>" } : null,
   useRegistryVersion: () => 0,
 }));
 
@@ -205,6 +206,13 @@ vi.mock("@wystack/ui-react", async () => {
     Button: ({ label, onClick }: { label: string; onClick?: () => void }) => (
       <button onClick={onClick}>{label}</button>
     ),
+    ButtonPrimitive: ({
+      children,
+      variant: _variant,
+      ...props
+    }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+      variant?: string;
+    }) => <button {...props}>{children}</button>,
     Card: ({ children }: { children: React.ReactNode }) => (
       <div>{children}</div>
     ),
@@ -265,7 +273,14 @@ vi.mock("@wystack/ui-react", async () => {
     },
     PopoverTrigger: ({ render: r }: { render: React.ReactNode }) => {
       const context = React.useContext(PopoverContext);
-      return <span onClick={() => context?.setOpen(!context.open)}>{r}</span>;
+      return React.cloneElement(
+        r as React.ReactElement<React.ButtonHTMLAttributes<HTMLButtonElement>>,
+        {
+          "aria-haspopup": "dialog",
+          "aria-expanded": context?.open ? "true" : "false",
+          onClick: () => context?.setOpen(!context.open),
+        },
+      );
     },
     PopoverContent: ({ children }: { children: React.ReactNode }) => {
       const context = React.useContext(PopoverContext);
@@ -310,7 +325,9 @@ vi.mock("@wystack/ui-react/icons", () => ({
 }));
 
 vi.mock("@/components/data-sources/renderers/ConnectorIcon", () => ({
-  ConnectorIcon: () => null,
+  ConnectorIcon: ({ svg }: { svg: string }) => (
+    <span data-testid="connector-icon" data-svg={svg} />
+  ),
 }));
 
 vi.mock("@/components/data-sources/SensitivityBadge", () => ({
@@ -449,6 +466,40 @@ describe("DataSourcePageContent — loading state contract", () => {
     expect(screen.queryByText("Data source not found")).toBeNull();
     openRenameSource();
   });
+
+  it("waits for tables before showing an empty-table instruction", () => {
+    mockUseDataSources.mockReturnValue({
+      data: [DATA_SOURCE],
+      isLoading: false,
+    });
+    mockUseDataTables.mockReturnValue({ isLoading: true });
+
+    render(<DataSourcePageContent sourceId={SOURCE_ID} />);
+
+    expect(screen.queryByText("No tables yet")).toBeNull();
+    screen.getByText("Loading tables…");
+  });
+
+  it("keeps the connector logo and exposes rename popover state", () => {
+    mockUseDataSources.mockReturnValue({
+      data: [DATA_SOURCE],
+      isLoading: false,
+    });
+
+    render(<DataSourcePageContent sourceId={SOURCE_ID} />);
+
+    expect(screen.getByTestId("connector-icon").getAttribute("data-svg")).toBe(
+      "<svg>csv</svg>",
+    );
+    const renameTrigger = screen.getByRole("button", {
+      name: "Rename source",
+    });
+    expect(renameTrigger.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(renameTrigger.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(renameTrigger);
+    expect(renameTrigger.getAttribute("aria-expanded")).toBe("true");
+  });
+
   it("creates and opens a visualize-intent insight from the selected table", async () => {
     mockUseDataSources.mockReturnValue({
       data: [DATA_SOURCE],
@@ -629,7 +680,7 @@ describe("DataSourcePageContent — loading state contract", () => {
     expect(screen.queryByText(/sidebar/i)).toBeNull();
   });
 
-  it("defaults to the first table and drops a stale selection after the table list changes", async () => {
+  it("never asks for a table selection when tables exist, including after a stale selection", async () => {
     mockUseDataSources.mockReturnValue({
       data: [DATA_SOURCE],
       isLoading: false,
@@ -643,11 +694,13 @@ describe("DataSourcePageContent — loading state contract", () => {
 
     const view = render(<DataSourcePageContent sourceId={SOURCE_ID} />);
     expect(screen.getByRole("heading", { name: "First" })).toBeTruthy();
+    expect(screen.queryByText("Select a table")).toBeNull();
 
     fireEvent.click(
       screen.getByRole("button", { name: "Tables option Second" }),
     );
     expect(screen.getByRole("heading", { name: "Second" })).toBeTruthy();
+    expect(screen.queryByText("Select a table")).toBeNull();
 
     mockUseDataTables.mockReturnValue({
       data: [
@@ -665,6 +718,7 @@ describe("DataSourcePageContent — loading state contract", () => {
 
     expect(screen.getByRole("heading", { name: "Replacement" })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Second" })).toBeNull();
+    expect(screen.queryByText("Select a table")).toBeNull();
   });
 });
 
