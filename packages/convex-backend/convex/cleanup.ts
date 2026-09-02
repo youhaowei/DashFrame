@@ -11,6 +11,14 @@ import { cleanupClaim, cleanupItem, cleanupResource } from "./lifecycleValues";
 export type Resource = typeof cleanupResource.type;
 const secretPattern = /^secret:[0-9a-f-]{36}$/i;
 const key = (r: Resource) => `${r.kind}:${r.resourceId}`;
+// Finds secret references in stored rows so cleanup cannot reclaim live data.
+// credentialRef appears only here because saveAssistantProviderConfig writes it
+// directly to stored assistant provider configs, never through the command path.
+const STORED_RESOURCE_CREDENTIAL_SLOTS = [
+  "apiKey",
+  "connectionString",
+  "credentialRef",
+] as const;
 /** Inspect resource slots, never arbitrary strings in names, rows, or chart text. */
 export function resources(value: unknown): Map<string, Resource> {
   const found = new Map<string, Resource>();
@@ -29,7 +37,7 @@ export function resources(value: unknown): Map<string, Resource> {
       if (name === "dataFrameId" && typeof child === "string")
         add("frame", child);
       if (
-        ["apiKey", "connectionString", "credentialRef"].includes(name) &&
+        STORED_RESOURCE_CREDENTIAL_SLOTS.some((slot) => slot === name) &&
         typeof child === "string" &&
         secretPattern.test(child)
       )
