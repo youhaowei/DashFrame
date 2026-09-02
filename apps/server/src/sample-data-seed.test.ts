@@ -83,6 +83,36 @@ describe("sample CSV fixtures", () => {
     expect(missingCustomerIds).toEqual(new Set());
   });
 
+  it("infers the customer signup date without stringifying it", async () => {
+    const parsed = parseCSV(await readFile(samplePath("customers"), "utf8"));
+    const tableId = "a7626de3-0447-4ab7-b0ba-55ebf4649060";
+
+    const converted = await csvToDataFrame(parsed, tableId);
+
+    expect(converted.fields.map(({ name, type }) => [name, type])).toEqual([
+      ["customer_id", "string"],
+      ["signup_date", "date"],
+      ["region", "string"],
+      ["segment", "string"],
+    ]);
+  });
+
+  it("uses the GA4 default channel-group vocabulary", async () => {
+    const rows = parseCSV(await readFile(samplePath("orders"), "utf8"));
+    const channelIndex = rows[0]!.indexOf("channel");
+
+    expect(new Set(rows.slice(1).map((row) => row[channelIndex]))).toEqual(
+      new Set([
+        "Organic Search",
+        "Paid Search",
+        "Direct",
+        "Referral",
+        "Email",
+        "Organic Social",
+      ]),
+    );
+  });
+
   it("preserves an August drop driven by Paid Search and Organic Social", async () => {
     const rows = parseCSV(await readFile(samplePath("orders"), "utf8"));
     const [header, ...data] = rows;
