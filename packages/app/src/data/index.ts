@@ -1,21 +1,11 @@
-/**
- * WyStack implementation of the app's data-hook surface.
- *
- * The host wires the runtime seam once at startup:
- *   - render `<Provider>` (from `createWyStack`) above the app, and
- *   - call `setWyStackClient(instance.client)` before rendering, so the
- *     imperative getters can reach the live client.
- */
-
-// Runtime client seam (host wires this once).
-export { getWyStackClient, setWyStackClient } from "../wystack/client";
 export {
-  createWyStackRuntime,
-  getWyStackRuntimeConfig,
-  resolveWyStackConfig,
-  type WyStackRuntime,
-  type WyStackRuntimeConfig,
-} from "../wystack/runtime";
+  createAppRuntime,
+  resolveAppConfig,
+  getRuntimeConfig,
+  getConvexClient,
+  type AppRuntime,
+  type AppRuntimeConfig,
+} from "./runtime";
 
 export {
   parseAssistantSseChunk,
@@ -23,7 +13,7 @@ export {
   type AssistantRunRequest,
   type AssistantSidebarEvent,
   type RunAssistantPromptOptions,
-} from "../wystack/assistant-run";
+} from "./assistant-run";
 
 export {
   useAccessCapabilities,
@@ -31,5 +21,3 @@ export {
   useAccessCredentialMutations,
   useAccessCredentials,
 } from "./access-credentials";
-
-export { DatabaseProvider, useDatabase } from "../wystack/compat";

@@ -1,4 +1,5 @@
-import { useMutation, useQuery } from "@wystack/client";
+import { useHostQuery, useHostMutation } from "@/data/host";
+
 import {
   Select,
   SelectContent,
@@ -10,16 +11,15 @@ import { useEffect, useMemo, useRef } from "react";
 
 import { useToastStore } from "@/lib/stores";
 import { useAssistantStore } from "@/lib/stores/assistant-store";
-import { api } from "@/wystack/api";
 
 export function AssistantModelPicker() {
-  const configsResult = useQuery(api.listAssistantProviderConfigs);
-  const catalogResult = useQuery(api.listAssistantProviderCatalog);
-  const { mutateAsync: saveConfigMutation } = useMutation(
-    api.saveAssistantProviderConfig,
+  const configsResult = useHostQuery("listAssistantProviderConfigs");
+  const catalogResult = useHostQuery("listAssistantProviderCatalog");
+  const { mutateAsync: saveConfigMutation } = useHostMutation(
+    "saveAssistantProviderConfig",
   );
-  const { mutateAsync: setDefaultModelMutation } = useMutation(
-    api.setAssistantDefaultModel,
+  const { mutateAsync: setDefaultModelMutation } = useHostMutation(
+    "setAssistantDefaultModel",
   );
   const selectedProviderConfigId = useAssistantStore(
     (s) => s.selectedProviderConfigId,

@@ -3,8 +3,8 @@ import "@dashframe/app/globals.css";
 import type { AppRouterContext, ProviderWrapper } from "@dashframe/app";
 import {
   ChartEngineProvider,
-  createWyStackRuntime,
-  resolveWyStackConfig,
+  createAppRuntime,
+  resolveAppConfig,
 } from "@dashframe/app";
 import { createServerFrameConnector } from "@dashframe/visualization";
 import { createRouter, RouterProvider } from "@tanstack/react-router";
@@ -13,13 +13,15 @@ import { createRoot } from "react-dom/client";
 
 import { routeTree } from "./routeTree.gen";
 import { isServerFrameEngineLoss } from "./server-frame-engine-loss";
+import { createRendererHistory } from "./renderer-history";
 
 // Router is created at module scope (so `typeof router` registers the type),
-// with an empty context. The runtime context — the WyStack Provider wrapper —
+// with an empty context. The runtime context — the Convex Provider wrapper —
 // is injected after the async URL handshake, via router.update(), before the
 // first render.
 const router = createRouter({
   routeTree,
+  history: createRendererHistory(),
   context: {} as AppRouterContext,
 });
 
@@ -41,15 +43,22 @@ function renderBootstrapError(error: unknown) {
   );
 }
 
-// The renderer is a localhost client of the loopback WyStack server the
+// The renderer is a localhost client of the loopback host server the
 // Electron main process starts. Resolve its URL via IPC, mint the client once,
-// and inject the WyStack Provider through the shared app's providerWrapper slot.
+// and inject the Convex Provider through the shared app's providerWrapper slot.
 //
 // Desktop charts use the same server-frame Mosaic connector as web. The shared
 // tree receives no Electron-specific data-plane injection.
 async function bootstrap() {
-  const config = await resolveWyStackConfig();
-  const { Provider } = createWyStackRuntime(config);
+  const config = await resolveAppConfig();
+  const { Provider, close } = createAppRuntime(config);
+  window.addEventListener(
+    "pagehide",
+    () => {
+      close();
+    },
+    { once: true },
+  );
 
   if (!config.token) {
     throw new Error(

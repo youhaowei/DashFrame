@@ -1,6 +1,8 @@
-import { api } from "@/wystack/api";
+import { useQuery_experimental as useQuery } from "convex/react";
+import { queryStatus } from "@/data/query-status";
+import { api } from "@dashframe/convex-backend/api";
 import { useNavigate } from "@tanstack/react-router";
-import { useQuery } from "@wystack/client";
+
 import { ItemList } from "@wystack/ui-react";
 import { ChartIcon, DatabaseIcon, SparklesIcon } from "@wystack/ui-react/icons";
 import { useMemo } from "react";
@@ -8,16 +10,20 @@ import { useMemo } from "react";
 /**
  * QuickLinksSection - Navigation links to main app sections
  *
- * Self-contained section that fetches counts via the WyStack server.
+ * Self-contained section that fetches counts via the Convex backend.
  */
 export function QuickLinksSection() {
   const navigate = useNavigate();
 
-  const { data: visualizations = [] } = useQuery(api.listVisualizations, {
-    args: {},
-  });
-  const { data: insights = [] } = useQuery(api.listInsights, { args: {} });
-  const { data: dataSources = [] } = useQuery(api.listDataSources);
+  const { data: visualizations = [] } = queryStatus(
+    useQuery({ query: api.app.listVisualizations, args: {} }),
+  );
+  const { data: insights = [] } = queryStatus(
+    useQuery({ query: api.app.listInsights, args: {} }),
+  );
+  const { data: dataSources = [] } = queryStatus(
+    useQuery({ query: api.app.listDataSources, args: {} }),
+  );
 
   const quickLinks = useMemo(
     () => [

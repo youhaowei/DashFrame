@@ -1,25 +1,16 @@
 export interface ProjectInfo {
-  projectId: string;
+  workspaceId: string;
   name: string;
-  version: string;
-  schemaVersion: number;
-  createdAt: string;
-  createdBy: string;
 }
 
-/** Loopback connection details for the WyStack server the renderer talks to. */
+/** Application-only connection details; never includes Convex administrator keys. */
 export interface ServerInfo {
-  /**
-   * Base origin only — NO `/api` prefix, e.g. `http://127.0.0.1:53017`. The
-   * WyStack client appends its own route prefix (`/api`), so including it here
-   * would produce a double `/api/api` path and break every query.
-   */
+  /** Loopback host HTTP origin for imports, sessions, and DuckDB queries. */
   url: string;
-  /**
-   * Per-launch loopback bearer token minted by Electron main. The renderer
-   * supplies it through WyStack's getToken hook for HTTP and WS auth.
-   */
+  /** Per-launch host bearer token; exchanged for a short-lived Convex JWT. */
   token: string;
+  /** Loopback native Convex HTTP/WebSocket origin. */
+  convexUrl: string;
 }
 
 export interface DashFrameApi {
@@ -31,6 +22,6 @@ export interface DashFrameApi {
     /** Opens a server-issued Google authorization URL in the system browser. */
     openAuthorizationUrl(url: string): Promise<void>;
   };
-  /** Returns the loopback WyStack server URL, available once main has started it. */
+  /** Returns the loopback host and Convex URLs, available once main has started it. */
   getServerInfo(): Promise<ServerInfo>;
 }

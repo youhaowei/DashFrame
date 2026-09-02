@@ -16,10 +16,6 @@
       "bun": "./src/assistant-host.ts",
       "default": "./src/assistant-host.ts"
     },
-    "./functions": {
-      "bun": "./src/functions.ts",
-      "default": "./src/functions.ts"
-    },
     "./dashboard-item-updates": {
       "bun": "./src/functions/dashboard-item-updates.ts",
       "default": "./src/functions/dashboard-item-updates.ts"
@@ -27,7 +23,8 @@
     "./assistant-read-host": {
       "bun": "./src/assistant-read-host.ts",
       "default": "./src/assistant-read-host.ts"
-    }
+    },
+    "./host-contract": "./src/host-contract.ts"
   },
   "scripts": {
     "dev": "bun run src/index.ts",
@@ -49,23 +46,24 @@
     "@hono/node-server": "^1.19.12",
     "@hono/node-ws": "^1.3.0",
     "@modelcontextprotocol/sdk": "1.30.0",
-    "@wystack/db": "workspace:*",
     "@wystack/identity": "workspace:*",
-    "@wystack/permissions": "workspace:*",
     "@wystack/secret-vault": "workspace:*",
-    "@wystack/server": "workspace:*",
     "apache-arrow": "^21.1.0",
-    "drizzle-orm": "^0.45.1",
     "hono": "^4.12.9",
-    "zod": "^4.1.12"
+    "zod": "^4.1.12",
+    "@dashframe/convex-backend": "workspace:*",
+    "@dashframe/convex-local": "workspace:*",
+    "convex": "1.37.0",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "@dashframe/connector-local": "workspace:*",
     "@types/bun": "^1.2.0",
-    "@wystack/client": "workspace:*",
     "esbuild": "^0.28.0",
     "typescript": "5.7.2",
     "vitest": "catalog:",
-    "vite-plus": "catalog:"
+    "vite-plus": "catalog:",
+    "@types/ws": "^8.18.0",
+    "convex-test": "^0.0.41"
   }
 }

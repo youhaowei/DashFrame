@@ -17,12 +17,12 @@ import {
   type CommandPayloads,
 } from "@dashframe/types";
 import { isSecretRef } from "@wystack/secret-vault";
-import type { WyStackApp } from "@wystack/server";
+import type { ApplicationOperations } from "../host/application";
 
 import { createAssistantReadHost } from "../assistant-read-host";
-import { DRAFT_UNAVAILABLE } from "../draft-access";
-import { assertKnownCommandPaths } from "../functions/commands";
-import { draftIdFromBatchError } from "../functions/draft-batch";
+import { isPrincipal } from "@wystack/identity";
+const DRAFT_UNAVAILABLE = "Draft unavailable";
+import { assertKnownCommandPaths } from "../host/commands";
 import { REPORT_APP_URI } from "./report-app";
 import type { McpMode, McpRequestContext } from "./route";
 
@@ -352,7 +352,7 @@ function outputSchemaForAssistantTool(
 }
 
 function dataTool(
-  app: WyStackApp,
+  app: ApplicationOperations,
   context: McpRequestContext,
   name: string,
   description: string,
@@ -385,10 +385,10 @@ function dataTool(
     async execute(args) {
       const checked = validateToolArgs(inputSchema, args);
       if (!checked.ok) throw new Error(checked.error.message);
-      const response = await app.call(path, checked.value, {
+      const response = await app.execute(path, checked.value, {
         principal: context.principal,
       });
-      const rawResult = response.result as Record<string, unknown>;
+      const rawResult = response as Record<string, unknown>;
       const result =
         path === "queryDataFrame"
           ? rawResult
@@ -531,7 +531,7 @@ function frameTitle(value: unknown): string {
 }
 
 function renderDataFrameTool(
-  app: WyStackApp,
+  app: ApplicationOperations,
   context: McpRequestContext,
 ): McpTool {
   const closed = { additionalProperties: false };
@@ -655,21 +655,21 @@ function renderDataFrameTool(
         view?: "table" | "chart" | "overview";
       };
       const [entryResponse, pageResponse] = await Promise.all([
-        app.call(
+        app.execute(
           "getDataFrameEntry",
           { id: dataFrameId },
           { principal: context.principal },
         ),
-        app.call(
+        app.execute(
           "queryDataFrame",
           { dataFrameId, offset: 0, limit: REPORT_INITIAL_PAGE_LIMIT },
           { principal: context.principal },
         ),
       ]);
-      const rawPage = frameEntry(pageResponse.result) ?? {};
+      const rawPage = frameEntry(pageResponse) ?? {};
       const page = readyFramePage(rawPage);
       if (page === null) return frameFailure(rawPage);
-      const entry = frameEntry(entryResponse.result);
+      const entry = frameEntry(entryResponse);
       if (entry === null) {
         return frameFailure({ code: "FRAME_NOT_FOUND" });
       }
@@ -708,7 +708,7 @@ function renderDataFrameTool(
 }
 
 function createDataTools(
-  app: WyStackApp,
+  app: ApplicationOperations,
   context: McpRequestContext,
 ): McpTool[] {
   const closed = { additionalProperties: false };
@@ -1016,10 +1016,12 @@ function draftBatchDescription(mode: McpMode): string {
         ];
   return [
     "Append a batch of draft-safe DashFrame commands to a DashFrame draft.",
-    "Nothing here reaches canonical state: the draft opens before commands run,",
-    "and only a person can publish it. If a later command fails after an earlier",
-    "prefix committed, the error retains the owned draftId so that work can",
-    "continue.",
+    "Nothing here reaches canonical state; only a person can publish the draft.",
+    "The batch is atomic: if any command fails, none of its commands are saved.",
+    "An existing draft stays unchanged; a failed first batch creates no draftId.",
+    "After a command validation failure, correct and resubmit the entire batch.",
+    "If the outcome is unconfirmed, retry the unchanged batch with the returned",
+    "operationId. It may already be saved; do not submit it as a new operation.",
     ...continuity,
     "",
     "Each entry is { type, args } where `type` is a command NAME from the guide",
@@ -1027,8 +1029,7 @@ function draftBatchDescription(mode: McpMode): string {
     `Allowed here: ${draftSafeCommandList()}.`,
     "",
     "Refused at this boundary — do not retry these, they will never succeed:",
-    "- DeleteNode. Deleting a node touches the credential vault and cascades in",
-    "  ways a draft cannot roll back. Ask a person to delete.",
+    "- DeleteNode. Deletion includes host resource cleanup. Ask a person to delete.",
     "- GetOrCreateDataSource. Use CreateDataSource without credential fields;",
     "  the get-or-create path predates the current draft treatment.",
     "- SetDataSourceConfig. Its open-ended connector config cannot prove that",
@@ -1110,7 +1111,7 @@ function lowerCommands(commands: readonly DraftBatchCommandInput[]): Command[] {
  * session, rather than binding a handle when tools are listed.
  */
 function createDelegatingReader(
-  app: WyStackApp,
+  app: ApplicationOperations,
   draftId: string | undefined,
 ): GraphReader {
   return new Proxy({} as GraphReader, {
@@ -1128,17 +1129,17 @@ function createDelegatingReader(
 }
 
 async function assertDraftOpen(
-  app: WyStackApp,
+  app: ApplicationOperations,
   context: McpRequestContext,
   draftId: string | undefined,
 ): Promise<void> {
   if (draftId === undefined) return;
-  const listed = await app.call(
+  const listed = await app.execute(
     "listDrafts",
     {},
     { principal: context.principal },
   );
-  const drafts = listed.result as Array<{ draftId: string }>;
+  const drafts = listed as Array<{ draftId: string }>;
   if (!drafts.some((draft) => draft.draftId === draftId)) {
     throw new Error(DRAFT_UNAVAILABLE);
   }
@@ -1202,7 +1203,7 @@ function toMcpTool(
   tool: AssistantTool,
   isReadTool: boolean,
   mode: McpMode,
-  app: WyStackApp,
+  app: ApplicationOperations,
   context: McpRequestContext,
 ): McpTool {
   const inputSchema =
@@ -1264,7 +1265,12 @@ function toMcpTool(
       if (isReadTool) await assertDraftOpen(app, context, requestDraftId);
       const executionTool = isReadTool
         ? (Object.values(
-            createReadTools(createDelegatingReader(app, requestDraftId)),
+            createReadTools(
+              createDelegatingReader(
+                app.forPrincipal(checkedPrincipal(context.principal)),
+                requestDraftId,
+              ),
+            ),
           ).find((candidate) => candidate.name === tool.name) as AssistantTool)
         : tool;
       const result = await executionTool.execute(
@@ -1288,8 +1294,13 @@ function toMcpTool(
   };
 }
 
+function checkedPrincipal(principal: unknown) {
+  if (!isPrincipal(principal)) throw new Error("Unauthorized");
+  return principal;
+}
+
 export function createMcpTools(
-  app: WyStackApp,
+  app: ApplicationOperations,
   context: McpRequestContext,
   mode: McpMode,
 ): McpTool[] {
@@ -1302,34 +1313,23 @@ export function createMcpTools(
     );
     return current;
   }
-  function retainStatefulDraft(error: unknown): void {
-    if (mode !== "stateful") return;
-    const retainedDraftId = draftIdFromBatchError(error);
-    if (retainedDraftId !== undefined) context.draftId = retainedDraftId;
-  }
   async function recoverClosedStatefulDraft<T extends { draftId: string }>(
     error: unknown,
     rememberedDraftId: string | undefined,
     append: (draftId: string | undefined) => Promise<T>,
   ): Promise<T> {
-    retainStatefulDraft(error);
     if (
       mode !== "stateful" ||
       rememberedDraftId === undefined ||
       !(error instanceof Error) ||
-      error.message !== DRAFT_UNAVAILABLE
+      !error.message.includes(DRAFT_UNAVAILABLE)
     ) {
       throw error;
     }
     context.draftId = undefined;
-    try {
-      const result = await append(undefined);
-      context.draftId = result.draftId;
-      return result;
-    } catch (retryError) {
-      retainStatefulDraft(retryError);
-      throw retryError;
-    }
+    const result = await append(undefined);
+    context.draftId = result.draftId;
+    return result;
   }
   const readTools = Object.values(
     createReadTools(createDelegatingReader(app, undefined)),
@@ -1341,6 +1341,14 @@ export function createMcpTools(
     label: "Draft batch",
     executionMode: "sequential",
     parameters: Type.Object({
+      operationId: Type.Optional(
+        Type.String({
+          format: "uuid",
+          description:
+            "Retry ID from an unconfirmed result. Reuse it with the unchanged " +
+            "batch and draftId; omit for a new operation.",
+        }),
+      ),
       ...(mode === "stateless"
         ? {
             draftId: Type.Optional(
@@ -1375,16 +1383,21 @@ export function createMcpTools(
       const batch = params.commands as DraftBatchCommandInput[];
       assertDraftSafeBatch(batch);
       const commands = lowerCommands(batch);
+      let operationId = params.operationId ?? crypto.randomUUID();
 
       const append = async (
         draftId: string | undefined,
       ): Promise<{ draftId: string }> => {
-        const response = await app.call(
+        const response = await app.execute(
           "draftBatch",
-          { commands, ...(draftId === undefined ? {} : { draftId }) },
+          {
+            commands,
+            operationId,
+            ...(draftId === undefined ? {} : { draftId }),
+          },
           { principal: context.principal },
         );
-        return response.result as { draftId: string };
+        return response as { draftId: string };
       };
 
       const performAppend = async () => {
@@ -1400,7 +1413,12 @@ export function createMcpTools(
           // A remembered stateful handle is server-owned session state. Once a
           // person closes it, the next write starts a new owned draft. Stateless
           // caller-supplied handles never receive this fallback.
-          return recoverClosedStatefulDraft(error, draftId, append);
+          return recoverClosedStatefulDraft(error, draftId, (newDraftId) => {
+            // The rejected append was durably cancelled. A new target is a
+            // different request and must not reuse that operation identity.
+            operationId = crypto.randomUUID();
+            return append(newDraftId);
+          });
         }
       };
       const result =

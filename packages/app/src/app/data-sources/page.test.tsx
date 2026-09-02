@@ -1,6 +1,19 @@
+import {
+  nativeQueryMock,
+  nativeMutationMock,
+  hostQueryMock,
+  hostMutationMock,
+} from "@/test/native-query-fixture";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 
 const {
   mockNavigate,
@@ -20,23 +33,33 @@ const {
   mockToastError: vi.fn(),
 }));
 
-vi.mock("@wystack/client", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@wystack/client")>();
-  return {
-    ...actual,
-    useQuery: (ref: { _path: string }) => {
-      if (ref._path === "listDataSources") return mockUseDataSources();
-      if (ref._path === "listDataTables") return mockUseDataTables();
-      throw new Error(`Unexpected query: ${ref._path}`);
-    },
-    useMutation: (ref: { _path: string }) => {
-      if (ref._path === "commitBatch") {
-        return { mutateAsync: mockCommitBatch };
-      }
-      throw new Error(`Unexpected mutation: ${ref._path}`);
-    },
-  };
-});
+vi.mock("convex/react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("convex/react")>()),
+  useQuery_experimental: nativeQueryMock((ref: { _path: string }) => {
+    if (ref._path === "listDataSources") return mockUseDataSources();
+    if (ref._path === "listDataTables") return mockUseDataTables();
+    throw new Error(`Unexpected query: ${ref._path}`);
+  }),
+  useMutation: nativeMutationMock((ref: { _path: string }) => {
+    if (ref._path === "commitBatch") {
+      return { mutateAsync: mockCommitBatch };
+    }
+    throw new Error(`Unexpected mutation: ${ref._path}`);
+  }),
+}));
+vi.mock("@/data/host", () => ({
+  useHostQuery: hostQueryMock((ref: { _path: string }) => {
+    if (ref._path === "listDataSources") return mockUseDataSources();
+    if (ref._path === "listDataTables") return mockUseDataTables();
+    throw new Error(`Unexpected query: ${ref._path}`);
+  }),
+  useHostMutation: hostMutationMock((ref: { _path: string }) => {
+    if (ref._path === "commitBatch") {
+      return { mutateAsync: mockCommitBatch };
+    }
+    throw new Error(`Unexpected mutation: ${ref._path}`);
+  }),
+}));
 
 vi.mock("@tanstack/react-router", () => ({
   Link: ({
@@ -76,6 +99,7 @@ function successfulQuery(refetch: () => Promise<unknown>) {
 }
 
 describe("DataSourcesPage query states", () => {
+  afterEach(() => vi.unstubAllGlobals());
   beforeEach(() => {
     vi.clearAllMocks();
     useConfirmDialogStore.getState().close();
@@ -107,6 +131,8 @@ describe("DataSourcesPage query states", () => {
         });
       }
 
+      const reload = vi.fn();
+      vi.stubGlobal("location", { reload });
       render(<DataSourcesPage />);
 
       expect(screen.getByRole("alert")).not.toBeNull();
@@ -114,10 +140,7 @@ describe("DataSourcesPage query states", () => {
       expect(screen.queryByText("No data sources yet")).toBeNull();
 
       fireEvent.click(screen.getByRole("button", { name: /retry/i }));
-      await waitFor(() => {
-        expect(mockRefetchDataSources).toHaveBeenCalledTimes(1);
-        expect(mockRefetchDataTables).toHaveBeenCalledTimes(1);
-      });
+      expect(reload).toHaveBeenCalledOnce();
     },
   );
 

@@ -15,13 +15,14 @@
  */
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import type { CloseResult } from "@dashframe/server-core";
 import { Lifecycle } from "./lifecycle.js";
 
-function makeServer(onStop?: () => void): {
-  stop: ReturnType<typeof vi.fn<() => void>>;
-} {
-  return { stop: vi.fn<() => void>(onStop) };
+function makeServer(onStop?: () => void | Promise<void>) {
+  return {
+    stop: vi.fn(async () => {
+      await onStop?.();
+    }),
+  };
 }
 
 function makeEngine(onDispose?: () => void | Promise<void>): {
@@ -35,17 +36,36 @@ function makeEngine(onDispose?: () => void | Promise<void>): {
 }
 
 function makeProject(onClose?: () => void): {
-  close: ReturnType<typeof vi.fn<() => Promise<CloseResult>>>;
+  close: ReturnType<typeof vi.fn<() => Promise<void>>>;
 } {
   return {
-    close: vi.fn<() => Promise<CloseResult>>(async () => {
+    close: vi.fn<() => Promise<void>>(async () => {
       onClose?.();
-      return { snapshotError: null };
     }),
   };
 }
 
 describe("Lifecycle.shutdown — A: drain order + exit", () => {
+  it("awaits backend shutdown before disposing the engine or exiting", async () => {
+    let release!: () => void;
+    const stopped = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const exit = vi.fn();
+    const engine = makeEngine();
+    const lifecycle = new Lifecycle(exit);
+    lifecycle.setServer(makeServer(() => stopped));
+    lifecycle.setEngine(engine);
+    const shutdown = lifecycle.shutdown(0);
+    await Promise.resolve();
+    expect(engine.dispose).not.toHaveBeenCalled();
+    expect(exit).not.toHaveBeenCalled();
+    release();
+    await shutdown;
+    expect(engine.dispose).toHaveBeenCalledOnce();
+    expect(exit).toHaveBeenCalledExactlyOnceWith(0);
+  });
+
   it("stops server, disposes engine, closes project, then exits with the code", async () => {
     const calls: string[] = [];
     const exit = vi.fn<(code: number) => void>();

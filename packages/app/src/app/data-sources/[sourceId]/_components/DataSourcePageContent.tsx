@@ -1,5 +1,7 @@
 import { ArtifactPageHeader } from "@/components/artifacts/ArtifactPageHeader";
 import { ArtifactSwitcher } from "@/components/artifacts/ArtifactSwitcher";
+import { useQuery_experimental as useQuery, useMutation } from "convex/react";
+import { queryStatus } from "@/data/query-status";
 import {
   type ArtifactContextValue,
   useBindArtifact,
@@ -14,7 +16,7 @@ import {
 } from "@/lib/connectors/registry";
 import { PerfStage, withPerfAsync } from "@/lib/perf";
 import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
-import { api } from "@/wystack/api";
+import { api } from "@dashframe/convex-backend/api";
 import { extractColumnAliasComponents } from "@dashframe/engine";
 import type { ColumnAnalysis, FieldSensitivity, UUID } from "@dashframe/types";
 import {
@@ -25,7 +27,7 @@ import {
 } from "@dashframe/types";
 import { Breadcrumb, VirtualTable } from "@dashframe/ui";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useMutation, useQuery } from "@wystack/client";
+
 import {
   Badge,
   Button,
@@ -151,17 +153,22 @@ export default function DataSourcePageContent({
     data: allDataSources = [],
     isLoading,
     isFetching,
-  } = useQuery(api.listDataSources);
-  const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
+  } = queryStatus(useQuery({ query: api.app.listDataSources, args: {} }));
+  const commitBatch = useMutation(api.app.commitBatch);
   const { confirm } = useConfirmDialogStore();
-  const { data: allDataFrames = [] } = useQuery(api.listDataFrames);
+  const { data: allDataFrames = [] } = queryStatus(
+    useQuery({ query: api.app.listDataFrames, args: {} }),
+  );
 
   // Find the data source
   const dataSource = allDataSources.find((s) => s.id === sourceId);
 
-  const { data: dataTables = [] } = useQuery(api.listDataTables, {
-    args: { dataSourceId: sourceId },
-  });
+  const { data: dataTables = [] } = queryStatus(
+    useQuery({
+      query: api.app.listDataTables,
+      args: { dataSourceId: sourceId },
+    }),
+  );
 
   // Local state for selected table - use null to indicate "not yet selected by user"
   const [selectedTableId, setSelectedTableId] = useState<UUID | null>(null);
@@ -286,11 +293,7 @@ export default function DataSourcePageContent({
     });
   };
 
-  // Treat both the cold initial load (isLoading) and an in-flight background
-  // refetch (isFetching) as "loading" when the source isn't in the current
-  // cache: during a post-mutation invalidation the cached list can momentarily
-  // exclude a source the refetch is about to return, and we must not flash
-  // not-found for it. Show not-found only once the data is settled.
+  // Wait for the subscription before deciding whether the source exists.
   if ((isLoading || isFetching) && !dataSource) {
     return (
       <div className="flex h-full items-center justify-center">

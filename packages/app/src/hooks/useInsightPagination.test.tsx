@@ -1,6 +1,7 @@
-import { api } from "@/wystack/api";
+import { nativeQueryMock, hostQueryMock } from "@/test/native-query-fixture";
 import type { DataTable, Insight, UUID } from "@dashframe/types";
 import { act, renderHook, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   buildInsightSourceRevision,
@@ -15,13 +16,18 @@ const { queryDataFrame, client, useQuery } = vi.hoisted(() => ({
   useQuery: vi.fn(() => ({ data: [] })),
 }));
 vi.mock("@/lib/data-access/data-frames", () => ({ queryDataFrame }));
-vi.mock("@/wystack/client", () => ({
-  getWyStackClient: () => client,
+vi.mock("@/data/runtime", () => ({
+  getConvexClient: () => client,
   useQuery: () => ({ data: [] }),
 }));
-vi.mock("@wystack/client", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@wystack/client")>()),
-  useQuery,
+vi.mock("convex/react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("convex/react")>()),
+  useQuery_experimental: nativeQueryMock(useQuery),
+}));
+vi.mock("@/data/host", () => ({
+  requestHost: (operation: string, args: unknown) =>
+    client.mutate({ _path: operation }, args),
+  useHostQuery: hostQueryMock(useQuery),
 }));
 
 const insight = {
@@ -48,6 +54,27 @@ describe("useInsightPagination", () => {
       isReady: false,
       resolvedFields: [],
     });
+  });
+
+  it("finishes the active materialization when StrictMode replays effects", async () => {
+    client.mutate.mockResolvedValue({
+      status: "ready",
+      dataFrameId: "frame-strict",
+    });
+    queryDataFrame.mockResolvedValue({
+      status: "ready",
+      schema: [],
+      rows: [{ value: 3 }],
+      totalCount: 1,
+      page: {},
+    });
+    const { result } = renderHook(() => useInsightPagination({ insight }), {
+      wrapper: StrictMode,
+    });
+    await waitFor(() => expect(result.current.isReady).toBe(true));
+    expect(client.mutate).toHaveBeenCalledTimes(1);
+    expect(queryDataFrame).toHaveBeenCalledTimes(1);
+    expect(result.current.sampleRows).toEqual([{ value: 3 }]);
   });
 
   it("runs saved insights with declared runtime controls then queries the returned handle", async () => {
@@ -369,7 +396,7 @@ describe("useInsightPagination", () => {
       } as unknown as DataTable,
     ];
     useQuery.mockImplementation((procedure) => ({
-      data: procedure === api.listInsights ? [upstream] : tables,
+      data: procedure._path === "listInsights" ? [upstream] : tables,
     }));
     client.mutate.mockResolvedValue({
       status: "ready",
@@ -432,7 +459,7 @@ describe("useInsightPagination", () => {
       } as unknown as DataTable,
     ];
     useQuery.mockImplementation((procedure) => ({
-      data: procedure === api.listInsights ? [upstream] : tables,
+      data: procedure._path === "listInsights" ? [upstream] : tables,
     }));
     client.mutate.mockResolvedValue({
       status: "failed",

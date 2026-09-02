@@ -1,3 +1,9 @@
+import {
+  nativeQueryMock,
+  nativeMutationMock,
+  hostQueryMock,
+  hostMutationMock,
+} from "@/test/native-query-fixture";
 /**
  * Navigation contracts for the home-page section components.
  *
@@ -29,40 +35,67 @@ vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mockNavigate,
 }));
 
-vi.mock("@wystack/client", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@wystack/client")>();
-  return {
-    ...actual,
-    useQuery: (ref: { _path: string }) => {
-      if (ref._path === "listVisualizations") {
-        return {
-          data: [
-            {
-              id: "viz-1",
-              name: "Bar Chart",
-              createdAt: 1000,
-            },
-          ],
-        };
-      }
-      if (ref._path === "listInsights") {
-        return {
-          data: [
-            {
-              id: "ins-1",
-              name: "Revenue Trend",
-              createdAt: 1000,
-              metrics: [{ id: "m1" }],
-              selectedFields: ["field1", "field2"],
-            },
-          ],
-        };
-      }
-      return { data: [] };
-    },
-    useMutation: () => ({ mutateAsync: vi.fn() }),
-  };
-});
+vi.mock("convex/react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("convex/react")>()),
+  useQuery_experimental: nativeQueryMock((ref: { _path: string }) => {
+    if (ref._path === "listVisualizations") {
+      return {
+        data: [
+          {
+            id: "viz-1",
+            name: "Bar Chart",
+            createdAt: 1000,
+          },
+        ],
+      };
+    }
+    if (ref._path === "listInsights") {
+      return {
+        data: [
+          {
+            id: "ins-1",
+            name: "Revenue Trend",
+            createdAt: 1000,
+            metrics: [{ id: "m1" }],
+            selectedFields: ["field1", "field2"],
+          },
+        ],
+      };
+    }
+    return { data: [] };
+  }),
+  useMutation: nativeMutationMock(() => ({ mutateAsync: vi.fn() })),
+}));
+vi.mock("@/data/host", () => ({
+  useHostQuery: hostQueryMock((ref: { _path: string }) => {
+    if (ref._path === "listVisualizations") {
+      return {
+        data: [
+          {
+            id: "viz-1",
+            name: "Bar Chart",
+            createdAt: 1000,
+          },
+        ],
+      };
+    }
+    if (ref._path === "listInsights") {
+      return {
+        data: [
+          {
+            id: "ins-1",
+            name: "Revenue Trend",
+            createdAt: 1000,
+            metrics: [{ id: "m1" }],
+            selectedFields: ["field1", "field2"],
+          },
+        ],
+      };
+    }
+    return { data: [] };
+  }),
+  useHostMutation: hostMutationMock(() => ({ mutateAsync: vi.fn() })),
+}));
 
 // VisualizationPreview is a heavy component — stub it to avoid pulling in
 // chart renderer dependencies.

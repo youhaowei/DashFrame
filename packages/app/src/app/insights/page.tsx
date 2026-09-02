@@ -1,3 +1,5 @@
+import { useQuery_experimental as useQuery, useMutation } from "convex/react";
+import { queryStatus } from "@/data/query-status";
 import { RoutedCardActionMenuTrigger } from "@/components/RoutedCardActionMenuTrigger";
 import {
   ArtifactCollection,
@@ -6,7 +8,7 @@ import {
   ArtifactCard,
 } from "@/components/artifacts/ArtifactCollection";
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
-import { api } from "@/wystack/api";
+import { api } from "@dashframe/convex-backend/api";
 import {
   cmd,
   isUnmodifiedDraft,
@@ -15,7 +17,7 @@ import {
   type UUID,
 } from "@dashframe/types";
 import { useNavigate } from "@tanstack/react-router";
-import { useMutation, useQuery } from "@wystack/client";
+
 import {
   Button,
   DropdownMenu,
@@ -78,32 +80,28 @@ export default function InsightsPage() {
     data: allInsights = [],
     isPending: insightsPending,
     isLoadingError: insightsLoadError,
-    refetch: refetchInsights,
-  } = useQuery(api.listInsights, { args: {} });
-  const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
+  } = queryStatus(useQuery({ query: api.app.listInsights, args: {} }));
+  const commitBatch = useMutation(api.app.commitBatch);
   const { confirm } = useConfirmDialogStore();
   const clearActiveView = useInsightCanvasStore((s) => s.clearActiveView);
   const {
     data: visualizations = [],
     isPending: visualizationsPending,
     isLoadingError: visualizationsLoadError,
-    refetch: refetchVisualizations,
-  } = useQuery(api.listVisualizations, { args: {} });
+  } = queryStatus(useQuery({ query: api.app.listVisualizations, args: {} }));
   // Gate the state-based grouping (and its destructive "delete all drafts"
   // action) until BOTH queries have data. The draft classification depends on
   // `visualizations`; before the first successful load it defaults to `[]`, so
   // every insight — even populated ones — looks like an unconfigured draft.
-  // We key off `isPending`/`isLoadingError` (not `isError`) on purpose: those
-  // are the *initial-load* states where data is genuinely absent. A later
-  // background-refetch failure keeps the last-good data (`isRefetchError`), so
-  // we must NOT blank the list or block deletes for it — the cached
-  // classification is still trustworthy.
+  // An error in either subscription keeps destructive grouping unavailable.
   const isLoading = insightsPending || visualizationsPending;
   const hasLoadError = insightsLoadError || visualizationsLoadError;
-  const { data: dataSources = [] } = useQuery(api.listDataSources);
-  const { data: allDataTables = [] } = useQuery(api.listDataTables, {
-    args: {},
-  });
+  const { data: dataSources = [] } = queryStatus(
+    useQuery({ query: api.app.listDataSources, args: {} }),
+  );
+  const { data: allDataTables = [] } = queryStatus(
+    useQuery({ query: api.app.listDataTables, args: {} }),
+  );
 
   // Local state
   const [searchQuery, setSearchQuery] = useState("");

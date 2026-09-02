@@ -2,8 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
-    "rootDir": "src",
-    "types": ["bun"],
+    "types": ["bun", "vite/client"],
     "noEmit": true
   },
   "include": ["src/**/*"]

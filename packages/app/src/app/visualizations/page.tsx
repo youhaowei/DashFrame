@@ -1,3 +1,5 @@
+import { useQuery_experimental as useQuery, useMutation } from "convex/react";
+import { queryStatus } from "@/data/query-status";
 import { RoutedCardActionMenuTrigger } from "@/components/RoutedCardActionMenuTrigger";
 import {
   ArtifactCollection,
@@ -8,7 +10,7 @@ import {
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 import { useConfirmDialogStore } from "@/lib/stores";
 import { resolveInsightSourceDataTable } from "@/hooks/useInsightPagination";
-import { api } from "@/wystack/api";
+import { api } from "@dashframe/convex-backend/api";
 import {
   cmd,
   type Insight,
@@ -16,7 +18,7 @@ import {
   type Visualization,
 } from "@dashframe/types";
 import { useNavigate } from "@tanstack/react-router";
-import { useMutation, useQuery } from "@wystack/client";
+
 import {
   Button,
   DropdownMenu,
@@ -50,14 +52,19 @@ type VisualizationWithDetails = {
 export default function VisualizationsPage() {
   const navigate = useNavigate();
 
-  const { data: visualizations = [], isLoading: isLoadingViz } = useQuery(
-    api.listVisualizations,
-    { args: {} },
+  const { data: visualizations = [], isLoading: isLoadingViz } = queryStatus(
+    useQuery({ query: api.app.listVisualizations, args: {} }),
   );
-  const { data: insights = [] } = useQuery(api.listInsights, { args: {} });
-  const { data: dataSources = [] } = useQuery(api.listDataSources);
-  const { data: dataTables = [] } = useQuery(api.listDataTables, { args: {} });
-  const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
+  const { data: insights = [] } = queryStatus(
+    useQuery({ query: api.app.listInsights, args: {} }),
+  );
+  const { data: dataSources = [] } = queryStatus(
+    useQuery({ query: api.app.listDataSources, args: {} }),
+  );
+  const { data: dataTables = [] } = queryStatus(
+    useQuery({ query: api.app.listDataTables, args: {} }),
+  );
+  const commitBatch = useMutation(api.app.commitBatch);
   const { confirm } = useConfirmDialogStore();
 
   // Local state

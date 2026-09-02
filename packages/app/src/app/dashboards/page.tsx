@@ -1,3 +1,5 @@
+import { useQuery_experimental as useQuery, useMutation } from "convex/react";
+import { queryStatus } from "@/data/query-status";
 import { useConfirmDialogStore, useToastStore } from "@/lib/stores";
 import {
   ArtifactCard,
@@ -6,10 +8,9 @@ import {
   ArtifactGrid,
 } from "@/components/artifacts/ArtifactCollection";
 import { RoutedCardActionMenuTrigger } from "@/components/RoutedCardActionMenuTrigger";
-import { api } from "@/wystack/api";
+import { api } from "@dashframe/convex-backend/api";
 import { cmd, type UUID } from "@dashframe/types";
 import { useNavigate } from "@tanstack/react-router";
-import { useMutation, useQuery } from "@wystack/client";
 import {
   Button,
   Dialog,
@@ -33,8 +34,10 @@ import { useState } from "react";
 
 export default function DashboardsPage() {
   const navigate = useNavigate();
-  const { data: dashboards = [], isLoading } = useQuery(api.listDashboards);
-  const commitBatch = useMutation(api.commitBatch);
+  const { data: dashboards = [], isLoading } = queryStatus(
+    useQuery({ query: api.app.listDashboards, args: {} }),
+  );
+  const commitBatch = useMutation(api.app.commitBatch);
   const { showError } = useToastStore();
   const { confirm } = useConfirmDialogStore();
 
@@ -50,7 +53,7 @@ export default function DashboardsPage() {
       variant: "destructive",
       onConfirm: async () => {
         try {
-          await commitBatch.mutateAsync({
+          await commitBatch({
             commands: [cmd("DeleteNode", { id: id as UUID })],
           });
         } catch {
@@ -65,7 +68,7 @@ export default function DashboardsPage() {
 
     const id = crypto.randomUUID() as UUID;
     try {
-      await commitBatch.mutateAsync({
+      await commitBatch({
         commands: [cmd("CreateDashboard", { id, name: newDashboardName })],
       });
     } catch {

@@ -1,3 +1,5 @@
+import { useQuery_experimental as useQuery, useMutation } from "convex/react";
+import { queryStatus } from "@/data/query-status";
 import {
   DraftListItem,
   type DraftListEntry,
@@ -7,8 +9,6 @@ import {
   draftLifecycleErrorDescription,
   isDriftError,
 } from "@/components/preview-diff/user-facing-errors";
-import { api } from "@/wystack/api";
-import { useMutation, useQuery } from "@wystack/client";
 import { useState } from "react";
 import {
   ArtifactCollection,
@@ -16,6 +16,7 @@ import {
   ArtifactEmptyState,
 } from "@/components/artifacts/ArtifactCollection";
 import { Button, ErrorState, Spinner } from "@wystack/ui-react";
+import { api } from "@dashframe/convex-backend/api";
 import { toast } from "sonner";
 
 export default function DraftsPage() {
@@ -23,8 +24,7 @@ export default function DraftsPage() {
     data: drafts = [],
     isLoading,
     isError,
-    refetch,
-  } = useQuery(api.listDrafts, { args: {} });
+  } = queryStatus(useQuery({ query: api.app.listDrafts, args: {} }));
   const [searchQuery, setSearchQuery] = useState("");
   const query = searchQuery.trim().toLowerCase();
   const filteredDrafts = drafts.filter((draft) =>
@@ -32,13 +32,12 @@ export default function DraftsPage() {
       .toLowerCase()
       .includes(query),
   );
-  const { mutateAsync: discardDraft } = useMutation(api.discardDraft);
+  const discardDraft = useMutation(api.app.discardDraft);
 
   const discard = async (draft: DraftListEntry) => {
     try {
       await discardDraft({ draftId: draft.draftId });
       toast.success("Draft discarded");
-      await refetch();
     } catch (error) {
       toast.error("Failed to discard draft", {
         description: isDriftError(error)
@@ -68,7 +67,10 @@ export default function DraftsPage() {
         <ErrorState
           title="Failed to load review"
           description="Could not load this draft review. Please try again."
-          retryAction={{ label: "Retry", onClick: () => void refetch() }}
+          retryAction={{
+            label: "Retry",
+            onClick: () => globalThis.location.reload(),
+          }}
           className="min-h-40"
         />
       ) : null}

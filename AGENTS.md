@@ -2,10 +2,35 @@
 
 DashFrame is a local-first BI tool (import data → DuckDB → charts). It ships as
 two surfaces of the same UI (`packages/app`): an Electron **desktop** app and a
-browser **web** app, both backed by the same Hono HTTP+WS server code.
+browser **web** app, both backed by native local Convex and the same Hono host
+API. Convex owns artifact metadata, drafts, and subscriptions; the host owns
+sessions, connectors, secrets, and DuckDB access.
 
 Package manager is **Bun** (pinned `bun@1.3.5`); orchestration is Turborepo.
 `bun` is on `PATH`; where it is installed from varies by machine.
+
+## Commit messages and PR titles
+
+Use `type(scope): subject` for commits and PR titles. The PR title becomes the
+squash-merge commit subject, so it follows the same rule.
+
+- Types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`,
+  `revert`. Choose the type that describes the change, not the tool used.
+- Scope: use a short module or feature name, such as `convex`, `desktop`,
+  `insights`, or `connectors`; use `all` for changes spanning the application.
+- Subject: start with a lowercase imperative verb, describe the concrete change,
+  and omit the trailing period. Use one space after the colon.
+- Do not add agent labels such as `[codex]` or `[claude]` to the subject.
+- Keep each commit focused on one logical change. Add a body when the reason or
+  a tradeoff is not clear from the subject; do not repeat the file inventory.
+
+Examples:
+
+```text
+refactor(all): replace WyStack metadata with native local Convex
+fix(insights): preserve pending requests during StrictMode replay
+docs(all): define commit and PR title conventions
+```
 
 ## Local review gate (run before every push)
 
@@ -205,7 +230,8 @@ local build artifact is removed with the worktree — copy those out yourself.
 
 Two vendored dependencies are **git submodules**, each with its own GitHub repo:
 
-- `libs/wystack` → `youhaowei/wystack` — the RPC/data substrate (`@wystack/*`).
+- `libs/wystack` → `youhaowei/wystack` — shared identity, permissions, and
+  secret-vault support (`@wystack/*`). DashFrame no longer uses its RPC/database runtime.
 - `libs/stdui` → `youhaowei/stdui` — the `@wystack/ui-*` design system.
 
 The `@dashframe/*` packages consume their **built** output, so `bun run setup`
@@ -245,14 +271,16 @@ truth for what has landed.
 
 ## Running for browser/headless testing
 
-The web app is **not** purely client-side — it needs the backend API, or data
-import fails with `404` on `/api/*` and a failed `/api/ws` WebSocket. Run two
-processes:
+The web app needs the Hono host API and local Convex. After `bun run setup`,
+run `bun --filter @dashframe/convex-local provision` once to download and verify
+the pinned backend. Startup never downloads a binary or creates a cloud deployment.
+Run two foreground processes; the host owns the additional Convex child process:
 
-1. API server (fixed loopback port; loopback needs no token):
+1. Host API server (fixed loopback port; loopback needs no operator token):
    `cd apps/server && bun run src/index.ts --host 127.0.0.1 --port 4000`
    (bare `bun run dev` also works but picks an OS-assigned port). It opens a
-   project at `~/.DashFrame/web-project`; host-local data (access credentials)
+   project at `~/.DashFrame/web-project`, with native metadata in `.convex/`.
+   Existing WyStack/PGlite projects are not migrated. Host-local data (access credentials)
    goes to `~/.DashFrame/data`, overridable with `--data-dir` or
    `DASHFRAME_DATA_DIR` and required to sit outside the project directory.
    Named access credentials additionally need an encryption key — set
@@ -260,9 +288,10 @@ processes:
    without one the server still serves normally but fails closed on anything
    credential-bearing. Run `--help` for the full rotation story.
 2. Web app pointed at it:
-   `cd apps/web && PORT=3000 VITE_WYSTACK_URL=http://127.0.0.1:4000 bun run dev:direct`
+   `cd apps/web && PORT=3000 VITE_DASHFRAME_URL=http://127.0.0.1:4000 bun run dev:direct`
    Open `http://127.0.0.1:3000/`. In dev the browser talks same-origin and Vite
-   proxies `/api` (incl. ws) to `VITE_WYSTACK_URL`. Use `dev:direct` (plain
+   proxies `/api` (including native Convex WebSockets) and `/data` to
+   `VITE_DASHFRAME_URL`. Use `dev:direct` (plain
    Vite) rather than `bun run dev`, which wraps Vite in `portless`.
 
 Agent-owned development uses one worktree identity across both product
@@ -279,8 +308,8 @@ terminal instead of killing a guessed shared process.
   when a shorter human-readable hostname is useful; inspect only this surface
   with `bun run dev:web:status`.
 - Electron desktop: root `bun run dev` builds and launches the renderer,
-  Electron, and its embedded loopback server. In a worktree it defaults to an
-  isolated `.data/desktop-project`; Electron receives an available CDP port
+  Electron, its embedded loopback host, and an owned local Convex backend.
+  In a worktree it defaults to an isolated `.data/desktop-project`; Electron receives an available CDP port
   and publishes the renderer, embedded API, and CDP endpoints. Inspect only
   this surface with `bun run dev:desktop:status`. It needs a display, so use
   the browser-web launcher in headless environments.

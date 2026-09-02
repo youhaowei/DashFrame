@@ -1,5 +1,12 @@
 import {
+  nativeQueryMock,
+  nativeMutationMock,
+  hostQueryMock,
+  hostMutationMock,
+} from "@/test/native-query-fixture";
+import {
   FileSourceConnector,
+  type RemoteApiConnector,
   type FileParseResult,
   type FormField,
   type ValidationResult,
@@ -27,11 +34,17 @@ import type { AddConnectionPanelProps } from "./AddConnectionPanel";
 
 const {
   mockGetConnectorById,
+  mockHostRequest,
+  mockNativeCommit,
+  mockListResources,
   mockHandleFileConnectorResult,
   mockParse,
   queryData,
 } = vi.hoisted(() => ({
   mockGetConnectorById: vi.fn(),
+  mockHostRequest: vi.fn(),
+  mockNativeCommit: vi.fn(),
+  mockListResources: vi.fn().mockResolvedValue([]),
   mockHandleFileConnectorResult: vi.fn(),
   mockParse: vi.fn(),
   queryData: {
@@ -42,34 +55,55 @@ const {
   },
 }));
 
+let handleConnect: AddConnectionPanelProps["onConnect"] | undefined;
 let handleFileSelect: AddConnectionPanelProps["onFileSelect"] | undefined;
 
-vi.mock("@wystack/client", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@wystack/client")>();
-  return {
-    ...actual,
-    useQuery: (ref: { _path: string }) => {
-      switch (ref._path) {
-        case "listDataSources":
-          return {
-            data: queryData.dataSources,
-            ...queryData.dataSourcesQueryState,
-          };
-        case "listDataTables":
-          return {
-            data: queryData.dataTables,
-            ...queryData.dataTablesQueryState,
-          };
-        case "listInsights":
-        case "listDataFrames":
-          return { data: [] };
-        default:
-          throw new Error(`Unexpected query: ${ref._path}`);
-      }
-    },
-    useMutation: () => ({ mutateAsync: vi.fn() }),
-  };
-});
+vi.mock("convex/react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("convex/react")>()),
+  useQuery_experimental: nativeQueryMock((ref: { _path: string }) => {
+    switch (ref._path) {
+      case "listDataSources":
+        return {
+          data: queryData.dataSources,
+          ...queryData.dataSourcesQueryState,
+        };
+      case "listDataTables":
+        return {
+          data: queryData.dataTables,
+          ...queryData.dataTablesQueryState,
+        };
+      case "listInsights":
+      case "listDataFrames":
+        return { data: [] };
+      default:
+        throw new Error(`Unexpected query: ${ref._path}`);
+    }
+  }),
+  useMutation: nativeMutationMock(() => ({ mutateAsync: mockNativeCommit })),
+}));
+vi.mock("@/data/host", () => ({
+  requestHost: mockHostRequest,
+  useHostQuery: hostQueryMock((ref: { _path: string }) => {
+    switch (ref._path) {
+      case "listDataSources":
+        return {
+          data: queryData.dataSources,
+          ...queryData.dataSourcesQueryState,
+        };
+      case "listDataTables":
+        return {
+          data: queryData.dataTables,
+          ...queryData.dataTablesQueryState,
+        };
+      case "listInsights":
+      case "listDataFrames":
+        return { data: [] };
+      default:
+        throw new Error(`Unexpected query: ${ref._path}`);
+    }
+  }),
+  useHostMutation: hostMutationMock(() => ({ mutateAsync: mockListResources })),
+}));
 
 vi.mock("@/lib/connectors/registry", () => ({
   getConnectorById: mockGetConnectorById,
@@ -82,7 +116,9 @@ vi.mock("@/lib/local-csv-handler", () => ({
 vi.mock("./AddConnectionPanel", () => ({
   AddConnectionPanel: ({
     onFileSelect,
-  }: Pick<AddConnectionPanelProps, "onFileSelect">) => {
+    onConnect,
+  }: Pick<AddConnectionPanelProps, "onFileSelect" | "onConnect">) => {
+    handleConnect = onConnect;
     handleFileSelect = onFileSelect;
     return <div data-testid="add-connection-panel" />;
   },
@@ -243,6 +279,32 @@ describe("DataPickerContent file replacement", () => {
     vi.unstubAllGlobals();
     act(() => {
       useConfirmDialogStore.setState({ isOpen: false, config: null });
+    });
+  });
+
+  it("stages connector secrets through host HTTP without sending them to a public Convex mutation", async () => {
+    mockHostRequest.mockResolvedValue({
+      commands: [{ path: "createDataSource", args: {} }],
+      results: [{ value: { id: NEW_TABLE_ID } }],
+    });
+    render(<DataPickerContent onSelect={vi.fn()} />);
+    await act(async () => {
+      await handleConnect?.(
+        { id: "notion", name: "Notion" } as RemoteApiConnector,
+        { apiKey: "secret-for-host-vault" },
+      );
+    });
+    expect(mockHostRequest).toHaveBeenCalledWith("commitBatch", {
+      commands: [
+        expect.objectContaining({
+          path: "createDataSource",
+          args: expect.objectContaining({ apiKey: "secret-for-host-vault" }),
+        }),
+      ],
+    });
+    expect(mockNativeCommit).not.toHaveBeenCalled();
+    expect(mockListResources).toHaveBeenCalledWith({
+      dataSourceId: NEW_TABLE_ID,
     });
   });
 

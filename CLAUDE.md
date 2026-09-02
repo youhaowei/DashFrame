@@ -6,6 +6,8 @@
 
 AGENTS.md (imported above) is the operational companion to this file: how to run the app (desktop and headless web+server), the lint/test/build commands, and the **local review gate**. That gate — code review + behavioral QA + a second review pass on a different model (Codex), run on the branch diff (`git diff origin/main...HEAD`) — is **mandatory before every push and before marking any PR ready**. The one exception is narrow — a change confined to documentation and other prose files skips QA and the second reviewer but still gets code review; anything executable (application source, scripts, CI workflows, manifests, build wiring) does not qualify, and neither does a comment-only edit inside a source file. CI only _confirms_ the gate; it does not replace it. Read AGENTS.md before pushing.
 
+Artifact metadata, drafts, and reactive subscriptions use native local Convex. The Hono host owns sessions, connectors, secrets, and DuckDB access. Provision the pinned backend with `bun --filter @dashframe/convex-local provision` before running either surface; startup does not download binaries or register a cloud deployment.
+
 ## Design Context
 
 Visual design system: see [DESIGN.md](DESIGN.md). Load it before any UI work.
@@ -22,6 +24,9 @@ teardown are defined in `AGENTS.md` → **Worktrees**; the short version:
 either script.
 
 ## Pull requests
+
+Use the `type(scope): subject` convention in `AGENTS.md` → **Commit messages and
+PR titles**. Do not prefix titles with agent names.
 
 Every PR description follows `.github/pull_request_template.md`. The **Screenshots** section is required on all UI-touching PRs: capture proof from the running app (relevant states — hover/focus, light + dark when they changed). Backend-only PRs state "No UI change".
 

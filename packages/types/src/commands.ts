@@ -2,10 +2,9 @@
  * Client-safe command vocabulary — typed builders the UI and agent both use
  * to assemble `{ path, args }` envelopes for `commitBatch` / `previewDiff`.
  *
- * Lives in `@dashframe/types` (no server/Drizzle/vault imports) so the renderer
+ * Lives in `@dashframe/types` (no backend/vault imports) so the renderer
  * can import `cmd` without pulling the server module graph into the bundle.
- * `apps/server/src/functions/commands.ts` re-exports these and owns the
- * mutation handlers + `commandFunctions` registry only.
+ * `packages/convex-backend/convex/engine.ts` executes the command vocabulary.
  */
 import type {
   DashboardControl,
@@ -29,8 +28,7 @@ import type {
 } from "./visualizations";
 
 // ---------------------------------------------------------------------------
-// Envelope (mirrors @wystack/server `Command` — kept local so this package
-// stays dependency-free)
+// Shared command envelope for native Convex preview and commit operations
 // ---------------------------------------------------------------------------
 
 /**
@@ -44,7 +42,7 @@ export interface Command {
 }
 
 /**
- * One command's outcome in a `commitBatch` / `applyCommands` result.
+ * One command's outcome in a `commitBatch` result.
  * Parallel to the `commands` array: `results[i]` pairs with `commands[i]`.
  */
 export interface CommandResult {
@@ -57,9 +55,7 @@ export interface CommandResult {
 // ---------------------------------------------------------------------------
 
 /**
- * Emitter provenance for artifact creates. Same shape as
- * `@dashframe/server-core`'s `ArtifactProvenance` — duplicated here so the
- * types package stays free of server-core.
+ * Emitter provenance persisted with artifacts by the native Convex backend.
  */
 export type ArtifactProvenance = {
   kind: "user" | "agent";
@@ -153,7 +149,7 @@ export interface DashboardItemInput {
 /**
  * Typed payloads for each command. Intent-carrying messages the human UI and
  * the agent both construct; `COMMAND_PATHS` lowers them to the `{ path, args }`
- * envelope `applyCommands` dispatches.
+ * envelope the native Convex command engine dispatches.
  */
 export interface CommandPayloads {
   // DataSource

@@ -1,3 +1,10 @@
+import {
+  nativeQueryMock,
+  nativeMutationMock,
+  hostQueryMock,
+  hostMutationMock,
+} from "@/test/native-query-fixture";
+import { getFunctionName } from "convex/server";
 /**
  * Tests for the DashboardsPage create-dashboard handler.
  *
@@ -28,14 +35,15 @@ const { mockCommit, mockUseQuery } = vi.hoisted(() => ({
 
 // Partial-mock the WyStack client: keep `createApi` real (so `api` builds real
 // refs) and replace the hooks.
-vi.mock("@wystack/client", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@wystack/client")>();
-  return {
-    ...actual,
-    useQuery: () => mockUseQuery(),
-    useMutation: () => ({ mutateAsync: mockCommit }),
-  };
-});
+vi.mock("convex/react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("convex/react")>()),
+  useQuery_experimental: nativeQueryMock(() => mockUseQuery()),
+  useMutation: nativeMutationMock(() => ({ mutateAsync: mockCommit })),
+}));
+vi.mock("@/data/host", () => ({
+  useHostQuery: hostQueryMock(() => mockUseQuery()),
+  useHostMutation: hostMutationMock(() => ({ mutateAsync: mockCommit })),
+}));
 
 const { mockNavigate } = vi.hoisted(() => {
   const navigate = vi.fn();
@@ -150,8 +158,8 @@ describe("DashboardsPage – handleCreate failure paths", () => {
   });
 
   it("uses the commitBatch registry path", async () => {
-    const { api } = await import("@/wystack/api");
-    expect(api.commitBatch._path).toBe("commitBatch");
+    const { api } = await import("@dashframe/convex-backend/api");
+    expect(getFunctionName(api.app.commitBatch)).toBe("app:commitBatch");
   });
 });
 

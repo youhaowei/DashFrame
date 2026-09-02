@@ -1,3 +1,5 @@
+import { useQuery_experimental as useQuery, useMutation } from "convex/react";
+import { queryStatus } from "@/data/query-status";
 import { ConnectorIcon } from "@/components/data-sources/renderers/ConnectorIcon";
 import { RoutedCardActionMenuTrigger } from "@/components/RoutedCardActionMenuTrigger";
 import {
@@ -12,10 +14,10 @@ import {
   useRegistryVersion,
 } from "@/lib/connectors/registry";
 import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
-import { api } from "@/wystack/api";
+import { api } from "@dashframe/convex-backend/api";
 import { cmd, type DataSource, type UUID } from "@dashframe/types";
 import { useNavigate } from "@tanstack/react-router";
-import { useMutation, useQuery } from "@wystack/client";
+
 import {
   Button,
   DropdownMenu,
@@ -53,24 +55,24 @@ export default function DataSourcesPage() {
   // not reactive on its own).
   useRegistryVersion();
 
-  const dataSourcesQuery = useQuery(api.listDataSources);
+  const dataSourcesQuery = queryStatus(
+    useQuery({ query: api.app.listDataSources, args: {} }),
+  );
   const dataSources = dataSourcesQuery.data;
-  const refetchDataSources = dataSourcesQuery.refetch;
-  const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
+  const commitBatch = useMutation(api.app.commitBatch);
   const { confirm } = useConfirmDialogStore();
 
   // Get all data tables to count them per source
-  const dataTablesQuery = useQuery(api.listDataTables, { args: {} });
+  const dataTablesQuery = queryStatus(
+    useQuery({ query: api.app.listDataTables, args: {} }),
+  );
   const allDataTables = dataTablesQuery.data;
-  const refetchDataTables = dataTablesQuery.refetch;
 
   // Local state
   const [searchQuery, setSearchQuery] = useState("");
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
-  const handleRetry = useCallback(async () => {
-    await Promise.all([refetchDataSources(), refetchDataTables()]);
-  }, [refetchDataSources, refetchDataTables]);
+  const handleRetry = useCallback(() => globalThis.location.reload(), []);
 
   // Transform data sources for display
   const allDataSources = useMemo((): DataSourceWithTables[] => {

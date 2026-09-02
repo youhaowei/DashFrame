@@ -1,27 +1,7 @@
-/**
- * Host adapter — binds the assistant's `GraphReader` PORT to this server's read
- * seam, scoped to a draft.
- *
- * The assistant package (@dashframe/assistant) defines the read layer as a
- * privacy-aware graph resolver over a `GraphReader` port (it cannot import this
- * server — apps/server depends on the assistant, not the reverse). This file is
- * the HOST half: it implements the port by dispatching every structure read
- * through `app.runHandler(path, args, tracked, { draftId })` — the SERVER SEAM,
- * against the DRAFT-OVERLAY view (the withDraftSeam read path). The assistant
- * never sees the DB or the draftId; it gets a reader already scoped to the draft.
- *
- * Two invariants this adapter upholds:
- *   1. SINGLE STRUCTURE EGRESS — every structure read goes through the registered
- *      query functions (getInsight, getDataTable, …), never a raw DB query. The
- *      reads are byte-identical to what the renderer issues.
- *   2. SINGLE VALUE EGRESS via the FLOOR — `readDataProfile` resolves the
- *      artifact's CONTRIBUTING SOURCE FIELDS (real Field.sensitivity, read
- *      through the same seam) and hands them to the assistant's `applyFloor`,
- *      which makes the binary inherit-source masking decision and emits
- *      profiles plus any safe sample assembled by the assistant read layer. This adapter
- *      NEVER reads or assembles row data — profiles-only is structural.
+/** Assistant graph reads use the same owner-scoped Convex queries as the UI.
+ * Native row bytes never enter this structural reader; applyFloor enforces
+ * source-field privacy before returning profiles or safe samples.
  */
-
 import {
   applyFloor,
   type ColumnProfile,
@@ -39,7 +19,7 @@ import type {
   UUID,
   Visualization,
 } from "@dashframe/types";
-import type { WyStackApp } from "@wystack/server";
+import type { ApplicationOperations } from "./host/application";
 
 /**
  * The set of project source files the assistant may open via `readSource` — its
@@ -48,11 +28,11 @@ import type { WyStackApp } from "@wystack/server";
  * crafted guide is insufficient, and nothing else.
  */
 const READABLE_SOURCES: ReadonlySet<string> = new Set([
-  "apps/server/src/functions/commands.ts",
+  "packages/convex-backend/convex/engine.ts",
 ]);
 
 export interface AssistantReadHostOptions {
-  app: WyStackApp;
+  app: ApplicationOperations;
   /**
    * The active draft handle. Every read is scoped to this draft's overlay, so
    * the assistant perceives its own in-progress edits. Omit for a canonical-only
@@ -99,15 +79,12 @@ export function createAssistantReadHost(
 ): GraphReader {
   const { app, draftId, readSourceFile } = opts;
 
-  // Every read carries the draftId in context so the withDraftSeam routes the
-  // read against the draft overlay. A fresh DrizzleTracker per call (read-only; the
-  // tracking sets are discarded — we never publish from a read).
+  // Draft identity is passed only to generated metadata queries.
   const context: Record<string, unknown> =
     draftId !== undefined ? { draftId } : {};
 
   async function read<T>(path: string, args: unknown): Promise<T> {
-    const tracked = app.createTracked();
-    return (await app.runHandler(path, args, tracked, context)) as T;
+    return (await app.execute(path, args, context)) as T;
   }
 
   /**
@@ -256,7 +233,7 @@ export function createAssistantReadHost(
     // NOTE: the *filtered* list/get reads below pass NO server-side filter and
     // filter in JS. The draft-overlay coalesce supports an UNFILTERED `.all()`
     // and a PK-pinned `.where(eq(id, …))`, but THROWS on any non-PK read filter
-    // (see app.ts withDraftSeam / wystack tracked-db). `listDataTables`'s
+    // (the native Convex draft query). `listDataTables`'s
     // dataSourceId filter, `listVisualizations`'s insightId filter, and
     // `getDataFrameByInsight`'s insightId lookup are all non-PK — issuing them
     // server-side would throw under an active draftId. Reading unfiltered (which

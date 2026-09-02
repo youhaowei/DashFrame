@@ -1,5 +1,7 @@
 import { ArtifactPageHeader } from "@/components/artifacts/ArtifactPageHeader";
+import { queryStatus } from "@/data/query-status";
 import { Breadcrumb } from "@dashframe/ui";
+import { useQuery_experimental as useQuery, useMutation } from "convex/react";
 import { useBindArtifact } from "@/components/assistant/artifact-context";
 import { DashboardControlBar } from "@/components/dashboards/DashboardControlBar";
 import { DashboardGrid } from "@/components/dashboards/DashboardGrid";
@@ -7,7 +9,7 @@ import {
   resolveInsightAvailableFields,
   type CombinedField,
 } from "@/lib/insights/compute-combined-fields";
-import { api } from "@/wystack/api";
+import { api } from "@dashframe/convex-backend/api";
 import {
   cmd,
   type DashboardItemType,
@@ -15,7 +17,6 @@ import {
   type UUID,
 } from "@dashframe/types";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useMutation, useQuery } from "@wystack/client";
 import {
   Button,
   Dialog,
@@ -52,13 +53,17 @@ export default function DashboardDetailContent({
     data: dashboards = [],
     isLoading,
     isFetching,
-  } = useQuery(api.listDashboards);
-  const { data: visualizations = [] } = useQuery(api.listVisualizations, {
-    args: {},
-  });
-  const { data: insights = [] } = useQuery(api.listInsights, { args: {} });
-  const { data: dataTables = [] } = useQuery(api.listDataTables, { args: {} });
-  const commitBatch = useMutation(api.commitBatch);
+  } = queryStatus(useQuery({ query: api.app.listDashboards, args: {} }));
+  const { data: visualizations = [] } = queryStatus(
+    useQuery({ query: api.app.listVisualizations, args: {} }),
+  );
+  const { data: insights = [] } = queryStatus(
+    useQuery({ query: api.app.listInsights, args: {} }),
+  );
+  const { data: dataTables = [] } = queryStatus(
+    useQuery({ query: api.app.listDataTables, args: {} }),
+  );
+  const commitBatch = useMutation(api.app.commitBatch);
 
   // Find the dashboard
   const dashboard = useMemo(
@@ -161,7 +166,7 @@ export default function DashboardDetailContent({
 
     setIsAddPending(true);
     try {
-      await commitBatch.mutateAsync({
+      await commitBatch({
         commands: [
           cmd("AddDashboardItem", {
             dashboardId: dashboardId as UUID,
