@@ -1006,13 +1006,22 @@ export const cancelLocalImport = internalMutation({
   args: importClaimArgs,
   returns: v.boolean(),
   handler: async (ctx, args) => {
-    const current = await importClaim(
-      ctx,
-      args.workspaceId,
-      args.operationId,
-      args.requestHash,
-    );
-    if (!current || current.status === "complete") return false;
+    if (!args.operationId || args.operationId.length > 200)
+      throw new Error("Invalid local import operationId");
+    if (!/^[0-9a-f]{64}$/i.test(args.requestHash))
+      throw new Error("Local import requestHash must be SHA256");
+    const current = await ctx.db
+      .query("localImports")
+      .withIndex("by_workspaceId_and_operationId", (q) =>
+        q
+          .eq("workspaceId", args.workspaceId)
+          .eq("operationId", args.operationId),
+      )
+      .unique();
+    if (current && current.requestHash !== args.requestHash)
+      throw new Error("Local import operationId reused with different request");
+    if (!current || current.cancelled || current.status === "complete")
+      return false;
     await enqueueCleanup(ctx, args.workspaceId, [
       { kind: "frame", resourceId: current.frameId },
     ]);

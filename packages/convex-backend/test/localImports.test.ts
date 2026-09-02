@@ -101,6 +101,9 @@ it("completes with metadata atomically and returns the original result after a n
       fetchedAt: first.fetchedAt,
     },
   });
+  expect(await t.mutation(internal.host.cancelLocalImport, request)).toBe(
+    false,
+  );
   const nextRequest = {
       ...request,
       operationId: "import-2",
@@ -149,6 +152,26 @@ it("keeps a failed CAS claim pending without leaking a frame or completed result
   expect((await t.query(internal.host.getLocalImport, request))?.status).toBe(
     "complete",
   );
+});
+it("cancels an active claim and treats a repeated cancellation as complete", async () => {
+  const claim = await t.mutation(internal.host.beginLocalImport, request);
+
+  expect(await t.mutation(internal.host.cancelLocalImport, request)).toBe(true);
+  expect(await t.mutation(internal.host.cancelLocalImport, request)).toBe(
+    false,
+  );
+  expect(
+    await t.run(async (ctx) => ctx.db.query("localImports").collect()),
+  ).toEqual([]);
+  expect(
+    await t.run(async (ctx) => ctx.db.query("cleanupJobs").collect()),
+  ).toMatchObject([
+    {
+      kind: "frame",
+      resourceId: claim.frameId,
+      state: "pending",
+    },
+  ]);
 });
 it("rejects an unclaimed import, mismatched frame, timestamp, hash, and invalid row counts", async () => {
   const { sourceId, tableId } = await seed(),

@@ -201,6 +201,86 @@ it("cancels a stale replacement claim before any frame bytes are saved", async (
   expect(await storage.list()).toEqual([winner.dataFrameId]);
 });
 
+it("preserves the original import error when workspace clear already cancelled the claim", async () => {
+  const sourceId = crypto.randomUUID();
+  const tableId = crypto.randomUUID();
+  const converted = await csvToDataFrame(
+    parseCSV("name,value\nalpha,1\nbeta,2\n"),
+    tableId,
+  );
+  await context.metadata.commitBatch(context.principal, [
+    cmd("CreateDataSource", {
+      id: sourceId,
+      name: "Local",
+      type: "local",
+    }),
+    cmd("CreateDataTable", {
+      id: tableId,
+      dataSourceId: sourceId,
+      name: "Values",
+      table: "values.csv",
+      fields: converted.fields,
+      sourceSchema: converted.sourceSchema,
+      metrics: [],
+    }),
+  ]);
+  const beginLocalImport = context.metadata.beginLocalImport.bind(
+    context.metadata,
+  );
+  let releaseImport = () => {};
+  const workspaceCleared = new Promise<void>((resolve) => {
+    releaseImport = resolve;
+  });
+  let announceClaim = () => {};
+  const importClaimed = new Promise<void>((resolve) => {
+    announceClaim = resolve;
+  });
+  context.metadata.beginLocalImport = async (input) => {
+    const claim = await beginLocalImport(input);
+    announceClaim();
+    await workspaceCleared;
+    return claim;
+  };
+
+  const importing = ingestLocalDataFrame(context, {
+    dataTableId: tableId,
+    arrowBase64: Buffer.from(converted.arrowBuffer).toString("base64"),
+    replacement: {
+      expectedDataFrameId: crypto.randomUUID(),
+      name: "Values",
+      table: "values.csv",
+      sourceSchema: converted.sourceSchema,
+      fields: converted.fields,
+      metrics: [],
+    },
+    operationId: crypto.randomUUID(),
+  });
+  await importClaimed;
+  await context.metadata.clearAllData();
+  await context.metadata.commitBatch(context.principal, [
+    cmd("CreateDataSource", {
+      id: sourceId,
+      name: "Local",
+      type: "local",
+    }),
+    cmd("CreateDataTable", {
+      id: tableId,
+      dataSourceId: sourceId,
+      name: "Values",
+      table: "values.csv",
+      fields: converted.fields,
+      sourceSchema: converted.sourceSchema,
+      metrics: [],
+    }),
+  ]);
+  const originalFailure = expect(importing).rejects.toThrow(
+    "STALE_LOCAL_REPLACEMENT",
+  );
+  releaseImport();
+
+  await originalFailure;
+});
+
 function synchronizeSaves(
   underlying: FileDataFrameStorage,
   expectedSaves: number,
