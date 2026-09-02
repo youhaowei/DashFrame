@@ -39,10 +39,27 @@ export class SampleSeedProjectFixture {
     { arrowBase64: string; result: StoredFrame }
   >();
   private readonly invalidatedImports = new Set<string>();
+  private sourceReadBarrier?: {
+    remaining: number;
+    promise: Promise<void>;
+    release: () => void;
+  };
   private readonly engine = new NativeDuckDBEngine();
 
   constructor() {
     this.application = { execute: this.execute.bind(this) };
+  }
+
+  forPrincipalApplication(): Pick<ApplicationOperations, "execute"> {
+    return { execute: this.execute.bind(this) };
+  }
+
+  synchronizeNextSourceReads(callers: number): void {
+    let release = () => {};
+    const promise = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.sourceReadBarrier = { remaining: callers, promise, release };
   }
 
   async initialize(): Promise<void> {
@@ -77,7 +94,7 @@ export class SampleSeedProjectFixture {
   ): Promise<unknown> {
     const args = input as Record<string, unknown>;
     const operationId = context?.operationId ?? String(args.operationId ?? "");
-    const read = this.readOperation(operation, args);
+    const read = await this.readOperation(operation, args);
     if (read !== UNHANDLED) return read;
     if (this.isCompletedCommand(operation, operationId)) {
       return this.completed.get(operationId);
@@ -88,12 +105,14 @@ export class SampleSeedProjectFixture {
     return result;
   }
 
-  private readOperation(
+  private async readOperation(
     operation: string,
     args: Record<string, unknown>,
-  ): unknown | typeof UNHANDLED {
+  ): Promise<unknown | typeof UNHANDLED> {
     if (operation === "getDataSource") {
-      return this.sources.get(String(args.id)) ?? null;
+      const source = this.sources.get(String(args.id)) ?? null;
+      await this.waitForSourceReadBarrier();
+      return source;
     }
     if (operation === "getDataTable") {
       return this.tables.get(String(args.id)) ?? null;
@@ -105,6 +124,17 @@ export class SampleSeedProjectFixture {
       return frame ? { ...frame, id: frame.dataFrameId } : null;
     }
     return UNHANDLED;
+  }
+
+  private async waitForSourceReadBarrier(): Promise<void> {
+    const barrier = this.sourceReadBarrier;
+    if (!barrier) return;
+    barrier.remaining -= 1;
+    if (barrier.remaining === 0) {
+      this.sourceReadBarrier = undefined;
+      barrier.release();
+    }
+    await barrier.promise;
   }
 
   private isCompletedCommand(operation: string, operationId: string): boolean {
@@ -122,6 +152,9 @@ export class SampleSeedProjectFixture {
   ): Promise<unknown> {
     if (operation === "createDataSource") {
       const source = args as unknown as StoredSource;
+      if (this.sources.has(source.id)) {
+        throw new Error(`dataSource ${source.id} already exists`);
+      }
       this.sources.set(source.id, source);
       return { id: source.id };
     }
@@ -129,6 +162,9 @@ export class SampleSeedProjectFixture {
       const table = args as unknown as StoredTable;
       if (!this.sources.has(table.dataSourceId))
         throw new Error("Missing source");
+      if (this.tables.has(table.id)) {
+        throw new Error(`dataTable ${table.id} already exists`);
+      }
       this.tables.set(table.id, table);
       return { id: table.id };
     }
@@ -153,6 +189,13 @@ export class SampleSeedProjectFixture {
     if (priorImport) return priorImport.result;
     const dataTableId = String(args.dataTableId);
     if (!this.tables.has(dataTableId)) throw new Error("Missing table");
+    const table = this.tables.get(dataTableId)!;
+    const replacement = args.replacement as
+      | (StoredTable & { expectedDataFrameId: string | null })
+      | undefined;
+    const expectedDataFrameId = replacement
+      ? replacement.expectedDataFrameId
+      : (table.dataFrameId ?? null);
     const dataFrameId = crypto.randomUUID();
     const arrow = new Uint8Array(Buffer.from(arrowBase64, "base64"));
     const tableName = `df_${dataFrameId.replaceAll("-", "_")}`;
@@ -161,8 +204,9 @@ export class SampleSeedProjectFixture {
       dataFrameId,
       "SELECT COUNT(*) AS count FROM $TABLE",
     );
-    const table = this.tables.get(dataTableId)!;
-    const replacement = args.replacement as StoredTable | undefined;
+    if ((table.dataFrameId ?? null) !== expectedDataFrameId) {
+      throw new Error("SOURCE_BINDING_CHANGED");
+    }
     if (replacement) Object.assign(table, replacement);
     table.dataFrameId = dataFrameId;
     const result = {

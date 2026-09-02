@@ -45,6 +45,31 @@ describe("sample CSV project seeding", () => {
     ).toEqual([{ channel: "Organic Search", revenue: 83.25 }]);
   });
 
+  it("converges concurrent seeds from distinct principal-bound applications", async () => {
+    const csvContent = await readFile(samplePath("orders"), "utf8");
+    const firstApplication = project.forPrincipalApplication();
+    const secondApplication = project.forPrincipalApplication();
+    project.synchronizeNextSourceReads(2);
+
+    expect(firstApplication).not.toBe(secondApplication);
+
+    const [first, second] = await Promise.all([
+      seedCsvTable(firstApplication, { csvContent, tableName: "orders" }),
+      seedCsvTable(secondApplication, { csvContent, tableName: "orders" }),
+    ]);
+
+    expect(second).toEqual(first);
+    expect(project.sources.size).toBe(1);
+    expect(project.tables.size).toBe(1);
+    expect(project.frames.size).toBe(1);
+    expect(
+      await project.queryFrame(
+        first.dataFrameId,
+        "SELECT COUNT(*) AS count FROM $TABLE",
+      ),
+    ).toEqual([{ count: first.rowCount }]);
+  });
+
   it("seeds a fresh queryable frame after the workspace is cleared", async () => {
     const csvContent = await readFile(samplePath("orders"), "utf8");
     const first = await seedCsvTable(project.application, {

@@ -39,11 +39,6 @@ interface ExistingFrame {
   columnCount?: number;
 }
 
-const seedQueues = new WeakMap<
-  object,
-  Map<UUID, Promise<SeedCsvTableResult>>
->();
-
 /**
  * Seed one CSV-backed local table through the same project application boundary
  * used by connector setup. Live metadata and a content-addressed source binding
@@ -72,18 +67,16 @@ export async function seedCsvTable(
     ? { principal: options.principal }
     : undefined;
 
-  return enqueueSeed(application, dataTableId, () =>
-    seedObservedTable(application, {
-      context,
-      tableName,
-      tableBinding,
-      dataTableId,
-      arrowBuffer,
-      primaryKey,
-      fields,
-      sourceSchema,
-    }),
-  );
+  return seedObservedTable(application, {
+    context,
+    tableName,
+    tableBinding,
+    dataTableId,
+    arrowBuffer,
+    primaryKey,
+    fields,
+    sourceSchema,
+  });
 }
 
 async function seedObservedTable(
@@ -99,38 +92,17 @@ async function seedObservedTable(
     sourceSchema: NonNullable<DataTable["sourceSchema"]>;
   },
 ): Promise<SeedCsvTableResult> {
-  const source = (await application.execute(
-    "getDataSource",
-    { id: SAMPLE_SOURCE_ID },
+  let source = await readSampleSource(application, input.context);
+  let table = await readSampleTable(
+    application,
+    input.dataTableId,
     input.context,
-  )) as DataSource | null;
-  if (source && source.type !== "local") {
-    throw new Error(
-      "Sample data source ID is already used by another connector",
-    );
-  }
-
-  const table = (await application.execute(
-    "getDataTable",
-    { id: input.dataTableId },
-    input.context,
-  )) as DataTable | null;
-  if (table && table.dataSourceId !== SAMPLE_SOURCE_ID) {
-    throw new Error("Sample table ID is already used by another data source");
-  }
+  );
   const current = await matchingFrame(application, table, input, source);
   if (current) return current;
 
   if (!source) {
-    await application.execute(
-      "createDataSource",
-      {
-        id: SAMPLE_SOURCE_ID,
-        type: "local",
-        name: SAMPLE_SOURCE_NAME,
-      },
-      { ...input.context, operationId: randomUUID() },
-    );
+    source = await createSourceOrObserveConflict(application, input.context);
   }
 
   const countMetric: Metric = {
@@ -140,6 +112,88 @@ async function seedObservedTable(
     aggregation: "count",
   };
   if (!table) {
+    table = await createTableOrObserveConflict(application, input, countMetric);
+    const raced = await matchingFrame(application, table, input, source);
+    if (raced) return raced;
+  }
+
+  let imported: LocalIngestResult;
+  try {
+    imported = (await application.execute(
+      "ingestLocalDataFrame",
+      {
+        dataTableId: input.dataTableId,
+        arrowBase64: Buffer.from(input.arrowBuffer).toString("base64"),
+        ...(input.primaryKey ? { primaryKey: input.primaryKey } : {}),
+        ...(table
+          ? {
+              replacement: {
+                expectedDataFrameId: table.dataFrameId ?? null,
+                name: input.tableName,
+                table: input.tableBinding,
+                sourceSchema: input.sourceSchema,
+                fields: input.fields,
+                metrics: [countMetric],
+              },
+            }
+          : {}),
+        operationId: randomUUID(),
+      },
+      input.context,
+    )) as LocalIngestResult;
+  } catch (error) {
+    if (!isFramePublicationConflict(error)) throw error;
+    const raced = await observeMatchingFrame(application, input, source);
+    if (raced) return raced;
+    throw error;
+  }
+
+  return {
+    dataSourceId: SAMPLE_SOURCE_ID,
+    dataTableId: input.dataTableId,
+    dataFrameId: imported.dataFrameId,
+    rowCount: imported.rowCount,
+    columnCount: imported.columnCount,
+  };
+}
+
+async function createSourceOrObserveConflict(
+  application: Pick<ApplicationOperations, "execute">,
+  context: { principal: Principal } | undefined,
+): Promise<DataSource> {
+  try {
+    await application.execute(
+      "createDataSource",
+      {
+        id: SAMPLE_SOURCE_ID,
+        type: "local",
+        name: SAMPLE_SOURCE_NAME,
+      },
+      { ...context, operationId: randomUUID() },
+    );
+  } catch (error) {
+    if (!isOwnedCreateConflict(error, "dataSource", SAMPLE_SOURCE_ID)) {
+      throw error;
+    }
+  }
+  const source = await readSampleSource(application, context);
+  if (!source) throw new Error("Sample data source missing after creation");
+  return source;
+}
+
+async function createTableOrObserveConflict(
+  application: Pick<ApplicationOperations, "execute">,
+  input: {
+    context: { principal: Principal } | undefined;
+    tableName: string;
+    tableBinding: string;
+    dataTableId: UUID;
+    fields: DataTable["fields"];
+    sourceSchema: NonNullable<DataTable["sourceSchema"]>;
+  },
+  countMetric: Metric,
+): Promise<DataTable | null> {
+  try {
     await application.execute(
       "createDataTable",
       {
@@ -153,38 +207,102 @@ async function seedObservedTable(
       },
       { ...input.context, operationId: randomUUID() },
     );
+    return null;
+  } catch (error) {
+    if (!isOwnedCreateConflict(error, "dataTable", input.dataTableId)) {
+      throw error;
+    }
+    const table = await readSampleTable(
+      application,
+      input.dataTableId,
+      input.context,
+    );
+    if (!table) throw error;
+    return table;
   }
+}
 
-  const imported = (await application.execute(
-    "ingestLocalDataFrame",
-    {
-      dataTableId: input.dataTableId,
-      arrowBase64: Buffer.from(input.arrowBuffer).toString("base64"),
-      ...(input.primaryKey ? { primaryKey: input.primaryKey } : {}),
-      ...(table
-        ? {
-            replacement: {
-              expectedDataFrameId: table.dataFrameId ?? null,
-              name: input.tableName,
-              table: input.tableBinding,
-              sourceSchema: input.sourceSchema,
-              fields: input.fields,
-              metrics: [countMetric],
-            },
-          }
-        : {}),
-      operationId: randomUUID(),
-    },
+async function observeMatchingFrame(
+  application: Pick<ApplicationOperations, "execute">,
+  input: {
+    context: { principal: Principal } | undefined;
+    tableBinding: string;
+    dataTableId: UUID;
+  },
+  source: DataSource,
+): Promise<SeedCsvTableResult | null> {
+  const table = await readSampleTable(
+    application,
+    input.dataTableId,
     input.context,
-  )) as LocalIngestResult;
+  );
+  return matchingFrame(application, table, input, source);
+}
 
-  return {
-    dataSourceId: SAMPLE_SOURCE_ID,
-    dataTableId: input.dataTableId,
-    dataFrameId: imported.dataFrameId,
-    rowCount: imported.rowCount,
-    columnCount: imported.columnCount,
-  };
+async function readSampleSource(
+  application: Pick<ApplicationOperations, "execute">,
+  context: { principal: Principal } | undefined,
+): Promise<DataSource | null> {
+  const source = (await application.execute(
+    "getDataSource",
+    { id: SAMPLE_SOURCE_ID },
+    context,
+  )) as DataSource | null;
+  if (source && source.type !== "local") {
+    throw new Error(
+      "Sample data source ID is already used by another connector",
+    );
+  }
+  return source;
+}
+
+async function readSampleTable(
+  application: Pick<ApplicationOperations, "execute">,
+  dataTableId: UUID,
+  context: { principal: Principal } | undefined,
+): Promise<DataTable | null> {
+  const table = (await application.execute(
+    "getDataTable",
+    { id: dataTableId },
+    context,
+  )) as DataTable | null;
+  if (table && table.dataSourceId !== SAMPLE_SOURCE_ID) {
+    throw new Error("Sample table ID is already used by another data source");
+  }
+  return table;
+}
+
+function isOwnedCreateConflict(
+  error: unknown,
+  kind: "dataSource" | "dataTable",
+  id: UUID,
+): boolean {
+  return hasErrorMessage(error, `${kind} ${id} already exists`);
+}
+
+function isFramePublicationConflict(error: unknown): boolean {
+  return (
+    hasErrorMessage(error, "SOURCE_BINDING_CHANGED") ||
+    hasErrorMessage(error, "STALE_LOCAL_REPLACEMENT")
+  );
+}
+
+function hasErrorMessage(error: unknown, expected: string): boolean {
+  const seen = new Set<Error>();
+  let current = error;
+  while (current instanceof Error && !seen.has(current)) {
+    seen.add(current);
+    if (
+      current.message === expected ||
+      current.message
+        .split("\n")
+        .some((line) => line.trimEnd().endsWith(`Error: ${expected}`))
+    ) {
+      return true;
+    }
+    current = current.cause;
+  }
+  return false;
 }
 
 async function matchingFrame(
@@ -213,27 +331,6 @@ async function matchingFrame(
     rowCount: frame.rowCount ?? 0,
     columnCount: frame.columnCount ?? table.fields.length,
   };
-}
-
-function enqueueSeed(
-  application: object,
-  dataTableId: UUID,
-  seed: () => Promise<SeedCsvTableResult>,
-): Promise<SeedCsvTableResult> {
-  let queues = seedQueues.get(application);
-  if (!queues) {
-    queues = new Map();
-    seedQueues.set(application, queues);
-  }
-  const current = (queues.get(dataTableId) ?? Promise.resolve())
-    .catch(() => undefined)
-    .then(seed);
-  queues.set(dataTableId, current);
-  const cleanup = () => {
-    if (queues.get(dataTableId) === current) queues.delete(dataTableId);
-  };
-  current.then(cleanup, cleanup);
-  return current;
 }
 
 function deterministicUuid(key: string): UUID {
