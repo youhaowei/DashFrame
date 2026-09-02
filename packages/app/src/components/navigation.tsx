@@ -245,7 +245,7 @@ export function Navigation() {
       await clearAllData();
       setShowClearConfirm(false);
       showSuccess("All data cleared");
-      navigate({ to: "/dashboards" });
+      navigate({ to: "/" });
     } catch (error) {
       showError("Failed to clear data", {
         description:

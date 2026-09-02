@@ -103,6 +103,11 @@ export default function DashboardsPage() {
     isLoading: visualizationsLoading,
     isError: visualizationsLoadError,
   } = queryStatus(useQuery({ query: api.app.listVisualizations, args: {} }));
+  const {
+    data: insights = [],
+    isLoading: insightsLoading,
+    isError: insightsLoadError,
+  } = queryStatus(useQuery({ query: api.app.listInsights, args: {} }));
   const commitBatch = useMutation(api.app.commitBatch);
   const { showError } = useToastStore();
   const { confirm } = useConfirmDialogStore();
@@ -152,9 +157,10 @@ export default function DashboardsPage() {
         dashboard.name.toLowerCase().includes(searchQuery.trim().toLowerCase()),
       )
     : dashboards;
-  const hasLoadError = dashboardsLoadError || visualizationsLoadError;
+  const hasLoadError =
+    dashboardsLoadError || visualizationsLoadError || insightsLoadError;
 
-  if (dashboardsLoading || visualizationsLoading) {
+  if (dashboardsLoading || visualizationsLoading || insightsLoading) {
     return (
       <div className="flex h-full items-center justify-center">
         <p className="text-sm text-neutral-fg-subtle">Loading reports...</p>
@@ -205,7 +211,7 @@ export default function DashboardsPage() {
             const contents = resolveReportContents(
               dashboard,
               visualizations,
-              [],
+              insights,
             );
             return (
               <ArtifactCard
@@ -215,8 +221,8 @@ export default function DashboardsPage() {
                 name={dashboard.name}
                 metadata={
                   <>
-                    {contents.questionIds.length} question
-                    {contents.questionIds.length !== 1 ? "s" : ""}
+                    {contents.questions.length} question
+                    {contents.questions.length !== 1 ? "s" : ""}
                     <span aria-hidden="true"> · </span>
                     {contents.savedViews.length} saved view
                     {contents.savedViews.length !== 1 ? "s" : ""}

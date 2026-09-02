@@ -67,12 +67,16 @@ export default function DashboardDetailContent({
     isLoading,
     isFetching,
   } = queryStatus(useQuery({ query: api.app.listDashboards, args: {} }));
-  const { data: visualizations = [] } = queryStatus(
-    useQuery({ query: api.app.listVisualizations, args: {} }),
-  );
-  const { data: insights = [] } = queryStatus(
-    useQuery({ query: api.app.listInsights, args: {} }),
-  );
+  const {
+    data: visualizations = [],
+    isLoading: visualizationsLoading,
+    isError: visualizationsLoadError,
+  } = queryStatus(useQuery({ query: api.app.listVisualizations, args: {} }));
+  const {
+    data: insights = [],
+    isLoading: insightsLoading,
+    isError: insightsLoadError,
+  } = queryStatus(useQuery({ query: api.app.listInsights, args: {} }));
   const { data: dataTables = [] } = queryStatus(
     useQuery({ query: api.app.listDataTables, args: {} }),
   );
@@ -167,10 +171,31 @@ export default function DashboardDetailContent({
   }, [isLoading, isFetching, dashboard, navigate]);
 
   // Show loading state until we have the dashboard (or any fetch is in progress)
-  if (isLoading || isFetching || !dashboard) {
+  if (
+    isLoading ||
+    isFetching ||
+    visualizationsLoading ||
+    insightsLoading ||
+    !dashboard
+  ) {
     return (
       <div className="flex h-full items-center justify-center">
-        <p className="text-sm text-neutral-fg-subtle">Loading dashboard...</p>
+        <p className="text-sm text-neutral-fg-subtle">Loading report...</p>
+      </div>
+    );
+  }
+
+  if (visualizationsLoadError || insightsLoadError) {
+    return (
+      <div className="flex h-full items-center justify-center px-6 text-center">
+        <div>
+          <h1 className="text-lg font-semibold text-neutral-fg">
+            Couldn&apos;t load report contents
+          </h1>
+          <p className="mt-2 text-sm text-neutral-fg-subtle">
+            Something went wrong. Check your connection and try again.
+          </p>
+        </div>
       </div>
     );
   }
@@ -228,7 +253,7 @@ export default function DashboardDetailContent({
       <ArtifactPageHeader
         title={dashboard.name}
         description={formatReportContentsCount(
-          reportContents.questionIds.length,
+          reportContents.questions.length,
           reportContents.savedViews.length,
         )}
         navigation={

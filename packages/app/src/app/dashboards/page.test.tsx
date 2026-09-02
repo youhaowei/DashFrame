@@ -318,6 +318,12 @@ describe("DashboardsPage – delete confirmation", () => {
           isLoading: false,
         };
       }
+      if (ref._path === "listInsights") {
+        return {
+          data: [{ id: "question-1" }, { id: "question-2" }],
+          isLoading: false,
+        };
+      }
       return { data: [], isLoading: false };
     });
 
@@ -359,6 +365,38 @@ describe("DashboardsPage – delete confirmation", () => {
     screen.getByRole("heading", { name: "Couldn't load reports" });
     expect(screen.queryByText(/0 saved views/)).toBeNull();
     expect(screen.queryByText("Quarterly plan")).toBeNull();
+  });
+
+  it("does not count a missing question row from a dangling saved view", () => {
+    mockUseQuery.mockImplementation((ref: { _path: string }) => {
+      if (ref._path === "listDashboards") {
+        return {
+          data: [
+            {
+              id: "dashboard-1",
+              name: "Quarterly plan",
+              items: [{ type: "visualization", visualizationId: "view-1" }],
+              createdAt: 0,
+              updatedAt: 0,
+            },
+          ],
+          isLoading: false,
+        };
+      }
+      if (ref._path === "listVisualizations") {
+        return {
+          data: [{ id: "view-1", insightId: "missing-question" }],
+          isLoading: false,
+        };
+      }
+      return { data: [], isLoading: false };
+    });
+
+    render(<DashboardsPage />);
+
+    screen.getByRole("link", {
+      name: /Quarterly plan 0 questions 1 saved view/,
+    });
   });
 
   it.each(["pointer", "Enter", "Space"] as const)(
