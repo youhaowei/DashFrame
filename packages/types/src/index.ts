@@ -26,6 +26,11 @@ export {
 
 export type { AggregationType, InsightMetric, Metric } from "./metric";
 
+export {
+  mergeReplacementFields,
+  retainReplacementMetrics,
+} from "./table-replacement";
+
 export type {
   DataFrame,
   DataFrameData,

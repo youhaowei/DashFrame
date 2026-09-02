@@ -156,6 +156,9 @@ it.each([false, true])(
     await expect(
       t.query(internal.host.getLocalImport, request),
     ).rejects.toThrow("invalidated");
+    expect(await t.mutation(internal.host.cancelLocalImport, request)).toBe(
+      false,
+    );
     expect(await user().query(api.app.listDataFrames, {})).toEqual([]);
     expect(
       await t.query(internal.host.getLocalImport, {

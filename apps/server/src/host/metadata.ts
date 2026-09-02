@@ -85,6 +85,10 @@ export interface HostMetadata {
     operationId: string;
     requestHash: string;
   }): Promise<LocalImportClaim | null>;
+  cancelLocalImport(input: {
+    operationId: string;
+    requestHash: string;
+  }): Promise<boolean>;
   getOperation(
     operationId: string,
   ): Promise<{ request: unknown; result: unknown } | null>;
