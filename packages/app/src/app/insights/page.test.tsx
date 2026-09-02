@@ -121,6 +121,30 @@ describe("InsightsPage delete confirmations", () => {
     expect(screen.queryByRole("main")).toBeNull();
   });
 
+  it("keeps the count unknown and search visible when insights fail to load", () => {
+    mockUseQuery.mockImplementation((ref: { _path: string }) => {
+      if (ref._path === "listInsights") {
+        return { isLoadingError: true };
+      }
+      if (ref._path === "listVisualizations") {
+        return {
+          data: [],
+          isPending: false,
+          isLoadingError: false,
+        };
+      }
+      return { data: [] };
+    });
+
+    render(<InsightsPage />);
+
+    expect(screen.queryByText(/^0 insights$/)).toBeNull();
+    expect(
+      screen.getByRole("textbox", { name: "Search insights" }),
+    ).not.toBeNull();
+    screen.getByRole("heading", { name: "Couldn't load insights" });
+  });
+
   it("does not delete one draft after cancellation, but deletes it after confirmation", async () => {
     const user = userEvent.setup();
     render(

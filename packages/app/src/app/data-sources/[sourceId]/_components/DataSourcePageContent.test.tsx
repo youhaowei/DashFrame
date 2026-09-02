@@ -478,6 +478,22 @@ describe("DataSourcePageContent — loading state contract", () => {
 
     expect(screen.queryByText("No tables yet")).toBeNull();
     screen.getByText("Loading tables…");
+    screen.getByRole("heading", { level: 1, name: "My Database" });
+    screen.getByRole("button", { name: /^Sources:/ });
+  });
+
+  it("shows a table-query error without claiming the source has no tables", () => {
+    mockUseDataSources.mockReturnValue({
+      data: [DATA_SOURCE],
+      isLoading: false,
+    });
+    mockUseDataTables.mockReturnValue({ isError: true });
+
+    render(<DataSourcePageContent sourceId={SOURCE_ID} />);
+
+    expect(screen.queryByText("No tables yet")).toBeNull();
+    screen.getByRole("alert");
+    screen.getByRole("heading", { name: "Couldn't load tables" });
   });
 
   it("keeps the connector logo and exposes rename popover state", () => {

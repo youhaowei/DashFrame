@@ -35,7 +35,19 @@ function SearchThatEmptied() {
 }
 
 describe("ArtifactCollection structure", () => {
-  it("uses the shell's main landmark and gives every card a heading", () => {
+  function headingLevels() {
+    return screen
+      .getAllByRole("heading")
+      .map((heading) => Number(heading.tagName.slice(1)));
+  }
+
+  function expectNoSkippedHeadingLevels(levels: number[]) {
+    for (let index = 1; index < levels.length; index += 1) {
+      expect(levels[index]! - levels[index - 1]!).toBeLessThanOrEqual(1);
+    }
+  }
+
+  it("uses the shell's main landmark and gives ungrouped cards level-two headings", () => {
     render(
       <ArtifactCollection
         title="Insights"
@@ -53,9 +65,35 @@ describe("ArtifactCollection structure", () => {
     );
 
     expect(screen.queryByRole("main")).toBeNull();
-    expect(screen.getAllByRole("heading", { level: 3 })).toHaveLength(2);
+    expect(screen.getAllByRole("heading", { level: 2 })).toHaveLength(2);
+    const revenueHeading = screen.getByRole("heading", {
+      level: 2,
+      name: "Revenue",
+    });
+    screen.getByRole("heading", { level: 2, name: "Orders" });
+    expect(revenueHeading.parentElement?.tagName).toBe("DIV");
+    expectNoSkippedHeadingLevels(headingLevels());
+  });
+
+  it("allows grouped cards to use level-three headings without skipping a level", () => {
+    render(
+      <ArtifactCollection
+        title="Insights"
+        itemCount={1}
+        searchQuery=""
+        onSearchQueryChange={() => {}}
+        searchPlaceholder="Search insights..."
+        searchLabel="Search insights"
+      >
+        <section>
+          <h2>Drafts</h2>
+          <ArtifactCard name="Revenue" headingLevel={3} />
+        </section>
+      </ArtifactCollection>,
+    );
+
     screen.getByRole("heading", { level: 3, name: "Revenue" });
-    screen.getByRole("heading", { level: 3, name: "Orders" });
+    expectNoSkippedHeadingLevels(headingLevels());
   });
 
   it("uses a level-two empty-state heading under the page title", () => {
@@ -71,10 +109,15 @@ describe("ArtifactCollection structure", () => {
 
     fireEvent.click(clearSearch);
 
-    await waitFor(() =>
-      expect(document.activeElement).toBe(
-        screen.getByRole("heading", { level: 1, name: "Drafts" }),
-      ),
+    const collectionHeading = screen.getByRole("heading", {
+      level: 1,
+      name: "Drafts",
+    });
+    await waitFor(() => expect(document.activeElement).toBe(collectionHeading));
+    expect(collectionHeading.className).toContain("focus:outline-none");
+    expect(collectionHeading.className).toContain("focus-visible:ring-2");
+    expect(collectionHeading.className).toContain(
+      "focus-visible:ring-neutral-ring",
     );
     expect(screen.queryByRole("textbox", { name: "Search drafts" })).toBeNull();
   });

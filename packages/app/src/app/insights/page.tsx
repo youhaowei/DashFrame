@@ -249,6 +249,7 @@ export default function InsightsPage() {
       key={item.insight.id}
       to={`/insights/${item.insight.id}`}
       name={item.insight.name}
+      headingLevel={3}
       icon={<FileIcon className="h-5 w-5" />}
       metadata={
         <>
@@ -296,7 +297,7 @@ export default function InsightsPage() {
     <ArtifactCollection
       title="Insights"
       description={
-        isLoading ? undefined : (
+        isLoading || hasLoadError ? undefined : (
           <>
             {insights.length} insight{insights.length !== 1 ? "s" : ""}
           </>
@@ -311,7 +312,7 @@ export default function InsightsPage() {
       }
       searchLabel="Search insights"
       searchPlaceholder="Search insights..."
-      itemCount={isLoading ? undefined : insights.length}
+      itemCount={isLoading || hasLoadError ? undefined : insights.length}
       searchQuery={searchQuery}
       onSearchQueryChange={setSearchQuery}
     >

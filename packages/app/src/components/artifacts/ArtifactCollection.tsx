@@ -117,6 +117,7 @@ export function ArtifactEmptyState({
 export type ArtifactCardProps = {
   to?: string;
   name: ReactNode;
+  headingLevel?: 2 | 3;
   metadata?: ReactNode;
   icon?: ReactNode;
   actions?: ReactNode;
@@ -128,12 +129,14 @@ export type ArtifactCardProps = {
 export function ArtifactCard({
   to,
   name,
+  headingLevel = 2,
   metadata,
   icon,
   actions,
   footer,
   className,
 }: ArtifactCardProps) {
+  const Heading = headingLevel === 3 ? "h3" : "h2";
   const content = (
     <>
       {icon && (
@@ -144,16 +147,16 @@ export function ArtifactCard({
           {icon}
         </span>
       )}
-      <span className="min-w-0 flex-1">
-        <h3 className="block break-words font-medium text-neutral-fg">
+      <div className="min-w-0 flex-1">
+        <Heading className="block break-words font-medium text-neutral-fg">
           {name}
-        </h3>
+        </Heading>
         {metadata && (
           <span className="mt-2 block break-words text-xs text-neutral-fg-subtle">
             {metadata}
           </span>
         )}
-      </span>
+      </div>
     </>
   );
   const contentClassName =

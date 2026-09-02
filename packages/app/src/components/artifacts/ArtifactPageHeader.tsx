@@ -35,7 +35,7 @@ export function ArtifactPageHeader({
             <h1
               ref={titleRef}
               tabIndex={titleRef ? -1 : undefined}
-              className="min-w-0 break-words text-xl font-semibold text-neutral-fg"
+              className="min-w-0 break-words text-xl font-semibold text-neutral-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-ring"
             >
               {title}
             </h1>

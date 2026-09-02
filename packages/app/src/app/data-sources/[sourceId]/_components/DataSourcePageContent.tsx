@@ -65,6 +65,29 @@ const SENSITIVITY_TOASTS: Record<FieldSensitivity, string> = {
   unclassified: "Field reset to unclassified",
 };
 
+function renderDataTablesQueryState(isLoading: boolean, isError: boolean) {
+  if (isLoading) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <p className="text-sm text-neutral-fg-subtle">Loading tables…</p>
+      </div>
+    );
+  }
+  if (isError) {
+    return (
+      <div role="alert" className="flex h-full items-center justify-center">
+        <div className="text-center">
+          <h2 className="text-lg font-semibold">Couldn&apos;t load tables</h2>
+          <p className="mt-2 text-sm text-neutral-fg-subtle">
+            Something went wrong. Check your connection and try again.
+          </p>
+        </div>
+      </div>
+    );
+  }
+  return null;
+}
+
 /**
  * Build a lookup map from field ID → column analysis.
  *
@@ -165,7 +188,11 @@ export default function DataSourcePageContent({
   // Find the data source
   const dataSource = allDataSources.find((s) => s.id === sourceId);
 
-  const { data: dataTables = [], isLoading: isLoadingDataTables } = queryStatus(
+  const {
+    data: dataTables = [],
+    isLoading: isLoadingDataTables,
+    isError: isDataTablesError,
+  } = queryStatus(
     useQuery({
       query: api.app.listDataTables,
       args: { dataSourceId: sourceId },
@@ -175,20 +202,20 @@ export default function DataSourcePageContent({
   // Local state for selected table - use null to indicate "not yet selected by user"
   const [selectedTableId, setSelectedTableId] = useState<UUID | null>(null);
 
-  // Effective selected table ID - either user selection or first table as default
-  const effectiveSelectedTableId =
-    dataTables.find((table) => table.id === selectedTableId)?.id ??
-    dataTables[0]?.id ??
+  // Use the user's live selection when it still exists; otherwise fall back to
+  // the first table so a source with tables never needs a separate selection state.
+  const selectedTable =
+    dataTables.find((table) => table.id === selectedTableId) ??
+    dataTables[0] ??
     null;
-
-  // Get selected table details
-  const tableDetails = useMemo(() => {
-    if (!effectiveSelectedTableId) return null;
-    const table = dataTables.find((t) => t.id === effectiveSelectedTableId);
-    return table
-      ? { dataTable: table, fields: table.fields, metrics: table.metrics }
-      : null;
-  }, [effectiveSelectedTableId, dataTables]);
+  const effectiveSelectedTableId = selectedTable?.id ?? null;
+  const tableDetails = selectedTable
+    ? {
+        dataTable: selectedTable,
+        fields: selectedTable.fields,
+        metrics: selectedTable.metrics,
+      }
+    : null;
 
   // Use source name directly - mutations update database which triggers re-render
   const sourceName = dataSource?.name ?? "";
@@ -200,12 +227,11 @@ export default function DataSourcePageContent({
     useDataSourceArtifact(dataSource, sourceId, sourceName, dataTables.length),
   );
 
-  // Get DataFrame entry for metadata (row/column counts)
-  const dataFrameEntry = useMemo(() => {
-    const dataFrameId = tableDetails?.dataTable?.dataFrameId;
-    if (!dataFrameId) return null;
-    return allDataFrames.find((e) => e.id === dataFrameId);
-  }, [tableDetails, allDataFrames]);
+  // Get DataFrame entry for metadata (row/column counts).
+  const dataFrameId = selectedTable?.dataFrameId;
+  const dataFrameEntry = dataFrameId
+    ? (allDataFrames.find((entry) => entry.id === dataFrameId) ?? null)
+    : null;
 
   // Load actual data for preview (async from IndexedDB)
   const { data: previewData, isLoading: isLoadingPreview } = useDataFrameData(
@@ -326,14 +352,7 @@ export default function DataSourcePageContent({
     );
   }
 
-  if (isLoadingDataTables) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <p className="text-sm text-neutral-fg-subtle">Loading tables…</p>
-      </div>
-    );
-  }
-
+  // This is confirmed-empty only while pending/error table queries are intercepted below.
   const emptyTableState = (
     <div className="flex h-full items-center justify-center">
       <div className="text-center">
@@ -350,6 +369,11 @@ export default function DataSourcePageContent({
       </div>
     </div>
   );
+  const dataTablesQueryState = renderDataTablesQueryState(
+    isLoadingDataTables,
+    isDataTablesError,
+  );
+  const noSelectedTableState = dataTablesQueryState ?? emptyTableState;
 
   return (
     <>
@@ -624,7 +648,7 @@ export default function DataSourcePageContent({
             )}
           </div>
         ) : (
-          emptyTableState
+          noSelectedTableState
         )}
       </AppLayout>
     </>
