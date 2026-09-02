@@ -84,6 +84,8 @@ export interface DataPickerContentProps {
    * @default true
    */
   showInsights?: boolean;
+  /** Keep a parent onboarding surface mounted while a connection is in progress. */
+  onActivityChange?: (active: boolean) => void;
 }
 
 interface RemoteResourceState {
@@ -156,6 +158,7 @@ export function DataPickerContent({
   excludeTableIds = [],
   onCancel,
   showInsights = true,
+  onActivityChange,
 }: DataPickerContentProps) {
   const dataSourcesQuery = queryStatus(
     useQuery({ query: api.app.listDataSources, args: {} }),
@@ -579,6 +582,7 @@ export function DataPickerContent({
               onFileSelect={handleFileSelect}
               onConnect={handleConnect}
               onOAuthConnect={handleOAuthConnect}
+              onActivityChange={onActivityChange}
             />
           </SectionList>
         )}
@@ -589,7 +593,10 @@ export function DataPickerContent({
               label="Choose another connection"
               variant="ghost"
               size="sm"
-              onClick={() => setRemoteResourceState(null)}
+              onClick={() => {
+                setRemoteResourceState(null);
+                onActivityChange?.(false);
+              }}
               icon={ArrowLeftIcon}
             />
             <SectionList title="Choose data to import">

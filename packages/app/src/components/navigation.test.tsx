@@ -30,7 +30,9 @@ vi.mock("@/lib/stores/shell-store", () => ({
 }));
 vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
-  useQuery_experimental: nativeQueryMock(() => ({ data: [] })),
+  useQuery_experimental: nativeQueryMock((ref: { _path: string }) => ({
+    data: ref._path === "listDraftCount" ? 0 : [],
+  })),
 }));
 vi.mock("@/data/host", () => ({
   useHostQuery: hostQueryMock(() => ({ data: [] })),
@@ -118,6 +120,22 @@ import { Navigation } from "./navigation";
 describe("Navigation", () => {
   beforeEach(() => {
     mockLocation.pathname = "/data-sources";
+  });
+
+  it("renders exactly the three ratified roots in order", () => {
+    render(<Navigation />);
+
+    const links = within(screen.getByRole("navigation")).getAllByRole("link");
+    expect(links.map((link) => link.textContent?.trim())).toEqual([
+      "Reports",
+      "Data Sources",
+      "Drafts",
+    ]);
+    expect(links.map((link) => link.getAttribute("href"))).toEqual([
+      "/dashboards",
+      "/data-sources",
+      "/drafts",
+    ]);
   });
 
   it("closes the mobile drawer when the active route is tapped", () => {

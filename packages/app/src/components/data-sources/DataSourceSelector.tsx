@@ -154,13 +154,8 @@ export function DataSourceSelector({
           Upload CSV files or connect to Notion to start analyzing your data.
         </p>
         <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-          <Button
-            label="View Visualizations"
-            variant="outline"
-            asChild
-            size="sm"
-          >
-            <Link to="/">View Visualizations</Link>
+          <Button label="View reports" variant="outline" asChild size="sm">
+            <Link to="/dashboards">View reports</Link>
           </Button>
           <Button
             label="Add Data Source"

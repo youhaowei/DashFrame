@@ -34,6 +34,8 @@ interface ConnectorCardWithFormProps {
     connector: RemoteApiConnector,
     dataSourceId: string,
   ) => Promise<void>;
+  onActivityChange?: (active: boolean) => void;
+  disabled?: boolean;
 }
 
 const POLL_INTERVAL_MS = 2_000;
@@ -49,6 +51,8 @@ const POLL_TIMEOUT_MS = 15 * 60 * 1_000;
  */
 interface PollToken {
   cancelled: boolean;
+  activityHeld: boolean;
+  activityTransferred: boolean;
   timer?: number;
 }
 
@@ -66,11 +70,13 @@ async function settleOAuthPoll(
   current: { state: string; dataSourceId?: string; failureMessage?: string },
   connector: RemoteApiConnector,
   onOAuthConnect: ConnectorCardWithFormProps["onOAuthConnect"],
+  token: PollToken,
 ): Promise<boolean> {
   if (current.state === "connected") {
     if (!current.dataSourceId) {
       throw new Error("Connected source id is missing");
     }
+    token.activityTransferred = true;
     await onOAuthConnect(connector, current.dataSourceId);
     return true;
   }
@@ -101,7 +107,8 @@ async function pollOAuthCompletion(
     // Checked again after the round trip: the component can unmount while the
     // query is in flight, and onOAuthConnect updates parent state.
     if (token.cancelled) return;
-    if (await settleOAuthPoll(current, connector, onOAuthConnect)) return;
+    if (await settleOAuthPoll(current, connector, onOAuthConnect, token))
+      return;
   }
   throw new Error("Google authorization timed out");
 }
@@ -184,17 +191,31 @@ export function ConnectorCardWithForm({
   onFileSelect,
   onConnect,
   onOAuthConnect,
+  onActivityChange,
+  disabled,
 }: ConnectorCardWithFormProps) {
   // Hook called at component top level - safe!
   const { form, formFields, execute, isSubmitting, submitError } =
     useConnectorForm(connector);
 
-  const pollToken = useRef<PollToken>({ cancelled: false });
+  const pollToken = useRef<PollToken>({
+    cancelled: false,
+    activityHeld: false,
+    activityTransferred: false,
+  });
+  const onActivityChangeRef = useRef(onActivityChange);
+  useEffect(() => {
+    onActivityChangeRef.current = onActivityChange;
+  }, [onActivityChange]);
   useEffect(() => {
     const token = pollToken.current;
     return () => {
       token.cancelled = true;
       if (token.timer !== undefined) window.clearTimeout(token.timer);
+      if (token.activityHeld && !token.activityTransferred) {
+        token.activityHeld = false;
+        onActivityChangeRef.current?.(false);
+      }
     };
   }, []);
 
@@ -222,10 +243,18 @@ export function ConnectorCardWithForm({
       return;
     }
     if (connector.authKind === "oauth") {
-      pollToken.current.cancelled = false;
-      await execute(() =>
-        runOAuthSetup(connector, onOAuthConnect, pollToken.current),
+      const token = pollToken.current;
+      token.cancelled = false;
+      token.activityHeld = true;
+      token.activityTransferred = false;
+      onActivityChange?.(true);
+      const result = await execute(() =>
+        runOAuthSetup(connector, onOAuthConnect, token),
       );
+      token.activityHeld = false;
+      if (result === null && !token.activityTransferred) {
+        onActivityChange?.(false);
+      }
       return;
     }
 
@@ -234,7 +263,11 @@ export function ConnectorCardWithForm({
     // resolver throws by design). execute() validates the form and returns the
     // credential values; the parent creates the DataSource (storing the key as a
     // vault SecretRef) and lists databases via the listNotionDatabases mutation.
-    await execute((data) => onConnect(connector, data));
+    onActivityChange?.(true);
+    const result = await execute((data) => onConnect(connector, data));
+    if (result === null) {
+      onActivityChange?.(false);
+    }
   };
 
   return (
@@ -243,6 +276,7 @@ export function ConnectorCardWithForm({
       onFileSelect={handleFileSelect}
       onConnect={handleConnect}
       isLoading={isSubmitting}
+      disabled={disabled}
       submitError={submitError}
     >
       {/* Render TanStack Form fields */}

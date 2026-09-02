@@ -48,7 +48,7 @@ export type AppLayoutProps = AppLayoutBaseProps & AppLayoutHeaderProps;
  * ```tsx
  * <AppLayout
  *   breadcrumbs={[
- *     { label: "Insights", to: "/insights" },
+ *     { label: "Questions", to: "/insights" },
  *     { label: "My Insight" },
  *   ]}
  *   leftPanel={<Controls />}
