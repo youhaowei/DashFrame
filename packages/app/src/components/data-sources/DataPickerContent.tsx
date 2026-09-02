@@ -599,6 +599,7 @@ export function DataPickerContent({
               onFileSelect={handleFileSelect}
               onConnect={handleConnect}
               onOAuthConnect={handleOAuthConnect}
+              onActivityChange={onActivityChange}
             />
           </SectionList>
         )}

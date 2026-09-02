@@ -37,6 +37,7 @@ export interface AddConnectionPanelProps {
     connector: RemoteApiConnector,
     dataSourceId: string,
   ) => Promise<void>;
+  onActivityChange?: (active: boolean) => void;
 }
 
 /**
@@ -56,6 +57,7 @@ export function AddConnectionPanel({
   onFileSelect,
   onConnect,
   onOAuthConnect,
+  onActivityChange,
 }: AddConnectionPanelProps) {
   const { data: catalog, isLoading, isError, refetch } = useConnectorCatalog();
 
@@ -107,6 +109,7 @@ export function AddConnectionPanel({
             onFileSelect={onFileSelect}
             onConnect={onConnect}
             onOAuthConnect={onOAuthConnect}
+            onActivityChange={onActivityChange}
           />
         ))}
       </div>
