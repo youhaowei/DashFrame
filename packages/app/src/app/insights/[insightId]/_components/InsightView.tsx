@@ -1399,7 +1399,7 @@ export function InsightView({
   return (
     <AppLayout
       breadcrumbs={[
-        { label: "Insights", to: "/insights" },
+        { label: "Questions", to: "/insights" },
         { label: localName || "Untitled" },
       ]}
       leftPanel={
@@ -1445,6 +1445,13 @@ export function InsightView({
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                icon={TableIcon}
+                label="Inspect data frames"
+                onClick={() => navigate({ to: "/data-frames" })}
+              />
               {canPinActiveChart && (
                 <ControlTooltip
                   label="Save chart"

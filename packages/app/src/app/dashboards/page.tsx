@@ -1,6 +1,7 @@
 import { useQuery_experimental as useQuery, useMutation } from "convex/react";
 import { queryStatus } from "@/data/query-status";
 import { useConfirmDialogStore, useToastStore } from "@/lib/stores";
+import { resolveReportContents } from "@/lib/reports/report-contents";
 import {
   ArtifactCard,
   ArtifactCollection,
@@ -28,15 +29,18 @@ import {
   DeleteIcon,
   ExternalLinkIcon,
   PlusIcon,
+  SparklesIcon,
 } from "@wystack/ui-react/icons";
 import { Input } from "@wystack/ui-react";
 import { useState } from "react";
 
 export default function DashboardsPage() {
   const navigate = useNavigate();
-  const { data: dashboards = [], isLoading } = queryStatus(
+  const { data: dashboards = [], isLoading: dashboardsLoading } = queryStatus(
     useQuery({ query: api.app.listDashboards, args: {} }),
   );
+  const { data: visualizations = [], isLoading: visualizationsLoading } =
+    queryStatus(useQuery({ query: api.app.listVisualizations, args: {} }));
   const commitBatch = useMutation(api.app.commitBatch);
   const { showError } = useToastStore();
   const { confirm } = useConfirmDialogStore();
@@ -47,7 +51,7 @@ export default function DashboardsPage() {
 
   const handleDelete = (id: string, name: string) => {
     confirm({
-      title: "Delete dashboard",
+      title: "Delete report",
       description: `Are you sure you want to delete "${name}"? This action cannot be undone.`,
       confirmLabel: "Delete",
       variant: "destructive",
@@ -57,7 +61,7 @@ export default function DashboardsPage() {
             commands: [cmd("DeleteNode", { id: id as UUID })],
           });
         } catch {
-          showError("Failed to delete dashboard. Please try again.");
+          showError("Failed to delete report. Please try again.");
         }
       },
     });
@@ -72,7 +76,7 @@ export default function DashboardsPage() {
         commands: [cmd("CreateDashboard", { id, name: newDashboardName })],
       });
     } catch {
-      showError("Failed to create dashboard. Please try again.");
+      showError("Failed to create report. Please try again.");
       return;
     }
 
@@ -87,43 +91,50 @@ export default function DashboardsPage() {
       )
     : dashboards;
 
-  if (isLoading) {
+  if (dashboardsLoading || visualizationsLoading) {
     return (
       <div className="flex h-full items-center justify-center">
-        <p className="text-sm text-neutral-fg-subtle">Loading dashboards...</p>
+        <p className="text-sm text-neutral-fg-subtle">Loading reports...</p>
       </div>
     );
   }
 
   return (
     <ArtifactCollection
-      title="Dashboards"
+      title="Reports"
       description={
         <>
-          {dashboards.length} dashboard
-          {dashboards.length !== 1 ? "s" : ""}
+          {dashboards.length} report{dashboards.length !== 1 ? "s" : ""}
         </>
       }
       actions={
-        <Button
-          icon={PlusIcon}
-          label="New Dashboard"
-          onClick={() => setIsCreateOpen(true)}
-        />
+        <>
+          <Button
+            variant="outline"
+            icon={SparklesIcon}
+            label="Questions"
+            onClick={() => navigate({ to: "/insights" })}
+          />
+          <Button
+            icon={PlusIcon}
+            label="New report"
+            onClick={() => setIsCreateOpen(true)}
+          />
+        </>
       }
-      searchLabel="Search dashboards"
-      searchPlaceholder="Search dashboards..."
+      searchLabel="Search reports"
+      searchPlaceholder="Search reports..."
       itemCount={dashboards.length}
       searchQuery={searchQuery}
       onSearchQueryChange={setSearchQuery}
     >
       {filteredDashboards.length === 0 ? (
         <ArtifactEmptyState
-          title={searchQuery ? "No dashboards found" : "No dashboards yet"}
+          title={searchQuery ? "No reports found" : "No reports yet"}
           description={
             searchQuery
-              ? `No dashboards match "${searchQuery}"`
-              : "Create your first dashboard to start organizing your visualizations."
+              ? `No reports match "${searchQuery}"`
+              : "Create your first report to organize questions and saved views."
           }
           action={
             searchQuery ? (
@@ -135,7 +146,7 @@ export default function DashboardsPage() {
             ) : (
               <Button
                 icon={PlusIcon}
-                label="Create Dashboard"
+                label="Create report"
                 onClick={() => setIsCreateOpen(true)}
               />
             )
@@ -143,65 +154,75 @@ export default function DashboardsPage() {
         />
       ) : (
         <ArtifactGrid>
-          {filteredDashboards.map((dashboard) => (
-            <ArtifactCard
-              key={dashboard.id}
-              to={`/dashboards/${dashboard.id}`}
-              icon={<DashboardIcon className="h-5 w-5" />}
-              name={dashboard.name}
-              metadata={
-                <>
-                  {dashboard.items.length} item
-                  {dashboard.items.length !== 1 ? "s" : ""}
-                </>
-              }
-              actions={
-                <DropdownMenu>
-                  <RoutedCardActionMenuTrigger />
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        navigate({
-                          to: `/dashboards/${dashboard.id}`,
-                        } as never);
-                      }}
-                    >
-                      <ExternalLinkIcon className="mr-2 h-4 w-4" />
-                      Open
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      className="text-palette-danger"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        handleDelete(dashboard.id, dashboard.name);
-                      }}
-                    >
-                      <DeleteIcon className="mr-2 h-4 w-4" />
-                      Delete
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              }
-            />
-          ))}
+          {filteredDashboards.map((dashboard) => {
+            const contents = resolveReportContents(
+              dashboard,
+              visualizations,
+              [],
+            );
+            return (
+              <ArtifactCard
+                key={dashboard.id}
+                to={`/dashboards/${dashboard.id}`}
+                icon={<DashboardIcon className="h-5 w-5" />}
+                name={dashboard.name}
+                metadata={
+                  <>
+                    {contents.questionIds.length} question
+                    {contents.questionIds.length !== 1 ? "s" : ""}
+                    <span aria-hidden="true"> · </span>
+                    {contents.savedViews.length} saved view
+                    {contents.savedViews.length !== 1 ? "s" : ""}
+                  </>
+                }
+                actions={
+                  <DropdownMenu>
+                    <RoutedCardActionMenuTrigger />
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          navigate({
+                            to: `/dashboards/${dashboard.id}`,
+                          } as never);
+                        }}
+                      >
+                        <ExternalLinkIcon className="mr-2 h-4 w-4" />
+                        Open
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="text-palette-danger"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleDelete(dashboard.id, dashboard.name);
+                        }}
+                      >
+                        <DeleteIcon className="mr-2 h-4 w-4" />
+                        Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                }
+              />
+            );
+          })}
         </ArtifactGrid>
       )}
 
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Create New Dashboard</DialogTitle>
+            <DialogTitle>Create report</DialogTitle>
           </DialogHeader>
           <div className="py-4">
             <Label htmlFor="name" className="mb-2 block">
-              Dashboard Name
+              Report name
             </Label>
             <Input
               id="name"
               value={newDashboardName}
               onChange={(e) => setNewDashboardName(e.target.value)}
-              placeholder="e.g., Sales Overview"
+              placeholder="e.g., Sales overview"
               autoFocus
               onKeyDown={(e) => {
                 if (e.key === "Enter") handleCreate();

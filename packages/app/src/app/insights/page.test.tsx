@@ -114,9 +114,9 @@ describe("InsightsPage delete confirmations", () => {
 
     render(<InsightsPage />);
 
-    expect(screen.queryByText(/^0 insights$/)).toBeNull();
+    expect(screen.queryByText(/^0 questions$/)).toBeNull();
     expect(
-      screen.getByRole("textbox", { name: "Search insights" }),
+      screen.getByRole("textbox", { name: "Search questions" }),
     ).not.toBeNull();
     expect(screen.queryByRole("main")).toBeNull();
   });
@@ -138,11 +138,11 @@ describe("InsightsPage delete confirmations", () => {
 
     render(<InsightsPage />);
 
-    expect(screen.queryByText(/^0 insights$/)).toBeNull();
+    expect(screen.queryByText(/^0 questions$/)).toBeNull();
     expect(
-      screen.getByRole("textbox", { name: "Search insights" }),
+      screen.getByRole("textbox", { name: "Search questions" }),
     ).not.toBeNull();
-    screen.getByRole("heading", { name: "Couldn't load insights" });
+    screen.getByRole("heading", { name: "Couldn't load questions" });
   });
 
   it("does not delete one draft after cancellation, but deletes it after confirmation", async () => {
@@ -158,7 +158,7 @@ describe("InsightsPage delete confirmations", () => {
     );
     await user.click(await screen.findByRole("menuitem", { name: "Delete" }));
     expect(screen.getByRole("dialog").textContent).toContain(
-      'Are you sure you want to delete "First draft"? This deletes the insight and its visualizations. Dashboard items that reference those visualizations may remain and stop working. This action cannot be undone.',
+      'Are you sure you want to delete "First draft"? This deletes the question and its saved views. Report items that reference those views may remain and stop working. This action cannot be undone.',
     );
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(mockCommitBatch).not.toHaveBeenCalled();
@@ -250,7 +250,7 @@ describe("InsightsPage delete confirmations", () => {
     expect(
       screen.getByRole("dialog", { name: "Delete drafts" }).textContent,
     ).toContain(
-      "Are you sure you want to delete all 2 draft insights? This deletes the drafts and their visualizations. Dashboard items that reference those visualizations may remain and stop working. This action cannot be undone.",
+      "Are you sure you want to delete all 2 draft questions? This deletes the questions and their saved views. Report items that reference those views may remain and stop working. This action cannot be undone.",
     );
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(mockCommitBatch).not.toHaveBeenCalled();
@@ -280,7 +280,10 @@ describe("InsightsPage delete confirmations", () => {
       </>,
     );
 
-    await user.type(screen.getByPlaceholderText("Search insights..."), "First");
+    await user.type(
+      screen.getByPlaceholderText("Search questions..."),
+      "First",
+    );
     expect(screen.getByText("First draft")).not.toBeNull();
     expect(screen.queryByText("Second draft")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Delete matching" }));
@@ -289,7 +292,7 @@ describe("InsightsPage delete confirmations", () => {
       screen.getByRole("dialog", { name: "Delete matching drafts" })
         .textContent,
     ).toContain(
-      "Are you sure you want to delete 1 matching draft insight? This deletes the matching drafts and their visualizations. Dashboard items that reference those visualizations may remain and stop working. This action cannot be undone.",
+      "Are you sure you want to delete 1 matching draft question? This deletes the matching questions and their saved views. Report items that reference those views may remain and stop working. This action cannot be undone.",
     );
     await user.click(screen.getByRole("button", { name: "Delete" }));
 
@@ -326,7 +329,7 @@ describe("InsightsPage delete confirmations", () => {
       });
       expect(mockClearActiveView).not.toHaveBeenCalled();
       expect(mockToastError).toHaveBeenCalledWith(
-        "Couldn't delete every draft — some may remain",
+        "Couldn't delete every draft question — some may remain",
       );
     });
   });

@@ -815,9 +815,9 @@ export default function VisualizationPageContent({
               }
             >
               <CardContent className="p-3">
-                <p className="truncate text-sm font-medium">Source Insight</p>
+                <p className="truncate text-sm font-medium">Source question</p>
                 <p className="text-xs text-neutral-fg-subtle">
-                  Click to view insight details
+                  Click to view question details
                 </p>
               </CardContent>
             </Card>
@@ -884,7 +884,7 @@ export default function VisualizationPageContent({
             The visualization you&apos;re looking for doesn&apos;t exist.
           </p>
           <Button
-            label="Go to Insights"
+            label="Go to Questions"
             onClick={() => navigate({ to: "/insights" })}
             className="mt-4"
           />

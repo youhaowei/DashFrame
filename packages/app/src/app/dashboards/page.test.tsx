@@ -37,7 +37,9 @@ const { mockCommit, mockUseQuery } = vi.hoisted(() => ({
 // refs) and replace the hooks.
 vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
-  useQuery_experimental: nativeQueryMock(() => mockUseQuery()),
+  useQuery_experimental: nativeQueryMock((ref: { _path: string }) =>
+    mockUseQuery(ref),
+  ),
   useMutation: nativeMutationMock(() => ({ mutateAsync: mockCommit })),
 }));
 vi.mock("@/data/host", () => ({
@@ -80,7 +82,7 @@ import DashboardsPage from "./page";
 // ---------------------------------------------------------------------------
 
 function openCreateDialog() {
-  fireEvent.click(screen.getByRole("button", { name: /new dashboard/i }));
+  fireEvent.click(screen.getByRole("button", { name: /new report/i }));
 }
 
 function typeName(name: string) {
@@ -195,7 +197,7 @@ describe("DashboardsPage – delete confirmation", () => {
     await user.click(screen.getByRole("button", { name: "More options" }));
     await user.click(await screen.findByRole("menuitem", { name: "Delete" }));
 
-    const dialog = screen.getByRole("dialog", { name: "Delete dashboard" });
+    const dialog = screen.getByRole("dialog", { name: "Delete report" });
     expect(dialog.textContent).toContain(
       'Are you sure you want to delete "Quarterly plan"? This action cannot be undone.',
     );
@@ -240,7 +242,7 @@ describe("DashboardsPage – delete confirmation", () => {
 
     await waitFor(() =>
       expect(mockShowError).toHaveBeenCalledWith(
-        "Failed to delete dashboard. Please try again.",
+        "Failed to delete report. Please try again.",
       ),
     );
   });
@@ -270,20 +272,64 @@ describe("DashboardsPage – delete confirmation", () => {
     render(<DashboardsPage />);
 
     await user.type(
-      screen.getByPlaceholderText("Search dashboards..."),
+      screen.getByPlaceholderText("Search reports..."),
       "Quarter",
     );
     expect(screen.getByText("Quarterly plan")).not.toBeNull();
     expect(screen.queryByText("Customer overview")).toBeNull();
 
-    await user.clear(screen.getByPlaceholderText("Search dashboards..."));
+    await user.clear(screen.getByPlaceholderText("Search reports..."));
     await user.type(
-      screen.getByPlaceholderText("Search dashboards..."),
+      screen.getByPlaceholderText("Search reports..."),
       "Missing",
     );
     await user.click(screen.getByRole("button", { name: "Clear search" }));
     expect(screen.getByText("Quarterly plan")).not.toBeNull();
     expect(screen.getByText("Customer overview")).not.toBeNull();
+  });
+
+  it("shows unique question and saved-view counts and links to Questions", async () => {
+    const user = userEvent.setup();
+    mockUseQuery.mockImplementation((ref: { _path: string }) => {
+      if (ref._path === "listDashboards") {
+        return {
+          data: [
+            {
+              id: "dashboard-1",
+              name: "Quarterly plan",
+              items: [
+                { type: "visualization", visualizationId: "view-1" },
+                { type: "visualization", visualizationId: "view-1" },
+                { type: "visualization", visualizationId: "view-2" },
+              ],
+              createdAt: 0,
+              updatedAt: 0,
+            },
+          ],
+          isLoading: false,
+        };
+      }
+      if (ref._path === "listVisualizations") {
+        return {
+          data: [
+            { id: "view-1", insightId: "question-1" },
+            { id: "view-2", insightId: "question-2" },
+          ],
+          isLoading: false,
+        };
+      }
+      return { data: [], isLoading: false };
+    });
+
+    render(<DashboardsPage />);
+
+    expect(
+      screen.getByRole("link", {
+        name: /Quarterly plan 2 questions 2 saved views/,
+      }),
+    ).not.toBeNull();
+    await user.click(screen.getByRole("button", { name: "Questions" }));
+    expect(mockNavigate).toHaveBeenCalledWith({ to: "/insights" });
   });
 
   it.each(["pointer", "Enter", "Space"] as const)(

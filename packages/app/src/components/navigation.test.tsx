@@ -120,6 +120,22 @@ describe("Navigation", () => {
     mockLocation.pathname = "/data-sources";
   });
 
+  it("renders exactly the three ratified roots in order", () => {
+    render(<Navigation />);
+
+    const links = within(screen.getByRole("navigation")).getAllByRole("link");
+    expect(links.map((link) => link.textContent?.trim())).toEqual([
+      "Reports",
+      "Data Sources",
+      "Drafts",
+    ]);
+    expect(links.map((link) => link.getAttribute("href"))).toEqual([
+      "/dashboards",
+      "/data-sources",
+      "/drafts",
+    ]);
+  });
+
   it("closes the mobile drawer when the active route is tapped", () => {
     render(<Navigation />);
 

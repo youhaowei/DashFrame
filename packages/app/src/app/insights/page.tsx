@@ -66,12 +66,9 @@ function getInsightState(
 }
 
 /**
- * Insights Management Page
+ * Project Questions Page
  *
- * Shows all insights organized by state:
- * - With Visualizations: Insights that have 1+ visualizations
- * - Configured: Insights with fields/metrics but no visualizations
- * - Drafts: Unconfigured insights (can be cleaned up)
+ * Shows every project Insight, organized by state.
  */
 export default function InsightsPage() {
   const navigate = useNavigate();
@@ -191,8 +188,8 @@ export default function InsightsPage() {
     e.stopPropagation();
     e.preventDefault();
     confirm({
-      title: "Delete insight",
-      description: `Are you sure you want to delete "${name}"? This deletes the insight and its visualizations. Dashboard items that reference those visualizations may remain and stop working. This action cannot be undone.`,
+      title: "Delete question",
+      description: `Are you sure you want to delete "${name}"? This deletes the question and its saved views. Report items that reference those views may remain and stop working. This action cannot be undone.`,
       confirmLabel: "Delete",
       variant: "destructive",
       onConfirm: async () => {
@@ -201,7 +198,7 @@ export default function InsightsPage() {
             commands: [cmd("DeleteNode", { id: insightId })],
           });
         } catch {
-          toast.error("Couldn't delete the insight");
+          toast.error("Couldn't delete the question");
           return;
         }
         // Drop the persisted canvas-view entry so deleted insights don't
@@ -218,10 +215,10 @@ export default function InsightsPage() {
     // untrustworthy (see the isLoading/hasLoadError note above).
     if (isLoading || hasLoadError) return;
     const draftCount = groupedInsights.drafts.length;
-    const draftInsightLabel = `draft insight${draftCount === 1 ? "" : "s"}`;
+    const draftQuestionLabel = `draft question${draftCount === 1 ? "" : "s"}`;
     const description = hasActiveSearch
-      ? `Are you sure you want to delete ${draftCount} matching ${draftInsightLabel}? This deletes the matching drafts and their visualizations. Dashboard items that reference those visualizations may remain and stop working. This action cannot be undone.`
-      : `Are you sure you want to delete all ${draftCount} ${draftInsightLabel}? This deletes the drafts and their visualizations. Dashboard items that reference those visualizations may remain and stop working. This action cannot be undone.`;
+      ? `Are you sure you want to delete ${draftCount} matching ${draftQuestionLabel}? This deletes the matching questions and their saved views. Report items that reference those views may remain and stop working. This action cannot be undone.`
+      : `Are you sure you want to delete all ${draftCount} ${draftQuestionLabel}? This deletes the questions and their saved views. Report items that reference those views may remain and stop working. This action cannot be undone.`;
     confirm({
       title: hasActiveSearch ? "Delete matching drafts" : "Delete drafts",
       description,
@@ -234,7 +231,9 @@ export default function InsightsPage() {
               commands: [cmd("DeleteNode", { id: item.insight.id })],
             });
           } catch {
-            toast.error("Couldn't delete every draft — some may remain");
+            toast.error(
+              "Couldn't delete every draft question — some may remain",
+            );
             return;
           }
           clearActiveView(item.insight.id);
@@ -295,23 +294,23 @@ export default function InsightsPage() {
 
   return (
     <ArtifactCollection
-      title="Insights"
+      title="Questions"
       description={
         isLoading || hasLoadError ? undefined : (
           <>
-            {insights.length} insight{insights.length !== 1 ? "s" : ""}
+            {insights.length} question{insights.length !== 1 ? "s" : ""}
           </>
         )
       }
       actions={
         <Button
           icon={PlusIcon}
-          label="New Insight"
+          label="New question"
           onClick={() => setIsCreateModalOpen(true)}
         />
       }
-      searchLabel="Search insights"
-      searchPlaceholder="Search insights..."
+      searchLabel="Search questions"
+      searchPlaceholder="Search questions..."
       itemCount={isLoading || hasLoadError ? undefined : insights.length}
       searchQuery={searchQuery}
       onSearchQueryChange={setSearchQuery}
@@ -319,7 +318,7 @@ export default function InsightsPage() {
       <div className="w-full space-y-8">
         {isLoading && (
           <div className="flex items-center justify-center py-16">
-            <p className="text-sm text-neutral-fg-subtle">Loading insights…</p>
+            <p className="text-sm text-neutral-fg-subtle">Loading questions…</p>
           </div>
         )}
         {!isLoading && hasLoadError && (
@@ -328,7 +327,7 @@ export default function InsightsPage() {
               <FileIcon className="h-8 w-8 text-neutral-fg-subtle" />
             </div>
             <h3 className="mb-2 text-lg font-semibold">
-              Couldn&apos;t load insights
+              Couldn&apos;t load questions
             </h3>
             <p className="mb-4 text-sm text-neutral-fg-subtle">
               Something went wrong. Check your connection and try again.
@@ -347,7 +346,7 @@ export default function InsightsPage() {
               <section className="space-y-3">
                 <div className="flex items-center justify-between">
                   <h2 className="text-sm font-semibold text-neutral-fg-subtle">
-                    With Visualizations ({groupedInsights.withViz.length})
+                    With saved views ({groupedInsights.withViz.length})
                   </h2>
                 </div>
                 <ArtifactGrid>
@@ -396,11 +395,11 @@ export default function InsightsPage() {
             {/* Empty State */}
             {filteredInsights.length === 0 && (
               <ArtifactEmptyState
-                title={searchQuery ? "No insights found" : "No insights yet"}
+                title={searchQuery ? "No questions found" : "No questions yet"}
                 description={
                   searchQuery
-                    ? `No insights match "${searchQuery}"`
-                    : "Create your first insight to start analyzing data"
+                    ? `No questions match "${searchQuery}"`
+                    : "Create your first question to start analyzing data"
                 }
                 action={
                   searchQuery ? (
@@ -412,7 +411,7 @@ export default function InsightsPage() {
                   ) : (
                     <Button
                       icon={PlusIcon}
-                      label="New Insight"
+                      label="New question"
                       onClick={() => setIsCreateModalOpen(true)}
                     />
                   )
