@@ -1002,6 +1002,33 @@ export const getLocalImport = internalQuery({
     return { frameId, fetchedAt, status, result };
   },
 });
+export const cancelLocalImport = internalMutation({
+  args: importClaimArgs,
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    if (!args.operationId || args.operationId.length > 200)
+      throw new Error("Invalid local import operationId");
+    if (!/^[0-9a-f]{64}$/i.test(args.requestHash))
+      throw new Error("Local import requestHash must be SHA256");
+    const current = await ctx.db
+      .query("localImports")
+      .withIndex("by_workspaceId_and_operationId", (q) =>
+        q
+          .eq("workspaceId", args.workspaceId)
+          .eq("operationId", args.operationId),
+      )
+      .unique();
+    if (current && current.requestHash !== args.requestHash)
+      throw new Error("Local import operationId reused with different request");
+    if (!current || current.cancelled || current.status === "complete")
+      return false;
+    await enqueueCleanup(ctx, args.workspaceId, [
+      { kind: "frame", resourceId: current.frameId },
+    ]);
+    await ctx.db.delete(current._id);
+    return true;
+  },
+});
 
 export { listCleanup, claimCleanup, ackCleanup } from "./cleanup";
 export {
