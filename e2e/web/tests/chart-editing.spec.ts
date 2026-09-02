@@ -19,7 +19,9 @@ test.describe("Chart Editing", () => {
     // `exact: true` disambiguates against the view switcher's other buttons —
     // "Horizontal bar" and "Hide sidebar" both contain "bar" as a substring,
     // which Playwright's default (non-exact) name matching would also match.
-    await expect(page.getByRole("button", { name: "Data" })).toBeVisible({
+    await expect(
+      page.getByRole("button", { name: "Data", exact: true }),
+    ).toBeVisible({
       timeout: 30_000,
     });
     await page.getByRole("button", { name: "Visualize" }).click();
