@@ -311,6 +311,7 @@ export default function InsightsPage() {
       }
       searchLabel="Search insights"
       searchPlaceholder="Search insights..."
+      itemCount={insights.length}
       searchQuery={searchQuery}
       onSearchQueryChange={setSearchQuery}
     >

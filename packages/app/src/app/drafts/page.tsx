@@ -54,6 +54,7 @@ export default function DraftsPage() {
       description={`${drafts.length} draft${drafts.length === 1 ? "" : "s"}`}
       searchLabel="Search drafts"
       searchPlaceholder="Search drafts..."
+      itemCount={drafts.length}
       searchQuery={searchQuery}
       onSearchQueryChange={setSearchQuery}
     >

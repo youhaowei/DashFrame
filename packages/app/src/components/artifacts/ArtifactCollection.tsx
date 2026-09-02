@@ -10,6 +10,7 @@ export type ArtifactCollectionProps = {
   description?: ReactNode;
   actions?: ReactNode;
   navigation?: ReactNode;
+  itemCount: number;
   searchQuery: string;
   onSearchQueryChange: (value: string) => void;
   searchPlaceholder: string;
@@ -24,6 +25,7 @@ export function ArtifactCollection({
   description,
   actions,
   navigation,
+  itemCount,
   searchQuery,
   onSearchQueryChange,
   searchPlaceholder,
@@ -31,6 +33,7 @@ export function ArtifactCollection({
   children,
   tools,
 }: ArtifactCollectionProps) {
+  const showSearch = itemCount > 0 || searchQuery.length > 0;
   return (
     <div className="flex h-full min-h-0 flex-col bg-neutral-bg">
       <ArtifactPageHeader
@@ -39,20 +42,26 @@ export function ArtifactCollection({
         actions={actions}
         navigation={navigation}
       >
-        <div className="relative w-full max-w-sm">
-          <SearchIcon
-            aria-hidden
-            className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-neutral-fg-subtle"
-          />
-          <Input
-            aria-label={searchLabel}
-            placeholder={searchPlaceholder}
-            value={searchQuery}
-            onChange={(event) => onSearchQueryChange(event.target.value)}
-            className="pl-9"
-          />
-        </div>
-        {tools}
+        {(showSearch || tools) && (
+          <>
+            {showSearch && (
+              <div className="relative w-full max-w-sm">
+                <SearchIcon
+                  aria-hidden
+                  className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-neutral-fg-subtle"
+                />
+                <Input
+                  aria-label={searchLabel}
+                  placeholder={searchPlaceholder}
+                  value={searchQuery}
+                  onChange={(event) => onSearchQueryChange(event.target.value)}
+                  className="pl-9"
+                />
+              </div>
+            )}
+            {tools}
+          </>
+        )}
       </ArtifactPageHeader>
       <main className="min-w-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6">
         {children}

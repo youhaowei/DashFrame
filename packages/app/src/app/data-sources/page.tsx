@@ -226,6 +226,7 @@ export default function DataSourcesPage() {
       }
       searchLabel="Search data sources"
       searchPlaceholder="Search data sources..."
+      itemCount={allDataSources.length}
       searchQuery={searchQuery}
       onSearchQueryChange={setSearchQuery}
     >

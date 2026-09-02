@@ -110,6 +110,7 @@ export default function DashboardsPage() {
       }
       searchLabel="Search dashboards"
       searchPlaceholder="Search dashboards..."
+      itemCount={dashboards.length}
       searchQuery={searchQuery}
       onSearchQueryChange={setSearchQuery}
     >

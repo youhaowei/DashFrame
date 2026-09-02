@@ -216,6 +216,7 @@ export default function DataFramesPage() {
       description={`${dataFrames?.length ?? 0} data frame${dataFrames?.length === 1 ? "" : "s"}`}
       searchLabel="Search data frames"
       searchPlaceholder="Search data frames..."
+      itemCount={dataFrames?.length ?? 0}
       searchQuery={searchQuery}
       onSearchQueryChange={setSearchQuery}
       tools={

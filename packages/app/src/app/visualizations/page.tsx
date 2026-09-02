@@ -264,6 +264,7 @@ export default function VisualizationsPage() {
       }
       searchLabel="Search visualizations"
       searchPlaceholder="Search visualizations..."
+      itemCount={visualizationsData.length}
       searchQuery={searchQuery}
       onSearchQueryChange={setSearchQuery}
     >
