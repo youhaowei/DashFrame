@@ -2,7 +2,14 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { csvToDataFrame, parseCSV } from "@dashframe/csv";
 import type { Principal } from "@wystack/identity";
-import type { DataSource, DataTable, Metric, UUID } from "@dashframe/types";
+import {
+  mergeReplacementFields,
+  retainReplacementMetrics,
+  type DataSource,
+  type DataTable,
+  type Metric,
+  type UUID,
+} from "@dashframe/types";
 
 import type { ApplicationOperations } from "./host/application";
 
@@ -117,6 +124,16 @@ async function seedObservedTable(
     if (raced) return raced;
   }
 
+  const replacementFields = table
+    ? mergeReplacementFields(input.fields, table.fields)
+    : input.fields;
+  const replacementMetrics = table
+    ? retainReplacementMetrics(
+        ensureCountMetric(table.metrics, countMetric),
+        replacementFields,
+      )
+    : [countMetric];
+
   let imported: LocalIngestResult;
   try {
     imported = (await application.execute(
@@ -132,8 +149,8 @@ async function seedObservedTable(
                 name: input.tableName,
                 table: input.tableBinding,
                 sourceSchema: input.sourceSchema,
-                fields: input.fields,
-                metrics: [countMetric],
+                fields: replacementFields,
+                metrics: replacementMetrics,
               },
             }
           : {}),
@@ -155,6 +172,14 @@ async function seedObservedTable(
     rowCount: imported.rowCount,
     columnCount: imported.columnCount,
   };
+}
+
+function ensureCountMetric(metrics: Metric[], countMetric: Metric): Metric[] {
+  return metrics.some(
+    (metric) => metric.aggregation === "count" && !metric.columnName,
+  )
+    ? metrics
+    : [countMetric, ...metrics];
 }
 
 async function createSourceOrObserveConflict(

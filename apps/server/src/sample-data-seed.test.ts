@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 
 import { csvToDataFrame, parseCSV } from "@dashframe/csv";
 import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
@@ -121,6 +122,66 @@ describe("sample CSV project seeding", () => {
       }),
     ).toEqual(reseeded);
     expect(project.frames.size).toBe(1);
+  });
+
+  it("preserves saved insight field and metric references across replacement", async () => {
+    const csvContent = await readFile(samplePath("orders"), "utf8");
+    const seeded = await seedCsvTable(project.application, {
+      csvContent,
+      tableName: "orders",
+    });
+    const table = project.tables.get(seeded.dataTableId)!;
+    const revenueField = table.fields.find(
+      (field) => field.columnName === "revenue",
+    )!;
+    const revenueMetric = {
+      id: randomUUID(),
+      name: "Revenue",
+      tableId: seeded.dataTableId,
+      columnName: "revenue",
+      aggregation: "sum" as const,
+    };
+    await project.application.execute("addMetric", {
+      nodeId: seeded.dataTableId,
+      metric: revenueMetric,
+    });
+    const insightId = randomUUID();
+    await project.application.execute("createInsightCmd", {
+      id: insightId,
+      name: "Revenue by channel",
+      source: { sourceType: "dataTable", sourceId: seeded.dataTableId },
+      selectedFields: [revenueField.id],
+      metrics: [
+        {
+          id: revenueMetric.id,
+          name: revenueMetric.name,
+          sourceTable: seeded.dataTableId,
+          columnName: revenueMetric.columnName,
+          aggregation: revenueMetric.aggregation,
+        },
+      ],
+    });
+
+    await seedCsvTable(project.application, {
+      csvContent: `${csvContent}O99999,C0001,2025-09-30,Direct,42.00,1,West\n`,
+      tableName: "orders",
+    });
+
+    const replacedTable = project.tables.get(seeded.dataTableId)!;
+    const insight = project.insights.get(insightId)!;
+    expect(
+      replacedTable.fields.find((field) => field.columnName === "revenue")?.id,
+    ).toBe(revenueField.id);
+    expect(
+      insight.selectedFields.every((fieldId) =>
+        replacedTable.fields.some((field) => field.id === fieldId),
+      ),
+    ).toBe(true);
+    expect(
+      insight.metrics.every((metric) =>
+        replacedTable.metrics.some((candidate) => candidate.id === metric.id),
+      ),
+    ).toBe(true);
   });
 });
 

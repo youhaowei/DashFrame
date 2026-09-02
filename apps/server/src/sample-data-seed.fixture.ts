@@ -2,6 +2,7 @@ import {
   NativeDuckDBEngine,
   arrowIpcToJsonRows,
 } from "@dashframe/engine-server";
+import type { Field, InsightMetric, Metric } from "@dashframe/types";
 import type { ApplicationOperations } from "./host/application";
 
 const UNHANDLED = Symbol("unhandled");
@@ -17,8 +18,17 @@ interface StoredTable {
   dataSourceId: string;
   name: string;
   table: string;
-  fields: Array<{ columnName?: string; name: string; type: string }>;
+  fields: Field[];
+  metrics: Metric[];
   dataFrameId?: string;
+}
+
+interface StoredInsight {
+  id: string;
+  name: string;
+  source: { sourceType: "dataTable"; sourceId: string };
+  selectedFields: string[];
+  metrics: InsightMetric[];
 }
 
 interface StoredFrame {
@@ -32,6 +42,7 @@ export class SampleSeedProjectFixture {
   readonly sources = new Map<string, StoredSource>();
   readonly tables = new Map<string, StoredTable>();
   readonly frames = new Map<string, StoredFrame>();
+  readonly insights = new Map<string, StoredInsight>();
   readonly application: Pick<ApplicationOperations, "execute">;
   private readonly completed = new Map<string, unknown>();
   private readonly importRequests = new Map<
@@ -123,6 +134,9 @@ export class SampleSeedProjectFixture {
       );
       return frame ? { ...frame, id: frame.dataFrameId } : null;
     }
+    if (operation === "getInsight") {
+      return this.insights.get(String(args.id)) ?? null;
+    }
     return UNHANDLED;
   }
 
@@ -170,6 +184,17 @@ export class SampleSeedProjectFixture {
     }
     if (operation === "ingestLocalDataFrame") {
       return this.ingest(args, operationId);
+    }
+    if (operation === "addMetric") {
+      const table = this.tables.get(String(args.nodeId));
+      if (!table) throw new Error("Missing table");
+      table.metrics.push(args.metric as Metric);
+      return { ok: true };
+    }
+    if (operation === "createInsightCmd") {
+      const insight = args as unknown as StoredInsight;
+      this.insights.set(insight.id, insight);
+      return { id: insight.id };
     }
     throw new Error(`Unsupported fixture operation: ${operation}`);
   }

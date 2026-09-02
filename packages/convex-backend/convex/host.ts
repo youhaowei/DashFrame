@@ -945,6 +945,24 @@ export const getLocalImport = internalQuery({
     return { frameId, fetchedAt, status, result };
   },
 });
+export const cancelLocalImport = internalMutation({
+  args: importClaimArgs,
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const current = await importClaim(
+      ctx,
+      args.workspaceId,
+      args.operationId,
+      args.requestHash,
+    );
+    if (!current || current.status === "complete") return false;
+    await enqueueCleanup(ctx, args.workspaceId, [
+      { kind: "frame", resourceId: current.frameId },
+    ]);
+    await ctx.db.delete(current._id);
+    return true;
+  },
+});
 
 export { listCleanup, claimCleanup, ackCleanup } from "./cleanup";
 export {

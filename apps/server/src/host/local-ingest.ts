@@ -382,11 +382,8 @@ async function ingestLocalFrame(
     // A lost response is not a rollback. Retain bytes while the native outcome
     // is unknown; the same operation can recover its committed result later.
     if (claim) {
-      const recovered = await ctx.metadata
-        .getLocalImport(claim)
-        .catch(() => null);
-      if (recovered?.status === "complete" && recovered.result)
-        return recovered.result;
+      const recovered = await recoverOrCancelFailedImport(ctx, claim, error);
+      if (recovered) return recovered;
     }
     throw error;
   }
@@ -442,6 +439,51 @@ export async function ingestLocalDataFrame(
 }
 
 export { ingestLocalFrame };
+
+async function recoverOrCancelFailedImport(
+  ctx: HostContext,
+  claim: LocalImportClaim & { operationId: string; requestHash: string },
+  error: unknown,
+): Promise<LocalImportClaim["result"]> {
+  const importIdentity = {
+    operationId: claim.operationId,
+    requestHash: claim.requestHash,
+  };
+  const recovered = await ctx.metadata
+    .getLocalImport(importIdentity)
+    .catch(() => null);
+  if (recovered?.status === "complete" && recovered.result) {
+    return recovered.result;
+  }
+  if (
+    !hasErrorMessage(error, "SOURCE_BINDING_CHANGED") &&
+    !hasErrorMessage(error, "STALE_LOCAL_REPLACEMENT")
+  ) {
+    return null;
+  }
+  if (await ctx.metadata.cancelLocalImport(importIdentity)) {
+    await ctx.cleanupResources?.();
+  }
+  return null;
+}
+
+function hasErrorMessage(error: unknown, expected: string): boolean {
+  const seen = new Set<Error>();
+  let current = error;
+  while (current instanceof Error && !seen.has(current)) {
+    seen.add(current);
+    if (
+      current.message === expected ||
+      current.message
+        .split("\n")
+        .some((line) => line.trimEnd().endsWith(`Error: ${expected}`))
+    ) {
+      return true;
+    }
+    current = current.cause;
+  }
+  return false;
+}
 
 function stableInput(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableInput).join(",")}]`;

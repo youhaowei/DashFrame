@@ -74,6 +74,11 @@ export function createHostMetadata(
       }),
     getLocalImport: (input) =>
       client.query(internal.host.getLocalImport, { workspaceId, ...input }),
+    cancelLocalImport: (input) =>
+      client.mutation(internal.host.cancelLocalImport, {
+        workspaceId,
+        ...input,
+      }),
     getOperation: (operationId) =>
       client.query(internal.host.getOperation, { workspaceId, operationId }),
     connectorSetup: {
