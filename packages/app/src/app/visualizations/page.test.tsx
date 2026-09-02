@@ -112,7 +112,10 @@ describe("VisualizationsPage delete confirmation", () => {
               name: "Revenue by month",
               insightId: "composed",
               visualizationType: "bar",
-              encoding: {},
+              encoding: {
+                x: "field:9373ada6-d3e1-4efb-ac83-c8ef4df47d1e",
+                y: "metric:bf6a0747-f50e-4f4a-bb71-79a70cfc9549",
+              },
             },
           ],
           isLoading: false,
@@ -168,6 +171,8 @@ describe("VisualizationsPage delete confirmation", () => {
       name: /Revenue by month.*From: Composed report.*csv/,
     });
     expect(link.getAttribute("href")).toBe("/visualizations/viz-1");
+    expect(link.textContent).not.toContain("field:");
+    expect(link.textContent).not.toContain("metric:");
   });
 
   it.each(["pointer", "Enter", "Space"] as const)(

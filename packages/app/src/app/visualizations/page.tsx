@@ -195,19 +195,6 @@ export default function VisualizationsPage() {
               )}
             </>
           )}
-          {(item.visualization.encoding?.x ||
-            item.visualization.encoding?.y) && (
-            <>
-              <span aria-hidden="true"> · </span>{" "}
-              {item.visualization.encoding.x &&
-                `X: ${item.visualization.encoding.x}`}
-              {item.visualization.encoding.x &&
-                item.visualization.encoding.y &&
-                " · "}
-              {item.visualization.encoding.y &&
-                `Y: ${item.visualization.encoding.y}`}
-            </>
-          )}
         </>
       }
       actions={
