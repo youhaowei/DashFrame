@@ -11,6 +11,7 @@ import { publicationMetadata } from "./publication";
 import { artifactTables } from "./model";
 import { replaceDraft } from "./app";
 import { findLateBound } from "./lateBound";
+import { externallyReferencedFrameIds } from "./frameRetention";
 import { redact } from "./preview";
 import { v } from "convex/values";
 import {
@@ -50,6 +51,14 @@ import {
 } from "./model";
 import { parseStoredDataTableState } from "./tableCodec";
 const workspace = { workspaceId: v.string() };
+/** Extend this predicate when another frame kind, such as a pinned snapshot, must survive pruning. */
+function shouldRetainInsightFrame(
+  frame: { id: string },
+  previousFrameId: string | undefined,
+  externallyReferenced: ReadonlySet<string>,
+) {
+  return frame.id === previousFrameId || externallyReferenced.has(frame.id);
+}
 export const runtimeReady = internalQuery({
   args: {},
   returns: v.object({ ready: v.literal(true) }),
@@ -393,14 +402,49 @@ export const publishMaterialization = internalMutation({
           .take(1001);
         if (prior.length > 1000)
           throw new Error("Frame history limit exceeded");
-        for (const frame of prior)
-          await ctx.db.patch(frame._id, {
-            analysis: {
-              ...(frame.analysis ? record(frame.analysis) : {}),
-              currentInsightResult: false,
-            },
-            revision: frame.revision + 1,
-          });
+        const byFreshness = (
+          a: (typeof prior)[number],
+          b: (typeof prior)[number],
+        ) =>
+          (b.lastRefreshedAt ?? b.createdAt) -
+          (a.lastRefreshedAt ?? a.createdAt);
+        const previousFrameId =
+          prior
+            .filter(
+              (frame) =>
+                frame.analysis &&
+                record(frame.analysis).currentInsightResult === true,
+            )
+            .sort(byFreshness)[0]?.id ?? [...prior].sort(byFreshness)[0]?.id;
+        const externallyReferenced = await externallyReferencedFrameIds(
+          ctx,
+          args.workspaceId,
+          prior,
+        );
+        for (const frame of prior) {
+          if (
+            shouldRetainInsightFrame(
+              frame,
+              previousFrameId,
+              externallyReferenced,
+            )
+          ) {
+            await ctx.db.patch(frame._id, {
+              analysis: {
+                ...(frame.analysis ? record(frame.analysis) : {}),
+                currentInsightResult: false,
+              },
+              revision: frame.revision + 1,
+            });
+          } else {
+            await enqueueCleanup(
+              ctx,
+              args.workspaceId,
+              resources(frame).values(),
+            );
+            await ctx.db.delete(frame._id);
+          }
+        }
       }
       await putFrame(ctx, args.workspaceId, {
         id: result.id,
