@@ -49,7 +49,7 @@ export function WebMCPProvider({ children }: { children: ReactNode }) {
           draftBatch({ commands: [...commands] }),
         navigateToDraft: (draftId) =>
           navigate({
-            to: "/drafts/$draftId/",
+            to: "/drafts/$draftId",
             params: { draftId },
           }),
         document,

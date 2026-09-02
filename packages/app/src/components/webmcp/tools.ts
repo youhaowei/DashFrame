@@ -643,7 +643,7 @@ export function createWebMCPTools(
         await dependencies.navigateToDraft(draftId);
         return {
           draftId,
-          route: `/drafts/${draftId}/`,
+          route: `/drafts/${draftId}`,
           summary: "Draft review is now open.",
         };
       },
