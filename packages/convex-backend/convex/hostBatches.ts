@@ -232,8 +232,9 @@ export const settleHostBatch = internalMutation({
       await enqueueCleanup(ctx, args.workspaceId, supplied);
       return { status: "pending" as const, result: null };
     }
+    const { retryable: _retryable, ...identityAndRefs } = args;
     await ctx.db.insert("hostBatches", {
-      ...args,
+      ...identityAndRefs,
       owner: principalOwner(args.principal),
       status: "cancelled",
       result: null,
