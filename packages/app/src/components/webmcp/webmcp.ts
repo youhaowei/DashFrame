@@ -30,6 +30,32 @@ declare global {
   interface Document {
     modelContext?: WebMCPModelContext;
   }
+  interface Navigator {
+    modelContext?: WebMCPModelContext;
+  }
+}
+
+/**
+ * Both spellings are live, so we cannot pick one.
+ *
+ * The spec moved the entry point from `navigator` to `document` — tools belong
+ * to a page, not to the browser — and Chrome deprecated `navigator.modelContext`
+ * in Chrome 150. But the WebMCP origin trial (Chrome 149-156) still ships the
+ * `navigator` form, which is how visitors reach us on an origin-trial token
+ * rather than a `chrome://flags` opt-in. Detecting only `document` registers
+ * nothing for those visitors, and it fails silently: the page looks fine and
+ * simply has no tools. Prefer `document`, fall back to `navigator`.
+ */
+function resolveModelContext(): WebMCPModelContext | undefined {
+  const fromDocument =
+    typeof document === "undefined" ? undefined : document.modelContext;
+  if (typeof fromDocument?.registerTool === "function") return fromDocument;
+
+  const fromNavigator =
+    typeof navigator === "undefined" ? undefined : navigator.modelContext;
+  if (typeof fromNavigator?.registerTool === "function") return fromNavigator;
+
+  return undefined;
 }
 
 function descriptorKey(tools: readonly WebMCPToolDefinition[]): string {
@@ -72,8 +98,8 @@ export function useWebMCPTools(tools: readonly WebMCPToolDefinition[]): void {
   );
 
   useEffect(() => {
-    const modelContext = document.modelContext;
-    if (typeof modelContext?.registerTool !== "function") return;
+    const modelContext = resolveModelContext();
+    if (!modelContext) return;
 
     const controller = new AbortController();
     for (const tool of registeredTools) {

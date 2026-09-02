@@ -238,8 +238,56 @@ describe("DashFrame WebMCP registry", () => {
     delete document.modelContext;
   });
 
+  it("registers through navigator.modelContext when only that form exists", () => {
+    // The WebMCP origin trial (Chrome 149-156) still ships the `navigator`
+    // spelling. Detecting only `document` registers nothing there, and does it
+    // silently — the page looks healthy and simply has no tools.
+    const registered: string[] = [];
+    delete document.modelContext;
+    Object.defineProperty(navigator, "modelContext", {
+      value: {
+        registerTool: (tool: WebMCPToolDefinition) => {
+          registered.push(tool.name);
+        },
+      } satisfies WebMCPModelContext,
+      configurable: true,
+    });
+
+    render(<RegistryProbe tools={fixtureTools()} />);
+    expect(registered).toEqual(EXPECTED_TOOLS);
+    delete navigator.modelContext;
+  });
+
+  it("prefers document.modelContext when both forms exist", () => {
+    const viaDocument: string[] = [];
+    const viaNavigator: string[] = [];
+    Object.defineProperty(document, "modelContext", {
+      value: {
+        registerTool: (tool: WebMCPToolDefinition) => {
+          viaDocument.push(tool.name);
+        },
+      } satisfies WebMCPModelContext,
+      configurable: true,
+    });
+    Object.defineProperty(navigator, "modelContext", {
+      value: {
+        registerTool: (tool: WebMCPToolDefinition) => {
+          viaNavigator.push(tool.name);
+        },
+      } satisfies WebMCPModelContext,
+      configurable: true,
+    });
+
+    render(<RegistryProbe tools={fixtureTools()} />);
+    expect(viaDocument).toEqual(EXPECTED_TOOLS);
+    expect(viaNavigator).toEqual([]);
+    delete document.modelContext;
+    delete navigator.modelContext;
+  });
+
   it("is a clean no-op when WebMCP is absent", () => {
     delete document.modelContext;
+    delete navigator.modelContext;
     expect(() =>
       render(<RegistryProbe tools={fixtureTools()} />),
     ).not.toThrow();
