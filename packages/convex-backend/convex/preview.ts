@@ -8,9 +8,11 @@ import type {
   PreviewDownstreamNode,
   PreviewIntent,
   DownstreamEdge,
+  CommandRegistryPath,
+  VisualizationType,
   UUID,
 } from "@dashframe/types";
-import { COMMAND_PATHS } from "@dashframe/types";
+import { CHART_TYPE_METADATA, COMMAND_PATHS } from "@dashframe/types";
 import {
   artifactKinds,
   artifactTables,
@@ -165,7 +167,7 @@ export function describeCommand(command: Command): PreviewIntent {
   const metricName = nestedName(args.metric);
   const updatedFieldName = nestedName(args.updates);
 
-  const summaryByPath: Record<string, string> = {
+  const summaryByPath: Record<CommandRegistryPath, string> = {
     getOrCreateDataSource: name
       ? `Use or create data source ${name}`
       : "Use or create data source",
@@ -194,7 +196,7 @@ export function describeCommand(command: Command): PreviewIntent {
     selectFields: "Update selected fields",
     setInsightFilter: "Update filters",
     setInsightSort: "Update sorting",
-    setInsightRuntimeControls: "Update report controls",
+    setInsightRuntimeControls: "Update question controls",
     addJoin: "Add join",
     updateJoin: "Update join",
     removeJoin: "Remove join",
@@ -202,8 +204,9 @@ export function describeCommand(command: Command): PreviewIntent {
       ? `Create saved view ${name}`
       : "Create saved view",
     setChartType:
-      typeof args.visualizationType === "string"
-        ? `Change chart type to ${args.visualizationType}`
+      typeof args.visualizationType === "string" &&
+      args.visualizationType in CHART_TYPE_METADATA
+        ? `Change chart type to ${CHART_TYPE_METADATA[args.visualizationType as VisualizationType].displayName}`
         : "Change chart type",
     setChartEncoding: "Update chart encoding",
     createDashboardCmd: name ? `Create report ${name}` : "Create report",
@@ -220,7 +223,10 @@ export function describeCommand(command: Command): PreviewIntent {
 
   return {
     command: commandName,
-    summary: summaryByPath[command.path] ?? "Update artifact",
+    summary:
+      command.path in summaryByPath
+        ? summaryByPath[command.path as CommandRegistryPath]
+        : "Update artifact",
   };
 }
 function edge(

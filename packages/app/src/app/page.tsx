@@ -1,19 +1,22 @@
 import { useQuery_experimental as useQuery } from "convex/react";
+import { useEffect } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { queryStatus } from "@/data/query-status";
 import { DraftListItem } from "@/components/drafts/DraftListItem";
 import { api } from "@dashframe/convex-backend/api";
 
 import { Spinner } from "@wystack/ui-react";
-import { HomeView } from "./_components/HomeView";
 import { OnboardingView } from "./_components/OnboardingView";
 
 /**
  * Home Page
  *
- * Shows onboarding flow when no visualizations exist,
- * or a dashboard overview when visualizations are present.
+ * Shows onboarding when no visualizations exist. Populated projects enter the
+ * product through Reports so legacy peer collections do not bypass the
+ * report-centered hierarchy.
  */
 export default function HomePage() {
+  const navigate = useNavigate();
   const { data: visualizations = [], isLoading } = queryStatus(
     useQuery({ query: api.app.listVisualizations, args: {} }),
   );
@@ -23,7 +26,13 @@ export default function HomePage() {
 
   const hasVisualizations = visualizations.length > 0;
 
-  if (isLoading) {
+  useEffect(() => {
+    if (!isLoading && hasVisualizations) {
+      void navigate({ to: "/dashboards", replace: true });
+    }
+  }, [hasVisualizations, isLoading, navigate]);
+
+  if (isLoading || hasVisualizations) {
     return (
       <div className="flex h-full items-center justify-center bg-neutral-bg">
         <Spinner size="lg" className="text-neutral-fg-subtle" />
@@ -49,11 +58,7 @@ export default function HomePage() {
             </section>
           ) : null}
 
-          {/* Onboarding View - Show when no visualizations exist */}
-          {!hasVisualizations && <OnboardingView />}
-
-          {/* Home View - Show when visualizations exist */}
-          {hasVisualizations && <HomeView />}
+          <OnboardingView />
         </div>
       </main>
     </div>
