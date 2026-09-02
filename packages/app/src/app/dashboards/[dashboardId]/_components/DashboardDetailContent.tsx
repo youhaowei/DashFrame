@@ -44,6 +44,10 @@ interface DashboardDetailContentProps {
   dashboardId: string;
 }
 
+export function formatDashboardItemCount(itemCount: number): string {
+  return `${itemCount} item${itemCount === 1 ? "" : "s"}`;
+}
+
 export default function DashboardDetailContent({
   dashboardId,
 }: DashboardDetailContentProps) {
@@ -207,7 +211,7 @@ export default function DashboardDetailContent({
     <div className="flex h-full flex-col">
       <ArtifactPageHeader
         title={dashboard.name}
-        description={`${dashboard.items.length} items`}
+        description={formatDashboardItemCount(dashboard.items.length)}
         navigation={
           <Breadcrumb
             LinkComponent={Link}
