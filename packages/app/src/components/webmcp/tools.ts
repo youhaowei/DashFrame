@@ -598,20 +598,18 @@ export function createWebMCPTools(
             : requireLoaded(data.insights, "Insights").find(
                 (insight) => insight.id === sourceId,
               );
-        if (!source && !draftId) throw new Error("Insight source not found.");
+        if (!source) throw new Error("Insight source not found.");
         const selectedFieldIds = optionalStringArray(
           input,
           "selectedFieldIds",
         ) as UUID[];
         const filters = parseFilters(input.filters);
         const sorts = parseSorts(input.sort);
-        if (source) {
-          const references =
-            input.sourceType === "dataTable"
-              ? fieldReferencesForDataTable(source as DataTable)
-              : fieldReferencesForInsight(source as Insight, tables);
-          assertInsightFields(selectedFieldIds, filters, sorts, references);
-        }
+        const references =
+          input.sourceType === "dataTable"
+            ? fieldReferencesForDataTable(source as DataTable)
+            : fieldReferencesForInsight(source as Insight, tables);
+        assertInsightFields(selectedFieldIds, filters, sorts, references);
         const id = crypto.randomUUID() as UUID;
         const commands: Command[] = [
           cmd("CreateInsight", {

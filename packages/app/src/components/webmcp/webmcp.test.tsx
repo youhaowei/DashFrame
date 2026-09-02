@@ -369,6 +369,22 @@ describe("DashFrame WebMCP registry", () => {
     expect(stageDraft).not.toHaveBeenCalled();
   });
 
+  it("rejects an unknown insight source even when appending to a draft", async () => {
+    const stageDraft = vi.fn(async () => ({ draftId: "draft-1" }));
+    await expect(
+      tool("propose_insight", { stageDraft }).execute({
+        draftId: "draft-1",
+        name: "Broken composition",
+        sourceType: "dataTable",
+        sourceId: "other-project-table",
+        selectedFieldIds: ["other-table-field"],
+        filters: [{ field: "other_field", operator: "eq", value: 1 }],
+        sort: [{ field: "other_field", direction: "asc" }],
+      }),
+    ).rejects.toThrow("Insight source not found");
+    expect(stageDraft).not.toHaveBeenCalled();
+  });
+
   it("applies the assistant privacy floor to returned cell values", async () => {
     queryDataFrameMock.mockResolvedValue({
       status: "ready",
