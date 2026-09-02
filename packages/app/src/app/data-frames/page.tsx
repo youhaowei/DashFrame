@@ -82,17 +82,17 @@ export default function DataFramesPage() {
 
   const now = useNow();
 
-  const dataSourceNameById = useMemo(() => {
+  const dataSourceNameById = (() => {
     const map = new Map<string, string>();
     for (const source of dataSources ?? []) map.set(source.id, source.name);
     return map;
-  }, [dataSources]);
+  })();
 
-  const dataTableNameById = useMemo(() => {
+  const dataTableNameById = (() => {
     const map = new Map<string, string>();
     for (const table of dataTables ?? []) map.set(table.id, table.name);
     return map;
-  }, [dataTables]);
+  })();
 
   const filteredDataFrames = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();

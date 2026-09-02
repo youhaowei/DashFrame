@@ -333,10 +333,7 @@ export default function InsightsPage() {
             <Button
               variant="outline"
               label="Try again"
-              onClick={() => {
-                refetchInsights();
-                refetchVisualizations();
-              }}
+              onClick={() => globalThis.location.reload()}
             />
           </div>
         )}

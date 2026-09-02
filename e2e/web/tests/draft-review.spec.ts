@@ -163,9 +163,7 @@ test.describe("draft review", () => {
     ).toMatchObject([{ value: { kind: "value", v: "EMEA" } }]);
 
     await page.goto(`${workerBaseURL}/drafts`);
-    await expect(
-      page.getByText("No changes waiting for review."),
-    ).toBeVisible();
+    await expect(page.getByText("No changes waiting for review")).toBeVisible();
   });
 
   test("a service credential can draft but can neither commit nor revise", async () => {
@@ -219,9 +217,7 @@ test.describe("draft review", () => {
     workerBaseURL,
   }) => {
     await page.goto(`${workerBaseURL}/drafts`);
-    await expect(
-      page.getByText("No changes waiting for review."),
-    ).toBeVisible();
+    await expect(page.getByText("No changes waiting for review")).toBeVisible();
 
     // The list query is already mounted. An external service mutation must
     // invalidate it over the live subscription — no navigation, no reload.
@@ -248,9 +244,7 @@ test.describe("draft review", () => {
     await expect(page.getByLabel("1 draft waiting for review")).toBeVisible();
 
     await mutate("discardDraft", { draftId: discardable.draftId }, USER_TOKEN);
-    await expect(
-      page.getByText("No changes waiting for review."),
-    ).toBeVisible();
+    await expect(page.getByText("No changes waiting for review")).toBeVisible();
     await expect(page.getByLabel(/waiting for review/)).toHaveCount(0);
   });
 });
