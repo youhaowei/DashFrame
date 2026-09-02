@@ -463,6 +463,7 @@ export function createStandaloneServerOptions(
     mcpMode: opts.mcpMode,
     corsOrigin: opts.corsOrigin,
     authToken: opts.token,
+    insecure: opts.insecure,
     arrowEngine,
     ...secretServices,
     googleOAuth: readOptionalGoogleOAuthConfig(),
@@ -542,12 +543,6 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
   }
 
   assertBindIsSafe(opts);
-
-  if (opts.insecure && !opts.token && !isLoopbackHost(opts.hostname)) {
-    console.warn(
-      "[dashframe] warning: --insecure non-loopback bind without --token exposes this project to the network",
-    );
-  }
 
   const projectDir = resolveProjectDirectory(opts);
   const dataDir = resolveDataDir(opts);
