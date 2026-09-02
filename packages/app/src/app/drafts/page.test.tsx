@@ -35,4 +35,15 @@ describe("DraftsPage", () => {
     ).not.toBeNull();
     expect(screen.queryByRole("main")).toBeNull();
   });
+
+  it("keeps the count unknown and search visible when drafts fail to load", () => {
+    mockUseQuery.mockReturnValue({ isLoadingError: true });
+
+    render(<DraftsPage />);
+
+    expect(screen.queryByText(/^0 drafts$/)).toBeNull();
+    expect(
+      screen.getByRole("textbox", { name: "Search drafts" }),
+    ).not.toBeNull();
+  });
 });
