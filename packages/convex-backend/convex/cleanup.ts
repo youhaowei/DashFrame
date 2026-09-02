@@ -6,11 +6,19 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
-import { artifactTables } from "./model";
+import { artifactTables, RESOURCE_REFERENCE_SCAN_CAP_CODE } from "./model";
 import { cleanupClaim, cleanupItem, cleanupResource } from "./lifecycleValues";
 export type Resource = typeof cleanupResource.type;
 const secretPattern = /^secret:[0-9a-f-]{36}$/i;
 const key = (r: Resource) => `${r.kind}:${r.resourceId}`;
+// Finds secret references in stored rows so cleanup cannot reclaim live data.
+// credentialRef appears only here because saveAssistantProviderConfig writes it
+// directly to stored assistant provider configs, never through the command path.
+const STORED_RESOURCE_CREDENTIAL_SLOTS = [
+  "apiKey",
+  "connectionString",
+  "credentialRef",
+] as const;
 /** Inspect resource slots, never arbitrary strings in names, rows, or chart text. */
 export function resources(value: unknown): Map<string, Resource> {
   const found = new Map<string, Resource>();
@@ -29,7 +37,7 @@ export function resources(value: unknown): Map<string, Resource> {
       if (name === "dataFrameId" && typeof child === "string")
         add("frame", child);
       if (
-        ["apiKey", "connectionString", "credentialRef"].includes(name) &&
+        STORED_RESOURCE_CREDENTIAL_SLOTS.some((slot) => slot === name) &&
         typeof child === "string" &&
         secretPattern.test(child)
       )
@@ -107,14 +115,34 @@ export async function enqueueRemovedResources(
     [...resources(before)].filter(([k]) => !next.has(k)).map(([, r]) => r),
   );
 }
-async function referencedResources(ctx: QueryCtx, workspaceId: string) {
-  const found = new Map<string, Resource>();
-  const add = (table: string, rows: unknown[]) => {
+export const WORKSPACE_REFERENCE_TABLES = [
+  ...artifactTables,
+  "draftChanges",
+  "draftLog",
+  "hostSettings",
+  "connectorSetupSessions",
+  "hostBatches",
+] as const;
+export type WorkspaceReferenceTable =
+  (typeof WORKSPACE_REFERENCE_TABLES)[number];
+
+export async function scanWorkspaceReferenceRows(
+  ctx: QueryCtx,
+  workspaceId: string,
+  transform: (table: WorkspaceReferenceTable, rows: unknown[]) => unknown[] = (
+    _table,
+    rows,
+  ) => rows,
+) {
+  const scanned: { table: WorkspaceReferenceTable; rows: unknown[] }[] = [];
+  const add = (table: WorkspaceReferenceTable, rows: unknown[]) => {
     if (rows.length > 1000)
-      throw new ConvexError(
-        `resource reference scan cap exceeded for ${table}; cleanup outbox halted`,
-      );
-    for (const [k, v] of resources(rows)) found.set(k, v);
+      throw new ConvexError({
+        code: RESOURCE_REFERENCE_SCAN_CAP_CODE,
+        table,
+        message: `resource reference scan cap exceeded for ${table}; cleanup outbox halted`,
+      });
+    scanned.push({ table, rows: transform(table, rows) });
   };
   for (const table of artifactTables)
     add(
@@ -167,8 +195,23 @@ async function referencedResources(ctx: QueryCtx, workspaceId: string) {
     )
     .take(1001);
   add("hostBatches", pending);
-  for (const batch of pending)
-    for (const r of secretResources(batch.stagedRefs)) found.set(key(r), r);
+  return scanned;
+}
+
+export async function referencedResources(ctx: QueryCtx, workspaceId: string) {
+  const found = new Map<string, Resource>();
+  const scanned = await scanWorkspaceReferenceRows(ctx, workspaceId);
+  for (const { rows } of scanned)
+    for (const [k, v] of resources(rows)) found.set(k, v);
+  const pending = scanned.find(({ table }) => table === "hostBatches")?.rows;
+  for (const batch of pending ?? []) {
+    if (!batch || typeof batch !== "object" || Array.isArray(batch))
+      throw new Error("Invalid pending host batch");
+    const refs = (batch as Record<string, unknown>).stagedRefs;
+    if (!Array.isArray(refs) || !refs.every((ref) => typeof ref === "string"))
+      throw new Error("Invalid staged SecretRef list");
+    for (const r of secretResources(refs)) found.set(key(r), r);
+  }
   return found;
 }
 export const listCleanup = internalQuery({

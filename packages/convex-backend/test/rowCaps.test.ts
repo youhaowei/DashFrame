@@ -3,6 +3,15 @@ import { convexTest } from "convex-test";
 import { COMMAND_PATHS } from "@dashframe/types";
 import schema from "../convex/schema";
 import { api, internal } from "../convex/_generated/api";
+import {
+  scanWorkspaceReferenceRows,
+  WORKSPACE_REFERENCE_TABLES,
+} from "../convex/cleanup";
+import { externallyReferencedFrameIds } from "../convex/frameRetention";
+import {
+  RESOURCE_REFERENCE_SCAN_CAP_CODE,
+  resourceReferenceScanCapPayload,
+} from "../convex/model";
 
 const modules = import.meta.glob("../convex/**/*.ts");
 const makeTest = () => convexTest(schema, modules);
@@ -21,7 +30,7 @@ const user = () =>
     userId: "u",
   });
 
-it("keeps a workspace with 1001 data frames listable and repairable", async () => {
+it("returns a bounded recovery batch when a workspace has 1001 frames", async () => {
   const frameIds = Array.from({ length: 1001 }, () => crypto.randomUUID());
   await t.run(async (ctx) => {
     for (const id of frameIds)
@@ -39,16 +48,104 @@ it("keeps a workspace with 1001 data frames listable and repairable", async () =
   await expect(user().query(api.app.listDataFrames, {})).rejects.toThrow(
     "use the Data Frames recovery list",
   );
-  const recoveryBatch = await user().query(api.app.listDataFrames, {
-    recovery: true,
-  });
-  expect(recoveryBatch).toHaveLength(1000);
+  expect(
+    await user().query(api.app.listDataFrames, { recovery: true }),
+  ).toHaveLength(1000);
   await t.mutation(internal.host.removeDataFrame, {
     workspaceId: "w",
-    id: recoveryBatch[0]!.id,
+    id: frameIds[0]!,
   });
   expect(await user().query(api.app.listDataFrames, {})).toHaveLength(1000);
+  expect(
+    await user().query(api.app.listDataFrames, { recovery: true }),
+  ).toHaveLength(1000);
 }, 15_000);
+
+it("returns one indexed data source when more than 1000 share its type", async () => {
+  await t.run(async (ctx) => {
+    for (let index = 0; index < 1001; index++)
+      await ctx.db.insert("dataSources", {
+        workspaceId: "w",
+        id: crypto.randomUUID(),
+        revision: 1,
+        name: `Source ${index}`,
+        createdAt: index,
+        kind: "csv",
+      });
+  });
+
+  expect(
+    await user().query(api.app.getDataSourceByType, { type: "csv" }),
+  ).not.toBeNull();
+}, 15_000);
+
+it("serves draft-less indexed reads without loading unrelated artifact tables", async () => {
+  const sourceId = crypto.randomUUID();
+  const insightId = crypto.randomUUID();
+  const insightFrameId = crypto.randomUUID();
+  await t.run(async (ctx) => {
+    await ctx.db.insert("dataSources", {
+      workspaceId: "w",
+      id: sourceId,
+      revision: 1,
+      name: "Source",
+      createdAt: Date.now(),
+      kind: "csv",
+    });
+    await ctx.db.insert("dataFrames", {
+      workspaceId: "w",
+      id: insightFrameId,
+      revision: 1,
+      name: "Current insight frame",
+      createdAt: Date.now(),
+      insightId,
+      storage: { type: "file", key: insightFrameId },
+      fieldIds: [],
+      analysis: { currentInsightResult: true },
+    });
+    for (let index = 0; index < 1000; index++) {
+      const id = crypto.randomUUID();
+      await ctx.db.insert("dataFrames", {
+        workspaceId: "w",
+        id,
+        revision: 1,
+        name: "Unrelated frame",
+        createdAt: index,
+        storage: { type: "file", key: id },
+        fieldIds: [],
+      });
+    }
+  });
+
+  expect(await user().query(api.app.listDataSources, {})).toHaveLength(1);
+  expect(
+    (await user().query(api.app.getDataSourceByType, { type: "csv" }))?.id,
+  ).toBe(sourceId);
+  expect(
+    (await user().query(api.app.getDataFrameByInsight, { insightId }))?.id,
+  ).toBe(insightFrameId);
+}, 15_000);
+
+it("applies secondary filters after selecting a draft-less index", async () => {
+  await t.run(async (ctx) => {
+    for (const insightId of ["matching", "other"])
+      await ctx.db.insert("dataSources", {
+        workspaceId: "w",
+        id: crypto.randomUUID(),
+        revision: 1,
+        name: "Source",
+        createdAt: Date.now(),
+        dataSourceId: "shared-source",
+        insightId,
+      });
+  });
+
+  const rows = await user().query(api.app.listDataSources, {
+    dataSourceId: "shared-source",
+    insightId: "matching",
+  });
+  expect(rows).toHaveLength(1);
+});
 
 it("reports a cap exceedance for draftLog and retains the claim", async () => {
   const cleanupId = crypto.randomUUID();
@@ -95,14 +192,35 @@ it("reports a cap exceedance for draftLog and retains the claim", async () => {
   });
 
   // Issue #368 defers draining beyond the scan cap; fail loudly and retain it.
-  await expect(
-    t.mutation(internal.host.claimCleanup, {
-      workspaceId: "w",
-      cleanupId,
-    }),
-  ).rejects.toThrow(
-    "resource reference scan cap exceeded for draftLog; cleanup outbox halted",
-  );
+  // Assert the structured payload, not the message: consumers match on `code`.
+  const capPayload = {
+    code: RESOURCE_REFERENCE_SCAN_CAP_CODE,
+    table: "draftLog",
+    message:
+      "resource reference scan cap exceeded for draftLog; cleanup outbox halted",
+  };
+  const thrown = async (run: Promise<unknown>) => {
+    try {
+      await run;
+    } catch (error) {
+      return error;
+    }
+    throw new Error("expected the scan cap to be exceeded");
+  };
+  // Through a function boundary Convex hands back `data` as a JSON string;
+  // called in-process it stays an object. The predicate normalizes both.
+  expect(
+    resourceReferenceScanCapPayload(
+      await thrown(
+        t.mutation(internal.host.claimCleanup, { workspaceId: "w", cleanupId }),
+      ),
+    ),
+  ).toEqual(capPayload);
+  expect(
+    resourceReferenceScanCapPayload(
+      await thrown(t.run((ctx) => externallyReferencedFrameIds(ctx, "w", []))),
+    ),
+  ).toEqual(capPayload);
   const retained = await t.run(async (ctx) => {
     const claim = await ctx.db
       .query("cleanupJobs")
@@ -134,4 +252,13 @@ it("reports a cap exceedance for draftLog and retains the claim", async () => {
   });
   expect(retained.reference).not.toBeNull();
   expect(retained.tombstone).toBeNull();
+});
+
+it("keeps both reference consumers on the shared eleven-table scan", async () => {
+  const scannedTables = await t.run(async (ctx) =>
+    (await scanWorkspaceReferenceRows(ctx, "w")).map(({ table }) => table),
+  );
+
+  expect(scannedTables).toEqual(WORKSPACE_REFERENCE_TABLES);
+  expect(scannedTables).toHaveLength(11);
 });
