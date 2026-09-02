@@ -8,6 +8,11 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@wystack/ui-react";
 import { CheckIcon, ChevronDownIcon } from "@wystack/ui-react/icons";
 import { useId, useState } from "react";
@@ -18,6 +23,8 @@ export interface ArtifactSwitchItem {
   description?: string;
   kind?: string;
 }
+
+const ALL_KINDS_VALUE = "__all_kinds__";
 
 /** A transient index: browsing another artifact does not change its data definition. */
 export function ArtifactSwitcher({
@@ -73,19 +80,35 @@ export function ArtifactSwitcher({
           {kinds.length > 1 && (
             <div className="flex items-center gap-2 border-b border-neutral-border px-3 py-2 text-sm">
               <label htmlFor={filterId}>Type</label>
-              <select
-                id={filterId}
-                value={kind}
-                onChange={(event) => setKind(event.target.value)}
-                className="min-w-0 flex-1 rounded border border-neutral-border bg-neutral-bg p-1 text-neutral-fg"
+              <Select
+                value={kind || ALL_KINDS_VALUE}
+                onValueChange={(value) =>
+                  setKind(
+                    value == null || value === ALL_KINDS_VALUE ? "" : value,
+                  )
+                }
               >
-                <option value="">All types</option>
-                {kinds.map((value) => (
-                  <option key={value} value={value}>
-                    {value}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger
+                  id={filterId}
+                  aria-label="Type"
+                  size="sm"
+                  className="min-w-0 flex-1"
+                >
+                  <SelectValue>
+                    {(value) =>
+                      value === ALL_KINDS_VALUE ? "All types" : value
+                    }
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_KINDS_VALUE}>All types</SelectItem>
+                  {kinds.map((value) => (
+                    <SelectItem key={value} value={value}>
+                      {value}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           )}
           <CommandList>

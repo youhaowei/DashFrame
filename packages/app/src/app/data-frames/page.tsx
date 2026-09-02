@@ -28,6 +28,11 @@ import {
   DropdownMenuItem,
   Input,
   Label,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@wystack/ui-react";
 import { DeleteIcon, TableIcon } from "@wystack/ui-react/icons";
 import { useMemo, useState } from "react";
@@ -220,21 +225,35 @@ export default function DataFramesPage() {
       searchQuery={searchQuery}
       onSearchQueryChange={setSearchQuery}
       tools={
-        <label className="flex items-center gap-2 text-sm text-neutral-fg-subtle">
+        <div className="flex items-center gap-2 text-sm text-neutral-fg-subtle">
           <span>Sort</span>
-          <select
-            aria-label="Sort data frames"
+          <Select
             value={sortValue}
-            onChange={(event) => setSortValue(event.target.value as SortValue)}
-            className="h-9 rounded-md border border-neutral-border bg-neutral-bg px-2 text-sm text-neutral-fg"
+            onValueChange={(value) => {
+              if (value) setSortValue(value as SortValue);
+            }}
           >
-            {SORT_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
+            <SelectTrigger
+              aria-label="Sort data frames"
+              size="sm"
+              className="w-auto min-w-40"
+            >
+              <SelectValue>
+                {(value) =>
+                  SORT_OPTIONS.find((option) => option.value === value)
+                    ?.label ?? value
+                }
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {SORT_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       }
     >
       {filteredDataFrames.length > 0 ? (

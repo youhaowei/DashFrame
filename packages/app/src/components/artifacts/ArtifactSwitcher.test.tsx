@@ -1,4 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { ArtifactSwitcher, type ArtifactSwitchItem } from "./ArtifactSwitcher";
 
@@ -58,16 +59,20 @@ describe("ArtifactSwitcher", () => {
     unmount();
   });
 
-  it("filters items by type", () => {
+  it("filters items by type", async () => {
     const { unmount } = renderSwitcher();
+    const user = userEvent.setup();
 
-    fireEvent.click(screen.getByRole("button", { name: "Tables: Orders" }));
-    fireEvent.change(screen.getByRole("combobox", { name: "Type" }), {
-      target: { value: "table" },
-    });
+    await user.click(screen.getByRole("button", { name: "Tables: Orders" }));
+    await user.click(screen.getByRole("combobox", { name: "Type" }));
+    await user.click(screen.getByRole("option", { name: "table" }));
     expect(screen.getByRole("option", { name: /Orders/ })).toBeTruthy();
     expect(screen.getByRole("option", { name: /Customers/ })).toBeTruthy();
-    expect(screen.queryByRole("option", { name: /Daily Revenue/ })).toBeNull();
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("option", { name: /Daily Revenue/ }),
+      ).toBeNull(),
+    );
     fireEvent.keyDown(screen.getByPlaceholderText("Search tables…"), {
       key: "Escape",
       code: "Escape",

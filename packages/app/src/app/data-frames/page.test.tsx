@@ -160,13 +160,32 @@ describe("DataFramesPage", () => {
     const sort = screen.getByRole("combobox", { name: "Sort data frames" });
     expect(frameNamesInDocument(names)).toEqual(["Alpha", "Beta", "Gamma"]);
 
-    await user.selectOptions(sort, "name-desc");
+    await user.click(sort);
+    await user.click(await screen.findByRole("option", { name: "Name (Z–A)" }));
     expect(frameNamesInDocument(names)).toEqual(["Gamma", "Beta", "Alpha"]);
+    await waitFor(() =>
+      expect(screen.queryByRole("option", { name: "Name (Z–A)" })).toBeNull(),
+    );
 
-    await user.selectOptions(sort, "createdAt-asc");
+    await user.click(
+      screen.getByRole("combobox", { name: "Sort data frames" }),
+    );
+    await user.click(
+      await screen.findByRole("option", { name: "Created (oldest)" }),
+    );
     expect(frameNamesInDocument(names)).toEqual(["Gamma", "Beta", "Alpha"]);
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("option", { name: "Created (oldest)" }),
+      ).toBeNull(),
+    );
 
-    await user.selectOptions(sort, "createdAt-desc");
+    await user.click(
+      screen.getByRole("combobox", { name: "Sort data frames" }),
+    );
+    await user.click(
+      await screen.findByRole("option", { name: "Created (newest)" }),
+    );
     expect(frameNamesInDocument(names)).toEqual(["Alpha", "Beta", "Gamma"]);
   });
 
