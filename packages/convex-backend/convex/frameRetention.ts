@@ -1,9 +1,5 @@
-import { ConvexError } from "convex/values";
 import type { QueryCtx } from "./_generated/server";
-import { resources } from "./cleanup";
-import { artifactTables } from "./model";
-
-const FRAME_REFERENCE_SCAN_LIMIT = 1000;
+import { resources, scanWorkspaceReferenceRows } from "./cleanup";
 
 export async function externallyReferencedFrameIds(
   ctx: QueryCtx,
@@ -32,9 +28,7 @@ export async function externallyReferencedFrameIds(
       candidatesByResourceId.set(resourceId, frameIds);
     }
   }
-  const add = (table: string, rows: unknown[]) => {
-    if (rows.length > FRAME_REFERENCE_SCAN_LIMIT)
-      throw new ConvexError(`Frame reference scan limit exceeded for ${table}`);
+  const add = (rows: unknown[]) => {
     for (const resource of resources(rows).values()) {
       if (resource.kind !== "frame") continue;
       for (const frameId of candidatesByResourceId.get(resource.resourceId) ??
@@ -43,66 +37,21 @@ export async function externallyReferencedFrameIds(
     }
   };
 
-  for (const table of artifactTables) {
-    const rows = await ctx.db
-      .query(table)
-      .withIndex("by_workspaceId_and_id", (q) =>
-        q.eq("workspaceId", workspaceId),
-      )
-      .take(FRAME_REFERENCE_SCAN_LIMIT + 1);
-    if (rows.length > FRAME_REFERENCE_SCAN_LIMIT)
-      throw new ConvexError(`Frame reference scan limit exceeded for ${table}`);
-    add(
-      table,
+  const scanned = await scanWorkspaceReferenceRows(
+    ctx,
+    workspaceId,
+    (table, rows) =>
       table === "dataFrames"
-        ? rows.map((row) =>
-            candidateIds.has(row.id) ? { ...row, storage: undefined } : row,
-          )
+        ? rows.map((row) => {
+            if (!row || typeof row !== "object" || Array.isArray(row))
+              return row;
+            const object = row as Record<string, unknown>;
+            return typeof object.id === "string" && candidateIds.has(object.id)
+              ? { ...object, storage: undefined }
+              : row;
+          })
         : rows,
-    );
-  }
-  add(
-    "draftChanges",
-    await ctx.db
-      .query("draftChanges")
-      .withIndex("by_workspaceId_and_draftId", (q) =>
-        q.eq("workspaceId", workspaceId),
-      )
-      .take(FRAME_REFERENCE_SCAN_LIMIT + 1),
   );
-  add(
-    "draftLog",
-    await ctx.db
-      .query("draftLog")
-      .withIndex("by_workspaceId_and_draftId_and_sequence", (q) =>
-        q.eq("workspaceId", workspaceId),
-      )
-      .take(FRAME_REFERENCE_SCAN_LIMIT + 1),
-  );
-  add(
-    "hostSettings",
-    await ctx.db
-      .query("hostSettings")
-      .withIndex("by_workspaceId_and_kind_and_id", (q) =>
-        q.eq("workspaceId", workspaceId),
-      )
-      .take(FRAME_REFERENCE_SCAN_LIMIT + 1),
-  );
-  add(
-    "connectorSetupSessions",
-    await ctx.db
-      .query("connectorSetupSessions")
-      .withIndex("by_workspaceId", (q) => q.eq("workspaceId", workspaceId))
-      .take(FRAME_REFERENCE_SCAN_LIMIT + 1),
-  );
-  add(
-    "hostBatches",
-    await ctx.db
-      .query("hostBatches")
-      .withIndex("by_workspaceId_and_status", (q) =>
-        q.eq("workspaceId", workspaceId).eq("status", "pending"),
-      )
-      .take(FRAME_REFERENCE_SCAN_LIMIT + 1),
-  );
+  for (const { rows } of scanned) add(rows);
   return referenced;
 }
