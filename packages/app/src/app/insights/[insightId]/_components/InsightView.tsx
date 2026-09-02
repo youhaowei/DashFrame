@@ -300,7 +300,7 @@ function parseEncodingAxis(
  * @param dataTableId - ID of the data table for metric creation
  * @returns Object containing arrays of dimension field names and metric objects
  */
-function parseChartEncoding(
+export function parseChartEncoding(
   encoding: ChartEncoding,
   parseAggregateExpression: (expr: string) => {
     aggregation: InsightMetric["aggregation"];
@@ -340,9 +340,52 @@ function parseChartEncoding(
   return { dimensionFields, metrics };
 }
 
+function resolveMetricFieldRef(
+  metric: InsightMetric,
+  identityFields: Field[],
+  fieldIdMap: Map<string, UUID>,
+): UUID | undefined {
+  if (!metric.columnName) return undefined;
+
+  const columnName = unwrapEncodingExpression(metric.columnName);
+  if (extractUUIDFromColumnAlias(columnName)) {
+    return lookupEncodingFieldRef(fieldIdMap, columnName);
+  }
+
+  return identityFields.find(
+    (field) =>
+      field.tableId === metric.sourceTable &&
+      (field.columnName ?? field.name) === columnName,
+  )?.id;
+}
+
+function metricsShareIdentity(
+  left: InsightMetric,
+  right: InsightMetric,
+  identityFields: Field[],
+  fieldIdMap: Map<string, UUID>,
+): boolean {
+  if (left.aggregation !== right.aggregation) return false;
+
+  const leftFieldRef = resolveMetricFieldRef(left, identityFields, fieldIdMap);
+  const rightFieldRef = resolveMetricFieldRef(
+    right,
+    identityFields,
+    fieldIdMap,
+  );
+  if (leftFieldRef && rightFieldRef) return leftFieldRef === rightFieldRef;
+  if (leftFieldRef || rightFieldRef) return false;
+
+  return (
+    left.sourceTable === right.sourceTable &&
+    left.columnName === right.columnName
+  );
+}
+
 /**
  * Merge new fields and metrics with existing insight fields, avoiding duplicates.
- * Field IDs are compared directly; metrics are compared by column name + aggregation.
+ * Field IDs are compared directly; metric columns resolve to field IDs before
+ * aggregation and field identity are compared.
  *
  * @param newFieldIds - Field IDs to add from the new visualization
  * @param newMetrics - Metrics to add from the new visualization
@@ -350,11 +393,13 @@ function parseChartEncoding(
  * @param existingMetrics - Current insight metrics
  * @returns Merged arrays with no duplicates
  */
-function mergeFieldsAndMetrics(
+export function mergeFieldsAndMetrics(
   newFieldIds: UUID[],
   newMetrics: InsightMetric[],
   existingFieldIds: UUID[],
   existingMetrics: InsightMetric[],
+  identityFields: Field[],
+  fieldIdMap: Map<string, UUID>,
 ): { mergedFieldIds: UUID[]; mergedMetrics: InsightMetric[] } {
   const mergedFieldIds = [
     ...existingFieldIds,
@@ -363,10 +408,8 @@ function mergeFieldsAndMetrics(
 
   const mergedMetrics = [...existingMetrics];
   for (const newMetric of newMetrics) {
-    const isDuplicate = existingMetrics.some(
-      (m) =>
-        m.columnName === newMetric.columnName &&
-        m.aggregation === newMetric.aggregation,
+    const isDuplicate = existingMetrics.some((metric) =>
+      metricsShareIdentity(metric, newMetric, identityFields, fieldIdMap),
     );
     if (!isDuplicate) {
       mergedMetrics.push(newMetric);
@@ -392,6 +435,8 @@ function mergeFieldsAndMetrics(
 function convertToVisualizationEncoding(
   chartEncoding: ChartEncoding,
   fieldIdMap: Map<string, UUID>,
+  identityFields: Field[],
+  metricSourceTable: UUID,
   mergedMetrics: InsightMetric[],
   parseAggregateExpression: (expr: string) => {
     aggregation: InsightMetric["aggregation"];
@@ -413,11 +458,20 @@ function convertToVisualizationEncoding(
     // Check if it's an aggregation expression
     const parsed = parseAggregateExpression(value);
     if (parsed) {
-      // It's a metric - find matching metric in mergedMetrics by aggregation + columnName
-      const metric = mergedMetrics.find(
-        (m) =>
-          m.aggregation === parsed.aggregation &&
-          m.columnName === parsed.columnName,
+      const parsedMetric: InsightMetric = {
+        id: "" as UUID,
+        name: value,
+        sourceTable: metricSourceTable,
+        columnName: parsed.columnName,
+        aggregation: parsed.aggregation,
+      };
+      const metric = mergedMetrics.find((candidate) =>
+        metricsShareIdentity(
+          candidate,
+          parsedMetric,
+          identityFields,
+          fieldIdMap,
+        ),
       );
       if (metric) {
         return metricEncoding(metric.id);
@@ -1006,9 +1060,11 @@ export function InsightView({
       // Supports both original column names AND UUID-based aliases (field_<uuid>)
       // because suggestions use UUID aliases but we need to look up field IDs
       const fieldIdMap = new Map<string, UUID>();
+      const metricIdentityFields: Field[] = [];
 
       // Base table fields - add both original name and UUID alias
       (authoringTable.fields ?? []).forEach((f) => {
+        metricIdentityFields.push({ ...f, tableId: authoringTable.id });
         fieldIdMap.set(f.columnName ?? f.name, f.id);
         // Also add UUID-based alias (field_<uuid>) for suggestion encoding lookups
         fieldIdMap.set(fieldIdToColumnAlias(f.id), f.id);
@@ -1019,6 +1075,7 @@ export function InsightView({
         const joinTable = allDataTables.find((t) => t.id === join.rightTableId);
         if (joinTable) {
           (joinTable.fields ?? []).forEach((f) => {
+            metricIdentityFields.push({ ...f, tableId: joinTable.id });
             const key = f.columnName ?? f.name;
             // Don't overwrite if column already exists (base table takes precedence)
             if (!fieldIdMap.has(key)) {
@@ -1038,8 +1095,8 @@ export function InsightView({
 
       // Suggestion encodings reference UUID column aliases, so metrics parsed
       // from them carry names like "sum(field_<uuid>)". Rename to the field's
-      // display name for the Metrics panel; columnName stays untouched (it
-      // drives SQL generation and encoding matching).
+      // display name for the Metrics panel; columnName stays untouched for SQL
+      // generation while identity matching resolves it through field metadata.
       const fieldNameById = new Map<UUID, string>();
       (authoringTable.fields ?? []).forEach((f) =>
         fieldNameById.set(f.id, f.name),
@@ -1065,6 +1122,8 @@ export function InsightView({
         namedMetrics,
         insight.selectedFields ?? [],
         insight.metrics ?? [],
+        metricIdentityFields,
+        fieldIdMap,
       );
 
       // Update insight with merged fields and metrics.
@@ -1086,6 +1145,8 @@ export function InsightView({
       const visualizationEncoding = convertToVisualizationEncoding(
         suggestion.encoding,
         fieldIdMap,
+        metricIdentityFields,
+        authoringTable.id,
         mergedMetrics,
         parseAggregateExpression,
         suggestion,
