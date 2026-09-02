@@ -103,6 +103,7 @@
         "@dashframe/connector-postgres": "workspace:*",
         "@dashframe/convex-backend": "workspace:*",
         "@dashframe/convex-local": "workspace:*",
+        "@dashframe/csv": "workspace:*",
         "@dashframe/engine": "workspace:*",
         "@dashframe/engine-server": "workspace:*",
         "@dashframe/server-core": "workspace:*",
