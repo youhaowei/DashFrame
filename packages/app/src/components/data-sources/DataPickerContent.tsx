@@ -412,66 +412,55 @@ export function DataPickerContent({
       }
 
       setError(null);
-      onActivityChange?.(true);
-      try {
-        setRemoteResourceState(
-          await connectRemoteSource({
-            connectorId: connector.id,
-            connectorName: connector.name,
-            credentials,
-            addSource: async (input: CreateDataSourceInput) => {
-              const id = crypto.randomUUID() as UUID;
-              const commands = [
-                cmd("CreateDataSource", {
+      setRemoteResourceState(
+        await connectRemoteSource({
+          connectorId: connector.id,
+          connectorName: connector.name,
+          credentials,
+          addSource: async (input: CreateDataSourceInput) => {
+            const id = crypto.randomUUID() as UUID;
+            const commands = [
+              cmd("CreateDataSource", {
+                id,
+                type: input.type,
+                name: input.name,
+                apiKey: input.apiKey,
+                connectionString: input.connectionString,
+              }),
+            ];
+            // defaultSchema is non-credential connector config — follow with
+            // SetDataSourceConfig.extra in the same batch when present.
+            if (input.config?.defaultSchema !== undefined) {
+              commands.push(
+                cmd("SetDataSourceConfig", {
                   id,
-                  type: input.type,
-                  name: input.name,
-                  apiKey: input.apiKey,
-                  connectionString: input.connectionString,
+                  extra: { defaultSchema: input.config.defaultSchema },
                 }),
-              ];
-              // defaultSchema is non-credential connector config — follow with
-              // SetDataSourceConfig.extra in the same batch when present.
-              if (input.config?.defaultSchema !== undefined) {
-                commands.push(
-                  cmd("SetDataSourceConfig", {
-                    id,
-                    extra: { defaultSchema: input.config.defaultSchema },
-                  }),
-                );
-              }
-              const batch = await requestHost("commitBatch", { commands });
-              const created = resultValueByCommandPath(
-                batch,
-                COMMAND_PATHS.CreateDataSource,
-              ) as { id: string } | undefined;
-              if (!created?.id) {
-                throw new Error("CreateDataSource did not return an id");
-              }
-              return created.id as UUID;
-            },
-            removeSource: async (id) => {
-              await commitBatch({
-                commands: [cmd("DeleteNode", { id })],
-              });
-            },
-            listNotionDatabases: (id) =>
-              listNotionDatabasesMutation({ dataSourceId: id }),
-            listPostgresTables: (id) =>
-              listPostgresTablesMutation({ dataSourceId: id }),
-          }),
-        );
-      } catch (cause) {
-        onActivityChange?.(false);
-        throw cause;
-      }
+              );
+            }
+            const batch = await requestHost("commitBatch", { commands });
+            const created = resultValueByCommandPath(
+              batch,
+              COMMAND_PATHS.CreateDataSource,
+            ) as { id: string } | undefined;
+            if (!created?.id) {
+              throw new Error("CreateDataSource did not return an id");
+            }
+            return created.id as UUID;
+          },
+          removeSource: async (id) => {
+            await commitBatch({
+              commands: [cmd("DeleteNode", { id })],
+            });
+          },
+          listNotionDatabases: (id) =>
+            listNotionDatabasesMutation({ dataSourceId: id }),
+          listPostgresTables: (id) =>
+            listPostgresTablesMutation({ dataSourceId: id }),
+        }),
+      );
     },
-    [
-      commitBatch,
-      listNotionDatabasesMutation,
-      listPostgresTablesMutation,
-      onActivityChange,
-    ],
+    [commitBatch, listNotionDatabasesMutation, listPostgresTablesMutation],
   );
 
   const handleOAuthConnect = useCallback(
@@ -480,19 +469,13 @@ export function DataPickerContent({
         throw new Error(`${connector.name} OAuth onboarding is not supported`);
       }
       setError(null);
-      onActivityChange?.(true);
-      try {
-        setRemoteResourceState({
-          connectorId: "googleAnalytics",
-          sourceId: dataSourceId,
-          resources: await listGa4PropertiesMutation({ dataSourceId }),
-        });
-      } catch (cause) {
-        onActivityChange?.(false);
-        throw cause;
-      }
+      setRemoteResourceState({
+        connectorId: "googleAnalytics",
+        sourceId: dataSourceId,
+        resources: await listGa4PropertiesMutation({ dataSourceId }),
+      });
     },
-    [listGa4PropertiesMutation, onActivityChange],
+    [listGa4PropertiesMutation],
   );
 
   const handleRemoteResourceSelect = useCallback(

@@ -35,6 +35,7 @@ interface ConnectorCardWithFormProps {
     dataSourceId: string,
   ) => Promise<void>;
   onActivityChange?: (active: boolean) => void;
+  disabled?: boolean;
 }
 
 const POLL_INTERVAL_MS = 2_000;
@@ -191,6 +192,7 @@ export function ConnectorCardWithForm({
   onConnect,
   onOAuthConnect,
   onActivityChange,
+  disabled,
 }: ConnectorCardWithFormProps) {
   // Hook called at component top level - safe!
   const { form, formFields, execute, isSubmitting, submitError } =
@@ -201,6 +203,10 @@ export function ConnectorCardWithForm({
     activityHeld: false,
     activityTransferred: false,
   });
+  const onActivityChangeRef = useRef(onActivityChange);
+  useEffect(() => {
+    onActivityChangeRef.current = onActivityChange;
+  }, [onActivityChange]);
   useEffect(() => {
     const token = pollToken.current;
     return () => {
@@ -208,10 +214,10 @@ export function ConnectorCardWithForm({
       if (token.timer !== undefined) window.clearTimeout(token.timer);
       if (token.activityHeld && !token.activityTransferred) {
         token.activityHeld = false;
-        onActivityChange?.(false);
+        onActivityChangeRef.current?.(false);
       }
     };
-  }, [onActivityChange]);
+  }, []);
 
   const handleFileSelect = (file: File) => {
     // Type guard with graceful recovery: if type mismatch occurs (e.g., bad data
@@ -257,7 +263,11 @@ export function ConnectorCardWithForm({
     // resolver throws by design). execute() validates the form and returns the
     // credential values; the parent creates the DataSource (storing the key as a
     // vault SecretRef) and lists databases via the listNotionDatabases mutation.
-    await execute((data) => onConnect(connector, data));
+    onActivityChange?.(true);
+    const result = await execute((data) => onConnect(connector, data));
+    if (result === null) {
+      onActivityChange?.(false);
+    }
   };
 
   return (
@@ -266,6 +276,7 @@ export function ConnectorCardWithForm({
       onFileSelect={handleFileSelect}
       onConnect={handleConnect}
       isLoading={isSubmitting}
+      disabled={disabled}
       submitError={submitError}
     >
       {/* Render TanStack Form fields */}

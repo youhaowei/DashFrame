@@ -23,6 +23,8 @@ interface ConnectorCardProps {
   onConnect?: () => void;
   /** Whether an action is in progress */
   isLoading?: boolean;
+  /** Disable this connector while another connector owns onboarding. */
+  disabled?: boolean;
   /** Error message to display */
   submitError?: string | null;
   /** Form fields to render (passed as children from TanStack Form) */
@@ -49,6 +51,7 @@ export function ConnectorCard({
   onFileSelect,
   onConnect,
   isLoading,
+  disabled,
   submitError,
   children,
 }: ConnectorCardProps) {
@@ -97,7 +100,7 @@ export function ConnectorCard({
               type="file"
               accept={fileConnector?.accept}
               className="hidden"
-              disabled={isLoading}
+              disabled={isLoading || disabled}
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 if (file) {
@@ -114,7 +117,7 @@ export function ConnectorCard({
           <Button
             label={connectButtonLabel}
             onClick={onConnect}
-            disabled={isLoading}
+            disabled={isLoading || disabled}
             className="w-full"
           />
         )}

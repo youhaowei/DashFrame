@@ -15,7 +15,7 @@ import {
   Spinner,
 } from "@wystack/ui-react";
 import type { ReactNode } from "react";
-import { useMemo } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { ConnectorCardWithForm } from "./renderers";
 
 export interface AddConnectionPanelProps {
@@ -59,7 +59,29 @@ export function AddConnectionPanel({
   onOAuthConnect,
   onActivityChange,
 }: AddConnectionPanelProps) {
+  const [activeConnectorId, setActiveConnectorId] = useState<string | null>(
+    null,
+  );
+  const activeConnectorIdRef = useRef<string | null>(null);
   const { data: catalog, isLoading, isError, refetch } = useConnectorCatalog();
+
+  const handleActivityChange = useCallback(
+    (connectorId: string, active: boolean) => {
+      if (active) {
+        if (activeConnectorIdRef.current !== null) return;
+        activeConnectorIdRef.current = connectorId;
+        setActiveConnectorId(connectorId);
+        onActivityChange?.(true);
+        return;
+      }
+
+      if (activeConnectorIdRef.current !== connectorId) return;
+      activeConnectorIdRef.current = null;
+      setActiveConnectorId(null);
+      onActivityChange?.(active);
+    },
+    [onActivityChange],
+  );
 
   // Subscribed so `connectors` below recomputes once the client registry
   // hydrates (ConnectorSetup's effect runs after this component's first
@@ -108,8 +130,20 @@ export function AddConnectionPanel({
             connector={connector}
             onFileSelect={onFileSelect}
             onConnect={onConnect}
-            onOAuthConnect={onOAuthConnect}
-            onActivityChange={onActivityChange}
+            onOAuthConnect={async (...args) => {
+              try {
+                await onOAuthConnect(...args);
+              } catch (cause) {
+                handleActivityChange(connector.id, false);
+                throw cause;
+              }
+            }}
+            onActivityChange={(active) =>
+              handleActivityChange(connector.id, active)
+            }
+            disabled={
+              activeConnectorId !== null && activeConnectorId !== connector.id
+            }
           />
         ))}
       </div>
