@@ -18,7 +18,7 @@ Three coded mocks were compared against the existing Claude C prototype, holding
 
 Selected after user review: one content-grid pattern for every collection route: Data Sources, Insights, Visualizations, Dashboards, Drafts, and Data Frames. Applying the grid only to Data Sources left the interface inconsistent; the common pattern now lives in shared components instead of page-specific markup.
 
-`ArtifactCollection` owns the title, count, primary action, search, tools, and content spacing. `ArtifactGrid` owns column widths and gaps. `ArtifactCard` owns icon sizing, text hierarchy, collection-level fixed height, focus treatment, and menu placement. `ArtifactEmptyState` owns empty and no-match layouts. Cards may show different factual metadata, but pages do not choose their own layout. Navigation links and action menus remain separate.
+`ArtifactCollection` owns the title, count, primary action, search, tools, and content spacing. `ArtifactGrid` owns column widths and gaps. `ArtifactCard` owns icon sizing, text hierarchy, a minimum card height, focus treatment, and menu placement. `ArtifactEmptyState` owns empty and no-match layouts. Cards may show different factual metadata, but pages do not choose their own layout. Navigation links and action menus remain separate.
 
 Source detail retains Claude C's compact searchable picker. No synthetic thumbnails or health summaries are added. Actual data previews remain tables; collection cards are for browsing artifacts, not comparing data rows.
 
@@ -41,7 +41,7 @@ Mocks are local, untracked review artifacts at `.data/prototypes/artifact-surfac
 
 ## Card information rule
 
-Every visible field must help identify the artifact, explain its contents, or support the next decision. Cards within a collection keep the same height for a stable grid, but the interface does not invent metadata, badges, or placeholder charts to fill that height. Omit an unavailable optional fact rather than rendering "Unknown"; when information is genuinely required to proceed, explain the missing step instead. Counts and timestamps are supporting details, not substitutes for meaning.
+Every visible field must help identify the artifact, explain its contents, or support the next decision. Cards share a minimum height so a sparse collection still reads as a grid, and they grow to fit their content rather than truncating it. The interface does not invent metadata, badges, or placeholder charts to fill that minimum. Omit an unavailable optional fact rather than rendering "Unknown"; when information is genuinely required to proceed, explain the missing step instead. Counts and timestamps are supporting details, not substitutes for meaning.
 
 Each collection has an explicit content budget:
 
