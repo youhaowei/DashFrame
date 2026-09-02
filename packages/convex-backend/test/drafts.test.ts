@@ -130,6 +130,41 @@ it("isolates draft owners, permits operator review of service drafts, and reject
   ).rejects.toThrow("Draft unavailable");
 });
 
+it("lists the primary affected artifact with two deterministic intent lines", async () => {
+  const { tableId } = await seed();
+  const commands = [
+    rename(tableId, "First name"),
+    rename(tableId, "Second name"),
+    rename(tableId, "Final name"),
+  ];
+  const { draftId } = await user().mutation(api.app.draftBatch, { commands });
+
+  const listed = (await user().query(api.app.listDrafts, {})).find(
+    (draft) => draft.draftId === draftId,
+  );
+  expect(listed?.summary).toEqual({
+    directNodes: [
+      {
+        nodeId: tableId,
+        kind: "dataTable",
+        name: "Table",
+        intent: [
+          { command: "RenameNode", summary: 'Rename to "First name"' },
+          { command: "RenameNode", summary: 'Rename to "Second name"' },
+        ],
+      },
+    ],
+    remainingIntentCount: 1,
+  });
+
+  const review = await user().query(api.app.draftPublishReview, { draftId });
+  expect(review.diff.directNodes[0]?.intent).toEqual([
+    { command: "RenameNode", summary: 'Rename to "First name"' },
+    { command: "RenameNode", summary: 'Rename to "Second name"' },
+    { command: "RenameNode", summary: 'Rename to "Final name"' },
+  ]);
+});
+
 it("lists only visible drafts when foreign owners exceed the workspace cap", async () => {
   const ownDraftId = uuid();
   await t.run(async (ctx) => {

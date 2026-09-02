@@ -6,6 +6,7 @@ import type {
   PreviewDiff,
   PreviewDirectNode,
   PreviewDownstreamNode,
+  PreviewIntent,
   DownstreamEdge,
   UUID,
 } from "@dashframe/types";
@@ -138,6 +139,90 @@ export function signature(revision: number, commands: Command[]) {
   }
   return `${revision}:${(hash >>> 0).toString(16)}:${commands.length}`;
 }
+
+function quotedName(value: Json | undefined): string | null {
+  return typeof value === "string" && value.length > 0 ? `\"${value}\"` : null;
+}
+
+function nestedName(value: Json | undefined): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return quotedName(value.name);
+}
+
+/**
+ * Deterministic, credential-free intent copy shared by detailed review and the
+ * lightweight draft collection summary. This deliberately describes the typed
+ * command rather than exposing registry paths or executing a preview.
+ */
+export function describeCommand(command: Command): PreviewIntent {
+  const args = record(command.args);
+  const commandName =
+    Object.entries(COMMAND_PATHS).find(
+      ([, path]) => path === command.path,
+    )?.[0] ?? "UpdateArtifact";
+  const name = quotedName(args.name);
+  const fieldName = nestedName(args.field);
+  const metricName = nestedName(args.metric);
+  const updatedFieldName = nestedName(args.updates);
+
+  const summaryByPath: Record<string, string> = {
+    getOrCreateDataSource: name
+      ? `Use or create data source ${name}`
+      : "Use or create data source",
+    createDataSource: name
+      ? `Create data source ${name}`
+      : "Create data source",
+    setDataSourceConfig: "Update data source settings",
+    createDataTable: name ? `Add table ${name}` : "Add table",
+    setDataTableSchema: "Update table schema",
+    refreshDataTableCmd: "Refresh table data",
+    addField: fieldName ? `Add field ${fieldName}` : "Add field",
+    updateField: updatedFieldName
+      ? `Update field to ${updatedFieldName}`
+      : "Update field",
+    removeField: "Remove field",
+    addMetric: metricName ? `Add metric ${metricName}` : "Add metric",
+    updateMetric: updatedFieldName
+      ? `Update metric to ${updatedFieldName}`
+      : "Update metric",
+    removeMetric: "Remove metric",
+    getOrCreateInsightDraft: name
+      ? `Use or create question ${name}`
+      : "Use or create question",
+    createInsightCmd: name ? `Create question ${name}` : "Create question",
+    setInsightSource: "Change question source",
+    selectFields: "Update selected fields",
+    setInsightFilter: "Update filters",
+    setInsightSort: "Update sorting",
+    setInsightRuntimeControls: "Update report controls",
+    addJoin: "Add join",
+    updateJoin: "Update join",
+    removeJoin: "Remove join",
+    createVisualizationCmd: name
+      ? `Create saved view ${name}`
+      : "Create saved view",
+    setChartType:
+      typeof args.visualizationType === "string"
+        ? `Change chart type to ${args.visualizationType}`
+        : "Change chart type",
+    setChartEncoding: "Update chart encoding",
+    createDashboardCmd: name ? `Create report ${name}` : "Create report",
+    addDashboardItemCmd: "Add report item",
+    updateDashboardItemCmd: "Update report item",
+    setDashboardLayout: "Update report layout",
+    removeDashboardItemCmd: "Remove report item",
+    patchDashboardItemOverrideCmd: "Update report item settings",
+    setDashboardControls: "Update report controls",
+    fanOutDashboardItemsCmd: "Repeat report item by value",
+    renameNode: name ? `Rename to ${name}` : "Rename artifact",
+    deleteNode: "Delete artifact",
+  };
+
+  return {
+    command: commandName,
+    summary: summaryByPath[command.path] ?? "Update artifact",
+  };
+}
 function edge(
   from: ArtifactTable,
   id: string,
@@ -244,10 +329,6 @@ export function preview(
       if (!target)
         throw new Error(`Missing preview target for ${command.path}`);
       for (const change of changes(prior, after)) tables.add(change.table);
-      const name =
-        Object.entries(COMMAND_PATHS).find(
-          ([, p]) => p === command.path,
-        )?.[0] ?? command.path;
       const mapKey = `${target}:${key}`,
         base = before.get(target)!.get(key),
         value = after.get(target)!.get(key),
@@ -263,13 +344,7 @@ export function preview(
           : changed || existing?.change === "update"
             ? "update"
             : "noop",
-        intent: [
-          ...(existing?.intent ?? []),
-          {
-            command: name,
-            summary: typeof a.name === "string" ? `${name}: ${a.name}` : name,
-          },
-        ],
+        intent: [...(existing?.intent ?? []), describeCommand(command)],
         before: base ? record(redact(publicRow(target, base))) : null,
         proposedDefinition:
           !changed && existing?.change !== "update"

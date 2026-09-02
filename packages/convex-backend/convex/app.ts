@@ -44,8 +44,15 @@ import {
   eraseDraft,
 } from "./store";
 import { cloneGraph, changes, execute, type Graph } from "./engine";
-import { publicRow, preview, lateBound, signature, redact } from "./preview";
-import { artifactTables, type ArtifactTable } from "./model";
+import {
+  publicRow,
+  preview,
+  lateBound,
+  signature,
+  redact,
+  describeCommand,
+} from "./preview";
+import { artifactKinds, artifactTables, type ArtifactTable } from "./model";
 const draftArg = { draftId: v.optional(v.string()) };
 async function readOne(
   ctx: QueryCtx,
@@ -489,6 +496,136 @@ export const getDraftLog = query({
     }));
   },
 });
+
+const draftSummaryNode = v.object({
+  nodeId: v.string(),
+  kind: v.union(
+    v.literal("dataSource"),
+    v.literal("dataTable"),
+    v.literal("insight"),
+    v.literal("dataFrame"),
+    v.literal("visualization"),
+    v.literal("dashboard"),
+  ),
+  name: v.string(),
+  intent: v.array(
+    v.object({
+      command: v.string(),
+      summary: v.string(),
+    }),
+  ),
+});
+
+const fixedDraftTargetTables: Record<string, readonly ArtifactTable[]> = {
+  getOrCreateDataSource: ["dataSources"],
+  createDataSource: ["dataSources"],
+  setDataSourceConfig: ["dataSources"],
+  createDataTable: ["dataTables"],
+  setDataTableSchema: ["dataTables"],
+  refreshDataTableCmd: ["dataTables"],
+  addField: ["dataTables", "insights"],
+  updateField: ["dataTables", "insights"],
+  removeField: ["dataTables", "insights"],
+  addMetric: ["dataTables", "insights"],
+  updateMetric: ["dataTables", "insights"],
+  removeMetric: ["dataTables", "insights"],
+  getOrCreateInsightDraft: ["insights"],
+  createInsightCmd: ["insights"],
+  setInsightSource: ["insights"],
+  selectFields: ["insights"],
+  setInsightFilter: ["insights"],
+  setInsightSort: ["insights"],
+  setInsightRuntimeControls: ["insights"],
+  addJoin: ["insights"],
+  updateJoin: ["insights"],
+  removeJoin: ["insights"],
+  createVisualizationCmd: ["visualizations"],
+  setChartType: ["visualizations"],
+  setChartEncoding: ["visualizations"],
+  createDashboardCmd: ["dashboards"],
+  addDashboardItemCmd: ["dashboards"],
+  updateDashboardItemCmd: ["dashboards"],
+  setDashboardLayout: ["dashboards"],
+  removeDashboardItemCmd: ["dashboards"],
+  patchDashboardItemOverrideCmd: ["dashboards"],
+  setDashboardControls: ["dashboards"],
+  fanOutDashboardItemsCmd: ["dashboards"],
+  renameNode: artifactTables,
+  deleteNode: [
+    "visualizations",
+    "dashboards",
+    "insights",
+    "dataTables",
+    "dataSources",
+  ],
+};
+
+function summarizeDraftForList(
+  commands: Command[],
+  changes: Doc<"draftChanges">[],
+) {
+  const nodes = new Map<
+    string,
+    {
+      nodeId: string;
+      kind: (typeof artifactKinds)[ArtifactTable];
+      name: string;
+      intent: ReturnType<typeof describeCommand>[];
+    }
+  >();
+  let displayedIntentCount = 0;
+
+  for (const command of commands) {
+    if (displayedIntentCount === 2) break;
+    const args = record(command.args);
+    const targetId = args.nodeId ?? args.dashboardId ?? args.id;
+    if (typeof targetId !== "string") continue;
+    const targetTables = fixedDraftTargetTables[command.path] ?? [];
+    const change = targetTables
+      .map((table) =>
+        changes.find(
+          (candidate) => candidate.table === table && candidate.id === targetId,
+        ),
+      )
+      .find((candidate) => candidate !== undefined);
+    if (!change || !artifactTables.includes(change.table as ArtifactTable))
+      continue;
+
+    const table = change.table as ArtifactTable;
+    const key = `${table}:${change.id}`;
+    const existing = nodes.get(key);
+    const node = existing ?? {
+      nodeId: change.id,
+      kind: artifactKinds[table],
+      name: change.base?.name ?? change.value?.name ?? "Deleted artifact",
+      intent: [],
+    };
+    node.intent.push(describeCommand(command));
+    nodes.set(key, node);
+    displayedIntentCount += 1;
+  }
+
+  if (nodes.size === 0) {
+    const change = changes.find((candidate) =>
+      artifactTables.includes(candidate.table as ArtifactTable),
+    );
+    if (change) {
+      const table = change.table as ArtifactTable;
+      nodes.set(`${table}:${change.id}`, {
+        nodeId: change.id,
+        kind: artifactKinds[table],
+        name: change.base?.name ?? change.value?.name ?? "Deleted artifact",
+        intent: [],
+      });
+    }
+  }
+
+  return {
+    directNodes: [...nodes.values()],
+    remainingIntentCount: Math.max(0, commands.length - displayedIntentCount),
+  };
+}
+
 export const listDrafts = query({
   args: {},
   returns: v.array(
@@ -499,6 +636,10 @@ export const listDrafts = query({
       commandCount: v.number(),
       kinds: v.record(v.string(), v.number()),
       paths: v.array(v.string()),
+      summary: v.object({
+        directNodes: v.array(draftSummaryNode),
+        remainingIntentCount: v.number(),
+      }),
     }),
   ),
   handler: async (ctx) => {
@@ -523,19 +664,29 @@ export const listDrafts = query({
         : [];
     const rows = [...ownRows, ...serviceRows];
     if (rows.length > LIMIT) throw new ConvexError("Draft list limit exceeded");
-    const pathsByDraft = new Map<string, string[]>();
+    const commandsByDraft = new Map<string, Command[]>();
+    const summaryByDraft = new Map<
+      string,
+      ReturnType<typeof summarizeDraftForList>
+    >();
     await Promise.all(
       rows.map(async (row) => {
-        pathsByDraft.set(
+        const commands = (await log(ctx, who.workspaceId, row.draftId)).map(
+          (entry) => entry.command,
+        );
+        commandsByDraft.set(row.draftId, commands);
+        summaryByDraft.set(
           row.draftId,
-          (await log(ctx, who.workspaceId, row.draftId)).map(
-            (entry) => entry.command.path,
+          summarizeDraftForList(
+            commands,
+            await draftChanges(ctx, who.workspaceId, row.draftId),
           ),
         );
       }),
     );
     return rows.map((row) => {
-      const paths = pathsByDraft.get(row.draftId) ?? [];
+      const commands = commandsByDraft.get(row.draftId) ?? [];
+      const paths = commands.map((command) => command.path);
       const kinds: Record<string, number> = {};
       for (const path of paths) kinds[path] = (kinds[path] ?? 0) + 1;
       return {
@@ -545,6 +696,10 @@ export const listDrafts = query({
         commandCount: row.commandCount,
         kinds,
         paths: [...new Set(paths)],
+        summary: summaryByDraft.get(row.draftId) ?? {
+          directNodes: [],
+          remainingIntentCount: row.commandCount,
+        },
       };
     });
   },
