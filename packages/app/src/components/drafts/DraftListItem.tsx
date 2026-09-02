@@ -116,11 +116,10 @@ export function DraftListItem({
   };
 
   const changeCountLabel = `${draft.commandCount} change${draft.commandCount === 1 ? "" : "s"}`;
+  const proposedUpdateLabel = `${draft.commandCount} proposed update${draft.commandCount === 1 ? "" : "s"}`;
   const cardName =
     primaryNode?.name ??
-    (draft.commandCount === 0
-      ? "No changes yet"
-      : `${draft.commandCount} proposed update${draft.commandCount === 1 ? "" : "s"}`);
+    (draft.commandCount === 0 ? "No changes yet" : proposedUpdateLabel);
 
   return (
     <ArtifactCard
