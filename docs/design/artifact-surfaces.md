@@ -32,10 +32,12 @@ Interface labels use sentence case, not decorative uppercase or widely spaced ca
 
 - Shared artifact page identity, description, navigation, actions, and optional tools row.
 - Shared content grids across all six collection routes, with the same card and empty-state components.
-- Insight groups preserve the existing bulk draft-deletion workflow. Draft cards retain explicit discard confirmation and derive their review summary from typed commands grouped by affected artifact. Data Frames retain name/creation-date sorting and rename/delete actions; they do not invent a detail route.
+- Insight groups preserve the existing bulk draft-deletion workflow. Draft cards retain explicit discard confirmation. Data Frames retain name/creation-date sorting and rename/delete actions; they do not invent a detail route.
 - Source detail uses transient source/table selectors instead of a permanent table rail. Source switching navigates to another artifact; it never rewrites an Insight's source.
 - The first available table is visible by default. A selection not present in the current source falls back to that source's first table, including after deletion.
 - Dashboard detail adopts the shared header while keeping its existing controls and grid.
+
+Collection pages are page content inside the shell's existing surface panel; they do not paint their own canvas or float a second panel within it. `DESIGN.md`'s panel recipe governs the top-level shell regions, not the cards inside them.
 
 Mocks are local, untracked review artifacts at `.data/prototypes/artifact-surfaces/index.html`. Serve the directory on loopback or open the HTML directly. They use realistic illustrative fixtures, not live project data. Screenshot evidence belongs outside the repository.
 
@@ -48,11 +50,28 @@ Each collection has an explicit content budget:
 | Collection     | Useful card content                                                                                                                                                                         |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Data Sources   | Connector logo or file-type icon, source name, format or connector, table count.                                                                                                            |
-| Insights       | Name, the question's source and shape from its saved definition, state.                                                                                                                     |
+| Insights       | Name, the question's source and shape from its saved definition.                                                                                                                            |
 | Visualizations | Name, chart type, the Insight it is a saved view of.                                                                                                                                        |
 | Dashboards     | Name, widget count; an empty dashboard prompts adding its first widget.                                                                                                                     |
 | Drafts         | Primary affected artifact or mechanical title, up to two deterministic command descriptions, review action; count and time as secondary context. Overflow becomes a factual "+N more" line. |
 | Data Frames    | Name, creation date, row/column shape when known.                                                                                                                                           |
+
+### What this rule does not yet describe
+
+The budget above is the target, not a report on the shipped cards. Three gaps are open, and
+none is closed by the slice that introduced this section:
+
+- Draft cards still render raw command paths rather than a summary grouped by affected
+  artifact. The deterministic summary needs the `listDrafts` list-summary contract described
+  below; until that exists the card cannot honour its budget row.
+- Data Frames cards render six metadata lines (source, definition, dimensions, last
+  refreshed, storage, created) against a budget of three, and they print "Unknown source",
+  "Unknown table", "Unknown" and "? rows x ? columns" where a fact is missing — which the
+  omission rule above forbids. Insight cards do the same with "Unknown table". Those strings
+  predate this slice; the rule that indicts them does not.
+- Interface labels are still mixed: "New Dashboard", "Create Dashboard", "Edit Dashboard",
+  "Delete Table" and "Edit Data Frame" sit beside "Save changes", "Clear search" and
+  "Rename source". The sentence-case pass is outstanding across both existing and new labels.
 
 ## Draft collection content
 
