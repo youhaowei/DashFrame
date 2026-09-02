@@ -147,4 +147,16 @@ it("stores a non-retryable settlement without persisting the control flag", asyn
       requestHash: args.requestHash,
     }),
   ).toEqual({ status: "cancelled", result: null });
+  const stored = await t.run((ctx) =>
+    ctx.db
+      .query("hostBatches")
+      .withIndex("by_workspaceId_and_operationId", (q) =>
+        q
+          .eq("workspaceId", args.workspaceId)
+          .eq("operationId", args.operationId),
+      )
+      .unique(),
+  );
+  expect(stored).not.toBeNull();
+  expect(stored).not.toHaveProperty("retryable");
 });

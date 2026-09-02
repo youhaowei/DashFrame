@@ -413,6 +413,74 @@ it("skips the reference scan when no saved result is prunable", async () => {
   ).toHaveLength(2);
 }, 15_000);
 
+it("publishes and retains history when the reference scan exceeds its cap", async () => {
+  const original = await fixture();
+  const insightId = crypto.randomUUID();
+  await user().mutation(api.app.commitBatch, {
+    commands: [
+      cmd("CreateInsight", {
+        id: insightId,
+        name: "Publish despite unrelated growth",
+        source: {
+          sourceType: "dataTable",
+          sourceId: original.sources[0]!.source.table.id,
+        },
+      }),
+    ],
+  });
+  const first = {
+    ...original,
+    sources: [],
+    target: { kind: "saved" as const, insightId },
+  };
+  const second = {
+    ...first,
+    result: { ...first.result, id: crypto.randomUUID() },
+    fetchedAt: first.fetchedAt + 1,
+  };
+  await t.mutation(internal.host.publishMaterialization, {
+    workspaceId: "w",
+    value: first,
+  });
+  await t.mutation(internal.host.publishMaterialization, {
+    workspaceId: "w",
+    value: second,
+  });
+  await t.run(async (ctx) => {
+    for (let sequence = 0; sequence < 1001; sequence++)
+      await ctx.db.insert("draftLog", {
+        workspaceId: "w",
+        draftId: `draft-${sequence}`,
+        sequence,
+        command: {
+          path: "renameNode",
+          args: { id: crypto.randomUUID(), name: "Draft name" },
+        },
+      });
+  });
+  const third = {
+    ...second,
+    result: { ...second.result, id: crypto.randomUUID() },
+    fetchedAt: second.fetchedAt + 1,
+  };
+
+  await t.mutation(internal.host.publishMaterialization, {
+    workspaceId: "w",
+    value: third,
+  });
+
+  expect(
+    (await user().query(api.app.getDataFrameByInsight, { insightId }))?.id,
+  ).toBe(third.result.id);
+  expect(
+    await user().query(api.app.listDataFrames, { insightId }),
+  ).toHaveLength(3);
+  for (const id of [first.result.id, second.result.id])
+    expect(
+      await t.query(internal.host.getDataFrame, { workspaceId: "w", id }),
+    ).not.toBeNull();
+}, 30_000);
+
 it("makes a successful zero-row materialization the current saved result", async () => {
   const original = await fixture();
   const insightId = crypto.randomUUID();

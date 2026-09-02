@@ -8,6 +8,10 @@ import {
   WORKSPACE_REFERENCE_TABLES,
 } from "../convex/cleanup";
 import { externallyReferencedFrameIds } from "../convex/frameRetention";
+import {
+  RESOURCE_REFERENCE_SCAN_CAP_CODE,
+  resourceReferenceScanCapPayload,
+} from "../convex/model";
 
 const modules = import.meta.glob("../convex/**/*.ts");
 const makeTest = () => convexTest(schema, modules);
@@ -188,19 +192,35 @@ it("reports a cap exceedance for draftLog and retains the claim", async () => {
   });
 
   // Issue #368 defers draining beyond the scan cap; fail loudly and retain it.
-  await expect(
-    t.mutation(internal.host.claimCleanup, {
-      workspaceId: "w",
-      cleanupId,
-    }),
-  ).rejects.toThrow(
-    "resource reference scan cap exceeded for draftLog; cleanup outbox halted",
-  );
-  await expect(
-    t.run((ctx) => externallyReferencedFrameIds(ctx, "w", [])),
-  ).rejects.toThrow(
-    "resource reference scan cap exceeded for draftLog; cleanup outbox halted",
-  );
+  // Assert the structured payload, not the message: consumers match on `code`.
+  const capPayload = {
+    code: RESOURCE_REFERENCE_SCAN_CAP_CODE,
+    table: "draftLog",
+    message:
+      "resource reference scan cap exceeded for draftLog; cleanup outbox halted",
+  };
+  const thrown = async (run: Promise<unknown>) => {
+    try {
+      await run;
+    } catch (error) {
+      return error;
+    }
+    throw new Error("expected the scan cap to be exceeded");
+  };
+  // Through a function boundary Convex hands back `data` as a JSON string;
+  // called in-process it stays an object. The predicate normalizes both.
+  expect(
+    resourceReferenceScanCapPayload(
+      await thrown(
+        t.mutation(internal.host.claimCleanup, { workspaceId: "w", cleanupId }),
+      ),
+    ),
+  ).toEqual(capPayload);
+  expect(
+    resourceReferenceScanCapPayload(
+      await thrown(t.run((ctx) => externallyReferencedFrameIds(ctx, "w", []))),
+    ),
+  ).toEqual(capPayload);
   const retained = await t.run(async (ctx) => {
     const claim = await ctx.db
       .query("cleanupJobs")
