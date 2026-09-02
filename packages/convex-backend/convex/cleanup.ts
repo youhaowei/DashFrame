@@ -6,7 +6,7 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
-import { artifactTables } from "./model";
+import { artifactTables, RESOURCE_REFERENCE_SCAN_CAP_CODE } from "./model";
 import { cleanupClaim, cleanupItem, cleanupResource } from "./lifecycleValues";
 export type Resource = typeof cleanupResource.type;
 const secretPattern = /^secret:[0-9a-f-]{36}$/i;
@@ -137,9 +137,11 @@ export async function scanWorkspaceReferenceRows(
   const scanned: { table: WorkspaceReferenceTable; rows: unknown[] }[] = [];
   const add = (table: WorkspaceReferenceTable, rows: unknown[]) => {
     if (rows.length > 1000)
-      throw new ConvexError(
-        `resource reference scan cap exceeded for ${table}; cleanup outbox halted`,
-      );
+      throw new ConvexError({
+        code: RESOURCE_REFERENCE_SCAN_CAP_CODE,
+        table,
+        message: `resource reference scan cap exceeded for ${table}; cleanup outbox halted`,
+      });
     scanned.push({ table, rows: transform(table, rows) });
   };
   for (const table of artifactTables)

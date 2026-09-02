@@ -8,7 +8,7 @@ import {
 import { hostPrincipal } from "./lifecycleValues";
 import { stable } from "./values";
 import { publicationMetadata } from "./publication";
-import { artifactTables } from "./model";
+import { artifactTables, isResourceReferenceScanCapError } from "./model";
 import { replaceDraft } from "./app";
 import { findLateBound } from "./lateBound";
 import { externallyReferencedFrameIds } from "./frameRetention";
@@ -419,13 +419,21 @@ export const publishMaterialization = internalMutation({
         const prunableCandidates = prior.filter(
           (frame) => frame.id !== previousFrameId,
         );
-        const externallyReferenced = prunableCandidates.length
-          ? await externallyReferencedFrameIds(
+        let externallyReferenced = new Set<string>();
+        if (prunableCandidates.length) {
+          try {
+            externallyReferenced = await externallyReferencedFrameIds(
               ctx,
               args.workspaceId,
               prunableCandidates,
-            )
-          : new Set<string>();
+            );
+          } catch (error) {
+            if (!isResourceReferenceScanCapError(error)) throw error;
+            externallyReferenced = new Set(
+              prunableCandidates.map((frame) => frame.id),
+            );
+          }
+        }
         for (const frame of prior) {
           if (
             shouldRetainInsightFrame(
