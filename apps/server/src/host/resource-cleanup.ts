@@ -1,29 +1,20 @@
 import type { UUID } from "@dashframe/types";
 import type { SecretRef } from "@wystack/secret-vault";
+import {
+  resourceReferenceScanCapPayload,
+  RESOURCE_REFERENCE_SCAN_CAP_CODE,
+} from "@dashframe/convex-backend/model";
 import type { HostContext } from "./context";
 
-const REFERENCE_SCAN_CAP_PREFIX = "resource reference scan cap exceeded for ";
-const REFERENCE_SCAN_CAP_SUFFIX = "; cleanup outbox halted";
-
-function errorDetail(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  if (
-    error &&
-    typeof error === "object" &&
-    "data" in error &&
-    typeof error.data === "string"
-  )
-    return error.data;
-  return String(error);
-}
-
 function reportCleanupFailure(error: unknown, retained: string): void {
-  const detail = errorDetail(error);
-  if (
-    detail.includes(REFERENCE_SCAN_CAP_PREFIX) &&
-    detail.includes(REFERENCE_SCAN_CAP_SUFFIX)
-  ) {
-    console.error(`[dashframe] ${detail}`, error);
+  // Match the structured payload, never the message text: `String(error)` is
+  // Convex's internal serialization of the payload, not a contract.
+  const cap = resourceReferenceScanCapPayload(error);
+  if (cap) {
+    console.error(
+      `[dashframe] ${RESOURCE_REFERENCE_SCAN_CAP_CODE}: ${cap.message}`,
+      error,
+    );
     return;
   }
   console.warn(`[dashframe] Resource cleanup deferred; ${retained}`);

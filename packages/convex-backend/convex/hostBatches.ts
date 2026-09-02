@@ -60,6 +60,12 @@ function state(
 ): typeof hostBatchState.type {
   return { status: row.status, result: row.result };
 }
+// Guards credential-bearing fields accepted from incoming host commands.
+// credentialRef is not command-writable and is therefore intentionally absent.
+const INCOMING_COMMAND_CREDENTIAL_SLOTS = [
+  "apiKey",
+  "connectionString",
+] as const;
 function stagedOnly(value: unknown) {
   if (Array.isArray(value)) {
     value.forEach(stagedOnly);
@@ -68,7 +74,7 @@ function stagedOnly(value: unknown) {
   if (!value || typeof value !== "object") return;
   for (const [key, child] of Object.entries(value)) {
     if (
-      ["apiKey", "connectionString"].includes(key) &&
+      INCOMING_COMMAND_CREDENTIAL_SLOTS.some((slot) => slot === key) &&
       child !== undefined &&
       child !== "" &&
       (typeof child !== "string" || !/^secret:[a-f0-9-]{36}$/i.test(child))
@@ -232,8 +238,9 @@ export const settleHostBatch = internalMutation({
       await enqueueCleanup(ctx, args.workspaceId, supplied);
       return { status: "pending" as const, result: null };
     }
+    const { retryable: _retryable, ...identityAndRefs } = args;
     await ctx.db.insert("hostBatches", {
-      ...args,
+      ...identityAndRefs,
       owner: principalOwner(args.principal),
       status: "cancelled",
       result: null,

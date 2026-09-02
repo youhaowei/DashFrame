@@ -9,6 +9,7 @@ import {
 } from "vite-plus/test";
 import { convexTest } from "convex-test";
 import schema from "@dashframe/convex-backend/schema";
+import { RESOURCE_REFERENCE_SCAN_CAP_CODE } from "@dashframe/convex-backend/model";
 import { api } from "@dashframe/convex-backend/api";
 import type { LocalConvex } from "@dashframe/convex-local";
 import { CREDENTIAL_CLASS } from "@dashframe/server-core";
@@ -271,10 +272,10 @@ describe("cleanup failure reporting", () => {
 
     await cleanup.run();
 
+    // Exact equality, not a substring: the pre-fix code logged the whole
+    // stringified ConvexError payload, which contains this substring too.
     expect(error).toHaveBeenCalledWith(
-      expect.stringContaining(
-        "resource reference scan cap exceeded for dataSources; cleanup outbox halted",
-      ),
+      `[dashframe] ${RESOURCE_REFERENCE_SCAN_CAP_CODE}: resource reference scan cap exceeded for dataSources; cleanup outbox halted`,
       expect.any(Error),
     );
     expect(warn).not.toHaveBeenCalled();
