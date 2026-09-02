@@ -243,7 +243,7 @@ export default function InsightsPage() {
     });
   };
 
-  // Render insight row
+  // Render insight card
   const renderInsightCard = (item: (typeof insights)[0]) => (
     <ArtifactCard
       key={item.insight.id}

@@ -175,7 +175,7 @@ export default function VisualizationsPage() {
     });
   };
 
-  // Render visualization row
+  // Render visualization card
   const renderVisualizationCard = (item: VisualizationWithDetails) => (
     <ArtifactCard
       key={item.visualization.id}
