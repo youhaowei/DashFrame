@@ -4,6 +4,8 @@ import {
 } from "@dashframe/engine-server";
 import type { ApplicationOperations } from "./host/application";
 
+const UNHANDLED = Symbol("unhandled");
+
 interface StoredSource {
   id: string;
   type: string;
@@ -14,7 +16,9 @@ interface StoredTable {
   id: string;
   dataSourceId: string;
   name: string;
+  table: string;
   fields: Array<{ columnName?: string; name: string; type: string }>;
+  dataFrameId?: string;
 }
 
 interface StoredFrame {
@@ -30,6 +34,11 @@ export class SampleSeedProjectFixture {
   readonly frames = new Map<string, StoredFrame>();
   readonly application: Pick<ApplicationOperations, "execute">;
   private readonly completed = new Map<string, unknown>();
+  private readonly importRequests = new Map<
+    string,
+    { arrowBase64: string; result: StoredFrame }
+  >();
+  private readonly invalidatedImports = new Set<string>();
   private readonly engine = new NativeDuckDBEngine();
 
   constructor() {
@@ -42,6 +51,15 @@ export class SampleSeedProjectFixture {
 
   async dispose(): Promise<void> {
     await this.engine.dispose();
+  }
+
+  clearWorkspace(): void {
+    this.sources.clear();
+    this.tables.clear();
+    this.frames.clear();
+    for (const operationId of this.importRequests.keys()) {
+      this.invalidatedImports.add(operationId);
+    }
   }
 
   async queryFrame(dataFrameId: string, sql: string) {
@@ -59,46 +77,101 @@ export class SampleSeedProjectFixture {
   ): Promise<unknown> {
     const args = input as Record<string, unknown>;
     const operationId = context?.operationId ?? String(args.operationId ?? "");
-    if (operationId && this.completed.has(operationId)) {
+    const read = this.readOperation(operation, args);
+    if (read !== UNHANDLED) return read;
+    if (this.isCompletedCommand(operation, operationId)) {
       return this.completed.get(operationId);
     }
 
-    let result: unknown;
+    const result = await this.writeOperation(operation, args, operationId);
+    if (operationId) this.completed.set(operationId, result);
+    return result;
+  }
+
+  private readOperation(
+    operation: string,
+    args: Record<string, unknown>,
+  ): unknown | typeof UNHANDLED {
+    if (operation === "getDataSource") {
+      return this.sources.get(String(args.id)) ?? null;
+    }
+    if (operation === "getDataTable") {
+      return this.tables.get(String(args.id)) ?? null;
+    }
+    if (operation === "getDataFrameEntry") {
+      const frame = [...this.frames.values()].find(
+        (candidate) => candidate.dataFrameId === args.id,
+      );
+      return frame ? { ...frame, id: frame.dataFrameId } : null;
+    }
+    return UNHANDLED;
+  }
+
+  private isCompletedCommand(operation: string, operationId: string): boolean {
+    return (
+      operation !== "ingestLocalDataFrame" &&
+      Boolean(operationId) &&
+      this.completed.has(operationId)
+    );
+  }
+
+  private async writeOperation(
+    operation: string,
+    args: Record<string, unknown>,
+    operationId: string,
+  ): Promise<unknown> {
     if (operation === "createDataSource") {
       const source = args as unknown as StoredSource;
       this.sources.set(source.id, source);
-      result = { id: source.id };
-    } else if (operation === "createDataTable") {
+      return { id: source.id };
+    }
+    if (operation === "createDataTable") {
       const table = args as unknown as StoredTable;
       if (!this.sources.has(table.dataSourceId))
         throw new Error("Missing source");
       this.tables.set(table.id, table);
-      result = { id: table.id };
-    } else if (operation === "ingestLocalDataFrame") {
-      const dataTableId = String(args.dataTableId);
-      if (!this.tables.has(dataTableId)) throw new Error("Missing table");
-      const dataFrameId = operationId;
-      const arrow = new Uint8Array(
-        Buffer.from(String(args.arrowBase64), "base64"),
-      );
-      const tableName = `df_${dataFrameId.replaceAll("-", "_")}`;
-      await this.engine.registerArrowTable(tableName, arrow);
-      const [count] = await this.queryFrame(
-        dataFrameId,
-        "SELECT COUNT(*) AS count FROM $TABLE",
-      );
-      const table = this.tables.get(dataTableId)!;
-      result = {
-        dataFrameId,
-        rowCount: Number(count?.count),
-        columnCount: table.fields.length,
-      } satisfies StoredFrame;
-      this.frames.set(dataTableId, result as StoredFrame);
-    } else {
-      throw new Error(`Unsupported fixture operation: ${operation}`);
+      return { id: table.id };
     }
+    if (operation === "ingestLocalDataFrame") {
+      return this.ingest(args, operationId);
+    }
+    throw new Error(`Unsupported fixture operation: ${operation}`);
+  }
 
-    if (operationId) this.completed.set(operationId, result);
+  private async ingest(
+    args: Record<string, unknown>,
+    operationId: string,
+  ): Promise<StoredFrame> {
+    if (this.invalidatedImports.has(operationId)) {
+      throw new Error("Local import invalidated by workspace clear");
+    }
+    const arrowBase64 = String(args.arrowBase64);
+    const priorImport = this.importRequests.get(operationId);
+    if (priorImport && priorImport.arrowBase64 !== arrowBase64) {
+      throw new Error("Local import operationId reused with different request");
+    }
+    if (priorImport) return priorImport.result;
+    const dataTableId = String(args.dataTableId);
+    if (!this.tables.has(dataTableId)) throw new Error("Missing table");
+    const dataFrameId = crypto.randomUUID();
+    const arrow = new Uint8Array(Buffer.from(arrowBase64, "base64"));
+    const tableName = `df_${dataFrameId.replaceAll("-", "_")}`;
+    await this.engine.registerArrowTable(tableName, arrow);
+    const [count] = await this.queryFrame(
+      dataFrameId,
+      "SELECT COUNT(*) AS count FROM $TABLE",
+    );
+    const table = this.tables.get(dataTableId)!;
+    const replacement = args.replacement as StoredTable | undefined;
+    if (replacement) Object.assign(table, replacement);
+    table.dataFrameId = dataFrameId;
+    const result = {
+      dataFrameId,
+      rowCount: Number(count?.count),
+      columnCount: table.fields.length,
+    } satisfies StoredFrame;
+    this.frames.set(dataTableId, result);
+    this.importRequests.set(operationId, { arrowBase64, result });
     return result;
   }
 }

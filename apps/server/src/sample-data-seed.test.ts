@@ -44,6 +44,59 @@ describe("sample CSV project seeding", () => {
       ),
     ).toEqual([{ channel: "Organic Search", revenue: 83.25 }]);
   });
+
+  it("seeds a fresh queryable frame after the workspace is cleared", async () => {
+    const csvContent = await readFile(samplePath("orders"), "utf8");
+    const first = await seedCsvTable(project.application, {
+      csvContent,
+      tableName: "orders",
+    });
+
+    project.clearWorkspace();
+    const reseeded = await seedCsvTable(project.application, {
+      csvContent,
+      tableName: "orders",
+    });
+
+    expect(reseeded.dataFrameId).not.toBe(first.dataFrameId);
+    expect(reseeded.rowCount).toBe(first.rowCount);
+    expect(
+      await project.queryFrame(
+        reseeded.dataFrameId,
+        "SELECT COUNT(*) AS count FROM $TABLE",
+      ),
+    ).toEqual([{ count: first.rowCount }]);
+  });
+
+  it("replaces an intact table when the CSV content changes", async () => {
+    const csvContent = await readFile(samplePath("orders"), "utf8");
+    const first = await seedCsvTable(project.application, {
+      csvContent,
+      tableName: "orders",
+    });
+    const changedCsv = `${csvContent}O99999,C0001,2025-09-30,Direct,42.00,1,West\n`;
+
+    const reseeded = await seedCsvTable(project.application, {
+      csvContent: changedCsv,
+      tableName: "orders",
+    });
+
+    expect(reseeded.dataFrameId).not.toBe(first.dataFrameId);
+    expect(reseeded.rowCount).toBe(first.rowCount + 1);
+    expect(
+      await project.queryFrame(
+        reseeded.dataFrameId,
+        "SELECT revenue FROM $TABLE WHERE order_id = 'O99999'",
+      ),
+    ).toEqual([{ revenue: 42 }]);
+    expect(
+      await seedCsvTable(project.application, {
+        csvContent: changedCsv,
+        tableName: "orders",
+      }),
+    ).toEqual(reseeded);
+    expect(project.frames.size).toBe(1);
+  });
 });
 
 describe("sample CSV fixtures", () => {
