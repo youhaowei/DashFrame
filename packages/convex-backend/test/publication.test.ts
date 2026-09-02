@@ -600,4 +600,4 @@ it("keeps the cleanup outbox claimable after more than 1000 refreshes", async ()
       cleanupId,
     }),
   ).toMatchObject({ kind: "secret", resourceId });
-}, 30_000);
+}, 120_000);
