@@ -430,6 +430,7 @@
       "name": "@dashframe/app",
       "version": "0.1.0",
       "dependencies": {
+        "@dashframe/assistant": "workspace:*",
         "@dashframe/connector-ga4": "workspace:*",
         "@dashframe/connector-local": "workspace:*",
         "@dashframe/connector-notion": "workspace:*",

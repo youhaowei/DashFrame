@@ -36,3 +36,20 @@ body,
   opacity: 0.4 !important;
   border-radius: var(--radius) !important;
 }
+
+/* Short-lived WebMCP focus treatment. It uses the app's palette and surface
+ * tokens so the agent's pointer remains legible in both themes. */
+[data-webmcp-highlight="true"] {
+  outline: 2px solid var(--palette-primary);
+  outline-offset: 3px;
+  box-shadow: var(--surface-shadow);
+  transition:
+    outline-offset 160ms ease,
+    box-shadow 160ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-webmcp-highlight="true"] {
+    transition: none;
+  }
+}

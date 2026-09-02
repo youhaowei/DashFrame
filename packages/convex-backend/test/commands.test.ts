@@ -1048,6 +1048,127 @@ describe("existing command behavior on native Convex", () => {
     expect(vRows).toHaveLength(1);
     expect(vRows[0]?.insightId).toBe(insightId);
   });
+  it("rejects data-table field names where selected field ids are required", async () => {
+    const { tableId } = await makeTable();
+    const fieldId = id();
+    const insightId = id();
+    await commit(
+      cmd("AddField", {
+        nodeId: tableId,
+        field: {
+          id: fieldId,
+          name: "Region",
+          tableId,
+          columnName: "region",
+          type: "string",
+        },
+      }),
+    );
+
+    await expect(
+      commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "Invalid selection",
+          source: { sourceType: "dataTable", sourceId: tableId },
+          selectedFields: ["Region"],
+        }),
+      ),
+    ).rejects.toThrow("not output by source");
+    expect(await insightsById(insightId)).toHaveLength(0);
+  });
+  it("rejects a dashboard item whose visualization is absent from its draft", async () => {
+    const dashboardId = id();
+    await commit(cmd("CreateDashboard", { id: dashboardId, name: "D" }));
+    const { draftId } = await draftCommit();
+
+    await expect(
+      client.mutation(api.app.draftBatch, {
+        draftId,
+        commands: [
+          cmd("AddDashboardItem", {
+            dashboardId,
+            item: {
+              id: id(),
+              type: "visualization",
+              visualizationId: id(),
+              x: 0,
+              y: 0,
+              width: 6,
+              height: 4,
+            },
+          }),
+        ],
+      }),
+    ).rejects.toThrow("visualization");
+  });
+  it("accepts a visualization from the addressed draft but rejects one from another draft", async () => {
+    const { tableId } = await makeTable();
+    const insightId = id();
+    const visualizationId = id();
+    const dashboardId = id();
+    await commit(cmd("CreateDashboard", { id: dashboardId, name: "D" }));
+    const own = await draftCommit(
+      cmd("CreateInsight", {
+        id: insightId,
+        name: "Draft insight",
+        source: { sourceType: "dataTable", sourceId: tableId },
+      }),
+    );
+    await client.mutation(api.app.draftBatch, {
+      draftId: own.draftId,
+      commands: [
+        cmd("CreateVisualization", {
+          id: visualizationId,
+          name: "Draft chart",
+          insightId,
+          visualizationType: "barY",
+          encoding: {},
+          spec: {},
+        }),
+      ],
+    });
+    await expect(
+      client.mutation(api.app.draftBatch, {
+        draftId: own.draftId,
+        commands: [
+          cmd("AddDashboardItem", {
+            dashboardId,
+            item: {
+              id: id(),
+              type: "visualization",
+              visualizationId,
+              x: 0,
+              y: 0,
+              width: 6,
+              height: 4,
+            },
+          }),
+        ],
+      }),
+    ).resolves.toMatchObject({ draftId: own.draftId });
+
+    const foreign = await draftCommit();
+    await expect(
+      client.mutation(api.app.draftBatch, {
+        draftId: foreign.draftId,
+        commands: [
+          cmd("AddDashboardItem", {
+            dashboardId,
+            item: {
+              id: id(),
+              type: "visualization",
+              visualizationId,
+              x: 0,
+              y: 0,
+              width: 6,
+              height: 4,
+            },
+          }),
+        ],
+      }),
+    ).rejects.toThrow("visualization");
+  });
   it("should reject a self-referential insight source (client-supplied id == sourceId)", async () => {
     // CreateInsight mints its own id, so a caller can name itself as its
     // insight source — a 1-cycle that bypasses SetInsightSource's cycle guard.
@@ -2881,6 +3002,47 @@ describe("existing command behavior on native Convex", () => {
 
     expect(await vizsById(vizId)).toHaveLength(0);
   });
+  it("rejects chart encoding references outside the insight output", async () => {
+    const { tableId } = await makeTable();
+    const outputFieldId = id();
+    const insightId = id();
+    const hallucinatedFieldId = id();
+    await commit(
+      cmd("AddField", {
+        nodeId: tableId,
+        field: {
+          id: outputFieldId,
+          name: "Region",
+          tableId,
+          columnName: "region",
+          type: "string",
+        },
+      }),
+      cmd("CreateInsight", {
+        id: insightId,
+        name: "I",
+        source: { sourceType: "dataTable", sourceId: tableId },
+        selectedFields: [outputFieldId],
+      }),
+    );
+
+    for (const [visualizationId, x] of [
+      [id(), `field:${hallucinatedFieldId}`],
+      [id(), "missing_column"],
+    ])
+      await expect(
+        draftCommit(
+          cmd("CreateVisualization", {
+            id: visualizationId,
+            name: "Broken chart",
+            insightId,
+            visualizationType: "barY",
+            encoding: { x } as never,
+            spec: {},
+          }),
+        ),
+      ).rejects.toThrow("not output by Insight");
+  });
   it("should accept a repeat-join instance encoding — the axis picker emits it", async () => {
     const { tableId } = await makeTable();
     const insightId = id();
@@ -2962,6 +3124,64 @@ describe("existing command behavior on native Convex", () => {
     expect(layout).toHaveLength(2);
     expect(layout.map((it) => it.id)).toContain(itemId);
     expect(layout.map((it) => it.id)).toContain(markdownId);
+  });
+  it("places a composed widget after items already staged in the draft", async () => {
+    const { tableId } = await makeTable();
+    const insightId = id();
+    const visualizationId = id();
+    const dashboardId = id();
+    await commit(
+      cmd("CreateInsight", {
+        id: insightId,
+        name: "I",
+        source: { sourceType: "dataTable", sourceId: tableId },
+      }),
+      cmd("CreateVisualization", {
+        id: visualizationId,
+        name: "V",
+        insightId,
+        visualizationType: "barY",
+        spec: {},
+      }),
+      cmd("CreateDashboard", { id: dashboardId, name: "D" }),
+    );
+    const first = await draftCommit(
+      cmd("AddDashboardItem", {
+        dashboardId,
+        item: {
+          id: id(),
+          type: "visualization",
+          visualizationId,
+          x: 0,
+          y: 0,
+          width: 6,
+          height: 4,
+        },
+      }),
+    );
+    await client.mutation(api.app.draftBatch, {
+      draftId: first.draftId,
+      commands: [
+        cmd("AddDashboardItem", {
+          dashboardId,
+          item: {
+            id: id(),
+            type: "visualization",
+            visualizationId,
+            x: 0,
+            y: 0,
+            width: 6,
+            height: 4,
+          },
+        }),
+      ],
+    });
+
+    const dashboard = await client.query(api.app.getDashboard, {
+      id: dashboardId,
+      draftId: first.draftId,
+    });
+    expect(dashboard?.items.map((item) => item.y)).toEqual([0, 4]);
   });
   it("should reject a duplicate item id in AddDashboardItem (no illegal two-items-one-id state)", async () => {
     const dashId = id();
@@ -3089,23 +3309,7 @@ describe("existing command behavior on native Convex", () => {
     });
   });
   it("rejects whole override-bag replacement through UpdateDashboardItem", async () => {
-    const dashId = id();
-    const itemId = id();
-    await commit(
-      cmd("CreateDashboard", { id: dashId, name: "D" }),
-      cmd("AddDashboardItem", {
-        dashboardId: dashId,
-        item: {
-          id: itemId,
-          type: "visualization" as const,
-          visualizationId: id(),
-          x: 0,
-          y: 0,
-          width: 6,
-          height: 4,
-        },
-      }),
-    );
+    const { dashId, sourceItemId: itemId } = await makeDashWithVizItem();
 
     await expect(
       commit(
@@ -3128,23 +3332,7 @@ describe("existing command behavior on native Convex", () => {
     expect(item.overrides).toBeUndefined();
   });
   it("serializes concurrent override intents without dropping sibling fields", async () => {
-    const dashId = id();
-    const itemId = id();
-    await commit(
-      cmd("CreateDashboard", { id: dashId, name: "D" }),
-      cmd("AddDashboardItem", {
-        dashboardId: dashId,
-        item: {
-          id: itemId,
-          type: "visualization",
-          visualizationId: id(),
-          x: 0,
-          y: 0,
-          width: 6,
-          height: 4,
-        },
-      }),
-    );
+    const { dashId, sourceItemId: itemId } = await makeDashWithVizItem();
 
     await Promise.all([
       commit(
@@ -3224,22 +3412,8 @@ describe("existing command behavior on native Convex", () => {
     ).rejects.toThrow();
   });
   it("normalizes cleared and empty override intents to no override bag", async () => {
-    const dashId = id();
-    const itemId = id();
+    const { dashId, sourceItemId: itemId } = await makeDashWithVizItem();
     await commit(
-      cmd("CreateDashboard", { id: dashId, name: "D" }),
-      cmd("AddDashboardItem", {
-        dashboardId: dashId,
-        item: {
-          id: itemId,
-          type: "visualization",
-          visualizationId: id(),
-          x: 0,
-          y: 0,
-          width: 6,
-          height: 4,
-        },
-      }),
       cmd("PatchDashboardItemOverride", {
         dashboardId: dashId,
         itemId,
@@ -3328,6 +3502,7 @@ describe("existing command behavior on native Convex", () => {
     // dashboards.layout — but readers and layout rendering assume a known type
     // and numeric x/y/width/height. The fix validates the shape at the write
     // canonical full-item command boundary.
+    const { vizId } = await makeDashWithVizItem();
     const dashId = id();
     await commit(cmd("CreateDashboard", { id: dashId, name: "D" }));
 
@@ -3370,7 +3545,7 @@ describe("existing command behavior on native Convex", () => {
           item: {
             id: id(),
             type: "visualization",
-            visualizationId: id(),
+            visualizationId: vizId,
             x: 0,
             y: 0,
             width: 3,

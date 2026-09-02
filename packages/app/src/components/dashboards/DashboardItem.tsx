@@ -96,6 +96,7 @@ export function DashboardItem({
 
   return (
     <div
+      data-dashframe-widget-id={item.id}
       className={cn("group relative h-full w-full", className)}
       style={style}
       onMouseDown={onMouseDown}
