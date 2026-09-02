@@ -416,11 +416,16 @@ export const publishMaterialization = internalMutation({
                 record(frame.analysis).currentInsightResult === true,
             )
             .sort(byFreshness)[0]?.id ?? [...prior].sort(byFreshness)[0]?.id;
-        const externallyReferenced = await externallyReferencedFrameIds(
-          ctx,
-          args.workspaceId,
-          prior,
+        const prunableCandidates = prior.filter(
+          (frame) => frame.id !== previousFrameId,
         );
+        const externallyReferenced = prunableCandidates.length
+          ? await externallyReferencedFrameIds(
+              ctx,
+              args.workspaceId,
+              prunableCandidates,
+            )
+          : new Set<string>();
         for (const frame of prior) {
           if (
             shouldRetainInsightFrame(

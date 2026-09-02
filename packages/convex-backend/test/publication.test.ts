@@ -361,6 +361,58 @@ it("retains the latest and previous saved results for one-step rollback", async 
   ).toHaveLength(2);
 });
 
+it("skips the reference scan when no saved result is prunable", async () => {
+  const original = await fixture();
+  const insightId = crypto.randomUUID();
+  await user().mutation(api.app.commitBatch, {
+    commands: [
+      cmd("CreateInsight", {
+        id: insightId,
+        name: "Bounded history",
+        source: {
+          sourceType: "dataTable",
+          sourceId: original.sources[0]!.source.table.id,
+        },
+      }),
+    ],
+  });
+  const first = {
+    ...original,
+    sources: [],
+    target: { kind: "saved" as const, insightId },
+  };
+  await t.mutation(internal.host.publishMaterialization, {
+    workspaceId: "w",
+    value: first,
+  });
+  await t.run(async (ctx) => {
+    for (let sequence = 0; sequence < 1001; sequence++)
+      await ctx.db.insert("draftLog", {
+        workspaceId: "w",
+        draftId: `draft-${sequence}`,
+        sequence,
+        command: {
+          path: "renameNode",
+          args: { id: crypto.randomUUID(), name: "Draft name" },
+        },
+      });
+  });
+  const second = {
+    ...first,
+    result: { ...first.result, id: crypto.randomUUID() },
+    fetchedAt: first.fetchedAt + 1,
+  };
+
+  await t.mutation(internal.host.publishMaterialization, {
+    workspaceId: "w",
+    value: second,
+  });
+
+  expect(
+    await user().query(api.app.listDataFrames, { insightId }),
+  ).toHaveLength(2);
+}, 15_000);
+
 it("makes a successful zero-row materialization the current saved result", async () => {
   const original = await fixture();
   const insightId = crypto.randomUUID();
