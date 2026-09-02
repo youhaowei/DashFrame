@@ -84,6 +84,8 @@ export interface DataPickerContentProps {
    * @default true
    */
   showInsights?: boolean;
+  /** Keep a parent onboarding surface mounted while a connection is in progress. */
+  onActivityChange?: (active: boolean) => void;
 }
 
 interface RemoteResourceState {
@@ -156,6 +158,7 @@ export function DataPickerContent({
   excludeTableIds = [],
   onCancel,
   showInsights = true,
+  onActivityChange,
 }: DataPickerContentProps) {
   const dataSourcesQuery = queryStatus(
     useQuery({ query: api.app.listDataSources, args: {} }),
@@ -409,55 +412,66 @@ export function DataPickerContent({
       }
 
       setError(null);
-      setRemoteResourceState(
-        await connectRemoteSource({
-          connectorId: connector.id,
-          connectorName: connector.name,
-          credentials,
-          addSource: async (input: CreateDataSourceInput) => {
-            const id = crypto.randomUUID() as UUID;
-            const commands = [
-              cmd("CreateDataSource", {
-                id,
-                type: input.type,
-                name: input.name,
-                apiKey: input.apiKey,
-                connectionString: input.connectionString,
-              }),
-            ];
-            // defaultSchema is non-credential connector config — follow with
-            // SetDataSourceConfig.extra in the same batch when present.
-            if (input.config?.defaultSchema !== undefined) {
-              commands.push(
-                cmd("SetDataSourceConfig", {
+      onActivityChange?.(true);
+      try {
+        setRemoteResourceState(
+          await connectRemoteSource({
+            connectorId: connector.id,
+            connectorName: connector.name,
+            credentials,
+            addSource: async (input: CreateDataSourceInput) => {
+              const id = crypto.randomUUID() as UUID;
+              const commands = [
+                cmd("CreateDataSource", {
                   id,
-                  extra: { defaultSchema: input.config.defaultSchema },
+                  type: input.type,
+                  name: input.name,
+                  apiKey: input.apiKey,
+                  connectionString: input.connectionString,
                 }),
-              );
-            }
-            const batch = await requestHost("commitBatch", { commands });
-            const created = resultValueByCommandPath(
-              batch,
-              COMMAND_PATHS.CreateDataSource,
-            ) as { id: string } | undefined;
-            if (!created?.id) {
-              throw new Error("CreateDataSource did not return an id");
-            }
-            return created.id as UUID;
-          },
-          removeSource: async (id) => {
-            await commitBatch({
-              commands: [cmd("DeleteNode", { id })],
-            });
-          },
-          listNotionDatabases: (id) =>
-            listNotionDatabasesMutation({ dataSourceId: id }),
-          listPostgresTables: (id) =>
-            listPostgresTablesMutation({ dataSourceId: id }),
-        }),
-      );
+              ];
+              // defaultSchema is non-credential connector config — follow with
+              // SetDataSourceConfig.extra in the same batch when present.
+              if (input.config?.defaultSchema !== undefined) {
+                commands.push(
+                  cmd("SetDataSourceConfig", {
+                    id,
+                    extra: { defaultSchema: input.config.defaultSchema },
+                  }),
+                );
+              }
+              const batch = await requestHost("commitBatch", { commands });
+              const created = resultValueByCommandPath(
+                batch,
+                COMMAND_PATHS.CreateDataSource,
+              ) as { id: string } | undefined;
+              if (!created?.id) {
+                throw new Error("CreateDataSource did not return an id");
+              }
+              return created.id as UUID;
+            },
+            removeSource: async (id) => {
+              await commitBatch({
+                commands: [cmd("DeleteNode", { id })],
+              });
+            },
+            listNotionDatabases: (id) =>
+              listNotionDatabasesMutation({ dataSourceId: id }),
+            listPostgresTables: (id) =>
+              listPostgresTablesMutation({ dataSourceId: id }),
+          }),
+        );
+      } catch (cause) {
+        onActivityChange?.(false);
+        throw cause;
+      }
     },
-    [commitBatch, listNotionDatabasesMutation, listPostgresTablesMutation],
+    [
+      commitBatch,
+      listNotionDatabasesMutation,
+      listPostgresTablesMutation,
+      onActivityChange,
+    ],
   );
 
   const handleOAuthConnect = useCallback(
@@ -466,13 +480,19 @@ export function DataPickerContent({
         throw new Error(`${connector.name} OAuth onboarding is not supported`);
       }
       setError(null);
-      setRemoteResourceState({
-        connectorId: "googleAnalytics",
-        sourceId: dataSourceId,
-        resources: await listGa4PropertiesMutation({ dataSourceId }),
-      });
+      onActivityChange?.(true);
+      try {
+        setRemoteResourceState({
+          connectorId: "googleAnalytics",
+          sourceId: dataSourceId,
+          resources: await listGa4PropertiesMutation({ dataSourceId }),
+        });
+      } catch (cause) {
+        onActivityChange?.(false);
+        throw cause;
+      }
     },
-    [listGa4PropertiesMutation],
+    [listGa4PropertiesMutation, onActivityChange],
   );
 
   const handleRemoteResourceSelect = useCallback(
@@ -589,7 +609,10 @@ export function DataPickerContent({
               label="Choose another connection"
               variant="ghost"
               size="sm"
-              onClick={() => setRemoteResourceState(null)}
+              onClick={() => {
+                setRemoteResourceState(null);
+                onActivityChange?.(false);
+              }}
               icon={ArrowLeftIcon}
             />
             <SectionList title="Choose data to import">

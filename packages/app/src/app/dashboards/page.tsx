@@ -1,7 +1,10 @@
 import { useQuery_experimental as useQuery, useMutation } from "convex/react";
 import { queryStatus } from "@/data/query-status";
 import { useConfirmDialogStore, useToastStore } from "@/lib/stores";
-import { resolveReportContents } from "@/lib/reports/report-contents";
+import {
+  indexReportContents,
+  resolveReportContents,
+} from "@/lib/reports/report-contents";
 import {
   ArtifactCard,
   ArtifactCollection,
@@ -32,7 +35,7 @@ import {
   SparklesIcon,
 } from "@wystack/ui-react/icons";
 import { Input } from "@wystack/ui-react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 
 function ReportsCollectionContent({
   hasLoadError,
@@ -157,6 +160,10 @@ export default function DashboardsPage() {
         dashboard.name.toLowerCase().includes(searchQuery.trim().toLowerCase()),
       )
     : dashboards;
+  const reportContentIndexes = useMemo(
+    () => indexReportContents(visualizations, insights),
+    [insights, visualizations],
+  );
   const hasLoadError =
     dashboardsLoadError || visualizationsLoadError || insightsLoadError;
 
@@ -210,8 +217,7 @@ export default function DashboardsPage() {
           {filteredDashboards.map((dashboard) => {
             const contents = resolveReportContents(
               dashboard,
-              visualizations,
-              insights,
+              reportContentIndexes,
             );
             return (
               <ArtifactCard

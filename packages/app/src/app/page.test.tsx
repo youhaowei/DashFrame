@@ -1,5 +1,5 @@
 import { nativeQueryMock } from "@/test/native-query-fixture";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const { mockNavigate, mockUseQuery } = vi.hoisted(() => ({
@@ -19,7 +19,16 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 vi.mock("./_components/OnboardingView", () => ({
-  OnboardingView: () => <div>Project onboarding</div>,
+  OnboardingView: ({
+    onActivityChange,
+  }: {
+    onActivityChange?: (active: boolean) => void;
+  }) => (
+    <div>
+      Project onboarding
+      <button onClick={() => onActivityChange?.(true)}>Start connection</button>
+    </div>
+  ),
 }));
 
 vi.mock("@/components/drafts/DraftListItem", () => ({
@@ -34,8 +43,12 @@ function mockProjectQueries(values: {
   insights?: unknown[];
   dataSources?: unknown[];
   draftCount?: number;
+  errors?: string[];
 }) {
   mockUseQuery.mockImplementation(({ _path }: { _path: string }) => {
+    if (values.errors?.includes(_path)) {
+      return { isError: true, error: new Error(`${_path} failed`) };
+    }
     if (_path === "listDashboards") {
       return { data: values.dashboards ?? [], isLoading: false };
     }
@@ -107,5 +120,30 @@ describe("HomePage report entry", () => {
         replace: true,
       }),
     );
+  });
+
+  it("does not treat a failed presence query as a confirmed-empty project", () => {
+    mockProjectQueries({ errors: ["listDataSources"] });
+
+    render(<HomePage />);
+
+    expect(screen.queryByText("Project onboarding")).toBeNull();
+    expect(screen.getByRole("alert").textContent).toContain(
+      "Couldn't determine whether this project is empty",
+    );
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it("keeps onboarding mounted while the first connection is active", () => {
+    const values: Parameters<typeof mockProjectQueries>[0] = {};
+    mockProjectQueries(values);
+    const { rerender } = render(<HomePage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Start connection" }));
+    values.dataSources = [{ id: "source-1" }];
+    rerender(<HomePage />);
+
+    expect(screen.getByText("Project onboarding")).not.toBeNull();
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 });

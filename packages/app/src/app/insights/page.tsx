@@ -426,6 +426,7 @@ export default function InsightsPage() {
       <CreateVisualizationModal
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
+        title="Create question"
       />
     </ArtifactCollection>
   );

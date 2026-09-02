@@ -283,11 +283,17 @@ describe("DataPickerContent file replacement", () => {
   });
 
   it("stages connector secrets through host HTTP without sending them to a public Convex mutation", async () => {
+    const onActivityChange = vi.fn();
     mockHostRequest.mockResolvedValue({
       commands: [{ path: "createDataSource", args: {} }],
       results: [{ value: { id: NEW_TABLE_ID } }],
     });
-    render(<DataPickerContent onSelect={vi.fn()} />);
+    render(
+      <DataPickerContent
+        onTableSelect={vi.fn()}
+        onActivityChange={onActivityChange}
+      />,
+    );
     await act(async () => {
       await handleConnect?.(
         { id: "notion", name: "Notion" } as RemoteApiConnector,
@@ -306,6 +312,32 @@ describe("DataPickerContent file replacement", () => {
     expect(mockListResources).toHaveBeenCalledWith({
       dataSourceId: NEW_TABLE_ID,
     });
+    expect(onActivityChange).toHaveBeenCalledWith(true);
+    expect(onActivityChange).not.toHaveBeenCalledWith(false);
+  });
+
+  it("releases the onboarding hold when remote connection discovery fails", async () => {
+    const onActivityChange = vi.fn();
+    mockHostRequest.mockResolvedValue({
+      commands: [{ path: "createDataSource", args: {} }],
+      results: [{ value: { id: NEW_TABLE_ID } }],
+    });
+    mockListResources.mockRejectedValueOnce(new Error("provider unavailable"));
+
+    render(
+      <DataPickerContent
+        onTableSelect={vi.fn()}
+        onActivityChange={onActivityChange}
+      />,
+    );
+
+    await expect(
+      handleConnect?.({ id: "notion", name: "Notion" } as RemoteApiConnector, {
+        apiKey: "secret-for-host-vault",
+      }),
+    ).rejects.toThrow("provider unavailable");
+    expect(onActivityChange).toHaveBeenNthCalledWith(1, true);
+    expect(onActivityChange).toHaveBeenNthCalledWith(2, false);
   });
 
   it("creates a new table rather than offering to replace a same-named remote table", async () => {

@@ -15,7 +15,11 @@ const WelcomeHeader = () => (
   </div>
 );
 
-export function OnboardingView() {
+export function OnboardingView({
+  onActivityChange,
+}: {
+  onActivityChange?: (active: boolean) => void;
+}) {
   const { createInsightFromTable, createInsightFromInsight } =
     useCreateInsight();
 
@@ -28,6 +32,7 @@ export function OnboardingView() {
             onTableSelect={createInsightFromTable}
             onInsightSelect={(id, name) => createInsightFromInsight(id, name)}
             showInsights={true}
+            onActivityChange={onActivityChange}
           />
         </CardContent>
       </Card>

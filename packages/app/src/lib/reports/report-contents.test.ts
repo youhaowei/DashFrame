@@ -1,6 +1,6 @@
 import type { Dashboard, Insight, Visualization } from "@dashframe/types";
 import { describe, expect, it } from "vite-plus/test";
-import { resolveReportContents } from "./report-contents";
+import { indexReportContents, resolveReportContents } from "./report-contents";
 
 const report = {
   id: "report-1",
@@ -58,7 +58,10 @@ const insights = [
 
 describe("resolveReportContents", () => {
   it("deduplicates widgets and preserves their first report order", () => {
-    const contents = resolveReportContents(report, visualizations, insights);
+    const contents = resolveReportContents(
+      report,
+      indexReportContents(visualizations, insights),
+    );
 
     expect(contents.savedViews.map((view) => view.id)).toEqual([
       "view-2",
@@ -71,7 +74,10 @@ describe("resolveReportContents", () => {
   });
 
   it("keeps a factual question count when the Insight row is unavailable", () => {
-    const contents = resolveReportContents(report, visualizations, []);
+    const contents = resolveReportContents(
+      report,
+      indexReportContents(visualizations, []),
+    );
 
     expect(contents.questionIds).toEqual(["question-1"]);
     expect(contents.questions).toEqual([]);

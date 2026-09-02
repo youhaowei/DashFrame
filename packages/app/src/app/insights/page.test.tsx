@@ -51,7 +51,18 @@ vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mockNavigate,
 }));
 vi.mock("@/components/visualizations/CreateVisualizationModal", () => ({
-  CreateVisualizationModal: () => null,
+  CreateVisualizationModal: ({
+    isOpen,
+    title,
+  }: {
+    isOpen: boolean;
+    title?: string;
+  }) =>
+    isOpen ? (
+      <div role="dialog" aria-label={title}>
+        {title}
+      </div>
+    ) : null,
 }));
 vi.mock("@/lib/stores/insight-canvas-store", () => ({
   useInsightCanvasStore: (
@@ -235,6 +246,15 @@ describe("InsightsPage delete confirmations", () => {
     expect(screen.getAllByRole("heading", { level: 3 })).toHaveLength(2);
     screen.getByRole("heading", { level: 3, name: "First draft" });
     screen.getByRole("heading", { level: 3, name: "Second draft" });
+  });
+
+  it("uses question-specific copy in the creation dialog", async () => {
+    const user = userEvent.setup();
+    render(<InsightsPage />);
+
+    await user.click(screen.getByRole("button", { name: "New question" }));
+
+    screen.getByRole("dialog", { name: "Create question" });
   });
 
   it("shows the draft count and does not start the bulk delete until confirmation", async () => {

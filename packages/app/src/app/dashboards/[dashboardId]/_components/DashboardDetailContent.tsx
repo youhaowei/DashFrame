@@ -13,7 +13,10 @@ import {
   resolveInsightAvailableFields,
   type CombinedField,
 } from "@/lib/insights/compute-combined-fields";
-import { resolveReportContents } from "@/lib/reports/report-contents";
+import {
+  indexReportContents,
+  resolveReportContents,
+} from "@/lib/reports/report-contents";
 import { api } from "@dashframe/convex-backend/api";
 import {
   cmd,
@@ -57,6 +60,13 @@ export function formatReportContentsCount(
   return `${questionCount} question${questionCount === 1 ? "" : "s"} · ${savedViewCount} saved view${savedViewCount === 1 ? "" : "s"}`;
 }
 
+export function formatSavedViewType(visualizationType: string): string {
+  return Object.hasOwn(CHART_TYPE_METADATA, visualizationType)
+    ? CHART_TYPE_METADATA[visualizationType as keyof typeof CHART_TYPE_METADATA]
+        .displayName
+    : "Saved view";
+}
+
 export default function DashboardDetailContent({
   dashboardId,
 }: DashboardDetailContentProps) {
@@ -90,7 +100,10 @@ export default function DashboardDetailContent({
   const reportContents = useMemo(
     () =>
       dashboard
-        ? resolveReportContents(dashboard, visualizations, insights)
+        ? resolveReportContents(
+            dashboard,
+            indexReportContents(visualizations, insights),
+          )
         : { savedViews: [], questionIds: [], questions: [] },
     [dashboard, insights, visualizations],
   );
@@ -358,9 +371,7 @@ export default function DashboardDetailContent({
                   to={`/visualizations/${view.id}`}
                   name={view.name}
                   icon={<ChartIcon className="h-5 w-5" />}
-                  metadata={
-                    CHART_TYPE_METADATA[view.visualizationType].displayName
-                  }
+                  metadata={formatSavedViewType(view.visualizationType)}
                 />
               ))}
             </ArtifactGrid>
