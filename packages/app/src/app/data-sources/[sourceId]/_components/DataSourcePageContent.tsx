@@ -198,6 +198,11 @@ export default function DataSourcePageContent({
       args: { dataSourceId: sourceId },
     }),
   );
+  const tableCountUnit = dataTables.length === 1 ? "table" : "tables";
+  const tableCountLabel =
+    isLoadingDataTables || isDataTablesError
+      ? null
+      : ` · ${dataTables.length} ${tableCountUnit}`;
 
   // Local state for selected table - use null to indicate "not yet selected by user"
   const [selectedTableId, setSelectedTableId] = useState<UUID | null>(null);
@@ -357,7 +362,7 @@ export default function DataSourcePageContent({
     <div className="flex h-full items-center justify-center">
       <div className="text-center">
         <TableIcon className="mx-auto mb-4 h-12 w-12 text-neutral-fg-subtle" />
-        <h3 className="mb-2 text-lg font-semibold">No tables yet</h3>
+        <h2 className="mb-2 text-lg font-semibold">No tables yet</h2>
         <p className="mb-4 text-sm text-neutral-fg-subtle">
           Use Add Source on the Data Sources page to import a table.
         </p>
@@ -386,7 +391,7 @@ export default function DataSourcePageContent({
                 <ConnectorIcon svg={connector.icon} className="h-6 w-6" />
               ) : undefined
             }
-            description={`${connector?.name ?? dataSource.type} · ${dataTables.length} table${dataTables.length === 1 ? "" : "s"}`}
+            description={`${connector?.name ?? dataSource.type}${tableCountLabel ?? ""}`}
             actions={
               <Popover>
                 <PopoverTrigger

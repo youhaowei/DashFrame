@@ -480,6 +480,7 @@ describe("DataSourcePageContent — loading state contract", () => {
     screen.getByText("Loading tables…");
     screen.getByRole("heading", { level: 1, name: "My Database" });
     screen.getByRole("button", { name: /^Sources:/ });
+    expect(screen.queryByText(/·\s*0 tables/)).toBeNull();
   });
 
   it("shows a table-query error without claiming the source has no tables", () => {
@@ -494,6 +495,7 @@ describe("DataSourcePageContent — loading state contract", () => {
     expect(screen.queryByText("No tables yet")).toBeNull();
     screen.getByRole("alert");
     screen.getByRole("heading", { name: "Couldn't load tables" });
+    expect(screen.queryByText(/·\s*0 tables/)).toBeNull();
   });
 
   it("keeps the connector logo and exposes rename popover state", () => {
