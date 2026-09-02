@@ -164,7 +164,7 @@ test.describe("draft review", () => {
 
     await page.goto(`${workerBaseURL}/drafts`);
     await expect(
-      page.getByText("No changes waiting for review."),
+      page.getByText("No changes waiting for review", { exact: true }),
     ).toBeVisible();
   });
 
@@ -220,7 +220,7 @@ test.describe("draft review", () => {
   }) => {
     await page.goto(`${workerBaseURL}/drafts`);
     await expect(
-      page.getByText("No changes waiting for review."),
+      page.getByText("No changes waiting for review", { exact: true }),
     ).toBeVisible();
 
     // The list query is already mounted. An external service mutation must
@@ -249,7 +249,7 @@ test.describe("draft review", () => {
 
     await mutate("discardDraft", { draftId: discardable.draftId }, USER_TOKEN);
     await expect(
-      page.getByText("No changes waiting for review."),
+      page.getByText("No changes waiting for review", { exact: true }),
     ).toBeVisible();
     await expect(page.getByLabel(/waiting for review/)).toHaveCount(0);
   });

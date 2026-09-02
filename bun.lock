@@ -264,10 +264,14 @@
         "vitest": "^3.0.0",
       },
       "peerDependencies": {
+        "@tanstack/react-virtual": "*",
         "react": ">=19.0.0",
         "react-dom": ">=19.0.0",
         "tailwindcss": ">=4.0.0",
       },
+      "optionalPeers": [
+        "@tanstack/react-virtual",
+      ],
     },
     "libs/wystack/packages/client": {
       "name": "@wystack/client",
