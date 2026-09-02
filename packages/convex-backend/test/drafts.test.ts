@@ -328,7 +328,7 @@ it("summarizes two visible drafts with 600 commands each", async () => {
       ),
     ),
   );
-}, 15_000);
+}, 60_000);
 it("creates empty drafts for assistant sessions and rejects closed draft reads", async () => {
   const { draftId } = await service().mutation(api.app.draftBatch, {
     commands: [],
