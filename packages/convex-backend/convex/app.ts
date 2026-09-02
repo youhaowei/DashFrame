@@ -10,7 +10,9 @@ import type {
   Visualization,
   Dashboard,
   PreviewDiff,
+  CommandRegistryPath,
 } from "@dashframe/types";
+import { isUnmodifiedDraft } from "@dashframe/types";
 import {
   query,
   mutation,
@@ -53,6 +55,7 @@ import {
   describeCommand,
 } from "./preview";
 import { artifactKinds, artifactTables, type ArtifactTable } from "./model";
+import { storedInsightDefinitionSchema } from "./insightCodec";
 const draftArg = { draftId: v.optional(v.string()) };
 async function readOne(
   ctx: QueryCtx,
@@ -516,7 +519,48 @@ const draftSummaryNode = v.object({
   ),
 });
 
-const fixedDraftTargetTables: Record<string, readonly ArtifactTable[]> = {
+type VisibleDraftPrincipal = Awaited<ReturnType<typeof principal>>;
+
+async function listVisibleDraftRows(
+  ctx: QueryCtx,
+  who: VisibleDraftPrincipal,
+): Promise<Doc<"drafts">[]> {
+  const ownRows = await ctx.db
+    .query("drafts")
+    .withIndex("by_workspaceId_and_owner", (q) =>
+      q.eq("workspaceId", who.workspaceId).eq("owner", who.owner),
+    )
+    .take(LIMIT + 1);
+  const serviceRows =
+    who.kind === "user"
+      ? await ctx.db
+          .query("drafts")
+          .withIndex("by_workspaceId_and_owner", (q) =>
+            q
+              .eq("workspaceId", who.workspaceId)
+              .gte("owner", "service:")
+              .lt("owner", "service;"),
+          )
+          .take(LIMIT + 1)
+      : [];
+  const rows = [...ownRows, ...serviceRows];
+  if (rows.length > LIMIT) throw new ConvexError("Draft list limit exceeded");
+  return rows;
+}
+
+export const listDraftCount = query({
+  args: {},
+  returns: v.number(),
+  handler: async (ctx) => {
+    const who = await principal(ctx);
+    return (await listVisibleDraftRows(ctx, who)).length;
+  },
+});
+
+const fixedDraftTargetTables: Record<
+  CommandRegistryPath,
+  readonly ArtifactTable[]
+> = {
   getOrCreateDataSource: ["dataSources"],
   createDataSource: ["dataSources"],
   setDataSourceConfig: ["dataSources"],
@@ -560,69 +604,169 @@ const fixedDraftTargetTables: Record<string, readonly ArtifactTable[]> = {
   ],
 };
 
-function summarizeDraftForList(
-  commands: Command[],
-  changes: Doc<"draftChanges">[],
-) {
-  const nodes = new Map<
-    string,
-    {
-      nodeId: string;
-      kind: (typeof artifactKinds)[ArtifactTable];
-      name: string;
-      intent: ReturnType<typeof describeCommand>[];
-    }
-  >();
-  let displayedIntentCount = 0;
+function getDraftTargetTables(path: string): readonly ArtifactTable[] {
+  return Object.hasOwn(fixedDraftTargetTables, path)
+    ? fixedDraftTargetTables[path as CommandRegistryPath]
+    : [];
+}
 
-  for (const command of commands) {
-    if (displayedIntentCount === 2) break;
-    const args = record(command.args);
-    const targetId = args.nodeId ?? args.dashboardId ?? args.id;
-    if (typeof targetId !== "string") continue;
-    const targetTables = fixedDraftTargetTables[command.path] ?? [];
-    const change = targetTables
-      .map((table) =>
-        changes.find(
-          (candidate) => candidate.table === table && candidate.id === targetId,
-        ),
-      )
-      .find((candidate) => candidate !== undefined);
-    if (!change || !artifactTables.includes(change.table as ArtifactTable))
+type DraftCommandTarget = {
+  id: string;
+  table: ArtifactTable;
+  name: string;
+};
+
+async function listExistingInsightDraftTargets(
+  ctx: QueryCtx,
+  workspaceId: string,
+): Promise<Map<string, DraftCommandTarget>> {
+  const rows = await ctx.db
+    .query("insights")
+    .withIndex("by_workspaceId_and_id", (q) => q.eq("workspaceId", workspaceId))
+    .take(LIMIT + 1);
+  assertCompleteArtifactRows(rows, "insights");
+
+  const targets = new Map<string, DraftCommandTarget>();
+  for (const row of rows) {
+    const definition = storedInsightDefinitionSchema.parse(row.definition);
+    if (
+      definition.source.sourceType !== "dataTable" ||
+      !isUnmodifiedDraft(definition) ||
+      targets.has(definition.source.sourceId)
+    ) {
       continue;
+    }
+    targets.set(definition.source.sourceId, {
+      id: row.id,
+      table: "insights",
+      name: row.name,
+    });
+  }
+  return targets;
+}
 
-    const table = change.table as ArtifactTable;
-    const key = `${table}:${change.id}`;
-    const existing = nodes.get(key);
-    const node = existing ?? {
-      nodeId: change.id,
-      kind: artifactKinds[table],
+async function resolveDraftCommandTarget(
+  ctx: QueryCtx,
+  workspaceId: string,
+  command: Command,
+  changes: readonly Doc<"draftChanges">[],
+  existingInsightDraftsBySourceId: ReadonlyMap<string, DraftCommandTarget>,
+): Promise<DraftCommandTarget | null> {
+  const args = record(command.args);
+  const targetId = args.nodeId ?? args.dashboardId ?? args.id;
+  if (typeof targetId !== "string") return null;
+
+  const targetTables = getDraftTargetTables(command.path);
+  for (const table of targetTables) {
+    const change = changes.find(
+      (candidate) => candidate.table === table && candidate.id === targetId,
+    );
+    if (!change) continue;
+    return {
+      id: change.id,
+      table,
       name: change.base?.name ?? change.value?.name ?? "Deleted artifact",
-      intent: [],
     };
-    node.intent.push(describeCommand(command));
-    nodes.set(key, node);
-    displayedIntentCount += 1;
   }
 
-  if (nodes.size === 0) {
-    const change = changes.find((candidate) =>
-      artifactTables.includes(candidate.table as ArtifactTable),
-    );
-    if (change) {
-      const table = change.table as ArtifactTable;
-      nodes.set(`${table}:${change.id}`, {
-        nodeId: change.id,
-        kind: artifactKinds[table],
-        name: change.base?.name ?? change.value?.name ?? "Deleted artifact",
-        intent: [],
-      });
+  if (command.path === "getOrCreateInsightDraft") {
+    const source = record(args.source);
+    if (
+      source.sourceType === "dataTable" &&
+      typeof source.sourceId === "string"
+    ) {
+      const existing = existingInsightDraftsBySourceId.get(source.sourceId);
+      if (existing) return existing;
     }
+  }
+
+  for (const table of targetTables) {
+    const row = await find(ctx, workspaceId, table, targetId);
+    if (!row) continue;
+    const value = rowValue(row);
+    return {
+      id: targetId,
+      table,
+      name:
+        typeof value.name === "string" && value.name.length > 0
+          ? value.name
+          : "Untitled artifact",
+    };
+  }
+
+  return null;
+}
+
+async function summarizeDraftForList(
+  ctx: QueryCtx,
+  workspaceId: string,
+  commands: Command[],
+  changes: Doc<"draftChanges">[],
+  existingInsightDraftsBySourceId: ReadonlyMap<string, DraftCommandTarget>,
+) {
+  const targets: Array<{
+    key: string;
+    id: string;
+    table: ArtifactTable;
+    name: string;
+    command: Command;
+  }> = [];
+  for (const command of commands) {
+    const target = await resolveDraftCommandTarget(
+      ctx,
+      workspaceId,
+      command,
+      changes,
+      existingInsightDraftsBySourceId,
+    );
+    if (!target) continue;
+    targets.push({
+      key: `${target.table}:${target.id}`,
+      ...target,
+      command,
+    });
+  }
+
+  const primary = targets[0];
+  if (primary) {
+    const intent = targets
+      .filter((target) => target.key === primary.key)
+      .slice(0, 2)
+      .map((target) => describeCommand(target.command));
+    return {
+      directNodes: [
+        {
+          nodeId: primary.id,
+          kind: artifactKinds[primary.table],
+          name: primary.name,
+          intent,
+        },
+      ],
+      remainingIntentCount: Math.max(0, commands.length - intent.length),
+    };
+  }
+
+  const change = changes.find((candidate) =>
+    artifactTables.includes(candidate.table as ArtifactTable),
+  );
+  if (change) {
+    const table = change.table as ArtifactTable;
+    return {
+      directNodes: [
+        {
+          nodeId: change.id,
+          kind: artifactKinds[table],
+          name: change.base?.name ?? change.value?.name ?? "Deleted artifact",
+          intent: [],
+        },
+      ],
+      remainingIntentCount: commands.length,
+    };
   }
 
   return {
-    directNodes: [...nodes.values()],
-    remainingIntentCount: Math.max(0, commands.length - displayedIntentCount),
+    directNodes: [],
+    remainingIntentCount: commands.length,
   };
 }
 
@@ -644,30 +788,11 @@ export const listDrafts = query({
   ),
   handler: async (ctx) => {
     const who = await principal(ctx);
-    const ownRows = await ctx.db
-      .query("drafts")
-      .withIndex("by_workspaceId_and_owner", (q) =>
-        q.eq("workspaceId", who.workspaceId).eq("owner", who.owner),
-      )
-      .take(LIMIT + 1);
-    const serviceRows =
-      who.kind === "user"
-        ? await ctx.db
-            .query("drafts")
-            .withIndex("by_workspaceId_and_owner", (q) =>
-              q
-                .eq("workspaceId", who.workspaceId)
-                .gte("owner", "service:")
-                .lt("owner", "service;"),
-            )
-            .take(LIMIT + 1)
-        : [];
-    const rows = [...ownRows, ...serviceRows];
-    if (rows.length > LIMIT) throw new ConvexError("Draft list limit exceeded");
+    const rows = await listVisibleDraftRows(ctx, who);
     const commandsByDraft = new Map<string, Command[]>();
     const summaryByDraft = new Map<
       string,
-      ReturnType<typeof summarizeDraftForList>
+      Awaited<ReturnType<typeof summarizeDraftForList>>
     >();
     await Promise.all(
       rows.map(async (row) => {
@@ -675,11 +800,26 @@ export const listDrafts = query({
           (entry) => entry.command,
         );
         commandsByDraft.set(row.draftId, commands);
+      }),
+    );
+    const needsExistingInsightDrafts = [...commandsByDraft.values()].some(
+      (commands) =>
+        commands.some((command) => command.path === "getOrCreateInsightDraft"),
+    );
+    const existingInsightDraftsBySourceId = needsExistingInsightDrafts
+      ? await listExistingInsightDraftTargets(ctx, who.workspaceId)
+      : new Map<string, DraftCommandTarget>();
+    await Promise.all(
+      rows.map(async (row) => {
+        const commands = commandsByDraft.get(row.draftId) ?? [];
         summaryByDraft.set(
           row.draftId,
-          summarizeDraftForList(
+          await summarizeDraftForList(
+            ctx,
+            who.workspaceId,
             commands,
             await draftChanges(ctx, who.workspaceId, row.draftId),
+            existingInsightDraftsBySourceId,
           ),
         );
       }),

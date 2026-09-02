@@ -28,13 +28,40 @@ vi.mock("@/components/drafts/DraftListItem", () => ({
 
 import HomePage from "./page";
 
+function mockProjectQueries(values: {
+  dashboards?: unknown[];
+  visualizations?: unknown[];
+  insights?: unknown[];
+  dataSources?: unknown[];
+  draftCount?: number;
+}) {
+  mockUseQuery.mockImplementation(({ _path }: { _path: string }) => {
+    if (_path === "listDashboards") {
+      return { data: values.dashboards ?? [], isLoading: false };
+    }
+    if (_path === "listVisualizations") {
+      return { data: values.visualizations ?? [], isLoading: false };
+    }
+    if (_path === "listInsights") {
+      return { data: values.insights ?? [], isLoading: false };
+    }
+    if (_path === "listDataSources") {
+      return { data: values.dataSources ?? [], isLoading: false };
+    }
+    if (_path === "listDraftCount") {
+      return { data: values.draftCount ?? 0, isLoading: false };
+    }
+    return { data: [], isLoading: false };
+  });
+}
+
 describe("HomePage report entry", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   it("keeps empty projects on the onboarding flow", () => {
-    mockUseQuery.mockReturnValue({ data: [], isLoading: false });
+    mockProjectQueries({});
 
     render(<HomePage />);
 
@@ -43,10 +70,7 @@ describe("HomePage report entry", () => {
   });
 
   it("routes populated projects through Reports without rendering legacy peers", async () => {
-    mockUseQuery.mockImplementation(({ _path }: { _path: string }) => ({
-      data: _path === "listVisualizations" ? [{ id: "visualization-1" }] : [],
-      isLoading: false,
-    }));
+    mockProjectQueries({ visualizations: [{ id: "visualization-1" }] });
 
     render(<HomePage />);
 
@@ -57,5 +81,31 @@ describe("HomePage report entry", () => {
       }),
     );
     expect(screen.queryByText("Project onboarding")).toBeNull();
+  });
+
+  it("treats a report without saved views as a populated project", async () => {
+    mockProjectQueries({ dashboards: [{ id: "report-1" }] });
+
+    render(<HomePage />);
+
+    await waitFor(() =>
+      expect(mockNavigate).toHaveBeenCalledWith({
+        to: "/dashboards",
+        replace: true,
+      }),
+    );
+  });
+
+  it("treats draft-only workspaces as populated projects", async () => {
+    mockProjectQueries({ draftCount: 1 });
+
+    render(<HomePage />);
+
+    await waitFor(() =>
+      expect(mockNavigate).toHaveBeenCalledWith({
+        to: "/dashboards",
+        replace: true,
+      }),
+    );
   });
 });

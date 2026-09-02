@@ -2,7 +2,6 @@ import { useQuery_experimental as useQuery } from "convex/react";
 import { useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { queryStatus } from "@/data/query-status";
-import { DraftListItem } from "@/components/drafts/DraftListItem";
 import { api } from "@dashframe/convex-backend/api";
 
 import { Spinner } from "@wystack/ui-react";
@@ -11,28 +10,47 @@ import { OnboardingView } from "./_components/OnboardingView";
 /**
  * Home Page
  *
- * Shows onboarding when no visualizations exist. Populated projects enter the
+ * Shows onboarding when no artifacts exist. Populated projects enter the
  * product through Reports so legacy peer collections do not bypass the
  * report-centered hierarchy.
  */
 export default function HomePage() {
   const navigate = useNavigate();
-  const { data: visualizations = [], isLoading } = queryStatus(
-    useQuery({ query: api.app.listVisualizations, args: {} }),
+  const { data: dashboards = [], isLoading: dashboardsLoading } = queryStatus(
+    useQuery({ query: api.app.listDashboards, args: {} }),
   );
-  const { data: drafts = [] } = queryStatus(
-    useQuery({ query: api.app.listDrafts, args: {} }),
+  const { data: visualizations = [], isLoading: visualizationsLoading } =
+    queryStatus(useQuery({ query: api.app.listVisualizations, args: {} }));
+  const { data: insights = [], isLoading: insightsLoading } = queryStatus(
+    useQuery({ query: api.app.listInsights, args: {} }),
+  );
+  const { data: dataSources = [], isLoading: dataSourcesLoading } = queryStatus(
+    useQuery({ query: api.app.listDataSources, args: {} }),
+  );
+  const { data: draftCount = 0, isLoading: draftCountLoading } = queryStatus(
+    useQuery({ query: api.app.listDraftCount, args: {} }),
   );
 
-  const hasVisualizations = visualizations.length > 0;
+  const isLoading =
+    dashboardsLoading ||
+    visualizationsLoading ||
+    insightsLoading ||
+    dataSourcesLoading ||
+    draftCountLoading;
+  const hasProjectArtifacts =
+    dashboards.length > 0 ||
+    visualizations.length > 0 ||
+    insights.length > 0 ||
+    dataSources.length > 0 ||
+    draftCount > 0;
 
   useEffect(() => {
-    if (!isLoading && hasVisualizations) {
+    if (!isLoading && hasProjectArtifacts) {
       void navigate({ to: "/dashboards", replace: true });
     }
-  }, [hasVisualizations, isLoading, navigate]);
+  }, [hasProjectArtifacts, isLoading, navigate]);
 
-  if (isLoading || hasVisualizations) {
+  if (isLoading || hasProjectArtifacts) {
     return (
       <div className="flex h-full items-center justify-center bg-neutral-bg">
         <Spinner size="lg" className="text-neutral-fg-subtle" />
@@ -45,19 +63,6 @@ export default function HomePage() {
       {/* Content */}
       <main className="flex-1 overflow-y-auto">
         <div className="container mx-auto max-w-4xl px-6 py-12">
-          {drafts.length > 0 ? (
-            <section className="mb-8">
-              <h2 className="mb-3 text-sm font-semibold text-neutral-fg">
-                Waiting for review
-              </h2>
-              <div className="space-y-3">
-                {drafts.map((draft) => (
-                  <DraftListItem key={draft.draftId} draft={draft} />
-                ))}
-              </div>
-            </section>
-          ) : null}
-
           <OnboardingView />
         </div>
       </main>

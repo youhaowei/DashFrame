@@ -227,8 +227,8 @@ export function Navigation() {
   const [showAccessCredentials, setShowAccessCredentials] = useState(false);
   const setAssistantSetupOpen = useAssistantStore((s) => s.setSetupOpen);
   const accessCapabilities = useAccessCapabilities();
-  const { data: drafts = [] } = queryStatus(
-    useQuery({ query: api.app.listDrafts, args: {} }),
+  const { data: draftCount = 0 } = queryStatus(
+    useQuery({ query: api.app.listDraftCount, args: {} }),
   );
   const canManageAccessCredentials =
     accessCapabilities.data?.canManageCredentials === true;
@@ -272,7 +272,7 @@ export function Navigation() {
           style={{ width: DESKTOP_NAV_WIDTH }}
         >
           <SidebarContent
-            pendingDraftCount={drafts.length}
+            pendingDraftCount={draftCount}
             onClearData={() => setShowClearConfirm(true)}
             onAssistantProviders={() => setAssistantSetupOpen(true)}
             onAccessCredentials={
@@ -314,7 +314,7 @@ export function Navigation() {
             </div>
             <div className="flex-1 overflow-y-auto">
               <SidebarContent
-                pendingDraftCount={drafts.length}
+                pendingDraftCount={draftCount}
                 onNavigate={() => setIsOpen(false)}
                 onClearData={() => setShowClearConfirm(true)}
                 onAssistantProviders={() => setAssistantSetupOpen(true)}

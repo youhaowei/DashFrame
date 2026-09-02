@@ -30,7 +30,9 @@ vi.mock("@/lib/stores/shell-store", () => ({
 }));
 vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
-  useQuery_experimental: nativeQueryMock(() => ({ data: [] })),
+  useQuery_experimental: nativeQueryMock((ref: { _path: string }) => ({
+    data: ref._path === "listDraftCount" ? 0 : [],
+  })),
 }));
 vi.mock("@/data/host", () => ({
   useHostQuery: hostQueryMock(() => ({ data: [] })),

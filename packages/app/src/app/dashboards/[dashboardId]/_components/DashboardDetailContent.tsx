@@ -293,7 +293,7 @@ export default function DashboardDetailContent({
         }
       />
 
-      <div className="max-h-[42vh] shrink-0 space-y-6 overflow-y-auto border-b border-neutral-border bg-neutral-bg px-4 py-5 sm:px-6">
+      <div className="max-h-[42vh] shrink-0 space-y-6 overflow-y-auto bg-neutral-bg px-4 py-5 sm:px-6">
         <section
           aria-labelledby="report-questions-heading"
           className="space-y-3"
