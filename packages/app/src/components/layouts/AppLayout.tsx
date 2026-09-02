@@ -4,13 +4,7 @@ import { Link } from "@tanstack/react-router";
 import { cn } from "@wystack/ui-react";
 import type { ReactNode } from "react";
 
-export interface AppLayoutProps {
-  /** Complete page header, when the page uses the shared artifact identity. */
-  pageHeader?: ReactNode;
-  /** Breadcrumb navigation items */
-  breadcrumbs?: BreadcrumbItem[];
-  /** Optional header content (shown after breadcrumbs) */
-  headerContent?: ReactNode;
+type AppLayoutBaseProps = {
   /** Left sidebar panel (e.g., controls, configuration) */
   leftPanel?: ReactNode;
   /** Optional footer content */
@@ -21,7 +15,24 @@ export interface AppLayoutProps {
   className?: string;
   /** Optional className for the children wrapper (main content area) */
   childrenClassName?: string;
-}
+};
+
+type AppLayoutHeaderProps =
+  | {
+      /** Complete header override. Cannot be combined with breadcrumbs or headerContent; its perf marker is the generic `layout:page`. */
+      pageHeader: ReactNode;
+      breadcrumbs?: never;
+      headerContent?: never;
+    }
+  | {
+      pageHeader?: undefined;
+      /** Breadcrumb navigation items rendered by AppLayout. */
+      breadcrumbs?: BreadcrumbItem[];
+      /** Optional header content rendered after breadcrumbs. */
+      headerContent?: ReactNode;
+    };
+
+export type AppLayoutProps = AppLayoutBaseProps & AppLayoutHeaderProps;
 
 /**
  * AppLayout - Reusable layout for application pages
@@ -116,13 +127,10 @@ export function AppLayout({
 /**
  * @deprecated Use AppLayout instead. This is a backward-compatible alias.
  */
-export interface WorkbenchLayoutProps extends Omit<
-  AppLayoutProps,
-  "breadcrumbs" | "headerContent"
-> {
+export type WorkbenchLayoutProps = AppLayoutBaseProps & {
   /** @deprecated Use breadcrumbs instead */
   header?: ReactNode;
-}
+};
 
 /**
  * @deprecated Use AppLayout instead. WorkbenchLayout is kept for backward compatibility.

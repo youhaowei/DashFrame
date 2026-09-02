@@ -296,9 +296,11 @@ export default function InsightsPage() {
     <ArtifactCollection
       title="Insights"
       description={
-        <>
-          {insights.length} insight{insights.length !== 1 ? "s" : ""}
-        </>
+        isLoading ? undefined : (
+          <>
+            {insights.length} insight{insights.length !== 1 ? "s" : ""}
+          </>
+        )
       }
       actions={
         <Button
@@ -309,7 +311,7 @@ export default function InsightsPage() {
       }
       searchLabel="Search insights"
       searchPlaceholder="Search insights..."
-      itemCount={insights.length}
+      itemCount={isLoading ? undefined : insights.length}
       searchQuery={searchQuery}
       onSearchQueryChange={setSearchQuery}
     >

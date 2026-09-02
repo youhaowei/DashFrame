@@ -104,6 +104,22 @@ describe("InsightsPage delete confirmations", () => {
     });
   });
 
+  it("keeps search available without showing a false count while insights load", () => {
+    mockUseQuery.mockImplementation((ref: { _path: string }) => {
+      if (ref._path === "listInsights" || ref._path === "listVisualizations") {
+        return { isPending: true };
+      }
+      return { data: [] };
+    });
+
+    render(<InsightsPage />);
+
+    expect(screen.queryByText(/^0 insights$/)).toBeNull();
+    expect(
+      screen.getByRole("textbox", { name: "Search insights" }),
+    ).not.toBeNull();
+  });
+
   it("does not delete one draft after cancellation, but deletes it after confirmation", async () => {
     const user = userEvent.setup();
     render(

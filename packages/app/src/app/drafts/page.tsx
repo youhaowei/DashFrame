@@ -19,6 +19,14 @@ import { Button, ErrorState, Spinner } from "@wystack/ui-react";
 import { api } from "@dashframe/convex-backend/api";
 import { toast } from "sonner";
 
+function getDraftCountPresentation(isLoading: boolean, count: number) {
+  if (isLoading) return { description: undefined, itemCount: undefined };
+  return {
+    description: `${count} draft${count === 1 ? "" : "s"}`,
+    itemCount: count,
+  };
+}
+
 export default function DraftsPage() {
   const {
     data: drafts = [],
@@ -33,6 +41,7 @@ export default function DraftsPage() {
       .includes(query),
   );
   const discardDraft = useMutation(api.app.discardDraft);
+  const draftCount = getDraftCountPresentation(isLoading, drafts.length);
 
   const discard = async (draft: DraftListEntry) => {
     try {
@@ -50,10 +59,10 @@ export default function DraftsPage() {
   return (
     <ArtifactCollection
       title="Drafts"
-      description={`${drafts.length} draft${drafts.length === 1 ? "" : "s"}`}
+      description={draftCount.description}
       searchLabel="Search drafts"
       searchPlaceholder="Search drafts..."
-      itemCount={drafts.length}
+      itemCount={draftCount.itemCount}
       searchQuery={searchQuery}
       onSearchQueryChange={setSearchQuery}
     >

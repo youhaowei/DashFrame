@@ -87,17 +87,19 @@ export default function DataFramesPage() {
 
   const now = useNow();
 
-  const dataSourceNameById = (() => {
+  /* oxlint-disable react-hooks-js/preserve-manual-memoization -- Convex query snapshots are replaced rather than mutated in place. */
+  const dataSourceNameById = useMemo(() => {
     const map = new Map<string, string>();
     for (const source of dataSources ?? []) map.set(source.id, source.name);
     return map;
-  })();
+  }, [dataSources]);
 
-  const dataTableNameById = (() => {
+  const dataTableNameById = useMemo(() => {
     const map = new Map<string, string>();
     for (const table of dataTables ?? []) map.set(table.id, table.name);
     return map;
-  })();
+  }, [dataTables]);
+  /* oxlint-enable react-hooks-js/preserve-manual-memoization */
 
   const filteredDataFrames = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();

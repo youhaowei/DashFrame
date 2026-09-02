@@ -10,7 +10,8 @@ export type ArtifactCollectionProps = {
   description?: ReactNode;
   actions?: ReactNode;
   navigation?: ReactNode;
-  itemCount: number;
+  /** Undefined while the collection query is pending. */
+  itemCount: number | undefined;
   searchQuery: string;
   onSearchQueryChange: (value: string) => void;
   searchPlaceholder: string;
@@ -33,7 +34,8 @@ export function ArtifactCollection({
   children,
   tools,
 }: ArtifactCollectionProps) {
-  const showSearch = itemCount > 0 || searchQuery.length > 0;
+  const showSearch =
+    itemCount === undefined || itemCount > 0 || searchQuery.length > 0;
   return (
     <div className="flex h-full min-h-0 flex-col bg-neutral-bg">
       <ArtifactPageHeader

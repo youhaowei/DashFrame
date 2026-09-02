@@ -151,7 +151,7 @@ describe("DataFramesPage", () => {
       dataFrames: [
         makeFrame({ id: "frame-gamma", name: "Gamma", createdAt: 1_000 }),
         makeFrame({ id: "frame-alpha", name: "Alpha", createdAt: 3_000 }),
-        makeFrame({ id: "frame-beta", name: "Beta", createdAt: 2_000 }),
+        makeFrame({ id: "frame-beta", name: "Beta", createdAt: 4_000 }),
       ],
     });
     const user = userEvent.setup();
@@ -173,7 +173,7 @@ describe("DataFramesPage", () => {
     await user.click(
       await screen.findByRole("option", { name: "Created (oldest)" }),
     );
-    expect(frameNamesInDocument(names)).toEqual(["Gamma", "Beta", "Alpha"]);
+    expect(frameNamesInDocument(names)).toEqual(["Gamma", "Alpha", "Beta"]);
     await waitFor(() =>
       expect(
         screen.queryByRole("option", { name: "Created (oldest)" }),
@@ -186,7 +186,7 @@ describe("DataFramesPage", () => {
     await user.click(
       await screen.findByRole("option", { name: "Created (newest)" }),
     );
-    expect(frameNamesInDocument(names)).toEqual(["Alpha", "Beta", "Gamma"]);
+    expect(frameNamesInDocument(names)).toEqual(["Beta", "Alpha", "Gamma"]);
   });
 
   it("renames a data frame from its card menu", async () => {
