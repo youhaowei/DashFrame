@@ -3,6 +3,11 @@ import { convexTest } from "convex-test";
 import { COMMAND_PATHS } from "@dashframe/types";
 import schema from "../convex/schema";
 import { api, internal } from "../convex/_generated/api";
+import {
+  scanWorkspaceReferenceRows,
+  WORKSPACE_REFERENCE_TABLES,
+} from "../convex/cleanup";
+import { externallyReferencedFrameIds } from "../convex/frameRetention";
 
 const modules = import.meta.glob("../convex/**/*.ts");
 const makeTest = () => convexTest(schema, modules);
@@ -21,7 +26,7 @@ const user = () =>
     userId: "u",
   });
 
-it("throws instead of truncating a 1001-frame recovery list", async () => {
+it("returns a bounded recovery batch when a workspace has 1001 frames", async () => {
   const frameIds = Array.from({ length: 1001 }, () => crypto.randomUUID());
   await t.run(async (ctx) => {
     for (const id of frameIds)
@@ -39,9 +44,9 @@ it("throws instead of truncating a 1001-frame recovery list", async () => {
   await expect(user().query(api.app.listDataFrames, {})).rejects.toThrow(
     "use the Data Frames recovery list",
   );
-  await expect(
-    user().query(api.app.listDataFrames, { recovery: true }),
-  ).rejects.toThrow("use the Data Frames recovery list");
+  expect(
+    await user().query(api.app.listDataFrames, { recovery: true }),
+  ).toHaveLength(1000);
   await t.mutation(internal.host.removeDataFrame, {
     workspaceId: "w",
     id: frameIds[0]!,
@@ -50,6 +55,24 @@ it("throws instead of truncating a 1001-frame recovery list", async () => {
   expect(
     await user().query(api.app.listDataFrames, { recovery: true }),
   ).toHaveLength(1000);
+}, 15_000);
+
+it("returns one indexed data source when more than 1000 share its type", async () => {
+  await t.run(async (ctx) => {
+    for (let index = 0; index < 1001; index++)
+      await ctx.db.insert("dataSources", {
+        workspaceId: "w",
+        id: crypto.randomUUID(),
+        revision: 1,
+        name: `Source ${index}`,
+        createdAt: index,
+        kind: "csv",
+      });
+  });
+
+  expect(
+    await user().query(api.app.getDataSourceByType, { type: "csv" }),
+  ).not.toBeNull();
 }, 15_000);
 
 it("serves draft-less indexed reads without loading unrelated artifact tables", async () => {
@@ -173,6 +196,11 @@ it("reports a cap exceedance for draftLog and retains the claim", async () => {
   ).rejects.toThrow(
     "resource reference scan cap exceeded for draftLog; cleanup outbox halted",
   );
+  await expect(
+    t.run((ctx) => externallyReferencedFrameIds(ctx, "w", [])),
+  ).rejects.toThrow(
+    "resource reference scan cap exceeded for draftLog; cleanup outbox halted",
+  );
   const retained = await t.run(async (ctx) => {
     const claim = await ctx.db
       .query("cleanupJobs")
@@ -204,4 +232,13 @@ it("reports a cap exceedance for draftLog and retains the claim", async () => {
   });
   expect(retained.reference).not.toBeNull();
   expect(retained.tombstone).toBeNull();
+});
+
+it("keeps both reference consumers on the shared eleven-table scan", async () => {
+  const scannedTables = await t.run(async (ctx) =>
+    (await scanWorkspaceReferenceRows(ctx, "w")).map(({ table }) => table),
+  );
+
+  expect(scannedTables).toEqual(WORKSPACE_REFERENCE_TABLES);
+  expect(scannedTables).toHaveLength(11);
 });

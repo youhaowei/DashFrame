@@ -159,6 +159,48 @@ it("lists only visible drafts when foreign owners exceed the workspace cap", asy
     expect.objectContaining({ draftId: ownDraftId }),
   ]);
 }, 15_000);
+it("summarizes two visible drafts with 600 commands each", async () => {
+  const draftIds = [uuid(), uuid()];
+  await t.run(async (ctx) => {
+    const now = Date.now();
+    for (const draftId of draftIds) {
+      await ctx.db.insert("drafts", {
+        workspaceId: "w",
+        draftId,
+        owner: "user:u",
+        revision: 600,
+        createdAt: now,
+        updatedAt: now,
+        commandCount: 600,
+      });
+      for (let sequence = 0; sequence < 600; sequence++)
+        await ctx.db.insert("draftLog", {
+          workspaceId: "w",
+          draftId,
+          sequence,
+          command: {
+            path: "renameNode",
+            args: { id: uuid(), name: `Name ${sequence}` },
+          },
+        });
+    }
+  });
+
+  const drafts = await user().query(api.app.listDrafts, {});
+  expect(drafts).toHaveLength(2);
+  expect(drafts).toEqual(
+    expect.arrayContaining(
+      draftIds.map((draftId) =>
+        expect.objectContaining({
+          draftId,
+          commandCount: 600,
+          kinds: { renameNode: 600 },
+          paths: ["renameNode"],
+        }),
+      ),
+    ),
+  );
+}, 15_000);
 it("creates empty drafts for assistant sessions and rejects closed draft reads", async () => {
   const { draftId } = await service().mutation(api.app.draftBatch, {
     commands: [],

@@ -157,9 +157,10 @@ export type FrameEntry = DataFrameJSON & {
 };
 /**
  * Data frame history can outgrow the full-graph transaction. Keep this query
- * explicitly recoverable so the Data Frames page can request a bounded batch
- * and delete it through the host until full-graph reads resume. Other callers
- * retain complete-list semantics and the full-graph safety bound.
+ * explicitly recoverable so the Data Frames page can request an intentionally
+ * truncated, bounded batch and delete it through the host until full-graph
+ * reads resume. Other callers retain complete-list semantics and the
+ * full-graph safety bound.
  */
 export const listDataFrames = query({
   args: {
@@ -193,21 +194,20 @@ export const listDataFrames = query({
               .eq("workspaceId", who.workspaceId)
               .eq("dataSourceId", dataSourceId),
           )
-          .take(LIMIT + 1)
+          .take(LIMIT)
       : insightId
         ? await ctx.db
             .query("dataFrames")
             .withIndex("by_workspaceId_and_insightId", (q) =>
               q.eq("workspaceId", who.workspaceId).eq("insightId", insightId),
             )
-            .take(LIMIT + 1)
+            .take(LIMIT)
         : await ctx.db
             .query("dataFrames")
             .withIndex("by_workspaceId_and_id", (q) =>
               q.eq("workspaceId", who.workspaceId),
             )
-            .take(LIMIT + 1);
-    assertCompleteArtifactRows(rows, "dataFrames");
+            .take(LIMIT);
     return rows
       .filter(
         (row) =>
@@ -258,14 +258,12 @@ export const getDataSourceByType = query({
   handler: async (ctx, args) => {
     const who = await principal(ctx);
     if (!args.draftId) {
-      const rows = await ctx.db
+      const row = await ctx.db
         .query("dataSources")
         .withIndex("by_workspaceId_and_kind", (q) =>
           q.eq("workspaceId", who.workspaceId).eq("kind", args.type),
         )
-        .take(LIMIT + 1);
-      assertCompleteArtifactRows(rows, "dataSources");
-      const row = rows[0];
+        .first();
       return row
         ? (publicRow("dataSources", rowValue(row)) as unknown as DataSource)
         : null;
@@ -525,22 +523,17 @@ export const listDrafts = query({
         : [];
     const rows = [...ownRows, ...serviceRows];
     if (rows.length > LIMIT) throw new ConvexError("Draft list limit exceeded");
-    const entries = await ctx.db
-      .query("draftLog")
-      .withIndex("by_workspaceId_and_draftId_and_sequence", (q) =>
-        q.eq("workspaceId", who.workspaceId),
-      )
-      .take(LIMIT + 1);
-    if (entries.length > LIMIT)
-      throw new ConvexError("Draft command limit exceeded");
-    const visibleDraftIds = new Set(rows.map((row) => row.draftId));
     const pathsByDraft = new Map<string, string[]>();
-    for (const entry of entries) {
-      if (!visibleDraftIds.has(entry.draftId)) continue;
-      const paths = pathsByDraft.get(entry.draftId) ?? [];
-      paths.push(entry.command.path);
-      pathsByDraft.set(entry.draftId, paths);
-    }
+    await Promise.all(
+      rows.map(async (row) => {
+        pathsByDraft.set(
+          row.draftId,
+          (await log(ctx, who.workspaceId, row.draftId)).map(
+            (entry) => entry.command.path,
+          ),
+        );
+      }),
+    );
     return rows.map((row) => {
       const paths = pathsByDraft.get(row.draftId) ?? [];
       const kinds: Record<string, number> = {};
