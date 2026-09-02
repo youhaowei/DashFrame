@@ -5,14 +5,28 @@ const outputDirectory = path.resolve(
   import.meta.dir,
   "../apps/server/sample-data",
 );
+interface ChannelPlan {
+  name: string;
+  daily: number;
+  augustDaily: number;
+  augustEveryDays?: number;
+  base: number;
+}
+
 const channels = [
   { name: "Organic Search", daily: 3, augustDaily: 3, base: 92.5 },
   { name: "Paid Search", daily: 3, augustDaily: 1, base: 108 },
   { name: "Direct", daily: 2, augustDaily: 2, base: 84 },
   { name: "Referral", daily: 1, augustDaily: 1, base: 99 },
   { name: "Email", daily: 1, augustDaily: 1, base: 116 },
-  { name: "Organic Social", daily: 2, augustDaily: 0, base: 76 },
-] as const;
+  {
+    name: "Organic Social",
+    daily: 2,
+    augustDaily: 1,
+    augustEveryDays: 4,
+    base: 76,
+  },
+] as const satisfies readonly ChannelPlan[];
 const regions = ["West", "Northeast", "South", "Midwest"] as const;
 const segments = ["Consumer", "Small Business", "Enterprise"] as const;
 const customerCount = 320;
@@ -49,6 +63,7 @@ function generateOrders(): string {
   const firstDay = Date.UTC(2025, 5, 1);
   const lastDay = Date.UTC(2025, 8, 30);
   let orderIndex = 0;
+  let supplementalOrderIndex = 0;
 
   for (
     let timestamp = firstDay;
@@ -63,8 +78,16 @@ function generateOrders(): string {
       channelIndex += 1
     ) {
       const channel = channels[channelIndex]!;
-      const count = august ? channel.augustDaily : channel.daily;
+      const occursToday =
+        !("augustEveryDays" in channel) ||
+        (date.getUTCDate() - 1) % channel.augustEveryDays === 0;
+      const count = august
+        ? occursToday
+          ? channel.augustDaily
+          : 0
+        : channel.daily;
       for (let dailyIndex = 0; dailyIndex < count; dailyIndex += 1) {
+        const supplemental = august && "augustEveryDays" in channel;
         const customerIndex =
           (orderIndex * 17 + channelIndex * 13) % customerCount;
         const quantity = 1 + ((orderIndex + dailyIndex) % 3);
@@ -72,7 +95,9 @@ function generateOrders(): string {
         const revenue = (channel.base * quantity * variation).toFixed(2);
         rows.push(
           [
-            `O${String(orderIndex + 1).padStart(5, "0")}`,
+            supplemental
+              ? `O9${String(supplementalOrderIndex + 1).padStart(4, "0")}`
+              : `O${String(orderIndex + 1).padStart(5, "0")}`,
             customerId(customerIndex),
             isoDate(date),
             channel.name,
@@ -81,7 +106,8 @@ function generateOrders(): string {
             regions[customerIndex % regions.length],
           ].join(","),
         );
-        orderIndex += 1;
+        if (supplemental) supplementalOrderIndex += 1;
+        else orderIndex += 1;
       }
     }
   }

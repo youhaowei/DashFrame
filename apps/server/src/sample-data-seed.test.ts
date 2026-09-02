@@ -113,6 +113,39 @@ describe("sample CSV fixtures", () => {
     );
   });
 
+  it("keeps every channel revenue-positive in every month", async () => {
+    const rows = parseCSV(await readFile(samplePath("orders"), "utf8"));
+    const dateIndex = rows[0]!.indexOf("order_date");
+    const channelIndex = rows[0]!.indexOf("channel");
+    const revenueIndex = rows[0]!.indexOf("revenue");
+    const months = new Set<string>();
+    const channels = new Set<string>();
+    const revenueByMonthAndChannel = new Map<string, number>();
+
+    for (const row of rows.slice(1)) {
+      const month = row[dateIndex]!.slice(0, 7);
+      const channel = row[channelIndex]!;
+      const key = `${month}:${channel}`;
+      months.add(month);
+      channels.add(channel);
+      revenueByMonthAndChannel.set(
+        key,
+        (revenueByMonthAndChannel.get(key) ?? 0) + Number(row[revenueIndex]),
+      );
+    }
+
+    const zeroRevenueChannelMonths = [...months].flatMap((month) =>
+      [...channels]
+        .filter(
+          (channel) =>
+            (revenueByMonthAndChannel.get(`${month}:${channel}`) ?? 0) <= 0,
+        )
+        .map((channel) => `${month}:${channel}`),
+    );
+
+    expect(zeroRevenueChannelMonths).toEqual([]);
+  });
+
   it("preserves an August drop driven by Paid Search and Organic Social", async () => {
     const rows = parseCSV(await readFile(samplePath("orders"), "utf8"));
     const [header, ...data] = rows;
