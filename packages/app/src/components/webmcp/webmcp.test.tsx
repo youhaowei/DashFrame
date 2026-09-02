@@ -209,6 +209,7 @@ describe("DashFrame WebMCP registry", () => {
       "list_data_sources",
       "describe_table",
       "query_data",
+      "add_to_dashboard",
       "whats_on_screen",
     ]);
   });
@@ -369,6 +370,19 @@ describe("DashFrame WebMCP registry", () => {
     expect(stageDraft).not.toHaveBeenCalled();
   });
 
+  it("accepts only field ids in selectedFieldIds", async () => {
+    const stageDraft = vi.fn(async () => ({ draftId: "draft-1" }));
+    await expect(
+      tool("propose_insight", { stageDraft }).execute({
+        name: "Broken",
+        sourceType: "dataTable",
+        sourceId: "table-1",
+        selectedFieldIds: ["Status"],
+      }),
+    ).rejects.toThrow("selectedFieldIds contains a field outside this source");
+    expect(stageDraft).not.toHaveBeenCalled();
+  });
+
   it("rejects an unknown insight source even when appending to a draft", async () => {
     const stageDraft = vi.fn(async () => ({ draftId: "draft-1" }));
     await expect(
@@ -434,6 +448,21 @@ describe("DashFrame WebMCP registry", () => {
       },
     });
     useWebMCPPageStore.getState().setDashboard(null);
+  });
+
+  it("reports page metadata loading instead of claiming no artifact is open", async () => {
+    await expect(
+      tool("whats_on_screen", {
+        route: "/insights/insight-1",
+        data: { insights: undefined },
+      }).execute({}),
+    ).rejects.toThrow("Insights are still loading");
+    await expect(
+      tool("whats_on_screen", {
+        route: "/dashboards/dashboard-1",
+        data: { dashboards: undefined },
+      }).execute({}),
+    ).rejects.toThrow("Dashboards are still loading");
   });
 
   it("verifies a draft and returns the generated route", async () => {
@@ -521,6 +550,37 @@ describe("DashFrame WebMCP registry", () => {
     view.unmount();
     expect(registrations[0]?.signal?.aborted).toBe(true);
     delete document.modelContext;
+  });
+
+  it("continues registration and retains cleanup after a synchronous rejection", () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const registered: string[] = [];
+    const signals: AbortSignal[] = [];
+    Object.defineProperty(document, "modelContext", {
+      value: {
+        registerTool: (
+          registeredTool: WebMCPToolDefinition,
+          options?: { signal?: AbortSignal },
+        ) => {
+          if (registeredTool.name === "list_connectors")
+            throw new Error("descriptor rejected");
+          registered.push(registeredTool.name);
+          if (options?.signal) signals.push(options.signal);
+        },
+      } satisfies WebMCPModelContext,
+      configurable: true,
+    });
+    const view = render(<RegistryProbe tools={fixture().tools} />);
+    expect(registered).toEqual(EXPECTED_TOOLS.slice(1));
+    expect(new Set(signals).size).toBe(1);
+    expect(warning).toHaveBeenCalledWith(
+      "[dashframe] Could not register list_connectors",
+      expect.any(Error),
+    );
+    view.unmount();
+    expect(signals[0]?.aborted).toBe(true);
+    delete document.modelContext;
+    warning.mockRestore();
   });
 
   it("registers through navigator.modelContext when only that form exists", () => {

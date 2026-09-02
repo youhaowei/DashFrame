@@ -240,10 +240,14 @@ function pageContext(data: WebMCPToolData) {
   const insightMatch = data.route.match(/^\/insights\/([^/]+)/);
   const dashboardMatch = data.route.match(/^\/dashboards\/([^/]+)/);
   const insight = insightMatch
-    ? data.insights?.find((candidate) => candidate.id === insightMatch[1])
+    ? requireLoaded(data.insights, "Insights").find(
+        (candidate) => candidate.id === insightMatch[1],
+      )
     : undefined;
   const dashboard = dashboardMatch
-    ? data.dashboards?.find((candidate) => candidate.id === dashboardMatch[1])
+    ? requireLoaded(data.dashboards, "Dashboards").find(
+        (candidate) => candidate.id === dashboardMatch[1],
+      )
     : undefined;
   return {
     route: data.route,
@@ -605,11 +609,23 @@ export function createWebMCPTools(
         ) as UUID[];
         const filters = parseFilters(input.filters);
         const sorts = parseSorts(input.sort);
+        const selectableIds = new Set(
+          input.sourceType === "dataTable"
+            ? (source as DataTable).fields.map((field) => field.id)
+            : [
+                ...(source as Insight).selectedFields,
+                ...(source as Insight).metrics.map((metric) => metric.id),
+              ],
+        );
+        if (selectedFieldIds.some((field) => !selectableIds.has(field)))
+          throw new Error(
+            "selectedFieldIds contains a field outside this source.",
+          );
         const references =
           input.sourceType === "dataTable"
             ? fieldReferencesForDataTable(source as DataTable)
             : fieldReferencesForInsight(source as Insight, tables);
-        assertInsightFields(selectedFieldIds, filters, sorts, references);
+        assertInsightFields([], filters, sorts, references);
         const id = crypto.randomUUID() as UUID;
         const commands: Command[] = [
           cmd("CreateInsight", {
@@ -699,6 +715,7 @@ export function createWebMCPTools(
       title: "Add to dashboard",
       description:
         "Stage adding an existing visualization to a dashboard as a draft for human review.",
+      annotations: { untrustedContentHint: true },
       inputSchema: {
         type: "object",
         properties: {

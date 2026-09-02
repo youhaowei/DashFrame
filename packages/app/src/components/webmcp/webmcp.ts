@@ -103,12 +103,17 @@ export function useWebMCPTools(tools: readonly WebMCPToolDefinition[]): void {
 
     const controller = new AbortController();
     for (const tool of registeredTools) {
-      Promise.resolve(
-        modelContext.registerTool(tool, { signal: controller.signal }),
-      ).catch((error: unknown) => {
+      try {
+        Promise.resolve(
+          modelContext.registerTool(tool, { signal: controller.signal }),
+        ).catch((error: unknown) => {
+          if (!controller.signal.aborted)
+            console.warn(`[dashframe] Could not register ${tool.name}`, error);
+        });
+      } catch (error) {
         if (!controller.signal.aborted)
           console.warn(`[dashframe] Could not register ${tool.name}`, error);
-      });
+      }
     }
     return () => controller.abort();
   }, [registeredTools]);
