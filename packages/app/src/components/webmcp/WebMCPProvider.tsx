@@ -3,9 +3,10 @@ import { queryStatus } from "@/data/query-status";
 import { api } from "@dashframe/convex-backend/api";
 import type { Command } from "@dashframe/types";
 import { useMutation, useQuery_experimental as useQuery } from "convex/react";
-import { useNavigate, useRouterState } from "@tanstack/react-router";
+import { useNavigate, useRouter, useRouterState } from "@tanstack/react-router";
 import { useMemo, type ReactNode } from "react";
-import { createWebMCPTools } from "./tools";
+import { useWebMCPHighlightController } from "./highlight";
+import { createWebMCPTools, defineWebMCPToolDependencies } from "./tools";
 import { useWebMCPTools } from "./webmcp";
 
 /**
@@ -15,6 +16,8 @@ import { useWebMCPTools } from "./webmcp";
 export function WebMCPProvider({ children }: { children: ReactNode }) {
   const route = useRouterState({ select: (state) => state.location.pathname });
   const navigate = useNavigate();
+  const router = useRouter();
+  const highlight = useWebMCPHighlightController(document);
   const connectors = useConnectorCatalog().data;
   const dataSources = queryStatus(
     useQuery({ query: api.app.listDataSources, args: {} }),
@@ -31,38 +34,62 @@ export function WebMCPProvider({ children }: { children: ReactNode }) {
   const dashboards = queryStatus(
     useQuery({ query: api.app.listDashboards, args: {} }),
   ).data;
+  const drafts = queryStatus(
+    useQuery({ query: api.app.listDrafts, args: {} }),
+  ).data;
   const draftBatch = useMutation(api.app.draftBatch);
 
   const tools = useMemo(
     () =>
-      createWebMCPTools({
-        getData: () => ({
-          connectors,
-          dataSources,
-          dataTables,
-          insights,
-          visualizations,
-          dashboards,
-          route,
+      createWebMCPTools(
+        defineWebMCPToolDependencies({
+          read: {
+            getData: () => ({
+              connectors,
+              dataSources,
+              dataTables,
+              insights,
+              visualizations,
+              dashboards,
+              drafts,
+              route,
+            }),
+          },
+          mutations: {
+            stageDraft: async (commands: readonly Command[], draftId) =>
+              draftBatch({
+                commands: [...commands],
+                ...(draftId ? { draftId } : {}),
+              }),
+          },
+          ui: {
+            navigateToDraft: async (draftId) => {
+              const location = router.buildLocation({
+                to: "/drafts/$draftId",
+                params: { draftId },
+              });
+              await navigate({
+                to: "/drafts/$draftId",
+                params: { draftId },
+              });
+              return { route: location.pathname };
+            },
+            highlight: highlight.highlight,
+          },
         }),
-        stageDraft: async (commands: readonly Command[]) =>
-          draftBatch({ commands: [...commands] }),
-        navigateToDraft: (draftId) =>
-          navigate({
-            to: "/drafts/$draftId",
-            params: { draftId },
-          }),
-        document,
-      }),
+      ),
     [
       connectors,
       dashboards,
       dataSources,
       dataTables,
       draftBatch,
+      drafts,
+      highlight,
       insights,
       navigate,
       route,
+      router,
       visualizations,
     ],
   );

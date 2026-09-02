@@ -1,6 +1,8 @@
 import { queryDataFrame } from "@/lib/data-access/data-frames";
 import { useInsightCanvasStore } from "@/lib/stores/insight-canvas-store";
 import { useWebMCPPageStore } from "@/lib/stores/webmcp-page-store";
+import { applyFloor } from "@dashframe/assistant/read/floor";
+import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
 import {
   cmd,
   type Command,
@@ -17,8 +19,13 @@ import {
   type VisualizationType,
 } from "@dashframe/types";
 import type { WebMCPToolDefinition } from "./webmcp";
+import type { HighlightKind } from "./highlight";
 
 const READ_ONLY = { readOnlyHint: true } as const;
+const READ_ONLY_UNTRUSTED = {
+  readOnlyHint: true,
+  untrustedContentHint: true,
+} as const;
 const EMPTY_SCHEMA = {
   type: "object",
   properties: {},
@@ -42,14 +49,29 @@ export interface WebMCPToolData {
   insights?: readonly Insight[];
   visualizations?: readonly Visualization[];
   dashboards?: readonly Dashboard[];
+  drafts?: readonly { draftId: string }[];
   route: string;
 }
 
 export interface WebMCPToolDependencies {
-  getData: () => WebMCPToolData;
-  stageDraft: (commands: readonly Command[]) => Promise<{ draftId: string }>;
-  navigateToDraft: (draftId: string) => Promise<void> | void;
-  document: Document;
+  read: { getData: () => WebMCPToolData };
+  mutations: {
+    stageDraft: (
+      commands: readonly Command[],
+      draftId?: string,
+    ) => Promise<{ draftId: string }>;
+  };
+  ui: {
+    navigateToDraft: (draftId: string) => Promise<{ route: string }>;
+    highlight: (kind: HighlightKind, id: string) => number;
+  };
+}
+
+/** Keeps the tool factory's reachable mutation surface explicit and auditable. */
+export function defineWebMCPToolDependencies(
+  dependencies: WebMCPToolDependencies,
+): WebMCPToolDependencies {
+  return dependencies;
 }
 
 function inputRecord(input: unknown): Record<string, unknown> {
@@ -150,29 +172,67 @@ function requireLoaded<T>(
   return value;
 }
 
-function draftResult(draftId: string, summary: string) {
-  return { draftId, status: "draft" as const, summary };
+function draftResult(
+  draftId: string,
+  summary: string,
+  artifact: Record<string, string>,
+) {
+  return { draftId, status: "draft" as const, ...artifact, summary };
 }
 
-function clearHighlights(doc: Document): void {
-  for (const element of doc.querySelectorAll("[data-webmcp-highlight]"))
-    element.removeAttribute("data-webmcp-highlight");
+function optionalDraftId(input: Record<string, unknown>): string | undefined {
+  return input.draftId === undefined
+    ? undefined
+    : stringValue(input, "draftId");
 }
 
-function findHighlightTarget(
-  doc: Document,
-  kind: "widget" | "insight",
-  id: string,
-): HTMLElement | null {
-  const attribute =
-    kind === "widget"
-      ? "data-dashframe-widget-id"
-      : "data-dashframe-insight-id";
-  return (
-    Array.from(doc.querySelectorAll<HTMLElement>(`[${attribute}]`)).find(
-      (element) => element.getAttribute(attribute) === id,
-    ) ?? null
+function fieldReferencesForDataTable(table: DataTable): Set<string> {
+  return new Set(
+    table.fields.flatMap((field) => [
+      field.id,
+      field.name,
+      field.columnName ?? field.name,
+      fieldIdToColumnAlias(field.id),
+    ]),
   );
+}
+
+function fieldReferencesForInsight(
+  insight: Insight,
+  tables: readonly DataTable[],
+): Set<string> {
+  const references = new Set<string>();
+  for (const fieldId of insight.selectedFields) {
+    references.add(fieldId);
+    references.add(fieldIdToColumnAlias(fieldId));
+    for (const table of tables) {
+      const field = table.fields.find((candidate) => candidate.id === fieldId);
+      if (field) {
+        references.add(field.name);
+        references.add(field.columnName ?? field.name);
+      }
+    }
+  }
+  for (const metric of insight.metrics) {
+    references.add(metric.id);
+    references.add(metric.name);
+    references.add(metricIdToColumnAlias(metric.id));
+  }
+  return references;
+}
+
+function assertInsightFields(
+  selectedFieldIds: readonly string[],
+  filters: readonly InsightFilter[],
+  sorts: readonly InsightSort[],
+  references: ReadonlySet<string>,
+): void {
+  if (selectedFieldIds.some((field) => !references.has(field)))
+    throw new Error("selectedFieldIds contains a field outside this source.");
+  if (filters.some((filter) => !references.has(filter.field)))
+    throw new Error("filters contains a field outside this source.");
+  if (sorts.some((sort) => !references.has(sort.field)))
+    throw new Error("sort contains a field outside this source.");
 }
 
 function pageContext(data: WebMCPToolData) {
@@ -215,6 +275,13 @@ function pageContext(data: WebMCPToolData) {
           id: dashboard.id,
           name: dashboard.name,
           itemCount: dashboard.items.length,
+          items: dashboard.items.map((item) => ({
+            id: item.id,
+            type: item.type,
+            ...(item.visualizationId
+              ? { visualizationId: item.visualizationId }
+              : {}),
+          })),
           savedControls: dashboard.controls ?? [],
           unsavedControlValues:
             live.dashboard?.dashboardId === dashboard.id
@@ -228,7 +295,9 @@ function pageContext(data: WebMCPToolData) {
 export function createWebMCPTools(
   dependencies: WebMCPToolDependencies,
 ): WebMCPToolDefinition[] {
-  let highlightTimer: ReturnType<typeof setTimeout> | undefined;
+  const mutationNames = Object.keys(dependencies.mutations);
+  if (mutationNames.length !== 1 || mutationNames[0] !== "stageDraft")
+    throw new Error("WebMCP tools may reach only the draft staging mutation.");
   return [
     {
       name: "list_connectors",
@@ -239,7 +308,7 @@ export function createWebMCPTools(
       annotations: READ_ONLY,
       execute: async () => ({
         connectors: requireLoaded(
-          dependencies.getData().connectors,
+          dependencies.read.getData().connectors,
           "Connectors",
         ).map(({ id, name, description, sourceType, authKind, accept }) => ({
           id,
@@ -257,9 +326,9 @@ export function createWebMCPTools(
       description:
         "List data sources and their tables in the current DashFrame project.",
       inputSchema: EMPTY_SCHEMA,
-      annotations: READ_ONLY,
+      annotations: READ_ONLY_UNTRUSTED,
       execute: async () => {
-        const data = dependencies.getData();
+        const data = dependencies.read.getData();
         const sources = requireLoaded(data.dataSources, "Data sources");
         const tables = requireLoaded(data.dataTables, "Data tables");
         return {
@@ -292,12 +361,12 @@ export function createWebMCPTools(
         required: ["tableId"],
         additionalProperties: false,
       },
-      annotations: READ_ONLY,
+      annotations: READ_ONLY_UNTRUSTED,
       execute: async (rawInput) => {
         const input = inputRecord(rawInput);
         const tableId = stringValue(input, "tableId");
         const table = requireLoaded(
-          dependencies.getData().dataTables,
+          dependencies.read.getData().dataTables,
           "Data tables",
         ).find((candidate) => candidate.id === tableId);
         if (!table) throw new Error("Data table not found.");
@@ -305,24 +374,40 @@ export function createWebMCPTools(
           ? await queryDataFrame(table.dataFrameId, { limit: 5 })
           : null;
         if (page?.status === "failed") throw new Error(page.message);
-        const rows = page?.rows ?? [];
+        const rawRows = (page?.rows ?? []).map((row) =>
+          Object.fromEntries(
+            table.fields.map((field) => [
+              field.name,
+              row[field.id] ?? row[field.columnName ?? field.name] ?? null,
+            ]),
+          ),
+        );
+        const gated = applyFloor(
+          { kind: "dataTable", id: table.id },
+          table.fields,
+          { sampleRows: rawRows, maxRows: 3 },
+        );
         return {
           table: { id: table.id, name: table.name, sourceTable: table.table },
-          columns: table.fields.map((field) => ({
-            id: field.id,
-            name: field.name,
-            sourceName: field.columnName ?? field.name,
-            type: field.type,
-            sampleValues: [
-              ...new Set(
-                rows.map(
-                  (row) => row[field.id] ?? row[field.columnName ?? field.name],
+          columns: table.fields.map((field) => {
+            const profile = gated.columns.find(
+              (column) => column.name === field.name,
+            );
+            return {
+              id: field.id,
+              name: field.name,
+              sourceName: field.columnName ?? field.name,
+              type: field.type,
+              sensitivity: profile?.sensitivity ?? "unclassified",
+              sampleValues: [
+                ...new Set(
+                  (gated.sample?.rows ?? []).map((row) => row[field.name]),
                 ),
-              ),
-            ]
-              .filter((value) => value !== undefined)
-              .slice(0, 3),
-          })),
+              ].filter((value) => value !== undefined),
+            };
+          }),
+          masked: gated.masked,
+          valueTier: gated.sample?.tier,
           rowCount: page?.totalCount ?? null,
         };
       },
@@ -356,12 +441,12 @@ export function createWebMCPTools(
         required: ["tableId"],
         additionalProperties: false,
       },
-      annotations: READ_ONLY,
+      annotations: READ_ONLY_UNTRUSTED,
       execute: async (rawInput) => {
         const input = inputRecord(rawInput);
         const tableId = stringValue(input, "tableId");
         const table = requireLoaded(
-          dependencies.getData().dataTables,
+          dependencies.read.getData().dataTables,
           "Data tables",
         ).find((candidate) => candidate.id === tableId);
         if (!table) throw new Error("Data table not found.");
@@ -398,20 +483,34 @@ export function createWebMCPTools(
         });
         if (page.status === "failed") throw new Error(page.message);
         const selected = fieldIds.length ? new Set(fieldIds) : null;
-        const schema = selected
-          ? page.schema.filter((column) => selected.has(column.id))
-          : page.schema;
+        const selectedFields = selected
+          ? table.fields.filter((field) => selected.has(field.id))
+          : table.fields;
+        const rawRows = page.rows.map((row) =>
+          Object.fromEntries(
+            selectedFields.map((field) => [
+              field.name,
+              row[field.id] ?? row[field.columnName ?? field.name] ?? null,
+            ]),
+          ),
+        );
+        const gated = applyFloor(
+          { kind: "dataTable", id: table.id },
+          selectedFields,
+          { sampleRows: rawRows, maxRows: page.rows.length },
+        );
         return {
           table: { id: table.id, name: table.name },
-          schema,
-          rows: page.rows.map((row) =>
-            Object.fromEntries(
-              schema.map((column) => [
-                column.name,
-                row[column.id] ?? row[column.name] ?? null,
-              ]),
-            ),
-          ),
+          schema: selectedFields.map((field) => ({
+            id: field.id,
+            name: field.name,
+            type: field.type,
+            sensitivity: field.sensitivity ?? "unclassified",
+          })),
+          rows: gated.sample?.rows ?? [],
+          masked: gated.masked,
+          valueTier: gated.sample?.tier,
+          truncated: gated.sample?.truncated ?? false,
           totalCount: page.totalCount,
           page: page.page,
         };
@@ -473,6 +572,10 @@ export function createWebMCPTools(
               additionalProperties: false,
             },
           },
+          draftId: {
+            type: "string",
+            description: "Existing draft id to append this proposal to.",
+          },
         },
         required: ["name", "sourceType", "sourceId", "selectedFieldIds"],
         additionalProperties: false,
@@ -483,18 +586,32 @@ export function createWebMCPTools(
         const sourceId = stringValue(input, "sourceId") as UUID;
         if (input.sourceType !== "dataTable" && input.sourceType !== "insight")
           throw new Error("sourceType must be dataTable or insight.");
-        const data = dependencies.getData();
-        const sourceExists =
+        const draftId = optionalDraftId(input);
+        const data = dependencies.read.getData();
+        const tables =
           input.sourceType === "dataTable"
-            ? data.dataTables?.some((table) => table.id === sourceId)
-            : data.insights?.some((insight) => insight.id === sourceId);
-        if (!sourceExists) throw new Error("Insight source not found.");
+            ? requireLoaded(data.dataTables, "Data tables")
+            : (data.dataTables ?? []);
+        const source =
+          input.sourceType === "dataTable"
+            ? tables.find((table) => table.id === sourceId)
+            : requireLoaded(data.insights, "Insights").find(
+                (insight) => insight.id === sourceId,
+              );
+        if (!source && !draftId) throw new Error("Insight source not found.");
         const selectedFieldIds = optionalStringArray(
           input,
           "selectedFieldIds",
         ) as UUID[];
         const filters = parseFilters(input.filters);
         const sorts = parseSorts(input.sort);
+        if (source) {
+          const references =
+            input.sourceType === "dataTable"
+              ? fieldReferencesForDataTable(source as DataTable)
+              : fieldReferencesForInsight(source as Insight, tables);
+          assertInsightFields(selectedFieldIds, filters, sorts, references);
+        }
         const id = crypto.randomUUID() as UUID;
         const commands: Command[] = [
           cmd("CreateInsight", {
@@ -508,10 +625,14 @@ export function createWebMCPTools(
         if (filters.length)
           commands.push(cmd("SetInsightFilter", { id, filters }));
         if (sorts.length) commands.push(cmd("SetInsightSort", { id, sorts }));
-        const result = await dependencies.stageDraft(commands);
+        const result = await dependencies.mutations.stageDraft(
+          commands,
+          draftId,
+        );
         return draftResult(
           result.draftId,
           `Create “${name}” from ${input.sourceType} ${sourceId} with ${selectedFieldIds.length} fields, ${filters.length} filters, and ${sorts.length} sort keys.`,
+          { insightId: id },
         );
       },
     },
@@ -527,12 +648,17 @@ export function createWebMCPTools(
           name: { type: "string", minLength: 1, maxLength: 120 },
           chartType: { type: "string", enum: CHART_TYPES },
           encoding: { type: "object" },
+          draftId: {
+            type: "string",
+            description: "Existing draft id to append this proposal to.",
+          },
         },
         required: ["insightId", "name", "chartType", "encoding"],
         additionalProperties: false,
       },
       execute: async (rawInput) => {
         const input = inputRecord(rawInput);
+        const draftId = optionalDraftId(input);
         const insightId = stringValue(input, "insightId") as UUID;
         const name = stringValue(input, "name");
         if (!CHART_TYPES.includes(input.chartType as VisualizationType))
@@ -543,26 +669,30 @@ export function createWebMCPTools(
           Array.isArray(input.encoding)
         )
           throw new Error("encoding must be an object.");
-        if (
-          !dependencies
-            .getData()
-            .insights?.some((item) => item.id === insightId)
-        )
+        const insights = requireLoaded(
+          dependencies.read.getData().insights,
+          "Insights",
+        );
+        if (!draftId && !insights.some((item) => item.id === insightId))
           throw new Error("Insight not found.");
         const id = crypto.randomUUID() as UUID;
-        const result = await dependencies.stageDraft([
-          cmd("CreateVisualization", {
-            id,
-            name,
-            insightId,
-            visualizationType: input.chartType as VisualizationType,
-            encoding: input.encoding as VisualizationEncoding,
-            spec: {},
-          }),
-        ]);
+        const result = await dependencies.mutations.stageDraft(
+          [
+            cmd("CreateVisualization", {
+              id,
+              name,
+              insightId,
+              visualizationType: input.chartType as VisualizationType,
+              encoding: input.encoding as VisualizationEncoding,
+              spec: {},
+            }),
+          ],
+          draftId,
+        );
         return draftResult(
           result.draftId,
           `Create a ${input.chartType} chart named “${name}” on Insight ${insightId}.`,
+          { visualizationId: id },
         );
       },
     },
@@ -578,43 +708,59 @@ export function createWebMCPTools(
           visualizationId: { type: "string" },
           width: { type: "integer", minimum: 2, maximum: 12, default: 6 },
           height: { type: "integer", minimum: 2, maximum: 12, default: 6 },
+          draftId: {
+            type: "string",
+            description: "Existing draft id to append this proposal to.",
+          },
         },
         required: ["dashboardId", "visualizationId"],
         additionalProperties: false,
       },
       execute: async (rawInput) => {
         const input = inputRecord(rawInput);
+        const draftId = optionalDraftId(input);
         const dashboardId = stringValue(input, "dashboardId") as UUID;
         const visualizationId = stringValue(input, "visualizationId") as UUID;
-        const data = dependencies.getData();
-        const dashboard = data.dashboards?.find(
+        const data = dependencies.read.getData();
+        const dashboard = requireLoaded(data.dashboards, "Dashboards").find(
           (item) => item.id === dashboardId,
         );
         if (!dashboard) throw new Error("Dashboard not found.");
-        if (!data.visualizations?.some((item) => item.id === visualizationId))
+        const visualizations = requireLoaded(
+          data.visualizations,
+          "Visualizations",
+        );
+        if (
+          !draftId &&
+          !visualizations.some((item) => item.id === visualizationId)
+        )
           throw new Error("Visualization not found.");
         const y = dashboard.items.reduce(
           (bottom, item) => Math.max(bottom, item.y + item.height),
           0,
         );
         const itemId = crypto.randomUUID() as UUID;
-        const result = await dependencies.stageDraft([
-          cmd("AddDashboardItem", {
-            dashboardId,
-            item: {
-              id: itemId,
-              type: "visualization",
-              visualizationId,
-              x: 0,
-              y,
-              width: boundedInteger(input.width, 6, 2, 12, "width"),
-              height: boundedInteger(input.height, 6, 2, 12, "height"),
-            },
-          }),
-        ]);
+        const result = await dependencies.mutations.stageDraft(
+          [
+            cmd("AddDashboardItem", {
+              dashboardId,
+              item: {
+                id: itemId,
+                type: "visualization",
+                visualizationId,
+                x: 0,
+                y,
+                width: boundedInteger(input.width, 6, 2, 12, "width"),
+                height: boundedInteger(input.height, 6, 2, 12, "height"),
+              },
+            }),
+          ],
+          draftId,
+        );
         return draftResult(
           result.draftId,
           `Add visualization ${visualizationId} to “${dashboard.name}” as widget ${itemId}.`,
+          { dashboardId, visualizationId, widgetId: itemId },
         );
       },
     },
@@ -624,8 +770,8 @@ export function createWebMCPTools(
       description:
         "Read the current route, open Insight or dashboard, and live unsaved filters, sorts, controls, and view selection.",
       inputSchema: EMPTY_SCHEMA,
-      annotations: READ_ONLY,
-      execute: async () => pageContext(dependencies.getData()),
+      annotations: READ_ONLY_UNTRUSTED,
+      execute: async () => pageContext(dependencies.read.getData()),
     },
     {
       name: "show_draft",
@@ -640,10 +786,18 @@ export function createWebMCPTools(
       },
       execute: async (rawInput) => {
         const draftId = stringValue(inputRecord(rawInput), "draftId");
-        await dependencies.navigateToDraft(draftId);
+        const drafts = requireLoaded(
+          dependencies.read.getData().drafts,
+          "Drafts",
+        );
+        if (!drafts.some((draft) => draft.draftId === draftId))
+          throw new Error(
+            "Draft not found. It may have been published or discarded.",
+          );
+        const { route } = await dependencies.ui.navigateToDraft(draftId);
         return {
           draftId,
-          route: `/drafts/${draftId}`,
+          route,
           summary: "Draft review is now open.",
         };
       },
@@ -667,31 +821,11 @@ export function createWebMCPTools(
         if (input.kind !== "widget" && input.kind !== "insight")
           throw new Error("kind must be widget or insight.");
         const id = stringValue(input, "id");
-        const target = findHighlightTarget(
-          dependencies.document,
-          input.kind,
-          id,
-        );
-        if (!target)
-          throw new Error("The requested item is not visible on screen.");
-        if (highlightTimer) clearTimeout(highlightTimer);
-        clearHighlights(dependencies.document);
-        target.setAttribute("data-webmcp-highlight", "true");
-        const reduceMotion =
-          typeof globalThis.matchMedia === "function" &&
-          globalThis.matchMedia("(prefers-reduced-motion: reduce)").matches;
-        target.scrollIntoView({
-          behavior: reduceMotion ? "auto" : "smooth",
-          block: "center",
-        });
-        highlightTimer = setTimeout(() => {
-          target.removeAttribute("data-webmcp-highlight");
-          highlightTimer = undefined;
-        }, 4_000);
+        const durationMs = dependencies.ui.highlight(input.kind, id);
         return {
           kind: input.kind,
           id,
-          durationMs: 4_000,
+          durationMs,
           summary: "The item is highlighted on screen.",
         };
       },
