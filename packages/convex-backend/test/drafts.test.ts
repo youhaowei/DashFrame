@@ -248,6 +248,49 @@ it("keeps canonical targets and intent for no-op draft commands", async () => {
   });
 });
 
+it("keeps draft-local get-or-create intent on the created question", async () => {
+  const { tableId } = await seed();
+  const createdInsightId = uuid();
+  const { draftId } = await user().mutation(api.app.draftBatch, {
+    commands: [
+      cmd("GetOrCreateInsightDraft", {
+        id: createdInsightId,
+        name: "First question",
+        source: { sourceType: "dataTable", sourceId: tableId },
+      }),
+      cmd("GetOrCreateInsightDraft", {
+        id: uuid(),
+        name: "Second question",
+        source: { sourceType: "dataTable", sourceId: tableId },
+      }),
+    ],
+  });
+
+  const listed = (await user().query(api.app.listDrafts, {})).find(
+    (draft) => draft.draftId === draftId,
+  );
+  expect(listed?.summary).toEqual({
+    directNodes: [
+      {
+        nodeId: createdInsightId,
+        kind: "insight",
+        name: "First question",
+        intent: [
+          {
+            command: "GetOrCreateInsightDraft",
+            summary: 'Use or create question "First question"',
+          },
+          {
+            command: "GetOrCreateInsightDraft",
+            summary: 'Use or create question "Second question"',
+          },
+        ],
+      },
+    ],
+    remainingIntentCount: 0,
+  });
+});
+
 it("counts visible drafts without hydrating their summaries", async () => {
   await user().mutation(api.app.draftBatch, { commands: [] });
   await service().mutation(api.app.draftBatch, { commands: [] });

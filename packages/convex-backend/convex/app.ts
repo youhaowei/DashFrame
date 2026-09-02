@@ -54,7 +54,12 @@ import {
   redact,
   describeCommand,
 } from "./preview";
-import { artifactKinds, artifactTables, type ArtifactTable } from "./model";
+import {
+  artifactKinds,
+  artifactTables,
+  type ArtifactRow,
+  type ArtifactTable,
+} from "./model";
 import { storedInsightDefinitionSchema } from "./insightCodec";
 const draftArg = { draftId: v.optional(v.string()) };
 async function readOne(
@@ -616,6 +621,27 @@ type DraftCommandTarget = {
   name: string;
 };
 
+function rememberInsightDraftTargetBySourceId(
+  targets: Map<string, DraftCommandTarget>,
+  id: string,
+  row: Pick<ArtifactRow, "definition" | "name">,
+) {
+  if (!row.definition) return;
+  const definition = storedInsightDefinitionSchema.parse(row.definition);
+  if (
+    definition.source.sourceType !== "dataTable" ||
+    !isUnmodifiedDraft(definition) ||
+    targets.has(definition.source.sourceId)
+  ) {
+    return;
+  }
+  targets.set(definition.source.sourceId, {
+    id,
+    table: "insights",
+    name: row.name.length > 0 ? row.name : "Untitled artifact",
+  });
+}
+
 async function listExistingInsightDraftTargets(
   ctx: QueryCtx,
   workspaceId: string,
@@ -628,19 +654,7 @@ async function listExistingInsightDraftTargets(
 
   const targets = new Map<string, DraftCommandTarget>();
   for (const row of rows) {
-    const definition = storedInsightDefinitionSchema.parse(row.definition);
-    if (
-      definition.source.sourceType !== "dataTable" ||
-      !isUnmodifiedDraft(definition) ||
-      targets.has(definition.source.sourceId)
-    ) {
-      continue;
-    }
-    targets.set(definition.source.sourceId, {
-      id: row.id,
-      table: "insights",
-      name: row.name,
-    });
+    rememberInsightDraftTargetBySourceId(targets, row.id, row);
   }
   return targets;
 }
@@ -704,6 +718,7 @@ async function summarizeDraftForList(
   changes: Doc<"draftChanges">[],
   existingInsightDraftsBySourceId: ReadonlyMap<string, DraftCommandTarget>,
 ) {
+  const insightDraftsBySourceId = new Map(existingInsightDraftsBySourceId);
   const targets: Array<{
     key: string;
     id: string;
@@ -717,7 +732,7 @@ async function summarizeDraftForList(
       workspaceId,
       command,
       changes,
-      existingInsightDraftsBySourceId,
+      insightDraftsBySourceId,
     );
     if (!target) continue;
     targets.push({
@@ -725,6 +740,19 @@ async function summarizeDraftForList(
       ...target,
       command,
     });
+    if (target.table === "insights") {
+      const change = changes.find(
+        (candidate) =>
+          candidate.table === "insights" && candidate.id === target.id,
+      );
+      if (change?.value) {
+        rememberInsightDraftTargetBySourceId(
+          insightDraftsBySourceId,
+          change.id,
+          change.value,
+        );
+      }
+    }
   }
 
   const primary = targets[0];
