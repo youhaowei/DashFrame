@@ -21,7 +21,7 @@ const user = () =>
     userId: "u",
   });
 
-it("keeps a workspace with 1001 data frames listable and repairable", async () => {
+it("throws instead of truncating a 1001-frame recovery list", async () => {
   const frameIds = Array.from({ length: 1001 }, () => crypto.randomUUID());
   await t.run(async (ctx) => {
     for (const id of frameIds)
@@ -39,16 +39,86 @@ it("keeps a workspace with 1001 data frames listable and repairable", async () =
   await expect(user().query(api.app.listDataFrames, {})).rejects.toThrow(
     "use the Data Frames recovery list",
   );
-  const recoveryBatch = await user().query(api.app.listDataFrames, {
-    recovery: true,
-  });
-  expect(recoveryBatch).toHaveLength(1000);
+  await expect(
+    user().query(api.app.listDataFrames, { recovery: true }),
+  ).rejects.toThrow("use the Data Frames recovery list");
   await t.mutation(internal.host.removeDataFrame, {
     workspaceId: "w",
-    id: recoveryBatch[0]!.id,
+    id: frameIds[0]!,
   });
   expect(await user().query(api.app.listDataFrames, {})).toHaveLength(1000);
+  expect(
+    await user().query(api.app.listDataFrames, { recovery: true }),
+  ).toHaveLength(1000);
 }, 15_000);
+
+it("serves draft-less indexed reads without loading unrelated artifact tables", async () => {
+  const sourceId = crypto.randomUUID();
+  const insightId = crypto.randomUUID();
+  const insightFrameId = crypto.randomUUID();
+  await t.run(async (ctx) => {
+    await ctx.db.insert("dataSources", {
+      workspaceId: "w",
+      id: sourceId,
+      revision: 1,
+      name: "Source",
+      createdAt: Date.now(),
+      kind: "csv",
+    });
+    await ctx.db.insert("dataFrames", {
+      workspaceId: "w",
+      id: insightFrameId,
+      revision: 1,
+      name: "Current insight frame",
+      createdAt: Date.now(),
+      insightId,
+      storage: { type: "file", key: insightFrameId },
+      fieldIds: [],
+      analysis: { currentInsightResult: true },
+    });
+    for (let index = 0; index < 1000; index++) {
+      const id = crypto.randomUUID();
+      await ctx.db.insert("dataFrames", {
+        workspaceId: "w",
+        id,
+        revision: 1,
+        name: "Unrelated frame",
+        createdAt: index,
+        storage: { type: "file", key: id },
+        fieldIds: [],
+      });
+    }
+  });
+
+  expect(await user().query(api.app.listDataSources, {})).toHaveLength(1);
+  expect(
+    (await user().query(api.app.getDataSourceByType, { type: "csv" }))?.id,
+  ).toBe(sourceId);
+  expect(
+    (await user().query(api.app.getDataFrameByInsight, { insightId }))?.id,
+  ).toBe(insightFrameId);
+}, 15_000);
+
+it("applies secondary filters after selecting a draft-less index", async () => {
+  await t.run(async (ctx) => {
+    for (const insightId of ["matching", "other"])
+      await ctx.db.insert("dataSources", {
+        workspaceId: "w",
+        id: crypto.randomUUID(),
+        revision: 1,
+        name: "Source",
+        createdAt: Date.now(),
+        dataSourceId: "shared-source",
+        insightId,
+      });
+  });
+
+  const rows = await user().query(api.app.listDataSources, {
+    dataSourceId: "shared-source",
+    insightId: "matching",
+  });
+  expect(rows).toHaveLength(1);
+});
 
 it("reports a cap exceedance for draftLog and retains the claim", async () => {
   const cleanupId = crypto.randomUUID();
