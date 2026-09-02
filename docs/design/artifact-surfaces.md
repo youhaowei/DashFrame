@@ -51,23 +51,22 @@ Each collection has an explicit content budget:
 
 | Collection   | Useful card content                                                                                                                                                                         |
 | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Reports      | Name, Insight count, saved-view count; an empty Report prompts adding its first question.                                                                                                   |
+| Reports      | Name, question count, saved-view count; an empty Report prompts adding its first question.                                                                                                  |
 | Data Sources | Connector logo or file-type icon, source name, format or connector, table count.                                                                                                            |
 | Drafts       | Primary affected artifact or mechanical title, up to two deterministic command descriptions, review action; count and time as secondary context. Overflow becomes a factual "+N more" line. |
 
 ### What this rule does not yet describe
 
-The budget above is the target, not a report on the shipped cards. Three gaps are open, and
-none is closed by the slice that introduced this section:
+The budget above is the target, not a report on the shipped cards. Two gaps remain:
 
 - Data Frames cards render six metadata lines (source, definition, dimensions, last
   refreshed, storage, created) against a budget of three, and they print "Unknown source",
   "Unknown table", "Unknown" and "? rows x ? columns" where a fact is missing — which the
   omission rule above forbids. Insight cards do the same with "Unknown table". Those strings
   predate this slice; the rule that indicts them does not.
-- Interface labels are still mixed: "New Dashboard", "Create Dashboard", "Edit Dashboard",
-  "Delete Table" and "Edit Data Frame" sit beside "Save changes", "Clear search" and
-  "Rename source". The sentence-case pass is outstanding across both existing and new labels.
+- Interface labels outside the Report hierarchy are still mixed: "Delete Table" and
+  "Edit Data Frame" sit beside "Save changes", "Clear search" and "Rename source". The
+  sentence-case pass remains outstanding on those adjacent surfaces.
 
 ## Draft collection content
 
@@ -88,7 +87,7 @@ A display field must map to a saved field, a deterministic derivation, or an exp
 | Visualization identity and provenance | `Visualization.name`/`visualizationType`/`insightId`/`encoding`                                                        | Existing list metadata. Saved types are barY, barX, line, areaY, dot, hexbin, heatmap, and raster; Table is not a saved type.                                                                                |
 | Visualization thumbnail               | Saved encoding/spec plus actual Insight result data                                                                    | Feasible only with result loading and rendering; no thumbnail field exists. Show an unavailable state until real content can be rendered, and do not execute every visualization eagerly on collection load. |
 | Dashboard layout and counts           | `Dashboard.items[].type`/`x`/`y`/`width`/`height`/`visualizationId`                                                    | Geometry and typed counts are direct. Chart images require rendering with saved per-widget overrides, never reusing an unrelated chart.                                                                      |
-| Draft identities and changes          | `draftPublishReview.diff.directNodes[].name`/`intent`/`before`/`proposedDefinition`; typed command `describe()` output | Available in detailed review, not returned by `listDrafts`. Needs a lightweight summary contract before collection adoption.                                                                                 |
+| Draft identities and changes          | `draftPublishReview.diff.directNodes[].name`/`intent` plus `listDrafts.summary` from stored commands and draft changes | Detailed review carries full before/proposed definitions; the list contract returns only named nodes, at most two deterministic intent lines, and a remaining count.                                         |
 
 ## Remaining v0.3 work
 

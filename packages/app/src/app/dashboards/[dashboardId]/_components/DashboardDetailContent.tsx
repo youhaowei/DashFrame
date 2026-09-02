@@ -282,7 +282,7 @@ export default function DashboardDetailContent({
                 Questions ({reportContents.questions.length})
               </h2>
               <p className="mt-1 text-xs text-neutral-fg-subtle">
-                Insights used by saved views on this report.
+                Questions used by saved views on this report.
               </p>
             </div>
             <Link
