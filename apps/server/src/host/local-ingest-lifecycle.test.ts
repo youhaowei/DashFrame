@@ -40,7 +40,7 @@ beforeEach(async () => {
       } as unknown as LocalConvex["internalClient"],
       "w",
     ),
-    dataFrameStorage: synchronizeSaves(storage, 2),
+    dataFrameStorage: storage,
     getServerEndpoint: () => undefined,
   };
   cleanup = new HostResourceCleanup(context);
@@ -79,6 +79,7 @@ it("cancels and reclaims the losing reservation after a frame publication race",
     dataTableId: tableId,
     arrowBase64: Buffer.from(converted.arrowBuffer).toString("base64"),
   };
+  context.dataFrameStorage = synchronizeSaves(storage, 2);
 
   const outcomes = await Promise.allSettled([
     ingestLocalDataFrame(context, {
@@ -115,6 +116,89 @@ it("cancels and reclaims the losing reservation after a frame publication race",
     frameId: winner.value.dataFrameId,
   });
   expect(await storage.list()).toEqual([winner.value.dataFrameId]);
+});
+
+it("cancels a stale replacement claim before any frame bytes are saved", async () => {
+  const sourceId = crypto.randomUUID();
+  const tableId = crypto.randomUUID();
+  const converted = await csvToDataFrame(
+    parseCSV("name,value\nalpha,1\nbeta,2\n"),
+    tableId,
+  );
+  await context.metadata.commitBatch(context.principal, [
+    cmd("CreateDataSource", {
+      id: sourceId,
+      name: "Local",
+      type: "local",
+    }),
+    cmd("CreateDataTable", {
+      id: tableId,
+      dataSourceId: sourceId,
+      name: "Values",
+      table: "values.csv",
+      fields: converted.fields,
+      sourceSchema: converted.sourceSchema,
+      metrics: [],
+    }),
+  ]);
+  const request = {
+    dataTableId: tableId,
+    arrowBase64: Buffer.from(converted.arrowBuffer).toString("base64"),
+  };
+  const beginLocalImport = context.metadata.beginLocalImport.bind(
+    context.metadata,
+  );
+  let firstClaim = true;
+  let releaseLoser = () => {};
+  const winnerCommitted = new Promise<void>((resolve) => {
+    releaseLoser = resolve;
+  });
+  let announceLoserClaim = () => {};
+  const loserClaimed = new Promise<void>((resolve) => {
+    announceLoserClaim = resolve;
+  });
+  context.metadata.beginLocalImport = async (input) => {
+    const claim = await beginLocalImport(input);
+    if (firstClaim) {
+      firstClaim = false;
+      announceLoserClaim();
+      await winnerCommitted;
+    }
+    return claim;
+  };
+
+  const loser = ingestLocalDataFrame(context, {
+    ...request,
+    replacement: {
+      expectedDataFrameId: null,
+      name: "Values",
+      table: "values.csv",
+      sourceSchema: converted.sourceSchema,
+      fields: converted.fields,
+      metrics: [],
+    },
+    operationId: crypto.randomUUID(),
+  });
+  await loserClaimed;
+  const winner = await ingestLocalDataFrame(context, {
+    ...request,
+    operationId: crypto.randomUUID(),
+  });
+  const loserRejected = expect(loser).rejects.toThrow(
+    "STALE_LOCAL_REPLACEMENT",
+  );
+  releaseLoser();
+  await loserRejected;
+
+  const imports = await native.run(async (ctx) =>
+    ctx.db.query("localImports").collect(),
+  );
+  expect(imports).toHaveLength(1);
+  expect(imports[0]).toMatchObject({
+    status: "complete",
+    frameId: winner.dataFrameId,
+  });
+  expect(await storage.list()).toEqual([winner.dataFrameId]);
 });
 
 function synchronizeSaves(

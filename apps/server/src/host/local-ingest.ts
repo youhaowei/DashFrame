@@ -331,62 +331,52 @@ async function ingestLocalFrame(
   const frameId = (claim?.frameId ?? crypto.randomUUID()) as UUID;
   const fetchedAt = claim?.fetchedAt ?? Date.now();
   await saveReservedFrame(ctx.dataFrameStorage, frameId, arrow);
-  try {
-    const frameRow = {
-      id: frameId,
-      storage: { type: "file", key: frameId } as DataFrameStorageLocation,
-      fieldIds: fields.map((field) => field.id),
-      primaryKey,
-      name: replacement?.name ?? table.name,
-      sourceId: source.id,
-      definitionId: table.id,
-      rowCount: inspected.rowCount,
-      columnCount: fields.length,
-      analysis: {
-        schema: fields.map((field) => ({
-          id: field.id,
-          name: field.columnName ?? field.name,
-          type: field.type,
-        })),
-        provenance: { connectorKind: "local", bindingVersion: "v1" },
-        fetchedAt,
-      },
-      lastRefreshedAt: fetchedAt,
-    };
-    const tableUpdate = {
-      ...(replacement
-        ? {
-            name: replacement.name,
-            table: replacement.table,
-            sourceSchema: replacement.sourceSchema,
-            fields: replacement.fields,
-            metrics: replacement.metrics,
-          }
-        : {}),
-      dataFrameId: frameId,
-      lastFetchedAt: fetchedAt,
-    };
-    await ctx.metadata.commitImportedFrame({
-      ...(claim
-        ? { operationId: claim.operationId, requestHash: claim.requestHash }
-        : {}),
-      dataTableId: table.id,
-      dataSourceId: source.id,
-      expectedDataFrameId: replacement
-        ? replacement.expectedDataFrameId
-        : (table.dataFrameId ?? null),
-      frameRow,
-      tableUpdate,
-    });
-  } catch (error) {
-    // A lost response is not a rollback. Retain bytes while the native outcome
-    // is unknown; the same operation can recover its committed result later.
-    if (claim) {
-      const recovered = await recoverOrCancelFailedImport(ctx, claim, error);
-      if (recovered) return recovered;
-    }
-    throw error;
-  }
+  const frameRow = {
+    id: frameId,
+    storage: { type: "file", key: frameId } as DataFrameStorageLocation,
+    fieldIds: fields.map((field) => field.id),
+    primaryKey,
+    name: replacement?.name ?? table.name,
+    sourceId: source.id,
+    definitionId: table.id,
+    rowCount: inspected.rowCount,
+    columnCount: fields.length,
+    analysis: {
+      schema: fields.map((field) => ({
+        id: field.id,
+        name: field.columnName ?? field.name,
+        type: field.type,
+      })),
+      provenance: { connectorKind: "local", bindingVersion: "v1" },
+      fetchedAt,
+    },
+    lastRefreshedAt: fetchedAt,
+  };
+  const tableUpdate = {
+    ...(replacement
+      ? {
+          name: replacement.name,
+          table: replacement.table,
+          sourceSchema: replacement.sourceSchema,
+          fields: replacement.fields,
+          metrics: replacement.metrics,
+        }
+      : {}),
+    dataFrameId: frameId,
+    lastFetchedAt: fetchedAt,
+  };
+  await ctx.metadata.commitImportedFrame({
+    ...(claim
+      ? { operationId: claim.operationId, requestHash: claim.requestHash }
+      : {}),
+    dataTableId: table.id,
+    dataSourceId: source.id,
+    expectedDataFrameId: replacement
+      ? replacement.expectedDataFrameId
+      : (table.dataFrameId ?? null),
+    frameRow,
+    tableUpdate,
+  });
 
   return {
     dataFrameId: frameId,
@@ -427,14 +417,27 @@ export async function ingestLocalDataFrame(
       requestHash,
     });
     if (claim.status === "complete" && claim.result) return claim.result;
-    return ingestLocalFrame(
-      ctx,
-      input.dataTableId as UUID,
-      input.arrowBase64,
-      input.primaryKey,
-      input.replacement,
-      { ...claim, operationId, requestHash },
-    );
+    const claimedImport = { ...claim, operationId, requestHash };
+    try {
+      return await ingestLocalFrame(
+        ctx,
+        input.dataTableId as UUID,
+        input.arrowBase64,
+        input.primaryKey,
+        input.replacement,
+        claimedImport,
+      );
+    } catch (error) {
+      // A lost response is not a rollback. Retain bytes while the native outcome
+      // is unknown; the same operation can recover its committed result later.
+      const recovered = await recoverOrCancelFailedImport(
+        ctx,
+        claimedImport,
+        error,
+      );
+      if (recovered) return recovered;
+      throw error;
+    }
   });
 }
 
