@@ -1,11 +1,16 @@
 import { useQuery_experimental as useQuery, useMutation } from "convex/react";
 import { queryStatus } from "@/data/query-status";
 import { useConfirmDialogStore, useToastStore } from "@/lib/stores";
+import {
+  ArtifactCard,
+  ArtifactCollection,
+  ArtifactEmptyState,
+  ArtifactGrid,
+} from "@/components/artifacts/ArtifactCollection";
+import { RoutedCardActionMenuTrigger } from "@/components/RoutedCardActionMenuTrigger";
 import { api } from "@dashframe/convex-backend/api";
 import { cmd, type UUID } from "@dashframe/types";
-import { groupHoverAndFocusWithinReveal } from "@dashframe/ui";
-import { Link, useNavigate } from "@tanstack/react-router";
-
+import { useNavigate } from "@tanstack/react-router";
 import {
   Button,
   Dialog,
@@ -13,11 +18,18 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  Input,
   Label,
-  Surface,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
 } from "@wystack/ui-react";
-import { DashboardIcon, DeleteIcon, PlusIcon } from "@wystack/ui-react/icons";
+import {
+  DashboardIcon,
+  DeleteIcon,
+  ExternalLinkIcon,
+  PlusIcon,
+} from "@wystack/ui-react/icons";
+import { Input } from "@wystack/ui-react";
 import { useState } from "react";
 
 export default function DashboardsPage() {
@@ -31,6 +43,7 @@ export default function DashboardsPage() {
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [newDashboardName, setNewDashboardName] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const handleDelete = (id: string, name: string) => {
     confirm({
@@ -68,6 +81,12 @@ export default function DashboardsPage() {
     navigate({ to: `/dashboards/${id}` } as never);
   };
 
+  const filteredDashboards = searchQuery.trim()
+    ? dashboards.filter((dashboard) =>
+        dashboard.name.toLowerCase().includes(searchQuery.trim().toLowerCase()),
+      )
+    : dashboards;
+
   if (isLoading) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -77,98 +96,97 @@ export default function DashboardsPage() {
   }
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-neutral-border/60 px-6 py-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-palette-primary/10 text-palette-primary">
-            <DashboardIcon className="h-5 w-5" />
-          </div>
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight text-neutral-fg">
-              Dashboards
-            </h1>
-            <p className="text-sm text-neutral-fg-subtle">
-              Manage your dashboards and reports
-            </p>
-          </div>
-        </div>
+    <ArtifactCollection
+      title="Dashboards"
+      description={
+        <>
+          {dashboards.length} dashboard
+          {dashboards.length !== 1 ? "s" : ""}
+        </>
+      }
+      actions={
         <Button
           icon={PlusIcon}
           label="New Dashboard"
           onClick={() => setIsCreateOpen(true)}
         />
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-6">
-        {dashboards.length === 0 ? (
-          <div className="flex h-full flex-col items-center justify-center text-center">
-            <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-neutral-bg-muted text-neutral-fg-subtle">
-              <DashboardIcon className="h-10 w-10" />
-            </div>
-            <h3 className="text-lg font-semibold text-neutral-fg">
-              No dashboards yet
-            </h3>
-            <p className="mt-2 max-w-sm text-sm text-neutral-fg-subtle">
-              Create your first dashboard to start organizing your
-              visualizations.
-            </p>
-            <Button
-              icon={PlusIcon}
-              label="Create Dashboard"
-              className="mt-6"
-              onClick={() => setIsCreateOpen(true)}
-            />
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {dashboards.map((dashboard) => (
-              <Link
-                key={dashboard.id}
-                to={`/dashboards/${dashboard.id}` as never}
-                className="group block h-full"
-              >
-                <Surface
-                  elevation="raised"
-                  className="relative flex h-full flex-col p-5 transition-all hover:border-palette-primary/50 hover:shadow-md"
-                >
-                  <div className="mb-4 flex items-start justify-between">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-palette-primary/10 text-palette-primary">
-                      <DashboardIcon className="h-5 w-5" />
-                    </div>
-                    <div
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        e.preventDefault();
+      }
+      searchLabel="Search dashboards"
+      searchPlaceholder="Search dashboards..."
+      itemCount={dashboards.length}
+      searchQuery={searchQuery}
+      onSearchQueryChange={setSearchQuery}
+    >
+      {filteredDashboards.length === 0 ? (
+        <ArtifactEmptyState
+          title={searchQuery ? "No dashboards found" : "No dashboards yet"}
+          description={
+            searchQuery
+              ? `No dashboards match "${searchQuery}"`
+              : "Create your first dashboard to start organizing your visualizations."
+          }
+          action={
+            searchQuery ? (
+              <Button
+                variant="outline"
+                label="Clear search"
+                onClick={() => setSearchQuery("")}
+              />
+            ) : (
+              <Button
+                icon={PlusIcon}
+                label="Create Dashboard"
+                onClick={() => setIsCreateOpen(true)}
+              />
+            )
+          }
+        />
+      ) : (
+        <ArtifactGrid>
+          {filteredDashboards.map((dashboard) => (
+            <ArtifactCard
+              key={dashboard.id}
+              to={`/dashboards/${dashboard.id}`}
+              icon={<DashboardIcon className="h-5 w-5" />}
+              name={dashboard.name}
+              metadata={
+                <>
+                  {dashboard.items.length} item
+                  {dashboard.items.length !== 1 ? "s" : ""}
+                </>
+              }
+              actions={
+                <DropdownMenu>
+                  <RoutedCardActionMenuTrigger />
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        navigate({
+                          to: `/dashboards/${dashboard.id}`,
+                        } as never);
                       }}
                     >
-                      <Button
-                        variant="ghost"
-                        icon={DeleteIcon}
-                        iconOnly
-                        label="Delete dashboard"
-                        color="danger"
-                        className={`-mt-2 -mr-2 text-neutral-fg-subtle transition-opacity hover:text-palette-danger ${groupHoverAndFocusWithinReveal}`}
-                        onClick={() =>
-                          handleDelete(dashboard.id, dashboard.name)
-                        }
-                      />
-                    </div>
-                  </div>
-                  <h3 className="mb-1 font-semibold text-neutral-fg">
-                    {dashboard.name}
-                  </h3>
-                  <p className="text-sm text-neutral-fg-subtle">
-                    {dashboard.items.length} items · Updated{" "}
-                    {dashboard.updatedAt
-                      ? new Date(dashboard.updatedAt).toLocaleDateString()
-                      : new Date(dashboard.createdAt).toLocaleDateString()}
-                  </p>
-                </Surface>
-              </Link>
-            ))}
-          </div>
-        )}
-      </div>
+                      <ExternalLinkIcon className="mr-2 h-4 w-4" />
+                      Open
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      className="text-palette-danger"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handleDelete(dashboard.id, dashboard.name);
+                      }}
+                    >
+                      <DeleteIcon className="mr-2 h-4 w-4" />
+                      Delete
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              }
+            />
+          ))}
+        </ArtifactGrid>
+      )}
 
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
         <DialogContent>
@@ -204,6 +222,6 @@ export default function DashboardsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </ArtifactCollection>
   );
 }

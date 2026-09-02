@@ -1,11 +1,13 @@
+import { ArtifactPageHeader } from "@/components/artifacts/ArtifactPageHeader";
+import { ArtifactSwitcher } from "@/components/artifacts/ArtifactSwitcher";
 import { useQuery_experimental as useQuery, useMutation } from "convex/react";
 import { queryStatus } from "@/data/query-status";
 import {
   type ArtifactContextValue,
   useBindArtifact,
 } from "@/components/assistant/artifact-context";
-import { ConnectorIcon } from "@/components/data-sources/renderers/ConnectorIcon";
 import { SensitivityBadge } from "@/components/data-sources/SensitivityBadge";
+import { ConnectorIcon } from "@/components/data-sources/renderers/ConnectorIcon";
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { useCreateInsight } from "@/hooks/useCreateInsight";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
@@ -30,6 +32,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import {
   Badge,
   Button,
+  ButtonPrimitive,
   Card,
   CardContent,
   CardHeader,
@@ -39,12 +42,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   Input,
-  ItemCard,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
 } from "@wystack/ui-react";
 import {
-  DatabaseIcon,
   DeleteIcon,
-  ChevronLeftIcon as LuArrowLeft,
   MoreIcon as LuMoreHorizontal,
   PlusIcon,
   TableIcon,
@@ -61,6 +64,29 @@ const SENSITIVITY_TOASTS: Record<FieldSensitivity, string> = {
   cleared: "Field marked as not sensitive",
   unclassified: "Field reset to unclassified",
 };
+
+function renderDataTablesQueryState(isLoading: boolean, isError: boolean) {
+  if (isLoading) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <p className="text-sm text-neutral-fg-subtle">Loading tables…</p>
+      </div>
+    );
+  }
+  if (isError) {
+    return (
+      <div role="alert" className="flex h-full items-center justify-center">
+        <div className="text-center">
+          <h2 className="text-lg font-semibold">Couldn&apos;t load tables</h2>
+          <p className="mt-2 text-sm text-neutral-fg-subtle">
+            Something went wrong. Check your connection and try again.
+          </p>
+        </div>
+      </div>
+    );
+  }
+  return null;
+}
 
 /**
  * Build a lookup map from field ID → column analysis.
@@ -102,16 +128,6 @@ export function buildAnalysisByFieldId(
     map.set(fieldId, column);
   }
   return map;
-}
-
-// Get icon for a data source type, driven by the connector registry.
-// Renders the connector's own icon; falls back to a generic database glyph.
-function getSourceTypeIcon(type: string) {
-  const connector = getConnectorById(type);
-  if (connector) {
-    return <ConnectorIcon svg={connector.icon} className="h-5 w-5" />;
-  }
-  return <DatabaseIcon className="h-5 w-5" />;
 }
 
 /**
@@ -172,30 +188,43 @@ export default function DataSourcePageContent({
   // Find the data source
   const dataSource = allDataSources.find((s) => s.id === sourceId);
 
-  const { data: dataTables = [] } = queryStatus(
+  const {
+    data: dataTables = [],
+    isLoading: isLoadingDataTables,
+    isError: isDataTablesError,
+  } = queryStatus(
     useQuery({
       query: api.app.listDataTables,
       args: { dataSourceId: sourceId },
     }),
   );
+  const tableCountUnit = dataTables.length === 1 ? "table" : "tables";
+  const tableCountLabel =
+    isLoadingDataTables || isDataTablesError
+      ? null
+      : ` · ${dataTables.length} ${tableCountUnit}`;
 
   // Local state for selected table - use null to indicate "not yet selected by user"
   const [selectedTableId, setSelectedTableId] = useState<UUID | null>(null);
 
-  // Effective selected table ID - either user selection or first table as default
-  const effectiveSelectedTableId = selectedTableId ?? dataTables[0]?.id ?? null;
-
-  // Get selected table details
-  const tableDetails = useMemo(() => {
-    if (!effectiveSelectedTableId) return null;
-    const table = dataTables.find((t) => t.id === effectiveSelectedTableId);
-    return table
-      ? { dataTable: table, fields: table.fields, metrics: table.metrics }
-      : null;
-  }, [effectiveSelectedTableId, dataTables]);
+  // Use the user's live selection when it still exists; otherwise fall back to
+  // the first table so a source with tables never needs a separate selection state.
+  const selectedTable =
+    dataTables.find((table) => table.id === selectedTableId) ??
+    dataTables[0] ??
+    null;
+  const effectiveSelectedTableId = selectedTable?.id ?? null;
+  const tableDetails = selectedTable
+    ? {
+        dataTable: selectedTable,
+        fields: selectedTable.fields,
+        metrics: selectedTable.metrics,
+      }
+    : null;
 
   // Use source name directly - mutations update database which triggers re-render
   const sourceName = dataSource?.name ?? "";
+  const connector = dataSource ? getConnectorById(dataSource.type) : null;
 
   // Bind the assistant to this data source so its sidebar is contextual to what
   // the user is looking at. Cleared automatically on unmount.
@@ -203,12 +232,11 @@ export default function DataSourcePageContent({
     useDataSourceArtifact(dataSource, sourceId, sourceName, dataTables.length),
   );
 
-  // Get DataFrame entry for metadata (row/column counts)
-  const dataFrameEntry = useMemo(() => {
-    const dataFrameId = tableDetails?.dataTable?.dataFrameId;
-    if (!dataFrameId) return null;
-    return allDataFrames.find((e) => e.id === dataFrameId);
-  }, [tableDetails, allDataFrames]);
+  // Get DataFrame entry for metadata (row/column counts).
+  const dataFrameId = selectedTable?.dataFrameId;
+  const dataFrameEntry = dataFrameId
+    ? (allDataFrames.find((entry) => entry.id === dataFrameId) ?? null)
+    : null;
 
   // Load actual data for preview (async from IndexedDB)
   const { data: previewData, isLoading: isLoadingPreview } = useDataFrameData(
@@ -278,8 +306,8 @@ export default function DataSourcePageContent({
 
   // Handle delete table
   const handleDeleteTable = () => {
-    if (!selectedTableId || !tableDetails?.dataTable) return;
-    const tableId = selectedTableId;
+    if (!effectiveSelectedTableId || !tableDetails?.dataTable) return;
+    const tableId = effectiveSelectedTableId;
     const tableName = tableDetails.dataTable.name;
     confirm({
       title: "Delete data table",
@@ -329,80 +357,109 @@ export default function DataSourcePageContent({
     );
   }
 
+  // This is confirmed-empty only while pending/error table queries are intercepted below.
+  const emptyTableState = (
+    <div className="flex h-full items-center justify-center">
+      <div className="text-center">
+        <TableIcon className="mx-auto mb-4 h-12 w-12 text-neutral-fg-subtle" />
+        <h2 className="mb-2 text-lg font-semibold">No tables yet</h2>
+        <p className="mb-4 text-sm text-neutral-fg-subtle">
+          Use Add Source on the Data Sources page to import a table.
+        </p>
+        <Button
+          variant="outline"
+          label="Go to Data Sources"
+          onClick={() => navigate({ to: "/data-sources" } as never)}
+        />
+      </div>
+    </div>
+  );
+  const dataTablesQueryState = renderDataTablesQueryState(
+    isLoadingDataTables,
+    isDataTablesError,
+  );
+  const noSelectedTableState = dataTablesQueryState ?? emptyTableState;
+
   return (
     <>
       <AppLayout
-        headerContent={
-          <div className="container mx-auto px-6 py-4">
-            <div className="mb-4">
+        pageHeader={
+          <ArtifactPageHeader
+            title={sourceName || "Untitled Source"}
+            titleIcon={
+              connector ? (
+                <ConnectorIcon svg={connector.icon} className="h-6 w-6" />
+              ) : undefined
+            }
+            description={`${connector?.name ?? dataSource.type}${tableCountLabel ?? ""}`}
+            actions={
+              <Popover>
+                <PopoverTrigger
+                  render={
+                    <ButtonPrimitive
+                      type="button"
+                      variant="outline"
+                      aria-label="Rename source"
+                    >
+                      Rename source
+                    </ButtonPrimitive>
+                  }
+                />
+                <PopoverContent align="end">
+                  <label className="flex min-w-0 flex-wrap items-center gap-2 text-sm text-neutral-fg-subtle">
+                    Source name
+                    <Input
+                      aria-label="Data source name"
+                      value={sourceName}
+                      onChange={(e) => handleNameChange(e.target.value)}
+                      placeholder="Data source name"
+                      className="w-52 max-w-full"
+                    />
+                  </label>
+                </PopoverContent>
+              </Popover>
+            }
+            navigation={
               <Breadcrumb
                 LinkComponent={Link}
                 items={[
-                  {
-                    label: (
-                      <span className="flex items-center gap-1">
-                        <LuArrowLeft className="h-4 w-4" />
-                        Back
-                      </span>
-                    ),
-                    to: "/data-sources",
-                  },
                   { label: "Data Sources", to: "/data-sources" },
                   { label: sourceName || "Untitled Source" },
                 ]}
               />
-            </div>
-          </div>
-        }
-        leftPanel={
-          <div className="flex h-full flex-col">
-            <div className="border-b p-4">
-              <Input
-                value={sourceName}
-                onChange={(e) => handleNameChange(e.target.value)}
-                placeholder="Data source name"
-                className="w-full"
-              />
-            </div>
-            <div className="flex-1 overflow-y-auto p-4">
-              <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
-                {getSourceTypeIcon(dataSource.type)}
-                Tables
-              </h3>
-
-              {dataTables.length === 0 ? (
-                <div className="py-8 text-center">
-                  <TableIcon className="mx-auto mb-2 h-8 w-8 text-neutral-fg-subtle" />
-                  <p className="text-sm text-neutral-fg-subtle">
-                    No tables yet
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {dataTables.map((table) => {
-                    const fieldCount = table.fields.length;
-
-                    return (
-                      <ItemCard
-                        key={table.id}
-                        icon={<TableIcon className="h-4 w-4" />}
-                        title={table.name}
-                        subtitle={`${fieldCount} fields`}
-                        onClick={() => setSelectedTableId(table.id)}
-                        active={selectedTableId === table.id}
-                      />
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
+            }
+          >
+            <ArtifactSwitcher
+              label="Sources"
+              selectedId={sourceId}
+              items={allDataSources.map((source) => ({
+                id: source.id,
+                name: source.name,
+                kind: getConnectorById(source.type)?.name ?? source.type,
+                description: getConnectorById(source.type)?.name ?? source.type,
+              }))}
+              onSelect={(id) => {
+                setSelectedTableId(null);
+                navigate({ to: `/data-sources/${id}` } as never);
+              }}
+            />
+            <ArtifactSwitcher
+              label="Tables"
+              selectedId={effectiveSelectedTableId}
+              items={dataTables.map((table) => ({
+                id: table.id,
+                name: table.name,
+                description: `${table.fields.length} fields`,
+              }))}
+              onSelect={(id) => setSelectedTableId(id as UUID)}
+            />
+          </ArtifactPageHeader>
         }
       >
-        {selectedTableId && tableDetails ? (
-          <div className="space-y-6 p-6">
+        {effectiveSelectedTableId && tableDetails ? (
+          <div className="space-y-6 p-4 sm:p-6">
             {/* Table header */}
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h2 className="text-xl font-semibold">
                   {tableDetails.dataTable?.name}
@@ -415,7 +472,7 @@ export default function DataSourcePageContent({
               <div className="flex items-center gap-2">
                 <Button
                   label="Visualize this data"
-                  onClick={() => handleCreateInsight(selectedTableId)}
+                  onClick={() => handleCreateInsight(effectiveSelectedTableId)}
                   icon={PlusIcon}
                 />
                 <DropdownMenu>
@@ -468,10 +525,10 @@ export default function DataSourcePageContent({
                       return (
                         <div
                           key={field.id}
-                          className="flex items-center justify-between rounded-lg bg-neutral-bg-muted/30 px-3 py-2"
+                          className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-neutral-bg-muted/30 px-3 py-2"
                         >
                           <div className="flex min-w-0 items-center gap-2">
-                            <span className="text-sm font-medium">
+                            <span className="break-words text-sm font-medium">
                               {field.name}
                             </span>
                             <SensitivityBadge
@@ -524,23 +581,19 @@ export default function DataSourcePageContent({
             </Card>
 
             {/* Metrics */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Metrics</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {tableDetails.metrics.length === 0 ? (
-                  <p className="text-sm text-neutral-fg-subtle">
-                    No metrics defined
-                  </p>
-                ) : (
+            {tableDetails.metrics.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Metrics</CardTitle>
+                </CardHeader>
+                <CardContent>
                   <div className="grid gap-2">
                     {tableDetails.metrics.map((metric) => (
                       <div
                         key={metric.id}
-                        className="flex items-center justify-between rounded-lg bg-neutral-bg-muted/30 px-3 py-2"
+                        className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-neutral-bg-muted/30 px-3 py-2"
                       >
-                        <span className="text-sm font-medium">
+                        <span className="break-words text-sm font-medium">
                           {metric.name}
                         </span>
                         <Badge variant="soft" className="font-mono text-xs">
@@ -550,9 +603,9 @@ export default function DataSourcePageContent({
                       </div>
                     ))}
                   </div>
-                )}
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+            )}
 
             {/* Data preview */}
             {dataFrameEntry && (
@@ -600,15 +653,7 @@ export default function DataSourcePageContent({
             )}
           </div>
         ) : (
-          <div className="flex h-full items-center justify-center">
-            <div className="text-center">
-              <TableIcon className="mx-auto mb-4 h-12 w-12 text-neutral-fg-subtle" />
-              <h3 className="mb-2 text-lg font-semibold">Select a table</h3>
-              <p className="text-sm text-neutral-fg-subtle">
-                Choose a table from the sidebar to view its details
-              </p>
-            </div>
-          </div>
+          noSelectedTableState
         )}
       </AppLayout>
     </>

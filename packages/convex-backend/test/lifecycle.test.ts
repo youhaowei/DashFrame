@@ -131,6 +131,79 @@ it("protects resources retained by a draft until discard", async () => {
   expect(await claim("secret", ref)).not.toBeNull();
   expect(await claim("frame", frameId)).not.toBeNull();
 });
+it("preserves saved insight results after discarding an insight deletion draft", async () => {
+  const { tableId } = await seed();
+  const insightId = uuid();
+  const frameId = uuid();
+  await user().mutation(api.app.commitBatch, {
+    commands: [
+      cmd("CreateInsight", {
+        id: insightId,
+        name: "Saved insight",
+        source: { sourceType: "dataTable", sourceId: tableId },
+      }),
+    ],
+  });
+  await t.run(async (ctx) => {
+    await ctx.db.insert("dataFrames", {
+      workspaceId: "w",
+      id: frameId,
+      revision: 1,
+      name: "Saved result",
+      createdAt: Date.now(),
+      insightId,
+      storage: { type: "file", key: frameId },
+      fieldIds: [],
+      analysis: { currentInsightResult: true },
+    });
+  });
+  const { draftId } = await user().mutation(api.app.draftBatch, {
+    commands: [cmd("DeleteNode", { id: insightId })],
+  });
+
+  await user().mutation(api.app.discardDraft, { draftId });
+
+  expect(await claim("frame", frameId)).toBeNull();
+  expect(
+    await user().query(api.app.getInsight, { id: insightId }),
+  ).not.toBeNull();
+  expect(
+    await user().query(api.app.getDataFrameEntry, { id: frameId }),
+  ).not.toBeNull();
+});
+it("protects a superseded credential write retained only in an open draft log", async () => {
+  const sourceId = uuid();
+  const first = secret();
+  const second = secret();
+  const created = await t.mutation(internal.host.draftBatch, {
+    workspaceId: "w",
+    principal,
+    commands: [
+      {
+        path: "createDataSource",
+        args: {
+          id: sourceId,
+          name: "Draft source",
+          type: "http",
+          apiKey: first,
+        },
+      },
+    ],
+  });
+  await t.mutation(internal.host.draftBatch, {
+    workspaceId: "w",
+    principal,
+    draftId: created.draftId,
+    commands: [
+      {
+        path: "setDataSourceConfig",
+        args: { id: sourceId, apiKey: second },
+      },
+    ],
+  });
+
+  expect(await claim("secret", first)).toBeNull();
+});
 it("rechecks references before claiming and permanently blocks resource reuse", async () => {
   const { sourceId, frameId, ref } = await seed();
   await t.mutation(internal.host.clearAllData, { workspaceId: "w" });

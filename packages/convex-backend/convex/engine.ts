@@ -292,6 +292,12 @@ function safeExtra(extra: ObjectValue) {
     throw new Error("Secret references are restricted to credential slots");
 }
 const secretRefPattern = /^secret:[0-9a-f-]{36}$/i;
+// Defines credential slots that connector commands may write after host staging.
+// credentialRef is stored by assistant-provider APIs, not connector commands.
+const COMMAND_WRITABLE_CREDENTIAL_SLOTS = [
+  "apiKey",
+  "connectionString",
+] as const;
 function assertNoInheritedCredentialExfil(
   config: ObjectValue,
   args: ObjectValue,
@@ -320,7 +326,7 @@ function configEdit(
   protectInheritedCredentials = false,
 ) {
   const credentials: [string, string][] = [];
-  for (const k of ["apiKey", "connectionString"]) {
+  for (const k of COMMAND_WRITABLE_CREDENTIAL_SLOTS) {
     if (args[k] === undefined) continue;
     const value = args[k];
     if (typeof value !== "string")

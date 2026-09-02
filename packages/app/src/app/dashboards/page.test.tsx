@@ -192,7 +192,8 @@ describe("DashboardsPage – delete confirmation", () => {
         <ConfirmDialog />
       </>,
     );
-    await user.click(screen.getByRole("button", { name: "Delete dashboard" }));
+    await user.click(screen.getByRole("button", { name: "More options" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Delete" }));
 
     const dialog = screen.getByRole("dialog", { name: "Delete dashboard" });
     expect(dialog.textContent).toContain(
@@ -201,7 +202,8 @@ describe("DashboardsPage – delete confirmation", () => {
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(mockCommit).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("button", { name: "Delete dashboard" }));
+    await user.click(screen.getByRole("button", { name: "More options" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Delete" }));
     await user.click(screen.getByRole("button", { name: "Delete" }));
     await waitFor(() =>
       expect(mockCommit).toHaveBeenCalledWith({
@@ -232,7 +234,8 @@ describe("DashboardsPage – delete confirmation", () => {
         <ConfirmDialog />
       </>,
     );
-    await user.click(screen.getByRole("button", { name: "Delete dashboard" }));
+    await user.click(screen.getByRole("button", { name: "More options" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Delete" }));
     await user.click(screen.getByRole("button", { name: "Delete" }));
 
     await waitFor(() =>
@@ -241,4 +244,80 @@ describe("DashboardsPage – delete confirmation", () => {
       ),
     );
   });
+
+  it("filters dashboards by name and clears the search", async () => {
+    const user = userEvent.setup();
+    mockUseQuery.mockReturnValue({
+      data: [
+        {
+          id: "dashboard-1",
+          name: "Quarterly plan",
+          items: [],
+          createdAt: 0,
+          updatedAt: 0,
+        },
+        {
+          id: "dashboard-2",
+          name: "Customer overview",
+          items: [],
+          createdAt: 0,
+          updatedAt: 0,
+        },
+      ],
+      isLoading: false,
+    });
+
+    render(<DashboardsPage />);
+
+    await user.type(
+      screen.getByPlaceholderText("Search dashboards..."),
+      "Quarter",
+    );
+    expect(screen.getByText("Quarterly plan")).not.toBeNull();
+    expect(screen.queryByText("Customer overview")).toBeNull();
+
+    await user.clear(screen.getByPlaceholderText("Search dashboards..."));
+    await user.type(
+      screen.getByPlaceholderText("Search dashboards..."),
+      "Missing",
+    );
+    await user.click(screen.getByRole("button", { name: "Clear search" }));
+    expect(screen.getByText("Quarterly plan")).not.toBeNull();
+    expect(screen.getByText("Customer overview")).not.toBeNull();
+  });
+
+  it.each(["pointer", "Enter", "Space"] as const)(
+    "opens the card menu with %s without navigating the card",
+    async (activation) => {
+      const user = userEvent.setup();
+      mockUseQuery.mockReturnValue({
+        data: [
+          {
+            id: "dashboard-1",
+            name: "Quarterly plan",
+            items: [],
+            createdAt: 0,
+            updatedAt: 0,
+          },
+        ],
+        isLoading: false,
+      });
+
+      render(<DashboardsPage />);
+
+      const action = screen.getByRole("button", { name: "More options" });
+      if (activation === "pointer") {
+        await user.click(action);
+      } else {
+        action.focus();
+        await user.keyboard(activation === "Enter" ? "{Enter}" : "[Space]");
+      }
+
+      expect(
+        await screen.findByRole("menuitem", { name: "Open" }),
+      ).not.toBeNull();
+      expect(screen.getByRole("menuitem", { name: "Delete" })).not.toBeNull();
+      expect(mockNavigate).not.toHaveBeenCalled();
+    },
+  );
 });

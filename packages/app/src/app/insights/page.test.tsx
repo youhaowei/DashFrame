@@ -4,7 +4,7 @@ import {
   hostQueryMock,
   hostMutationMock,
 } from "@/test/native-query-fixture";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
@@ -34,7 +34,22 @@ vi.mock("@/data/host", () => ({
   useHostMutation: hostMutationMock(() => ({ mutateAsync: mockCommitBatch })),
 }));
 
-vi.mock("@tanstack/react-router", () => ({ useNavigate: () => mockNavigate }));
+vi.mock("@tanstack/react-router", () => ({
+  Link: ({
+    children,
+    to,
+    className,
+  }: {
+    children: React.ReactNode;
+    to: string;
+    className?: string;
+  }) => (
+    <a href={to} className={className}>
+      {children}
+    </a>
+  ),
+  useNavigate: () => mockNavigate,
+}));
 vi.mock("@/components/visualizations/CreateVisualizationModal", () => ({
   CreateVisualizationModal: () => null,
 }));
@@ -87,6 +102,47 @@ describe("InsightsPage delete confirmations", () => {
       }
       return { data: [] };
     });
+  });
+
+  it("keeps search available without showing a false count while insights load", () => {
+    mockUseQuery.mockImplementation((ref: { _path: string }) => {
+      if (ref._path === "listInsights" || ref._path === "listVisualizations") {
+        return { isPending: true };
+      }
+      return { data: [] };
+    });
+
+    render(<InsightsPage />);
+
+    expect(screen.queryByText(/^0 insights$/)).toBeNull();
+    expect(
+      screen.getByRole("textbox", { name: "Search insights" }),
+    ).not.toBeNull();
+    expect(screen.queryByRole("main")).toBeNull();
+  });
+
+  it("keeps the count unknown and search visible when insights fail to load", () => {
+    mockUseQuery.mockImplementation((ref: { _path: string }) => {
+      if (ref._path === "listInsights") {
+        return { isLoadingError: true };
+      }
+      if (ref._path === "listVisualizations") {
+        return {
+          data: [],
+          isPending: false,
+          isLoadingError: false,
+        };
+      }
+      return { data: [] };
+    });
+
+    render(<InsightsPage />);
+
+    expect(screen.queryByText(/^0 insights$/)).toBeNull();
+    expect(
+      screen.getByRole("textbox", { name: "Search insights" }),
+    ).not.toBeNull();
+    screen.getByRole("heading", { name: "Couldn't load insights" });
   });
 
   it("does not delete one draft after cancellation, but deletes it after confirmation", async () => {
@@ -167,9 +223,18 @@ describe("InsightsPage delete confirmations", () => {
 
     render(<InsightsPage />);
 
-    const card = screen.getByText("Composed report").closest(".group");
-    expect(card).not.toBeNull();
-    expect(within(card!).getByText("Root Orders • csv")).not.toBeNull();
+    const link = screen.getByRole("link", {
+      name: /Composed report.*Root Orders.*csv/,
+    });
+    expect(link.getAttribute("href")).toBe("/insights/composed");
+  });
+
+  it("renders one level-three heading for each insight card", () => {
+    render(<InsightsPage />);
+
+    expect(screen.getAllByRole("heading", { level: 3 })).toHaveLength(2);
+    screen.getByRole("heading", { level: 3, name: "First draft" });
+    screen.getByRole("heading", { level: 3, name: "Second draft" });
   });
 
   it("shows the draft count and does not start the bulk delete until confirmation", async () => {

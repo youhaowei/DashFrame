@@ -61,6 +61,17 @@ async function readOne(
     row = graph.get(table)!.get(args.id);
   return row ? publicRow(table, row) : null;
 }
+function assertCompleteArtifactRows(
+  rows: readonly unknown[],
+  table: ArtifactTable,
+) {
+  if (rows.length <= LIMIT) return;
+  throw new ConvexError(
+    table === "dataFrames"
+      ? `Workspace exceeds ${LIMIT} dataFrames; use the Data Frames recovery list to delete rows`
+      : `Workspace exceeds ${LIMIT} ${table}; pagination required`,
+  );
+}
 function listQuery<T>(table: ArtifactTable) {
   return query({
     args: {
@@ -71,8 +82,43 @@ function listQuery<T>(table: ArtifactTable) {
     },
     returns: typed<T[]>(v.array(object)),
     handler: async (ctx, args) => {
-      const who = await principal(ctx),
-        graph = await readGraph(ctx, who, args.draftId);
+      const who = await principal(ctx);
+      if (!args.draftId) {
+        const rows = args.dataSourceId
+          ? await ctx.db
+              .query(table)
+              .withIndex("by_workspaceId_and_dataSourceId", (q) =>
+                q
+                  .eq("workspaceId", who.workspaceId)
+                  .eq("dataSourceId", args.dataSourceId),
+              )
+              .take(LIMIT + 1)
+          : args.insightId
+            ? await ctx.db
+                .query(table)
+                .withIndex("by_workspaceId_and_insightId", (q) =>
+                  q
+                    .eq("workspaceId", who.workspaceId)
+                    .eq("insightId", args.insightId),
+                )
+                .take(LIMIT + 1)
+            : await ctx.db
+                .query(table)
+                .withIndex("by_workspaceId_and_id", (q) =>
+                  q.eq("workspaceId", who.workspaceId),
+                )
+                .take(LIMIT + 1);
+        assertCompleteArtifactRows(rows, table);
+        return rows
+          .filter(
+            (row) =>
+              (!args.dataSourceId || row.dataSourceId === args.dataSourceId) &&
+              (!args.insightId || row.insightId === args.insightId) &&
+              !args.excludeIds?.includes(row.id),
+          )
+          .map((row) => publicRow(table, rowValue(row)) as unknown as T);
+      }
+      const graph = await readGraph(ctx, who, args.draftId);
       return [...graph.get(table)!.values()]
         .filter(
           (row) =>
@@ -111,9 +157,10 @@ export type FrameEntry = DataFrameJSON & {
 };
 /**
  * Data frame history can outgrow the full-graph transaction. Keep this query
- * explicitly recoverable so the Data Frames page can request a bounded batch
- * and delete it through the host until full-graph reads resume. Other callers
- * retain complete-list semantics and the full-graph safety bound.
+ * explicitly recoverable so the Data Frames page can request an intentionally
+ * truncated, bounded batch and delete it through the host until full-graph
+ * reads resume. Other callers retain complete-list semantics and the
+ * full-graph safety bound.
  */
 export const listDataFrames = query({
   args: {
@@ -209,10 +256,21 @@ export const getDataSourceByType = query({
   args: { type: v.string(), ...draftArg },
   returns: typed<DataSource | null>(v.union(object, v.null())),
   handler: async (ctx, args) => {
-    const who = await principal(ctx),
-      graph = await readGraph(ctx, who, args.draftId);
+    const who = await principal(ctx);
+    if (!args.draftId) {
+      const row = await ctx.db
+        .query("dataSources")
+        .withIndex("by_workspaceId_and_kind", (q) =>
+          q.eq("workspaceId", who.workspaceId).eq("kind", args.type),
+        )
+        .first();
+      return row
+        ? (publicRow("dataSources", rowValue(row)) as unknown as DataSource)
+        : null;
+    }
+    const graph = await readGraph(ctx, who, args.draftId);
     const row = [...graph.get("dataSources")!.values()].find(
-      (r) => r.kind === args.type,
+      (candidate) => candidate.kind === args.type,
     );
     return row
       ? (publicRow("dataSources", row) as unknown as DataSource)
@@ -223,11 +281,24 @@ export const getDataFrameByInsight = query({
   args: { insightId: v.string(), ...draftArg },
   returns: typed<FrameEntry | null>(v.union(object, v.null())),
   handler: async (ctx, args) => {
-    const who = await principal(ctx),
-      graph = await readGraph(ctx, who, args.draftId);
-    const rows = [...graph.get("dataFrames")!.values()].filter(
-      (r) => r.insightId === args.insightId,
-    );
+    const who = await principal(ctx);
+    const rows = args.draftId
+      ? [
+          ...(await readGraph(ctx, who, args.draftId))
+            .get("dataFrames")!
+            .values(),
+        ].filter((row) => row.insightId === args.insightId)
+      : (
+          await ctx.db
+            .query("dataFrames")
+            .withIndex("by_workspaceId_and_insightId", (q) =>
+              q
+                .eq("workspaceId", who.workspaceId)
+                .eq("insightId", args.insightId),
+            )
+            .take(LIMIT + 1)
+        ).map((row) => rowValue(row));
+    assertCompleteArtifactRows(rows, "dataFrames");
     rows.sort((a, b) => {
       const aCurrent =
         a.analysis &&
@@ -431,35 +502,51 @@ export const listDrafts = query({
     }),
   ),
   handler: async (ctx) => {
-    const who = await principal(ctx),
-      rows = await ctx.db
-        .query("drafts")
-        .withIndex("by_workspaceId_and_owner", (q) =>
-          q.eq("workspaceId", who.workspaceId),
-        )
-        .take(1001);
-    if (rows.length > 1000) throw new Error("Draft list limit exceeded");
-    const result = [];
-    for (const row of rows) {
-      if (
-        row.owner !== who.owner &&
-        !(who.kind === "user" && row.owner.startsWith("service:"))
+    const who = await principal(ctx);
+    const ownRows = await ctx.db
+      .query("drafts")
+      .withIndex("by_workspaceId_and_owner", (q) =>
+        q.eq("workspaceId", who.workspaceId).eq("owner", who.owner),
       )
-        continue;
-      const entries = await log(ctx, who.workspaceId, row.draftId),
-        paths = entries.map((e) => e.command.path);
+      .take(LIMIT + 1);
+    const serviceRows =
+      who.kind === "user"
+        ? await ctx.db
+            .query("drafts")
+            .withIndex("by_workspaceId_and_owner", (q) =>
+              q
+                .eq("workspaceId", who.workspaceId)
+                .gte("owner", "service:")
+                .lt("owner", "service;"),
+            )
+            .take(LIMIT + 1)
+        : [];
+    const rows = [...ownRows, ...serviceRows];
+    if (rows.length > LIMIT) throw new ConvexError("Draft list limit exceeded");
+    const pathsByDraft = new Map<string, string[]>();
+    await Promise.all(
+      rows.map(async (row) => {
+        pathsByDraft.set(
+          row.draftId,
+          (await log(ctx, who.workspaceId, row.draftId)).map(
+            (entry) => entry.command.path,
+          ),
+        );
+      }),
+    );
+    return rows.map((row) => {
+      const paths = pathsByDraft.get(row.draftId) ?? [];
       const kinds: Record<string, number> = {};
       for (const path of paths) kinds[path] = (kinds[path] ?? 0) + 1;
-      result.push({
+      return {
         draftId: row.draftId,
         createdAt: new Date(row.createdAt).toISOString(),
         updatedAt: new Date(row.updatedAt).toISOString(),
         commandCount: row.commandCount,
         kinds,
         paths: [...new Set(paths)],
-      });
-    }
-    return result;
+      };
+    });
   },
 });
 async function review(
