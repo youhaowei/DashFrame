@@ -6,12 +6,16 @@ import {
   retainReplacementMetrics,
 } from "./table-replacement";
 
-const field = (id: string, columnName: string): Field => ({
+const field = (
+  id: string,
+  columnName: string,
+  type: Field["type"] = "number",
+): Field => ({
   id,
   tableId: "table",
   name: columnName,
   columnName,
-  type: "number",
+  type,
 });
 
 describe("table replacement metadata", () => {
@@ -57,5 +61,31 @@ describe("table replacement metadata", () => {
     expect(
       retainReplacementMetrics(metrics, [field("field-revenue", "revenue")]),
     ).toMatchObject([{ id: "count" }, { id: "revenue" }]);
+  });
+
+  it("drops incompatible numeric metrics without dropping compatible metrics", () => {
+    const metrics: Metric[] = [
+      {
+        id: "revenue-sum",
+        tableId: "table",
+        name: "Revenue",
+        columnName: "revenue",
+        aggregation: "sum",
+      },
+      {
+        id: "quantity-sum",
+        tableId: "table",
+        name: "Quantity",
+        columnName: "quantity",
+        aggregation: "sum",
+      },
+    ];
+
+    expect(
+      retainReplacementMetrics(metrics, [
+        field("field-revenue", "revenue", "string"),
+        field("field-quantity", "quantity", "number"),
+      ]),
+    ).toMatchObject([{ id: "quantity-sum" }]);
   });
 });

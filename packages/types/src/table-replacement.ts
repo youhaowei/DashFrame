@@ -65,20 +65,28 @@ export function mergeReplacementFields(
   });
 }
 
-/** Drop only metrics whose source column disappeared from the new schema. */
+/** Drop metrics whose source column disappeared or is known to be incompatible. */
 export function retainReplacementMetrics(
   metrics: Metric[],
   fields: Field[],
 ): Metric[] {
-  const columnNames = new Set(
-    fields.flatMap((field) =>
-      field.columnName === undefined ? [] : [field.columnName],
-    ),
-  );
-
-  return metrics.filter(
-    (metric) =>
-      (metric.aggregation === "count" && !metric.columnName) ||
-      (metric.columnName !== undefined && columnNames.has(metric.columnName)),
-  );
+  return metrics.filter((metric) => {
+    if (metric.aggregation === "count" && !metric.columnName) return true;
+    if (metric.columnName === undefined) return false;
+    const matchingFields = fields.filter(
+      (field) => field.columnName === metric.columnName,
+    );
+    if (matchingFields.length === 0) return false;
+    if (
+      metric.aggregation !== "sum" &&
+      metric.aggregation !== "avg" &&
+      metric.aggregation !== "min" &&
+      metric.aggregation !== "max"
+    ) {
+      return true;
+    }
+    return matchingFields.some(
+      (field) => field.type === "number" || field.type === "unknown",
+    );
+  });
 }
