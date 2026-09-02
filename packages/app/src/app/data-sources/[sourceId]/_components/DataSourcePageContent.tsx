@@ -323,6 +323,34 @@ export default function DataSourcePageContent({
     );
   }
 
+  const emptyTableState =
+    dataTables.length === 0 ? (
+      <div className="flex h-full items-center justify-center">
+        <div className="text-center">
+          <TableIcon className="mx-auto mb-4 h-12 w-12 text-neutral-fg-subtle" />
+          <h3 className="mb-2 text-lg font-semibold">No tables yet</h3>
+          <p className="mb-4 text-sm text-neutral-fg-subtle">
+            Use Add Source on the Data Sources page to import a table.
+          </p>
+          <Button
+            variant="outline"
+            label="Go to Data Sources"
+            onClick={() => navigate({ to: "/data-sources" } as never)}
+          />
+        </div>
+      </div>
+    ) : (
+      <div className="flex h-full items-center justify-center">
+        <div className="text-center">
+          <TableIcon className="mx-auto mb-4 h-12 w-12 text-neutral-fg-subtle" />
+          <h3 className="mb-2 text-lg font-semibold">Select a table</h3>
+          <p className="text-sm text-neutral-fg-subtle">
+            Choose a table from the Tables switcher above to view its details.
+          </p>
+        </div>
+      </div>
+    );
+
   return (
     <>
       <AppLayout
@@ -583,15 +611,7 @@ export default function DataSourcePageContent({
             )}
           </div>
         ) : (
-          <div className="flex h-full items-center justify-center">
-            <div className="text-center">
-              <TableIcon className="mx-auto mb-4 h-12 w-12 text-neutral-fg-subtle" />
-              <h3 className="mb-2 text-lg font-semibold">Select a table</h3>
-              <p className="text-sm text-neutral-fg-subtle">
-                Choose a table from the sidebar to view its details
-              </p>
-            </div>
-          </div>
+          emptyTableState
         )}
       </AppLayout>
     </>

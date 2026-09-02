@@ -606,7 +606,27 @@ describe("DataSourcePageContent — loading state contract", () => {
       );
     });
     expect(screen.queryByRole("button", { name: "Delete Table" })).toBeNull();
-    screen.getByText("Select a table");
+    screen.getByRole("heading", { name: "No tables yet" });
+    screen.getByText(
+      "Use Add Source on the Data Sources page to import a table.",
+    );
+  });
+
+  it("shows the real import path when a source has no tables", () => {
+    mockUseDataSources.mockReturnValue({
+      data: [DATA_SOURCE],
+      isLoading: false,
+    });
+    mockUseDataTables.mockReturnValue({ data: [] });
+
+    render(<DataSourcePageContent sourceId={SOURCE_ID} />);
+
+    screen.getByRole("heading", { name: "No tables yet" });
+    screen.getByText(
+      "Use Add Source on the Data Sources page to import a table.",
+    );
+    screen.getByRole("button", { name: "Go to Data Sources" });
+    expect(screen.queryByText(/sidebar/i)).toBeNull();
   });
 
   it("defaults to the first table and drops a stale selection after the table list changes", async () => {
