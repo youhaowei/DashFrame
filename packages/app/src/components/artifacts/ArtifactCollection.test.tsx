@@ -34,6 +34,37 @@ function SearchThatEmptied() {
   );
 }
 
+function PopulatedCollectionFilteredToNoMatches() {
+  const [searchQuery, setSearchQuery] = useState("missing");
+
+  return (
+    <ArtifactCollection
+      title="Drafts"
+      itemCount={2}
+      searchQuery={searchQuery}
+      onSearchQueryChange={setSearchQuery}
+      searchPlaceholder="Search drafts..."
+      searchLabel="Search drafts"
+    >
+      {searchQuery ? (
+        <ArtifactEmptyState
+          title="No drafts found"
+          action={
+            <button type="button" onClick={() => setSearchQuery("")}>
+              Clear search
+            </button>
+          }
+        />
+      ) : (
+        <ArtifactGrid>
+          <ArtifactCard name="Alpha" />
+          <ArtifactCard name="Beta" />
+        </ArtifactGrid>
+      )}
+    </ArtifactCollection>
+  );
+}
+
 describe("ArtifactCollection structure", () => {
   function headingLevels() {
     return screen
@@ -114,11 +145,24 @@ describe("ArtifactCollection structure", () => {
       name: "Drafts",
     });
     await waitFor(() => expect(document.activeElement).toBe(collectionHeading));
+    expect(document.activeElement).not.toBe(document.body);
     expect(collectionHeading.className).toContain("focus:outline-none");
     expect(collectionHeading.className).toContain("focus-visible:ring-2");
     expect(collectionHeading.className).toContain(
       "focus-visible:ring-neutral-ring",
     );
     expect(screen.queryByRole("textbox", { name: "Search drafts" })).toBeNull();
+  });
+
+  it("moves focus to search when clearing a no-match query in a populated collection", async () => {
+    render(<PopulatedCollectionFilteredToNoMatches />);
+    const clearSearch = screen.getByRole("button", { name: "Clear search" });
+    clearSearch.focus();
+
+    fireEvent.click(clearSearch);
+
+    const searchInput = screen.getByRole("textbox", { name: "Search drafts" });
+    await waitFor(() => expect(document.activeElement).toBe(searchInput));
+    expect(document.activeElement).not.toBe(document.body);
   });
 });

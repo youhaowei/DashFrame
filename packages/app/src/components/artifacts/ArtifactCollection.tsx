@@ -35,6 +35,7 @@ export function ArtifactCollection({
   tools,
 }: ArtifactCollectionProps) {
   const titleRef = useRef<HTMLHeadingElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const previousSearchQueryRef = useRef(searchQuery);
   const showSearch =
     itemCount === undefined || itemCount > 0 || searchQuery.length > 0;
@@ -44,8 +45,12 @@ export function ArtifactCollection({
       previousSearchQueryRef.current.length > 0 && searchQuery.length === 0;
     previousSearchQueryRef.current = searchQuery;
 
-    if (searchWasCleared && itemCount === 0) {
-      titleRef.current?.focus();
+    if (searchWasCleared) {
+      if (itemCount === 0) {
+        titleRef.current?.focus();
+      } else {
+        searchInputRef.current?.focus();
+      }
     }
   }, [itemCount, searchQuery]);
 
@@ -67,6 +72,7 @@ export function ArtifactCollection({
                   className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-neutral-fg-subtle"
                 />
                 <Input
+                  ref={searchInputRef}
                   aria-label={searchLabel}
                   placeholder={searchPlaceholder}
                   value={searchQuery}
