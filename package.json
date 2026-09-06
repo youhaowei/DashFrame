@@ -48,6 +48,7 @@
     "check:ticket-refs": "node scripts/check-no-ticket-refs.mjs",
     "check:wystack-domain-nouns": "node scripts/check-wystack-domain-nouns.mjs",
     "check:apply-commands-boundary": "node scripts/check-apply-commands-boundary.mjs",
+    "check:anti-slop-rules": "node scripts/check-anti-slop-rules.mjs",
     "check:packages": "turbo check --filter=!@wystack/* --continue=dependencies-successful",
     "check": "node scripts/run-checks.mjs",
     "clean": "turbo clean",

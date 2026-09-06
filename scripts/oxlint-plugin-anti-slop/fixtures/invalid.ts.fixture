@@ -1,0 +1,27 @@
+// Fixture for scripts/check-anti-slop-rules.mjs. Every construct below must be
+// reported by the vendored anti-slop rules. Stored with a `.fixture` suffix so
+// the repository's own lint and format passes never read it; the guard copies
+// it to a real `.ts` file to lint it. Keep the line numbers in the guard's
+// EXPECTED table in sync with this file.
+type Config = { readonly id: string };
+
+// no-widen-then-assert: `known` has a precise type, `widened` erases it, and
+// the assertion recreates what was already known.
+export function widenThenAssert(): Config {
+  const known: Config = { id: "a" };
+  const widened: unknown = known;
+  return widened as Config;
+}
+
+// no-reflect-apply: dynamic dispatch that bypasses the typed call.
+export function reflectApply(fn: (n: number) => number, n: number): number {
+  return Reflect.apply(fn, undefined, [n]) as number;
+}
+
+// no-reflect-apply: computed member access names the same global method.
+export function reflectApplyComputed(
+  fn: (n: number) => number,
+  n: number,
+): number {
+  return Reflect["apply"](fn, undefined, [n]) as number;
+}

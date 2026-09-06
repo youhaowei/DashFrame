@@ -2,12 +2,12 @@
 // Runs every repo-level check and reports all of their results.
 //
 // This exists because `bun run a && bun run b && ...` stops at the first
-// failure. The cheap convention guards (ticket refs, domain nouns, apply-command
-// boundary) each take under a second, and when one of them failed it short-
-// circuited the lint/typecheck/test run behind it — so a one-line convention
-// violation hid every type error and failing test in the same push. Each check
-// below runs to completion regardless of what the ones before it did; the exit
-// code is still non-zero if any of them failed.
+// failure. The convention guards (ticket refs, domain nouns, apply-command
+// boundary, anti-slop rules) are all cheap, and when one of them failed it
+// short-circuited the lint/typecheck/test run behind it — so a one-line
+// convention violation hid every type error and failing test in the same push.
+// Each check below runs to completion regardless of what the ones before it
+// did; the exit code is still non-zero if any of them failed.
 //
 // Add a check by adding its package.json script name here. Keep each entry
 // independently runnable (`bun run <name>`) so a developer can re-run just the
@@ -24,6 +24,7 @@ const CHECKS = [
   "check:ticket-refs",
   "check:wystack-domain-nouns",
   "check:apply-commands-boundary",
+  "check:anti-slop-rules",
   "check:packages",
 ];
 

@@ -133,26 +133,31 @@ not from the harness around them.
 
 ## Lint / test / build
 
-Use the project's own gate `bun run check`. It runs four things through
-`scripts/run-checks.mjs` — the three convention guards (`check:ticket-refs`,
-`check:wystack-domain-nouns`, `check:apply-commands-boundary`) and then
-`check:packages`, which is
+Use the project's own gate `bun run check`. It runs five things through
+`scripts/run-checks.mjs` — the four convention guards (`check:ticket-refs`,
+`check:wystack-domain-nouns`, `check:apply-commands-boundary`,
+`check:anti-slop-rules`) and then `check:packages`, which is
 `turbo check --filter=!@wystack/* --continue=dependencies-successful` (lint +
 typecheck + test, excluding the vendored submodule packages). **Every one of them
 runs even when an earlier one fails**, and the summary at the end lists each
 result; the overall exit code is non-zero if any did not pass. That is deliberate — the
-guards each take under a second, and when they were chained with `&&` a one-line
-convention violation hid every type error and failing test behind it. The
+guards are cheap next to `check:packages`, and when they were chained with `&&`
+a one-line convention violation hid every type error and failing test behind it.
+`check:anti-slop-rules` lints two fixtures through the real `vp lint` path to
+prove the vendored `scripts/oxlint-plugin-anti-slop` rules still fire; nothing
+else in the gate can tell a rule that stopped matching from a clean tree. The
 `--continue` flag is the same fix one level down: turbo's default is
 `--continue=never`, so without it a single lint error cancelled every pending
 typecheck and test task. Re-run just the one that failed with `bun run <name>`.
 
 A summary line reads `PASS`, `FAIL`, or `SKIP`. `SKIP` means the check could
 not inspect its subject at all — it exits `78` rather than `0` — and it **fails
-the gate**, because "we did not look" is not evidence of correctness. Today the
-only check that can skip is `check:wystack-domain-nouns`, when `libs/wystack` is
-not checked out; the fix is `git submodule update --init`. CI checks out
-`submodules: recursive`, so it never skips there.
+the gate**, because "we did not look" is not evidence of correctness. Two
+checks can skip: `check:wystack-domain-nouns`, when `libs/wystack` is not
+checked out — the fix is `git submodule update --init`, and CI checks out
+`submodules: recursive` so it never skips there — and `check:anti-slop-rules`,
+when the Vite+ linter cannot be started or returns no JSON report, which means
+`bun install` has not run in this worktree.
 
 Formatting is **not** part of `bun run check` — run `bun run format:check`
 separately. In CI it is its own job for the same reason: a formatter diff must not

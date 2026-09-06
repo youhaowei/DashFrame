@@ -1,0 +1,34 @@
+// Fixture for scripts/check-anti-slop-rules.mjs. Nothing below may be reported
+// by the vendored anti-slop rules; each case is a pattern DashFrame relies on
+// and a plausible false positive. Stored with a `.fixture` suffix so the
+// repository's own lint and format passes never read it.
+type Config = { readonly id: string };
+
+// Keeping the precise type through use is the shape the rule asks for.
+export function keepsEvidence(): Config {
+  const known: Config = { id: "a" };
+  return known;
+}
+
+// Parsing genuinely unknown boundary input once is not widening: `raw` never
+// held a narrower type to begin with.
+export function parsesBoundaryInput(raw: unknown): Config {
+  if (typeof raw !== "object" || raw === null || !("id" in raw)) {
+    throw new TypeError("not a Config");
+  }
+  return raw as Config;
+}
+
+// An ordinary typed call, and a `.apply` that is not the global Reflect.
+export function callsDirectly(fn: (n: number) => number, n: number): number {
+  return fn(n);
+}
+
+export function shadowedReflect(): number {
+  const Reflect = {
+    apply(): number {
+      return 1;
+    },
+  };
+  return Reflect.apply();
+}
