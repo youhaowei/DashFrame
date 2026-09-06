@@ -1,5 +1,6 @@
+import { useMutation } from "convex/react";
 import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
-import { api } from "@/wystack/api";
+import { api } from "@dashframe/convex-backend/api";
 import type {
   DashboardControl,
   DashboardItemOverrides,
@@ -7,7 +8,7 @@ import type {
 } from "@dashframe/types";
 import { cmd, type UUID } from "@dashframe/types";
 import { groupHoverAndFocusWithinReveal } from "@dashframe/ui";
-import { useMutation } from "@wystack/client";
+
 import { Button, cn, Surface } from "@wystack/ui-react";
 import { DeleteIcon, DragHandleIcon, EditIcon } from "@wystack/ui-react/icons";
 import { useState } from "react";
@@ -53,9 +54,8 @@ export function DashboardItem({
   ...props
 }: DashboardItemProps) {
   const [isEditingContent, setIsEditingContent] = useState(false);
-  const { mutateAsync: commitBatch, isPending: isSavingContent } = useMutation(
-    api.commitBatch,
-  );
+  const commitBatch = useMutation(api.app.commitBatch);
+  const [isSavingContent, setIsSavingContent] = useState(false);
 
   const handleRemove = async () => {
     try {
@@ -73,6 +73,7 @@ export function DashboardItem({
   };
 
   const handleSaveContent = async (content: string) => {
+    setIsSavingContent(true);
     try {
       await commitBatch({
         commands: [
@@ -87,6 +88,8 @@ export function DashboardItem({
       // Keep the editor open on failure so the user's text isn't lost.
       toast.error("Couldn't save the widget");
       return;
+    } finally {
+      setIsSavingContent(false);
     }
     setIsEditingContent(false);
   };

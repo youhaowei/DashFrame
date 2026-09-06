@@ -2,9 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const { mutate } = vi.hoisted(() => ({ mutate: vi.fn() }));
 
-vi.mock("@/wystack/client", () => ({
-  getWyStackClient: () => ({ mutate }),
-}));
+vi.mock("@/data/host", () => ({ requestHost: mutate }));
 
 import { rejectOAuthSetupWithoutAuthorizationUrl } from "./ConnectorCardWithForm";
 

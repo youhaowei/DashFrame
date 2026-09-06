@@ -1,3 +1,7 @@
+import { ArtifactPageHeader } from "@/components/artifacts/ArtifactPageHeader";
+import { queryStatus } from "@/data/query-status";
+import { Breadcrumb } from "@dashframe/ui";
+import { useQuery_experimental as useQuery, useMutation } from "convex/react";
 import { useBindArtifact } from "@/components/assistant/artifact-context";
 import { DashboardControlBar } from "@/components/dashboards/DashboardControlBar";
 import { DashboardGrid } from "@/components/dashboards/DashboardGrid";
@@ -5,15 +9,14 @@ import {
   resolveInsightAvailableFields,
   type CombinedField,
 } from "@/lib/insights/compute-combined-fields";
-import { api } from "@/wystack/api";
+import { api } from "@dashframe/convex-backend/api";
 import {
   cmd,
   type DashboardItemType,
   type InsightFilter,
   type UUID,
 } from "@dashframe/types";
-import { useNavigate } from "@tanstack/react-router";
-import { useMutation, useQuery } from "@wystack/client";
+import { Link, useNavigate } from "@tanstack/react-router";
 import {
   Button,
   Dialog,
@@ -28,7 +31,6 @@ import {
   SelectValue,
 } from "@wystack/ui-react";
 import {
-  ArrowLeftIcon,
   ChartIcon,
   CheckIcon,
   EditIcon,
@@ -42,6 +44,10 @@ interface DashboardDetailContentProps {
   dashboardId: string;
 }
 
+export function formatDashboardItemCount(itemCount: number): string {
+  return `${itemCount} item${itemCount === 1 ? "" : "s"}`;
+}
+
 export default function DashboardDetailContent({
   dashboardId,
 }: DashboardDetailContentProps) {
@@ -51,13 +57,17 @@ export default function DashboardDetailContent({
     data: dashboards = [],
     isLoading,
     isFetching,
-  } = useQuery(api.listDashboards);
-  const { data: visualizations = [] } = useQuery(api.listVisualizations, {
-    args: {},
-  });
-  const { data: insights = [] } = useQuery(api.listInsights, { args: {} });
-  const { data: dataTables = [] } = useQuery(api.listDataTables, { args: {} });
-  const commitBatch = useMutation(api.commitBatch);
+  } = queryStatus(useQuery({ query: api.app.listDashboards, args: {} }));
+  const { data: visualizations = [] } = queryStatus(
+    useQuery({ query: api.app.listVisualizations, args: {} }),
+  );
+  const { data: insights = [] } = queryStatus(
+    useQuery({ query: api.app.listInsights, args: {} }),
+  );
+  const { data: dataTables = [] } = queryStatus(
+    useQuery({ query: api.app.listDataTables, args: {} }),
+  );
+  const commitBatch = useMutation(api.app.commitBatch);
 
   // Find the dashboard
   const dashboard = useMemo(
@@ -160,7 +170,7 @@ export default function DashboardDetailContent({
 
     setIsAddPending(true);
     try {
-      await commitBatch.mutateAsync({
+      await commitBatch({
         commands: [
           cmd("AddDashboardItem", {
             dashboardId: dashboardId as UUID,
@@ -199,50 +209,45 @@ export default function DashboardDetailContent({
 
   return (
     <div className="flex h-full flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-neutral-border/60 px-6 py-4">
-        <div className="flex items-center gap-4">
-          <Button
-            variant="ghost"
-            icon={ArrowLeftIcon}
-            iconOnly
-            label="Back to dashboards"
-            onClick={() => navigate({ to: "/dashboards" })}
+      <ArtifactPageHeader
+        title={dashboard.name}
+        description={formatDashboardItemCount(dashboard.items.length)}
+        navigation={
+          <Breadcrumb
+            LinkComponent={Link}
+            items={[
+              { label: "Dashboards", to: "/dashboards" },
+              { label: dashboard.name },
+            ]}
           />
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight text-neutral-fg">
-              {dashboard.name}
-            </h1>
-            <p className="text-sm text-neutral-fg-subtle">
-              {dashboard.items.length} items
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {isEditable ? (
-            <Button
-              icon={CheckIcon}
-              label="Done Editing"
-              onClick={() => setIsEditable(false)}
-            />
-          ) : (
-            <Button
-              variant="outline"
-              icon={EditIcon}
-              label="Edit Dashboard"
-              onClick={() => setIsEditable(true)}
-            />
-          )}
-          {isEditable && (
-            <Button
-              color="secondary"
-              icon={PlusIcon}
-              label="Add Widget"
-              onClick={() => setIsAddOpen(true)}
-            />
-          )}
-        </div>
-      </div>
+        }
+        actions={
+          <>
+            {isEditable ? (
+              <Button
+                icon={CheckIcon}
+                label="Done Editing"
+                onClick={() => setIsEditable(false)}
+              />
+            ) : (
+              <Button
+                variant="outline"
+                icon={EditIcon}
+                label="Edit Dashboard"
+                onClick={() => setIsEditable(true)}
+              />
+            )}
+            {isEditable && (
+              <Button
+                color="secondary"
+                icon={PlusIcon}
+                label="Add Widget"
+                onClick={() => setIsAddOpen(true)}
+              />
+            )}
+          </>
+        }
+      />
 
       {/* Control Bar — only rendered when the dashboard has controls */}
       {(dashboard.controls ?? []).length > 0 && (

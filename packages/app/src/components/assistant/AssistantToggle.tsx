@@ -1,9 +1,9 @@
-import { useQuery } from "@wystack/client";
+import { useHostQuery } from "@/data/host";
+
 import { Button, cn } from "@wystack/ui-react";
 import { SparklesIcon } from "@wystack/ui-react/icons";
 
 import { useAssistantStore } from "@/lib/stores/assistant-store";
-import { api } from "@/wystack/api";
 
 /**
  * Discoverable summon for the assistant. The keyboard path (⌘J) is invisible to
@@ -16,7 +16,7 @@ export function AssistantToggle({ className }: { className?: string }) {
   const close = useAssistantStore((s) => s.close);
   const toggle = useAssistantStore((s) => s.toggle);
   const setSetupOpen = useAssistantStore((s) => s.setSetupOpen);
-  const configsResult = useQuery(api.listAssistantProviderConfigs);
+  const configsResult = useHostQuery("listAssistantProviderConfigs");
   const configsLoaded =
     configsResult.data !== undefined && !configsResult.isLoading;
   const configsFailed = configsResult.isError;

@@ -6,34 +6,38 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { type WyStackClient, WyStackProvider } from "@wystack/client";
 import { type FC, type ReactNode } from "react";
-import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 
 import { useAssistantStore } from "@/lib/stores/assistant-store";
 
 import { AssistantToggle } from "./AssistantToggle";
 
-function makeClient(query: () => Promise<unknown>): WyStackClient {
-  return {
-    url: "https://test",
-    prefix: "/api",
-    query: vi.fn(query) as WyStackClient["query"],
-    mutate: vi.fn(),
-    ws: {
-      connect: vi.fn(),
-      disconnect: vi.fn(),
-      isConnected: vi.fn(() => false),
-      call: vi.fn(),
-      subscribe: vi.fn(),
-      unsubscribe: vi.fn(),
-    } as WyStackClient["ws"],
-  };
+vi.mock("@/data/runtime", () => ({
+  getRuntimeConfig: () => ({ url: "http://127.0.0.1:4000" }),
+  hostHeaders: () => ({}),
+}));
+
+function makeClient(query: () => Promise<unknown>) {
+  return { query: vi.fn(query) };
 }
 
-function makeWrapper(client: WyStackClient): FC<{ children: ReactNode }> & {
+function makeWrapper(client: ReturnType<typeof makeClient>): FC<{
+  children: ReactNode;
+}> & {
   queryClient: QueryClient;
 } {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => Response.json(await client.query())),
+  );
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -41,7 +45,7 @@ function makeWrapper(client: WyStackClient): FC<{ children: ReactNode }> & {
     function Wrapper({ children }) {
       return (
         <QueryClientProvider client={queryClient}>
-          <WyStackProvider client={client}>{children}</WyStackProvider>
+          {children}
         </QueryClientProvider>
       );
     };
@@ -50,6 +54,7 @@ function makeWrapper(client: WyStackClient): FC<{ children: ReactNode }> & {
 }
 
 describe("AssistantToggle", () => {
+  afterEach(() => vi.unstubAllGlobals());
   beforeEach(() => {
     useAssistantStore.setState({ isOpen: false, isSetupOpen: false });
   });

@@ -1,3 +1,5 @@
+import { useQuery_experimental as useQuery } from "convex/react";
+import { queryStatus } from "@/data/query-status";
 import { AccessCredentialsDialog } from "@/components/access-credentials/AccessCredentialsDialog";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useAccessCapabilities } from "@/data";
@@ -6,9 +8,9 @@ import { PerfHud } from "@/lib/perf";
 import { useToastStore } from "@/lib/stores";
 import { useAssistantStore } from "@/lib/stores/assistant-store";
 import { useShellStore } from "@/lib/stores/shell-store";
-import { api } from "@/wystack/api";
+import { api } from "@dashframe/convex-backend/api";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
-import { useQuery } from "@wystack/client";
+
 import {
   Badge,
   Button,
@@ -232,7 +234,9 @@ export function Navigation() {
   const [showAccessCredentials, setShowAccessCredentials] = useState(false);
   const setAssistantSetupOpen = useAssistantStore((s) => s.setSetupOpen);
   const accessCapabilities = useAccessCapabilities();
-  const { data: drafts = [] } = useQuery(api.listDrafts, { args: {} });
+  const { data: drafts = [] } = queryStatus(
+    useQuery({ query: api.app.listDrafts, args: {} }),
+  );
   const canManageAccessCredentials =
     accessCapabilities.data?.canManageCredentials === true;
 

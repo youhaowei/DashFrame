@@ -2,8 +2,8 @@
 /**
  * `dashframe serve` — Bun CLI entry for the headless DashFrame server.
  *
- * Starts the same WyStack HTTP+WS server the Electron main process uses, backed
- * by an on-disk DashFrame project. Web dev can point `VITE_WYSTACK_URL` at the
+ * Starts the same Convex-backed native host the Electron main process uses, backed
+ * by an on-disk DashFrame project. Web dev can point `VITE_DASHFRAME_URL` at the
  * printed URL.
  */
 import type {
@@ -15,8 +15,8 @@ import {
   ApiAccessCredentials,
   CREDENTIAL_CLASS,
   FileMappingStore,
-  openProject,
-  type ProjectHandle,
+  openLocalProject,
+  type LocalProjectHandle,
 } from "@dashframe/server-core";
 import { SecretRegistry, SecretVault } from "@wystack/secret-vault";
 import { realpathSync } from "node:fs";
@@ -46,7 +46,6 @@ export interface CliOptions {
   name?: string;
   corsOrigin?: string | string[];
   token?: string;
-  insecure?: boolean;
   help?: boolean;
 }
 
@@ -69,15 +68,14 @@ Options:
   --mcp-mode <mode>       MCP transport: stateful (default) or stateless
   --name <name>           Project display name when initializing
   --cors-origin <origin>  Allowed browser origin; repeat or comma-separate for multiple
-  --insecure              Allow a non-loopback bind without --token (opt out of the auth requirement)
   --help                  Show this help
 
 Security boundary:
   The server exposes the selected local DashFrame project over HTTP and WebSocket.
   The default bind is loopback-only and safe to run without a token. Binding to
   0.0.0.0 or another network interface makes the project reachable from that
-  network, so a non-loopback bind requires --token; pass --insecure to opt out
-  deliberately. A token is not TLS and not multi-user authorization.
+  network, so a non-loopback bind requires --token. A token is not TLS and
+  not multi-user authorization.
 
 Secret encryption:
   Set DASHFRAME_SECRET_KEY_FILE to an owner-only key file (the group and world
@@ -246,9 +244,6 @@ function parseArgAt(opts: CliOptions, args: string[], index: number): number {
     case "--token":
       opts.token = readValue(args, index, arg);
       return index + 1;
-    case "--insecure":
-      opts.insecure = true;
-      return index;
     default:
       throw new Error(`Unknown argument "${arg}"`);
   }
@@ -257,17 +252,16 @@ function parseArgAt(opts: CliOptions, args: string[], index: number): number {
 /**
  * Fail-closed auth gate. Loopback binds are reachable only from this machine,
  * so a token is optional there. A non-loopback bind exposes the project to the
- * network and must carry `--token`; `--insecure` is the deliberate opt-out.
- * Throws (rather than warns) so a forgotten token never silently exposes data.
+ * network and must carry `--token`; there is no opt-out. Throws (rather than
+ * warns) so a forgotten token never silently exposes data.
  */
 export function assertBindIsSafe(opts: CliOptions): void {
-  if (isLoopbackHost(opts.hostname) || opts.token || opts.insecure) {
+  if (isLoopbackHost(opts.hostname) || opts.token) {
     return;
   }
   throw new Error(
     `Refusing to bind ${opts.hostname} without --token: a non-loopback bind ` +
-      `exposes this project to the network. Pass --token <token>, or ` +
-      `--insecure to opt out deliberately.`,
+      `exposes this project to the network. Pass --token <token>.`,
   );
 }
 
@@ -430,15 +424,8 @@ export async function createStandaloneSecretServices(
   // connector keys need a default here or `serve` cannot complete a connection
   // at all.
   //
-  // Know what that inherits. This vault's mappings live in a host-local
-  // mappings.json under dataDir while the ref itself lives in the project DB,
-  // so unlike desktop — which uses DrizzleMappingStore and keeps ref, blob, and
-  // mapping inside one transactional boundary — a project copied or restored
-  // away from this host holds refs that no longer resolve. That split is
-  // pre-existing: serve tokens already sit on it. This line widens which
-  // credential classes it covers; it does not create it. Moving the serve path
-  // onto DrizzleMappingStore is the real fix and needs a migration for the
-  // mappings already written here.
+  // Credential blobs and mappings belong to this host. Convex stores only refs;
+  // copying a project to another host does not transfer secret authority.
   registry.setClassDefault(
     CREDENTIAL_CLASS.ConnectorKey,
     ENCRYPTED_FILE_BACKEND_NAME,
@@ -456,12 +443,12 @@ export async function createStandaloneSecretServices(
 
 export function createStandaloneServerOptions(
   opts: CliOptions,
-  project: ProjectHandle,
+  project: LocalProjectHandle,
   secretServices: StandaloneSecretServices,
   arrowEngine: ArrowQueryRunner & ArrowTableRegistrar,
 ): DashframeServerOptions {
   return {
-    db: project.db,
+    project,
     dataFrameStorage: new FileDataFrameStorage(
       path.join(project.dir, "dataframes"),
     ),
@@ -472,19 +459,12 @@ export function createStandaloneServerOptions(
     authToken: opts.token,
     arrowEngine,
     ...secretServices,
-    // Drive the debounced snapshot scheduler on the headless serve path too, so
-    // `dashframe serve` gets the same crash-durability guarantee as desktop.
-    onWrite: () => project.touchSnapshot(),
-    // Durable counterpart: used by the pre-release gate before deleting a vault
-    // ref so the snapshot that drops the ref is confirmed on disk first.
-    flushSnapshot: () => project.flushSnapshot(),
-    flushSnapshotRetentionWindow: () => project.flushSnapshotRetentionWindow(),
     googleOAuth: readOptionalGoogleOAuthConfig(),
   };
 }
 
 function closeOnSignal(
-  project: ProjectHandle,
+  project: LocalProjectHandle,
   server: DashframeServer,
   engine: StandaloneArrowEngine,
 ): void {
@@ -499,45 +479,28 @@ function closeOnSignal(
 }
 
 export interface StandaloneShutdownResources {
-  project: Pick<ProjectHandle, "close">;
+  project: Pick<LocalProjectHandle, "close">;
   server: Pick<DashframeServer, "stop">;
   engine: Pick<StandaloneArrowEngine, "dispose">;
 }
 
-/**
- * Drain standalone runtime resources and terminate with an honest status.
- * Snapshot durability is part of a successful shutdown: a reported final
- * snapshot failure or a rejected project close exits nonzero even though the
- * server and native engine were already stopped successfully.
- */
+/** Stop the host and Convex before disposing the native engine. */
 export async function shutdownStandaloneResources(
   resources: StandaloneShutdownResources,
   exit: (code: number) => void = (code) => process.exit(code),
 ): Promise<void> {
-  try {
-    resources.server.stop();
-  } catch (error) {
-    console.error("[dashframe] error stopping server:", error);
-  }
-  try {
-    await resources.engine.dispose();
-  } catch (error) {
-    console.error("[dashframe] error disposing native DuckDB engine:", error);
-  }
-
   let exitCode = 0;
-  try {
-    const result = await resources.project.close();
-    if (result.snapshotError) {
+  for (const stop of [
+    () => resources.server.stop(),
+    () => resources.engine.dispose(),
+    () => resources.project.close(),
+  ]) {
+    try {
+      await stop();
+    } catch {
       exitCode = 1;
-      console.error(
-        "[dashframe] close-time snapshot failed (data may not be persisted):",
-        result.snapshotError,
-      );
+      console.error("[dashframe] resource shutdown failed");
     }
-  } catch (error) {
-    exitCode = 1;
-    console.error("[dashframe] error closing project DB:", error);
   }
   exit(exitCode);
 }
@@ -556,21 +519,12 @@ async function disposeEngineAfterStartupFailure(
 }
 
 async function closeProjectAfterStartupFailure(
-  project: ProjectHandle,
+  project: LocalProjectHandle,
 ): Promise<void> {
   try {
-    const result = await project.close();
-    if (result.snapshotError) {
-      console.error(
-        "[dashframe] close-time snapshot failed after startup failure:",
-        result.snapshotError,
-      );
-    }
-  } catch (error) {
-    console.error(
-      "[dashframe] error closing project DB after startup failure:",
-      error,
-    );
+    await project.close();
+  } catch {
+    console.error("[dashframe] closing project after startup failure failed");
   }
 }
 
@@ -583,12 +537,6 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
 
   assertBindIsSafe(opts);
 
-  if (opts.insecure && !opts.token && !isLoopbackHost(opts.hostname)) {
-    console.warn(
-      "[dashframe] warning: --insecure non-loopback bind without --token exposes this project to the network",
-    );
-  }
-
   const projectDir = resolveProjectDirectory(opts);
   const dataDir = resolveDataDir(opts);
   const secretServices = await createStandaloneSecretServices(dataDir);
@@ -600,29 +548,10 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     assertAccessRootOutsideProject(projectDir, dataDir);
   }
 
-  const project = await openProject({
+  const project = await openLocalProject({
     dir: projectDir,
     name: opts.name,
   });
-
-  // Headless parity with the desktop host: surface a WAL-recovery rollback to
-  // the operator. The renderer dialog is desktop-only, so without this the CLI
-  // would silently serve a project restored from an older snapshot (or a fresh
-  // one) with no signal that changes since the last snapshot were lost.
-  if (project.recovery) {
-    const { restoredSnapshot, quarantinedPath } = project.recovery;
-    console.warn(
-      "[dashframe] WARNING: recovered from an unclean shutdown (WAL corruption).",
-    );
-    console.warn(
-      restoredSnapshot
-        ? `[dashframe]   restored from snapshot taken ${restoredSnapshot.timestamp}; changes since then are lost.`
-        : "[dashframe]   no snapshot was available — started a fresh empty project.",
-    );
-    console.warn(
-      `[dashframe]   damaged database quarantined at: ${quarantinedPath}`,
-    );
-  }
 
   let engine: StandaloneArrowEngine | undefined;
   let server: DashframeServer;

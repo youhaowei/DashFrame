@@ -1,3 +1,9 @@
+import {
+  nativeQueryMock,
+  nativeMutationMock,
+  hostQueryMock,
+  hostMutationMock,
+} from "@/test/native-query-fixture";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
@@ -13,22 +19,31 @@ vi.mock("@/data", () => ({
   runAssistantPrompt,
 }));
 
-vi.mock("@wystack/client", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@wystack/client")>();
-  return {
-    ...actual,
-    useQuery: (ref: { _path: string }) => {
-      if (ref._path === "listAssistantProviderCatalog") {
-        return { data: [], isLoading: false };
-      }
-      if (ref._path === "listAssistantProviderConfigs") {
-        return { data: [], isLoading: false };
-      }
-      return { data: undefined, isLoading: false };
-    },
-    useMutation: () => ({ mutateAsync: vi.fn() }),
-  };
-});
+vi.mock("convex/react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("convex/react")>()),
+  useQuery_experimental: nativeQueryMock((ref: { _path: string }) => {
+    if (ref._path === "listAssistantProviderCatalog") {
+      return { data: [], isLoading: false };
+    }
+    if (ref._path === "listAssistantProviderConfigs") {
+      return { data: [], isLoading: false };
+    }
+    return { data: undefined, isLoading: false };
+  }),
+  useMutation: nativeMutationMock(() => ({ mutateAsync: vi.fn() })),
+}));
+vi.mock("@/data/host", () => ({
+  useHostQuery: hostQueryMock((ref: { _path: string }) => {
+    if (ref._path === "listAssistantProviderCatalog") {
+      return { data: [], isLoading: false };
+    }
+    if (ref._path === "listAssistantProviderConfigs") {
+      return { data: [], isLoading: false };
+    }
+    return { data: undefined, isLoading: false };
+  }),
+  useHostMutation: hostMutationMock(() => ({ mutateAsync: vi.fn() })),
+}));
 
 describe("AssistantSidebar", () => {
   beforeEach(() => {

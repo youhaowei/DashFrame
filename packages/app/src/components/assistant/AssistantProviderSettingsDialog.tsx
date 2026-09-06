@@ -1,9 +1,10 @@
+import { useHostQuery, useHostMutation } from "@/data/host";
 import type {
   AssistantProviderAuthKind,
   AssistantProviderCatalogEntry,
   UUID,
 } from "@dashframe/types";
-import { useMutation, useQuery } from "@wystack/client";
+
 import {
   Button,
   Dialog,
@@ -30,7 +31,6 @@ import {
 import { useMemo, useState, type Dispatch, type SetStateAction } from "react";
 
 import { useToastStore } from "@/lib/stores";
-import { api } from "@/wystack/api";
 
 interface AssistantProviderSettingsDialogProps {
   open: boolean;
@@ -69,16 +69,16 @@ export function AssistantProviderSettingsDialog({
   open,
   onOpenChange,
 }: AssistantProviderSettingsDialogProps) {
-  const catalogResult = useQuery(api.listAssistantProviderCatalog);
-  const configsResult = useQuery(api.listAssistantProviderConfigs);
-  const { mutateAsync: saveConfigMutation } = useMutation(
-    api.saveAssistantProviderConfig,
+  const catalogResult = useHostQuery("listAssistantProviderCatalog");
+  const configsResult = useHostQuery("listAssistantProviderConfigs");
+  const { mutateAsync: saveConfigMutation } = useHostMutation(
+    "saveAssistantProviderConfig",
   );
-  const { mutateAsync: removeConfigMutation } = useMutation(
-    api.removeAssistantProviderConfig,
+  const { mutateAsync: removeConfigMutation } = useHostMutation(
+    "removeAssistantProviderConfig",
   );
-  const { mutateAsync: startOAuthLoginMutation } = useMutation(
-    api.startAssistantOAuthLogin,
+  const { mutateAsync: startOAuthLoginMutation } = useHostMutation(
+    "startAssistantOAuthLogin",
   );
   const { showError, showSuccess } = useToastStore();
   const catalog = useMemo(() => catalogResult.data ?? [], [catalogResult.data]);

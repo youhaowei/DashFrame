@@ -1,3 +1,4 @@
+import { nativeQueryMock, hostQueryMock } from "@/test/native-query-fixture";
 import type { DataSource, DataTable, UUID } from "@dashframe/types";
 import {
   act,
@@ -18,19 +19,28 @@ vi.mock("@/lib/connectors/registry", () => ({
   getConnectorById: () => ({ sourceType: "remote-api" }),
   useRegistryVersion: () => undefined,
 }));
-vi.mock("@/wystack/client", () => ({
-  getWyStackClient: () => ({ mutate: mockMutate }),
+vi.mock("@/data/runtime", () => ({
+  getConvexClient: () => ({ mutate: mockMutate }),
 }));
 vi.mock("@/lib/data-access/data-frames", () => ({
   queryDataFrame: mockQueryDataFrame,
 }));
-vi.mock("@wystack/client", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@wystack/client")>()),
-  useQuery: (ref: { _path: string }) => {
+vi.mock("convex/react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("convex/react")>()),
+  useQuery_experimental: nativeQueryMock((ref: { _path: string }) => {
     if (ref._path === "listDataSources") return { data: queryData.sources };
     if (ref._path === "listDataTables") return { data: queryData.tables };
     return { data: [] };
-  },
+  }),
+}));
+vi.mock("@/data/host", () => ({
+  requestHost: (operation: string, args: unknown) =>
+    mockMutate({ _path: operation }, args),
+  useHostQuery: hostQueryMock((ref: { _path: string }) => {
+    if (ref._path === "listDataSources") return { data: queryData.sources };
+    if (ref._path === "listDataTables") return { data: queryData.tables };
+    return { data: [] };
+  }),
 }));
 vi.mock("@dashframe/ui", () => ({
   VirtualTable: ({ rows }: { rows: Record<string, unknown>[] }) => (

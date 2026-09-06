@@ -1,10 +1,12 @@
+import { useQuery_experimental as useQuery, useMutation } from "convex/react";
+import { queryStatus } from "@/data/query-status";
 import {
   computeCombinedFields,
   computeFilterableFields,
   type CombinedField,
 } from "@/lib/insights/compute-combined-fields";
 import { reorderVisibleMetrics } from "@/lib/insights/reorder-visible-metrics";
-import { api } from "@/wystack/api";
+import { api } from "@dashframe/convex-backend/api";
 import type {
   Command,
   DataTable,
@@ -20,7 +22,7 @@ import {
   cmd,
 } from "@dashframe/types";
 import { InputField } from "@dashframe/ui";
-import { useMutation, useQuery } from "@wystack/client";
+
 import { Badge, Panel, cn } from "@wystack/ui-react";
 import {
   ArrowUpDown,
@@ -175,7 +177,7 @@ export function InsightConfigPanel({
   const [processingVizId, setProcessingVizId] = useState<string | null>(null);
 
   // Mutations — every artifact write goes through commitBatch (one batch per edit).
-  const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
+  const commitBatch = useMutation(api.app.commitBatch);
   const updateInsight = useCallback(
     async (
       id: Insight["id"],
@@ -204,9 +206,11 @@ export function InsightConfigPanel({
     [commitBatch],
   );
   // Get visualizations for this insight to check dependencies
-  const { data: insightVisualizations = [] } = useQuery(
-    api.listVisualizations,
-    { args: { insightId: insight.id } },
+  const { data: insightVisualizations = [] } = queryStatus(
+    useQuery({
+      query: api.app.listVisualizations,
+      args: { insightId: insight.id },
+    }),
   );
 
   // Compute affected visualizations reactively based on current visualization state

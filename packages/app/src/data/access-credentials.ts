@@ -1,3 +1,4 @@
+import { useHostQuery, useHostMutation } from "@/data/host";
 import type {
   AccessCapabilities,
   AccessConnectionInfo,
@@ -8,13 +9,11 @@ import type {
   UseAccessConnectionInfoResult,
   UseAccessCredentialsResult,
 } from "@dashframe/types";
-import { useMutation, useQuery } from "@wystack/client";
+
 import { useMemo } from "react";
 
-import { api } from "../wystack/api";
-
 export function useAccessConnectionInfo(): UseAccessConnectionInfoResult {
-  const result = useQuery(api.getAccessConnectionInfo);
+  const result = useHostQuery("getAccessConnectionInfo");
   return {
     data: result.data as AccessConnectionInfo | undefined,
     isLoading: result.isLoading,
@@ -23,7 +22,7 @@ export function useAccessConnectionInfo(): UseAccessConnectionInfoResult {
 }
 
 export function useAccessCapabilities(): UseAccessCapabilitiesResult {
-  const result = useQuery(api.getAccessCapabilities);
+  const result = useHostQuery("getAccessCapabilities");
   return {
     data: result.data as AccessCapabilities | undefined,
     isLoading: result.isLoading,
@@ -32,7 +31,7 @@ export function useAccessCapabilities(): UseAccessCapabilitiesResult {
 }
 
 export function useAccessCredentials(): UseAccessCredentialsResult {
-  const result = useQuery(api.listAccessCredentials);
+  const result = useHostQuery("listAccessCredentials");
   return {
     data: result.data as AccessCredential[] | undefined,
     isLoading: result.isLoading,
@@ -42,8 +41,8 @@ export function useAccessCredentials(): UseAccessCredentialsResult {
 }
 
 export function useAccessCredentialMutations(): AccessCredentialMutations {
-  const issueMutation = useMutation(api.issueAccessCredential);
-  const revokeMutation = useMutation(api.revokeAccessCredential);
+  const issueMutation = useHostMutation("issueAccessCredential");
+  const revokeMutation = useHostMutation("revokeAccessCredential");
 
   return useMemo(
     () => ({

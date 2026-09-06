@@ -1,3 +1,9 @@
+import {
+  nativeQueryMock,
+  nativeMutationMock,
+  hostQueryMock,
+  hostMutationMock,
+} from "@/test/native-query-fixture";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -8,16 +14,32 @@ const { mockCommitBatch, mockNavigate, mockUseQuery } = vi.hoisted(() => ({
   mockUseQuery: vi.fn(),
 }));
 
-vi.mock("@wystack/client", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@wystack/client")>();
-  return {
-    ...actual,
-    useQuery: (ref: { _path: string }) => mockUseQuery(ref),
-    useMutation: () => ({ mutateAsync: mockCommitBatch }),
-  };
-});
+vi.mock("convex/react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("convex/react")>()),
+  useQuery_experimental: nativeQueryMock((ref: { _path: string }) =>
+    mockUseQuery(ref),
+  ),
+  useMutation: nativeMutationMock(() => ({ mutateAsync: mockCommitBatch })),
+}));
+vi.mock("@/data/host", () => ({
+  useHostQuery: hostQueryMock((ref: { _path: string }) => mockUseQuery(ref)),
+  useHostMutation: hostMutationMock(() => ({ mutateAsync: mockCommitBatch })),
+}));
 
 vi.mock("@tanstack/react-router", () => ({
+  Link: ({
+    children,
+    to,
+    className,
+  }: {
+    children: React.ReactNode;
+    to: string;
+    className?: string;
+  }) => (
+    <a href={to} className={className}>
+      {children}
+    </a>
+  ),
   useNavigate: () => mockNavigate,
 }));
 
@@ -90,7 +112,10 @@ describe("VisualizationsPage delete confirmation", () => {
               name: "Revenue by month",
               insightId: "composed",
               visualizationType: "bar",
-              encoding: {},
+              encoding: {
+                x: "field:9373ada6-d3e1-4efb-ac83-c8ef4df47d1e",
+                y: "metric:bf6a0747-f50e-4f4a-bb71-79a70cfc9549",
+              },
             },
           ],
           isLoading: false,
@@ -142,7 +167,12 @@ describe("VisualizationsPage delete confirmation", () => {
 
     render(<VisualizationsPage />);
 
-    expect(screen.getByText("From: Composed report • csv")).not.toBeNull();
+    const link = screen.getByRole("link", {
+      name: /Revenue by month.*From: Composed report.*csv/,
+    });
+    expect(link.getAttribute("href")).toBe("/visualizations/viz-1");
+    expect(link.textContent).not.toContain("field:");
+    expect(link.textContent).not.toContain("metric:");
   });
 
   it.each(["pointer", "Enter", "Space"] as const)(

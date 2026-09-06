@@ -30,6 +30,11 @@ test.describe("Chart Editing", () => {
       timeout: 30_000,
     });
     await page.getByRole("button", { name: "Save chart" }).click();
+    // The preview already renders before save completes. Wait for the saved
+    // state so a later Data click cannot race the save callback selecting it.
+    await expect(
+      page.getByText("Saved chart — reusable in dashboards"),
+    ).toBeVisible();
     await expect(page).toHaveURL(/\/insights\/[a-zA-Z0-9-]+/);
   });
 

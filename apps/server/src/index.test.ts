@@ -2,7 +2,7 @@ import { FileDataFrameStorage } from "@dashframe/engine-server/file-dataframe-st
 import {
   ApiAccessCredentials,
   CREDENTIAL_CLASS,
-  type ProjectHandle,
+  type LocalProjectHandle,
 } from "@dashframe/server-core";
 import { SecretVault } from "@wystack/secret-vault";
 import fs from "node:fs/promises";
@@ -87,7 +87,7 @@ describe("dashframe serve CLI", () => {
   });
 
   describe("standalone shutdown", () => {
-    function resources(close: ProjectHandle["close"]) {
+    function resources(close: LocalProjectHandle["close"]) {
       return {
         project: { close },
         server: { stop: vi.fn() },
@@ -95,24 +95,27 @@ describe("dashframe serve CLI", () => {
       };
     }
 
-    it("exits zero after a durable final snapshot", async () => {
+    it("exits zero after all resources stop", async () => {
       const exit = vi.fn();
       await shutdownStandaloneResources(
-        resources(vi.fn().mockResolvedValue({ snapshotError: null })),
+        resources(vi.fn().mockResolvedValue(undefined)),
         exit,
       );
       expect(exit).toHaveBeenCalledWith(0);
     });
 
-    it("exits nonzero when the final snapshot fails", async () => {
+    it("exits nonzero when Convex shutdown fails", async () => {
       const exit = vi.fn();
-      const error = new Error("snapshot write failed");
+      const error = new Error("Convex stop failed");
       const consoleError = vi
         .spyOn(console, "error")
         .mockImplementation(() => undefined);
       try {
         await shutdownStandaloneResources(
-          resources(vi.fn().mockResolvedValue({ snapshotError: error })),
+          {
+            ...resources(vi.fn().mockResolvedValue(undefined)),
+            server: { stop: vi.fn().mockRejectedValue(error) },
+          },
           exit,
         );
       } finally {
@@ -199,6 +202,12 @@ describe("dashframe serve CLI", () => {
       );
     });
 
+    it("should reject --insecure as an unknown argument", () => {
+      expect(() => parseArgs(["--insecure"])).toThrow(
+        /Unknown argument "--insecure"/,
+      );
+    });
+
     it("should reject malformed bind ports", () => {
       expect(() => parseArgs(["--bind", "127.0.0.1:"])).toThrow(
         'Invalid --port ""',
@@ -230,6 +239,7 @@ describe("dashframe serve CLI", () => {
       expect(helpText).toContain("--mcp-mode <mode>");
       expect(helpText).toContain("canonical padded base64");
       expect(helpText).toContain("Security boundary:");
+      expect(helpText).not.toContain("--insecure");
       expect(helpText).toContain("non-loopback bind");
     });
 
@@ -307,10 +317,10 @@ describe("dashframe serve CLI", () => {
       ).not.toThrow();
     });
 
-    it("should allow a non-loopback bind when --insecure opts out", () => {
+    it("should reject a stray insecure key rather than honour it", () => {
       expect(() =>
-        assertBindIsSafe({ hostname: "0.0.0.0", insecure: true }),
-      ).not.toThrow();
+        assertBindIsSafe({ hostname: "0.0.0.0", insecure: true } as never),
+      ).toThrow(/without --token/);
     });
   });
 
@@ -412,11 +422,11 @@ describe("dashframe serve CLI", () => {
         expect(services.accessCredentials).toBeInstanceOf(ApiAccessCredentials);
 
         const project = {
-          db: {},
+          workspaceId: "test-project",
+          name: "test",
           dir: path.join(dataDir, "project"),
-          touchSnapshot: vi.fn(),
-          flushSnapshot: vi.fn(),
-        } as unknown as ProjectHandle;
+          close: vi.fn().mockResolvedValue(undefined),
+        } as unknown as LocalProjectHandle;
         const arrowEngine = {
           queryArrow: vi.fn(),
           registerArrowTable: vi.fn(),
@@ -478,11 +488,11 @@ describe("dashframe serve CLI", () => {
       const services = await createStandaloneSecretServices("/unused", {});
       expect(services).toEqual({});
       const project = {
-        db: {},
+        workspaceId: "test-project",
+        name: "test",
         dir: "/unused-project",
-        touchSnapshot: vi.fn(),
-        flushSnapshot: vi.fn(),
-      } as unknown as ProjectHandle;
+        close: vi.fn().mockResolvedValue(undefined),
+      } as unknown as LocalProjectHandle;
       const options = createStandaloneServerOptions(
         { token: "plaintext-token" },
         project,

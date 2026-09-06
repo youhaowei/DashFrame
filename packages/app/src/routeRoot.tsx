@@ -18,7 +18,6 @@ import { VisualizationSetup } from "@/components/providers/VisualizationSetup";
 import { ContextPanelProvider } from "@/components/shell/context-panel-outlet";
 import { ShellRails } from "@/components/shell/ShellRails";
 import { ThemeProvider } from "@/components/theme-provider";
-import { DatabaseProvider } from "@/data";
 import { PlatformProvider } from "@/lib/platform";
 import { Outlet } from "@tanstack/react-router";
 import { TooltipProvider } from "@wystack/ui-react";
@@ -109,30 +108,28 @@ export function RouteRoot({
       <ThemeProvider>
         <HostProviders>
           <TooltipProvider>
-            <DatabaseProvider>
-              <ConnectorSetup />
-              <VisualizationSetup>
-                <StoreHydration>
-                  <ContextPanelProvider>
-                    <ArtifactContextProvider>
-                      <PlatformProvider>
-                        <Shell />
-                      </PlatformProvider>
-                    </ArtifactContextProvider>
-                  </ContextPanelProvider>
-                </StoreHydration>
-                <Toaster
-                  toastOptions={{
-                    style: {
-                      background: "var(--neutral-bg)",
-                      color: "var(--neutral-fg)",
-                      border: "1px solid var(--neutral-border)",
-                    },
-                  }}
-                />
-                <ConfirmDialog />
-              </VisualizationSetup>
-            </DatabaseProvider>
+            <ConnectorSetup />
+            <VisualizationSetup>
+              <StoreHydration>
+                <ContextPanelProvider>
+                  <ArtifactContextProvider>
+                    <PlatformProvider>
+                      <Shell />
+                    </PlatformProvider>
+                  </ArtifactContextProvider>
+                </ContextPanelProvider>
+              </StoreHydration>
+              <Toaster
+                toastOptions={{
+                  style: {
+                    background: "var(--neutral-bg)",
+                    color: "var(--neutral-fg)",
+                    border: "1px solid var(--neutral-border)",
+                  },
+                }}
+              />
+              <ConfirmDialog />
+            </VisualizationSetup>
           </TooltipProvider>
         </HostProviders>
       </ThemeProvider>

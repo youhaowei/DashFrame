@@ -1,3 +1,4 @@
+import { requestHost } from "@/data/host";
 import type {
   DataFrameAnalysis,
   DataFrameJSON,
@@ -11,8 +12,8 @@ import {
   localArrowSizeIsAllowed,
 } from "@dashframe/types";
 
-import { api } from "../../wystack/api";
-import { getWyStackClient } from "../../wystack/client";
+import { api } from "@dashframe/convex-backend/api";
+import { getConvexClient } from "@/data/runtime";
 
 function bytesToBase64(bytes: Uint8Array): string {
   let binary = "";
@@ -44,7 +45,8 @@ export async function ingestLocalDataFrame(
       `Encoded local data exceeds the ${LOCAL_ARROW_LIMIT_MB}MB ingestion limit.`,
     );
   }
-  return getWyStackClient().mutate(api.ingestLocalDataFrame, {
+  return requestHost("ingestLocalDataFrame", {
+    operationId: crypto.randomUUID(),
     dataTableId,
     arrowBase64: bytesToBase64(arrowBuffer),
     primaryKey,
@@ -83,28 +85,30 @@ export async function queryDataFrame(
     sort?: Array<{ fieldId: UUID; direction: "asc" | "desc" }>;
   } = {},
 ): Promise<DataFramePage> {
-  return (await getWyStackClient().query(api.queryDataFrame, {
+  return (await requestHost("queryDataFrame", {
     dataFrameId,
     ...options,
   })) as DataFramePage;
 }
 
 export async function removeDataFrame(id: UUID): Promise<void> {
-  await getWyStackClient().mutate(api.removeDataFrameEntry, { id });
+  await requestHost("removeDataFrameEntry", { id });
 }
 
 export async function clearAllData(): Promise<void> {
-  await getWyStackClient().mutate(api.clearAllData, {});
+  await requestHost("clearAllData", {});
 }
 
 export async function getDataFrameEntry(
   id: UUID,
 ): Promise<DataFrameEntry | undefined> {
-  const result = await getWyStackClient().query(api.getDataFrameEntry, { id });
+  const result = await getConvexClient().query(api.app.getDataFrameEntry, {
+    id,
+  });
   return (result as DataFrameEntry | null) ?? undefined;
 }
 
 export async function getAllDataFrames(): Promise<DataFrameEntry[]> {
-  const result = await getWyStackClient().query(api.listDataFrames, {});
+  const result = await getConvexClient().query(api.app.listDataFrames, {});
   return result as DataFrameEntry[];
 }

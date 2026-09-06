@@ -1,3 +1,4 @@
+import { nativeQueryMock, hostQueryMock } from "@/test/native-query-fixture";
 import { fieldIdToColumnAlias } from "@dashframe/engine";
 import type { DataTable, Insight } from "@dashframe/types";
 import { renderHook } from "@testing-library/react";
@@ -7,16 +8,14 @@ const { mockUseQuery } = vi.hoisted(() => ({
   mockUseQuery: vi.fn(),
 }));
 
-vi.mock("@/wystack/api", () => ({
-  api: {
-    getInsight: { _path: "getInsight" },
-    listDataTables: { _path: "listDataTables" },
-    listInsights: { _path: "listInsights" },
-  },
+vi.mock("convex/react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("convex/react")>()),
+  useQuery_experimental: nativeQueryMock((ref: { _path: string }) =>
+    mockUseQuery(ref),
+  ),
 }));
-
-vi.mock("@wystack/client", () => ({
-  useQuery: (ref: { _path: string }) => mockUseQuery(ref),
+vi.mock("@/data/host", () => ({
+  useHostQuery: hostQueryMock((ref: { _path: string }) => mockUseQuery(ref)),
 }));
 
 import { useCompiledInsight } from "./useCompiledInsight";

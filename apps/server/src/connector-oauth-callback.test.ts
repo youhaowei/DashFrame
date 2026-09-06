@@ -1,13 +1,8 @@
-import { openArtifactDb } from "@dashframe/server-core";
-import type { WyStackApp } from "@wystack/server";
+import type { ApplicationOperations } from "./host/application";
 import type { Context } from "hono";
 import { Hono } from "hono";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { createDashframeServer } from "./app";
 import {
   handleConnectorOAuthCallback,
   handleConnectorResumeLanding,
@@ -16,37 +11,43 @@ import {
 import { ConnectorSetupGateError } from "./connector-setup/session-store";
 import { LOCAL_USER_ID } from "./permissions";
 
-function fakeApp(call: WyStackApp["call"]): WyStackApp {
-  return { call } as WyStackApp;
+function fakeApp(
+  execute: ApplicationOperations["execute"],
+): ApplicationOperations {
+  const app: ApplicationOperations = { execute, forPrincipal: () => app };
+  return app;
 }
 
 describe("connector OAuth browser routes", () => {
-  it("bypasses bearer resolution on the registered callback route", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "dashframe-oauth-route-"));
-    const db = await openArtifactDb({ path: join(dir, "artifacts.db") });
-    let server: Awaited<ReturnType<typeof createDashframeServer>> | undefined;
-    try {
-      server = await createDashframeServer({
-        db,
-        authToken: "required-for-normal-api-routes",
-      });
-      const response = await fetch(
-        `${server.url}/api/connectors/oauth/callback?state=invalid`,
-      );
-      expect(response.status).toBe(400);
-    } finally {
-      server?.stop();
-      await db.$client.close();
-      rmSync(dir, { recursive: true, force: true });
-    }
+  it("does not accept a caller-selected principal from callback query parameters or headers", async () => {
+    const execute = vi.fn(async () => ({ state: "connected" }));
+    const hono = new Hono();
+    hono.get("/api/connectors/oauth/callback", (c) =>
+      handleConnectorOAuthCallback(c, fakeApp(execute)),
+    );
+    const response = await hono.request(
+      "/api/connectors/oauth/callback?state=opaque&code=authorization-code&userId=attacker",
+      {
+        headers: {
+          Authorization: "Bearer attacker-selected-identity",
+          "X-User-Id": "attacker",
+        },
+      },
+    );
+    expect(response.status).toBe(200);
+    expect(execute).toHaveBeenCalledExactlyOnceWith(
+      "completeConnectorOAuth",
+      {
+        state: "opaque",
+        code: "authorization-code",
+        oauthError: undefined,
+      },
+      { principal: { kind: "user", userId: LOCAL_USER_ID } },
+    );
   });
 
   it("requires no bearer and delegates completion with the fixed local principal", async () => {
-    const call = vi.fn(async () => ({
-      result: { state: "connected" },
-      tablesRead: new Set<string>(),
-      tablesWritten: new Set<string>(),
-    }));
+    const call = vi.fn(async () => ({ state: "connected" }));
     const hono = new Hono();
     hono.get("/api/connectors/oauth/callback", (c) =>
       handleConnectorOAuthCallback(c, fakeApp(call)),
@@ -75,11 +76,7 @@ describe("connector OAuth browser routes", () => {
       authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       expiresAt: Date.now() + 60_000,
     };
-    const call = vi.fn(async () => ({
-      result,
-      tablesRead: new Set<string>(),
-      tablesWritten: new Set<string>(),
-    }));
+    const call = vi.fn(async () => result);
     const hono = new Hono();
     hono.get("/api/connectors/setup/:sessionId/resume", (c) =>
       handleConnectorSetupResume(c, fakeApp(call)),
@@ -94,15 +91,11 @@ describe("connector OAuth browser routes", () => {
     const authorizeUrl =
       "https://accounts.google.com/o/oauth2/v2/auth?state=fresh";
     const call = vi.fn(async () => ({
-      result: {
-        sessionId: crypto.randomUUID(),
-        connectorId: "googleAnalytics",
-        state: "awaiting-user-auth",
-        authorizeUrl,
-        expiresAt: Date.now() + 60_000,
-      },
-      tablesRead: new Set<string>(),
-      tablesWritten: new Set<string>(),
+      sessionId: crypto.randomUUID(),
+      connectorId: "googleAnalytics",
+      state: "awaiting-user-auth",
+      authorizeUrl,
+      expiresAt: Date.now() + 60_000,
     }));
     const hono = new Hono();
     hono.get("/", (c) => handleConnectorResumeLanding(c, fakeApp(call)));
@@ -154,15 +147,11 @@ describe("connector OAuth browser routes", () => {
     // these tests stand in for mutants, so a handler signature change has to
     // break them rather than slide past on a cast.
     function route(
-      handler: (c: Context, app: WyStackApp) => Promise<Response>,
+      handler: (c: Context, app: ApplicationOperations) => Promise<Response>,
       path: string,
       result: unknown,
     ) {
-      const call = vi.fn(async () => ({
-        result,
-        tablesRead: new Set<string>(),
-        tablesWritten: new Set<string>(),
-      }));
+      const call = vi.fn(async () => result);
       const hono = new Hono();
       hono.get(path, (c) => handler(c, fakeApp(call)));
       return hono;

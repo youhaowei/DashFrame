@@ -1,3 +1,4 @@
+import { useMutation } from "convex/react";
 /**
  * DraftReviewPanel — shown in the assistant sidebar when a draft is pending
  * review (pendingDraftId is set in AssistantStore).
@@ -17,7 +18,7 @@ import { useCallback, useState } from "react";
 
 import type { PreviewDiff } from "@dashframe/types";
 import { useNavigate } from "@tanstack/react-router";
-import { useMutation } from "@wystack/client";
+
 import { Button, cn } from "@wystack/ui-react";
 import { FileIcon, SparklesIcon } from "@wystack/ui-react/icons";
 import { toast } from "sonner";
@@ -25,8 +26,8 @@ import { toast } from "sonner";
 import { PreviewDiffDialog } from "@/components/preview-diff/PreviewDiffDialog";
 import { draftLifecycleErrorDescription } from "@/components/preview-diff/user-facing-errors";
 import { useAssistantStore } from "@/lib/stores/assistant-store";
-import { api } from "@/wystack/api";
-import { getWyStackClient } from "@/wystack/client";
+import { api } from "@dashframe/convex-backend/api";
+import { getConvexClient } from "@/data/runtime";
 
 /**
  * Relocated from the (deleted) `data/drafts.ts` wrapper — this file is its
@@ -34,7 +35,7 @@ import { getWyStackClient } from "@/wystack/client";
  * is loaded on-demand when the user clicks "Review changes", not on render.
  */
 async function getDraftPublishReview(draftId: string) {
-  return getWyStackClient().query(api.draftPublishReview, { draftId });
+  return getConvexClient().query(api.app.draftPublishReview, { draftId });
 }
 
 /**
@@ -49,8 +50,8 @@ export function DraftReviewPanel({
 }) {
   const navigate = useNavigate();
   const setPendingDraft = useAssistantStore((s) => s.setPendingDraft);
-  const { mutateAsync: publishDraftMutation } = useMutation(api.publishDraft);
-  const { mutateAsync: discardDraftMutation } = useMutation(api.discardDraft);
+  const publishDraftMutation = useMutation(api.app.publishDraft);
+  const discardDraftMutation = useMutation(api.app.discardDraft);
 
   const [diff, setDiff] = useState<PreviewDiff | null>(null);
   const [publishBlocked, setPublishBlocked] = useState(true);

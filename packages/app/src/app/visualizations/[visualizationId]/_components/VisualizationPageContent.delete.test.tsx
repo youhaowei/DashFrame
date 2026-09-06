@@ -1,3 +1,9 @@
+import {
+  nativeQueryMock,
+  nativeMutationMock,
+  hostQueryMock,
+  hostMutationMock,
+} from "@/test/native-query-fixture";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -60,14 +66,6 @@ vi.mock("@/lib/visualizations/encoding-enforcer", () => ({
 vi.mock("@/lib/visualizations/suggest-charts", () => ({
   getAlternativeChartTypes: () => [],
 }));
-vi.mock("@/wystack/api", () => ({
-  api: {
-    commitBatch: { _path: "commitBatch" },
-    listDataTables: { _path: "listDataTables" },
-    listInsights: { _path: "listInsights" },
-    listVisualizations: { _path: "listVisualizations" },
-  },
-}));
 vi.mock("@dashframe/engine", () => ({
   extractColumnAliasComponents: vi.fn(),
   fieldIdToColumnAlias: vi.fn(),
@@ -86,9 +84,9 @@ vi.mock("@dashframe/types", async (importOriginal) => {
 });
 vi.mock("@dashframe/ui", () => ({ SelectField: () => null }));
 vi.mock("@tanstack/react-router", () => ({ useNavigate: () => mockNavigate }));
-vi.mock("@wystack/client", () => ({
-  useMutation: () => ({ mutateAsync: mockCommitBatch }),
-  useQuery: (ref: { _path: string }) => {
+vi.mock("convex/react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("convex/react")>()),
+  useQuery_experimental: nativeQueryMock((ref: { _path: string }) => {
     if (ref._path === "listVisualizations") {
       return {
         data: [
@@ -126,7 +124,50 @@ vi.mock("@wystack/client", () => ({
       };
     }
     return { data: [], isLoading: false };
-  },
+  }),
+  useMutation: nativeMutationMock(() => ({ mutateAsync: mockCommitBatch })),
+}));
+vi.mock("@/data/host", () => ({
+  useHostQuery: hostQueryMock((ref: { _path: string }) => {
+    if (ref._path === "listVisualizations") {
+      return {
+        data: [
+          {
+            encoding: {},
+            id: "viz-1",
+            insightId: "insight-1",
+            name: "Revenue by month",
+            visualizationType: "barY",
+          },
+        ],
+        isLoading: false,
+      };
+    }
+    if (ref._path === "listInsights") {
+      return {
+        data: [
+          {
+            id: "insight-1",
+            name: "Revenue",
+            source: { sourceType: "dataTable", sourceId: "table-1" },
+            selectedFields: ["field-1"],
+            metrics: [
+              {
+                id: "metric-1",
+                name: "Revenue",
+                columnName: "revenue",
+                aggregation: "sum",
+              },
+            ],
+            createdAt: 0,
+          },
+        ],
+        isLoading: false,
+      };
+    }
+    return { data: [], isLoading: false };
+  }),
+  useHostMutation: hostMutationMock(() => ({ mutateAsync: mockCommitBatch })),
 }));
 vi.mock("@wystack/ui-react", () => ({
   Badge: ({ children }: { children?: React.ReactNode }) => <>{children}</>,

@@ -2,7 +2,7 @@ import type { GoogleOAuthTokenBundle } from "@dashframe/connector-ga4";
 import { createHash } from "node:crypto";
 
 import { isLoopbackHost } from "../bind-host";
-import { getConnectorCatalogEntries } from "../functions/connector-catalog";
+import { getConnectorCatalogEntries } from "../host/connector-catalog";
 
 export interface OAuthAuthorizeInput {
   redirectUri: string;

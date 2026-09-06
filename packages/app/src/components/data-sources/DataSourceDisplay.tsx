@@ -1,17 +1,19 @@
+import { requestHost } from "@/data/host";
+import { useQuery_experimental as useQuery } from "convex/react";
+import { queryStatus } from "@/data/query-status";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import {
   getConnectorById,
   useRegistryVersion,
 } from "@/lib/connectors/registry";
-import { api } from "@/wystack/api";
-import { getWyStackClient } from "@/wystack/client";
+import { api } from "@dashframe/convex-backend/api";
 import type {
   DataTable,
   InsightFetchDefinition,
   InsightFetchResult,
 } from "@dashframe/types";
 import { VirtualTable } from "@dashframe/ui";
-import { useQuery } from "@wystack/client";
+
 import {
   Button,
   Card,
@@ -170,7 +172,7 @@ function RemoteDataSourceView({
       metrics: [],
     };
     try {
-      const result = await getWyStackClient().mutate(api.fetchData, {
+      const result = await requestHost("fetchData", {
         insight,
       });
       if (current !== previewGeneration.current) return;
@@ -256,10 +258,15 @@ function RemoteDataSourceView({
 }
 
 export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
-  const { data: dataSources } = useQuery(api.listDataSources);
-  const { data: allTables } = useQuery(api.listDataTables, {
-    args: { dataSourceId: dataSourceId ?? undefined },
-  });
+  const { data: dataSources } = queryStatus(
+    useQuery({ query: api.app.listDataSources, args: {} }),
+  );
+  const { data: allTables } = queryStatus(
+    useQuery({
+      query: api.app.listDataTables,
+      args: { dataSourceId: dataSourceId ?? undefined },
+    }),
+  );
   useRegistryVersion();
   const dataSource = useMemo(
     () => dataSources?.find((source) => source.id === dataSourceId) ?? null,

@@ -3,8 +3,8 @@ import "@dashframe/app/globals.css";
 import type { AppRouterContext, ProviderWrapper } from "@dashframe/app";
 import {
   ChartEngineProvider,
-  createWyStackRuntime,
-  resolveWyStackConfig,
+  createAppRuntime,
+  resolveAppConfig,
 } from "@dashframe/app";
 import { createServerFrameConnector } from "@dashframe/visualization";
 import { createRouter, RouterProvider } from "@tanstack/react-router";
@@ -16,7 +16,7 @@ import { WebProviders } from "./web-providers";
 
 // Router at module scope (registers `typeof router`); runtime context injected
 // after the async URL resolve. On web the URL is same-origin (or
-// VITE_WYSTACK_URL), so the resolve is effectively synchronous — but we keep
+// VITE_DASHFRAME_URL), so the resolve is effectively synchronous — but we keep
 // the async shape for parity with the Electron host's IPC handshake.
 const router = createRouter({
   routeTree,
@@ -36,20 +36,21 @@ function renderBootstrapError(error: unknown) {
 
   createRoot(container).render(
     <div role="alert" className="p-6 text-sm text-red-700">
-      DashFrame failed to start. Check the WyStack server connection and reload.
+      DashFrame failed to start. Check the DashFrame server connection and
+      reload.
     </div>,
   );
 }
 
 async function bootstrap() {
-  const config = await resolveWyStackConfig();
-  const { Provider } = createWyStackRuntime(config);
+  const config = await resolveAppConfig();
+  const { Provider } = createAppRuntime(config);
   const connector = createServerFrameConnector({
     serverUrl: config.url,
     ...(config.token ? { token: config.token } : {}),
   });
 
-  // WyStack Provider wraps PostHog so every data hook (and PostHogPageView's
+  // DashFrame Provider wraps PostHog so every data hook (and PostHogPageView's
   // router hooks) sees both contexts. The composed wrapper rides the
   // providerWrapper slot into the shared RouteRoot.
   const providerWrapper: ProviderWrapper = ({ children }) => (

@@ -1,23 +1,25 @@
+import { useQuery_experimental as useQuery } from "convex/react";
+import { queryStatus } from "@/data/query-status";
 import { useMemo } from "react";
 
 import { VisualizationPreview } from "@/components/visualizations/VisualizationPreview";
-import { api } from "@/wystack/api";
+import { api } from "@dashframe/convex-backend/api";
 import { useNavigate } from "@tanstack/react-router";
-import { useQuery } from "@wystack/client";
+
 import { ChartIcon } from "@wystack/ui-react/icons";
 import { DashboardSection } from "./DashboardSection";
 
 /**
  * RecentVisualizationsSection - Displays the 3 most recent visualizations
  *
- * Self-contained section that fetches its own data via the WyStack server.
+ * Self-contained section that fetches its own data via the Convex backend.
  */
 export function RecentVisualizationsSection() {
   const navigate = useNavigate();
 
-  const { data: visualizations = [] } = useQuery(api.listVisualizations, {
-    args: {},
-  });
+  const { data: visualizations = [] } = queryStatus(
+    useQuery({ query: api.app.listVisualizations, args: {} }),
+  );
 
   const recentVisualizations = useMemo(() => {
     return [...visualizations]

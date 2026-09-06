@@ -1,3 +1,9 @@
+import {
+  nativeQueryMock,
+  nativeMutationMock,
+  hostQueryMock,
+  hostMutationMock,
+} from "@/test/native-query-fixture";
 /** VisualizationDisplay saved execution and declared runtime-control coverage. */
 import type { Insight, Visualization } from "@dashframe/types";
 import { render } from "@testing-library/react";
@@ -45,19 +51,25 @@ const { mockUseVisualizations, mockUseInsights, mockUseDataTables } =
     mockUseDataTables: vi.fn(),
   }));
 
-vi.mock("@wystack/client", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@wystack/client")>();
-  return {
-    ...actual,
-    useQuery: (ref: { _path: string }) => {
-      if (ref._path === "listVisualizations") return mockUseVisualizations();
-      if (ref._path === "listInsights") return mockUseInsights();
-      if (ref._path === "listDataTables") return mockUseDataTables();
-      throw new Error(`Unexpected query: ${ref._path}`);
-    },
-    useMutation: () => ({ mutateAsync: vi.fn() }),
-  };
-});
+vi.mock("convex/react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("convex/react")>()),
+  useQuery_experimental: nativeQueryMock((ref: { _path: string }) => {
+    if (ref._path === "listVisualizations") return mockUseVisualizations();
+    if (ref._path === "listInsights") return mockUseInsights();
+    if (ref._path === "listDataTables") return mockUseDataTables();
+    throw new Error(`Unexpected query: ${ref._path}`);
+  }),
+  useMutation: nativeMutationMock(() => ({ mutateAsync: vi.fn() })),
+}));
+vi.mock("@/data/host", () => ({
+  useHostQuery: hostQueryMock((ref: { _path: string }) => {
+    if (ref._path === "listVisualizations") return mockUseVisualizations();
+    if (ref._path === "listInsights") return mockUseInsights();
+    if (ref._path === "listDataTables") return mockUseDataTables();
+    throw new Error(`Unexpected query: ${ref._path}`);
+  }),
+  useHostMutation: hostMutationMock(() => ({ mutateAsync: vi.fn() })),
+}));
 
 vi.mock("@dashframe/engine", () => ({
   resolveEncodingToResultFrame: vi.fn().mockReturnValue({}),

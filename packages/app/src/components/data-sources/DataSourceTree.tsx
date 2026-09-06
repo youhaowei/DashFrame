@@ -1,9 +1,11 @@
+import { useQuery_experimental as useQuery } from "convex/react";
+import { queryStatus } from "@/data/query-status";
 import {
   getConnectorById,
   useRegistryVersion,
 } from "@/lib/connectors/registry";
-import { api } from "@/wystack/api";
-import { useQuery } from "@wystack/client";
+import { api } from "@dashframe/convex-backend/api";
+
 import { Button, EmptyState, Panel, cn } from "@wystack/ui-react";
 import { DeleteIcon, FileIcon } from "@wystack/ui-react/icons";
 import { useMemo } from "react";
@@ -21,11 +23,15 @@ export function DataSourceTree({
   onTableSelect,
   onDeleteTable,
 }: DataSourceTreeProps) {
-  const { data: dataSources } = useQuery(api.listDataSources);
-  const { data: tables } = useQuery(api.listDataTables, {
-    args: { dataSourceId },
-  });
-  const { data: dataFrames } = useQuery(api.listDataFrames);
+  const { data: dataSources } = queryStatus(
+    useQuery({ query: api.app.listDataSources, args: {} }),
+  );
+  const { data: tables } = queryStatus(
+    useQuery({ query: api.app.listDataTables, args: { dataSourceId } }),
+  );
+  const { data: dataFrames } = queryStatus(
+    useQuery({ query: api.app.listDataFrames, args: {} }),
+  );
 
   // Subscribe so a re-render fires once the connector registry hydrates from
   // the server catalog (getConnectorById reads a module-scope map, which is

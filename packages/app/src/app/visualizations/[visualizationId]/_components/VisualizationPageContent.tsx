@@ -1,3 +1,5 @@
+import { useQuery_experimental as useQuery, useMutation } from "convex/react";
+import { queryStatus } from "@/data/query-status";
 import { useBindArtifact } from "@/components/assistant/artifact-context";
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { useContextPanelSection } from "@/components/shell/context-panel-outlet";
@@ -16,7 +18,7 @@ import {
   validateEncoding,
 } from "@/lib/visualizations/encoding-enforcer";
 import { getAlternativeChartTypes } from "@/lib/visualizations/suggest-charts";
-import { api } from "@/wystack/api";
+import { api } from "@dashframe/convex-backend/api";
 import {
   extractColumnAliasComponents,
   fieldIdToColumnAlias,
@@ -41,7 +43,7 @@ import {
 } from "@dashframe/types";
 import { SelectField } from "@dashframe/ui";
 import { useNavigate } from "@tanstack/react-router";
-import { useMutation, useQuery } from "@wystack/client";
+
 import {
   Badge,
   Button,
@@ -139,13 +141,16 @@ export default function VisualizationPageContent({
 }: VisualizationPageContentProps) {
   const navigate = useNavigate();
 
-  const { data: visualizations = [], isLoading: isVizLoading } = useQuery(
-    api.listVisualizations,
-    { args: {} },
+  const { data: visualizations = [], isLoading: isVizLoading } = queryStatus(
+    useQuery({ query: api.app.listVisualizations, args: {} }),
   );
-  const { data: insights = [] } = useQuery(api.listInsights, { args: {} });
-  const { data: dataTables = [] } = useQuery(api.listDataTables, { args: {} });
-  const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
+  const { data: insights = [] } = queryStatus(
+    useQuery({ query: api.app.listInsights, args: {} }),
+  );
+  const { data: dataTables = [] } = queryStatus(
+    useQuery({ query: api.app.listDataTables, args: {} }),
+  );
+  const commitBatch = useMutation(api.app.commitBatch);
   const updateVisualizationMutation = useCallback(
     async (args: {
       id: UUID;

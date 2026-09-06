@@ -1,12 +1,13 @@
+import { useMutation } from "convex/react";
 import { computeItemOverrides } from "@/lib/dashboards/controls";
-import { api } from "@/wystack/api";
+import { api } from "@dashframe/convex-backend/api";
 import type {
   Dashboard,
   DashboardItemOverrides,
   InsightFilter,
 } from "@dashframe/types";
 import { cmd } from "@dashframe/types";
-import { useMutation } from "@wystack/client";
+
 import { useCallback, useMemo, useState } from "react";
 import { Responsive, WidthProvider, type Layout } from "react-grid-layout";
 import { toast } from "sonner";
@@ -33,7 +34,7 @@ export function DashboardGrid({
   // Destructure the stable `mutateAsync` — the `useMutation` result object is a
   // fresh reference every render, so depending on it would defeat the
   // `onLayoutChange` memoization. `mutateAsync` is referentially stable.
-  const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
+  const commitBatch = useMutation(api.app.commitBatch);
   const [activeBreakpoint, setActiveBreakpoint] = useState("lg");
 
   const layouts = useMemo(() => {

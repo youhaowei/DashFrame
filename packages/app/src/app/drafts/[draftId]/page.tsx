@@ -1,3 +1,5 @@
+import { useQuery_experimental as useQuery, useMutation } from "convex/react";
+import { queryStatus } from "@/data/query-status";
 import { LateBoundFixControl } from "@/components/drafts/LateBoundFixControl";
 import { PreviewDiffRenderer } from "@/components/preview-diff/PreviewDiffRenderer";
 import { usePreviewComputeFill } from "@/components/preview-diff/usePreviewComputeFill";
@@ -7,10 +9,10 @@ import {
   isDriftError,
 } from "@/components/preview-diff/user-facing-errors";
 import { useAssistantStore } from "@/lib/stores/assistant-store";
-import { api } from "@/wystack/api";
-import { getWyStackClient } from "@/wystack/client";
+import { api } from "@dashframe/convex-backend/api";
+import { getConvexClient } from "@/data/runtime";
 import { useNavigate } from "@tanstack/react-router";
-import { useMutation, useQuery } from "@wystack/client";
+
 import { Badge, Button, cn, ErrorState } from "@wystack/ui-react";
 import {
   AlertCircleIcon,
@@ -31,7 +33,7 @@ type RevisionOp =
       type: "bindOperand";
       commandIndex: number;
       jsonPath: string;
-      value: unknown;
+      value: string;
     };
 
 function CommandLog({
@@ -191,16 +193,16 @@ export default function DraftReviewPage({ draftId }: DraftReviewPageProps) {
     data: review,
     isLoading,
     isError,
-    refetch,
-  } = useQuery(api.draftPublishReview, { args: { draftId } });
-  const { data: openDrafts = [], refetch: refetchDrafts } = useQuery(
-    api.listDrafts,
-    { args: {} },
+  } = queryStatus(
+    useQuery({ query: api.app.draftPublishReview, args: { draftId } }),
+  );
+  const { data: openDrafts = [] } = queryStatus(
+    useQuery({ query: api.app.listDrafts, args: {} }),
   );
   const { diff: filledDiff } = usePreviewComputeFill(review?.diff ?? null);
-  const { mutateAsync: publish } = useMutation(api.publishDraft);
-  const { mutateAsync: discard } = useMutation(api.discardDraft);
-  const { mutateAsync: revise } = useMutation(api.reviseDraft);
+  const publish = useMutation(api.app.publishDraft);
+  const discard = useMutation(api.app.discardDraft);
+  const revise = useMutation(api.app.reviseDraft);
   const [busy, setBusy] = useState<"publish" | "discard" | "revise" | null>(
     null,
   );
@@ -223,8 +225,7 @@ export default function DraftReviewPage({ draftId }: DraftReviewPageProps) {
       toast.success("Draft published");
       let remaining = openDrafts.filter((draft) => draft.draftId !== draftId);
       try {
-        remaining = await getWyStackClient().query(api.listDrafts, {});
-        await refetchDrafts();
+        remaining = await getConvexClient().query(api.app.listDrafts, {});
       } catch {
         // Publishing has already succeeded, so a failed refresh must not fail
         // the action. Fall through on the optimistic list computed above —
@@ -237,7 +238,6 @@ export default function DraftReviewPage({ draftId }: DraftReviewPageProps) {
         : draftLifecycleErrorDescription(error);
       setReviewError(message);
       toast.error("Failed to publish draft", { description: message });
-      void refetch();
     } finally {
       setBusy(null);
     }
@@ -251,7 +251,6 @@ export default function DraftReviewPage({ draftId }: DraftReviewPageProps) {
         setPendingDraft(null);
       }
       toast.success("Draft discarded");
-      await refetchDrafts();
       navigate({ to: "/drafts", replace: true });
     } catch (error) {
       toast.error("Failed to discard draft", {
@@ -275,7 +274,6 @@ export default function DraftReviewPage({ draftId }: DraftReviewPageProps) {
         expectedLogSignature: review.logSignature,
         ops: [op],
       });
-      await refetch();
       return true;
     } catch (error) {
       setReviewError(
@@ -361,7 +359,10 @@ export default function DraftReviewPage({ draftId }: DraftReviewPageProps) {
             <ErrorState
               title="Failed to load review"
               description="Could not load this draft review. Please try again."
-              retryAction={{ label: "Retry", onClick: () => void refetch() }}
+              retryAction={{
+                label: "Retry",
+                onClick: () => globalThis.location.reload(),
+              }}
               className="min-h-[120px]"
             />
           ) : null}
@@ -387,7 +388,7 @@ export default function DraftReviewPage({ draftId }: DraftReviewPageProps) {
                           className="mt-2"
                           onClick={() => {
                             setReviewError(null);
-                            void refetch();
+                            globalThis.location.reload();
                           }}
                         />
                       ) : null}

@@ -102,10 +102,10 @@ export default defineConfig(({ mode }) => {
     Number.isInteger(rawPort) && rawPort >= 1 && rawPort <= 65535
       ? rawPort
       : 3000;
-  const wystackUrl = env.VITE_WYSTACK_URL?.trim();
-  if (mode === "development" && !wystackUrl) {
+  const hostUrl = env.VITE_DASHFRAME_URL?.trim();
+  if (mode === "development" && !hostUrl) {
     throw new Error(
-      "VITE_WYSTACK_URL is required for web development. Start the app with `bun run dev:web` so the DashFrame server and Vite proxy are launched together.",
+      "VITE_DASHFRAME_URL is required for web development. Start the app with `bun run dev:web` so the DashFrame server and Vite proxy are launched together.",
     );
   }
 
@@ -148,15 +148,15 @@ export default defineConfig(({ mode }) => {
       host: env.DASHFRAME_VITE_HOST?.trim() || undefined,
       port,
       strictPort: true,
-      proxy: wystackUrl
+      proxy: hostUrl
         ? {
             "/api": {
-              target: wystackUrl,
+              target: hostUrl,
               changeOrigin: true,
               ws: true,
             },
             "/data": {
-              target: wystackUrl,
+              target: hostUrl,
               changeOrigin: true,
             },
           }

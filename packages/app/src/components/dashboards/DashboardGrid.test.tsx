@@ -1,3 +1,7 @@
+import {
+  nativeMutationMock,
+  hostMutationMock,
+} from "@/test/native-query-fixture";
 import { act, render } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
@@ -10,13 +14,13 @@ const mocks = vi.hoisted(() => ({
 // refs) and replace only `useMutation`. This consumer uses a single mutation
 // (`api.commitBatch`), so the mock ignores the ref and always returns
 // the same `mutateAsync` spy.
-vi.mock("@wystack/client", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@wystack/client")>();
-  return {
-    ...actual,
-    useMutation: () => ({ mutateAsync: mocks.updateItems }),
-  };
-});
+vi.mock("convex/react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("convex/react")>()),
+  useMutation: nativeMutationMock(() => ({ mutateAsync: mocks.updateItems })),
+}));
+vi.mock("@/data/host", () => ({
+  useHostMutation: hostMutationMock(() => ({ mutateAsync: mocks.updateItems })),
+}));
 
 vi.mock("react-grid-layout", () => ({
   WidthProvider: (Grid: unknown) => Grid,

@@ -7,16 +7,16 @@ import {
   ListToolsRequestSchema,
   ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import type { WyStackApp } from "@wystack/server";
+import type { ApplicationOperations } from "../host/application";
+import { HostBatchOutcomeUnknownError } from "../host/commands";
 import type { Context } from "hono";
 
-import { draftIdFromBatchError } from "../functions/draft-batch";
 import {
   REPORT_APP_HTML,
   REPORT_APP_MIME_TYPE,
   REPORT_APP_URI,
 } from "./report-app";
-import { createMcpTools, type McpTool } from "./tools";
+import { createMcpTools, DRAFT_BATCH_TOOL_NAME, type McpTool } from "./tools";
 
 const DASHFRAME_ICON =
   "data:image/png;base64,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";
@@ -29,7 +29,7 @@ export interface McpRequestContext {
 export type McpMode = "stateful" | "stateless";
 
 interface McpRouteOptions {
-  app: WyStackApp;
+  app: ApplicationOperations;
   mode?: McpMode;
   maxStatefulSessions?: number;
   statefulSessionTtlMs?: number;
@@ -143,18 +143,37 @@ function methodNotAllowed(): Response {
  * Tool-level failure. The message names the offending field or command, never
  * a value — see the credential-ref gate in tools.ts.
  */
-function toolFailure(
-  message: string,
-  draftId?: string,
-): {
+function toolFailure(message: string): {
   content: Array<{ type: "text"; text: string }>;
   isError: true;
-  structuredContent?: { draftId: string };
 } {
   return {
     content: [{ type: "text", text: message }],
     isError: true,
-    ...(draftId === undefined ? {} : { structuredContent: { draftId } }),
+  };
+}
+
+const HOST_BATCH_OUTCOME_UNKNOWN_OUTPUT_SCHEMA = {
+  type: "object",
+  properties: {
+    code: { const: "HOST_BATCH_OUTCOME_UNKNOWN", type: "string" },
+    operationId: { type: "string", format: "uuid" },
+  },
+  required: ["code", "operationId"],
+  additionalProperties: false,
+} as const;
+
+/**
+ * The route adds the retryable host-error envelope, so its advertised wire
+ * schema includes that envelope alongside the tool's normal success output.
+ */
+function advertisedOutputSchema(tool: McpTool): McpTool["outputSchema"] {
+  if (tool.name !== DRAFT_BATCH_TOOL_NAME || tool.outputSchema === undefined) {
+    return tool.outputSchema;
+  }
+  return {
+    type: "object",
+    anyOf: [tool.outputSchema, HOST_BATCH_OUTCOME_UNKNOWN_OUTPUT_SCHEMA],
   };
 }
 
@@ -213,13 +232,13 @@ function createServer(tools: McpTool[]): Server {
       name: tool.name,
       ...(tool.title === undefined ? {} : { title: tool.title }),
       description: tool.description,
-      // TypeBox is JSON Schema, so each tool's advertised schema is passed
-      // through as-is. For a read tool that schema is its parameters plus the
-      // optional draftId this surface adds — see toMcpTool in tools.ts.
+      // TypeBox is JSON Schema. Read-tool schemas pass through as-is; the
+      // draft_batch output is extended with the retry envelope added here.
+      // Stateless read inputs already include draftId — see toMcpTool.
       inputSchema: tool.inputSchema,
       ...(tool.outputSchema === undefined
         ? {}
-        : { outputSchema: tool.outputSchema }),
+        : { outputSchema: advertisedOutputSchema(tool) }),
       ...(tool.annotations === undefined
         ? {}
         : { annotations: tool.annotations }),
@@ -239,12 +258,20 @@ function createServer(tools: McpTool[]): Server {
     try {
       return await tool.execute(request.params.arguments ?? {});
     } catch (error) {
+      if (error instanceof HostBatchOutcomeUnknownError) {
+        return {
+          ...toolFailure(`${error.message}: ${error.operationId}`),
+          structuredContent: {
+            code: error.code,
+            operationId: error.operationId,
+          },
+        };
+      }
       // A rejected tool call is a result the agent can act on, not a protocol
       // fault. Thrown JSON-RPC errors reach the agent as a broken connection;
       // isError content reaches it as "that did not work, here is why".
       return toolFailure(
         error instanceof Error ? error.message : String(error),
-        draftIdFromBatchError(error),
       );
     }
   });

@@ -1,75 +1,118 @@
 /**
- * Assistant read host — the resolver against the REAL server seam.
- *
- * The read.test.ts in @dashframe/assistant proves the resolver + floor logic
- * against a fake reader. THIS test proves the load-bearing INTEGRATION the fake
- * cannot: the host adapter dispatching real reads through the WyStack app's
- * server seam, against a real PGlite DB, with the real draft overlay and the
- * real Field.sensitivity classification.
- *
- * Contracts under test:
- *   - DRAFT OVERLAY: a draft-scoped reader sees an insight created INSIDE a
- *     draft; a canonical reader does NOT. Structure reads route through the
- *     withDraftSeam, never raw DB.
- *   - INHERIT-SOURCE (real sensitivity): readData masks (profiles-only) when a
- *     real Field.sensitivity on the source is "sensitive"; does not mask a
- *     fully-cleared source. Structure is never gated.
- *   - NEIGHBORHOOD/TRAVERSAL over real artifacts.
+ * Assistant read-host adapter tests over explicit ApplicationOperations DTO fixtures.
+ * These exercise draft-context dispatch, graph traversal, field-sensitivity masking,
+ * and private-frame projection. Native storage and transaction semantics are covered
+ * by convex-backend tests rather than simulated by this fixture.
  */
-
-import { createReadTools, type DataReadResult } from "@dashframe/assistant";
-import { openArtifactDb } from "@dashframe/server-core";
-import type { Field } from "@dashframe/types";
-import type { Command } from "@wystack/server";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
-
-import { neighbors } from "@dashframe/assistant";
-import { buildDashframeApp, createDraftController } from "./app";
+import {
+  createReadTools,
+  neighbors,
+  type DataReadResult,
+} from "@dashframe/assistant";
+import { cmd, type Command, type Field } from "@dashframe/types";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import type { ApplicationOperations } from "./host/application";
 import { createAssistantReadHost } from "./assistant-read-host";
-import { cmd } from "./functions/commands";
-import { LOCAL_USER_ID } from "./permissions";
 
-describe("assistant read host (resolver over the real server seam)", () => {
-  let dir: string;
-  let db: Awaited<ReturnType<typeof openArtifactDb>>;
-  let app: Awaited<ReturnType<typeof buildDashframeApp>>;
-  let controller: ReturnType<typeof createDraftController>;
+type Artifact = Record<string, unknown> & { id: string; kind: string };
 
-  beforeEach(async () => {
-    dir = mkdtempSync(join(tmpdir(), "dashframe-read-"));
-    db = await openArtifactDb({ path: join(dir, "artifacts.db") });
-    const baseApp = await buildDashframeApp({ db });
-    app = {
-      ...baseApp,
-      call: (path, args, context) =>
-        baseApp.call(path, args, {
-          ...(context ?? {}),
-          principal: { kind: "user", userId: LOCAL_USER_ID },
-        }),
-      runHandler: (path, args, tracked, context) =>
-        baseApp.runHandler(path, args, tracked, {
-          ...(context ?? {}),
-          principal: { kind: "user", userId: LOCAL_USER_ID },
-        }),
-    };
-    controller = createDraftController(app, db);
-  });
+function createReadFixture() {
+  const canonical = new Map<string, Artifact>();
+  const drafts = new Map<string, Map<string, Artifact>>();
+  const kinds: Record<string, string> = {
+    DataSource: "dataSource",
+    DataTable: "dataTable",
+    DataFrameEntry: "dataFrame",
+    Insight: "insight",
+    Visualization: "visualization",
+    Dashboard: "dashboard",
+  };
+  const execute = vi.fn<ApplicationOperations["execute"]>(
+    async (operation, input, context) => {
+      const records = context?.draftId
+        ? drafts.get(context.draftId)
+        : canonical;
+      if (!records) throw new Error("Unknown fixture draft");
+      const args = input as { id?: string };
+      if (operation.startsWith("get")) {
+        const found = args.id ? records.get(args.id) : undefined;
+        const expectedKind = kinds[operation.slice(3)];
+        if (!expectedKind) throw new Error(`Unexpected read: ${operation}`);
+        return found?.kind === expectedKind ? structuredClone(found) : null;
+      }
+      if (operation.startsWith("list")) {
+        const entity = operation.slice(4, -1);
+        const expectedKind =
+          entity === "DataFrame" ? "dataFrame" : kinds[entity];
+        if (!expectedKind) throw new Error(`Unexpected list: ${operation}`);
+        return structuredClone(
+          [...records.values()].filter((row) => row.kind === expectedKind),
+        );
+      }
+      throw new Error(`Unexpected operation: ${operation}`);
+    },
+  );
+  const app: ApplicationOperations = { execute, forPrincipal: () => app };
+  function seed(commands: Command[], draftId?: string) {
+    const records = draftId ? drafts.get(draftId)! : canonical;
+    for (const command of commands) {
+      const args = command.args as Record<string, unknown> & { id: string };
+      if (command.path === "deleteNode") {
+        records.delete(args.id);
+        continue;
+      }
+      if (command.path === "addJoin") {
+        const insight = records.get(args.id)!;
+        const joins = insight.joins as unknown[];
+        insight.joins = [...joins, args.join];
+        continue;
+      }
+      const kind = (
+        {
+          createDataSource: "dataSource",
+          createDataTable: "dataTable",
+          createInsightCmd: "insight",
+          createVisualizationCmd: "visualization",
+        } as Record<string, string>
+      )[command.path];
+      if (!kind) throw new Error(`Unsupported fixture seed: ${command.path}`);
+      records.set(args.id, {
+        fields: [],
+        metrics: [],
+        joins: [],
+        selectedFields: [],
+        config: {},
+        createdAt: 1,
+        ...structuredClone(args),
+        kind,
+      });
+    }
+  }
+  return {
+    app,
+    execute,
+    seed,
+    createDraft() {
+      const draftId = crypto.randomUUID();
+      drafts.set(draftId, structuredClone(canonical));
+      return draftId;
+    },
+  };
+}
 
-  afterEach(async () => {
-    await db.$client.close();
-    rmSync(dir, { recursive: true, force: true });
+describe("assistant read host (ApplicationOperations adapter)", () => {
+  let fixture: ReturnType<typeof createReadFixture>;
+  let app: ApplicationOperations;
+  beforeEach(() => {
+    fixture = createReadFixture();
+    app = fixture.app;
   });
 
   const id = () => crypto.randomUUID();
 
-  /** Publish a batch to CANONICAL through the controller (its only write seam). */
-  async function publish(...commands: Command[]) {
-    const d = await controller.openDraft();
-    await controller.appendToDraft(d, commands);
-    await controller.publishDraft(d);
+  /** Seed DTOs only: native metadata transaction behavior is tested in convex-backend. */
+  async function seedCanonical(...commands: Command[]) {
+    fixture.seed(commands);
   }
 
   function field(name: string, sensitivity: Field["sensitivity"]): Field {
@@ -82,7 +125,7 @@ describe("assistant read host (resolver over the real server seam)", () => {
   it("a draft-scoped reader sees an insight created inside the draft; canonical does not", async () => {
     const sourceId = id();
     const tableId = id();
-    await publish(
+    await seedCanonical(
       cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
       cmd("CreateDataTable", {
         id: tableId,
@@ -93,15 +136,18 @@ describe("assistant read host (resolver over the real server seam)", () => {
     );
 
     // Create an insight INSIDE a draft (not published).
-    const draftId = await controller.openDraft();
+    const draftId = fixture.createDraft();
     const insightId = id();
-    await controller.appendToDraft(draftId, [
-      cmd("CreateInsight", {
-        id: insightId,
-        name: "Draft-only insight",
-        source: { sourceType: "dataTable", sourceId: tableId },
-      }),
-    ]);
+    fixture.seed(
+      [
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "Draft-only insight",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      ],
+      draftId,
+    );
 
     // Draft-scoped reader: the insight is visible (reads the overlay).
     const draftReader = createAssistantReadHost({ app, draftId });
@@ -111,18 +157,25 @@ describe("assistant read host (resolver over the real server seam)", () => {
     // Canonical reader (no draftId): the insight does NOT exist yet.
     const canonicalReader = createAssistantReadHost({ app });
     expect(await canonicalReader.getInsight(insightId)).toBeNull();
+    expect(fixture.execute).toHaveBeenCalledWith(
+      "getInsight",
+      { id: insightId },
+      { draftId },
+    );
+    expect(fixture.execute).toHaveBeenCalledWith(
+      "getInsight",
+      { id: insightId },
+      {},
+    );
   });
 
-  it("filtered list reads do NOT throw under an active draftId (non-PK filter)", async () => {
-    // The draft-overlay coalesce THROWS on a non-PK server-side read filter
-    // (app.ts withDraftSeam contract). The host adapter must read unfiltered and
-    // filter in JS. Exercise the filtered paths under a draftId: they must
-    // succeed, not throw.
+  it("filtered list reads preserve draft scope and return only matching artifacts", async () => {
+    // The adapter obtains the scoped list and applies its graph-port filters.
     const sourceId = id();
     const tableId = id();
     const insightId = id();
     const vizId = id();
-    await publish(
+    await seedCanonical(
       cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
       cmd("CreateDataTable", {
         id: tableId,
@@ -144,17 +197,54 @@ describe("assistant read host (resolver over the real server seam)", () => {
       }),
     );
 
-    const draftId = await controller.openDraft();
+    const otherSourceId = id();
+    const otherTableId = id();
+    const otherInsightId = id();
+    await seedCanonical(
+      cmd("CreateDataSource", {
+        id: otherSourceId,
+        type: "csv",
+        name: "Other",
+      }),
+      cmd("CreateDataTable", {
+        id: otherTableId,
+        dataSourceId: otherSourceId,
+        name: "Other",
+        table: "other.csv",
+      }),
+      cmd("CreateInsight", {
+        id: otherInsightId,
+        name: "Other insight",
+        source: { sourceType: "dataTable", sourceId: otherTableId },
+      }),
+      cmd("CreateVisualization", {
+        id: id(),
+        name: "Other visualization",
+        insightId: otherInsightId,
+        visualizationType: "barY",
+        spec: {},
+      }),
+    );
+    const draftId = fixture.createDraft();
     const reader = createAssistantReadHost({ app, draftId });
-    // Each of these issues a non-PK filter that would throw if sent server-side
-    // under the draft; the adapter reads unfiltered + filters in JS.
+    // Assert both the filtered result and the draft context sent to the port.
     expect((await reader.listDataTables(sourceId)).map((t) => t.id)).toEqual([
       tableId,
     ]);
     expect(
       (await reader.listVisualizations(insightId)).map((v) => v.id),
     ).toEqual([vizId]);
-    // getDataFrameByInsight (no dataframe materialized) resolves to null, not throw.
+    expect(fixture.execute).toHaveBeenCalledWith(
+      "listDataTables",
+      {},
+      { draftId },
+    );
+    expect(fixture.execute).toHaveBeenCalledWith(
+      "listVisualizations",
+      {},
+      { draftId },
+    );
+    // No frame has been materialized for the insight.
     expect(await reader.getDataFrameByInsight(insightId)).toBeNull();
   });
 
@@ -180,14 +270,14 @@ describe("assistant read host (resolver over the real server seam)", () => {
       definitionId: id(),
       analysis: { credentialRef: secretRef },
     };
-    const fakeApp = {
-      createTracked: () => ({}),
-      runHandler: async (path: string) => {
+    const fakeApp: ApplicationOperations = {
+      forPrincipal: () => fakeApp,
+      execute: async (path: string) => {
         if (path === "getDataFrameEntry") return rawFrame;
         if (path === "listDataFrames") return [rawFrame];
         throw new Error(`Unexpected read: ${path}`);
       },
-    } as unknown as Parameters<typeof createAssistantReadHost>[0]["app"];
+    };
     const reader = createAssistantReadHost({ app: fakeApp });
 
     const single = await reader.getDataFrameEntry(frameId);
@@ -217,14 +307,14 @@ describe("assistant read host (resolver over the real server seam)", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Inherit-source masking over REAL Field.sensitivity.
+  // Inherit-source masking over Field.sensitivity.
   // -------------------------------------------------------------------------
-  it("readData masks (profiles-only) when a real source column is sensitive", async () => {
+  it("readData masks (profiles-only) when a source field is sensitive", async () => {
     const sourceId = id();
     const tableId = id();
     const emailField = field("email", "sensitive");
     const amountField = field("amount", "cleared");
-    await publish(
+    await seedCanonical(
       cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
       cmd("CreateDataTable", {
         id: tableId,
@@ -246,7 +336,7 @@ describe("assistant read host (resolver over the real server seam)", () => {
 
     // Masked: a sensitive source column inherits up to the whole read.
     expect(data.masked).toBe(true);
-    // Structure NEVER gated: both columns + their real sensitivity flow.
+    // Structure NEVER gated: both columns + their declared sensitivity flow.
     const byName = new Map(data.columns.map((c) => [c.name, c]));
     expect(byName.get("email")?.sensitivity).toBe("sensitive");
     expect(byName.get("amount")?.sensitivity).toBe("cleared");
@@ -257,7 +347,7 @@ describe("assistant read host (resolver over the real server seam)", () => {
   it("readData does NOT mask a fully-cleared source, still profiles-only", async () => {
     const sourceId = id();
     const tableId = id();
-    await publish(
+    await seedCanonical(
       cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
       cmd("CreateDataTable", {
         id: tableId,
@@ -283,7 +373,7 @@ describe("assistant read host (resolver over the real server seam)", () => {
     // column could be sensitive, so an unclassified table reads MASKED.
     const sourceId = id();
     const tableId = id();
-    await publish(
+    await seedCanonical(
       cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
       cmd("CreateDataTable", {
         id: tableId,
@@ -303,7 +393,7 @@ describe("assistant read host (resolver over the real server seam)", () => {
     const sourceId = id();
     const tableId = id();
     const emailField = field("email", "sensitive");
-    await publish(
+    await seedCanonical(
       cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
       cmd("CreateDataTable", {
         id: tableId,
@@ -314,7 +404,7 @@ describe("assistant read host (resolver over the real server seam)", () => {
       }),
     );
     const insightId = id();
-    await publish(
+    await seedCanonical(
       cmd("CreateInsight", {
         id: insightId,
         name: "Revenue",
@@ -341,7 +431,7 @@ describe("assistant read host (resolver over the real server seam)", () => {
     const metricTableId = id();
     const regionField = field("region", "cleared");
     const salaryField = field("salary", "sensitive");
-    await publish(
+    await seedCanonical(
       cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
       cmd("CreateDataTable", {
         id: baseTableId,
@@ -359,7 +449,7 @@ describe("assistant read host (resolver over the real server seam)", () => {
       }),
     );
     const insightId = id();
-    await publish(
+    await seedCanonical(
       cmd("CreateInsight", {
         id: insightId,
         name: "Avg salary by region",
@@ -392,7 +482,7 @@ describe("assistant read host (resolver over the real server seam)", () => {
     const sourceId = id();
     const baseTableId = id();
     const joinTableId = id();
-    await publish(
+    await seedCanonical(
       cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
       cmd("CreateDataTable", {
         id: baseTableId,
@@ -410,14 +500,14 @@ describe("assistant read host (resolver over the real server seam)", () => {
       }),
     );
     const insightId = id();
-    await publish(
+    await seedCanonical(
       cmd("CreateInsight", {
         id: insightId,
         name: "Joined",
         source: { sourceType: "dataTable", sourceId: baseTableId },
       }),
     );
-    await publish(
+    await seedCanonical(
       cmd("AddJoin", {
         id: insightId,
         join: {
@@ -429,7 +519,7 @@ describe("assistant read host (resolver over the real server seam)", () => {
       }),
     );
     // Now delete the joined table — the insight's join ref is left dangling.
-    await publish(cmd("DeleteNode", { id: joinTableId }));
+    await seedCanonical(cmd("DeleteNode", { id: joinTableId }));
 
     const reader = createAssistantReadHost({ app });
     const { readData } = createReadTools(reader);
@@ -444,7 +534,7 @@ describe("assistant read host (resolver over the real server seam)", () => {
     const sourceId = id();
     const tableId = id();
     const emailField = field("email", "sensitive");
-    await publish(
+    await seedCanonical(
       cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
       cmd("CreateDataTable", {
         id: tableId,
@@ -455,7 +545,7 @@ describe("assistant read host (resolver over the real server seam)", () => {
       }),
     );
     const baseInsightId = id();
-    await publish(
+    await seedCanonical(
       cmd("CreateInsight", {
         id: baseInsightId,
         name: "Base",
@@ -464,7 +554,7 @@ describe("assistant read host (resolver over the real server seam)", () => {
       }),
     );
     const composedInsightId = id();
-    await publish(
+    await seedCanonical(
       cmd("CreateInsight", {
         id: composedInsightId,
         name: "Composed",
@@ -495,14 +585,14 @@ describe("assistant read host (resolver over the real server seam)", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Neighborhood over real artifacts.
+  // Neighborhood over artifact DTOs.
   // -------------------------------------------------------------------------
   it("neighborhood of an insight = its base table (down) + viz (up), 1 hop", async () => {
     const sourceId = id();
     const tableId = id();
     const insightId = id();
     const vizId = id();
-    await publish(
+    await seedCanonical(
       cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
       cmd("CreateDataTable", {
         id: tableId,

@@ -1,21 +1,18 @@
 import { defineConfig, devices } from "@playwright/test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { findAvailablePortBlock } from "./support/port-finder";
 
 // Environment detection
 const isCI = !!process.env.CI;
 
-// Worker configuration
-// The app now stores shared metadata in the WyStack project database. Keep E2E
-// serial so tests share one API server predictably; IndexedDB still holds Arrow
-// bytes and is cleared by the fixtures.
+// Metadata and Arrow files belong to one isolated host project. Keep tests
+// serial and reset that project before every test.
 const WORKER_COUNT = 1;
 
-// Port configuration. Each worker gets its own web port for IndexedDB isolation
-// (different origins → different databases), and the shared WyStack API gets
-// the next port in the same free block. Playwright re-evaluates this config
-// inside every worker process, so we stamp the picked block into process.env on
-// the orchestrator and let workers read it back — otherwise each worker would
-// re-roll its own ports and miss the running webServers.
+// Playwright reloads this config in workers; share the orchestrator's ports and
+// unique run directory rather than creating another runtime in each worker.
 const BASE_PORT = await (async () => {
   const cached = process.env.E2E_BASE_PORT;
   if (cached) return Number(cached);
@@ -25,25 +22,26 @@ const BASE_PORT = await (async () => {
 })();
 const API_PORT = Number(process.env.E2E_API_PORT ?? BASE_PORT + WORKER_COUNT);
 const API_URL = `http://127.0.0.1:${API_PORT}`;
-process.env.E2E_WYSTACK_URL = API_URL;
+process.env.E2E_DASHFRAME_URL = API_URL;
+const RUN_DIRECTORY =
+  process.env.E2E_RUN_DIRECTORY ??
+  mkdtempSync(path.join(tmpdir(), "dashframe-e2e-"));
+process.env.E2E_RUN_DIRECTORY = RUN_DIRECTORY;
 const USER_TOKEN = "dashframe-e2e-user";
 process.env.E2E_USER_TOKEN = USER_TOKEN;
 
 // Export for use in test fixtures
 export { API_URL, BASE_PORT, isCI, WORKER_COUNT };
 
-/**
- * Generate webServer configuration.
- *
- * - CI: Single server, build included in command
- * - Local: Multiple servers for parallel workers
- */
-function apiServerCommand(port: number) {
-  return `cd ../.. && DASHFRAME_SECRET_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= bun run --filter @dashframe/server start -- --host 127.0.0.1 --port ${API_PORT} --token ${USER_TOKEN} --project /tmp/dashframe-e2e-${port}`;
+function shellQuote(value: string) {
+  return "'" + value.replaceAll("'", "'\"'\"'") + "'";
+}
+function apiServerCommand() {
+  return `cd ../.. && DASHFRAME_SECRET_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= bun run --filter @dashframe/server start -- --host 127.0.0.1 --port ${API_PORT} --token ${USER_TOKEN} --project ${shellQuote(path.join(RUN_DIRECTORY, "project"))} --data-dir ${shellQuote(path.join(RUN_DIRECTORY, "host-data"))}`;
 }
 
 function webServerCommand(port: number) {
-  return `cd ../../apps/web && VITE_WYSTACK_URL=${API_URL} bun run build && VITE_WYSTACK_URL=${API_URL} bun run start --port ${port} --strictPort`;
+  return `cd ../../apps/web && VITE_DASHFRAME_URL=${API_URL} bun run build && VITE_DASHFRAME_URL=${API_URL} bun run preview --port ${port} --strictPort`;
 }
 
 function getWebServerConfig() {
@@ -51,8 +49,11 @@ function getWebServerConfig() {
     // CI: Single API server + single web server with build.
     return [
       {
-        command: apiServerCommand(BASE_PORT),
-        url: `${API_URL}/api/projectInfo`,
+        command: apiServerCommand(),
+        // Authentication failures are valid readiness responses; fixtures then
+        // require a successful authenticated runtime query before navigation.
+        url: `${API_URL}/api/runtime`,
+        gracefulShutdown: { signal: "SIGTERM" as const, timeout: 15_000 },
         reuseExistingServer: false,
         timeout: 180_000,
         stdout: "pipe" as const,
@@ -71,9 +72,10 @@ function getWebServerConfig() {
 
   return [
     {
-      command: apiServerCommand(BASE_PORT),
-      url: `${API_URL}/api/projectInfo`,
-      reuseExistingServer: true,
+      command: apiServerCommand(),
+      url: `${API_URL}/api/runtime`,
+      gracefulShutdown: { signal: "SIGTERM" as const, timeout: 15_000 },
+      reuseExistingServer: false,
       timeout: 180_000,
       stdout: "pipe" as const,
       stderr: "pipe" as const,
@@ -81,7 +83,7 @@ function getWebServerConfig() {
     {
       command: webServerCommand(BASE_PORT),
       url: `http://localhost:${BASE_PORT}`,
-      reuseExistingServer: true,
+      reuseExistingServer: false,
       timeout: 180_000,
       stdout: "pipe" as const,
       stderr: "pipe" as const,

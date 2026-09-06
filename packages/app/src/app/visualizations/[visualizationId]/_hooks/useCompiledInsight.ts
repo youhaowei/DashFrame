@@ -1,5 +1,7 @@
+import { useQuery_experimental as useQuery } from "convex/react";
+import { queryStatus } from "@/data/query-status";
 import { resolveInsightAuthoringTable } from "@/lib/insights/compute-combined-fields";
-import { api } from "@/wystack/api";
+import { api } from "@dashframe/convex-backend/api";
 import { buildInsightAvailableFields } from "@dashframe/engine";
 import type {
   CompiledInsight,
@@ -8,24 +10,21 @@ import type {
   UseQueryResult,
   UUID,
 } from "@dashframe/types";
-import { useQuery } from "@wystack/client";
+
 import { useMemo } from "react";
 
 export function useCompiledInsight(
   id: UUID | undefined,
 ): UseQueryResult<CompiledInsight | null> {
-  const insight = useQuery(api.getInsight, {
-    args: { id },
-    skip: !id,
-  });
-  const tables = useQuery(api.listDataTables, {
-    args: {},
-    skip: !id,
-  });
-  const insights = useQuery(api.listInsights, {
-    args: {},
-    skip: !id,
-  });
+  const insight = queryStatus(
+    useQuery({ query: api.app.getInsight, args: !id ? "skip" : { id } }),
+  );
+  const tables = queryStatus(
+    useQuery({ query: api.app.listDataTables, args: !id ? "skip" : {} }),
+  );
+  const insights = queryStatus(
+    useQuery({ query: api.app.listInsights, args: !id ? "skip" : {} }),
+  );
 
   const compiled = useMemo((): CompiledInsight | null | undefined => {
     if (!id) return null;

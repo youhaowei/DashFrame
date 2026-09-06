@@ -1,4 +1,10 @@
 import {
+  nativeQueryMock,
+  nativeMutationMock,
+  hostQueryMock,
+  hostMutationMock,
+} from "@/test/native-query-fixture";
+import {
   act,
   fireEvent,
   render,
@@ -52,34 +58,55 @@ const {
   ],
 }));
 
-vi.mock("@wystack/client", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@wystack/client")>();
-  return {
-    ...actual,
-    useQuery: (ref: { _path: string }) => {
-      if (ref._path === "listAssistantProviderConfigs") {
-        return { data: configsData, isLoading: false, refetch: configsRefetch };
+vi.mock("convex/react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("convex/react")>()),
+  useQuery_experimental: nativeQueryMock((ref: { _path: string }) => {
+    if (ref._path === "listAssistantProviderConfigs") {
+      return { data: configsData, isLoading: false, refetch: configsRefetch };
+    }
+    return {
+      data: catalogData,
+      isLoading: false,
+      refetch: async () => undefined,
+    };
+  }),
+  useMutation: nativeMutationMock((ref: { _path: string }) => ({
+    mutateAsync: (args: { input: Record<string, string> }) => {
+      if (ref._path !== "setAssistantDefaultModel") {
+        return Promise.resolve(undefined);
       }
-      return {
-        data: catalogData,
-        isLoading: false,
-        refetch: async () => undefined,
-      };
+      modelCalls.push(args);
+      return new Promise<void>((resolve, reject) => {
+        modelResolvers.push(resolve);
+        modelRejecters.push(reject);
+      });
     },
-    useMutation: (ref: { _path: string }) => ({
-      mutateAsync: (args: { input: Record<string, string> }) => {
-        if (ref._path !== "setAssistantDefaultModel") {
-          return Promise.resolve(undefined);
-        }
-        modelCalls.push(args);
-        return new Promise<void>((resolve, reject) => {
-          modelResolvers.push(resolve);
-          modelRejecters.push(reject);
-        });
-      },
-    }),
-  };
-});
+  })),
+}));
+vi.mock("@/data/host", () => ({
+  useHostQuery: hostQueryMock((ref: { _path: string }) => {
+    if (ref._path === "listAssistantProviderConfigs") {
+      return { data: configsData, isLoading: false, refetch: configsRefetch };
+    }
+    return {
+      data: catalogData,
+      isLoading: false,
+      refetch: async () => undefined,
+    };
+  }),
+  useHostMutation: hostMutationMock((ref: { _path: string }) => ({
+    mutateAsync: (args: { input: Record<string, string> }) => {
+      if (ref._path !== "setAssistantDefaultModel") {
+        return Promise.resolve(undefined);
+      }
+      modelCalls.push(args);
+      return new Promise<void>((resolve, reject) => {
+        modelResolvers.push(resolve);
+        modelRejecters.push(reject);
+      });
+    },
+  })),
+}));
 
 vi.mock("@wystack/ui-react", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@wystack/ui-react")>();

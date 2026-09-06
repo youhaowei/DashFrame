@@ -1,3 +1,5 @@
+import { useQuery_experimental as useQuery, useMutation } from "convex/react";
+import { queryStatus } from "@/data/query-status";
 /**
  * Per-cell override popover — anchored to the cell, opened by the customize button.
  *
@@ -18,7 +20,7 @@
  */
 
 import { resolveInsightAvailableFields } from "@/lib/insights/compute-combined-fields";
-import { api } from "@/wystack/api";
+import { api } from "@dashframe/convex-backend/api";
 import type {
   DashboardControl,
   DashboardItem,
@@ -28,7 +30,7 @@ import type {
   InsightSort,
 } from "@dashframe/types";
 import { cmd, type UUID } from "@dashframe/types";
-import { useMutation, useQuery } from "@wystack/client";
+
 import {
   Badge,
   Button,
@@ -269,14 +271,18 @@ export function OverridePopover({
   dashboardId,
   controls,
 }: OverridePopoverProps) {
-  const commitBatch = useMutation(api.commitBatch);
+  const commitBatch = useMutation(api.app.commitBatch);
 
   // Self-fetch visualization → insight → data table (same pattern as VisualizationDisplay).
-  const { data: visualizations = [] } = useQuery(api.listVisualizations, {
-    args: {},
-  });
-  const { data: insights = [] } = useQuery(api.listInsights, { args: {} });
-  const { data: dataTables = [] } = useQuery(api.listDataTables, { args: {} });
+  const { data: visualizations = [] } = queryStatus(
+    useQuery({ query: api.app.listVisualizations, args: {} }),
+  );
+  const { data: insights = [] } = queryStatus(
+    useQuery({ query: api.app.listInsights, args: {} }),
+  );
+  const { data: dataTables = [] } = queryStatus(
+    useQuery({ query: api.app.listDataTables, args: {} }),
+  );
 
   const visualization = useMemo(
     () =>
@@ -353,20 +359,18 @@ export function OverridePopover({
   // ---------------------------------------------------------------------------
 
   function persistOverride(patch: DashboardItemOverridePatch) {
-    commitBatch
-      .mutateAsync({
-        commands: [
-          cmd("PatchDashboardItemOverride", {
-            dashboardId: dashboardId as UUID,
-            itemId: item.id,
-            patch,
-          }),
-        ],
-      })
-      .catch((error: unknown) => {
-        console.error("Failed to save dashboard override:", error);
-        toast.error("Failed to save dashboard override");
-      });
+    commitBatch({
+      commands: [
+        cmd("PatchDashboardItemOverride", {
+          dashboardId: dashboardId as UUID,
+          itemId: item.id,
+          patch,
+        }),
+      ],
+    }).catch((error: unknown) => {
+      console.error("Failed to save dashboard override:", error);
+      toast.error("Failed to save dashboard override");
+    });
   }
 
   function handlePin(fieldName: string, filter: InsightFilterOverride) {
@@ -434,7 +438,7 @@ export function OverridePopover({
         : c,
     );
     try {
-      await commitBatch.mutateAsync({
+      await commitBatch({
         commands: [
           cmd("SetDashboardControls", {
             dashboardId: dashboardId as UUID,
@@ -458,7 +462,7 @@ export function OverridePopover({
         : c,
     );
     try {
-      await commitBatch.mutateAsync({
+      await commitBatch({
         commands: [
           cmd("SetDashboardControls", {
             dashboardId: dashboardId as UUID,

@@ -1,4 +1,5 @@
-import { useQuery } from "@wystack/client";
+import { useHostQuery } from "@/data/host";
+
 import { Dock, cn } from "@wystack/ui-react";
 import { ThemePanel } from "@wystack/ui-react/views";
 import { useEffect, useState } from "react";
@@ -11,7 +12,6 @@ import {
   CONTEXT_PANEL_MIN_WIDTH,
   useShellStore,
 } from "@/lib/stores/shell-store";
-import { api } from "@/wystack/api";
 
 import { AssistantSidebar } from "../assistant/AssistantSidebar";
 import {
@@ -80,7 +80,7 @@ export function ShellRails({ shellWidth }: ShellRailsProps) {
   const assistantWidth = useShellStore((s) => s.assistantRailWidth);
   const setAssistantWidth = useShellStore((s) => s.setAssistantRailWidth);
   const assistantIntentOpen = useAssistantStore((s) => s.isOpen);
-  const assistantConfigs = useQuery(api.listAssistantProviderConfigs);
+  const assistantConfigs = useHostQuery("listAssistantProviderConfigs");
   const assistantAvailable = (assistantConfigs.data?.length ?? 0) > 0;
   const assistantOpen = assistantIntentOpen && assistantAvailable;
 

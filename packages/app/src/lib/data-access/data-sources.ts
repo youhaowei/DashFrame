@@ -1,10 +1,11 @@
+import { requestHost } from "@/data/host";
 import type { DataSource, UUID } from "@dashframe/types";
 
-import { api } from "../../wystack/api";
-import { getWyStackClient } from "../../wystack/client";
+import { api } from "@dashframe/convex-backend/api";
+import { getConvexClient } from "@/data/runtime";
 
 export async function getDataSource(id: UUID): Promise<DataSource | undefined> {
-  const result = await getWyStackClient().query(api.getDataSource, { id });
+  const result = await getConvexClient().query(api.app.getDataSource, { id });
   return (result as DataSource | null) ?? undefined;
 }
 
@@ -47,10 +48,8 @@ export async function getOrCreateDataSourceByType(
   name: string,
 ): Promise<DataSource> {
   const id = await deterministicDataSourceId(type);
-  // Single-command `.mutate()` is the degenerate one-command batch: it runs
-  // WITHOUT the applyCommands transaction, so atomicity here rests on the PK
-  // backstop (same deterministic id), not on the batch envelope.
-  await getWyStackClient().mutate(api.getOrCreateDataSource, {
+  // The host commits against this deterministic ID, so concurrent imports share one source.
+  await requestHost("getOrCreateDataSource", {
     id,
     type,
     name,

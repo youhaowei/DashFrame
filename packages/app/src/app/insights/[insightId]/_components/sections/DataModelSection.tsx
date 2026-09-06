@@ -1,3 +1,5 @@
+import { useQuery_experimental as useQuery, useMutation } from "convex/react";
+import { queryStatus } from "@/data/query-status";
 import { ConnectorIcon } from "@/components/data-sources/renderers/ConnectorIcon";
 import { JoinFlowModal } from "@/components/visualizations/JoinFlowModal";
 import {
@@ -5,12 +7,12 @@ import {
   useRegistryVersion,
 } from "@/lib/connectors/registry";
 import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
-import { api } from "@/wystack/api";
+import { api } from "@dashframe/convex-backend/api";
 import type { DataTable, Insight } from "@dashframe/types";
 import { cmd } from "@dashframe/types";
 import { JoinTypeIcon } from "@dashframe/ui";
 import { useNavigate } from "@tanstack/react-router";
-import { useMutation, useQuery } from "@wystack/client";
+
 import {
   ItemList,
   Section,
@@ -159,9 +161,13 @@ export const DataModelSection = memo(function DataModelSection({
   // not reactive on its own).
   useRegistryVersion();
 
-  const { data: allDataFrameEntries = [] } = useQuery(api.listDataFrames);
-  const { data: allDataSources = [] } = useQuery(api.listDataSources);
-  const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
+  const { data: allDataFrameEntries = [] } = queryStatus(
+    useQuery({ query: api.app.listDataFrames, args: {} }),
+  );
+  const { data: allDataSources = [] } = queryStatus(
+    useQuery({ query: api.app.listDataSources, args: {} }),
+  );
+  const commitBatch = useMutation(api.app.commitBatch);
   const { confirm } = useConfirmDialogStore();
 
   // Remove join handler - shows confirmation then removes

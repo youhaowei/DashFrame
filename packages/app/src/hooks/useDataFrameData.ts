@@ -1,10 +1,12 @@
+import { useQuery_experimental as useQuery } from "convex/react";
+import { queryStatus } from "@/data/query-status";
 import {
   queryDataFrame,
   type DataFrameEntry,
 } from "@/lib/data-access/data-frames";
-import { api } from "@/wystack/api";
+import { api } from "@dashframe/convex-backend/api";
 import type { DataFrameColumn, DataFrameData, UUID } from "@dashframe/types";
-import { useQuery } from "@wystack/client";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 export interface UseDataFrameDataResult {
@@ -29,7 +31,9 @@ export function useDataFrameData(
   dataFrameId: UUID | undefined,
   options?: { limit?: number; skip?: boolean },
 ): UseDataFrameDataResult {
-  const { data: allDataFrames } = useQuery(api.listDataFrames);
+  const { data: allDataFrames } = queryStatus(
+    useQuery({ query: api.app.listDataFrames, args: {} }),
+  );
   const entry = useMemo(
     () => allDataFrames?.find((frame) => frame.id === dataFrameId),
     [allDataFrames, dataFrameId],
@@ -97,7 +101,9 @@ export function useDataFrameDataByInsight(
   insightId: UUID | undefined,
   options?: { limit?: number; skip?: boolean },
 ): UseDataFrameDataResult {
-  const { data: allDataFrames } = useQuery(api.listDataFrames);
+  const { data: allDataFrames } = queryStatus(
+    useQuery({ query: api.app.listDataFrames, args: {} }),
+  );
   const entry = useMemo(
     () =>
       allDataFrames?.find(

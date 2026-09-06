@@ -1,9 +1,11 @@
+import { useQuery_experimental as useQuery, useMutation } from "convex/react";
+import { queryStatus } from "@/data/query-status";
 import { JoinFlowModal } from "@/components/visualizations/JoinFlowModal";
-import { api } from "@/wystack/api";
+import { api } from "@dashframe/convex-backend/api";
 import type { DataTable, Field, Insight } from "@dashframe/types";
 import { cmd } from "@dashframe/types";
 import { JoinTypeIcon } from "@dashframe/ui";
-import { useMutation, useQuery } from "@wystack/client";
+
 import {
   ItemList,
   Section,
@@ -34,8 +36,10 @@ export const DataSourcesSection = memo(function DataSourcesSection({
   allTableFields,
 }: DataSourcesSectionProps) {
   const [isJoinFlowOpen, setIsJoinFlowOpen] = useState(false);
-  const { data: allDataFrameEntries = [] } = useQuery(api.listDataFrames);
-  const { mutateAsync: commitBatch } = useMutation(api.commitBatch);
+  const { data: allDataFrameEntries = [] } = queryStatus(
+    useQuery({ query: api.app.listDataFrames, args: {} }),
+  );
+  const commitBatch = useMutation(api.app.commitBatch);
 
   // Remove join handler
   const handleRemoveJoin = useCallback(

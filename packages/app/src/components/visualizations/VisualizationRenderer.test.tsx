@@ -1,17 +1,26 @@
+import {
+  nativeQueryMock,
+  nativeMutationMock,
+  hostQueryMock,
+  hostMutationMock,
+} from "@/test/native-query-fixture";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-// Partial-mock the WyStack client: keep `createApi` real and replace hooks.
-vi.mock("@wystack/client", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@wystack/client")>();
-  return {
-    ...actual,
-    useQuery: () => ({
-      data: [{ id: "viz", insightId: "insight", visualizationType: "bar" }],
-    }),
-    useMutation: () => ({ mutateAsync: vi.fn() }),
-  };
-});
+// Keep generated Convex function references while replacing React hooks.
+vi.mock("convex/react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("convex/react")>()),
+  useQuery_experimental: nativeQueryMock(() => ({
+    data: [{ id: "viz", insightId: "insight", visualizationType: "bar" }],
+  })),
+  useMutation: nativeMutationMock(() => ({ mutateAsync: vi.fn() })),
+}));
+vi.mock("@/data/host", () => ({
+  useHostQuery: hostQueryMock(() => ({
+    data: [{ id: "viz", insightId: "insight", visualizationType: "bar" }],
+  })),
+  useHostMutation: hostMutationMock(() => ({ mutateAsync: vi.fn() })),
+}));
 
 vi.mock("./VisualizationDisplay", () => ({
   VisualizationDisplay: ({ visualizationId }: { visualizationId: string }) => (

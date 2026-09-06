@@ -14,8 +14,8 @@ export {
 } from "./components/providers/ChartEngineProvider";
 
 export {
-  createWyStackRuntime,
-  resolveWyStackConfig,
-  type WyStackRuntime,
-  type WyStackRuntimeConfig,
-} from "./wystack/runtime";
+  createAppRuntime,
+  resolveAppConfig,
+  type AppRuntime,
+  type AppRuntimeConfig,
+} from "./data/runtime";

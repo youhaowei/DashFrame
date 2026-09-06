@@ -1,3 +1,9 @@
+import {
+  nativeQueryMock,
+  nativeMutationMock,
+  hostQueryMock,
+  hostMutationMock,
+} from "@/test/native-query-fixture";
 /**
  * DataSourcePageContent tests.
  *
@@ -18,7 +24,6 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import {
   afterEach,
   beforeEach,
@@ -50,24 +55,35 @@ const { mockCreateInsightFromTable } = vi.hoisted(() => ({
   mockCreateInsightFromTable: vi.fn(),
 }));
 
-vi.mock("@wystack/client", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@wystack/client")>();
-  return {
-    ...actual,
-    useQuery: (ref: { _path: string }) => {
-      if (ref._path === "listDataSources") return mockUseDataSources();
-      if (ref._path === "listDataTables") return mockUseDataTables();
-      if (ref._path === "listDataFrames") return { data: [] };
-      throw new Error(`Unexpected query: ${ref._path}`);
-    },
-    useMutation: (ref: { _path: string }) => {
-      if (ref._path === "commitBatch") {
-        return { mutateAsync: mockCommitBatch };
-      }
-      throw new Error(`Unexpected mutation: ${ref._path}`);
-    },
-  };
-});
+vi.mock("convex/react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("convex/react")>()),
+  useQuery_experimental: nativeQueryMock((ref: { _path: string }) => {
+    if (ref._path === "listDataSources") return mockUseDataSources();
+    if (ref._path === "listDataTables") return mockUseDataTables();
+    if (ref._path === "listDataFrames") return { data: [] };
+    throw new Error(`Unexpected query: ${ref._path}`);
+  }),
+  useMutation: nativeMutationMock((ref: { _path: string }) => {
+    if (ref._path === "commitBatch") {
+      return { mutateAsync: mockCommitBatch };
+    }
+    throw new Error(`Unexpected mutation: ${ref._path}`);
+  }),
+}));
+vi.mock("@/data/host", () => ({
+  useHostQuery: hostQueryMock((ref: { _path: string }) => {
+    if (ref._path === "listDataSources") return mockUseDataSources();
+    if (ref._path === "listDataTables") return mockUseDataTables();
+    if (ref._path === "listDataFrames") return { data: [] };
+    throw new Error(`Unexpected query: ${ref._path}`);
+  }),
+  useHostMutation: hostMutationMock((ref: { _path: string }) => {
+    if (ref._path === "commitBatch") {
+      return { mutateAsync: mockCommitBatch };
+    }
+    throw new Error(`Unexpected mutation: ${ref._path}`);
+  }),
+}));
 
 vi.mock("@/hooks/useCreateInsight", () => ({
   useCreateInsight: () => ({
@@ -84,7 +100,8 @@ vi.mock("@/hooks/useDataFrameData", () => ({
 }));
 
 vi.mock("@/lib/connectors/registry", () => ({
-  getConnectorById: () => null,
+  getConnectorById: (id: string) =>
+    id === "csv" ? { name: "CSV", icon: "<svg>csv</svg>" } : null,
   useRegistryVersion: () => 0,
 }));
 
@@ -114,14 +131,17 @@ vi.mock("@dashframe/types", async (importOriginal) => {
 vi.mock("@/components/layouts/AppLayout", () => ({
   AppLayout: ({
     children,
+    pageHeader,
     headerContent,
     leftPanel,
   }: {
     children: React.ReactNode;
+    pageHeader?: React.ReactNode;
     headerContent?: React.ReactNode;
     leftPanel?: React.ReactNode;
   }) => (
     <div>
+      {pageHeader}
       {headerContent}
       {leftPanel}
       {children}
@@ -139,83 +159,161 @@ vi.mock("@dashframe/ui", () => ({
   VirtualTable: () => null,
 }));
 
+vi.mock("@/components/artifacts/ArtifactSwitcher", () => ({
+  ArtifactSwitcher: ({
+    label,
+    items,
+    selectedId,
+    onSelect,
+  }: {
+    label: string;
+    items: Array<{ id: string; name: string }>;
+    selectedId: string | null;
+    onSelect: (id: string) => void;
+  }) => (
+    <div data-testid={`${label.toLowerCase()}-switcher`}>
+      <button type="button">
+        {label}:{" "}
+        {items.find((item) => item.id === selectedId)?.name ?? "Select"}
+      </button>
+      {items.map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          aria-label={`${label} option ${item.name}`}
+          onClick={() => onSelect(item.id)}
+        >
+          {item.name}
+        </button>
+      ))}
+    </div>
+  ),
+}));
+
 // Stub UI components — only Button needs a real label so the "Go to Data Sources"
 // button text shows up in the DOM for the not-found assertion.
-vi.mock("@wystack/ui-react", () => ({
-  Badge: ({ children }: { children: React.ReactNode }) => (
-    <span>{children}</span>
-  ),
-  Button: ({ label, onClick }: { label: string; onClick?: () => void }) => (
-    <button onClick={onClick}>{label}</button>
-  ),
-  Card: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  CardContent: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
-  CardHeader: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
-  CardTitle: ({ children }: { children: React.ReactNode }) => (
-    <h3>{children}</h3>
-  ),
-  Dialog: ({ children, open }: { children: React.ReactNode; open: boolean }) =>
-    open ? <div role="dialog">{children}</div> : null,
-  DialogContent: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
-  DialogDescription: ({ children }: { children: React.ReactNode }) => (
-    <p>{children}</p>
-  ),
-  DialogFooter: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
-  DialogHeader: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
-  DialogTitle: ({ children }: { children: React.ReactNode }) => (
-    <h2>{children}</h2>
-  ),
-  DropdownMenu: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
-  DropdownMenuContent: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
-  DropdownMenuItem: ({
-    children,
-    onClick,
-  }: {
-    children: React.ReactNode;
-    onClick?: () => void;
-  }) => <button onClick={onClick}>{children}</button>,
-  DropdownMenuTrigger: ({ render: r }: { render: React.ReactNode }) => <>{r}</>,
-  Input: ({
-    value,
-    onChange,
-    placeholder,
-  }: {
-    value: string;
-    onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void;
-    placeholder?: string;
-  }) => (
-    <input
-      value={value}
-      onChange={onChange}
-      placeholder={placeholder}
-      readOnly={!onChange}
-    />
-  ),
-  ItemCard: ({
-    title,
-    onClick,
-  }: {
-    title: string;
-    onClick?: () => void;
-    icon?: React.ReactNode;
-    subtitle?: string;
-    active?: boolean;
-  }) => <button onClick={onClick}>{title}</button>,
-}));
+vi.mock("@wystack/ui-react", async () => {
+  const React = await import("react");
+  const PopoverContext = React.createContext<{
+    open: boolean;
+    setOpen: (open: boolean) => void;
+  } | null>(null);
+
+  return {
+    Badge: ({ children }: { children: React.ReactNode }) => (
+      <span>{children}</span>
+    ),
+    Button: ({ label, onClick }: { label: string; onClick?: () => void }) => (
+      <button onClick={onClick}>{label}</button>
+    ),
+    ButtonPrimitive: ({
+      children,
+      variant: _variant,
+      ...props
+    }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+      variant?: string;
+    }) => <button {...props}>{children}</button>,
+    Card: ({ children }: { children: React.ReactNode }) => (
+      <div>{children}</div>
+    ),
+    CardContent: ({ children }: { children: React.ReactNode }) => (
+      <div>{children}</div>
+    ),
+    CardHeader: ({ children }: { children: React.ReactNode }) => (
+      <div>{children}</div>
+    ),
+    CardTitle: ({ children }: { children: React.ReactNode }) => (
+      <h3>{children}</h3>
+    ),
+    Dialog: ({
+      children,
+      open,
+    }: {
+      children: React.ReactNode;
+      open: boolean;
+    }) => (open ? <div role="dialog">{children}</div> : null),
+    DialogContent: ({ children }: { children: React.ReactNode }) => (
+      <div>{children}</div>
+    ),
+    DialogDescription: ({ children }: { children: React.ReactNode }) => (
+      <p>{children}</p>
+    ),
+    DialogFooter: ({ children }: { children: React.ReactNode }) => (
+      <div>{children}</div>
+    ),
+    DialogHeader: ({ children }: { children: React.ReactNode }) => (
+      <div>{children}</div>
+    ),
+    DialogTitle: ({ children }: { children: React.ReactNode }) => (
+      <h2>{children}</h2>
+    ),
+    DropdownMenu: ({ children }: { children: React.ReactNode }) => (
+      <div>{children}</div>
+    ),
+    DropdownMenuContent: ({ children }: { children: React.ReactNode }) => (
+      <div>{children}</div>
+    ),
+    DropdownMenuItem: ({
+      children,
+      onClick,
+    }: {
+      children: React.ReactNode;
+      onClick?: () => void;
+    }) => <button onClick={onClick}>{children}</button>,
+    DropdownMenuTrigger: ({ render: r }: { render: React.ReactNode }) => (
+      <>{r}</>
+    ),
+    Popover: ({ children }: { children: React.ReactNode }) => {
+      const [open, setOpen] = React.useState(false);
+      return (
+        <PopoverContext.Provider value={{ open, setOpen }}>
+          <div>{children}</div>
+        </PopoverContext.Provider>
+      );
+    },
+    PopoverTrigger: ({ render: r }: { render: React.ReactNode }) => {
+      const context = React.useContext(PopoverContext);
+      return React.cloneElement(
+        r as React.ReactElement<React.ButtonHTMLAttributes<HTMLButtonElement>>,
+        {
+          "aria-haspopup": "dialog",
+          "aria-expanded": context?.open ? "true" : "false",
+          onClick: () => context?.setOpen(!context.open),
+        },
+      );
+    },
+    PopoverContent: ({ children }: { children: React.ReactNode }) => {
+      const context = React.useContext(PopoverContext);
+      return context?.open ? <div>{children}</div> : null;
+    },
+    Input: ({
+      value,
+      onChange,
+      placeholder,
+    }: {
+      value: string;
+      onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void;
+      placeholder?: string;
+    }) => (
+      <input
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        readOnly={!onChange}
+      />
+    ),
+    ItemCard: ({
+      title,
+      onClick,
+    }: {
+      title: string;
+      onClick?: () => void;
+      icon?: React.ReactNode;
+      subtitle?: string;
+      active?: boolean;
+    }) => <button onClick={onClick}>{title}</button>,
+  };
+});
 
 vi.mock("@wystack/ui-react/icons", () => ({
   DatabaseIcon: () => <span data-testid="db-icon" />,
@@ -227,7 +325,9 @@ vi.mock("@wystack/ui-react/icons", () => ({
 }));
 
 vi.mock("@/components/data-sources/renderers/ConnectorIcon", () => ({
-  ConnectorIcon: () => null,
+  ConnectorIcon: ({ svg }: { svg: string }) => (
+    <span data-testid="connector-icon" data-svg={svg} />
+  ),
 }));
 
 vi.mock("@/components/data-sources/SensitivityBadge", () => ({
@@ -254,6 +354,11 @@ const DATA_SOURCE = {
   config: { hasApiKey: false, hasConnectionString: false },
   createdAt: 0,
 } satisfies import("@dashframe/types").DataSource;
+
+function openRenameSource() {
+  fireEvent.click(screen.getByRole("button", { name: "Rename source" }));
+  return screen.getByDisplayValue("My Database");
+}
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
@@ -297,7 +402,7 @@ describe("DataSourcePageContent — loading state contract", () => {
 
     // The source name is rendered in the content (input value);
     // getByDisplayValue throws if absent
-    screen.getByDisplayValue("My Database");
+    openRenameSource();
   });
 
   it("shows 'not found' only after loading completes and the source is genuinely absent", async () => {
@@ -332,14 +437,13 @@ describe("DataSourcePageContent — loading state contract", () => {
     screen.getByText("Data source not found");
   });
 
-  it("does not flash 'not found' during a background refetch (isFetching) when stale cache omits the source", async () => {
-    // Cached data exists (isLoading false) but a post-invalidation refetch is
-    // in flight (isFetching true) and the stale cache does not yet include this
-    // source. This is the refetch window: not-found must NOT flash.
+  it("does not flash 'not found' while the native subscription is pending after invalidation", async () => {
+    // Native Convex queries expose pending/success/error rather than a separate
+    // background-fetch state. While pending, missing data must not render as a
+    // confirmed absence.
     mockUseDataSources.mockReturnValue({
       data: [],
-      isLoading: false,
-      isFetching: true,
+      isLoading: true,
     });
 
     const { rerender } = render(<DataSourcePageContent sourceId={SOURCE_ID} />);
@@ -352,7 +456,6 @@ describe("DataSourcePageContent — loading state contract", () => {
     mockUseDataSources.mockReturnValue({
       data: [DATA_SOURCE],
       isLoading: false,
-      isFetching: false,
     });
 
     await act(async () => {
@@ -361,7 +464,58 @@ describe("DataSourcePageContent — loading state contract", () => {
 
     // Content renders; not-found never appeared for the real source
     expect(screen.queryByText("Data source not found")).toBeNull();
-    screen.getByDisplayValue("My Database");
+    openRenameSource();
+  });
+
+  it("waits for tables before showing an empty-table instruction", () => {
+    mockUseDataSources.mockReturnValue({
+      data: [DATA_SOURCE],
+      isLoading: false,
+    });
+    mockUseDataTables.mockReturnValue({ isLoading: true });
+
+    render(<DataSourcePageContent sourceId={SOURCE_ID} />);
+
+    expect(screen.queryByText("No tables yet")).toBeNull();
+    screen.getByText("Loading tables…");
+    screen.getByRole("heading", { level: 1, name: "My Database" });
+    screen.getByRole("button", { name: /^Sources:/ });
+    expect(screen.queryByText(/·\s*0 tables/)).toBeNull();
+  });
+
+  it("shows a table-query error without claiming the source has no tables", () => {
+    mockUseDataSources.mockReturnValue({
+      data: [DATA_SOURCE],
+      isLoading: false,
+    });
+    mockUseDataTables.mockReturnValue({ isError: true });
+
+    render(<DataSourcePageContent sourceId={SOURCE_ID} />);
+
+    expect(screen.queryByText("No tables yet")).toBeNull();
+    screen.getByRole("alert");
+    screen.getByRole("heading", { name: "Couldn't load tables" });
+    expect(screen.queryByText(/·\s*0 tables/)).toBeNull();
+  });
+
+  it("keeps the connector logo and exposes rename popover state", () => {
+    mockUseDataSources.mockReturnValue({
+      data: [DATA_SOURCE],
+      isLoading: false,
+    });
+
+    render(<DataSourcePageContent sourceId={SOURCE_ID} />);
+
+    expect(screen.getByTestId("connector-icon").getAttribute("data-svg")).toBe(
+      "<svg>csv</svg>",
+    );
+    const renameTrigger = screen.getByRole("button", {
+      name: "Rename source",
+    });
+    expect(renameTrigger.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(renameTrigger.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(renameTrigger);
+    expect(renameTrigger.getAttribute("aria-expanded")).toBe("true");
   });
 
   it("creates and opens a visualize-intent insight from the selected table", async () => {
@@ -384,9 +538,6 @@ describe("DataSourcePageContent — loading state contract", () => {
     render(<DataSourcePageContent sourceId={SOURCE_ID} />);
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Orders" }));
-    });
-    await act(async () => {
       fireEvent.click(
         screen.getByRole("button", { name: "Visualize this data" }),
       );
@@ -408,8 +559,9 @@ describe("DataSourcePageContent — loading state contract", () => {
 
     render(<DataSourcePageContent sourceId={SOURCE_ID} />);
 
+    const nameInput = openRenameSource();
     await act(async () => {
-      fireEvent.change(screen.getByDisplayValue("My Database"), {
+      fireEvent.change(nameInput, {
         target: { value: "Renamed Source" },
       });
     });
@@ -434,8 +586,9 @@ describe("DataSourcePageContent — loading state contract", () => {
 
     render(<DataSourcePageContent sourceId={SOURCE_ID} />);
 
+    const nameInput = openRenameSource();
     await act(async () => {
-      fireEvent.change(screen.getByDisplayValue("My Database"), {
+      fireEvent.change(nameInput, {
         target: { value: "Renamed Source" },
       });
     });
@@ -462,7 +615,6 @@ describe("DataSourcePageContent — loading state contract", () => {
 
     render(<DataSourcePageContent sourceId={SOURCE_ID} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Orders" }));
     fireEvent.click(screen.getByRole("button", { name: "Mark safe" }));
 
     expect(mockCommitBatch).toHaveBeenCalledWith({
@@ -484,7 +636,6 @@ describe("DataSourcePageContent — loading state contract", () => {
   });
 
   it("does not delete a data table after cancellation, but deletes it after confirmation", async () => {
-    const user = userEvent.setup();
     mockUseDataSources.mockReturnValue({
       data: [DATA_SOURCE],
       isLoading: false,
@@ -493,30 +644,99 @@ describe("DataSourcePageContent — loading state contract", () => {
       data: [{ id: "table-orders", name: "Orders", fields: [], metrics: [] }],
     });
 
-    render(
+    const view = render(
       <>
         <DataSourcePageContent sourceId={SOURCE_ID} />
         <ConfirmDialog />
       </>,
     );
-    await user.click(screen.getByRole("button", { name: "Orders" }));
-    await user.click(screen.getByRole("button", { name: "Delete Table" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete Table" }));
 
     expect(screen.getByRole("dialog").textContent).toContain(
       'Are you sure you want to delete "Orders"? This deletes the data table. Related DataFrame metadata and storage, and dependent insights, may remain. This action cannot be undone.',
     );
-    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(mockCommitBatch).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("button", { name: "Delete Table" }));
-    await user.click(screen.getByRole("button", { name: "Delete" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete Table" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
     await waitFor(() =>
       expect(mockCommitBatch).toHaveBeenCalledWith({
         commands: [{ path: "deleteNode", args: { id: "table-orders" } }],
       }),
     );
+    mockUseDataTables.mockReturnValue({ data: [] });
+    await act(async () => {
+      view.rerender(
+        <>
+          <DataSourcePageContent sourceId={SOURCE_ID} />
+          <ConfirmDialog />
+        </>,
+      );
+    });
     expect(screen.queryByRole("button", { name: "Delete Table" })).toBeNull();
-    screen.getByText("Select a table");
+    screen.getByRole("heading", { name: "No tables yet" });
+    screen.getByText(
+      "Use Add Source on the Data Sources page to import a table.",
+    );
+  });
+
+  it("shows the real import path when a source has no tables", () => {
+    mockUseDataSources.mockReturnValue({
+      data: [DATA_SOURCE],
+      isLoading: false,
+    });
+    mockUseDataTables.mockReturnValue({ data: [] });
+
+    render(<DataSourcePageContent sourceId={SOURCE_ID} />);
+
+    screen.getByRole("heading", { name: "No tables yet" });
+    screen.getByText(
+      "Use Add Source on the Data Sources page to import a table.",
+    );
+    screen.getByRole("button", { name: "Go to Data Sources" });
+    expect(screen.queryByText(/sidebar/i)).toBeNull();
+  });
+
+  it("never asks for a table selection when tables exist, including after a stale selection", async () => {
+    mockUseDataSources.mockReturnValue({
+      data: [DATA_SOURCE],
+      isLoading: false,
+    });
+    mockUseDataTables.mockReturnValue({
+      data: [
+        { id: "table-first", name: "First", fields: [], metrics: [] },
+        { id: "table-second", name: "Second", fields: [], metrics: [] },
+      ],
+    });
+
+    const view = render(<DataSourcePageContent sourceId={SOURCE_ID} />);
+    expect(screen.getByRole("heading", { name: "First" })).toBeTruthy();
+    expect(screen.queryByText("Select a table")).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Tables option Second" }),
+    );
+    expect(screen.getByRole("heading", { name: "Second" })).toBeTruthy();
+    expect(screen.queryByText("Select a table")).toBeNull();
+
+    mockUseDataTables.mockReturnValue({
+      data: [
+        {
+          id: "table-replacement",
+          name: "Replacement",
+          fields: [],
+          metrics: [],
+        },
+      ],
+    });
+    await act(async () => {
+      view.rerender(<DataSourcePageContent sourceId={SOURCE_ID} />);
+    });
+
+    expect(screen.getByRole("heading", { name: "Replacement" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Second" })).toBeNull();
+    expect(screen.queryByText("Select a table")).toBeNull();
   });
 });
 

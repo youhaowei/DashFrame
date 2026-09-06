@@ -1,13 +1,15 @@
+import { useQuery_experimental as useQuery } from "convex/react";
+import { queryStatus } from "@/data/query-status";
 import { ConnectorIcon } from "@/components/data-sources/renderers/ConnectorIcon";
 import {
   getConnectorById,
   useRegistryVersion,
 } from "@/lib/connectors/registry";
-import { api } from "@/wystack/api";
+import { api } from "@dashframe/convex-backend/api";
 import type { AnyConnector } from "@dashframe/engine";
 import { ItemSelector, type SelectableItem } from "@dashframe/ui";
 import { Link } from "@tanstack/react-router";
-import { useQuery } from "@wystack/client";
+
 import { Button, Surface, type ItemAction } from "@wystack/ui-react";
 import { ChartIcon, DatabaseIcon, PlusIcon } from "@wystack/ui-react/icons";
 import { useMemo } from "react";
@@ -54,8 +56,12 @@ export function DataSourceSelector({
   onSelect,
   onCreateClick,
 }: DataSourceSelectorProps) {
-  const { data: dataSources, isLoading } = useQuery(api.listDataSources);
-  const { data: allTables } = useQuery(api.listDataTables, { args: {} });
+  const { data: dataSources, isLoading } = queryStatus(
+    useQuery({ query: api.app.listDataSources, args: {} }),
+  );
+  const { data: allTables } = queryStatus(
+    useQuery({ query: api.app.listDataTables, args: {} }),
+  );
 
   // Subscribed so `items` below recomputes once the connector registry
   // hydrates from the server catalog (getConnectorById reads a module-scope

@@ -6,8 +6,8 @@
  * - waitForChart: Wait for chart to fully render
  * - homePage: Navigate to home and verify loaded
  *
- * For parallel execution, each worker gets its own server port
- * to ensure IndexedDB isolation (different origins = different databases).
+ * One isolated host project owns all metadata and Arrow files. Tests run
+ * serially and clear that project before navigating a fresh browser context.
  */
 import { test as base, expect } from "@playwright/test";
 import path from "path";
@@ -17,16 +17,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const fixturesDir = path.join(__dirname, "..", "fixtures");
 const isCI = !!process.env.CI;
 const BASE_PORT = Number(process.env.E2E_BASE_PORT ?? 3100);
-const WYSTACK_URL = process.env.E2E_WYSTACK_URL;
+const DASHFRAME_URL = process.env.E2E_DASHFRAME_URL;
 const USER_TOKEN = process.env.E2E_USER_TOKEN;
 
 /**
  * Get the base URL for a worker based on its parallel index.
- * Each worker gets its own port for IndexedDB isolation.
+ * The serial worker uses the run-specific web server.
  */
 function getWorkerBaseURL(parallelIndex: number): string {
   // CI: single worker, single port
-  // Local: each worker gets its own port for IndexedDB isolation
+  // Local: use the configured worker port.
   if (isCI) {
     return `http://localhost:${BASE_PORT}`;
   }
@@ -46,15 +46,9 @@ type UploadBufferFn = (
 type WaitForChartFn = () => Promise<void>;
 type HomePageFn = () => Promise<void>;
 
-// Worker-scoped fixtures (shared across tests in same worker)
-interface DashFrameWorkerFixtures {
-  /** Clears IndexedDB once when worker starts */
-  clearIndexedDB: void;
-}
-
 // Test-scoped auto fixtures
 interface DashFrameAutoFixtures {
-  /** Clears the WyStack server DB before each test for isolation */
+  /** Clears the native host project before each test for isolation */
   clearServerDB: void;
   /** Injects the authenticated API runtime before the app bootstraps. */
   authenticatedRuntime: void;
@@ -77,66 +71,14 @@ interface DashFrameFixtures {
 // Custom test with fixtures
 // ─────────────────────────────────────────────────────────────
 
-export const test = base.extend<
-  DashFrameFixtures & DashFrameAutoFixtures,
-  DashFrameWorkerFixtures
->({
-  /**
-   * Clear IndexedDB once when worker starts.
-   * Removes any pre-existing Arrow/DuckDB data from local development.
-   * Worker-scoped + auto means it runs once per worker, before any tests.
-   * WyStack server DB isolation is handled by clearServerDB (test-scoped).
-   */
-  clearIndexedDB: [
-    async ({ browser }, use, workerInfo) => {
-      const workerBaseURL = getWorkerBaseURL(workerInfo.parallelIndex);
-      const page = await browser.newPage();
-      try {
-        if (WYSTACK_URL && USER_TOKEN) {
-          await page.addInitScript(
-            ({ url, token }) => {
-              Object.defineProperty(globalThis, "dashframe", {
-                configurable: true,
-                value: { getServerInfo: async () => ({ url, token }) },
-              });
-            },
-            { url: WYSTACK_URL, token: USER_TOKEN },
-          );
-        }
-        await page.goto(workerBaseURL);
-        await page.evaluate(async () => {
-          const databases = await indexedDB.databases();
-          await Promise.all(
-            databases.map(
-              (db) =>
-                db.name &&
-                new Promise<void>((resolve, reject) => {
-                  const request = indexedDB.deleteDatabase(db.name!);
-                  request.onsuccess = () => resolve();
-                  request.onerror = () => reject(request.error);
-                }),
-            ),
-          );
-        });
-      } finally {
-        await page.close();
-      }
-      await use();
-    },
-    { scope: "worker", auto: true },
-  ],
-
-  /**
-   * Clear WyStack server DB before each test.
-   * Ensures every test starts with an empty server-side database so
-   * onboarding view (and other empty-state UI) renders correctly regardless
-   * of what previous tests created.  Test-scoped + auto = runs before every
-   * individual test.
-   */
+export const test = base.extend<DashFrameFixtures & DashFrameAutoFixtures>({
+  /** Reset native metadata, drafts, and host-owned data before each test. */
   clearServerDB: [
     async ({}, use) => {
-      if (WYSTACK_URL) {
-        const response = await fetch(`${WYSTACK_URL}/api/clearAllData`, {
+      if (!DASHFRAME_URL)
+        throw new Error("E2E_DASHFRAME_URL was not configured");
+      {
+        const response = await fetch(`${DASHFRAME_URL}/api/host/clearAllData`, {
           method: "POST",
           headers: {
             "content-type": "application/json",
@@ -146,7 +88,7 @@ export const test = base.extend<
         });
         if (!response.ok) {
           throw new Error(
-            `Failed to clear WyStack server DB before test: ${response.status} ${await response.text()}`,
+            `Failed to clear the E2E host project before test: ${response.status} ${await response.text()}`,
           );
         }
       }
@@ -157,17 +99,23 @@ export const test = base.extend<
 
   authenticatedRuntime: [
     async ({ page }, use) => {
-      if (WYSTACK_URL && USER_TOKEN) {
-        await page.addInitScript(
-          ({ url, token }) => {
-            Object.defineProperty(globalThis, "dashframe", {
-              configurable: true,
-              value: { getServerInfo: async () => ({ url, token }) },
-            });
-          },
-          { url: WYSTACK_URL, token: USER_TOKEN },
-        );
-      }
+      if (!DASHFRAME_URL || !USER_TOKEN)
+        throw new Error("E2E runtime was not configured");
+      const response = await fetch(`${DASHFRAME_URL}/api/runtime`, {
+        headers: { Authorization: `Bearer ${USER_TOKEN}` },
+      });
+      if (!response.ok)
+        throw new Error(`E2E runtime discovery failed: ${response.status}`);
+      const runtime = (await response.json()) as { convexUrl: string };
+      await page.addInitScript(
+        ({ url, token, convexUrl }) => {
+          Object.defineProperty(globalThis, "dashframe", {
+            configurable: true,
+            value: { getServerInfo: async () => ({ url, token, convexUrl }) },
+          });
+        },
+        { url: DASHFRAME_URL, token: USER_TOKEN, convexUrl: runtime.convexUrl },
+      );
       await use();
     },
     { scope: "test", auto: true },
@@ -175,7 +123,7 @@ export const test = base.extend<
 
   /**
    * Get the worker's assigned base URL.
-   * Each worker gets its own port for IndexedDB isolation.
+   * The serial worker uses the run-specific web server.
    */
   workerBaseURL: [
     async ({}, use, testInfo) => {
@@ -241,13 +189,12 @@ export const test = base.extend<
   /**
    * Navigate to home page and verify it's loaded.
    * Uses absolute URL to ensure correct server for each worker.
-   * IndexedDB is cleared once per worker by clearIndexedDB fixture.
    */
   homePage: async ({ page, workerBaseURL }, use) => {
     await use(async () => {
       await page.goto(workerBaseURL);
       // Home decides between onboarding and returning-user views only after
-      // the visualization list loads from the WyStack server, so allow a
+      // the visualization list loads from native Convex, so allow a
       // server round-trip (plus post-heavy-test latency) beyond the 5s
       // default expect timeout.
       await expect(

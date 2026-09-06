@@ -145,9 +145,9 @@ describe("Security Headers", () => {
       expect(cspHeader?.value).toContain("https://cdn.jsdelivr.net");
     });
 
-    it("should include configured WyStack host in connect-src", () => {
+    it("should include configured DashFrame host in connect-src", () => {
       const headers = getSecurityHeaders({
-        VITE_WYSTACK_URL: "http://127.0.0.1:4100/api",
+        VITE_DASHFRAME_URL: "http://127.0.0.1:4100/api",
       });
       const cspHeader = headers.find(
         (h) => h.key === "Content-Security-Policy",
@@ -157,11 +157,11 @@ describe("Security Headers", () => {
       expect(cspHeader?.value).toContain("http://127.0.0.1:4100");
     });
 
-    it("should include ws: WyStack host in connect-src when VITE_WYSTACK_URL uses http:", () => {
+    it("should include ws: DashFrame host in connect-src when VITE_DASHFRAME_URL uses http:", () => {
       // Browser CSP treats ws:/wss: as distinct from http:/https:.  Both must be
       // present so WebSocket connections to the WyStack server are allowed.
       const headers = getSecurityHeaders({
-        VITE_WYSTACK_URL: "http://127.0.0.1:4100/api",
+        VITE_DASHFRAME_URL: "http://127.0.0.1:4100/api",
       });
       const cspHeader = headers.find(
         (h) => h.key === "Content-Security-Policy",
@@ -174,9 +174,9 @@ describe("Security Headers", () => {
       expect(connectSrc).toContain("ws://127.0.0.1:4100");
     });
 
-    it("should include wss: WyStack host in connect-src when VITE_WYSTACK_URL uses https:", () => {
+    it("should include wss: DashFrame host in connect-src when VITE_DASHFRAME_URL uses https:", () => {
       const headers = getSecurityHeaders({
-        VITE_WYSTACK_URL: "https://example.com/api",
+        VITE_DASHFRAME_URL: "https://example.com/api",
       });
       const cspHeader = headers.find(
         (h) => h.key === "Content-Security-Policy",
@@ -189,7 +189,7 @@ describe("Security Headers", () => {
       expect(connectSrc).toContain("wss://example.com");
     });
 
-    it("should not include ws: or wss: entries in connect-src when VITE_WYSTACK_URL is absent", () => {
+    it("should not include ws: or wss: entries in connect-src when VITE_DASHFRAME_URL is absent", () => {
       const headers = getSecurityHeaders({});
       const cspHeader = headers.find(
         (h) => h.key === "Content-Security-Policy",
