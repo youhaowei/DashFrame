@@ -25,3 +25,18 @@ export function reflectApplyComputed(
 ): number {
   return Reflect["apply"](fn, undefined, [n]) as number;
 }
+
+type Handler = { run: () => void };
+
+// no-widen-then-assert: building into an open record and asserting it narrower
+// at the end. This shape is worth pinning — DashFrame's row and spec contracts
+// are `Record<string, unknown>`, so it is the violation most likely to be
+// written here by accident. The fix is in valid.ts.fixture: declare the
+// accumulator at its target type instead of asserting at the end.
+export function buildThenAssert(
+  keys: readonly string[],
+): Record<string, Handler> {
+  const acc: Record<string, unknown> = {};
+  for (const key of keys) acc[key] = { run: () => {} };
+  return acc as Record<string, Handler>;
+}

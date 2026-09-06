@@ -30,7 +30,7 @@ There are no separate named presets in the upstream repository. The only availab
 - The local gate is `bun run check`, which runs the convention guards plus `check:packages`, and `check:packages` deliberately filters out `@wystack/*` (`AGENTS.md` → **Lint / test / build**; the `check:packages` script in `package.json`).
 - Raw `bun run lint` / `turbo lint` is documented to fail on vendored `@wystack/*`, which lint with an uninstalled `oxlint`; the project uses filtered per-task commands for lint/test/build (`AGENTS.md` → **Lint / test / build**). Confirmed again on the current tree, so raw `bun run lint` is not the right anti-slop acceptance gate.
 - Root `vite.config.ts` already has a Vite+ lint config with `jsPlugins`, `ignorePatterns`, typed overrides, `typeAware: false`, and `typeCheck: false`. That is compatible with anti-slop mechanically, but policy-wise it is a broad lint change.
-- The vendored plugin needs a direct `@oxlint/plugins` development dependency at the exact version Vite+ 0.2.9 bundles (`=1.73.0`), so the plugin and the linter that loads it share one copy.
+- The vendored plugin needs `@oxlint/plugins` at the exact version Vite+ 0.2.9 depends on (`=1.73.0`), so the plugin and the linter that loads it share one copy. It is pinned in the root `catalog` beside `vite-plus`, which is what dictates its value — a Vite+ bump that does not move it in step leaves the plugin importing a stale copy.
 
 ## Local scan method
 
@@ -76,8 +76,30 @@ Two caveats on the zeros:
 | `no-unknown-returns`                        | Warn first     | Upstream rejects explicit `unknown` / `Promise<unknown>` returns and aliases resolving to unknown (<https://github.com/dmmulroy/anti-slop/blob/446268e5d15baa968eaec669ff65358d36ae6259/src/rules/no-unknown-returns.ts#L26-L89>). DashFrame has real opaque data surfaces: the per-column string parsers in `packages/engine/src/connector/utils.ts:45-70` return `unknown` because the parsed cell type genuinely varies. Some are good cleanup candidates; others are honest dynamic-data contracts. Warn-first is needed.                                                                                                                                                                                                                      |
 | `no-unknown-type-aliases`                   | Reject for now | Upstream rejects top-level aliases that are directly or indirectly `unknown` (<https://github.com/dmmulroy/anti-slop/blob/446268e5d15baa968eaec669ff65358d36ae6259/src/rules/no-unknown-type-aliases.ts#L15-L66>), but it does not visit aliases declared inside functions or blocks. Its documented contract is broader than its behavior, and Sonar already catches the direct redundant-alias case.                                                                                                                                                                                                                                                                                                                                             |
 | `no-unsafe-dictionary-type`                 | Warn first     | Upstream rejects dictionary contracts with direct values of `unknown`, `any`, `object`, `{}`, unions containing those, and equivalents (<https://github.com/dmmulroy/anti-slop/blob/446268e5d15baa968eaec669ff65358d36ae6259/src/rules/no-unsafe-dictionary-type.ts#L87-L130>; helper semantics at <https://github.com/dmmulroy/anti-slop/blob/446268e5d15baa968eaec669ff65358d36ae6259/src/shared/dictionary-types.ts#L190-L244>). DashFrame intentionally defines open row/spec types such as `DataFrameRow = Record<string, unknown>` (`packages/types/src/dataframe.ts:80`) and `VegaLiteSpec = Record<string, unknown>` (`packages/types/src/visualizations.ts:19`). This rule has value, but only after carving out row/spec/json contracts. |
-| `no-widen-then-assert`                      | Adopt now      | Upstream detects local const flows that widen known evidence and later assert it back narrower (<https://github.com/dmmulroy/anti-slop/blob/446268e5d15baa968eaec669ff65358d36ae6259/src/rules/no-widen-then-assert.ts#L314-L355>). Zero findings in both scans, and the rule targets the evidence-destroying flow directly rather than banning boundary assertions broadly.                                                                                                                                                                                                                                                                                                                                                                       |
+| `no-widen-then-assert`                      | Adopt now      | Upstream detects local const flows that widen known evidence and later assert it back narrower (<https://github.com/dmmulroy/anti-slop/blob/446268e5d15baa968eaec669ff65358d36ae6259/src/rules/no-widen-then-assert.ts#L314-L355>). Zero findings in both scans, and the rule targets the evidence-destroying flow directly rather than banning boundary assertions broadly. See **Adopting at `error` with zero findings** below for the one shape that will fire on new code.                                                                                                                                                                                                                                                                    |
 | `require-safety-comment-for-type-assertion` | Warn first     | Upstream requires a nearby `SAFETY:` comment for every non-const type assertion (<https://github.com/dmmulroy/anti-slop/blob/446268e5d15baa968eaec669ff65358d36ae6259/src/rules/require-safety-comment-for-type-assertion.ts#L7-L54>). At 1,375 findings across 263 files it is by far the largest, and DashFrame's existing justifications are not written as `SAFETY:` in the required position. Valuable for durable invariants, but a blanket error would create comment churn and could encourage low-quality boilerplate.                                                                                                                                                                                                                    |
+
+## Adopting at `error` with zero findings
+
+Zero findings today says nothing about code written tomorrow, so it is worth naming the
+shape that will fire. `no-widen-then-assert` reports building into an open record and
+asserting it narrower at the end:
+
+```ts
+const acc: Record<string, unknown> = {};
+for (const key of keys) acc[key] = makeHandler(key);
+return acc as Record<string, Handler>; // error anti-slop(no-widen-then-assert)
+```
+
+This is the rule working as designed rather than a false positive — the assertion does
+recreate evidence the declaration threw away — and the fix is to declare the accumulator
+at its target type. It is called out because DashFrame's row and spec contracts
+(`DataFrameRow`, `VegaLiteSpec`) are `Record<string, unknown>`, which makes this the
+violation most likely to be written here by accident. Both the reported shape and its
+fix are pinned in `scripts/oxlint-plugin-anti-slop/fixtures/`.
+
+`no-reflect-apply` has no equivalent sharp edge: it ignores a shadowed local `Reflect`,
+and the repository has no `Reflect.apply` in first-party source.
 
 ## Preset/integration recommendation
 

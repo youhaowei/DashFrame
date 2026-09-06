@@ -72,6 +72,8 @@ export default defineConfig({
       "apps/renderer/src/routeTree.gen.ts",
       "apps/web/src/routeTree.gen.ts",
       "libs/**",
+      "scripts/oxlint-plugin-anti-slop/rules/**",
+      "scripts/oxlint-plugin-anti-slop/shared/**",
     ],
     rules: {
       "no-array-constructor": "error",
@@ -450,6 +452,11 @@ export default defineConfig({
       "apps/renderer/src/routeTree.gen.ts",
       "apps/web/src/routeTree.gen.ts",
       "libs/",
+      // Verbatim upstream anti-slop sources. Formatting them would make every
+      // future re-vendor a whole-file diff with the real change buried in
+      // whitespace churn. Our own files in that directory stay formatted.
+      "scripts/oxlint-plugin-anti-slop/rules/",
+      "scripts/oxlint-plugin-anti-slop/shared/",
     ],
   },
 });

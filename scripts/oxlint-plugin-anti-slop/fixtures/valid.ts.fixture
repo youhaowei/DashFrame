@@ -32,3 +32,23 @@ export function shadowedReflect(): number {
   };
   return Reflect.apply();
 }
+
+type Handler = { run: () => void };
+
+// The fix for the buildThenAssert case in invalid.ts.fixture: the accumulator
+// is declared at its target type, so no evidence is ever discarded.
+export function declaresTargetType(
+  keys: readonly string[],
+): Record<string, Handler> {
+  const acc: Record<string, Handler> = {};
+  for (const key of keys) acc[key] = { run: () => {} };
+  return acc;
+}
+
+// An open record contract that stays open. Nothing asserts it narrower, so the
+// rule leaves DashFrame's `DataFrameRow` / `VegaLiteSpec` style alone.
+export function keepsOpenRecord(): Record<string, unknown> {
+  const row: Record<string, unknown> = {};
+  row.a = 1;
+  return row;
+}

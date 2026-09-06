@@ -46,6 +46,7 @@ const EXPECTED = [
   "invalid.ts:13 no-widen-then-assert",
   "invalid.ts:18 no-reflect-apply",
   "invalid.ts:26 no-reflect-apply",
+  "invalid.ts:41 no-widen-then-assert",
 ];
 
 function skip(reason, detail) {
