@@ -104,6 +104,37 @@ describe("defaultFormatValue", () => {
     );
   });
 
+  // Date.parse's legacy parser remaps years 0000-0099 onto 1900/2000, so a
+  // named-zone timestamp must not inherit that century shift.
+  it("preserves early years in named-zone timestamps", () => {
+    expect(defaultFormatValue("0001-01-01 00:00:00 UTC", "date")).toBe(
+      "Jan 1, 0001",
+    );
+    expect(defaultFormatValue("0099-01-01 00:00:00 UTC", "date")).toBe(
+      "Jan 1, 0099",
+    );
+    expect(defaultFormatValue("0004-02-29 12:00:00 UTC", "date")).toBe(
+      "Feb 29, 0004",
+    );
+    expect(defaultFormatValue("0000-12-31 23:00:00 EST", "date")).toBe(
+      "Jan 1, 0001",
+    );
+    expect(defaultFormatValue("0001-01-01 00:00:00 GMT+0200", "date")).toBe(
+      "Dec 31, 0000",
+    );
+  });
+
+  it("rejects the negative-zero expanded year", () => {
+    expect(defaultFormatValue("-000000-01-01", "date")).toBe("-000000-01-01");
+    expect(defaultFormatValue("-000000-01-01T00:00:00Z", "date")).toBe(
+      "-000000-01-01T00:00:00Z",
+    );
+    expect(defaultFormatValue("-000000-01-01 00:00:00 UTC", "date")).toBe(
+      "-000000-01-01 00:00:00 UTC",
+    );
+    expect(defaultFormatValue("+000000-01-01", "date")).toBe("Jan 1, 0000");
+  });
+
   it("honors explicit and hour-only offsets across UTC date boundaries", () => {
     expect(defaultFormatValue("2024-01-01 00:00:00-07", "date")).toBe(
       "Jan 1, 2024",
