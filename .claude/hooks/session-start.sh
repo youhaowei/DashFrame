@@ -24,21 +24,21 @@ log() { echo "[session-start] $*" >&2; }
 #    image that ships another version runs installs and tests on an
 #    unsupported toolchain. Install the exact pinned release through npm,
 #    which verifies the package against the registry, rather than piping a
-#    remote installer script into bash. Fail if no bun ends up on PATH.
+#    remote installer script into bash. Fail unless the pinned version is
+#    what `bun` resolves to afterwards.
 pinned=$(node -p "require('./package.json').packageManager.split('@')[1]")
 current=$(command -v bun >/dev/null 2>&1 && bun --version || echo "none")
 if [ "$current" != "$pinned" ]; then
   log "bun $current on PATH; installing pinned bun@$pinned via npm"
-  if ! npm install -g "bun@$pinned"; then
-    log "WARNING: could not install bun@$pinned; continuing with bun $current"
-  fi
+  npm install -g "bun@$pinned"
   hash -r
 fi
-if ! command -v bun >/dev/null 2>&1; then
-  log "ERROR: bun is not on PATH and could not be installed"
+current=$(command -v bun >/dev/null 2>&1 && bun --version || echo "none")
+if [ "$current" != "$pinned" ]; then
+  log "ERROR: bun $current is first on PATH after install; pinned $pinned is required"
   exit 1
 fi
-log "bun $(bun --version) (pinned $pinned)"
+log "bun $current (pinned $pinned)"
 
 # 1. Submodules (libs/wystack, libs/stdui) — only the ones never checked out.
 #    `git submodule status` prefixes an uninitialized submodule with '-'.
