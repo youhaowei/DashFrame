@@ -40,9 +40,12 @@ SecretVault keeps credentials and its host-local ref mappings outside Convex. Th
 persists a private signing key and official local-backend configuration under `.convex`.
 Those files are runtime configuration, not a second application metadata store.
 
-Graph reads currently fail explicitly above 1,000 rows per artifact table. Atomic command
-batches and complete draft logs are capped at 200 commands. These are deliberate initial
-limits, not pagination or silently truncated results.
+Command batches, draft reads, previews, and publishes load artifact rows on demand rather
+than reading whole tables; see [on-demand-graph.md](on-demand-graph.md). Whole-table reads
+survive only as bounded list surfaces and the delete cascade over user-authored tables,
+each refusing explicitly above 1,000 rows. Data frames are never read whole inside a
+command. Atomic command batches and complete draft logs are capped at 200 commands. These
+are deliberate limits, not pagination or silently truncated results.
 
 ## Required proof before publication
 

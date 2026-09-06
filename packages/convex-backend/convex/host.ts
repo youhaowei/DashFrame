@@ -34,13 +34,13 @@ import {
 import {
   find,
   rowValue,
-  loadGraph,
+  openGraph,
   persist,
   draft,
   readGraph,
   log,
 } from "./store";
-import { cloneGraph, execute } from "./engine";
+import { execute } from "./engine";
 import {
   type ArtifactTable,
   type ArtifactRow,
@@ -58,6 +58,56 @@ function shouldRetainInsightFrame(
   externallyReferenced: ReadonlySet<string>,
 ) {
   return frame.id === previousFrameId || externallyReferenced.has(frame.id);
+}
+/**
+ * Bound the frames a data table accumulates across refreshes: keep the frame
+ * the table now points at and the one it pointed at before (one-step rollback,
+ * and the row that keeps the superseded blob named until cleanup confirms it),
+ * plus anything another artifact or an open draft still references. Older
+ * frames leave the table and their blobs go to the cleanup outbox, which
+ * re-checks references before reclaiming. If the reference scan hits its cap,
+ * nothing is pruned: a leak is recoverable, a lost live frame is not.
+ */
+async function retainTableFrames(
+  ctx: MutationCtx,
+  workspaceId: string,
+  definitionId: string,
+  currentFrameId: string,
+  previousFrameId: string | null,
+) {
+  const rows = await ctx.db
+    .query("dataFrames")
+    .withIndex("by_workspaceId_and_definitionId", (q) =>
+      q.eq("workspaceId", workspaceId).eq("definitionId", definitionId),
+    )
+    .take(1001);
+  if (rows.length > 1000) throw new Error("Frame history limit exceeded");
+  const byFreshness = (a: (typeof rows)[number], b: (typeof rows)[number]) =>
+    (b.lastRefreshedAt ?? b.createdAt) - (a.lastRefreshedAt ?? a.createdAt);
+  const previous =
+    previousFrameId ??
+    rows.filter((frame) => frame.id !== currentFrameId).sort(byFreshness)[0]
+      ?.id;
+  const candidates = rows.filter(
+    (frame) => frame.id !== currentFrameId && frame.id !== previous,
+  );
+  if (!candidates.length) return;
+  let externallyReferenced: ReadonlySet<string>;
+  try {
+    externallyReferenced = await externallyReferencedFrameIds(
+      ctx,
+      workspaceId,
+      candidates,
+    );
+  } catch (error) {
+    if (!isResourceReferenceScanCapError(error)) throw error;
+    return;
+  }
+  for (const frame of candidates) {
+    if (externallyReferenced.has(frame.id)) continue;
+    await enqueueCleanup(ctx, workspaceId, resources(frame).values());
+    await ctx.db.delete(frame._id);
+  }
 }
 export const runtimeReady = internalQuery({
   args: {},
@@ -304,12 +354,25 @@ export const commitImportedFrame = internalMutation({
       { ...table, ...args.tableUpdate },
       "Imported table",
     );
-    await putFrame(ctx, args.workspaceId, args.frameRow);
+    // A frame committed for a table belongs to it. Stamp the ownership the
+    // retention index reads, whatever the caller supplied.
+    await putFrame(ctx, args.workspaceId, {
+      ...args.frameRow,
+      definitionId: args.dataTableId,
+      sourceId: args.dataSourceId,
+    });
     await ctx.db.patch(table._id, {
       ...args.tableUpdate,
       revision: table.revision + 1,
       updatedAt: Date.now(),
     });
+    await retainTableFrames(
+      ctx,
+      args.workspaceId,
+      args.dataTableId,
+      String(args.frameRow.id),
+      args.expectedDataFrameId,
+    );
     await ctx.db.insert("operations", {
       workspaceId: args.workspaceId,
       operationId: op,
@@ -387,6 +450,13 @@ export const publishMaterialization = internalMutation({
         revision: table.revision + 1,
         updatedAt: Date.now(),
       });
+      await retainTableFrames(
+        ctx,
+        args.workspaceId,
+        binding.id,
+        frame.id,
+        table.dataFrameId ?? null,
+      );
     }
     if (target.kind !== "transient") {
       if (target.kind === "saved") {
@@ -739,12 +809,15 @@ export async function runHostCommit(
         tablesWritten: string[];
       };
   }
-  const before = await loadGraph(ctx, args.workspaceId),
-    after = cloneGraph(before),
-    results = execute(after, args.commands, args.workspaceId, Date.now(), {
-      host: true,
-    }),
-    tablesWritten = await persist(ctx, args.workspaceId, before, after);
+  const graph = openGraph(ctx, args.workspaceId),
+    results = await execute(
+      graph,
+      args.commands,
+      args.workspaceId,
+      Date.now(),
+      { host: true },
+    ),
+    tablesWritten = await persist(ctx, args.workspaceId, graph);
   const result = {
     mode: "commit" as const,
     commands: args.commands.map((c) => ({
@@ -803,17 +876,19 @@ export async function runHostDraft(
       });
     row = (await ctx.db.get(id))!;
   }
-  const before = await loadGraph(ctx, args.workspaceId),
-    after = await readGraph(ctx, who, row.draftId),
+  const graph = await readGraph(ctx, who, row.draftId),
     commands = [
       ...(await log(ctx, args.workspaceId, row.draftId)).map((e) => e.command),
       ...args.commands,
     ],
-    results = execute(after, args.commands, args.workspaceId, Date.now(), {
-      host: true,
-      service: who.kind === "service",
-    });
-  await replaceDraft(ctx, row, commands, before, after);
+    results = await execute(
+      graph,
+      args.commands,
+      args.workspaceId,
+      Date.now(),
+      { host: true, service: who.kind === "service" },
+    );
+  await replaceDraft(ctx, row, commands, graph);
   return { draftId: row.draftId, results };
 }
 

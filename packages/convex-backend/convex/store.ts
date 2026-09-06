@@ -7,10 +7,10 @@ import {
 import { ConvexError } from "convex/values";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
-import { artifactTables, type ArtifactRow, type ArtifactTable } from "./model";
-import { emptyGraph, changes, type Graph } from "./engine";
+import { artifactTables, type ArtifactTable } from "./model";
+import { Graph, LIMIT, rowValue, graphKey, type Overlay } from "./graph";
+export { LIMIT, rowValue };
 import { clean } from "./values";
-export const LIMIT = 1000;
 export type Principal = {
   workspaceId: string;
   owner: string;
@@ -53,39 +53,16 @@ export async function find(
     )
     .unique();
 }
-export function rowValue(row: Doc<ArtifactTable>): ArtifactRow {
-  const { _id, _creationTime, ...value } = row;
-  return value;
-}
-export async function loadGraph(
-  ctx: QueryCtx,
-  workspaceId: string,
-): Promise<Graph> {
-  const graph = emptyGraph();
-  for (const table of artifactTables) {
-    const rows = await ctx.db
-      .query(table)
-      .withIndex("by_workspaceId_and_id", (q) =>
-        q.eq("workspaceId", workspaceId),
-      )
-      .take(LIMIT + 1);
-    if (rows.length > LIMIT)
-      throw new ConvexError(
-        table === "dataFrames"
-          ? `Workspace exceeds ${LIMIT} dataFrames; use the Data Frames recovery list to delete rows`
-          : `Workspace exceeds ${LIMIT} ${table}; pagination required`,
-      );
-    for (const row of rows) graph.get(table)!.set(row.id, rowValue(row));
-  }
-  return graph;
+/** Open the canonical artifact graph for a workspace. Rows load on demand. */
+export function openGraph(ctx: QueryCtx, workspaceId: string): Graph {
+  return new Graph(ctx, workspaceId);
 }
 export async function persist(
   ctx: MutationCtx,
   workspaceId: string,
-  before: Graph,
-  after: Graph,
+  graph: Graph,
 ) {
-  const diff = changes(before, after);
+  const diff = await graph.changes();
   await assertResourcesWritable(
     ctx,
     workspaceId,
@@ -159,23 +136,27 @@ export async function draftChanges(
   if (rows.length > LIMIT) throw new ConvexError("Draft change limit exceeded");
   return rows;
 }
+/**
+ * Open the artifact graph as seen through an optional draft: canonical rows
+ * with the draft's staged changes laid over them. Nothing is read until a
+ * caller asks for a row or an index range.
+ */
 export async function readGraph(
   ctx: QueryCtx,
   who: Principal,
   draftId?: string,
-) {
-  const graph = await loadGraph(ctx, who.workspaceId);
+): Promise<Graph> {
+  const overlay: Overlay = new Map();
   if (draftId) {
     await draft(ctx, who, draftId);
     for (const c of await draftChanges(ctx, who.workspaceId, draftId)) {
       const table = c.table as ArtifactTable;
       if (!artifactTables.includes(table))
         throw new Error("Invalid draft table");
-      if (c.value) graph.get(table)!.set(c.id, c.value);
-      else graph.get(table)!.delete(c.id);
+      overlay.set(graphKey(table, c.id), c.value ?? null);
     }
   }
-  return graph;
+  return new Graph(ctx, who.workspaceId, overlay);
 }
 export async function eraseDraft(ctx: MutationCtx, row: Doc<"drafts">) {
   const entries = await log(ctx, row.workspaceId, row.draftId),

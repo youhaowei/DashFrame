@@ -63,6 +63,9 @@ const artifactTable = () =>
     .index("by_workspaceId_and_id", ["workspaceId", "id"])
     .index("by_workspaceId_and_dataSourceId", ["workspaceId", "dataSourceId"])
     .index("by_workspaceId_and_insightId", ["workspaceId", "insightId"])
+    .index("by_workspaceId_and_sourceId", ["workspaceId", "sourceId"])
+    .index("by_workspaceId_and_definitionId", ["workspaceId", "definitionId"])
+    .index("by_workspaceId_and_dataFrameId", ["workspaceId", "dataFrameId"])
     .index("by_workspaceId_and_kind", ["workspaceId", "kind"]);
 export default defineSchema({
   workspaces: defineTable({

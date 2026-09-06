@@ -16,7 +16,8 @@ import {
   type ArtifactRow,
   type ArtifactTable,
 } from "./model";
-import { cloneGraph, execute, changes, type Graph } from "./engine";
+import { execute } from "./engine";
+import { Graph, graphKey } from "./graph";
 import {
   clean,
   record,
@@ -182,23 +183,47 @@ function edge(
   if (row.parentArtifactId === id) return "parentArtifact";
   return null;
 }
-export function preview(
-  before: Graph,
+/**
+ * Rows a downstream edge could originate from, read through indexes where one
+ * exists. User-authored tables are bounded scans (cached per graph); frames
+ * are reached only through their owning insight.
+ */
+async function neighbours(
+  graph: Graph,
+  from: { table: ArtifactTable; id: string },
+): Promise<[ArtifactTable, ArtifactRow][]> {
+  const out: [ArtifactTable, ArtifactRow][] = [];
+  const add = async (
+    table: ArtifactTable,
+    where?: Parameters<Graph["scan"]>[1],
+  ) => {
+    for (const row of await graph.scan(table, where)) out.push([table, row]);
+  };
+  for (const table of artifactTables)
+    if (table === "dataFrames") {
+      if (from.table === "insights") await add(table, { insightId: from.id });
+    } else await add(table);
+  return out;
+}
+export async function preview(
+  graph: Graph,
   commands: Command[],
   workspaceId: string,
   now: number,
   host = false,
-): PreviewDiff {
-  const after = cloneGraph(before),
-    direct = new Map<string, PreviewDirectNode>();
+): Promise<PreviewDiff> {
+  const direct = new Map<string, PreviewDirectNode>();
   let error: PreviewDiff["error"];
   const tables = new Set<string>();
   for (let index = 0; index < commands.length; index++) {
     const command = commands[index]!;
-    const prior = cloneGraph(after);
+    // Snapshot the rows touched so far; the command's own reads and writes
+    // are attributed against it below.
+    const prior = graph.mark();
     try {
-      const result = execute(after, [command], workspaceId, now, { host })[0]!
-        .value;
+      const result = (
+        await execute(graph, [command], workspaceId, now, { host })
+      )[0]!.value;
       const a = record(command.args);
       let key = String(a.nodeId ?? a.dashboardId ?? a.id ?? "");
       const fixed: Record<string, ArtifactTable> = {
@@ -243,15 +268,16 @@ export function preview(
       }
       if (!target)
         throw new Error(`Missing preview target for ${command.path}`);
-      for (const change of changes(prior, after)) tables.add(change.table);
+      for (const change of graph.changesSince(prior)) tables.add(change.table);
       const name =
         Object.entries(COMMAND_PATHS).find(
           ([, p]) => p === command.path,
         )?.[0] ?? command.path;
-      const mapKey = `${target}:${key}`,
-        base = before.get(target)!.get(key),
-        value = after.get(target)!.get(key),
-        changed = stable(prior.get(target)!.get(key)) !== stable(value);
+      const mapKey = graphKey(target, key),
+        base = (await graph.baseline(target, key)) ?? undefined,
+        value = await graph.find(target, key),
+        priorRow = prior.has(mapKey) ? (prior.get(mapKey) ?? undefined) : base,
+        changed = stable(priorRow ?? null) !== stable(value ?? null);
       if (changed) tables.add(target);
       const existing = direct.get(mapKey);
       direct.set(mapKey, {
@@ -279,11 +305,7 @@ export function preview(
                 ? record(redact(publicRow(target, value)))
                 : {
                     ...(existing?.proposedDefinition ?? {}),
-                    ...changedDefinition(
-                      target,
-                      prior.get(target)!.get(key)!,
-                      value,
-                    ),
+                    ...changedDefinition(target, priorRow!, value),
                   }
               : { deleted: true },
       });
@@ -305,26 +327,25 @@ export function preview(
     const visited = new Set<string>();
     while (queue.length) {
       const current = queue.shift()!;
-      for (const table of artifactTables)
-        for (const row of before.get(table)!.values()) {
-          const e = edge(current.table, current.id, table, row),
-            key = `${table}:${row.id}`;
-          if (!e || visited.has(key) || direct.has(key)) continue;
-          visited.add(key);
-          downstream.push({
-            nodeId: row.id as UUID,
-            kind: artifactKinds[table],
-            name: row.name,
-            edge: e,
-            via: { kind: node.kind, id: node.nodeId },
-            flag: node.proposedDefinition.deleted
-              ? "orphaned"
-              : table === "insights"
-                ? "recompute"
-                : "stale",
-          });
-          queue.push({ table, id: row.id });
-        }
+      for (const [table, row] of await neighbours(graph, current)) {
+        const e = edge(current.table, current.id, table, row),
+          key = `${table}:${row.id}`;
+        if (!e || visited.has(key) || direct.has(key)) continue;
+        visited.add(key);
+        downstream.push({
+          nodeId: row.id as UUID,
+          kind: artifactKinds[table],
+          name: row.name,
+          edge: e,
+          via: { kind: node.kind, id: node.nodeId },
+          flag: node.proposedDefinition.deleted
+            ? "orphaned"
+            : table === "insights"
+              ? "recompute"
+              : "stale",
+        });
+        queue.push({ table, id: row.id });
+      }
     }
   }
   return clean({

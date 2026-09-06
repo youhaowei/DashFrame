@@ -262,3 +262,133 @@ it("keeps both reference consumers on the shared eleven-table scan", async () =>
   expect(scannedTables).toEqual(WORKSPACE_REFERENCE_TABLES);
   expect(scannedTables).toHaveLength(11);
 });
+
+// The command engine loads rows on demand, so frame history the workspace has
+// accumulated never enters a commit, draft, preview, or publish transaction.
+it("runs commits, drafts, review, and publish with more than 1000 frames present", async () => {
+  const sourceId = crypto.randomUUID();
+  await t.run(async (ctx) => {
+    await ctx.db.insert("dataSources", {
+      workspaceId: "w",
+      id: sourceId,
+      revision: 1,
+      name: "Source",
+      createdAt: Date.now(),
+      kind: "csv",
+      config: {},
+    });
+    for (let index = 0; index < 1001; index++) {
+      const id = crypto.randomUUID();
+      await ctx.db.insert("dataFrames", {
+        workspaceId: "w",
+        id,
+        revision: 1,
+        name: "Historical frame",
+        createdAt: index,
+        storage: { type: "file", key: id },
+        fieldIds: [],
+      });
+    }
+  });
+  await user().mutation(api.app.commitBatch, {
+    commands: [
+      {
+        path: COMMAND_PATHS.RenameNode,
+        args: { id: sourceId, name: "Renamed" },
+      },
+    ],
+  });
+  expect(
+    (await user().query(api.app.getDataSource, { id: sourceId }))?.name,
+  ).toBe("Renamed");
+  const { draftId } = await user().mutation(api.app.draftBatch, {
+    commands: [
+      {
+        path: COMMAND_PATHS.RenameNode,
+        args: { id: sourceId, name: "Drafted" },
+      },
+    ],
+  });
+  expect(
+    (await user().query(api.app.getDataSource, { id: sourceId, draftId }))
+      ?.name,
+  ).toBe("Drafted");
+  expect(await user().query(api.app.listDataSources, { draftId })).toHaveLength(
+    1,
+  );
+  const review = await user().query(api.app.draftPublishReview, { draftId });
+  expect(review.diff.directNodes).toHaveLength(1);
+  expect(review.publishBlocked).toBe(false);
+  await user().mutation(api.app.publishDraft, { draftId });
+  expect(
+    (await user().query(api.app.getDataSource, { id: sourceId }))?.name,
+  ).toBe("Drafted");
+  // The list surface still refuses an unbounded frame read and names the exit.
+  await expect(user().query(api.app.listDataFrames, {})).rejects.toThrow(
+    "use the Data Frames recovery list",
+  );
+}, 30_000);
+
+it("deletes a data source's own frames through their index without touching the rest", async () => {
+  const sourceId = crypto.randomUUID(),
+    tableId = crypto.randomUUID(),
+    ownFrameId = crypto.randomUUID();
+  await t.run(async (ctx) => {
+    await ctx.db.insert("dataSources", {
+      workspaceId: "w",
+      id: sourceId,
+      revision: 1,
+      name: "Source",
+      createdAt: Date.now(),
+      kind: "csv",
+      config: {},
+    });
+    await ctx.db.insert("dataTables", {
+      workspaceId: "w",
+      id: tableId,
+      revision: 1,
+      name: "Table",
+      createdAt: Date.now(),
+      dataSourceId: sourceId,
+      table: "t",
+      fields: [],
+      metrics: [],
+      dataFrameId: ownFrameId,
+    });
+    await ctx.db.insert("dataFrames", {
+      workspaceId: "w",
+      id: ownFrameId,
+      revision: 1,
+      name: "Own frame",
+      createdAt: Date.now(),
+      sourceId,
+      definitionId: tableId,
+      storage: { type: "file", key: ownFrameId },
+      fieldIds: [],
+    });
+    for (let index = 0; index < 1001; index++) {
+      const id = crypto.randomUUID();
+      await ctx.db.insert("dataFrames", {
+        workspaceId: "w",
+        id,
+        revision: 1,
+        name: "Unrelated frame",
+        createdAt: index,
+        storage: { type: "file", key: id },
+        fieldIds: [],
+      });
+    }
+  });
+  await user().mutation(api.app.commitBatch, {
+    commands: [{ path: COMMAND_PATHS.DeleteNode, args: { id: sourceId } }],
+  });
+  const remaining = await t.run((ctx) =>
+    ctx.db
+      .query("dataFrames")
+      .withIndex("by_workspaceId_and_id", (q) => q.eq("workspaceId", "w"))
+      .take(5000),
+  );
+  expect(remaining).toHaveLength(1001);
+  expect(remaining.some((row) => row.id === ownFrameId)).toBe(false);
+  expect(await user().query(api.app.getDataTable, { id: tableId })).toBeNull();
+}, 30_000);
