@@ -68,4 +68,6 @@ the one-step rollback target and, because the cleanup outbox refuses to reclaim
 a blob while any row still names it, the protector for #367 acceptance case 1.
 Older frames leave the table and their blobs are queued for cleanup, which
 re-checks references before tombstoning. If the reference scan hits its cap,
-nothing is pruned.
+nothing is pruned. A table that accumulated more than 1,000 frames before
+retention existed is not pruned either, and its refresh still commits; the Data
+Frames recovery list is the way out of that state.

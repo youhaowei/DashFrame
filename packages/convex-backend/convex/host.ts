@@ -65,8 +65,11 @@ function shouldRetainInsightFrame(
  * and the row that keeps the superseded blob named until cleanup confirms it),
  * plus anything another artifact or an open draft still references. Older
  * frames leave the table and their blobs go to the cleanup outbox, which
- * re-checks references before reclaiming. If the reference scan hits its cap,
- * nothing is pruned: a leak is recoverable, a lost live frame is not.
+ * re-checks references before reclaiming. If either scan hits its cap (a
+ * table that accumulated history before retention existed, or a workspace
+ * over the reference-scan bound) nothing is pruned and the refresh still
+ * commits: a leak is recoverable through the Data Frames recovery list, a
+ * lost live frame or a table that can no longer refresh is not.
  */
 async function retainTableFrames(
   ctx: MutationCtx,
@@ -81,7 +84,7 @@ async function retainTableFrames(
       q.eq("workspaceId", workspaceId).eq("definitionId", definitionId),
     )
     .take(1001);
-  if (rows.length > 1000) throw new Error("Frame history limit exceeded");
+  if (rows.length > 1000) return;
   const byFreshness = (a: (typeof rows)[number], b: (typeof rows)[number]) =>
     (b.lastRefreshedAt ?? b.createdAt) - (a.lastRefreshedAt ?? a.createdAt);
   const previous =

@@ -172,11 +172,34 @@ it("keeps a superseded frame that another table or an open draft still reference
   await user().mutation(api.app.discardDraft, { draftId });
 });
 
-type Publication = FunctionArgs<
-  typeof internal.host.publishMaterialization
->["value"];
-it("bounds source frames written by saved-result publication the same way", async () => {
+// A table that accumulated history before retention existed must keep
+// refreshing: an over-cap history scan skips pruning rather than rejecting
+// the refresh, on both host write paths.
+it("still commits a refresh when a table already holds more than 1000 frames", async () => {
   const { sourceId, tableId } = await seed();
+  const first = await refresh(sourceId, tableId, null, 1);
+  await t.run(async (ctx) => {
+    for (let index = 0; index < 1000; index++) {
+      const id = crypto.randomUUID();
+      await ctx.db.insert("dataFrames", {
+        workspaceId: "w",
+        id,
+        revision: 1,
+        name: "Legacy frame",
+        createdAt: index,
+        sourceId,
+        definitionId: tableId,
+        storage: { type: "file", key: id },
+        fieldIds: [],
+      });
+    }
+  });
+  const second = await refresh(sourceId, tableId, first, 2);
+  expect(
+    (await user().query(api.app.getDataTable, { id: tableId }))?.dataFrameId,
+  ).toBe(second);
+  expect(await tableFrames(tableId)).toHaveLength(1002);
+  expect(await claim(first)).toBe("not queued");
   const insightId = crypto.randomUUID();
   await user().mutation(api.app.commitBatch, {
     commands: [
@@ -187,8 +210,25 @@ it("bounds source frames written by saved-result publication the same way", asyn
       }),
     ],
   });
+  await t.mutation(internal.host.publishMaterialization, {
+    workspaceId: "w",
+    value: publication(sourceId, tableId, insightId, 3),
+  });
+  expect(await tableFrames(tableId)).toHaveLength(1003);
+}, 60_000);
+
+type Publication = FunctionArgs<
+  typeof internal.host.publishMaterialization
+>["value"];
+/** One saved-result publication whose single source is the given table. */
+function publication(
+  sourceId: string,
+  tableId: string,
+  insightId: string,
+  fetchedAt: number,
+): Publication {
   const provenance = { connectorKind: "notion", bindingVersion: "v1" };
-  const publish = (fetchedAt: number): Publication => ({
+  return {
     sources: [
       {
         source: {
@@ -213,11 +253,24 @@ it("bounds source frames written by saved-result publication the same way", asyn
     definitionFingerprint: "fp",
     provenance,
     fetchedAt,
+  };
+}
+it("bounds source frames written by saved-result publication the same way", async () => {
+  const { sourceId, tableId } = await seed();
+  const insightId = crypto.randomUUID();
+  await user().mutation(api.app.commitBatch, {
+    commands: [
+      cmd("CreateInsight", {
+        id: insightId,
+        name: "Insight",
+        source: { sourceType: "dataTable", sourceId: tableId },
+      }),
+    ],
   });
   for (let index = 1; index <= 5; index++)
     await t.mutation(internal.host.publishMaterialization, {
       workspaceId: "w",
-      value: publish(index),
+      value: publication(sourceId, tableId, insightId, index),
     });
   expect(await tableFrames(tableId)).toHaveLength(2);
   expect(
