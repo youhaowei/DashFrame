@@ -68,7 +68,7 @@ export function formatDateValue(value: unknown): string | null {
 
   if (typeof value !== "string") return null;
 
-  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  const dateOnly = /^(\d{4}|[+-]\d{6})-(\d{2})-(\d{2})$/.exec(value);
   if (dateOnly) {
     return formatCalendarDate(
       Number(dateOnly[1]),
@@ -78,10 +78,12 @@ export function formatDateValue(value: unknown): string | null {
   }
 
   const isoTimestamp =
-    /^\d{4}-\d{2}-\d{2}[ Tt]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(
+    /^(?:\d{4}|[+-]\d{6})-\d{2}-\d{2}[ Tt]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(
       value.replace(ZONE_DESIGNATOR, ""),
     );
-  const calendarPrefix = /^(\d{4})-(\d{2})-(\d{2})(?=$|[ TtZz])/.exec(value);
+  const calendarPrefix = /^(\d{4}|[+-]\d{6})-(\d{2})-(\d{2})(?=$|[ TtZz])/.exec(
+    value,
+  );
   if (
     calendarPrefix &&
     !formatCalendarDate(

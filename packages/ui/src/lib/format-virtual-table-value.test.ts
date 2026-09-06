@@ -86,6 +86,18 @@ describe("defaultFormatValue", () => {
     );
   });
 
+  it("parses expanded ISO years as UTC and validates their calendar dates", () => {
+    expect(defaultFormatValue("+010000-01-01T23:30:00", "date")).toBe(
+      "Jan 1, 10000",
+    );
+    expect(defaultFormatValue("-000005-06-15T23:30:00", "date")).toBe(
+      "Jun 15, -0005",
+    );
+    expect(defaultFormatValue("+010000-02-30T00:00:00Z", "date")).toBe(
+      "+010000-02-30T00:00:00Z",
+    );
+  });
+
   it("preserves Date.parse-compatible named zones", () => {
     expect(defaultFormatValue("2024-01-01 12:00:00 UTC", "date")).toBe(
       "Jan 1, 2024",
