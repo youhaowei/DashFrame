@@ -6,7 +6,7 @@ browser **web** app, both backed by native local Convex and the same Hono host
 API. Convex owns artifact metadata, drafts, and subscriptions; the host owns
 sessions, connectors, secrets, and DuckDB access.
 
-Package manager is **Bun** (pinned `bun@1.3.5`); orchestration is Turborepo.
+Package manager is **Bun** (pinned `bun@1.4.2`); orchestration is Turborepo.
 `bun` is on `PATH`; where it is installed from varies by machine.
 
 ## Commit messages and PR titles
@@ -125,7 +125,7 @@ not from the harness around them.
 >
 > Standing repo conventions — do not report these as findings:
 >
-> - Bun is the package manager (`packageManager: bun@1.3.5`). Bun-only scripts
+> - Bun is the package manager (`packageManager: bun@1.4.2`). Bun-only scripts
 >   and documented Bun commands are intended.
 > - Some first-party packages deliberately ship a TypeScript `main` with no
 >   `dist`, for TS-aware runtimes only. Findings that a Node consumer would
