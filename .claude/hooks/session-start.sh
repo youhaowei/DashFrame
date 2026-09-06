@@ -20,13 +20,25 @@ cd "${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}"
 
 log() { echo "[session-start] $*" >&2; }
 
+# 0. Toolchain. The repo pins bun in package.json (packageManager); an
+#    image that ships another version runs installs and tests on an
+#    unsupported toolchain. Install the exact pinned release through npm,
+#    which verifies the package against the registry, rather than piping a
+#    remote installer script into bash. Fail if no bun ends up on PATH.
+pinned=$(node -p "require('./package.json').packageManager.split('@')[1]")
+current=$(command -v bun >/dev/null 2>&1 && bun --version || echo "none")
+if [ "$current" != "$pinned" ]; then
+  log "bun $current on PATH; installing pinned bun@$pinned via npm"
+  if ! npm install -g "bun@$pinned"; then
+    log "WARNING: could not install bun@$pinned; continuing with bun $current"
+  fi
+  hash -r
+fi
 if ! command -v bun >/dev/null 2>&1; then
-  log "ERROR: bun is not on PATH. Install the pinned version from package.json"
-  log "       (packageManager) in the environment image; this hook does not"
-  log "       download installers."
+  log "ERROR: bun is not on PATH and could not be installed"
   exit 1
 fi
-log "bun $(bun --version)"
+log "bun $(bun --version) (pinned $pinned)"
 
 # 1. Submodules (libs/wystack, libs/stdui) — only the ones never checked out.
 #    `git submodule status` prefixes an uninitialized submodule with '-'.

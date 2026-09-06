@@ -27,6 +27,7 @@ Support/
 !.claude/preview-both.sh
 !.claude/settings.json
 !.claude/hooks/
+.claude/hooks/*
 !.claude/hooks/session-start.sh
 CLAUDE.local.md
 
