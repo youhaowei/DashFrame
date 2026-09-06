@@ -156,8 +156,8 @@ the gate**, because "we did not look" is not evidence of correctness. Two
 checks can skip: `check:wystack-domain-nouns`, when `libs/wystack` is not
 checked out — the fix is `git submodule update --init`, and CI checks out
 `submodules: recursive` so it never skips there — and `check:anti-slop-rules`,
-when the Vite+ linter cannot be started or returns no JSON report, which means
-`bun install` has not run in this worktree.
+when the Vite+ linter cannot be started, or its JSON report is unreadable or has
+changed shape. Usually that means `bun install` has not run in this worktree.
 
 Formatting is **not** part of `bun run check` — run `bun run format:check`
 separately. In CI it is its own job for the same reason: a formatter diff must not

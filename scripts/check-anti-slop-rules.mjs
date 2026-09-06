@@ -36,6 +36,10 @@ const pluginDir = join(repoRoot, "scripts", "oxlint-plugin-anti-slop");
 const fixtureDir = join(pluginDir, "fixtures");
 const scratchDir = join(pluginDir, "fixture-run");
 
+// The fixtures to lint, each copied from `<name>.fixture` to `<name>`. All of
+// them must be read on every run; see the file-count check in lintScratchDir.
+const FIXTURES = ["invalid.ts", "valid.ts"];
+
 // Every diagnostic the invalid fixture must produce, as `file:line rule`. Line
 // numbers refer to fixtures/invalid.ts.fixture; update both together.
 const EXPECTED = [
@@ -76,12 +80,22 @@ function lintScratchDir() {
     skip(`could not parse the linter's JSON report: ${error.message}`, stdout);
   }
 
-  // Zero files means the fixtures were never read — an ignore rule swallowed
-  // the scratch directory. Reporting that as "no findings" would turn this
-  // check into a rubber stamp, so fail loudly instead.
-  if (report.number_of_files === 0) {
+  // A renamed field is the linter's report changing shape, not a rule
+  // regression — say so rather than blaming an ignore pattern below.
+  if (typeof report.number_of_files !== "number") {
+    skip(
+      "the linter's JSON report has no `number_of_files`; its format changed",
+    );
+  }
+
+  // Every fixture has to have been read. Checking only for zero would still
+  // pass when an ignore rule swallowed valid.ts alone: invalid.ts would supply
+  // all the expected diagnostics, and the false-positive cases would go
+  // untested while the check reported success.
+  if (report.number_of_files !== FIXTURES.length) {
     console.error(
-      `[anti-slop] the linter read no files under ${scratchDir}.\n` +
+      `[anti-slop] the linter read ${report.number_of_files} of ` +
+        `${FIXTURES.length} fixtures under ${scratchDir}.\n` +
         "Something is excluding that path — check .gitignore and the " +
         "`lint.ignorePatterns` list in vite.config.ts.",
     );
@@ -110,11 +124,9 @@ mkdirSync(scratchDir, { recursive: true });
 
 let findings;
 try {
-  cpSync(
-    join(fixtureDir, "invalid.ts.fixture"),
-    join(scratchDir, "invalid.ts"),
-  );
-  cpSync(join(fixtureDir, "valid.ts.fixture"), join(scratchDir, "valid.ts"));
+  for (const fixture of FIXTURES) {
+    cpSync(join(fixtureDir, `${fixture}.fixture`), join(scratchDir, fixture));
+  }
   findings = antiSlopFindings(lintScratchDir());
 } finally {
   rmSync(scratchDir, { recursive: true, force: true });
