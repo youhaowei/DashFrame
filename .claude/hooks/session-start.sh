@@ -61,12 +61,17 @@ log "bun $current (pinned $pinned)"
 submodule_populated() {
   [ -e "$1/.git" ] || return 1
   git -C "$1" rev-parse --verify --quiet HEAD >/dev/null 2>&1 || return 1
-  git -C "$1" ls-tree -r --name-only HEAD 2>/dev/null | while IFS= read -r f; do
+  # Read HEAD's file list through process substitution rather than a
+  # pipeline: returning on the first hit closes the reader early, and under
+  # `pipefail` the producer's resulting SIGPIPE would otherwise turn a
+  # healthy checkout into a false negative and a forced re-checkout.
+  local f
+  while IFS= read -r f; do
     if [ -e "$1/$f" ] || [ -L "$1/$f" ]; then
-      echo yes
-      break
+      return 0
     fi
-  done | grep -q yes
+  done < <(git -C "$1" ls-tree -r --name-only HEAD 2>/dev/null)
+  return 1
 }
 for sub in $(git config --file .gitmodules --get-regexp 'submodule\..*\.path' | awk '{print $2}'); do
   if submodule_populated "$sub"; then
