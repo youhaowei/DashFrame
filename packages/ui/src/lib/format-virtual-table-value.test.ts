@@ -74,12 +74,21 @@ describe("defaultFormatValue", () => {
     ).toBe("Jun 15, -0005");
   });
 
-  it("preserves non-ISO strings accepted by Date.parse", () => {
+  it("preserves host Date.parse interpretation for legacy non-ISO strings", () => {
+    expect(defaultFormatValue("March 15, 2024 23:30", "date")).toBe(
+      "Mar 16, 2024",
+    );
     expect(defaultFormatValue("March 15, 2024 10:30", "date")).toBe(
       "Mar 15, 2024",
     );
     expect(defaultFormatValue("03/15/2024 10:30:00", "date")).toBe(
       "Mar 15, 2024",
+    );
+  });
+
+  it("preserves Date.parse-compatible named zones", () => {
+    expect(defaultFormatValue("2024-01-01 12:00:00 UTC", "date")).toBe(
+      "Jan 1, 2024",
     );
   });
 
@@ -109,6 +118,13 @@ describe("defaultFormatValue", () => {
 
   it("leaves an impossible calendar date as text rather than rolling it over", () => {
     expect(defaultFormatValue("2024-02-30", "date")).toBe("2024-02-30");
+    expect(defaultFormatValue("2024-02-30Z", "date")).toBe("2024-02-30Z");
+    expect(defaultFormatValue("2024-02-30t00:00:00z", "date")).toBe(
+      "2024-02-30t00:00:00z",
+    );
+    expect(defaultFormatValue("2024-02-29t23:30:00", "date")).toBe(
+      "Feb 29, 2024",
+    );
     expect(defaultFormatValue("2024-02-30T00:00:00Z", "date")).toBe(
       "2024-02-30T00:00:00Z",
     );

@@ -77,13 +77,17 @@ export function formatDateValue(value: unknown): string | null {
     );
   }
 
-  const timestampDate = /^(\d{4})-(\d{2})-(\d{2})[ T]/.exec(value);
+  const isoTimestamp =
+    /^\d{4}-\d{2}-\d{2}[ Tt]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(
+      value.replace(ZONE_DESIGNATOR, ""),
+    );
+  const calendarPrefix = /^(\d{4})-(\d{2})-(\d{2})(?=$|[ TtZz])/.exec(value);
   if (
-    timestampDate &&
+    calendarPrefix &&
     !formatCalendarDate(
-      Number(timestampDate[1]),
-      Number(timestampDate[2]),
-      Number(timestampDate[3]),
+      Number(calendarPrefix[1]),
+      Number(calendarPrefix[2]),
+      Number(calendarPrefix[3]),
     )
   ) {
     return null;
@@ -91,10 +95,11 @@ export function formatDateValue(value: unknown): string | null {
 
   // Match packages/engine-server/src/arrow-encode.ts for ISO timestamps:
   // a missing zone means UTC; preserve explicit zones and expand hour-only
-  // offsets. Leave other Date.parse-compatible strings unchanged.
+  // offsets. Legacy free-form strings retain Date.parse's host-dependent
+  // interpretation; only ISO input has a deterministic parsing contract.
   let normalized = value;
-  if (timestampDate) {
-    normalized = normalized.replace(" ", "T");
+  if (isoTimestamp) {
+    normalized = normalized.replace(/[ t]/, "T");
     const zone = normalized.match(ZONE_DESIGNATOR)?.[1];
     if (zone == null) normalized += "Z";
     else if (HOUR_ONLY_OFFSET.test(zone)) normalized += ":00";
