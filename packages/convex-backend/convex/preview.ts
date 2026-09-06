@@ -184,9 +184,11 @@ function edge(
   return null;
 }
 /**
- * Rows a downstream edge could originate from, read through indexes where one
- * exists. User-authored tables are bounded scans (cached per graph); frames
- * are reached only through their owning insight.
+ * Rows a downstream edge could originate from, as they stood before the
+ * commands ran: a delete cascade must still report the rows it removes as
+ * orphaned. Read through indexes where one exists. User-authored tables are
+ * bounded scans (cached per graph); frames are reached only through their
+ * owning insight.
  */
 async function neighbours(
   graph: Graph,
@@ -195,9 +197,10 @@ async function neighbours(
   const out: [ArtifactTable, ArtifactRow][] = [];
   const add = async (
     table: ArtifactTable,
-    where?: Parameters<Graph["scan"]>[1],
+    where?: Parameters<Graph["scanBaseline"]>[1],
   ) => {
-    for (const row of await graph.scan(table, where)) out.push([table, row]);
+    for (const row of await graph.scanBaseline(table, where))
+      out.push([table, row]);
   };
   for (const table of artifactTables)
     if (table === "dataFrames") {

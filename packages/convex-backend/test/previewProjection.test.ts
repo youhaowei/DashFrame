@@ -22,6 +22,9 @@ beforeEach(() => {
 });
 
 async function seedVisualization() {
+  return (await seedChain()).visualizationId;
+}
+async function seedChain() {
   const sourceId = uuid();
   const tableId = uuid();
   const insightId = uuid();
@@ -55,7 +58,7 @@ async function seedVisualization() {
     ],
   });
 
-  return visualizationId;
+  return { sourceId, tableId, insightId, visualizationId };
 }
 
 it("projects only the visualization field changed by a rename", async () => {
@@ -104,4 +107,32 @@ it("keeps the deletion marker for a deleted artifact", async () => {
     change: "update",
     proposedDefinition: { deleted: true },
   });
+});
+
+// The downstream walk reads the graph as it stood before the commands ran, so
+// a delete cascade reports the rows it removes as orphaned instead of walking
+// a graph they have already left.
+it("reports the cascade of a deleted data source as orphaned downstream nodes", async () => {
+  const { sourceId, tableId, insightId, visualizationId } = await seedChain();
+
+  const diff = await user.query(api.app.previewDiff, {
+    commands: [cmd("DeleteNode", { id: sourceId })],
+  });
+
+  expect(diff.directNodes).toHaveLength(1);
+  expect(diff.directNodes[0]).toMatchObject({
+    nodeId: sourceId,
+    proposedDefinition: { deleted: true },
+  });
+  expect(
+    diff.affectedDownstream
+      .map((n) => [n.kind, n.nodeId, n.flag])
+      .sort((a, b) => String(a[1]).localeCompare(String(b[1]))),
+  ).toEqual(
+    [
+      ["dataTable", tableId, "orphaned"],
+      ["insight", insightId, "orphaned"],
+      ["visualization", visualizationId, "orphaned"],
+    ].sort((a, b) => String(a[1]).localeCompare(String(b[1]))),
+  );
 });

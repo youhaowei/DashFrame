@@ -206,14 +206,14 @@ export const listDataFrames = query({
               .eq("workspaceId", who.workspaceId)
               .eq("dataSourceId", dataSourceId),
           )
-          .take(LIMIT)
+          .take(args.recovery ? LIMIT : LIMIT + 1)
       : insightId
         ? await ctx.db
             .query("dataFrames")
             .withIndex("by_workspaceId_and_insightId", (q) =>
               q.eq("workspaceId", who.workspaceId).eq("insightId", insightId),
             )
-            .take(LIMIT)
+            .take(args.recovery ? LIMIT : LIMIT + 1)
         : await ctx.db
             .query("dataFrames")
             .withIndex("by_workspaceId_and_id", (q) =>

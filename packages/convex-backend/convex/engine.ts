@@ -24,8 +24,7 @@ import {
   storedInsightDefinitionSchema,
   runtimeControlsSchema,
 } from "./insightCodec";
-export { Graph } from "./graph";
-import { Graph } from "./graph";
+import type { Graph } from "./graph";
 function str(value: Json | undefined, label: string): string {
   if (typeof value !== "string" || !value)
     throw new Error(`${label} must be a non-empty string`);
@@ -50,9 +49,6 @@ function definition(row: ArtifactRow): ObjectValue {
   return clean(
     storedInsightDefinitionSchema.parse(row.definition),
   ) as unknown as ObjectValue;
-}
-function same(a: unknown, b: unknown): boolean {
-  return stable(a) === stable(b);
 }
 async function requireSource(
   graph: Graph,
@@ -374,11 +370,12 @@ async function run(
   };
   const find = async () => {
     const key = id(a.id);
-    for (const t of artifactTables) {
-      const row = await graph.find(t, key);
-      if (row) return { t, row };
-    }
-    throw new Error(`Node ${key} not found`);
+    const rows = await Promise.all(
+      artifactTables.map((t) => graph.find(t, key)),
+    );
+    const at = rows.findIndex((row) => row);
+    if (at < 0) throw new Error(`Node ${key} not found`);
+    return { t: artifactTables[at]!, row: rows[at]! };
   };
   if (p === "getOrCreateDataSource" || p === "createDataSource") {
     const existing = await graph.find("dataSources", id(a.id));
@@ -439,11 +436,14 @@ async function run(
         throw new Error("GetOrCreateInsightDraft source must be a DataTable");
       await requireSource(graph, source);
       const existing = (await graph.scan("insights")).find((row) => {
-        const def = storedInsightDefinitionSchema.parse(row.definition);
-        return (
-          def.source.sourceType === "dataTable" &&
-          def.source.sourceId === source.sourceId &&
-          isUnmodifiedDraft(def)
+        const candidate = record(row.definition?.source ?? {});
+        if (
+          candidate.sourceType !== "dataTable" ||
+          candidate.sourceId !== source.sourceId
+        )
+          return false;
+        return isUnmodifiedDraft(
+          storedInsightDefinitionSchema.parse(row.definition),
         );
       });
       if (existing) return { id: existing.id };
@@ -679,20 +679,12 @@ async function run(
     return { ok: true, renamed: { kind: artifactKinds[t], id: row.id } };
   }
   if (p === "deleteNode") {
-    const key = id(a.id);
-    let table: ArtifactTable | undefined;
-    for (const t of [
-      "visualizations",
-      "dashboards",
-      "insights",
-      "dataTables",
-      "dataSources",
-    ] as const)
-      if (await graph.has(t, key)) {
-        table = t;
-        break;
-      }
-    if (!table) throw new Error(`Node ${key} not found`);
+    const key = id(a.id),
+      { t: table } = await find();
+    if (table === "dataFrames")
+      throw new Error(
+        "Data frames are removed through their host, not deleted as nodes",
+      );
     const orphanedNodes = await removeNode(graph, table, key);
     return {
       ok: true,

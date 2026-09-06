@@ -133,43 +133,63 @@ export class Graph {
    * error, not a workspace-size problem.
    */
   async scan(table: ArtifactTable, where: Where = {}): Promise<ArtifactRow[]> {
-    return this.read(table, where, false);
+    await this.load(table, where, false);
+    return this.collect(table, where, (key) => this.current.get(key));
+  }
+  /**
+   * The same selection as `scan`, but every row as it stood when the graph was
+   * opened (overlay included): rows this batch created are absent and rows it
+   * deleted are still present. Preview walks the dependency graph this way so
+   * a delete cascade reports what it orphans rather than hiding it.
+   */
+  async scanBaseline(
+    table: ArtifactTable,
+    where: Where = {},
+  ): Promise<ArtifactRow[]> {
+    await this.load(table, where, false);
+    return this.collect(table, where, (key) => this.baselineLoaded(key));
   }
   /**
    * Bounded whole-table read for list surfaces. The only sanctioned way to
    * read every frame in a workspace; the cap error names the recovery path.
    */
   async list(table: ArtifactTable): Promise<ArtifactRow[]> {
-    return this.read(table, {}, true);
+    await this.load(table, {}, true);
+    return this.collect(table, {}, (key) => this.current.get(key));
   }
-  private async read(
+  /** Load one index range (or a whole user-authored table) into the graph, once. */
+  private async load(table: ArtifactTable, where: Where, whole: boolean) {
+    const cacheKey = `${table}|${stable(where)}`;
+    if (this.scanned.has(cacheKey)) return;
+    const docs = await this.select(table, where, whole);
+    if (docs.length > LIMIT) throw new ConvexError(capMessage(table));
+    for (const doc of docs) {
+      const row = clean(rowValue(doc)),
+        key = graphKey(table, row.id);
+      if (!this.original.has(key)) this.original.set(key, row);
+      if (!this.current.has(key)) {
+        const base = this.overlay.has(key) ? this.overlay.get(key) : row;
+        this.current.set(key, base ? clean(base) : null);
+      }
+    }
+    const prefix = `${table}:`;
+    for (const [key, row] of this.overlay)
+      if (key.startsWith(prefix) && !this.current.has(key))
+        this.current.set(key, row ? clean(row) : null);
+    this.scanned.add(cacheKey);
+  }
+  private collect(
     table: ArtifactTable,
     where: Where,
-    whole: boolean,
-  ): Promise<ArtifactRow[]> {
-    const cacheKey = `${table}|${stable(where)}`;
-    if (!this.scanned.has(cacheKey)) {
-      const docs = await this.select(table, where, whole);
-      if (docs.length > LIMIT) throw new ConvexError(capMessage(table));
-      for (const doc of docs) {
-        const row = clean(rowValue(doc)),
-          key = graphKey(table, row.id);
-        if (!this.original.has(key)) this.original.set(key, row);
-        if (!this.current.has(key)) {
-          const base = this.overlay.has(key) ? this.overlay.get(key) : row;
-          this.current.set(key, base ? clean(base) : null);
-        }
-      }
-      const prefix = `${table}:`;
-      for (const [key, row] of this.overlay)
-        if (key.startsWith(prefix) && !this.current.has(key))
-          this.current.set(key, row ? clean(row) : null);
-      this.scanned.add(cacheKey);
-    }
+    at: (key: string) => ArtifactRow | null | undefined,
+  ): ArtifactRow[] {
     const prefix = `${table}:`,
       out: ArtifactRow[] = [];
-    for (const [key, row] of this.current)
-      if (row && key.startsWith(prefix) && matches(row, where)) out.push(row);
+    for (const key of this.current.keys()) {
+      if (!key.startsWith(prefix)) continue;
+      const row = at(key);
+      if (row && matches(row, where)) out.push(row);
+    }
     return out;
   }
   private select(table: ArtifactTable, where: Where, whole: boolean) {
