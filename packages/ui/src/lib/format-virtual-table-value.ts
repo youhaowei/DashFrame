@@ -42,7 +42,7 @@ function formatCalendarDate(
   ][month - 1]!;
   if (day < 1 || day > daysInMonth) return null;
 
-  const displayYear = String(year).padStart(4, "0");
+  const displayYear = `${year < 0 ? "-" : ""}${String(Math.abs(year)).padStart(4, "0")}`;
   return `${MONTH_NAMES[month - 1]} ${day}, ${displayYear}`;
 }
 
@@ -89,11 +89,12 @@ export function formatDateValue(value: unknown): string | null {
     return null;
   }
 
-  // Match the server's timestamp boundary: a date-time without a zone is UTC,
-  // while explicit zones are preserved and hour-only offsets are normalized
-  // to a form Date.parse accepts.
-  let normalized = value.replace(" ", "T");
-  if (normalized.includes("T")) {
+  // Match packages/engine-server/src/arrow-encode.ts for ISO timestamps:
+  // a missing zone means UTC; preserve explicit zones and expand hour-only
+  // offsets. Leave other Date.parse-compatible strings unchanged.
+  let normalized = value;
+  if (timestampDate) {
+    normalized = normalized.replace(" ", "T");
     const zone = normalized.match(ZONE_DESIGNATOR)?.[1];
     if (zone == null) normalized += "Z";
     else if (HOUR_ONLY_OFFSET.test(zone)) normalized += ":00";

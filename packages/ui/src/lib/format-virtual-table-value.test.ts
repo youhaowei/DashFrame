@@ -68,6 +68,30 @@ describe("defaultFormatValue", () => {
     );
   });
 
+  it("keeps negative year signs before padded digits", () => {
+    expect(
+      defaultFormatValue(Date.parse("-000005-06-15T00:00:00Z"), "date"),
+    ).toBe("Jun 15, -0005");
+  });
+
+  it("preserves non-ISO strings accepted by Date.parse", () => {
+    expect(defaultFormatValue("March 15, 2024 10:30", "date")).toBe(
+      "Mar 15, 2024",
+    );
+    expect(defaultFormatValue("03/15/2024 10:30:00", "date")).toBe(
+      "Mar 15, 2024",
+    );
+  });
+
+  it("honors explicit and hour-only offsets across UTC date boundaries", () => {
+    expect(defaultFormatValue("2024-01-01 00:00:00-07", "date")).toBe(
+      "Jan 1, 2024",
+    );
+    expect(defaultFormatValue("2024-01-31T20:00:00-05:00", "date")).toBe(
+      "Feb 1, 2024",
+    );
+  });
+
   it("renders the same instant consistently across supported representations", () => {
     const instant = "2024-01-18T00:00:00.000Z";
     const expected = "Jan 18, 2024";
