@@ -2,10 +2,11 @@
  * Loopback classification for the bind-auth gate.
  *
  * Both bind gates — `assertBindIsSafe` (the `dashframe serve` CLI) and
- * `assertBindAuthorized` (`createDashframeServer`) — decide whether a bind
- * needs an auth token by asking whether the host is loopback. They shared the
- * *intent* but each carried its own copy of the check, so the answer could
- * drift between the two entry points. One implementation, imported by both.
+ * `createHostAuthenticator` (the host authenticator behind
+ * `createDashframeServer`) — decide whether a bind needs an auth token by
+ * asking whether the host is loopback. They shared the *intent* but each
+ * carried its own copy of the check, so the answer could drift between the two
+ * entry points. One implementation, imported by both.
  */
 import { isIPv4 } from "node:net";
 

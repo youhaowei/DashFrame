@@ -202,6 +202,12 @@ describe("dashframe serve CLI", () => {
       );
     });
 
+    it("should reject --insecure as an unknown argument", () => {
+      expect(() => parseArgs(["--insecure"])).toThrow(
+        /Unknown argument "--insecure"/,
+      );
+    });
+
     it("should reject malformed bind ports", () => {
       expect(() => parseArgs(["--bind", "127.0.0.1:"])).toThrow(
         'Invalid --port ""',
@@ -233,6 +239,7 @@ describe("dashframe serve CLI", () => {
       expect(helpText).toContain("--mcp-mode <mode>");
       expect(helpText).toContain("canonical padded base64");
       expect(helpText).toContain("Security boundary:");
+      expect(helpText).not.toContain("--insecure");
       expect(helpText).toContain("non-loopback bind");
     });
 
@@ -310,10 +317,10 @@ describe("dashframe serve CLI", () => {
       ).not.toThrow();
     });
 
-    it("should allow a non-loopback bind when --insecure opts out", () => {
+    it("should reject a stray insecure key rather than honour it", () => {
       expect(() =>
-        assertBindIsSafe({ hostname: "0.0.0.0", insecure: true }),
-      ).not.toThrow();
+        assertBindIsSafe({ hostname: "0.0.0.0", insecure: true } as never),
+      ).toThrow(/without --token/);
     });
   });
 

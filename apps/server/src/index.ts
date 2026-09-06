@@ -46,7 +46,6 @@ export interface CliOptions {
   name?: string;
   corsOrigin?: string | string[];
   token?: string;
-  insecure?: boolean;
   help?: boolean;
 }
 
@@ -69,15 +68,14 @@ Options:
   --mcp-mode <mode>       MCP transport: stateful (default) or stateless
   --name <name>           Project display name when initializing
   --cors-origin <origin>  Allowed browser origin; repeat or comma-separate for multiple
-  --insecure              Allow a non-loopback bind without --token (opt out of the auth requirement)
   --help                  Show this help
 
 Security boundary:
   The server exposes the selected local DashFrame project over HTTP and WebSocket.
   The default bind is loopback-only and safe to run without a token. Binding to
   0.0.0.0 or another network interface makes the project reachable from that
-  network, so a non-loopback bind requires --token; pass --insecure to opt out
-  deliberately. A token is not TLS and not multi-user authorization.
+  network, so a non-loopback bind requires --token. A token is not TLS and
+  not multi-user authorization.
 
 Secret encryption:
   Set DASHFRAME_SECRET_KEY_FILE to an owner-only key file (the group and world
@@ -246,9 +244,6 @@ function parseArgAt(opts: CliOptions, args: string[], index: number): number {
     case "--token":
       opts.token = readValue(args, index, arg);
       return index + 1;
-    case "--insecure":
-      opts.insecure = true;
-      return index;
     default:
       throw new Error(`Unknown argument "${arg}"`);
   }
@@ -257,17 +252,16 @@ function parseArgAt(opts: CliOptions, args: string[], index: number): number {
 /**
  * Fail-closed auth gate. Loopback binds are reachable only from this machine,
  * so a token is optional there. A non-loopback bind exposes the project to the
- * network and must carry `--token`; `--insecure` is the deliberate opt-out.
- * Throws (rather than warns) so a forgotten token never silently exposes data.
+ * network and must carry `--token`; there is no opt-out. Throws (rather than
+ * warns) so a forgotten token never silently exposes data.
  */
 export function assertBindIsSafe(opts: CliOptions): void {
-  if (isLoopbackHost(opts.hostname) || opts.token || opts.insecure) {
+  if (isLoopbackHost(opts.hostname) || opts.token) {
     return;
   }
   throw new Error(
     `Refusing to bind ${opts.hostname} without --token: a non-loopback bind ` +
-      `exposes this project to the network. Pass --token <token>, or ` +
-      `--insecure to opt out deliberately.`,
+      `exposes this project to the network. Pass --token <token>.`,
   );
 }
 
@@ -542,12 +536,6 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
   }
 
   assertBindIsSafe(opts);
-
-  if (opts.insecure && !opts.token && !isLoopbackHost(opts.hostname)) {
-    console.warn(
-      "[dashframe] warning: --insecure non-loopback bind without --token exposes this project to the network",
-    );
-  }
 
   const projectDir = resolveProjectDirectory(opts);
   const dataDir = resolveDataDir(opts);
