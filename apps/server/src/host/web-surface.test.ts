@@ -28,8 +28,9 @@ describe("parsing the build's _headers file", () => {
   });
 
   it("keeps colons inside a header value", () => {
-    const [[, value]] = parseHeadersFile("/*\n  Link: <https://a/b>; rel=x\n");
-    expect(value).toBe("<https://a/b>; rel=x");
+    expect(parseHeadersFile("/*\n  Link: <https://a/b>; rel=x\n")).toEqual([
+      ["Link", "<https://a/b>; rel=x"],
+    ]);
   });
 
   it("ignores blocks scoped to another path", () => {

@@ -327,7 +327,7 @@ describe("dashframe serve CLI", () => {
     it("should reject a stray insecure key rather than honour it", () => {
       expect(() =>
         assertBindIsSafe({ hostname: "0.0.0.0", insecure: true } as never),
-      ).toThrow(/without --token/);
+      ).toThrow(/without an authentication token/);
     });
   });
 

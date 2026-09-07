@@ -83,7 +83,11 @@ export async function connectConvexCloud(
   options: ConvexCloudOptions,
 ): Promise<ConvexBackend> {
   const url = assertConvexCloudUrl(options.url);
-  const endpoint = url.toString().replace(/\/+$/, "");
+  const serializedUrl = url.toString();
+  let endpointEnd = serializedUrl.length;
+  while (endpointEnd > 0 && serializedUrl[endpointEnd - 1] === "/")
+    endpointEnd--;
+  const endpoint = serializedUrl.slice(0, endpointEnd);
   let resolveClosed: () => void;
   const closed = new Promise<void>((resolve) => {
     resolveClosed = resolve;

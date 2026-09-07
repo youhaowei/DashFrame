@@ -123,7 +123,7 @@ export async function createDashframeServer(
   // deploys functions and never touches the project directory's Convex state;
   // the local path is byte-for-byte what it was.
   const convex: ConvexBackend = options.convexCloud
-    ? await connectConvexCloud({ ...options.convexCloud, auth: identity })
+    ? await connectConvexCloud(options.convexCloud)
     : await startLocalConvex({
         projectDir: options.project.dir,
         functionsDirectory:

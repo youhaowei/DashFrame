@@ -45,6 +45,13 @@ export function createHostAuthenticator(options: {
   if (!protectedHost && !isLoopbackHost(options.hostname)) {
     throw new Error("Non-loopback host requires authentication");
   }
+  const matchesPrimaryToken = async (token: string): Promise<boolean> => {
+    if (options.authRef)
+      return options.vault!.withSecret(options.authRef, async (expected) =>
+        tokenMatches(token, expected),
+      );
+    return options.authToken ? tokenMatches(token, options.authToken) : false;
+  };
   return async (request) => {
     if (!protectedHost) return { kind: "user", userId: "loopback-anonymous" };
     const authorization = request.headers.get("authorization") ?? "";
@@ -56,13 +63,7 @@ export function createHostAuthenticator(options: {
       // wrong, the request is rejected outright rather than silently falling
       // back to whatever cookie the same browser happens to carry — a fallback
       // would turn a revoked token into a still-working one.
-      const primary = options.authRef
-        ? await options.vault!.withSecret(options.authRef, async (expected) =>
-            tokenMatches(token, expected),
-          )
-        : options.authToken
-          ? tokenMatches(token, options.authToken)
-          : false;
+      const primary = await matchesPrimaryToken(token);
       if (primary) return { kind: "user", userId: "local-user" };
       const credentialId = await options.accessCredentials?.authenticate(token);
       if (credentialId) return { kind: "service", credentialId };

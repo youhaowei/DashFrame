@@ -138,7 +138,7 @@ describe("attaching to a Convex Cloud deployment", () => {
       fetchImpl: stubFetch(success).fetch,
     });
     let settled = false;
-    void backend.closed.then(() => {
+    backend.closed.then(() => {
       settled = true;
     });
     await backend.stop();

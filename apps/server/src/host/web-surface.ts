@@ -173,7 +173,8 @@ button:hover{background:#4338ca}
 @media(prefers-color-scheme:dark){.error{color:#fda29b;background:#3a1a17}}`;
 
 function loginPage(message?: string): Response {
-  const body = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sign in · DashFrame</title><style>${LOGIN_STYLE}</style></head><body><main><h1>DashFrame</h1><p>This deployment is private.</p><form method="post" action="/login">${message ? `<p class="error" role="alert">${message}</p>` : ""}<label for="password">Access password</label><input id="password" name="password" type="password" autocomplete="current-password" autofocus required><button type="submit">Sign in</button></form></main></body></html>`;
+  const error = message ? `<p class="error" role="alert">${message}</p>` : "";
+  const body = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sign in · DashFrame</title><style>${LOGIN_STYLE}</style></head><body><main><h1>DashFrame</h1><p>This deployment is private.</p><form method="post" action="/login">${error}<label for="password">Access password</label><input id="password" name="password" type="password" autocomplete="current-password" autofocus required><button type="submit">Sign in</button></form></main></body></html>`;
   return new Response(body, {
     status: message ? 401 : 200,
     headers: {
@@ -284,7 +285,7 @@ export async function createWebSurface(
     // than 404. A missing file under /assets/ still returns the shell, which is
     // the standard SPA trade — a stale bundle reference reads as a router miss.
     const isShell = file === undefined;
-    const target = isShell ? index : file;
+    const target = file ?? index;
     const [body, stats] = await Promise.all([readFile(target), stat(target)]);
     const etag = `W/"${stats.size.toString(16)}-${stats.mtimeMs.toString(16)}"`;
     const headers = new Headers(securityHeaders);
@@ -296,14 +297,11 @@ export async function createWebSurface(
     headers.set("ETag", etag);
     // Hashed build output is immutable; the shell must never be cached or a
     // deploy would keep serving the previous bundle's asset references.
-    headers.set(
-      "Cache-Control",
-      isShell
-        ? "no-cache"
-        : urlPath.startsWith("/assets/")
-          ? "public, max-age=31536000, immutable"
-          : "public, max-age=3600",
-    );
+    let cacheControl = "public, max-age=3600";
+    if (isShell) cacheControl = "no-cache";
+    else if (urlPath.startsWith("/assets/"))
+      cacheControl = "public, max-age=31536000, immutable";
+    headers.set("Cache-Control", cacheControl);
     if (request.headers.get("if-none-match") === etag)
       return new Response(null, { status: 304, headers });
     return new Response(body, { status: 200, headers });

@@ -55,7 +55,9 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 export function createAdminInternalClient(
   options: AdminInternalClientOptions,
 ): InternalClient {
-  const endpoint = options.url.replace(/\/+$/, "");
+  let endpointEnd = options.url.length;
+  while (endpointEnd > 0 && options.url[endpointEnd - 1] === "/") endpointEnd--;
+  const endpoint = options.url.slice(0, endpointEnd);
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const call = async (
     type: "query" | "mutation",
