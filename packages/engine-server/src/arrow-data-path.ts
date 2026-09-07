@@ -86,16 +86,16 @@ export interface ArrowDataPathOptions {
    */
   vault?: SecretVault;
   /**
-   * An additional credential the host is willing to accept, consulted before
-   * the bearer-token chain below.
+   * Authoritative request authentication supplied by the host. When present,
+   * this replaces the bearer-token chain below, including tokenless access.
    *
    * This exists for the hosted browser surface, which authenticates with a
    * signed session cookie because it has no channel to receive a bearer token.
    * The host owns that decision; this path only asks.
    *
-   * It can only ever ADD an accepted request — returning `false` (or throwing,
-   * which is treated as `false`) leaves the token chain exactly as it was, and
-   * leaving it unset changes nothing at all.
+   * Returning `false` or throwing denies the request. A rejected or revoked
+   * identity must never fall through to another credential or tokenless mode.
+   * Leaving it unset preserves the standalone token chain.
    */
   authorizeRequest?: (request: Request) => Promise<boolean> | boolean;
 }
@@ -223,10 +223,8 @@ async function dispatchArrowQuery(
  * boundary. Every branch that cannot positively confirm the token denies it.
  *
  * Priority:
- *   0. `authorizeRequest` set and returning true — a host-supplied credential
- *      (the hosted browser session cookie) was accepted. A false return or a
- *      thrown error falls through to the token chain; it can never deny a
- *      request the token chain would have allowed.
+ *   0. `authorizeRequest` set — the host owns the entire authentication
+ *      decision. False or an exception denies, without any fallback.
  *   1. `authRef` set — vault-backed auth is configured. The expected token is
  *      resolved from the vault at call time (no plaintext held in a field). If
  *      `vault` is missing (misconfiguration), or `withSecret` rejects (e.g. a
@@ -247,10 +245,9 @@ async function checkAuth(
   const authHeader = request.headers.get("authorization") ?? undefined;
   if (options.authorizeRequest) {
     try {
-      if (await options.authorizeRequest(request)) return true;
+      return await options.authorizeRequest(request);
     } catch {
-      // A host-supplied predicate that throws has not confirmed anything. Fall
-      // through to the token chain rather than allowing or 500-ing.
+      return false;
     }
   }
   if (options.authRef) {

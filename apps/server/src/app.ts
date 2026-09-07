@@ -326,10 +326,14 @@ export async function createDashframeServer(
           // Chart queries are issued by the renderer with no Authorization
           // header (packages/visualization/src/server-frame-connector.ts), so
           // on the hosted surface they arrive carrying only the session cookie.
-          ...(options.webSurface
+          // Use the same principal resolution and bearer precedence as host
+          // operations; checking the cookie signature alone bypasses admission.
+          ...(options.webSurface || options.session
             ? {
-                authorizeRequest: (request: Request) =>
-                  options.webSurface!.isSignedIn(request),
+                authorizeRequest: async (request: Request) => {
+                  await authenticate(request);
+                  return true;
+                },
               }
             : {}),
         }),

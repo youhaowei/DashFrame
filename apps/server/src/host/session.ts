@@ -28,7 +28,7 @@ import {
   timingSafeEqual,
   type BinaryLike,
 } from "node:crypto";
-import { chmod, mkdir, open, readFile } from "node:fs/promises";
+import { chmod, link, mkdir, open, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 
 /** Version tag. Bumping it invalidates every cookie signed by an older format. */
@@ -184,9 +184,9 @@ export function readCookie(
  * silently sign every user out. A key supplied through the environment wins, so
  * an operator who wants to rotate — or to hold the key outside the volume — can.
  *
- * Created with mode 0600 through an exclusive open, so a concurrent start
- * cannot end up with two different keys: the loser of the race re-reads the
- * winner's file.
+ * Written privately with mode 0600, then published with an exclusive hard link.
+ * Concurrent starts can only read a complete key; the loser uses the winner's
+ * published key rather than replacing it.
  */
 export async function loadOrCreateSessionKey(
   dataDir: string,
@@ -204,7 +204,7 @@ export async function loadOrCreateSessionKey(
   }
   await mkdir(dataDir, { recursive: true, mode: 0o700 });
   const keyPath = path.join(dataDir, "session.key");
-  try {
+  const readExisting = async () => {
     const existing = await readFile(keyPath);
     if (existing.length === SESSION_KEY_BYTES) {
       await chmod(keyPath, 0o600);
@@ -213,24 +213,33 @@ export async function loadOrCreateSessionKey(
     throw new Error(
       `Session key at ${keyPath} is not ${SESSION_KEY_BYTES} bytes. Remove it to regenerate; every signed-in browser will be signed out.`,
     );
+  };
+  try {
+    return await readExisting();
   } catch (error) {
     if (!(error instanceof Error && "code" in error && error.code === "ENOENT"))
       throw error;
   }
   const generated = randomBytes(SESSION_KEY_BYTES);
+  const temporary = `${keyPath}.${randomBytes(16).toString("hex")}`;
+  const handle = await open(temporary, "wx", 0o600);
   try {
-    const handle = await open(keyPath, "wx", 0o600);
     try {
       await handle.writeFile(generated);
       await handle.sync();
     } finally {
       await handle.close();
     }
-    return generated;
-  } catch (error) {
-    if (!(error instanceof Error && "code" in error && error.code === "EEXIST"))
-      throw error;
-    // Another start won the race. Its key is the one already in browsers.
-    return readFile(keyPath);
+    try {
+      await link(temporary, keyPath);
+    } catch (error) {
+      if (
+        !(error instanceof Error && "code" in error && error.code === "EEXIST")
+      )
+        throw error;
+    }
+    return await readExisting();
+  } finally {
+    await rm(temporary, { force: true });
   }
 }

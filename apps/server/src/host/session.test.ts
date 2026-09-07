@@ -1,8 +1,13 @@
 import { randomBytes } from "node:crypto";
-import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, open, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return { ...actual, open: vi.fn(actual.open) };
+});
 
 import {
   clearedSessionCookie,
@@ -146,6 +151,50 @@ describe("reading a cookie out of a header", () => {
 });
 
 describe("session key material", () => {
+  it("publishes one complete key when another creator pauses before writing", async () => {
+    const dir = await mkdtemp(
+      path.join(os.tmpdir(), "dashframe-session-race-"),
+    );
+    let release!: () => void;
+    let paused!: () => void;
+    const resume = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const writing = new Promise<void>((resolve) => {
+      paused = resolve;
+    });
+    const actual =
+      await vi.importActual<typeof import("node:fs/promises")>(
+        "node:fs/promises",
+      );
+    vi.mocked(open).mockImplementationOnce(async (...args) => {
+      const handle = await actual.open(...args);
+      const write = handle.writeFile.bind(handle);
+      vi.spyOn(handle, "writeFile").mockImplementationOnce(
+        async (...values) => {
+          paused();
+          await resume;
+          return write(...values);
+        },
+      );
+      return handle;
+    });
+    const first = loadOrCreateSessionKey(dir, {});
+    try {
+      await writing;
+      const second = await loadOrCreateSessionKey(dir, {});
+      expect(second).toHaveLength(32);
+      release();
+      expect(await first).toEqual(second);
+      expect(await readFile(path.join(dir, "session.key"))).toEqual(second);
+    } finally {
+      release();
+      await first.catch(() => undefined);
+      vi.restoreAllMocks();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("generates a key once and reuses it across restarts", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "dashframe-session-key-"));
     const first = await loadOrCreateSessionKey(dir, {});
