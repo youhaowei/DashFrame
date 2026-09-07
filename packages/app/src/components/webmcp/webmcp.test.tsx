@@ -271,7 +271,10 @@ describe("DashFrame WebMCP registry", () => {
       insightId: insight.insightId,
       name: "Open orders",
       chartType: "barY",
-      encoding: {},
+      encoding: {
+        x: "field:11111111-1111-4111-8111-111111111111",
+        y: "field:22222222-2222-4222-8222-222222222222",
+      },
     })) as Record<string, unknown>;
     const dashboard = (await tool("add_to_dashboard", options).execute({
       draftId: chart.draftId,
@@ -307,6 +310,23 @@ describe("DashFrame WebMCP registry", () => {
       stageDraft.mock.calls.slice(1).map((call) => call[0][0]?.path),
     ).toEqual(["createVisualizationCmd", "addDashboardItemCmd"]);
   });
+
+  it.each([{ x: "region", y: "revenue" }, { x: { field: "region" } }])(
+    "rejects unusable chart encodings before staging: %j",
+    async (encoding) => {
+      const stageDraft = vi.fn();
+      await expect(
+        tool("propose_chart", { stageDraft }).execute({
+          draftId: "draft-42",
+          insightId: "insight-1",
+          name: "Revenue",
+          chartType: "barY",
+          encoding,
+        }),
+      ).rejects.toThrow(/encoding/);
+      expect(stageDraft).not.toHaveBeenCalled();
+    },
+  );
 
   it("reports write-side loading separately from missing artifacts", async () => {
     await expect(

@@ -9,6 +9,8 @@ import {
 } from "@dashframe/engine";
 import {
   cmd,
+  isEncodingValue,
+  validateVisualizationEncoding,
   type Command,
   type ConnectorCatalogEntry,
   type Dashboard,
@@ -718,7 +720,21 @@ export function createWebMCPTools(
           insightId: { type: "string" },
           name: { type: "string", minLength: 1, maxLength: 120 },
           chartType: { type: "string", enum: CHART_TYPES },
-          encoding: { type: "object" },
+          encoding: {
+            type: "object",
+            description:
+              "Chart channels use stable field:<id> or metric:<id> references, never column names. Use column ids from describe_table. Example: {x: 'field:<region-column-id>', y: 'field:<revenue-column-id>'}.",
+            properties: Object.fromEntries(
+              ["x", "y", "color", "size"].map((channel) => [
+                channel,
+                {
+                  type: "string",
+                  description:
+                    "A field:<id> or metric:<id> reference; an empty string clears the channel.",
+                },
+              ]),
+            ),
+          },
           draftId: {
             type: "string",
             description: "Existing draft id to append this proposal to.",
@@ -740,6 +756,17 @@ export function createWebMCPTools(
           Array.isArray(input.encoding)
         )
           throw new Error("encoding must be an object.");
+        const encodingProblem = validateVisualizationEncoding(input.encoding);
+        if (encodingProblem) throw new Error(encodingProblem);
+        const encoding = input.encoding as Record<string, unknown>;
+        for (const channel of ["x", "y", "color", "size"]) {
+          const value = encoding[channel];
+          if (value !== undefined && value !== "" && !isEncodingValue(value)) {
+            throw new Error(
+              `encoding.${channel} must use field:<id> or metric:<id>, not a column name.`,
+            );
+          }
+        }
         const insights = requireLoaded(
           dependencies.read.getData().insights,
           "Insights",
