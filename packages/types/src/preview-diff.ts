@@ -136,6 +136,8 @@ export type DownstreamFlag = "recompute" | "orphaned" | "stale";
  */
 export type DownstreamEdge =
   | "dataSource->dataTable" // dataTables.dataSourceId
+  | "dataSource->dataFrame" // dataFrames.sourceId
+  | "dataTable->dataFrame" // dataFrames.definitionId or dataTables.dataFrameId
   | "dataTable->insight" // insight.definition source / joins[].rightTableId
   | "insight->insight" // insight.definition source (sourceType 'insight')
   | "insight->dataFrame" // dataFrames.insightId
