@@ -16,6 +16,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@observablehq/plot": "0.6.17",
     "@dashframe/engine": "workspace:*",
     "@dashframe/types": "workspace:*",
     "@dashframe/ui": "workspace:*",
