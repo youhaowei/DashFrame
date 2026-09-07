@@ -1,4 +1,5 @@
 import { requestHost } from "@/data/host";
+import { getRuntimeConfig } from "@/data/runtime";
 import { useQuery_experimental as useQuery } from "convex/react";
 import { queryStatus } from "@/data/query-status";
 import { queryDataFrame } from "@/lib/data-access/data-frames";
@@ -31,12 +32,20 @@ import {
   useRef,
   useState,
 } from "react";
+import {
+  isAutomaticSourcePublication,
+  isSelfPublishedSourceRevision,
+  recordAutomaticSourcePublication,
+} from "./source-publication-ledger";
+
+export { isSelfPublishedSourceRevision } from "./source-publication-ledger";
 
 const MAX_PAGE_SIZE = 500;
 const SUGGESTION_SAMPLE_SIZE = 100;
 const EMPTY_DATA_TABLES: readonly DataTable[] = [];
 const EMPTY_INSIGHTS: readonly Insight[] = [];
 const MAX_COMPOSITION_DEPTH = 16;
+const MAX_PENDING_SOURCE_REVISIONS = 64;
 
 export interface UseInsightPaginationOptions {
   insight: Insight | null | undefined;
@@ -58,9 +67,10 @@ function toFetchDefinition(insight: Insight): InsightFetchDefinition {
 }
 
 /**
- * Track only source-frame generations. Insight result publication does not
- * touch these DataTables, so this invalidates mounted consumers without
- * rematerializing in response to their own result pointer update.
+ * Track source-frame generations so mounted consumers update after an
+ * external refresh. Automatic Insight materializations also publish new
+ * source generations; the scoped publication ledger prevents those writes
+ * from feeding back into sibling materializers.
  */
 export function buildInsightSourceRevision(
   insight: Insight | null | undefined,
@@ -147,35 +157,6 @@ export function resolveInsightSourceDataTable(
   return undefined;
 }
 
-export function isSelfPublishedSourceRevision(
-  before: string,
-  after: string,
-  sourceGenerations: readonly { tableId: UUID; dataFrameId: UUID }[],
-): boolean {
-  if (before === after) return false;
-  const prior = before.split("|");
-  const next = after.split("|");
-  if (prior.length !== next.length) return false;
-  let changed = false;
-  const published = new Map(
-    sourceGenerations.map(({ tableId, dataFrameId }) => [tableId, dataFrameId]),
-  );
-  for (let index = 0; index < prior.length; index += 1) {
-    if (prior[index] === next[index]) continue;
-    const priorTable = prior[index]?.split(":");
-    const nextTable = next[index]?.split(":");
-    if (
-      priorTable?.[0] !== "table" ||
-      nextTable?.[0] !== "table" ||
-      priorTable[1] !== nextTable[1] ||
-      published.get(nextTable[1] as UUID) !== nextTable[2]
-    )
-      return false;
-    changed = true;
-  }
-  return changed;
-}
-
 type ResultSchemaColumn = Readonly<{
   id: UUID;
   name: string;
@@ -260,6 +241,7 @@ export function useInsightPagination({
   enabled = true,
   runtime,
 }: UseInsightPaginationOptions) {
+  const runtimeScope = getRuntimeConfig();
   const dataTablesQuery = queryStatus(
     useQuery({ query: api.app.listDataTables, args: {} }),
   );
@@ -291,10 +273,15 @@ export function useInsightPagination({
   const pendingMaterialization = useRef<{
     requestIdentity: string;
     sourceRevision: string;
+    sourceRevisions: readonly string[];
   } | null>(null);
   const completedPublication = useRef<{
     sourceRevision: string;
     sourceGenerations: readonly { tableId: UUID; dataFrameId: UUID }[];
+  } | null>(null);
+  const validResult = useRef<{
+    requestIdentity: string;
+    sourceRevision: string;
   } | null>(null);
   const [sourceRetry, setSourceRetry] = useState(0);
   const activeDataFrameId = useRef<UUID | null>(dataFrameId);
@@ -335,7 +322,17 @@ export function useInsightPagination({
 
   useEffect(() => {
     if (activeMaterialization.current?.requestIdentity === requestIdentity) {
-      pendingMaterialization.current = { requestIdentity, sourceRevision };
+      const pending = pendingMaterialization.current;
+      const sourceRevisions = pending?.sourceRevisions.includes(sourceRevision)
+        ? pending.sourceRevisions
+        : [...(pending?.sourceRevisions ?? []), sourceRevision].slice(
+            -MAX_PENDING_SOURCE_REVISIONS,
+          );
+      pendingMaterialization.current = {
+        requestIdentity,
+        sourceRevision,
+        sourceRevisions,
+      };
       return;
     }
     const completed = completedPublication.current;
@@ -347,11 +344,27 @@ export function useInsightPagination({
         sourceRevision,
         completed.sourceGenerations,
       )
-    )
+    ) {
+      if (validResult.current?.requestIdentity === requestIdentity)
+        validResult.current.sourceRevision = sourceRevision;
       return;
+    }
+    const valid = validResult.current;
+    if (
+      valid?.requestIdentity === requestIdentity &&
+      isAutomaticSourcePublication(
+        runtimeScope,
+        valid.sourceRevision,
+        sourceRevision,
+      )
+    ) {
+      valid.sourceRevision = sourceRevision;
+      return;
+    }
     const current = generation.current;
     const activeInsight = insight;
     if (!enabled || !activeInsight?.id || !sourcesReady) {
+      validResult.current = null;
       queueMicrotask(() => {
         if (current !== generation.current) return;
         setDataFrameId(null);
@@ -369,6 +382,7 @@ export function useInsightPagination({
       return;
     }
     const activeRequest = { requestIdentity, sourceRevision };
+    validResult.current = null;
     activeMaterialization.current = activeRequest;
     pendingMaterialization.current = null;
     queueMicrotask(() => {
@@ -399,8 +413,15 @@ export function useInsightPagination({
     materialized
       .then(
         async (fetchResult) => {
+          const publishedSourceGenerations = fetchResult.sourceGenerations;
+          if (publishedSourceGenerations?.length)
+            recordAutomaticSourcePublication(
+              runtimeScope,
+              activeRequest.sourceRevision,
+              publishedSourceGenerations,
+            );
           if (current !== generation.current) return;
-          completedSourceGenerations = fetchResult.sourceGenerations;
+          completedSourceGenerations = publishedSourceGenerations;
           const retained =
             fetchResult.status === "failed" ? fetchResult.lastSuccessful : null;
           if (fetchResult.status === "failed" && !retained) {
@@ -455,6 +476,10 @@ export function useInsightPagination({
             ({ id, type }) => ({ name: id, type: type as ColumnType }),
           );
           setDataFrameId(resultFrame.dataFrameId);
+          validResult.current = {
+            requestIdentity,
+            sourceRevision: activeRequest.sourceRevision,
+          };
           setTotalCount(effectiveCount);
           setColumns(nextColumns);
           setSchema(page.schema);
@@ -486,26 +511,62 @@ export function useInsightPagination({
         if (activeMaterialization.current !== activeRequest) return;
         const started = activeRequest;
         const pending = pendingMaterialization.current;
-        if (completedSourceGenerations?.length)
+        activeMaterialization.current = null;
+        pendingMaterialization.current = null;
+        const ownsPendingSourceRevision = Boolean(
+          pending &&
+          completedSourceGenerations?.length &&
+          isSelfPublishedSourceRevision(
+            started.sourceRevision,
+            pending.sourceRevision,
+            completedSourceGenerations,
+          ),
+        );
+        const valid = validResult.current;
+        const recognizesPendingSourceRevision = Boolean(
+          pending &&
+          valid?.requestIdentity === started.requestIdentity &&
+          isAutomaticSourcePublication(
+            runtimeScope,
+            valid.sourceRevision,
+            pending.sourceRevision,
+          ),
+        );
+        const pendingRequiresRetry = Boolean(
+          pending &&
+          (pending.requestIdentity !== started.requestIdentity ||
+            pending.sourceRevisions.some(
+              (revision) =>
+                revision !== started.sourceRevision &&
+                (!completedSourceGenerations?.length ||
+                  !isSelfPublishedSourceRevision(
+                    started.sourceRevision,
+                    revision,
+                    completedSourceGenerations,
+                  )) &&
+                !isAutomaticSourcePublication(
+                  runtimeScope,
+                  started.sourceRevision,
+                  revision,
+                ),
+            )),
+        );
+        if (completedSourceGenerations?.length && !pendingRequiresRetry)
           completedPublication.current = {
             sourceRevision: started.sourceRevision,
             sourceGenerations: completedSourceGenerations,
           };
-        activeMaterialization.current = null;
-        pendingMaterialization.current = null;
         if (
-          started &&
-          pending &&
-          (pending.requestIdentity !== started.requestIdentity ||
-            (pending.sourceRevision !== started.sourceRevision &&
-              (!completedSourceGenerations?.length ||
-                !isSelfPublishedSourceRevision(
-                  started.sourceRevision,
-                  pending.sourceRevision,
-                  completedSourceGenerations,
-                ))))
+          pending?.requestIdentity === started.requestIdentity &&
+          (ownsPendingSourceRevision || recognizesPendingSourceRevision) &&
+          valid?.requestIdentity === started.requestIdentity
         )
+          valid.sourceRevision = pending.sourceRevision;
+        if (pendingRequiresRetry) {
+          completedPublication.current = null;
+          validResult.current = null;
           setSourceRetry((value) => value + 1);
+        }
       });
     // oxlint-disable-next-line react-hooks-js/exhaustive-deps -- structural keys intentionally gate rematerialization.
   }, [
@@ -513,6 +574,7 @@ export function useInsightPagination({
     insight?.id,
     insightKey,
     runtimeKey,
+    runtimeScope,
     requestIdentity,
     showModelPreview,
     sourceRevision,

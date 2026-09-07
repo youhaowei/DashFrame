@@ -10,14 +10,16 @@ import {
   useInsightPagination,
 } from "./useInsightPagination";
 
-const { queryDataFrame, client, useQuery } = vi.hoisted(() => ({
+const { queryDataFrame, client, useQuery, runtime } = vi.hoisted(() => ({
   queryDataFrame: vi.fn(),
   client: { mutate: vi.fn() },
   useQuery: vi.fn(() => ({ data: [] })),
+  runtime: { scope: {} as object },
 }));
 vi.mock("@/lib/data-access/data-frames", () => ({ queryDataFrame }));
 vi.mock("@/data/runtime", () => ({
   getConvexClient: () => client,
+  getRuntimeConfig: () => runtime.scope,
   useQuery: () => ({ data: [] }),
 }));
 vi.mock("convex/react", async (importOriginal) => ({
@@ -40,7 +42,10 @@ const insight = {
 } as Insight;
 
 describe("useInsightPagination", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    runtime.scope = {};
+  });
 
   it("stays idle while its insight is absent during a cold render", async () => {
     const { result } = renderHook(() =>
@@ -375,6 +380,280 @@ describe("useInsightPagination", () => {
     rerender();
     await act(async () => Promise.resolve());
     expect(client.mutate).toHaveBeenCalledTimes(1);
+  });
+
+  it("settles sibling publications without hiding new consumers, changed requests, or manual refreshes", async () => {
+    let tables = [
+      {
+        id: "table-1",
+        dataFrameId: "source-frame-1",
+        lastFetchedAt: 1,
+        fields: [],
+      } as unknown as DataTable,
+    ];
+    useQuery.mockImplementation((procedure) => ({
+      data: procedure._path === "listInsights" ? [] : tables,
+    }));
+    let savedCalls = 0;
+    let previewCalls = 0;
+    client.mutate.mockImplementation(async (procedure) => {
+      const preview = procedure._path === "fetchData";
+      const call = preview ? ++previewCalls : ++savedCalls;
+      const kind = preview ? "preview" : "saved";
+      return {
+        status: "ready",
+        dataFrameId: `${kind}-result-${call}`,
+        fetchedAt: call,
+        sourceGenerations: [
+          {
+            tableId: "table-1",
+            dataFrameId: `${kind}-source-${call}`,
+          },
+        ],
+      };
+    });
+    queryDataFrame.mockImplementation(async (dataFrameId) => ({
+      status: "ready",
+      schema: [],
+      rows: [{ dataFrameId }],
+      totalCount: 1,
+      page: {},
+    }));
+
+    const { result, rerender } = renderHook(
+      ({ savedInsight }) => ({
+        saved: useInsightPagination({ insight: savedInsight }),
+        preview: useInsightPagination({
+          insight,
+          showModelPreview: true,
+        }),
+      }),
+      { initialProps: { savedInsight: insight } },
+    );
+    await waitFor(() => {
+      expect(result.current.saved.dataFrameId).toBe("saved-result-1");
+      expect(result.current.preview.dataFrameId).toBe("preview-result-1");
+    });
+
+    // The preview's automatic source publication is visible to the saved
+    // consumer, but must not start an alternating refresh cycle.
+    tables = [
+      {
+        ...tables[0]!,
+        dataFrameId: "preview-source-1",
+        lastFetchedAt: 2,
+      },
+    ];
+    rerender({ savedInsight: insight });
+    await act(async () => Promise.resolve());
+    expect({ savedCalls, previewCalls }).toEqual({
+      savedCalls: 1,
+      previewCalls: 1,
+    });
+
+    // A request change is independent of source publication suppression.
+    const changedInsight = {
+      ...insight,
+      selectedFields: ["20000000-0000-4000-8000-000000000002"],
+    } as Insight;
+    rerender({ savedInsight: changedInsight });
+    await waitFor(() =>
+      expect(result.current.saved.dataFrameId).toBe("saved-result-2"),
+    );
+    expect({ savedCalls, previewCalls }).toEqual({
+      savedCalls: 2,
+      previewCalls: 1,
+    });
+
+    // A manual refresh is not recorded by this hook, so both consumers must
+    // update once. Their resulting automatic publications must then settle.
+    tables = [
+      {
+        ...tables[0]!,
+        dataFrameId: "manual-source",
+        lastFetchedAt: 3,
+      },
+    ];
+    rerender({ savedInsight: changedInsight });
+    await waitFor(() => {
+      expect(result.current.saved.dataFrameId).toBe("saved-result-3");
+      expect(result.current.preview.dataFrameId).toBe("preview-result-2");
+    });
+    expect({ savedCalls, previewCalls }).toEqual({
+      savedCalls: 3,
+      previewCalls: 2,
+    });
+    tables = [
+      {
+        ...tables[0]!,
+        dataFrameId: "preview-source-2",
+        lastFetchedAt: 4,
+      },
+    ];
+    rerender({ savedInsight: changedInsight });
+    await act(async () => Promise.resolve());
+    expect({ savedCalls, previewCalls }).toEqual({
+      savedCalls: 3,
+      previewCalls: 2,
+    });
+
+    // A consumer mounted after that publication has no readable result yet,
+    // so it still performs its initial materialization.
+    const newcomer = renderHook(() =>
+      useInsightPagination({ insight: changedInsight }),
+    );
+    await waitFor(() =>
+      expect(newcomer.result.current.dataFrameId).toBe("saved-result-4"),
+    );
+    expect(savedCalls).toBe(4);
+    newcomer.unmount();
+  });
+
+  it("preserves a manual invalidation while older sibling publications finish", async () => {
+    let tables = [
+      {
+        id: "table-1",
+        dataFrameId: "source-initial",
+        lastFetchedAt: 1,
+        fields: [],
+      } as unknown as DataTable,
+    ];
+    useQuery.mockImplementation((procedure) => ({
+      data: procedure._path === "listInsights" ? [] : tables,
+    }));
+    let phase: "initial" | "old-flight" | "after-manual" = "initial";
+    let savedCalls = 0;
+    let previewCalls = 0;
+    let resolveOldSaved!: (value: unknown) => void;
+    let resolveOldPreview!: (value: unknown) => void;
+    let resolveOldSavedPage!: (value: unknown) => void;
+    let resolveOldPreviewPage!: (value: unknown) => void;
+    client.mutate.mockImplementation((procedure) => {
+      const preview = procedure._path === "fetchData";
+      const call = preview ? ++previewCalls : ++savedCalls;
+      const kind = preview ? "preview" : "saved";
+      if (phase === "old-flight")
+        return new Promise((resolve) => {
+          if (preview) resolveOldPreview = resolve;
+          else resolveOldSaved = resolve;
+        });
+      return Promise.resolve({
+        status: "ready",
+        dataFrameId: `${phase}-${kind}-result-${call}`,
+        sourceGenerations: [
+          {
+            tableId: "table-1",
+            dataFrameId: `${phase}-${kind}-source-${call}`,
+          },
+        ],
+      });
+    });
+    const readyPage = {
+      status: "ready",
+      schema: [],
+      rows: [],
+      totalCount: 1,
+      page: {},
+    };
+    queryDataFrame.mockImplementation((dataFrameId) => {
+      if (dataFrameId === "old-saved-result")
+        return new Promise((resolve) => (resolveOldSavedPage = resolve));
+      if (dataFrameId === "old-preview-result")
+        return new Promise((resolve) => (resolveOldPreviewPage = resolve));
+      return Promise.resolve(readyPage);
+    });
+
+    const { result, rerender } = renderHook(() => ({
+      saved: useInsightPagination({ insight }),
+      preview: useInsightPagination({ insight, showModelPreview: true }),
+    }));
+    await waitFor(() => {
+      expect(result.current.saved.isReady).toBe(true);
+      expect(result.current.preview.isReady).toBe(true);
+    });
+
+    phase = "old-flight";
+    tables = [{ ...tables[0]!, dataFrameId: "old-trigger", lastFetchedAt: 2 }];
+    rerender();
+    await waitFor(() =>
+      expect({ savedCalls, previewCalls }).toEqual({
+        savedCalls: 2,
+        previewCalls: 2,
+      }),
+    );
+
+    // The external/manual generation arrives while both older requests are
+    // active. Later automatic source publications must not erase that intent.
+    tables = [{ ...tables[0]!, dataFrameId: "manual-1", lastFetchedAt: 3 }];
+    rerender();
+    await act(async () => {
+      resolveOldSaved({
+        status: "ready",
+        dataFrameId: "old-saved-result",
+        sourceGenerations: [
+          { tableId: "table-1", dataFrameId: "old-saved-source" },
+        ],
+      });
+    });
+    await waitFor(() =>
+      expect(queryDataFrame).toHaveBeenCalledWith("old-saved-result", {
+        offset: 0,
+        limit: 100,
+      }),
+    );
+    tables = [
+      { ...tables[0]!, dataFrameId: "old-saved-source", lastFetchedAt: 4 },
+    ];
+    rerender();
+    phase = "after-manual";
+    await act(async () => resolveOldSavedPage(readyPage));
+    await waitFor(() => expect(savedCalls).toBe(3));
+
+    await act(async () => {
+      resolveOldPreview({
+        status: "ready",
+        dataFrameId: "old-preview-result",
+        sourceGenerations: [
+          { tableId: "table-1", dataFrameId: "old-preview-source" },
+        ],
+      });
+    });
+    await waitFor(() =>
+      expect(queryDataFrame).toHaveBeenCalledWith("old-preview-result", {
+        offset: 0,
+        limit: 100,
+      }),
+    );
+    tables = [
+      { ...tables[0]!, dataFrameId: "old-preview-source", lastFetchedAt: 5 },
+    ];
+    rerender();
+    await act(async () => resolveOldPreviewPage(readyPage));
+    await waitFor(() => expect(previewCalls).toBe(3));
+
+    tables = [
+      {
+        ...tables[0]!,
+        dataFrameId: "after-manual-preview-source-3",
+        lastFetchedAt: 6,
+      },
+    ];
+    rerender();
+    await act(async () => Promise.resolve());
+    expect({ savedCalls, previewCalls }).toEqual({
+      savedCalls: 3,
+      previewCalls: 3,
+    });
+
+    // A later unrelated manual generation still invalidates both consumers.
+    tables = [{ ...tables[0]!, dataFrameId: "manual-2", lastFetchedAt: 7 }];
+    rerender();
+    await waitFor(() =>
+      expect({ savedCalls, previewCalls }).toEqual({
+        savedCalls: 4,
+        previewCalls: 4,
+      }),
+    );
   });
 
   it("suppresses a composed upstream publication but not another frame with the same timestamp", async () => {
