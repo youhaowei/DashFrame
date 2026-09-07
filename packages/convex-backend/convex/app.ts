@@ -37,7 +37,7 @@ import {
   find,
   rowValue,
   LIMIT,
-  loadGraph,
+  openGraph,
   readGraph,
   persist,
   draft,
@@ -45,7 +45,8 @@ import {
   draftChanges,
   eraseDraft,
 } from "./store";
-import { cloneGraph, changes, execute, type Graph } from "./engine";
+import { execute } from "./engine";
+import { type Graph, capMessage } from "./graph";
 import {
   publicRow,
   preview,
@@ -73,7 +74,7 @@ async function readOne(
     return row ? publicRow(table, rowValue(row)) : null;
   }
   const graph = await readGraph(ctx, who, args.draftId),
-    row = graph.get(table)!.get(args.id);
+    row = await graph.find(table, args.id);
   return row ? publicRow(table, row) : null;
 }
 function assertCompleteArtifactRows(
@@ -81,11 +82,7 @@ function assertCompleteArtifactRows(
   table: ArtifactTable,
 ) {
   if (rows.length <= LIMIT) return;
-  throw new ConvexError(
-    table === "dataFrames"
-      ? `Workspace exceeds ${LIMIT} dataFrames; use the Data Frames recovery list to delete rows`
-      : `Workspace exceeds ${LIMIT} ${table}; pagination required`,
-  );
+  throw new ConvexError(capMessage(table));
 }
 function listQuery<T>(table: ArtifactTable) {
   return query({
@@ -134,7 +131,16 @@ function listQuery<T>(table: ArtifactTable) {
           .map((row) => publicRow(table, rowValue(row)) as unknown as T);
       }
       const graph = await readGraph(ctx, who, args.draftId);
-      return [...graph.get(table)!.values()]
+      return (
+        await graph.scan(
+          table,
+          args.dataSourceId
+            ? { dataSourceId: args.dataSourceId }
+            : args.insightId
+              ? { insightId: args.insightId }
+              : {},
+        )
+      )
         .filter(
           (row) =>
             (!args.dataSourceId || row.dataSourceId === args.dataSourceId) &&
@@ -171,11 +177,16 @@ export type FrameEntry = DataFrameJSON & {
   currentInsightResult?: boolean;
 };
 /**
- * Data frame history can outgrow the full-graph transaction. Keep this query
- * explicitly recoverable so the Data Frames page can request an intentionally
- * truncated, bounded batch and delete it through the host until full-graph
- * reads resume. Other callers retain complete-list semantics and the
- * full-graph safety bound.
+ * The list read over frames. A `dataSourceId` or `insightId` filter selects
+ * through that index; without one the whole table is read. Every branch,
+ * filtered or not, is bounded at LIMIT rows and refuses beyond that naming
+ * the recovery path, except `recovery: true` without a draft, which returns a
+ * truncated batch so the Data Frames page can still delete rows through the
+ * host. Under a draft the same selection runs through the graph (`scan` with
+ * the filter, `list` without) and `recovery` is ignored. Command batches never
+ * read frames this way, so an over-cap workspace keeps committing, drafting,
+ * and publishing; only surfaces whose selection here exceeds LIMIT stop
+ * rendering.
  */
 export const listDataFrames = query({
   args: {
@@ -190,9 +201,15 @@ export const listDataFrames = query({
     const who = await principal(ctx),
       dataSourceId = args.dataSourceId,
       insightId = args.insightId;
-    if (!args.recovery || args.draftId) {
+    if (args.draftId) {
       const graph = await readGraph(ctx, who, args.draftId);
-      return [...graph.get("dataFrames")!.values()]
+      return (
+        await (dataSourceId
+          ? graph.scan("dataFrames", { dataSourceId })
+          : insightId
+            ? graph.scan("dataFrames", { insightId })
+            : graph.list("dataFrames"))
+      )
         .filter(
           (row) =>
             (!args.dataSourceId || row.dataSourceId === args.dataSourceId) &&
@@ -209,20 +226,21 @@ export const listDataFrames = query({
               .eq("workspaceId", who.workspaceId)
               .eq("dataSourceId", dataSourceId),
           )
-          .take(LIMIT)
+          .take(args.recovery ? LIMIT : LIMIT + 1)
       : insightId
         ? await ctx.db
             .query("dataFrames")
             .withIndex("by_workspaceId_and_insightId", (q) =>
               q.eq("workspaceId", who.workspaceId).eq("insightId", insightId),
             )
-            .take(LIMIT)
+            .take(args.recovery ? LIMIT : LIMIT + 1)
         : await ctx.db
             .query("dataFrames")
             .withIndex("by_workspaceId_and_id", (q) =>
               q.eq("workspaceId", who.workspaceId),
             )
-            .take(LIMIT);
+            .take(args.recovery ? LIMIT : LIMIT + 1);
+    if (!args.recovery) assertCompleteArtifactRows(rows, "dataFrames");
     return rows
       .filter(
         (row) =>
@@ -284,7 +302,7 @@ export const getDataSourceByType = query({
         : null;
     }
     const graph = await readGraph(ctx, who, args.draftId);
-    const row = [...graph.get("dataSources")!.values()].find(
+    const row = (await graph.scan("dataSources")).find(
       (candidate) => candidate.kind === args.type,
     );
     return row
@@ -298,11 +316,11 @@ export const getDataFrameByInsight = query({
   handler: async (ctx, args) => {
     const who = await principal(ctx);
     const rows = args.draftId
-      ? [
-          ...(await readGraph(ctx, who, args.draftId))
-            .get("dataFrames")!
-            .values(),
-        ].filter((row) => row.insightId === args.insightId)
+      ? await (
+          await readGraph(ctx, who, args.draftId)
+        ).scan("dataFrames", {
+          insightId: args.insightId,
+        })
       : (
           await ctx.db
             .query("dataFrames")
@@ -374,10 +392,14 @@ export const commitBatch = mutation({
         };
       }
     }
-    const before = await loadGraph(ctx, who.workspaceId),
-      after = cloneGraph(before);
-    const results = execute(after, args.commands, who.workspaceId, Date.now());
-    const tablesWritten = await persist(ctx, who.workspaceId, before, after),
+    const graph = openGraph(ctx, who.workspaceId);
+    const results = await execute(
+      graph,
+      args.commands,
+      who.workspaceId,
+      Date.now(),
+    );
+    const tablesWritten = await persist(ctx, who.workspaceId, graph),
       result = {
         mode: "commit" as const,
         results,
@@ -399,7 +421,7 @@ export const previewDiff = query({
   returns: typed<PreviewDiff>(object),
   handler: async (ctx, args) => {
     const who = await principal(ctx);
-    return preview(
+    return await preview(
       await readGraph(ctx, who, args.draftId),
       args.commands,
       who.workspaceId,
@@ -411,15 +433,15 @@ export async function replaceDraft(
   ctx: MutationCtx,
   row: Doc<"drafts">,
   commands: Command[],
-  before: Graph,
-  after: Graph,
+  graph: Graph,
   oldBase = true,
 ) {
   if (commands.length > 200)
     throw new ConvexError("Draft is limited to 200 commands");
+  const diff = await graph.changes();
   await assertResourcesWritable(ctx, row.workspaceId, [
     commands,
-    changes(before, after).map((c) => c.value),
+    diff.map((c) => c.value),
   ]);
   const prior = await draftChanges(ctx, row.workspaceId, row.draftId);
   await enqueueCleanup(
@@ -429,7 +451,7 @@ export async function replaceDraft(
   );
   const baseByKey = new Map(prior.map((c) => [`${c.table}:${c.id}`, c.base]));
   for (const c of prior) await ctx.db.delete(c._id);
-  for (const c of changes(before, after)) {
+  for (const c of diff) {
     await ctx.db.insert("draftChanges", {
       workspaceId: row.workspaceId,
       draftId: row.draftId,
@@ -483,12 +505,15 @@ export const draftBatch = mutation({
         ...(await log(ctx, who.workspaceId, row.draftId)).map((e) => e.command),
         ...args.commands,
       ],
-      before = await loadGraph(ctx, who.workspaceId),
-      after = await readGraph(ctx, who, row.draftId);
-    const results = execute(after, args.commands, who.workspaceId, Date.now(), {
-      service: who.kind === "service",
-    });
-    await replaceDraft(ctx, row, commands, before, after);
+      graph = await readGraph(ctx, who, row.draftId);
+    const results = await execute(
+      graph,
+      args.commands,
+      who.workspaceId,
+      Date.now(),
+      { service: who.kind === "service" },
+    );
+    await replaceDraft(ctx, row, commands, graph);
     return { draftId: row.draftId, results };
   },
 });
@@ -880,8 +905,8 @@ async function review(
   const row = await draft(ctx, who, draftId),
     commands = (await log(ctx, who.workspaceId, draftId)).map((e) => e.command),
     unbound = lateBound(commands),
-    diff = preview(
-      await loadGraph(ctx, who.workspaceId),
+    diff = await preview(
+      openGraph(ctx, who.workspaceId),
       commands,
       who.workspaceId,
       row.createdAt,
@@ -986,12 +1011,11 @@ export const publishDraft = mutation({
           throw new ConvexError("Draft conflicts with canonical changes");
       }
     }
-    const before = await loadGraph(ctx, who.workspaceId),
-      after = cloneGraph(before),
-      results = execute(after, commands, who.workspaceId, Date.now(), {
+    const graph = openGraph(ctx, who.workspaceId),
+      results = await execute(graph, commands, who.workspaceId, Date.now(), {
         host: true,
       });
-    const tablesWritten = await persist(ctx, who.workspaceId, before, after);
+    const tablesWritten = await persist(ctx, who.workspaceId, graph);
     await eraseDraft(ctx, row);
     return {
       mode: "commit" as const,
@@ -1074,10 +1098,9 @@ export const reviseDraft = mutation({
       };
     }
     const next = commands.filter((_, i) => !removals.has(i));
-    const before = await loadGraph(ctx, who.workspaceId),
-      after = cloneGraph(before);
-    execute(after, next, who.workspaceId, row.createdAt, { host: true });
-    await replaceDraft(ctx, row, next, before, after);
+    const graph = openGraph(ctx, who.workspaceId);
+    await execute(graph, next, who.workspaceId, row.createdAt, { host: true });
+    await replaceDraft(ctx, row, next, graph);
     return {
       draftId: row.draftId,
       commandCount: next.length,

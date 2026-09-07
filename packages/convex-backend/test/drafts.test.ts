@@ -784,3 +784,46 @@ it("reports initialized project identity only inside the authenticated workspace
     "not initialized",
   );
 });
+
+// A second batch on the same draft must not lose rows the first batch staged
+// and the second never touched: the overlay is carried forward whole.
+it("carries untouched staged rows forward when a draft is appended", async () => {
+  const sourceId = crypto.randomUUID(),
+    tableId = crypto.randomUUID(),
+    first = crypto.randomUUID(),
+    second = crypto.randomUUID();
+  await user().mutation(api.app.commitBatch, {
+    commands: [
+      cmd("CreateDataSource", { id: sourceId, name: "S", type: "csv" }),
+      cmd("CreateDataTable", {
+        id: tableId,
+        dataSourceId: sourceId,
+        name: "T",
+        table: "t.csv",
+      }),
+    ],
+  });
+  const source = { sourceType: "dataTable" as const, sourceId: tableId };
+  const { draftId } = await user().mutation(api.app.draftBatch, {
+    commands: [cmd("CreateInsight", { id: first, name: "First", source })],
+  });
+  await user().mutation(api.app.draftBatch, {
+    draftId,
+    commands: [cmd("CreateInsight", { id: second, name: "Second", source })],
+  });
+  expect(
+    (await user().query(api.app.listInsights, { draftId }))
+      .map((row) => row.name)
+      .sort(),
+  ).toEqual(["First", "Second"]);
+  const review = await user().query(api.app.draftPublishReview, { draftId });
+  expect(review.commandCount).toBe(2);
+  expect(review.diff.directNodes.map((n) => n.name).sort()).toEqual([
+    "First",
+    "Second",
+  ]);
+  await user().mutation(api.app.publishDraft, { draftId });
+  expect(
+    (await user().query(api.app.listInsights, {})).map((r) => r.name).sort(),
+  ).toEqual(["First", "Second"]);
+});

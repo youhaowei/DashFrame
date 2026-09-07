@@ -4,6 +4,7 @@ import { cmd } from "@dashframe/types";
 import schema from "../convex/schema";
 import { api } from "../convex/_generated/api";
 import { describeCommand } from "../convex/preview";
+import { Graph } from "../convex/graph";
 
 const modules = import.meta.glob("../convex/**/*.ts");
 const makeTest = () => convexTest(schema, modules);
@@ -49,6 +50,9 @@ it("uses report-hierarchy terminology in deterministic intent summaries", () => 
 });
 
 async function seedVisualization() {
+  return (await seedChain()).visualizationId;
+}
+async function seedChain() {
   const sourceId = uuid();
   const tableId = uuid();
   const insightId = uuid();
@@ -82,7 +86,7 @@ async function seedVisualization() {
     ],
   });
 
-  return visualizationId;
+  return { sourceId, tableId, insightId, visualizationId };
 }
 
 it("projects only the visualization field changed by a rename", async () => {
@@ -132,3 +136,137 @@ it("keeps the deletion marker for a deleted artifact", async () => {
     proposedDefinition: { deleted: true },
   });
 });
+
+// The downstream walk reads the graph as it stood before the commands ran, so
+// a delete cascade reports the rows it removes as orphaned instead of walking
+// a graph they have already left.
+it("reports the cascade of a deleted data source as orphaned downstream nodes", async () => {
+  const { sourceId, tableId, insightId, visualizationId } = await seedChain();
+
+  const diff = await user.query(api.app.previewDiff, {
+    commands: [cmd("DeleteNode", { id: sourceId })],
+  });
+
+  expect(diff.directNodes).toHaveLength(1);
+  expect(diff.directNodes[0]).toMatchObject({
+    nodeId: sourceId,
+    proposedDefinition: { deleted: true },
+  });
+  expect(
+    diff.affectedDownstream
+      .map((n) => [n.kind, n.nodeId, n.flag])
+      .sort((a, b) => String(a[1]).localeCompare(String(b[1]))),
+  ).toEqual(
+    [
+      ["dataTable", tableId, "orphaned"],
+      ["insight", insightId, "orphaned"],
+      ["visualization", visualizationId, "orphaned"],
+    ].sort((a, b) => String(a[1]).localeCompare(String(b[1]))),
+  );
+});
+
+it("reports a data frame linked through a deleted parent artifact", async () => {
+  const sourceId = uuid();
+  const frameId = uuid();
+  await user.mutation(api.app.commitBatch, {
+    commands: [
+      cmd("CreateDataSource", {
+        id: sourceId,
+        type: "csv",
+        name: "Source",
+      }),
+    ],
+  });
+  await t.run((ctx) =>
+    ctx.db.insert("dataFrames", {
+      workspaceId: "workspace",
+      id: frameId,
+      revision: 1,
+      name: "Derived frame",
+      createdAt: Date.now(),
+      parentArtifactId: sourceId,
+      storage: { type: "file", key: frameId },
+      fieldIds: [],
+    }),
+  );
+
+  const diff = await user.query(api.app.previewDiff, {
+    commands: [cmd("DeleteNode", { id: sourceId })],
+  });
+
+  expect(diff.affectedDownstream).toContainEqual({
+    nodeId: frameId,
+    kind: "dataFrame",
+    name: "Derived frame",
+    edge: "parentArtifact",
+    via: { kind: "dataSource", id: sourceId },
+    flag: "orphaned",
+  });
+});
+
+it("rejects an unselected data frame scan after a recovery list read", async () => {
+  await t.run(async (ctx) => {
+    const graph = new Graph(ctx, "workspace");
+    expect(await graph.list("dataFrames")).toEqual([]);
+    await expect(graph.scan("dataFrames")).rejects.toThrow(
+      "Data frames are never scanned whole; select them through an index",
+    );
+  });
+});
+
+it.each(["source", "table"])(
+  "previews all frames removed by a %s deletion",
+  async (kind) => {
+    const { sourceId, tableId } = await seedChain();
+    const sourceFrame = uuid(),
+      definitionFrame = uuid(),
+      linkedFrame = uuid();
+    const targetFrames =
+      kind === "source"
+        ? [sourceFrame, definitionFrame, linkedFrame]
+        : [definitionFrame, linkedFrame];
+    await t.run(async (ctx) => {
+      for (const [id, owner] of [
+        [sourceFrame, { sourceId }],
+        [definitionFrame, { definitionId: tableId }],
+        [linkedFrame, {}],
+      ] as const) {
+        await ctx.db.insert("dataFrames", {
+          workspaceId: "workspace",
+          id,
+          revision: 1,
+          name: id,
+          createdAt: Date.now(),
+          storage: { type: "file", key: id },
+          fieldIds: [],
+          ...owner,
+        });
+      }
+      const table = await ctx.db
+        .query("dataTables")
+        .filter((q) => q.eq(q.field("id"), tableId))
+        .unique();
+      await ctx.db.patch(table!._id, { dataFrameId: linkedFrame });
+    });
+    const commands = [
+      cmd("DeleteNode", { id: kind === "source" ? sourceId : tableId }),
+    ];
+    const diff = await user.query(api.app.previewDiff, { commands });
+    const previewFrames = diff.affectedDownstream.filter(
+      (node) => node.kind === "dataFrame",
+    );
+    expect(previewFrames.map((node) => node.nodeId).sort()).toEqual(
+      [...targetFrames].sort(),
+    );
+    expect(previewFrames.every((node) => node.flag === "orphaned")).toBe(true);
+    await user.mutation(api.app.commitBatch, { commands });
+    const remaining = await t.run((ctx) =>
+      ctx.db.query("dataFrames").collect(),
+    );
+    expect(
+      [sourceFrame, definitionFrame, linkedFrame]
+        .filter((id) => !remaining.some((row) => row.id === id))
+        .sort(),
+    ).toEqual([...targetFrames].sort());
+  },
+);
