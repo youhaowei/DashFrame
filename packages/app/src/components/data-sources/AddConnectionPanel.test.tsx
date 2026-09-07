@@ -26,7 +26,11 @@ import {
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
-const { mockUseConnectorCatalog } = vi.hoisted(() => ({
+const { activityHandlers, mockUseConnectorCatalog } = vi.hoisted(() => ({
+  activityHandlers: {} as Record<
+    string,
+    ((active: boolean) => boolean) | undefined
+  >,
   mockUseConnectorCatalog: vi.fn(),
 }));
 
@@ -45,24 +49,27 @@ vi.mock("./renderers", () => ({
   }: {
     connector: { id: string; name: string };
     disabled?: boolean;
-    onActivityChange?: (active: boolean) => void;
-  }) => (
-    <div>
-      <button
-        data-testid={`connector-${connector.id}`}
-        disabled={disabled}
-        onClick={() => onActivityChange?.(true)}
-      >
-        {connector.name}
-      </button>
-      <button
-        data-testid={`release-${connector.id}`}
-        onClick={() => onActivityChange?.(false)}
-      >
-        Release {connector.name}
-      </button>
-    </div>
-  ),
+    onActivityChange?: (active: boolean) => boolean;
+  }) => {
+    activityHandlers[connector.id] = onActivityChange;
+    return (
+      <div>
+        <button
+          data-testid={`connector-${connector.id}`}
+          disabled={disabled}
+          onClick={() => onActivityChange?.(true)}
+        >
+          {connector.name}
+        </button>
+        <button
+          data-testid={`release-${connector.id}`}
+          onClick={() => onActivityChange?.(false)}
+        >
+          Release {connector.name}
+        </button>
+      </div>
+    );
+  },
 }));
 
 import { AddConnectionPanel } from "./AddConnectionPanel";
@@ -121,6 +128,9 @@ describe("AddConnectionPanel — registry hydration race (B1)", () => {
   beforeEach(() => {
     clearConnectorRegistry();
     mockUseConnectorCatalog.mockReset();
+    for (const connectorId of Object.keys(activityHandlers)) {
+      delete activityHandlers[connectorId];
+    }
   });
 
   it("renders the connector once the registry hydrates AFTER the catalog query has already resolved", () => {
@@ -217,5 +227,32 @@ describe("AddConnectionPanel — registry hydration race (B1)", () => {
     act(() => screen.getByTestId("release-local").click());
     expect(notion.disabled).toBe(false);
     expect(onActivityChange.mock.calls).toEqual([[true], [false]]);
+  });
+
+  it("denies a same-tick second ownership claim synchronously", () => {
+    mockUseConnectorCatalog.mockReturnValue({
+      data: TWO_CONNECTOR_CATALOG,
+      isLoading: false,
+      isFetching: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+    hydrateConnectorRegistry(TWO_CONNECTOR_CATALOG, {
+      local: () => localFileConnector,
+      notion: () => remoteConnector,
+    });
+
+    renderPanel();
+
+    let firstClaim: boolean | undefined;
+    let secondClaim: boolean | undefined;
+    act(() => {
+      firstClaim = activityHandlers.local?.(true);
+      secondClaim = activityHandlers.notion?.(true);
+    });
+
+    expect(firstClaim).toBe(true);
+    expect(secondClaim).toBe(false);
   });
 });

@@ -1,3 +1,4 @@
+import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 import { ArtifactPageHeader } from "@/components/artifacts/ArtifactPageHeader";
 import {
   ArtifactCard,
@@ -166,6 +167,7 @@ export default function DashboardDetailContent({
 
   // ── Local UI state ────────────────────────────────────────────────────────
   const [isEditable, setIsEditable] = useState(false);
+  const [isCreateQuestionOpen, setIsCreateQuestionOpen] = useState(false);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isAddPending, setIsAddPending] = useState(false);
   const [addType, setAddType] = useState<DashboardItemType>("visualization");
@@ -349,9 +351,17 @@ export default function DashboardDetailContent({
               })}
             </ArtifactGrid>
           ) : (
-            <p className="text-sm text-neutral-fg-subtle">
-              No questions are used by this report yet.
-            </p>
+            <div className="space-y-3">
+              <p className="text-sm text-neutral-fg-subtle">
+                No questions yet. Start with your data, then add a saved view to
+                this report.
+              </p>
+              <Button
+                label="Create first question"
+                icon={PlusIcon}
+                onClick={() => setIsCreateQuestionOpen(true)}
+              />
+            </div>
           )}
         </section>
 
@@ -401,6 +411,13 @@ export default function DashboardDetailContent({
           controlTransientValues={controlTransientValues}
         />
       </div>
+
+      <CreateVisualizationModal
+        isOpen={isCreateQuestionOpen}
+        onClose={() => setIsCreateQuestionOpen(false)}
+        title="Create question"
+        reportId={dashboardId}
+      />
 
       {/* Add Widget Dialog */}
       <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>

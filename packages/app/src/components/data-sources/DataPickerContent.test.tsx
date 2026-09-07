@@ -271,6 +271,7 @@ describe("DataPickerContent file replacement", () => {
     mockHandleFileConnectorResult.mockResolvedValue({
       dataTableId: NEW_TABLE_ID,
     });
+    mockListResources.mockResolvedValue([]);
     useConfirmDialogStore.setState({ isOpen: false, config: null });
     vi.stubGlobal("crypto", { randomUUID: vi.fn(() => NEW_TABLE_ID) });
   });
@@ -308,6 +309,44 @@ describe("DataPickerContent file replacement", () => {
     });
   });
 
+  it("keeps a remote import busy until question creation settles", async () => {
+    let finishQuestion: (() => void) | undefined;
+    mockHostRequest.mockResolvedValue({
+      commands: [{ path: "createDataSource", args: {} }],
+      results: [{ value: { id: REMOTE_SOURCE_ID } }],
+    });
+    mockListResources.mockResolvedValue([{ id: "db-1", title: "Roadmap" }]);
+    mockNativeCommit.mockResolvedValue(undefined);
+    const onTableSelect = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finishQuestion = resolve;
+        }),
+    );
+    render(<DataPickerContent onTableSelect={onTableSelect} />);
+    await act(async () => {
+      await handleConnect?.(
+        { id: "notion", name: "Notion" } as RemoteApiConnector,
+        { apiKey: "secret-for-host-vault" },
+      );
+    });
+
+    const resourceButton = await screen.findByRole("button", {
+      name: "Roadmap",
+    });
+    fireEvent.click(resourceButton);
+    await waitFor(() =>
+      expect(onTableSelect).toHaveBeenCalledWith(NEW_TABLE_ID, "Roadmap"),
+    );
+    expect((resourceButton as HTMLButtonElement).disabled).toBe(true);
+
+    await act(async () => {
+      finishQuestion?.();
+      await Promise.resolve();
+    });
+    expect((resourceButton as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it("creates a new table rather than offering to replace a same-named remote table", async () => {
     queryData.dataSources = [
       makeSource(REMOTE_SOURCE_ID, "Sales workspace", "notion"),
@@ -328,6 +367,54 @@ describe("DataPickerContent file replacement", () => {
       PARSE_RESULT,
       { overrideTableId: NEW_TABLE_ID },
     );
+  });
+
+  it("does not finish a file import until ingestion and question creation settle", async () => {
+    let finishIngestion: ((result: { dataTableId: UUID }) => void) | undefined;
+    let finishQuestion: (() => void) | undefined;
+    mockHandleFileConnectorResult.mockImplementation(
+      () =>
+        new Promise<{ dataTableId: UUID }>((resolve) => {
+          finishIngestion = resolve;
+        }),
+    );
+    const onTableSelect = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finishQuestion = resolve;
+        }),
+    );
+    render(<DataPickerContent onTableSelect={onTableSelect} />);
+
+    const importPromise = handleFileSelect?.(
+      fileConnector,
+      new File(["amount\n10"], "sales.csv"),
+    );
+    let settled = false;
+    importPromise
+      ?.then(() => {
+        settled = true;
+      })
+      .catch(() => {});
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(onTableSelect).not.toHaveBeenCalled();
+    expect(settled).toBe(false);
+
+    finishIngestion?.({ dataTableId: NEW_TABLE_ID });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(onTableSelect).toHaveBeenCalledWith(NEW_TABLE_ID, "sales");
+    expect(settled).toBe(false);
+
+    finishQuestion?.();
+    await act(async () => {
+      await importPromise;
+    });
+    expect(settled).toBe(true);
   });
 
   it("does not offer to replace an excluded file-backed table", async () => {

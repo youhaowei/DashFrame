@@ -57,20 +57,22 @@ export default function HomePage() {
     insights.length > 0 ||
     dataSources.length > 0 ||
     draftCount > 0;
-
   useEffect(() => {
-    if (!isLoading && hasProjectArtifacts && !isOnboardingActive) {
+    if (
+      !isLoading &&
+      !hasLoadError &&
+      hasProjectArtifacts &&
+      !isOnboardingActive
+    ) {
       void navigate({ to: "/dashboards", replace: true });
     }
-  }, [hasProjectArtifacts, isLoading, isOnboardingActive, navigate]);
-
-  if (isLoading || (hasProjectArtifacts && !isOnboardingActive)) {
-    return (
-      <div className="flex h-full items-center justify-center bg-neutral-bg">
-        <Spinner size="lg" className="text-neutral-fg-subtle" />
-      </div>
-    );
-  }
+  }, [
+    hasLoadError,
+    hasProjectArtifacts,
+    isLoading,
+    isOnboardingActive,
+    navigate,
+  ]);
 
   if (hasLoadError && !isOnboardingActive) {
     return (
@@ -79,6 +81,14 @@ export default function HomePage() {
           Couldn&apos;t determine whether this project is empty. Check your
           connection and try again.
         </p>
+      </div>
+    );
+  }
+
+  if (isLoading || (hasProjectArtifacts && !isOnboardingActive)) {
+    return (
+      <div className="flex h-full items-center justify-center bg-neutral-bg">
+        <Spinner size="lg" className="text-neutral-fg-subtle" />
       </div>
     );
   }

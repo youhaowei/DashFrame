@@ -66,7 +66,10 @@ export interface DataPickerContentProps {
   /**
    * Called when a table is selected (existing or newly uploaded)
    */
-  onTableSelect: (tableId: string, tableName: string) => void;
+  onTableSelect: (
+    tableId: string,
+    tableName: string,
+  ) => void | Promise<unknown>;
   /**
    * Exclude specific insight IDs from selection
    */
@@ -384,7 +387,7 @@ export function DataPickerContent({
         );
 
         const tableName = file.name.replace(FILE_TABLE_NAME_EXTENSION, "");
-        onTableSelect(dataTableId, tableName);
+        await onTableSelect(dataTableId, tableName);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to process file");
       }
@@ -508,7 +511,7 @@ export function DataPickerContent({
             });
           },
         });
-        onTableSelect(tableId, resource.title);
+        await onTableSelect(tableId, resource.title);
       } catch (cause) {
         const stableError =
           cause instanceof RemoteImportUserError

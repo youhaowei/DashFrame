@@ -22,7 +22,7 @@ export interface AddConnectionPanelProps {
   /** Global error message to display */
   error?: string | null;
   /** Called when a file is selected from a file connector */
-  onFileSelect: (connector: FileSourceConnector, file: File) => void;
+  onFileSelect: (connector: FileSourceConnector, file: File) => Promise<void>;
   /**
    * Called when a remote connector's form is submitted with validated
    * credentials. The credential is resolved server-side — the renderer never
@@ -66,19 +66,20 @@ export function AddConnectionPanel({
   const { data: catalog, isLoading, isError, refetch } = useConnectorCatalog();
 
   const handleActivityChange = useCallback(
-    (connectorId: string, active: boolean) => {
+    (connectorId: string, active: boolean): boolean => {
       if (active) {
-        if (activeConnectorIdRef.current !== null) return;
+        if (activeConnectorIdRef.current !== null) return false;
         activeConnectorIdRef.current = connectorId;
         setActiveConnectorId(connectorId);
         onActivityChange?.(true);
-        return;
+        return true;
       }
 
-      if (activeConnectorIdRef.current !== connectorId) return;
+      if (activeConnectorIdRef.current !== connectorId) return false;
       activeConnectorIdRef.current = null;
       setActiveConnectorId(null);
       onActivityChange?.(active);
+      return true;
     },
     [onActivityChange],
   );

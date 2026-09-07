@@ -16,7 +16,7 @@ interface ConnectorCardWithFormProps {
   /** The connector to render */
   connector: AnyConnector;
   /** Called when a file is selected (file connectors only) */
-  onFileSelect: (connector: FileSourceConnector, file: File) => void;
+  onFileSelect: (connector: FileSourceConnector, file: File) => Promise<void>;
   /**
    * Called when a remote-api connector's form is submitted with validated
    * credentials. The renderer never calls `connector.connect()` itself — that
@@ -34,7 +34,8 @@ interface ConnectorCardWithFormProps {
     connector: RemoteApiConnector,
     dataSourceId: string,
   ) => Promise<void>;
-  onActivityChange?: (active: boolean) => void;
+  /** Returns false when another connector already owns onboarding. */
+  onActivityChange?: (active: boolean) => boolean | void;
   disabled?: boolean;
 }
 
@@ -219,7 +220,7 @@ export function ConnectorCardWithForm({
     };
   }, []);
 
-  const handleFileSelect = (file: File) => {
+  const handleFileSelect = async (file: File) => {
     // Type guard with graceful recovery: if type mismatch occurs (e.g., bad data
     // from storage), log error and return instead of crashing the UI
     if (!isFileConnector(connector)) {
@@ -229,7 +230,12 @@ export function ConnectorCardWithForm({
       );
       return;
     }
-    onFileSelect(connector, file);
+    if (disabled || onActivityChange?.(true) === false) return;
+    try {
+      await onFileSelect(connector, file);
+    } finally {
+      onActivityChange?.(false);
+    }
   };
 
   const handleConnect = async () => {
@@ -242,12 +248,12 @@ export function ConnectorCardWithForm({
       );
       return;
     }
+    if (disabled || onActivityChange?.(true) === false) return;
     if (connector.authKind === "oauth") {
       const token = pollToken.current;
       token.cancelled = false;
       token.activityHeld = true;
       token.activityTransferred = false;
-      onActivityChange?.(true);
       const result = await execute(() =>
         runOAuthSetup(connector, onOAuthConnect, token),
       );
@@ -263,7 +269,6 @@ export function ConnectorCardWithForm({
     // resolver throws by design). execute() validates the form and returns the
     // credential values; the parent creates the DataSource (storing the key as a
     // vault SecretRef) and lists databases via the listNotionDatabases mutation.
-    onActivityChange?.(true);
     const result = await execute((data) => onConnect(connector, data));
     if (result === null) {
       onActivityChange?.(false);

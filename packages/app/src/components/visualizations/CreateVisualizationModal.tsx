@@ -16,6 +16,7 @@ interface CreateVisualizationModalProps {
   onClose: () => void;
   visualizeOnCreate?: boolean;
   title?: string;
+  reportId?: string;
 }
 
 /**
@@ -30,6 +31,7 @@ export function CreateVisualizationModal({
   onClose,
   visualizeOnCreate = false,
   title = "Create Visualization",
+  reportId,
 }: CreateVisualizationModalProps) {
   const navigate = useNavigate();
   const { createInsightFromTable, createInsightFromInsight } =
@@ -52,10 +54,13 @@ export function CreateVisualizationModal({
   // User chose to edit the existing insight
   const handleEditInsight = useCallback(() => {
     if (!selectedInsight) return;
-    navigate({ to: `/insights/${selectedInsight.id}` } as never);
+    navigate({
+      to: `/insights/${selectedInsight.id}`,
+      search: reportId ? { reportId } : undefined,
+    } as never);
     setSelectedInsight(null);
     onClose();
-  }, [selectedInsight, navigate, onClose]);
+  }, [selectedInsight, navigate, onClose, reportId]);
 
   // User chose to create a new insight based on this one
   const handleCreateBasedOn = useCallback(() => {
@@ -63,20 +68,28 @@ export function CreateVisualizationModal({
     // Create new insight that chains from the selected insight's DataFrame
     createInsightFromInsight(selectedInsight.id, selectedInsight.name, {
       visualize: visualizeOnCreate,
+      reportId,
     });
     setSelectedInsight(null);
     onClose();
-  }, [selectedInsight, createInsightFromInsight, onClose, visualizeOnCreate]);
+  }, [
+    selectedInsight,
+    createInsightFromInsight,
+    onClose,
+    visualizeOnCreate,
+    reportId,
+  ]);
 
   // When selecting a table, create new insight directly
   const handleTableSelect = useCallback(
     (tableId: string, tableName: string) => {
       createInsightFromTable(tableId, tableName, {
         visualize: visualizeOnCreate,
+        reportId,
       });
       onClose();
     },
-    [createInsightFromTable, onClose, visualizeOnCreate],
+    [createInsightFromTable, onClose, visualizeOnCreate, reportId],
   );
 
   // Close action dialog

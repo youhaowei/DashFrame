@@ -4,12 +4,13 @@ import { AccessCredentialsDialog } from "@/components/access-credentials/AccessC
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useAccessCapabilities } from "@/data";
 import { clearAllData } from "@/lib/data-access/data-frames";
+import { reloadRootWithFreshWorkspaceState } from "@/lib/clear-all-data-navigation";
 import { PerfHud } from "@/lib/perf";
 import { useToastStore } from "@/lib/stores";
 import { useAssistantStore } from "@/lib/stores/assistant-store";
 import { useShellStore } from "@/lib/stores/shell-store";
 import { api } from "@dashframe/convex-backend/api";
-import { Link, useLocation, useNavigate } from "@tanstack/react-router";
+import { Link, useLocation } from "@tanstack/react-router";
 
 import {
   Badge,
@@ -220,7 +221,6 @@ function SidebarContent({
 }
 
 export function Navigation() {
-  const navigate = useNavigate();
   const pathname = useLocation({ select: (location) => location.pathname });
   const [isOpen, setIsOpen] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
@@ -245,7 +245,7 @@ export function Navigation() {
       await clearAllData();
       setShowClearConfirm(false);
       showSuccess("All data cleared");
-      navigate({ to: "/" });
+      reloadRootWithFreshWorkspaceState();
     } catch (error) {
       showError("Failed to clear data", {
         description:

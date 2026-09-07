@@ -146,4 +146,28 @@ describe("HomePage report entry", () => {
     expect(screen.getByText("Project onboarding")).not.toBeNull();
     expect(mockNavigate).not.toHaveBeenCalled();
   });
+
+  it("surfaces a presence error even while another query has a cached artifact", () => {
+    mockProjectQueries({
+      dashboards: [{ id: "stale-report" }],
+      errors: ["listDataSources"],
+    });
+    render(<HomePage />);
+
+    expect(screen.getByRole("alert").textContent).toContain(
+      "Couldn't determine whether this project is empty",
+    );
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it("routes a concurrently created artifact after clear reloads with a fresh client", async () => {
+    mockProjectQueries({ dataSources: [{ id: "new-source" }] });
+    render(<HomePage />);
+    await waitFor(() =>
+      expect(mockNavigate).toHaveBeenCalledWith({
+        to: "/dashboards",
+        replace: true,
+      }),
+    );
+  });
 });

@@ -92,7 +92,9 @@ vi.mock("@/data/host", () => ({
 
 const { mockPush, mockNavigate } = vi.hoisted(() => {
   const push = vi.fn();
-  const navigate = (opts: { to: string }) => push(opts.to);
+  const navigate = vi.fn((opts: { to: string; search?: unknown }) =>
+    push(opts.to),
+  );
   return { mockPush: push, mockNavigate: navigate };
 });
 
@@ -135,6 +137,36 @@ function createMockInsight(options: {
 }
 
 describe("useCreateInsight", () => {
+  it("retains the originating report when creating a table question", async () => {
+    mockCreateInsight.mockResolvedValue("new-question");
+    const { result } = renderHook(() => useCreateInsight());
+    await act(async () => {
+      await result.current.createInsightFromTable("table-abc", "Orders", {
+        reportId: "second-report",
+      });
+    });
+    expect(mockNavigate).toHaveBeenCalledWith({
+      to: "/insights/new-question",
+      search: { reportId: "second-report" },
+    });
+  });
+
+  it("retains report and visualization intent for a derived question", async () => {
+    mockCreateInsight.mockResolvedValue("derived-question");
+    mockGetInsight.mockResolvedValue(createMockInsight({}));
+    const { result } = renderHook(() => useCreateInsight());
+    await act(async () => {
+      await result.current.createInsightFromInsight("insight-123", "Orders", {
+        reportId: "second-report",
+        visualize: true,
+      });
+    });
+    expect(mockNavigate).toHaveBeenCalledWith({
+      to: "/insights/derived-question",
+      search: { visualize: "true", reportId: "second-report" },
+    });
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     // Default: no pre-existing insights.

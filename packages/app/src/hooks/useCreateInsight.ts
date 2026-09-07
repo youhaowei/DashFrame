@@ -106,7 +106,7 @@ export function useCreateInsight() {
     async (
       tableId: string,
       tableName: string,
-      options?: { visualize?: boolean },
+      options?: { visualize?: boolean; reportId?: string },
     ) => {
       // Read existing insights for UX-only purpose: compute a suffix name when
       // the user already has modified insights for this table. This read is NOT
@@ -169,7 +169,10 @@ export function useCreateInsight() {
       // Navigate to insight page (action hub)
       navigate({
         to: `/insights/${insightId}`,
-        search: options?.visualize ? { visualize: "true" } : undefined,
+        search: {
+          ...(options?.visualize ? { visualize: "true" } : {}),
+          ...(options?.reportId ? { reportId: options.reportId } : {}),
+        },
       } as never);
 
       return insightId;
@@ -187,7 +190,7 @@ export function useCreateInsight() {
     async (
       sourceInsightId: string,
       sourceInsightName: string,
-      options?: { visualize?: boolean },
+      options?: { visualize?: boolean; reportId?: string },
     ) => {
       const sourceInsight = await getInsight(sourceInsightId);
 
@@ -212,7 +215,10 @@ export function useCreateInsight() {
       // Navigate to new insight
       navigate({
         to: `/insights/${insightId}`,
-        search: options?.visualize ? { visualize: "true" } : undefined,
+        search: {
+          ...(options?.visualize ? { visualize: "true" } : {}),
+          ...(options?.reportId ? { reportId: options.reportId } : {}),
+        },
       } as never);
 
       return insightId;
@@ -230,7 +236,7 @@ export function useCreateInsight() {
     async (
       tableId: string,
       tableName: string,
-      options?: { visualize?: boolean },
+      options?: { visualize?: boolean; reportId?: string },
     ) => {
       try {
         return await createFromTable(tableId, tableName, options);
@@ -255,7 +261,7 @@ export function useCreateInsight() {
     async (
       sourceInsightId: string,
       sourceInsightName: string,
-      options?: { visualize?: boolean },
+      options?: { visualize?: boolean; reportId?: string },
     ) => {
       try {
         return await createFromInsight(

@@ -161,6 +161,7 @@ export function resolvePendingVisualModeTarget(input: {
 interface InsightViewProps {
   insight: Insight;
   visualizeIntent?: boolean;
+  reportId?: string;
 }
 
 interface ParsedEncoding {
@@ -705,6 +706,7 @@ function EphemeralChartCanvas({
 export function InsightView({
   insight,
   visualizeIntent = false,
+  reportId,
 }: InsightViewProps) {
   const insightId = insight.id;
   const navigate = useNavigate();
@@ -1250,10 +1252,15 @@ export function InsightView({
 
   const handleAddActiveViewToDashboard = useCallback(async () => {
     try {
+      const dashboard = reportId
+        ? dashboards.find((candidate) => candidate.id === reportId)
+        : dashboards[0];
+      if (reportId && !dashboard) {
+        toast.error("This report is no longer available");
+        return;
+      }
       const visualizationId = await ensureActiveVisualization();
       if (!visualizationId) return;
-
-      const dashboard = dashboards[0];
       const dashboardId = dashboard?.id ?? (crypto.randomUUID() as UUID);
       const bottomY =
         dashboard?.items.reduce(
@@ -1285,12 +1292,20 @@ export function InsightView({
           }),
         ],
       });
-      toast.success("Added to dashboard");
+      toast.success("Added to report");
+      if (reportId) navigate({ to: `/dashboards/${reportId}` } as never);
     } catch (error) {
       console.error("[InsightView] Add to dashboard failed:", error);
       toast.error("Couldn't add to dashboard");
     }
-  }, [commitBatch, dashboards, ensureActiveVisualization, insight.name]);
+  }, [
+    commitBatch,
+    dashboards,
+    ensureActiveVisualization,
+    insight.name,
+    reportId,
+    navigate,
+  ]);
 
   // Handle duplicating a visualization
   const handleDuplicateVisualization = useCallback(
@@ -1470,7 +1485,7 @@ export function InsightView({
                 size="sm"
                 variant="outline"
                 icon={DashboardIcon}
-                label="Add to dashboard"
+                label="Add to report"
                 onClick={handleAddActiveViewToDashboard}
                 disabled={!canAddActiveViewToDashboard}
               />
