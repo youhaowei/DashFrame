@@ -383,6 +383,29 @@ describe("DashFrame WebMCP registry", () => {
     expect(stageDraft).not.toHaveBeenCalled();
   });
 
+  it("requires selectedFieldIds at execution and accepts an explicit empty list", async () => {
+    const stageDraft = vi.fn(async () => ({ draftId: "draft-1" }));
+    const proposeInsight = tool("propose_insight", { stageDraft });
+    await expect(
+      proposeInsight.execute({
+        name: "Missing fields",
+        sourceType: "dataTable",
+        sourceId: "table-1",
+      }),
+    ).rejects.toThrow("selectedFieldIds must be an array of strings");
+    expect(stageDraft).not.toHaveBeenCalled();
+
+    await expect(
+      proposeInsight.execute({
+        name: "Pass through",
+        sourceType: "dataTable",
+        sourceId: "table-1",
+        selectedFieldIds: [],
+      }),
+    ).resolves.toMatchObject({ status: "draft" });
+    expect(stageDraft).toHaveBeenCalledOnce();
+  });
+
   it("rejects an unknown insight source even when appending to a draft", async () => {
     const stageDraft = vi.fn(async () => ({ draftId: "draft-1" }));
     await expect(
@@ -448,6 +471,27 @@ describe("DashFrame WebMCP registry", () => {
       },
     });
     useWebMCPPageStore.getState().setDashboard(null);
+  });
+
+  it("returns the insight edits that have not finished saving", async () => {
+    useWebMCPPageStore.getState().setInsight({
+      insightId: "insight-1",
+      pendingName: "Pending revenue",
+      pendingFilters: [
+        { id: "filter-1", field: "status", operator: "eq", value: "open" },
+      ],
+      pendingSorts: [{ field: "created_at", direction: "desc" }],
+    });
+    await expect(tool("whats_on_screen").execute({})).resolves.toMatchObject({
+      openInsight: {
+        unsaved: {
+          pendingName: "Pending revenue",
+          filters: [{ field: "status", value: "open" }],
+          sorts: [{ field: "created_at", direction: "desc" }],
+        },
+      },
+    });
+    useWebMCPPageStore.getState().setInsight(null);
   });
 
   it("reports page metadata loading instead of claiming no artifact is open", async () => {

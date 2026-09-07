@@ -172,6 +172,13 @@ function availableFields(
   }
   return fields;
 }
+function fieldReferences(field: ObjectValue): string[] {
+  const fieldId = str(field.id, "field.id");
+  return [
+    str(field.columnName ?? field.name, "field column"),
+    `field_${fieldId.replaceAll("-", "_")}`,
+  ];
+}
 function validateDerived(graph: Graph, def: ObjectValue) {
   const sourceType = record(def.source).sourceType;
   const fields = availableFields(graph, def);
@@ -185,11 +192,11 @@ function validateDerived(graph: Graph, def: ObjectValue) {
       !fields.some(
         (f) =>
           f.tableId === m.sourceTable &&
-          (f.columnName ?? f.name) === m.columnName,
+          fieldReferences(f).includes(str(m.columnName, "metric column")),
       )
     )
       throw new Error("Metric column is not output by source");
-  const columns = new Set(fields.map((f) => f.columnName ?? f.name));
+  const columns = new Set(fields.flatMap(fieldReferences));
   const selected = array(def.selectedFields, "selectedFields"),
     metrics = objects(def.metrics, "metrics");
   const resultColumns = new Set(
@@ -198,7 +205,7 @@ function validateDerived(graph: Graph, def: ObjectValue) {
       : [
           ...fields
             .filter((f) => selected.includes(f.id!))
-            .map((f) => f.columnName ?? f.name),
+            .flatMap(fieldReferences),
           ...metrics.map(
             (m) => `metric_${str(m.id, "metric.id").replaceAll("-", "_")}`,
           ),
@@ -207,10 +214,10 @@ function validateDerived(graph: Graph, def: ObjectValue) {
   for (const m of objects(def.metrics, "metrics"))
     columns.add(`metric_${str(m.id, "metric.id").replaceAll("-", "_")}`);
   for (const f of objects(def.filters ?? [], "filters"))
-    if (!columns.has(f.field))
+    if (!columns.has(str(f.field, "filter field")))
       throw new Error("Filter field is not output by source");
   for (const s of objects(def.sorts ?? [], "sorts"))
-    if (!resultColumns.has(s.field))
+    if (!resultColumns.has(str(s.field, "sort field")))
       throw new Error("Sort field is not output by source");
 }
 function prune(def: ObjectValue) {

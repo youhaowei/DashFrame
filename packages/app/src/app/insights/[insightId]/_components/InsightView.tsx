@@ -713,13 +713,19 @@ export function InsightView({
   // Local state for insight name (prevents re-renders on typing)
   const [localName, setLocalName] = useState(insight.name);
   const setWebMCPInsight = useWebMCPPageStore((state) => state.setInsight);
+  const updateWebMCPInsight = useWebMCPPageStore(
+    (state) => state.updateInsight,
+  );
+  const clearWebMCPInsight = useWebMCPPageStore((state) => state.clearInsight);
   useEffect(() => {
-    setWebMCPInsight({
-      insightId,
+    setWebMCPInsight({ insightId });
+    return () => clearWebMCPInsight(insightId);
+  }, [clearWebMCPInsight, insightId, setWebMCPInsight]);
+  useEffect(() => {
+    updateWebMCPInsight(insightId, {
       pendingName: localName !== insight.name ? localName : undefined,
     });
-    return () => setWebMCPInsight(null);
-  }, [insight.name, insightId, localName, setWebMCPInsight]);
+  }, [insight.name, insightId, localName, updateWebMCPInsight]);
   const prevInsightNameRef = useRef(insight.name);
   // Sync local name when insight prop changes from an external source.
   useEffect(() => {

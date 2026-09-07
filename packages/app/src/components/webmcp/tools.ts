@@ -98,6 +98,16 @@ function optionalStringArray(
   return value;
 }
 
+function requiredStringArray(
+  input: Record<string, unknown>,
+  key: string,
+): string[] {
+  const value = input[key];
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string"))
+    throw new Error(`${key} must be an array of strings.`);
+  return value;
+}
+
 function boundedInteger(
   value: unknown,
   fallback: number,
@@ -269,8 +279,14 @@ function pageContext(data: WebMCPToolData) {
               live.insight?.insightId === insight.id
                 ? live.insight.pendingName
                 : undefined,
-            filters: [],
-            sorts: [],
+            filters:
+              live.insight?.insightId === insight.id
+                ? (live.insight.pendingFilters ?? [])
+                : [],
+            sorts:
+              live.insight?.insightId === insight.id
+                ? (live.insight.pendingSorts ?? [])
+                : [],
           },
         }
       : null,
@@ -603,7 +619,7 @@ export function createWebMCPTools(
                 (insight) => insight.id === sourceId,
               );
         if (!source) throw new Error("Insight source not found.");
-        const selectedFieldIds = optionalStringArray(
+        const selectedFieldIds = requiredStringArray(
           input,
           "selectedFieldIds",
         ) as UUID[];

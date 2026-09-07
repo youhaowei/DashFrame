@@ -1077,6 +1077,56 @@ describe("existing command behavior on native Convex", () => {
     ).rejects.toThrow("not output by source");
     expect(await insightsById(insightId)).toHaveLength(0);
   });
+  it("accepts canonical field aliases written by the insight editor", async () => {
+    const { tableId } = await makeTable();
+    const fieldId = id();
+    const insightId = id();
+    const metricId = id();
+    const fieldAlias = `field_${fieldId.replaceAll("-", "_")}`;
+    await commit(
+      cmd("AddField", {
+        nodeId: tableId,
+        field: {
+          id: fieldId,
+          name: "Quantity",
+          tableId,
+          columnName: "quantity",
+          type: "number",
+        },
+      }),
+      cmd("CreateInsight", {
+        id: insightId,
+        name: "Quantity by product",
+        source: { sourceType: "dataTable", sourceId: tableId },
+        selectedFields: [fieldId],
+      }),
+      cmd("AddMetric", {
+        nodeId: insightId,
+        metric: {
+          id: metricId,
+          name: "sum(Quantity)",
+          sourceTable: tableId,
+          columnName: fieldAlias,
+          aggregation: "sum",
+        },
+      }),
+      cmd("SetInsightFilter", {
+        id: insightId,
+        filters: [{ field: fieldAlias, operator: "gt", value: 0 }],
+      }),
+      cmd("SetInsightSort", {
+        id: insightId,
+        sorts: [{ field: fieldAlias, direction: "asc" }],
+      }),
+    );
+
+    expect((await insightsById(insightId))[0]?.definition).toMatchObject({
+      selectedFields: [fieldId],
+      metrics: [{ id: metricId, columnName: fieldAlias }],
+      filters: [{ field: fieldAlias }],
+      sorts: [{ field: fieldAlias }],
+    });
+  });
   it("rejects a dashboard item whose visualization is absent from its draft", async () => {
     const dashboardId = id();
     await commit(cmd("CreateDashboard", { id: dashboardId, name: "D" }));
@@ -1802,6 +1852,8 @@ describe("existing command behavior on native Convex", () => {
     const joinedKeyId = id();
     const joinedValueId = id();
     const repeatJoinedValueId = `${joinedValueId}_j1` as ReturnType<typeof id>;
+    const repeatJoinedValueAlias = fieldIdToColumnAlias(repeatJoinedValueId);
+    const repeatJoinedMetricId = id();
     const upstreamId = id();
     const derivedId = id();
     const repeatedDerivedId = id();
@@ -1882,13 +1934,49 @@ describe("existing command behavior on native Convex", () => {
         selectedFields: [repeatJoinedValueId],
       }),
     );
+    await commit(
+      cmd("AddMetric", {
+        nodeId: repeatedDerivedId,
+        metric: {
+          id: repeatJoinedMetricId,
+          name: "count(Segment)",
+          sourceTable: upstreamId,
+          columnName: repeatJoinedValueAlias,
+          aggregation: "count",
+        },
+      }),
+      cmd("SetInsightFilter", {
+        id: repeatedDerivedId,
+        filters: [
+          {
+            field: repeatJoinedValueAlias,
+            operator: "ne",
+            value: "",
+          },
+        ],
+      }),
+      cmd("SetInsightSort", {
+        id: repeatedDerivedId,
+        sorts: [{ field: repeatJoinedValueAlias, direction: "asc" }],
+      }),
+    );
 
     expect((await insightsById(derivedId))[0]?.definition).toMatchObject({
       selectedFields: [joinedValueId],
     });
     expect(
       (await insightsById(repeatedDerivedId))[0]?.definition,
-    ).toMatchObject({ selectedFields: [repeatJoinedValueId] });
+    ).toMatchObject({
+      selectedFields: [repeatJoinedValueId],
+      metrics: [
+        {
+          id: repeatJoinedMetricId,
+          columnName: repeatJoinedValueAlias,
+        },
+      ],
+      filters: [{ field: repeatJoinedValueAlias }],
+      sorts: [{ field: repeatJoinedValueAlias }],
+    });
     await expect(
       commit(
         cmd("SelectFields", {
