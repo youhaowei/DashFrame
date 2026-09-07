@@ -66,6 +66,7 @@ import { useCompiledInsight } from "../_hooks/useCompiledInsight";
 
 interface VisualizationPageContentProps {
   visualizationId: string;
+  reportId?: string;
 }
 
 type EncodingField = "x" | "y" | "color" | "size";
@@ -92,6 +93,16 @@ function getVizIcon(type: string) {
 
 function isAxisEncodingField(field: EncodingField): field is AxisEncodingField {
   return field === "x" || field === "y";
+}
+
+export function visualizationSourceQuestionLink(
+  insightId: string,
+  reportId?: string,
+) {
+  return {
+    to: `/insights/${insightId}`,
+    search: reportId ? { reportId } : {},
+  } as const;
 }
 
 function AlternativeChartTypeButtons({
@@ -138,6 +149,7 @@ function AlternativeChartTypeButtons({
  */
 export default function VisualizationPageContent({
   visualizationId,
+  reportId,
 }: VisualizationPageContentProps) {
   const navigate = useNavigate();
 
@@ -809,9 +821,12 @@ export default function VisualizationPageContent({
             <Card
               className="cursor-pointer transition-colors hover:bg-neutral-bg-muted/50"
               onClick={() =>
-                navigate({
-                  to: `/insights/${visualization.insightId}`,
-                } as never)
+                navigate(
+                  visualizationSourceQuestionLink(
+                    visualization.insightId,
+                    reportId,
+                  ) as never,
+                )
               }
             >
               <CardContent className="p-3">
@@ -842,6 +857,7 @@ export default function VisualizationPageContent({
     instanceAwareFields,
     isScatterType,
     navigate,
+    reportId,
     scatterRenderModeOptions,
     visualization,
     vizTypeOptions,
@@ -927,9 +943,12 @@ export default function VisualizationPageContent({
                 <Button
                   label="Go to Source Insight"
                   onClick={() =>
-                    navigate({
-                      to: `/insights/${visualization.insightId}`,
-                    } as never)
+                    navigate(
+                      visualizationSourceQuestionLink(
+                        visualization.insightId,
+                        reportId,
+                      ) as never,
+                    )
                   }
                 />
               )}
@@ -974,9 +993,12 @@ export default function VisualizationPageContent({
                 <span>•</span>
                 <button
                   onClick={() =>
-                    navigate({
-                      to: `/insights/${visualization.insightId}`,
-                    } as never)
+                    navigate(
+                      visualizationSourceQuestionLink(
+                        visualization.insightId,
+                        reportId,
+                      ) as never,
+                    )
                   }
                   className="text-palette-primary hover:underline"
                 >

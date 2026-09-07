@@ -267,6 +267,20 @@ describe("VisualizationPageContent delete confirmation", () => {
     );
   });
 
+  it("returns to the source question with the originating report", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <VisualizationPageContent visualizationId="viz-1" reportId="report-b" />,
+    );
+    await user.click(screen.getByRole("button", { name: "From insight" }));
+
+    expect(mockNavigate).toHaveBeenCalledWith({
+      to: "/insights/insight-1",
+      search: { reportId: "report-b" },
+    });
+  });
+
   it("shows one error when visualization deletion fails", async () => {
     const user = userEvent.setup();
     mockCommitBatch.mockRejectedValueOnce(new Error("delete failed"));
