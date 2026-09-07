@@ -107,7 +107,10 @@ install_marker=node_modules/.session-start-installed
 deps_fingerprint=$(
   {
     while IFS= read -r -d '' f; do
-      if [ -f "$f" ]; then cat "$f"; else printf 'missing:%s\n' "$f"; fi
+      # Record the path as well as the content, so a rename with identical
+      # content still changes the fingerprint.
+      printf 'path:%s\n' "$f"
+      if [ -f "$f" ]; then cat "$f"; else printf 'missing\n'; fi
     done < <(git ls-files -z -- bun.lock package.json '*/package.json')
   } | sha256sum | awk '{print $1}'
 )
