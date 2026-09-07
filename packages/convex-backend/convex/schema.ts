@@ -72,6 +72,24 @@ const artifactTable = () =>
     ])
     .index("by_workspaceId_and_kind", ["workspaceId", "kind"]);
 export default defineSchema({
+  admissions: defineTable({
+    subject: v.string(),
+    status: v.union(v.literal("admitted"), v.literal("revoked")),
+    workspaceId: v.optional(v.string()),
+    revision: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    updatedBy: v.string(),
+  })
+    .index("by_subject", ["subject"])
+    .index("by_workspaceId", ["workspaceId"]),
+  // Host integration must populate ownership before enabling hosted issuance.
+  // There is intentionally no public writer for this table in this slice.
+  credentialOwners: defineTable({
+    credentialId: v.string(),
+    subject: v.string(),
+    workspaceId: v.string(),
+  }).index("by_credentialId", ["credentialId"]),
   workspaces: defineTable({
     workspaceId: v.string(),
     projectId: v.string(),
