@@ -17,46 +17,13 @@ import { OnboardingView } from "./_components/OnboardingView";
 export default function HomePage() {
   const navigate = useNavigate();
   const [isOnboardingActive, setIsOnboardingActive] = useState(false);
-  const dashboardsQuery = queryStatus(
-    useQuery({ query: api.app.listDashboards, args: {} }),
-  );
-  const visualizationsQuery = queryStatus(
-    useQuery({ query: api.app.listVisualizations, args: {} }),
-  );
-  const insightsQuery = queryStatus(
-    useQuery({ query: api.app.listInsights, args: {} }),
-  );
-  const dataSourcesQuery = queryStatus(
-    useQuery({ query: api.app.listDataSources, args: {} }),
-  );
-  const draftCountQuery = queryStatus(
-    useQuery({ query: api.app.listDraftCount, args: {} }),
+  const presenceQuery = queryStatus(
+    useQuery({ query: api.app.workspaceArtifactPresence, args: {} }),
   );
 
-  const dashboards = dashboardsQuery.data ?? [];
-  const visualizations = visualizationsQuery.data ?? [];
-  const insights = insightsQuery.data ?? [];
-  const dataSources = dataSourcesQuery.data ?? [];
-  const draftCount = draftCountQuery.data ?? 0;
-
-  const isLoading =
-    dashboardsQuery.isLoading ||
-    visualizationsQuery.isLoading ||
-    insightsQuery.isLoading ||
-    dataSourcesQuery.isLoading ||
-    draftCountQuery.isLoading;
-  const hasLoadError =
-    dashboardsQuery.isError ||
-    visualizationsQuery.isError ||
-    insightsQuery.isError ||
-    dataSourcesQuery.isError ||
-    draftCountQuery.isError;
-  const hasProjectArtifacts =
-    dashboards.length > 0 ||
-    visualizations.length > 0 ||
-    insights.length > 0 ||
-    dataSources.length > 0 ||
-    draftCount > 0;
+  const isLoading = presenceQuery.isLoading;
+  const hasLoadError = presenceQuery.isError;
+  const hasProjectArtifacts = presenceQuery.data ?? false;
   useEffect(() => {
     if (
       !isLoading &&

@@ -587,6 +587,67 @@ export const listDraftCount = query({
   },
 });
 
+async function hasVisibleDraft(
+  ctx: QueryCtx,
+  who: Awaited<ReturnType<typeof principal>>,
+): Promise<boolean> {
+  const ownDraft = await ctx.db
+    .query("drafts")
+    .withIndex("by_workspaceId_and_owner", (q) =>
+      q.eq("workspaceId", who.workspaceId).eq("owner", who.owner),
+    )
+    .first();
+  if (ownDraft) return true;
+  if (who.kind !== "user") return false;
+  return Boolean(
+    await ctx.db
+      .query("drafts")
+      .withIndex("by_workspaceId_and_owner", (q) =>
+        q
+          .eq("workspaceId", who.workspaceId)
+          .gte("owner", "service:")
+          .lt("owner", "service;"),
+      )
+      .first(),
+  );
+}
+
+export const workspaceArtifactPresence = query({
+  args: {},
+  returns: v.boolean(),
+  handler: async (ctx) => {
+    const who = await principal(ctx);
+    const rows = await Promise.all([
+      ctx.db
+        .query("dashboards")
+        .withIndex("by_workspaceId_and_id", (q) =>
+          q.eq("workspaceId", who.workspaceId),
+        )
+        .first(),
+      ctx.db
+        .query("visualizations")
+        .withIndex("by_workspaceId_and_id", (q) =>
+          q.eq("workspaceId", who.workspaceId),
+        )
+        .first(),
+      ctx.db
+        .query("insights")
+        .withIndex("by_workspaceId_and_id", (q) =>
+          q.eq("workspaceId", who.workspaceId),
+        )
+        .first(),
+      ctx.db
+        .query("dataSources")
+        .withIndex("by_workspaceId_and_id", (q) =>
+          q.eq("workspaceId", who.workspaceId),
+        )
+        .first(),
+      hasVisibleDraft(ctx, who),
+    ]);
+    return rows.some(Boolean);
+  },
+});
+
 const fixedDraftTargetTables: Record<
   CommandRegistryPath,
   readonly ArtifactTable[]
@@ -645,6 +706,35 @@ type DraftCommandTarget = {
   table: ArtifactTable;
   name: string;
 };
+
+const explicitCreateTargetTables: Partial<
+  Record<CommandRegistryPath, ArtifactTable>
+> = {
+  getOrCreateDataSource: "dataSources",
+  createDataSource: "dataSources",
+  createDataTable: "dataTables",
+  getOrCreateInsightDraft: "insights",
+  createInsightCmd: "insights",
+  createVisualizationCmd: "visualizations",
+  createDashboardCmd: "dashboards",
+};
+
+function explicitCreateTarget(command: Command): DraftCommandTarget | null {
+  const table = Object.hasOwn(explicitCreateTargetTables, command.path)
+    ? explicitCreateTargetTables[command.path as CommandRegistryPath]
+    : undefined;
+  if (!table) return null;
+  const args = record(command.args);
+  if (typeof args.id !== "string") return null;
+  return {
+    id: args.id,
+    table,
+    name:
+      typeof args.name === "string" && args.name.length > 0
+        ? args.name
+        : "Untitled artifact",
+  };
+}
 
 function rememberInsightDraftTargetBySourceId(
   targets: Map<string, DraftCommandTarget>,
@@ -713,6 +803,7 @@ async function resolveDraftCommandTarget(
   command: Command,
   changes: readonly Doc<"draftChanges">[],
   existingInsightDraftsBySourceId: ReadonlyMap<string, DraftCommandTarget>,
+  createdTargets: ReadonlyMap<string, DraftCommandTarget>,
 ): Promise<DraftCommandTarget | null> {
   const args = record(command.args);
   const targetId = args.nodeId ?? args.dashboardId ?? args.id;
@@ -743,6 +834,11 @@ async function resolveDraftCommandTarget(
   }
 
   for (const table of targetTables) {
+    const created = createdTargets.get(`${table}:${targetId}`);
+    if (created) return created;
+  }
+
+  for (const table of targetTables) {
     const row = await find(ctx, workspaceId, table, targetId);
     if (!row) continue;
     const value = rowValue(row);
@@ -756,7 +852,7 @@ async function resolveDraftCommandTarget(
     };
   }
 
-  return null;
+  return explicitCreateTarget(command);
 }
 
 async function summarizeDraftForList(
@@ -767,6 +863,7 @@ async function summarizeDraftForList(
   existingInsightDraftsBySourceId: ReadonlyMap<string, DraftCommandTarget>,
 ) {
   const insightDraftsBySourceId = new Map(existingInsightDraftsBySourceId);
+  const createdTargets = new Map<string, DraftCommandTarget>();
   const targets: Array<{
     key: string;
     id: string;
@@ -781,6 +878,7 @@ async function summarizeDraftForList(
       command,
       changes,
       insightDraftsBySourceId,
+      createdTargets,
     );
     if (!target) continue;
     targets.push({
@@ -788,6 +886,9 @@ async function summarizeDraftForList(
       ...target,
       command,
     });
+    if (explicitCreateTarget(command)) {
+      createdTargets.set(`${target.table}:${target.id}`, target);
+    }
     rememberGetOrCreateResolutionBySourceId(
       insightDraftsBySourceId,
       command,

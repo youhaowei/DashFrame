@@ -77,6 +77,7 @@ it("returns one indexed data source when more than 1000 share its type", async (
   expect(
     await user().query(api.app.getDataSourceByType, { type: "csv" }),
   ).not.toBeNull();
+  expect(await user().query(api.app.workspaceArtifactPresence, {})).toBe(true);
 }, 15_000);
 
 it("serves draft-less indexed reads without loading unrelated artifact tables", async () => {

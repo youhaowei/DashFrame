@@ -37,34 +37,22 @@ vi.mock("@/components/drafts/DraftListItem", () => ({
 
 import HomePage from "./page";
 
-function mockProjectQueries(values: {
-  dashboards?: unknown[];
-  visualizations?: unknown[];
-  insights?: unknown[];
-  dataSources?: unknown[];
-  draftCount?: number;
-  errors?: string[];
+function mockProjectPresence(values: {
+  present?: boolean;
+  isLoading?: boolean;
+  isError?: boolean;
 }) {
   mockUseQuery.mockImplementation(({ _path }: { _path: string }) => {
-    if (values.errors?.includes(_path)) {
-      return { isError: true, error: new Error(`${_path} failed`) };
+    if (_path !== "workspaceArtifactPresence") {
+      throw new Error(`Unexpected query: ${_path}`);
     }
-    if (_path === "listDashboards") {
-      return { data: values.dashboards ?? [], isLoading: false };
+    if (values.isError) {
+      return { isError: true, error: new Error("presence failed") };
     }
-    if (_path === "listVisualizations") {
-      return { data: values.visualizations ?? [], isLoading: false };
-    }
-    if (_path === "listInsights") {
-      return { data: values.insights ?? [], isLoading: false };
-    }
-    if (_path === "listDataSources") {
-      return { data: values.dataSources ?? [], isLoading: false };
-    }
-    if (_path === "listDraftCount") {
-      return { data: values.draftCount ?? 0, isLoading: false };
-    }
-    return { data: [], isLoading: false };
+    return {
+      data: values.present ?? false,
+      isLoading: values.isLoading ?? false,
+    };
   });
 }
 
@@ -74,7 +62,7 @@ describe("HomePage report entry", () => {
   });
 
   it("keeps empty projects on the onboarding flow", () => {
-    mockProjectQueries({});
+    mockProjectPresence({});
 
     render(<HomePage />);
 
@@ -83,7 +71,7 @@ describe("HomePage report entry", () => {
   });
 
   it("routes populated projects through Reports without rendering legacy peers", async () => {
-    mockProjectQueries({ visualizations: [{ id: "visualization-1" }] });
+    mockProjectPresence({ present: true });
 
     render(<HomePage />);
 
@@ -97,7 +85,7 @@ describe("HomePage report entry", () => {
   });
 
   it("treats a report without saved views as a populated project", async () => {
-    mockProjectQueries({ dashboards: [{ id: "report-1" }] });
+    mockProjectPresence({ present: true });
 
     render(<HomePage />);
 
@@ -110,7 +98,7 @@ describe("HomePage report entry", () => {
   });
 
   it("treats draft-only workspaces as populated projects", async () => {
-    mockProjectQueries({ draftCount: 1 });
+    mockProjectPresence({ present: true });
 
     render(<HomePage />);
 
@@ -123,7 +111,7 @@ describe("HomePage report entry", () => {
   });
 
   it("does not treat a failed presence query as a confirmed-empty project", () => {
-    mockProjectQueries({ errors: ["listDataSources"] });
+    mockProjectPresence({ isError: true });
 
     render(<HomePage />);
 
@@ -135,33 +123,20 @@ describe("HomePage report entry", () => {
   });
 
   it("keeps onboarding mounted while the first connection is active", () => {
-    const values: Parameters<typeof mockProjectQueries>[0] = {};
-    mockProjectQueries(values);
+    const values: Parameters<typeof mockProjectPresence>[0] = {};
+    mockProjectPresence(values);
     const { rerender } = render(<HomePage />);
 
     fireEvent.click(screen.getByRole("button", { name: "Start connection" }));
-    values.dataSources = [{ id: "source-1" }];
+    values.present = true;
     rerender(<HomePage />);
 
     expect(screen.getByText("Project onboarding")).not.toBeNull();
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
-  it("surfaces a presence error even while another query has a cached artifact", () => {
-    mockProjectQueries({
-      dashboards: [{ id: "stale-report" }],
-      errors: ["listDataSources"],
-    });
-    render(<HomePage />);
-
-    expect(screen.getByRole("alert").textContent).toContain(
-      "Couldn't determine whether this project is empty",
-    );
-    expect(mockNavigate).not.toHaveBeenCalled();
-  });
-
   it("routes a concurrently created artifact after clear reloads with a fresh client", async () => {
-    mockProjectQueries({ dataSources: [{ id: "new-source" }] });
+    mockProjectPresence({ present: true });
     render(<HomePage />);
     await waitFor(() =>
       expect(mockNavigate).toHaveBeenCalledWith({

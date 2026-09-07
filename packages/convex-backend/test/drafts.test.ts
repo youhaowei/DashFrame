@@ -52,6 +52,9 @@ async function publication(draftId: string) {
 }
 it("requires verified workspace principals and observes credential revocation", async () => {
   await expect(t.query(api.app.listDataSources, {})).rejects.toThrow();
+  await expect(
+    t.query(api.app.workspaceArtifactPresence, {}),
+  ).rejects.toThrow();
   await seed();
   expect(await user("other").query(api.app.listDataSources, {})).toEqual([]);
   expect(await service().query(api.app.listDataSources, {})).toHaveLength(1);
@@ -335,6 +338,108 @@ it("keeps both get-or-create intents after the resolved question is edited", asy
   });
 });
 
+it("keeps create and delete intent for a draft-local report", async () => {
+  const reportId = uuid();
+  const { draftId } = await user().mutation(api.app.draftBatch, {
+    commands: [
+      cmd("CreateDashboard", { id: reportId, name: "Quarterly review" }),
+      cmd("DeleteNode", { id: reportId }),
+    ],
+  });
+
+  const listed = (await user().query(api.app.listDrafts, {})).find(
+    (draft) => draft.draftId === draftId,
+  );
+  expect(listed?.summary).toEqual({
+    directNodes: [
+      {
+        nodeId: reportId,
+        kind: "dashboard",
+        name: "Quarterly review",
+        intent: [
+          {
+            command: "CreateDashboard",
+            summary: 'Create report "Quarterly review"',
+          },
+          { command: "DeleteNode", summary: "Delete artifact" },
+        ],
+      },
+    ],
+    remainingIntentCount: 0,
+  });
+});
+
+it("keeps get-or-create and delete intent for a draft-local data source", async () => {
+  const sourceId = uuid();
+  const { draftId } = await user().mutation(api.app.draftBatch, {
+    commands: [
+      cmd("GetOrCreateDataSource", {
+        id: sourceId,
+        type: "local",
+        name: "Imported files",
+      }),
+      cmd("DeleteNode", { id: sourceId }),
+    ],
+  });
+
+  const listed = (await user().query(api.app.listDrafts, {})).find(
+    (draft) => draft.draftId === draftId,
+  );
+  expect(listed?.summary).toEqual({
+    directNodes: [
+      {
+        nodeId: sourceId,
+        kind: "dataSource",
+        name: "Imported files",
+        intent: [
+          {
+            command: "GetOrCreateDataSource",
+            summary: 'Use or create data source "Imported files"',
+          },
+          { command: "DeleteNode", summary: "Delete artifact" },
+        ],
+      },
+    ],
+    remainingIntentCount: 0,
+  });
+});
+
+it("keeps get-or-create and delete intent for a draft-local question", async () => {
+  const { tableId } = await seed();
+  const insightId = uuid();
+  const { draftId } = await user().mutation(api.app.draftBatch, {
+    commands: [
+      cmd("GetOrCreateInsightDraft", {
+        id: insightId,
+        name: "Revenue question",
+        source: { sourceType: "dataTable", sourceId: tableId },
+      }),
+      cmd("DeleteNode", { id: insightId }),
+    ],
+  });
+
+  const listed = (await user().query(api.app.listDrafts, {})).find(
+    (draft) => draft.draftId === draftId,
+  );
+  expect(listed?.summary).toEqual({
+    directNodes: [
+      {
+        nodeId: insightId,
+        kind: "insight",
+        name: "Revenue question",
+        intent: [
+          {
+            command: "GetOrCreateInsightDraft",
+            summary: 'Use or create question "Revenue question"',
+          },
+          { command: "DeleteNode", summary: "Delete artifact" },
+        ],
+      },
+    ],
+    remainingIntentCount: 0,
+  });
+});
+
 it("counts visible drafts without hydrating their summaries", async () => {
   await user().mutation(api.app.draftBatch, { commands: [] });
   await service().mutation(api.app.draftBatch, { commands: [] });
@@ -343,6 +448,19 @@ it("counts visible drafts without hydrating their summaries", async () => {
   expect(await user().query(api.app.listDraftCount, {})).toBe(2);
   expect(await service().query(api.app.listDraftCount, {})).toBe(1);
   expect(await user("w", "other").query(api.app.listDraftCount, {})).toBe(2);
+});
+
+it("reports workspace artifacts only for visible workspace state", async () => {
+  expect(await user().query(api.app.workspaceArtifactPresence, {})).toBe(false);
+
+  await user("w", "other").mutation(api.app.draftBatch, { commands: [] });
+  expect(await user().query(api.app.workspaceArtifactPresence, {})).toBe(false);
+
+  await service().mutation(api.app.draftBatch, { commands: [] });
+  expect(await user().query(api.app.workspaceArtifactPresence, {})).toBe(true);
+  expect(
+    await service("other").query(api.app.workspaceArtifactPresence, {}),
+  ).toBe(false);
 });
 
 it("lists only visible drafts when foreign owners exceed the workspace cap", async () => {

@@ -118,17 +118,22 @@ vi.mock("@/lib/local-csv-handler", () => ({
 
 vi.mock("./AddConnectionPanel", () => ({
   AddConnectionPanel: ({
+    error,
     onFileSelect,
     onConnect,
     onActivityChange,
   }: Pick<
     AddConnectionPanelProps,
-    "onFileSelect" | "onConnect" | "onActivityChange"
+    "error" | "onFileSelect" | "onConnect" | "onActivityChange"
   >) => {
     handleConnect = onConnect;
     handleFileSelect = onFileSelect;
     handleActivityChange = onActivityChange;
-    return <div data-testid="add-connection-panel" />;
+    return (
+      <div data-testid="add-connection-panel">
+        {error && <p role="alert">{error}</p>}
+      </div>
+    );
   },
 }));
 
@@ -514,6 +519,66 @@ describe("DataPickerContent file replacement", () => {
       await importPromise;
     });
     expect(settled).toBe(true);
+  });
+
+  it.each([
+    {
+      label: "returns null",
+      selectTable: async () => null,
+      message: "Couldn't create a question from the imported table",
+    },
+    {
+      label: "rejects",
+      selectTable: async () => {
+        throw new Error("question creation failed");
+      },
+      message: "question creation failed",
+    },
+  ])(
+    "keeps onboarding active when question creation $label after file ingestion",
+    async ({ selectTable, message }) => {
+      const onActivityChange = vi.fn();
+      render(
+        <DataPickerContent
+          onTableSelect={selectTable}
+          onActivityChange={onActivityChange}
+        />,
+      );
+
+      handleActivityChange?.(true);
+      await act(async () => {
+        await handleFileSelect?.(
+          fileConnector,
+          new File(["amount\n10"], "sales.csv"),
+        );
+      });
+      handleActivityChange?.(false);
+
+      expect(onActivityChange.mock.calls).toEqual([[true]]);
+      expect(screen.getByRole("alert").textContent).toContain(message);
+    },
+  );
+
+  it("releases onboarding when the void question callback succeeds", async () => {
+    const onActivityChange = vi.fn();
+    render(
+      <DataPickerContent
+        onTableSelect={async () => undefined}
+        onActivityChange={onActivityChange}
+      />,
+    );
+
+    handleActivityChange?.(true);
+    await act(async () => {
+      await handleFileSelect?.(
+        fileConnector,
+        new File(["amount\n10"], "sales.csv"),
+      );
+    });
+    handleActivityChange?.(false);
+
+    expect(onActivityChange.mock.calls).toEqual([[true], [false]]);
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("does not offer to replace an excluded file-backed table", async () => {

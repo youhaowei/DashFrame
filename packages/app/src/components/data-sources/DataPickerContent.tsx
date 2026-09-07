@@ -400,7 +400,18 @@ export function DataPickerContent({
         );
 
         const tableName = file.name.replace(FILE_TABLE_NAME_EXTENSION, "");
-        await onTableSelect(dataTableId, tableName);
+        // Ingestion has persisted the source/table, so keep HomePage's
+        // onboarding hold until question creation is confirmed. The callback's
+        // void contract makes `undefined` a success; `null` explicitly means
+        // the caller caught a creation failure.
+        retainOnboardingActivityRef.current = true;
+        const selection = await onTableSelect(dataTableId, tableName);
+        if (selection === null) {
+          throw new Error(
+            "Couldn't create a question from the imported table. Try again.",
+          );
+        }
+        retainOnboardingActivityRef.current = false;
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to process file");
       }
