@@ -6,6 +6,7 @@ import { makeDefaultCountMetric } from "@/lib/data-access/data-tables";
 import { handleFileConnectorResult } from "@/lib/local-csv-handler";
 import {
   connectRemoteSource,
+  RemoteSourceCleanupError,
   type RemoteResource,
   type SupportedRemoteConnectorId,
 } from "@/lib/remote-connector-onboarding";
@@ -87,7 +88,7 @@ export interface DataPickerContentProps {
    * @default true
    */
   showInsights?: boolean;
-  /** Keep a parent onboarding surface mounted while a connection is in progress. */
+  /** Keep parent onboarding mounted through connection and follow-up selection. */
   onActivityChange?: (active: boolean) => void;
 }
 
@@ -202,6 +203,18 @@ export function DataPickerContent({
     null,
   );
   const isMountedRef = useRef(true);
+  const retainOnboardingActivityRef = useRef(false);
+
+  const handleConnectorActivityChange = useCallback(
+    (active: boolean) => {
+      // Once a remote source exists, per-connector idle states must not release
+      // the parent onboarding hold. The user may still be choosing a resource
+      // or another connector, and HomePage now sees that source as an artifact.
+      if (!active && retainOnboardingActivityRef.current) return;
+      onActivityChange?.(active);
+    },
+    [onActivityChange],
+  );
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -460,8 +473,14 @@ export function DataPickerContent({
             listNotionDatabasesMutation({ dataSourceId: id }),
           listPostgresTables: (id) =>
             listPostgresTablesMutation({ dataSourceId: id }),
+        }).catch((cause: unknown) => {
+          if (cause instanceof RemoteSourceCleanupError) {
+            retainOnboardingActivityRef.current = true;
+          }
+          throw cause;
         }),
       );
+      retainOnboardingActivityRef.current = true;
     },
     [commitBatch, listNotionDatabasesMutation, listPostgresTablesMutation],
   );
@@ -471,6 +490,8 @@ export function DataPickerContent({
       if (connector.id !== "googleAnalytics") {
         throw new Error(`${connector.name} OAuth onboarding is not supported`);
       }
+      // OAuth has already persisted the source before this callback runs.
+      retainOnboardingActivityRef.current = true;
       setError(null);
       setRemoteResourceState({
         connectorId: "googleAnalytics",
@@ -585,7 +606,7 @@ export function DataPickerContent({
               onFileSelect={handleFileSelect}
               onConnect={handleConnect}
               onOAuthConnect={handleOAuthConnect}
-              onActivityChange={onActivityChange}
+              onActivityChange={handleConnectorActivityChange}
             />
           </SectionList>
         )}
@@ -598,7 +619,6 @@ export function DataPickerContent({
               size="sm"
               onClick={() => {
                 setRemoteResourceState(null);
-                onActivityChange?.(false);
               }}
               icon={ArrowLeftIcon}
             />
@@ -635,7 +655,15 @@ export function DataPickerContent({
       {/* Footer */}
       {onCancel && (
         <div className="flex justify-end">
-          <Button label="Cancel" variant="outline" onClick={onCancel} />
+          <Button
+            label="Cancel"
+            variant="outline"
+            onClick={() => {
+              retainOnboardingActivityRef.current = false;
+              onActivityChange?.(false);
+              onCancel();
+            }}
+          />
         </div>
       )}
     </div>

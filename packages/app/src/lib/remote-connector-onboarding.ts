@@ -20,6 +20,20 @@ interface ConnectRemoteSourceOptions {
   listPostgresTables: (id: UUID) => Promise<RemoteResource[]>;
 }
 
+/** The source may still exist because its compensating delete failed. */
+export class RemoteSourceCleanupError extends AggregateError {
+  readonly sourceId: UUID;
+
+  constructor(sourceId: UUID, cause: unknown, cleanupCause: unknown) {
+    super(
+      [cause, cleanupCause],
+      "Failed to connect and clean up the data source",
+    );
+    this.name = "RemoteSourceCleanupError";
+    this.sourceId = sourceId;
+  }
+}
+
 /** Create, probe, and compensate a remote source as one onboarding operation. */
 export async function connectRemoteSource({
   connectorId,
@@ -65,10 +79,7 @@ export async function connectRemoteSource({
       try {
         await removeSource(sourceId);
       } catch (cleanupCause) {
-        throw new AggregateError(
-          [cause, cleanupCause],
-          "Failed to connect and clean up the data source",
-        );
+        throw new RemoteSourceCleanupError(sourceId, cause, cleanupCause);
       }
     }
     throw cause;

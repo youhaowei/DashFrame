@@ -667,6 +667,29 @@ function rememberInsightDraftTargetBySourceId(
   });
 }
 
+function rememberGetOrCreateResolutionBySourceId(
+  targets: Map<string, DraftCommandTarget>,
+  command: Command,
+  target: DraftCommandTarget,
+) {
+  if (
+    command.path !== "getOrCreateInsightDraft" ||
+    target.table !== "insights"
+  ) {
+    return;
+  }
+  const source = record(record(command.args).source);
+  if (
+    source.sourceType === "dataTable" &&
+    typeof source.sourceId === "string" &&
+    !targets.has(source.sourceId)
+  ) {
+    // Record what this command resolved to before later commands can modify the
+    // final materialized row and make it ineligible for unmodified-draft reuse.
+    targets.set(source.sourceId, target);
+  }
+}
+
 async function listExistingInsightDraftTargets(
   ctx: QueryCtx,
   workspaceId: string,
@@ -765,6 +788,11 @@ async function summarizeDraftForList(
       ...target,
       command,
     });
+    rememberGetOrCreateResolutionBySourceId(
+      insightDraftsBySourceId,
+      command,
+      target,
+    );
     if (target.table === "insights") {
       const change = changes.find(
         (candidate) =>

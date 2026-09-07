@@ -57,6 +57,9 @@ const {
 
 let handleConnect: AddConnectionPanelProps["onConnect"] | undefined;
 let handleFileSelect: AddConnectionPanelProps["onFileSelect"] | undefined;
+let handleActivityChange:
+  | NonNullable<AddConnectionPanelProps["onActivityChange"]>
+  | undefined;
 
 vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
@@ -117,9 +120,14 @@ vi.mock("./AddConnectionPanel", () => ({
   AddConnectionPanel: ({
     onFileSelect,
     onConnect,
-  }: Pick<AddConnectionPanelProps, "onFileSelect" | "onConnect">) => {
+    onActivityChange,
+  }: Pick<
+    AddConnectionPanelProps,
+    "onFileSelect" | "onConnect" | "onActivityChange"
+  >) => {
     handleConnect = onConnect;
     handleFileSelect = onFileSelect;
+    handleActivityChange = onActivityChange;
     return <div data-testid="add-connection-panel" />;
   },
 }));
@@ -259,6 +267,7 @@ describe("DataPickerContent file replacement", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     handleFileSelect = undefined;
+    handleActivityChange = undefined;
     queryData.dataSources = [];
     queryData.dataTables = [];
     queryData.dataSourcesQueryState = {};
@@ -307,6 +316,96 @@ describe("DataPickerContent file replacement", () => {
     expect(mockListResources).toHaveBeenCalledWith({
       dataSourceId: NEW_TABLE_ID,
     });
+  });
+
+  it("keeps onboarding active when returning to choose another connection", async () => {
+    mockHostRequest.mockResolvedValue({
+      commands: [{ path: "createDataSource", args: {} }],
+      results: [{ value: { id: REMOTE_SOURCE_ID } }],
+    });
+    mockListResources.mockResolvedValue([{ id: "db-1", title: "Roadmap" }]);
+    const onActivityChange = vi.fn();
+    const onCancel = vi.fn();
+    render(
+      <DataPickerContent
+        onTableSelect={vi.fn()}
+        onActivityChange={onActivityChange}
+        onCancel={onCancel}
+      />,
+    );
+
+    handleActivityChange?.(true);
+    await act(async () => {
+      await handleConnect?.(
+        { id: "notion", name: "Notion" } as RemoteApiConnector,
+        { apiKey: "secret-for-host-vault" },
+      );
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Choose another connection" }),
+    );
+
+    expect(screen.getByTestId("add-connection-panel")).toBeTruthy();
+    expect(onActivityChange.mock.calls).toEqual([[true]]);
+
+    handleActivityChange?.(false);
+    expect(onActivityChange.mock.calls).toEqual([[true]]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onActivityChange.mock.calls).toEqual([[true], [false]]);
+    expect(onCancel).toHaveBeenCalledOnce();
+  });
+
+  it("keeps onboarding active when a persisted source cannot be rolled back", async () => {
+    mockHostRequest.mockResolvedValue({
+      commands: [{ path: "createDataSource", args: {} }],
+      results: [{ value: { id: REMOTE_SOURCE_ID } }],
+    });
+    mockListResources.mockRejectedValue(new Error("resource probe failed"));
+    mockNativeCommit.mockRejectedValue(new Error("source cleanup failed"));
+    const onActivityChange = vi.fn();
+    render(
+      <DataPickerContent
+        onTableSelect={vi.fn()}
+        onActivityChange={onActivityChange}
+      />,
+    );
+
+    handleActivityChange?.(true);
+    await expect(
+      handleConnect?.({ id: "notion", name: "Notion" } as RemoteApiConnector, {
+        apiKey: "secret-for-host-vault",
+      }),
+    ).rejects.toThrow("Failed to connect and clean up the data source");
+    handleActivityChange?.(false);
+
+    expect(onActivityChange.mock.calls).toEqual([[true]]);
+  });
+
+  it("releases onboarding when a failed connection rolls its source back", async () => {
+    mockHostRequest.mockResolvedValue({
+      commands: [{ path: "createDataSource", args: {} }],
+      results: [{ value: { id: REMOTE_SOURCE_ID } }],
+    });
+    mockListResources.mockRejectedValue(new Error("resource probe failed"));
+    mockNativeCommit.mockResolvedValue(undefined);
+    const onActivityChange = vi.fn();
+    render(
+      <DataPickerContent
+        onTableSelect={vi.fn()}
+        onActivityChange={onActivityChange}
+      />,
+    );
+
+    handleActivityChange?.(true);
+    await expect(
+      handleConnect?.({ id: "notion", name: "Notion" } as RemoteApiConnector, {
+        apiKey: "secret-for-host-vault",
+      }),
+    ).rejects.toThrow("resource probe failed");
+    handleActivityChange?.(false);
+
+    expect(onActivityChange.mock.calls).toEqual([[true], [false]]);
   });
 
   it("keeps a remote import busy until question creation settles", async () => {
