@@ -26,6 +26,9 @@ it("fails closed for non-loopback hosts and does not grant tokenless credential 
   expect(() => createHostAuthenticator({ hostname: "0.0.0.0" })).toThrow(
     "requires authentication",
   );
+  expect(() =>
+    createHostAuthenticator({ hostname: "0.0.0.0", insecure: true } as never),
+  ).toThrow("requires authentication");
   expect(
     await createHostAuthenticator({ hostname: "127.0.0.1" })(
       new Request("http://127.0.0.1"),

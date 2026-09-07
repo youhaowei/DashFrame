@@ -18,16 +18,11 @@ export function createHostAuthenticator(options: {
   authRef?: SecretRef;
   vault?: SecretVault;
   accessCredentials?: ApiAccessCredentials;
-  insecure?: boolean;
 }): (request: Request) => Promise<Principal> {
   if (options.authRef && !options.vault)
     throw new Error("Token vault is required");
   const protectedHost = Boolean(options.authRef || options.authToken);
-  if (
-    !protectedHost &&
-    !isLoopbackHost(options.hostname) &&
-    !options.insecure
-  ) {
+  if (!protectedHost && !isLoopbackHost(options.hostname)) {
     throw new Error("Non-loopback host requires authentication");
   }
   return async (request) => {
