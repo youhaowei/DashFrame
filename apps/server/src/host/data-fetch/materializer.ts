@@ -119,25 +119,12 @@ export interface InsightMaterializer {
   }): Promise<InsightFetchReady>;
 }
 
-function dedupeSourceGenerations(
-  generations: readonly InsightSourceGeneration[],
-) {
-  return [
-    ...new Map(
-      generations.map((generation) => [generation.tableId, generation]),
-    ).values(),
-  ];
-}
-
 function withPublishedSourceGenerations(
   error: unknown,
   generations: readonly InsightSourceGeneration[],
 ): unknown {
   if (!generations.length) return error;
-  return new PublishedSourceMaterializationError(
-    error,
-    dedupeSourceGenerations(generations),
-  );
+  return new PublishedSourceMaterializationError(error, generations);
 }
 
 /**
@@ -342,7 +329,7 @@ async function materializeOnce(
       definitionFingerprint,
       provenance,
       fetchedAt,
-      sourceGenerations: dedupeSourceGenerations(publishedSourceGenerations),
+      sourceGenerations: publishedSourceGenerations,
     };
   } catch (error) {
     // A failed response cannot prove the native mutation failed. Its commit

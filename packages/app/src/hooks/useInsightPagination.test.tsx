@@ -321,6 +321,7 @@ describe("useInsightPagination", () => {
           id: "table-1",
           dataFrameId: "source-frame-2",
           lastFetchedAt: 123,
+          refreshRevision: "external",
           fields: [],
         } as unknown as DataTable,
       ],
@@ -437,7 +438,12 @@ describe("useInsightPagination", () => {
       await act(async () => Promise.resolve());
       expect(client.mutate).toHaveBeenCalledTimes(1);
       tables = [
-        { ...tables[0]!, dataFrameId: retainedFrame, lastFetchedAt: 3 },
+        {
+          ...tables[0]!,
+          dataFrameId: retainedFrame,
+          lastFetchedAt: 3,
+          refreshRevision: "manual-rollback",
+        },
       ];
       rerender();
       await waitFor(() => expect(result.current.dataFrameId).toBe("result-2"));
@@ -535,6 +541,7 @@ describe("useInsightPagination", () => {
       {
         ...tables[0]!,
         dataFrameId: "manual-source",
+        refreshRevision: "manual",
         lastFetchedAt: 3,
       },
     ];
@@ -638,7 +645,14 @@ describe("useInsightPagination", () => {
     });
 
     phase = "old-flight";
-    tables = [{ ...tables[0]!, dataFrameId: "old-trigger", lastFetchedAt: 2 }];
+    tables = [
+      {
+        ...tables[0]!,
+        dataFrameId: "old-trigger",
+        lastFetchedAt: 2,
+        refreshRevision: "old-trigger",
+      },
+    ];
     rerender();
     await waitFor(() =>
       expect({ savedCalls, previewCalls }).toEqual({
@@ -649,7 +663,14 @@ describe("useInsightPagination", () => {
 
     // The external/manual generation arrives while both older requests are
     // active. Later automatic source publications must not erase that intent.
-    tables = [{ ...tables[0]!, dataFrameId: "manual-1", lastFetchedAt: 3 }];
+    tables = [
+      {
+        ...tables[0]!,
+        dataFrameId: "manual-1",
+        lastFetchedAt: 3,
+        refreshRevision: "manual-1",
+      },
+    ];
     rerender();
     await act(async () => {
       resolveOldSaved({
@@ -719,7 +740,14 @@ describe("useInsightPagination", () => {
     });
 
     // A later unrelated manual generation still invalidates both consumers.
-    tables = [{ ...tables[0]!, dataFrameId: "manual-2", lastFetchedAt: 7 }];
+    tables = [
+      {
+        ...tables[0]!,
+        dataFrameId: "manual-2",
+        lastFetchedAt: 7,
+        refreshRevision: "manual-2",
+      },
+    ];
     rerender();
     await waitFor(() =>
       expect({ savedCalls, previewCalls }).toEqual({
@@ -789,6 +817,7 @@ describe("useInsightPagination", () => {
       {
         ...tables[0]!,
         dataFrameId: "external-frame",
+        refreshRevision: "external",
         lastFetchedAt: 123,
       },
     ];
@@ -826,6 +855,11 @@ describe("useInsightPagination", () => {
       sourceGenerations: [
         {
           tableId: "table-1",
+          dataFrameId: "intermediate-source",
+          lastFetchedAt: 122,
+        },
+        {
+          tableId: "table-1",
           dataFrameId: "source-frame-2",
           lastFetchedAt: 123,
         },
@@ -837,6 +871,15 @@ describe("useInsightPagination", () => {
     await waitFor(() =>
       expect(result.current.error).toBe("Live data could not be fetched."),
     );
+
+    // Distinct subscription deliveries may both arrive after the failed HTTP
+    // response. Keep this operation's proof until an external revision arrives.
+    tables = [
+      { ...tables[0]!, dataFrameId: "intermediate-source", lastFetchedAt: 122 },
+    ];
+    rerender();
+    await act(async () => undefined);
+    expect(client.mutate).toHaveBeenCalledTimes(1);
 
     tables = [
       {
@@ -850,10 +893,153 @@ describe("useInsightPagination", () => {
     expect(client.mutate).toHaveBeenCalledTimes(1);
 
     tables = [
-      { ...tables[0]!, dataFrameId: "external-frame", lastFetchedAt: 123 },
+      {
+        ...tables[0]!,
+        dataFrameId: "external-frame",
+        refreshRevision: "external",
+        lastFetchedAt: 123,
+      },
     ];
     rerender();
     await waitFor(() => expect(client.mutate).toHaveBeenCalledTimes(2));
+  });
+  it.each(["reject", "failed", "page-failed"])(
+    "retries an unreadable %s consumer after a sibling publication",
+    async (failure) => {
+      let tables = [
+        {
+          id: "table-1",
+          fields: [],
+          dataFrameId: "a",
+          lastFetchedAt: 1,
+          refreshRevision: "initial",
+        } as unknown as DataTable,
+      ];
+      useQuery.mockImplementation((procedure) => ({
+        data: procedure._path === "listInsights" ? [] : tables,
+      }));
+      let settle!: (value: unknown) => void;
+      let reject!: (cause: Error) => void;
+      let savedCalls = 0;
+      client.mutate.mockImplementation((procedure) => {
+        if (procedure._path === "fetchData")
+          return Promise.resolve({
+            status: "ready",
+            dataFrameId: "sibling",
+            sourceGenerations: [
+              { tableId: "table-1", dataFrameId: "b", lastFetchedAt: 2 },
+            ],
+          });
+        if (++savedCalls === 1)
+          return new Promise((resolve, fail) => {
+            settle = resolve;
+            reject = fail;
+          });
+        return Promise.resolve({ status: "ready", dataFrameId: "recovered" });
+      });
+      queryDataFrame.mockImplementation(async (frame) =>
+        frame === "unreadable"
+          ? { status: "failed", message: "frame unavailable" }
+          : { status: "ready", schema: [], rows: [], totalCount: 1, page: {} },
+      );
+      const { result, rerender } = renderHook(() => ({
+        saved: useInsightPagination({ insight }),
+        sibling: useInsightPagination({ insight, showModelPreview: true }),
+      }));
+      await waitFor(() => expect(result.current.sibling.isReady).toBe(true));
+      tables = [{ ...tables[0]!, dataFrameId: "b", lastFetchedAt: 2 }];
+      rerender();
+      await act(async () => {
+        if (failure === "reject") reject(new Error("connection lost"));
+        else
+          settle(
+            failure === "failed"
+              ? { status: "failed", message: "no result", retryable: true }
+              : { status: "ready", dataFrameId: "unreadable" },
+          );
+      });
+      await waitFor(() =>
+        expect(result.current.saved.dataFrameId).toBe("recovered"),
+      );
+      expect(savedCalls).toBe(2);
+    },
+  );
+
+  it("suppresses subscription-first publications in independent consumers while preserving manual intent", async () => {
+    let tables = [
+      {
+        id: "table-1",
+        fields: [],
+        dataFrameId: "a",
+        lastFetchedAt: 1,
+        refreshRevision: "initial",
+      } as unknown as DataTable,
+    ];
+    useQuery.mockImplementation((procedure) => ({
+      data: procedure._path === "listInsights" ? [] : tables,
+    }));
+    queryDataFrame.mockResolvedValue({
+      status: "ready",
+      schema: [],
+      rows: [],
+      totalCount: 1,
+      page: {},
+    });
+    let settlePublisher!: (value: unknown) => void;
+    let calls = 0;
+    client.mutate.mockImplementation(() =>
+      ++calls === 2
+        ? new Promise((resolve) => {
+            settlePublisher = resolve;
+          })
+        : Promise.resolve({ status: "ready", dataFrameId: `result-${calls}` }),
+    );
+    const first = renderHook(() => useInsightPagination({ insight }));
+    await waitFor(() => expect(first.result.current.isReady).toBe(true));
+    runtime.scope = {};
+    const publisher = renderHook(() => useInsightPagination({ insight }));
+    await waitFor(() => expect(calls).toBe(2));
+    // Both intermediate publications precede the HTTP response, as with an
+    // upstream Insight and outer join materializing the same table.
+    for (const [frame, timestamp] of [
+      ["b", 2],
+      ["c", 3],
+    ] as const) {
+      tables = [
+        { ...tables[0]!, dataFrameId: frame, lastFetchedAt: timestamp },
+      ];
+      first.rerender();
+      publisher.rerender();
+      await act(async () => undefined);
+      expect(calls).toBe(2);
+    }
+    await act(async () =>
+      settlePublisher({
+        status: "ready",
+        dataFrameId: "publisher-result",
+        sourceGenerations: [
+          { tableId: "table-1", dataFrameId: "b", lastFetchedAt: 2 },
+          { tableId: "table-1", dataFrameId: "c", lastFetchedAt: 3 },
+        ],
+      }),
+    );
+    await waitFor(() => expect(publisher.result.current.isReady).toBe(true));
+    expect(calls).toBe(2);
+    // A manual epoch survives even when its frame was overwritten before the
+    // subscription was delivered to either renderer.
+    tables = [
+      {
+        ...tables[0]!,
+        dataFrameId: "auto-after-manual",
+        lastFetchedAt: 5,
+        refreshRevision: "manual",
+      },
+    ];
+    first.rerender();
+    publisher.rerender();
+    await waitFor(() => expect(calls).toBe(4));
+    first.unmount();
+    publisher.unmount();
   });
 });
 

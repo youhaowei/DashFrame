@@ -1,5 +1,4 @@
 import { requestHost } from "@/data/host";
-import { getRuntimeConfig } from "@/data/runtime";
 import { useQuery_experimental as useQuery } from "convex/react";
 import { queryStatus } from "@/data/query-status";
 import { queryDataFrame } from "@/lib/data-access/data-frames";
@@ -36,17 +35,15 @@ import {
 import {
   isAutomaticSourcePublication,
   isSelfPublishedSourceRevision,
-  recordAutomaticSourcePublication,
-} from "./source-publication-ledger";
+} from "./source-publication-revision";
 
-export { isSelfPublishedSourceRevision } from "./source-publication-ledger";
+export { isSelfPublishedSourceRevision } from "./source-publication-revision";
 
 const MAX_PAGE_SIZE = 500;
 const SUGGESTION_SAMPLE_SIZE = 100;
 const EMPTY_DATA_TABLES: readonly DataTable[] = [];
 const EMPTY_INSIGHTS: readonly Insight[] = [];
 const MAX_COMPOSITION_DEPTH = 16;
-const MAX_PENDING_SOURCE_REVISIONS = 64;
 
 export interface UseInsightPaginationOptions {
   insight: Insight | null | undefined;
@@ -70,8 +67,8 @@ function toFetchDefinition(insight: Insight): InsightFetchDefinition {
 /**
  * Track source-frame generations so mounted consumers update after an
  * external refresh. Automatic Insight materializations also publish new
- * source generations; the scoped publication ledger prevents those writes
- * from feeding back into sibling materializers.
+ * source generations without changing the durable external refresh revision,
+ * so all browser contexts can distinguish them without waiting for the host response.
  */
 export function buildInsightSourceRevision(
   insight: Insight | null | undefined,
@@ -93,9 +90,11 @@ export function buildInsightSourceRevision(
 
   const visitTable = (tableId: UUID) => {
     const table = tableById.get(tableId);
+    const refreshRevision =
+      table?.refreshRevision ?? `legacy-${table?.createdAt}`;
     parts.push(
       table
-        ? `table:${table.id}:${table.dataFrameId ?? ""}:${table.lastFetchedAt ?? ""}`
+        ? `table:${table.id}:${table.dataFrameId ?? ""}:${table.lastFetchedAt ?? ""}:${refreshRevision}`
         : `missing-table:${tableId}`,
     );
   };
@@ -242,7 +241,6 @@ export function useInsightPagination({
   enabled = true,
   runtime,
 }: UseInsightPaginationOptions) {
-  const runtimeScope = getRuntimeConfig();
   const dataTablesQuery = queryStatus(
     useQuery({ query: api.app.listDataTables, args: {} }),
   );
@@ -274,9 +272,9 @@ export function useInsightPagination({
   const pendingMaterialization = useRef<{
     requestIdentity: string;
     sourceRevision: string;
-    sourceRevisions: readonly string[];
   } | null>(null);
   const completedPublication = useRef<{
+    requestIdentity: string;
     sourceRevision: string;
     sourceGenerations: readonly InsightSourceGeneration[];
   } | null>(null);
@@ -323,23 +321,15 @@ export function useInsightPagination({
 
   useEffect(() => {
     if (activeMaterialization.current?.requestIdentity === requestIdentity) {
-      const pending = pendingMaterialization.current;
-      const sourceRevisions = pending?.sourceRevisions.includes(sourceRevision)
-        ? pending.sourceRevisions
-        : [...(pending?.sourceRevisions ?? []), sourceRevision].slice(
-            -MAX_PENDING_SOURCE_REVISIONS,
-          );
       pendingMaterialization.current = {
         requestIdentity,
         sourceRevision,
-        sourceRevisions,
       };
       return;
     }
     const completed = completedPublication.current;
-    completedPublication.current = null;
     if (
-      completed &&
+      completed?.requestIdentity === requestIdentity &&
       isSelfPublishedSourceRevision(
         completed.sourceRevision,
         sourceRevision,
@@ -350,14 +340,11 @@ export function useInsightPagination({
         validResult.current.sourceRevision = sourceRevision;
       return;
     }
+    completedPublication.current = null;
     const valid = validResult.current;
     if (
       valid?.requestIdentity === requestIdentity &&
-      isAutomaticSourcePublication(
-        runtimeScope,
-        valid.sourceRevision,
-        sourceRevision,
-      )
+      isAutomaticSourcePublication(valid.sourceRevision, sourceRevision)
     ) {
       valid.sourceRevision = sourceRevision;
       return;
@@ -408,6 +395,7 @@ export function useInsightPagination({
           insightId: activeInsight.id,
           ...(stableRuntime ? { runtime: stableRuntime } : {}),
         });
+    let completedOwnFailure = false;
     let completedSourceGenerations:
       | readonly InsightSourceGeneration[]
       | undefined;
@@ -415,14 +403,10 @@ export function useInsightPagination({
       .then(
         async (fetchResult) => {
           const publishedSourceGenerations = fetchResult.sourceGenerations;
-          if (publishedSourceGenerations?.length)
-            recordAutomaticSourcePublication(
-              runtimeScope,
-              activeRequest.sourceRevision,
-              publishedSourceGenerations,
-            );
           if (current !== generation.current) return;
           completedSourceGenerations = publishedSourceGenerations;
+          completedOwnFailure =
+            fetchResult.status === "failed" && !fetchResult.retryable;
           const retained =
             fetchResult.status === "failed" ? fetchResult.lastSuccessful : null;
           if (fetchResult.status === "failed" && !retained) {
@@ -514,7 +498,12 @@ export function useInsightPagination({
         const pending = pendingMaterialization.current;
         activeMaterialization.current = null;
         pendingMaterialization.current = null;
+        const valid = validResult.current;
+        const canSuppressOwnPublication =
+          valid?.requestIdentity === started.requestIdentity ||
+          completedOwnFailure;
         const ownsPendingSourceRevision = Boolean(
+          canSuppressOwnPublication &&
           pending &&
           completedSourceGenerations?.length &&
           isSelfPublishedSourceRevision(
@@ -523,12 +512,10 @@ export function useInsightPagination({
             completedSourceGenerations,
           ),
         );
-        const valid = validResult.current;
         const recognizesPendingSourceRevision = Boolean(
           pending &&
           valid?.requestIdentity === started.requestIdentity &&
           isAutomaticSourcePublication(
-            runtimeScope,
             valid.sourceRevision,
             pending.sourceRevision,
           ),
@@ -536,24 +523,17 @@ export function useInsightPagination({
         const pendingRequiresRetry = Boolean(
           pending &&
           (pending.requestIdentity !== started.requestIdentity ||
-            pending.sourceRevisions.some(
-              (revision) =>
-                revision !== started.sourceRevision &&
-                (!completedSourceGenerations?.length ||
-                  !isSelfPublishedSourceRevision(
-                    started.sourceRevision,
-                    revision,
-                    completedSourceGenerations,
-                  )) &&
-                !isAutomaticSourcePublication(
-                  runtimeScope,
-                  started.sourceRevision,
-                  revision,
-                ),
-            )),
+            (pending.sourceRevision !== started.sourceRevision &&
+              !ownsPendingSourceRevision &&
+              !recognizesPendingSourceRevision)),
         );
-        if (completedSourceGenerations?.length && !pendingRequiresRetry)
+        if (
+          canSuppressOwnPublication &&
+          completedSourceGenerations?.length &&
+          !pendingRequiresRetry
+        )
           completedPublication.current = {
+            requestIdentity: started.requestIdentity,
             sourceRevision: started.sourceRevision,
             sourceGenerations: completedSourceGenerations,
           };
@@ -575,7 +555,6 @@ export function useInsightPagination({
     insight?.id,
     insightKey,
     runtimeKey,
-    runtimeScope,
     requestIdentity,
     showModelPreview,
     sourceRevision,
