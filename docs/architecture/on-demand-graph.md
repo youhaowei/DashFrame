@@ -56,7 +56,8 @@ row's side, and all of them scan user-authored tables only:
   reaches through indexes; a source that owns more than 1,000 frames refuses
   with the frame cap message until the recovery list drains it.
 - The preview downstream walk scans user-authored tables for edges; frames it
-  reaches through indexed owning-insight and parent-artifact lookups.
+  reaches through indexed insight, source, definition, and parent-artifact lookups,
+  plus a direct lookup for a table's linked frame.
 - `GetOrCreateInsightDraft` scans insights for an unmodified draft on the same
   table, and `getDataSourceByType` under a draft scans data sources.
 

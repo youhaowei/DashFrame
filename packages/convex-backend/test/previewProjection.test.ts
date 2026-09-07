@@ -186,3 +186,60 @@ it("rejects an unselected data frame scan after a recovery list read", async () 
     );
   });
 });
+
+it.each(["source", "table"])(
+  "previews all frames removed by a %s deletion",
+  async (kind) => {
+    const { sourceId, tableId } = await seedChain();
+    const sourceFrame = uuid(),
+      definitionFrame = uuid(),
+      linkedFrame = uuid();
+    const targetFrames =
+      kind === "source"
+        ? [sourceFrame, definitionFrame, linkedFrame]
+        : [definitionFrame, linkedFrame];
+    await t.run(async (ctx) => {
+      for (const [id, owner] of [
+        [sourceFrame, { sourceId }],
+        [definitionFrame, { definitionId: tableId }],
+        [linkedFrame, {}],
+      ] as const) {
+        await ctx.db.insert("dataFrames", {
+          workspaceId: "workspace",
+          id,
+          revision: 1,
+          name: id,
+          createdAt: Date.now(),
+          storage: { type: "file", key: id },
+          fieldIds: [],
+          ...owner,
+        });
+      }
+      const table = await ctx.db
+        .query("dataTables")
+        .filter((q) => q.eq(q.field("id"), tableId))
+        .unique();
+      await ctx.db.patch(table!._id, { dataFrameId: linkedFrame });
+    });
+    const commands = [
+      cmd("DeleteNode", { id: kind === "source" ? sourceId : tableId }),
+    ];
+    const diff = await user.query(api.app.previewDiff, { commands });
+    const previewFrames = diff.affectedDownstream.filter(
+      (node) => node.kind === "dataFrame",
+    );
+    expect(previewFrames.map((node) => node.nodeId).sort()).toEqual(
+      [...targetFrames].sort(),
+    );
+    expect(previewFrames.every((node) => node.flag === "orphaned")).toBe(true);
+    await user.mutation(api.app.commitBatch, { commands });
+    const remaining = await t.run((ctx) =>
+      ctx.db.query("dataFrames").collect(),
+    );
+    expect(
+      [sourceFrame, definitionFrame, linkedFrame]
+        .filter((id) => !remaining.some((row) => row.id === id))
+        .sort(),
+    ).toEqual([...targetFrames].sort());
+  },
+);
