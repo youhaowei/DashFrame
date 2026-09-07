@@ -6,6 +6,7 @@ import {
   type CombinedField,
 } from "@/lib/insights/compute-combined-fields";
 import { reorderVisibleMetrics } from "@/lib/insights/reorder-visible-metrics";
+import { useWebMCPPageStore } from "@/lib/stores/webmcp-page-store";
 import { api } from "@dashframe/convex-backend/api";
 import type {
   Command,
@@ -175,6 +176,9 @@ export function InsightConfigPanel({
     initialDeleteDialogState,
   );
   const [processingVizId, setProcessingVizId] = useState<string | null>(null);
+  const updateWebMCPInsight = useWebMCPPageStore(
+    (state) => state.updateInsight,
+  );
 
   // Mutations — every artifact write goes through commitBatch (one batch per edit).
   const commitBatch = useMutation(api.app.commitBatch);
@@ -314,9 +318,15 @@ export function InsightConfigPanel({
 
   const handleSortsChange = useCallback(
     (nextSorts: InsightSort[]) => {
-      updateInsight(insight.id, { sorts: nextSorts });
+      updateWebMCPInsight(insight.id, { pendingSorts: nextSorts });
+      updateInsight(insight.id, { sorts: nextSorts }).finally(() => {
+        const live = useWebMCPPageStore.getState().insight;
+        if (live?.insightId === insight.id && live.pendingSorts === nextSorts) {
+          updateWebMCPInsight(insight.id, { pendingSorts: undefined });
+        }
+      });
     },
-    [insight.id, updateInsight],
+    [insight.id, updateInsight, updateWebMCPInsight],
   );
 
   // --- Field handlers ---
@@ -417,11 +427,19 @@ export function InsightConfigPanel({
   // --- Filter handlers ---
   const handleFiltersReorder = useCallback(
     (reordered: FilterWithId[]) => {
-      void updateInsight(insight.id, {
-        filters: stripFilterClientMetadata(reordered),
+      const pendingFilters = stripFilterClientMetadata(reordered);
+      updateWebMCPInsight(insight.id, { pendingFilters });
+      updateInsight(insight.id, { filters: pendingFilters }).finally(() => {
+        const live = useWebMCPPageStore.getState().insight;
+        if (
+          live?.insightId === insight.id &&
+          live.pendingFilters === pendingFilters
+        ) {
+          updateWebMCPInsight(insight.id, { pendingFilters: undefined });
+        }
       });
     },
-    [insight.id, updateInsight],
+    [insight.id, updateInsight, updateWebMCPInsight],
   );
 
   const handleRemoveFilter = useCallback(
@@ -439,6 +457,25 @@ export function InsightConfigPanel({
       });
     },
     [insight.id, filtersWithIds, updateInsight],
+  );
+
+  const handleFilterDraftChange = useCallback(
+    (draft: FilterWithId | null) => {
+      if (!draft) {
+        updateWebMCPInsight(insight.id, { pendingFilters: undefined });
+        return;
+      }
+      const pending =
+        filterToEdit === "new"
+          ? [...filtersWithIds, draft]
+          : filtersWithIds.map((filter) =>
+              filter._id === draft._id ? draft : filter,
+            );
+      updateWebMCPInsight(insight.id, {
+        pendingFilters: stripFilterClientMetadata(pending),
+      });
+    },
+    [filterToEdit, filtersWithIds, insight.id, updateWebMCPInsight],
   );
 
   // --- Delete dialog handlers ---
@@ -697,6 +734,7 @@ export function InsightConfigPanel({
         combinedFields={filterableFields}
         onOpenChange={(open) => !open && setFilterToEdit(null)}
         onSave={handleSaveFilter}
+        onDraftChange={handleFilterDraftChange}
       />
       <DeleteConfirmDialog
         isOpen={deleteDialog.isOpen}

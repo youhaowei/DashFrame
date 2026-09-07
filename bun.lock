@@ -430,6 +430,7 @@
       "name": "@dashframe/app",
       "version": "0.1.0",
       "dependencies": {
+        "@dashframe/assistant": "workspace:*",
         "@dashframe/connector-ga4": "workspace:*",
         "@dashframe/connector-local": "workspace:*",
         "@dashframe/connector-notion": "workspace:*",
@@ -778,6 +779,7 @@
         "@dashframe/types": "workspace:*",
         "@dashframe/ui": "workspace:*",
         "@duckdb/duckdb-wasm": "1.32.0",
+        "@observablehq/plot": "0.6.17",
         "@uwdata/flechette": "^2.2.5",
         "@uwdata/vgplot": "^0.21.1",
         "@wystack/ui-core": "workspace:*",

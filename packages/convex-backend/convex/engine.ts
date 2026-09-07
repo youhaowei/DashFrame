@@ -1,6 +1,7 @@
 import { stable } from "./values";
 import {
   COMMAND_PATHS,
+  ENCODING_VALUE_CHANNELS,
   isUnmodifiedDraft,
   validateVisualizationEncoding,
   type VisualizationEncoding,
@@ -24,27 +25,7 @@ import {
   storedInsightDefinitionSchema,
   runtimeControlsSchema,
 } from "./insightCodec";
-export type Graph = Map<ArtifactTable, Map<string, ArtifactRow>>;
-export function emptyGraph(): Graph {
-  return new Map(artifactTables.map((t) => [t, new Map()]));
-}
-export function cloneGraph(graph: Graph): Graph {
-  return new Map(
-    [...graph].map(([t, rows]) => [
-      t,
-      new Map([...rows].map(([id, row]) => [id, clean(row)])),
-    ]),
-  );
-}
-export function get(
-  graph: Graph,
-  table: ArtifactTable,
-  id: string,
-): ArtifactRow {
-  const row = graph.get(table)!.get(id);
-  if (!row) throw new Error(`${artifactKinds[table]} ${id} not found`);
-  return row;
-}
+import type { Graph } from "./graph";
 function str(value: Json | undefined, label: string): string {
   if (typeof value !== "string" || !value)
     throw new Error(`${label} must be a non-empty string`);
@@ -70,26 +51,15 @@ function definition(row: ArtifactRow): ObjectValue {
     storedInsightDefinitionSchema.parse(row.definition),
   ) as unknown as ObjectValue;
 }
-function same(a: unknown, b: unknown): boolean {
-  return stable(a) === stable(b);
-}
-export function changes(before: Graph, after: Graph) {
-  return artifactTables.flatMap((table) =>
-    [
-      ...new Set([...before.get(table)!.keys(), ...after.get(table)!.keys()]),
-    ].flatMap((id) => {
-      const base = before.get(table)!.get(id) ?? null;
-      const value = after.get(table)!.get(id) ?? null;
-      return same(base, value) ? [] : [{ table, id, base, value }];
-    }),
-  );
-}
-function requireSource(graph: Graph, source: ObjectValue, current?: string) {
+async function requireSource(
+  graph: Graph,
+  source: ObjectValue,
+  current?: string,
+) {
   const type = str(source.sourceType, "sourceType");
   if (type !== "insight" && type !== "dataTable")
     throw new Error("Invalid source type");
-  let row = get(
-    graph,
+  let row = await graph.get(
     type === "insight" ? "insights" : "dataTables",
     id(source.sourceId, "sourceId"),
   );
@@ -100,21 +70,21 @@ function requireSource(graph: Graph, source: ObjectValue, current?: string) {
     seen.add(row.id);
     const next = record(definition(row).source);
     if (next.sourceType !== "insight") break;
-    row = get(graph, "insights", str(next.sourceId, "sourceId"));
+    row = await graph.get("insights", str(next.sourceId, "sourceId"));
   }
 }
-function outputFields(
+async function outputFields(
   graph: Graph,
   source: ObjectValue,
   seen = new Set<string>(),
-): ObjectValue[] {
+): Promise<ObjectValue[]> {
   const key = str(source.sourceId, "sourceId");
   if (source.sourceType === "dataTable")
-    return get(graph, "dataTables", key).fields ?? [];
+    return (await graph.get("dataTables", key)).fields ?? [];
   if (seen.has(key)) throw new Error("Insight source cycle");
   seen.add(key);
-  const def = definition(get(graph, "insights", key));
-  const fields = availableFields(graph, def, seen);
+  const def = definition(await graph.get("insights", key));
+  const fields = await availableFields(graph, def, seen);
   const selected = array(def.selectedFields, "selectedFields");
   const metrics = objects(def.metrics, "metrics");
   return [
@@ -136,18 +106,18 @@ function outputFields(
     })),
   ];
 }
-function availableFields(
+async function availableFields(
   graph: Graph,
   def: ObjectValue,
   seen = new Set<string>(),
-): ObjectValue[] {
-  let fields = outputFields(graph, record(def.source), seen).filter(
+): Promise<ObjectValue[]> {
+  let fields = (await outputFields(graph, record(def.source), seen)).filter(
     (f) => !String(f.name).startsWith("_"),
   );
   const counts = new Map<string, number>();
   for (const join of objects(def.joins ?? [], "joins")) {
     const tableId = str(join.rightTableId, "rightTableId"),
-      right = get(graph, "dataTables", tableId),
+      right = await graph.get("dataTables", tableId),
       rightFields = (right.fields ?? []).filter(
         (f) => !String(f.name).startsWith("_"),
       );
@@ -171,32 +141,40 @@ function availableFields(
   }
   return fields;
 }
-function validateDerived(graph: Graph, def: ObjectValue) {
-  if (record(def.source).sourceType !== "insight") return;
-  const fields = availableFields(graph, def);
+function fieldReferences(field: ObjectValue): string[] {
+  const fieldId = str(field.id, "field.id");
+  return [
+    str(field.columnName ?? field.name, "field column"),
+    `field_${fieldId.replaceAll("-", "_")}`,
+  ];
+}
+async function validateDerived(graph: Graph, def: ObjectValue) {
+  const sourceType = record(def.source).sourceType;
+  const fields = await availableFields(graph, def);
+  if (sourceType === "dataTable" && fields.length === 0) return;
   for (const selected of array(def.selectedFields, "selectedFields"))
     if (!fields.some((f) => f.id === selected))
-      throw new Error(`Field ${selected} is not output by source Insight`);
+      throw new Error(`Field ${selected} is not output by source`);
   for (const m of objects(def.metrics, "metrics"))
     if (
       m.columnName &&
       !fields.some(
         (f) =>
           f.tableId === m.sourceTable &&
-          (f.columnName ?? f.name) === m.columnName,
+          fieldReferences(f).includes(str(m.columnName, "metric column")),
       )
     )
-      throw new Error("Metric column is not output by source Insight");
-  const columns = new Set(fields.map((f) => f.columnName ?? f.name));
+      throw new Error("Metric column is not output by source");
+  const columns = new Set(fields.flatMap(fieldReferences));
   const selected = array(def.selectedFields, "selectedFields"),
     metrics = objects(def.metrics, "metrics");
   const resultColumns = new Set(
     selected.length === 0 && metrics.length === 0
-      ? fields.map((f) => f.columnName ?? f.name)
+      ? fields.flatMap(fieldReferences)
       : [
           ...fields
             .filter((f) => selected.includes(f.id!))
-            .map((f) => f.columnName ?? f.name),
+            .flatMap(fieldReferences),
           ...metrics.map(
             (m) => `metric_${str(m.id, "metric.id").replaceAll("-", "_")}`,
           ),
@@ -205,11 +183,11 @@ function validateDerived(graph: Graph, def: ObjectValue) {
   for (const m of objects(def.metrics, "metrics"))
     columns.add(`metric_${str(m.id, "metric.id").replaceAll("-", "_")}`);
   for (const f of objects(def.filters ?? [], "filters"))
-    if (!columns.has(f.field))
-      throw new Error("Filter field is not output by source Insight");
+    if (!columns.has(str(f.field, "filter field")))
+      throw new Error("Filter field is not output by source");
   for (const s of objects(def.sorts ?? [], "sorts"))
-    if (!resultColumns.has(s.field))
-      throw new Error("Sort field is not output by source Insight");
+    if (!resultColumns.has(str(s.field, "sort field")))
+      throw new Error("Sort field is not output by source");
 }
 function prune(def: ObjectValue) {
   if (!def.runtimeControls) return;
@@ -251,12 +229,12 @@ function validateMetric(metric: ObjectValue, derived: boolean) {
   if (metric.aggregation !== "count" || metric.columnName !== undefined)
     str(metric.columnName, "columnName");
 }
-function validateJoin(graph: Graph, join: ObjectValue) {
+async function validateJoin(graph: Graph, join: ObjectValue) {
   if (!["inner", "left", "right", "full"].includes(str(join.type, "join.type")))
     throw new Error("Invalid join type");
   str(join.leftKey, "leftKey");
   str(join.rightKey, "rightKey");
-  get(graph, "dataTables", id(join.rightTableId, "rightTableId"));
+  await graph.get("dataTables", id(join.rightTableId, "rightTableId"));
 }
 function stripSpec(value: Json): Json {
   if (Array.isArray(value)) return value.map(stripSpec);
@@ -346,7 +324,7 @@ function configEdit(
   }
   if (extra) Object.assign(config, extra);
 }
-export function execute(
+export async function execute(
   graph: Graph,
   commands: Command[],
   workspaceId: string,
@@ -363,18 +341,18 @@ export function execute(
       )
     )
       throw new Error(`Unknown command ${command.path}`);
-    const value = run(graph, command, workspaceId, now, options);
+    const value = await run(graph, command, workspaceId, now, options);
     results.push(clean({ ...(command.id ? { id: command.id } : {}), value }));
   }
   return results;
 }
-function run(
+async function run(
   graph: Graph,
   command: Command,
   workspaceId: string,
   now: number,
   options: { host?: boolean; service?: boolean },
-): Json {
+): Promise<Json> {
   const a = record(command.args),
     p = command.path;
   if (
@@ -383,9 +361,9 @@ function run(
       p === "refreshDataTableCmd")
   )
     throw new Error("Service principal cannot perform this command");
-  const create = (table: ArtifactTable, attrs: Partial<ArtifactRow>) => {
+  const create = async (table: ArtifactTable, attrs: Partial<ArtifactRow>) => {
     const key = id(a.id);
-    if (graph.get(table)!.has(key))
+    if (await graph.has(table, key))
       throw new Error(`${artifactKinds[table]} ${key} already exists`);
     const row = {
       workspaceId,
@@ -396,25 +374,26 @@ function run(
       updatedAt: now,
       ...attrs,
     };
-    graph.get(table)!.set(key, row);
+    graph.set(table, row);
     return { id: key };
   };
-  const find = () => {
+  const find = async () => {
     const key = id(a.id);
-    for (const t of artifactTables) {
-      const row = graph.get(t)!.get(key);
-      if (row) return { t, row };
-    }
-    throw new Error(`Node ${key} not found`);
+    const rows = await Promise.all(
+      artifactTables.map((t) => graph.find(t, key)),
+    );
+    const at = rows.findIndex((row) => row);
+    if (at < 0) throw new Error(`Node ${key} not found`);
+    return { t: artifactTables[at]!, row: rows[at]! };
   };
   if (p === "getOrCreateDataSource" || p === "createDataSource") {
-    const existing = graph.get("dataSources")!.get(id(a.id));
+    const existing = await graph.find("dataSources", id(a.id));
     if (existing && p === "getOrCreateDataSource") return { id: existing.id };
     const type = str(a.type, "type"),
       config: ObjectValue =
         type === "googleAnalytics" ? { sourceBindingVersion: "v2" } : {};
     configEdit(config, a, options.host ?? false);
-    return create("dataSources", {
+    return await create("dataSources", {
       kind: type,
       storage: "live",
       config,
@@ -424,7 +403,7 @@ function run(
     });
   }
   if (p === "setDataSourceConfig") {
-    const row = get(graph, "dataSources", id(a.id));
+    const row = await graph.get("dataSources", id(a.id));
     const config = { ...row.config };
     // Persisted rows have positive revisions. Revision zero identifies a source
     // created only in this batch/draft, whose credential came from this caller
@@ -434,10 +413,10 @@ function run(
     return { ok: true };
   }
   if (p === "createDataTable") {
-    get(graph, "dataSources", id(a.dataSourceId, "dataSourceId"));
-    if (a.dataFrameId) get(graph, "dataFrames", id(a.dataFrameId));
+    await graph.get("dataSources", id(a.dataSourceId, "dataSourceId"));
+    if (a.dataFrameId) await graph.get("dataFrames", id(a.dataFrameId));
     const state = clean(parseStoredDataTableState(a, "CreateDataTable"));
-    return create("dataTables", {
+    return await create("dataTables", {
       dataSourceId: id(a.dataSourceId),
       table: str(a.table, "table"),
       sourceSchema: (state.sourceSchema ?? null) as unknown as Json,
@@ -447,14 +426,14 @@ function run(
     });
   }
   if (p === "setDataTableSchema") {
-    const row = get(graph, "dataTables", id(a.id));
+    const row = await graph.get("dataTables", id(a.id));
     parseStoredDataTableState({ ...row, sourceSchema: a.sourceSchema }, p);
     row.sourceSchema = a.sourceSchema!;
     return { ok: true };
   }
   if (p === "refreshDataTableCmd") {
-    const row = get(graph, "dataTables", id(a.id));
-    get(graph, "dataFrames", id(a.dataFrameId));
+    const row = await graph.get("dataTables", id(a.id));
+    await graph.get("dataFrames", id(a.dataFrameId));
     row.dataFrameId = str(a.dataFrameId, "dataFrameId");
     row.lastFetchedAt = now;
     return { ok: true };
@@ -464,18 +443,21 @@ function run(
     if (p === "getOrCreateInsightDraft") {
       if (source.sourceType !== "dataTable")
         throw new Error("GetOrCreateInsightDraft source must be a DataTable");
-      requireSource(graph, source);
-      const existing = [...graph.get("insights")!.values()].find((row) => {
-        const def = storedInsightDefinitionSchema.parse(row.definition);
-        return (
-          def.source.sourceType === "dataTable" &&
-          def.source.sourceId === source.sourceId &&
-          isUnmodifiedDraft(def)
+      await requireSource(graph, source);
+      const existing = (await graph.scan("insights")).find((row) => {
+        const candidate = record(row.definition?.source ?? {});
+        if (
+          candidate.sourceType !== "dataTable" ||
+          candidate.sourceId !== source.sourceId
+        )
+          return false;
+        return isUnmodifiedDraft(
+          storedInsightDefinitionSchema.parse(row.definition),
         );
       });
       if (existing) return { id: existing.id };
     }
-    requireSource(graph, source, id(a.id));
+    await requireSource(graph, source, id(a.id));
     const def: ObjectValue = {
       source,
       selectedFields: a.selectedFields ?? [],
@@ -487,8 +469,8 @@ function run(
     storedInsightDefinitionSchema.parse(def);
     for (const metric of objects(def.metrics, "metrics"))
       validateMetric(metric, true);
-    validateDerived(graph, def);
-    return create("insights", {
+    await validateDerived(graph, def);
+    return await create("insights", {
       definition: def,
       createdBy: { kind: options.service ? "agent" : "user" },
     });
@@ -505,10 +487,10 @@ function run(
       "removeJoin",
     ].includes(p)
   ) {
-    const row = get(graph, "insights", id(a.id));
+    const row = await graph.get("insights", id(a.id));
     const def = definition(row);
     if (p === "setInsightSource") {
-      requireSource(graph, record(a.source), row.id);
+      await requireSource(graph, record(a.source), row.id);
       def.source = record(a.source);
     }
     if (p === "selectFields") {
@@ -561,7 +543,7 @@ function run(
       const joins = objects(def.joins ?? [], "joins");
       if (p === "addJoin") {
         const join = record(a.join);
-        validateJoin(graph, join);
+        await validateJoin(graph, join);
         joins.push(join);
       } else {
         const index = a.joinIndex;
@@ -578,13 +560,13 @@ function run(
           if (!Object.keys(updates).length)
             throw new Error("Updates are required");
           const join = { ...joins[index], ...updates };
-          validateJoin(graph, join);
+          await validateJoin(graph, join);
           joins[index] = join;
         }
       }
       def.joins = joins;
     }
-    validateDerived(graph, def);
+    await validateDerived(graph, def);
     row.definition = def;
     return { ok: true };
   }
@@ -599,8 +581,8 @@ function run(
     ].includes(p)
   ) {
     const key = id(a.nodeId, "nodeId"),
-      t = graph.get("dataTables")!.has(key) ? "dataTables" : "insights",
-      row = get(graph, t, key),
+      t = (await graph.has("dataTables", key)) ? "dataTables" : "insights",
+      row = await graph.get(t, key),
       isField = p.endsWith("Field"),
       def = t === "insights" ? definition(row) : null;
     const collection = isField ? "fields" : "metrics";
@@ -654,14 +636,54 @@ function run(
     }
     if (def) {
       prune(def);
-      validateDerived(graph, def);
+      await validateDerived(graph, def);
       row.definition = def;
     }
     return { ok: true, target: { kind: artifactKinds[t], id: row.id } };
   }
   if (p === "createVisualizationCmd") {
-    get(graph, "insights", id(a.insightId));
+    const insightId = id(a.insightId);
+    const insight = await graph.get("insights", insightId);
     validateEncoding(a.encoding);
+    const output = await outputFields(graph, {
+      sourceType: "insight",
+      sourceId: insightId,
+    });
+    if (output.length > 0) {
+      const available = await availableFields(graph, definition(insight));
+      const references = new Set<string>();
+      for (const field of output) {
+        const fieldId = str(field.id, "field.id");
+        const columnName = str(field.columnName ?? field.name, "field column");
+        references.add(columnName);
+        references.add(field.name as string);
+        references.add(
+          `${columnName.startsWith("metric_") ? "metric" : "field"}:${fieldId}`,
+        );
+        const sourceField = available.find(
+          (candidate) => candidate.id === field.id,
+        );
+        if (sourceField) {
+          references.add(
+            str(sourceField.columnName ?? sourceField.name, "source column"),
+          );
+          references.add(str(sourceField.name, "source field name"));
+        }
+      }
+      const encoding = record(a.encoding ?? {});
+      for (const channel of ENCODING_VALUE_CHANNELS) {
+        const reference = encoding[channel];
+        if (
+          typeof reference === "string" &&
+          reference !== "" &&
+          !reference.includes("(") &&
+          !references.has(reference)
+        )
+          throw new Error(
+            `Encoding ${channel} reference is not output by Insight`,
+          );
+      }
+    }
     return create("visualizations", {
       insightId: str(a.insightId, "insightId"),
       chartType: str(a.visualizationType, "visualizationType"),
@@ -671,7 +693,7 @@ function run(
     });
   }
   if (p === "setChartType" || p === "setChartEncoding") {
-    const row = get(graph, "visualizations", id(a.id));
+    const row = await graph.get("visualizations", id(a.id));
     if (p === "setChartType")
       row.chartType = str(a.visualizationType, "visualizationType");
     else {
@@ -682,7 +704,7 @@ function run(
     return { ok: true };
   }
   if (p === "createDashboardCmd")
-    return create("dashboards", {
+    return await create("dashboards", {
       description: typeof a.description === "string" ? a.description : null,
       layout: [],
       controls: null,
@@ -699,25 +721,20 @@ function run(
       "fanOutDashboardItemsCmd",
     ].includes(p)
   )
-    return dashboardCommand(graph, p, a);
+    return await dashboardCommand(graph, p, a);
   if (p === "renameNode") {
-    const { t, row } = find();
+    const { t, row } = await find();
     row.name = str(a.name, "name");
     return { ok: true, renamed: { kind: artifactKinds[t], id: row.id } };
   }
   if (p === "deleteNode") {
-    const key = id(a.id);
-    const table = (
-      [
-        "visualizations",
-        "dashboards",
-        "insights",
-        "dataTables",
-        "dataSources",
-      ] as const
-    ).find((t) => graph.get(t)!.has(key));
-    if (!table) throw new Error(`Node ${key} not found`);
-    const orphanedNodes = removeNode(graph, table, key);
+    const key = id(a.id),
+      { t: table } = await find();
+    if (table === "dataFrames")
+      throw new Error(
+        "Data frames are removed through their host, not deleted as nodes",
+      );
+    const orphanedNodes = await removeNode(graph, table, key);
     return {
       ok: true,
       deleted: { kind: artifactKinds[table], id: key },
@@ -726,8 +743,12 @@ function run(
   }
   throw new Error(`Unimplemented command ${p}`);
 }
-function dashboardCommand(graph: Graph, p: string, a: ObjectValue): Json {
-  const row = get(graph, "dashboards", id(a.dashboardId));
+async function dashboardCommand(
+  graph: Graph,
+  p: string,
+  a: ObjectValue,
+): Promise<Json> {
+  const row = await graph.get("dashboards", id(a.dashboardId));
   let items = clean(row.layout ?? []);
   const created: string[] = [];
   const itemAt = () => {
@@ -735,7 +756,41 @@ function dashboardCommand(graph: Graph, p: string, a: ObjectValue): Json {
     if (index < 0) throw new Error("Dashboard item not found");
     return index;
   };
-  if (p === "addDashboardItemCmd") items.push(record(a.item));
+  if (p === "addDashboardItemCmd") {
+    const item = record(a.item);
+    if (item.type === "visualization")
+      await graph.get(
+        "visualizations",
+        id(item.visualizationId, "visualizationId"),
+      );
+    const positioned = [item.x, item.y, item.width, item.height].every(
+      (value) => typeof value === "number" && Number.isFinite(value),
+    );
+    if (
+      positioned &&
+      items.some(
+        (existing) =>
+          [existing.x, existing.y, existing.width, existing.height].every(
+            (value) => typeof value === "number" && Number.isFinite(value),
+          ) &&
+          (item.x as number) <
+            (existing.x as number) + (existing.width as number) &&
+          (item.x as number) + (item.width as number) >
+            (existing.x as number) &&
+          (item.y as number) <
+            (existing.y as number) + (existing.height as number) &&
+          (item.y as number) + (item.height as number) > (existing.y as number),
+      )
+    )
+      item.y = items.reduce(
+        (bottom, existing) =>
+          typeof existing.y === "number" && typeof existing.height === "number"
+            ? Math.max(bottom, existing.y + existing.height)
+            : bottom,
+        0,
+      );
+    items.push(item);
+  }
   if (p === "setDashboardLayout") items = objects(a.items, "items");
   if (p === "removeDashboardItemCmd") items.splice(itemAt(), 1);
   if (p === "updateDashboardItemCmd") {
@@ -822,24 +877,24 @@ function dashboardCommand(graph: Graph, p: string, a: ObjectValue): Json {
   row.layout = state.items as unknown as ObjectValue[];
   return p === "fanOutDashboardItemsCmd" ? { ok: true, created } : { ok: true };
 }
-function removeNode(
+async function removeNode(
   graph: Graph,
   table: ArtifactTable,
   id: string,
-): ObjectValue[] {
-  const row = get(graph, table, id),
+): Promise<ObjectValue[]> {
+  const row = await graph.get(table, id),
     deletedTables = new Set<string>(),
     deletedViz = new Set<string>(),
     orphaned: ObjectValue[] = [];
   if (table === "dataSources")
-    for (const item of graph.get("dataTables")!.values())
-      if (item.dataSourceId === id) deletedTables.add(item.id);
+    for (const item of await graph.scan("dataTables", { dataSourceId: id }))
+      deletedTables.add(item.id);
   if (table === "dataTables") deletedTables.add(id);
   if (table === "visualizations") deletedViz.add(id);
   if (table === "insights")
-    for (const item of graph.get("visualizations")!.values())
-      if (item.insightId === id) deletedViz.add(item.id);
-  for (const insight of graph.get("insights")!.values()) {
+    for (const item of await graph.scan("visualizations", { insightId: id }))
+      deletedViz.add(item.id);
+  for (const insight of await graph.scan("insights")) {
     if (table === "insights" && insight.id === id) continue;
     const def = definition(insight),
       source = record(def.source);
@@ -852,24 +907,31 @@ function removeNode(
     )
       orphaned.push({ id: insight.id, kind: "insight" });
   }
-  for (const dashboard of graph.get("dashboards")!.values())
+  for (const dashboard of await graph.scan("dashboards"))
     if (
       dashboard.layout?.some((i) => deletedViz.has(String(i.visualizationId)))
     )
       orphaned.push({ id: dashboard.id, kind: "dashboard" });
-  const linked = new Set(
-    [...deletedTables].flatMap((key) => {
-      const tableRow = get(graph, "dataTables", key);
-      return tableRow.dataFrameId ? [tableRow.dataFrameId] : [];
-    }),
-  );
-  for (const frame of [...graph.get("dataFrames")!.values()]) {
-    const candidate =
-      (table === "insights" && frame.insightId === id) ||
-      (table === "dataSources" && frame.sourceId === id) ||
-      deletedTables.has(String(frame.definitionId)) ||
-      linked.has(frame.id);
-    if (!candidate) continue;
+  // Frames are reached only through their owner indexes, never by scanning the
+  // table: a frame belongs to an insight (insightId), a data source (sourceId),
+  // or a data table (definitionId), or is pointed at by a table (dataFrameId).
+  const frames = new Map<string, ArtifactRow>();
+  const collect = (rows: ArtifactRow[]) => {
+    for (const frame of rows) frames.set(frame.id, frame);
+  };
+  if (table === "insights")
+    collect(await graph.scan("dataFrames", { insightId: id }));
+  if (table === "dataSources")
+    collect(await graph.scan("dataFrames", { sourceId: id }));
+  for (const key of deletedTables) {
+    collect(await graph.scan("dataFrames", { definitionId: key }));
+    const linked = (await graph.get("dataTables", key)).dataFrameId;
+    if (linked) {
+      const frame = await graph.find("dataFrames", linked);
+      if (frame) frames.set(frame.id, frame);
+    }
+  }
+  for (const frame of frames.values()) {
     if (
       !frame.storage ||
       typeof frame.storage !== "object" ||
@@ -877,13 +939,13 @@ function removeNode(
       frame.storage.type !== "file"
     )
       throw new Error("Legacy browser DataFrames are not supported");
-    const outside = [...graph.get("dataTables")!.values()].some(
-      (t) => t.dataFrameId === frame.id && !deletedTables.has(t.id),
-    );
-    if (!outside) graph.get("dataFrames")!.delete(frame.id);
+    const outside = (
+      await graph.scan("dataTables", { dataFrameId: frame.id })
+    ).some((t) => !deletedTables.has(t.id));
+    if (!outside) graph.delete("dataFrames", frame.id);
   }
-  for (const key of deletedTables) graph.get("dataTables")!.delete(key);
-  for (const key of deletedViz) graph.get("visualizations")!.delete(key);
-  graph.get(table)!.delete(row.id);
+  for (const key of deletedTables) graph.delete("dataTables", key);
+  for (const key of deletedViz) graph.delete("visualizations", key);
+  graph.delete(table, row.id);
   return orphaned;
 }
