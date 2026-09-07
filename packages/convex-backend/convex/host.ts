@@ -101,14 +101,17 @@ async function retainInsightFrames(
   };
   const prior = await frameHistory(ctx, workspaceId, { insightId });
   if (!prior) {
-    const flagged = await ctx.db
+    // Over-cap history: read only the newest LIMIT frames, where the current
+    // flag lives, so the publication's reads stay bounded whatever the
+    // history holds. A stale flag deeper in legacy history is cosmetic.
+    const newest = await ctx.db
       .query("dataFrames")
       .withIndex("by_workspaceId_and_insightId", (q) =>
         q.eq("workspaceId", workspaceId).eq("insightId", insightId),
       )
-      .filter((q) => q.eq(q.field("analysis.currentInsightResult"), true))
+      .order("desc")
       .take(LIMIT);
-    for (const frame of flagged) await clearCurrent(frame);
+    for (const frame of newest) if (isCurrent(frame)) await clearCurrent(frame);
     return;
   }
   const previousFrameId =

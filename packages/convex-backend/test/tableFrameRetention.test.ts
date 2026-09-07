@@ -300,7 +300,7 @@ it("still publishes a saved result when the insight already holds more than 1000
   const current = crypto.randomUUID();
   await t.run(async (ctx) => {
     for (let index = 0; index < 1001; index++) {
-      const id = index === 0 ? current : crypto.randomUUID();
+      const id = index === 1000 ? current : crypto.randomUUID();
       await ctx.db.insert("dataFrames", {
         workspaceId: "w",
         id,
@@ -310,7 +310,7 @@ it("still publishes a saved result when the insight already holds more than 1000
         insightId,
         storage: { type: "file", key: id },
         fieldIds: [],
-        analysis: { currentInsightResult: index === 0 },
+        analysis: { currentInsightResult: index === 1000 },
       });
     }
   });
