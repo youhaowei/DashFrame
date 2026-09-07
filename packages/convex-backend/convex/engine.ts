@@ -1,6 +1,7 @@
 import { stable } from "./values";
 import {
   COMMAND_PATHS,
+  ENCODING_VALUE_CHANNELS,
   isUnmodifiedDraft,
   validateVisualizationEncoding,
   type VisualizationEncoding,
@@ -140,32 +141,40 @@ async function availableFields(
   }
   return fields;
 }
+function fieldReferences(field: ObjectValue): string[] {
+  const fieldId = str(field.id, "field.id");
+  return [
+    str(field.columnName ?? field.name, "field column"),
+    `field_${fieldId.replaceAll("-", "_")}`,
+  ];
+}
 async function validateDerived(graph: Graph, def: ObjectValue) {
-  if (record(def.source).sourceType !== "insight") return;
+  const sourceType = record(def.source).sourceType;
   const fields = await availableFields(graph, def);
+  if (sourceType === "dataTable" && fields.length === 0) return;
   for (const selected of array(def.selectedFields, "selectedFields"))
     if (!fields.some((f) => f.id === selected))
-      throw new Error(`Field ${selected} is not output by source Insight`);
+      throw new Error(`Field ${selected} is not output by source`);
   for (const m of objects(def.metrics, "metrics"))
     if (
       m.columnName &&
       !fields.some(
         (f) =>
           f.tableId === m.sourceTable &&
-          (f.columnName ?? f.name) === m.columnName,
+          fieldReferences(f).includes(str(m.columnName, "metric column")),
       )
     )
-      throw new Error("Metric column is not output by source Insight");
-  const columns = new Set(fields.map((f) => f.columnName ?? f.name));
+      throw new Error("Metric column is not output by source");
+  const columns = new Set(fields.flatMap(fieldReferences));
   const selected = array(def.selectedFields, "selectedFields"),
     metrics = objects(def.metrics, "metrics");
   const resultColumns = new Set(
     selected.length === 0 && metrics.length === 0
-      ? fields.map((f) => f.columnName ?? f.name)
+      ? fields.flatMap(fieldReferences)
       : [
           ...fields
             .filter((f) => selected.includes(f.id!))
-            .map((f) => f.columnName ?? f.name),
+            .flatMap(fieldReferences),
           ...metrics.map(
             (m) => `metric_${str(m.id, "metric.id").replaceAll("-", "_")}`,
           ),
@@ -174,11 +183,11 @@ async function validateDerived(graph: Graph, def: ObjectValue) {
   for (const m of objects(def.metrics, "metrics"))
     columns.add(`metric_${str(m.id, "metric.id").replaceAll("-", "_")}`);
   for (const f of objects(def.filters ?? [], "filters"))
-    if (!columns.has(f.field))
-      throw new Error("Filter field is not output by source Insight");
+    if (!columns.has(str(f.field, "filter field")))
+      throw new Error("Filter field is not output by source");
   for (const s of objects(def.sorts ?? [], "sorts"))
-    if (!resultColumns.has(s.field))
-      throw new Error("Sort field is not output by source Insight");
+    if (!resultColumns.has(str(s.field, "sort field")))
+      throw new Error("Sort field is not output by source");
 }
 function prune(def: ObjectValue) {
   if (!def.runtimeControls) return;
@@ -633,9 +642,49 @@ async function run(
     return { ok: true, target: { kind: artifactKinds[t], id: row.id } };
   }
   if (p === "createVisualizationCmd") {
-    await graph.get("insights", id(a.insightId));
+    const insightId = id(a.insightId);
+    const insight = await graph.get("insights", insightId);
     validateEncoding(a.encoding);
-    return await create("visualizations", {
+    const output = await outputFields(graph, {
+      sourceType: "insight",
+      sourceId: insightId,
+    });
+    if (output.length > 0) {
+      const available = await availableFields(graph, definition(insight));
+      const references = new Set<string>();
+      for (const field of output) {
+        const fieldId = str(field.id, "field.id");
+        const columnName = str(field.columnName ?? field.name, "field column");
+        references.add(columnName);
+        references.add(field.name as string);
+        references.add(
+          `${columnName.startsWith("metric_") ? "metric" : "field"}:${fieldId}`,
+        );
+        const sourceField = available.find(
+          (candidate) => candidate.id === field.id,
+        );
+        if (sourceField) {
+          references.add(
+            str(sourceField.columnName ?? sourceField.name, "source column"),
+          );
+          references.add(str(sourceField.name, "source field name"));
+        }
+      }
+      const encoding = record(a.encoding ?? {});
+      for (const channel of ENCODING_VALUE_CHANNELS) {
+        const reference = encoding[channel];
+        if (
+          typeof reference === "string" &&
+          reference !== "" &&
+          !reference.includes("(") &&
+          !references.has(reference)
+        )
+          throw new Error(
+            `Encoding ${channel} reference is not output by Insight`,
+          );
+      }
+    }
+    return create("visualizations", {
       insightId: str(a.insightId, "insightId"),
       chartType: str(a.visualizationType, "visualizationType"),
       encoding: a.encoding ?? {},
@@ -707,7 +756,41 @@ async function dashboardCommand(
     if (index < 0) throw new Error("Dashboard item not found");
     return index;
   };
-  if (p === "addDashboardItemCmd") items.push(record(a.item));
+  if (p === "addDashboardItemCmd") {
+    const item = record(a.item);
+    if (item.type === "visualization")
+      await graph.get(
+        "visualizations",
+        id(item.visualizationId, "visualizationId"),
+      );
+    const positioned = [item.x, item.y, item.width, item.height].every(
+      (value) => typeof value === "number" && Number.isFinite(value),
+    );
+    if (
+      positioned &&
+      items.some(
+        (existing) =>
+          [existing.x, existing.y, existing.width, existing.height].every(
+            (value) => typeof value === "number" && Number.isFinite(value),
+          ) &&
+          (item.x as number) <
+            (existing.x as number) + (existing.width as number) &&
+          (item.x as number) + (item.width as number) >
+            (existing.x as number) &&
+          (item.y as number) <
+            (existing.y as number) + (existing.height as number) &&
+          (item.y as number) + (item.height as number) > (existing.y as number),
+      )
+    )
+      item.y = items.reduce(
+        (bottom, existing) =>
+          typeof existing.y === "number" && typeof existing.height === "number"
+            ? Math.max(bottom, existing.y + existing.height)
+            : bottom,
+        0,
+      );
+    items.push(item);
+  }
   if (p === "setDashboardLayout") items = objects(a.items, "items");
   if (p === "removeDashboardItemCmd") items.splice(itemAt(), 1);
   if (p === "updateDashboardItemCmd") {

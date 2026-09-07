@@ -20,6 +20,7 @@ import {
   useInsightCanvasStore,
   type InsightCanvasView,
 } from "@/lib/stores/insight-canvas-store";
+import { useWebMCPPageStore } from "@/lib/stores/webmcp-page-store";
 import type { Insight as LocalInsight } from "@/lib/stores/types";
 import { analyzeFrameSample } from "@/lib/visualizations/analyze-frame-sample";
 import {
@@ -711,6 +712,20 @@ export function InsightView({
 
   // Local state for insight name (prevents re-renders on typing)
   const [localName, setLocalName] = useState(insight.name);
+  const setWebMCPInsight = useWebMCPPageStore((state) => state.setInsight);
+  const updateWebMCPInsight = useWebMCPPageStore(
+    (state) => state.updateInsight,
+  );
+  const clearWebMCPInsight = useWebMCPPageStore((state) => state.clearInsight);
+  useEffect(() => {
+    setWebMCPInsight({ insightId });
+    return () => clearWebMCPInsight(insightId);
+  }, [clearWebMCPInsight, insightId, setWebMCPInsight]);
+  useEffect(() => {
+    updateWebMCPInsight(insightId, {
+      pendingName: localName !== insight.name ? localName : undefined,
+    });
+  }, [insight.name, insightId, localName, updateWebMCPInsight]);
   const prevInsightNameRef = useRef(insight.name);
   // Sync local name when insight prop changes from an external source.
   useEffect(() => {
@@ -1412,7 +1427,10 @@ export function InsightView({
         />
       }
     >
-      <div className="container mx-auto flex h-full max-w-7xl flex-col gap-4 px-6 py-6">
+      <div
+        data-dashframe-insight-id={insightId}
+        className="container mx-auto flex h-full max-w-7xl flex-col gap-4 px-6 py-6"
+      >
         <section className="flex min-h-[620px] flex-1 flex-col overflow-hidden rounded-[var(--surface-radius)] bg-neutral-bg/90 shadow-[var(--surface-shadow)]">
           <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 px-4 py-3">
             <div className="flex min-w-0 items-center gap-3">
