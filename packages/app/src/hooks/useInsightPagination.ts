@@ -16,6 +16,7 @@ import type {
   Insight,
   InsightFetchDefinition,
   InsightRuntimeInput,
+  InsightSourceGeneration,
   UUID,
 } from "@dashframe/types";
 import type {
@@ -277,7 +278,7 @@ export function useInsightPagination({
   } | null>(null);
   const completedPublication = useRef<{
     sourceRevision: string;
-    sourceGenerations: readonly { tableId: UUID; dataFrameId: UUID }[];
+    sourceGenerations: readonly InsightSourceGeneration[];
   } | null>(null);
   const validResult = useRef<{
     requestIdentity: string;
@@ -408,7 +409,7 @@ export function useInsightPagination({
           ...(stableRuntime ? { runtime: stableRuntime } : {}),
         });
     let completedSourceGenerations:
-      | readonly { tableId: UUID; dataFrameId: UUID }[]
+      | readonly InsightSourceGeneration[]
       | undefined;
     materialized
       .then(

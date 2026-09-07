@@ -294,7 +294,11 @@ describe("useInsightPagination", () => {
         dataFrameId: "result-1",
         fetchedAt: 123,
         sourceGenerations: [
-          { tableId: "table-1", dataFrameId: "source-frame-owned" },
+          {
+            tableId: "table-1",
+            dataFrameId: "source-frame-owned",
+            lastFetchedAt: 123,
+          },
         ],
       })
       .mockResolvedValueOnce({ status: "ready", dataFrameId: "result-2" });
@@ -361,7 +365,11 @@ describe("useInsightPagination", () => {
         dataFrameId: "result-1",
         fetchedAt: 123,
         sourceGenerations: [
-          { tableId: "table-1", dataFrameId: "source-frame-2" },
+          {
+            tableId: "table-1",
+            dataFrameId: "source-frame-2",
+            lastFetchedAt: 123,
+          },
         ],
       });
     });
@@ -381,6 +389,61 @@ describe("useInsightPagination", () => {
     await act(async () => Promise.resolve());
     expect(client.mutate).toHaveBeenCalledTimes(1);
   });
+
+  it.each(["source-frame-1", "source-frame-2"])(
+    "rematerializes when a manual refresh selects retained %s",
+    async (retainedFrame) => {
+      let tables = [
+        {
+          id: "table-1",
+          dataFrameId: "source-frame-1",
+          lastFetchedAt: 1,
+          fields: [],
+        } as unknown as DataTable,
+      ];
+      useQuery.mockImplementation(() => ({ data: tables }));
+      let calls = 0;
+      client.mutate.mockImplementation(async () =>
+        ++calls === 1
+          ? {
+              status: "ready",
+              dataFrameId: "result-1",
+              fetchedAt: 2,
+              sourceGenerations: [
+                {
+                  tableId: "table-1",
+                  dataFrameId: "source-frame-2",
+                  lastFetchedAt: 2,
+                },
+              ],
+            }
+          : { status: "ready", dataFrameId: "result-2", fetchedAt: 4 },
+      );
+      queryDataFrame.mockResolvedValue({
+        status: "ready",
+        schema: [],
+        rows: [],
+        totalCount: 1,
+        page: {},
+      });
+      const { result, rerender } = renderHook(() =>
+        useInsightPagination({ insight }),
+      );
+      await waitFor(() => expect(result.current.dataFrameId).toBe("result-1"));
+      tables = [
+        { ...tables[0]!, dataFrameId: "source-frame-2", lastFetchedAt: 2 },
+      ];
+      rerender();
+      await act(async () => Promise.resolve());
+      expect(client.mutate).toHaveBeenCalledTimes(1);
+      tables = [
+        { ...tables[0]!, dataFrameId: retainedFrame, lastFetchedAt: 3 },
+      ];
+      rerender();
+      await waitFor(() => expect(result.current.dataFrameId).toBe("result-2"));
+      expect(client.mutate).toHaveBeenCalledTimes(2);
+    },
+  );
 
   it("settles sibling publications without hiding new consumers, changed requests, or manual refreshes", async () => {
     let tables = [
@@ -408,6 +471,7 @@ describe("useInsightPagination", () => {
           {
             tableId: "table-1",
             dataFrameId: `${kind}-source-${call}`,
+            lastFetchedAt: call * 2,
           },
         ],
       };
@@ -544,6 +608,7 @@ describe("useInsightPagination", () => {
           {
             tableId: "table-1",
             dataFrameId: `${phase}-${kind}-source-${call}`,
+            lastFetchedAt: phase === "initial" ? 1 : 6,
           },
         ],
       });
@@ -591,7 +656,11 @@ describe("useInsightPagination", () => {
         status: "ready",
         dataFrameId: "old-saved-result",
         sourceGenerations: [
-          { tableId: "table-1", dataFrameId: "old-saved-source" },
+          {
+            tableId: "table-1",
+            dataFrameId: "old-saved-source",
+            lastFetchedAt: 4,
+          },
         ],
       });
     });
@@ -614,7 +683,11 @@ describe("useInsightPagination", () => {
         status: "ready",
         dataFrameId: "old-preview-result",
         sourceGenerations: [
-          { tableId: "table-1", dataFrameId: "old-preview-source" },
+          {
+            tableId: "table-1",
+            dataFrameId: "old-preview-source",
+            lastFetchedAt: 5,
+          },
         ],
       });
     });
@@ -682,7 +755,11 @@ describe("useInsightPagination", () => {
       dataFrameId: "result-1",
       fetchedAt: 123,
       sourceGenerations: [
-        { tableId: "table-1", dataFrameId: "source-frame-2" },
+        {
+          tableId: "table-1",
+          dataFrameId: "source-frame-2",
+          lastFetchedAt: 123,
+        },
       ],
     });
     queryDataFrame.mockResolvedValue({
@@ -747,7 +824,11 @@ describe("useInsightPagination", () => {
       retryable: false,
       diagnosticId: "outer-failure",
       sourceGenerations: [
-        { tableId: "table-1", dataFrameId: "source-frame-2" },
+        {
+          tableId: "table-1",
+          dataFrameId: "source-frame-2",
+          lastFetchedAt: 123,
+        },
       ],
     });
     const { result, rerender } = renderHook(() =>

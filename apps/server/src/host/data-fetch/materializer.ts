@@ -9,6 +9,7 @@ import type {
   Field,
   InsightFetchDefinition,
   InsightFetchReady,
+  InsightSourceGeneration,
   UUID,
 } from "@dashframe/types";
 
@@ -119,7 +120,7 @@ export interface InsightMaterializer {
 }
 
 function dedupeSourceGenerations(
-  generations: readonly { tableId: UUID; dataFrameId: UUID }[],
+  generations: readonly InsightSourceGeneration[],
 ) {
   return [
     ...new Map(
@@ -130,7 +131,7 @@ function dedupeSourceGenerations(
 
 function withPublishedSourceGenerations(
   error: unknown,
-  generations: readonly { tableId: UUID; dataFrameId: UUID }[],
+  generations: readonly InsightSourceGeneration[],
 ): unknown {
   if (!generations.length) return error;
   return new PublishedSourceMaterializationError(
@@ -187,7 +188,7 @@ async function materializeOnce(
   },
   ancestry: readonly UUID[] = [],
   transientResults: Array<{ id: UUID; registered: boolean }> = [],
-  publishedSourceGenerations: Array<{ tableId: UUID; dataFrameId: UUID }> = [],
+  publishedSourceGenerations: InsightSourceGeneration[] = [],
 ): Promise<InsightFetchReady> {
   const storage = dependencies.storage(args.ctx);
   const runtime = dependencies.runtime(args.ctx);
@@ -327,6 +328,7 @@ async function materializeOnce(
       ...pendingSources.map(({ source, frame }) => ({
         tableId: source.table.id,
         dataFrameId: frame.id,
+        lastFetchedAt: fetchedAt,
       })),
     );
     if (args.target.kind === "transient") {

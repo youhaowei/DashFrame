@@ -186,8 +186,8 @@ describe("immutable Insight materializer", () => {
       provenance: { connectorKind: "googleAnalytics", bindingVersion: "v1" },
       fetchedAt: 123,
       sourceGenerations: [
-        { tableId: "base", dataFrameId: "frame-1" },
-        { tableId: "joined", dataFrameId: "frame-2" },
+        { tableId: "base", dataFrameId: "frame-1", lastFetchedAt: 123 },
+        { tableId: "joined", dataFrameId: "frame-2", lastFetchedAt: 123 },
       ],
     });
     expect(h.bytes.size).toBe(3);
@@ -267,6 +267,7 @@ describe("immutable Insight materializer", () => {
         metrics: [],
       })),
       compile,
+      now: vi.fn().mockReturnValueOnce(123).mockReturnValueOnce(456),
       inspect: () => ({
         rowCount: 2,
         schema: [{ id: "field_result_field", name: "result", type: "string" }],
@@ -284,8 +285,9 @@ describe("immutable Insight materializer", () => {
     });
 
     expect(ready.status).toBe("ready");
+    expect(ready.fetchedAt).toBe(456);
     expect(ready.sourceGenerations).toEqual([
-      { tableId: "base", dataFrameId: "frame-1" },
+      { tableId: "base", dataFrameId: "frame-1", lastFetchedAt: 123 },
     ]);
     expect(h.resolveSource).toHaveBeenCalledOnce();
     expect(h.publish).toHaveBeenCalledTimes(2);
@@ -336,7 +338,7 @@ describe("immutable Insight materializer", () => {
       .catch((error: unknown) => error);
     expect(failure).toMatchObject({ message: "outer compile" });
     expect(trustedPublishedSourceGenerations(failure)).toEqual([
-      { tableId: baseId, dataFrameId: sourceFrameId },
+      { tableId: baseId, dataFrameId: sourceFrameId, lastFetchedAt: 123 },
     ]);
 
     expect(h.publish).toHaveBeenCalledOnce();
