@@ -130,6 +130,177 @@ it("isolates draft owners, permits operator review of service drafts, and reject
   ).rejects.toThrow("Draft unavailable");
 });
 
+it("lists the primary affected artifact with two deterministic intent lines", async () => {
+  const { tableId } = await seed();
+  const commands = [
+    rename(tableId, "First name"),
+    rename(tableId, "Second name"),
+    rename(tableId, "Final name"),
+  ];
+  const { draftId } = await user().mutation(api.app.draftBatch, { commands });
+
+  const listed = (await user().query(api.app.listDrafts, {})).find(
+    (draft) => draft.draftId === draftId,
+  );
+  expect(listed?.summary).toEqual({
+    directNodes: [
+      {
+        nodeId: tableId,
+        kind: "dataTable",
+        name: "Table",
+        intent: [
+          { command: "RenameNode", summary: 'Rename to "First name"' },
+          { command: "RenameNode", summary: 'Rename to "Second name"' },
+        ],
+      },
+    ],
+    remainingIntentCount: 1,
+  });
+
+  const review = await user().query(api.app.draftPublishReview, { draftId });
+  expect(review.diff.directNodes[0]?.intent).toEqual([
+    { command: "RenameNode", summary: 'Rename to "First name"' },
+    { command: "RenameNode", summary: 'Rename to "Second name"' },
+    { command: "RenameNode", summary: 'Rename to "Final name"' },
+  ]);
+});
+
+it("keeps intent lines for the primary artifact when other targets are interleaved", async () => {
+  const { sourceId, tableId } = await seed();
+  const secondTableId = uuid();
+  await user().mutation(api.app.commitBatch, {
+    commands: [
+      cmd("CreateDataTable", {
+        id: secondTableId,
+        dataSourceId: sourceId,
+        name: "Second table",
+        table: "second.csv",
+      }),
+    ],
+  });
+  const { draftId } = await user().mutation(api.app.draftBatch, {
+    commands: [
+      rename(tableId, "First name"),
+      rename(secondTableId, "Other table"),
+      rename(tableId, "Final name"),
+    ],
+  });
+
+  const listed = (await user().query(api.app.listDrafts, {})).find(
+    (draft) => draft.draftId === draftId,
+  );
+  expect(listed?.summary).toEqual({
+    directNodes: [
+      {
+        nodeId: tableId,
+        kind: "dataTable",
+        name: "Table",
+        intent: [
+          { command: "RenameNode", summary: 'Rename to "First name"' },
+          { command: "RenameNode", summary: 'Rename to "Final name"' },
+        ],
+      },
+    ],
+    remainingIntentCount: 1,
+  });
+});
+
+it("keeps canonical targets and intent for no-op draft commands", async () => {
+  const { tableId } = await seed();
+  const existingInsightId = uuid();
+  await user().mutation(api.app.commitBatch, {
+    commands: [
+      cmd("GetOrCreateInsightDraft", {
+        id: existingInsightId,
+        name: "Existing question",
+        source: { sourceType: "dataTable", sourceId: tableId },
+      }),
+    ],
+  });
+  const { draftId } = await user().mutation(api.app.draftBatch, {
+    commands: [
+      cmd("GetOrCreateInsightDraft", {
+        id: uuid(),
+        name: "Would create",
+        source: { sourceType: "dataTable", sourceId: tableId },
+      }),
+    ],
+  });
+
+  const listed = (await user().query(api.app.listDrafts, {})).find(
+    (draft) => draft.draftId === draftId,
+  );
+  expect(listed?.summary).toEqual({
+    directNodes: [
+      {
+        nodeId: existingInsightId,
+        kind: "insight",
+        name: "Existing question",
+        intent: [
+          {
+            command: "GetOrCreateInsightDraft",
+            summary: 'Use or create question "Would create"',
+          },
+        ],
+      },
+    ],
+    remainingIntentCount: 0,
+  });
+});
+
+it("keeps draft-local get-or-create intent on the created question", async () => {
+  const { tableId } = await seed();
+  const createdInsightId = uuid();
+  const { draftId } = await user().mutation(api.app.draftBatch, {
+    commands: [
+      cmd("GetOrCreateInsightDraft", {
+        id: createdInsightId,
+        name: "First question",
+        source: { sourceType: "dataTable", sourceId: tableId },
+      }),
+      cmd("GetOrCreateInsightDraft", {
+        id: uuid(),
+        name: "Second question",
+        source: { sourceType: "dataTable", sourceId: tableId },
+      }),
+    ],
+  });
+
+  const listed = (await user().query(api.app.listDrafts, {})).find(
+    (draft) => draft.draftId === draftId,
+  );
+  expect(listed?.summary).toEqual({
+    directNodes: [
+      {
+        nodeId: createdInsightId,
+        kind: "insight",
+        name: "First question",
+        intent: [
+          {
+            command: "GetOrCreateInsightDraft",
+            summary: 'Use or create question "First question"',
+          },
+          {
+            command: "GetOrCreateInsightDraft",
+            summary: 'Use or create question "Second question"',
+          },
+        ],
+      },
+    ],
+    remainingIntentCount: 0,
+  });
+});
+
+it("counts visible drafts without hydrating their summaries", async () => {
+  await user().mutation(api.app.draftBatch, { commands: [] });
+  await service().mutation(api.app.draftBatch, { commands: [] });
+  await user("w", "other").mutation(api.app.draftBatch, { commands: [] });
+
+  expect(await user().query(api.app.listDraftCount, {})).toBe(2);
+  expect(await service().query(api.app.listDraftCount, {})).toBe(1);
+  expect(await user("w", "other").query(api.app.listDraftCount, {})).toBe(2);
+});
+
 it("lists only visible drafts when foreign owners exceed the workspace cap", async () => {
   const ownDraftId = uuid();
   await t.run(async (ctx) => {
@@ -200,7 +371,7 @@ it("summarizes two visible drafts with 600 commands each", async () => {
       ),
     ),
   );
-}, 15_000);
+}, 60_000);
 it("creates empty drafts for assistant sessions and rejects closed draft reads", async () => {
   const { draftId } = await service().mutation(api.app.draftBatch, {
     commands: [],

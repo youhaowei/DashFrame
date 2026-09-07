@@ -393,31 +393,39 @@ export default function DataSourcePageContent({
             }
             description={`${connector?.name ?? dataSource.type}${tableCountLabel ?? ""}`}
             actions={
-              <Popover>
-                <PopoverTrigger
-                  render={
-                    <ButtonPrimitive
-                      type="button"
-                      variant="outline"
-                      aria-label="Rename source"
-                    >
-                      Rename source
-                    </ButtonPrimitive>
-                  }
+              <>
+                <Button
+                  variant="outline"
+                  icon={TableIcon}
+                  label="Inspect data frames"
+                  onClick={() => navigate({ to: "/data-frames" })}
                 />
-                <PopoverContent align="end">
-                  <label className="flex min-w-0 flex-wrap items-center gap-2 text-sm text-neutral-fg-subtle">
-                    Source name
-                    <Input
-                      aria-label="Data source name"
-                      value={sourceName}
-                      onChange={(e) => handleNameChange(e.target.value)}
-                      placeholder="Data source name"
-                      className="w-52 max-w-full"
-                    />
-                  </label>
-                </PopoverContent>
-              </Popover>
+                <Popover>
+                  <PopoverTrigger
+                    render={
+                      <ButtonPrimitive
+                        type="button"
+                        variant="outline"
+                        aria-label="Rename source"
+                      >
+                        Rename source
+                      </ButtonPrimitive>
+                    }
+                  />
+                  <PopoverContent align="end">
+                    <label className="flex min-w-0 flex-wrap items-center gap-2 text-sm text-neutral-fg-subtle">
+                      Source name
+                      <Input
+                        aria-label="Data source name"
+                        value={sourceName}
+                        onChange={(e) => handleNameChange(e.target.value)}
+                        placeholder="Data source name"
+                        className="w-52 max-w-full"
+                      />
+                    </label>
+                  </PopoverContent>
+                </Popover>
+              </>
             }
             navigation={
               <Breadcrumb

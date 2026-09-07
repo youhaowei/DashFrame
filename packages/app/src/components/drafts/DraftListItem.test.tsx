@@ -32,12 +32,30 @@ describe("DraftListItem discard confirmation", () => {
       updatedAt: null,
       paths: ["insights/revenue"],
       kinds: {},
+      summary: {
+        directNodes: [
+          {
+            nodeId: "insight-1",
+            kind: "insight",
+            name: "Revenue trend",
+            intent: [
+              { command: "RenameNode", summary: 'Rename to "Revenue pulse"' },
+              { command: "SetInsightSort", summary: "Update sorting" },
+            ],
+          },
+        ],
+        remainingIntentCount: 1,
+      },
     };
     render(<DraftListItem draft={draft} onDiscard={onDiscard} />);
 
     expect(
-      screen.getByRole("link", { name: /2 changes/ }).getAttribute("href"),
+      screen.getByRole("link", { name: /Revenue trend/ }).getAttribute("href"),
     ).toBe("/drafts/draft-1");
+    expect(screen.getByText('Rename to "Revenue pulse"')).not.toBeNull();
+    expect(screen.getByText("Update sorting")).not.toBeNull();
+    expect(screen.getByText("+1 more")).not.toBeNull();
+    expect(screen.queryByText("insights/revenue")).toBeNull();
     await user.click(screen.getByRole("button", { name: "More options" }));
     await user.click(
       await screen.findByRole("menuitem", { name: "Discard draft" }),

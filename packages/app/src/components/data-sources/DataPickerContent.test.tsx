@@ -287,7 +287,7 @@ describe("DataPickerContent file replacement", () => {
       commands: [{ path: "createDataSource", args: {} }],
       results: [{ value: { id: NEW_TABLE_ID } }],
     });
-    render(<DataPickerContent onSelect={vi.fn()} />);
+    render(<DataPickerContent onTableSelect={vi.fn()} />);
     await act(async () => {
       await handleConnect?.(
         { id: "notion", name: "Notion" } as RemoteApiConnector,

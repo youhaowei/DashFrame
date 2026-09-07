@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import { cmd } from "@dashframe/types";
 import schema from "../convex/schema";
 import { api } from "../convex/_generated/api";
+import { describeCommand } from "../convex/preview";
 
 const modules = import.meta.glob("../convex/**/*.ts");
 const makeTest = () => convexTest(schema, modules);
@@ -18,6 +19,32 @@ beforeEach(() => {
     workspaceId: "workspace",
     principalKind: "user",
     userId: "user",
+  });
+});
+
+it("uses report-hierarchy terminology in deterministic intent summaries", () => {
+  expect(
+    describeCommand(
+      cmd("SetInsightRuntimeControls", {
+        id: uuid(),
+        runtimeControls: undefined,
+      }),
+    ),
+  ).toEqual({
+    command: "SetInsightRuntimeControls",
+    summary: "Update question controls",
+  });
+
+  expect(
+    describeCommand(
+      cmd("SetChartType", {
+        id: uuid(),
+        visualizationType: "barX",
+      }),
+    ),
+  ).toEqual({
+    command: "SetChartType",
+    summary: "Change chart type to Horizontal bar",
   });
 });
 

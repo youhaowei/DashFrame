@@ -490,7 +490,7 @@ export default function JoinConfigureContent({
             The insight you&apos;re looking for doesn&apos;t exist.
           </p>
           <Button
-            label="Go to Insights"
+            label="Go to Questions"
             onClick={() => navigate({ to: "/insights" })}
             className="mt-4"
           />
@@ -509,7 +509,7 @@ export default function JoinConfigureContent({
             The data table for this insight no longer exists.
           </p>
           <Button
-            label="Go to Insights"
+            label="Go to Questions"
             onClick={() => navigate({ to: "/insights" })}
             className="mt-4"
           />

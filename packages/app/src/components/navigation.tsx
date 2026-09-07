@@ -31,7 +31,6 @@ import {
   type LucideIcon,
   ChartIcon,
   CloseIcon,
-  DashboardIcon,
   DatabaseIcon,
   DeleteIcon,
   FileIcon,
@@ -53,38 +52,30 @@ type NavItem = {
   href: string;
   description: string;
   icon: LucideIcon;
+  activePrefixes: string[];
 };
 
 const navItems: NavItem[] = [
   {
-    name: "Drafts",
-    href: "/drafts",
-    description: "Drafts",
-    icon: FileIcon,
-  },
-  {
-    name: "Dashboards",
+    name: "Reports",
     href: "/dashboards",
-    description: "Build and view dashboards",
+    description: "Build and view reports",
     icon: GridIcon,
-  },
-  {
-    name: "Visualizations",
-    href: "/visualizations",
-    description: "Create, edit, and view visualizations",
-    icon: DashboardIcon,
-  },
-  {
-    name: "Insights",
-    href: "/insights",
-    description: "Manage and configure insights",
-    icon: SparklesIcon,
+    activePrefixes: ["/dashboards", "/insights", "/visualizations"],
   },
   {
     name: "Data Sources",
     href: "/data-sources",
     description: "Manage data sources",
     icon: DatabaseIcon,
+    activePrefixes: ["/data-sources"],
+  },
+  {
+    name: "Drafts",
+    href: "/drafts",
+    description: "Drafts",
+    icon: FileIcon,
+    activePrefixes: ["/drafts"],
   },
 ];
 
@@ -118,7 +109,7 @@ function SidebarContent({
       <div className="px-3 py-3">
         <div className="flex items-center justify-between gap-3">
           <Link
-            to="/"
+            to="/dashboards"
             className="flex items-center gap-2.5 transition-colors hover:text-palette-primary"
           >
             <span className="flex size-8 items-center justify-center rounded-xl bg-palette-primary/10 text-palette-primary">
@@ -135,8 +126,10 @@ function SidebarContent({
       {/* Navigation Links */}
       <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-2">
         {navItems.map((item) => {
-          const isActive =
-            pathname === item.href || pathname.startsWith(`${item.href}/`);
+          const isActive = item.activePrefixes.some(
+            (prefix) =>
+              pathname === prefix || pathname.startsWith(`${prefix}/`),
+          );
 
           return (
             <Link
@@ -234,8 +227,8 @@ export function Navigation() {
   const [showAccessCredentials, setShowAccessCredentials] = useState(false);
   const setAssistantSetupOpen = useAssistantStore((s) => s.setSetupOpen);
   const accessCapabilities = useAccessCapabilities();
-  const { data: drafts = [] } = queryStatus(
-    useQuery({ query: api.app.listDrafts, args: {} }),
+  const { data: draftCount = 0 } = queryStatus(
+    useQuery({ query: api.app.listDraftCount, args: {} }),
   );
   const canManageAccessCredentials =
     accessCapabilities.data?.canManageCredentials === true;
@@ -279,7 +272,7 @@ export function Navigation() {
           style={{ width: DESKTOP_NAV_WIDTH }}
         >
           <SidebarContent
-            pendingDraftCount={drafts.length}
+            pendingDraftCount={draftCount}
             onClearData={() => setShowClearConfirm(true)}
             onAssistantProviders={() => setAssistantSetupOpen(true)}
             onAccessCredentials={
@@ -321,7 +314,7 @@ export function Navigation() {
             </div>
             <div className="flex-1 overflow-y-auto">
               <SidebarContent
-                pendingDraftCount={drafts.length}
+                pendingDraftCount={draftCount}
                 onNavigate={() => setIsOpen(false)}
                 onClearData={() => setShowClearConfirm(true)}
                 onAssistantProviders={() => setAssistantSetupOpen(true)}
