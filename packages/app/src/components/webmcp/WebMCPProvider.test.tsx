@@ -12,6 +12,7 @@ vi.mock("@/data/connector-catalog", () => ({
 }));
 
 vi.mock("convex/react", () => ({
+  useConvex: () => ({ query: vi.fn().mockResolvedValue([]) }),
   useMutation: (reference: unknown) => {
     mutationReferences.push(reference);
     return vi.fn();

@@ -1,3 +1,4 @@
+import { isColumnValidForChannel } from "@/lib/visualizations/encoding-enforcer";
 import { queryDataFrame } from "@/lib/data-access/data-frames";
 import { useInsightCanvasStore } from "@/lib/stores/insight-canvas-store";
 import { useWebMCPPageStore } from "@/lib/stores/webmcp-page-store";
@@ -11,6 +12,7 @@ import {
   cmd,
   isEncodingValue,
   validateVisualizationEncoding,
+  type AggregationType,
   type Command,
   type ConnectorCatalogEntry,
   type Dashboard,
@@ -19,6 +21,7 @@ import {
   type Field,
   type Insight,
   type InsightFilter,
+  type InsightMetric,
   type InsightSort,
   type UUID,
   type Visualization,
@@ -38,6 +41,15 @@ const EMPTY_SCHEMA = {
   properties: {},
   additionalProperties: false,
 } as const;
+const AGGREGATIONS = [
+  "sum",
+  "avg",
+  "count",
+  "min",
+  "max",
+  "count_distinct",
+] satisfies AggregationType[];
+
 const CHART_TYPES: VisualizationType[] = [
   "barY",
   "barX",
@@ -61,7 +73,13 @@ export interface WebMCPToolData {
 }
 
 export interface WebMCPToolDependencies {
-  read: { getData: () => WebMCPToolData };
+  read: {
+    getData: () => WebMCPToolData;
+    getDraftData: (draftId: string) => Promise<{
+      insights: readonly Insight[];
+      dataTables: readonly DataTable[];
+    }>;
+  };
   mutations: {
     stageDraft: (
       commands: readonly Command[],
@@ -181,6 +199,50 @@ function parseSorts(value: unknown): InsightSort[] {
   });
 }
 
+function parseMetrics(
+  value: unknown,
+  sourceId: UUID,
+  fields: readonly Field[],
+): InsightMetric[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 20)
+    throw new Error("metrics must be an array of at most 20 metrics.");
+  return value.map((candidate) => {
+    const metric = inputRecord(candidate);
+    const name = stringValue(metric, "name").trim();
+    if (!name || name.length > 120)
+      throw new Error("Metric name must contain 1 to 120 characters.");
+    if (!AGGREGATIONS.includes(metric.aggregation as AggregationType))
+      throw new Error(
+        `Metric aggregation must be one of: ${AGGREGATIONS.join(", ")}.`,
+      );
+    const aggregation = metric.aggregation as AggregationType;
+    const fieldId =
+      metric.fieldId === undefined ? undefined : stringValue(metric, "fieldId");
+    const field = fields.find((candidate) => candidate.id === fieldId);
+    if (fieldId !== undefined && !field)
+      throw new Error("Metric fieldId is outside this source.");
+    if (aggregation === "count" && fieldId !== undefined)
+      throw new Error(
+        "count counts rows; omit fieldId. Use count_distinct to count distinct values.",
+      );
+    if (aggregation !== "count" && !field)
+      throw new Error("Metric fieldId is required for this aggregation.");
+    if (
+      (aggregation === "sum" || aggregation === "avg") &&
+      field?.type !== "number"
+    )
+      throw new Error(`${aggregation} requires a numeric source field.`);
+    return {
+      id: crypto.randomUUID() as UUID,
+      name,
+      sourceTable: sourceId,
+      aggregation,
+      ...(field ? { columnName: field.columnName ?? field.name } : {}),
+    };
+  });
+}
+
 function requireLoaded<T>(
   value: readonly T[] | undefined,
   label: string,
@@ -284,6 +346,47 @@ function assertInsightFields(
     throw new Error("filters contains a field outside this source.");
   if (sorts.some((sort) => !references.has(sort.field)))
     throw new Error("sort contains a field outside this source.");
+}
+
+function assertChartOutput(
+  encoding: Record<string, unknown>,
+  chartType: VisualizationType,
+  insight: Insight,
+  tables: readonly DataTable[],
+  insights: readonly Insight[],
+): void {
+  const metrics = insight.metrics ?? [];
+  const metricIds = new Set(metrics.map((metric) => metric.id));
+  const dimensions = insightOutputFields(insight, tables, insights).filter(
+    (field) => !metricIds.has(field.id),
+  );
+  const references = new Set([
+    ...dimensions.map((field) => `field:${field.id}`),
+    ...metrics.map((metric) => `metric:${metric.id}`),
+  ]);
+  for (const channel of ["x", "y", "color", "size"]) {
+    const value = encoding[channel];
+    if (typeof value === "string" && value && !references.has(value))
+      throw new Error(
+        `encoding.${channel} references a field or metric outside this Insight's output.`,
+      );
+  }
+  let metricAxis: "x" | "y" | undefined;
+  if (chartType === "barX") metricAxis = "x";
+  else if (["barY", "line", "areaY"].includes(chartType)) metricAxis = "y";
+  if (metricAxis) {
+    // This shared rule needs only metric identity, not a DuckDB profile.
+    // Other semantic axis checks remain the runtime renderer's responsibility.
+    const value = encoding[metricAxis];
+    const suitability = isColumnValidForChannel(
+      typeof value === "string" ? value : "",
+      metricAxis,
+      chartType,
+      [],
+      { id: insight.id, name: insight.name, dimensions, metrics },
+    );
+    if (!suitability.suitable) throw new Error(suitability.reason);
+  }
 }
 
 function pageContext(data: WebMCPToolData) {
@@ -581,7 +684,7 @@ export function createWebMCPTools(
       name: "propose_insight",
       title: "Propose insight",
       description:
-        "Stage a new Insight as a draft for human review. Never changes the published project.",
+        "Stage a new Insight as a draft for human review. Optional metrics aggregate source fields; selectedFieldIds become the group-by dimensions when metrics are present. Never changes the published project.",
       inputSchema: {
         type: "object",
         properties: {
@@ -592,6 +695,26 @@ export function createWebMCPTools(
             type: "array",
             items: { type: "string" },
             maxItems: 100,
+          },
+          metrics: {
+            type: "array",
+            maxItems: 20,
+            description:
+              "Optional aggregations. With metrics, selectedFieldIds are group-by dimensions; an empty selection aggregates all rows. Returns stable metric ids and encoding references for propose_chart.",
+            items: {
+              type: "object",
+              properties: {
+                name: { type: "string", minLength: 1, maxLength: 120 },
+                aggregation: { type: "string", enum: AGGREGATIONS },
+                fieldId: {
+                  type: "string",
+                  description:
+                    "Source column id from describe_table. Required except for count, which counts rows and must omit fieldId. sum and avg require a number field.",
+                },
+              },
+              required: ["name", "aggregation"],
+              additionalProperties: false,
+            },
           },
           filters: {
             type: "array",
@@ -648,7 +771,9 @@ export function createWebMCPTools(
         if (input.sourceType !== "dataTable" && input.sourceType !== "insight")
           throw new Error("sourceType must be dataTable or insight.");
         const draftId = optionalDraftId(input);
-        const data = dependencies.read.getData();
+        const data = draftId
+          ? await dependencies.read.getDraftData(draftId)
+          : dependencies.read.getData();
         const insights =
           input.sourceType === "insight"
             ? requireLoaded(data.insights, "Insights")
@@ -678,10 +803,13 @@ export function createWebMCPTools(
           throw new Error(
             "selectedFieldIds contains a field outside this source.",
           );
+        const metrics = parseMetrics(input.metrics, sourceId, sourceFields);
         const filterReferences = executableFieldReferences(sourceFields);
-        const resultFields = selectedFieldIds.length
-          ? sourceFields.filter((field) => selectedFieldIds.includes(field.id))
-          : sourceFields;
+        const resultFields = sourceFields.filter((field) =>
+          selectedFieldIds.length
+            ? selectedFieldIds.includes(field.id)
+            : metrics.length === 0,
+        );
         const sortReferences = executableFieldReferences(resultFields);
         assertInsightFields([], filters, [], filterReferences);
         assertInsightFields([], [], sorts, sortReferences);
@@ -692,7 +820,7 @@ export function createWebMCPTools(
             name,
             source: { sourceType: input.sourceType, sourceId },
             selectedFields: selectedFieldIds,
-            metrics: [],
+            metrics,
           }),
         ];
         if (filters.length)
@@ -702,11 +830,19 @@ export function createWebMCPTools(
           commands,
           draftId,
         );
-        return draftResult(
-          result.draftId,
-          `Create “${name}” from ${input.sourceType} ${sourceId} with ${selectedFieldIds.length} fields, ${filters.length} filters, and ${sorts.length} sort keys.`,
-          { insightId: id },
-        );
+        return {
+          ...draftResult(
+            result.draftId,
+            `Create “${name}” from ${input.sourceType} ${sourceId} with ${selectedFieldIds.length} fields, ${metrics.length} metrics, ${filters.length} filters, and ${sorts.length} sort keys.`,
+            { insightId: id },
+          ),
+          metrics: metrics.map((metric) => ({
+            id: metric.id,
+            name: metric.name,
+            aggregation: metric.aggregation,
+            encoding: `metric:${metric.id}`,
+          })),
+        };
       },
     },
     {
@@ -723,7 +859,7 @@ export function createWebMCPTools(
           encoding: {
             type: "object",
             description:
-              "Chart channels use stable field:<id> or metric:<id> references, never column names. Use column ids from describe_table. Example: {x: 'field:<region-column-id>', y: 'field:<revenue-column-id>'}.",
+              "Chart channels use stable field:<id> or metric:<id> references, never column names. Use selected column ids from describe_table and metric references returned by propose_insight. barY requires a metric on y; barX requires a metric on x; line and areaY require a metric on y. Example barY: {x: 'field:<region-column-id>', y: 'metric:<sum-revenue-metric-id>'}. Supply draftId when the Insight is staged in that draft.",
             properties: Object.fromEntries(
               ["x", "y", "color", "size"].map((channel) => [
                 channel,
@@ -767,12 +903,20 @@ export function createWebMCPTools(
             );
           }
         }
-        const insights = requireLoaded(
-          dependencies.read.getData().insights,
-          "Insights",
+        const data = draftId
+          ? await dependencies.read.getDraftData(draftId)
+          : dependencies.read.getData();
+        const insights = requireLoaded(data.insights, "Insights");
+        const insight = insights.find((item) => item.id === insightId);
+        if (!insight) throw new Error("Insight not found.");
+        const tables = requireLoaded(data.dataTables, "Data tables");
+        assertChartOutput(
+          encoding,
+          input.chartType as VisualizationType,
+          insight,
+          tables,
+          insights,
         );
-        if (!draftId && !insights.some((item) => item.id === insightId))
-          throw new Error("Insight not found.");
         const id = crypto.randomUUID() as UUID;
         const result = await dependencies.mutations.stageDraft(
           [

@@ -2,7 +2,11 @@ import { useConnectorCatalog } from "@/data/connector-catalog";
 import { queryStatus } from "@/data/query-status";
 import { api } from "@dashframe/convex-backend/api";
 import type { Command } from "@dashframe/types";
-import { useMutation, useQuery_experimental as useQuery } from "convex/react";
+import {
+  useConvex,
+  useMutation,
+  useQuery_experimental as useQuery,
+} from "convex/react";
 import { useNavigate, useRouter, useRouterState } from "@tanstack/react-router";
 import { useMemo, type ReactNode } from "react";
 import { useWebMCPHighlightController } from "./highlight";
@@ -16,6 +20,7 @@ import { useWebMCPTools } from "./webmcp";
 export function WebMCPProvider({ children }: { children: ReactNode }) {
   const route = useRouterState({ select: (state) => state.location.pathname });
   const navigate = useNavigate();
+  const client = useConvex();
   const router = useRouter();
   const highlight = useWebMCPHighlightController(document);
   const connectors = useConnectorCatalog().data;
@@ -44,6 +49,13 @@ export function WebMCPProvider({ children }: { children: ReactNode }) {
       createWebMCPTools(
         defineWebMCPToolDependencies({
           read: {
+            getDraftData: async (draftId: string) => {
+              const [insights, dataTables] = await Promise.all([
+                client.query(api.app.listInsights, { draftId }),
+                client.query(api.app.listDataTables, { draftId }),
+              ]);
+              return { insights, dataTables };
+            },
             getData: () => ({
               connectors,
               dataSources,
@@ -79,6 +91,7 @@ export function WebMCPProvider({ children }: { children: ReactNode }) {
         }),
       ),
     [
+      client,
       connectors,
       dashboards,
       dataSources,

@@ -76,8 +76,25 @@ const INSIGHT = {
   createdAt: 1,
 } as Insight;
 
+const REGION_ID = "11111111-1111-4111-8111-111111111111";
+const REVENUE_ID = "22222222-2222-4222-8222-222222222222";
+const SALES_TABLE: DataTable = {
+  ...TABLE,
+  fields: [
+    { ...TABLE.fields[0]!, id: REGION_ID as DataTable["id"] },
+    {
+      ...TABLE.fields[1]!,
+      id: REVENUE_ID as DataTable["id"],
+      name: "Revenue",
+      columnName: "revenue",
+      type: "number",
+    },
+  ],
+};
+
 function fixture(options?: {
   stageDraft?: WebMCPToolDependencies["mutations"]["stageDraft"];
+  getDraftData?: WebMCPToolDependencies["read"]["getDraftData"];
   route?: string;
   navigateToDraft?: WebMCPToolDependencies["ui"]["navigateToDraft"];
   data?: Partial<WebMCPToolData>;
@@ -130,7 +147,15 @@ function fixture(options?: {
     drafts: [{ draftId: "draft-1" }, { draftId: "draft-42" }],
   };
   const dependencies = defineWebMCPToolDependencies({
-    read: { getData: () => ({ ...defaults, ...options?.data }) },
+    read: {
+      getData: () => ({ ...defaults, ...options?.data }),
+      getDraftData:
+        options?.getDraftData ??
+        (async () => ({
+          insights: options?.data?.insights ?? defaults.insights ?? [],
+          dataTables: options?.data?.dataTables ?? defaults.dataTables ?? [],
+        })),
+    },
     mutations: {
       stageDraft: options?.stageDraft ?? (async () => ({ draftId: "draft-1" })),
     },
@@ -251,46 +276,73 @@ describe("DashFrame WebMCP registry", () => {
     });
   });
 
-  it("returns artifact ids and composes all proposals in one draft", async () => {
+  it("stages grouped SUM and uses its returned metric reference for a chart in the same draft", async () => {
+    let stagedInsight: Insight | undefined;
     const stageDraft = vi.fn(
-      async (_commands: readonly Command[], _draftId?: string) => ({
-        draftId: "draft-42",
-      }),
+      async (commands: readonly Command[], _draftId?: string) => {
+        const create = commands.find(
+          (command) => command.path === "createInsightCmd",
+        );
+        if (create) stagedInsight = { ...create.args, createdAt: 1 } as Insight;
+        return { draftId: "draft-42" };
+      },
     );
-    const options = { stageDraft };
+    const getDraftData = vi.fn(async () => ({
+      insights: stagedInsight ? [stagedInsight] : [],
+      dataTables: [SALES_TABLE],
+    }));
+    const options = {
+      stageDraft,
+      getDraftData,
+      data: { dataTables: [SALES_TABLE], insights: [] },
+    };
     const insight = (await tool("propose_insight", options).execute({
-      name: "Open orders",
+      name: "Revenue by status",
       sourceType: "dataTable",
       sourceId: "table-1",
-      selectedFieldIds: ["field-status", "field-created"],
+      selectedFieldIds: [REGION_ID],
+      metrics: [
+        { name: "Total revenue", aggregation: "sum", fieldId: REVENUE_ID },
+      ],
       filters: [{ field: "status", operator: "eq", value: "open" }],
-      sort: [{ field: "created_at", direction: "desc" }],
-    })) as Record<string, unknown>;
+      sort: [{ field: "status", direction: "asc" }],
+    })) as {
+      draftId: string;
+      insightId: string;
+      metrics: { id: string; encoding: string }[];
+    };
+    const metric = insight.metrics[0]!;
+    expect(metric.id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(metric.encoding).toBe(`metric:${metric.id}`);
+    expect(stageDraft.mock.calls[0]?.[0][0]?.args).toMatchObject({
+      selectedFields: [REGION_ID],
+      metrics: [
+        {
+          id: metric.id,
+          name: "Total revenue",
+          aggregation: "sum",
+          columnName: "revenue",
+          sourceTable: "table-1",
+        },
+      ],
+    });
     const chart = (await tool("propose_chart", options).execute({
       draftId: insight.draftId,
       insightId: insight.insightId,
-      name: "Open orders",
+      name: "Revenue by status",
       chartType: "barY",
-      encoding: {
-        x: "field:11111111-1111-4111-8111-111111111111",
-        y: "field:22222222-2222-4222-8222-222222222222",
-      },
+      encoding: { x: `field:${REGION_ID}`, y: metric.encoding },
     })) as Record<string, unknown>;
     const dashboard = (await tool("add_to_dashboard", options).execute({
       draftId: chart.draftId,
       dashboardId: "dashboard-1",
       visualizationId: chart.visualizationId,
     })) as Record<string, unknown>;
-
-    expect(insight).toMatchObject({
-      draftId: "draft-42",
-      insightId: expect.any(String),
-      status: "draft",
-    });
+    expect(getDraftData).toHaveBeenCalledWith("draft-42");
     expect(chart).toMatchObject({
       draftId: "draft-42",
-      visualizationId: expect.any(String),
       status: "draft",
+      visualizationId: expect.any(String),
     });
     expect(dashboard).toMatchObject({
       draftId: "draft-42",
@@ -309,6 +361,154 @@ describe("DashFrame WebMCP registry", () => {
     expect(
       stageDraft.mock.calls.slice(1).map((call) => call[0][0]?.path),
     ).toEqual(["createVisualizationCmd", "addDashboardItemCmd"]);
+    expect(stageDraft.mock.calls[1]?.[0][0]?.args).toMatchObject({
+      encoding: { x: `field:${REGION_ID}`, y: metric.encoding },
+    });
+  });
+
+  it.each([
+    [
+      { name: "Bad", aggregation: "sum", fieldId: "missing" },
+      /outside this source/,
+    ],
+    [
+      { name: "Bad", aggregation: "median", fieldId: REVENUE_ID },
+      /aggregation must be/,
+    ],
+    [
+      { name: "Bad", aggregation: "sum", fieldId: REGION_ID },
+      /numeric source field/,
+    ],
+    [
+      { name: "Bad", aggregation: "avg", fieldId: REGION_ID },
+      /numeric source field/,
+    ],
+    [{ name: "Bad", aggregation: "sum" }, /fieldId is required/],
+    [
+      { name: "Bad", aggregation: "count", fieldId: REVENUE_ID },
+      /omit fieldId/,
+    ],
+  ])(
+    "rejects an invalid metric before staging: %j",
+    async (metric, message) => {
+      const stageDraft = vi.fn();
+      await expect(
+        tool("propose_insight", {
+          stageDraft,
+          data: { dataTables: [SALES_TABLE] },
+        }).execute({
+          name: "Revenue",
+          sourceType: "dataTable",
+          sourceId: "table-1",
+          selectedFieldIds: [REGION_ID],
+          metrics: [metric],
+        }),
+      ).rejects.toThrow(message);
+      expect(stageDraft).not.toHaveBeenCalled();
+    },
+  );
+
+  it("keeps pass-through behavior without metrics and supports row count without a source column", async () => {
+    const stageDraft = vi.fn(async (_commands: readonly Command[]) => ({
+      draftId: "draft-1",
+    }));
+    const propose = tool("propose_insight", { stageDraft });
+    await propose.execute({
+      name: "Orders",
+      sourceType: "dataTable",
+      sourceId: "table-1",
+      selectedFieldIds: [],
+    });
+    await propose.execute({
+      name: "Count",
+      sourceType: "dataTable",
+      sourceId: "table-1",
+      selectedFieldIds: [],
+      metrics: [{ name: "Rows", aggregation: "count" }],
+    });
+    expect(stageDraft.mock.calls[0]?.[0][0]?.args).toMatchObject({
+      selectedFields: [],
+      metrics: [],
+    });
+    expect(stageDraft.mock.calls[1]?.[0][0]?.args).toMatchObject({
+      selectedFields: [],
+      metrics: [{ aggregation: "count", sourceTable: "table-1" }],
+    });
+    const metrics = stageDraft.mock.calls[1]?.[0][0]?.args.metrics as Record<
+      string,
+      unknown
+    >[];
+    expect(metrics[0]).not.toHaveProperty("columnName");
+  });
+
+  it.each(["barY", "barX", "line", "areaY"])(
+    "rejects a raw field on the %s aggregation axis before staging",
+    async (chartType) => {
+      const stageDraft = vi.fn();
+      await expect(
+        tool("propose_chart", {
+          stageDraft,
+          data: {
+            dataTables: [SALES_TABLE],
+            insights: [
+              {
+                ...INSIGHT,
+                selectedFields: [
+                  REGION_ID,
+                  REVENUE_ID,
+                ] as Insight["selectedFields"],
+              },
+            ],
+          },
+        }).execute({
+          insightId: INSIGHT.id,
+          name: "Revenue",
+          chartType,
+          encoding: { x: `field:${REGION_ID}`, y: `field:${REVENUE_ID}` },
+        }),
+      ).rejects.toThrow(/needs a metric/);
+      expect(stageDraft).not.toHaveBeenCalled();
+    },
+  );
+
+  it("checks draft output membership and fails closed if draft inspection fails", async () => {
+    const stageDraft = vi.fn();
+    const options = {
+      stageDraft,
+      data: {
+        dataTables: [SALES_TABLE],
+        insights: [
+          {
+            ...INSIGHT,
+            selectedFields: [REGION_ID] as Insight["selectedFields"],
+          },
+        ],
+      },
+    };
+    await expect(
+      tool("propose_chart", options).execute({
+        draftId: "draft-42",
+        insightId: INSIGHT.id,
+        name: "Revenue",
+        chartType: "barY",
+        encoding: { x: `field:${REGION_ID}`, y: `metric:${REVENUE_ID}` },
+      }),
+    ).rejects.toThrow(/outside this Insight's output/);
+    await expect(
+      tool("propose_chart", {
+        ...options,
+        getDraftData: async () => {
+          throw new Error("Draft access denied");
+        },
+      }).execute({
+        draftId: "draft-42",
+        insightId: INSIGHT.id,
+        name: "Revenue",
+        chartType: "barY",
+        encoding: {},
+      }),
+    ).rejects.toThrow("Draft access denied");
+    expect(stageDraft).not.toHaveBeenCalled();
   });
 
   it.each([{ x: "region", y: "revenue" }, { x: { field: "region" } }])(
