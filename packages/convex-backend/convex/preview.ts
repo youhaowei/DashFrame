@@ -145,6 +145,7 @@ function edge(
   id: string,
   to: ArtifactTable,
   row: ArtifactRow,
+  linkedFrameId?: string | null,
 ): DownstreamEdge | null {
   if (from === "dataSources" && to === "dataTables" && row.dataSourceId === id)
     return "dataSource->dataTable";
@@ -171,6 +172,14 @@ function edge(
     )
       return "dataTable->insight";
   }
+  if (to === "dataFrames" && from === "dataSources" && row.sourceId === id)
+    return "dataSource->dataFrame";
+  if (
+    to === "dataFrames" &&
+    from === "dataTables" &&
+    (row.definitionId === id || row.id === linkedFrameId)
+  )
+    return "dataTable->dataFrame";
   if (from === "insights" && row.insightId === id && to === "dataFrames")
     return "insight->dataFrame";
   if (from === "insights" && row.insightId === id && to === "visualizations")
@@ -189,7 +198,7 @@ function edge(
  * commands ran: a delete cascade must still report the rows it removes as
  * orphaned. Read through indexes where one exists. User-authored tables are
  * bounded scans (cached per graph); frames are reached through their owning
- * insight or cross-cutting parent artifact.
+ * insight, source, table definition, direct table link, or parent artifact.
  */
 async function neighbours(
   graph: Graph,
@@ -203,6 +212,15 @@ async function neighbours(
   for (const table of artifactTables)
     if (table === "dataFrames") {
       if (from.table === "insights") await add(table, { insightId: from.id });
+      if (from.table === "dataSources") await add(table, { sourceId: from.id });
+      if (from.table === "dataTables") {
+        await add(table, { definitionId: from.id });
+        const source = await graph.baseline("dataTables", from.id);
+        if (source?.dataFrameId) {
+          const linked = await graph.baseline("dataFrames", source.dataFrameId);
+          if (linked) out.set(graphKey(table, linked.id), [table, linked]);
+        }
+      }
       await add(table, { parentArtifactId: from.id });
     } else await add(table);
   return [...out.values()];
@@ -332,8 +350,12 @@ export async function preview(
     const visited = new Set<string>();
     while (queue.length) {
       const current = queue.shift()!;
+      const linkedFrameId =
+        current.table === "dataTables"
+          ? (await graph.baseline("dataTables", current.id))?.dataFrameId
+          : undefined;
       for (const [table, row] of await neighbours(graph, current)) {
-        const e = edge(current.table, current.id, table, row),
+        const e = edge(current.table, current.id, table, row, linkedFrameId),
           key = graphKey(table, row.id);
         if (!e || visited.has(key) || direct.has(key)) continue;
         visited.add(key);
