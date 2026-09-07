@@ -7,8 +7,9 @@
 // that stops loading, or rules that stop matching after an Oxlint or Vite+
 // upgrade, both look exactly like a clean tree. `turbo lint` runs per-workspace
 // scripts only, and the repo root is not a workspace, so root `scripts/` is
-// never linted or typechecked by `bun run check` — this guard is the only gate
-// coverage the vendored plugin gets.
+// not covered by workspace lint or typecheck tasks — this guard supplies
+// runtime coverage for the vendored plugin. After checking the fixtures, scan all
+// first-party paths for these two rules, including packages without a lint task.
 //
 // It lints two fixtures through the real `vp lint` path and asserts the exact
 // diagnostics, including the near-miss cases the rules must NOT report and the
@@ -18,13 +19,10 @@
 // own lint and format passes never read them. They are copied to real `.ts`
 // files in SCRATCH_DIR for the duration of this check.
 //
-// SCRATCH_DIR is deliberately NOT in .gitignore. Oxlint honours .gitignore even
-// under --no-ignore, so an ignored scratch directory lints zero files and this
-// check can never fail. That makes cleanup this script's responsibility on
-// every exit path: a leaked scratch directory is untracked, invisible to the
-// gate (nothing lints root `scripts/`), and would be swept up by `git add -A`
-// — committing fixtures whose whole purpose is to violate the rules. Hence the
-// single `finish()` below; never call `process.exit` directly.
+// SCRATCH_DIR is deliberately not ignored: ignored fixtures would not be read.
+// Cleanup belongs to this script, because `git add -A` would otherwise include
+// generated files whose purpose is to violate the rules. Deliberate exits use
+// finish(); setup and diagnostic processing also have a finally cleanup.
 //
 // Usage: node scripts/check-anti-slop-rules.mjs
 // Exit code: 0 = both rules behaved, 1 = a rule fired wrongly or not at all,
@@ -63,7 +61,7 @@ const EXPECTED = [
   "invalid.ts:41 no-widen-then-assert",
 ];
 
-/** Remove the scratch directory and exit. The only way out of this script. */
+/** Remove the scratch directory before a deliberate exit. */
 function finish(code, message, detail) {
   rmSync(scratchDir, { recursive: true, force: true });
   if (message) {
@@ -78,20 +76,21 @@ function skip(reason, detail) {
   finish(SKIP_EXIT_CODE, reason, detail);
 }
 
-function lintScratchDir() {
+function lintPaths(paths) {
   if (!existsSync(viteplusBin)) {
     skip(`no linter at ${viteplusBin}; run \`bun install\` in this worktree`);
   }
 
   const run = spawnSync(
     "bun",
-    [viteplusBin, "lint", scratchDir, "-f", "json"],
+    [viteplusBin, "lint", ...paths, "-f", "json"],
     // Oxlint resolves `jsPlugins` specifiers relative to the config, so this
     // has to run from the repository root even though the target is nested.
     { cwd: repoRoot, encoding: "utf8" },
   );
 
   if (run.error) skip(`could not start the linter: ${run.error.message}`);
+  if (run.signal) skip(`the linter was killed by ${run.signal}`);
 
   // The linter prints human-readable notices before the JSON report, so parse
   // from the first brace rather than assuming stdout is pure JSON.
@@ -116,6 +115,47 @@ function lintScratchDir() {
     );
   }
 
+  // Same reasoning as number_of_files: a missing or reshaped `diagnostics` is
+  // the report changing, not a rule regression. Falling back to `[]` would turn
+  // it into a bogus "no rules fired" failure, and a non-array would throw out
+  // of antiSlopFindings before anything cleaned up.
+  if (!Array.isArray(report.diagnostics)) {
+    skip(
+      "the linter's JSON report has no `diagnostics` array; its format changed",
+    );
+  }
+  for (const diagnostic of report.diagnostics) {
+    if (
+      diagnostic === null ||
+      typeof diagnostic !== "object" ||
+      Array.isArray(diagnostic)
+    ) {
+      skip("the linter's diagnostics contain a non-object; its format changed");
+    }
+    if (
+      typeof diagnostic.code !== "string" ||
+      !diagnostic.code.startsWith("anti-slop(")
+    )
+      continue;
+    if (
+      typeof diagnostic.filename !== "string" ||
+      typeof diagnostic.severity !== "string" ||
+      !Number.isInteger(diagnostic.labels?.[0]?.span?.line) ||
+      diagnostic.labels[0].span.line < 1
+    ) {
+      skip(
+        "an anti-slop diagnostic has an unreadable location or severity; its format changed",
+      );
+    }
+  }
+  if (run.status !== 0 && run.status !== 1) {
+    skip(`the linter exited unexpectedly (${run.status})`, run.stderr);
+  }
+  return { ...report, status: run.status };
+}
+
+function lintScratchDir() {
+  const report = lintPaths([scratchDir]);
   // Every fixture has to have been read. Checking only for zero would still
   // pass when an ignore rule swallowed valid.ts alone: invalid.ts would supply
   // all the expected diagnostics, and the false-positive cases would go
@@ -130,7 +170,7 @@ function lintScratchDir() {
     );
   }
 
-  return report.diagnostics ?? [];
+  return report.diagnostics;
 }
 
 function antiSlopFindings(diagnostics) {
@@ -143,7 +183,12 @@ function antiSlopFindings(diagnostics) {
     // a downgrade to `warn` emits the same diagnostics while blocking nothing,
     // so counting those as satisfying EXPECTED would hide the very regression
     // this guard exists to catch.
-    if (diagnostic.severity !== "error") continue;
+    if (diagnostic.severity !== "error") {
+      finish(
+        1,
+        `${rule} reported at ${diagnostic.severity} severity instead of error`,
+      );
+    }
     const line = diagnostic.labels?.[0]?.span?.line ?? 0;
     // `filename` is repo-relative; only the basename identifies the fixture.
     const file = diagnostic.filename.split("/").at(-1);
@@ -152,13 +197,21 @@ function antiSlopFindings(diagnostics) {
   return findings.sort();
 }
 
-rmSync(scratchDir, { recursive: true, force: true });
-mkdirSync(scratchDir, { recursive: true });
-for (const fixture of FIXTURES) {
-  cpSync(join(fixtureDir, `${fixture}.fixture`), join(scratchDir, fixture));
+// finish() covers the deliberate exits; this try/finally covers the rest. A
+// renamed fixture or any other throwing fs call must not leave the scratch
+// directory behind either — `git add -A` would sweep up untracked files that
+// exist to violate the rules.
+let findings;
+try {
+  rmSync(scratchDir, { recursive: true, force: true });
+  mkdirSync(scratchDir, { recursive: true });
+  for (const fixture of FIXTURES) {
+    cpSync(join(fixtureDir, `${fixture}.fixture`), join(scratchDir, fixture));
+  }
+  findings = antiSlopFindings(lintScratchDir());
+} finally {
+  rmSync(scratchDir, { recursive: true, force: true });
 }
-
-const findings = antiSlopFindings(lintScratchDir());
 const expected = [...EXPECTED].sort();
 const missing = expected.filter((entry) => !findings.includes(entry));
 const unexpected = findings.filter((entry) => !expected.includes(entry));
@@ -180,9 +233,38 @@ if (unexpected.length > 0) {
   );
 }
 
+if (missing.length > 0 || unexpected.length > 0) finish(1);
+
+// Do not depend on workspace lint tasks for coverage: some first-party packages
+// only typecheck. Filter the full report to adopted rules so existing lint
+// debt outside workspace tasks does not become part of this integration.
+// Unnamed diagnostics (such as parse failures) still fail the scan.
+const sourceReport = lintPaths([
+  "apps",
+  "packages",
+  "scripts",
+  "vite.config.ts",
+]);
+if (sourceReport.number_of_files === 0)
+  finish(1, "the source scan read no files");
+antiSlopFindings(sourceReport.diagnostics);
+const sourceErrors = sourceReport.diagnostics.filter(
+  (diagnostic) =>
+    typeof diagnostic.code !== "string" ||
+    !/^[^()]+\([^)]+\)$/u.test(diagnostic.code) ||
+    diagnostic.code.startsWith("anti-slop("),
+);
+if (
+  sourceErrors.length > 0 ||
+  (sourceReport.status !== 0 && sourceReport.diagnostics.length === 0)
+) {
+  finish(
+    1,
+    "the adopted-rule source scan failed",
+    JSON.stringify(sourceErrors, null, 2),
+  );
+}
 finish(
-  missing.length > 0 || unexpected.length > 0 ? 1 : 0,
-  missing.length > 0 || unexpected.length > 0
-    ? undefined
-    : `${expected.length} expected findings reported at error severity, none in the valid fixture`,
+  0,
+  `${expected.length} expected fixture findings at error severity; ${sourceReport.number_of_files} source files checked for adopted rules`,
 );

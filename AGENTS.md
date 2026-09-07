@@ -144,8 +144,10 @@ result; the overall exit code is non-zero if any did not pass. That is deliberat
 guards are cheap next to `check:packages`, and when they were chained with `&&`
 a one-line convention violation hid every type error and failing test behind it.
 `check:anti-slop-rules` lints two fixtures through the real `vp lint` path to
-prove the vendored `scripts/oxlint-plugin-anti-slop` rules still fire; nothing
-else in the gate can tell a rule that stopped matching from a clean tree. The
+prove the vendored `scripts/oxlint-plugin-anti-slop` rules still fire, runs
+subprocess regression tests for the guard, and scans all first-party paths for
+these two rules even when a package has no lint task. Nothing else in the gate
+can tell a rule that stopped matching from a clean tree. The
 `--continue` flag is the same fix one level down: turbo's default is
 `--continue=never`, so without it a single lint error cancelled every pending
 typecheck and test task. Re-run just the one that failed with `bun run <name>`.

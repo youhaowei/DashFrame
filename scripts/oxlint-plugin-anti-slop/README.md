@@ -38,9 +38,14 @@ changes are not pulled in automatically.
 `bun run check`: `invalid.ts.fixture` must be reported, `valid.ts.fixture` must not.
 Keep that guard's `EXPECTED` line numbers in sync when editing a fixture.
 
+The guard also scans `apps/`, `packages/`, `scripts/`, and `vite.config.ts`,
+checking the two adopted rules even in packages without a Vite+ lint task.
+Its subprocess regression tests cover malformed reports, setup cleanup, warning
+severity, and source violations.
+
 The guard is the only gate coverage this directory gets. `turbo check` runs per-package
 tasks, and the root package is not one, so nothing here is typechecked or linted by
-`bun run check`. What the guard does catch is the failure that matters: a plugin that
+the workspace portion of `bun run check`. What the guard does catch is the failure that matters: a plugin that
 stops loading, a rule that stops matching, or a rule quietly downgraded from `error`
 all fail it immediately.
 
@@ -69,3 +74,17 @@ both shapes are pinned in the fixtures.
 
 The broader evaluation and the thirteen rules not adopted — seven rejected, six
 warn-first candidates — are documented in `docs/audits/anti-slop-rule-evaluation.md`.
+
+## Syntactic limits
+
+The rule does not model runtime validation. For an assembled object such as
+`const raw: unknown = { id }`, validating it later does not excuse erasing the
+known object structure. Keep `const raw = { id }`, validate the unknown field,
+and then assert the boundary type; the valid fixture pins this allowed pattern.
+Unknown parameters remain supported.
+
+The rule also does not resolve named type aliases to their underlying structure.
+An assertion to `HandlersByKey` may be missed where an inline
+`Record<string, Handler>` is reported. This is a known detection limit of the
+vendored syntactic rule, not a guarantee that every equivalent flow is caught.
+We retain the upstream implementation rather than adding a partial type resolver.

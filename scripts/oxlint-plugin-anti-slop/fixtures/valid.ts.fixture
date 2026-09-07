@@ -52,3 +52,11 @@ export function keepsOpenRecord(): Record<string, unknown> {
   row.a = 1;
   return row;
 }
+
+// An assembled object keeps useful structure even when a field starts unknown.
+// Validate that field before asserting the complete boundary type.
+export function validatesAssembledObject(id: unknown): Config {
+  const raw = { id };
+  if (typeof raw.id !== "string") throw new TypeError("invalid id");
+  return raw as Config;
+}
