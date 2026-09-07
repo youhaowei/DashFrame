@@ -392,3 +392,60 @@ it("deletes a data source's own frames through their index without touching the 
   expect(remaining.some((row) => row.id === ownFrameId)).toBe(false);
   expect(await user().query(api.app.getDataTable, { id: tableId })).toBeNull();
 }, 30_000);
+
+// A workspace-size refusal raised while a preview runs a command is the same
+// refusal the whole-graph load used to raise up front: it must surface as the
+// query's error, not be recorded against the command as if the draft were wrong.
+it("lets a scan cap refusal through preview instead of blaming the command", async () => {
+  const sourceId = crypto.randomUUID(),
+    tableId = crypto.randomUUID(),
+    vizId = crypto.randomUUID();
+  await user().mutation(api.app.commitBatch, {
+    commands: [
+      {
+        path: COMMAND_PATHS.CreateDataSource,
+        args: { id: sourceId, name: "S", type: "csv" },
+      },
+      {
+        path: COMMAND_PATHS.CreateDataTable,
+        args: { id: tableId, dataSourceId: sourceId, name: "T", table: "t" },
+      },
+    ],
+  });
+  await t.run(async (ctx) => {
+    for (let index = 0; index < 1001; index++)
+      await ctx.db.insert("insights", {
+        workspaceId: "w",
+        id: crypto.randomUUID(),
+        revision: 1,
+        name: `Insight ${index}`,
+        createdAt: index,
+        definition: {
+          source: { sourceType: "dataTable", sourceId: tableId },
+          selectedFields: [],
+          metrics: [],
+          filters: [],
+          sorts: [],
+          joins: [],
+        },
+        createdBy: { kind: "user" },
+      });
+    await ctx.db.insert("visualizations", {
+      workspaceId: "w",
+      id: vizId,
+      revision: 1,
+      name: "Viz",
+      createdAt: 0,
+      insightId: crypto.randomUUID(),
+      chartType: "barY",
+      encoding: {},
+      options: {},
+      createdBy: { kind: "user" },
+    });
+  });
+  await expect(
+    user().query(api.app.previewDiff, {
+      commands: [{ path: COMMAND_PATHS.DeleteNode, args: { id: vizId } }],
+    }),
+  ).rejects.toThrow("Workspace exceeds 1000 insights");
+}, 30_000);

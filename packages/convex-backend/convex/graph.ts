@@ -11,7 +11,7 @@ import { clean, stable } from "./values";
  */
 export const LIMIT = 1000;
 
-/** Index-backed selector for `Graph.scan`. Exactly the fields the artifact indexes cover. */
+/** Index-backed selector for `Graph.scan`: the owner fields the artifact indexes cover. */
 export type Where = {
   dataSourceId?: string;
   insightId?: string;
@@ -60,6 +60,8 @@ function same(a: unknown, b: unknown): boolean {
 export class Graph {
   private readonly original = new Map<string, ArtifactRow | null>();
   private readonly current = new Map<string, ArtifactRow | null>();
+  /** Keys of `current`, per table, so a scan walks only its own table. */
+  private readonly loaded = new Map<ArtifactTable, Set<string>>();
   private readonly scanned = new Set<string>();
   constructor(
     private readonly ctx: QueryCtx,
@@ -93,6 +95,16 @@ export class Graph {
     if (this.overlay.has(key)) return this.overlay.get(key) ?? null;
     return this.canonical(table, id);
   }
+  private setCurrent(
+    table: ArtifactTable,
+    key: string,
+    row: ArtifactRow | null,
+  ): void {
+    this.current.set(key, row);
+    let keys = this.loaded.get(table);
+    if (!keys) this.loaded.set(table, (keys = new Set()));
+    keys.add(key);
+  }
   private baselineLoaded(key: string): ArtifactRow | null {
     if (this.overlay.has(key)) return this.overlay.get(key) ?? null;
     return this.original.get(key) ?? null;
@@ -105,7 +117,7 @@ export class Graph {
     const key = graphKey(table, id);
     if (!this.current.has(key)) {
       const base = await this.baseline(table, id);
-      this.current.set(key, base ? clean(base) : null);
+      this.setCurrent(table, key, base ? clean(base) : null);
     }
     return this.current.get(key) ?? undefined;
   }
@@ -118,10 +130,10 @@ export class Graph {
     return (await this.find(table, id)) !== undefined;
   }
   set(table: ArtifactTable, row: ArtifactRow): void {
-    this.current.set(graphKey(table, row.id), row);
+    this.setCurrent(table, graphKey(table, row.id), row);
   }
   delete(table: ArtifactTable, id: string): void {
-    this.current.set(graphKey(table, id), null);
+    this.setCurrent(table, graphKey(table, id), null);
   }
 
   /**
@@ -169,13 +181,13 @@ export class Graph {
       if (!this.original.has(key)) this.original.set(key, row);
       if (!this.current.has(key)) {
         const base = this.overlay.has(key) ? this.overlay.get(key) : row;
-        this.current.set(key, base ? clean(base) : null);
+        this.setCurrent(table, key, base ? clean(base) : null);
       }
     }
     const prefix = `${table}:`;
     for (const [key, row] of this.overlay)
       if (key.startsWith(prefix) && !this.current.has(key))
-        this.current.set(key, row ? clean(row) : null);
+        this.setCurrent(table, key, row ? clean(row) : null);
     this.scanned.add(cacheKey);
   }
   private collect(
@@ -183,10 +195,8 @@ export class Graph {
     where: Where,
     at: (key: string) => ArtifactRow | null | undefined,
   ): ArtifactRow[] {
-    const prefix = `${table}:`,
-      out: ArtifactRow[] = [];
-    for (const key of this.current.keys()) {
-      if (!key.startsWith(prefix)) continue;
+    const out: ArtifactRow[] = [];
+    for (const key of this.loaded.get(table) ?? []) {
       const row = at(key);
       if (row && matches(row, where)) out.push(row);
     }
@@ -260,20 +270,23 @@ export class Graph {
    * must carry forward what earlier batches staged.
    */
   async changes(): Promise<Change[]> {
+    const keys = [...new Set([...this.current.keys(), ...this.overlay.keys()])];
+    // Canonical rows not yet loaded are independent point reads; issue them
+    // together rather than one round trip per staged row.
+    const bases = await Promise.all(
+      keys.map((key) => this.canonical(...splitKey(key))),
+    );
     const out: Change[] = [];
-    for (const key of new Set([
-      ...this.current.keys(),
-      ...this.overlay.keys(),
-    ])) {
+    keys.forEach((key, index) => {
       const [table, id] = splitKey(key);
       const value =
         (this.current.has(key)
           ? this.current.get(key)
           : this.overlay.get(key)) ?? null;
-      const base = await this.canonical(table, id);
-      if (same(base, value)) continue;
+      const base = bases[index] ?? null;
+      if (same(base, value)) return;
       out.push({ table, id, base, value });
-    }
+    });
     return out;
   }
 }

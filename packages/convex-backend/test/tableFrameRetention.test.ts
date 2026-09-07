@@ -158,18 +158,25 @@ it("keeps a superseded frame that another table or an open draft still reference
       }),
     ],
   });
-  const second = await refresh(sourceId, tableId, first, 2),
-    third = await refresh(sourceId, tableId, second, 3),
-    { draftId } = await user().mutation(api.app.draftBatch, {
-      commands: [cmd("RenameNode", { id: tableId, name: "Drafted" })],
-    });
-  await refresh(sourceId, tableId, third, 4);
-  const kept = (await tableFrames(tableId)).map((f) => f.id);
-  expect(kept).toContain(first);
-  expect(kept).not.toContain(second);
-  expect(kept).toHaveLength(3);
-  expect(await claim(second)).toBe("claimable");
+  const second = await refresh(sourceId, tableId, first, 2);
+  // The draft's staged rows carry the table as it points at `second`, which
+  // is what keeps `second` alive once two more refreshes have passed it.
+  const { draftId } = await user().mutation(api.app.draftBatch, {
+    commands: [cmd("RenameNode", { id: tableId, name: "Drafted" })],
+  });
+  const third = await refresh(sourceId, tableId, second, 3),
+    fourth = await refresh(sourceId, tableId, third, 4);
+  let kept = (await tableFrames(tableId)).map((f) => f.id).sort();
+  expect(kept).toEqual([first, second, third, fourth].sort());
+  expect(await claim(second)).toBe("not queued");
+  // Once the draft is gone the next refresh prunes it, along with `third`,
+  // while the other table's reference still protects `first`.
   await user().mutation(api.app.discardDraft, { draftId });
+  const fifth = await refresh(sourceId, tableId, fourth, 5);
+  kept = (await tableFrames(tableId)).map((f) => f.id).sort();
+  expect(kept).toEqual([first, fourth, fifth].sort());
+  expect(await claim(second)).toBe("claimable");
+  expect(await claim(third)).toBe("claimable");
 });
 
 // A table that accumulated history before retention existed must keep
@@ -277,3 +284,58 @@ it("bounds source frames written by saved-result publication the same way", asyn
     await user().query(api.app.listDataFrames, { insightId }),
   ).toHaveLength(2);
 });
+
+it("still publishes a saved result when the insight already holds more than 1000 frames", async () => {
+  const { sourceId, tableId } = await seed();
+  const insightId = crypto.randomUUID();
+  await user().mutation(api.app.commitBatch, {
+    commands: [
+      cmd("CreateInsight", {
+        id: insightId,
+        name: "Insight",
+        source: { sourceType: "dataTable", sourceId: tableId },
+      }),
+    ],
+  });
+  const current = crypto.randomUUID();
+  await t.run(async (ctx) => {
+    for (let index = 0; index < 1001; index++) {
+      const id = index === 0 ? current : crypto.randomUUID();
+      await ctx.db.insert("dataFrames", {
+        workspaceId: "w",
+        id,
+        revision: 1,
+        name: "Legacy result",
+        createdAt: index,
+        insightId,
+        storage: { type: "file", key: id },
+        fieldIds: [],
+        analysis: { currentInsightResult: index === 0 },
+      });
+    }
+  });
+  const value = publication(sourceId, tableId, insightId, 1);
+  await t.mutation(internal.host.publishMaterialization, {
+    workspaceId: "w",
+    value,
+  });
+  const results = await t.run((ctx) =>
+    ctx.db
+      .query("dataFrames")
+      .withIndex("by_workspaceId_and_insightId", (q) =>
+        q.eq("workspaceId", "w").eq("insightId", insightId),
+      )
+      .take(5000),
+  );
+  expect(results).toHaveLength(1002);
+  // The new result is the only current one; the legacy flag was cleared.
+  expect(
+    results
+      .filter(
+        (f) =>
+          (f.analysis as { currentInsightResult?: boolean })
+            ?.currentInsightResult === true,
+      )
+      .map((f) => f.id),
+  ).toEqual([value.result.id]);
+}, 60_000);

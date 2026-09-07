@@ -8,10 +8,12 @@ import {
 import { hostPrincipal } from "./lifecycleValues";
 import { stable } from "./values";
 import { publicationMetadata } from "./publication";
-import { artifactTables, isResourceReferenceScanCapError } from "./model";
+import { artifactTables } from "./model";
 import { replaceDraft } from "./app";
 import { findLateBound } from "./lateBound";
-import { externallyReferencedFrameIds } from "./frameRetention";
+import { byFreshness, frameHistory, pruneFrames } from "./frameRetention";
+import { LIMIT } from "./graph";
+import type { Doc } from "./_generated/dataModel";
 import { redact } from "./preview";
 import { v } from "convex/values";
 import {
@@ -51,25 +53,13 @@ import {
 } from "./model";
 import { parseStoredDataTableState } from "./tableCodec";
 const workspace = { workspaceId: v.string() };
-/** Extend this predicate when another frame kind, such as a pinned snapshot, must survive pruning. */
-function shouldRetainInsightFrame(
-  frame: { id: string },
-  previousFrameId: string | undefined,
-  externallyReferenced: ReadonlySet<string>,
-) {
-  return frame.id === previousFrameId || externallyReferenced.has(frame.id);
-}
 /**
  * Bound the frames a data table accumulates across refreshes: keep the frame
  * the table now points at and the one it pointed at before (one-step rollback,
- * and the row that keeps the superseded blob named until cleanup confirms it),
- * plus anything another artifact or an open draft still references. Older
- * frames leave the table and their blobs go to the cleanup outbox, which
- * re-checks references before reclaiming. If either scan hits its cap (a
- * table that accumulated history before retention existed, or a workspace
- * over the reference-scan bound) nothing is pruned and the refresh still
- * commits: a leak is recoverable through the Data Frames recovery list, a
- * lost live frame or a table that can no longer refresh is not.
+ * and the row that keeps the superseded blob named until cleanup confirms it).
+ * `pruneFrames` adds anything another artifact or an open draft still
+ * references. A table that accumulated more than LIMIT frames before retention
+ * existed is left alone and its refresh still commits.
  */
 async function retainTableFrames(
   ctx: MutationCtx,
@@ -78,39 +68,60 @@ async function retainTableFrames(
   currentFrameId: string,
   previousFrameId: string | null,
 ) {
-  const rows = await ctx.db
-    .query("dataFrames")
-    .withIndex("by_workspaceId_and_definitionId", (q) =>
-      q.eq("workspaceId", workspaceId).eq("definitionId", definitionId),
-    )
-    .take(1001);
-  if (rows.length > 1000) return;
-  const byFreshness = (a: (typeof rows)[number], b: (typeof rows)[number]) =>
-    (b.lastRefreshedAt ?? b.createdAt) - (a.lastRefreshedAt ?? a.createdAt);
-  const previous =
-    previousFrameId ??
-    rows.filter((frame) => frame.id !== currentFrameId).sort(byFreshness)[0]
-      ?.id;
-  const candidates = rows.filter(
-    (frame) => frame.id !== currentFrameId && frame.id !== previous,
+  const rows = await frameHistory(ctx, workspaceId, { definitionId });
+  if (!rows) return;
+  await pruneFrames(
+    ctx,
+    workspaceId,
+    rows,
+    (frame) => frame.id === currentFrameId || frame.id === previousFrameId,
   );
-  if (!candidates.length) return;
-  let externallyReferenced: ReadonlySet<string>;
-  try {
-    externallyReferenced = await externallyReferencedFrameIds(
-      ctx,
-      workspaceId,
-      candidates,
-    );
-  } catch (error) {
-    if (!isResourceReferenceScanCapError(error)) throw error;
+}
+/**
+ * Bound a saved insight's results the same way: keep the previous current
+ * result (one-step rollback) and whatever else is still referenced, and clear
+ * the current-result flag on what remains so the frame being published is the
+ * only current one. Over-cap history is not pruned; only the flag is cleared.
+ */
+async function retainInsightFrames(
+  ctx: MutationCtx,
+  workspaceId: string,
+  insightId: string,
+) {
+  const isCurrent = (frame: Doc<"dataFrames">) =>
+    !!frame.analysis && record(frame.analysis).currentInsightResult === true;
+  const clearCurrent = async (frame: Doc<"dataFrames">) => {
+    await ctx.db.patch(frame._id, {
+      analysis: {
+        ...(frame.analysis ? record(frame.analysis) : {}),
+        currentInsightResult: false,
+      },
+      revision: frame.revision + 1,
+    });
+  };
+  const prior = await frameHistory(ctx, workspaceId, { insightId });
+  if (!prior) {
+    const flagged = await ctx.db
+      .query("dataFrames")
+      .withIndex("by_workspaceId_and_insightId", (q) =>
+        q.eq("workspaceId", workspaceId).eq("insightId", insightId),
+      )
+      .filter((q) => q.eq(q.field("analysis.currentInsightResult"), true))
+      .take(LIMIT);
+    for (const frame of flagged) await clearCurrent(frame);
     return;
   }
-  for (const frame of candidates) {
-    if (externallyReferenced.has(frame.id)) continue;
-    await enqueueCleanup(ctx, workspaceId, resources(frame).values());
-    await ctx.db.delete(frame._id);
-  }
+  const previousFrameId =
+    prior.filter(isCurrent).sort(byFreshness)[0]?.id ??
+    [...prior].sort(byFreshness)[0]?.id;
+  const retained = await pruneFrames(
+    ctx,
+    workspaceId,
+    prior,
+    (frame) => frame.id === previousFrameId,
+  );
+  for (const frame of prior)
+    if (retained.has(frame.id)) await clearCurrent(frame);
 }
 export const runtimeReady = internalQuery({
   args: {},
@@ -465,72 +476,7 @@ export const publishMaterialization = internalMutation({
       if (target.kind === "saved") {
         if (!(await find(ctx, args.workspaceId, "insights", target.insightId)))
           throw new Error("Insight unavailable");
-        const prior = await ctx.db
-          .query("dataFrames")
-          .withIndex("by_workspaceId_and_insightId", (q) =>
-            q
-              .eq("workspaceId", args.workspaceId)
-              .eq("insightId", target.insightId),
-          )
-          .take(1001);
-        if (prior.length > 1000)
-          throw new Error("Frame history limit exceeded");
-        const byFreshness = (
-          a: (typeof prior)[number],
-          b: (typeof prior)[number],
-        ) =>
-          (b.lastRefreshedAt ?? b.createdAt) -
-          (a.lastRefreshedAt ?? a.createdAt);
-        const previousFrameId =
-          prior
-            .filter(
-              (frame) =>
-                frame.analysis &&
-                record(frame.analysis).currentInsightResult === true,
-            )
-            .sort(byFreshness)[0]?.id ?? [...prior].sort(byFreshness)[0]?.id;
-        const prunableCandidates = prior.filter(
-          (frame) => frame.id !== previousFrameId,
-        );
-        let externallyReferenced = new Set<string>();
-        if (prunableCandidates.length) {
-          try {
-            externallyReferenced = await externallyReferencedFrameIds(
-              ctx,
-              args.workspaceId,
-              prunableCandidates,
-            );
-          } catch (error) {
-            if (!isResourceReferenceScanCapError(error)) throw error;
-            externallyReferenced = new Set(
-              prunableCandidates.map((frame) => frame.id),
-            );
-          }
-        }
-        for (const frame of prior) {
-          if (
-            shouldRetainInsightFrame(
-              frame,
-              previousFrameId,
-              externallyReferenced,
-            )
-          ) {
-            await ctx.db.patch(frame._id, {
-              analysis: {
-                ...(frame.analysis ? record(frame.analysis) : {}),
-                currentInsightResult: false,
-              },
-              revision: frame.revision + 1,
-            });
-          } else {
-            await enqueueCleanup(
-              ctx,
-              args.workspaceId,
-              resources(frame).values(),
-            );
-            await ctx.db.delete(frame._id);
-          }
-        }
+        await retainInsightFrames(ctx, args.workspaceId, target.insightId);
       }
       await putFrame(ctx, args.workspaceId, {
         id: result.id,

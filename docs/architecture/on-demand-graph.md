@@ -26,10 +26,12 @@ mutation. This is that rule applied to the engine.
 
 `get`/`find`/`has` are point reads by primary key. `scan(table, where)` is an
 index range read merged with the working state, so rows created or deleted
-earlier in the same batch are visible to later commands. `where` names exactly
-the fields the artifact indexes cover: `dataSourceId`, `insightId`, `sourceId`,
-`definitionId`, `dataFrameId`. Every scan is bounded at `LIMIT` and refuses
-beyond it with the same pagination message as before.
+earlier in the same batch are visible to later commands. `where` names the
+owner fields the artifact indexes cover: `dataSourceId`, `insightId`,
+`sourceId`, `definitionId`, `dataFrameId` (the `id` and `kind` indexes serve
+point reads and kind lookups, not scans). Every scan, index range or whole
+table, is bounded at `LIMIT` and refuses beyond it with the same pagination
+message as before.
 
 Data frames are the one table that may not be scanned without a selector.
 `Graph.scan("dataFrames")` with an empty `where` is a programming error, not a
@@ -39,35 +41,46 @@ the Data Frames page, which keeps the recovery-list escape hatch.
 Diffs come from the graph rather than from comparing two full copies.
 `changes()` compares canonical against working for every touched row, which is
 what `persist` and `replaceDraft` need. `mark()`/`changesSince()` attribute
-edits to a single command inside preview. `baseline()` is the row as it stood
-when the graph was opened, overlay included, which is what preview reports as
-"before".
+edits to a single command inside preview. `baseline()` and `scanBaseline()`
+are the rows as they stood when the graph was opened, overlay included, which
+is what preview reports as "before" and what its dependency walk reads so a
+delete cascade still names what it orphans.
 
 ## What still scans
 
-Two operations legitimately need to find dependents without a foreign key on
-the dependent side, and both scan user-authored tables only:
+A few operations legitimately need to find rows without a foreign key on the
+row's side, and all of them scan user-authored tables only:
 
 - The delete cascade (`removeNode`) scans insights and dashboards to find
   orphaned definitions and layouts. Tables, visualizations, and frames it
-  reaches through indexes.
+  reaches through indexes; a source that owns more than 1,000 frames refuses
+  with the frame cap message until the recovery list drains it.
 - The preview downstream walk scans user-authored tables for edges; frames it
   reaches only through their owning insight.
+- `GetOrCreateInsightDraft` scans insights for an unmodified draft on the same
+  table, and `getDataSourceByType` under a draft scans data sources.
 
-Both are bounded by what a user has built. If a workspace ever holds more than
+All are bounded by what a user has built. If a workspace ever holds more than
 1,000 insights the scan refuses and names pagination, which is the tracked
-follow-up in #354. The cleanup outbox's reference scan (`cleanup.ts`) still
+follow-up in #354. Preview lets that refusal through as the query's error
+rather than recording it against a command, so review and publish surface the
+same message. The cleanup outbox's reference scan (`cleanup.ts`) still
 reads eleven tables under its own cap; that is #368 and is unchanged here.
 
 ## Frame retention
 
-Both host paths that write a table frame, `commitImportedFrame` and the sources
-loop of `publishMaterialization`, now call `retainTableFrames`. A table keeps
-the frame it points at and the one it pointed at before. The previous frame is
-the one-step rollback target and, because the cleanup outbox refuses to reclaim
-a blob while any row still names it, the protector for #367 acceptance case 1.
-Older frames leave the table and their blobs are queued for cleanup, which
-re-checks references before tombstoning. If the reference scan hits its cap,
-nothing is pruned. A table that accumulated more than 1,000 frames before
-retention existed is not pruned either, and its refresh still commits; the Data
-Frames recovery list is the way out of that state.
+Table frames and saved insight results share one pipeline in
+`frameRetention.ts`: `frameHistory` reads an owner's frames through its index
+and `pruneFrames` deletes what the caller does not keep and nothing else still
+references. Both host paths that write a table frame, `commitImportedFrame` and
+the sources loop of `publishMaterialization`, keep the frame the table points
+at and the one it pointed at before; a saved publication keeps the previous
+current result. The previous frame is the one-step rollback target and,
+because the cleanup outbox refuses to reclaim a blob while any row still names
+it, the protector for #367 acceptance case 1. Pruned frames leave the table and
+their blobs are queued for cleanup, which re-checks references before
+tombstoning. If the reference scan hits its cap, nothing is pruned. An owner
+that accumulated more than 1,000 frames before retention existed is not pruned
+either, and its refresh or publication still commits; the Data Frames recovery
+list is the way out of that state. The reference scan itself still reads eleven
+tables under its own cap on every prune; that cost is #368.

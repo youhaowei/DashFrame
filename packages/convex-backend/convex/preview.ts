@@ -17,7 +17,8 @@ import {
   type ArtifactTable,
 } from "./model";
 import { execute } from "./engine";
-import { Graph, graphKey } from "./graph";
+import { ConvexError } from "convex/values";
+import { Graph, graphKey, type Where } from "./graph";
 import {
   clean,
   record,
@@ -195,10 +196,7 @@ async function neighbours(
   from: { table: ArtifactTable; id: string },
 ): Promise<[ArtifactTable, ArtifactRow][]> {
   const out: [ArtifactTable, ArtifactRow][] = [];
-  const add = async (
-    table: ArtifactTable,
-    where?: Parameters<Graph["scanBaseline"]>[1],
-  ) => {
+  const add = async (table: ArtifactTable, where?: Where) => {
     for (const row of await graph.scanBaseline(table, where))
       out.push([table, row]);
   };
@@ -313,6 +311,9 @@ export async function preview(
               : { deleted: true },
       });
     } catch (e) {
+      // A workspace-size refusal is not a fault of this command: surface it
+      // the way the whole-graph load did, rather than as a per-command error.
+      if (e instanceof ConvexError) throw e;
       error = {
         commandIndex: index,
         message: e instanceof Error ? e.message : String(e),
@@ -332,7 +333,7 @@ export async function preview(
       const current = queue.shift()!;
       for (const [table, row] of await neighbours(graph, current)) {
         const e = edge(current.table, current.id, table, row),
-          key = `${table}:${row.id}`;
+          key = graphKey(table, row.id);
         if (!e || visited.has(key) || direct.has(key)) continue;
         visited.add(key);
         downstream.push({
