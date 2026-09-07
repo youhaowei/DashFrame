@@ -76,10 +76,21 @@ export function createAdminInternalClient(
       }),
       signal: AbortSignal.timeout(timeoutMs),
     });
-    const result = (await response.json()) as {
+    // Parse defensively rather than with `response.json()`. A deployment does
+    // not always answer with JSON: a gateway 502, a proxy error page, or a
+    // rate-limit body are all plain text, and letting `json()` throw would
+    // surface `Unexpected token 'o'` to the caller instead of the status that
+    // actually explains the failure — and would put a fragment of the response
+    // body into the message.
+    let result: {
       status?: string;
       value?: Parameters<typeof jsonToConvex>[0];
-    };
+    } = {};
+    try {
+      result = JSON.parse(await response.text()) as typeof result;
+    } catch {
+      result = {};
+    }
     if (
       !response.ok ||
       result.status !== "success" ||

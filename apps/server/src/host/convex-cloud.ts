@@ -6,17 +6,26 @@
  * writable place for one and no reason to want it, so it points at a Convex
  * Cloud deployment that CI has already pushed functions to.
  *
- * Two things deliberately do NOT happen here:
+ * Three things deliberately do NOT happen here:
  *
  *   - No function deployment. `convex deploy` runs in the release workflow,
  *     from the commit being released, with a deploy key that never reaches the
  *     running container. A server that deploys its own functions on boot would
  *     make "what code is live" a function of restart timing.
  *   - No schema or data migration. Same reason.
+ *   - **No deployment configuration.** In particular this does not write
+ *     `DASHFRAME_AUTH_ISSUER` or `DASHFRAME_AUTH_JWKS` into the deployment's
+ *     environment, which an earlier draft did. Two reasons it was wrong. It made
+ *     the deployment's trust anchor a function of which container happened to
+ *     boot last, so a rollback or a parallel restart could silently repoint who
+ *     the backend trusts. And it required the running container to hold write
+ *     authority over deployment configuration, widening the blast radius of the
+ *     credential it already has to carry.
  *
- * What *does* happen is the auth handshake: the host is the JWT issuer for the
- * renderer, so the deployment has to be told this host's issuer and JWKS before
- * any renderer token will verify.
+ * The deployment's issuer and public JWKS are therefore configuration the
+ * release pipeline publishes, from a constant issuer and a durable
+ * deployment-owned signing key. This module only attaches to what is already
+ * there.
  */
 import { createAdminInternalClient } from "@dashframe/convex-local";
 import type { InternalClient } from "@dashframe/convex-local";
@@ -36,12 +45,8 @@ export interface ConvexCloudOptions {
   url: string;
   /** Convex deploy key for that deployment. Admin capability — never logged. */
   adminKey: string;
-  auth: { issuer: string; jwksDataUri: string; audience: "dashframe" };
   fetchImpl?: typeof fetch;
-  timeoutMs?: number;
 }
-
-const ENV_TIMEOUT_MS = 15_000;
 
 /**
  * Reject anything that is not a plaintext-safe deployment origin.
@@ -67,46 +72,6 @@ export function assertConvexCloudUrl(raw: string): URL {
 }
 
 /**
- * Point the deployment's custom-JWT provider at this host's signing key.
- *
- * `convex/auth.config.ts` reads both values from the deployment environment, so
- * without this call every renderer token is rejected and the app never leaves
- * its "Connecting…" state. It is idempotent — writing the same values again is
- * a no-op from the deployment's perspective — which matters because a container
- * restart runs it again.
- */
-async function configureDeploymentAuth(
-  options: ConvexCloudOptions,
-  endpoint: string,
-): Promise<void> {
-  const request = options.fetchImpl ?? fetch;
-  const response = await request(
-    `${endpoint}/api/update_environment_variables`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Convex ${options.adminKey}`,
-      },
-      body: JSON.stringify({
-        changes: [
-          { name: "DASHFRAME_AUTH_ISSUER", value: options.auth.issuer },
-          { name: "DASHFRAME_AUTH_JWKS", value: options.auth.jwksDataUri },
-        ],
-      }),
-      signal: AbortSignal.timeout(options.timeoutMs ?? ENV_TIMEOUT_MS),
-    },
-  );
-  await response.body?.cancel();
-  if (!response.ok) {
-    throw new Error(
-      `Could not configure Convex Cloud authentication (${response.status}). ` +
-        "Check that DASHFRAME_CONVEX_ADMIN_KEY is a deploy key for DASHFRAME_CONVEX_URL.",
-    );
-  }
-}
-
-/**
  * Connect to a Convex Cloud deployment and return it in the same shape the
  * host already consumes from the local backend.
  *
@@ -119,7 +84,6 @@ export async function connectConvexCloud(
 ): Promise<ConvexBackend> {
   const url = assertConvexCloudUrl(options.url);
   const endpoint = url.toString().replace(/\/+$/, "");
-  await configureDeploymentAuth(options, endpoint);
   let resolveClosed: () => void;
   const closed = new Promise<void>((resolve) => {
     resolveClosed = resolve;

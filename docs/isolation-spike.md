@@ -1,6 +1,6 @@
 # Per-workspace query isolation — feasibility spike
 
-Status: **local evidence complete; platform evidence NOT obtained.**
+Status: **complete. A mechanism is proven on the deployment platform: Landlock.**
 
 This records a bounded spike, not an implementation. It answers one question:
 can a hosted, multi-user DashFrame run each workspace's DuckDB queries inside a
@@ -124,57 +124,119 @@ Readings:
 | uid                         | 1000, no effective capabilities, `Seccomp: 0`                 |
 | `unprivileged_userns_clone` | 1                                                             |
 
-## What this does NOT establish
+## Result — Railway, 2026-09-07
 
-**This is a developer workstation, not the deployment platform.** Every number
-above is local evidence. The Railway container differs in at least three ways
-that decide the outcome, and none of them are knowable from here:
+The same probe, run on a disposable probe-only service in the production Railway
+project. Nothing was deployed to `dashframe-mcp`, the service had no volume, no
+variables and no domain, and it was deleted after the evidence was captured.
 
-1. Whether the container runtime permits **unprivileged user namespaces**. If it
-   does not, `bwrap` cannot enter and this mechanism is unavailable.
-2. What **seccomp profile** is applied. The local run had none (`Seccomp: 0`); a
-   container runtime typically applies one, and it may block `unshare`,
-   `clone3` with namespace flags, or `pivot_root`.
-3. Which **capabilities** the container retains. Locally there were none and
-   bubblewrap did not need any; a different runtime configuration could change
-   which fallback (`chroot` + uid drop) is even possible.
+Runtime it found there:
 
-So the platform question is open, and it is answered by running the same probe
-there — on a **disposable, probe-only service**, never on the service that runs
-the API. Putting a probe mode into the application's start script was considered
-and rejected: a stray variable on the serving service would take the API down.
+|                             |                                                                                           |
+| --------------------------- | ----------------------------------------------------------------------------------------- |
+| kernel                      | Linux 6.18.15+deb13-cloud-amd64                                                           |
+| uid / gid                   | 0 / 0                                                                                     |
+| effective capabilities      | `CAP_DAC_OVERRIDE`, `CAP_SETGID`, `CAP_SETUID`, `CAP_SYS_CHROOT` — **no `CAP_SYS_ADMIN`** |
+| seccomp                     | mode 2 (a filter is active)                                                               |
+| `unprivileged_userns_clone` | 1                                                                                         |
+| Landlock ABI                | 7                                                                                         |
 
-`deploy/sandbox-probe/` holds that disposable artifact:
+| candidate       | entered | join/aggregate                    | restrictions held | sentinel via fs | sentinel via DuckDB | network     | host env leaked | uid |
+| --------------- | ------- | --------------------------------- | ----------------- | --------------- | ------------------- | ----------- | --------------- | --- |
+| none (baseline) | yes     | `[["West",2,15],["East",1,7.25]]` | yes               | **readable**    | denied              | reachable   | **yes**         | 0   |
+| **landlock**    | **yes** | `[["West",2,15],["East",1,7.25]]` | yes               | denied          | denied              | unreachable | no              | 0   |
+| bubblewrap      | **no**  | —                                 | —                 | —               | —                   | —           | —               | —   |
+| unshare         | **no**  | —                                 | —                 | —               | —                   | —           | —               | —   |
 
-- `Dockerfile` — a minimal image containing the two probe scripts and the pinned
-  `@duckdb/node-api` and nothing else. No application source, no server, no
+### Mount-namespace sandboxes are unavailable on Railway
+
+```
+bwrap:   Creating new namespace failed: Permission denied
+unshare: unshare failed: Permission denied
+```
+
+The userns sysctls are permissive and `max_user_namespaces` is large, so this is
+not the kernel refusing namespaces on principle — a seccomp filter is active and
+the container holds no `CAP_SYS_ADMIN`. Every mount-based sandbox is out,
+bubblewrap included, and the local result for bubblewrap does not transfer.
+
+### Landlock is the mechanism
+
+Landlock needs no capability, no namespace and no mount operation: a process asks
+the kernel to permanently narrow its own filesystem and (from ABI 4) TCP access.
+`deploy/sandbox-probe/landlock-exec.c` does that and then execs the workload.
+On Railway it entered, ran the real join and aggregate correctly, and could reach
+neither the sentinel nor the network.
+
+Getting there took three iterations, and the failures are worth recording because
+each one is a trap for the implementation:
+
+1. Granting only `/usr`, `/lib`, `/bin` and the workspace made the child **hang**
+   until the probe killed it. A runtime denied `/proc/self` and `/etc` does not
+   fail with a clear error.
+2. With those added, DuckDB aborted inside the native library —
+   `terminate called after throwing an instance of 'duckdb::InternalException'`,
+   `"Attempted to dereference unique_ptr that is NULL!"`. Not catchable from
+   JavaScript and it names nothing. The cause was `/sys`: DuckDB sizes its buffer
+   pool from the container's cgroup limits.
+3. `HOME` has to point somewhere writable — DuckDB creates an extension directory
+   under it.
+
+The path set that works is `/usr /lib /lib64 /bin /sbin /proc /etc /sys /run` plus
+the application tree read-only, and the workspace, `/dev` and `/tmp` writable.
+
+`/var` is deliberately **not** granted, because `/var/tmp` is where the probe puts
+its out-of-sandbox sentinel. An earlier revision kept the sentinel in `/tmp`,
+which the Landlock candidate has to grant — the boundary test would have passed
+for the wrong reason.
+
+### What Landlock does not do
+
+It is a filesystem and TCP boundary, and nothing else. Stated plainly because the
+implementation must not assume otherwise:
+
+- **No environment isolation.** Clearing the environment stays the parent's job.
+  The probe measures this: the marker planted in the probe's own environment is
+  visible in the baseline and absent under Landlock only because the parent
+  passes an explicit minimal environment. Bubblewrap's `--clearenv` is the same
+  responsibility with more convenient packaging.
+- **No UDP, no raw sockets.** Landlock ABI 4 covers TCP bind and connect only.
+- **No process, IPC or PID isolation**, and no resource ceiling.
+- It does not make uid 0 into a lesser user. The container runs as root; Landlock
+  restricts that root process, which is the point, but it is not a substitute for
+  dropping privileges where that is also possible. `CAP_SETUID`, `CAP_SETGID` and
+  `CAP_SYS_CHROOT` are all present on Railway, so a uid drop can be layered on.
+
+### Reproducing it
+
+```sh
+context=$(deploy/sandbox-probe/stage.sh)
+(cd "$context" && railway link -p <project> -e <environment>)
+railway add --service sandbox-probe-disposable
+railway up "$context" --service sandbox-probe-disposable --ci
+railway logs --service sandbox-probe-disposable
+railway service delete --service sandbox-probe-disposable
+```
+
+`deploy/sandbox-probe/` is a disposable, probe-only artifact:
+
+- `Dockerfile` — a minimal image containing the two probe scripts, the Landlock
+  helper and the pinned `@duckdb/node-api`. No application source, no server, no
   Convex client, no vault code. It listens on no port and its `CMD` is the probe,
   which exits when finished.
 - `railway.toml` — `restartPolicyType = "NEVER"`. Not `ON_FAILURE`: the probe
   exits non-zero when it finds no usable sandbox, and that is the single most
   important result it can produce. Retrying it would turn that finding into a
   restart loop.
-- `stage.sh` — assembles the build context and prints the SHA-256 of every
-  staged file, so the deployed artifact can be tied to an exact source revision.
+- `stage.sh` — assembles the build context and prints the SHA-256 of every staged
+  file, so a deployed artifact can be tied to an exact source revision.
 
 The context is staged separately rather than deployed from the repository root
 precisely so the root `railway.toml` cannot apply to it — the application's start
 command would fail in this image, and its `ON_FAILURE` policy is the wrong one
-here.
-
-Give the probe service **no volume, no variables and no domain**. The variables
-matter most: an inherited credential would sit in the environment of the very
-process whose environment isolation is being measured.
-
-```sh
-context=$(deploy/sandbox-probe/stage.sh)
-(cd "$context" && railway up --service <disposable probe service>)
-```
-
-If the platform turns out not to permit it, that is a **deployment constraint to
-report**, not a cue to fall back to in-process separation. Settings-only
-confinement is defence in depth underneath an OS boundary; it is not a substitute
-for one, because it lives inside the process it is meant to contain.
+here. Give the probe service **no volume, no variables and no domain**: an
+inherited credential would sit in the environment of the very process whose
+environment isolation is being measured.
 
 ## Risks and open items
 
@@ -191,4 +253,9 @@ for one, because it lives inside the process it is meant to contain.
   no environment, no inherited descriptors, no credential material.
 - The probe's `unshare` candidate maps the caller to uid 0 inside the namespace.
   That is expected for `--map-root-user` and is not privilege on the host, but it
-  is worth not misreading in the table above.
+  is worth not misreading in the local table above.
+- **The local and platform answers differ, and the platform one governs.**
+  Bubblewrap works on a developer machine and does not work on Railway. Any
+  implementation must therefore treat the sandbox as a configured mechanism with
+  a startup self-check, not as something assumed present — and must refuse to
+  serve multi-user traffic if the check fails, rather than continuing without it.

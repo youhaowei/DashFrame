@@ -25,6 +25,7 @@ mkdir -p "$out/scripts" "$out/packages/engine-server/scripts" "$out/deploy/sandb
 cp "$here/Dockerfile" "$out/Dockerfile"
 cp "$here/railway.toml" "$out/railway.toml"
 cp "$here/package.json" "$out/deploy/sandbox-probe/package.json"
+cp "$here/landlock-exec.c" "$out/deploy/sandbox-probe/landlock-exec.c"
 cp "$root/scripts/sandbox-probe.ts" "$out/scripts/sandbox-probe.ts"
 cp "$root/packages/engine-server/scripts/sandbox-duck-child.ts" \
   "$out/packages/engine-server/scripts/sandbox-duck-child.ts"

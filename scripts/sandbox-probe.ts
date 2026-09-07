@@ -32,7 +32,6 @@
 import { spawn, spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
-import { tmpdir } from "node:os";
 import path from "node:path";
 
 const REPO_ROOT = path.dirname(import.meta.dirname);
@@ -101,12 +100,17 @@ interface CommandResult {
 function run(
   command: string,
   args: string[],
-  options: { timeoutMs?: number; env?: NodeJS.ProcessEnv } = {},
+  options: {
+    timeoutMs?: number;
+    env?: NodeJS.ProcessEnv;
+    cwd?: string;
+  } = {},
 ): Promise<CommandResult> {
   return new Promise((resolve) => {
     const child = spawn(command, args, {
       stdio: ["ignore", "pipe", "pipe"],
       env: options.env ?? process.env,
+      ...(options.cwd ? { cwd: options.cwd } : {}),
     });
     let stdout = "";
     let stderr = "";
@@ -170,11 +174,57 @@ interface Candidate {
   available: boolean;
   /** Build the argv that runs `bun <child> <workdir> <sentinel>` under this sandbox. */
   wrap(workdir: string, sentinel: string): { command: string; args: string[] };
+  /**
+   * The environment the child is launched with. Omitted means "inherit the
+   * probe's", which is the honest default: a mechanism that does not isolate
+   * the environment should be measured as not isolating it.
+   */
+  env?(workdir: string): NodeJS.ProcessEnv;
+  /** Working directory for the child, where the mechanism does not set one. */
+  cwd?(workdir: string): string;
 }
 
 function bunPath(): string {
   return process.execPath;
 }
+
+/**
+ * Built into the probe image from `deploy/sandbox-probe/landlock-exec.c`.
+ * Absent on a developer machine unless it was compiled there, in which case the
+ * candidate reports UNAVAILABLE rather than failing.
+ */
+const LANDLOCK_EXEC = "/usr/local/bin/landlock-exec";
+
+/**
+ * Directories the sandboxed child needs to READ to be able to run at all: the
+ * runtime, its shared libraries, and the probe tree that holds the workload and
+ * its node_modules. Everything not named here — including the sentinel — is
+ * outside the sandbox.
+ */
+const RUNTIME_READ_PATHS = [
+  "/usr",
+  "/lib",
+  "/lib64",
+  "/bin",
+  "/sbin",
+  // Not optional: a Bun process reads its own /proc entries and /etc during
+  // start-up, and without them it blocks rather than failing loudly.
+  "/proc",
+  "/etc",
+  // DuckDB sizes its buffer pool from the container's cgroup limits, which live
+  // under /sys/fs/cgroup. Denying it aborts the process inside the native
+  // library ("Attempted to dereference unique_ptr that is NULL!") rather than
+  // raising something JavaScript can catch, so the failure gives no clue what
+  // it wanted.
+  "/sys",
+  "/run",
+];
+// Never granted: /var, because /var/tmp holds the out-of-sandbox sentinel.
+// Adding it here would make the boundary test pass for the wrong reason.
+/** Scratch the runtime writes to: /dev/null and friends, and temp files. */
+const RUNTIME_WRITE_PATHS = ["/dev", "/tmp"];
+/** Where the out-of-sandbox sentinel lives. Granted to no candidate. */
+const SENTINEL_ROOT = "/var/tmp";
 
 function candidates(): Candidate[] {
   const list: Candidate[] = [];
@@ -257,6 +307,34 @@ function candidates(): Candidate[] {
   });
 
   list.push({
+    name: "landlock",
+    note: "Unprivileged LSM self-restriction. Needs no capability, no namespace and no mount operation, which is the reason to try it where mount-based sandboxes are refused. Filesystem only (plus TCP from ABI 4) — it says nothing about UDP or raw sockets.",
+    available: have(LANDLOCK_EXEC),
+    wrap: (workdir, sentinel) => ({
+      command: LANDLOCK_EXEC,
+      args: [
+        [workdir, ...RUNTIME_WRITE_PATHS].join(":"),
+        [...RUNTIME_READ_PATHS, REPO_ROOT].join(":"),
+        "--",
+        bunPath(),
+        CHILD,
+        workdir,
+        sentinel,
+      ],
+    }),
+    // Landlock restricts the filesystem and TCP. It says nothing about the
+    // environment, so clearing that stays the parent's job — as it is with any
+    // mechanism; bubblewrap's --clearenv is a convenience, not a property of
+    // namespaces. HOME points into the workspace because DuckDB writes an
+    // extension directory under it and aborts hard if it cannot.
+    env: (workdir) => ({
+      PATH: "/usr/local/bin:/usr/bin:/bin",
+      HOME: workdir,
+    }),
+    cwd: (workdir) => workdir,
+  });
+
+  list.push({
     name: "unshare (user+net+mount)",
     note: "Namespaces without bubblewrap. Proves the kernel permits unprivileged namespace creation even if bwrap is not installed in the image.",
     available: have("unshare"),
@@ -283,6 +361,9 @@ function candidates(): Candidate[] {
 async function main(): Promise<void> {
   const report: Record<string, unknown> = {};
   report.platform = process.platform;
+  report.kernel = (
+    spawnSync("uname", ["-sr"], { encoding: "utf8" }).stdout ?? ""
+  ).trim();
   report.node = process.version;
   report.uid = process.getuid?.() ?? null;
   report.gid = process.getgid?.() ?? null;
@@ -302,22 +383,43 @@ async function main(): Promise<void> {
     bwrap: have("bwrap"),
     unshare: have("unshare"),
     setpriv: have("setpriv"),
+    chroot: have("chroot"),
+    landlockExec: have(LANDLOCK_EXEC),
   };
+  // Two mechanisms that need no mount operation, probed for availability
+  // separately from the candidate runs below so that "the tool is missing" and
+  // "the tool ran and the sandbox did not hold" stay distinguishable.
+  report.chrootPermitted = (
+    await run("chroot", ["/", "/bin/true"], { timeoutMs: 10_000 })
+  ).ok;
+  report.uidDropPermitted = (
+    await run(
+      "setpriv",
+      ["--reuid", "65534", "--regid", "65534", "--clear-groups", "/bin/true"],
+      { timeoutMs: 10_000 },
+    )
+  ).ok;
 
   console.log("=== runtime ===");
   console.log(JSON.stringify(report, null, 2));
 
   await mkdir(WORKSPACE_ROOT, { recursive: true });
-  // The sentinel deliberately lives OUTSIDE every path the sandbox is given:
-  // the OS temp directory, which is never bound in. A sandbox that can still
-  // read it is not isolating the filesystem.
-  const root = await mkdtemp(path.join(tmpdir(), "df-sandbox-probe-"));
+  // The sentinel deliberately lives OUTSIDE every path any candidate is given.
+  // `/var/tmp` rather than `/tmp` specifically: the Landlock candidate has to
+  // grant `/tmp` because the runtime writes there, so a sentinel in `/tmp`
+  // would be legitimately readable and the test would quietly stop meaning
+  // anything. `/var/tmp` exists on every image here, is writable, and is named
+  // by no candidate.
+  const root = await mkdtemp(path.join(SENTINEL_ROOT, "df-sandbox-probe-"));
   // Disposable, non-secret. If a sandbox can read this, it could read anything
   // else the host process can — that is the whole point of the marker.
   const sentinel = path.join(root, "sentinel.txt");
   const marker = `DASHFRAME-SENTINEL-${randomBytes(8).toString("hex")}`;
   await writeFile(sentinel, marker, { mode: 0o600 });
-  const envMarker = `DASHFRAME-ENV-SENTINEL-${randomBytes(8).toString("hex")}`;
+  // Planted in the PROBE's own environment, standing in for the credentials the
+  // real host process carries. Candidates that inherit the environment show it
+  // straight back; that is the measurement, not an accident of the harness.
+  process.env.DF_HOST_SECRET_SENTINEL = `DASHFRAME-ENV-SENTINEL-${randomBytes(8).toString("hex")}`;
 
   console.log("\n=== candidates ===");
   const results: Array<Record<string, unknown>> = [];
@@ -331,10 +433,8 @@ async function main(): Promise<void> {
     const { command, args } = candidate.wrap(workdir, sentinel);
     const result = await run(command, args, {
       timeoutMs: 120_000,
-      // Stands in for the credentials the real host process carries in its
-      // environment. A sandbox that does not clear the environment shows this
-      // straight back, which is the point of planting it.
-      env: { ...process.env, DF_HOST_SECRET_SENTINEL: envMarker },
+      env: candidate.env?.(workdir),
+      cwd: candidate.cwd?.(workdir),
     });
     const verdict = parseVerdict(result);
     const entered = result.ok || verdict.duckdbWorks !== undefined;

@@ -6,8 +6,8 @@
 # service that serves traffic.
 #
 # Deliberately minimal, and deliberately not the app image:
-#   - It contains the two probe scripts and one dependency, nothing else. No
-#     application source, no server, no Convex client, no vault code.
+#   - It contains the two probe scripts, the sandbox helper and one dependency,
+#     nothing else. No application source, no server, no Convex client, no vault.
 #   - It listens on no port and has no start command other than the probe.
 #   - The probe process exits when it is done. Pair it with a NEVER restart
 #     policy so a completed probe does not become a restart loop.
@@ -16,16 +16,23 @@
 #     environment isolation is being measured.
 FROM oven/bun:1.3.5
 
-# The sandbox mechanism under test. Installed at build time so that its absence
-# fails the build rather than silently degrading the measurement.
+# bubblewrap is one candidate mechanism. gcc/libc6-dev build the Landlock
+# helper, which is the candidate that matters where mount-based sandboxes are
+# refused. Both are installed at build time so an absent tool is a build failure
+# rather than a silently skipped measurement.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends bubblewrap \
+  && apt-get install -y --no-install-recommends bubblewrap gcc libc6-dev \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /probe
 
-# The single dependency, pinned to the same version the product uses — a probe
-# against a different DuckDB build would not be evidence about the product.
+COPY deploy/sandbox-probe/landlock-exec.c /tmp/landlock-exec.c
+RUN gcc -O2 -Wall -Wextra -o /usr/local/bin/landlock-exec /tmp/landlock-exec.c \
+  && rm /tmp/landlock-exec.c
+
+# The single runtime dependency, pinned to the same version the product uses —
+# a probe against a different DuckDB build would not be evidence about the
+# product.
 COPY deploy/sandbox-probe/package.json ./package.json
 RUN bun install
 
