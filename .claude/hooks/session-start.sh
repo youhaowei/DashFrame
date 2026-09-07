@@ -85,18 +85,29 @@ for sub in $(git config --file .gitmodules --get-regexp 'submodule\..*\.path' | 
   git submodule update --init --recursive $force -- "$sub"
 done
 
-# 2. Workspace dependencies, once per checkout with the lockfile honored
-#    as-is. `node_modules` existing is not proof of success (an interrupted
-#    install leaves a partial tree), so completion is recorded in a marker
-#    written only after the install exits 0. The marker lives inside
-#    node_modules so it is gitignored and disappears with a clean.
+# 2. Workspace dependencies, once per checkout revision with the lockfile
+#    honored as-is. `node_modules` existing is not proof of success (an
+#    interrupted install leaves a partial tree), and a marker alone would go
+#    stale when the lockfile or a manifest changes on a resumed checkout. So
+#    the marker stores a fingerprint of bun.lock and every tracked
+#    package.json, written only after the install exits 0; a mismatch
+#    re-runs the frozen install. The marker lives inside node_modules so it
+#    is gitignored and disappears with a clean.
 install_marker=node_modules/.session-start-installed
-if [ -f "$install_marker" ]; then
-  log "dependencies installed (marker present); skipping install"
+deps_fingerprint=$(
+  { cat bun.lock; git ls-files -z -- package.json '*/package.json' | xargs -0 cat; } \
+    | sha256sum | awk '{print $1}'
+)
+if [ -f "$install_marker" ] && [ "$(cat "$install_marker")" = "$deps_fingerprint" ]; then
+  log "dependencies installed for this lockfile/manifest set; skipping install"
 else
-  log "installing dependencies"
+  if [ -f "$install_marker" ]; then
+    log "lockfile or manifests changed since last install; reinstalling"
+  else
+    log "installing dependencies"
+  fi
   bun install --frozen-lockfile
-  : > "$install_marker"
+  printf '%s\n' "$deps_fingerprint" > "$install_marker"
 fi
 
 # 3. Built output for @wystack/* — @dashframe/* imports resolve against dist.
