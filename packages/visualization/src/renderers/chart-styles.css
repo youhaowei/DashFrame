@@ -1,0 +1,39 @@
+/* Chart roles derive from the shared palette and track light/dark tokens. */
+.dashframe-chart {
+  --dashframe-chart-grid: var(--neutral-border);
+  --dashframe-chart-accent: color-mix(
+    in oklab,
+    var(--palette-info) 72%,
+    var(--neutral-fg-subtle)
+  );
+}
+
+.dashframe-chart svg {
+  font-variant-numeric: tabular-nums;
+}
+
+.dashframe-chart [aria-label="x-grid"],
+.dashframe-chart [aria-label="y-grid"] {
+  stroke: var(--dashframe-chart-grid);
+  stroke-opacity: 0.8;
+}
+
+/* A single scrollable row keeps long legends reachable without taking space
+   from the chart's reserved plotting area or overflowing a report tile. */
+.dashframe-chart-with-legend {
+  flex-direction: column-reverse;
+}
+
+.dashframe-chart-with-legend > svg {
+  flex-shrink: 0;
+}
+
+.dashframe-chart-with-legend > .legend {
+  display: flex;
+  align-items: center;
+  flex: 0 0 36px;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-inline: 16px;
+}

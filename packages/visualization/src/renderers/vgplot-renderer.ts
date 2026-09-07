@@ -27,6 +27,8 @@
  * ```
  */
 
+import type { RenderFunction } from "@observablehq/plot";
+import "./chart-styles.css";
 import { quoteIdentifier } from "@dashframe/engine";
 import type { ChartEncoding, VisualizationType } from "@dashframe/types";
 import type {
@@ -85,13 +87,6 @@ function colorToHex(color: string): string {
 
   // Set the color and draw a pixel
   ctx.fillStyle = color;
-
-  // Check if color was successfully set (invalid colors result in black or unchanged)
-  const appliedColor = ctx.fillStyle;
-  if (appliedColor === "#000000" || appliedColor === "#000") {
-    console.warn(`[colorToHex] Color conversion failed for: "${color}"`);
-    return "#64748b"; // Fallback to slate-500
-  }
 
   ctx.fillRect(0, 0, 1, 1);
 
@@ -212,52 +207,106 @@ function parseEncodingValue(
 // ============================================================================
 
 /**
- * Get the default fill color from CSS variables.
+ * Plot's bar width is the categorical scale bandwidth, not a mark `width`.
+ * Its synchronous render transform lets us inset each band before Plot draws
+ * it, using the current layout on every render (including resize).
  */
-function getDefaultFillColor(): string | undefined {
-  const styles = getComputedStyle(document.documentElement);
-  const chart1Color = styles.getPropertyValue("--chart-1").trim();
-  return chart1Color ? colorToHex(chart1Color) : undefined;
+type BarRenderState = {
+  insetLeft: number;
+  insetRight: number;
+  insetTop: number;
+  insetBottom: number;
+  rx1y1: number;
+  rx1y2: number;
+  rx2y1: number;
+  rx2y2: number;
+};
+
+function roundBarEnd(
+  mark: BarRenderState,
+  isHorizontal: boolean,
+  reverse: boolean,
+) {
+  mark.rx1y1 = reverse ? 3 : 0;
+  mark.rx1y2 = isHorizontal === reverse ? 3 : 0;
+  mark.rx2y1 = isHorizontal !== reverse ? 3 : 0;
+  mark.rx2y2 = reverse ? 0 : 3;
 }
 
-/**
- * Get bar chart styling options (width, padding, rounded corners).
- *
- * @param isStacked - Whether the chart has color encoding (stacked bars)
- * @param isHorizontal - Whether this is a horizontal bar chart
- */
-function getBarChartOptions(
-  isStacked: boolean,
+function renderRoundedBars(
+  mark: BarRenderState,
   isHorizontal: boolean,
-): Record<string, unknown> {
-  const options: Record<string, unknown> = {
-    width: 0.6, // Bar width as fraction of band (60% of available space)
-    padding: 0.2, // Padding between bars (20% of band)
-  };
-
-  // Read border radius from CSS variable to match app theme
-  const styles = getComputedStyle(document.documentElement);
-  const radiusValue = styles.getPropertyValue("--radius").trim();
-  if (radiusValue) {
-    // Parse rem value (e.g., "0.625rem" → 10px at 16px base)
-    const radiusInPx = parseFloat(radiusValue) * 16 * 0.6;
-
-    if (!isStacked) {
-      // Round only the outer end of the bar (where the value terminates)
-      // - Vertical bars (barY): round top corners (ry1)
-      // - Horizontal bars (barX): round right corners (rx2)
-      if (isHorizontal) {
-        options.rx2 = radiusInPx;
-      } else {
-        options.ry1 = radiusInPx;
-      }
-    } else {
-      options.rx = radiusInPx; // Round all corners
-      options.ry = radiusInPx;
-    }
+  ...[
+    index,
+    scales,
+    values,
+    dimensions,
+    context,
+    next,
+  ]: Parameters<RenderFunction>
+) {
+  if (!next) return null;
+  const start = values[isHorizontal ? "x1" : "y1"];
+  const end = values[isHorizontal ? "x2" : "y2"];
+  if (!start || !end) return next(index, scales, values, dimensions, context);
+  const towardsStart = index.filter((i) => end[i] < start[i]);
+  const towardsEnd = index.filter((i) => end[i] >= start[i]);
+  const group = context.document.createElementNS(
+    "http://www.w3.org/2000/svg",
+    "g",
+  );
+  for (const [indices, reverse] of [
+    [towardsStart, true],
+    [towardsEnd, false],
+  ] as const) {
+    if (!indices.length) continue;
+    roundBarEnd(mark, isHorizontal, reverse);
+    const node = next(indices, scales, values, dimensions, context);
+    if (node) group.appendChild(node);
   }
+  return group;
+}
 
-  return options;
+function barRenderTransform(
+  isHorizontal: boolean,
+  isStacked: boolean,
+): RenderFunction {
+  return function (this: BarRenderState, ...args) {
+    const [index, scales, values, dimensions, context, next] = args;
+    if (!next) return null;
+    const scale = scales[isHorizontal ? "y" : "x"];
+    if (
+      !scale ||
+      !("bandwidth" in scale) ||
+      typeof scale.bandwidth !== "function"
+    ) {
+      return next(index, scales, values, dimensions, context);
+    }
+    const bandwidth = Number(scale.bandwidth());
+    // Preserve a gap in dense charts and cap sparse charts at 48px.
+    const inset = (bandwidth - Math.min(48, bandwidth * 0.8)) / 2;
+    const previous = {
+      insetLeft: this.insetLeft,
+      insetRight: this.insetRight,
+      insetTop: this.insetTop,
+      insetBottom: this.insetBottom,
+      rx1y1: this.rx1y1,
+      rx1y2: this.rx1y2,
+      rx2y1: this.rx2y1,
+      rx2y2: this.rx2y2,
+    };
+    if (isHorizontal) this.insetTop = this.insetBottom = inset;
+    else this.insetLeft = this.insetRight = inset;
+    try {
+      // Stack joints remain square and contiguous. For a single series, round
+      // only the value end; screen direction reverses for negative values.
+      return isStacked
+        ? next(index, scales, values, dimensions, context)
+        : renderRoundedBars(this, isHorizontal, ...args);
+    } finally {
+      Object.assign(this, previous);
+    }
+  };
 }
 
 /**
@@ -268,6 +317,7 @@ function buildEncodingOptions(
   api: VgplotAPI,
   encoding: ChartEncoding,
   chartType?: VisualizationType,
+  theme?: ChartConfig["theme"],
 ) {
   const options: Record<string, unknown> = {};
 
@@ -288,8 +338,9 @@ function buildEncodingOptions(
       options.z = color;
     }
   } else {
-    const defaultColor = getDefaultFillColor();
-    if (defaultColor) options[colorProperty] = defaultColor;
+    options[colorProperty] = theme?.accentColor
+      ? colorToHex(theme.accentColor)
+      : "var(--dashframe-chart-accent)";
   }
 
   // Line chart styling
@@ -302,7 +353,7 @@ function buildEncodingOptions(
   // Bar chart styling (both vertical and horizontal)
   if (chartType === "barY" || chartType === "barX") {
     const isHorizontal = chartType === "barX";
-    Object.assign(options, getBarChartOptions(!!encoding.color, isHorizontal));
+    options.render = barRenderTransform(isHorizontal, !!encoding.color);
   }
 
   return options;
@@ -311,7 +362,7 @@ function buildEncodingOptions(
 /**
  * Get chart colors from CSS variables and convert to hex.
  */
-function getChartColors(): string[] {
+function getChartColors(container: HTMLElement): string[] {
   const styles = getComputedStyle(document.documentElement);
   const rawColors = [
     styles.getPropertyValue("--chart-1").trim(),
@@ -321,13 +372,44 @@ function getChartColors(): string[] {
     styles.getPropertyValue("--chart-5").trim(),
   ].filter(Boolean);
 
-  return rawColors.map((color) => colorToHex(color));
+  if (rawColors.length > 0) {
+    // Continuous color scales need a concrete color to interpolate. Resolve the
+    // same scoped token used by single-series marks before handing it to Plot.
+    const swatch = document.createElement("span");
+    swatch.className = "dashframe-chart";
+    swatch.hidden = true;
+    swatch.style.color = "var(--dashframe-chart-accent)";
+    container.appendChild(swatch);
+    try {
+      const computed = getComputedStyle(swatch);
+      if (computed.getPropertyValue("--dashframe-chart-accent").trim()) {
+        rawColors[0] = computed.color;
+      }
+    } finally {
+      swatch.remove();
+    }
+  }
+  return rawColors.map(colorToHex);
 }
 
 /**
  * Build sizing options for the plot.
  */
-function buildSizingOptions(api: VgplotAPI, config: ChartConfig): unknown[] {
+const COLOR_LEGEND_HEIGHT = 36;
+
+function hasColorLegend(type: VisualizationType, config: ChartConfig): boolean {
+  return (
+    !config.preview &&
+    !!config.encoding.color &&
+    ["barY", "barX", "line", "areaY", "dot"].includes(type)
+  );
+}
+
+function buildSizingOptions(
+  api: VgplotAPI,
+  config: ChartConfig,
+  legend: boolean,
+): unknown[] {
   const options: unknown[] = [];
 
   if (config.width === "container") {
@@ -339,7 +421,11 @@ function buildSizingOptions(api: VgplotAPI, config: ChartConfig): unknown[] {
   if (config.height === "container") {
     options.push(api.height("container"));
   } else if (typeof config.height === "number") {
-    options.push(api.height(config.height));
+    options.push(
+      api.height(
+        Math.max(1, config.height - (legend ? COLOR_LEGEND_HEIGHT : 0)),
+      ),
+    );
   }
 
   return options;
@@ -371,17 +457,25 @@ function buildPreviewAxisOptions(
 function buildMetricAxisOptions(
   api: VgplotAPI,
   chartType: VisualizationType,
+  config: ChartConfig,
 ): unknown[] {
   const options: unknown[] = [];
+  const extent = chartType === "barX" ? config.width : config.height;
+  const pixelsPerTick = chartType === "barX" ? 100 : 70;
+  const ticks =
+    typeof extent === "number"
+      ? Math.max(2, Math.min(4, Math.floor((extent - 72) / pixelsPerTick)))
+      : 4;
   // Apply SI notation formatting to the metric axis
   // For horizontal bar charts, the metric (value) is on the X-axis
   // For vertical bar/line/area charts, the metric is on the Y-axis
   if (chartType === "barX") {
     options.push(api.xTickFormat("~s"));
-    options.push(api.xGrid(true));
+    options.push(api.xGrid(true), api.xTicks(ticks), api.xZero(true));
   } else {
     options.push(api.yTickFormat("~s"));
-    options.push(api.yGrid(true));
+    options.push(api.yGrid(true), api.yTicks(ticks));
+    if (chartType === "barY") options.push(api.yZero(true));
   }
   return options;
 }
@@ -438,16 +532,23 @@ function buildAxisOptions(
   api: VgplotAPI,
   isPreview: boolean,
   chartType: VisualizationType,
-  encoding?: ChartEncoding,
+  config: ChartConfig,
 ): unknown[] {
+  const encoding = config.encoding;
   if (isPreview) {
     return buildPreviewAxisOptions(api, chartType, encoding);
   }
 
   const options: unknown[] = [
     api.marginRight(20),
-    api.marginTop(20),
-    ...buildMetricAxisOptions(api, chartType),
+    api.marginTop(24),
+    api.marginBottom(48),
+    api.marginLeft(56),
+    api.xLabelArrow(false),
+    api.yLabelArrow(false),
+    api.xTickSize(0),
+    api.yTickSize(0),
+    ...buildMetricAxisOptions(api, chartType, config),
     ...buildScaleOptions(api, chartType, encoding),
     ...buildLabelOptions(api, encoding),
   ];
@@ -665,9 +766,10 @@ function buildMark(
   type: VisualizationType,
   tableName: string,
   encoding: ChartEncoding,
+  theme?: ChartConfig["theme"],
 ) {
   const source = api.from(tableName);
-  const options = buildEncodingOptions(api, encoding, type);
+  const options = buildEncodingOptions(api, encoding, type, theme);
 
   switch (type) {
     case "barY":
@@ -794,19 +896,59 @@ export function createVgplotRenderer(api: VgplotAPI): ChartRenderer {
 
         // Create and mount the plot
         const plot = api.plot(...plotOptions);
+        plot.classList.add("dashframe-chart");
+        if (hasColorLegend(type, config)) {
+          plot.classList.add("dashframe-chart-with-legend");
+        }
+        if (config.theme?.borderColor) {
+          plot.style.setProperty(
+            "--dashframe-chart-grid",
+            config.theme.borderColor,
+          );
+        }
         container.appendChild(plot);
       };
 
       try {
         // Build plot options
-        const mark = buildMark(api, type, config.tableName, config.encoding);
-        const chartColors = getChartColors();
+        const mark = buildMark(
+          api,
+          type,
+          config.tableName,
+          config.encoding,
+          config.theme,
+        );
+        const chartColors = getChartColors(container);
+        const legend = hasColorLegend(type, config);
 
         const plotOptions: unknown[] = [
           mark,
-          ...buildSizingOptions(api, config),
-          ...buildAxisOptions(api, !!config.preview, type, config.encoding),
+          api.style({
+            fontFamily: config.theme?.fontFamily ?? "inherit",
+            fontSize: `${config.theme?.fontSize ?? 12}px`,
+            color: config.theme?.textColor ?? "var(--neutral-fg-subtle)",
+            background: config.theme?.backgroundColor ?? "transparent",
+          }),
+          ...buildSizingOptions(api, config, legend),
+          ...buildAxisOptions(api, !!config.preview, type, config),
         ];
+
+        if (legend) {
+          plotOptions.push(
+            api.colorLegend({
+              swatchSize: 10,
+              style: {
+                fontFamily: config.theme?.fontFamily ?? "inherit",
+                fontSize: `${config.theme?.fontSize ?? 12}px`,
+                color: config.theme?.textColor ?? "var(--neutral-fg-subtle)",
+                flexWrap: "nowrap",
+                whiteSpace: "nowrap",
+                minHeight: "24px",
+                marginBottom: "0",
+              },
+            }),
+          );
+        }
 
         // Apply color scheme
         if (chartColors.length > 0) {
