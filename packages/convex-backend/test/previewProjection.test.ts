@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import { cmd } from "@dashframe/types";
 import schema from "../convex/schema";
 import { api } from "../convex/_generated/api";
+import { Graph } from "../convex/graph";
 
 const modules = import.meta.glob("../convex/**/*.ts");
 const makeTest = () => convexTest(schema, modules);
@@ -135,4 +136,53 @@ it("reports the cascade of a deleted data source as orphaned downstream nodes", 
       ["visualization", visualizationId, "orphaned"],
     ].sort((a, b) => String(a[1]).localeCompare(String(b[1]))),
   );
+});
+
+it("reports a data frame linked through a deleted parent artifact", async () => {
+  const sourceId = uuid();
+  const frameId = uuid();
+  await user.mutation(api.app.commitBatch, {
+    commands: [
+      cmd("CreateDataSource", {
+        id: sourceId,
+        type: "csv",
+        name: "Source",
+      }),
+    ],
+  });
+  await t.run((ctx) =>
+    ctx.db.insert("dataFrames", {
+      workspaceId: "workspace",
+      id: frameId,
+      revision: 1,
+      name: "Derived frame",
+      createdAt: Date.now(),
+      parentArtifactId: sourceId,
+      storage: { type: "file", key: frameId },
+      fieldIds: [],
+    }),
+  );
+
+  const diff = await user.query(api.app.previewDiff, {
+    commands: [cmd("DeleteNode", { id: sourceId })],
+  });
+
+  expect(diff.affectedDownstream).toContainEqual({
+    nodeId: frameId,
+    kind: "dataFrame",
+    name: "Derived frame",
+    edge: "parentArtifact",
+    via: { kind: "dataSource", id: sourceId },
+    flag: "orphaned",
+  });
+});
+
+it("rejects an unselected data frame scan after a recovery list read", async () => {
+  await t.run(async (ctx) => {
+    const graph = new Graph(ctx, "workspace");
+    expect(await graph.list("dataFrames")).toEqual([]);
+    await expect(graph.scan("dataFrames")).rejects.toThrow(
+      "Data frames are never scanned whole; select them through an index",
+    );
+  });
 });

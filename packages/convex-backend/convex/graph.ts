@@ -18,6 +18,7 @@ export type Where = {
   sourceId?: string;
   definitionId?: string;
   dataFrameId?: string;
+  parentArtifactId?: string;
 };
 export type Change = {
   table: ArtifactTable;
@@ -171,7 +172,7 @@ export class Graph {
   }
   /** Load one index range (or a whole user-authored table) into the graph, once. */
   private async load(table: ArtifactTable, where: Where, whole: boolean) {
-    const cacheKey = `${table}|${stable(where)}`;
+    const cacheKey = `${table}|${whole}|${stable(where)}`;
     if (this.scanned.has(cacheKey)) return;
     const docs = await this.select(table, where, whole);
     if (docs.length > LIMIT) throw new ConvexError(capMessage(table));
@@ -233,6 +234,14 @@ export class Graph {
       return q
         .withIndex("by_workspaceId_and_dataFrameId", (q) =>
           q.eq("workspaceId", ws).eq("dataFrameId", where.dataFrameId),
+        )
+        .take(LIMIT + 1);
+    if (where.parentArtifactId !== undefined)
+      return q
+        .withIndex("by_workspaceId_and_parentArtifactId", (q) =>
+          q
+            .eq("workspaceId", ws)
+            .eq("parentArtifactId", where.parentArtifactId),
         )
         .take(LIMIT + 1);
     if (table === "dataFrames" && !whole)
@@ -304,6 +313,9 @@ function matches(row: ArtifactRow, where: Where): boolean {
     (where.sourceId === undefined || row.sourceId === where.sourceId) &&
     (where.definitionId === undefined ||
       row.definitionId === where.definitionId) &&
-    (where.dataFrameId === undefined || row.dataFrameId === where.dataFrameId)
+    (where.dataFrameId === undefined ||
+      row.dataFrameId === where.dataFrameId) &&
+    (where.parentArtifactId === undefined ||
+      row.parentArtifactId === where.parentArtifactId)
   );
 }

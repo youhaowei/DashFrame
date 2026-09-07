@@ -188,23 +188,24 @@ function edge(
  * Rows a downstream edge could originate from, as they stood before the
  * commands ran: a delete cascade must still report the rows it removes as
  * orphaned. Read through indexes where one exists. User-authored tables are
- * bounded scans (cached per graph); frames are reached only through their
- * owning insight.
+ * bounded scans (cached per graph); frames are reached through their owning
+ * insight or cross-cutting parent artifact.
  */
 async function neighbours(
   graph: Graph,
   from: { table: ArtifactTable; id: string },
 ): Promise<[ArtifactTable, ArtifactRow][]> {
-  const out: [ArtifactTable, ArtifactRow][] = [];
+  const out = new Map<string, [ArtifactTable, ArtifactRow]>();
   const add = async (table: ArtifactTable, where?: Where) => {
     for (const row of await graph.scanBaseline(table, where))
-      out.push([table, row]);
+      out.set(graphKey(table, row.id), [table, row]);
   };
   for (const table of artifactTables)
     if (table === "dataFrames") {
       if (from.table === "insights") await add(table, { insightId: from.id });
+      await add(table, { parentArtifactId: from.id });
     } else await add(table);
-  return out;
+  return [...out.values()];
 }
 export async function preview(
   graph: Graph,
