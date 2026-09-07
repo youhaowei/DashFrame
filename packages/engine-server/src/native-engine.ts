@@ -77,6 +77,12 @@ async function applyAccessRestrictions(
 }
 
 export interface NativeDuckDBEngineOptions {
+  /** Additional fixed limits for an OS-isolated worker; never a sandbox alone. */
+  sandboxLimits?: {
+    memoryBytes: number;
+    threads: number;
+    maxResultRows: number;
+  };
   /**
    * DuckDB database path. Default `:memory:` — an in-memory database.
    *
@@ -112,6 +118,7 @@ export interface NativeDuckDBEngineOptions {
 }
 
 export class NativeDuckDBEngine implements QueryEngine {
+  private readonly sandboxLimits: NativeDuckDBEngineOptions["sandboxLimits"];
   private readonly databasePath: string;
   private readonly restrictFileAccess: boolean;
   private instance: DuckDBInstance | null = null;
@@ -145,6 +152,14 @@ export class NativeDuckDBEngine implements QueryEngine {
   private _registrationLock: Promise<void> = Promise.resolve();
 
   constructor(options: NativeDuckDBEngineOptions = {}) {
+    this.sandboxLimits = options.sandboxLimits;
+    if (
+      this.sandboxLimits &&
+      Object.values(this.sandboxLimits).some(
+        (value) => !Number.isSafeInteger(value) || value <= 0,
+      )
+    )
+      throw new Error("Invalid sandbox engine limits");
     this.databasePath = options.databasePath ?? ":memory:";
     this.restrictFileAccess = options.restrictFileAccess ?? true;
   }
@@ -156,7 +171,18 @@ export class NativeDuckDBEngine implements QueryEngine {
     // both awaits resolve) would let two callers both create an instance. Latch
     // the first call's promise and hand it to everyone else.
     this.initPromise ??= (async () => {
-      const instance = await DuckDBInstance.create(this.databasePath);
+      const instance = await DuckDBInstance.create(
+        this.databasePath,
+        this.sandboxLimits
+          ? {
+              memory_limit: `${this.sandboxLimits.memoryBytes}B`,
+              threads: String(this.sandboxLimits.threads),
+              temp_directory: "",
+              autoinstall_known_extensions: "false",
+              autoload_known_extensions: "false",
+            }
+          : undefined,
+      );
       let connection: Connection;
       try {
         connection = await instance.connect();
@@ -233,10 +259,19 @@ export class NativeDuckDBEngine implements QueryEngine {
     sql: string,
     params: readonly unknown[] = [],
   ): Promise<Uint8Array> {
-    const reader =
-      params.length > 0
-        ? await this.conn().runAndReadAll(sql, params as DuckDBValue[])
-        : await this.conn().runAndReadAll(sql);
+    const values = params.length > 0 ? (params as DuckDBValue[]) : undefined;
+    const reader = this.sandboxLimits
+      ? await this.conn().runAndReadUntil(
+          sql,
+          this.sandboxLimits.maxResultRows + 1,
+          values,
+        )
+      : await this.conn().runAndReadAll(sql, values);
+    if (
+      this.sandboxLimits &&
+      reader.currentRowCount > this.sandboxLimits.maxResultRows
+    )
+      throw new Error("Sandbox result row limit exceeded");
     const columnNames = reader.columnNames();
     const columnTypes = reader.columnTypes();
     const columnsObject = reader.getColumnsObjectJson() as Record<
