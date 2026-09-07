@@ -1081,6 +1081,7 @@ describe("existing command behavior on native Convex", () => {
     const { tableId } = await makeTable();
     const fieldId = id();
     const insightId = id();
+    const passThroughId = id();
     const metricId = id();
     const fieldAlias = `field_${fieldId.replaceAll("-", "_")}`;
     await commit(
@@ -1118,6 +1119,16 @@ describe("existing command behavior on native Convex", () => {
         id: insightId,
         sorts: [{ field: fieldAlias, direction: "asc" }],
       }),
+      cmd("CreateInsight", {
+        id: passThroughId,
+        name: "All quantities",
+        source: { sourceType: "dataTable", sourceId: tableId },
+        selectedFields: [],
+      }),
+      cmd("SetInsightSort", {
+        id: passThroughId,
+        sorts: [{ field: fieldAlias, direction: "desc" }],
+      }),
     );
 
     expect((await insightsById(insightId))[0]?.definition).toMatchObject({
@@ -1125,6 +1136,10 @@ describe("existing command behavior on native Convex", () => {
       metrics: [{ id: metricId, columnName: fieldAlias }],
       filters: [{ field: fieldAlias }],
       sorts: [{ field: fieldAlias }],
+    });
+    expect((await insightsById(passThroughId))[0]?.definition).toMatchObject({
+      selectedFields: [],
+      sorts: [{ field: fieldAlias, direction: "desc" }],
     });
   });
   it("rejects a dashboard item whose visualization is absent from its draft", async () => {

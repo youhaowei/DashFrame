@@ -201,7 +201,7 @@ function validateDerived(graph: Graph, def: ObjectValue) {
     metrics = objects(def.metrics, "metrics");
   const resultColumns = new Set(
     selected.length === 0 && metrics.length === 0
-      ? fields.map((f) => f.columnName ?? f.name)
+      ? fields.flatMap(fieldReferences)
       : [
           ...fields
             .filter((f) => selected.includes(f.id!))

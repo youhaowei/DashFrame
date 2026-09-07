@@ -262,7 +262,7 @@ describe("DashFrame WebMCP registry", () => {
       name: "Open orders",
       sourceType: "dataTable",
       sourceId: "table-1",
-      selectedFieldIds: ["field-status"],
+      selectedFieldIds: ["field-status", "field-created"],
       filters: [{ field: "status", operator: "eq", value: "open" }],
       sort: [{ field: "created_at", direction: "desc" }],
     })) as Record<string, unknown>;
@@ -368,6 +368,60 @@ describe("DashFrame WebMCP registry", () => {
       }),
     ).rejects.toThrow("sort contains a field outside this source");
     expect(stageDraft).not.toHaveBeenCalled();
+  });
+
+  it("rejects non-executable filter references and sorts outside the result", async () => {
+    const stageDraft = vi.fn(async () => ({ draftId: "draft-1" }));
+    const proposeInsight = tool("propose_insight", { stageDraft });
+    const base = {
+      name: "Open orders",
+      sourceType: "dataTable",
+      sourceId: "table-1",
+      selectedFieldIds: ["field-status"],
+    };
+
+    for (const field of ["field-status", "Status"]) {
+      await expect(
+        proposeInsight.execute({
+          ...base,
+          filters: [{ field, operator: "eq", value: "open" }],
+        }),
+      ).rejects.toThrow("filters contains a field outside this source");
+    }
+    await expect(
+      proposeInsight.execute({
+        ...base,
+        sort: [{ field: "created_at", direction: "desc" }],
+      }),
+    ).rejects.toThrow("sort contains a field outside this source");
+    expect(stageDraft).not.toHaveBeenCalled();
+  });
+
+  it("accepts executable fields from an unconfigured source Insight", async () => {
+    const stageDraft = vi.fn(async () => ({ draftId: "draft-1" }));
+    const unconfigured = {
+      ...INSIGHT,
+      id: "unconfigured-insight",
+      selectedFields: [],
+      metrics: [],
+    } as Insight;
+
+    await expect(
+      tool("propose_insight", {
+        stageDraft,
+        data: { insights: [INSIGHT, unconfigured] },
+      }).execute({
+        name: "Derived orders",
+        sourceType: "insight",
+        sourceId: unconfigured.id,
+        selectedFieldIds: ["field-status"],
+        filters: [
+          { field: "field_field_status", operator: "eq", value: "open" },
+        ],
+        sort: [{ field: "field_field_status", direction: "asc" }],
+      }),
+    ).resolves.toMatchObject({ status: "draft" });
+    expect(stageDraft).toHaveBeenCalledOnce();
   });
 
   it("accepts only field ids in selectedFieldIds", async () => {

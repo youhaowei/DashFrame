@@ -2,7 +2,11 @@ import { queryDataFrame } from "@/lib/data-access/data-frames";
 import { useInsightCanvasStore } from "@/lib/stores/insight-canvas-store";
 import { useWebMCPPageStore } from "@/lib/stores/webmcp-page-store";
 import { applyFloor } from "@dashframe/assistant/read/floor";
-import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
+import {
+  buildInsightAvailableFields,
+  fieldIdToColumnAlias,
+  metricIdToColumnAlias,
+} from "@dashframe/engine";
 import {
   cmd,
   type Command,
@@ -10,6 +14,7 @@ import {
   type Dashboard,
   type DataSource,
   type DataTable,
+  type Field,
   type Insight,
   type InsightFilter,
   type InsightSort,
@@ -196,39 +201,73 @@ function optionalDraftId(input: Record<string, unknown>): string | undefined {
     : stringValue(input, "draftId");
 }
 
-function fieldReferencesForDataTable(table: DataTable): Set<string> {
+function executableFieldReferences(fields: readonly Field[]): Set<string> {
   return new Set(
-    table.fields.flatMap((field) => [
-      field.id,
-      field.name,
+    fields.flatMap((field) => [
       field.columnName ?? field.name,
       fieldIdToColumnAlias(field.id),
     ]),
   );
 }
 
-function fieldReferencesForInsight(
+function insightOutputFields(
   insight: Insight,
   tables: readonly DataTable[],
-): Set<string> {
-  const references = new Set<string>();
-  for (const fieldId of insight.selectedFields) {
-    references.add(fieldId);
-    references.add(fieldIdToColumnAlias(fieldId));
-    for (const table of tables) {
-      const field = table.fields.find((candidate) => candidate.id === fieldId);
-      if (field) {
-        references.add(field.name);
-        references.add(field.columnName ?? field.name);
-      }
-    }
+  insights: readonly Insight[],
+  seen = new Set<string>(),
+): Field[] {
+  if (seen.has(insight.id)) return [];
+  const nextSeen = new Set(seen).add(insight.id);
+  const upstream =
+    insight.source.sourceType === "insight"
+      ? insights.find((candidate) => candidate.id === insight.source.sourceId)
+      : undefined;
+  let sourceFields: readonly Field[];
+  if (insight.source.sourceType === "dataTable") {
+    sourceFields =
+      tables.find((table) => table.id === insight.source.sourceId)?.fields ??
+      [];
+  } else {
+    sourceFields = upstream
+      ? insightOutputFields(upstream, tables, insights, nextSeen)
+      : [];
   }
-  for (const metric of insight.metrics) {
-    references.add(metric.id);
-    references.add(metric.name);
-    references.add(metricIdToColumnAlias(metric.id));
-  }
-  return references;
+  const syntheticBase: DataTable = {
+    id: insight.source.sourceId,
+    name: insight.name,
+    dataSourceId: insight.source.sourceId,
+    table: insight.name,
+    fields: [...sourceFields],
+    metrics: [],
+    dataFrameId: insight.source.sourceId,
+    createdAt: insight.createdAt,
+  };
+  const joinedFields =
+    buildInsightAvailableFields(
+      syntheticBase,
+      new Map(tables.map((table) => [table.id, table])),
+      insight,
+    ) ?? [];
+  const selected = insight.selectedFields ?? [];
+  const metrics = insight.metrics ?? [];
+  return [
+    ...joinedFields
+      .filter((field) =>
+        selected.length ? selected.includes(field.id) : metrics.length === 0,
+      )
+      .map((field) => ({
+        ...field,
+        tableId: insight.id,
+        columnName: fieldIdToColumnAlias(field.id),
+      })),
+    ...metrics.map((metric): Field => ({
+      id: metric.id,
+      name: metric.name,
+      tableId: insight.id,
+      columnName: metricIdToColumnAlias(metric.id),
+      type: "number",
+    })),
+  ];
 }
 
 function assertInsightFields(
@@ -608,6 +647,10 @@ export function createWebMCPTools(
           throw new Error("sourceType must be dataTable or insight.");
         const draftId = optionalDraftId(input);
         const data = dependencies.read.getData();
+        const insights =
+          input.sourceType === "insight"
+            ? requireLoaded(data.insights, "Insights")
+            : (data.insights ?? []);
         const tables =
           input.sourceType === "dataTable"
             ? requireLoaded(data.dataTables, "Data tables")
@@ -615,9 +658,7 @@ export function createWebMCPTools(
         const source =
           input.sourceType === "dataTable"
             ? tables.find((table) => table.id === sourceId)
-            : requireLoaded(data.insights, "Insights").find(
-                (insight) => insight.id === sourceId,
-              );
+            : insights.find((insight) => insight.id === sourceId);
         if (!source) throw new Error("Insight source not found.");
         const selectedFieldIds = requiredStringArray(
           input,
@@ -625,23 +666,23 @@ export function createWebMCPTools(
         ) as UUID[];
         const filters = parseFilters(input.filters);
         const sorts = parseSorts(input.sort);
-        const selectableIds = new Set(
+        const sourceFields = (
           input.sourceType === "dataTable"
-            ? (source as DataTable).fields.map((field) => field.id)
-            : [
-                ...(source as Insight).selectedFields,
-                ...(source as Insight).metrics.map((metric) => metric.id),
-              ],
-        );
+            ? (source as DataTable).fields
+            : insightOutputFields(source as Insight, tables, insights)
+        ).filter((field) => !field.name.startsWith("_"));
+        const selectableIds = new Set(sourceFields.map((field) => field.id));
         if (selectedFieldIds.some((field) => !selectableIds.has(field)))
           throw new Error(
             "selectedFieldIds contains a field outside this source.",
           );
-        const references =
-          input.sourceType === "dataTable"
-            ? fieldReferencesForDataTable(source as DataTable)
-            : fieldReferencesForInsight(source as Insight, tables);
-        assertInsightFields([], filters, sorts, references);
+        const filterReferences = executableFieldReferences(sourceFields);
+        const resultFields = selectedFieldIds.length
+          ? sourceFields.filter((field) => selectedFieldIds.includes(field.id))
+          : sourceFields;
+        const sortReferences = executableFieldReferences(resultFields);
+        assertInsightFields([], filters, [], filterReferences);
+        assertInsightFields([], [], sorts, sortReferences);
         const id = crypto.randomUUID() as UUID;
         const commands: Command[] = [
           cmd("CreateInsight", {
