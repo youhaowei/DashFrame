@@ -408,6 +408,60 @@ describe("DashFrame WebMCP registry", () => {
     },
   );
 
+  it.each([
+    ["between", [1, 10]],
+    ["between", null],
+    ["between", 10],
+    ["between", {}],
+    ["between", { low: 1 }],
+    ["between", { high: 10 }],
+    ["between", { low: 1, high: undefined }],
+    ["contains", null],
+    ["contains", undefined],
+  ])(
+    "rejects malformed %s values before staging: %j",
+    async (operator, value) => {
+      const stageDraft = vi.fn(async () => ({ draftId: "draft-1" }));
+      await expect(
+        tool("propose_insight", { stageDraft }).execute({
+          name: "Filtered orders",
+          sourceType: "dataTable",
+          sourceId: TABLE.id,
+          selectedFieldIds: [],
+          filters: [{ field: "status", operator, value }],
+        }),
+      ).rejects.toThrow(operator);
+      expect(stageDraft).not.toHaveBeenCalled();
+    },
+  );
+
+  it("preserves valid range bounds and other supported filter values when staging", async () => {
+    const stageDraft = vi.fn(async (_commands: readonly Command[]) => ({
+      draftId: "draft-1",
+    }));
+    const filters = [
+      { field: "revenue", operator: "between", value: { low: 1, high: 10 } },
+      { field: "status", operator: "contains", value: "open" },
+      { field: "status", operator: "eq", value: null },
+      { field: "status", operator: "in", value: ["open", "closed"] },
+      { field: "status", operator: "in", value: "open" },
+    ];
+    await tool("propose_insight", {
+      stageDraft,
+      data: { dataTables: [SALES_TABLE] },
+    }).execute({
+      name: "Filtered sales",
+      sourceType: "dataTable",
+      sourceId: TABLE.id,
+      selectedFieldIds: [],
+      filters,
+    });
+    const command = stageDraft.mock.calls[0]?.[0].find(
+      (candidate) => candidate.path === "setInsightFilter",
+    );
+    expect(command?.args.filters).toMatchObject(filters);
+  });
+
   it("keeps pass-through behavior without metrics and supports row count without a source column", async () => {
     const stageDraft = vi.fn(async (_commands: readonly Command[]) => ({
       draftId: "draft-1",

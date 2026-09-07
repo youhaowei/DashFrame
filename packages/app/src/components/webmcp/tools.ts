@@ -152,6 +152,24 @@ function boundedInteger(
   return Number(value);
 }
 
+function assertFilterValue(operator: string, value: unknown): void {
+  if (
+    operator === "between" &&
+    (value === null ||
+      typeof value !== "object" ||
+      Array.isArray(value) ||
+      !("low" in value) ||
+      !("high" in value) ||
+      value.low === undefined ||
+      value.high === undefined)
+  )
+    throw new Error(
+      "between filter value must be an object with both low and high bounds, for example { low: 1, high: 10 }.",
+    );
+  if (operator === "contains" && typeof value !== "string")
+    throw new Error("contains filter value must be a string.");
+}
+
 function parseFilters(value: unknown): InsightFilter[] {
   if (value === undefined) return [];
   if (!Array.isArray(value) || value.length > 20)
@@ -175,6 +193,7 @@ function parseFilters(value: unknown): InsightFilter[] {
       !("value" in filter)
     )
       throw new Error("Each filter needs field, operator, and value.");
+    assertFilterValue(String(filter.operator), filter.value);
     return {
       id: typeof filter.id === "string" ? filter.id : crypto.randomUUID(),
       field: filter.field,
@@ -717,6 +736,8 @@ export function createWebMCPTools(
             },
           },
           filters: {
+            description:
+              "Grouped dimension filters apply before aggregation. A filter on a metric's source column applies to its aggregate unless that column is also a selected dimension. To filter rows before aggregating that same column, first propose a filtered Insight without metrics, then aggregate it in a second Insight.",
             type: "array",
             maxItems: 20,
             items: {
@@ -737,8 +758,29 @@ export function createWebMCPTools(
                     "between",
                   ],
                 },
-                value: {},
+                value: {
+                  description:
+                    "between requires an object { low, high }, not an array; contains requires a string. in accepts an array of values or one scalar. eq and ne accept null for null comparisons.",
+                },
               },
+              allOf: [
+                {
+                  if: { properties: { operator: { const: "between" } } },
+                  then: {
+                    properties: {
+                      value: {
+                        type: "object",
+                        properties: { low: {}, high: {} },
+                        required: ["low", "high"],
+                      },
+                    },
+                  },
+                },
+                {
+                  if: { properties: { operator: { const: "contains" } } },
+                  then: { properties: { value: { type: "string" } } },
+                },
+              ],
               required: ["field", "operator", "value"],
               additionalProperties: false,
             },
