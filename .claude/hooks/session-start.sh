@@ -85,27 +85,29 @@ for sub in $(git config --file .gitmodules --get-regexp 'submodule\..*\.path' | 
   git submodule update --init --recursive $force -- "$sub"
 done
 
-# 2. Workspace dependencies, once per checkout revision with the lockfile
-#    honored as-is. `node_modules` existing is not proof of success (an
-#    interrupted install leaves a partial tree), and a marker alone would go
-#    stale when the lockfile or a manifest changes on a resumed checkout. So
-#    the marker stores a fingerprint of bun.lock and every tracked
-#    package.json, written only after the install exits 0; a mismatch
-#    re-runs the frozen install. The marker lives inside node_modules so it
-#    is gitignored and disappears with a clean.
+# 2. Workspace dependencies, once per checkout with the lockfile honored
+#    as-is (AGENTS.md -> Worktrees: the install happens once, on first
+#    provision, and a developer refreshes dependencies themselves after
+#    changing a manifest, so a `bun link` is never undone behind their back).
+#    `node_modules` existing is not proof of success (an interrupted install
+#    leaves a partial tree), so completion is recorded in a marker written
+#    only after the install exits 0. The marker also stores a fingerprint of
+#    bun.lock and every tracked package.json; a later mismatch is reported so
+#    the session knows to run `bun install`, but it does not reinstall.
 install_marker=node_modules/.session-start-installed
 deps_fingerprint=$(
   { cat bun.lock; git ls-files -z -- package.json '*/package.json' | xargs -0 cat; } \
     | sha256sum | awk '{print $1}'
 )
-if [ -f "$install_marker" ] && [ "$(cat "$install_marker")" = "$deps_fingerprint" ]; then
-  log "dependencies installed for this lockfile/manifest set; skipping install"
-else
-  if [ -f "$install_marker" ]; then
-    log "lockfile or manifests changed since last install; reinstalling"
+if [ -f "$install_marker" ]; then
+  if [ "$(cat "$install_marker")" = "$deps_fingerprint" ]; then
+    log "dependencies installed; skipping install"
   else
-    log "installing dependencies"
+    log "WARNING: bun.lock or a package.json changed since the last install;"
+    log "         run 'bun install' yourself if you need the new dependency set"
   fi
+else
+  log "installing dependencies"
   bun install --frozen-lockfile
   printf '%s\n' "$deps_fingerprint" > "$install_marker"
 fi
