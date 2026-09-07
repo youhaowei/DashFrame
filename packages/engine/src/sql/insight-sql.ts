@@ -321,7 +321,7 @@ function resolveSortColumnAlias(
 ): string {
   const f = tableFields
     .filter((field) => !field.name.startsWith("_"))
-    .find((field) => (field.columnName ?? field.name) === fieldName);
+    .find((field) => fieldMatchesReference(field, fieldName));
   return f ? fieldIdToColumnAlias(f.id) : fieldName;
 }
 
@@ -1017,12 +1017,19 @@ function buildFilterPredicate(
  */
 type FilterColumnRefMode = "alias" | "raw";
 
+function fieldMatchesReference(field: Field, reference: string): boolean {
+  return (
+    (field.columnName ?? field.name) === reference ||
+    fieldIdToColumnAlias(field.id) === reference
+  );
+}
+
 /**
  * Derive the SQL column reference for a filter field.
  *
- * Filters reference fields by their source column name (`Field.columnName ?? Field.name`).
- * We look up the matching field to resolve either its UUID alias or its raw
- * column name depending on `refMode`.
+ * Filters reference fields by either their physical source column name or the
+ * canonical UUID alias emitted by the editor. We look up the matching field to
+ * resolve the reference appropriate to the actual FROM clause.
  *
  * Returns `null` when no field in `fieldIdMap` matches the filter field. That
  * is the fail-safe signal: the column is NOT present in the FROM clause (e.g. a
@@ -1035,8 +1042,8 @@ function resolveFilterColumnRef(
   fieldIdMap: Map<string, Field>,
   refMode: FilterColumnRefMode,
 ): string | null {
-  const field = Array.from(fieldIdMap.values()).find(
-    (f) => (f.columnName ?? f.name) === filterField,
+  const field = Array.from(fieldIdMap.values()).find((candidate) =>
+    fieldMatchesReference(candidate, filterField),
   );
   if (!field) return null;
   if (refMode === "alias") {
@@ -1085,8 +1092,8 @@ function resolveMetricAggRef(
   if (!metric.columnName) return quoteIdentifier(filterField);
 
   // Resolve the source column to its UUID alias (columns are aliased upstream)
-  const sourceField = Array.from(fieldIdMap.values()).find(
-    (f) => (f.columnName ?? f.name) === metric.columnName,
+  const sourceField = Array.from(fieldIdMap.values()).find((candidate) =>
+    fieldMatchesReference(candidate, metric.columnName!),
   );
   const sourceRef = sourceField
     ? fieldIdToColumnAlias(sourceField.id)
@@ -1125,7 +1132,7 @@ function isMetricFilter(
   // it is NOT a metric filter, even if the same column also feeds a metric.
   for (const fieldId of insight.selectedFields ?? []) {
     const field = fieldIdMap.get(fieldId);
-    if (field && (field.columnName ?? field.name) === filter.field) {
+    if (field && fieldMatchesReference(field, filter.field)) {
       return false; // explicitly a dimension
     }
   }
@@ -1281,8 +1288,8 @@ function buildMetricExpressionWithUUID(
 
   // Find the source field by columnName to get its UUID alias
   let sourceColumnRef: string;
-  const sourceField = Array.from(fieldIdMap.values()).find(
-    (f) => (f.columnName ?? f.name) === metric.columnName,
+  const sourceField = Array.from(fieldIdMap.values()).find((candidate) =>
+    fieldMatchesReference(candidate, metric.columnName!),
   );
 
   if (sourceField) {

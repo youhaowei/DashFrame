@@ -18,6 +18,7 @@ import {
   indexReportContents,
   resolveReportContents,
 } from "@/lib/reports/report-contents";
+import { useWebMCPPageStore } from "@/lib/stores/webmcp-page-store";
 import { api } from "@dashframe/convex-backend/api";
 import {
   cmd,
@@ -132,6 +133,14 @@ export default function DashboardDetailContent({
   const [controlTransientValues, setControlTransientValues] = useState<
     Map<string, InsightFilter["value"]>
   >(new Map());
+  const setWebMCPDashboard = useWebMCPPageStore((state) => state.setDashboard);
+  useEffect(() => {
+    setWebMCPDashboard({
+      dashboardId,
+      transientControlValues: Object.fromEntries(controlTransientValues),
+    });
+    return () => setWebMCPDashboard(null);
+  }, [controlTransientValues, dashboardId, setWebMCPDashboard]);
 
   // Build fieldsByName map from all data tables referenced by the dashboard's
   // visualizations/insights.  Used by DashboardControlBar to detect field type

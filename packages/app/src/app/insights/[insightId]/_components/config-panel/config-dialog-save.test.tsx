@@ -114,6 +114,35 @@ describe("insight config dialog saves", () => {
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
   });
 
+  it("reports a live filter draft and clears it when dismissed", async () => {
+    const onDraftChange = vi.fn();
+    const onOpenChange = vi.fn();
+    render(
+      <FilterEditDialog
+        filter="new"
+        combinedFields={[field]}
+        onOpenChange={onOpenChange}
+        onSave={vi.fn()}
+        onDraftChange={onDraftChange}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Value"), {
+      target: { value: "100" },
+    });
+    await waitFor(() =>
+      expect(onDraftChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          field: "amount",
+          operator: "eq",
+          value: 100,
+        }),
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onDraftChange).toHaveBeenLastCalledWith(null);
+  });
+
   it("keeps the field-rename dialog open and reports a rejected save", async () => {
     const onOpenChange = vi.fn();
 
