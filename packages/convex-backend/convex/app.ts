@@ -162,14 +162,16 @@ export type FrameEntry = DataFrameJSON & {
   currentInsightResult?: boolean;
 };
 /**
- * The whole-table frame read. Every branch is bounded at LIMIT rows and
- * refuses beyond that, naming the recovery path, except `recovery: true`
- * without a draft, which returns a truncated batch so the Data Frames page can
- * still delete rows through the host. Filtered reads are bounded the same way;
- * under a draft the graph's whole-table read applies and `recovery` is
- * ignored. Command batches never read frames this way, so an over-cap
- * workspace keeps committing, drafting, and publishing; the surfaces that call
- * this query without a filter are the ones that stop rendering.
+ * The list read over frames. A `dataSourceId` or `insightId` filter selects
+ * through that index; without one the whole table is read. Every branch,
+ * filtered or not, is bounded at LIMIT rows and refuses beyond that naming
+ * the recovery path, except `recovery: true` without a draft, which returns a
+ * truncated batch so the Data Frames page can still delete rows through the
+ * host. Under a draft the same selection runs through the graph (`scan` with
+ * the filter, `list` without) and `recovery` is ignored. Command batches never
+ * read frames this way, so an over-cap workspace keeps committing, drafting,
+ * and publishing; only surfaces whose selection here exceeds LIMIT stop
+ * rendering.
  */
 export const listDataFrames = query({
   args: {
