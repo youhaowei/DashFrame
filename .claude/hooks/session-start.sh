@@ -19,6 +19,12 @@ fi
 
 cd "${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}"
 
+# Everything below is operational output, not context for the model. Claude
+# Code adds a SessionStart hook's stdout to the conversation, so route all of
+# it (install, build, and provision logs included) to stderr and leave stdout
+# empty.
+exec >&2
+
 log() { echo "[session-start] $*" >&2; }
 
 # Session environment, written first so it survives a failure below. The
@@ -95,9 +101,15 @@ done
 #    bun.lock and every tracked package.json; a later mismatch is reported so
 #    the session knows to run `bun install`, but it does not reinstall.
 install_marker=node_modules/.session-start-installed
+#    A tracked manifest deleted or renamed in the working tree still appears in
+#    the index listing, so hash a sentinel for a missing path instead of
+#    letting `cat` fail and abort the hook under `set -e`.
 deps_fingerprint=$(
-  { cat bun.lock; git ls-files -z -- package.json '*/package.json' | xargs -0 cat; } \
-    | sha256sum | awk '{print $1}'
+  {
+    while IFS= read -r -d '' f; do
+      if [ -f "$f" ]; then cat "$f"; else printf 'missing:%s\n' "$f"; fi
+    done < <(git ls-files -z -- bun.lock package.json '*/package.json')
+  } | sha256sum | awk '{print $1}'
 )
 if [ -f "$install_marker" ]; then
   if [ "$(cat "$install_marker")" = "$deps_fingerprint" ]; then
