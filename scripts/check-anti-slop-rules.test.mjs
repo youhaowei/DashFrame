@@ -32,6 +32,7 @@ function runGuard(
     diagnostics = fixtureFindings,
     missingFixture = false,
     sourceViolation = false,
+    ignoredSourceRoot = null,
   } = {},
 ) {
   const root = mkdtempSync(join(tmpdir(), "dashframe-anti-slop-"));
@@ -55,9 +56,10 @@ function runGuard(
     join(root, "node_modules", ".bin", "vp"),
     `
 const fixture = process.argv.some((arg) => arg.endsWith("fixture-run"));
-if (!fixture && !process.argv.includes("packages")) throw new Error("packages were not scanned");
+const sourceRoot = ["apps", "packages", "scripts", "vite.config.ts"].find((path) => process.argv.includes(path));
+if (!fixture && !sourceRoot) throw new Error("source root was not scanned");
 const diagnostics = fixture ? ${JSON.stringify(diagnostics)} : ${JSON.stringify(sourceViolation ? [{ ...fixtureFindings[1], filename: "packages/types/src/index.ts" }] : [])};
-console.log(JSON.stringify({number_of_files: fixture ? 2 : 3, diagnostics}));
+console.log(JSON.stringify({number_of_files: fixture ? 2 : sourceRoot === ${JSON.stringify(ignoredSourceRoot)} ? 0 : 3, diagnostics}));
 process.exit(fixture || ${sourceViolation} ? 1 : 0);
 `,
   );
@@ -107,4 +109,8 @@ test("an extra warning in the valid fixture cannot pass", (t) => {
 
 test("a violation in a package without a lint task fails", (t) => {
   assert.equal(runGuard(t, { sourceViolation: true }).status, 1);
+});
+
+test("an ignored packages tree cannot hide behind other source roots", (t) => {
+  assert.equal(runGuard(t, { ignoredSourceRoot: "packages" }).status, 1);
 });

@@ -239,32 +239,34 @@ if (missing.length > 0 || unexpected.length > 0) finish(1);
 // only typecheck. Filter the full report to adopted rules so existing lint
 // debt outside workspace tasks does not become part of this integration.
 // Unnamed diagnostics (such as parse failures) still fail the scan.
-const sourceReport = lintPaths([
-  "apps",
-  "packages",
-  "scripts",
-  "vite.config.ts",
-]);
-if (sourceReport.number_of_files === 0)
-  finish(1, "the source scan read no files");
-antiSlopFindings(sourceReport.diagnostics);
-const sourceErrors = sourceReport.diagnostics.filter(
-  (diagnostic) =>
-    typeof diagnostic.code !== "string" ||
-    !/^[^()]+\([^)]+\)$/u.test(diagnostic.code) ||
-    diagnostic.code.startsWith("anti-slop("),
-);
-if (
-  sourceErrors.length > 0 ||
-  (sourceReport.status !== 0 && sourceReport.diagnostics.length === 0)
-) {
-  finish(
-    1,
-    "the adopted-rule source scan failed",
-    JSON.stringify(sourceErrors, null, 2),
+let sourceFileCount = 0;
+for (const sourceRoot of ["apps", "packages", "scripts", "vite.config.ts"]) {
+  const sourceReport = lintPaths([sourceRoot]);
+  // An aggregate count could hide an entirely ignored packages/ tree while
+  // apps/ still contributes files. Every promised root must be inspected.
+  if (sourceReport.number_of_files === 0) {
+    finish(1, `the source scan read no files under ${sourceRoot}`);
+  }
+  sourceFileCount += sourceReport.number_of_files;
+  antiSlopFindings(sourceReport.diagnostics);
+  const sourceErrors = sourceReport.diagnostics.filter(
+    (diagnostic) =>
+      typeof diagnostic.code !== "string" ||
+      !/^[^()]+\([^)]+\)$/u.test(diagnostic.code) ||
+      diagnostic.code.startsWith("anti-slop("),
   );
+  if (
+    sourceErrors.length > 0 ||
+    (sourceReport.status !== 0 && sourceReport.diagnostics.length === 0)
+  ) {
+    finish(
+      1,
+      `the adopted-rule source scan failed under ${sourceRoot}`,
+      JSON.stringify(sourceErrors, null, 2),
+    );
+  }
 }
 finish(
   0,
-  `${expected.length} expected fixture findings at error severity; ${sourceReport.number_of_files} source files checked for adopted rules`,
+  `${expected.length} expected fixture findings at error severity; ${sourceFileCount} source files checked for adopted rules`,
 );
