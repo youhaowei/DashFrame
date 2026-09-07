@@ -41,7 +41,15 @@ Keep that guard's `EXPECTED` line numbers in sync when editing a fixture.
 The guard is the only gate coverage this directory gets. `turbo check` runs per-package
 tasks, and the root package is not one, so nothing here is typechecked or linted by
 `bun run check`. What the guard does catch is the failure that matters: a plugin that
-stops loading, or a rule that stops matching, fails it immediately.
+stops loading, a rule that stops matching, or a rule quietly downgraded from `error`
+all fail it immediately.
+
+Upstream's per-rule test suites are **not** vendored. They use `RuleTester` from
+`oxlint/plugins-dev`, which needs a real Node runtime and throws under Bun, so they
+cannot run from `bun run check` as this repo invokes it. That is fine while `rules/`
+and `shared/` stay byte-identical to upstream — there is nothing local to regress. If
+you ever edit a rule, port upstream's `<rule>.test.ts` first and run it under Node;
+the fixtures here cover wiring, not rule semantics.
 
 ## Known sharp edge
 
@@ -59,5 +67,5 @@ about because DashFrame's row and spec contracts (`DataFrameRow`, `VegaLiteSpec`
 `Record<string, unknown>`. The fix is to declare the accumulator at its target type;
 both shapes are pinned in the fixtures.
 
-The broader evaluation and the thirteen rejected rules are documented in
-`docs/audits/anti-slop-rule-evaluation.md`.
+The broader evaluation and the thirteen rules not adopted — seven rejected, six
+warn-first candidates — are documented in `docs/audits/anti-slop-rule-evaluation.md`.

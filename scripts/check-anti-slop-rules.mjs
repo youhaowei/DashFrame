@@ -1,13 +1,18 @@
 #!/usr/bin/env node
-// Prove the vendored anti-slop rules still fire.
+// Prove the vendored anti-slop rules still fire, at error severity.
 //
 // scripts/oxlint-plugin-anti-slop/ is a DashFrame-owned fork of upstream rule
 // code, wired into `vite.config.ts` as a Vite+ JS lint plugin and enabled at
 // `error`. Nothing else in the gate would notice if that wiring broke: a plugin
 // that stops loading, or rules that stop matching after an Oxlint or Vite+
-// upgrade, both look exactly like a clean tree. This check lints two fixtures
-// through the real `vp lint` path and asserts the diagnostics we expect —
-// including the near-miss cases the rules must NOT report.
+// upgrade, both look exactly like a clean tree. `turbo lint` runs per-workspace
+// scripts only, and the repo root is not a workspace, so root `scripts/` is
+// never linted or typechecked by `bun run check` — this guard is the only gate
+// coverage the vendored plugin gets.
+//
+// It lints two fixtures through the real `vp lint` path and asserts the exact
+// diagnostics, including the near-miss cases the rules must NOT report and the
+// severity, so that quietly downgrading a rule to `warn` fails here too.
 //
 // Fixtures live next to the plugin with a `.fixture` suffix so the repository's
 // own lint and format passes never read them. They are copied to real `.ts`
@@ -15,17 +20,18 @@
 //
 // SCRATCH_DIR is deliberately NOT in .gitignore. Oxlint honours .gitignore even
 // under --no-ignore, so an ignored scratch directory lints zero files and this
-// check can never fail. The cost is that an interrupted run leaves the fixtures
-// on disk, where the repository's own lint will report the intentional
-// violations in invalid.ts — noisy, but loud and self-healing, since the next
-// run of this check removes the directory before recreating it.
+// check can never fail. That makes cleanup this script's responsibility on
+// every exit path: a leaked scratch directory is untracked, invisible to the
+// gate (nothing lints root `scripts/`), and would be swept up by `git add -A`
+// — committing fixtures whose whole purpose is to violate the rules. Hence the
+// single `finish()` below; never call `process.exit` directly.
 //
 // Usage: node scripts/check-anti-slop-rules.mjs
 // Exit code: 0 = both rules behaved, 1 = a rule fired wrongly or not at all,
 // 78 = the linter could not run, reported as SKIP by scripts/run-checks.mjs.
 
 import { spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -35,6 +41,14 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const pluginDir = join(repoRoot, "scripts", "oxlint-plugin-anti-slop");
 const fixtureDir = join(pluginDir, "fixtures");
 const scratchDir = join(pluginDir, "fixture-run");
+
+// Resolve the linter from node_modules rather than going through `bunx`, which
+// falls back to installing from the registry when the binary is missing — and
+// an unrelated package named `vp` is published there. An unprovisioned worktree
+// must skip, not fetch and execute a stranger's bin. It is run through `bun`
+// rather than executed directly because the bin carries a `#!/usr/bin/env node`
+// shebang, and this repo does not require Node on PATH.
+const viteplusBin = join(repoRoot, "node_modules", ".bin", "vp");
 
 // The fixtures to lint, each copied from `<name>.fixture` to `<name>`. All of
 // them must be read on every run; see the file-count check in lintScratchDir.
@@ -49,16 +63,29 @@ const EXPECTED = [
   "invalid.ts:41 no-widen-then-assert",
 ];
 
+/** Remove the scratch directory and exit. The only way out of this script. */
+function finish(code, message, detail) {
+  rmSync(scratchDir, { recursive: true, force: true });
+  if (message) {
+    const log = code === 0 ? console.log : console.error;
+    log(`[anti-slop] ${message}`);
+    if (detail) console.error(detail.trim());
+  }
+  process.exit(code);
+}
+
 function skip(reason, detail) {
-  console.error(`[anti-slop] ${reason}`);
-  if (detail) console.error(detail.trim());
-  process.exit(SKIP_EXIT_CODE);
+  finish(SKIP_EXIT_CODE, reason, detail);
 }
 
 function lintScratchDir() {
+  if (!existsSync(viteplusBin)) {
+    skip(`no linter at ${viteplusBin}; run \`bun install\` in this worktree`);
+  }
+
   const run = spawnSync(
-    "bunx",
-    ["vp", "lint", scratchDir, "-f", "json"],
+    "bun",
+    [viteplusBin, "lint", scratchDir, "-f", "json"],
     // Oxlint resolves `jsPlugins` specifiers relative to the config, so this
     // has to run from the repository root even though the target is nested.
     { cwd: repoRoot, encoding: "utf8" },
@@ -94,13 +121,13 @@ function lintScratchDir() {
   // all the expected diagnostics, and the false-positive cases would go
   // untested while the check reported success.
   if (report.number_of_files !== FIXTURES.length) {
-    console.error(
-      `[anti-slop] the linter read ${report.number_of_files} of ` +
-        `${FIXTURES.length} fixtures under ${scratchDir}.\n` +
+    finish(
+      1,
+      `the linter read ${report.number_of_files} of ${FIXTURES.length} ` +
+        `fixtures under ${scratchDir}.\n` +
         "Something is excluding that path — check .gitignore and the " +
         "`lint.ignorePatterns` list in vite.config.ts.",
     );
-    process.exit(1);
   }
 
   return report.diagnostics ?? [];
@@ -112,6 +139,11 @@ function antiSlopFindings(diagnostics) {
     const rule = /^anti-slop\((?<rule>.+)\)$/u.exec(diagnostic.code)?.groups
       ?.rule;
     if (rule === undefined) continue;
+    // Severity is part of the contract. Both rules are configured at `error`;
+    // a downgrade to `warn` emits the same diagnostics while blocking nothing,
+    // so counting those as satisfying EXPECTED would hide the very regression
+    // this guard exists to catch.
+    if (diagnostic.severity !== "error") continue;
     const line = diagnostic.labels?.[0]?.span?.line ?? 0;
     // `filename` is repo-relative; only the basename identifies the fixture.
     const file = diagnostic.filename.split("/").at(-1);
@@ -122,17 +154,11 @@ function antiSlopFindings(diagnostics) {
 
 rmSync(scratchDir, { recursive: true, force: true });
 mkdirSync(scratchDir, { recursive: true });
-
-let findings;
-try {
-  for (const fixture of FIXTURES) {
-    cpSync(join(fixtureDir, `${fixture}.fixture`), join(scratchDir, fixture));
-  }
-  findings = antiSlopFindings(lintScratchDir());
-} finally {
-  rmSync(scratchDir, { recursive: true, force: true });
+for (const fixture of FIXTURES) {
+  cpSync(join(fixtureDir, `${fixture}.fixture`), join(scratchDir, fixture));
 }
 
+const findings = antiSlopFindings(lintScratchDir());
 const expected = [...EXPECTED].sort();
 const missing = expected.filter((entry) => !findings.includes(entry));
 const unexpected = findings.filter((entry) => !expected.includes(entry));
@@ -141,7 +167,8 @@ if (missing.length > 0) {
   console.error(
     "[anti-slop] these rules did not report what the fixture requires:\n" +
       missing.map((entry) => `  - ${entry}`).join("\n") +
-      "\nThe plugin may have stopped loading, or a rule stopped matching.",
+      "\nThe plugin may have stopped loading, a rule stopped matching, or a " +
+      "rule was downgraded from `error`.",
   );
 }
 if (unexpected.length > 0) {
@@ -152,8 +179,10 @@ if (unexpected.length > 0) {
       "means the fixture and the EXPECTED table have drifted apart.",
   );
 }
-if (missing.length > 0 || unexpected.length > 0) process.exit(1);
 
-console.log(
-  `[anti-slop] ${expected.length} expected findings reported, none in the valid fixture`,
+finish(
+  missing.length > 0 || unexpected.length > 0 ? 1 : 0,
+  missing.length > 0 || unexpected.length > 0
+    ? undefined
+    : `${expected.length} expected findings reported at error severity, none in the valid fixture`,
 );
