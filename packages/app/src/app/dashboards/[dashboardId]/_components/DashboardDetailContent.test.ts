@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   formatReportContentsCount,
   formatSavedViewType,
+  reportQuestionLink,
 } from "./DashboardDetailContent";
 
 describe("formatReportContentsCount", () => {
@@ -16,5 +17,14 @@ describe("formatSavedViewType", () => {
   it("falls back for persisted chart types outside the current metadata set", () => {
     expect(formatSavedViewType("barX")).toBe("Horizontal bar");
     expect(formatSavedViewType("legacy-pie")).toBe("Saved view");
+  });
+});
+
+describe("reportQuestionLink", () => {
+  it("keeps an existing question scoped to the report it was opened from", () => {
+    expect(reportQuestionLink("question-1", "report-b")).toEqual({
+      to: "/insights/question-1",
+      search: { reportId: "report-b" },
+    });
   });
 });

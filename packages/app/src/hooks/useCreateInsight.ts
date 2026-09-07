@@ -167,7 +167,10 @@ export function useCreateInsight() {
       );
 
       // Navigate to insight page (action hub)
-      navigate({
+      // Keep the creation promise pending until the route transition commits.
+      // Onboarding uses that promise as its activity lifetime; releasing it
+      // earlier lets HomePage's populated-project redirect win the race.
+      await navigate({
         to: `/insights/${insightId}`,
         search: {
           ...(options?.visualize ? { visualize: "true" } : {}),

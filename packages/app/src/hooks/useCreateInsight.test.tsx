@@ -92,9 +92,9 @@ vi.mock("@/data/host", () => ({
 
 const { mockPush, mockNavigate } = vi.hoisted(() => {
   const push = vi.fn();
-  const navigate = vi.fn((opts: { to: string; search?: unknown }) =>
-    push(opts.to),
-  );
+  const navigate = vi.fn(async (opts: { to: string; search?: unknown }) => {
+    push(opts.to);
+  });
   return { mockPush: push, mockNavigate: navigate };
 });
 
@@ -214,6 +214,34 @@ describe("useCreateInsight", () => {
       });
 
       expect(mockPush).toHaveBeenCalledWith("/insights/new-insight-456");
+    });
+
+    it("keeps onboarding creation active until navigation settles", async () => {
+      mockCreateInsight.mockResolvedValue("new-insight-pending-navigation");
+      let finishNavigation: (() => void) | undefined;
+      mockNavigate.mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            finishNavigation = resolve;
+          }),
+      );
+      const { result } = renderHook(() => useCreateInsight());
+
+      let settled = false;
+      const creation = result.current
+        .createInsightFromTable("table-xyz", "Customer Data")
+        .then(() => {
+          settled = true;
+        });
+
+      await vi.waitFor(() => expect(mockNavigate).toHaveBeenCalledOnce());
+      expect(settled).toBe(false);
+
+      finishNavigation?.();
+      await act(async () => {
+        await creation;
+      });
+      expect(settled).toBe(true);
     });
 
     it("should return the created insight ID", async () => {

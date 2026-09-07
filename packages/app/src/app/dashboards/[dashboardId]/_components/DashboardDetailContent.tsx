@@ -69,6 +69,13 @@ export function formatSavedViewType(visualizationType: string): string {
     : "Saved view";
 }
 
+export function reportQuestionLink(questionId: string, reportId: string) {
+  return {
+    to: `/insights/${questionId}`,
+    search: { reportId },
+  } as const;
+}
+
 export default function DashboardDetailContent({
   dashboardId,
 }: DashboardDetailContentProps) {
@@ -351,7 +358,7 @@ export default function DashboardDetailContent({
                   <ArtifactCard
                     key={question.id}
                     headingLevel={3}
-                    to={`/insights/${question.id}`}
+                    {...reportQuestionLink(question.id, dashboardId)}
                     name={question.name}
                     icon={<FileIcon className="h-5 w-5" />}
                     metadata={`${savedViewCount} saved view${savedViewCount === 1 ? "" : "s"} in this report`}
