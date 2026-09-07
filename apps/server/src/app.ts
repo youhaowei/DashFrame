@@ -61,7 +61,6 @@ export interface DashframeServerOptions {
   authRef?: SecretRef;
   vault?: SecretVault;
   accessCredentials?: ApiAccessCredentials;
-  insecure?: boolean;
   corsOrigin?: CorsOrigin;
   arrowEngine?: ArrowQueryRunner & Partial<ArrowTableRegistrar>;
   googleOAuth?: GoogleOAuthConfig;
@@ -77,26 +76,12 @@ export interface DashframeServer {
   convexUrl: string;
   stop(): Promise<void>;
 }
-export function assertBindAuthorized(options: {
-  hostname?: string;
-  authToken?: string;
-  authRef?: SecretRef;
-  insecure?: boolean;
-}) {
-  if (
-    !isLoopbackHost(options.hostname) &&
-    !options.authToken &&
-    !options.authRef &&
-    !options.insecure
-  )
-    throw new Error("Non-loopback host requires authentication");
-}
-
 export async function createDashframeServer(
   options: DashframeServerOptions,
 ): Promise<DashframeServer> {
   const hostname = options.hostname ?? "127.0.0.1";
-  assertBindAuthorized({ ...options, hostname });
+  // Fails closed on a non-loopback bind without a token before any child
+  // process starts.
   const authenticate = createHostAuthenticator({ ...options, hostname });
   const identity = await createConvexIdentity(
     path.join(options.project.dir, ".convex"),
