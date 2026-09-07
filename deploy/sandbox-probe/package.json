@@ -1,0 +1,9 @@
+{
+  "name": "dashframe-sandbox-probe",
+  "private": true,
+  "type": "module",
+  "description": "Disposable image for measuring per-workspace query sandbox feasibility on a deployment platform. Not part of the workspace build.",
+  "dependencies": {
+    "@duckdb/node-api": "1.5.3-r.3"
+  }
+}

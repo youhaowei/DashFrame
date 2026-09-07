@@ -1,0 +1,17 @@
+# Config for the disposable probe service ONLY. It sits at the root of the
+# staged build context produced by `stage.sh`, so it applies to that upload and
+# never to the application service, whose config is the repository-root
+# railway.toml.
+#
+# No startCommand: the image's CMD runs the probe. No healthcheck and no port,
+# because the probe serves nothing.
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+# NEVER, not ON_FAILURE. The probe is one-shot and exits non-zero when it finds
+# no usable sandbox — which is a RESULT, not a fault. Retrying it would turn the
+# most important negative finding into a restart loop.
+[deploy]
+restartPolicyType = "NEVER"
+numReplicas = 1
