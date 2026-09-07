@@ -220,6 +220,29 @@ describe("buildInsightSQL — regression: filters are no longer silently dropped
     expect(withoutFilter).not.toContain("WHERE");
     expect(withoutFilter).not.toContain("HAVING");
   });
+
+  it("resolves a canonical editor alias against the raw base-table column", () => {
+    const insight: Insight = {
+      ...groupedInsight(),
+      selectedFields: [],
+      metrics: [],
+      filters: [{ field: regionAlias, operator: "eq", value: "EMEA" }],
+    };
+
+    expect(build(insight)).toContain(`WHERE "region" = 'EMEA'`);
+  });
+
+  it("keeps a canonical selected dimension in WHERE when it also feeds a metric", () => {
+    const insight: Insight = {
+      ...groupedInsight(),
+      selectedFields: [AMOUNT_FIELD_ID],
+      filters: [{ field: amountAlias, operator: "gt", value: 10 }],
+    };
+
+    const sql = build(insight);
+    expect(sql).toContain(`WHERE "${amountAlias}" > 10`);
+    expect(sql).not.toContain("HAVING");
+  });
 });
 
 describe("buildInsightSQL — value quoting / injection guard", () => {
@@ -1386,6 +1409,20 @@ describe("join-instance identity — two joins to the same table", () => {
     expect(sql!).toContain(`AS "${emailAliasJ0}"`);
     expect(sql!).toContain(`AS "${nameAliasJ1}"`);
     expect(sql!).toContain(`AS "${emailAliasJ1}"`);
+  });
+
+  it("filters a repeat-join field through its canonical _j1 alias", () => {
+    const sql = buildInsightSQL(
+      ordersTable,
+      new Map([[USERS_TABLE_ID, usersTable]]),
+      {
+        ...doubleJoinInsight,
+        filters: [{ field: nameAliasJ1, operator: "eq", value: "Ada" }],
+      },
+      { mode: "query" },
+    );
+
+    expect(sql).toContain(`WHERE "${nameAliasJ1}" = 'Ada'`);
   });
 
   it("single join still emits canonical (unsuffixed) alias — no regression", () => {

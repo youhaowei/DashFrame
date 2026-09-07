@@ -21,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@wystack/ui-react";
-import { type ChangeEvent, useState } from "react";
+import { type ChangeEvent, useEffect, useState } from "react";
 import { NEW_FILTER_ID, prepareFilterForSave } from "./filter-id";
 import {
   buildFilterValue,
@@ -44,6 +44,7 @@ interface FilterEditDialogProps {
   combinedFields: CombinedField[];
   onOpenChange: (open: boolean) => void;
   onSave: (filter: FilterWithId) => Promise<void> | void;
+  onDraftChange?: (filter: FilterWithId | null) => void;
 }
 
 // ============================================================================
@@ -103,6 +104,7 @@ interface FilterEditFormProps {
   onSave: (filter: FilterWithId) => Promise<void> | void;
   onClose: () => void;
   onPendingChange: (pending: boolean) => void;
+  onDraftChange?: (filter: FilterWithId | null) => void;
   isNew: boolean;
 }
 
@@ -112,6 +114,7 @@ function FilterEditForm({
   onSave,
   onClose,
   onPendingChange,
+  onDraftChange,
   isNew,
 }: FilterEditFormProps) {
   const [field, setField] = useState<string>(filter.field);
@@ -127,6 +130,7 @@ function FilterEditForm({
   const [betweenLow, setBetweenLow] = useState(initialBetween.low);
   const [betweenHigh, setBetweenHigh] = useState(initialBetween.high);
   const [error, setError] = useState<string | null>(null);
+  const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useSavingFlag(onPendingChange);
 
   const selectedField = combinedFields.find(
@@ -163,6 +167,36 @@ function FilterEditForm({
     betweenHigh,
   };
   const isValid = isFilterDraftValid(draft);
+
+  useEffect(() => {
+    onDraftChange?.(
+      isDirty
+        ? {
+            ...filter,
+            field,
+            operator,
+            value: buildFilterValue({
+              field,
+              operator,
+              inputType,
+              scalarValue,
+              betweenLow,
+              betweenHigh,
+            }),
+          }
+        : null,
+    );
+  }, [
+    betweenHigh,
+    betweenLow,
+    field,
+    filter,
+    inputType,
+    isDirty,
+    onDraftChange,
+    operator,
+    scalarValue,
+  ]);
 
   let valuePlaceholder = "Enter a value";
   if (isIn) valuePlaceholder = "e.g. a, b, c";
@@ -219,6 +253,7 @@ function FilterEditForm({
           <Select
             value={field}
             onValueChange={(v: string | null) => {
+              setIsDirty(true);
               if (v) setField(v);
               // Reset values when field changes
               setScalarValue("");
@@ -251,6 +286,7 @@ function FilterEditForm({
           <Select
             value={operator}
             onValueChange={(v: string | null) => {
+              setIsDirty(true);
               if (v) setOperator(v as Operator);
               // Reset values on operator change
               setScalarValue("");
@@ -280,9 +316,10 @@ function FilterEditForm({
                 type={inputType}
                 placeholder="Low"
                 value={betweenLow}
-                onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                  setBetweenLow(e.target.value)
-                }
+                onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                  setIsDirty(true);
+                  setBetweenLow(e.target.value);
+                }}
                 className="flex-1"
                 aria-label="Range low bound"
               />
@@ -293,9 +330,10 @@ function FilterEditForm({
                 type={inputType}
                 placeholder="High"
                 value={betweenHigh}
-                onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                  setBetweenHigh(e.target.value)
-                }
+                onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                  setIsDirty(true);
+                  setBetweenHigh(e.target.value);
+                }}
                 className="flex-1"
                 aria-label="Range high bound"
               />
@@ -311,9 +349,10 @@ function FilterEditForm({
               type={isIn ? "text" : inputType}
               placeholder={valuePlaceholder}
               value={scalarValue}
-              onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                setScalarValue(e.target.value)
-              }
+              onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                setIsDirty(true);
+                setScalarValue(e.target.value);
+              }}
             />
           </div>
         )}
@@ -356,6 +395,7 @@ export function FilterEditDialog({
   combinedFields,
   onOpenChange,
   onSave,
+  onDraftChange,
 }: FilterEditDialogProps) {
   const isOpen = filter !== null;
   const isNew = filter === "new";
@@ -391,6 +431,7 @@ export function FilterEditDialog({
   };
 
   const handleClose = () => {
+    onDraftChange?.(null);
     onOpenChange(false);
   };
 
@@ -405,6 +446,7 @@ export function FilterEditDialog({
             onSave={onSave}
             onClose={handleClose}
             onPendingChange={setPending}
+            onDraftChange={onDraftChange}
             isNew={isNew}
           />
         )}

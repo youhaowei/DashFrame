@@ -18,6 +18,7 @@ import { VisualizationSetup } from "@/components/providers/VisualizationSetup";
 import { ContextPanelProvider } from "@/components/shell/context-panel-outlet";
 import { ShellRails } from "@/components/shell/ShellRails";
 import { ThemeProvider } from "@/components/theme-provider";
+import { WebMCPProvider } from "@/components/webmcp/WebMCPProvider";
 import { PlatformProvider } from "@/lib/platform";
 import { Outlet } from "@tanstack/react-router";
 import { TooltipProvider } from "@wystack/ui-react";
@@ -114,7 +115,9 @@ export function RouteRoot({
                 <ContextPanelProvider>
                   <ArtifactContextProvider>
                     <PlatformProvider>
-                      <Shell />
+                      <WebMCPProvider>
+                        <Shell />
+                      </WebMCPProvider>
                     </PlatformProvider>
                   </ArtifactContextProvider>
                 </ContextPanelProvider>
