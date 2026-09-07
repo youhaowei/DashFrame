@@ -79,7 +79,7 @@ describe("ArtifactSwitcher", () => {
 
     await user.click(screen.getByRole("button", { name: "Tables: Orders" }));
     await user.click(screen.getByRole("combobox", { name: "Type" }));
-    await user.click(screen.getByRole("option", { name: "table" }));
+    await user.click(await screen.findByRole("option", { name: "table" }));
     expect(screen.getByRole("option", { name: /Orders/ })).toBeTruthy();
     expect(screen.getByRole("option", { name: /Customers/ })).toBeTruthy();
     await waitFor(() =>
