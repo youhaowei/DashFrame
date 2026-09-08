@@ -23,7 +23,9 @@ test.describe("JSON to Chart", () => {
     });
 
     // Verify the insight opens data-first.
-    await expect(page.getByRole("button", { name: "Data" })).toBeVisible({
+    await expect(
+      page.getByRole("button", { name: "Data", exact: true }),
+    ).toBeVisible({
       timeout: 30_000,
     });
 

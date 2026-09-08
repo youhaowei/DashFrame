@@ -6,14 +6,22 @@ export const Route = createFileRoute("/insights/$insightId")({
     // The router's default search parser JSON-parses values, so
     // `?visualize=true` arrives as boolean true — accept both forms.
     visualize: search.visualize === true || search.visualize === "true",
+    reportId:
+      typeof search.reportId === "string" && search.reportId.trim()
+        ? search.reportId
+        : undefined,
   }),
   component: InsightRoute,
 });
 
 function InsightRoute() {
   const { insightId } = Route.useParams();
-  const { visualize } = Route.useSearch();
+  const { visualize, reportId } = Route.useSearch();
   return (
-    <InsightPageContent insightId={insightId} visualizeIntent={visualize} />
+    <InsightPageContent
+      insightId={insightId}
+      visualizeIntent={visualize}
+      reportId={reportId}
+    />
   );
 }

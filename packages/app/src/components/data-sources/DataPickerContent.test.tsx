@@ -57,6 +57,9 @@ const {
 
 let handleConnect: AddConnectionPanelProps["onConnect"] | undefined;
 let handleFileSelect: AddConnectionPanelProps["onFileSelect"] | undefined;
+let handleActivityChange:
+  | NonNullable<AddConnectionPanelProps["onActivityChange"]>
+  | undefined;
 
 vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
@@ -115,12 +118,22 @@ vi.mock("@/lib/local-csv-handler", () => ({
 
 vi.mock("./AddConnectionPanel", () => ({
   AddConnectionPanel: ({
+    error,
     onFileSelect,
     onConnect,
-  }: Pick<AddConnectionPanelProps, "onFileSelect" | "onConnect">) => {
+    onActivityChange,
+  }: Pick<
+    AddConnectionPanelProps,
+    "error" | "onFileSelect" | "onConnect" | "onActivityChange"
+  >) => {
     handleConnect = onConnect;
     handleFileSelect = onFileSelect;
-    return <div data-testid="add-connection-panel" />;
+    handleActivityChange = onActivityChange;
+    return (
+      <div data-testid="add-connection-panel">
+        {error && <p role="alert">{error}</p>}
+      </div>
+    );
   },
 }));
 
@@ -259,6 +272,7 @@ describe("DataPickerContent file replacement", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     handleFileSelect = undefined;
+    handleActivityChange = undefined;
     queryData.dataSources = [];
     queryData.dataTables = [];
     queryData.dataSourcesQueryState = {};
@@ -271,6 +285,7 @@ describe("DataPickerContent file replacement", () => {
     mockHandleFileConnectorResult.mockResolvedValue({
       dataTableId: NEW_TABLE_ID,
     });
+    mockListResources.mockResolvedValue([]);
     useConfirmDialogStore.setState({ isOpen: false, config: null });
     vi.stubGlobal("crypto", { randomUUID: vi.fn(() => NEW_TABLE_ID) });
   });
@@ -287,7 +302,7 @@ describe("DataPickerContent file replacement", () => {
       commands: [{ path: "createDataSource", args: {} }],
       results: [{ value: { id: NEW_TABLE_ID } }],
     });
-    render(<DataPickerContent onSelect={vi.fn()} />);
+    render(<DataPickerContent onTableSelect={vi.fn()} />);
     await act(async () => {
       await handleConnect?.(
         { id: "notion", name: "Notion" } as RemoteApiConnector,
@@ -306,6 +321,186 @@ describe("DataPickerContent file replacement", () => {
     expect(mockListResources).toHaveBeenCalledWith({
       dataSourceId: NEW_TABLE_ID,
     });
+  });
+
+  it("keeps onboarding active when returning to choose another connection", async () => {
+    mockHostRequest.mockResolvedValue({
+      commands: [{ path: "createDataSource", args: {} }],
+      results: [{ value: { id: REMOTE_SOURCE_ID } }],
+    });
+    mockListResources.mockResolvedValue([{ id: "db-1", title: "Roadmap" }]);
+    const onActivityChange = vi.fn();
+    const onCancel = vi.fn();
+    render(
+      <DataPickerContent
+        onTableSelect={vi.fn()}
+        onActivityChange={onActivityChange}
+        onCancel={onCancel}
+      />,
+    );
+
+    handleActivityChange?.(true);
+    await act(async () => {
+      await handleConnect?.(
+        { id: "notion", name: "Notion" } as RemoteApiConnector,
+        { apiKey: "secret-for-host-vault" },
+      );
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Choose another connection" }),
+    );
+
+    expect(screen.getByTestId("add-connection-panel")).toBeTruthy();
+    expect(onActivityChange.mock.calls).toEqual([[true]]);
+
+    handleActivityChange?.(false);
+    expect(onActivityChange.mock.calls).toEqual([[true]]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onActivityChange.mock.calls).toEqual([[true], [false]]);
+    expect(onCancel).toHaveBeenCalledOnce();
+  });
+
+  it("keeps onboarding active when a persisted source cannot be rolled back", async () => {
+    mockHostRequest.mockResolvedValue({
+      commands: [{ path: "createDataSource", args: {} }],
+      results: [{ value: { id: REMOTE_SOURCE_ID } }],
+    });
+    mockListResources.mockRejectedValue(new Error("resource probe failed"));
+    mockNativeCommit.mockRejectedValue(new Error("source cleanup failed"));
+    const onActivityChange = vi.fn();
+    render(
+      <DataPickerContent
+        onTableSelect={vi.fn()}
+        onActivityChange={onActivityChange}
+      />,
+    );
+
+    handleActivityChange?.(true);
+    await expect(
+      handleConnect?.({ id: "notion", name: "Notion" } as RemoteApiConnector, {
+        apiKey: "secret-for-host-vault",
+      }),
+    ).rejects.toThrow("Failed to connect and clean up the data source");
+    handleActivityChange?.(false);
+
+    expect(onActivityChange.mock.calls).toEqual([[true]]);
+  });
+
+  it("releases onboarding when a failed connection rolls its source back", async () => {
+    mockHostRequest.mockResolvedValue({
+      commands: [{ path: "createDataSource", args: {} }],
+      results: [{ value: { id: REMOTE_SOURCE_ID } }],
+    });
+    mockListResources.mockRejectedValue(new Error("resource probe failed"));
+    mockNativeCommit.mockResolvedValue(undefined);
+    const onActivityChange = vi.fn();
+    render(
+      <DataPickerContent
+        onTableSelect={vi.fn()}
+        onActivityChange={onActivityChange}
+      />,
+    );
+
+    handleActivityChange?.(true);
+    await expect(
+      handleConnect?.({ id: "notion", name: "Notion" } as RemoteApiConnector, {
+        apiKey: "secret-for-host-vault",
+      }),
+    ).rejects.toThrow("resource probe failed");
+    handleActivityChange?.(false);
+
+    expect(onActivityChange.mock.calls).toEqual([[true], [false]]);
+  });
+
+  it("keeps a remote import busy until question creation settles", async () => {
+    let finishQuestion: (() => void) | undefined;
+    mockHostRequest.mockResolvedValue({
+      commands: [{ path: "createDataSource", args: {} }],
+      results: [{ value: { id: REMOTE_SOURCE_ID } }],
+    });
+    mockListResources.mockResolvedValue([{ id: "db-1", title: "Roadmap" }]);
+    mockNativeCommit.mockResolvedValue(undefined);
+    const onTableSelect = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finishQuestion = resolve;
+        }),
+    );
+    render(<DataPickerContent onTableSelect={onTableSelect} />);
+    await act(async () => {
+      await handleConnect?.(
+        { id: "notion", name: "Notion" } as RemoteApiConnector,
+        { apiKey: "secret-for-host-vault" },
+      );
+    });
+
+    const resourceButton = await screen.findByRole("button", {
+      name: "Roadmap",
+    });
+    fireEvent.click(resourceButton);
+    await waitFor(() =>
+      expect(onTableSelect).toHaveBeenCalledWith(NEW_TABLE_ID, "Roadmap"),
+    );
+    expect((resourceButton as HTMLButtonElement).disabled).toBe(true);
+
+    await act(async () => {
+      finishQuestion?.();
+      await Promise.resolve();
+    });
+    expect(screen.queryByRole("button", { name: "Roadmap" })).toBeNull();
+  });
+
+  it("keeps a persisted remote table and prevents duplicate import after question creation returns null", async () => {
+    mockHostRequest.mockResolvedValue({
+      commands: [{ path: "createDataSource", args: {} }],
+      results: [{ value: { id: REMOTE_SOURCE_ID } }],
+    });
+    mockListResources.mockResolvedValue([{ id: "db-1", title: "Roadmap" }]);
+    mockNativeCommit.mockResolvedValue(undefined);
+
+    render(<DataPickerContent onTableSelect={async () => null} />);
+    await act(async () => {
+      await handleConnect?.(
+        { id: "notion", name: "Notion" } as RemoteApiConnector,
+        { apiKey: "secret-for-host-vault" },
+      );
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Roadmap" }));
+
+    expect(
+      await screen.findByText(
+        "Couldn't create a question from the imported table. Try again.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Roadmap" })).toBeNull();
+    expect(mockNativeCommit).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not offer a remote resource whose table is already imported", async () => {
+    queryData.dataSources = [
+      makeSource(REMOTE_SOURCE_ID, "Roadmap workspace", "notion"),
+    ];
+    queryData.dataTables = [
+      makeTable(REMOTE_TABLE_ID, REMOTE_SOURCE_ID, "db-1"),
+    ];
+    mockHostRequest.mockResolvedValue({
+      commands: [{ path: "createDataSource", args: {} }],
+      results: [{ value: { id: REMOTE_SOURCE_ID } }],
+    });
+    mockListResources.mockResolvedValue([{ id: "db-1", title: "Roadmap" }]);
+
+    render(<DataPickerContent onTableSelect={vi.fn()} />);
+    await act(async () => {
+      await handleConnect?.(
+        { id: "notion", name: "Notion" } as RemoteApiConnector,
+        { apiKey: "secret-for-host-vault" },
+      );
+    });
+
+    expect(screen.queryByRole("button", { name: "Roadmap" })).toBeNull();
+    expect(mockNativeCommit).not.toHaveBeenCalled();
   });
 
   it("creates a new table rather than offering to replace a same-named remote table", async () => {
@@ -328,6 +523,114 @@ describe("DataPickerContent file replacement", () => {
       PARSE_RESULT,
       { overrideTableId: NEW_TABLE_ID },
     );
+  });
+
+  it("does not finish a file import until ingestion and question creation settle", async () => {
+    let finishIngestion: ((result: { dataTableId: UUID }) => void) | undefined;
+    let finishQuestion: (() => void) | undefined;
+    mockHandleFileConnectorResult.mockImplementation(
+      () =>
+        new Promise<{ dataTableId: UUID }>((resolve) => {
+          finishIngestion = resolve;
+        }),
+    );
+    const onTableSelect = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finishQuestion = resolve;
+        }),
+    );
+    render(<DataPickerContent onTableSelect={onTableSelect} />);
+
+    const importPromise = handleFileSelect?.(
+      fileConnector,
+      new File(["amount\n10"], "sales.csv"),
+    );
+    let settled = false;
+    importPromise
+      ?.then(() => {
+        settled = true;
+      })
+      .catch(() => {});
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(onTableSelect).not.toHaveBeenCalled();
+    expect(settled).toBe(false);
+
+    finishIngestion?.({ dataTableId: NEW_TABLE_ID });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(onTableSelect).toHaveBeenCalledWith(NEW_TABLE_ID, "sales");
+    expect(settled).toBe(false);
+
+    finishQuestion?.();
+    await act(async () => {
+      await importPromise;
+    });
+    expect(settled).toBe(true);
+  });
+
+  it.each([
+    {
+      label: "returns null",
+      selectTable: async () => null,
+      message: "Couldn't create a question from the imported table",
+    },
+    {
+      label: "rejects",
+      selectTable: async () => {
+        throw new Error("question creation failed");
+      },
+      message: "question creation failed",
+    },
+  ])(
+    "keeps onboarding active when question creation $label after file ingestion",
+    async ({ selectTable, message }) => {
+      const onActivityChange = vi.fn();
+      render(
+        <DataPickerContent
+          onTableSelect={selectTable}
+          onActivityChange={onActivityChange}
+        />,
+      );
+
+      handleActivityChange?.(true);
+      await act(async () => {
+        await handleFileSelect?.(
+          fileConnector,
+          new File(["amount\n10"], "sales.csv"),
+        );
+      });
+      handleActivityChange?.(false);
+
+      expect(onActivityChange.mock.calls).toEqual([[true]]);
+      expect(screen.getByRole("alert").textContent).toContain(message);
+    },
+  );
+
+  it("releases onboarding when the void question callback succeeds", async () => {
+    const onActivityChange = vi.fn();
+    render(
+      <DataPickerContent
+        onTableSelect={async () => undefined}
+        onActivityChange={onActivityChange}
+      />,
+    );
+
+    handleActivityChange?.(true);
+    await act(async () => {
+      await handleFileSelect?.(
+        fileConnector,
+        new File(["amount\n10"], "sales.csv"),
+      );
+    });
+    handleActivityChange?.(false);
+
+    expect(onActivityChange.mock.calls).toEqual([[true], [false]]);
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("does not offer to replace an excluded file-backed table", async () => {

@@ -13,9 +13,11 @@ export function EmptyState({ onCreateClick }: EmptyStateProps) {
 
   // Handle table selection - create insight and notify parent
   const handleTableSelect = useCallback(
-    (tableId: string, tableName: string) => {
-      createInsightFromTable(tableId, tableName);
+    async (tableId: string, tableName: string) => {
+      const insightId = await createInsightFromTable(tableId, tableName);
+      if (insightId === null) return null;
       onCreateClick();
+      return insightId;
     },
     [createInsightFromTable, onCreateClick],
   );

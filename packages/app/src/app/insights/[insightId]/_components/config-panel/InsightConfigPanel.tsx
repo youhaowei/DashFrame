@@ -65,6 +65,7 @@ interface InsightConfigPanelProps {
   allDataTables: DataTable[];
   name: string;
   onNameChange: (name: string) => void;
+  reportId?: string;
 }
 
 /**
@@ -159,6 +160,7 @@ export function InsightConfigPanel({
   allDataTables,
   name,
   onNameChange,
+  reportId,
 }: InsightConfigPanelProps) {
   const [activeSection, setActiveSection] = useState<ConfigSection>("model");
   // Modal states
@@ -646,6 +648,7 @@ export function InsightConfigPanel({
               allDataTables={allDataTables}
               combinedFieldCount={combinedFields.length}
               compact
+              reportId={reportId}
             />
           </div>
         )}

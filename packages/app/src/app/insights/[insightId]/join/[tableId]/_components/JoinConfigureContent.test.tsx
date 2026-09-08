@@ -1,10 +1,13 @@
 import type { DataTable, Field, Insight, UUID } from "@dashframe/types";
 import { fieldIdToColumnAlias } from "@dashframe/engine";
 import { describe, expect, it } from "vite-plus/test";
+import { validateJoinSearch } from "@/routes/insights/$insightId_.join.$tableId";
+import { joinTableConfigurationLink } from "@/components/visualizations/join-navigation";
 
 import {
   buildJoinPreviewInsight,
   isJoinPreviewComputing,
+  joinSourceQuestionLink,
   resolveJoinImmediateSourceInsight,
   resolveJoinLeftFields,
 } from "./JoinConfigureContent";
@@ -47,6 +50,36 @@ const joinTable = {
   name: "Owners",
   fields: [rightField],
 } as DataTable;
+
+describe("join report context", () => {
+  it("round trips report B through table join configuration", () => {
+    const reportId = "report-b";
+    const joinLink = joinTableConfigurationLink(
+      insight.id,
+      joinTable.id,
+      reportId,
+    );
+    const search = validateJoinSearch(joinLink.search);
+
+    expect(joinLink).toEqual({
+      to: `/insights/${insight.id}/join/${joinTable.id}`,
+      search: { reportId },
+    });
+    expect(joinSourceQuestionLink(insight.id, search.reportId)).toEqual({
+      to: `/insights/${insight.id}`,
+      search: { reportId },
+    });
+  });
+
+  it("rejects malformed report ids", () => {
+    expect(validateJoinSearch({ reportId: "  " })).toEqual({
+      reportId: undefined,
+    });
+    expect(validateJoinSearch({ reportId: ["report-b"] })).toEqual({
+      reportId: undefined,
+    });
+  });
+});
 
 describe("join preview definition", () => {
   it("uses a typed ephemeral Insight and maps outer to the persisted full join", () => {

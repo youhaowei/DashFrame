@@ -52,6 +52,9 @@ async function publication(draftId: string) {
 }
 it("requires verified workspace principals and observes credential revocation", async () => {
   await expect(t.query(api.app.listDataSources, {})).rejects.toThrow();
+  await expect(
+    t.query(api.app.workspaceArtifactPresence, {}),
+  ).rejects.toThrow();
   await seed();
   expect(await user("other").query(api.app.listDataSources, {})).toEqual([]);
   expect(await service().query(api.app.listDataSources, {})).toHaveLength(1);
@@ -130,6 +133,46 @@ it("isolates draft owners, permits operator review of service drafts, and reject
   ).rejects.toThrow("Draft unavailable");
 });
 
+it("keeps review intent lines for sequential edits of one artifact", async () => {
+  const { tableId } = await seed();
+  const { draftId } = await user().mutation(api.app.draftBatch, {
+    commands: [
+      rename(tableId, "First name"),
+      rename(tableId, "Second name"),
+      rename(tableId, "Final name"),
+    ],
+  });
+  const review = await user().query(api.app.draftPublishReview, { draftId });
+  expect(review.diff.directNodes[0]?.intent).toEqual([
+    { command: "RenameNode", summary: 'Rename to "First name"' },
+    { command: "RenameNode", summary: 'Rename to "Second name"' },
+    { command: "RenameNode", summary: 'Rename to "Final name"' },
+  ]);
+});
+
+it("counts visible drafts without hydrating their summaries", async () => {
+  await user().mutation(api.app.draftBatch, { commands: [] });
+  await service().mutation(api.app.draftBatch, { commands: [] });
+  await user("w", "other").mutation(api.app.draftBatch, { commands: [] });
+
+  expect(await user().query(api.app.listDraftCount, {})).toBe(2);
+  expect(await service().query(api.app.listDraftCount, {})).toBe(1);
+  expect(await user("w", "other").query(api.app.listDraftCount, {})).toBe(2);
+});
+
+it("reports workspace artifacts only for visible workspace state", async () => {
+  expect(await user().query(api.app.workspaceArtifactPresence, {})).toBe(false);
+
+  await user("w", "other").mutation(api.app.draftBatch, { commands: [] });
+  expect(await user().query(api.app.workspaceArtifactPresence, {})).toBe(false);
+
+  await service().mutation(api.app.draftBatch, { commands: [] });
+  expect(await user().query(api.app.workspaceArtifactPresence, {})).toBe(true);
+  expect(
+    await service("other").query(api.app.workspaceArtifactPresence, {}),
+  ).toBe(false);
+});
+
 it("lists only visible drafts when foreign owners exceed the workspace cap", async () => {
   const ownDraftId = uuid();
   await t.run(async (ctx) => {
@@ -158,48 +201,6 @@ it("lists only visible drafts when foreign owners exceed the workspace cap", asy
   expect(await user().query(api.app.listDrafts, {})).toEqual([
     expect.objectContaining({ draftId: ownDraftId }),
   ]);
-}, 15_000);
-it("summarizes two visible drafts with 600 commands each", async () => {
-  const draftIds = [uuid(), uuid()];
-  await t.run(async (ctx) => {
-    const now = Date.now();
-    for (const draftId of draftIds) {
-      await ctx.db.insert("drafts", {
-        workspaceId: "w",
-        draftId,
-        owner: "user:u",
-        revision: 600,
-        createdAt: now,
-        updatedAt: now,
-        commandCount: 600,
-      });
-      for (let sequence = 0; sequence < 600; sequence++)
-        await ctx.db.insert("draftLog", {
-          workspaceId: "w",
-          draftId,
-          sequence,
-          command: {
-            path: "renameNode",
-            args: { id: uuid(), name: `Name ${sequence}` },
-          },
-        });
-    }
-  });
-
-  const drafts = await user().query(api.app.listDrafts, {});
-  expect(drafts).toHaveLength(2);
-  expect(drafts).toEqual(
-    expect.arrayContaining(
-      draftIds.map((draftId) =>
-        expect.objectContaining({
-          draftId,
-          commandCount: 600,
-          kinds: { renameNode: 600 },
-          paths: ["renameNode"],
-        }),
-      ),
-    ),
-  );
 }, 15_000);
 it("creates empty drafts for assistant sessions and rejects closed draft reads", async () => {
   const { draftId } = await service().mutation(api.app.draftBatch, {

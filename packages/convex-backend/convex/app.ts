@@ -514,6 +514,106 @@ export const getDraftLog = query({
     }));
   },
 });
+
+type VisibleDraftPrincipal = Awaited<ReturnType<typeof principal>>;
+
+async function listVisibleDraftRows(
+  ctx: QueryCtx,
+  who: VisibleDraftPrincipal,
+): Promise<Doc<"drafts">[]> {
+  const ownRows = await ctx.db
+    .query("drafts")
+    .withIndex("by_workspaceId_and_owner", (q) =>
+      q.eq("workspaceId", who.workspaceId).eq("owner", who.owner),
+    )
+    .take(LIMIT + 1);
+  const serviceRows =
+    who.kind === "user"
+      ? await ctx.db
+          .query("drafts")
+          .withIndex("by_workspaceId_and_owner", (q) =>
+            q
+              .eq("workspaceId", who.workspaceId)
+              .gte("owner", "service:")
+              .lt("owner", "service;"),
+          )
+          .take(LIMIT + 1)
+      : [];
+  const rows = [...ownRows, ...serviceRows];
+  if (rows.length > LIMIT) throw new ConvexError("Draft list limit exceeded");
+  return rows;
+}
+
+export const listDraftCount = query({
+  args: {},
+  returns: v.number(),
+  handler: async (ctx) => {
+    const who = await principal(ctx);
+    return (await listVisibleDraftRows(ctx, who)).length;
+  },
+});
+
+async function hasVisibleDraft(
+  ctx: QueryCtx,
+  who: Awaited<ReturnType<typeof principal>>,
+): Promise<boolean> {
+  const ownDraft = await ctx.db
+    .query("drafts")
+    .withIndex("by_workspaceId_and_owner", (q) =>
+      q.eq("workspaceId", who.workspaceId).eq("owner", who.owner),
+    )
+    .first();
+  if (ownDraft) return true;
+  if (who.kind !== "user") return false;
+  return Boolean(
+    await ctx.db
+      .query("drafts")
+      .withIndex("by_workspaceId_and_owner", (q) =>
+        q
+          .eq("workspaceId", who.workspaceId)
+          .gte("owner", "service:")
+          .lt("owner", "service;"),
+      )
+      .first(),
+  );
+}
+
+export const workspaceArtifactPresence = query({
+  args: {},
+  returns: v.boolean(),
+  handler: async (ctx) => {
+    const who = await principal(ctx);
+    const rows = await Promise.all([
+      ctx.db
+        .query("dashboards")
+        .withIndex("by_workspaceId_and_id", (q) =>
+          q.eq("workspaceId", who.workspaceId),
+        )
+        .first(),
+      ctx.db
+        .query("visualizations")
+        .withIndex("by_workspaceId_and_id", (q) =>
+          q.eq("workspaceId", who.workspaceId),
+        )
+        .first(),
+      ctx.db
+        .query("insights")
+        .withIndex("by_workspaceId_and_id", (q) =>
+          q.eq("workspaceId", who.workspaceId),
+        )
+        .first(),
+      ctx.db
+        .query("dataSources")
+        .withIndex("by_workspaceId_and_id", (q) =>
+          q.eq("workspaceId", who.workspaceId),
+        )
+        .first(),
+      hasVisibleDraft(ctx, who),
+    ]);
+    return rows.some(Boolean);
+  },
+});
+
 export const listDrafts = query({
   args: {},
   returns: v.array(
@@ -528,39 +628,19 @@ export const listDrafts = query({
   ),
   handler: async (ctx) => {
     const who = await principal(ctx);
-    const ownRows = await ctx.db
-      .query("drafts")
-      .withIndex("by_workspaceId_and_owner", (q) =>
-        q.eq("workspaceId", who.workspaceId).eq("owner", who.owner),
-      )
-      .take(LIMIT + 1);
-    const serviceRows =
-      who.kind === "user"
-        ? await ctx.db
-            .query("drafts")
-            .withIndex("by_workspaceId_and_owner", (q) =>
-              q
-                .eq("workspaceId", who.workspaceId)
-                .gte("owner", "service:")
-                .lt("owner", "service;"),
-            )
-            .take(LIMIT + 1)
-        : [];
-    const rows = [...ownRows, ...serviceRows];
-    if (rows.length > LIMIT) throw new ConvexError("Draft list limit exceeded");
-    const pathsByDraft = new Map<string, string[]>();
+    const rows = await listVisibleDraftRows(ctx, who);
+    const commandsByDraft = new Map<string, Command[]>();
     await Promise.all(
       rows.map(async (row) => {
-        pathsByDraft.set(
-          row.draftId,
-          (await log(ctx, who.workspaceId, row.draftId)).map(
-            (entry) => entry.command.path,
-          ),
+        const commands = (await log(ctx, who.workspaceId, row.draftId)).map(
+          (entry) => entry.command,
         );
+        commandsByDraft.set(row.draftId, commands);
       }),
     );
     return rows.map((row) => {
-      const paths = pathsByDraft.get(row.draftId) ?? [];
+      const commands = commandsByDraft.get(row.draftId) ?? [];
+      const paths = commands.map((command) => command.path);
       const kinds: Record<string, number> = {};
       for (const path of paths) kinds[path] = (kinds[path] ?? 0) + 1;
       return {

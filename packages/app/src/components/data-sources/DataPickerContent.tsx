@@ -6,6 +6,7 @@ import { makeDefaultCountMetric } from "@/lib/data-access/data-tables";
 import { handleFileConnectorResult } from "@/lib/local-csv-handler";
 import {
   connectRemoteSource,
+  RemoteSourceCleanupError,
   type RemoteResource,
   type SupportedRemoteConnectorId,
 } from "@/lib/remote-connector-onboarding";
@@ -66,7 +67,10 @@ export interface DataPickerContentProps {
   /**
    * Called when a table is selected (existing or newly uploaded)
    */
-  onTableSelect: (tableId: string, tableName: string) => void;
+  onTableSelect: (
+    tableId: string,
+    tableName: string,
+  ) => void | Promise<unknown>;
   /**
    * Exclude specific insight IDs from selection
    */
@@ -84,6 +88,8 @@ export interface DataPickerContentProps {
    * @default true
    */
   showInsights?: boolean;
+  /** Keep parent onboarding mounted through connection and follow-up selection. */
+  onActivityChange?: (active: boolean) => void;
 }
 
 interface RemoteResourceState {
@@ -156,6 +162,7 @@ export function DataPickerContent({
   excludeTableIds = [],
   onCancel,
   showInsights = true,
+  onActivityChange,
 }: DataPickerContentProps) {
   const dataSourcesQuery = queryStatus(
     useQuery({ query: api.app.listDataSources, args: {} }),
@@ -195,7 +202,23 @@ export function DataPickerContent({
   const [importingResourceId, setImportingResourceId] = useState<string | null>(
     null,
   );
+  const [
+    locallyImportedRemoteResourceKeys,
+    setLocallyImportedRemoteResourceKeys,
+  ] = useState<ReadonlySet<string>>(() => new Set());
   const isMountedRef = useRef(true);
+  const retainOnboardingActivityRef = useRef(false);
+
+  const handleConnectorActivityChange = useCallback(
+    (active: boolean) => {
+      // Once a remote source exists, per-connector idle states must not release
+      // the parent onboarding hold. The user may still be choosing a resource
+      // or another connector, and HomePage now sees that source as an artifact.
+      if (!active && retainOnboardingActivityRef.current) return;
+      onActivityChange?.(active);
+    },
+    [onActivityChange],
+  );
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -254,12 +277,33 @@ export function DataPickerContent({
       ),
     [allDataTables, excludeTableIds],
   );
+  const importedRemoteResourceIds = useMemo(
+    () =>
+      new Set(
+        allDataTables
+          .filter(
+            (table) => table.dataSourceId === remoteResourceState?.sourceId,
+          )
+          .map((table) => table.table),
+      ),
+    [allDataTables, remoteResourceState?.sourceId],
+  );
   const selectableRemoteResources = useMemo(
     () =>
       (remoteResourceState?.resources ?? []).filter(
-        (resource) => !excludedRemoteResourceIds.has(resource.id),
+        (resource) =>
+          !excludedRemoteResourceIds.has(resource.id) &&
+          !importedRemoteResourceIds.has(resource.id) &&
+          !locallyImportedRemoteResourceKeys.has(
+            `${remoteResourceState?.sourceId}:${resource.id}`,
+          ),
       ),
-    [excludedRemoteResourceIds, remoteResourceState],
+    [
+      excludedRemoteResourceIds,
+      importedRemoteResourceIds,
+      locallyImportedRemoteResourceKeys,
+      remoteResourceState,
+    ],
   );
 
   // Build DataFrame lookup by insight ID
@@ -381,7 +425,18 @@ export function DataPickerContent({
         );
 
         const tableName = file.name.replace(FILE_TABLE_NAME_EXTENSION, "");
-        onTableSelect(dataTableId, tableName);
+        // Ingestion has persisted the source/table, so keep HomePage's
+        // onboarding hold until question creation is confirmed. The callback's
+        // void contract makes `undefined` a success; `null` explicitly means
+        // the caller caught a creation failure.
+        retainOnboardingActivityRef.current = true;
+        const selection = await onTableSelect(dataTableId, tableName);
+        if (selection === null) {
+          throw new Error(
+            "Couldn't create a question from the imported table. Try again.",
+          );
+        }
+        retainOnboardingActivityRef.current = false;
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to process file");
       }
@@ -454,8 +509,14 @@ export function DataPickerContent({
             listNotionDatabasesMutation({ dataSourceId: id }),
           listPostgresTables: (id) =>
             listPostgresTablesMutation({ dataSourceId: id }),
+        }).catch((cause: unknown) => {
+          if (cause instanceof RemoteSourceCleanupError) {
+            retainOnboardingActivityRef.current = true;
+          }
+          throw cause;
         }),
       );
+      retainOnboardingActivityRef.current = true;
     },
     [commitBatch, listNotionDatabasesMutation, listPostgresTablesMutation],
   );
@@ -465,6 +526,8 @@ export function DataPickerContent({
       if (connector.id !== "googleAnalytics") {
         throw new Error(`${connector.name} OAuth onboarding is not supported`);
       }
+      // OAuth has already persisted the source before this callback runs.
+      retainOnboardingActivityRef.current = true;
       setError(null);
       setRemoteResourceState({
         connectorId: "googleAnalytics",
@@ -505,7 +568,22 @@ export function DataPickerContent({
             });
           },
         });
-        onTableSelect(tableId, resource.title);
+        // The table now exists even if question creation fails. Remove this
+        // resource from the import choices immediately, before subscriptions
+        // catch up, so retry goes through the existing table instead of
+        // creating a duplicate DataTable.
+        setLocallyImportedRemoteResourceKeys((current) => {
+          const next = new Set(current);
+          next.add(`${remoteResourceState.sourceId}:${resource.id}`);
+          return next;
+        });
+        retainOnboardingActivityRef.current = true;
+        const selection = await onTableSelect(tableId, resource.title);
+        if (selection === null) {
+          throw new RemoteImportUserError(
+            "Couldn't create a question from the imported table. Try again.",
+          );
+        }
       } catch (cause) {
         const stableError =
           cause instanceof RemoteImportUserError
@@ -579,6 +657,7 @@ export function DataPickerContent({
               onFileSelect={handleFileSelect}
               onConnect={handleConnect}
               onOAuthConnect={handleOAuthConnect}
+              onActivityChange={handleConnectorActivityChange}
             />
           </SectionList>
         )}
@@ -589,7 +668,9 @@ export function DataPickerContent({
               label="Choose another connection"
               variant="ghost"
               size="sm"
-              onClick={() => setRemoteResourceState(null)}
+              onClick={() => {
+                setRemoteResourceState(null);
+              }}
               icon={ArrowLeftIcon}
             />
             <SectionList title="Choose data to import">
@@ -625,7 +706,15 @@ export function DataPickerContent({
       {/* Footer */}
       {onCancel && (
         <div className="flex justify-end">
-          <Button label="Cancel" variant="outline" onClick={onCancel} />
+          <Button
+            label="Cancel"
+            variant="outline"
+            onClick={() => {
+              retainOnboardingActivityRef.current = false;
+              onActivityChange?.(false);
+              onCancel();
+            }}
+          />
         </div>
       )}
     </div>

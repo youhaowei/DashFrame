@@ -92,7 +92,9 @@ vi.mock("@/data/host", () => ({
 
 const { mockPush, mockNavigate } = vi.hoisted(() => {
   const push = vi.fn();
-  const navigate = (opts: { to: string }) => push(opts.to);
+  const navigate = vi.fn(async (opts: { to: string; search?: unknown }) => {
+    push(opts.to);
+  });
   return { mockPush: push, mockNavigate: navigate };
 });
 
@@ -135,6 +137,36 @@ function createMockInsight(options: {
 }
 
 describe("useCreateInsight", () => {
+  it("retains the originating report when creating a table question", async () => {
+    mockCreateInsight.mockResolvedValue("new-question");
+    const { result } = renderHook(() => useCreateInsight());
+    await act(async () => {
+      await result.current.createInsightFromTable("table-abc", "Orders", {
+        reportId: "second-report",
+      });
+    });
+    expect(mockNavigate).toHaveBeenCalledWith({
+      to: "/insights/new-question",
+      search: { reportId: "second-report" },
+    });
+  });
+
+  it("retains report and visualization intent for a derived question", async () => {
+    mockCreateInsight.mockResolvedValue("derived-question");
+    mockGetInsight.mockResolvedValue(createMockInsight({}));
+    const { result } = renderHook(() => useCreateInsight());
+    await act(async () => {
+      await result.current.createInsightFromInsight("insight-123", "Orders", {
+        reportId: "second-report",
+        visualize: true,
+      });
+    });
+    expect(mockNavigate).toHaveBeenCalledWith({
+      to: "/insights/derived-question",
+      search: { visualize: "true", reportId: "second-report" },
+    });
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     // Default: no pre-existing insights.
@@ -182,6 +214,34 @@ describe("useCreateInsight", () => {
       });
 
       expect(mockPush).toHaveBeenCalledWith("/insights/new-insight-456");
+    });
+
+    it("keeps onboarding creation active until navigation settles", async () => {
+      mockCreateInsight.mockResolvedValue("new-insight-pending-navigation");
+      let finishNavigation: (() => void) | undefined;
+      mockNavigate.mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            finishNavigation = resolve;
+          }),
+      );
+      const { result } = renderHook(() => useCreateInsight());
+
+      let settled = false;
+      const creation = result.current
+        .createInsightFromTable("table-xyz", "Customer Data")
+        .then(() => {
+          settled = true;
+        });
+
+      await vi.waitFor(() => expect(mockNavigate).toHaveBeenCalledOnce());
+      expect(settled).toBe(false);
+
+      finishNavigation?.();
+      await act(async () => {
+        await creation;
+      });
+      expect(settled).toBe(true);
     });
 
     it("should return the created insight ID", async () => {

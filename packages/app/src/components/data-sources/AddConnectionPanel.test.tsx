@@ -14,6 +14,7 @@
  * picks up the newly-registered connector via `useRegistryVersion()`.
  */
 import { localFileConnector } from "@dashframe/connector-local";
+import type { AnyConnector } from "@dashframe/engine";
 import type { ConnectorCatalogEntry } from "@dashframe/types";
 import { act, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -25,7 +26,11 @@ import {
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
-const { mockUseConnectorCatalog } = vi.hoisted(() => ({
+const { activityHandlers, mockUseConnectorCatalog } = vi.hoisted(() => ({
+  activityHandlers: {} as Record<
+    string,
+    ((active: boolean) => boolean) | undefined
+  >,
   mockUseConnectorCatalog: vi.fn(),
 }));
 
@@ -39,9 +44,34 @@ vi.mock("@/data/connector-catalog", () => ({
 vi.mock("./renderers", () => ({
   ConnectorCardWithForm: ({
     connector,
+    disabled,
+    onActivityChange,
   }: {
     connector: { id: string; name: string };
-  }) => <div data-testid={`connector-${connector.id}`}>{connector.name}</div>,
+    disabled?: boolean;
+    onActivityChange?: (active: boolean) => boolean;
+  }) => {
+    activityHandlers[connector.id] = onActivityChange;
+    return (
+      <div>
+        <button
+          type="button"
+          data-testid={`connector-${connector.id}`}
+          disabled={disabled}
+          onClick={() => onActivityChange?.(true)}
+        >
+          {connector.name}
+        </button>
+        <button
+          type="button"
+          data-testid={`release-${connector.id}`}
+          onClick={() => onActivityChange?.(false)}
+        >
+          Release {connector.name}
+        </button>
+      </div>
+    );
+  },
 }));
 
 import { AddConnectionPanel } from "./AddConnectionPanel";
@@ -61,12 +91,37 @@ const CATALOG: ConnectorCatalogEntry[] = [
   },
 ];
 
-function renderPanel() {
+const remoteConnector = {
+  id: "notion",
+  name: "Notion",
+  description: "Connect a Notion workspace.",
+  sourceType: "remote-api",
+  authKind: "api-key",
+  icon: "",
+  getFormFields: () => [],
+  validate: () => ({ valid: true }),
+} as unknown as AnyConnector;
+
+const TWO_CONNECTOR_CATALOG: ConnectorCatalogEntry[] = [
+  ...CATALOG,
+  {
+    id: remoteConnector.id,
+    name: remoteConnector.name,
+    description: remoteConnector.description,
+    sourceType: "remote-api",
+    icon: remoteConnector.icon,
+    authKind: "api-key",
+    formFields: [],
+  },
+];
+
+function renderPanel(onActivityChange?: (active: boolean) => void) {
   return render(
     <AddConnectionPanel
       onFileSelect={vi.fn()}
       onConnect={vi.fn().mockResolvedValue(undefined)}
       onOAuthConnect={vi.fn().mockResolvedValue(undefined)}
+      onActivityChange={onActivityChange}
     />,
   );
 }
@@ -75,6 +130,9 @@ describe("AddConnectionPanel — registry hydration race (B1)", () => {
   beforeEach(() => {
     clearConnectorRegistry();
     mockUseConnectorCatalog.mockReset();
+    for (const connectorId of Object.keys(activityHandlers)) {
+      delete activityHandlers[connectorId];
+    }
   });
 
   it("renders the connector once the registry hydrates AFTER the catalog query has already resolved", () => {
@@ -138,5 +196,65 @@ describe("AddConnectionPanel — registry hydration race (B1)", () => {
     expect(screen.getByText(/failed to load connectors/i)).not.toBeNull();
     screen.getByRole("button", { name: /retry/i }).click();
     expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("prevents another connector from starting while one owns onboarding", () => {
+    mockUseConnectorCatalog.mockReturnValue({
+      data: TWO_CONNECTOR_CATALOG,
+      isLoading: false,
+      isFetching: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+    hydrateConnectorRegistry(TWO_CONNECTOR_CATALOG, {
+      local: () => localFileConnector,
+      notion: () => remoteConnector,
+    });
+
+    const onActivityChange = vi.fn();
+    renderPanel(onActivityChange);
+
+    const local = screen.getByTestId("connector-local") as HTMLButtonElement;
+    const notion = screen.getByTestId("connector-notion") as HTMLButtonElement;
+    act(() => local.click());
+
+    expect(local.disabled).toBe(false);
+    expect(notion.disabled).toBe(true);
+
+    act(() => screen.getByTestId("release-notion").click());
+    expect(notion.disabled).toBe(true);
+    expect(onActivityChange).toHaveBeenCalledTimes(1);
+
+    act(() => screen.getByTestId("release-local").click());
+    expect(notion.disabled).toBe(false);
+    expect(onActivityChange.mock.calls).toEqual([[true], [false]]);
+  });
+
+  it("denies a same-tick second ownership claim synchronously", () => {
+    mockUseConnectorCatalog.mockReturnValue({
+      data: TWO_CONNECTOR_CATALOG,
+      isLoading: false,
+      isFetching: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+    hydrateConnectorRegistry(TWO_CONNECTOR_CATALOG, {
+      local: () => localFileConnector,
+      notion: () => remoteConnector,
+    });
+
+    renderPanel();
+
+    let firstClaim: boolean | undefined;
+    let secondClaim: boolean | undefined;
+    act(() => {
+      firstClaim = activityHandlers.local?.(true);
+      secondClaim = activityHandlers.notion?.(true);
+    });
+
+    expect(firstClaim).toBe(true);
+    expect(secondClaim).toBe(false);
   });
 });

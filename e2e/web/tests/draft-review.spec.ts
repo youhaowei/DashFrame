@@ -148,7 +148,7 @@ test.describe("draft review", () => {
     expect(await query<unknown[]>("listInsights", {})).toHaveLength(0);
 
     await page.getByRole("button", { name: "Publish", exact: true }).click();
-    await expect(page).toHaveURL(new RegExp(`${workerBaseURL}/?$`));
+    await expect(page).toHaveURL(new RegExp(`${workerBaseURL}/dashboards/?$`));
 
     const sources = await query<Array<{ id: string }>>("listDataSources", {});
     const insights = await query<

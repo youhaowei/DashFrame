@@ -40,11 +40,15 @@ export default function DraftsPage() {
   } = queryStatus(useQuery({ query: api.app.listDrafts, args: {} }));
   const [searchQuery, setSearchQuery] = useState("");
   const query = searchQuery.trim().toLowerCase();
-  const filteredDrafts = drafts.filter((draft) =>
-    `${draft.draftId} ${draft.commandCount} changes ${draft.paths.join(" ")}`
-      .toLowerCase()
-      .includes(query),
-  );
+  const filteredDrafts = drafts.filter((draft) => {
+    const haystack = [
+      draft.draftId,
+      `${draft.commandCount} changes`,
+      ...draft.paths,
+      ...Object.keys(draft.kinds),
+    ].join(" ");
+    return haystack.toLowerCase().includes(query);
+  });
   const discardDraft = useMutation(api.app.discardDraft);
   const draftCount = getDraftCountPresentation(
     isLoading,
