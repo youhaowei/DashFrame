@@ -1,8 +1,21 @@
 import type { DataFrameStorage } from "@dashframe/engine";
 import type { UUID } from "@dashframe/types";
+import {
+  DataType,
+  RecordBatch,
+  RecordBatchReader,
+  RecordBatchStreamWriter,
+  Table,
+  tableToIPC,
+  type Schema,
+  util,
+} from "apache-arrow";
 import { randomUUID } from "node:crypto";
+import { createReadStream, createWriteStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { Transform, type TransformCallback } from "node:stream";
+import { pipeline } from "node:stream/promises";
 
 const FRAME_EXTENSION = ".arrow";
 const TRASH_DIRECTORY = ".trash";
@@ -88,6 +101,94 @@ class StagedDeleteCollisionError extends Error {
   }
 }
 
+interface TransferWaiter {
+  position: number;
+  resolve: () => void;
+  reject: (error: Error) => void;
+}
+
+/**
+ * Couples Arrow's internal byte queue to Node stream backpressure. The Arrow
+ * writer serializes one record batch synchronously, so waiting until those
+ * bytes cross this bounded transform prevents the next input payload from
+ * being requested while the current batch is still queued in the writer.
+ */
+class TransferCounter extends Transform {
+  private position = 0;
+  private readonly waiters: TransferWaiter[] = [];
+
+  constructor() {
+    super({ highWaterMark: 64 * 1024 });
+  }
+
+  waitFor(position: number): Promise<void> {
+    if (this.position >= position) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      this.waiters.push({ position, resolve, reject });
+    });
+  }
+
+  override _transform(
+    chunk: Buffer,
+    encoding: BufferEncoding,
+    callback: TransformCallback,
+  ): void {
+    this.position += chunk.byteLength;
+    this.resolveWaiters();
+    callback(null, chunk);
+  }
+
+  override _destroy(
+    error: Error | null,
+    callback: (error?: Error | null) => void,
+  ): void {
+    const failure = error ?? new Error("Arrow output stream closed early");
+    for (const waiter of this.waiters.splice(0)) waiter.reject(failure);
+    callback(error);
+  }
+
+  private resolveWaiters(): void {
+    for (let index = this.waiters.length - 1; index >= 0; index -= 1) {
+      const waiter = this.waiters[index];
+      if (waiter && this.position >= waiter.position) {
+        this.waiters.splice(index, 1);
+        waiter.resolve();
+      }
+    }
+  }
+}
+
+class ObservableRecordBatchStreamWriter extends RecordBatchStreamWriter {
+  get outputPosition(): number {
+    return this._position;
+  }
+}
+
+function schemasHaveSameLogicalFields(left: Schema, right: Schema): boolean {
+  return (
+    left.fields.length === right.fields.length &&
+    left.fields.every((field, index) => {
+      const other = right.fields[index];
+      if (!other) return false;
+      if (
+        field.name !== other.name ||
+        field.nullable !== other.nullable ||
+        field.type.toString() !== other.type.toString()
+      ) {
+        return false;
+      }
+      if (
+        DataType.isDictionary(field.type) &&
+        DataType.isDictionary(other.type) &&
+        field.type.isOrdered !== other.type.isOrdered
+      ) {
+        return false;
+      }
+      return true;
+    })
+  );
+}
+
 /** Durable Arrow IPC storage rooted inside one DashFrame project. */
 export class FileDataFrameStorage implements DataFrameStorage {
   constructor(
@@ -126,6 +227,91 @@ export class FileDataFrameStorage implements DataFrameStorage {
     }
   }
 
+  async saveBatches(
+    id: UUID,
+    batches: AsyncIterable<Uint8Array>,
+  ): Promise<void> {
+    const target = this.framePath(id);
+    await ensureDirectory(this.directory, this.sync);
+    const temporary = path.join(
+      this.directory,
+      `.${id}.${process.pid}.${randomUUID()}.tmp`,
+    );
+    const output = createWriteStream(temporary, { flags: "wx", mode: 0o600 });
+    const counter = new TransferCounter();
+    const writer = new ObservableRecordBatchStreamWriter({
+      autoDestroy: false,
+    });
+    const serialized = writer.toNodeStream();
+    const outputComplete = pipeline(serialized, counter, output);
+
+    try {
+      let expectedSchema: Schema | null = null;
+      let emptyResultSchema: Schema | null = null;
+
+      for await (const payload of batches) {
+        const reader = RecordBatchReader.from(payload).open({
+          autoDestroy: false,
+        });
+        try {
+          emptyResultSchema ??= reader.schema;
+
+          for await (const batch of reader) {
+            if (batch.numRows === 0) continue;
+            if (!expectedSchema) {
+              expectedSchema = reader.schema;
+              writer.reset(undefined, expectedSchema);
+              await counter.waitFor(writer.outputPosition);
+            } else if (
+              !schemasHaveSameLogicalFields(expectedSchema, reader.schema)
+            ) {
+              throw new Error(
+                "Arrow batch schema does not match the first payload",
+              );
+            }
+            const normalizedBatch = util.compareSchemas(
+              expectedSchema,
+              batch.schema,
+            )
+              ? batch
+              : new RecordBatch(expectedSchema, batch.data);
+            writer.write(normalizedBatch);
+            await counter.waitFor(writer.outputPosition);
+          }
+        } finally {
+          await reader.cancel();
+        }
+      }
+
+      if (!expectedSchema) {
+        if (!emptyResultSchema) {
+          throw new Error("Cannot save Arrow batches without a schema payload");
+        }
+        writer.reset(undefined, emptyResultSchema);
+        await counter.waitFor(writer.outputPosition);
+      }
+
+      writer.close();
+      await outputComplete;
+      const handle = await fs.open(temporary, "r");
+      try {
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+      await fs.rename(temporary, target);
+      await this.sync(this.directory);
+    } catch (error) {
+      serialized.destroy();
+      counter.destroy();
+      output.destroy();
+      await outputComplete.catch(() => undefined);
+      throw error;
+    } finally {
+      await fs.rm(temporary, { force: true }).catch(() => undefined);
+    }
+  }
+
   async load(id: UUID): Promise<Uint8Array | null> {
     try {
       return new Uint8Array(await fs.readFile(this.framePath(id)));
@@ -138,6 +324,27 @@ export class FileDataFrameStorage implements DataFrameStorage {
         return null;
       }
       throw error;
+    }
+  }
+
+  async *loadBatches(id: UUID): AsyncIterable<Uint8Array> {
+    const input = createReadStream(this.framePath(id));
+    let reader: Awaited<ReturnType<typeof RecordBatchReader.from>> | null =
+      null;
+    try {
+      reader = await RecordBatchReader.from(input);
+      await reader.open({ autoDestroy: false });
+      let foundBatch = false;
+      for await (const batch of reader) {
+        foundBatch = true;
+        yield tableToIPC(new Table(reader.schema, batch), "stream");
+      }
+      if (!foundBatch) {
+        yield tableToIPC(new Table(reader.schema), "stream");
+      }
+    } finally {
+      await reader?.cancel();
+      input.destroy();
     }
   }
 

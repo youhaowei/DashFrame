@@ -1,3 +1,5 @@
+import { tableFromArrays, tableFromIPC, tableToIPC } from "apache-arrow";
+import { ReadStream } from "node:fs";
 import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -29,6 +31,202 @@ describe("FileDataFrameStorage", () => {
     expect(await restarted.exists(id)).toBe(true);
     expect(await restarted.list()).toEqual([id]);
     expect(await restarted.getUsage()).toEqual({ count: 1, totalBytes: 4 });
+  });
+
+  it("stores more than 10,000 rows as one stream and loads complete batches", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "dashframe-frames-"));
+    roots.push(root);
+    const storage = new FileDataFrameStorage(path.join(root, "frames"));
+    const id = "11111111-1111-4111-8111-111111111111";
+    const rowCount = 12_345;
+
+    async function* payloads(): AsyncIterable<Uint8Array> {
+      for (let offset = 0; offset < rowCount; offset += 1_000) {
+        const values = Array.from(
+          { length: Math.min(1_000, rowCount - offset) },
+          (_, index) => offset + index,
+        );
+        yield tableToIPC(tableFromArrays({ value: values }), "stream");
+      }
+    }
+
+    await storage.saveBatches(id, payloads());
+
+    const stored = await storage.load(id);
+    expect(stored).not.toBeNull();
+    expect(tableFromIPC(stored!).numRows).toBe(rowCount);
+
+    let loadedRows = 0;
+    let loadedPayloads = 0;
+    for await (const payload of storage.loadBatches(id)) {
+      const table = tableFromIPC(payload);
+      expect(table.batches).toHaveLength(1);
+      loadedRows += table.numRows;
+      loadedPayloads += 1;
+    }
+    expect(loadedRows).toBe(rowCount);
+    expect(loadedPayloads).toBe(13);
+  });
+
+  it("normalizes per-page dictionary ids while preserving string values", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "dashframe-frames-"));
+    roots.push(root);
+    const storage = new FileDataFrameStorage(path.join(root, "frames"));
+    const id = "11111111-1111-4111-8111-111111111111";
+    const pages = [
+      ["alpha", "beta", "alpha"],
+      ["gamma", "delta", "gamma"],
+      ["epsilon"],
+    ];
+
+    async function* payloads(): AsyncIterable<Uint8Array> {
+      for (const values of pages) {
+        yield tableToIPC(tableFromArrays({ value: values }), "stream");
+      }
+    }
+
+    await storage.saveBatches(id, payloads());
+
+    const stored = await storage.load(id);
+    const values = tableFromIPC(stored!)
+      .getChild("value")!
+      .toArray()
+      .map(String);
+    expect(values).toEqual(pages.flat());
+  });
+
+  it("ignores a terminal empty page with an inferred Null schema", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "dashframe-frames-"));
+    roots.push(root);
+    const storage = new FileDataFrameStorage(path.join(root, "frames"));
+    const id = "11111111-1111-4111-8111-111111111111";
+
+    await storage.saveBatches(
+      id,
+      (async function* () {
+        yield tableToIPC(
+          tableFromArrays({ value: ["alpha", "beta"] }),
+          "stream",
+        );
+        yield tableToIPC(tableFromArrays({ value: [] }), "stream");
+      })(),
+    );
+
+    const stored = await storage.load(id);
+    const table = tableFromIPC(stored!);
+    expect(table.schema.fields[0]?.type.toString()).toBe(
+      "Dictionary<Int32, Utf8>",
+    );
+    expect(table.getChild("value")!.toArray().map(String)).toEqual([
+      "alpha",
+      "beta",
+    ]);
+  });
+
+  it("pulls batch payloads one at a time", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "dashframe-frames-"));
+    roots.push(root);
+    const storage = new FileDataFrameStorage(path.join(root, "frames"));
+    const id = "11111111-1111-4111-8111-111111111111";
+    const payload = tableToIPC(tableFromArrays({ value: [1] }), "stream");
+    let index = 0;
+    let pendingPulls = 0;
+    let maximumPendingPulls = 0;
+    const batches: AsyncIterable<Uint8Array> = {
+      [Symbol.asyncIterator]() {
+        return {
+          next() {
+            pendingPulls += 1;
+            maximumPendingPulls = Math.max(maximumPendingPulls, pendingPulls);
+            return new Promise<IteratorResult<Uint8Array>>((resolve) => {
+              setImmediate(() => {
+                pendingPulls -= 1;
+                if (index >= 20) {
+                  resolve({ done: true, value: undefined });
+                  return;
+                }
+                index += 1;
+                resolve({ done: false, value: payload });
+              });
+            });
+          },
+        };
+      },
+    };
+
+    await storage.saveBatches(id, batches);
+
+    expect(index).toBe(20);
+    expect(maximumPendingPulls).toBe(1);
+  });
+
+  it("preserves an empty result schema", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "dashframe-frames-"));
+    roots.push(root);
+    const storage = new FileDataFrameStorage(path.join(root, "frames"));
+    const id = "11111111-1111-4111-8111-111111111111";
+    const empty = tableFromArrays({ value: [] as number[] });
+
+    await storage.saveBatches(
+      id,
+      (async function* () {
+        yield tableToIPC(empty, "stream");
+      })(),
+    );
+
+    const payloads: Uint8Array[] = [];
+    for await (const payload of storage.loadBatches(id)) payloads.push(payload);
+    expect(payloads).toHaveLength(1);
+    const loaded = tableFromIPC(payloads[0]!);
+    expect(loaded.numRows).toBe(0);
+    expect(loaded.schema.fields.map((field) => field.name)).toEqual(["value"]);
+  });
+
+  it("keeps the prior generation and removes its temp after batch failure", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "dashframe-frames-"));
+    roots.push(root);
+    const directory = path.join(root, "frames");
+    const storage = new FileDataFrameStorage(directory);
+    const id = "11111111-1111-4111-8111-111111111111";
+    const prior = new Uint8Array([9, 8, 7]);
+    await storage.save(id, prior);
+
+    await expect(
+      storage.saveBatches(
+        id,
+        (async function* () {
+          yield tableToIPC(tableFromArrays({ value: [1] }), "stream");
+          yield tableToIPC(tableFromArrays({ value: ["mismatch"] }), "stream");
+        })(),
+      ),
+    ).rejects.toThrow();
+
+    expect(await storage.load(id)).toEqual(prior);
+    expect(
+      (await readdir(directory)).filter((entry) => entry.endsWith(".tmp")),
+    ).toEqual([]);
+  });
+
+  it("closes the file stream when batch iteration stops early", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "dashframe-frames-"));
+    roots.push(root);
+    const storage = new FileDataFrameStorage(path.join(root, "frames"));
+    const id = "11111111-1111-4111-8111-111111111111";
+    const destroyed = vi.spyOn(ReadStream.prototype, "destroy");
+    await storage.saveBatches(
+      id,
+      (async function* () {
+        yield tableToIPC(tableFromArrays({ value: [1] }), "stream");
+        yield tableToIPC(tableFromArrays({ value: [2] }), "stream");
+      })(),
+    );
+
+    for await (const payload of storage.loadBatches(id)) {
+      expect(tableFromIPC(payload).numRows).toBe(1);
+      break;
+    }
+
+    expect(destroyed).toHaveBeenCalled();
   });
 
   it("rejects ids that could escape the storage directory", async () => {
