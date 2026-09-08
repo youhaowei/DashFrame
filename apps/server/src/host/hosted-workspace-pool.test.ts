@@ -9,6 +9,45 @@ function barrier() {
   return { promise, release };
 }
 
+it("reclaims idle capacity only after close and coalesces the replacement startup", async () => {
+  const closing = barrier();
+  const closeA = vi.fn(() => closing.promise);
+  const open = vi.fn(async (id: string) => ({
+    resources: id,
+    close: id === "a" ? closeA : async () => {},
+  }));
+  const pool = new HostedWorkspacePool(1, open);
+  await pool.run("a", "owner-a", async () => null);
+  const first = pool.run("b", "owner-b", async (value) => value);
+  const second = pool.run("b", "owner-b", async (value) => value);
+  await vi.waitFor(() => expect(closeA).toHaveBeenCalledOnce());
+  expect(open).toHaveBeenCalledTimes(1);
+  closing.release();
+  expect(await Promise.all([first, second])).toEqual(["b", "b"]);
+  expect(open).toHaveBeenCalledTimes(2);
+  await pool.close();
+});
+
+it("retains a failed idle close and retries it before admitting another workspace", async () => {
+  const closeA = vi
+    .fn()
+    .mockRejectedValueOnce(new Error("worker still alive"))
+    .mockResolvedValue(undefined);
+  const open = vi.fn(async (id: string) => ({
+    resources: id,
+    close: id === "a" ? closeA : async () => {},
+  }));
+  const pool = new HostedWorkspacePool(1, open);
+  await pool.run("a", "owner-a", async () => null);
+  await expect(pool.run("b", "owner-b", async () => null)).rejects.toThrow(
+    "worker still alive",
+  );
+  expect(open).toHaveBeenCalledTimes(1);
+  expect(await pool.run("b", "owner-b", async (value) => value)).toBe("b");
+  expect(closeA).toHaveBeenCalledTimes(2);
+  await pool.close();
+});
+
 it("shares startup, binds owners, limits allocation, and drains accepted work", async () => {
   const opening = barrier();
   const running = barrier();
@@ -254,4 +293,64 @@ it("surfaces workspace startup failure before a response exists", async () => {
     "abort",
     expect.any(Function),
   );
+});
+
+it("expires a request waiting for idle teardown without releasing live worker capacity", async () => {
+  const closing = barrier();
+  const closeA = vi.fn(() => closing.promise);
+  const open = vi.fn(async (id: string) => ({
+    resources: id,
+    close: id === "a" ? closeA : async () => {},
+  }));
+  const pool = new HostedWorkspacePool(1, open);
+  await pool.run("a", "owner-a", async () => null);
+  const operation = vi.fn(async () => new Response("unexpected"));
+  try {
+    await expect(
+      pool.runRequest(
+        "b",
+        "owner-b",
+        new Request("https://demo.test"),
+        Date.now() + 60_000,
+        operation,
+        20,
+      ),
+    ).rejects.toThrow("deadline exceeded");
+    expect(closeA).toHaveBeenCalledOnce();
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(operation).not.toHaveBeenCalled();
+  } finally {
+    closing.release();
+    await pool.close();
+  }
+});
+
+it("cancels a startup waiter while retaining the shared startup for other requests", async () => {
+  const opening = barrier();
+  const close = vi.fn(async () => {});
+  const pool = new HostedWorkspacePool(1, async () => {
+    await opening.promise;
+    return { resources: "ready", close };
+  });
+  const operation = vi.fn(async () => new Response("unexpected"));
+  try {
+    await expect(
+      pool.runRequest(
+        "a",
+        "owner-a",
+        new Request("https://demo.test"),
+        Date.now() + 60_000,
+        operation,
+        20,
+      ),
+    ).rejects.toThrow("deadline exceeded");
+    expect(operation).not.toHaveBeenCalled();
+    const next = pool.run("a", "owner-a", async (value) => value);
+    opening.release();
+    expect(await next).toBe("ready");
+  } finally {
+    opening.release();
+    await pool.close();
+  }
+  expect(close).toHaveBeenCalledOnce();
 });

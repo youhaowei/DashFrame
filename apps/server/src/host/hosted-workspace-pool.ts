@@ -8,6 +8,9 @@ interface OwnedWorkspace<T> {
 interface Entry<T> {
   ownerId: string;
   opening: Promise<OwnedWorkspace<T>>;
+  active: number;
+  retiring: boolean;
+  closing?: Promise<void>;
 }
 
 /** Bounded process-local sharing, not a cross-process volume lock.
@@ -35,37 +38,78 @@ export class HostedWorkspacePool<T> {
     workspaceId: string,
     ownerId: string,
     operation: (resources: T) => Promise<R>,
+    signal?: AbortSignal,
   ): Promise<R> {
     validIdentity(workspaceId);
     validIdentity(ownerId);
     if (this.draining)
       throw new Error("Hosted workspace pool is shutting down");
-    let entry = this.entries.get(workspaceId);
-    if (entry && entry.ownerId !== ownerId) throw new Error("FORBIDDEN");
-    if (!entry) {
-      if (this.entries.size >= this.limit)
-        throw new Error("Hosted workspace capacity reached");
+    this.active++;
+    let entry: Entry<T> | undefined;
+    try {
+      entry = await this.acquire(workspaceId, ownerId, signal);
+      const workspace = await waitFor(entry.opening, signal);
+      signal?.throwIfAborted();
+      return await operation(workspace.resources);
+    } finally {
+      if (entry) entry.active--;
+      this.active--;
+      if (this.active === 0) this.drained?.();
+    }
+  }
+
+  private async acquire(
+    workspaceId: string,
+    ownerId: string,
+    signal?: AbortSignal,
+  ): Promise<Entry<T>> {
+    while (true) {
+      signal?.throwIfAborted();
+      let entry = this.entries.get(workspaceId);
+      if (entry && entry.ownerId !== ownerId) throw new Error("FORBIDDEN");
+      if (entry?.retiring) {
+        await waitFor(this.retire(workspaceId, entry), signal);
+        continue;
+      }
+      if (entry) {
+        entry.active++;
+        return entry;
+      }
+      if (this.entries.size >= this.limit) {
+        const idle = [...this.entries].find(([, value]) => value.active === 0);
+        if (!idle) throw new Error("Hosted workspace capacity reached");
+        await waitFor(this.retire(...idle), signal);
+        continue;
+      }
       // Defer factory invocation until the shared entry has been installed,
       // including for synchronous throws or reentrant callers.
       const opening = Promise.resolve().then(() =>
         this.open(workspaceId, ownerId),
       );
-      entry = { ownerId, opening };
+      entry = { ownerId, opening, active: 1, retiring: false };
       this.entries.set(workspaceId, entry);
       const installed = entry;
       opening.catch(() => {
         if (this.entries.get(workspaceId) === installed)
           this.entries.delete(workspaceId);
       });
+      return entry;
     }
-    this.active++;
-    try {
-      const workspace = await entry.opening;
-      return await operation(workspace.resources);
-    } finally {
-      this.active--;
-      if (this.active === 0) this.drained?.();
-    }
+  }
+
+  /** Never reuse partially closed resources or free capacity before workers stop. */
+  private retire(id: string, entry: Entry<T>): Promise<void> {
+    if (entry.closing) return entry.closing;
+    entry.retiring = true;
+    const closing = entry.opening.then(async (workspace) => {
+      await workspace.close();
+      if (this.entries.get(id) === entry) this.entries.delete(id);
+    });
+    entry.closing = closing;
+    closing.catch(() => {
+      if (entry.closing === closing) entry.closing = undefined;
+    });
+    return closing;
   }
 
   /** Keep workspace ownership active until the response body is consumed or cancelled. */
@@ -104,28 +148,33 @@ export class HostedWorkspacePool<T> {
       resolveReady = resolve;
       rejectReady = reject;
     });
-    const execution = this.run(workspaceId, ownerId, async (resources) => {
-      try {
-        const response = await operation(resources, lifetime.signal);
-        if (lifetime.signal.aborted) {
-          await response.body?.cancel(lifetime.signal.reason);
-          throw lifetime.signal.reason;
+    const execution = this.run(
+      workspaceId,
+      ownerId,
+      async (resources) => {
+        try {
+          const response = await operation(resources, lifetime.signal);
+          if (lifetime.signal.aborted) {
+            await response.body?.cancel(lifetime.signal.reason);
+            throw lifetime.signal.reason;
+          }
+          let finish!: () => void;
+          const finished = new Promise<void>((resolve) => {
+            finish = resolve;
+          });
+          resolveReady(holdResponse(response, lifetime, finish));
+          await finished;
+          return response;
+        } catch (error) {
+          rejectReady(error);
+          throw error;
+        } finally {
+          // Accepted work invalidates its capability before `run` can release it.
+          endLifetime();
         }
-        let finish!: () => void;
-        const finished = new Promise<void>((resolve) => {
-          finish = resolve;
-        });
-        resolveReady(holdResponse(response, lifetime, finish));
-        await finished;
-        return response;
-      } catch (error) {
-        rejectReady(error);
-        throw error;
-      } finally {
-        // Accepted work invalidates its capability before `run` can release it.
-        endLifetime();
-      }
-    });
+      },
+      lifetime.signal,
+    );
     // Also cover startup, capacity, owner, and draining failures that occur
     // before the operation callback is entered.
     execution.then(endLifetime, (error) => {
@@ -155,11 +204,7 @@ export class HostedWorkspacePool<T> {
       });
     this.drained = undefined;
     const outcomes = await Promise.allSettled(
-      [...this.entries].map(async ([id, entry]) => {
-        const workspace = await entry.opening;
-        await workspace.close();
-        this.entries.delete(id);
-      }),
+      [...this.entries].map(([id, entry]) => this.retire(id, entry)),
     );
     const failures = outcomes
       .filter(
@@ -235,4 +280,24 @@ function validIdentity(value: string): void {
     /[\s\p{Cc}]/u.test(value)
   )
     throw new Error("Invalid admitted workspace identity");
+}
+
+/** Cancel this waiter without cancelling shared startup or releasing worker ownership. */
+function waitFor<T>(pending: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return pending;
+  signal.throwIfAborted();
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(signal.reason);
+    signal.addEventListener("abort", abort, { once: true });
+    pending.then(
+      (value) => {
+        signal.removeEventListener("abort", abort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", abort);
+        reject(error);
+      },
+    );
+  });
 }
