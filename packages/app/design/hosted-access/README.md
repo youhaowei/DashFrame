@@ -1,6 +1,6 @@
 # Hosted access UI
 
-Open `centered.html`, `split.html`, or `sheet.html` in a browser. Each static mock shows signed out, pending admission, unavailable, and loading states. The theme toggle affects only the preview; action buttons are inert.
+Serve this directory using the preview command below, then open `centered.html`, `split.html`, or `sheet.html`. Each static mock shows signed out, pending admission, unavailable, and loading states. The shared app stylesheet supplies the theme tokens. The theme toggle affects only the preview; action buttons are inert.
 
 A centered panel keeps attention on the next action and fits a narrow screen. The split layout adds a product introduction but needs more space. The compact sheet is closer to a document and has a lighter visual boundary.
 

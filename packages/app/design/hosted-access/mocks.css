@@ -1,3 +1,5 @@
+@import "../../src/globals.css";
+
 * {
   box-sizing: border-box;
 }
@@ -9,22 +11,13 @@ body {
     system-ui,
     -apple-system,
     sans-serif;
-  --bg: #f7f7f8;
-  --surface: #fff;
-  --text: #25252a;
-  --muted: #62626d;
-  --line: #dedee3;
-  --accent: #25252a;
-  --accent-text: #fff;
-}
-body.dark {
-  --bg: #17171b;
-  --surface: #202025;
-  --text: #eeeef2;
-  --muted: #b2b2bc;
-  --line: #3b3b44;
-  --accent: #eeeef2;
-  --accent-text: #202025;
+  --bg: var(--surface-base);
+  --surface: var(--neutral-bg);
+  --text: var(--neutral-fg);
+  --muted: var(--neutral-fg-subtle);
+  --line: var(--neutral-border);
+  --accent: var(--palette-primary);
+  --accent-text: var(--palette-primary-fg);
 }
 header {
   display: flex;
@@ -88,8 +81,8 @@ button:focus-visible {
   width: 100%;
   max-width: 360px;
   background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--surface-radius);
+  box-shadow: var(--surface-shadow);
   padding: 28px;
 }
 .brand {
@@ -159,6 +152,7 @@ h1 {
   padding-top: 42px;
 }
 .sheet .access {
+  box-shadow: none;
   max-width: none;
   border: 0;
   border-radius: 0;

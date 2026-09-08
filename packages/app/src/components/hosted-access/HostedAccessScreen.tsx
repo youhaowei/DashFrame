@@ -77,10 +77,10 @@ export function HostedAccessScreen(props: HostedAccessScreenProps) {
   const { heading, description, role } = copy[props.status];
 
   return (
-    <main className="flex min-h-svh items-center justify-center bg-neutral-bg-subtle px-4 py-8 text-neutral-fg">
+    <main className="flex min-h-svh items-center justify-center bg-surface-base px-4 py-8 text-neutral-fg">
       <section
         aria-labelledby={headingId}
-        className="flex min-h-88 w-full max-w-sm flex-col rounded-xl border border-neutral-border bg-neutral-bg p-6 sm:p-8"
+        className="flex min-h-88 w-full max-w-sm flex-col rounded-[var(--surface-radius)] bg-neutral-bg/90 p-6 saturate-[1.2] shadow-[var(--surface-shadow)] sm:p-8"
       >
         <p className="mb-8 text-sm font-semibold tracking-tight">DashFrame</p>
         <div role={role} aria-atomic={role ? true : undefined}>
