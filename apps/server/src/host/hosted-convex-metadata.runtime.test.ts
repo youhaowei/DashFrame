@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { generateKeyPairSync, randomBytes, sign } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -31,7 +31,10 @@ import {
   startAssistantOAuthLogin,
 } from "./assistant-providers";
 import { createHostedAdmissionService } from "./hosted-admission-service";
-import { createHostedAccessRoutes } from "./hosted-access-routes";
+import { createHostedServerSurface } from "../hosted";
+import { NativeDuckDBEngine } from "@dashframe/engine-server";
+import { FileDataFrameStorage } from "@dashframe/engine-server/file-dataframe-storage";
+import { tableFromIPC } from "apache-arrow";
 import { createHostedApplication } from "./hosted-application";
 import { bindHostedMetadata } from "./bound-hosted-metadata";
 import { HostResourceCleanup } from "./resource-cleanup";
@@ -165,6 +168,9 @@ it(
     const runtime = keys("runtime"),
       operator = keys("operator");
     let backend: LocalConvex | undefined;
+    let httpSurface:
+      | Awaited<ReturnType<typeof createHostedServerSurface>>
+      | undefined;
     try {
       backend = await startLocalConvex({
         projectDir: directory,
@@ -689,6 +695,36 @@ it(
         token: token(runtime, claims),
         expiresAt: Date.now() + 60_000,
       });
+      const applicationTokens: Parameters<
+        typeof createHostedApplication
+      >[0]["tokens"] = {
+        metadata: (source, workspaceId) => {
+          if (source.kind !== "user")
+            throw new Error("Unexpected fixture service");
+          return issued(userClaims(source.userId, workspaceId));
+        },
+        browser: (user, workspaceId) =>
+          issued({
+            sub: `user:${user.userId}`,
+            userId: user.userId,
+            principalKind: "user",
+            authority: "browser",
+            workspaceId,
+          }),
+        service: (service, workspaceId) =>
+          issued({
+            sub: `service:${service.credentialId}`,
+            credentialId: service.credentialId,
+            principalKind: "service",
+            authority: "service",
+            workspaceId,
+          }),
+        credentialOwnership: (user, workspaceId) =>
+          issued({
+            ...userClaims(user.userId, workspaceId),
+            purpose: "host-credentials",
+          }),
+      };
       const hostedApplication = createHostedApplication({
         deploymentUrl: backend.url,
         allowInsecureLoopbackForTests: true,
@@ -700,40 +736,32 @@ it(
           connectorSetup: sessionsA,
           getServerEndpoint: () => undefined,
         },
-        tokens: {
-          metadata: (source, workspaceId) => {
-            if (source.kind !== "user")
-              throw new Error("Unexpected fixture service");
-            return issued(userClaims(source.userId, workspaceId));
-          },
-          browser: (user, workspaceId) =>
-            issued({
-              sub: `user:${user.userId}`,
-              userId: user.userId,
-              principalKind: "user",
-              authority: "browser",
-              workspaceId,
-            }),
-          service: (service, workspaceId) =>
-            issued({
-              sub: `service:${service.credentialId}`,
-              credentialId: service.credentialId,
-              principalKind: "service",
-              authority: "service",
-              workspaceId,
-            }),
-          credentialOwnership: (user, workspaceId) =>
-            issued({
-              ...userClaims(user.userId, workspaceId),
-              purpose: "host-credentials",
-            }),
-        },
+        tokens: applicationTokens,
       });
       const ownerContext = hostedApplication.context;
       let httpAllocations = 0;
-      const httpApp = createHostedAccessRoutes({
+      const queryEngine = new NativeDuckDBEngine();
+      const staticDirectory = path.join(directory, "browser");
+      await mkdir(staticDirectory);
+      await writeFile(
+        path.join(staticDirectory, "index.html"),
+        "<!doctype html><title>Hosted runtime fixture</title>",
+      );
+      await writeFile(
+        path.join(staticDirectory, "_headers"),
+        "/*\n  Cross-Origin-Opener-Policy: same-origin\n",
+      );
+      httpSurface = await createHostedServerSurface({
+        deploymentUrl: backend.url,
+        allowInsecureLoopbackForTests: true,
+        staticDirectory,
+        revision: "synthetic",
         publicOrigin: "https://hosted-app.invalid",
         session: {
+          login: async () => Response.redirect("https://hosted-app.invalid/"),
+          callback: async () =>
+            Response.redirect("https://hosted-app.invalid/"),
+          logout: () => new Response(null, { status: 204 }),
           resolve: async () => ({
             status: "authenticated",
             identity: { subject: "a" },
@@ -753,32 +781,43 @@ it(
               }),
           },
         }),
-        tokens: {
-          browser: (user, workspaceId) =>
-            issued({
-              sub: `user:${user.userId}`,
-              userId: user.userId,
-              principalKind: "user",
-              authority: "browser",
-              workspaceId,
-            }),
-        },
-        withWorkspace: async (workspaceId, user, request, operation) => {
+        tokens: applicationTokens,
+        open: async (workspaceId) => {
           expect(workspaceId).toBe(workspaces[0]);
-          expect(user.userId).toBe("a");
           httpAllocations++;
-          return operation(hostedApplication.application, request.signal);
+          return {
+            resources: {
+              directory: sessionDirectory,
+              vault: vaultA,
+              connectorSessionDocument: sessionDocument,
+              dataFrameStorage: new FileDataFrameStorage(
+                path.join(directory, "frames"),
+              ),
+              getEngine: async () => {
+                await queryEngine.initialize();
+                return queryEngine;
+              },
+            },
+            close: () => queryEngine.dispose(),
+          };
         },
       });
-      const httpOperation = (operation: string, input: unknown) =>
-        httpApp.request(`https://hosted-app.invalid/api/host/${operation}`, {
-          method: "POST",
-          headers: {
-            Origin: "https://hosted-app.invalid",
-            "Content-Type": "application/json",
+      const httpApp = httpSurface.app;
+      const httpOperation = async (operation: string, input: unknown) => {
+        const response = await httpApp.request(
+          `https://hosted-app.invalid/api/host/${operation}`,
+          {
+            method: "POST",
+            headers: {
+              Origin: "https://hosted-app.invalid",
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(input),
           },
-          body: JSON.stringify(input),
-        });
+        );
+        // Consume the body like a real client, releasing the workspace lease.
+        return new Response(await response.arrayBuffer(), response);
+      };
       const httpSourceId = crypto.randomUUID();
       expect(
         (
@@ -793,6 +832,23 @@ it(
         id: httpSourceId,
       });
       expect(await b.getDataSource(httpSourceId)).toBeNull();
+      const arrowResponse = await httpApp.request(
+        "https://hosted-app.invalid/data/arrow",
+        {
+          method: "POST",
+          headers: {
+            Origin: "https://hosted-app.invalid",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ sql: "SELECT 7::INTEGER AS demo_value" }),
+        },
+      );
+      expect(arrowResponse.status).toBe(200);
+      expect(
+        tableFromIPC(new Uint8Array(await arrowResponse.arrayBuffer()))
+          .toArray()
+          .map((row) => row.toJSON()),
+      ).toEqual([{ demo_value: 7 }]);
       const handshake = await startSession(sessionsA, {
         connectorId: "csv",
         requestedName: "Scoped recovery",
@@ -942,6 +998,8 @@ it(
       await expect(a.commitBatch([])).rejects.toThrow();
       expect(await b.listDataFrames()).toEqual([]);
     } finally {
+      httpSurface?.closeConnections();
+      await httpSurface?.closeResources();
       await backend?.stop();
       await rm(directory, { recursive: true, force: true });
     }
