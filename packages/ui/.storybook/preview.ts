@@ -17,9 +17,8 @@ const preview: Preview = {
     chromatic: { disableSnapshot: true },
 
     a11y: {
-      // 'todo' - show a11y violations in the test UI only
-      // 'error' - fail CI on a11y violations
-      // 'off' - skip a11y checks entirely
+      // The value below only reports a11y violations in the test UI;
+      // "error" fails CI on them and "off" skips the checks entirely.
       test: "todo",
     },
   },

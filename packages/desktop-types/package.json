@@ -8,7 +8,8 @@
   "types": "src/index.ts",
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "check": "bun run typecheck"
+    "check": "bun run typecheck && bun run lint",
+    "lint": "vp lint src"
   },
   "devDependencies": {
     "typescript": "5.7.2"

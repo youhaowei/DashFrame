@@ -973,6 +973,7 @@ export default function VisualizationPageContent({
               <>
                 <span>•</span>
                 <button
+                  type="button"
                   onClick={() =>
                     navigate({
                       to: `/insights/${visualization.insightId}`,

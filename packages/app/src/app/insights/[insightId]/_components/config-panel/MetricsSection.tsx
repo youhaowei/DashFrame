@@ -112,7 +112,10 @@ export function MetricsSection({
         <div className="flex items-center justify-between px-4 py-3">
           <CollapsibleTrigger
             render={
-              <button className="-ml-2 flex items-center gap-1.5 rounded-md px-2 py-1 text-left transition-colors hover:bg-neutral-bg-emphasis/50">
+              <button
+                type="button"
+                className="-ml-2 flex items-center gap-1.5 rounded-md px-2 py-1 text-left transition-colors hover:bg-neutral-bg-emphasis/50"
+              >
                 <ChevronRightIcon
                   className={cn(
                     "h-4 w-4 text-neutral-fg-subtle transition-transform",
@@ -174,6 +177,7 @@ function MetricItemContent({
         {metric.aggregation}
       </span>
       <button
+        type="button"
         onClick={(e) => {
           e.stopPropagation();
           onEditClick();
@@ -184,6 +188,7 @@ function MetricItemContent({
         <EditIcon className="h-3 w-3" />
       </button>
       <button
+        type="button"
         onClick={(e) => {
           e.stopPropagation();
           onRemove();

@@ -14,7 +14,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "lint": "tsc --noEmit"
+    "lint": "vp lint convex test"
   },
   "dependencies": {
     "@dashframe/types": "workspace:*",

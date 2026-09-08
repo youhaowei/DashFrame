@@ -11,7 +11,7 @@
     "dev": "bun scripts/dev.mjs",
     "test": "vp test run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "vp lint src",
+    "lint": "vp lint src scripts",
     "check": "bun run typecheck && bun run lint && bun run test",
     "verify:engine": "bun scripts/verify-native-engine.mjs",
     "stage:convex": "bun scripts/stage-convex.ts",

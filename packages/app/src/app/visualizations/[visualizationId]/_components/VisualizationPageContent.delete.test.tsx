@@ -172,7 +172,9 @@ vi.mock("@/data/host", () => ({
 vi.mock("@wystack/ui-react", () => ({
   Badge: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
   Button: ({ label, onClick }: { label: string; onClick?: () => void }) => (
-    <button onClick={onClick}>{label}</button>
+    <button type="button" onClick={onClick}>
+      {label}
+    </button>
   ),
   Card: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
   CardContent: ({ children }: { children?: React.ReactNode }) => (

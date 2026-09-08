@@ -418,7 +418,8 @@ describe("useConnectorForm", () => {
 
       await act(async () => {
         await result.current.execute(async () => {
-          throw "string error"; // Non-Error throw
+          // oxlint-disable-next-line no-throw-literal -- exercises the non-Error throw path on purpose
+          throw "string error";
         });
       });
 

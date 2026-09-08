@@ -132,7 +132,10 @@ describe("DataSourceDisplay remote preview", () => {
     });
     let resolveTableA!: (value: unknown) => void;
     mockMutate.mockImplementationOnce(
-      () => new Promise((resolve) => (resolveTableA = resolve)),
+      () =>
+        new Promise((resolve) => {
+          resolveTableA = resolve;
+        }),
     );
     render(<DataSourceDisplay dataSourceId={SOURCE_ID} />);
 

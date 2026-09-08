@@ -28,9 +28,9 @@ export async function exerciseHostShutdown(
     browser = new WebSocket(
       `${host.url.replace("http:", "ws:")}/api/convex/api/1.37.0/sync`,
     );
-    const browserClosed = new Promise<void>((resolve) =>
-      browser!.once("close", resolve),
-    );
+    const browserClosed = new Promise<void>((resolve) => {
+      browser!.once("close", resolve);
+    });
     await new Promise<void>((resolve, reject) => {
       browser!.once("message", () => resolve());
       browser!.once("error", reject);
@@ -48,7 +48,9 @@ export async function exerciseHostShutdown(
       probe.once("error", reject);
       probe.listen(host.port, "127.0.0.1", resolve);
     });
-    await new Promise<void>((resolve) => probe.close(() => resolve()));
+    await new Promise<void>((resolve) => {
+      probe.close(() => resolve());
+    });
   } finally {
     browser?.terminate();
     await closeHostServer(backend.server, upstream.clients, backend.sockets);

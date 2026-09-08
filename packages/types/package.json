@@ -10,7 +10,8 @@
     "test": "vp test run",
     "test:coverage": "vp test run --coverage",
     "test:watch": "vp test",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "vp lint src"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "catalog:",

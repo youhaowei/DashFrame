@@ -1,5 +1,16 @@
 import { assertResourcesWritable, enqueueCleanup, resources } from "./cleanup";
-import { stable } from "./values";
+import {
+  stable,
+  typed,
+  json,
+  object,
+  command,
+  publicCommand,
+  record,
+  clean,
+  type Command,
+  type Json,
+} from "./values";
 import { v, ConvexError } from "convex/values";
 import type {
   DataSource,
@@ -19,17 +30,6 @@ import {
 } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import {
-  typed,
-  json,
-  object,
-  command,
-  publicCommand,
-  record,
-  clean,
-  type Command,
-  type Json,
-} from "./values";
-import {
   principal,
   user,
   find,
@@ -46,7 +46,7 @@ import {
 import { execute } from "./engine";
 import { type Graph, capMessage } from "./graph";
 import { publicRow, preview, lateBound, signature, redact } from "./preview";
-import { artifactTables, type ArtifactTable } from "./model";
+import type { ArtifactTable } from "./model";
 const draftArg = { draftId: v.optional(v.string()) };
 async function readOne(
   ctx: QueryCtx,

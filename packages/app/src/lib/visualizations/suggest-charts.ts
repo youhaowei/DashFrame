@@ -6,13 +6,17 @@ import {
   selectTemporalAggregation,
   temporalTransform,
 } from "@dashframe/engine";
-import type {
-  ChannelTransform,
-  ChartEncoding,
-  ChartTag,
-  ColumnAnalysis,
-  DateAnalysis,
-  Field,
+import {
+  SCATTER_MAX_POINTS,
+  CHART_TAG_METADATA,
+  CHART_TYPE_METADATA,
+  getChartTypesForTag,
+  type ChannelTransform,
+  type ChartEncoding,
+  type ChartTag,
+  type ColumnAnalysis,
+  type DateAnalysis,
+  type Field,
 } from "@dashframe/types";
 import type { Insight, VisualizationType } from "../stores/types";
 import {
@@ -184,7 +188,6 @@ const NON_METRIC_PATTERNS: RegExp[] = [
 ];
 
 // SCATTER_MAX_POINTS is imported from @dashframe/types and re-exported for convenience
-import { SCATTER_MAX_POINTS } from "@dashframe/types";
 export { SCATTER_MAX_POINTS };
 
 /**
@@ -1463,12 +1466,6 @@ function rankSuggestions(
 // ============================================================================
 // Tag-Based Suggestion System
 // ============================================================================
-
-import {
-  CHART_TAG_METADATA,
-  CHART_TYPE_METADATA,
-  getChartTypesForTag,
-} from "@dashframe/types";
 
 /**
  * Suggestion for a specific tag/category with the best chart type.

@@ -64,7 +64,10 @@ describe("useDataFrameData", () => {
   it("discards a superseded response", async () => {
     let resolveFirst!: (value: unknown) => void;
     queryDataFrame.mockImplementationOnce(
-      () => new Promise((resolve) => (resolveFirst = resolve)),
+      () =>
+        new Promise((resolve) => {
+          resolveFirst = resolve;
+        }),
     );
     queryDataFrame.mockResolvedValueOnce({
       status: "ready",

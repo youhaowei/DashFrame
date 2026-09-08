@@ -1040,8 +1040,8 @@ describe("convertNotionToDataFrame", () => {
       expect(row!.Name).toBe("Sparse");
 
       // Key presence: every field name must be an own key (Arrow needs it)
-      expect(Object.prototype.hasOwnProperty.call(row, "Status")).toBe(true);
-      expect(Object.prototype.hasOwnProperty.call(row, "Count")).toBe(true);
+      expect(Object.hasOwn(row, "Status")).toBe(true);
+      expect(Object.hasOwn(row, "Count")).toBe(true);
     });
 
     it("row has exactly as many keys as there are fields (no extras, no missing)", () => {
@@ -1078,9 +1078,7 @@ describe("convertNotionToDataFrame", () => {
       // Exactly fields.length keys — no extras, no missing
       expect(Object.keys(row!)).toHaveLength(fields.length);
       for (const field of fields) {
-        expect(Object.prototype.hasOwnProperty.call(row, field.name)).toBe(
-          true,
-        );
+        expect(Object.hasOwn(row, field.name)).toBe(true);
       }
     });
 

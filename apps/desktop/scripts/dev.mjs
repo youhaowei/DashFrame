@@ -39,17 +39,17 @@ function stopChild(child) {
   if (!child || child.exitCode !== null || child.signalCode !== null) {
     return Promise.resolve();
   }
-  return new Promise((resolve) => {
-    const forceTimer = setTimeout(() => child.kill("SIGKILL"), 5_000);
-    forceTimer.unref();
+  const exited = new Promise((resolve) => {
     child.once("exit", () => {
-      clearTimeout(forceTimer);
       resolve();
     });
-    if (!child.kill("SIGTERM")) {
-      clearTimeout(forceTimer);
-      resolve();
-    }
+  });
+  // A failed signal means the child is already gone; there is no exit to wait for.
+  if (!child.kill("SIGTERM")) return Promise.resolve();
+  const forceTimer = setTimeout(() => child.kill("SIGKILL"), 5_000);
+  forceTimer.unref();
+  return exited.finally(() => {
+    clearTimeout(forceTimer);
   });
 }
 

@@ -629,7 +629,9 @@ describe("immutable Insight materializer", () => {
 
   it("coalesces only in-flight work and performs a new live run after settlement", async () => {
     let release!: () => void;
-    const gate = new Promise<void>((resolve) => (release = resolve));
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     let resolves = 0;
     const h = harness({
       resolveSource: async (_ctx, tableId) => {
@@ -657,7 +659,9 @@ describe("immutable Insight materializer", () => {
 
   it("does not reuse an in-flight operation after its source generation changes", async () => {
     let release!: () => void;
-    const gate = new Promise<void>((resolve) => (release = resolve));
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     let generation = "source-frame-1";
     const h = harness({
       resolveSource: async (_ctx, tableId) => {
