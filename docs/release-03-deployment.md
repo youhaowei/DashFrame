@@ -7,9 +7,11 @@ separate operations requiring actual evidence and authority.
 One Railway process serves the SPA and API and uses one production Convex Cloud
 deployment. Both come from the same passing commit. Deployment credentials and
 Convex administrative authority belong to the release runner; neither belongs
-in the running Railway service. The host keeps its stable signing key; CI owns
-the corresponding Convex auth configuration. Keep keys and credential values in
-their existing secret system, outside manifests, logs, and evidence artifacts.
+in the running Railway service. The host keeps its stable runtime signing key;
+CI owns both runtime and operator public trust configuration. Runtime and operator
+issuers and RSA key material must be disjoint, and the operator signing key must
+remain unavailable to the public host. Keep keys and credential values in their
+existing secret system, outside manifests, logs, and evidence artifacts.
 
 ## Ordering
 
@@ -110,6 +112,18 @@ a newer release. `sourceSha` identifies the legacy deployed source, which may
 differ from the candidate. The five preservation fields from `cutId` through
 `workspaceId` may be `null` only at `prepare`, where their receipts are not yet
 required. Their keys must still be present. All other identities are mandatory.
+
+`trustFingerprint` is the SHA-256 of the exact retained UTF-8 JSON public
+configuration artifact containing `DASHFRAME_DEPLOYMENT_MODE` (`hosted`),
+`DASHFRAME_AUTH_ISSUER`, `DASHFRAME_AUTH_JWKS`, `DASHFRAME_OPERATOR_AUTH_ISSUER`,
+and `DASHFRAME_OPERATOR_AUTH_JWKS`. Both JWKS values contain only public keys;
+preserve exact issuer strings and embedded public-key sets. Hash the complete
+artifact bytes, not just the runtime JWKS. The trust receipt identifies that
+artifact and records verification of distinct issuers and disjoint RSA key
+material; the Convex receipt binds the deployed configuration to the same digest.
+The runtime receipt separately declares absence of operator-signing authority.
+These declarations align with `docs/hosted-admission-slice.md`; the offline
+verifier still does not parse the configuration artifact or inspect host secrets.
 
 Each receipt has exactly `subject`, `observedAt`, `artifactId`, `artifactSha256`,
 and `checks`. The artifact is a sanitized, retained evidence report identified by

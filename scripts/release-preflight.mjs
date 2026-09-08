@@ -18,10 +18,16 @@ const STAGE_RECEIPTS = {
 // This process checks their declarations; it does not fetch or authenticate them.
 export const REQUIRED_CHECKS = {
   ci: ["format", "check", "e2e", "local-review", "independent-review"],
-  trust: ["ci-owned-convex-auth", "stable-signing-key", "public-trust-match"],
+  trust: [
+    "ci-owned-convex-auth",
+    "stable-signing-key",
+    "public-trust-match",
+    "runtime-operator-trust-disjoint",
+  ],
   runtime: [
     "no-deploy-authority",
     "no-admin-authority",
+    "no-operator-signing-authority",
     "existing-volume-retained",
     "existing-vault-retained",
   ],

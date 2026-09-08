@@ -79,10 +79,12 @@ function fixture() {
         "ci-owned-convex-auth",
         "stable-signing-key",
         "public-trust-match",
+        "runtime-operator-trust-disjoint",
       ]),
       runtime: receipt({ ...host, ...data }, [
         "no-deploy-authority",
         "no-admin-authority",
+        "no-operator-signing-authority",
         "existing-volume-retained",
         "existing-vault-retained",
       ]),
@@ -253,11 +255,13 @@ describe("offline release evidence contract", () => {
     },
   );
 
-  test("rejects another target, image, bundle, backup, or retained vault", () => {
+  test("rejects another target, image, bundle, trust configuration, backup, or retained vault", () => {
     const cases = [
       ["railway", "service"],
       ["railway", "image"],
       ["convex", "bundle"],
+      ["trust", "trust"],
+      ["convex", "trust"],
       ["restore", "backup"],
       ["runtime", "vault"],
     ];
@@ -280,6 +284,22 @@ describe("offline release evidence contract", () => {
     );
     blocked(manifest, "targets.trustFingerprint", "required");
     blocked(manifest, "receipts.runtime.checks", "incomplete-checks");
+  });
+
+  test.each([
+    ["trust", "runtime-operator-trust-disjoint"],
+    ["runtime", "no-operator-signing-authority"],
+  ])("prepare requires %s evidence for %s", (name, check) => {
+    const manifest = fixture();
+    manifest.receipts[name].checks = manifest.receipts[name].checks.filter(
+      (item) => item !== check,
+    );
+    blocked(
+      manifest,
+      `receipts.${name}.checks`,
+      "incomplete-checks",
+      "prepare",
+    );
   });
 
   test.each([
