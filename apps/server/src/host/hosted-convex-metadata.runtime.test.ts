@@ -1001,6 +1001,16 @@ it(
         // Consume the body like a real client, releasing the workspace lease.
         return new Response(await response.arrayBuffer(), response);
       };
+      const connectionResponse = await httpOperation(
+        "getAccessConnectionInfo",
+        {},
+      );
+      expect(connectionResponse.status).toBe(200);
+      expect(await connectionResponse.json()).toEqual({
+        endpoint: `https://hosted-app.invalid/workspaces/${encodeURIComponent(workspaces[0]!)}/mcp`,
+        transport: "mcp",
+        authentication: "Bearer",
+      });
       const httpSourceId = crypto.randomUUID();
       expect(
         (

@@ -1,3 +1,4 @@
+import type { AccessConnectionInfo } from "@dashframe/types";
 import type { DataFrameStorage } from "@dashframe/engine";
 import type {
   ArrowQueryRunner,
@@ -20,6 +21,7 @@ export interface HostContext {
   cleanupResources?: () => Promise<void>;
   accessCredentials?: Pick<ApiAccessCredentials, "issue" | "list" | "revoke">;
   getServerEndpoint: () => string | undefined;
+  accessConnectionInfo?: AccessConnectionInfo;
   vault?: SecretVault;
   googleOAuth?: GoogleOAuthConfig;
   application?: ApplicationOperations;

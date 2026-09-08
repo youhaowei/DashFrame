@@ -18,6 +18,7 @@ type WorkspaceResources = Pick<
   | "vault"
   | "accessCredentials"
   | "getServerEndpoint"
+  | "accessConnectionInfo"
   | "dataFrameStorage"
   | "dataPlaneRuntime"
   | "googleOAuth"

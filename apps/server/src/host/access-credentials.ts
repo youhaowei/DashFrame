@@ -36,6 +36,7 @@ export async function getAccessCapabilities(ctx: HostContext) {
 
 export async function getAccessConnectionInfo(ctx: HostContext) {
   credentials(ctx);
+  if (ctx.accessConnectionInfo) return { ...ctx.accessConnectionInfo };
   const endpoint = ctx.getServerEndpoint();
   if (!endpoint) throw new Error("Server endpoint is not ready");
   return {

@@ -222,6 +222,11 @@ export async function createHostedServerSurface(options: {
               unregisterTable: (name) => engine.unregisterTable(name),
             },
             getServerEndpoint: () => publicOrigin,
+            accessConnectionInfo: {
+              endpoint: `${publicOrigin}/workspaces/${encodeURIComponent(workspaceId)}/mcp`,
+              transport: "mcp",
+              authentication: "Bearer",
+            },
             connectorSetup: createHostedConnectorSessionStore({
               document: resources.connectorSessionDocument,
               ownerSubject: ownerId,
