@@ -1,5 +1,5 @@
 /** Closed, bounded reads of project-owned materialized DataFrames. */
-import { arrowIpcToJsonRows } from "@dashframe/engine-server";
+import { arrowIpcToJsonRows } from "@dashframe/engine-server/arrow-data-path";
 import type { UUID } from "@dashframe/types";
 import { z } from "zod";
 

@@ -238,7 +238,7 @@ export default function DataSourcePageContent({
     ? (allDataFrames.find((entry) => entry.id === dataFrameId) ?? null)
     : null;
 
-  // Load actual data for preview (async from IndexedDB)
+  // Load a bounded preview page through the host queryDataFrame operation.
   const { data: previewData, isLoading: isLoadingPreview } = useDataFrameData(
     tableDetails?.dataTable?.dataFrameId,
     { limit: 50 },

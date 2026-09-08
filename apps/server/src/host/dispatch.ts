@@ -10,7 +10,7 @@ import type { HostContext } from "./context";
 import { hostOperationByName } from "./registry";
 import * as setup from "./connector-setup";
 
-const queries = new Set([
+export const CONVEX_QUERY_NAMES = [
   "projectInfo",
   "listDataSources",
   "getDataSource",
@@ -30,14 +30,15 @@ const queries = new Set([
   "getDraftLog",
   "draftPublishReview",
   "previewDiff",
-]);
-const mutations = new Set([
+] as const;
+export const CONVEX_MUTATION_NAMES = [
   "publishDraft",
   "discardDraft",
   "reviseDraft",
-  "putDataFrameEntry",
   "updateDataFrameEntry",
-]);
+] as const;
+const queries = new Set<string>(CONVEX_QUERY_NAMES);
+const mutations = new Set<string>(CONVEX_MUTATION_NAMES);
 const commandPaths = new Set<string>(Object.values(COMMAND_PATHS));
 function object(input: unknown): Record<string, Value> {
   const cleaned: unknown = JSON.parse(JSON.stringify(input ?? {}));

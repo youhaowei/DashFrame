@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     "./api": "./convex/_generated/api.ts",
+    "./app": "./convex/app.ts",
     "./model": "./convex/model.ts",
     "./package.json": "./package.json",
     "./codecs": "./convex/codecs.ts",
