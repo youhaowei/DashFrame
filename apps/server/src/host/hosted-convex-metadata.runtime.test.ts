@@ -11,6 +11,14 @@ import { ConvexHttpClient } from "convex/browser";
 import { api, internal } from "@dashframe/convex-backend/api";
 import { startLocalConvex, type LocalConvex } from "@dashframe/convex-local";
 import { cmd, type Field } from "@dashframe/types";
+import { CREDENTIAL_CLASS } from "@dashframe/server-core";
+import {
+  InMemoryMappingStore,
+  SecretRegistry,
+  SecretVault,
+  TestBackend,
+} from "@wystack/secret-vault";
+import { createHostedProviderMetadata } from "./hosted-convex-provider-metadata";
 import { createHostedSourceMetadata } from "./hosted-convex-source-operations";
 
 const runtimeIssuer = "https://runtime.metadata-test.invalid";
@@ -541,6 +549,78 @@ it(
           (job) => job.resourceId === nextRef,
         ),
       ).toBe(true);
+
+      const workspaceVault = () => {
+        const registry = new SecretRegistry();
+        registry.register("test", new TestBackend(), { fallback: true });
+        return new SecretVault(registry, new InMemoryMappingStore());
+      };
+      const vaultA = workspaceVault(),
+        vaultB = workspaceVault();
+      const providerRefA = await vaultA.store("provider-a", {
+          class: CREDENTIAL_CLASS.AssistantProvider,
+        }),
+        providerRefB = await vaultB.store("provider-b", {
+          class: CREDENTIAL_CLASS.AssistantProvider,
+        });
+      const providerMetadata = (
+        claims: Record<string, string>,
+        credentialVault: SecretVault,
+      ) =>
+        createHostedProviderMetadata({
+          deploymentUrl: backend!.url,
+          allowInsecureLoopbackForTests: true,
+          credentialVault,
+          getToken: async () => token(runtime, claims),
+        });
+      const providersA = providerMetadata(
+          userClaims("a", workspaces[0]!),
+          vaultA,
+        ),
+        providersB = providerMetadata(userClaims("b", workspaces[1]!), vaultB);
+      const providerRow = {
+        id: crypto.randomUUID(),
+        providerId: "openai",
+        displayLabel: "OpenAI",
+        authKind: "api-key" as const,
+        baseUrl: "https://api.openai.com/v1",
+        credentialRef: providerRefA,
+        defaultModel: "gpt-5",
+        isDefault: true,
+        createdAt: 1,
+        updatedAt: 1,
+      };
+      await expect(
+        providersA.saveAssistantProviderConfig({
+          row: { ...providerRow, credentialRef: providerRefB },
+          expected: null,
+        }),
+      ).rejects.toThrow("unavailable in this workspace");
+      expect(
+        await providersA.saveAssistantProviderConfig({
+          row: providerRow,
+          expected: null,
+        }),
+      ).toEqual(providerRow);
+      expect(await providersA.listAssistantProviderConfigs()).toEqual([
+        providerRow,
+      ]);
+      expect(
+        await providersB.getAssistantProviderConfig(providerRow.id),
+      ).toBeNull();
+      await expect(
+        providerMetadata(
+          {
+            sub: "service:credential-a",
+            credentialId: "credential-a",
+            principalKind: "service",
+            authority: "host",
+            purpose: "host-metadata",
+            workspaceId: workspaces[0]!,
+          },
+          vaultA,
+        ).listAssistantProviderConfigs(),
+      ).rejects.toThrow();
       await expect(service.commitBatch([])).rejects.toThrow();
       await backend.internalClient.mutation(internal.host.revokeCredential, {
         workspaceId: workspaces[0]!,
@@ -550,6 +630,7 @@ it(
       await expect(service.getDataTable(tableId)).rejects.toThrow();
       await expect(service.draftBatch([])).rejects.toThrow();
       await operatorClient.mutation(api.admission.revoke, { subject: "a" });
+      await expect(providersA.listAssistantProviderConfigs()).rejects.toThrow();
       await expect(a.clearAllData()).rejects.toThrow();
       await expect(a.listCleanup(paging)).rejects.toThrow();
       await expect(
