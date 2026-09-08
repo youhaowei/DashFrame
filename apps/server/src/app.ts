@@ -265,6 +265,24 @@ export async function createDashframeServer(
         return c.json({ error: "Unauthorized" }, 401);
       }
     });
+    app.post("/api/runtime", async (c) => {
+      try {
+        await authenticate(c.req.raw);
+        // Origin was validated by the middleware above. Vite rewrites Host
+        // while proxying, so use the browser origin for its same-origin URL.
+        const origin =
+          options.publicOrigin ??
+          c.req.header("origin") ??
+          new URL(c.req.url).origin;
+        return c.json({
+          mode: "local",
+          status: "local-ready",
+          config: { convexUrl: `${origin}/api/convex` },
+        });
+      } catch {
+        return c.json({ error: "Unauthorized" }, 401);
+      }
+    });
     app.post("/api/convex-token", async (c) => {
       try {
         return c.json(identity.issue(await authenticate(c.req.raw)));
