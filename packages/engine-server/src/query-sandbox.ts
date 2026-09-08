@@ -204,12 +204,12 @@ export class WorkspaceQueryEngine {
       });
       const child = this.child;
       this.reaped = false;
-      this.closedPromise = new Promise((resolve) =>
+      this.closedPromise = new Promise((resolve) => {
         child.once("close", () => {
           this.reaped = true;
           resolve();
-        }),
-      );
+        });
+      });
       const startup = new Promise<void>((resolve, reject) => {
         this.startupReject = reject;
         this.startupTimer = setTimeout(

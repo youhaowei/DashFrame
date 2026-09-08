@@ -111,6 +111,7 @@ async function readSecurityHeaders(
       // runtime bug rather than a missing build artifact.
       throw new Error(
         `The built web app at ${staticRoot} has no _headers file. Run \`turbo build --filter=@dashframe/web\` so the security headers are emitted alongside it.`,
+        { cause: error },
       );
     }
     throw error;
@@ -274,7 +275,7 @@ export async function createWebSurface(
     async handleLoginSubmit(request) {
       if (!throttle.check(now()))
         return loginPage("Too many attempts. Wait a minute and try again.");
-      let submitted = "";
+      let submitted: string;
       try {
         const form = await request.formData();
         const value = form.get("password");

@@ -16,7 +16,15 @@ const baseUrl = z
   .trim()
   .min(1)
   .refine((value) => {
-    if (/[\u0000-\u0020\u007f\\]/.test(value)) return false;
+    if (
+      Array.from(value).some(
+        (character) =>
+          character.charCodeAt(0) <= 32 ||
+          character.charCodeAt(0) === 127 ||
+          character === "\\",
+      )
+    )
+      return false;
     try {
       const parsed = new URL(value);
       return (

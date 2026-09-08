@@ -200,7 +200,7 @@ function validateIssuer(value: string): string {
       parsed.search ||
       parsed.hash
     )
-      throw new Error();
+      throw new Error("Invalid hosted authentication configuration");
   } catch {
     throw new Error("Invalid hosted token issuer");
   }
@@ -215,7 +215,7 @@ function validatePrivateKey(value: string | Buffer | KeyObject): KeyObject {
       key.asymmetricKeyType !== "rsa" ||
       (key.asymmetricKeyDetails?.modulusLength ?? 0) < 2048
     )
-      throw new Error();
+      throw new Error("Invalid hosted authentication configuration");
     return key;
   } catch {
     throw new Error("Invalid hosted RSA private key");

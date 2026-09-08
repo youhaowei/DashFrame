@@ -43,9 +43,6 @@ export function mergeAnalyses(analyses: DataFrameAnalysis[]): ColumnAnalysis[] {
     for (const col of analysis.columns) {
       // Skip if we've already added this column (first occurrence wins)
       if (seenColumns.has(col.columnName)) {
-        console.debug(
-          `[mergeAnalyses] Skipping duplicate column: ${col.columnName}`,
-        );
         continue;
       }
 
@@ -70,21 +67,15 @@ export function areAnalysesValid(
 ): boolean {
   for (const { id, analysis } of analyses) {
     if (!analysis) {
-      console.debug(`[areAnalysesValid] Missing analysis for DataFrame ${id}`);
       return false;
     }
 
     const expectedHash = expectedFieldHashes.get(id);
     if (expectedHash && analysis.fieldHash !== expectedHash) {
-      console.debug(
-        `[areAnalysesValid] Field hash mismatch for DataFrame ${id}`,
-        { expected: expectedHash, actual: analysis.fieldHash },
-      );
       return false;
     }
 
     if (analysis.columns.length === 0) {
-      console.debug(`[areAnalysesValid] Empty analysis for DataFrame ${id}`);
       return false;
     }
   }

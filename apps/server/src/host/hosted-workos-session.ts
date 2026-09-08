@@ -297,7 +297,7 @@ function secureUrl(value: unknown, name: string, originOnly: boolean): string {
       url.hash ||
       (originOnly && value !== url.origin)
     )
-      throw new Error();
+      throw new Error("Invalid hosted authentication configuration");
   } catch {
     throw new Error(`Invalid ${name}`);
   }

@@ -73,24 +73,28 @@ describe("DashboardGrid canonical layout persistence", () => {
     expect(mocks.gridProps?.onLayoutChange).toBeUndefined();
 
     act(() => {
-      (mocks.gridProps?.onBreakpointChange as (breakpoint: string) => void)(
+      expect(mocks.gridProps).toBeDefined();
+      (mocks.gridProps!.onBreakpointChange as (breakpoint: string) => void)(
         "xs",
       );
     });
     act(() => {
-      (mocks.gridProps?.onDragStop as (layout: unknown[]) => void)([
+      expect(mocks.gridProps).toBeDefined();
+      (mocks.gridProps!.onDragStop as (layout: unknown[]) => void)([
         { i: "first", x: 0, y: 0, w: 2, h: 4 },
       ]);
     });
     expect(mocks.updateItems).not.toHaveBeenCalled();
 
     act(() => {
-      (mocks.gridProps?.onBreakpointChange as (breakpoint: string) => void)(
+      expect(mocks.gridProps).toBeDefined();
+      (mocks.gridProps!.onBreakpointChange as (breakpoint: string) => void)(
         "lg",
       );
     });
     act(() => {
-      (mocks.gridProps?.onDragStop as (layout: unknown[]) => void)([
+      expect(mocks.gridProps).toBeDefined();
+      (mocks.gridProps!.onDragStop as (layout: unknown[]) => void)([
         { i: "first", x: 1, y: 2, w: 4, h: 4 },
         { i: "second", x: 7, y: 3, w: 4, h: 4 },
       ]);

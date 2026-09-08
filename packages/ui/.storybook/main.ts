@@ -1,7 +1,7 @@
 import type { StorybookConfig } from "@storybook/nextjs-vite";
-import { dirname } from "path";
+import { dirname } from "node:path";
 import remarkGfm from "remark-gfm";
-import { fileURLToPath } from "url";
+import { fileURLToPath } from "node:url";
 
 const config: StorybookConfig = {
   stories: ["../src/**/*.mdx", "../src/**/*.stories.@(js|jsx|mjs|ts|tsx)"],

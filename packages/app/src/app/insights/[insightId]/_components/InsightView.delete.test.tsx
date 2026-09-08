@@ -67,7 +67,7 @@ describe("buildChartSuggestionInsight", () => {
   });
 });
 
-describe("buildChartSuggestionInsight", () => {
+describe("buildChartSuggestionInsight joined fields", () => {
   it("keeps server-resolved topology while exposing all joined fields", () => {
     const insight = {
       id: "insight-1",

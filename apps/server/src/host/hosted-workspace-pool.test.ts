@@ -241,7 +241,9 @@ it("does not release a callback that is still settling after its deadline", asyn
     20,
   );
   const shutdown = pool.close();
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  await new Promise((resolve) => {
+    setTimeout(resolve, 30);
+  });
   expect(consumerSignal?.aborted).toBe(true);
   expect(close).not.toHaveBeenCalled();
   settling.release();

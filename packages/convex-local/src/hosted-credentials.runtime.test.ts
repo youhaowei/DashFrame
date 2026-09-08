@@ -142,6 +142,7 @@ async function configureHosted(
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Disposable deployment failed";
+    // eslint-disable-next-line preserve-caught-error -- The original cause can contain deployment secrets; emit only the sanitized message.
     throw new Error(
       message
         .replaceAll(config.adminKey, "[redacted]")

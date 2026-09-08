@@ -54,7 +54,7 @@ export function parseCSV(text: string): string[][] {
       } else if (char === "\r" && nextChar === "\n") {
         // Windows line ending
         currentRow.push(currentField);
-        if (currentRow.length > 0 && currentRow.some((f) => f !== "")) {
+        if (currentRow.some((f) => f !== "")) {
           rows.push(currentRow);
         }
         currentRow = [];
@@ -64,7 +64,7 @@ export function parseCSV(text: string): string[][] {
       } else if (char === "\n" || char === "\r") {
         // Unix or old Mac line ending
         currentRow.push(currentField);
-        if (currentRow.length > 0 && currentRow.some((f) => f !== "")) {
+        if (currentRow.some((f) => f !== "")) {
           rows.push(currentRow);
         }
         currentRow = [];

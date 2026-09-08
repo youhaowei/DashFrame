@@ -145,13 +145,17 @@ async function fetchPagedRemoteBinding(
       },
     };
   } catch (error) {
-    // Provider text and credential details remain private to the adapter.
+    // The thrown message is a sanitised code so provider text and credential
+    // details never reach a client payload (`toFetchFailure` builds every
+    // client-facing message from the code alone); the original error is kept
+    // as `cause` for server-side diagnosis only.
     throw new Error(
       error instanceof Error &&
         (error.message === "TARGET_NOT_READY" ||
           error.message === "SOURCE_SCHEMA_CHANGED")
         ? error.message
         : "FETCH_EXECUTION_FAILED",
+      { cause: error },
     );
   }
 }
@@ -190,6 +194,7 @@ async function fetchExhaustiveRemoteBinding(
           error.message === "SOURCE_SCHEMA_CHANGED")
         ? error.message
         : "FETCH_EXECUTION_FAILED",
+      { cause: error },
     );
   }
 }
@@ -307,6 +312,7 @@ export async function fetchLocalBinding(
       error instanceof Error && error.message === "TARGET_NOT_READY"
         ? error.message
         : "FETCH_EXECUTION_FAILED",
+      { cause: error },
     );
   }
 }

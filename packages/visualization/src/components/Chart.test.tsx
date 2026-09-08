@@ -19,9 +19,14 @@ vi.mock("../VisualizationProvider", () => ({
 }));
 
 // Mock container dimensions so Chart proceeds to render (canRender = true).
+// The ref must be identity-stable across renders like the real hook's
+// useRef, otherwise it would re-trigger Chart's render effect on every render.
+const containerRef = vi.hoisted(() => ({
+  current: document.createElement("div"),
+}));
 vi.mock("@dashframe/ui", () => ({
   useContainerDimensions: () => ({
-    ref: { current: document.createElement("div") },
+    ref: containerRef,
     width: 400,
     height: 300,
     isReady: true,

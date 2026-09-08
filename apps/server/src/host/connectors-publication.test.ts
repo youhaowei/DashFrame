@@ -404,7 +404,7 @@ describe("connector snapshot publication", () => {
         expectedRevision: source!.revision,
         expectedConfig: source!.config ?? {},
         config: {
-          ...(source!.config ?? {}),
+          ...source!.config,
           sourceBindingVersion: "v2",
         },
       });

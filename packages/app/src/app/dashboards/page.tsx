@@ -22,6 +22,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  Input,
 } from "@wystack/ui-react";
 import {
   DashboardIcon,
@@ -29,7 +30,6 @@ import {
   ExternalLinkIcon,
   PlusIcon,
 } from "@wystack/ui-react/icons";
-import { Input } from "@wystack/ui-react";
 import { useState } from "react";
 
 export default function DashboardsPage() {

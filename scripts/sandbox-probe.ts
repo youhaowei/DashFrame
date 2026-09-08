@@ -120,13 +120,16 @@ function run(
     );
     child.stdout.on("data", (chunk) => (stdout += String(chunk)));
     child.stderr.on("data", (chunk) => (stderr += String(chunk)));
-    child.on("error", (error) => {
+    const finish = (result: CommandResult) => {
       clearTimeout(timer);
-      resolve({ ok: false, code: null, stdout, stderr: String(error) });
+      // eslint-disable-next-line promise/no-multiple-resolved -- clearTimeout does not settle the promise.
+      resolve(result);
+    };
+    child.on("error", (error) => {
+      finish({ ok: false, code: null, stdout, stderr: String(error) });
     });
     child.on("close", (code) => {
-      clearTimeout(timer);
-      resolve({ ok: code === 0, code, stdout, stderr });
+      finish({ ok: code === 0, code, stdout, stderr });
     });
   });
 }

@@ -548,7 +548,12 @@ async function persistGa4TokenBundleLocked(
     written.revision !== expected.revision + 1 ||
     stableInput(written.config ?? {}) !== stableInput(config)
   ) {
-    if (replaceError) throw replaceError;
+    // eslint-disable-next-line no-throw-literal -- instanceof narrows the saved rejection to Error; preserve its identity.
+    if (replaceError instanceof Error) throw replaceError;
+    if (replaceError)
+      throw new Error("DataSource config update failed", {
+        cause: replaceError,
+      });
     throw new Error("DataSource config changed");
   }
   if (isSecretRef(previous) && previous !== next) {

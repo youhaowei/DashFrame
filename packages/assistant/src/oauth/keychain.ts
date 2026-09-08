@@ -102,6 +102,7 @@ export async function readKeychainOAuth(): Promise<KeychainOAuth> {
     );
     raw = stdout.trim();
   } catch (err) {
+    // oxlint-disable-next-line preserve-caught-error -- execFileAsync errors can carry credential-bearing stdout/stderr; expose only the message
     throw new Error(
       `Failed to read Claude Code credentials from keychain: ${(err as Error).message}`,
     );

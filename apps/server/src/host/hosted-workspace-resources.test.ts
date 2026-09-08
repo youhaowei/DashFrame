@@ -131,6 +131,7 @@ it("waits for broker disposal before reporting failed startup", async () => {
   const opening = open("workspace").finally(() => {
     settled = true;
   });
+  // eslint-disable-next-line vitest/valid-expect -- Awaited after releasing disposal to verify startup retains ownership.
   const rejection = expect(opening).rejects.toThrow("startup failed");
   await vi.waitFor(() => expect(dispose).toHaveBeenCalledOnce());
   expect(settled).toBe(false);

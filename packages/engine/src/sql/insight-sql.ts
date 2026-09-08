@@ -682,7 +682,7 @@ export function buildInsightAvailableFields(
 
   // Mirror buildJoinedSQL's field accumulation without emitting any SQL.
   const joinInstanceCount = new Map<UUID, number>();
-  let currentFields: Field[] = baseFields;
+  const currentFields: Field[] = [...baseFields];
 
   for (const join of insight.joins) {
     const instanceIndex = joinInstanceCount.get(join.rightTableId) ?? 0;
@@ -724,7 +724,7 @@ export function buildInsightAvailableFields(
 
     // Counter advances only on a valid join (mirrors buildJoinedSQL).
     joinInstanceCount.set(join.rightTableId, instanceIndex + 1);
-    currentFields = [...currentFields, ...instanceFields];
+    currentFields.push(...instanceFields);
   }
 
   return currentFields;

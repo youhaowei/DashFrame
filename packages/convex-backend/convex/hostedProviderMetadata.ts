@@ -50,7 +50,12 @@ function validateRow(row: typeof provider.type) {
     }
     if (
       row.baseUrl.trim() !== row.baseUrl ||
-      /[\u0000-\u0020\u007f\\]/.test(row.baseUrl) ||
+      Array.from(row.baseUrl).some(
+        (character) =>
+          character.charCodeAt(0) <= 32 ||
+          character.charCodeAt(0) === 127 ||
+          character === "\\",
+      ) ||
       (baseUrl.protocol !== "https:" && baseUrl.protocol !== "http:") ||
       baseUrl.username ||
       baseUrl.password ||

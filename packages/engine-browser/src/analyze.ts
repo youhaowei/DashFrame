@@ -519,7 +519,7 @@ export async function analyzeDataFrame(
           ...baseProps,
           dataType: "array",
           semantic: "reference",
-          avgLength: undefined, // TODO: compute if needed
+          avgLength: undefined, // not computed for array columns
         };
       }
 

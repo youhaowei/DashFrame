@@ -235,7 +235,6 @@ export function startBrowserBootstrap<TConfig, TRuntime extends BrowserRuntime>(
             status: "pending-admission",
             onSignOut: () => dependencies.signOut(),
           });
-          return;
       }
     } catch (error) {
       if (!isCurrent(attempt)) return;

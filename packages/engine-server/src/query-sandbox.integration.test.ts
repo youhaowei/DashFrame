@@ -254,7 +254,9 @@ describe.skipIf(process.platform !== "linux")(
     it("evicts an idle worker and leaves its old handle closed", async () => {
       const a = engine("idle", { idleTimeoutMs: 20 });
       await a.initialize();
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 50);
+      });
       await expect(a.queryArrow("SELECT 1")).rejects.toThrow("SANDBOX_IDLE");
       await a.dispose();
       expect(a.isReaped()).toBe(true);

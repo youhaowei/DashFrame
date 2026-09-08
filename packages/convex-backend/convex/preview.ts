@@ -1,7 +1,14 @@
 import { parseStoredDataTableState } from "./tableCodec";
 import { storedInsightDefinitionSchema } from "./insightCodec";
 import { parseStoredDashboardState } from "./dashboardCodec";
-import { stable } from "./values";
+import {
+  stable,
+  clean,
+  record,
+  type Command,
+  type Json,
+  type ObjectValue,
+} from "./values";
 import type {
   PreviewDiff,
   PreviewDirectNode,
@@ -19,13 +26,6 @@ import {
 import { execute } from "./engine";
 import { ConvexError } from "convex/values";
 import { Graph, graphKey, type Where } from "./graph";
-import {
-  clean,
-  record,
-  type Command,
-  type Json,
-  type ObjectValue,
-} from "./values";
 export function redact(value: Json): Json {
   if (Array.isArray(value)) return value.map(redact);
   if (value !== null && typeof value === "object")
@@ -325,7 +325,7 @@ export async function preview(
               ? !base
                 ? record(redact(publicRow(target, value)))
                 : {
-                    ...(existing?.proposedDefinition ?? {}),
+                    ...existing?.proposedDefinition,
                     ...changedDefinition(target, priorRow!, value),
                   }
               : { deleted: true },

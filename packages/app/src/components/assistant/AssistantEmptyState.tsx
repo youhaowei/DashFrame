@@ -6,7 +6,7 @@ import {
   TableIcon,
 } from "@wystack/ui-react/icons";
 
-import { type ArtifactContextValue } from "./artifact-context";
+import type { ArtifactContextValue } from "./artifact-context";
 
 /**
  * The empty conversation surface. No agent turns, no message plumbing — that is

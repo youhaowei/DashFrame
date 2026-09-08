@@ -103,7 +103,10 @@ export class Graph {
   ): void {
     this.current.set(key, row);
     let keys = this.loaded.get(table);
-    if (!keys) this.loaded.set(table, (keys = new Set()));
+    if (!keys) {
+      keys = new Set();
+      this.loaded.set(table, keys);
+    }
     keys.add(key);
   }
   private baselineLoaded(key: string): ArtifactRow | null {

@@ -88,7 +88,7 @@ export function createAdminInternalClient(
       status?: string;
       value?: Parameters<typeof jsonToConvex>[0];
       errorData?: Parameters<typeof jsonToConvex>[0];
-    } = {};
+    };
     try {
       result = JSON.parse(await response.text()) as typeof result;
     } catch {

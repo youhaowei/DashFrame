@@ -310,7 +310,6 @@ export function VirtualTable({
   }, [
     onFetchData,
     pageSize,
-    inferredColumns.length,
     evictDistantPages,
     MAX_CACHED_PAGES,
     sortColumn,
@@ -367,7 +366,7 @@ export function VirtualTable({
         isFetchingRef.current = false;
       }
     },
-    [onFetchData, pageSize, inferredColumns.length],
+    [onFetchData, pageSize],
   );
 
   // Track if initial fetch has been done to prevent re-fetching on callback changes
@@ -427,6 +426,9 @@ export function VirtualTable({
     estimateSize: () => (compact ? 26 : 30),
     overscan: 10,
   });
+  // Read once per render; TanStack memoizes the array, so it is a stable
+  // effect dependency that changes only when the visible window changes.
+  const virtualItems = rowVirtualizer.getVirtualItems();
 
   // Debounce timer for scroll-based fetching
   const scrollDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -434,8 +436,6 @@ export function VirtualTable({
   // Fetch pages as user scrolls
   useEffect(() => {
     if (!isAsyncMode || totalCount === 0) return;
-
-    const virtualItems = rowVirtualizer.getVirtualItems();
     if (virtualItems.length === 0) return;
 
     const firstVisibleIndex = virtualItems[0]!.index;
@@ -480,13 +480,7 @@ export function VirtualTable({
         clearTimeout(scrollDebounceRef.current);
       }
     };
-  }, [
-    rowVirtualizer.getVirtualItems(),
-    isAsyncMode,
-    totalCount,
-    pageSize,
-    queuePage,
-  ]);
+  }, [virtualItems, isAsyncMode, totalCount, pageSize, queuePage]);
 
   // Grid template columns
   const gridTemplateColumns = useMemo(() => {

@@ -7,9 +7,8 @@ import type {
   DataFrameRow,
   InsightRow,
 } from "@dashframe/convex-backend/model";
-import type { Field } from "@dashframe/types";
+import type { Field, Command } from "@dashframe/types";
 import type { Principal } from "@wystack/identity";
-import type { Command } from "@dashframe/types";
 import type { ConnectorSetupStore } from "../connector-setup/session-store";
 
 export interface AssistantProviderConfigRow {

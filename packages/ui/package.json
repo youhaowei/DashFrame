@@ -50,7 +50,7 @@
     "build": "tsc -p tsconfig.build.json",
     "build-storybook": "storybook build",
     "dev": "tsc -w -p tsconfig.json --preserveWatchOutput",
-    "lint": "vp lint src",
+    "lint": "vp lint src .storybook",
     "storybook": "storybook dev -p 6006",
     "test": "vp test run --project=unit",
     "typecheck": "tsc --noEmit -p tsconfig.json"

@@ -24,6 +24,7 @@ const CHECKS = [
   "check:ticket-refs",
   "check:wystack-domain-nouns",
   "check:apply-commands-boundary",
+  "check:root-lint",
   "check:packages",
 ];
 

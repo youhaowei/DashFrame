@@ -122,9 +122,9 @@ it("routes the sealed login handshake and denies signed-out workspace allocation
     expect(unavailable.headers.get("cache-control")).toBe("no-store");
   } finally {
     if ("closeAllConnections" in server) server.closeAllConnections();
-    await new Promise<void>((resolve, reject) =>
-      server.close((error) => (error ? reject(error) : resolve())),
-    );
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
     vi.restoreAllMocks();
   }
 });
