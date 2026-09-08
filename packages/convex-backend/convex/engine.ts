@@ -410,6 +410,10 @@ async function run(
     // rather than being inherited from canonical state.
     configEdit(config, a, options.host ?? false, row.revision > 0);
     row.config = config;
+    for (const table of await graph.scan("dataTables", {
+      dataSourceId: row.id,
+    }))
+      table.refreshRevision = crypto.randomUUID();
     return { ok: true };
   }
   if (p === "createDataTable") {
@@ -418,6 +422,7 @@ async function run(
     const state = clean(parseStoredDataTableState(a, "CreateDataTable"));
     return await create("dataTables", {
       dataSourceId: id(a.dataSourceId),
+      refreshRevision: crypto.randomUUID(),
       table: str(a.table, "table"),
       sourceSchema: (state.sourceSchema ?? null) as unknown as Json,
       fields: state.fields as unknown as ObjectValue[],
@@ -429,6 +434,7 @@ async function run(
     const row = await graph.get("dataTables", id(a.id));
     parseStoredDataTableState({ ...row, sourceSchema: a.sourceSchema }, p);
     row.sourceSchema = a.sourceSchema!;
+    row.refreshRevision = crypto.randomUUID();
     return { ok: true };
   }
   if (p === "refreshDataTableCmd") {
@@ -436,6 +442,7 @@ async function run(
     await graph.get("dataFrames", id(a.dataFrameId));
     row.dataFrameId = str(a.dataFrameId, "dataFrameId");
     row.lastFetchedAt = now;
+    row.refreshRevision = crypto.randomUUID();
     return { ok: true };
   }
   if (p === "getOrCreateInsightDraft" || p === "createInsightCmd") {
@@ -631,6 +638,7 @@ async function run(
       if (def) def.metrics = list;
       else {
         row[collection] = list;
+        row.refreshRevision = crypto.randomUUID();
         parseStoredDataTableState(row, p);
       }
     }

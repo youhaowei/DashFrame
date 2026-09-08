@@ -139,6 +139,13 @@ export interface InsightRuntimeInput {
   limit?: number;
 }
 
+/** Exact DataTable publication identity, including refreshes to retained frames. */
+export interface InsightSourceGeneration {
+  tableId: UUID;
+  dataFrameId: UUID;
+  lastFetchedAt: number;
+}
+
 /** Server-minted, row-free metadata for a successfully materialized fetch. */
 export interface InsightFetchReady {
   status: "ready";
@@ -149,7 +156,7 @@ export interface InsightFetchReady {
   provenance: { connectorKind: string; bindingVersion: string };
   fetchedAt: number;
   /** Exact server-published source pointers for suppressing only this operation's invalidation. */
-  sourceGenerations?: readonly { tableId: UUID; dataFrameId: UUID }[];
+  sourceGenerations?: readonly InsightSourceGeneration[];
 }
 
 /** Metadata for a previously successful frame retained after a failed refresh. */
@@ -166,7 +173,7 @@ export interface InsightFetchFailed {
   diagnosticId: string;
   lastSuccessful?: InsightFetchStale;
   /** Exact source pointers published before a later stage failed. */
-  sourceGenerations?: readonly { tableId: UUID; dataFrameId: UUID }[];
+  sourceGenerations?: readonly InsightSourceGeneration[];
 }
 
 export type InsightFetchResult = InsightFetchReady | InsightFetchFailed;

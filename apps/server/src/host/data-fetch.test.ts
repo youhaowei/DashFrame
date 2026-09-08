@@ -362,15 +362,17 @@ describe("applyInsightRuntime", () => {
     const trusted = new PublishedSourceMaterializationError(
       new Error("FETCH_COMPILE_FAILED"),
       [
-        { tableId, dataFrameId, extra: "discarded" },
+        { tableId, dataFrameId, lastFetchedAt: 123, extra: "discarded" },
         { tableId: "", dataFrameId: "invalid" },
+        { tableId, dataFrameId },
+        { tableId, dataFrameId, lastFetchedAt: Infinity },
       ],
     );
     expect(toFetchFailure(trusted, "FETCH_EXECUTION_FAILED")).toMatchObject({
       status: "failed",
       code: "FETCH_EXECUTION_FAILED",
       message: "Live data could not be fetched.",
-      sourceGenerations: [{ tableId, dataFrameId }],
+      sourceGenerations: [{ tableId, dataFrameId, lastFetchedAt: 123 }],
     });
   });
 

@@ -125,6 +125,10 @@ it("retains the previous frame as the superseded blob's protector after a retarg
   const first = await refresh(sourceId, tableId, null, 1),
     second = await refresh(sourceId, tableId, first, 2),
     third = await refresh(sourceId, tableId, second, 3);
+  const beforeRollback = await user().query(api.app.getDataTable, {
+    id: tableId,
+  });
+  expect(typeof beforeRollback?.refreshRevision).toBe("string");
   expect((await tableFrames(tableId)).map((f) => f.id).sort()).toEqual(
     [second, third].sort(),
   );
@@ -136,6 +140,12 @@ it("retains the previous frame as the superseded blob's protector after a retarg
   await user().mutation(api.app.commitBatch, {
     commands: [cmd("RefreshDataTable", { id: tableId, dataFrameId: second })],
   });
+  const afterRollback = await user().query(api.app.getDataTable, {
+    id: tableId,
+  });
+  expect(afterRollback?.refreshRevision).not.toBe(
+    beforeRollback?.refreshRevision,
+  );
   expect(await claim(third)).toBe("protected");
   expect(
     await t.query(internal.host.getDataFrame, { workspaceId: "w", id: third }),
