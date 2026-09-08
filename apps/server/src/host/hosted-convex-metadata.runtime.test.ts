@@ -11,7 +11,7 @@ import { ConvexHttpClient } from "convex/browser";
 import { api, internal } from "@dashframe/convex-backend/api";
 import { startLocalConvex, type LocalConvex } from "@dashframe/convex-local";
 import { cmd } from "@dashframe/types";
-import { createHostedLifecycleMetadata } from "./hosted-convex-lifecycle";
+import { createHostedSourceMetadata } from "./hosted-convex-source-operations";
 
 const runtimeIssuer = "https://runtime.metadata-test.invalid";
 const operatorIssuer = "https://operator.metadata-test.invalid";
@@ -196,7 +196,7 @@ it(
         signingKeys = runtime,
       ) => {
         const assertion = token(signingKeys, claims);
-        return createHostedLifecycleMetadata({
+        return createHostedSourceMetadata({
           deploymentUrl: backend!.url,
           allowInsecureLoopbackForTests: true,
           getToken: async () => assertion,
@@ -421,6 +421,128 @@ it(
         kind: "frame",
         resourceId: abandonedClaim.frameId,
       });
+      const oldRef = `secret:${crypto.randomUUID()}`,
+        nextRef = `secret:${crypto.randomUUID()}`;
+      const originalConfig = (await a.getDataSource(sourceId))!.config ?? {};
+      const boundaryClient = new ConvexHttpClient(backend.url);
+      boundaryClient.setAuth(token(runtime, userClaims("a", workspaces[0]!)));
+      for (const key of ["password", "token"])
+        for (const slot of ["config", "expectedConfig"] as const)
+          await expect(
+            boundaryClient.mutation(
+              api.hostedSourceOperations.replaceDataSourceConfig,
+              {
+                id: sourceId,
+                config: {},
+                expectedConfig: {},
+                [slot]: { [key]: "synthetic-plaintext" },
+              } as never,
+            ),
+          ).rejects.toThrow();
+      expect((await a.getDataSource(sourceId))!.config).toEqual(originalConfig);
+      await a.replaceDataSourceConfig({
+        id: sourceId,
+        expectedConfig: originalConfig,
+        config: { apiKey: oldRef },
+      });
+      await a.replaceDataSourceConfig({
+        id: sourceId,
+        expectedConfig: { apiKey: oldRef },
+        config: { apiKey: nextRef },
+      });
+      await expect(
+        a.replaceDataSourceConfig({
+          id: sourceId,
+          expectedConfig: { apiKey: oldRef },
+          config: { apiKey: `secret:${crypto.randomUUID()}` },
+        }),
+      ).rejects.toThrow();
+      expect((await a.getDataSource(sourceId))!.config).toEqual({
+        apiKey: nextRef,
+      });
+      expect(
+        (await a.listCleanup(paging)).page.some(
+          (job) => job.resourceId === oldRef,
+        ),
+      ).toBe(true);
+      expect(
+        (await a.listCleanup(paging)).page.some(
+          (job) => job.resourceId === nextRef,
+        ),
+      ).toBe(false);
+      await expect(
+        b.replaceDataSourceConfig({
+          id: sourceId,
+          expectedConfig: { apiKey: nextRef },
+          config: {},
+        }),
+      ).rejects.toThrow();
+      const remoteFields = [
+        {
+          id: crypto.randomUUID(),
+          tableId,
+          name: "Value",
+          columnName: "value",
+          type: "number",
+        },
+      ];
+      expect(
+        await a.prepareRemoteDataTable({
+          id: tableId,
+          dataSourceId: sourceId,
+          table: "synthetic.csv",
+          fields: remoteFields,
+        }),
+      ).toEqual(remoteFields);
+      for (const denied of [
+        () =>
+          service.replaceDataSourceConfig({
+            id: sourceId,
+            expectedConfig: { apiKey: nextRef },
+            config: {},
+          }),
+        () =>
+          service.prepareRemoteDataTable({
+            id: tableId,
+            dataSourceId: sourceId,
+            table: "synthetic.csv",
+            fields: remoteFields,
+          }),
+        () => service.removeDataFrame({ id: importClaim.frameId }),
+        () => service.clearAllData({}),
+      ])
+        await expect(denied()).rejects.toThrow();
+      await b.removeDataFrame({ id: importClaim.frameId });
+      expect(await a.getDataFrame(importClaim.frameId)).not.toBeNull();
+      await a.removeDataFrame({ id: importClaim.frameId });
+      expect(await a.getDataFrame(importClaim.frameId)).toBeNull();
+      expect(await a.getDataTable(tableId)).toMatchObject({
+        dataFrameId: null,
+      });
+      expect(
+        (await a.listCleanup(paging)).page.some(
+          (job) => job.resourceId === importClaim.frameId,
+        ),
+      ).toBe(true);
+      const survivingSourceId = crypto.randomUUID();
+      await b.commitBatch([
+        cmd("CreateDataSource", {
+          id: survivingSourceId,
+          name: "Workspace B survives",
+          type: "csv",
+        }),
+      ]);
+      await a.clearAllData({});
+      expect(await b.getDataSource(survivingSourceId)).toMatchObject({
+        id: survivingSourceId,
+        name: "Workspace B survives",
+      });
+      expect(await a.getDataSource(sourceId)).toBeNull();
+      expect(
+        (await a.listCleanup(paging)).page.some(
+          (job) => job.resourceId === nextRef,
+        ),
+      ).toBe(true);
       await expect(service.commitBatch([])).rejects.toThrow();
       await backend.internalClient.mutation(internal.host.revokeCredential, {
         workspaceId: workspaces[0]!,
@@ -430,6 +552,7 @@ it(
       await expect(service.getDataTable(tableId)).rejects.toThrow();
       await expect(service.draftBatch([])).rejects.toThrow();
       await operatorClient.mutation(api.admission.revoke, { subject: "a" });
+      await expect(a.clearAllData({})).rejects.toThrow();
       await expect(a.listCleanup(paging)).rejects.toThrow();
       await expect(
         a.recoverHostBatch({ operationId: "missing" }),
