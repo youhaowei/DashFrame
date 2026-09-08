@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -224,6 +224,7 @@ function validatePreservation(value, stage, { exact, identity }) {
 
 function receiptSubjects(release, targets, preservation) {
   const sha = release.candidateSha;
+  const generation = release.generation;
   const host = {
     sha,
     image: targets.runtimeImageSha256,
@@ -250,36 +251,45 @@ function receiptSubjects(release, targets, preservation) {
   return {
     ci: {
       sha,
+      generation,
       image: targets.runtimeImageSha256,
       bundle: targets.convexBundleSha256,
     },
     trust: {
       sha,
+      generation,
       convex: targets.convexDeploymentId,
       trust: targets.trustFingerprint,
     },
-    runtime: { ...host, ...data },
-    inventory: { sha, ...data },
-    backup: { sha, ...cut },
-    restore: { sha, ...restored },
-    owner: { sha, ...restored, ...owner },
+    runtime: { generation, ...host, ...data },
+    inventory: { sha, generation, ...data },
+    backup: { sha, generation, ...cut },
+    restore: { sha, generation, ...restored },
+    owner: { sha, generation, ...restored, ...owner },
     convex: {
       sha,
+      generation,
       bundle: targets.convexBundleSha256,
       convex: targets.convexDeploymentId,
       trust: targets.trustFingerprint,
     },
     railway: {
+      generation,
       ...host,
       ...restored,
       ...owner,
       convex: targets.convexDeploymentId,
+      bundle: targets.convexBundleSha256,
+      trust: targets.trustFingerprint,
     },
     acceptance: {
+      generation,
       ...host,
       ...restored,
       ...owner,
       convex: targets.convexDeploymentId,
+      bundle: targets.convexBundleSha256,
+      trust: targets.trustFingerprint,
     },
   };
 }
@@ -430,6 +440,6 @@ function main(args) {
 
 if (
   process.argv[1] &&
-  resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+  realpathSync(resolve(process.argv[1])) === fileURLToPath(import.meta.url)
 )
   process.exitCode = main(process.argv.slice(2));

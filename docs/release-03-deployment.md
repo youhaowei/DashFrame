@@ -134,7 +134,10 @@ only completed successful checks. All tokens for that receipt in
 duplicates or extras. Missing or inapplicable evidence blocks that stage until
 the director settles the case; do not substitute a generic success flag.
 
-Receipt subject keys below map to the top-level fields. They must match exactly:
+Receipt subject keys below map to the top-level fields. Every receipt includes
+`generation` and must match the selected release generation, so evidence from a
+superseded attempt cannot satisfy a newer manifest. The remaining keys must also
+match exactly:
 
 - `sha` = candidate SHA; `image` / `bundle` = target artifact digests;
   `convex` = Convex deployment ID; `trust` = public trust fingerprint.
@@ -143,18 +146,18 @@ Receipt subject keys below map to the top-level fields. They must match exactly:
 - Cut = Data plus `cut`, `backup`; Restored = Cut plus `restore`.
 - Owner = `owner`, `workspace` (admitted subject and stable workspace IDs).
 
-| Receipt      | Exact subject keys                 | First required |
-| ------------ | ---------------------------------- | -------------- |
-| `ci`         | `sha`, `image`, `bundle`           | prepare        |
-| `trust`      | `sha`, `convex`, `trust`           | prepare        |
-| `runtime`    | Host + Data                        | prepare        |
-| `inventory`  | `sha` + Data                       | prepare        |
-| `backup`     | `sha` + Cut                        | migrate        |
-| `restore`    | `sha` + Restored                   | migrate        |
-| `owner`      | `sha` + Restored + Owner           | migrate        |
-| `convex`     | `sha`, `bundle`, `convex`, `trust` | promote        |
-| `railway`    | Host + Restored + Owner + `convex` | promote        |
-| `acceptance` | Host + Restored + Owner + `convex` | promote        |
+| Receipt      | Exact subject keys                                                   | First required |
+| ------------ | -------------------------------------------------------------------- | -------------- |
+| `ci`         | `generation`, `sha`, `image`, `bundle`                               | prepare        |
+| `trust`      | `generation`, `sha`, `convex`, `trust`                               | prepare        |
+| `runtime`    | `generation` + Host + Data                                           | prepare        |
+| `inventory`  | `generation`, `sha` + Data                                           | prepare        |
+| `backup`     | `generation`, `sha` + Cut                                            | migrate        |
+| `restore`    | `generation`, `sha` + Restored                                       | migrate        |
+| `owner`      | `generation`, `sha` + Restored + Owner                               | migrate        |
+| `convex`     | `generation`, `sha`, `bundle`, `convex`, `trust`                     | promote        |
+| `railway`    | `generation` + Host + Restored + Owner + `convex`, `bundle`, `trust` | promote        |
+| `acceptance` | `generation` + Host + Restored + Owner + `convex`, `bundle`, `trust` | promote        |
 
 Every supplied receipt is checked, including later-stage receipts supplied early.
 Times cannot be in the future. Inventory must precede backup, backup restore,

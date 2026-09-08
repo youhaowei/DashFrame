@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { verifyManifest } from "./release-preflight.mjs";
@@ -31,6 +37,7 @@ function fixture() {
   const cut = { ...data, cut: "cut-1", backup: "protected-backup-1" };
   const restored = { ...cut, restore: "isolated-restore-1" };
   const owner = { owner: "admitted-subject", workspace: "private-workspace" };
+  const generation = 2;
   const receipt = (subject, checks) => ({
     subject,
     observedAt,
@@ -68,34 +75,37 @@ function fixture() {
       workspaceId: owner.workspace,
     },
     receipts: {
-      ci: receipt({ sha, image, bundle }, [
+      ci: receipt({ sha, generation, image, bundle }, [
         "format",
         "check",
         "e2e",
         "local-review",
         "independent-review",
       ]),
-      trust: receipt({ sha, convex: "synthetic-convex-prod", trust }, [
-        "ci-owned-convex-auth",
-        "stable-signing-key",
-        "public-trust-match",
-        "runtime-operator-trust-disjoint",
-      ]),
-      runtime: receipt({ ...host, ...data }, [
+      trust: receipt(
+        { sha, generation, convex: "synthetic-convex-prod", trust },
+        [
+          "ci-owned-convex-auth",
+          "stable-signing-key",
+          "public-trust-match",
+          "runtime-operator-trust-disjoint",
+        ],
+      ),
+      runtime: receipt({ generation, ...host, ...data }, [
         "no-deploy-authority",
         "no-admin-authority",
         "no-operator-signing-authority",
         "existing-volume-retained",
         "existing-vault-retained",
       ]),
-      inventory: receipt({ sha, ...data }, [
+      inventory: receipt({ sha, generation, ...data }, [
         "current-metadata",
         "frame-references",
         "host-data",
         "key-custody",
         "original-retained",
       ]),
-      backup: receipt({ sha, ...cut }, [
+      backup: receipt({ sha, generation, ...cut }, [
         "writers-paused",
         "healthy-snapshot",
         "metadata-hashes",
@@ -103,7 +113,7 @@ function fixture() {
         "encrypted-host-data",
         "protected-copy",
       ]),
-      restore: receipt({ sha, ...restored }, [
+      restore: receipt({ sha, generation, ...restored }, [
         "isolated-destination",
         "compatible-pglite",
         "project-meta-identity",
@@ -116,20 +126,27 @@ function fixture() {
         "close-and-reopen",
         "no-empty-recovery",
       ]),
-      owner: receipt({ sha, ...restored, ...owner }, [
+      owner: receipt({ sha, generation, ...restored, ...owner }, [
         "explicit-admission",
         "stable-workspace",
         "repeatable-import",
         "artifact-ids-preserved",
         "other-owner-denied",
       ]),
-      convex: receipt({ sha, bundle, convex: "synthetic-convex-prod", trust }, [
-        "production-deployment",
-        "schema-functions-auth",
-        "observed-sha",
-      ]),
+      convex: receipt(
+        { sha, generation, bundle, convex: "synthetic-convex-prod", trust },
+        ["production-deployment", "schema-functions-auth", "observed-sha"],
+      ),
       railway: receipt(
-        { ...host, ...restored, ...owner, convex: "synthetic-convex-prod" },
+        {
+          generation,
+          ...host,
+          ...restored,
+          ...owner,
+          convex: "synthetic-convex-prod",
+          bundle,
+          trust,
+        },
         [
           "spa-api-one-process",
           "observed-sha",
@@ -143,7 +160,15 @@ function fixture() {
         ],
       ),
       acceptance: receipt(
-        { ...host, ...restored, ...owner, convex: "synthetic-convex-prod" },
+        {
+          generation,
+          ...host,
+          ...restored,
+          ...owner,
+          convex: "synthetic-convex-prod",
+          bundle,
+          trust,
+        },
         [
           "private-workspaces-a-b",
           "unadmitted-and-revoked-denied",
@@ -246,6 +271,20 @@ describe("offline release evidence contract", () => {
     blocked(manifest, "release.generation", "positive-integer-required");
   });
 
+  test.each(Object.keys(fixture().receipts))(
+    "rejects %s evidence copied from a superseded generation",
+    (name) => {
+      const manifest = fixture();
+      manifest.release.generation = 3;
+      manifest.release.latestGeneration = 3;
+      blocked(
+        manifest,
+        `receipts.${name}.subject.generation`,
+        "subject-mismatch",
+      );
+    },
+  );
+
   test.each(["ci", "convex", "railway", "acceptance"])(
     "rejects %s evidence for another commit",
     (name) => {
@@ -260,8 +299,12 @@ describe("offline release evidence contract", () => {
       ["railway", "service"],
       ["railway", "image"],
       ["convex", "bundle"],
+      ["railway", "bundle"],
+      ["acceptance", "bundle"],
       ["trust", "trust"],
       ["convex", "trust"],
+      ["railway", "trust"],
+      ["acceptance", "trust"],
       ["restore", "backup"],
       ["runtime", "vault"],
     ];
@@ -364,33 +407,41 @@ describe("offline release evidence contract", () => {
 test("real CLI uses documented exits and sanitized JSON; it does not mutate the manifest", () => {
   const dir = mkdtempSync(join(tmpdir(), "release-preflight-test-"));
   const path = join(dir, "manifest.json");
-  const run = (...args) =>
-    spawnSync(
-      process.execPath,
-      [join(import.meta.dir, "release-preflight.mjs"), ...args],
-      { encoding: "utf8" },
-    );
+  const cliPath = join(import.meta.dir, "release-preflight.mjs");
+  const symlinkPath = join(dir, "release-preflight-link.mjs");
+  const run = (entryPath, ...args) =>
+    spawnSync(process.execPath, [entryPath, ...args], { encoding: "utf8" });
   try {
+    symlinkSync(cliPath, symlinkPath);
     const original = JSON.stringify(fixture());
     writeFileSync(path, original);
-    const consistent = run("promote", path);
+    const consistent = run(cliPath, "promote", path);
     expect(consistent.status).toBe(0);
     expect(JSON.parse(consistent.stdout).scope).toBe("offline-manifest-only");
     expect(readFileSync(path, "utf8")).toBe(original);
+    const linked = run(symlinkPath, "promote", path);
+    expect(linked.status).toBe(0);
+    expect(JSON.parse(linked.stdout)).toMatchObject({
+      scope: "offline-manifest-only",
+      decision: "consistent",
+    });
     const manifest = fixture();
     delete manifest.receipts.backup;
     writeFileSync(path, JSON.stringify(manifest));
-    const missing = run("migrate", path);
+    const missing = run(cliPath, "migrate", path);
     expect(missing.status).toBe(1);
     expect(JSON.parse(missing.stdout).decision).toBe("blocked");
+    const linkedMissing = run(symlinkPath, "migrate", path);
+    expect(linkedMissing.status).toBe(1);
+    expect(JSON.parse(linkedMissing.stdout).decision).toBe("blocked");
     writeFileSync(path, '{"credential":"sensitive-placeholder"');
-    const malformed = run("promote", path);
+    const malformed = run(cliPath, "promote", path);
     expect(malformed.status).toBe(2);
     expect(malformed.stdout + malformed.stderr).not.toContain(
       "sensitive-placeholder",
     );
-    expect(run("promote", join(dir, "absent.json")).status).toBe(2);
-    expect(run("unknown", path).status).toBe(2);
+    expect(run(cliPath, "promote", join(dir, "absent.json")).status).toBe(2);
+    expect(run(cliPath, "unknown", path).status).toBe(2);
   } finally {
     rmSync(dir, { recursive: true });
   }
