@@ -25,10 +25,7 @@ import { requireUser, type HostContext } from "./context";
 import { hostOperation } from "./operation";
 import { stableInput } from "./local-ingest";
 import { ImportPublicationRejectedError } from "./metadata";
-import {
-  PublicationOutcomeUnknownError,
-  publishWithConfirmation,
-} from "./data-fetch/publisher";
+import { publishWithConfirmation } from "./data-fetch/publisher";
 import { parseStoredDataTableState } from "@dashframe/convex-backend/codecs";
 
 type DataSourceConfig = {
@@ -296,10 +293,7 @@ async function runConnectorQuery(
     });
     return { ...result, dataFrameId };
   } catch (error) {
-    if (
-      !(error instanceof PublicationOutcomeUnknownError) &&
-      (await ctx.metadata.cancelLocalImport(identity).catch(() => false))
-    )
+    if (await ctx.metadata.cancelLocalImport(identity).catch(() => false))
       await ctx.cleanupResources?.();
     throw error;
   }
