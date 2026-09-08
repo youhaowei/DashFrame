@@ -1,14 +1,12 @@
 import { api } from "@dashframe/convex-backend/api";
-import type { SecretRef, SecretVault } from "@wystack/secret-vault";
+import type { SecretRef } from "@wystack/secret-vault";
 import { isSecretRef } from "@wystack/secret-vault";
 import { z } from "zod";
-import {
-  createHostedMetadataClient,
-  type HostedMetadataOptions,
-} from "./hosted-convex-metadata";
+import { createHostedMetadataClient } from "./hosted-convex-metadata";
 import {
   createHostedSourceMetadata,
   type HostedSourceMetadata,
+  type HostedSourceMetadataOptions,
 } from "./hosted-convex-source-operations";
 import type { HostMetadata } from "./metadata";
 
@@ -59,10 +57,7 @@ export type HostedProviderMetadata = HostedSourceMetadata &
     | "removeAssistantProviderConfig"
   >;
 
-export interface HostedProviderMetadataOptions extends HostedMetadataOptions {
-  /** Presence-only capability for the request workspace's isolated vault. */
-  credentialVault: Pick<SecretVault, "has">;
-}
+export type HostedProviderMetadataOptions = HostedSourceMetadataOptions;
 
 /** Provider metadata scoped by the signed user and the injected workspace vault. */
 export function createHostedProviderMetadata(

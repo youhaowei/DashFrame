@@ -1,7 +1,20 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { afterEach, expect, it, vi } from "vite-plus/test";
+import { CREDENTIAL_CLASS } from "@dashframe/server-core";
+import { deriveKeyId } from "../secret-file-backend";
 import { createHostedSourceMetadata } from "./hosted-convex-source-operations";
+import { createWorkspaceSecrets } from "./workspace-secrets";
 
-afterEach(() => vi.unstubAllGlobals());
+const roots: string[] = [];
+
+afterEach(async () => {
+  vi.unstubAllGlobals();
+  await Promise.all(
+    roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
+  );
+});
 it("maps host-facing source calls to the four named Bearer wire operations without body scope", async () => {
   const requests: {
     path: string;
@@ -25,6 +38,7 @@ it("maps host-facing source calls to the four named Bearer wire operations witho
   const metadata = createHostedSourceMetadata({
     deploymentUrl: "https://metadata.test",
     getToken: async () => "synthetic-token",
+    credentialVault: { has: async () => true },
   });
   await metadata.replaceDataSourceConfig({
     id: "source",
@@ -64,6 +78,7 @@ it("rejects unsafe replacement and expected configs before token acquisition or 
   const metadata = createHostedSourceMetadata({
     deploymentUrl: "https://metadata.test",
     getToken,
+    credentialVault: { has: async () => true },
   });
   const invalid = [
     // oxlint-disable-next-line sonarjs/no-hardcoded-passwords -- Deliberately rejected synthetic input; never sent to the network.
@@ -105,6 +120,7 @@ it.each(["v1", "v2"] as const)(
     const metadata = createHostedSourceMetadata({
       deploymentUrl: "https://metadata.test",
       getToken: async () => "synthetic-token",
+      credentialVault: { has: async () => true },
     });
     await metadata.replaceDataSourceConfig({
       id: "source",
@@ -119,3 +135,61 @@ it.each(["v1", "v2"] as const)(
     ]);
   },
 );
+
+it("checks only newly introduced source references in the request workspace vault", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "dashframe-source-vault-"));
+  roots.push(root);
+  const key = Buffer.alloc(32, 7);
+  const keyId = deriveKeyId(key);
+  const workspaces = await createWorkspaceSecrets(root, {
+    activeKeyId: keyId,
+    keys: new Map([[keyId, key]]),
+  });
+  const a = await workspaces.forWorkspace("workspace-a");
+  const b = await workspaces.forWorkspace("workspace-b");
+  const aRef = await a.store("source-a", {
+    class: CREDENTIAL_CLASS.ConnectorKey,
+  });
+  const bRef = await b.store("source-b", {
+    class: CREDENTIAL_CLASS.ConnectorKey,
+  });
+  const getToken = vi.fn(async () => "synthetic-token");
+  const fetch = vi.fn(
+    async () =>
+      new Response(JSON.stringify({ status: "success", value: null })),
+  );
+  vi.stubGlobal("fetch", fetch);
+  const metadata = createHostedSourceMetadata({
+    deploymentUrl: "https://metadata.test",
+    getToken,
+    credentialVault: a,
+  });
+
+  await expect(
+    metadata.replaceDataSourceConfig({
+      id: "source",
+      expectedConfig: {},
+      config: { apiKey: bRef },
+    }),
+  ).rejects.toThrow("unavailable in this workspace");
+  expect(getToken).not.toHaveBeenCalled();
+  expect(fetch).not.toHaveBeenCalled();
+
+  await metadata.replaceDataSourceConfig({
+    id: "source",
+    expectedConfig: {},
+    config: { apiKey: aRef },
+  });
+  await metadata.replaceDataSourceConfig({
+    id: "source",
+    expectedConfig: { apiKey: bRef },
+    config: { apiKey: bRef },
+  });
+  await metadata.replaceDataSourceConfig({
+    id: "source",
+    expectedConfig: { apiKey: bRef },
+    config: {},
+  });
+  expect(getToken).toHaveBeenCalledTimes(3);
+  expect(fetch).toHaveBeenCalledTimes(3);
+});

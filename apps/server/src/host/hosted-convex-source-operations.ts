@@ -1,4 +1,6 @@
 import { api } from "@dashframe/convex-backend/api";
+import type { SecretRef, SecretVault } from "@wystack/secret-vault";
+import { isSecretRef } from "@wystack/secret-vault";
 import {
   parseHostedSourceConfig,
   parseStoredDataTableState,
@@ -22,9 +24,14 @@ export type HostedSourceMetadata = HostedLifecycleMetadata &
     | "clearAllData"
   >;
 
+export interface HostedSourceMetadataOptions extends HostedMetadataOptions {
+  /** Presence-only capability for the request workspace's isolated vault. */
+  credentialVault: Pick<SecretVault, "has">;
+}
+
 /** Restricted source capabilities; the caller's admitted identity supplies all scope. */
 export function createHostedSourceMetadata(
-  options: HostedMetadataOptions,
+  options: HostedSourceMetadataOptions,
 ): HostedSourceMetadata {
   const client = createHostedMetadataClient(options);
   return {
@@ -32,6 +39,18 @@ export function createHostedSourceMetadata(
     replaceDataSourceConfig: async (input) => {
       const config = parseHostedSourceConfig(input.config);
       const expectedConfig = parseHostedSourceConfig(input.expectedConfig);
+      const introduced = new Set<SecretRef>();
+      for (const field of ["apiKey", "connectionString"] as const) {
+        const reference = config[field];
+        if (reference !== undefined && reference !== expectedConfig[field]) {
+          if (!isSecretRef(reference))
+            throw new Error("Invalid source credential reference");
+          introduced.add(reference);
+        }
+      }
+      for (const reference of introduced)
+        if (!(await options.credentialVault.has(reference)))
+          throw new Error("Source credential is unavailable in this workspace");
       await (
         await client()
       ).mutation(
