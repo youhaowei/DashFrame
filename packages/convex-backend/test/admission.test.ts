@@ -218,6 +218,69 @@ it("checks current user admission and workspace ownership for existing browser i
   });
 });
 
+it("requires operator subjects to name an operator without whitespace or control characters", async () => {
+  await admit();
+  const before = await admissions();
+  for (const subject of [
+    "user:test",
+    "service:test",
+    "test",
+    "operator:",
+    "operator: ",
+    " operator:test",
+    "operator:test user",
+    "operator:test\n",
+    "operator:\u0000test",
+    "operator:test\u007f",
+    "operator:test\u0080",
+    "operator:test\u009f",
+  ]) {
+    const caller = operator({ subject });
+    await expect(
+      caller.mutation(api.admission.grant, { subject: "new_user" }),
+    ).rejects.toThrow("operator identity");
+    await expect(
+      caller.mutation(api.admission.revoke, { subject: "user_a" }),
+    ).rejects.toThrow("operator identity");
+  }
+  expect(await admissions()).toEqual(before);
+});
+
+it("compares normalized URLs only for issuer separation and retains exact JWT issuer matching", async () => {
+  for (const alias of [
+    "https://runtime.test/",
+    "https://RUNTIME.TEST",
+    "https://runtime.test:443",
+    "https://runtime.test/path/..",
+  ]) {
+    expect(() =>
+      admissionAuthConfig({
+        ...environment,
+        DASHFRAME_OPERATOR_AUTH_ISSUER: alias,
+      }),
+    ).toThrow("issuers must differ");
+  }
+  const runtimeIssuer = "https://RUNTIME.TEST:443/auth";
+  const config = admissionAuthConfig({
+    ...environment,
+    DASHFRAME_AUTH_ISSUER: runtimeIssuer,
+  });
+  expect(config.providers[0]).toMatchObject({ issuer: runtimeIssuer });
+  vi.stubEnv("DASHFRAME_AUTH_ISSUER", runtimeIssuer);
+  expect(
+    await host("user_a", { issuer: runtimeIssuer }).query(
+      api.admission.status,
+      {},
+    ),
+  ).toEqual({ status: "pending", workspaceId: null });
+  await expect(
+    host("user_a", { issuer: new URL(runtimeIssuer).href }).query(
+      api.admission.status,
+      {},
+    ),
+  ).rejects.toThrow("authority");
+});
+
 it("denies unmapped and foreign services and checks owner admission plus credential revocation", async () => {
   const a = await admit();
   const b = await admit("user_b");

@@ -77,7 +77,9 @@ export function hostedTrust(environment: Environment = process.env) {
     throw new Error("Hosted admission is unavailable in local mode");
   const runtimeIssuer = issuer(environment, "DASHFRAME_AUTH_ISSUER");
   const operatorIssuer = issuer(environment, "DASHFRAME_OPERATOR_AUTH_ISSUER");
-  if (runtimeIssuer === operatorIssuer)
+  // Reject URL aliases as a configuration mistake, but retain the exact issuer
+  // strings for JWT verification: RFC 7519 section 2 forbids canonicalizing iss.
+  if (new URL(runtimeIssuer).href === new URL(operatorIssuer).href)
     throw new Error("Operator and runtime issuers must differ");
   const runtimeJwks = required(environment, "DASHFRAME_AUTH_JWKS");
   const operatorJwks = required(environment, "DASHFRAME_OPERATOR_AUTH_JWKS");

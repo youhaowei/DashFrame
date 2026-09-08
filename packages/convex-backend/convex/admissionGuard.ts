@@ -20,6 +20,11 @@ export function requireHostedAuthority(
     !identity.subject
   )
     throw new ConvexError("Invalid hosted authority");
+  if (
+    authority === "operator" &&
+    !/^operator:[^\s\p{Cc}]+$/u.test(identity.subject)
+  )
+    throw new ConvexError("Invalid hosted operator identity");
   return identity;
 }
 
