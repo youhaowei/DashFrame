@@ -11,6 +11,7 @@ import type * as admission from "../admission";
 import type * as hostedMetadata from "../hostedMetadata";
 import type * as hostedLifecycle from "../hostedLifecycle";
 import type * as hostedSourceOperations from "../hostedSourceOperations";
+import type * as hostedProviderMetadata from "../hostedProviderMetadata";
 const fullApi = anyApi as unknown as ApiFromModules<{
   app: typeof app;
   host: typeof host;
@@ -19,6 +20,7 @@ const fullApi = anyApi as unknown as ApiFromModules<{
   hostedMetadata: typeof hostedMetadata;
   hostedLifecycle: typeof hostedLifecycle;
   hostedSourceOperations: typeof hostedSourceOperations;
+  hostedProviderMetadata: typeof hostedProviderMetadata;
 }>;
 export const api = fullApi as FilterApi<
   typeof fullApi,
