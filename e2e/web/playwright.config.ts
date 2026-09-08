@@ -48,8 +48,8 @@ function getWebServerConfig() {
     return [
       {
         command: apiServerCommand(),
-        // Authentication failures are valid readiness responses; fixtures then
-        // require a successful authenticated runtime query before navigation.
+        // Error responses still satisfy Playwright readiness; fixtures then
+        // require a successful runtime query before navigation.
         url: `${API_URL}/api/runtime`,
         gracefulShutdown: { signal: "SIGTERM" as const, timeout: 15_000 },
         reuseExistingServer: false,

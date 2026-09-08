@@ -1,6 +1,5 @@
 import { expect, test } from "../lib/test-fixtures";
 import { query, mutate } from "../lib/native-api";
-const USER_TOKEN = process.env.E2E_USER_TOKEN ?? "dashframe-e2e-user";
 
 interface SeededDraft {
   draftId: string;
@@ -182,10 +181,10 @@ test.describe("draft review", () => {
     await expect(page.getByRole("link", { name: /4 changes/ })).toHaveCount(2);
     await expect(page.getByLabel("2 drafts waiting for review")).toBeVisible();
 
-    await mutate("publishDraft", { draftId: publishable.draftId }, USER_TOKEN);
+    await mutate("publishDraft", { draftId: publishable.draftId });
     await expect(page.getByLabel("1 draft waiting for review")).toBeVisible();
 
-    await mutate("discardDraft", { draftId: discardable.draftId }, USER_TOKEN);
+    await mutate("discardDraft", { draftId: discardable.draftId });
     await expect(
       page.getByText("No changes waiting for review", { exact: true }),
     ).toBeVisible();

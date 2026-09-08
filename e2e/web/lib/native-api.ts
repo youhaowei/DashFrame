@@ -3,13 +3,13 @@ export async function nativeCall<T>(
   kind: "query" | "mutation",
   path: string,
   args: unknown,
-  token = process.env.E2E_USER_TOKEN ?? "dashframe-e2e-user",
+  token?: string,
 ): Promise<T> {
   const url = process.env.E2E_DASHFRAME_URL;
   if (!url) throw new Error("E2E_DASHFRAME_URL was not configured");
   const issued = await fetch(`${url}/api/convex-token`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
   });
   if (!issued.ok)
     throw new Error(`Native identity issuance failed: ${issued.status}`);
@@ -40,13 +40,13 @@ export async function nativeCall<T>(
 
 export const query = <T>(path: string, args: unknown, token?: string) =>
   nativeCall<T>("query", path, args, token);
-export const mutate = <T>(path: string, args: unknown, token: string) =>
+export const mutate = <T>(path: string, args: unknown, token?: string) =>
   nativeCall<T>("mutation", path, args, token);
 
 export async function hostCall<T>(
   path: string,
   args: unknown,
-  token = process.env.E2E_USER_TOKEN ?? "dashframe-e2e-user",
+  token?: string,
 ): Promise<T> {
   const response = await fetch(
     `${process.env.E2E_DASHFRAME_URL}/api/host/${path}`,
@@ -54,7 +54,7 @@ export async function hostCall<T>(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify(args),
     },
