@@ -127,6 +127,7 @@ function harness(overrides: Partial<InsightMaterializerDependencies> = {}) {
     coalescingScope: (_ctx, target, insight) =>
       JSON.stringify([target, insight]),
     completedReplayMs: 0,
+    sharedOperationTimeoutMs: 120_000,
     uuid: () => `frame-${++id}`,
     now: () => 123,
     tableName: (frameId) => `df_${frameId}`,
@@ -770,6 +771,150 @@ describe("immutable Insight materializer", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("replays under the source generation published by the completed run", async () => {
+    let generation = "old-source-frame";
+    const h = harness({
+      completedReplayMs: 5_000,
+      coalescingScope: async () => generation,
+      completedReplayScope: (_initialScope, result) =>
+        result.sourceGenerations?.[0]?.dataFrameId,
+      publish: vi.fn(async (_ctx, value) => {
+        generation = value.sources[0]!.frame.id;
+      }),
+    });
+    const materializer = createInsightMaterializer(h.dependencies);
+    const args = {
+      ctx: {} as never,
+      target: { kind: "saved", insightId: "insight" } as const,
+      insight,
+    };
+
+    const first = await materializer.materialize(args);
+    const sibling = await materializer.materialize(args);
+
+    expect(sibling.dataFrameId).toBe(first.dataFrameId);
+    expect(first.sourceGenerations?.[0]?.dataFrameId).toBe("frame-1");
+    expect(h.resolveSource).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not alias a completed result under a concurrently newer source generation", async () => {
+    let generation = "old-source-frame";
+    const publish = vi.fn(async () => {
+      generation = "concurrent-new-source-frame";
+    });
+    const h = harness({
+      completedReplayMs: 5_000,
+      coalescingScope: async () => generation,
+      completedReplayScope: (_initialScope, result) =>
+        result.sourceGenerations?.[0]?.dataFrameId,
+      publish,
+    });
+    const materializer = createInsightMaterializer(h.dependencies);
+    const args = {
+      ctx: {} as never,
+      target: { kind: "saved", insightId: "insight" } as const,
+      insight,
+    };
+
+    await materializer.materialize(args);
+    await materializer.materialize(args);
+
+    expect(publish).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not let the first request cancel shared provider work", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const observedSignals: Array<AbortSignal | undefined> = [];
+    const h = harness({
+      resolveSource: async (ctx, tableId) => {
+        observedSignals.push(ctx.requestSignal);
+        await gate;
+        return source(tableId);
+      },
+    });
+    const materializer = createInsightMaterializer(h.dependencies);
+    const leader = new AbortController();
+    const sibling = new AbortController();
+    const args = {
+      target: { kind: "saved", insightId: "insight" } as const,
+      insight,
+    };
+
+    const first = materializer.materialize({
+      ...args,
+      ctx: { requestSignal: leader.signal } as HostContext,
+    });
+    const second = materializer.materialize({
+      ...args,
+      ctx: { requestSignal: sibling.signal } as HostContext,
+    });
+    await vi.waitFor(() => expect(observedSignals).toHaveLength(2));
+    leader.abort(new Error("leader disconnected"));
+    release();
+
+    const [firstResult, siblingResult] = await Promise.all([first, second]);
+    expect(siblingResult.dataFrameId).toBe(firstResult.dataFrameId);
+    expect(observedSignals[0]).toBeInstanceOf(AbortSignal);
+    expect(observedSignals[1]).toBe(observedSignals[0]);
+    expect(observedSignals[0]).not.toBe(leader.signal);
+    expect(observedSignals[0]?.aborted).toBe(false);
+    expect(h.publish).toHaveBeenCalledOnce();
+  });
+
+  it("bounds shared provider work with an independent deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      let observedSignal: AbortSignal | undefined;
+      const h = harness({
+        sharedOperationTimeoutMs: 50,
+        resolveSource: async (ctx) => {
+          observedSignal = ctx.requestSignal;
+          return await new Promise<SourceGeneration>((_resolve, reject) => {
+            ctx.requestSignal?.addEventListener(
+              "abort",
+              () => reject(ctx.requestSignal?.reason),
+              { once: true },
+            );
+          });
+        },
+      });
+      const pending = createInsightMaterializer(h.dependencies).materialize({
+        ctx: { requestSignal: new AbortController().signal } as HostContext,
+        target: { kind: "saved", insightId: "insight" },
+        insight,
+      });
+      await vi.advanceTimersByTimeAsync(50);
+
+      await expect(pending).rejects.toThrow(
+        "Materialization deadline exceeded",
+      );
+      expect(observedSignal?.aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not fail a completed publication when replay bookkeeping throws", async () => {
+    const h = harness({
+      completedReplayMs: 5_000,
+      completedReplayScope: () => {
+        throw new Error("bad replay key");
+      },
+    });
+
+    await expect(
+      createInsightMaterializer(h.dependencies).materialize({
+        ctx: {} as never,
+        target: { kind: "saved", insightId: "insight" },
+        insight,
+      }),
+    ).resolves.toMatchObject({ status: "ready" });
+    expect(h.publish).toHaveBeenCalledOnce();
   });
 
   it("does not reuse an in-flight operation after its source generation changes", async () => {

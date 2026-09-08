@@ -6,7 +6,7 @@ import {
   metricIdToColumnAlias,
 } from "@dashframe/engine";
 import { inspectArrowIpc } from "@dashframe/engine-server/arrow-data-path";
-import type { UUID } from "@dashframe/types";
+import type { InsightSourceGeneration, UUID } from "@dashframe/types";
 
 import { randomUUID } from "node:crypto";
 import type { HostContext } from "../context";
@@ -17,13 +17,17 @@ import {
 import { decodeInsight, type InsightRow } from "../insights";
 import { fetchSourceBinding, resolveSourceBinding } from "./bindings";
 import type {
+  EffectiveInsightDefinition,
   InsightMaterializerDependencies,
+  MaterializationTarget,
   SourceGeneration,
 } from "./materializer";
 import { createInsightMaterializer } from "./materializer";
 import { publishMaterialization } from "./publisher";
 
-/** Real C1 lifecycle executor; no completed-result cache exists. */
+const MATERIALIZATION_TIMEOUT_MS = 120_000;
+
+/** Real C1 lifecycle executor with bounded sibling replay, never a durable result cache. */
 export function createProductionFetchExecutor(): LiveFetchExecutor {
   const runtimeScopes = new WeakMap<object, string>();
   let nextRuntimeScope = 0;
@@ -41,20 +45,79 @@ export function createProductionFetchExecutor(): LiveFetchExecutor {
   const materializer = createInsightMaterializer({
     ...productionMaterializerDependencies(),
     fingerprint: ({ insight }) => fingerprintEffectiveInsight(insight),
-    coalescingScope: async (ctx, target, insight) =>
-      JSON.stringify([
-        runtimeScope(ctx),
-        ctx.principal,
-        target,
-        insight,
-        await persistedSourceRevision(ctx, insight),
-      ]),
+    coalescingScope: (ctx, target, insight) =>
+      productionMaterializationScope(runtimeScope(ctx), ctx, target, insight),
+    completedReplayScope: completedProductionReplayScope,
+    sharedOperationTimeoutMs: MATERIALIZATION_TIMEOUT_MS,
     uuid: () => randomUUID(),
     now: () => Date.now(),
     tableName: (id) => `df_${id.replaceAll("-", "_")}`,
   });
   return async ({ context, insight, target }) =>
     materializer.materialize({ ctx: context, insight, target });
+}
+
+export async function productionMaterializationScope(
+  runtimeScope: string,
+  ctx: HostContext,
+  target: MaterializationTarget,
+  insight: EffectiveInsightDefinition,
+): Promise<string> {
+  return JSON.stringify([
+    runtimeScope,
+    ctx.principal,
+    target,
+    insight,
+    await persistedSourceRevision(ctx, insight),
+  ]);
+}
+
+export function completedProductionReplayScope(
+  initialScope: string,
+  result: { sourceGenerations?: readonly InsightSourceGeneration[] },
+): string | undefined {
+  if (!result.sourceGenerations?.length) return initialScope;
+  const generations = new Map(
+    result.sourceGenerations.map((generation) => [
+      generation.tableId,
+      generation,
+    ]),
+  );
+  let scope: unknown;
+  try {
+    scope = JSON.parse(initialScope);
+  } catch {
+    return undefined;
+  }
+  if (!Array.isArray(scope) || scope.length !== 5) return undefined;
+  if (
+    typeof scope[2] === "object" &&
+    scope[2] !== null &&
+    (scope[2] as { kind?: unknown }).kind === "refresh"
+  )
+    return undefined;
+  const replaceGenerations = (value: unknown): unknown => {
+    if (!Array.isArray(value)) return value;
+    if (value[0] === "table" && typeof value[1] === "string") {
+      const generation = generations.get(value[1] as UUID);
+      return generation
+        ? [
+            "table",
+            generation.tableId,
+            generation.dataFrameId,
+            generation.lastFetchedAt,
+          ]
+        : value;
+    }
+    return value.map(replaceGenerations);
+  };
+  return JSON.stringify([
+    scope[0],
+    scope[1],
+    scope[2],
+    scope[3],
+    replaceGenerations(scope[4]),
+  ]);
 }
 
 async function persistedSourceRevision(

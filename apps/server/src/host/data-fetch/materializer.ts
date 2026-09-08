@@ -111,6 +111,12 @@ export interface InsightMaterializerDependencies {
     target: MaterializationTarget,
     insight: EffectiveInsightDefinition,
   ): string | Promise<string>;
+  completedReplayScope?(
+    initialScope: string,
+    result: InsightFetchReady,
+  ): string | undefined;
+  /** Caller-independent deadline for shared hosted provider work. */
+  sharedOperationTimeoutMs: number;
   /** Briefly reuse a completed result for sibling consumers of one render. */
   completedReplayMs?: number;
   uuid(): UUID;
@@ -143,6 +149,14 @@ export function createInsightMaterializer(
 ): InsightMaterializer {
   const inFlight = new Map<string, Promise<InsightFetchReady>>();
   const replayMs = dependencies.completedReplayMs ?? 5_000;
+  const remember = (key: string, operation: Promise<InsightFetchReady>) => {
+    if (inFlight.size >= 128) inFlight.delete(inFlight.keys().next().value!);
+    inFlight.set(key, operation);
+  };
+  const forgetLater = (key: string, operation: Promise<InsightFetchReady>) =>
+    setTimeout(() => {
+      if (inFlight.get(key) === operation) inFlight.delete(key);
+    }, replayMs);
 
   const start = (
     key: string,
@@ -151,15 +165,68 @@ export function createInsightMaterializer(
     const existing = inFlight.get(key);
     if (existing) return existing;
 
-    const operation = materializeOnce(dependencies, args, [], [], []);
-    if (inFlight.size >= 128) inFlight.delete(inFlight.keys().next().value!);
-    inFlight.set(key, operation);
+    // No caller's disconnect may cancel work a sibling is waiting on. Every
+    // caller retains its workspace lease until this promise settles; the
+    // independent deadline bounds provider work. Other capabilities still
+    // come from the first caller's admitted context.
+    const sharedLifetime = args.ctx.requestSignal
+      ? new AbortController()
+      : undefined;
+    const sharedDeadline = sharedLifetime
+      ? setTimeout(
+          () =>
+            sharedLifetime.abort(
+              new Error("Materialization deadline exceeded"),
+            ),
+          dependencies.sharedOperationTimeoutMs,
+        )
+      : undefined;
+    const sharedArgs = {
+      ...args,
+      ctx: {
+        ...args.ctx,
+        requestSignal: sharedLifetime?.signal,
+      },
+    };
+    const replayKeys = new Set([key]);
+    const operation = materializeOnce(dependencies, sharedArgs, [], [], [])
+      .then((result) => {
+        if (replayMs > 0) {
+          // Remote publication advances its own source generation. Install the
+          // replay alias before resolving callers so an immediate sibling sees
+          // the immutable result under the exact generation it published. Never
+          // re-read mutable metadata here: a concurrent refresh may already have
+          // advanced beyond the generation that produced this result.
+          let settledKey: string | undefined;
+          try {
+            settledKey = dependencies.completedReplayScope?.(key, result);
+          } catch {
+            // Replay is best-effort and must not fail a completed publication.
+          }
+          if (
+            settledKey !== undefined &&
+            settledKey !== key &&
+            !inFlight.has(settledKey)
+          ) {
+            replayKeys.add(settledKey);
+            remember(settledKey, operation);
+          }
+        }
+        return result;
+      })
+      .finally(() => {
+        if (sharedDeadline !== undefined) clearTimeout(sharedDeadline);
+      });
+    remember(key, operation);
     const clear = () => {
-      if (inFlight.get(key) === operation) inFlight.delete(key);
+      for (const replayKey of replayKeys) {
+        if (inFlight.get(replayKey) === operation) inFlight.delete(replayKey);
+      }
     };
     operation.then(() => {
       if (replayMs <= 0) clear();
-      else setTimeout(clear, replayMs);
+      else
+        for (const replayKey of replayKeys) forgetLater(replayKey, operation);
     }, clear);
     return operation;
   };
