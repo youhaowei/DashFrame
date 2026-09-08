@@ -17,6 +17,7 @@
 import {
   buildInsightAvailableFields,
   fieldIdToColumnAlias,
+  metricIdToColumnAlias,
 } from "@dashframe/engine";
 import type { ColumnAnalysis } from "@dashframe/engine-browser";
 import type {
@@ -26,7 +27,7 @@ import type {
   Insight,
   UUID,
 } from "@dashframe/types";
-import { fieldEncoding } from "@dashframe/types";
+import { fieldEncoding, metricEncoding } from "@dashframe/types";
 import { render } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { AxisSelectField } from "./AxisSelectField";
@@ -418,4 +419,40 @@ describe("AxisSelectField — repeat-join picker (component render)", () => {
     // No _j1 instance should appear for a single join.
     expect(values).not.toContain(J1_ENC);
   });
+});
+
+it("retains the selected metric encoding and label when analysis also supplies its raw alias", () => {
+  const metricId = "11111111-1111-4111-8111-111111111111" as UUID;
+  const alias = metricIdToColumnAlias(metricId);
+  render(
+    <AxisSelectField
+      label="Y Axis"
+      value={metricEncoding(metricId)}
+      onChange={vi.fn()}
+      axis="y"
+      chartType="barY"
+      columnAnalysis={[
+        { columnName: alias, semantic: "number", nullable: false },
+      ]}
+      availableColumns={[{ name: alias, type: "number" }]}
+      compiledInsight={{
+        ...baseCompiledInsight,
+        metrics: [
+          {
+            id: metricId,
+            name: "Total revenue",
+            aggregation: "sum",
+            columnName: "revenue",
+          },
+        ],
+      }}
+    />,
+  );
+  expect(capturedOptions).toContainEqual(
+    expect.objectContaining({
+      value: metricEncoding(metricId),
+      label: "Sum of revenue",
+    }),
+  );
+  expect(capturedOptions.some((option) => option.value === alias)).toBe(false);
 });
