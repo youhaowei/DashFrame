@@ -81,11 +81,8 @@ function generateOrders(): string {
       const occursToday =
         !("augustEveryDays" in channel) ||
         (date.getUTCDate() - 1) % channel.augustEveryDays === 0;
-      const count = august
-        ? occursToday
-          ? channel.augustDaily
-          : 0
-        : channel.daily;
+      const augustCount = occursToday ? channel.augustDaily : 0;
+      const count = august ? augustCount : channel.daily;
       for (let dailyIndex = 0; dailyIndex < count; dailyIndex += 1) {
         const supplemental = august && "augustEveryDays" in channel;
         const customerIndex =

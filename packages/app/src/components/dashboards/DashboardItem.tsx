@@ -1,12 +1,13 @@
 import { useMutation } from "convex/react";
 import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
 import { api } from "@dashframe/convex-backend/api";
-import type {
-  DashboardControl,
-  DashboardItemOverrides,
-  DashboardItem as DashboardItemType,
+import {
+  type DashboardControl,
+  type DashboardItemOverrides,
+  type DashboardItem as DashboardItemType,
+  cmd,
+  type UUID,
 } from "@dashframe/types";
-import { cmd, type UUID } from "@dashframe/types";
 import { groupHoverAndFocusWithinReveal } from "@dashframe/ui";
 
 import { Button, cn, Surface } from "@wystack/ui-react";

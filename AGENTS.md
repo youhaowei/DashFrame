@@ -174,6 +174,27 @@ filters them out. The per-task commands below skip the convention guards — run
 - Test: `bunx turbo test --filter='!@wystack/*'`
 - Build: `bunx turbo build --filter='!@wystack/*'`
 
+## Lint policy
+
+`vite.config.ts` at the root is the only lint configuration; package `lint`
+scripts just point it at their sources. The policy is: oxlint's `correctness`
+category on for every enabled plugin, a curated list of explicit rules, and
+every rule at `error` — a warning does not fail the gate, so a rule at `warn`
+is a rule nobody sees. The rules were chosen by measurement, not taste;
+`docs/audits/lint-guardrails-evaluation-2026-09-07.md` records the counts and
+the rejections. Three things follow:
+
+- **Measure before adopting.** Run the candidate over the repo and read the
+  findings before enabling it; enable it at `error` with a note, or not at all.
+- **A disable needs a reason.** `oxlint-disable-next-line <rule> -- <why>`,
+  never a bare directive, and never a blanket file-level disable
+  (`unicorn/no-abusive-eslint-disable` rejects those).
+- **Turning a rule off is a config change with a comment**, next to the rule,
+  saying what it flagged and why that was wrong for this codebase.
+
+Root `scripts/` and `vite.config.ts` lint through `check:root-lint`, part of
+`bun run check`.
+
 ## Worktrees (all agents)
 
 Every agent that touches source files works in an isolated git worktree — never

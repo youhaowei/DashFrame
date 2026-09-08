@@ -65,6 +65,7 @@ export async function connectRemoteSource({
       try {
         await removeSource(sourceId);
       } catch (cleanupCause) {
+        // oxlint-disable-next-line preserve-caught-error -- AggregateError carries both the original and the cleanup error
         throw new AggregateError(
           [cause, cleanupCause],
           "Failed to connect and clean up the data source",

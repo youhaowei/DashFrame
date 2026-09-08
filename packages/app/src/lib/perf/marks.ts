@@ -1,5 +1,5 @@
 import { usePerfStore } from "./perfStore";
-import { type PerfStage } from "./stages";
+import type { PerfStage } from "./stages";
 
 /**
  * Thin wrapper over the Web Performance API (`performance.mark` / `measure`)

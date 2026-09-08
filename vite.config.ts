@@ -22,7 +22,18 @@ const storybookRules = Object.assign(
 
 export default defineConfig({
   lint: {
-    plugins: ["oxc", "typescript", "react"],
+    // Native plugin set. `import` and `promise` catch structural mistakes
+    // (cycles, duplicate imports, mis-shaped executors); `unicorn` and
+    // `vitest` are enabled for a hand-picked subset below, not wholesale.
+    plugins: [
+      "oxc",
+      "typescript",
+      "react",
+      "unicorn",
+      "promise",
+      "import",
+      "vitest",
+    ],
     jsPlugins: [
       "eslint-plugin-sonarjs",
       {
@@ -46,8 +57,15 @@ export default defineConfig({
         specifier: "eslint-plugin-react-hooks",
       },
     ],
+    // Lint policy (see docs/audits/lint-guardrails-evaluation-2026-09-07.md):
+    // oxlint's `correctness` category is on for every enabled plugin, and the
+    // explicit rules below are the measured, near-zero-cost additions that
+    // target sloppy generated code. Every rule here is `error` — warnings do
+    // not fail the gate, so a warning-level rule is a rule nobody sees.
+    // Adding a rule means measuring it first; turning one off means writing
+    // the reason next to it.
     categories: {
-      correctness: "off",
+      correctness: "error",
     },
     env: {
       builtin: true,
@@ -70,6 +88,127 @@ export default defineConfig({
       "libs/**",
     ],
     rules: {
+      // --- Native rules disabled on purpose ---------------------------------
+      // The classic-runtime rule; every renderer here uses the automatic JSX
+      // runtime, so `React` need not be in scope.
+      "react/react-in-jsx-scope": "off",
+      // The oxlint ports flag `.use(...)` methods on non-React objects; the
+      // eslint-plugin-react-hooks rules (jsPlugin `react-hooks-js`, applied in
+      // the overrides below) are the authoritative hook linters.
+      "react-hooks/rules-of-hooks": "off",
+      "react-hooks/exhaustive-deps": "off",
+      // Flags a value import next to an `import type` from the same module,
+      // which verbatimModuleSyntax requires. `import/no-duplicates` below
+      // catches genuine duplicates without that false positive.
+      "no-duplicate-imports": "off",
+      // `== null` is the sanctioned nullish check (eqeqeq below allows it).
+      "no-eq-null": "off",
+      // These ship in the vitest plugin's `correctness` bucket but are style
+      // opinions for this codebase: typed mocks everywhere (630 sites),
+      // `toThrow()` without a message (134), and `expect` inside conditionals
+      // (51, mostly narrowing guards). `expect-expect` misreads
+      // `screen.getByRole(...)` (which throws on failure) as an assertion-free
+      // test; `sonarjs/assertions-in-tests` below covers that intent.
+      "vitest/require-mock-type-parameters": "off",
+      "vitest/require-to-throw-message": "off",
+      "vitest/no-conditional-expect": "off",
+      "vitest/expect-expect": "off",
+      // Flags every Node-style callback invoked from a `.then`; the desktop
+      // main process bridges callback APIs by design.
+      "promise/no-callback-in-promise": "off",
+
+      // --- Sloppy-code guardrails (measured 2026-09-07, all `error`) --------
+      eqeqeq: ["error", "always", { null: "ignore" }],
+      // Playwright fixtures take `({}, use)` when they need no other fixture.
+      "no-empty-pattern": ["error", { allowObjectPatternsAsParameters: true }],
+      "no-empty": ["error", { allowEmptyCatch: false }],
+      "no-useless-assignment": "error",
+      "no-self-compare": "error",
+      "no-unneeded-ternary": "error",
+      "no-useless-return": "error",
+      "no-useless-rename": "error",
+      "no-useless-concat": "error",
+      "no-useless-computed-key": "error",
+      "no-useless-escape": "error",
+      "no-unused-private-class-members": "error",
+      "no-throw-literal": "error",
+      "prefer-promise-reject-errors": "error",
+      "preserve-caught-error": "error",
+      "no-promise-executor-return": "error",
+      "default-case-last": "error",
+      "prefer-object-has-own": "error",
+      // Work-in-progress markers belong in the tracker, not in source.
+      "no-warning-comments": [
+        "error",
+        { terms: ["todo", "fixme", "xxx", "hack"], location: "anywhere" },
+      ],
+      "typescript/no-import-type-side-effects": "error",
+      "typescript/no-confusing-non-null-assertion": "error",
+      "typescript/no-non-null-asserted-nullish-coalescing": "error",
+      "typescript/no-useless-empty-export": "error",
+      "unicorn/error-message": "error",
+      "unicorn/throw-new-error": "error",
+      "unicorn/no-instanceof-builtins": "error",
+      "unicorn/no-useless-spread": "error",
+      "unicorn/no-useless-fallback-in-spread": "error",
+      "unicorn/no-useless-length-check": "error",
+      "unicorn/no-await-in-promise-methods": "error",
+      "unicorn/no-single-promise-in-promise-methods": "error",
+      "unicorn/no-unnecessary-await": "error",
+      "unicorn/no-typeof-undefined": "error",
+      "unicorn/prefer-optional-catch-binding": "error",
+      "unicorn/no-abusive-eslint-disable": "error",
+      "unicorn/no-thenable": "error",
+      "unicorn/prefer-node-protocol": "error",
+      "unicorn/no-object-as-default-parameter": "error",
+      "unicorn/no-invalid-remove-event-listener": "error",
+      "unicorn/no-empty-file": "error",
+      "unicorn/no-unreadable-iife": "error",
+      "oxc/no-accumulating-spread": "error",
+      "oxc/missing-throw": "error",
+      "oxc/erasing-op": "error",
+      "oxc/uninvoked-array-callback": "error",
+      "oxc/const-comparisons": "error",
+      "oxc/double-comparisons": "error",
+      "oxc/misrefactored-assign-op": "error",
+      "promise/no-return-wrap": "error",
+      "promise/no-multiple-resolved": "error",
+      "promise/no-new-statics": "error",
+      "promise/valid-params": "error",
+      "promise/no-return-in-finally": "error",
+      "import/no-cycle": "error",
+      "import/no-self-import": "error",
+      "import/no-duplicates": "error",
+      "import/no-mutable-exports": "error",
+      "import/no-empty-named-blocks": "error",
+      "react/jsx-key": "error",
+      "react/jsx-no-duplicate-props": "error",
+      "react/no-children-prop": "error",
+      "react/jsx-no-target-blank": "error",
+      "react/no-unknown-property": "error",
+      "react/button-has-type": "error",
+      "react/jsx-no-constructed-context-values": "error",
+      "react/jsx-no-comment-textnodes": "error",
+      "react/jsx-no-script-url": "error",
+      "react/no-danger-with-children": "error",
+      "react/no-direct-mutation-state": "error",
+      "react/no-string-refs": "error",
+      "react/no-find-dom-node": "error",
+      "react/no-is-mounted": "error",
+      "react/no-render-return-value": "error",
+      "react/void-dom-elements-no-children": "error",
+      "vitest/valid-expect": "error",
+      "vitest/no-identical-title": "error",
+      "vitest/no-disabled-tests": "error",
+      "vitest/no-focused-tests": "error",
+      "vitest/no-commented-out-tests": "error",
+      "vitest/no-standalone-expect": "error",
+      "vitest/valid-describe-callback": "error",
+      "vitest/valid-title": "error",
+      "vitest/no-import-node-test": "error",
+      "vitest/no-mocks-import": "error",
+      "vitest/no-test-return-statement": "error",
+
       "no-array-constructor": "error",
       "no-unused-expressions": "error",
       "no-unused-vars": "off",
@@ -276,7 +415,7 @@ export default defineConfig({
       "sonarjs/review-blockchain-mnemonic": "error",
       "sonarjs/dynamically-constructed-templates": "error",
       "typescript/no-unused-vars": [
-        "warn",
+        "error",
         {
           ignoreRestSiblings: true,
           varsIgnorePattern: "^_",
@@ -292,20 +431,10 @@ export default defineConfig({
             {
               name: "@wystack/server",
               message:
-                "@wystack/server's raw command types (e.g. Command) are server-internal. Build commands via cmd()/CommandPayloads in apps/server/src/functions/commands.ts, or call the server's RPC surface — don't hand-assemble a { path, args } literal.",
+                "@wystack/server's raw command types (e.g. Command) are server-internal. Build commands via cmd()/CommandPayloads from @dashframe/types, or call the server's RPC surface — don't hand-assemble a { path, args } literal.",
             },
           ],
-          patterns: [
-            {
-              group: [
-                "**/functions/commands",
-                "**/functions/commands.js",
-                "**/functions/commands.ts",
-              ],
-              message:
-                "apps/server/src/functions/commands.ts is the command builder layer — importable only from within apps/server. Use the server's RPC/command API instead of reaching into it directly.",
-            },
-          ],
+          patterns: [],
         },
       ],
       "typescript/ban-ts-comment": "error",
@@ -329,8 +458,93 @@ export default defineConfig({
     },
     overrides: [
       {
-        files: ["packages/app/**/*.ts", "packages/app/**/*.tsx"],
-        rules: reactHooksRules,
+        // Every package that renders React components gets the real hook
+        // linter, not only the app shell.
+        files: [
+          "packages/app/**/*.ts",
+          "packages/app/**/*.tsx",
+          "packages/ui/**/*.ts",
+          "packages/ui/**/*.tsx",
+          "packages/visualization/**/*.ts",
+          "packages/visualization/**/*.tsx",
+          "apps/renderer/**/*.ts",
+          "apps/renderer/**/*.tsx",
+        ],
+        rules: {
+          ...reactHooksRules,
+          // The plugin ships this at `warn`; a warning never fails the gate.
+          "react-hooks-js/exhaustive-deps": "error",
+        },
+      },
+      {
+        // Storybook invokes a story's `render` as a component, so hooks inside
+        // it are legitimate even though the linter cannot tell.
+        files: ["**/*.stories.ts", "**/*.stories.tsx"],
+        rules: {
+          "react-hooks-js/rules-of-hooks": "off",
+        },
+      },
+      {
+        // Library and UI code reports through structured channels; a stray
+        // console.log is debugging residue. Servers, the desktop main process,
+        // repo scripts and e2e harnesses log to stdout by design and are not
+        // matched here.
+        files: [
+          "packages/**/*.ts",
+          "packages/**/*.tsx",
+          "apps/web/**/*.ts",
+          "apps/web/**/*.tsx",
+          "apps/renderer/**/*.ts",
+          "apps/renderer/**/*.tsx",
+        ],
+        rules: {
+          "no-console": ["error", { allow: ["warn", "error"] }],
+        },
+      },
+      {
+        // CLI entry points and package-local scripts print their result.
+        files: ["**/*.cli.ts", "packages/*/scripts/**"],
+        rules: {
+          "no-console": "off",
+        },
+      },
+      {
+        // Repo tooling: spawns bun/git/node from PATH by design, runs its
+        // regexes over repo-local text only, and is procedural by nature.
+        files: ["scripts/**", "apps/*/scripts/**"],
+        rules: {
+          "sonarjs/no-os-command-from-path": "off",
+          "sonarjs/slow-regex": "off",
+          "sonarjs/cognitive-complexity": "off",
+        },
+      },
+      {
+        // Root script tests run under `node --test`, not vitest.
+        files: ["scripts/**/*.test.mjs"],
+        rules: {
+          "vitest/no-import-node-test": "off",
+        },
+      },
+      {
+        // First lint pass over packages that were never linted. The structural
+        // sonar rules below need refactors (functions up to complexity 68,
+        // nested ternaries throughout convex/app.ts and preview.ts); they stay
+        // off here until that cleanup lands, and are the only rules relaxed.
+        files: ["packages/convex-backend/**", "packages/types/**"],
+        rules: {
+          "sonarjs/cognitive-complexity": "off",
+          "sonarjs/no-nested-conditional": "off",
+          "sonarjs/regex-complexity": "off",
+        },
+      },
+      {
+        // Convex handlers declare `returns: v.null()` and therefore always
+        // return null; the package runs plain vitest with its own config.
+        files: ["packages/convex-backend/**"],
+        rules: {
+          "sonarjs/no-invariant-returns": "off",
+          "vite-plus/prefer-vite-plus-imports": "off",
+        },
       },
       {
         files: ["apps/web/**/*.ts", "apps/web/**/*.tsx"],
@@ -348,6 +562,14 @@ export default defineConfig({
           "packages/ui/.storybook/**/*.tsx",
         ],
         rules: storybookRules,
+      },
+      {
+        // Storybook's own config files are neither stories nor CSF modules.
+        files: ["packages/ui/.storybook/**"],
+        rules: {
+          "storybook/story-exports": "off",
+          "storybook/default-exports": "off",
+        },
       },
       {
         files: ["**/*.ts", "**/*.tsx", "**/*.mts", "**/*.cts"],

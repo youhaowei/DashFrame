@@ -21,15 +21,16 @@ import { queryStatus } from "@/data/query-status";
 
 import { resolveInsightAvailableFields } from "@/lib/insights/compute-combined-fields";
 import { api } from "@dashframe/convex-backend/api";
-import type {
-  DashboardControl,
-  DashboardItem,
-  DashboardItemOverridePatch,
-  InsightFilter,
-  InsightFilterOverride,
-  InsightSort,
+import {
+  type DashboardControl,
+  type DashboardItem,
+  type DashboardItemOverridePatch,
+  type InsightFilter,
+  type InsightFilterOverride,
+  type InsightSort,
+  cmd,
+  type UUID,
 } from "@dashframe/types";
-import { cmd, type UUID } from "@dashframe/types";
 
 import {
   Badge,

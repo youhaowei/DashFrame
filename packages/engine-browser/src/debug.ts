@@ -24,6 +24,7 @@ export function debugLog(
     process.env.NODE_ENV !== "production" ||
     process.env.NEXT_PUBLIC_DEBUG === "true"
   ) {
+    // oxlint-disable-next-line no-console -- the one sanctioned debug sink; gated on NODE_ENV above
     console.debug(`[${category}]`, message, ...args);
   }
 }

@@ -104,6 +104,7 @@ export async function readKeychainOAuth(): Promise<KeychainOAuth> {
   } catch (err) {
     throw new Error(
       `Failed to read Claude Code credentials from keychain: ${(err as Error).message}`,
+      { cause: err },
     );
   }
 

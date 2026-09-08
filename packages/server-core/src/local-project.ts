@@ -36,6 +36,7 @@ export async function openLocalProject(
     ) {
       throw new Error(
         "Local project identity is missing; refusing to replace existing Convex data",
+        { cause: error },
       );
     }
     const temporary = path.join(stateDir, `.project-id.${randomUUID()}.tmp`);

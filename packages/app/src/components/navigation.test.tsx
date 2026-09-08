@@ -66,7 +66,11 @@ vi.mock("@wystack/ui-react", () => ({
     label?: string;
     children?: React.ReactNode;
     onClick?: () => void;
-  }) => <button onClick={onClick}>{label ?? children}</button>,
+  }) => (
+    <button type="button" onClick={onClick}>
+      {label ?? children}
+    </button>
+  ),
   Dialog: ({ open, children }: { open: boolean; children: React.ReactNode }) =>
     open ? <div data-testid="mobile-drawer">{children}</div> : null,
   DialogContent: ({ children }: { children: React.ReactNode }) => (
@@ -92,7 +96,7 @@ vi.mock("@wystack/ui-react", () => ({
     <div>{children}</div>
   ),
   DropdownMenuItem: ({ children }: { children: React.ReactNode }) => (
-    <button>{children}</button>
+    <button type="button">{children}</button>
   ),
   DropdownMenuTrigger: ({ render: trigger }: { render: React.ReactNode }) => (
     <>{trigger}</>

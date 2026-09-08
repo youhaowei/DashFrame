@@ -12,6 +12,7 @@ export function validateHostedDeploymentUrl(
   }
   if (
     !authority ||
+    // oxlint-disable-next-line no-control-regex -- rejects control characters in the URL on purpose
     /[\u0000-\u0020\u007f\\]/.test(value) ||
     authority.includes("@") ||
     url.username ||

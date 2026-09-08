@@ -184,11 +184,8 @@ it("cancels a stale replacement claim before any frame bytes are saved", async (
     ...request,
     operationId: crypto.randomUUID(),
   });
-  const loserRejected = expect(loser).rejects.toThrow(
-    "STALE_LOCAL_REPLACEMENT",
-  );
   releaseLoser();
-  await loserRejected;
+  await expect(loser).rejects.toThrow("STALE_LOCAL_REPLACEMENT");
 
   const imports = await native.run(async (ctx) =>
     ctx.db.query("localImports").collect(),
@@ -273,12 +270,8 @@ it("preserves the original import error when workspace clear already cancelled t
       metrics: [],
     }),
   ]);
-  const originalFailure = expect(importing).rejects.toThrow(
-    "STALE_LOCAL_REPLACEMENT",
-  );
   releaseImport();
-
-  await originalFailure;
+  await expect(importing).rejects.toThrow("STALE_LOCAL_REPLACEMENT");
 });
 
 function synchronizeSaves(

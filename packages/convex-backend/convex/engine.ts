@@ -1,4 +1,11 @@
-import { stable } from "./values";
+import {
+  stable,
+  clean,
+  record,
+  type Json,
+  type ObjectValue,
+  type Command,
+} from "./values";
 import {
   COMMAND_PATHS,
   ENCODING_VALUE_CHANNELS,
@@ -12,13 +19,6 @@ import {
   type ArtifactRow,
   type ArtifactTable,
 } from "./model";
-import {
-  clean,
-  record,
-  type Json,
-  type ObjectValue,
-  type Command,
-} from "./values";
 import { parseStoredDataTableState } from "./tableCodec";
 import { parseStoredDashboardState } from "./dashboardCodec";
 import {
@@ -111,7 +111,7 @@ async function availableFields(
   def: ObjectValue,
   seen = new Set<string>(),
 ): Promise<ObjectValue[]> {
-  let fields = (await outputFields(graph, record(def.source), seen)).filter(
+  const fields = (await outputFields(graph, record(def.source), seen)).filter(
     (f) => !String(f.name).startsWith("_"),
   );
   const counts = new Map<string, number>();

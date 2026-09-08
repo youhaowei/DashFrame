@@ -152,6 +152,7 @@ async function fetchPagedRemoteBinding(
           error.message === "SOURCE_SCHEMA_CHANGED")
         ? error.message
         : "FETCH_EXECUTION_FAILED",
+      { cause: error },
     );
   }
 }
@@ -190,6 +191,7 @@ async function fetchExhaustiveRemoteBinding(
           error.message === "SOURCE_SCHEMA_CHANGED")
         ? error.message
         : "FETCH_EXECUTION_FAILED",
+      { cause: error },
     );
   }
 }
@@ -307,6 +309,7 @@ export async function fetchLocalBinding(
       error instanceof Error && error.message === "TARGET_NOT_READY"
         ? error.message
         : "FETCH_EXECUTION_FAILED",
+      { cause: error },
     );
   }
 }

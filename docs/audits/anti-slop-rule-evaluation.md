@@ -1,0 +1,131 @@
+# anti-slop rule evaluation for DashFrame
+
+> **Outcome (2026-09-07).** The vendoring proposed here (PR #342) was closed in
+> review: `no-widen-then-assert` flagged validated objects and could be
+> bypassed through a named alias or `globalThis`. The measurement approach was
+> kept and applied to the linter's own rule set instead; see
+> `lint-guardrails-evaluation-2026-09-07.md`, which also records what a
+> re-vendoring must fix first. Everything below is the original audit.
+
+Original audit: 2026-08-14. Re-scanned and re-cited: 2026-09-06 against `origin/main` at `289ba98`.
+
+Upstream evaluated: `dmmulroy/anti-slop` `main` at `446268e5d15baa968eaec669ff65358d36ae6259` (`2026-08-14T10:23:58-04:00`, commit subject: "Ignore agent tooling when installing anti-slop"). Primary upstream tree: <https://github.com/dmmulroy/anti-slop/tree/446268e5d15baa968eaec669ff65358d36ae6259>.
+
+The original scan predated `refactor(all): replace WyStack metadata with native local Convex` (#349), which deleted `apps/server/src/functions/commands.ts` and `packages/server-core/src/write-gate.ts` — the two files that carried most of the first audit's evidence. Every count and every in-repo citation below comes from a fresh scan of the current tree; nothing in this document points at a file that no longer exists.
+
+## Recommendation
+
+Do not adopt all anti-slop rules. Vendor only `no-reflect-apply` and `no-widen-then-assert`, and enable those two as errors. They express narrow type-evidence failures and produced no diagnostics in an exact Vite+ scan, before and after the Convex migration. Keep the other thirteen rules out of the plugin until their contracts fit DashFrame without exceptions or migration churn.
+
+The strongest reason: DashFrame intentionally uses `unknown`, `typeof`, `Record<string, unknown>`, module mocks, and the word `shape` in places where the current code is explicitly documenting or enforcing runtime boundaries. Turning the full upstream preset on as `error` would create a large migration unrelated to the rule package integration.
+
+The full upstream plugin was registered from a temporary checkout with every rule at warning severity, purely to measure. That is a measurement harness, not a committable integration shape; what ships here is a stable vendored path holding only the accepted rules.
+
+## Upstream shape
+
+- The upstream README says anti-slop is "meant to be vendored" and that copied rules become the target repo's maintained copy, not a fixed npm dependency: <https://github.com/dmmulroy/anti-slop/blob/446268e5d15baa968eaec669ff65358d36ae6259/README.md#L5-L8>.
+- Manual integration copies `src/` into a target path such as `tools/oxlint/anti-slop/`, installs matching `oxlint` and `@oxlint/plugins`, registers `jsPlugins`, and enables every rule: <https://github.com/dmmulroy/anti-slop/blob/446268e5d15baa968eaec669ff65358d36ae6259/README.md#L23-L70>.
+- The installer skill says the Vite+ integration must merge `lint.ignorePatterns`, `lint.jsPlugins`, and `fmt.ignorePatterns`, then run lint/typecheck; it also says not to suppress rules or mechanically launder types just to pass lint: <https://github.com/dmmulroy/anti-slop/blob/446268e5d15baa968eaec669ff65358d36ae6259/skills/install-anti-slop/SKILL.md#L27-L81>.
+- Upstream package integration uses `@oxlint/plugins@1.78.0`, `oxlint@1.78.0`, `tsx`, TypeScript 7, and pnpm; it is private and exports `./src/index.ts`: <https://github.com/dmmulroy/anti-slop/blob/446268e5d15baa968eaec669ff65358d36ae6259/package.json#L1-L31>.
+- `src/index.ts` registers 15 rules under the `anti-slop` plugin name: <https://github.com/dmmulroy/anti-slop/blob/446268e5d15baa968eaec669ff65358d36ae6259/src/index.ts#L18-L41>.
+
+There are no separate named presets in the upstream repository. The only available preset-like integration is "enable every rule", either from README or the installer skill.
+
+## DashFrame lint context
+
+- DashFrame uses Bun and Vite+ from the root `package.json` (`packageManager`, the `devDependencies` block, and the `catalog` block that pins `vite-plus` to `0.2.9`).
+- The local gate is `bun run check`, which runs the convention guards plus `check:packages`, and `check:packages` deliberately filters out `@wystack/*` (`AGENTS.md` → **Lint / test / build**; the `check:packages` script in `package.json`).
+- Raw `bun run lint` / `turbo lint` is documented to fail on vendored `@wystack/*`, which lint with an uninstalled `oxlint`; the project uses filtered per-task commands for lint/test/build (`AGENTS.md` → **Lint / test / build**). Confirmed again on the current tree, so raw `bun run lint` is not the right anti-slop acceptance gate.
+- Root `vite.config.ts` already has a Vite+ lint config with `jsPlugins`, `ignorePatterns`, typed overrides, `typeAware: false`, and `typeCheck: false`. That is compatible with anti-slop mechanically, but policy-wise it is a broad lint change.
+- The vendored plugin needs `@oxlint/plugins` at the exact version Vite+ 0.2.9 depends on (`=1.73.0`), so the plugin and the linter that loads it share one copy. It is pinned in the root `catalog` beside `vite-plus`, which is what dictates its value — a Vite+ bump that does not move it in step leaves the plugin importing a stale copy.
+
+## Local scan method
+
+The full upstream plugin ran through `bunx vp lint apps packages scripts vite.config.ts -f json` using the Vite+ 0.2.9 toolchain, with every rule temporarily set to `warn`. Results were deduplicated by rule, file, line, and column. Counts are exact unique AST findings for the requested paths across the 699 files Oxlint reported scanning.
+
+| Rule                                        | Unique findings | Files | Original 2026-08-14 count |
+| ------------------------------------------- | --------------: | ----: | ------------------------: |
+| `no-chained-type-assertions`                |             132 |    62 |                       105 |
+| `no-conditional-empty-object-spread`        |              66 |    34 |                        90 |
+| `no-known-value-widening`                   |             122 |    59 |                       140 |
+| `no-module-mocking`                         |               0 |     0 |                         0 |
+| `no-object-parameters`                      |               0 |     0 |                         1 |
+| `no-reflect-apply`                          |               0 |     0 |                         0 |
+| `no-reflect-get`                            |               0 |     0 |                         6 |
+| `no-runtime-typeof`                         |             447 |   119 |                       456 |
+| `no-shape-in-symbol-names`                  |               7 |     4 |                        21 |
+| `no-unknown-parameters`                     |             217 |    98 |                       258 |
+| `no-unknown-returns`                        |              63 |    38 |                        73 |
+| `no-unknown-type-aliases`                   |               0 |     0 |                         0 |
+| `no-unsafe-dictionary-type`                 |             212 |    77 |                       254 |
+| `no-widen-then-assert`                      |               0 |     0 |                         0 |
+| `require-safety-comment-for-type-assertion` |           1,375 |   263 |                     1,792 |
+
+Two caveats on the zeros:
+
+- `no-module-mocking` reports zero despite extensive existing `vi.mock` usage. Its detector does not work reliably with this Vite+/Oxlint configuration; the zero is not evidence that the policy is low-cost.
+- `no-reflect-get` and `no-object-parameters` dropped to zero only because #349 deleted `packages/server-core/src/write-gate.ts`, which held every one of their findings. Their contracts are unchanged, and the proxy-trap and opaque-handle patterns that triggered them are ordinary code that will reappear. A count that fell because the evidence file was deleted is not a reason to adopt a rule.
+
+## Rule-by-rule recommendation
+
+| Rule                                        | Recommendation | Evidence and risk                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ------------------------------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `no-chained-type-assertions`                | Warn first     | Upstream reports outermost non-const assertion chains (<https://github.com/dmmulroy/anti-slop/blob/446268e5d15baa968eaec669ff65358d36ae6259/src/rules/no-chained-type-assertions.ts#L39-L69>). DashFrame has real double assertions, concentrated in the Convex boundary: 15 in `packages/convex-backend/convex/app.ts` (for example the `as unknown as T` row projections around `:119` and `:129`) and 6 in `packages/convex-backend/convex/engine.ts`. Worth reviewing, but adopting as error would force many boundary and test-harness edits at once.                                                                                                                                                                                         |
+| `no-conditional-empty-object-spread`        | Warn first     | Upstream flags object spreads whose conditional branch is `{}` (<https://github.com/dmmulroy/anti-slop/blob/446268e5d15baa968eaec669ff65358d36ae6259/src/rules/no-conditional-empty-object-spread.ts#L16-L44>). DashFrame has many intentional optional-property builders, including `apps/server/src/host/connector-setup.ts:90-94`, `apps/server/src/mcp/tools.ts`, and `apps/server/src/host/connectors.ts`. The style is concise and often clearer than mutation. Warn-first is fine; error is too disruptive.                                                                                                                                                                                                                                 |
+| `no-known-value-widening`                   | Warn first     | Upstream flags known values flowing into broad explicit targets such as anonymous objects, generic containers, open dictionaries, `object`, and `unknown` (<https://github.com/dmmulroy/anti-slop/blob/446268e5d15baa968eaec669ff65358d36ae6259/src/rules/no-known-value-widening.ts#L133-L240>). This aligns with DashFrame's typed-contract direction, but it overlaps heavily with existing `Record<string, unknown>` row/JSON contracts (`packages/engine/src/connector/utils.ts`, `packages/connector-notion/src/converter.ts`). Needs empirical warnings before deciding.                                                                                                                                                                    |
+| `no-module-mocking`                         | Reject for now | Upstream forbids Vitest/Jest `mock`, `doMock`, and `unstable_mockModule` (<https://github.com/dmmulroy/anti-slop/blob/446268e5d15baa968eaec669ff65358d36ae6259/src/rules/no-module-mocking.ts#L5-L86>). DashFrame uses `vi.mock` throughout its app, page, and hook tests. Existing tests are first-class evidence in this repo's review policy (`AGENTS.md` → **Second-reviewer brief**); a blanket ban would require a broad test architecture migration, not a lint adoption. The rule also does not detect those mocks here, so it would ban a pattern it cannot see.                                                                                                                                                                          |
+| `no-object-parameters`                      | Reject for now | Zero findings today, but only because #349 removed the opaque-transaction callback in `packages/server-core/src/write-gate.ts` that produced the single 2026-08-14 hit. `object` is the honest annotation for a handle that must satisfy JavaScript's `Proxy` constraint and has no domain shape; inventing a record or interface there would fabricate evidence. Adopt only if the contract gains a carve-out for opaque handles.                                                                                                                                                                                                                                                                                                                 |
+| `no-reflect-apply`                          | Adopt now      | Upstream forbids global `Reflect.apply` (<https://github.com/dmmulroy/anti-slop/blob/446268e5d15baa968eaec669ff65358d36ae6259/src/rules/no-reflect-apply.ts#L5-L23>). Zero findings in both scans, and no `Reflect.apply` anywhere in first-party source. Low false-positive risk: the rule ignores a shadowed local `Reflect`.                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `no-reflect-get`                            | Reject for now | Upstream forbids global `Reflect.get` (<https://github.com/dmmulroy/anti-slop/blob/446268e5d15baa968eaec669ff65358d36ae6259/src/rules/no-reflect-get.ts#L5-L23>). Zero findings today, down from 6, entirely because #349 deleted the `write-gate.ts` proxy traps. In a proxy trap, `Reflect.get(target, prop, receiver)` is the standard way to preserve receiver semantics — the rule would reject correct code the next time DashFrame writes a proxy. Reject as error unless proxy-trap exceptions are added.                                                                                                                                                                                                                                  |
+| `no-runtime-typeof`                         | Reject for now | Upstream flags all runtime `typeof`, with only `allowInTypeGuards` as an option (<https://github.com/dmmulroy/anti-slop/blob/446268e5d15baa968eaec669ff65358d36ae6259/src/rules/no-runtime-typeof.ts#L26-L63>). DashFrame has 447 runtime boundary checks across 119 files; `apps/server/src/host/local-ingest.ts` alone has 29, validating untrusted ingest payloads with predicates such as `optionalBoolean` and `decodeArrow` (`:49-62`). The rule's philosophy conflicts with the current lightweight parser style.                                                                                                                                                                                                                           |
+| `no-shape-in-symbol-names`                  | Reject for now | Upstream flags the substring `shape` in every identifier, private identifier, and JSX identifier (<https://github.com/dmmulroy/anti-slop/blob/446268e5d15baa968eaec669ff65358d36ae6259/src/rules/no-shape-in-symbol-names.ts#L4-L37>). DashFrame uses "shape" as domain vocabulary for validated contracts, e.g. `InsightDraftShape` (`packages/types/src/insights.ts:179`) plus hits in `packages/types/src/encoding-helpers.ts` and `packages/types/src/sensitivity.ts`. This would rename meaningful local vocabulary for style preference.                                                                                                                                                                                                     |
+| `no-unknown-parameters`                     | Reject for now | Upstream rejects explicit `unknown` inputs except a parameter named `cause` (<https://github.com/dmmulroy/anti-slop/blob/446268e5d15baa968eaec669ff65358d36ae6259/src/rules/no-unknown-parameters.ts#L42-L66>). DashFrame uses `unknown` parameters at I/O and validation boundaries — 11 in `apps/server/src/host/local-ingest.ts` (`optionalBoolean(value: unknown)`, `decodeArrow(value: unknown)`), 11 in `apps/server/src/mcp/tools.ts`. Requiring named domain types before parsing would invert the current boundary model.                                                                                                                                                                                                                 |
+| `no-unknown-returns`                        | Warn first     | Upstream rejects explicit `unknown` / `Promise<unknown>` returns and aliases resolving to unknown (<https://github.com/dmmulroy/anti-slop/blob/446268e5d15baa968eaec669ff65358d36ae6259/src/rules/no-unknown-returns.ts#L26-L89>). DashFrame has real opaque data surfaces: the per-column string parsers in `packages/engine/src/connector/utils.ts:45-70` return `unknown` because the parsed cell type genuinely varies. Some are good cleanup candidates; others are honest dynamic-data contracts. Warn-first is needed.                                                                                                                                                                                                                      |
+| `no-unknown-type-aliases`                   | Reject for now | Upstream rejects top-level aliases that are directly or indirectly `unknown` (<https://github.com/dmmulroy/anti-slop/blob/446268e5d15baa968eaec669ff65358d36ae6259/src/rules/no-unknown-type-aliases.ts#L15-L66>), but it does not visit aliases declared inside functions or blocks. Its documented contract is broader than its behavior, and Sonar already catches the direct redundant-alias case.                                                                                                                                                                                                                                                                                                                                             |
+| `no-unsafe-dictionary-type`                 | Warn first     | Upstream rejects dictionary contracts with direct values of `unknown`, `any`, `object`, `{}`, unions containing those, and equivalents (<https://github.com/dmmulroy/anti-slop/blob/446268e5d15baa968eaec669ff65358d36ae6259/src/rules/no-unsafe-dictionary-type.ts#L87-L130>; helper semantics at <https://github.com/dmmulroy/anti-slop/blob/446268e5d15baa968eaec669ff65358d36ae6259/src/shared/dictionary-types.ts#L190-L244>). DashFrame intentionally defines open row/spec types such as `DataFrameRow = Record<string, unknown>` (`packages/types/src/dataframe.ts:80`) and `VegaLiteSpec = Record<string, unknown>` (`packages/types/src/visualizations.ts:19`). This rule has value, but only after carving out row/spec/json contracts. |
+| `no-widen-then-assert`                      | Adopt now      | Upstream detects local const flows that widen known evidence and later assert it back narrower (<https://github.com/dmmulroy/anti-slop/blob/446268e5d15baa968eaec669ff65358d36ae6259/src/rules/no-widen-then-assert.ts#L314-L355>). Zero findings in both scans, and the rule targets the evidence-destroying flow directly rather than banning boundary assertions broadly. See **Adopting at `error` with zero findings** below for the one shape that will fire on new code.                                                                                                                                                                                                                                                                    |
+| `require-safety-comment-for-type-assertion` | Warn first     | Upstream requires a nearby `SAFETY:` comment for every non-const type assertion (<https://github.com/dmmulroy/anti-slop/blob/446268e5d15baa968eaec669ff65358d36ae6259/src/rules/require-safety-comment-for-type-assertion.ts#L7-L54>). At 1,375 findings across 263 files it is by far the largest, and DashFrame's existing justifications are not written as `SAFETY:` in the required position. Valuable for durable invariants, but a blanket error would create comment churn and could encourage low-quality boilerplate.                                                                                                                                                                                                                    |
+
+## Adopting at `error` with zero findings
+
+Zero findings today says nothing about code written tomorrow, so it is worth naming the
+shape that will fire. `no-widen-then-assert` reports building into an open record and
+asserting it narrower at the end:
+
+```ts
+const acc: Record<string, unknown> = {};
+for (const key of keys) acc[key] = makeHandler(key);
+return acc as Record<string, Handler>; // error anti-slop(no-widen-then-assert)
+```
+
+This is the rule working as designed rather than a false positive — the assertion does
+recreate evidence the declaration threw away — and the fix is to declare the accumulator
+at its target type. It is called out because DashFrame's row and spec contracts
+(`DataFrameRow`, `VegaLiteSpec`) are `Record<string, unknown>`, which makes this the
+violation most likely to be written here by accident. Both the reported shape and its
+fix are pinned in `scripts/oxlint-plugin-anti-slop/fixtures/`.
+
+`no-reflect-apply` has no equivalent sharp edge: it ignores a shadowed local `Reflect`,
+and the repository has no `Reflect.apply` in first-party source.
+
+## Preset/integration recommendation
+
+| Preset/integration                               | Recommendation           | Reason                                                                                                                          |
+| ------------------------------------------------ | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| Upstream "enable every rule at error"            | Reject now               | It conflicts with intentional local patterns and would turn an integration PR into a large style migration.                     |
+| Temporary full-plugin scan                       | Reject as committed form | Its temporary plugin path is a measurement harness only; it is recreated on demand and never committed.                         |
+| Vendored plugin with two selected rules at error | Adopt                    | `no-reflect-apply` and `no-widen-then-assert` are narrow, compatible with the current tree, and prevent concrete evidence loss. |
+
+## Follow-up criteria
+
+Do not enable additional rules merely because the current warning count falls — `no-reflect-get` and `no-object-parameters` are exactly that trap, and both stay rejected. Re-evaluate a rule only when its contract can describe the allowed DashFrame boundary pattern directly, without blanket suppressions or type laundering. `no-chained-type-assertions` and `no-known-value-widening` are the most promising future candidates after focused cleanup; the runtime-`typeof`, module-mocking, symbol-name, unknown-parameter, and safety-comment policies should remain rejected unless the repository's architecture changes.
+
+## Reproducing the scan
+
+The measurement harness is not committed. To regenerate the table:
+
+1. Clone `dmmulroy/anti-slop` and check out `446268e5d15baa968eaec669ff65358d36ae6259`.
+2. Copy its `src/` to a scratch directory inside this repository so `@oxlint/plugins` resolves from the root `node_modules`.
+3. In a scratch copy of `vite.config.ts`, point the `anti-slop` `jsPlugins` specifier at that directory's `index.ts` and set all fifteen `anti-slop/*` rules to `warn`.
+4. Run `bunx vp lint apps packages scripts vite.config.ts -f json`, then deduplicate the `anti-slop(...)` diagnostics by rule, file, line, and column.
+5. Delete the scratch directory and restore `vite.config.ts`.
