@@ -425,6 +425,11 @@ it.each(["service", "revoked"] as const)(
           cleanupId: "x",
           claimToken: "x",
         }),
+      () => client.query(api.hostedLifecycle.listRecoverableHostBatches, page),
+      () =>
+        client.mutation(api.hostedLifecycle.recoverHostBatch, {
+          operationId: batch.operationId,
+        }),
     ];
     for (const invoke of denied)
       await expect(invoke()).rejects.toThrow(
@@ -441,42 +446,18 @@ it.each(["service", "revoked"] as const)(
   },
 );
 
-it("permits admitted host service startup recovery but denies external and revoked identities", async () => {
+it("permits owner-authorized startup recovery", async () => {
   const workspaceId = await admit();
   const service = await credential(workspaceId);
+  const user = host(workspaceId);
   await service.mutation(api.hostedLifecycle.prepareHostBatch, prepare);
-  const external = t.withIdentity({
-    issuer: environment.DASHFRAME_AUTH_ISSUER,
-    subject: "service:service-a",
-    credentialId: "service-a",
-    principalKind: "service",
-    workspaceId,
-    authority: "service",
-  });
-  await expect(
-    external.query(api.hostedLifecycle.listRecoverableHostBatches, page),
-  ).rejects.toThrow();
-  await expect(
-    external.mutation(api.hostedLifecycle.recoverHostBatch, {
-      operationId: batch.operationId,
-    }),
-  ).rejects.toThrow();
   expect(
-    (await service.query(api.hostedLifecycle.listRecoverableHostBatches, page))
+    (await user.query(api.hostedLifecycle.listRecoverableHostBatches, page))
       .page,
   ).toEqual([{ operationId: batch.operationId }]);
   expect(
-    await service.mutation(api.hostedLifecycle.recoverHostBatch, {
+    await user.mutation(api.hostedLifecycle.recoverHostBatch, {
       operationId: batch.operationId,
     }),
   ).toBe("cancelled");
-  await operator().mutation(api.admission.revoke, { subject: "a" });
-  await expect(
-    service.query(api.hostedLifecycle.listRecoverableHostBatches, page),
-  ).rejects.toThrow("Workspace admission required");
-  await expect(
-    service.mutation(api.hostedLifecycle.recoverHostBatch, {
-      operationId: batch.operationId,
-    }),
-  ).rejects.toThrow("Workspace admission required");
 });
