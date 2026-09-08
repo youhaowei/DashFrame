@@ -1,14 +1,12 @@
 import path from "node:path";
-import { randomUUID } from "node:crypto";
 import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
-  LoginThrottle,
+  createStaticWebSurface,
   parseHeadersFile,
   resolveStaticPath,
-  createWebSurface,
 } from "./web-surface";
 
 it("does not serve a real symlink target outside the bundle", async () => {
@@ -26,20 +24,8 @@ it("does not serve a real symlink target outside the bundle", async () => {
       path.join(fixture, "private.txt"),
       path.join(root, "leak.txt"),
     );
-    const surface = await createWebSurface({
-      staticRoot: root,
-      session: {
-        secret: "synthetic-only",
-        cookieName: "session",
-        ttlMs: 1000,
-        cookie: { secure: true },
-        subject: "fixture",
-        password: randomUUID(),
-      },
-    });
-    const response = await surface.serve(
-      new Request("https://app.invalid/leak.txt"),
-    );
+    const serve = await createStaticWebSurface(root);
+    const response = await serve(new Request("https://app.invalid/leak.txt"));
     expect(await response.text()).toBe("synthetic app shell");
   } finally {
     await rm(fixture, { recursive: true });
@@ -49,20 +35,9 @@ it("does not serve a real symlink target outside the bundle", async () => {
 it("explains which build artifact is missing at startup", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "dashframe-static-missing-"));
   try {
-    const options = {
-      staticRoot: root,
-      session: {
-        secret: randomUUID(),
-        cookieName: "session",
-        ttlMs: 1000,
-        cookie: { secure: true },
-        subject: "fixture",
-        password: randomUUID(),
-      },
-    };
-    await expect(createWebSurface(options)).rejects.toThrow("No index.html");
+    await expect(createStaticWebSurface(root)).rejects.toThrow("No index.html");
     await writeFile(path.join(root, "index.html"), "synthetic shell");
-    await expect(createWebSurface(options)).rejects.toThrow(
+    await expect(createStaticWebSurface(root)).rejects.toThrow(
       "has no _headers file",
     );
   } finally {
@@ -139,30 +114,5 @@ describe("resolving a request path inside the build directory", () => {
     // `/srv/dist-secrets` starts with `/srv/dist` as a string but is a
     // different directory; only a separator-aware check catches this.
     expect(resolveStaticPath(root, "/../dist-secrets/key.txt")).toBeUndefined();
-  });
-});
-
-describe("sign-in throttle", () => {
-  it("allows attempts up to the limit and refuses the next one", () => {
-    const throttle = new LoginThrottle(3, 1000);
-    expect(throttle.check(0)).toBe(true);
-    expect(throttle.check(0)).toBe(true);
-    expect(throttle.check(0)).toBe(true);
-    expect(throttle.check(0)).toBe(false);
-  });
-
-  it("opens a fresh window once the old one has elapsed", () => {
-    const throttle = new LoginThrottle(1, 1000);
-    expect(throttle.check(0)).toBe(true);
-    expect(throttle.check(500)).toBe(false);
-    expect(throttle.check(1000)).toBe(true);
-  });
-
-  it("forgets accumulated failures after a successful sign-in", () => {
-    const throttle = new LoginThrottle(2, 1000);
-    throttle.check(0);
-    throttle.succeed();
-    expect(throttle.check(0)).toBe(true);
-    expect(throttle.check(0)).toBe(true);
   });
 });
