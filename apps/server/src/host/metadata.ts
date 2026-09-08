@@ -154,6 +154,7 @@ export interface HostMetadata {
   publishMaterialization(value: PublicationMetadata): Promise<void>;
   replaceDataSourceConfig(input: {
     id: string;
+    expectedRevision: number;
     expectedConfig: unknown;
     config: unknown;
   }): Promise<void>;
