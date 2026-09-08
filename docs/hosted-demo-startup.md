@@ -31,6 +31,11 @@ and separate operator trust, as described in `hosted-admission-slice.md`.
 Grant demo users admission through the operator interface. Keep operator
 private keys off the public host.
 
+Hosted assistant provider base URLs reject localhost and non-public IP
+literals. This demo floor does not resolve DNS or re-check redirect targets, so
+a fetch-time egress policy remains necessary before broader SaaS exposure.
+Local desktop and CLI provider URLs, including local Ollama, are unchanged.
+
 `GET /health` reports process liveness. `GET /api/version` reports the Railway
 commit when available. Neither proves that sign-in, workspace startup or data
 queries work; exercise an admitted user through the browser for those checks.
