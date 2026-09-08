@@ -12,7 +12,10 @@ import type { ApplicationOperations } from "./host/application";
 import { readOptionalGoogleOAuthConfig } from "./connector-setup/oauth-provider";
 import { serve } from "@hono/node-server";
 import { createNodeWebSocket } from "@hono/node-ws";
-import { linuxQuerySandboxReadPaths } from "@dashframe/engine-server/query-sandbox";
+import {
+  linuxQuerySandboxReadPaths,
+  querySandboxNodeRuntime,
+} from "@dashframe/engine-server/query-sandbox";
 import { createHostedConnectorSessionStore } from "./connector-setup/hosted-session-store";
 import { loadSecretKeyring, readSecureKeyFile } from "./secret-file-backend";
 import { createHostedApplication } from "./host/hosted-application";
@@ -77,7 +80,7 @@ export async function startHostedServer(
   const admission = createHostedAdmissionService({ deploymentUrl, tokens });
   const googleOAuth = readOptionalGoogleOAuthConfig(environment);
   const workerDirectory = "/opt/dashframe-query";
-  const runtime = "/usr/local/bin/node";
+  const runtime = querySandboxNodeRuntime();
   const open = await createHostedWorkspaceResourceFactory({
     dataRoot: path.join(required("RAILWAY_VOLUME_MOUNT_PATH"), "host-data"),
     keyring,
@@ -159,6 +162,13 @@ export async function createHostedServerSurface(options: {
     app,
   });
   wss.options.maxPayload = HOSTED_WS_MAX_PAYLOAD_BYTES;
+  const webSocketHeaders = new WeakMap<object, Headers>();
+  wss.on("headers", (headers, request) => {
+    const extra = webSocketHeaders.get(request);
+    if (!extra) return;
+    webSocketHeaders.delete(request);
+    extra.forEach((value, name) => headers.push(`${name}: ${value}`));
+  });
   const withPrincipalContext = (
     workspaceId: string,
     ownerId: string,
@@ -273,6 +283,8 @@ export async function createHostedServerSurface(options: {
     }),
   );
   mountConvexProxy(app, upgradeWebSocket, deploymentUrl, {
+    applyWebSocketHeaders: (request, headers) =>
+      webSocketHeaders.set(request, headers),
     authorizeWebSocket: async (request) => {
       try {
         const identity = await session.resolve(request);
@@ -295,7 +307,9 @@ export async function createHostedServerSurface(options: {
             { status: 403, headers: { "Cache-Control": "no-store" } },
           );
         }
-        return undefined;
+        return identity.setCookie
+          ? { headers: new Headers({ "Set-Cookie": identity.setCookie }) }
+          : undefined;
       } catch {
         return Response.json(
           { error: "Hosted service unavailable" },

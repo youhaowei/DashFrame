@@ -1145,6 +1145,15 @@ it(
       ).rejects.toThrow("Invalid provider base URL");
       expect(storeCredential).toHaveBeenCalledTimes(storesBeforeUnsafeUrl);
       await expect(
+        saveAssistantProviderConfig(ownerContext, {
+          input: {
+            ...hostedProviderInput,
+            baseUrl: "http://public.example.com/v1",
+          },
+        }),
+      ).rejects.toThrow("must use HTTPS");
+      expect(storeCredential).toHaveBeenCalledTimes(storesBeforeUnsafeUrl);
+      await expect(
         saveAssistantProviderConfig(
           { ...ownerContext, principal: { kind: "user", userId: "b" } },
           { input: hostedProviderInput },

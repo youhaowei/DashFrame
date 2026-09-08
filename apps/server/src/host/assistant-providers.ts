@@ -21,7 +21,10 @@ import {
   type HostContext,
 } from "./context";
 import type { AssistantProviderConfigRow } from "./metadata";
-import { hostedProviderBaseUrl } from "./hosted-convex-provider-metadata";
+import {
+  assertHostedProviderTransport,
+  hostedProviderBaseUrl,
+} from "./hosted-convex-provider-metadata";
 const vaultFromCtx = (ctx: HostContext) => ctx.vault;
 const withClassBoundaryMessage = <T>(operation: () => Promise<T>) =>
   operation();
@@ -196,14 +199,19 @@ export async function saveAssistantProviderConfig(
   const current = input.id
     ? await ctx.metadata.getAssistantProviderConfig(input.id)
     : null;
+  const changedKind = current !== null && current.authKind !== input.authKind;
+  const clearCredential = changedKind || input.credential === "";
+  assertHostedProviderTransport(
+    input.baseUrl?.trim() || null,
+    Boolean(input.credential) ||
+      (!clearCredential && current?.credentialRef !== null),
+  );
   const id = input.id ?? crypto.randomUUID();
   const mintedRef = await storeAssistantCredential({
     vault: ctx.vault,
     plaintext: input.credential,
     locatorHint: `assistant-provider-${id}`,
   });
-  const changedKind = current !== null && current.authKind !== input.authKind;
-  const clearCredential = changedKind || input.credential === "";
   if (clearCredential)
     assertVaultPresentForStoredCredential(
       current?.credentialRef,

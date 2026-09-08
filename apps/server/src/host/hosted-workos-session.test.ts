@@ -166,7 +166,7 @@ describe("hosted WorkOS browser session", () => {
     });
     expect(
       await h.session.resolve(
-        request("/api", "__Host-dashframe-workos-session=sealed-a"),
+        request("/api", "__Host-dashframe-workos-session=sealed-b"),
       ),
     ).toEqual({
       status: "authenticated",
@@ -203,7 +203,7 @@ describe("hosted WorkOS browser session", () => {
     });
     expect(
       await h.session.resolve(
-        request("/api", "__Host-dashframe-workos-session=sealed-a"),
+        request("/api", "__Host-dashframe-workos-session=sealed-c"),
       ),
     ).toEqual({
       status: "signedout",
@@ -216,9 +216,49 @@ describe("hosted WorkOS browser session", () => {
     });
     expect(
       await h.session.resolve(
-        request("/api", "__Host-dashframe-workos-session=sealed-a"),
+        request("/api", "__Host-dashframe-workos-session=sealed-d"),
       ),
     ).toEqual({ status: "unavailable" });
+  });
+
+  it("coalesces concurrent rotation and briefly replays its cookie", async () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    const h = fixture();
+    let releaseRefresh!: () => void;
+    const refreshGate = new Promise<void>((resolve) => {
+      releaseRefresh = resolve;
+    });
+    const refresh = vi.fn(async () => {
+      await refreshGate;
+      return {
+        authenticated: true as const,
+        sealedSession: "rotated-session",
+        session: { accessToken: "refreshed-token" },
+      };
+    });
+    h.load({
+      authenticate: async () => ({ authenticated: false }),
+      refresh,
+    });
+    const cookie = "__Host-dashframe-workos-session=sealed-a";
+    const first = h.session.resolve(request("/api/runtime", cookie));
+    const second = h.session.resolve(request("/api/convex", cookie));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(refresh).toHaveBeenCalledOnce();
+    releaseRefresh();
+    const [a, b] = await Promise.all([first, second]);
+    expect(a).toEqual(b);
+    expect(a).toHaveProperty(
+      "setCookie",
+      expect.stringContaining("rotated-session"),
+    );
+    expect(refresh).toHaveBeenCalledOnce();
+    expect(await h.session.resolve(request("/api/convex", cookie))).toEqual(a);
+    expect(refresh).toHaveBeenCalledOnce();
+    now.mockReturnValue(1_005_001);
+    await h.session.resolve(request("/api/runtime", cookie));
+    expect(refresh).toHaveBeenCalledTimes(2);
   });
 
   it("preserves the cookie on verifier outages and protects app-local logout by origin", async () => {

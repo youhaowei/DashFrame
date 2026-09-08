@@ -105,6 +105,11 @@ it("rejects raw references, unknown fields, unsafe base URLs, and mismatched rem
     { ...valid, baseUrl: "https://10.0.0.5/v1" },
     { ...valid, baseUrl: "https://169.254.169.254/latest" },
     { ...valid, baseUrl: "https://[::1]/v1" },
+    {
+      ...valid,
+      baseUrl: "http://public.example.com/v1",
+      credentialRef: `secret:${crypto.randomUUID()}`,
+    },
     { ...valid, arbitraryConfig: { apiKey: "plaintext" } },
   ])
     await expect(
@@ -124,6 +129,38 @@ it("rejects raw references, unknown fields, unsafe base URLs, and mismatched rem
   ).rejects.toThrow();
   expect(getToken).not.toHaveBeenCalled();
   expect(fetch).not.toHaveBeenCalled();
+});
+
+it("allows public HTTP only when no provider credential can cross it", async () => {
+  const fetch = vi.fn(
+    async (_url: unknown, init?: RequestInit) =>
+      new Response(
+        JSON.stringify({
+          status: "success",
+          value: (
+            JSON.parse(String(init?.body)) as {
+              args: Array<{ row: unknown }>;
+            }
+          ).args[0]!.row,
+        }),
+      ),
+  );
+  vi.stubGlobal("fetch", fetch);
+  const metadata = createHostedProviderMetadata({
+    deploymentUrl: "https://metadata.test",
+    getToken: async () => "synthetic-token",
+    credentialVault: vault(),
+  });
+  const publicHttp = {
+    ...row(null),
+    authKind: "local" as const,
+    baseUrl: "http://public.example.com/v1",
+  };
+  await metadata.saveAssistantProviderConfig({
+    row: publicHttp,
+    expected: null,
+  });
+  expect(fetch).toHaveBeenCalledOnce();
 });
 
 it("does not require a vault lookup for unchanged or cleared references", async () => {

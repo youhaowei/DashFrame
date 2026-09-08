@@ -6,6 +6,8 @@ import { sealData, unsealData } from "iron-session";
 const PKCE_COOKIE = "__Host-dashframe-workos-pkce";
 const SESSION_COOKIE = "__Host-dashframe-workos-session";
 const PKCE_TTL_SECONDS = 10 * 60;
+const ROTATION_REPLAY_MS = 5_000;
+const MAX_ROTATION_REPLAYS = 128;
 
 type VerifiedIdentity = { identity: { subject: string }; expiresAt: number };
 
@@ -102,6 +104,46 @@ export function createHostedWorkOSSession(
   const callbackUrl = `${options.publicOrigin}/auth/callback`;
   const rootUrl = `${options.publicOrigin}/`;
   const { sdk, verifier } = dependencies ?? productionDependencies(options);
+  const inflightResolutions = new Map<string, Promise<HostedBrowserSession>>();
+  const rotationReplays = new Map<
+    string,
+    { result: HostedBrowserSession; expiresAt: number }
+  >();
+
+  const resolveSealed = async (
+    sealed: string,
+  ): Promise<HostedBrowserSession> => {
+    try {
+      const session = sdk.loadSealedSession({
+        sessionData: sealed,
+        cookiePassword: options.cookiePassword,
+      });
+      const authenticated = await session.authenticate();
+      if (authenticated.authenticated)
+        return verifiedResolution(
+          await verifier.verify(authenticated.accessToken),
+        );
+      const refreshed = await session.refresh({
+        cookiePassword: options.cookiePassword,
+      });
+      if (!refreshed.authenticated) {
+        if (refreshed.retryable) return { status: "unavailable" };
+        return signedOutAndClear();
+      }
+      const accessToken = refreshed.session?.accessToken;
+      if (!accessToken || !refreshed.sealedSession)
+        return { status: "unavailable" };
+      const verified = await verifier.verify(accessToken);
+      if (!verified) return signedOutAndClear();
+      return {
+        status: "authenticated",
+        ...verified,
+        setCookie: sessionCookie(refreshed.sealedSession),
+      };
+    } catch {
+      return { status: "unavailable" };
+    }
+  };
 
   return {
     async login(): Promise<Response> {
@@ -180,37 +222,30 @@ export function createHostedWorkOSSession(
     async resolve(request: Request): Promise<HostedBrowserSession> {
       const sealed = readCookie(request, SESSION_COOKIE);
       if (!sealed) return { status: "signedout" };
-      let session: LoadedSession;
-      try {
-        session = sdk.loadSealedSession({
-          sessionData: sealed,
-          cookiePassword: options.cookiePassword,
-        });
-        const authenticated = await session.authenticate();
-        if (authenticated.authenticated)
-          return verifiedResolution(
-            await verifier.verify(authenticated.accessToken),
-          );
-        const refreshed = await session.refresh({
-          cookiePassword: options.cookiePassword,
-        });
-        if (!refreshed.authenticated) {
-          if (refreshed.retryable) return { status: "unavailable" };
-          return signedOutAndClear();
-        }
-        const accessToken = refreshed.session?.accessToken;
-        if (!accessToken || !refreshed.sealedSession)
-          return { status: "unavailable" };
-        const verified = await verifier.verify(accessToken);
-        if (!verified) return signedOutAndClear();
-        return {
-          status: "authenticated",
-          ...verified,
-          setCookie: sessionCookie(refreshed.sealedSession),
-        };
-      } catch {
-        return { status: "unavailable" };
+      const replay = rotationReplays.get(sealed);
+      if (replay) {
+        if (replay.expiresAt > Date.now()) return replay.result;
+        rotationReplays.delete(sealed);
       }
+      let pending = inflightResolutions.get(sealed);
+      if (!pending) {
+        pending = resolveSealed(sealed);
+        inflightResolutions.set(sealed, pending);
+        pending.then((result) => {
+          if (result.status !== "authenticated" || !result.setCookie) return;
+          while (rotationReplays.size >= MAX_ROTATION_REPLAYS)
+            rotationReplays.delete(rotationReplays.keys().next().value!);
+          rotationReplays.set(sealed, {
+            result,
+            expiresAt: Date.now() + ROTATION_REPLAY_MS,
+          });
+        });
+        pending.finally(() => {
+          if (inflightResolutions.get(sealed) === pending)
+            inflightResolutions.delete(sealed);
+        });
+      }
+      return pending;
     },
 
     logout(request: Request): Response {

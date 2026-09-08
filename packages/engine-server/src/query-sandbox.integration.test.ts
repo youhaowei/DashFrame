@@ -13,6 +13,7 @@ import {
 } from "vite-plus/test";
 import {
   linuxQuerySandboxReadPaths,
+  querySandboxNodeRuntime,
   WorkspaceQueryEngine,
   WorkspaceQueryEngines,
   type QuerySandboxConfiguration,
@@ -20,11 +21,23 @@ import {
 import { encodeFrame } from "./sandbox-protocol";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
-const node = process.execPath;
+const node = querySandboxNodeRuntime();
 let output = "";
 let configuration: QuerySandboxConfiguration;
 const engines: WorkspaceQueryEngine[] = [];
 const brokers: WorkspaceQueryEngines[] = [];
+
+it("selects Node for the worker even when the app server runs under Bun", () => {
+  expect(querySandboxNodeRuntime("/usr/local/bin/bun", true)).toBe(
+    "/usr/local/bin/node",
+  );
+  expect(querySandboxNodeRuntime("/opt/node/bin/node", false)).toBe(
+    "/opt/node/bin/node",
+  );
+  expect(querySandboxNodeRuntime("/shim/node", true)).toBe(
+    "/usr/local/bin/node",
+  );
+});
 
 function engine(
   workspaceId: string,

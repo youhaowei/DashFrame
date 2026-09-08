@@ -43,6 +43,14 @@ interface Operation {
   detachAbort: () => void;
 }
 
+/** Hosted app servers run under Bun, while the isolated worker requires Node. */
+export function querySandboxNodeRuntime(
+  execPath = process.execPath,
+  runningUnderBun = typeof process.versions.bun === "string",
+): string {
+  return runningUnderBun ? "/usr/local/bin/node" : execPath;
+}
+
 const MAX_QUEUED = 8;
 const MAX_PENDING_BYTES = 64 * 1024 * 1024;
 const MAX_DIAGNOSTICS = 64 * 1024;

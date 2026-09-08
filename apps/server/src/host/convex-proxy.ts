@@ -8,7 +8,10 @@ export function mountConvexProxy(
   upgrade: UpgradeWebSocket,
   backendUrl: string,
   options?: {
-    authorizeWebSocket?: (request: Request) => Promise<Response | undefined>;
+    authorizeWebSocket?: (
+      request: Request,
+    ) => Promise<Response | { headers: Headers } | undefined>;
+    applyWebSocketHeaders?: (request: object, headers: Headers) => void;
   },
 ): void {
   const prefix = "/api/convex";
@@ -39,8 +42,21 @@ export function mountConvexProxy(
   const authorizeWebSocket = options?.authorizeWebSocket;
   if (authorizeWebSocket) {
     app.use(`${prefix}/api/:version/sync`, async (c, next) => {
-      const denied = await authorizeWebSocket(c.req.raw);
-      return denied ?? next();
+      const authorization = await authorizeWebSocket(c.req.raw);
+      if (authorization instanceof Response) return authorization;
+      if (authorization) {
+        const incoming = (c.env as { incoming?: unknown }).incoming;
+        if (
+          incoming !== null &&
+          typeof incoming === "object" &&
+          options?.applyWebSocketHeaders
+        )
+          options.applyWebSocketHeaders(incoming, authorization.headers);
+        authorization.headers.forEach((value, name) =>
+          c.header(name, value, { append: true }),
+        );
+      }
+      return next();
     });
   }
   app.get(

@@ -1,7 +1,10 @@
 import { generateKeyPairSync } from "node:crypto";
+import { once } from "node:events";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { serve } from "@hono/node-server";
+import { WebSocket } from "ws";
 import { afterEach, expect, it, vi } from "vite-plus/test";
 import { createHostedServerSurface } from "./hosted";
 import { MAX_LOCAL_ARROW_BYTES } from "@dashframe/types";
@@ -35,12 +38,14 @@ it("serves the hosted shell and enforces session/admission before opening worksp
   let identity: HostedBrowserSession = { status: "signedout" };
   let access: HostedAdmission = { status: "pending", workspaceId: null };
   const resolveAdmission = vi.fn(async () => access);
+  const resolveSession = vi.fn(async () => identity);
   const open = vi.fn(async () => {
     throw new Error("private startup diagnostic");
   });
   const surface = await createHostedServerSurface({
     publicOrigin: origin,
-    deploymentUrl: "https://synthetic.convex.cloud",
+    deploymentUrl: "http://127.0.0.1:1",
+    allowInsecureLoopbackForTests: true,
     revision: "synthetic-revision",
     staticDirectory: directory,
     tokens: createHostedTokenIssuer({
@@ -49,7 +54,7 @@ it("serves the hosted shell and enforces session/admission before opening worksp
         .privateKey,
     }),
     session: {
-      resolve: async () => identity,
+      resolve: resolveSession,
       login: async () => Response.redirect(`${origin}/auth/callback`),
       callback: async () => Response.redirect(origin),
       logout: () => new Response(null, { status: 204 }),
@@ -62,6 +67,7 @@ it("serves the hosted shell and enforces session/admission before opening worksp
       method,
       headers: source === undefined ? {} : { origin: source },
     });
+  let websocketServer: ReturnType<typeof serve> | undefined;
   try {
     expect(await (await request("/reports/example")).text()).toContain(
       "Hosted fixture",
@@ -130,6 +136,37 @@ it("serves the hosted shell and enforces session/admission before opening worksp
     expect(open).not.toHaveBeenCalled();
 
     access = { status: "admitted", workspaceId: "workspace-a" };
+    identity = {
+      ...identity,
+      setCookie:
+        "__Host-dashframe-workos-session=rotated; Path=/; HttpOnly; Secure; SameSite=Lax",
+    };
+    websocketServer = serve({
+      fetch: surface.app.fetch,
+      hostname: "127.0.0.1",
+      port: 0,
+    });
+    surface.injectWebSocket(websocketServer);
+    await once(websocketServer, "listening");
+    const address = websocketServer.address();
+    if (!address || typeof address === "string")
+      throw new Error("Expected WebSocket test address");
+    const upgradedCookie = await new Promise<string | string[] | undefined>(
+      (resolve, reject) => {
+        const socket = new WebSocket(
+          `ws://127.0.0.1:${address.port}/api/convex/api/1.0.0/sync`,
+          { headers: { origin } },
+        );
+        socket.once("upgrade", (response) => {
+          resolve(response.headers["set-cookie"]);
+          socket.close();
+        });
+        socket.once("error", reject);
+      },
+    );
+    expect(upgradedCookie).toEqual([
+      "__Host-dashframe-workos-session=rotated; Path=/; HttpOnly; Secure; SameSite=Lax",
+    ]);
     expect((await request("/api/runtime", "POST")).status).toBe(403);
     expect(
       (await request("/data/frame", "GET", "https://foreign.example.test"))
@@ -145,6 +182,13 @@ it("serves the hosted shell and enforces session/admission before opening worksp
     expect(open).toHaveBeenCalledWith("workspace-a", "user-a");
   } finally {
     surface.closeConnections();
+    if (websocketServer)
+      await new Promise<void>((resolve, reject) => {
+        websocketServer!.close((error) => {
+          if (error) reject(error);
+          else resolve();
+        });
+      });
     await surface.closeResources();
     await rm(directory, { recursive: true, force: true });
   }

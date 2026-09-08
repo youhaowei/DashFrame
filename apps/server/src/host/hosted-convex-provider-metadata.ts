@@ -65,7 +65,29 @@ const rowSchema = z
   .strict()
   .refine((row) => row.updatedAt >= row.createdAt, {
     message: "updatedAt cannot precede createdAt",
-  });
+  })
+  .refine(
+    (row) =>
+      row.credentialRef === null ||
+      row.baseUrl === null ||
+      new URL(row.baseUrl).protocol === "https:",
+    {
+      message: "Credentialed provider base URL must use HTTPS",
+      path: ["baseUrl"],
+    },
+  );
+
+export function assertHostedProviderTransport(
+  baseUrl: string | null,
+  credentialed: boolean,
+): void {
+  if (
+    credentialed &&
+    baseUrl !== null &&
+    new URL(hostedProviderBaseUrl.parse(baseUrl)).protocol !== "https:"
+  )
+    throw new Error("Credentialed provider base URL must use HTTPS");
+}
 
 export type HostedProviderMetadata = HostedSourceMetadata &
   Pick<
