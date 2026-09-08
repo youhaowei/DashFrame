@@ -748,3 +748,32 @@ describe("immutable Insight materializer", () => {
     expect(h.publish).toHaveBeenCalledTimes(2);
   });
 });
+
+it("preserves the published table when refresh rejects an oversized source", async () => {
+  const h = harness({
+    resolveSource: vi.fn(async () => {
+      throw new Error("FETCH_EXECUTION_FAILED", {
+        cause: new Error(
+          "[PostgresConnector] Result exceeds the hosted row ceiling",
+        ),
+      });
+    }),
+  });
+
+  await expect(
+    createInsightMaterializer(h.dependencies).materialize({
+      ctx: {} as never,
+      target: { kind: "refresh" },
+      insight: {
+        baseTableId: "base",
+        selectedFields: [],
+        metrics: [],
+      },
+    }),
+  ).rejects.toThrow("FETCH_EXECUTION_FAILED");
+
+  // No replacement publication means the previously published table and
+  // every Report that refers to it remain the active generation.
+  expect(h.storage.save).not.toHaveBeenCalled();
+  expect(h.publish).not.toHaveBeenCalled();
+});

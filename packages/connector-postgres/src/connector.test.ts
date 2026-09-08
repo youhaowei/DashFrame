@@ -631,7 +631,7 @@ describe("pagination pushdown (table-ref path)", () => {
         };
       if (text.toUpperCase().startsWith("SELECT * FROM"))
         return {
-          rows: [{ id: 1 }],
+          rows: Array.from({ length: 10_000 }, (_, index) => ({ id: index })),
           fields: [{ name: "id", dataTypeID: 23 }],
         };
       return { rows: [], fields: [] };
@@ -644,10 +644,11 @@ describe("pagination pushdown (table-ref path)", () => {
 
     await expect(
       connector.query("public.users", crypto.randomUUID(), {
-        pagination: { offset: 20, limit: 50 },
+        pagination: { offset: 0, limit: 10_001 },
         maxBytes: 1024,
+        maxRows: 10_000,
       }),
-    ).resolves.toMatchObject({ rowCount: 1 });
+    ).resolves.toMatchObject({ rowCount: 10_000 });
 
     expect(query.mock.calls.slice(2).map(([sql]) => callText(sql))).toEqual([
       "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY",
@@ -692,6 +693,38 @@ describe("pagination pushdown (table-ref path)", () => {
         String(sql).toUpperCase().startsWith("SELECT * FROM"),
       ),
     ).toBe(false);
+  });
+
+  it("rejects a bounded window containing a sentinel overflow row", async () => {
+    const query = vi.fn(async (sql: string | PgQueryConfig) => {
+      const text = callText(sql);
+      if (text.includes("octet_length"))
+        return {
+          rows: [{ bytes: "100" }],
+          fields: [{ name: "bytes", dataTypeID: 25 }],
+        };
+      if (text.toUpperCase().startsWith("SELECT * FROM"))
+        return {
+          rows: Array.from({ length: 10_001 }, (_, index) => ({ id: index })),
+          fields: [{ name: "id", dataTypeID: 23 }],
+        };
+      return { rows: [], fields: [] };
+    });
+    const spyClient: PgClientLike = {
+      query: query as unknown as PgClientLike["query"],
+      end: vi.fn().mockResolvedValue(undefined),
+    };
+    const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
+
+    await expect(
+      connector.query("public.users", crypto.randomUUID(), {
+        pagination: { offset: 0, limit: 10_001 },
+        maxBytes: 1024,
+        maxRows: 10_000,
+      }),
+    ).rejects.toThrow("exceeds the hosted row ceiling");
+    expect(query.mock.calls.at(-1)?.[0]).toBe("ROLLBACK");
+    expect(query).not.toHaveBeenCalledWith("COMMIT");
   });
 
   it("pushes LIMIT $1 OFFSET $2 into the SQL with bound params when limit is set", async () => {

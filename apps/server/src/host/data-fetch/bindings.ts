@@ -88,6 +88,7 @@ type QueryConnector = {
     options?: {
       pagination?: { offset: number; limit: number };
       maxBytes?: number;
+      maxRows?: number;
     },
   ) => Promise<{
     arrowBuffer: string;
@@ -184,7 +185,10 @@ async function fetchExhaustiveRemoteBinding(
     const hostedPostgresOptions =
       ctx.workspaceOwnerId !== undefined && kind === "postgres"
         ? {
-            pagination: { offset: 0, limit: GA4_PAGE_SIZE },
+            // One sentinel row distinguishes an exact 10,000-row result from
+            // a truncated prefix while the connector transaction is open.
+            pagination: { offset: 0, limit: GA4_PAGE_SIZE + 1 },
+            maxRows: GA4_PAGE_SIZE,
             // JSON text is only a prebuffer proxy for Arrow/in-memory size.
             // Keep a conservative quarter-budget before the shared host reads rows.
             maxBytes: Math.floor(MAX_LOCAL_ARROW_BYTES / 4),

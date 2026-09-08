@@ -596,6 +596,7 @@ export class PostgresConnector extends RemoteApiConnector {
           limit,
           offset,
           options?.maxBytes,
+          options?.maxRows,
         );
         rows = result.rows;
         pgFields = result.fields;
@@ -711,9 +712,13 @@ async function fetchTableWindow(
   limit: number | undefined,
   offset: number,
   maxBytes: number | undefined,
+  maxRows: number | undefined,
 ): Promise<PgQueryResult> {
-  if (maxBytes === undefined)
-    return fetchTable(client, schema, table, limit, offset);
+  if (maxBytes === undefined) {
+    const result = await fetchTable(client, schema, table, limit, offset);
+    assertWithinRowCeiling(result.rows.length, maxRows);
+    return result;
+  }
   if (limit === undefined)
     throw new Error(
       "[PostgresConnector] A byte ceiling requires a bounded row window",
@@ -731,6 +736,7 @@ async function fetchTableWindow(
       maxBytes,
     );
     const result = await fetchTable(client, schema, table, limit, offset);
+    assertWithinRowCeiling(result.rows.length, maxRows);
     await client.query("COMMIT");
     return result;
   } catch (error) {
@@ -741,6 +747,19 @@ async function fetchTableWindow(
     }
     throw error;
   }
+}
+
+function assertWithinRowCeiling(
+  rowCount: number,
+  maxRows: number | undefined,
+): void {
+  if (maxRows === undefined) return;
+  if (!Number.isSafeInteger(maxRows) || maxRows < 0)
+    throw new Error("[PostgresConnector] Invalid row ceiling");
+  if (rowCount > maxRows)
+    throw new Error(
+      "[PostgresConnector] Result exceeds the hosted row ceiling",
+    );
 }
 
 async function assertTableWindowWithinBytes(

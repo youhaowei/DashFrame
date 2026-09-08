@@ -220,7 +220,8 @@ describe("Source Binding registry", () => {
     );
 
     expect(query).toHaveBeenCalledWith(table.table, table.id, {
-      pagination: { offset: 0, limit: 10_000 },
+      pagination: { offset: 0, limit: 10_001 },
+      maxRows: 10_000,
       maxBytes: Math.floor(MAX_LOCAL_ARROW_BYTES / 4),
     });
   });
