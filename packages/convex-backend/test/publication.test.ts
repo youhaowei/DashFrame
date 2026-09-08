@@ -669,3 +669,107 @@ it("keeps the cleanup outbox claimable after more than 1000 refreshes", async ()
     }),
   ).toMatchObject({ kind: "secret", resourceId });
 }, 120_000);
+it("preserves external revision through automatic publications, but changes it on explicit rollback and source edits", async () => {
+  const first = await fixture();
+  const binding = first.sources[0]!.source.table;
+  const read = () => user().query(api.app.getDataTable, { id: binding.id });
+  const initial = (await read())!.refreshRevision;
+  expect(typeof initial).toBe("string");
+  await t.mutation(internal.host.publishMaterialization, {
+    workspaceId: "w",
+    value: first,
+  });
+  const second = {
+    ...first,
+    sources: [
+      {
+        ...first.sources[0]!,
+        frame: { ...first.sources[0]!.frame, id: crypto.randomUUID() },
+      },
+    ],
+    result: { ...first.result, id: crypto.randomUUID() },
+    fetchedAt: 124,
+  };
+  await t.mutation(internal.host.publishMaterialization, {
+    workspaceId: "w",
+    value: second,
+  });
+  expect((await read())!.refreshRevision).toBe(initial);
+  await user().mutation(api.app.commitBatch, {
+    commands: [
+      cmd("RefreshDataTable", {
+        id: binding.id,
+        dataFrameId: first.sources[0]!.frame.id,
+      }),
+    ],
+  });
+  let previous = (await read())!.refreshRevision;
+  expect(previous).not.toBe(initial);
+  // An older automatic operation finishes after the manual request. Its
+  // pointer can advance, but it must not erase the external invalidation.
+  const afterManualFrame = crypto.randomUUID();
+  await t.mutation(internal.host.publishMaterialization, {
+    workspaceId: "w",
+    value: {
+      ...second,
+      sources: [
+        {
+          ...second.sources[0]!,
+          frame: { ...second.sources[0]!.frame, id: afterManualFrame },
+        },
+      ],
+      result: { ...second.result, id: crypto.randomUUID() },
+      fetchedAt: 125,
+    },
+  });
+  expect((await read())!.refreshRevision).toBe(previous);
+  for (const command of [
+    cmd("SetDataSourceConfig", {
+      id: binding.dataSourceId,
+      extra: { revisionTest: true },
+    }),
+    cmd("UpdateField", {
+      nodeId: binding.id,
+      fieldId: first.result.fieldIds[0]!,
+      updates: { name: "Changed" },
+    }),
+  ]) {
+    await user().mutation(api.app.commitBatch, { commands: [command] });
+    const next = (await read())!.refreshRevision;
+    expect(next).not.toBe(previous);
+    previous = next;
+  }
+  await t.mutation(internal.host.removeDataFrame, {
+    workspaceId: "w",
+    id: afterManualFrame,
+  });
+  expect((await read())!.refreshRevision).not.toBe(previous);
+});
+
+it("projects legacy source provenance consistently before and after automatic publication", async () => {
+  const value = await fixture();
+  const id = value.sources[0]!.source.table.id;
+  await t.run(async (ctx) => {
+    const row = await ctx.db
+      .query("dataTables")
+      .withIndex("by_workspaceId_and_id", (q) =>
+        q.eq("workspaceId", "w").eq("id", id),
+      )
+      .unique();
+    await ctx.db.patch(row!._id, { refreshRevision: undefined });
+  });
+  const read = () => user().query(api.app.getDataTable, { id });
+  const previous = (await read())!.refreshRevision;
+  expect(previous).toMatch(/^legacy-/);
+  await t.mutation(internal.host.publishMaterialization, {
+    workspaceId: "w",
+    value,
+  });
+  expect((await read())!.refreshRevision).toBe(previous);
+  await user().mutation(api.app.commitBatch, {
+    commands: [
+      cmd("RefreshDataTable", { id, dataFrameId: value.sources[0]!.frame.id }),
+    ],
+  });
+  expect((await read())!.refreshRevision).not.toBe(previous);
+});

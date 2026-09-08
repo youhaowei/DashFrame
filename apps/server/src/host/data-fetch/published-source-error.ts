@@ -1,10 +1,11 @@
-import type { UUID } from "@dashframe/types";
+import type { InsightSourceGeneration, UUID } from "@dashframe/types";
 import { z } from "zod";
 
-type SourceGeneration = { tableId: UUID; dataFrameId: UUID };
+type SourceGeneration = InsightSourceGeneration;
 const sourceGenerationSchema = z.object({
   tableId: z.string().uuid(),
   dataFrameId: z.string().uuid(),
+  lastFetchedAt: z.number().finite(),
 });
 
 function normalize(value: unknown): SourceGeneration[] {
@@ -16,6 +17,7 @@ function normalize(value: unknown): SourceGeneration[] {
       {
         tableId: parsed.data.tableId as UUID,
         dataFrameId: parsed.data.dataFrameId as UUID,
+        lastFetchedAt: parsed.data.lastFetchedAt,
       },
     ];
   });
@@ -33,10 +35,13 @@ export class PublishedSourceMaterializationError extends Error {
   }
 
   sourceGenerations(): SourceGeneration[] {
-    return this.#sourceGenerations.map(({ tableId, dataFrameId }) => ({
-      tableId,
-      dataFrameId,
-    }));
+    return this.#sourceGenerations.map(
+      ({ tableId, dataFrameId, lastFetchedAt }) => ({
+        tableId,
+        dataFrameId,
+        lastFetchedAt,
+      }),
+    );
   }
 }
 
