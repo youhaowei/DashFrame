@@ -102,8 +102,10 @@ This is the rule working as designed rather than a false positive — the assert
 recreate evidence the declaration threw away — and the fix is to declare the accumulator
 at its target type. It is called out because DashFrame's row and spec contracts
 (`DataFrameRow`, `VegaLiteSpec`) are `Record<string, unknown>`, which makes this the
-violation most likely to be written here by accident. Both the reported shape and its
-fix are pinned in `scripts/oxlint-plugin-anti-slop/fixtures/`.
+violation most likely to be written here by accident. The regression fixtures for the
+reported shape and its fix lived in the closed PR #342 and are not in this
+tree; re-vendoring the rule needs them (see the follow-ups in the companion
+audit).
 
 `no-reflect-apply` has no equivalent sharp edge: it ignores a shadowed local `Reflect`,
 and the repository has no `Reflect.apply` in first-party source.

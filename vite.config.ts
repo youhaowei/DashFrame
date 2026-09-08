@@ -22,9 +22,11 @@ const storybookRules = Object.assign(
 
 export default defineConfig({
   lint: {
-    // Native plugin set. `import` and `promise` catch structural mistakes
-    // (cycles, duplicate imports, mis-shaped executors); `unicorn` and
-    // `vitest` are enabled for a hand-picked subset below, not wholesale.
+    // Native plugin set. Every plugin listed here contributes its whole
+    // `correctness` bucket (see `categories` below); `import` and `promise`
+    // catch structural mistakes (cycles, duplicate imports, mis-shaped
+    // executors). The bucket rules that are style rather than correctness for
+    // this repo are turned off by name in `rules`, each with its reason.
     plugins: [
       "oxc",
       "typescript",
@@ -61,7 +63,9 @@ export default defineConfig({
     // oxlint's `correctness` category is on for every enabled plugin, and the
     // explicit rules below are the measured, near-zero-cost additions that
     // target sloppy generated code. Every rule here is `error` — warnings do
-    // not fail the gate, so a warning-level rule is a rule nobody sees.
+    // not fail the gate. The one warning left in the output on purpose is the
+    // react-hooks-js `incompatible-library` note on TanStack Virtual in
+    // VirtualTable.tsx, kept visible as a compiler-safety reminder.
     // Adding a rule means measuring it first; turning one off means writing
     // the reason next to it.
     categories: {
@@ -552,6 +556,10 @@ export default defineConfig({
         rules: {
           ...reactHooksRules,
           ...nextRules,
+          // The preset spread above ships exhaustive-deps at "warn"; this
+          // override runs after the error-level hooks override and would
+          // otherwise silently downgrade it for the web app.
+          "react-hooks-js/exhaustive-deps": "error",
         },
       },
       {
