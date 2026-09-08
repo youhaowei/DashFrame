@@ -9,6 +9,7 @@ import { createHostedTokenIssuer } from "./host/hosted-token-issuer";
 import type { HostedBrowserSession } from "./host/hosted-workos-session";
 import type { HostedAdmission } from "./host/hosted-admission-service";
 import { MAX_HOSTED_MCP_BODY_BYTES } from "./host/hosted-mcp-routes";
+import { MAX_HOSTED_ASSISTANT_BODY_BYTES } from "./host/hosted-browser-routes";
 
 const directories: string[] = [];
 afterEach(async () => {
@@ -94,6 +95,18 @@ it("serves the hosted shell and enforces session/admission before opening worksp
           method: "POST",
           headers: {
             "content-length": String(MAX_HOSTED_MCP_BODY_BYTES + 1),
+          },
+          body: "oversized",
+        })
+      ).status,
+    ).toBe(413);
+    expect(
+      (
+        await surface.app.request(`${origin}/assistant/run`, {
+          method: "POST",
+          headers: {
+            origin,
+            "content-length": String(MAX_HOSTED_ASSISTANT_BODY_BYTES + 1),
           },
           body: "oversized",
         })

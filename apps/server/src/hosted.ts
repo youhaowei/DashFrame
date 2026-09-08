@@ -213,7 +213,9 @@ export async function createHostedServerSurface(options: {
         let recovery = recovered.get(resources);
         if (!recovery) {
           recovery = Promise.all([
-            hosted.cleanup.recoverPendingBatches(),
+            hosted.cleanup
+              .recoverPendingBatches()
+              .then(() => hosted.cleanup.run()),
             sweepConnectorSetupSessions(connectorSetup, new Date(), 0),
           ]).then(() => undefined);
           recovered.set(resources, recovery);

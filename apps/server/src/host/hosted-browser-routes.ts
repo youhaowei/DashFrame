@@ -15,6 +15,8 @@ import type { createHostedWorkOSSession } from "./hosted-workos-session";
 import type { createHostedAdmissionService } from "./hosted-admission-service";
 import type { WithHostedContext } from "./hosted-route-context";
 
+export const MAX_HOSTED_ASSISTANT_BODY_BYTES = 4 * 1024 * 1024;
+
 function runHostedAssistant(
   request: Request,
   hosted: ReturnType<typeof createHostedApplication>,
@@ -53,6 +55,10 @@ export function mountHostedBrowserRoutes(
     });
   }
   app.use("/data/*", bodyLimit({ maxSize: MAX_LOCAL_ARROW_BYTES }));
+  app.use(
+    "/assistant/*",
+    bodyLimit({ maxSize: MAX_HOSTED_ASSISTANT_BODY_BYTES }),
+  );
   app.route(
     "/",
     createHostedHttpApplication({

@@ -119,7 +119,7 @@ export async function createStaticWebSurface(
         file = undefined;
       }
     }
-    const isShell = file === undefined;
+    const isShell = file === undefined || file === index;
     const target = file ?? index;
     const [body, stats] = await Promise.all([readFile(target), stat(target)]);
     const etag = `W/"${stats.size.toString(16)}-${stats.mtimeMs.toString(16)}"`;

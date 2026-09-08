@@ -25,6 +25,10 @@ it("does not serve a real symlink target outside the bundle", async () => {
       path.join(root, "leak.txt"),
     );
     const serve = await createStaticWebSurface(root);
+    const explicitShell = await serve(
+      new Request("https://app.invalid/index.html"),
+    );
+    expect(explicitShell.headers.get("Cache-Control")).toBe("no-cache");
     const response = await serve(new Request("https://app.invalid/leak.txt"));
     expect(await response.text()).toBe("synthetic app shell");
   } finally {
