@@ -15,7 +15,11 @@ import { isSecretRef, type SecretRef } from "@wystack/secret-vault";
 import { spawn } from "node:child_process";
 import { z } from "zod";
 
-import { requireWorkspaceOwner, type HostContext } from "./context";
+import {
+  requireUser,
+  requireWorkspaceOwner,
+  type HostContext,
+} from "./context";
 import type { AssistantProviderConfigRow } from "./metadata";
 const vaultFromCtx = (ctx: HostContext) => ctx.vault;
 const withClassBoundaryMessage = <T>(operation: () => Promise<T>) =>
@@ -167,6 +171,7 @@ export async function listAssistantProviderCatalog() {
 }
 
 export async function listAssistantProviderConfigs(ctx: HostContext) {
+  requireUser(ctx);
   return (await ctx.metadata.listAssistantProviderConfigs()).map(rowToDto);
 }
 

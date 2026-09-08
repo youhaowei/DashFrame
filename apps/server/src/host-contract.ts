@@ -3,6 +3,7 @@ import type { hostOperations } from "./host/registry";
 /** HTTP operations whose execution requires the native DashFrame host. */
 export type HostOperationName =
   | "commitBatch"
+  | "draftBatch"
   | "ingestLocalDataFrame"
   | "queryDataFrame"
   | "removeDataFrameEntry"

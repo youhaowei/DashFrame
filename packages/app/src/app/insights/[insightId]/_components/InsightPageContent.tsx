@@ -14,10 +14,8 @@ interface InsightPageContentProps {
 }
 
 /**
- * Insight page content - handles data fetching and rendering.
- *
- * This component is dynamically imported with ssr: false to ensure
- * IndexedDB operations only happen in the browser.
+ * Insight page content, imported directly by the Insight route.
+ * Subscribes to Convex metadata and renders the server-backed Insight view.
  */
 export default function InsightPageContent({
   insightId,
