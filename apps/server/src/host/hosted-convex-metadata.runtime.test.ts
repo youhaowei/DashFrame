@@ -11,7 +11,7 @@ import { ConvexHttpClient } from "convex/browser";
 import { api, internal } from "@dashframe/convex-backend/api";
 import { startLocalConvex, type LocalConvex } from "@dashframe/convex-local";
 import { cmd } from "@dashframe/types";
-import { createHostedMetadata } from "./hosted-convex-metadata";
+import { createHostedLifecycleMetadata } from "./hosted-convex-lifecycle";
 
 const runtimeIssuer = "https://runtime.metadata-test.invalid";
 const operatorIssuer = "https://operator.metadata-test.invalid";
@@ -131,7 +131,7 @@ async function configureHosted(
 }
 
 it(
-  "enforces signed host-metadata assertions and live tenant/credential revocation through the real Bearer adapter",
+  "enforces signed metadata and lifecycle capabilities, atomic recovery, and live revocation through the real Bearer adapter",
   { skip: process.env.DASHFRAME_CONVEX_INTEGRATION !== "1", timeout: 180_000 },
   async () => {
     const directory = await mkdtemp(
@@ -195,7 +195,7 @@ it(
         signingKeys = runtime,
       ) => {
         const assertion = token(signingKeys, claims);
-        return createHostedMetadata({
+        return createHostedLifecycleMetadata({
           deploymentUrl: backend!.url,
           allowInsecureLoopbackForTests: true,
           getToken: async () => assertion,
@@ -303,14 +303,136 @@ it(
       });
       expect((await service.getDataTable(tableId))?.id).toBe(tableId);
       await service.draftBatch([]);
+      const batch = {
+        operationId: "synthetic-batch",
+        requestHash: "a".repeat(64),
+      };
+      const stagedRef = `secret:${crypto.randomUUID()}`;
+      await service.prepareHostBatch({
+        ...batch,
+        commands: [],
+        mode: "draft",
+        stagedRefs: [stagedRef],
+      });
+      await expect(
+        service.recoverHostBatch({ operationId: batch.operationId }),
+      ).rejects.toThrow();
+      await expect(a.executeHostBatch(batch)).rejects.toThrow();
+      const paging = { paginationOpts: { cursor: null, numItems: 100 } };
+      expect((await a.listRecoverableHostBatches(paging)).page).toEqual([
+        { operationId: batch.operationId },
+      ]);
+      expect(await b.recoverHostBatch({ operationId: batch.operationId })).toBe(
+        "missing",
+      );
+      expect(await a.recoverHostBatch({ operationId: batch.operationId })).toBe(
+        "cancelled",
+      );
+      expect(await a.recoverHostBatch({ operationId: batch.operationId })).toBe(
+        "cancelled",
+      );
+      const job = (await a.listCleanup(paging)).page.find(
+        (item) => item.resourceId === stagedRef,
+      );
+      expect(job).toBeDefined();
+      const claim = await a.claimCleanup({ cleanupId: job!.cleanupId });
+      expect(claim).toMatchObject({
+        resourceId: stagedRef,
+        claimToken: expect.any(String),
+      });
+      expect(await b.claimCleanup({ cleanupId: job!.cleanupId })).toBeNull();
+      await a.ackCleanup({
+        cleanupId: job!.cleanupId,
+        claimToken: claim!.claimToken,
+      });
+      expect((await a.listCleanup(paging)).page).not.toContainEqual(job);
+
+      // Native optimistic transactions serialize completion/cancellation: neither
+      // terminal result may be overwritten when the competing request retries.
+      const racing = { ...batch, operationId: "racing-batch" };
+      await a.prepareHostBatch({
+        ...racing,
+        commands: [],
+        mode: "commit",
+        stagedRefs: [],
+      });
+      const [executed, recovered] = await Promise.all([
+        a.executeHostBatch(racing),
+        a.recoverHostBatch({ operationId: racing.operationId }),
+      ]);
+      const terminal = await a.getHostBatch(racing);
+      expect(["completed", "cancelled"]).toContain(terminal?.status);
+      expect(executed.status).toBe(terminal?.status);
+      expect(recovered).toBe(terminal?.status);
+      const completed = { ...batch, operationId: "completed-batch" };
+      await a.prepareHostBatch({
+        ...completed,
+        commands: [],
+        mode: "commit",
+        stagedRefs: [],
+      });
+      const outcome = await a.executeHostBatch(completed);
+      expect(
+        await a.recoverHostBatch({ operationId: completed.operationId }),
+      ).toBe("completed");
+      expect(await a.getHostBatch(completed)).toEqual(outcome);
+
+      const imported = {
+        operationId: "synthetic-import",
+        requestHash: "b".repeat(64),
+      };
+      await expect(service.beginLocalImport(imported)).rejects.toThrow();
+      const importClaim = await a.beginLocalImport(imported);
+      expect(await a.beginLocalImport(imported)).toEqual(importClaim);
+      expect(await b.getLocalImport(imported)).toBeNull();
+      const importInput = {
+        ...imported,
+        dataSourceId: sourceId,
+        dataTableId: tableId,
+        expectedDataFrameId: frameId,
+        frameRow: {
+          id: importClaim.frameId,
+          name: "Synthetic imported frame",
+          fieldIds: [],
+          storage: { type: "file", key: importClaim.frameId },
+          rowCount: 3,
+          columnCount: 0,
+          lastRefreshedAt: importClaim.fetchedAt,
+        },
+        tableUpdate: {
+          dataFrameId: importClaim.frameId,
+          lastFetchedAt: importClaim.fetchedAt,
+        },
+      };
+      await a.commitImportedFrame(importInput);
+      await a.commitImportedFrame(importInput);
+      expect(await a.getLocalImport(imported)).toMatchObject({
+        status: "complete",
+        result: { dataFrameId: importClaim.frameId, rowCount: 3 },
+      });
+      expect(await a.cancelLocalImport(imported)).toBe(false);
+      const abandoned = { ...imported, operationId: "abandoned-import" };
+      const abandonedClaim = await a.beginLocalImport(abandoned);
+      expect(await a.cancelLocalImport(abandoned)).toBe(true);
+      expect((await a.listCleanup(paging)).page).toContainEqual({
+        cleanupId: expect.any(String),
+        kind: "frame",
+        resourceId: abandonedClaim.frameId,
+      });
       await expect(service.commitBatch([])).rejects.toThrow();
       await backend.internalClient.mutation(internal.host.revokeCredential, {
         workspaceId: workspaces[0]!,
         credentialId: "credential-a",
       });
+      await expect(service.getHostBatch(batch)).rejects.toThrow();
       await expect(service.getDataTable(tableId)).rejects.toThrow();
       await expect(service.draftBatch([])).rejects.toThrow();
       await operatorClient.mutation(api.admission.revoke, { subject: "a" });
+      await expect(a.listCleanup(paging)).rejects.toThrow();
+      await expect(
+        a.recoverHostBatch({ operationId: "missing" }),
+      ).rejects.toThrow();
+      await expect(a.getLocalImport(imported)).rejects.toThrow();
       await expect(a.getDataTable(tableId)).rejects.toThrow();
       await expect(a.commitBatch([])).rejects.toThrow();
       expect(await b.listDataFrames()).toEqual([]);

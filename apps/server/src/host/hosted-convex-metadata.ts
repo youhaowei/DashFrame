@@ -33,15 +33,13 @@ export interface HostedMetadataOptions {
   getToken(): Promise<string>;
 }
 
-export function createHostedMetadata(
-  options: HostedMetadataOptions,
-): HostedMetadata {
+export function createHostedMetadataClient(options: HostedMetadataOptions) {
   const deploymentUrl = validateHostedDeploymentUrl(
     options.deploymentUrl,
     options.allowInsecureLoopbackForTests,
   );
   const getToken = options.getToken;
-  const client = async () => {
+  return async () => {
     // setAuth mutates a client. A fresh client per operation prevents concurrent
     // requests from switching each other's identity while refreshing tokens.
     const authenticated = new ConvexHttpClient(deploymentUrl, {
@@ -53,6 +51,12 @@ export function createHostedMetadata(
     authenticated.setAuth(token);
     return authenticated;
   };
+}
+
+export function createHostedMetadata(
+  options: HostedMetadataOptions,
+): HostedMetadata {
+  const client = createHostedMetadataClient(options);
   return {
     getDataSource: async (id) =>
       (await client()).query(api.hostedMetadata.getDataSource, { id }),
