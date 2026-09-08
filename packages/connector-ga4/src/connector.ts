@@ -163,6 +163,7 @@ async function refreshAccessToken(
   fetchImpl: typeof fetch,
   now: () => number,
   oauthClient: GoogleOAuthClientCredentials | undefined,
+  signal?: AbortSignal,
 ): Promise<GoogleOAuthTokenBundle> {
   if (!bundle.refreshToken) {
     throw new Error("[GA4Connector] Google authorization must be renewed");
@@ -190,6 +191,7 @@ async function refreshAccessToken(
     grant_type: "refresh_token",
   });
   const response = await fetchImpl("https://oauth2.googleapis.com/token", {
+    signal,
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,
@@ -226,6 +228,7 @@ async function accessTokenFor(
   now: () => number,
   oauthClient: GoogleOAuthClientCredentials | undefined,
   persist: PersistTokenBundle | undefined,
+  signal?: AbortSignal,
 ): Promise<string> {
   const bundle = parseTokenBundle(raw);
   if (bundle.expiresAt > now() + 60_000) return bundle.accessToken;
@@ -234,6 +237,7 @@ async function accessTokenFor(
     fetchImpl,
     now,
     oauthClient,
+    signal,
   );
   if (persist) {
     try {
@@ -257,6 +261,7 @@ async function fetchJson(
   url: string,
   accessToken: string,
   init?: RequestInit,
+  maxResponseBytes?: number,
 ): Promise<unknown> {
   const response = await fetchImpl(url, {
     ...init,
@@ -272,7 +277,26 @@ async function fetchJson(
       `[GA4Connector] Google API request failed (${response.status})`,
     );
   }
-  return response.json();
+  if (maxResponseBytes === undefined) return response.json();
+  if (!Number.isSafeInteger(maxResponseBytes) || maxResponseBytes <= 0)
+    throw new Error("[GA4Connector] Invalid response budget");
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("[GA4Connector] Empty response body");
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > maxResponseBytes) throw new Error("SOURCE_RESULT_TOO_LARGE");
+      chunks.push(value);
+    }
+    return JSON.parse(Buffer.concat(chunks, bytes).toString("utf8")) as unknown;
+  } finally {
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+  }
 }
 
 function propertyResource(databaseId: string): string {
@@ -383,6 +407,7 @@ export class Ga4Connector extends RemoteApiConnector {
     tableId: UUID,
     options?: QueryOptions,
   ): Promise<ConnectorQueryResult> {
+    options?.signal?.throwIfAborted();
     const property = propertyResource(databaseId);
     const offset = options?.pagination?.offset ?? 0;
     const limit = options?.pagination?.limit ?? 10_000;
@@ -397,6 +422,7 @@ export class Ga4Connector extends RemoteApiConnector {
         this.#now,
         this.#oauthClient,
         this.#persistTokenBundle,
+        options?.signal,
       );
       const acquisition = this.#reportVersion === "v2";
       const dateRange = acquisition
@@ -412,6 +438,7 @@ export class Ga4Connector extends RemoteApiConnector {
         token,
         {
           method: "POST",
+          signal: options?.signal,
           body: JSON.stringify({
             dateRanges: [dateRange],
             dimensions: dimensions.map((name) => ({ name })),
@@ -425,6 +452,7 @@ export class Ga4Connector extends RemoteApiConnector {
             })),
           }),
         },
+        options?.maxResponseBytes,
       )) as RunReportResponse;
 
       const dimensionNames = (response.dimensionHeaders ?? []).map((header) =>

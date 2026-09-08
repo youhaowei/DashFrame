@@ -353,14 +353,31 @@ export function toFetchFailure(
   fallback: string,
 ): InsightFetchResult {
   const sourceCode = error instanceof Error ? error.message : "";
+  const resourceFailures: Record<string, string> = {
+    SOURCE_RESULT_TOO_LARGE:
+      "The data exceeds this host's byte budget. Narrow the source report and retry.",
+    MATERIALIZATION_STORAGE_LIMIT:
+      "The workspace has insufficient snapshot storage. Remove unused data and retry.",
+    MATERIALIZATION_BUSY:
+      "Another data refresh is running in this workspace. Retry when it finishes.",
+    MATERIALIZATION_TIMEOUT:
+      "The data refresh exceeded this host's time budget.",
+  };
   const code =
     RUNTIME_FAILURE_CODES.has(sourceCode) ||
+    Object.hasOwn(resourceFailures, sourceCode) ||
     sourceCode === "SOURCE_SCHEMA_CHANGED" ||
     sourceCode === "TARGET_NOT_READY"
       ? sourceCode
       : fallback;
   let result: InsightFetchResult;
-  if (code === "SOURCE_SCHEMA_CHANGED")
+  if (Object.hasOwn(resourceFailures, code))
+    result = failed(
+      code,
+      resourceFailures[code]!,
+      code === "MATERIALIZATION_BUSY" || code === "MATERIALIZATION_TIMEOUT",
+    );
+  else if (code === "SOURCE_SCHEMA_CHANGED")
     result = failed(
       code,
       "The source schema changed and the Insight needs review.",

@@ -98,6 +98,10 @@ export interface RemoteDatabase {
  */
 export interface QueryOptions {
   pagination?: { offset: number; limit: number };
+  /** Server-owned cancellation for connectors that support abortable transport. */
+  signal?: AbortSignal;
+  /** Optional provider response budget, enforced by supporting connectors. */
+  maxResponseBytes?: number;
   // Future: Add filters, sorting, etc.
 }
 

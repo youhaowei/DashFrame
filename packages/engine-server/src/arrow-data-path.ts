@@ -44,6 +44,11 @@ const frameTableName = (id: string): string => `df_${id.replaceAll("-", "_")}`;
 /** What the data path needs from an engine: compiled SQL → Arrow IPC bytes. */
 export interface ArrowQueryRunner {
   queryArrow(sql: string, params?: readonly unknown[]): Promise<Uint8Array>;
+  queryArrowBatches?(
+    sql: string,
+    params?: readonly unknown[],
+    options?: { signal?: AbortSignal },
+  ): AsyncIterable<Uint8Array>;
 }
 
 /**
@@ -53,7 +58,29 @@ export interface ArrowQueryRunner {
  */
 export interface ArrowTableRegistrar {
   registerArrowTable(name: string, arrow: Uint8Array): Promise<void>;
+  registerArrowBatches?(
+    name: string,
+    batches: AsyncIterable<Uint8Array>,
+    options?: { signal?: AbortSignal },
+  ): Promise<void>;
   unregisterTable?(name: string): Promise<void>;
+}
+
+/** Prepare a durable frame without loading all its bytes on capable runtimes. */
+export async function prepareFrameRegistration(
+  storage: DataFrameStorage,
+  engine: Partial<ArrowTableRegistrar>,
+  id: UUID,
+  signal?: AbortSignal,
+): Promise<((name: string) => Promise<void>) | null> {
+  if (storage.loadBatches && engine.registerArrowBatches) {
+    if (!(await storage.exists(id))) return null;
+    return (name) =>
+      engine.registerArrowBatches!(name, storage.loadBatches!(id), { signal });
+  }
+  if (!engine.registerArrowTable) throw new Error("TARGET_NOT_READY");
+  const arrow = await storage.load(id);
+  return arrow ? (name) => engine.registerArrowTable!(name, arrow) : null;
 }
 
 export interface ArrowDataPathOptions {
@@ -386,8 +413,13 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
         400,
       );
     }
-    const arrow = await options.dataFrameStorage.load(id as UUID);
-    if (!arrow) return c.json({ error: "Frame not found" }, 404);
+    const register = await prepareFrameRegistration(
+      options.dataFrameStorage,
+      options.engine,
+      id as UUID,
+      c.req.raw.signal,
+    );
+    if (!register) return c.json({ error: "Frame not found" }, 404);
     if (await frameIsUnavailable(options, id as UUID)) {
       // Also retries cleanup from an earlier request whose post-registration
       // ownership check lost the race but whose native DROP failed.
@@ -400,7 +432,7 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
       return c.json({ error: "Frame is no longer available" }, 404);
     }
     try {
-      await options.engine.registerArrowTable(name, arrow);
+      await register(name);
     } catch {
       return c.json({ error: "Failed to register frame" }, 500);
     }
@@ -456,10 +488,15 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
         400,
       );
     }
-    const arrow = await options.dataFrameStorage.load(id as UUID);
-    if (!arrow) return c.json({ error: "Frame not found" }, 404);
+    const register = await prepareFrameRegistration(
+      options.dataFrameStorage,
+      options.engine,
+      id as UUID,
+      c.req.raw.signal,
+    );
+    if (!register) return c.json({ error: "Frame not found" }, 404);
     try {
-      await options.engine.registerArrowTable(frameTableName(id), arrow);
+      await register(frameTableName(id));
     } catch {
       return c.json({ error: "Failed to register frame" }, 500);
     }

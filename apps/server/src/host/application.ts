@@ -9,6 +9,7 @@ export interface ApplicationOperations {
       principal?: unknown;
       draftId?: string;
       operationId?: string;
+      signal?: AbortSignal;
     },
   ): Promise<unknown>;
   forPrincipal(principal: Principal): ApplicationOperations;

@@ -68,6 +68,7 @@ export function createApplicationOperations(
       )
         throw new Error("Principal mismatch");
       const host = options.context(principal);
+      host.requestSignal = context?.signal;
       host.application = application.forPrincipal(principal);
       const operation = hostOperationByName(name);
       if (operation) return operation.execute(host, input);

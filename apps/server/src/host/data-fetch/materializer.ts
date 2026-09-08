@@ -15,6 +15,12 @@ import type {
 
 import type { HostContext, HostDataPlaneRuntime } from "../context";
 import { PublishedSourceMaterializationError } from "./published-source-error";
+import { inspectArrowIpc } from "@dashframe/engine-server/arrow-data-path";
+import {
+  CoalescedOperation,
+  withStreamingBudget,
+  type StreamingBudget,
+} from "./streaming";
 
 export type EffectiveInsightDefinition = InsightFetchDefinition & {
   limit?: number;
@@ -28,7 +34,9 @@ export type MaterializationTarget =
 
 export type SourceGeneration = {
   table: DataTable;
-  arrow: Uint8Array;
+  arrow?: Uint8Array;
+  /** Single-use bounded source stream; rowCount is filled as it is consumed. */
+  batches?: AsyncIterable<Uint8Array>;
   fields: Field[];
   rowCount: number;
   provenance: { connectorKind: string; bindingVersion: string };
@@ -134,22 +142,27 @@ function withPublishedSourceGenerations(
 export function createInsightMaterializer(
   dependencies: InsightMaterializerDependencies,
 ): InsightMaterializer {
-  const inFlight = new Map<string, Promise<InsightFetchReady>>();
+  const inFlight = new Map<string, CoalescedOperation<InsightFetchReady>>();
 
   const start = (
     key: string,
     args: Parameters<InsightMaterializer["materialize"]>[0],
   ) => {
+    if (args.ctx.requestSignal?.aborted)
+      return Promise.reject(args.ctx.requestSignal.reason);
     const existing = inFlight.get(key);
-    if (existing) return existing;
-
-    const operation = materializeOnce(dependencies, args, [], [], []);
+    if (existing) return existing.wait(args.ctx.requestSignal);
+    const operation = new CoalescedOperation((requestSignal) =>
+      withStreamingBudget({ ...args.ctx, requestSignal }, (ctx, budget) =>
+        materializeOnce(dependencies, { ...args, ctx }, [], [], [], budget),
+      ),
+    );
     inFlight.set(key, operation);
     const clear = () => {
       if (inFlight.get(key) === operation) inFlight.delete(key);
     };
-    operation.then(clear, clear);
-    return operation;
+    operation.promise.then(clear, clear);
+    return operation.wait(args.ctx.requestSignal);
   };
 
   return {
@@ -176,6 +189,7 @@ async function materializeOnce(
   ancestry: readonly UUID[] = [],
   transientResults: Array<{ id: UUID; registered: boolean }> = [],
   publishedSourceGenerations: InsightSourceGeneration[] = [],
+  budget?: StreamingBudget,
 ): Promise<InsightFetchReady> {
   const storage = dependencies.storage(args.ctx);
   const runtime = dependencies.runtime(args.ctx);
@@ -200,9 +214,12 @@ async function materializeOnce(
             [...ancestry, tableId],
             transientResults,
             publishedSourceGenerations,
+            budget,
           );
-          const arrow = await storage.load(ready.dataFrameId);
-          if (!arrow) throw new Error("TARGET_NOT_READY");
+          const arrow = budget
+            ? undefined
+            : await storage.load(ready.dataFrameId);
+          if (!budget && !arrow) throw new Error("TARGET_NOT_READY");
           const fields = fieldsFromInsightResult(ready.schema, tableId);
           return {
             table: {
@@ -215,7 +232,7 @@ async function materializeOnce(
               dataFrameId: ready.dataFrameId,
               createdAt: ready.fetchedAt,
             },
-            arrow,
+            ...(arrow ? { arrow } : {}),
             fields,
             rowCount: ready.rowCount,
             provenance: ready.provenance,
@@ -234,54 +251,25 @@ async function materializeOnce(
       source.fields = source.table.fields.map((field) => ({ ...field }));
     }
 
-    const pendingSources: PublishMaterialization["sources"] = [];
-    const tables = new Map<UUID, DataTable>();
-    for (const source of sources) {
-      if (source.existingFrameId) {
-        await runtime.registerArrowTable(
-          dependencies.tableName(source.existingFrameId),
-          source.arrow,
-        );
-        tables.set(source.table.id, source.table);
-        continue;
-      }
-      const frameId = dependencies.uuid();
-      const frame = pendingFrame(frameId, source.fields, source.rowCount);
-      // Track before save: storage implementations are required to save
-      // atomically, but cleanup still attempts deletion if an implementation
-      // reports failure after making the generation visible.
-      created.push({ id: frameId, registered: false });
-      await storage.save(frameId, source.arrow);
-      await runtime.registerArrowTable(
-        dependencies.tableName(frameId),
-        source.arrow,
-      );
-      created.at(-1)!.registered = true;
-      pendingSources.push({ source, frame });
-      tables.set(source.table.id, { ...source.table, dataFrameId: frameId });
-    }
+    const { pendingSources, tables } = await stageSources(
+      dependencies,
+      args.ctx,
+      sources,
+      created,
+      budget,
+    );
 
     const sql = dependencies.compile({ insight: args.insight, tables });
     if (!sql) throw new Error("FETCH_COMPILE_FAILED");
-    const resultArrow = await runtime.queryArrow(sql, []);
-    const inspected = dependencies.inspect(resultArrow, {
-      insight: args.insight,
+    const result = await stageResult(
+      dependencies,
+      args.ctx,
+      args.insight,
       tables,
-    });
-    const resultId = dependencies.uuid();
-    const result: PendingFrame = {
-      id: resultId,
-      fieldIds: inspected.schema.map((field) => field.id),
-      rowCount: inspected.rowCount,
-      schema: inspected.schema,
-    };
-    created.push({ id: resultId, registered: false });
-    await storage.save(resultId, resultArrow);
-    await runtime.registerArrowTable(
-      dependencies.tableName(resultId),
-      resultArrow,
+      sql,
+      created,
+      budget,
     );
-    created.at(-1)!.registered = true;
 
     const fetchedAt = dependencies.now();
     const definitionFingerprint = dependencies.fingerprint({
@@ -302,6 +290,9 @@ async function materializeOnce(
         transientResults,
       );
     }
+    budget?.check();
+    budget?.report("publication");
+    budget?.check();
     publicationAttempted = true;
     await dependencies.publish(args.ctx, {
       target: args.target,
@@ -425,4 +416,169 @@ async function cleanupNewFrames(
         storage.delete(frame.id),
       ]),
   );
+}
+
+/** Save and register complete source generations before compiling the result. */
+async function stageSources(
+  dependencies: InsightMaterializerDependencies,
+  ctx: HostContext,
+  sources: SourceGeneration[],
+  created: Array<{ id: UUID; registered: boolean }>,
+  budget?: StreamingBudget,
+) {
+  const storage = dependencies.storage(ctx);
+  const pendingSources: PublishMaterialization["sources"] = [];
+  const tables = new Map<UUID, DataTable>();
+  for (const source of sources) {
+    if (source.existingFrameId) {
+      await registerGeneration(
+        dependencies,
+        ctx,
+        source.existingFrameId,
+        source.arrow,
+        budget,
+      );
+      tables.set(source.table.id, source.table);
+      continue;
+    }
+    const frameId = dependencies.uuid();
+    // Track before the atomic save, including failures after a successful rename.
+    const tracked = { id: frameId, registered: false };
+    created.push(tracked);
+    await saveSource(storage, source, frameId, budget);
+    // A wrapper may reject after native registration has completed.
+    tracked.registered = true;
+    await registerGeneration(dependencies, ctx, frameId, source.arrow, budget);
+    const frame = pendingFrame(frameId, source.fields, source.rowCount);
+    pendingSources.push({ source, frame });
+    tables.set(source.table.id, { ...source.table, dataFrameId: frameId });
+  }
+  return { pendingSources, tables };
+}
+
+async function saveSource(
+  storage: DataFrameStorage,
+  source: SourceGeneration,
+  frameId: UUID,
+  budget?: StreamingBudget,
+): Promise<void> {
+  if (source.batches) {
+    if (!budget) throw new Error("TARGET_NOT_READY");
+    source.rowCount = 0;
+    await storage.saveBatches!(
+      frameId,
+      budget.batches(source.batches, "source", (arrow) => {
+        source.rowCount += inspectArrowIpc(arrow).rowCount;
+      }),
+    );
+    return;
+  }
+  const arrow = source.arrow;
+  if (!arrow) throw new Error("TARGET_NOT_READY");
+  if (budget) {
+    await storage.saveBatches!(
+      frameId,
+      budget.batches(
+        (async function* () {
+          yield arrow;
+        })(),
+        "source",
+      ),
+    );
+  } else await storage.save(frameId, arrow);
+}
+
+async function registerGeneration(
+  dependencies: InsightMaterializerDependencies,
+  ctx: HostContext,
+  id: UUID,
+  arrow: Uint8Array | undefined,
+  budget?: StreamingBudget,
+): Promise<void> {
+  const runtime = dependencies.runtime(ctx);
+  if (budget) {
+    budget.check();
+    await runtime.registerArrowBatches!(
+      dependencies.tableName(id),
+      dependencies.storage(ctx).loadBatches!(id),
+      { signal: ctx.requestSignal },
+    );
+  } else {
+    if (!arrow) throw new Error("TARGET_NOT_READY");
+    await runtime.registerArrowTable!(dependencies.tableName(id), arrow);
+  }
+}
+
+/** Stream query output into its immutable frame and inspect one chunk at a time. */
+async function stageResult(
+  dependencies: InsightMaterializerDependencies,
+  ctx: HostContext,
+  insight: EffectiveInsightDefinition,
+  tables: Map<UUID, DataTable>,
+  sql: string,
+  created: Array<{ id: UUID; registered: boolean }>,
+  budget?: StreamingBudget,
+): Promise<PendingFrame> {
+  const storage = dependencies.storage(ctx);
+  const runtime = dependencies.runtime(ctx);
+  const resultId = dependencies.uuid();
+  created.push({ id: resultId, registered: false });
+  let inspected:
+    | ReturnType<InsightMaterializerDependencies["inspect"]>
+    | undefined;
+  if (budget) {
+    let expectedSchema: string | undefined;
+    await storage.saveBatches!(
+      resultId,
+      budget.batches(
+        runtime.queryArrowBatches!(sql, [], {
+          signal: ctx.requestSignal,
+        }),
+        "result",
+        (arrow) => {
+          const batch = dependencies.inspect(arrow, {
+            insight,
+            tables,
+          });
+          const signature = JSON.stringify(batch.schema);
+          if (expectedSchema !== undefined && signature !== expectedSchema)
+            throw new Error("SOURCE_SCHEMA_CHANGED");
+          expectedSchema = signature;
+          inspected = {
+            schema: batch.schema,
+            rowCount: (inspected?.rowCount ?? 0) + batch.rowCount,
+          };
+        },
+      ),
+    );
+    budget.check();
+    created.at(-1)!.registered = true;
+    await runtime.registerArrowBatches!(
+      dependencies.tableName(resultId),
+      storage.loadBatches!(resultId),
+      { signal: ctx.requestSignal },
+    );
+  } else {
+    const resultArrow = await runtime.queryArrow(sql, []);
+    inspected = dependencies.inspect(resultArrow, {
+      insight,
+      tables,
+    });
+    await storage.save(resultId, resultArrow);
+    created.at(-1)!.registered = true;
+    await runtime.registerArrowTable!(
+      dependencies.tableName(resultId),
+      resultArrow,
+    );
+  }
+  if (!inspected) throw new Error("FETCH_EXECUTION_FAILED");
+  const result: PendingFrame = {
+    id: resultId,
+    fieldIds: inspected.schema.map((field) => field.id),
+    rowCount: inspected.rowCount,
+    schema: inspected.schema,
+  };
+  created.at(-1)!.registered = true;
+
+  return result;
 }

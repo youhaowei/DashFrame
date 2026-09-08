@@ -15,7 +15,12 @@ import {
   type LiveFetchExecutor,
 } from "../data-fetch";
 import { decodeInsight, type InsightRow } from "../insights";
-import { fetchSourceBinding, resolveSourceBinding } from "./bindings";
+import {
+  fetchSourceBinding,
+  resolveSourceBinding,
+  streamGa4Binding,
+} from "./bindings";
+import { supportsStreaming } from "./streaming";
 import type {
   InsightMaterializerDependencies,
   SourceGeneration,
@@ -212,6 +217,18 @@ async function resolveProductionSource(
   tableId: string,
 ): Promise<SourceGeneration> {
   const binding = await resolveSourceBinding(ctx, tableId);
+  if (binding.connectorKind === "googleAnalytics" && supportsStreaming(ctx)) {
+    return {
+      table: binding.table as never,
+      fields: binding.table.fields as SourceGeneration["fields"],
+      rowCount: 0,
+      batches: streamGa4Binding(ctx, binding),
+      provenance: {
+        connectorKind: binding.connectorKind,
+        bindingVersion: binding.sourceBindingVersion,
+      },
+    };
+  }
   const result = await fetchSourceBinding(ctx, binding);
   return {
     table: binding.table as never,

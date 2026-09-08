@@ -19,6 +19,31 @@ export class NativeTableLifecycle {
   ) {
     this.engine = {
       queryArrow: (sql, params) => native.queryArrow(sql, params),
+      ...(native.queryArrowBatches
+        ? {
+            queryArrowBatches: (
+              sql: string,
+              params?: readonly unknown[],
+              options?: { signal?: AbortSignal },
+            ) => native.queryArrowBatches!(sql, params, options),
+          }
+        : {}),
+      ...(native.registerArrowBatches
+        ? {
+            registerArrowBatches: (
+              name: string,
+              batches: AsyncIterable<Uint8Array>,
+              options?: { signal?: AbortSignal },
+            ) =>
+              this.enqueue(name, async () => {
+                if (this.closed)
+                  throw new Error("Native table lifecycle is closed");
+                await native.registerArrowBatches!(name, batches, options);
+                this.generations.set(name, this.generation(name) + 1);
+                this.cancelRetry(name);
+              }),
+          }
+        : {}),
       ...(typeof native.registerArrowTable === "function"
         ? {
             registerArrowTable: (name: string, arrow: Uint8Array) =>

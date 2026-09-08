@@ -21,8 +21,19 @@ export interface HostContext {
   googleOAuth?: GoogleOAuthConfig;
   application?: ApplicationOperations;
   dataFrameStorage?: DataFrameStorage;
+  /** Host-injected cancellation; never parsed from RPC input. */
+  requestSignal?: AbortSignal;
+  /** Value-free instrumentation for a materialization owned by this host. */
+  onMaterializationProgress?: (progress: {
+    phase: "source" | "result" | "publication";
+    rows: number;
+    bytes: number;
+    elapsedMs: number;
+  }) => void;
   dataPlaneRuntime?: ArrowQueryRunner &
-    Partial<Pick<ArrowTableRegistrar, "registerArrowTable">> & {
+    Partial<
+      Pick<ArrowTableRegistrar, "registerArrowTable" | "registerArrowBatches">
+    > & {
       unregisterTable?: (name: string) => Promise<void>;
     };
 }
