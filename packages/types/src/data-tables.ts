@@ -31,4 +31,6 @@ export interface DataTable {
   createdAt: number;
   /** Last time data was fetched */
   lastFetchedAt?: number;
+  /** Opaque revision of external data or source-definition changes; Insight publications preserve it. */
+  refreshRevision?: string;
 }

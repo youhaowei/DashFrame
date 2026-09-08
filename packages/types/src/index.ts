@@ -93,6 +93,7 @@ export type {
   InsightFetchReady,
   InsightFetchResult,
   InsightFetchStale,
+  InsightSourceGeneration,
   InsightFilter,
   InsightFilterBetweenValue,
   InsightJoinConfig,
