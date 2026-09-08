@@ -1,14 +1,13 @@
 # Hosted demo startup
 
-The hosted candidate uses the built browser app and a separate server entry:
+The Docker image starts the built browser app and hosted server through:
 
 ```sh
-sh scripts/with-hosted-volume-lock.sh bun apps/server/src/hosted.ts
+sh scripts/start-railway.sh
 ```
 
 Run from `/app` in the built Docker image, with a persistent volume attached.
-The image's existing default command still starts the legacy local server;
-override it with the command above when testing this candidate.
+This is the image default command; no Railway command override is needed.
 
 Configure these values on the host:
 
@@ -46,3 +45,15 @@ do not need these hosted settings.
 In the hosted app, open Access credentials and copy the MCP connection URL. Issue a named credential and configure your MCP client to send it as a Bearer token. The URL includes the admitted workspace: `https://dashframe.dev/workspaces/<workspace-id>/mcp`.
 
 Hosted MCP is stateless HTTP. It does not use the local WebSocket endpoint. Each request verifies the credential and current workspace admission before opening query resources; revoking the credential denies subsequent requests. Local app connection details remain unchanged.
+
+## Vault key rotation
+
+To rotate the active vault key, set a new `DASHFRAME_SECRET_KEY`, retain the
+previous value in `DASHFRAME_SECRET_KEY_PREVIOUS`, and restart the host. The
+previous-key variable accepts a comma-separated list. Existing secrets remain
+readable with retained keys; new secrets use the active key.
+
+Rotation does not re-encrypt existing secrets. Keep their old keys until those
+secrets have been rewritten or revoked and reissued. Removing an old key makes
+secrets still encrypted with it unreadable. Keep the persistent volume attached
+across restarts.

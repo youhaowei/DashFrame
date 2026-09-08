@@ -3,13 +3,6 @@ set -eu
 
 : "${PORT:?Railway must provide PORT}"
 : "${RAILWAY_VOLUME_MOUNT_PATH:?Attach a Railway volume before starting DashFrame}"
-: "${DASHFRAME_AUTH_TOKEN:?Set DASHFRAME_AUTH_TOKEN in Railway variables}"
-: "${DASHFRAME_SECRET_KEY:?Set DASHFRAME_SECRET_KEY in Railway variables}"
 
-volume_root="${RAILWAY_VOLUME_MOUNT_PATH}"
-export DASHFRAME_PROJECT_DIR="${volume_root}/project"
-export DASHFRAME_DATA_DIR="${volume_root}/host-data"
-
-exec sh scripts/with-hosted-volume-lock.sh bun apps/server/src/index.ts \
-  --bind "0.0.0.0:${PORT}" \
-  --mcp-mode stateless
+# The hosted entry validates authentication and vault configuration before serving.
+exec sh scripts/with-hosted-volume-lock.sh bun apps/server/src/hosted.ts
