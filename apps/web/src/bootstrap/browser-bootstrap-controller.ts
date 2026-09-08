@@ -137,15 +137,16 @@ export function startBrowserBootstrap<TConfig, TRuntime extends BrowserRuntime>(
         const startingRuntime = (async () => {
           const nextRuntime = await dependencies.createRuntime(result);
           if (!isCurrent(attempt)) {
-            await closeRuntime(nextRuntime);
+            if (nextRuntime !== runtime) await closeRuntime(nextRuntime);
             return;
           }
 
           const previousRuntime = runtime;
           runtime = nextRuntime;
-          await closeRuntime(previousRuntime);
+          if (previousRuntime !== nextRuntime)
+            await closeRuntime(previousRuntime);
           if (!isCurrent(attempt)) {
-            await closeRuntime(nextRuntime);
+            if (nextRuntime !== runtime) await closeRuntime(nextRuntime);
             return;
           }
           dependencies.publish({ ...result, runtime: nextRuntime });
@@ -159,6 +160,10 @@ export function startBrowserBootstrap<TConfig, TRuntime extends BrowserRuntime>(
         return;
       }
 
+      if (result.status === "unavailable") {
+        await publishUnavailable(attempt, result.error);
+        return;
+      }
       await releaseRuntime();
       if (!isCurrent(attempt)) return;
       switch (result.status) {
@@ -172,13 +177,6 @@ export function startBrowserBootstrap<TConfig, TRuntime extends BrowserRuntime>(
           dependencies.publish({
             status: "pending-admission",
             onSignOut: () => dependencies.signOut(),
-          });
-          return;
-        case "unavailable":
-          dependencies.publish({
-            status: "unavailable",
-            onRetry: () => void retry(),
-            ...(result.error === undefined ? {} : { error: result.error }),
           });
           return;
       }

@@ -328,6 +328,61 @@ describe("browser bootstrap controller", () => {
     });
   });
 
+  it("preserves an explicit unavailable error when owned cleanup fails", async () => {
+    const error = new Error("service unavailable");
+    const closeError = new Error("close failed");
+    const views: BrowserBootstrapView<Config, BrowserRuntime>[] = [];
+    let unavailable = false;
+    const controller = startBrowserBootstrap({
+      lookup: async () =>
+        unavailable
+          ? { status: "unavailable" as const, error }
+          : {
+              status: "admitted" as const,
+              config: { url: "https://dashframe.test" },
+            },
+      createRuntime: () => ({
+        close: async () => {
+          throw closeError;
+        },
+      }),
+      publish: (view) => views.push(view),
+      signIn: vi.fn(),
+      signOut: vi.fn(),
+    });
+    await vi.waitFor(() => expect(views.at(-1)?.status).toBe("admitted"));
+    unavailable = true;
+    await controller.retry();
+    expect(views.at(-1)).toMatchObject({
+      status: "unavailable",
+      error: { errors: [error, closeError] },
+    });
+    await expect(controller.teardown()).rejects.toMatchObject({
+      errors: [closeError],
+    });
+  });
+
+  it("keeps a memoized owned runtime open across ready retries", async () => {
+    const runtime = { close: vi.fn(async () => undefined) };
+    const views: BrowserBootstrapView<Config, BrowserRuntime>[] = [];
+    const controller = startBrowserBootstrap({
+      lookup: async () => ({
+        status: "admitted" as const,
+        config: { url: "https://dashframe.test" },
+      }),
+      createRuntime: () => runtime,
+      publish: (view) => views.push(view),
+      signIn: vi.fn(),
+      signOut: vi.fn(),
+    });
+    await vi.waitFor(() => expect(views.at(-1)?.status).toBe("admitted"));
+    await controller.retry();
+    expect(views.at(-1)).toMatchObject({ status: "admitted", runtime });
+    expect(runtime.close).not.toHaveBeenCalled();
+    await controller.teardown();
+    expect(runtime.close).toHaveBeenCalledOnce();
+  });
+
   it("preserves an explicit unavailable error payload", async () => {
     const error = new Error("service unavailable");
     const test = harness(async () => ({ status: "unavailable", error }));
