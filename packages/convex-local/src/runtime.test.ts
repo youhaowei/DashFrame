@@ -112,10 +112,11 @@ describe("official local Convex lifecycle", () => {
         path.join(functionsDirectory, "convex/host.ts"),
         `
 import { internalQueryGeneric as internalQuery, internalMutationGeneric as internalMutation } from "convex/server";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 export const runtimeReady = internalQuery({args:{},returns:v.object({ready:v.boolean()}),handler:async()=>({ready:true})});
 export const write = internalMutation({args:{value:v.string()},returns:v.null(),handler:async(ctx,args)=>{await ctx.db.insert("values",args);return null;}});
 export const read = internalQuery({args:{},returns:v.array(v.string()),handler:async(ctx)=>(await ctx.db.query("values").take(10)).map(row=>row.value)});
+export const reject = internalMutation({args:{},returns:v.null(),handler:async()=>{throw new ConvexError({code:"IMPORT_PUBLICATION_REJECTED",message:"SOURCE_BINDING_CHANGED"});}});
 `,
       );
       const options = {
@@ -144,6 +145,16 @@ export const read = internalQuery({args:{},returns:v.array(v.string()),handler:a
         "internal",
         Record<string, never>,
         string[]
+      >;
+      const reject = makeFunctionReference<
+        "mutation",
+        Record<string, never>,
+        null
+      >("host:reject") as unknown as FunctionReference<
+        "mutation",
+        "internal",
+        Record<string, never>,
+        null
       >;
       let first: Awaited<ReturnType<typeof startLocalConvex>> | undefined;
       let second: Awaited<ReturnType<typeof startLocalConvex>> | undefined;
@@ -180,6 +191,14 @@ export const read = internalQuery({args:{},returns:v.array(v.string()),handler:a
         expect(await first.internalClient.query(read, {})).toEqual([
           "survives restart",
         ]);
+        await expect(
+          first.internalClient.mutation(reject, {}),
+        ).rejects.toMatchObject({
+          data: {
+            code: "IMPORT_PUBLICATION_REJECTED",
+            message: "SOURCE_BINDING_CHANGED",
+          },
+        });
         const config = await readFile(
           path.join(projectDir, ".convex/config.json"),
           "utf8",

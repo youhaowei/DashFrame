@@ -153,6 +153,56 @@ it("keeps a failed CAS claim pending without leaking a frame or completed result
     "complete",
   );
 });
+it("defaults local-ingest claims to durable so old operation IDs keep their result", async () => {
+  const { sourceId, tableId } = await seed();
+  const pendingRequest = {
+    ...request,
+    operationId: "pending",
+    requestHash: "f".repeat(64),
+  };
+  const pending = await t.mutation(
+    internal.host.beginLocalImport,
+    pendingRequest,
+  );
+  let expectedDataFrameId: string | null = null;
+  for (let index = 0; index < 105; index++) {
+    const identity = {
+      ...request,
+      operationId: `completed-${index}`,
+      requestHash: index.toString(16).padStart(64, "0"),
+    };
+    const claim = await t.mutation(internal.host.beginLocalImport, identity);
+    await t.mutation(internal.host.commitImportedFrame, {
+      ...frameCommit(sourceId, tableId, claim, expectedDataFrameId),
+      ...identity,
+    });
+    expectedDataFrameId = claim.frameId;
+  }
+  const imports = await t.run((ctx) => ctx.db.query("localImports").collect());
+  expect(
+    imports.filter((row) => row.status === "complete" && !row.cancelled),
+  ).toHaveLength(105);
+  expect(imports).toContainEqual(
+    expect.objectContaining({
+      operationId: pendingRequest.operationId,
+      frameId: pending.frameId,
+      status: "pending",
+    }),
+  );
+  const earliest = imports.find((row) => row.operationId === "completed-0")!;
+  expect(
+    await t.mutation(internal.host.beginLocalImport, {
+      ...request,
+      operationId: "completed-0",
+      requestHash: "0".repeat(64),
+    }),
+  ).toEqual({
+    frameId: earliest.frameId,
+    fetchedAt: earliest.fetchedAt,
+    status: earliest.status,
+    result: earliest.result,
+  });
+});
 it("cancels an active claim and treats a repeated cancellation as complete", async () => {
   const claim = await t.mutation(internal.host.beginLocalImport, request);
 

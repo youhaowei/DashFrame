@@ -59,6 +59,10 @@ export const localImportState = v.object({
   status: v.union(v.literal("pending"), v.literal("complete")),
   result: v.union(localImportResult, v.null()),
 });
+export const localImportClaimKind = v.union(
+  v.literal("local-ingest"),
+  v.literal("connector-snapshot"),
+);
 const artifactTable = () =>
   defineTable(artifactFields)
     .index("by_workspaceId_and_id", ["workspaceId", "id"])
@@ -163,7 +167,8 @@ export default defineSchema({
     workspaceId: v.string(),
     operationId: v.string(),
     requestHash: v.string(),
-    cancelled: v.optional(v.boolean()),
+    claimKind: v.optional(localImportClaimKind),
+    cancelled: v.boolean(),
     ...localImportState.fields,
   }).index("by_workspaceId_and_operationId", ["workspaceId", "operationId"]),
   cleanupJobs: defineTable({

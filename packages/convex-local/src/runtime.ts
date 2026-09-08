@@ -23,7 +23,7 @@ import type {
   FunctionReference,
   FunctionReturnType,
 } from "convex/server";
-import { convexToJson, jsonToConvex } from "convex/values";
+import { ConvexError, convexToJson, jsonToConvex } from "convex/values";
 import type { Value } from "convex/values";
 import {
   BACKEND_VERSION,
@@ -313,12 +313,16 @@ function internalClient(url: string, adminKey: string): InternalClient {
     const result = (await response.json()) as {
       status?: string;
       value?: Parameters<typeof jsonToConvex>[0];
+      errorData?: Parameters<typeof jsonToConvex>[0];
     };
     if (
       !response.ok ||
       result.status !== "success" ||
       result.value === undefined
     ) {
+      if (result.errorData !== undefined) {
+        throw new ConvexError(jsonToConvex(result.errorData));
+      }
       throw new Error(
         `Local Convex internal ${type} failed (${response.status}).`,
       );

@@ -24,6 +24,32 @@ export interface AssistantProviderConfigRow {
   updatedAt: number;
 }
 
+export class ImportPublicationRejectedError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "ImportPublicationRejectedError";
+  }
+}
+
+export function importPublicationRejection(error: unknown): string | null {
+  if (typeof error !== "object" || error === null || !("data" in error))
+    return null;
+  let data = (error as { data: unknown }).data;
+  for (let depth = 0; typeof data === "string" && depth < 4; depth++) {
+    try {
+      data = JSON.parse(data);
+    } catch {
+      return null;
+    }
+  }
+  if (typeof data !== "object" || data === null) return null;
+  const value = data as { code?: unknown; message?: unknown };
+  return value.code === "IMPORT_PUBLICATION_REJECTED" &&
+    typeof value.message === "string"
+    ? value.message
+    : null;
+}
+
 export interface LocalImportClaim {
   frameId: string;
   fetchedAt: number;
@@ -79,6 +105,7 @@ export interface HostMetadata {
   beginLocalImport(input: {
     operationId: string;
     requestHash: string;
+    claimKind?: "local-ingest" | "connector-snapshot";
   }): Promise<LocalImportClaim>;
   getLocalImport(input: {
     operationId: string;
@@ -119,6 +146,7 @@ export interface HostMetadata {
   commitImportedFrame(input: {
     operationId?: string;
     requestHash?: string;
+    expectedDataSourceRevision?: number;
     dataTableId: string;
     dataSourceId: string;
     expectedDataFrameId: string | null;
@@ -132,6 +160,7 @@ export interface HostMetadata {
   publishMaterialization(value: PublicationMetadata): Promise<void>;
   replaceDataSourceConfig(input: {
     id: string;
+    expectedRevision: number;
     expectedConfig: unknown;
     config: unknown;
   }): Promise<void>;

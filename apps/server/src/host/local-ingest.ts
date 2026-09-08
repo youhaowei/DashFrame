@@ -415,6 +415,7 @@ export async function ingestLocalDataFrame(
     const claim = await ctx.metadata.beginLocalImport({
       operationId,
       requestHash,
+      claimKind: "local-ingest",
     });
     if (claim.status === "complete" && claim.result) return claim.result;
     const claimedImport = { ...claim, operationId, requestHash };
@@ -488,7 +489,7 @@ function hasErrorMessage(error: unknown, expected: string): boolean {
   return false;
 }
 
-function stableInput(value: unknown): string {
+export function stableInput(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableInput).join(",")}]`;
   if (value !== null && typeof value === "object")
     return `{${Object.entries(value)

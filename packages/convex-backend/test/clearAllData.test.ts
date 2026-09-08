@@ -111,6 +111,26 @@ it("rolls back a clear that exceeds its bounded draft scan", async () => {
   ).rejects.toThrow("Workspace limit exceeded");
   expect(await user().query(api.app.listDataSources, {})).toHaveLength(1);
 });
+it("clears after more than 1000 completed connector receipts", async () => {
+  await seed();
+  await t.run(async (ctx) => {
+    for (let index = 0; index < 1001; index++)
+      await ctx.db.insert("operations", {
+        workspaceId: "w",
+        operationId: `local-import:connector-${index}`,
+        request: { index },
+        result: null,
+      });
+  });
+
+  await expect(
+    t.mutation(internal.host.clearAllData, { workspaceId: "w" }),
+  ).resolves.toBeNull();
+  expect(await user().query(api.app.listDataSources, {})).toEqual([]);
+  expect(
+    await t.run((ctx) => ctx.db.query("operations").collect()),
+  ).toHaveLength(1001);
+});
 it.each([false, true])(
   "invalidates a local import claim across a clear (completed=%s)",
   async (completed) => {

@@ -23,14 +23,14 @@ import { artifactTables } from "./model";
 import { byFreshness, frameHistory, pruneFrames } from "./frameRetention";
 import { LIMIT } from "./graph";
 import type { Doc } from "./_generated/dataModel";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import {
   internalMutation,
   internalQuery,
   type QueryCtx,
   type MutationCtx,
 } from "./_generated/server";
-import { localImportState } from "./schema";
+import { localImportClaimKind, localImportState } from "./schema";
 import { find, rowValue } from "./store";
 import type {
   ArtifactRow,
@@ -260,6 +260,7 @@ export const commitImportedFrame = internalMutation({
     tableUpdate: object,
     operationId: v.optional(v.string()),
     requestHash: v.optional(v.string()),
+    expectedDataSourceRevision: v.optional(v.number()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -273,7 +274,7 @@ export const commitImportedFrame = internalMutation({
         args.operationId,
         args.requestHash,
       );
-      if (!claim) throw new Error("Local import claim missing");
+      if (!claim) rejectImportPublication("Local import claim missing");
       if (claim.frameId !== args.frameRow.id)
         throw new Error("Local import frame differs from claim");
       if (claim.status === "complete") return null;
@@ -294,6 +295,9 @@ export const commitImportedFrame = internalMutation({
     }
 
     const request = clean({
+        ...(args.expectedDataSourceRevision === undefined
+          ? {}
+          : { expectedDataSourceRevision: args.expectedDataSourceRevision }),
         dataTableId: args.dataTableId,
         dataSourceId: args.dataSourceId,
         expectedDataFrameId: args.expectedDataFrameId,
@@ -304,6 +308,17 @@ export const commitImportedFrame = internalMutation({
         ? `local-import:${args.operationId}`
         : (args.operationId ?? `import:${String(args.frameRow.id)}`);
     if (await operation(ctx, args.workspaceId, op, request)) return null;
+    const source = await find(
+      ctx,
+      args.workspaceId,
+      "dataSources",
+      args.dataSourceId,
+    );
+    if (
+      args.expectedDataSourceRevision !== undefined &&
+      (!source || source.revision !== args.expectedDataSourceRevision)
+    )
+      rejectImportPublication("SOURCE_BINDING_CHANGED");
     const table = await find(
       ctx,
       args.workspaceId,
@@ -315,7 +330,7 @@ export const commitImportedFrame = internalMutation({
       table.dataSourceId !== args.dataSourceId ||
       (table.dataFrameId ?? null) !== args.expectedDataFrameId
     )
-      throw new Error("SOURCE_BINDING_CHANGED");
+      rejectImportPublication("SOURCE_BINDING_CHANGED");
     if (
       args.tableUpdate.dataSourceId !== undefined &&
       args.tableUpdate.dataSourceId !== args.dataSourceId
@@ -369,7 +384,9 @@ export const commitImportedFrame = internalMutation({
       request,
       result: null,
     });
-    if (claim)
+    if (claim?.claimKind === "connector-snapshot") {
+      await ctx.db.delete(claim._id);
+    } else if (claim) {
       await ctx.db.patch(claim._id, {
         status: "complete",
         result: {
@@ -379,6 +396,7 @@ export const commitImportedFrame = internalMutation({
           fetchedAt: claim.fetchedAt,
         },
       });
+    }
     return null;
   },
 });
@@ -488,11 +506,22 @@ export const publishMaterialization = internalMutation({
   },
 });
 export const replaceDataSourceConfig = internalMutation({
-  args: { ...workspace, id: v.string(), expectedConfig: json, config: object },
+  args: {
+    ...workspace,
+    id: v.string(),
+    expectedRevision: v.optional(v.number()),
+    expectedConfig: json,
+    config: object,
+  },
   returns: v.null(),
   handler: async (ctx, args) => {
     const row = await find(ctx, args.workspaceId, "dataSources", args.id);
-    if (!row || stable(row.config ?? {}) !== stable(args.expectedConfig))
+    if (
+      !row ||
+      (args.expectedRevision !== undefined &&
+        row.revision !== args.expectedRevision) ||
+      stable(row.config ?? {}) !== stable(args.expectedConfig)
+    )
       throw new Error("DataSource config changed");
     for (const key of ["apiKey", "connectionString"])
       if (
@@ -842,8 +871,11 @@ async function importClaim(
   if (row && row.requestHash !== requestHash)
     throw new Error("Local import operationId reused with different request");
   if (row?.cancelled)
-    throw new Error("Local import invalidated by workspace clear");
+    rejectImportPublication("Local import invalidated by workspace clear");
   return row;
+}
+function rejectImportPublication(message: string): never {
+  throw new ConvexError({ code: "IMPORT_PUBLICATION_REJECTED", message });
 }
 const importClaimArgs = {
   ...workspace,
@@ -851,7 +883,10 @@ const importClaimArgs = {
   requestHash: v.string(),
 };
 export const beginLocalImport = internalMutation({
-  args: importClaimArgs,
+  args: {
+    ...importClaimArgs,
+    claimKind: v.optional(localImportClaimKind),
+  },
   returns: localImportState,
   handler: async (ctx, args) => {
     const current = await importClaim(
@@ -864,13 +899,27 @@ export const beginLocalImport = internalMutation({
       const { frameId, fetchedAt, status, result } = current;
       return { frameId, fetchedAt, status, result };
     }
+    const retired = await ctx.db
+      .query("operations")
+      .withIndex("by_workspaceId_and_operationId", (q) =>
+        q
+          .eq("workspaceId", args.workspaceId)
+          .eq("operationId", `local-import:${args.operationId}`),
+      )
+      .unique();
+    if (retired) rejectImportPublication("Local import already complete");
     const state = {
       frameId: crypto.randomUUID(),
       fetchedAt: Date.now(),
       status: "pending" as const,
       result: null,
     };
-    await ctx.db.insert("localImports", { ...args, ...state });
+    await ctx.db.insert("localImports", {
+      ...args,
+      ...state,
+      claimKind: args.claimKind ?? "local-ingest",
+      cancelled: false,
+    });
     return state;
   },
 });
