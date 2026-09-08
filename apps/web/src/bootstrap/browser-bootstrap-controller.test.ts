@@ -362,6 +362,41 @@ describe("browser bootstrap controller", () => {
     });
   });
 
+  it("closes a superseded handoff while the newer lookup remains pending", async () => {
+    const previousClose = deferred<void>();
+    const hangingLookup = deferred<BrowserAccessResult<Config>>();
+    const previous = { close: vi.fn(() => previousClose.promise) };
+    const next = { close: vi.fn(async () => undefined) };
+    const views: BrowserBootstrapView<Config, BrowserRuntime>[] = [];
+    let lookups = 0;
+    let factories = 0;
+    const controller = startBrowserBootstrap({
+      lookup: async () =>
+        ++lookups === 3
+          ? hangingLookup.promise
+          : {
+              status: "admitted" as const,
+              config: { url: "https://dashframe.test" },
+            },
+      createRuntime: () => (++factories === 1 ? previous : next),
+      publish: (view) => views.push(view),
+      signIn: vi.fn(),
+      signOut: vi.fn(),
+    });
+    await vi.waitFor(() => expect(views.at(-1)?.status).toBe("admitted"));
+    const handoff = controller.retry();
+    await vi.waitFor(() => expect(previous.close).toHaveBeenCalledOnce());
+    const newer = controller.retry();
+    previousClose.resolve();
+    await handoff;
+    expect(next.close).toHaveBeenCalledOnce();
+    expect(views.at(-1)?.status).toBe("loading");
+    await controller.teardown();
+    expect(next.close).toHaveBeenCalledOnce();
+    hangingLookup.resolve({ status: "signed-out" });
+    await newer;
+  });
+
   it("keeps a memoized owned runtime open across ready retries", async () => {
     const runtime = { close: vi.fn(async () => undefined) };
     const views: BrowserBootstrapView<Config, BrowserRuntime>[] = [];

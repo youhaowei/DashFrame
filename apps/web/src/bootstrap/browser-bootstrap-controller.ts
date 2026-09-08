@@ -70,6 +70,7 @@ export function startBrowserBootstrap<TConfig, TRuntime extends BrowserRuntime>(
   let stopped = false;
   let lookupAbort: AbortController | undefined;
   let runtime: TRuntime | undefined;
+  let runtimeOwner = 0;
   let teardownPromise: Promise<void> | undefined;
   const runtimeClosures = new WeakMap<TRuntime, Promise<void>>();
   const runtimeAttempts = new Set<Promise<void>>();
@@ -143,10 +144,15 @@ export function startBrowserBootstrap<TConfig, TRuntime extends BrowserRuntime>(
 
           const previousRuntime = runtime;
           runtime = nextRuntime;
+          runtimeOwner = attempt;
           if (previousRuntime !== nextRuntime)
             await closeRuntime(previousRuntime);
           if (!isCurrent(attempt)) {
-            if (nextRuntime !== runtime) await closeRuntime(nextRuntime);
+            if (nextRuntime === runtime && runtimeOwner === attempt) {
+              await releaseRuntime();
+            } else if (nextRuntime !== runtime) {
+              await closeRuntime(nextRuntime);
+            }
             return;
           }
           dependencies.publish({ ...result, runtime: nextRuntime });
