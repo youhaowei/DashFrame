@@ -241,17 +241,7 @@ export interface WebSurface {
 export async function createWebSurface(
   options: WebSurfaceOptions,
 ): Promise<WebSurface> {
-  const root = await realpath(options.staticRoot);
-  let index: string;
-  try {
-    index = await containedFile(root, path.join(root, "index.html"));
-    await stat(index);
-  } catch {
-    throw new Error(
-      `No index.html in ${root}. Point --static-root at a built web app (apps/web/dist).`,
-    );
-  }
-  const securityHeaders = await readSecurityHeaders(root);
+  const serve = await createStaticWebSurface(options.staticRoot);
   const now = options.now ?? (() => Date.now());
   const throttle = new LoginThrottle();
   const { session } = options;
@@ -272,46 +262,6 @@ export async function createWebSurface(
       issuedAt,
       expiresAt: issuedAt + session.ttlMs,
     });
-  };
-
-  const serve = async (request: Request): Promise<Response> => {
-    const urlPath = new URL(request.url).pathname;
-    const resolved = resolveStaticPath(root, urlPath);
-    let file = resolved;
-    if (file) {
-      try {
-        file = await containedFile(root, file);
-        const stats = await stat(file);
-        if (stats.isDirectory()) file = undefined;
-      } catch {
-        file = undefined;
-      }
-    }
-    // Anything that is not a real file is the SPA shell: TanStack Router owns
-    // client-side routing, so `/dashboards/abc` must return index.html rather
-    // than 404. A missing file under /assets/ still returns the shell, which is
-    // the standard SPA trade — a stale bundle reference reads as a router miss.
-    const isShell = file === undefined;
-    const target = file ?? index;
-    const [body, stats] = await Promise.all([readFile(target), stat(target)]);
-    const etag = `W/"${stats.size.toString(16)}-${stats.mtimeMs.toString(16)}"`;
-    const headers = new Headers(securityHeaders);
-    headers.set(
-      "Content-Type",
-      CONTENT_TYPES.get(path.extname(target).toLowerCase()) ??
-        "application/octet-stream",
-    );
-    headers.set("ETag", etag);
-    // Hashed build output is immutable; the shell must never be cached or a
-    // deploy would keep serving the previous bundle's asset references.
-    let cacheControl = "public, max-age=3600";
-    if (isShell) cacheControl = "no-cache";
-    else if (urlPath.startsWith("/assets/"))
-      cacheControl = "public, max-age=31536000, immutable";
-    headers.set("Cache-Control", cacheControl);
-    if (request.headers.get("if-none-match") === etag)
-      return new Response(null, { status: 304, headers });
-    return new Response(body, { status: 200, headers });
   };
 
   return {
@@ -362,4 +312,61 @@ export async function createWebSurface(
     },
     serve,
   };
+}
+
+/** Serve public build assets; API authentication remains the owning host's responsibility. */
+export async function createStaticWebSurface(
+  staticRoot: string,
+): Promise<(request: Request) => Promise<Response>> {
+  const root = await realpath(staticRoot);
+  let index: string;
+  try {
+    index = await containedFile(root, path.join(root, "index.html"));
+    await stat(index);
+  } catch {
+    throw new Error(
+      `No index.html in ${root}. Point --static-root at a built web app (apps/web/dist).`,
+    );
+  }
+  const securityHeaders = await readSecurityHeaders(root);
+  const serve = async (request: Request): Promise<Response> => {
+    const urlPath = new URL(request.url).pathname;
+    const resolved = resolveStaticPath(root, urlPath);
+    let file = resolved;
+    if (file) {
+      try {
+        file = await containedFile(root, file);
+        const stats = await stat(file);
+        if (stats.isDirectory()) file = undefined;
+      } catch {
+        file = undefined;
+      }
+    }
+    // Anything that is not a real file is the SPA shell: TanStack Router owns
+    // client-side routing, so `/dashboards/abc` must return index.html rather
+    // than 404. A missing file under /assets/ still returns the shell, which is
+    // the standard SPA trade — a stale bundle reference reads as a router miss.
+    const isShell = file === undefined;
+    const target = file ?? index;
+    const [body, stats] = await Promise.all([readFile(target), stat(target)]);
+    const etag = `W/"${stats.size.toString(16)}-${stats.mtimeMs.toString(16)}"`;
+    const headers = new Headers(securityHeaders);
+    headers.set(
+      "Content-Type",
+      CONTENT_TYPES.get(path.extname(target).toLowerCase()) ??
+        "application/octet-stream",
+    );
+    headers.set("ETag", etag);
+    // Hashed build output is immutable; the shell must never be cached or a
+    // deploy would keep serving the previous bundle's asset references.
+    let cacheControl = "public, max-age=3600";
+    if (isShell) cacheControl = "no-cache";
+    else if (urlPath.startsWith("/assets/"))
+      cacheControl = "public, max-age=31536000, immutable";
+    headers.set("Cache-Control", cacheControl);
+    if (request.headers.get("if-none-match") === etag)
+      return new Response(null, { status: 304, headers });
+    return new Response(body, { status: 200, headers });
+  };
+  return serve;
 }
