@@ -536,7 +536,7 @@ async function persistGa4TokenBundleLocked(
   config.apiKey = next;
   // An uncertain network outcome can already be committed. Leave the new
   // secret available until reconciliation can prove it is unreferenced.
-  let replaceError: unknown;
+  let replaceError: Error | undefined;
   try {
     await ctx.metadata.replaceDataSourceConfig({
       id: dataSourceId,
@@ -545,7 +545,10 @@ async function persistGa4TokenBundleLocked(
       config,
     });
   } catch (error) {
-    replaceError = error;
+    replaceError =
+      error instanceof Error
+        ? error
+        : new Error("DataSource config replacement failed", { cause: error });
   }
   let written: DataSourceRow | null;
   try {
@@ -558,6 +561,7 @@ async function persistGa4TokenBundleLocked(
     written.revision !== current.revision + 1 ||
     stableInput(written.config ?? {}) !== stableInput(config)
   ) {
+    // oxlint-disable-next-line no-throw-literal -- normalized to Error above; preserve the original failure identity
     if (replaceError) throw replaceError;
     throw new Error("DataSource config changed");
   }
