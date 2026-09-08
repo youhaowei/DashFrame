@@ -1,7 +1,7 @@
 import { ArtifactPageHeader } from "@/components/artifacts/ArtifactPageHeader";
 import { ArtifactSwitcher } from "@/components/artifacts/ArtifactSwitcher";
 import { useQuery_experimental as useQuery, useMutation } from "convex/react";
-import { useHostMutation } from "@/data/host";
+import { RefreshTableButton } from "@/components/data-sources/RefreshTableButton";
 import { queryStatus } from "@/data/query-status";
 import {
   type ArtifactContextValue,
@@ -51,7 +51,6 @@ import {
   DeleteIcon,
   MoreIcon as LuMoreHorizontal,
   PlusIcon,
-  RefreshIcon,
   TableIcon,
 } from "@wystack/ui-react/icons";
 import { useMemo, useState } from "react";
@@ -169,8 +168,6 @@ export default function DataSourcePageContent({
   sourceId,
 }: DataSourcePageContentProps) {
   const navigate = useNavigate();
-  const { mutateAsync: fetchData } = useHostMutation("fetchData");
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const { createInsightFromTable } = useCreateInsight();
 
   // Subscribe so a re-render fires once the connector registry hydrates from
@@ -247,31 +244,6 @@ export default function DataSourcePageContent({
     tableDetails?.dataTable?.dataFrameId,
     { limit: 50 },
   );
-
-  const handleRefresh = async () => {
-    if (!effectiveSelectedTableId || isRefreshing) return;
-    setIsRefreshing(true);
-    try {
-      const result = await fetchData({
-        insight: {
-          baseTableId: effectiveSelectedTableId,
-          selectedFields: [],
-          metrics: [],
-        },
-      });
-      if (result.status === "failed") {
-        toast.error(result.message);
-      } else {
-        toast.success("Data refreshed");
-      }
-    } catch {
-      toast.error(
-        "Could not refresh data. Check the connection and try again.",
-      );
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
 
   // Handle name change - directly update database, triggers re-render via hook
   const handleNameChange = async (newName: string) => {
@@ -500,12 +472,10 @@ export default function DataSourcePageContent({
               </div>
               <div className="flex items-center gap-2">
                 {connector?.sourceType === "remote-api" && (
-                  <Button
-                    label={isRefreshing ? "Refreshing…" : "Refresh"}
-                    icon={RefreshIcon}
-                    variant="outline"
-                    disabled={isRefreshing}
-                    onClick={handleRefresh}
+                  <RefreshTableButton
+                    key={effectiveSelectedTableId}
+                    tableId={effectiveSelectedTableId}
+                    tableName={tableDetails.dataTable.name}
                   />
                 )}
                 <Button

@@ -562,7 +562,9 @@ describe("DataSourcePageContent — loading state contract", () => {
     expect(mockFetchData).toHaveBeenCalledWith({
       insight: { baseTableId: "table-orders", selectedFields: [], metrics: [] },
     });
-    expect(mockToastError).toHaveBeenCalledWith("Connection unavailable");
+    expect(mockToastError).toHaveBeenCalledWith(
+      "Could not refresh Orders: Connection unavailable",
+    );
     expect(
       screen
         .getByRole("button", { name: "Refresh", exact: true })

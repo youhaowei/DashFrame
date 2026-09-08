@@ -106,7 +106,7 @@ interface AxisSelectFieldProps {
  *
  * Computes available options from the compiled insight:
  * - Dimensions: from compiledInsight.dimensions (resolved Field objects)
- * - Metrics: from compiledInsight.metrics (using metric.name as value)
+ * - Metrics: from compiledInsight.metrics (using metricEncoding(metric.id), i.e. metric:<uuid>)
  *
  * Provides:
  * - Hard enforcement of valid columns for each chart type
