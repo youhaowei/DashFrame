@@ -1,4 +1,4 @@
-import { DuckDBInstance } from "@duckdb/node-api";
+import { DuckDBConnection, DuckDBInstance } from "@duckdb/node-api";
 import {
   Bool,
   DateDay,
@@ -460,6 +460,155 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
          WHERE table_name LIKE '__staging_%'`,
       );
       expect(Number(leaked.rows[0]?.cnt)).toBe(0);
+    });
+  });
+
+  describe("native Arrow batch streaming", () => {
+    function batch(values: readonly number[]): Uint8Array {
+      return tableToIPC(
+        new Table({
+          value: vectorFromArray(values, new Int32()),
+          label: vectorFromArray(
+            values.map((value) => `row-${value}`),
+            new Utf8(),
+          ),
+        }),
+      );
+    }
+
+    async function* stream(...values: Uint8Array[]) {
+      for (const value of values) yield value;
+    }
+
+    it("registers multiple self-contained IPC batches as one atomic table", async () => {
+      engine = new NativeDuckDBEngine();
+      await engine.registerArrowBatches(
+        "df_batched",
+        stream(batch([1, 2]), batch([3, 4, 5])),
+      );
+
+      const result = await engine.query(
+        'SELECT value, label FROM "df_batched" ORDER BY value',
+      );
+      expect(result.rows).toEqual([
+        { value: "1", label: "row-1" },
+        { value: "2", label: "row-2" },
+        { value: "3", label: "row-3" },
+        { value: "4", label: "row-4" },
+        { value: "5", label: "row-5" },
+      ]);
+      expect(engine.hasTable("df_batched")).toBe(true);
+    });
+
+    it("keeps the prior table and engine usable when a later batch changes schema", async () => {
+      engine = new NativeDuckDBEngine();
+      await engine.registerArrowBatches(
+        "df_atomic_batches",
+        stream(batch([7])),
+      );
+      const changed = tableToIPC(
+        new Table({ other: vectorFromArray([8], new Int32()) }),
+      );
+
+      await expect(
+        engine.registerArrowBatches(
+          "df_atomic_batches",
+          stream(batch([1, 2]), changed),
+        ),
+      ).rejects.toThrow("Arrow schema changed");
+
+      const result = await engine.query(
+        'SELECT value FROM "df_atomic_batches"',
+      );
+      expect(result.rows).toEqual([{ value: "7" }]);
+      await engine.registerArrowBatches(
+        "df_after_batch_failure",
+        stream(batch([9])),
+      );
+      expect(
+        (await engine.query('SELECT value FROM "df_after_batch_failure"')).rows,
+      ).toEqual([{ value: "9" }]);
+    });
+
+    it("rolls back an aborted replacement without changing the live table", async () => {
+      engine = new NativeDuckDBEngine();
+      await engine.registerArrowBatches("df_abort_batches", stream(batch([1])));
+      const controller = new AbortController();
+      async function* aborting() {
+        yield batch([2, 3]);
+        controller.abort();
+        yield batch([4]);
+      }
+
+      await expect(
+        engine.registerArrowBatches("df_abort_batches", aborting(), {
+          signal: controller.signal,
+        }),
+      ).rejects.toMatchObject({ name: "AbortError" });
+      expect(
+        (await engine.query('SELECT value FROM "df_abort_batches"')).rows,
+      ).toEqual([{ value: "1" }]);
+    });
+
+    it("emits bounded IPC payloads from native result chunks", async () => {
+      engine = new NativeDuckDBEngine();
+      const payloads: Uint8Array[] = [];
+      for await (const payload of engine.queryArrowBatches(
+        "SELECT range AS value FROM range(5000)",
+      )) {
+        payloads.push(payload);
+      }
+
+      expect(payloads.length).toBeGreaterThan(1);
+      const tables = payloads.map((payload) => tableFromIPC(payload));
+      expect(tables.reduce((total, table) => total + table.numRows, 0)).toBe(
+        5000,
+      );
+      expect(Number(tables[0]?.getChild("value")?.get(0))).toBe(0);
+      expect(
+        Number(
+          tables
+            .at(-1)
+            ?.getChild("value")
+            ?.get(tables.at(-1)!.numRows - 1),
+        ),
+      ).toBe(4999);
+    });
+
+    it("emits one schema-bearing IPC payload for an empty result", async () => {
+      engine = new NativeDuckDBEngine();
+      const payloads: Uint8Array[] = [];
+      for await (const payload of engine.queryArrowBatches(
+        "SELECT 1::INTEGER AS value WHERE FALSE",
+      )) {
+        payloads.push(payload);
+      }
+
+      expect(payloads).toHaveLength(1);
+      const table = tableFromIPC(payloads[0]!);
+      expect(table.numRows).toBe(0);
+      expect(table.schema.fields.map((field) => field.name)).toEqual(["value"]);
+    });
+
+    it("interrupts and closes its dedicated query connection on abort", async () => {
+      engine = new NativeDuckDBEngine();
+      const interrupt = vi.spyOn(DuckDBConnection.prototype, "interrupt");
+      const disconnect = vi.spyOn(DuckDBConnection.prototype, "disconnectSync");
+      const controller = new AbortController();
+      const iterator = engine
+        .queryArrowBatches("SELECT range AS value FROM range(5000)", [], {
+          signal: controller.signal,
+        })
+        [Symbol.asyncIterator]();
+
+      expect((await iterator.next()).done).toBe(false);
+      const disconnectsBeforeAbort = disconnect.mock.calls.length;
+      controller.abort();
+      await expect(iterator.next()).rejects.toMatchObject({
+        name: "AbortError",
+      });
+      expect(interrupt).toHaveBeenCalledOnce();
+      expect(disconnect.mock.calls.length).toBe(disconnectsBeforeAbort + 1);
     });
   });
 });

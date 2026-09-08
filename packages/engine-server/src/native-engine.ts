@@ -37,6 +37,7 @@ import type { TableColumn } from "@dashframe/types";
 import {
   DuckDBDateValue,
   DuckDBInstance,
+  JsonDuckDBValueConverter,
   DuckDBTimestampValue,
   type DuckDBConnection as Connection,
   type DuckDBAppender,
@@ -190,6 +191,91 @@ export class NativeDuckDBEngine implements QueryEngine {
     }));
 
     return duckdbColumnsToArrowIpc(columns);
+  }
+
+  /** Stream bounded, self-contained Arrow IPC payloads from native result chunks. */
+  async *queryArrowBatches(
+    sql: string,
+    params: readonly unknown[] = [],
+    options: { signal?: AbortSignal } = {},
+  ): AsyncIterable<Uint8Array> {
+    await this.initialize();
+    options.signal?.throwIfAborted();
+    const connection = await this.instance!.connect();
+    const interrupt = () => connection.interrupt();
+    options.signal?.addEventListener("abort", interrupt, { once: true });
+    try {
+      const result =
+        params.length > 0
+          ? await connection.stream(sql, params as DuckDBValue[])
+          : await connection.stream(sql);
+      const columnNames = result.columnNames();
+      const columnTypes = result.columnTypes();
+      let emitted = false;
+      for (;;) {
+        options.signal?.throwIfAborted();
+        const chunk = await result.fetchChunk();
+        options.signal?.throwIfAborted();
+        if (!chunk || chunk.rowCount === 0) break;
+        emitted = true;
+        yield duckdbColumnsToArrowIpc(
+          columnNames.map((name, index) => ({
+            name,
+            typeId: columnTypes[index]?.typeId,
+            values: chunk.convertColumnValues(index, JsonDuckDBValueConverter),
+          })),
+        );
+      }
+      if (!emitted) {
+        yield duckdbColumnsToArrowIpc(
+          columnNames.map((name, index) => ({
+            name,
+            typeId: columnTypes[index]?.typeId,
+            values: [],
+          })),
+        );
+      }
+    } finally {
+      options.signal?.removeEventListener("abort", interrupt);
+      connection.disconnectSync();
+    }
+  }
+
+  /**
+   * Atomically replace a named table from bounded, self-contained Arrow IPC
+   * payloads. A dedicated connection contains appender failures and owns the
+   * transaction; the shared query connection is never exposed to partial work.
+   */
+  async registerArrowBatches(
+    name: string,
+    batches: AsyncIterable<Uint8Array>,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<void> {
+    await this.initialize();
+    options.signal?.throwIfAborted();
+    const gate = this._registrationLock;
+    let unlock!: () => void;
+    this._registrationLock = new Promise<void>((resolve) => {
+      unlock = resolve;
+    });
+    await gate;
+    try {
+      options.signal?.throwIfAborted();
+      const connection = await this.instance!.connect();
+      try {
+        await replaceArrowTableFromBatches(
+          connection,
+          name,
+          batches,
+          options.signal,
+        );
+      } finally {
+        connection.disconnectSync();
+      }
+      this._registeredTables.add(name);
+    } finally {
+      unlock();
+    }
   }
 
   /**
@@ -407,6 +493,128 @@ let stagingCounter = 0;
 function nextStagingId(): number {
   stagingCounter += 1;
   return stagingCounter;
+}
+
+function arrowSchemaSignature(fields: readonly Field[]): string {
+  return JSON.stringify(
+    fields.map((field) => ({
+      name: field.name,
+      nullable: field.nullable,
+      type: field.type.toString(),
+      metadata: Array.from(field.metadata ?? []).sort(([left], [right]) =>
+        left.localeCompare(right),
+      ),
+    })),
+  );
+}
+
+async function replaceArrowTableFromBatches(
+  connection: Connection,
+  name: string,
+  batches: AsyncIterable<Uint8Array>,
+  signal?: AbortSignal,
+): Promise<void> {
+  await connection.run("BEGIN TRANSACTION");
+  let committed = false;
+  try {
+    const stagingName = await stageArrowBatches(
+      connection,
+      name,
+      batches,
+      signal,
+    );
+    await connection.run(
+      `CREATE OR REPLACE TABLE ${quoteIdent(name)} AS SELECT * FROM ${quoteIdent(stagingName)}`,
+    );
+    await connection.run(`DROP TABLE ${quoteIdent(stagingName)}`);
+    signal?.throwIfAborted();
+    await connection.run("COMMIT");
+    committed = true;
+  } finally {
+    if (!committed) {
+      try {
+        await connection.run("ROLLBACK");
+      } catch {
+        // The dedicated connection is discarded by the caller.
+      }
+    }
+  }
+}
+
+async function stageArrowBatches(
+  connection: Connection,
+  name: string,
+  batches: AsyncIterable<Uint8Array>,
+  signal?: AbortSignal,
+): Promise<string> {
+  const stagingName = `__staging_${name}_${nextStagingId()}`;
+  let expectedSchema: string | undefined;
+  let appender: DuckDBAppender | null = null;
+  try {
+    for await (const arrow of batches) {
+      signal?.throwIfAborted();
+      const table = tableFromIPC(arrow);
+      const fields = table.schema.fields;
+      if (fields.length === 0) {
+        throw new Error(`Arrow buffer for table "${name}" has no columns`);
+      }
+      const schema = arrowSchemaSignature(fields);
+      if (expectedSchema !== undefined && schema !== expectedSchema) {
+        throw new Error(
+          `Arrow schema changed while registering table "${name}"`,
+        );
+      }
+      if (!appender) {
+        expectedSchema = schema;
+        const columnDefs = fields
+          .map(
+            (field) =>
+              `${quoteIdent(field.name)} ${arrowFieldToDuckDBType(field)}`,
+          )
+          .join(", ");
+        await connection.run(
+          `CREATE TABLE ${quoteIdent(stagingName)} (${columnDefs})`,
+        );
+        appender = await connection.createAppender(stagingName);
+      }
+      appendArrowRows(appender, table, fields, signal);
+    }
+    if (!appender) {
+      throw new Error(`Arrow batch stream for table "${name}" is empty`);
+    }
+    signal?.throwIfAborted();
+    appender.flushSync();
+    appender.closeSync();
+    appender = null;
+    return stagingName;
+  } finally {
+    if (appender) {
+      try {
+        appender.closeSync();
+      } catch {
+        // The dedicated connection is discarded by the caller.
+      }
+    }
+  }
+}
+
+function appendArrowRows(
+  appender: DuckDBAppender,
+  table: Awaited<ReturnType<typeof tableFromIPC>>,
+  fields: readonly Field[],
+  signal?: AbortSignal,
+): void {
+  const columns = fields.map((field) => ({
+    field,
+    vector: table.getChild(field.name),
+  }));
+  for (let row = 0; row < table.numRows; row++) {
+    if ((row & 2047) === 0) signal?.throwIfAborted();
+    for (const column of columns) {
+      appendArrowValue(appender, column.field, column.vector?.get(row));
+    }
+    appender.endRow();
+  }
 }
 
 /**
