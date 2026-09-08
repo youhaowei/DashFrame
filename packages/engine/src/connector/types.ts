@@ -98,6 +98,8 @@ export interface RemoteDatabase {
  */
 export interface QueryOptions {
   pagination?: { offset: number; limit: number };
+  /** Server-owned preflight ceiling for connectors that can measure remotely. */
+  maxBytes?: number;
   // Future: Add filters, sorting, etc.
 }
 

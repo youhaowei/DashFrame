@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { expect, it } from "vite-plus/test";
+import { expect, it, vi } from "vite-plus/test";
 import { ConvexHttpClient } from "convex/browser";
 import { api, internal } from "@dashframe/convex-backend/api";
 import { startLocalConvex, type LocalConvex } from "@dashframe/convex-local";
@@ -782,6 +782,49 @@ it(
             name: "Native hosted agent",
           }),
         );
+      const serviceCleanupRef = await vaultA.store("service-cleanup", {
+        class: CREDENTIAL_CLASS.AssistantProvider,
+      });
+      const serviceCleanupRow = {
+        id: crypto.randomUUID(),
+        providerId: "openai",
+        displayLabel: "Service cleanup fixture",
+        authKind: "api-key" as const,
+        baseUrl: "https://api.openai.com/v1",
+        credentialRef: serviceCleanupRef,
+        defaultModel: "gpt-5",
+        isDefault: false,
+        createdAt: 1,
+        updatedAt: 1,
+      };
+      await providersA.saveAssistantProviderConfig({
+        row: serviceCleanupRow,
+        expected: null,
+      });
+      await providersA.removeAssistantProviderConfig({
+        id: serviceCleanupRow.id,
+        expected: serviceCleanupRow,
+      });
+      const serviceHostedApplication = createHostedApplication({
+        deploymentUrl: backend.url,
+        allowInsecureLoopbackForTests: true,
+        source: {
+          kind: "service",
+          credentialId: namedCredential.credential.id,
+          expiresAt: Date.now() + 120_000,
+        },
+        workspaceId: workspaces[0]!,
+        workspaceOwnerId: "a",
+        resources: {
+          vault: vaultA,
+          accessCredentials: httpCredentials,
+          connectorSetup: sessionsA,
+          getServerEndpoint: () => undefined,
+        },
+        tokens: applicationTokens,
+      });
+      await serviceHostedApplication.cleanup.run();
+      expect(await vaultA.has(serviceCleanupRef)).toBe(false);
       const namedService = metadata(
         {
           sub: `service:${namedCredential.credential.id}`,
@@ -1090,6 +1133,17 @@ it(
         credential: "synthetic-workspace-provider-key",
         defaultModel: "gpt-5",
       };
+      const storeCredential = vi.spyOn(vaultA, "store");
+      const storesBeforeUnsafeUrl = storeCredential.mock.calls.length;
+      await expect(
+        saveAssistantProviderConfig(ownerContext, {
+          input: {
+            ...hostedProviderInput,
+            baseUrl: "https://169.254.169.254/latest",
+          },
+        }),
+      ).rejects.toThrow("Invalid provider base URL");
+      expect(storeCredential).toHaveBeenCalledTimes(storesBeforeUnsafeUrl);
       await expect(
         saveAssistantProviderConfig(
           { ...ownerContext, principal: { kind: "user", userId: "b" } },

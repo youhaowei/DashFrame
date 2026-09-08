@@ -75,6 +75,20 @@ export function createHostedApplication(options: {
     credentialVault: resources.vault,
     getToken: async () => tokens.metadata(source, workspaceId).token,
   });
+  const cleanupMetadata = createHostedProviderMetadata({
+    deploymentUrl,
+    allowInsecureLoopbackForTests: options.allowInsecureLoopbackForTests,
+    credentialVault: resources.vault,
+    getToken: async () =>
+      tokens.metadata(
+        {
+          kind: "user",
+          userId: workspaceOwnerId,
+          expiresAt: source.expiresAt,
+        },
+        workspaceId,
+      ).token,
+  });
   const ownership = createHostedCredentialOwnership({
     deploymentUrl,
     allowInsecureLoopbackForTests: options.allowInsecureLoopbackForTests,
@@ -91,7 +105,10 @@ export function createHostedApplication(options: {
   });
   const cleanup = new HostResourceCleanup({
     ...resources,
-    metadata: hostedMetadata,
+    // Cleanup is workspace maintenance, not caller work. A service credential
+    // may be the first principal after restart, but lifecycle cleanup requires
+    // the admitted owner; bind this server-owned capability independently.
+    metadata: cleanupMetadata,
   });
   const context: HostContext = {
     ...resources,

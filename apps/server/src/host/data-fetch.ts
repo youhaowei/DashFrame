@@ -427,6 +427,28 @@ export function createDataFetchFunctions(execute: LiveFetchExecutor) {
       }
     },
   });
+  const refreshDataTable = hostOperation({
+    input: z.object({ tableId: z.string().uuid() }).strict(),
+    run: async (ctx, { tableId }) => {
+      try {
+        const source = await resolveEphemeralSource(ctx, tableId as UUID);
+        if (source.sourceType !== "dataTable")
+          throw new Error("TARGET_NOT_READY");
+        return materialize(
+          ctx,
+          {
+            baseTableId: tableId as UUID,
+            selectedFields: [],
+            metrics: [],
+            source,
+          },
+          { kind: "refresh" },
+        );
+      } catch (error) {
+        return toFetchFailure(error, "FETCH_SOURCE_FAILED");
+      }
+    },
+  });
   const runInsight = hostOperation({
     input: z
       .object({ insightId: z.string().uuid(), runtime: z.unknown().optional() })
@@ -460,7 +482,7 @@ export function createDataFetchFunctions(execute: LiveFetchExecutor) {
       }
     },
   });
-  return { fetchData, runInsight };
+  return { fetchData, refreshDataTable, runInsight };
 }
 
 /** Resolve caller-supplied base identity against persisted server topology. */

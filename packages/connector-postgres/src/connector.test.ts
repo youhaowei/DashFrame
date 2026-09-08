@@ -621,6 +621,79 @@ describe("AC5 — Arrow output shape matches registry contract", () => {
 // ---------------------------------------------------------------------------
 
 describe("pagination pushdown (table-ref path)", () => {
+  it("measures and fetches a hosted window in one repeatable-read snapshot", async () => {
+    const query = vi.fn(async (sql: string | PgQueryConfig) => {
+      const text = callText(sql);
+      if (text.includes("octet_length"))
+        return {
+          rows: [{ bytes: "512" }],
+          fields: [{ name: "bytes", dataTypeID: 25 }],
+        };
+      if (text.toUpperCase().startsWith("SELECT * FROM"))
+        return {
+          rows: [{ id: 1 }],
+          fields: [{ name: "id", dataTypeID: 23 }],
+        };
+      return { rows: [], fields: [] };
+    });
+    const spyClient: PgClientLike = {
+      query: query as unknown as PgClientLike["query"],
+      end: vi.fn().mockResolvedValue(undefined),
+    };
+    const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
+
+    await expect(
+      connector.query("public.users", crypto.randomUUID(), {
+        pagination: { offset: 20, limit: 50 },
+        maxBytes: 1024,
+      }),
+    ).resolves.toMatchObject({ rowCount: 1 });
+
+    expect(query.mock.calls.slice(2).map(([sql]) => callText(sql))).toEqual([
+      "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY",
+      expect.stringContaining("octet_length"),
+      expect.stringContaining('SELECT * FROM "public"."users"'),
+      "COMMIT",
+    ]);
+  });
+
+  it("rejects an oversized bounded window before fetching its rows", async () => {
+    const query = vi.fn(async (sql: string | PgQueryConfig) =>
+      callText(sql).includes("octet_length")
+        ? {
+            rows: [{ bytes: "1025" }],
+            fields: [{ name: "bytes", dataTypeID: 25 }],
+          }
+        : { rows: [], fields: [] },
+    );
+    const spyClient: PgClientLike = {
+      query: query as unknown as PgClientLike["query"],
+      end: vi.fn().mockResolvedValue(undefined),
+    };
+    const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
+
+    await expect(
+      connector.query("public.users", crypto.randomUUID(), {
+        pagination: { offset: 0, limit: 50 },
+        maxBytes: 1024,
+      }),
+    ).rejects.toThrow("exceeds the hosted byte ceiling");
+    expect(query).toHaveBeenCalledTimes(5);
+    expect(query.mock.calls[2]?.[0]).toBe(
+      "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY",
+    );
+    expect(String(query.mock.calls[3]?.[0])).toContain(
+      "octet_length(row_to_json(_dashframe_row)::text)",
+    );
+    expect(query.mock.calls[3]?.[1]).toEqual([50, 0]);
+    expect(query.mock.calls[4]?.[0]).toBe("ROLLBACK");
+    expect(
+      query.mock.calls.some(([sql]) =>
+        String(sql).toUpperCase().startsWith("SELECT * FROM"),
+      ),
+    ).toBe(false);
+  });
+
   it("pushes LIMIT $1 OFFSET $2 into the SQL with bound params when limit is set", async () => {
     const spyClient = makeSpyClient([{ id: 1 }]);
     const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);

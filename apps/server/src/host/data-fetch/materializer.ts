@@ -23,6 +23,7 @@ export type EffectiveInsightDefinition = InsightFetchDefinition & {
 
 export type MaterializationTarget =
   | { kind: "ephemeral" }
+  | { kind: "refresh" }
   | { kind: "transient" }
   | { kind: "saved"; insightId: UUID };
 
@@ -186,44 +187,16 @@ async function materializeOnce(
   try {
     const tableIds = referencedTableIds(args.insight);
     const sources = await Promise.all(
-      tableIds.map(async (tableId) => {
-        if (
-          tableId === args.insight.baseTableId &&
-          args.insight.source?.sourceType === "insight"
-        ) {
-          if (ancestry.includes(tableId) || ancestry.length >= 16)
-            throw new Error("TARGET_NOT_READY");
-          const upstream = await dependencies.resolveInsight(args.ctx, tableId);
-          const ready = await materializeOnce(
-            dependencies,
-            { ctx: args.ctx, target: { kind: "transient" }, insight: upstream },
-            [...ancestry, tableId],
-            transientResults,
-            publishedSourceGenerations,
-          );
-          const arrow = await storage.load(ready.dataFrameId);
-          if (!arrow) throw new Error("TARGET_NOT_READY");
-          const fields = fieldsFromInsightResult(ready.schema, tableId);
-          return {
-            table: {
-              id: tableId,
-              dataSourceId: tableId,
-              name: `Insight ${tableId}`,
-              table: dependencies.tableName(ready.dataFrameId),
-              fields,
-              metrics: [],
-              dataFrameId: ready.dataFrameId,
-              createdAt: ready.fetchedAt,
-            },
-            arrow,
-            fields,
-            rowCount: ready.rowCount,
-            provenance: ready.provenance,
-            existingFrameId: ready.dataFrameId,
-          } satisfies SourceGeneration;
-        }
-        return dependencies.resolveSource(args.ctx, tableId);
-      }),
+      tableIds.map((tableId) =>
+        resolveMaterializationSource(
+          dependencies,
+          args,
+          tableId,
+          ancestry,
+          transientResults,
+          publishedSourceGenerations,
+        ),
+      ),
     );
     for (const source of sources) {
       assertSourceSchema(source);
@@ -261,6 +234,42 @@ async function materializeOnce(
       );
       pendingSources.push({ source, frame });
       tables.set(source.table.id, { ...source.table, dataFrameId: frameId });
+    }
+
+    if (args.target.kind === "refresh") {
+      const refreshed = pendingSources[0];
+      if (!refreshed || pendingSources.length !== 1)
+        throw new Error("TARGET_NOT_READY");
+      const fetchedAt = dependencies.now();
+      const definitionFingerprint = dependencies.fingerprint({
+        insight: args.insight,
+        sources,
+      });
+      publicationAttempted = true;
+      await dependencies.publish(args.ctx, {
+        target: args.target,
+        sources: pendingSources,
+        result: refreshed.frame,
+        definitionFingerprint,
+        provenance: refreshed.source.provenance,
+        fetchedAt,
+      });
+      const sourceGeneration = {
+        tableId: refreshed.source.table.id,
+        dataFrameId: refreshed.frame.id,
+        lastFetchedAt: fetchedAt,
+      };
+      publishedSourceGenerations.push(sourceGeneration);
+      return {
+        status: "ready",
+        dataFrameId: refreshed.frame.id,
+        schema: refreshed.frame.schema,
+        rowCount: refreshed.frame.rowCount,
+        definitionFingerprint,
+        provenance: refreshed.source.provenance,
+        fetchedAt,
+        sourceGenerations: publishedSourceGenerations,
+      };
     }
 
     const sql = dependencies.compile({ insight: args.insight, tables });
@@ -338,15 +347,82 @@ async function materializeOnce(
     // may already reference any pending generation, or still be in flight.
     // Retain bytes and registrations after publication starts; unresolved
     // attempts may leave orphans until a future reconciliation pass.
-    if (!publicationAttempted) {
-      await cleanupNewFrames(storage, runtime, dependencies, created);
-    }
-    if (args.target.kind !== "transient") {
-      await cleanupNewFrames(storage, runtime, dependencies, transientResults);
-      transientResults.length = 0;
-    }
+    await cleanupFailedMaterialization(
+      storage,
+      runtime,
+      dependencies,
+      args.target,
+      created,
+      transientResults,
+      publicationAttempted,
+    );
     throw withPublishedSourceGenerations(error, publishedSourceGenerations);
   }
+}
+
+async function cleanupFailedMaterialization(
+  storage: DataFrameStorage,
+  runtime: HostDataPlaneRuntime,
+  dependencies: InsightMaterializerDependencies,
+  target: MaterializationTarget,
+  created: Array<{ id: UUID; registered: boolean }>,
+  transientResults: Array<{ id: UUID; registered: boolean }>,
+  publicationAttempted: boolean,
+): Promise<void> {
+  if (!publicationAttempted)
+    await cleanupNewFrames(storage, runtime, dependencies, created);
+  if (target.kind === "transient") return;
+  await cleanupNewFrames(storage, runtime, dependencies, transientResults);
+  transientResults.length = 0;
+}
+
+async function resolveMaterializationSource(
+  dependencies: InsightMaterializerDependencies,
+  args: {
+    ctx: HostContext;
+    target: MaterializationTarget;
+    insight: EffectiveInsightDefinition;
+  },
+  tableId: UUID,
+  ancestry: readonly UUID[],
+  transientResults: Array<{ id: UUID; registered: boolean }>,
+  publishedSourceGenerations: InsightSourceGeneration[],
+): Promise<SourceGeneration> {
+  if (
+    tableId !== args.insight.baseTableId ||
+    args.insight.source?.sourceType !== "insight"
+  )
+    return dependencies.resolveSource(args.ctx, tableId);
+  if (ancestry.includes(tableId) || ancestry.length >= 16)
+    throw new Error("TARGET_NOT_READY");
+  const upstream = await dependencies.resolveInsight(args.ctx, tableId);
+  const ready = await materializeOnce(
+    dependencies,
+    { ctx: args.ctx, target: { kind: "transient" }, insight: upstream },
+    [...ancestry, tableId],
+    transientResults,
+    publishedSourceGenerations,
+  );
+  const arrow = await dependencies.storage(args.ctx).load(ready.dataFrameId);
+  if (!arrow) throw new Error("TARGET_NOT_READY");
+  const fields = fieldsFromInsightResult(ready.schema, tableId);
+  return {
+    table: {
+      id: tableId,
+      dataSourceId: tableId,
+      name: `Insight ${tableId}`,
+      table: dependencies.tableName(ready.dataFrameId),
+      fields,
+      metrics: [],
+      dataFrameId: ready.dataFrameId,
+      createdAt: ready.fetchedAt,
+    },
+    arrow,
+    fields,
+    rowCount: ready.rowCount,
+    provenance: ready.provenance,
+    existingFrameId: ready.dataFrameId,
+  };
 }
 
 async function cleanupTransientFrames(

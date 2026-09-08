@@ -68,7 +68,12 @@ export async function publishMaterialization(
     target:
       value.target.kind === "saved"
         ? { kind: "saved", insightId: value.target.insightId }
-        : { kind: value.target.kind },
+        : {
+            kind:
+              value.target.kind === "refresh"
+                ? ("transient" as const)
+                : value.target.kind,
+          },
     sources: value.sources.map(({ source, frame }) => ({
       source: {
         table: {

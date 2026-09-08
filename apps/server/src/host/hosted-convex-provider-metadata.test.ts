@@ -101,6 +101,10 @@ it("rejects raw references, unknown fields, unsafe base URLs, and mismatched rem
     { ...valid, baseUrl: "https://example.com/v1?apiKey=plaintext" },
     { ...valid, baseUrl: "https://example.com/v1#credential" },
     { ...valid, baseUrl: "https://example.com\\@other.example/v1" },
+    { ...valid, baseUrl: "https://localhost/v1" },
+    { ...valid, baseUrl: "https://10.0.0.5/v1" },
+    { ...valid, baseUrl: "https://169.254.169.254/latest" },
+    { ...valid, baseUrl: "https://[::1]/v1" },
     { ...valid, arbitraryConfig: { apiKey: "plaintext" } },
   ])
     await expect(

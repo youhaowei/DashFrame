@@ -589,14 +589,13 @@ export class PostgresConnector extends RemoteApiConnector {
         // Table reference — split on the pre-computed dot index.
         const refSchema = trimmed.slice(0, dotIdx);
         const refTable = trimmed.slice(dotIdx + 1);
-        // Sink 2: both parts quoted via quoteIdentifier(). Pagination is pushed
-        // down into the SQL (LIMIT/OFFSET) so we never materialize a full table.
-        const result = await fetchTable(
+        const result = await fetchTableWindow(
           client,
           refSchema,
           refTable,
           limit,
           offset,
+          options?.maxBytes,
         );
         rows = result.rows;
         pgFields = result.fields;
@@ -703,6 +702,68 @@ async function fetchTable(
   }
   // Bound window: limit/offset as $1/$2 value parameters → extended protocol.
   return client.query(`${base} LIMIT $1 OFFSET $2`, [limit, offset]);
+}
+
+async function fetchTableWindow(
+  client: PgClientLike,
+  schema: string,
+  table: string,
+  limit: number | undefined,
+  offset: number,
+  maxBytes: number | undefined,
+): Promise<PgQueryResult> {
+  if (maxBytes === undefined)
+    return fetchTable(client, schema, table, limit, offset);
+  if (limit === undefined)
+    throw new Error(
+      "[PostgresConnector] A byte ceiling requires a bounded row window",
+    );
+  await client.query(
+    "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY",
+  );
+  try {
+    await assertTableWindowWithinBytes(
+      client,
+      schema,
+      table,
+      limit,
+      offset,
+      maxBytes,
+    );
+    const result = await fetchTable(client, schema, table, limit, offset);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    try {
+      await client.query("ROLLBACK");
+    } catch {
+      // Preserve the preflight/fetch failure; client teardown follows.
+    }
+    throw error;
+  }
+}
+
+async function assertTableWindowWithinBytes(
+  client: PgClientLike,
+  schema: string,
+  table: string,
+  limit: number,
+  offset: number,
+  maxBytes: number,
+): Promise<void> {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0)
+    throw new Error("[PostgresConnector] Invalid byte ceiling");
+  const target = `${quoteIdentifier(schema)}.${quoteIdentifier(table)}`;
+  const measured = await client.query(
+    `SELECT COALESCE(SUM(octet_length(row_to_json(_dashframe_row)::text)), 0)::text AS bytes
+     FROM (SELECT * FROM ${target} LIMIT $1 OFFSET $2) AS _dashframe_row`,
+    [limit, offset],
+  );
+  const bytes = Number(measured.rows[0]?.bytes);
+  if (!Number.isSafeInteger(bytes) || bytes < 0 || bytes > maxBytes)
+    throw new Error(
+      "[PostgresConnector] Result exceeds the hosted byte ceiling",
+    );
 }
 
 /**

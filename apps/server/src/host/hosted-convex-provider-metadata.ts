@@ -2,6 +2,7 @@ import { api } from "@dashframe/convex-backend/api";
 import type { SecretRef } from "@wystack/secret-vault";
 import { isSecretRef } from "@wystack/secret-vault";
 import { z } from "zod";
+import ipaddr from "ipaddr.js";
 import { createHostedMetadataClient } from "./hosted-convex-metadata";
 import {
   createHostedSourceMetadata,
@@ -11,7 +12,16 @@ import {
 import type { HostMetadata } from "./metadata";
 
 const secretRef = z.custom<SecretRef>(isSecretRef, "Invalid SecretRef");
-const baseUrl = z
+function isPrivateLiteralOrLocalhost(hostname: string): boolean {
+  let host = hostname.toLowerCase().replace(/^\[/, "").replace(/\]$/, "");
+  while (host.endsWith(".")) host = host.slice(0, -1);
+  if (host === "localhost" || host.endsWith(".localhost")) return true;
+  if (!ipaddr.isValid(host)) return false;
+  const address = ipaddr.process(host);
+  return address.range() !== "unicast";
+}
+
+export const hostedProviderBaseUrl = z
   .string()
   .trim()
   .min(1)
@@ -32,7 +42,8 @@ const baseUrl = z
         !parsed.username &&
         !parsed.password &&
         !parsed.search &&
-        !parsed.hash
+        !parsed.hash &&
+        !isPrivateLiteralOrLocalhost(parsed.hostname)
       );
     } catch {
       return false;
@@ -44,7 +55,7 @@ const rowSchema = z
     providerId: z.string().trim().min(1),
     displayLabel: z.string().trim().min(1),
     authKind: z.enum(["api-key", "local", "oauth"]),
-    baseUrl: baseUrl.nullable(),
+    baseUrl: hostedProviderBaseUrl.nullable(),
     credentialRef: secretRef.nullable(),
     defaultModel: z.string().trim().min(1),
     isDefault: z.boolean(),

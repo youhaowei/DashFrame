@@ -157,6 +157,49 @@ const insight = {
 };
 
 describe("immutable Insight materializer", () => {
+  it("refreshes one source without creating an unused result frame", async () => {
+    const compile = vi.fn(() => "SELECT 1");
+    const h = harness({ compile });
+    const materializer = createInsightMaterializer(h.dependencies);
+
+    const ready = await materializer.materialize({
+      ctx: {} as never,
+      target: { kind: "refresh" },
+      insight: {
+        baseTableId: "base",
+        selectedFields: [],
+        metrics: [],
+      },
+    });
+
+    expect(compile).not.toHaveBeenCalled();
+    expect(h.runtime.queryArrow).not.toHaveBeenCalled();
+    expect(h.storage.save).toHaveBeenCalledTimes(1);
+    expect(h.publish).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        target: { kind: "refresh" },
+        sources: [
+          expect.objectContaining({
+            source: expect.objectContaining({
+              table: expect.objectContaining({ id: "base" }),
+            }),
+          }),
+        ],
+        result: expect.objectContaining({ id: "frame-1" }),
+      }),
+    );
+    expect(ready).toMatchObject({
+      status: "ready",
+      dataFrameId: "frame-1",
+      sourceGenerations: [
+        { tableId: "base", dataFrameId: "frame-1", lastFetchedAt: 123 },
+      ],
+    });
+    expect(h.bytes.size).toBe(1);
+    expect(h.registered.size).toBe(1);
+  });
+
   it("fetches every source and publishes only metadata after the result is saved", async () => {
     const h = harness();
     const materializer = createInsightMaterializer(h.dependencies);

@@ -6,6 +6,7 @@ import {
   vectorFromArray,
 } from "apache-arrow";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { MAX_LOCAL_ARROW_BYTES } from "@dashframe/types";
 
 const { ga4ConnectorFor, notionConnectorFor, postgresConnectorFor } =
   vi.hoisted(() => ({
@@ -38,8 +39,12 @@ const source = {
   config: {},
 };
 
-function context(rows: { table?: unknown; source?: unknown; frame?: unknown }) {
+function context(
+  rows: { table?: unknown; source?: unknown; frame?: unknown },
+  workspaceOwnerId?: string,
+) {
   return {
+    workspaceOwnerId,
     metadata: {
       getDataTable: async () => rows.table,
       getDataFrame: async () => rows.frame,
@@ -199,6 +204,26 @@ describe("Source Binding registry", () => {
       expect(query).toHaveBeenCalledWith(table.table, table.id);
     },
   );
+
+  it("bounds hosted Postgres rows and bytes before accepting connector output", async () => {
+    const query = vi.fn().mockResolvedValue(page([1, 2]));
+    postgresConnectorFor.mockResolvedValue({ query });
+    const postgresSource = { ...source, kind: "postgres" };
+    const binding = await resolveSourceBinding(
+      context({ table, source: postgresSource }, "owner-a"),
+      table.id,
+    );
+
+    await fetchSourceBinding(
+      context({ table, source: postgresSource }, "owner-a"),
+      binding,
+    );
+
+    expect(query).toHaveBeenCalledWith(table.table, table.id, {
+      pagination: { offset: 0, limit: 10_000 },
+      maxBytes: Math.floor(MAX_LOCAL_ARROW_BYTES / 4),
+    });
+  });
 
   it("reads a local table only from its current server-owned frame", async () => {
     const localTable = {

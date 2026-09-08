@@ -3,12 +3,12 @@ import type { UUID } from "@dashframe/types";
 import { expect, it, vi } from "vite-plus/test";
 import { RefreshTableButton } from "./RefreshTableButton";
 
-const { fetchData, success } = vi.hoisted(() => ({
-  fetchData: vi.fn(),
+const { refreshDataTable, success } = vi.hoisted(() => ({
+  refreshDataTable: vi.fn(),
   success: vi.fn(),
 }));
 vi.mock("@/data/host", () => ({
-  useHostMutation: () => ({ mutateAsync: fetchData }),
+  useHostMutation: () => ({ mutateAsync: refreshDataTable }),
 }));
 vi.mock("sonner", () => ({ toast: { success, error: vi.fn() } }));
 vi.mock("@wystack/ui-react/icons", () => ({ RefreshIcon: () => null }));
@@ -30,7 +30,7 @@ vi.mock("@wystack/ui-react", () => ({
 
 it("keeps pending work and completion attached to the original table after selection changes", async () => {
   let complete!: (result: { status: "ready" }) => void;
-  fetchData.mockReturnValueOnce(
+  refreshDataTable.mockReturnValueOnce(
     new Promise((resolve) => {
       complete = resolve;
     }),
@@ -57,7 +57,5 @@ it("keeps pending work and completion attached to the original table after selec
   });
   expect(success).toHaveBeenCalledWith("Orders refreshed");
   expect(success).not.toHaveBeenCalledWith("Customers refreshed");
-  expect(fetchData).toHaveBeenCalledExactlyOnceWith({
-    insight: { baseTableId: "a", selectedFields: [], metrics: [] },
-  });
+  expect(refreshDataTable).toHaveBeenCalledExactlyOnceWith({ tableId: "a" });
 });

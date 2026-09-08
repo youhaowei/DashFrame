@@ -21,6 +21,7 @@ import {
   type HostContext,
 } from "./context";
 import type { AssistantProviderConfigRow } from "./metadata";
+import { hostedProviderBaseUrl } from "./hosted-convex-provider-metadata";
 const vaultFromCtx = (ctx: HostContext) => ctx.vault;
 const withClassBoundaryMessage = <T>(operation: () => Promise<T>) =>
   operation();
@@ -183,6 +184,8 @@ export async function saveAssistantProviderConfig(
   const input = saveInputSchema.parse(args.input);
   if (ctx.workspaceOwnerId !== undefined && input.authKind === "oauth")
     throw new Error("Use an API key for hosted assistant providers");
+  if (ctx.workspaceOwnerId !== undefined && input.baseUrl !== undefined)
+    hostedProviderBaseUrl.parse(input.baseUrl);
   if (
     !getAssistantProviderCatalog().some(
       (entry) => entry.providerId === input.providerId,

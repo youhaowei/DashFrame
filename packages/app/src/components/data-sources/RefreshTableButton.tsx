@@ -13,15 +13,13 @@ export function RefreshTableButton({
   tableId: UUID;
   tableName: string;
 }) {
-  const { mutateAsync: fetchData } = useHostMutation("fetchData");
+  const { mutateAsync: refreshDataTable } = useHostMutation("refreshDataTable");
   const [isRefreshing, setIsRefreshing] = useState(false);
   const refresh = async () => {
     if (isRefreshing) return;
     setIsRefreshing(true);
     try {
-      const result = await fetchData({
-        insight: { baseTableId: tableId, selectedFields: [], metrics: [] },
-      });
+      const result = await refreshDataTable({ tableId });
       if (result.status === "failed")
         toast.error(`Could not refresh ${tableName}: ${result.message}`);
       else toast.success(`${tableName} refreshed`);

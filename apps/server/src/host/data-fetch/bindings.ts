@@ -1,5 +1,5 @@
 /** Server-only Source Binding resolution for live data fetches. */
-import type { Field, UUID } from "@dashframe/types";
+import { MAX_LOCAL_ARROW_BYTES, type Field, type UUID } from "@dashframe/types";
 import { Table, tableFromIPC, tableToIPC } from "apache-arrow";
 
 import type { HostContext } from "../context";
@@ -85,7 +85,10 @@ type QueryConnector = {
   query: (
     resource: string,
     tableId: UUID,
-    options?: { pagination: { offset: number; limit: number } },
+    options?: {
+      pagination?: { offset: number; limit: number };
+      maxBytes?: number;
+    },
   ) => Promise<{
     arrowBuffer: string;
     fieldIds: string[];
@@ -178,7 +181,22 @@ async function fetchExhaustiveRemoteBinding(
     throw new Error("TARGET_NOT_READY");
   try {
     const connector = await connectorFor(ctx, binding.dataSourceId);
-    const result = await connector.query(binding.table.table, binding.table.id);
+    const hostedPostgresOptions =
+      ctx.workspaceOwnerId !== undefined && kind === "postgres"
+        ? {
+            pagination: { offset: 0, limit: GA4_PAGE_SIZE },
+            // JSON text is only a prebuffer proxy for Arrow/in-memory size.
+            // Keep a conservative quarter-budget before the shared host reads rows.
+            maxBytes: Math.floor(MAX_LOCAL_ARROW_BYTES / 4),
+          }
+        : undefined;
+    const result = hostedPostgresOptions
+      ? await connector.query(
+          binding.table.table,
+          binding.table.id,
+          hostedPostgresOptions,
+        )
+      : await connector.query(binding.table.table, binding.table.id);
     pageSignature(result);
     return {
       ...result,

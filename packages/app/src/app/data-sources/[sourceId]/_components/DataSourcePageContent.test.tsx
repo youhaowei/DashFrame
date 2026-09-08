@@ -80,7 +80,7 @@ vi.mock("@/data/host", () => ({
     throw new Error(`Unexpected query: ${ref._path}`);
   }),
   useHostMutation: hostMutationMock((ref: { _path: string }) => {
-    if (ref._path === "fetchData") return { mutateAsync: mockFetchData };
+    if (ref._path === "refreshDataTable") return { mutateAsync: mockFetchData };
     if (ref._path === "commitBatch") {
       return { mutateAsync: mockCommitBatch };
     }
@@ -559,9 +559,7 @@ describe("DataSourcePageContent — loading state contract", () => {
         screen.getByRole("button", { name: "Refresh", exact: true }),
       );
     });
-    expect(mockFetchData).toHaveBeenCalledWith({
-      insight: { baseTableId: "table-orders", selectedFields: [], metrics: [] },
-    });
+    expect(mockFetchData).toHaveBeenCalledWith({ tableId: "table-orders" });
     expect(mockToastError).toHaveBeenCalledWith(
       "Could not refresh Orders: Connection unavailable",
     );
