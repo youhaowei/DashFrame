@@ -122,3 +122,81 @@ it("does not send an unauthenticated request when the injected signer fails", as
   await expect(metadata.listDataFrames()).rejects.toThrow("Signer unavailable");
   expect(fetch).not.toHaveBeenCalled();
 });
+
+it.each([
+  ["http://metadata.test", false],
+  ["http://metadata.test", true],
+  ["http://127.0.0.1:3210", false],
+  ["http://localhost:3210", true],
+  // oxlint-disable-next-line sonarjs/no-clear-text-protocols -- Negative transport fixture: this URL must be rejected.
+  ["http://[::1]:3210", true],
+  ["http://127.1:3210", true],
+  ["http://2130706433:3210", true],
+  ["https://user:password@metadata.test", false],
+  ["https://@metadata.test", false],
+  ["https://meta\ndata.test", false],
+  ["https://metadata.test\\path", false],
+  ["http://user@127.0.0.1:3210", true],
+  ["ftp://metadata.test", false],
+  ["file:///tmp/metadata", false],
+  ["not a URL", false],
+  ["https://metadata.test/path", false],
+  ["https://metadata.test/?query=value", false],
+  ["https://metadata.test/#fragment", false],
+  ["https://metadata.test?", false],
+  ["https://metadata.test#", false],
+  ["http://127.0.0.1:3210/path", true],
+  ["https:///metadata.test", false],
+  [" https://metadata.test", false],
+  // oxlint-disable-next-line sonarjs/no-clear-text-protocols -- Negative transport fixture: this malformed URL must be rejected.
+  ["http://127.0.0.1:99999", true],
+])(
+  "rejects unsafe deployment %s before requesting a token or accessing the network",
+  (deploymentUrl, allowInsecureLoopbackForTests) => {
+    const fetch = vi.fn(),
+      getToken = vi.fn(async () => "synthetic-host-token");
+    vi.stubGlobal("fetch", fetch);
+    expect(() =>
+      createHostedMetadata({
+        deploymentUrl,
+        allowInsecureLoopbackForTests,
+        getToken,
+      }),
+    ).toThrow();
+    expect(getToken).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  },
+);
+
+it("allows only explicitly opted-in literal loopback HTTP for disposable fixtures", async () => {
+  const fetch = vi.fn(
+    async () =>
+      new Response(JSON.stringify({ status: "success", value: null })),
+  );
+  vi.stubGlobal("fetch", fetch);
+  const metadata = createHostedMetadata({
+    deploymentUrl: "http://127.0.0.1:3210",
+    allowInsecureLoopbackForTests: true,
+    getToken: async () => "synthetic-test-token",
+  });
+  await metadata.getDataTable("table");
+  expect(fetch).toHaveBeenCalledOnce();
+});
+
+it.each([
+  "https://metadata.test",
+  "https://metadata.test/",
+  "HTTPS://metadata.test:443/",
+])("uses the canonical HTTPS origin for %s", async (deploymentUrl) => {
+  const fetch = vi.fn(
+    async (_url: string, _init: RequestInit) =>
+      new Response(JSON.stringify({ status: "success", value: null })),
+  );
+  vi.stubGlobal("fetch", fetch);
+  const metadata = createHostedMetadata({
+    deploymentUrl,
+    getToken: async () => "synthetic-token",
+  });
+  await metadata.getDataTable("table");
+  expect(fetch.mock.calls[0]?.[0]).toBe("https://metadata.test/api/query");
+});
