@@ -230,7 +230,7 @@ async function runConnectorQuery(
     connectorKind: "notion" | "postgres" | "googleAnalytics";
     dataSourceId: UUID;
     table: DataTableRow;
-    sourceRevision: number;
+    sourceRevision: number | (() => number);
     pagination: ReturnType<typeof connectorQueryOptions>;
     snapshot: boolean | undefined;
     reviewedFields: unknown;
@@ -238,6 +238,10 @@ async function runConnectorQuery(
   },
 ): Promise<ConnectorQueryResult & { dataFrameId?: UUID }> {
   if (!input.snapshot) return input.query();
+  const claimedSourceRevision =
+    typeof input.sourceRevision === "function"
+      ? input.sourceRevision()
+      : input.sourceRevision;
   const operationId = randomUUID();
   const requestHash = createHash("sha256")
     .update(
@@ -248,17 +252,26 @@ async function runConnectorQuery(
         tableId: input.table.id,
         remoteTable: input.table.table,
         expectedDataFrameId: input.table.dataFrameId ?? null,
-        expectedDataSourceRevision: input.sourceRevision,
+        expectedDataSourceRevision: claimedSourceRevision,
         pagination: input.pagination ?? null,
         approvedFields: input.reviewedFields ?? null,
       }),
     )
     .digest("hex");
-  const claim = await ctx.metadata.beginLocalImport({
-    operationId,
-    requestHash,
-  });
   const identity = { operationId, requestHash };
+  let claim;
+  try {
+    claim = await ctx.metadata.beginLocalImport(identity);
+  } catch (error) {
+    // A hosted mutation may commit and lose only its response. Recover the
+    // exact identity before any remote work so a retry cannot strand a claim.
+    try {
+      claim = await ctx.metadata.getLocalImport(identity);
+    } catch {
+      throw error;
+    }
+    if (!claim) throw error;
+  }
   try {
     const result = await input.query();
     const dataFrameId = await persistConnectorFrame(ctx, {
@@ -266,7 +279,10 @@ async function runConnectorQuery(
       dataSourceId: input.dataSourceId,
       tableId: input.table.id as UUID,
       expectedDataFrameId: input.table.dataFrameId ?? null,
-      expectedDataSourceRevision: input.sourceRevision,
+      expectedDataSourceRevision:
+        typeof input.sourceRevision === "function"
+          ? input.sourceRevision()
+          : input.sourceRevision,
       expectedRemoteTable: input.table.table,
       approvedFields: approvedFieldsForSnapshot(
         input.reviewedFields,
@@ -463,22 +479,34 @@ export async function ga4ConnectorFor(
   // the stored bundle, so rotating the OAuth client is a config change instead
   // of a re-write of every connected source's vault entry.
   const oauthClient = ctx.googleOAuth;
-  return Object.assign(
-    makeGa4Connector(auth, {
-      reportVersion: reportVersion ?? persistedReportVersion,
-      ...(oauthClient
-        ? {
-            oauthClient: {
-              clientId: oauthClient.clientId,
-              clientSecret: oauthClient.clientSecret,
-            },
-          }
-        : {}),
-      persistTokenBundle: (bundle) =>
-        persistGa4TokenBundle(ctx, dataSourceId, vault, bundle),
-    }),
-    { sourceRevision: row.revision },
-  );
+  let sourceRevision = row.revision;
+  let sourceConfig: unknown = row.config;
+  const connector = makeGa4Connector(auth, {
+    reportVersion: reportVersion ?? persistedReportVersion,
+    ...(oauthClient
+      ? {
+          oauthClient: {
+            clientId: oauthClient.clientId,
+            clientSecret: oauthClient.clientSecret,
+          },
+        }
+      : {}),
+    persistTokenBundle: async (bundle) => {
+      const written = await persistGa4TokenBundle(
+        ctx,
+        dataSourceId,
+        vault,
+        bundle,
+        { revision: sourceRevision, config: sourceConfig },
+      );
+      sourceRevision = written.revision;
+      sourceConfig = written.config;
+    },
+  });
+  Object.defineProperty(connector, "sourceRevision", {
+    get: () => sourceRevision,
+  });
+  return connector as typeof connector & { sourceRevision: number };
 }
 
 async function persistGa4TokenBundleLocked(
@@ -486,10 +514,10 @@ async function persistGa4TokenBundleLocked(
   dataSourceId: UUID,
   vault: SecretVault | undefined,
   bundle: GoogleOAuthTokenBundle,
-): Promise<void> {
-  const current = await ctx.metadata.getDataSource(dataSourceId);
-  if (!current || !vault) throw new Error("TARGET_NOT_READY");
-  const config = { ...((current.config ?? {}) as DataSourceConfig) };
+  expected: { revision: number; config: unknown },
+): Promise<{ revision: number; config: unknown }> {
+  if (!vault) throw new Error("TARGET_NOT_READY");
+  const config = { ...((expected.config ?? {}) as DataSourceConfig) };
   const previous = config.apiKey;
   const next = await vault.store(JSON.stringify(bundle), {
     class: CREDENTIAL_CLASS.ConnectorKey,
@@ -498,14 +526,39 @@ async function persistGa4TokenBundleLocked(
   config.apiKey = next;
   // An uncertain network outcome can already be committed. Leave the new
   // secret available until reconciliation can prove it is unreferenced.
-  await ctx.metadata.replaceDataSourceConfig({
-    id: dataSourceId,
-    expectedConfig: current.config,
-    config,
-  });
-  if (isSecretRef(previous) && previous !== next) {
-    await vault.delete(previous);
+  let replaceError: unknown;
+  try {
+    await ctx.metadata.replaceDataSourceConfig({
+      id: dataSourceId,
+      expectedRevision: expected.revision,
+      expectedConfig: expected.config,
+      config,
+    });
+  } catch (error) {
+    replaceError = error;
   }
+  let written: DataSourceRow | null;
+  try {
+    written = await ctx.metadata.getDataSource(dataSourceId);
+  } catch (error) {
+    throw replaceError ?? error;
+  }
+  if (
+    !written ||
+    written.revision !== expected.revision + 1 ||
+    stableInput(written.config ?? {}) !== stableInput(config)
+  ) {
+    if (replaceError) throw replaceError;
+    throw new Error("DataSource config changed");
+  }
+  if (isSecretRef(previous) && previous !== next) {
+    try {
+      await vault.delete(previous);
+    } catch {
+      console.warn("[GA4Connector] obsolete credential cleanup failed");
+    }
+  }
+  return { revision: written.revision, config: written.config };
 }
 
 const ga4TokenWrites = new Map<UUID, Promise<void>>();
@@ -515,14 +568,15 @@ async function persistGa4TokenBundle(
   dataSourceId: UUID,
   vault: SecretVault | undefined,
   bundle: GoogleOAuthTokenBundle,
-): Promise<void> {
+  expected: { revision: number; config: unknown },
+): Promise<{ revision: number; config: unknown }> {
   const previous = ga4TokenWrites.get(dataSourceId) ?? Promise.resolve();
   // Chained on a tail that settles either way. A persist failure is non-fatal
   // to the request that hit it (see `accessTokenFor`), so it must not reject
   // every write queued behind it — that would turn one storage hiccup into a
   // permanently broken refresh path for the source.
   const settle = () =>
-    persistGa4TokenBundleLocked(ctx, dataSourceId, vault, bundle);
+    persistGa4TokenBundleLocked(ctx, dataSourceId, vault, bundle, expected);
   const result = previous.then(settle, settle);
   // Drop the entry once this is the last write outstanding, or the map grows a
   // permanent entry per source connected in the process's lifetime. Folded
@@ -586,7 +640,7 @@ export const queryGa4Property = hostOperation({
       connectorKind: "googleAnalytics",
       dataSourceId,
       table,
-      sourceRevision: connector.sourceRevision,
+      sourceRevision: () => connector.sourceRevision,
       pagination,
       snapshot,
       reviewedFields,
@@ -747,7 +801,9 @@ async function persistConnectorFrame(
         await ctx.metadata.commitImportedFrame(publication);
       } catch (error) {
         if (error instanceof ImportPublicationRejectedError) {
-          await storage.delete(id);
+          // Cancellation below durably queues cleanup. Preserve the
+          // authoritative publication rejection if eager deletion fails.
+          await storage.delete(id).catch(() => undefined);
         }
         throw error;
       }
