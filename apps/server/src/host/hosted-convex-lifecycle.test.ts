@@ -46,6 +46,8 @@ it("sends lifecycle operations through fixed Bearer endpoints without caller-sel
   await metadata.getLocalImport(identity);
   await metadata.cancelLocalImport(identity);
   await metadata.commitImportedFrame({
+    ...identity,
+    expectedDataSourceRevision: 1,
     dataTableId: "table",
     dataSourceId: "source",
     expectedDataFrameId: null,

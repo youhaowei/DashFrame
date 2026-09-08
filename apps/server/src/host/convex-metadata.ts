@@ -2,7 +2,11 @@ import { internal } from "@dashframe/convex-backend/api";
 import type { LocalConvex } from "@dashframe/convex-local";
 import type { FunctionArgs } from "convex/server";
 import type { Field } from "@dashframe/types";
-import type { HostMetadata } from "./metadata";
+import {
+  ImportPublicationRejectedError,
+  importPublicationRejection,
+  type HostMetadata,
+} from "./metadata";
 
 /** Translate host domain operations to private, generated Convex functions. */
 export function createHostMetadata(
@@ -139,12 +143,19 @@ export function createHostMetadata(
       await client.mutation(internal.host.clearAllData, { workspaceId });
     },
     commitImportedFrame: async (input) => {
-      await client.mutation(
-        internal.host.commitImportedFrame,
-        wire({ workspaceId, ...input }) as FunctionArgs<
-          typeof internal.host.commitImportedFrame
-        >,
-      );
+      try {
+        await client.mutation(
+          internal.host.commitImportedFrame,
+          wire({ workspaceId, ...input }) as FunctionArgs<
+            typeof internal.host.commitImportedFrame
+          >,
+        );
+      } catch (error) {
+        const rejection = importPublicationRejection(error);
+        if (rejection)
+          throw new ImportPublicationRejectedError(rejection, { cause: error });
+        throw error;
+      }
     },
     publishMaterialization: async (value) => {
       await client.mutation(
