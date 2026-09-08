@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { convexTest } from "convex-test";
-import { afterEach, beforeEach, expect, it } from "vite-plus/test";
+import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 import schema from "@dashframe/convex-backend/schema";
 import type { LocalConvex } from "@dashframe/convex-local";
 import { csvToDataFrame, parseCSV } from "@dashframe/csv";
@@ -79,6 +79,7 @@ it("cancels and reclaims the losing reservation after a frame publication race",
     dataTableId: tableId,
     arrowBase64: Buffer.from(converted.arrowBuffer).toString("base64"),
   };
+  const commitImportedFrame = vi.spyOn(context.metadata, "commitImportedFrame");
   context.dataFrameStorage = synchronizeSaves(storage, 2);
 
   const outcomes = await Promise.allSettled([
@@ -106,6 +107,9 @@ it("cancels and reclaims the losing reservation after a frame publication race",
   });
   const winner = fulfilled[0];
   if (!winner) throw new Error("Expected one completed import");
+  expect(commitImportedFrame).toHaveBeenCalledWith(
+    expect.objectContaining({ expectedDataSourceRevision: 1 }),
+  );
 
   const imports = await native.run(async (ctx) =>
     ctx.db.query("localImports").collect(),

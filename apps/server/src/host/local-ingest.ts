@@ -291,6 +291,8 @@ async function preparedLocalTable(
     | SourceRow
     | undefined;
   if (!source || source.kind !== "local") throw new Error("TARGET_NOT_READY");
+  if (!Number.isSafeInteger(source.revision) || source.revision < 0)
+    throw new Error("TARGET_NOT_READY");
   if (!Array.isArray(table.fields)) throw new Error("TARGET_NOT_READY");
   return { table, source, fields: table.fields as Field[] };
 }
@@ -371,6 +373,7 @@ async function ingestLocalFrame(
       : {}),
     dataTableId: table.id,
     dataSourceId: source.id,
+    expectedDataSourceRevision: source.revision,
     expectedDataFrameId: replacement
       ? replacement.expectedDataFrameId
       : (table.dataFrameId ?? null),
