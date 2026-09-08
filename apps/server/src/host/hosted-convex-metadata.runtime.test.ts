@@ -500,6 +500,7 @@ it(
       });
       await a.replaceDataSourceConfig({
         id: sourceId,
+        expectedRevision: (await a.getDataSource(sourceId))!.revision,
         expectedConfig: { apiKey: oldRef },
         config: { apiKey: nextRef },
       });

@@ -117,11 +117,23 @@ it("replaces only opaque credential references and leaves the CAS winner's live 
   expect(
     (await user.query(api.hostedLifecycle.listCleanup, page)).page,
   ).toEqual([]);
+  const revision = (await user.query(api.hostedMetadata.getDataSource, {
+    id: sourceId,
+  }))!.revision;
   await user.mutation(api.hostedSourceOperations.replaceDataSourceConfig, {
     id: sourceId,
+    expectedRevision: revision,
     expectedConfig: { apiKey: ref },
     config: { apiKey: next },
   });
+  await expect(
+    user.mutation(api.hostedSourceOperations.replaceDataSourceConfig, {
+      id: sourceId,
+      expectedRevision: revision,
+      expectedConfig: { apiKey: next },
+      config: { apiKey: loser },
+    }),
+  ).rejects.toThrow("config changed");
   await expect(
     user.mutation(api.hostedSourceOperations.replaceDataSourceConfig, {
       id: sourceId,
