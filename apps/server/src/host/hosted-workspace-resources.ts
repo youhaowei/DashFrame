@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { lstat, mkdir, realpath } from "node:fs/promises";
 import path from "node:path";
 import { FileDataFrameStorage } from "@dashframe/engine-server/file-dataframe-storage";
+import { ApiAccessCredentials } from "@dashframe/server-core";
 import {
   WorkspaceQueryEngines,
   type QuerySandboxConfiguration,
@@ -45,7 +46,8 @@ export async function createHostedWorkspaceResourceFactory(
     options.keyring,
   );
   const workspaces = await privateDirectory(path.join(root, "workspaces"));
-  return async (workspaceId: string) => {
+  const stores = new Map<string, Promise<ApiAccessCredentials>>();
+  const workspaceDirectory = (workspaceId: string) => {
     if (
       !workspaceId ||
       workspaceId.length > 256 ||
@@ -57,7 +59,27 @@ export async function createHostedWorkspaceResourceFactory(
       .update("dashframe-workspace-resources\0")
       .update(workspaceId)
       .digest("hex");
-    const directory = await privateDirectory(path.join(workspaces, name));
+    return path.join(workspaces, name);
+  };
+  const credentials = (workspaceId: string) => {
+    const directory = workspaceDirectory(workspaceId);
+    let store = stores.get(workspaceId);
+    if (!store) {
+      store = secrets
+        .forWorkspace(workspaceId)
+        .then(
+          (vault) =>
+            new ApiAccessCredentials(vault, path.join(directory, "access")),
+        );
+      stores.set(workspaceId, store);
+      store.catch(() => {
+        if (stores.get(workspaceId) === store) stores.delete(workspaceId);
+      });
+    }
+    return store;
+  };
+  const open = async (workspaceId: string) => {
+    const directory = await privateDirectory(workspaceDirectory(workspaceId));
     const broker = createBroker(options.sandbox);
     let closed = false;
     const getEngine = async () => {
@@ -80,6 +102,7 @@ export async function createHostedWorkspaceResourceFactory(
         resources: {
           directory,
           vault,
+          accessCredentials: await credentials(workspaceId),
           dataFrameStorage: new FileDataFrameStorage(frames),
           connectorSessionDocument,
           getEngine,
@@ -95,6 +118,19 @@ export async function createHostedWorkspaceResourceFactory(
       throw error;
     }
   };
+  return Object.assign(open, {
+    /** Verify only existing workspace stores; never allocate a query worker. */
+    async authenticateCredential(workspaceId: string, token: string) {
+      const directory = workspaceDirectory(workspaceId);
+      try {
+        if (!(await lstat(directory)).isDirectory()) return null;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+        throw error;
+      }
+      return (await credentials(workspaceId)).authenticate(token);
+    },
+  });
 }
 
 async function privateDirectory(directory: string): Promise<string> {

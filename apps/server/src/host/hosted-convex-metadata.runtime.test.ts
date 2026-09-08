@@ -11,7 +11,7 @@ import { ConvexHttpClient } from "convex/browser";
 import { api, internal } from "@dashframe/convex-backend/api";
 import { startLocalConvex, type LocalConvex } from "@dashframe/convex-local";
 import { cmd, type Field } from "@dashframe/types";
-import { CREDENTIAL_CLASS } from "@dashframe/server-core";
+import { ApiAccessCredentials, CREDENTIAL_CLASS } from "@dashframe/server-core";
 import type { SecretVault } from "@wystack/secret-vault";
 import { createWorkspaceSecrets } from "./workspace-secrets";
 import { loadSecretKeyring } from "../secret-file-backend";
@@ -35,7 +35,9 @@ import { createHostedServerSurface } from "../hosted";
 import { NativeDuckDBEngine } from "@dashframe/engine-server";
 import { FileDataFrameStorage } from "@dashframe/engine-server/file-dataframe-storage";
 import { tableFromIPC } from "apache-arrow";
+import { z } from "zod";
 import { createHostedApplication } from "./hosted-application";
+import { createHostedServiceAccess } from "./hosted-service-access";
 import { bindHostedMetadata } from "./bound-hosted-metadata";
 import { HostResourceCleanup } from "./resource-cleanup";
 import { createHostedProviderMetadata } from "./hosted-convex-provider-metadata";
@@ -367,8 +369,18 @@ it(
         mode: "draft",
         stagedRefs: [stagedRef],
       });
+      const externalService = metadata(
+        {
+          sub: "service:credential-a",
+          credentialId: "credential-a",
+          principalKind: "service",
+          authority: "service",
+          workspaceId: workspaces[0]!,
+        },
+        vaultA,
+      );
       await expect(
-        service.recoverHostBatch({ operationId: batch.operationId }),
+        externalService.recoverHostBatch({ operationId: batch.operationId }),
       ).rejects.toThrow();
       await expect(a.executeHostBatch(batch)).rejects.toThrow();
       const paging = { paginationOpts: { cursor: null, numItems: 100 } };
@@ -378,7 +390,7 @@ it(
       expect(await b.recoverHostBatch({ operationId: batch.operationId })).toBe(
         "missing",
       );
-      const startupCleanup = new HostResourceCleanup({ metadata: a });
+      const startupCleanup = new HostResourceCleanup({ metadata: service });
       await startupCleanup.recoverPendingBatches();
       expect((await a.listRecoverableHostBatches(paging)).page).toEqual([]);
       expect(await a.recoverHostBatch({ operationId: batch.operationId })).toBe(
@@ -699,9 +711,16 @@ it(
         typeof createHostedApplication
       >[0]["tokens"] = {
         metadata: (source, workspaceId) => {
-          if (source.kind !== "user")
-            throw new Error("Unexpected fixture service");
-          return issued(userClaims(source.userId, workspaceId));
+          return source.kind === "user"
+            ? issued(userClaims(source.userId, workspaceId))
+            : issued({
+                sub: `service:${source.credentialId}`,
+                credentialId: source.credentialId,
+                principalKind: "service",
+                authority: "host",
+                purpose: "host-metadata",
+                workspaceId,
+              });
         },
         browser: (user, workspaceId) =>
           issued({
@@ -725,6 +744,10 @@ it(
             purpose: "host-credentials",
           }),
       };
+      const httpCredentials = new ApiAccessCredentials(
+        vaultA,
+        path.join(directory, "named-credentials"),
+      );
       const hostedApplication = createHostedApplication({
         deploymentUrl: backend.url,
         allowInsecureLoopbackForTests: true,
@@ -733,12 +756,86 @@ it(
         workspaceOwnerId: "a",
         resources: {
           vault: vaultA,
+          accessCredentials: httpCredentials,
           connectorSetup: sessionsA,
           getServerEndpoint: () => undefined,
         },
         tokens: applicationTokens,
       });
       const ownerContext = hostedApplication.context;
+      const credentialSourceId = crypto.randomUUID();
+      await a.commitBatch([
+        cmd("CreateDataSource", {
+          id: credentialSourceId,
+          name: "Credential acceptance",
+          type: "csv",
+        }),
+      ]);
+      const namedCredential = z
+        .object({
+          credential: z.object({ id: z.string().uuid() }),
+          accessCredential: z.string().min(1),
+        })
+        .parse(
+          await hostedApplication.application.execute("issueAccessCredential", {
+            name: "Native hosted agent",
+          }),
+        );
+      const namedService = metadata(
+        {
+          sub: `service:${namedCredential.credential.id}`,
+          credentialId: namedCredential.credential.id,
+          principalKind: "service",
+          authority: "host",
+          purpose: "host-metadata",
+          workspaceId: workspaces[0]!,
+        },
+        vaultA,
+      );
+      expect((await namedService.getDataSource(credentialSourceId))?.id).toBe(
+        credentialSourceId,
+      );
+      const serviceAccess = createHostedServiceAccess({
+        deploymentUrl: backend.url,
+        allowInsecureLoopbackForTests: true,
+        tokens: {
+          metadata: (source, workspaceId) => {
+            if (source.kind !== "service")
+              throw new Error("Expected service fixture");
+            return issued({
+              sub: `service:${source.credentialId}`,
+              credentialId: source.credentialId,
+              principalKind: "service",
+              authority: "host",
+              purpose: "host-metadata",
+              workspaceId,
+            });
+          },
+        },
+      });
+      const verifiedCredential = {
+        credentialId: namedCredential.credential.id,
+        expiresAt: Date.now() + 60_000,
+      };
+      expect(
+        await serviceAccess.resolve(workspaces[0]!, verifiedCredential),
+      ).toEqual({
+        credentialId: namedCredential.credential.id,
+        subject: "a",
+        workspaceId: workspaces[0],
+      });
+      await expect(
+        serviceAccess.resolve(workspaces[1]!, verifiedCredential),
+      ).rejects.toThrow();
+      await hostedApplication.application.execute("revokeAccessCredential", {
+        id: namedCredential.credential.id,
+      });
+      await expect(
+        namedService.getDataSource(credentialSourceId),
+      ).rejects.toThrow();
+      await expect(
+        serviceAccess.resolve(workspaces[0]!, verifiedCredential),
+      ).rejects.toThrow();
       let httpAllocations = 0;
       const queryEngine = new NativeDuckDBEngine();
       const staticDirectory = path.join(directory, "browser");
@@ -782,6 +879,10 @@ it(
           },
         }),
         tokens: applicationTokens,
+        authenticateCredential: async (workspaceId, bearer) =>
+          workspaceId === workspaces[0]
+            ? httpCredentials.authenticate(bearer)
+            : null,
         open: async (workspaceId) => {
           expect(workspaceId).toBe(workspaces[0]);
           httpAllocations++;
@@ -789,6 +890,7 @@ it(
             resources: {
               directory: sessionDirectory,
               vault: vaultA,
+              accessCredentials: httpCredentials,
               connectorSessionDocument: sessionDocument,
               dataFrameStorage: new FileDataFrameStorage(
                 path.join(directory, "frames"),
@@ -803,6 +905,86 @@ it(
         },
       });
       const httpApp = httpSurface.app;
+      const mcpCredential = z
+        .object({
+          credential: z.object({ id: z.string() }),
+          accessCredential: z.string(),
+        })
+        .parse(
+          await hostedApplication.application.execute("issueAccessCredential", {
+            name: "HTTP MCP agent",
+          }),
+        );
+      const mcpRequest = async (
+        bearer: string,
+        workspaceId = workspaces[0]!,
+        call?: { name: string; arguments: Record<string, string> },
+      ) => {
+        const response = await httpApp.request(
+          `https://hosted-app.invalid/workspaces/${workspaceId}/mcp`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${bearer}`,
+              "Content-Type": "application/json",
+              Accept: "application/json, text/event-stream",
+            },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              method: call ? "tools/call" : "tools/list",
+              params: call ?? {},
+            }),
+          },
+        );
+        return new Response(await response.arrayBuffer(), response);
+      };
+      expect((await mcpRequest("dfa_invalid")).status).toBe(401);
+      expect(
+        (await mcpRequest(mcpCredential.accessCredential, workspaces[1]!))
+          .status,
+      ).toBe(401);
+      expect(httpAllocations).toBe(0);
+      const toolsResponse = await mcpRequest(mcpCredential.accessCredential);
+      expect(toolsResponse.status).toBe(200);
+      expect(await toolsResponse.json()).toMatchObject({
+        result: {
+          tools: expect.arrayContaining([
+            expect.objectContaining({ name: expect.any(String) }),
+          ]),
+        },
+      });
+      expect(httpAllocations).toBe(1);
+      const readResponse = await mcpRequest(
+        mcpCredential.accessCredential,
+        workspaces[0]!,
+        {
+          name: "read_neighborhood",
+          arguments: { kind: "dataSource", id: credentialSourceId },
+        },
+      );
+      expect(readResponse.status).toBe(200);
+      const readResult = z
+        .object({
+          result: z.object({
+            isError: z.boolean().optional(),
+            content: z.array(
+              z.object({ type: z.string(), text: z.string().optional() }),
+            ),
+          }),
+        })
+        .parse(await readResponse.json());
+      expect(readResult.result.isError).not.toBe(true);
+      expect(
+        readResult.result.content.map((item) => item.text).join("\n"),
+      ).toContain("Credential acceptance");
+      await hostedApplication.application.execute("revokeAccessCredential", {
+        id: mcpCredential.credential.id,
+      });
+      expect((await mcpRequest(mcpCredential.accessCredential)).status).toBe(
+        401,
+      );
+      expect(httpAllocations).toBe(1);
       const httpOperation = async (operation: string, input: unknown) => {
         const response = await httpApp.request(
           `https://hosted-app.invalid/api/host/${operation}`,

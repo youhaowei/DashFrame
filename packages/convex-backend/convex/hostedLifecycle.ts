@@ -172,7 +172,8 @@ export const ackCleanup = mutation({
   },
 });
 
-/** Only for an exclusive workspace startup phase before new requests are accepted. */
+/** Host-only startup recovery also runs when a verified service is the first caller.
+ * Requires exclusive workspace startup before new requests are accepted. */
 export const listRecoverableHostBatches = query({
   args: pagination,
   returns: v.object({
@@ -180,7 +181,7 @@ export const listRecoverableHostBatches = query({
     ...pageInfo,
   }),
   handler: async (ctx, args) => {
-    const { workspaceId } = await requireOwner(ctx);
+    const { workspaceId } = await requireHostedMetadataPrincipal(ctx);
     const result = await ctx.db
       .query("hostBatches")
       .withIndex("by_workspaceId_and_status", (q) =>
@@ -207,7 +208,7 @@ export const recoverHostBatch = mutation({
     v.literal("completed"),
   ),
   handler: async (ctx, args) => {
-    const { workspaceId } = await requireOwner(ctx);
+    const { workspaceId } = await requireHostedMetadataPrincipal(ctx);
     const row = await ctx.db
       .query("hostBatches")
       .withIndex("by_workspaceId_and_operationId", (q) =>

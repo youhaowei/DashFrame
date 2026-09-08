@@ -11,6 +11,7 @@ import type {
   HostedTokenIssuer,
 } from "./hosted-token-issuer";
 import { HostResourceCleanup } from "./resource-cleanup";
+import { createHostedAccessCredentials } from "./hosted-access-credentials";
 
 type WorkspaceResources = Pick<
   HostContext,
@@ -93,6 +94,9 @@ export function createHostedApplication(options: {
   });
   const context: HostContext = {
     ...resources,
+    accessCredentials: resources.accessCredentials
+      ? createHostedAccessCredentials(resources.accessCredentials, ownership)
+      : undefined,
     principal,
     workspaceOwnerId,
     metadata,

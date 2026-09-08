@@ -18,7 +18,7 @@ export interface HostContext {
   workspaceOwnerId?: string;
   metadata: HostMetadata;
   cleanupResources?: () => Promise<void>;
-  accessCredentials?: ApiAccessCredentials;
+  accessCredentials?: Pick<ApiAccessCredentials, "issue" | "list" | "revoke">;
   getServerEndpoint: () => string | undefined;
   vault?: SecretVault;
   googleOAuth?: GoogleOAuthConfig;

@@ -1,5 +1,6 @@
 import { ConvexError, v } from "convex/values";
-import { mutation, type QueryCtx } from "./_generated/server";
+import { mutation, query, type QueryCtx } from "./_generated/server";
+import { requireHostedMetadataPrincipal } from "./hostedMetadataGuard";
 import {
   hostedUserSubject,
   requireAdmittedWorkspace,
@@ -10,6 +11,26 @@ const ownership = v.object({
   credentialId: v.string(),
   subject: v.string(),
   workspaceId: v.string(),
+});
+
+/** Resolve a host-verified bearer to its current admitted owner before worker allocation. */
+export const resolveService = query({
+  args: {},
+  returns: ownership,
+  handler: async (ctx) => {
+    const { principal, workspaceId } =
+      await requireHostedMetadataPrincipal(ctx);
+    if (principal.kind !== "service")
+      throw new ConvexError("Service identity required");
+    const binding = await findOwner(ctx, principal.credentialId);
+    if (!binding || binding.workspaceId !== workspaceId)
+      throw new ConvexError("Credential ownership required");
+    return {
+      credentialId: principal.credentialId,
+      subject: binding.subject,
+      workspaceId,
+    };
+  },
 });
 
 async function owner(ctx: QueryCtx, credentialId: string) {

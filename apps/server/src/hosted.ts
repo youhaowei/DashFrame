@@ -1,8 +1,13 @@
+import { createHostedServiceAccess } from "./host/hosted-service-access";
+import { createMcpRoute } from "./mcp/route";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { Hono } from "hono";
 import { createArrowDataPath } from "@dashframe/engine-server/arrow-data-path";
-import type { HostedUserTokenSource } from "./host/hosted-token-issuer";
+import type {
+  HostedUserTokenSource,
+  HostedPrincipalTokenSource,
+} from "./host/hosted-token-issuer";
 import type { ApplicationOperations } from "./host/application";
 import { handleAssistantRunRequest } from "./assistant-run-route";
 import {
@@ -120,6 +125,7 @@ export async function startHostedServer(
     tokens,
     googleOAuth,
     open,
+    authenticateCredential: open.authenticateCredential,
     staticDirectory: path.resolve("apps/web/dist"),
     revision: environment.RAILWAY_GIT_COMMIT_SHA ?? null,
   });
@@ -147,7 +153,14 @@ export async function createHostedServerSurface(options: {
   tokens: Parameters<typeof createHostedApplication>[0]["tokens"];
   allowInsecureLoopbackForTests?: boolean;
   googleOAuth?: ReturnType<typeof readOptionalGoogleOAuthConfig>;
-  open: Awaited<ReturnType<typeof createHostedWorkspaceResourceFactory>>;
+  open: (
+    workspaceId: string,
+  ) => ReturnType<
+    Awaited<ReturnType<typeof createHostedWorkspaceResourceFactory>>
+  >;
+  authenticateCredential?: Awaited<
+    ReturnType<typeof createHostedWorkspaceResourceFactory>
+  >["authenticateCredential"];
   staticDirectory: string;
   revision: string | null;
 }) {
@@ -166,9 +179,10 @@ export async function createHostedServerSurface(options: {
   const { upgradeWebSocket, injectWebSocket, wss } = createNodeWebSocket({
     app,
   });
-  const withHostedContext = (
+  const withPrincipalContext = (
     workspaceId: string,
-    user: HostedUserTokenSource,
+    ownerId: string,
+    source: HostedPrincipalTokenSource,
     request: Request,
     operation: (
       hosted: ReturnType<typeof createHostedApplication>,
@@ -177,27 +191,27 @@ export async function createHostedServerSurface(options: {
   ) =>
     pool.runRequest(
       workspaceId,
-      user.userId,
+      ownerId,
       request,
-      user.expiresAt,
+      source.expiresAt,
       async (resources, signal) => {
         const metadata = createHostedSourceMetadata({
           deploymentUrl,
           allowInsecureLoopbackForTests: options.allowInsecureLoopbackForTests,
           credentialVault: resources.vault,
-          getToken: async () =>
-            tokens.metadata({ kind: "user", ...user }, workspaceId).token,
+          getToken: async () => tokens.metadata(source, workspaceId).token,
         });
         const engine = await resources.getEngine();
         const hosted = createHostedApplication({
           deploymentUrl,
           allowInsecureLoopbackForTests: options.allowInsecureLoopbackForTests,
           workspaceId,
-          workspaceOwnerId: user.userId,
-          source: { kind: "user", ...user },
+          workspaceOwnerId: ownerId,
+          source: source,
           tokens,
           resources: {
             vault: resources.vault,
+            accessCredentials: resources.accessCredentials,
             googleOAuth,
             dataFrameStorage: resources.dataFrameStorage,
             dataPlaneRuntime: {
@@ -210,7 +224,7 @@ export async function createHostedServerSurface(options: {
             getServerEndpoint: () => publicOrigin,
             connectorSetup: createHostedConnectorSessionStore({
               document: resources.connectorSessionDocument,
-              ownerSubject: user.userId,
+              ownerSubject: ownerId,
               getDataSourceKind: async (id) =>
                 (await metadata.getDataSource(id))?.kind ?? null,
             }),
@@ -236,6 +250,85 @@ export async function createHostedServerSurface(options: {
       },
       120_000,
     );
+  const withHostedContext = (
+    workspaceId: string,
+    user: HostedUserTokenSource,
+    request: Request,
+    operation: Parameters<typeof withPrincipalContext>[4],
+  ) =>
+    withPrincipalContext(
+      workspaceId,
+      user.userId,
+      { kind: "user", ...user },
+      request,
+      operation,
+    );
+  const serviceAccess = createHostedServiceAccess({
+    deploymentUrl,
+    tokens,
+    allowInsecureLoopbackForTests: options.allowInsecureLoopbackForTests,
+  });
+  app.all("/workspaces/:workspaceId/mcp", async (c) => {
+    c.header("Cache-Control", "no-store");
+    const origin = c.req.header("Origin");
+    if (origin && origin !== publicOrigin)
+      return c.json({ error: "Origin is not allowed" }, 403);
+    const bearer = /^Bearer (dfa_[a-z0-9_-]+)$/i.exec(
+      c.req.header("Authorization") ?? "",
+    );
+    if (!bearer) return c.json({ error: "Unauthorized MCP request" }, 401);
+    if (!options.authenticateCredential)
+      return c.json({ error: "Agent access unavailable" }, 503);
+    const workspaceId = c.req.param("workspaceId");
+    let source: HostedPrincipalTokenSource;
+    let ownerId: string;
+    try {
+      const credentialId = await options.authenticateCredential(
+        workspaceId,
+        bearer[1]!,
+      );
+      if (!credentialId)
+        return c.json({ error: "Unauthorized MCP request" }, 401);
+      source = {
+        kind: "service",
+        credentialId,
+        expiresAt: Date.now() + 60_000,
+      };
+      const binding = await serviceAccess.resolve(workspaceId, source);
+      if (
+        binding.workspaceId !== workspaceId ||
+        binding.credentialId !== credentialId
+      )
+        return c.json({ error: "Unauthorized MCP request" }, 401);
+      ownerId = binding.subject;
+    } catch {
+      return c.json({ error: "Unauthorized MCP request" }, 401);
+    }
+    try {
+      return await withPrincipalContext(
+        workspaceId,
+        ownerId,
+        source,
+        c.req.raw,
+        async (hosted, signal) => {
+          const mcp = new Hono();
+          mcp.all(
+            "*",
+            createMcpRoute({
+              app: hosted.application,
+              mode: "stateless",
+              resolveContext: async () => ({
+                principal: hosted.context.principal,
+              }),
+            }),
+          );
+          return mcp.fetch(new Request(c.req.raw, { signal }));
+        },
+      );
+    } catch {
+      return c.json({ error: "Agent request unavailable" }, 503);
+    }
+  });
   for (const route of ["/api/*", "/data/*", "/assistant/*"]) {
     app.use(route, async (c, next) => {
       if (!isHostedOriginAllowed(c.req.raw, publicOrigin))
@@ -292,7 +385,7 @@ export async function createHostedServerSurface(options: {
             : Response.json({ error: "Admission required" }, { status: 403 });
       }
       response.headers.set("Cache-Control", "no-store");
-      if (cookie) response.headers.set("Set-Cookie", cookie);
+      if (cookie) response.headers.append("Set-Cookie", cookie);
       return response;
     } catch {
       return Response.json(

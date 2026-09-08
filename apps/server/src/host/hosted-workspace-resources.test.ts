@@ -69,6 +69,12 @@ it("keeps frame bytes and vault references workspace scoped across reopening", a
   const ref = await a.resources.vault.store("synthetic-secret", {
     class: CREDENTIAL_CLASS.ConnectorKey,
   });
+  const credential =
+    await a.resources.accessCredentials.issue("Workspace A agent");
+  expect(await b.resources.accessCredentials.list()).toEqual([]);
+  expect(
+    await b.resources.accessCredentials.authenticate(credential.token),
+  ).toBeNull();
   expect(await b.resources.dataFrameStorage.load(id)).toBeNull();
   expect(await b.resources.vault.has(ref)).toBe(false);
   await b.resources.vault.delete(ref);
@@ -78,6 +84,9 @@ it("keeps frame bytes and vault references workspace scoped across reopening", a
     broker,
   );
   const restored = await reopen("workspace-a");
+  expect(
+    await restored.resources.accessCredentials.authenticate(credential.token),
+  ).toBe(credential.credential.id);
   expect(await restored.resources.dataFrameStorage.load(id)).toEqual(bytes);
   expect(
     await restored.resources.vault.withSecret(ref, async (value) => value),
@@ -127,4 +136,37 @@ it("waits for broker disposal before reporting failed startup", async () => {
   expect(settled).toBe(false);
   finishDisposal();
   await rejection;
+});
+
+it("authenticates persisted credentials before starting workers and shares the mutation queue", async () => {
+  const configuration = await options();
+  const broker = vi.fn(() => ({
+    forWorkspace: () => engine(),
+    dispose: async () => {},
+  }));
+  const first = await createHostedWorkspaceResourceFactory(
+    configuration,
+    broker,
+  );
+  const workspace = await first("workspace-a");
+  const issued = await workspace.resources.accessCredentials.issue("Agent");
+  await workspace.close();
+  broker.mockClear();
+  const reopened = await createHostedWorkspaceResourceFactory(
+    configuration,
+    broker,
+  );
+  expect(
+    await reopened.authenticateCredential("workspace-a", issued.token),
+  ).toBe(issued.credential.id);
+  expect(
+    await reopened.authenticateCredential("unknown", issued.token),
+  ).toBeNull();
+  expect(broker).not.toHaveBeenCalled();
+  const active = await reopened("workspace-a");
+  await active.resources.accessCredentials.revoke(issued.credential.id);
+  expect(
+    await reopened.authenticateCredential("workspace-a", issued.token),
+  ).toBeNull();
+  await active.close();
 });
