@@ -275,6 +275,62 @@ it("keeps canonical targets and intent for no-op draft commands", async () => {
   });
 });
 
+it("resolves get-or-create before its requested ID is created later", async () => {
+  const { sourceId, tableId: firstTableId } = await seed();
+  const secondTableId = uuid();
+  const existingInsightId = uuid();
+  const requestedInsightId = uuid();
+  await user().mutation(api.app.commitBatch, {
+    commands: [
+      cmd("CreateDataTable", {
+        id: secondTableId,
+        dataSourceId: sourceId,
+        name: "Second table",
+        table: "second.csv",
+      }),
+      cmd("CreateInsight", {
+        id: existingInsightId,
+        name: "Existing question",
+        source: { sourceType: "dataTable", sourceId: firstTableId },
+      }),
+    ],
+  });
+  const { draftId } = await user().mutation(api.app.draftBatch, {
+    commands: [
+      cmd("GetOrCreateInsightDraft", {
+        id: requestedInsightId,
+        name: "Would create",
+        source: { sourceType: "dataTable", sourceId: firstTableId },
+      }),
+      cmd("CreateInsight", {
+        id: requestedInsightId,
+        name: "Independent question",
+        source: { sourceType: "dataTable", sourceId: secondTableId },
+      }),
+    ],
+  });
+
+  const listed = (await user().query(api.app.listDrafts, {})).find(
+    (draft) => draft.draftId === draftId,
+  );
+  expect(listed?.summary).toEqual({
+    directNodes: [
+      {
+        nodeId: existingInsightId,
+        kind: "insight",
+        name: "Existing question",
+        intent: [
+          {
+            command: "GetOrCreateInsightDraft",
+            summary: 'Use or create question "Would create"',
+          },
+        ],
+      },
+    ],
+    remainingIntentCount: 1,
+  });
+});
+
 it("keeps draft-local get-or-create intent on the created question", async () => {
   const { tableId } = await seed();
   const createdInsightId = uuid();

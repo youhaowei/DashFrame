@@ -82,12 +82,14 @@ export function CreateVisualizationModal({
 
   // When selecting a table, create new insight directly
   const handleTableSelect = useCallback(
-    (tableId: string, tableName: string) => {
-      createInsightFromTable(tableId, tableName, {
+    async (tableId: string, tableName: string) => {
+      const insightId = await createInsightFromTable(tableId, tableName, {
         visualize: visualizeOnCreate,
         reportId,
       });
+      if (insightId === null) return null;
       onClose();
+      return insightId;
     },
     [createInsightFromTable, onClose, visualizeOnCreate, reportId],
   );

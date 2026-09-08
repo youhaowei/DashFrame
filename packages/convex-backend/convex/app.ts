@@ -926,6 +926,17 @@ async function resolveDraftCommandTarget(
   const targetId = args.nodeId ?? args.dashboardId ?? args.id;
   if (typeof targetId !== "string") return null;
 
+  if (command.path === "getOrCreateInsightDraft") {
+    const source = record(args.source);
+    if (
+      source.sourceType === "dataTable" &&
+      typeof source.sourceId === "string"
+    ) {
+      const existing = existingInsightDraftsBySourceId.get(source.sourceId);
+      if (existing) return existing;
+    }
+  }
+
   const targetTables = getDraftTargetTables(command.path);
   for (const table of targetTables) {
     const change = changes.find(
@@ -937,17 +948,6 @@ async function resolveDraftCommandTarget(
       table,
       name: change.base?.name ?? change.value?.name ?? "Deleted artifact",
     };
-  }
-
-  if (command.path === "getOrCreateInsightDraft") {
-    const source = record(args.source);
-    if (
-      source.sourceType === "dataTable" &&
-      typeof source.sourceId === "string"
-    ) {
-      const existing = existingInsightDraftsBySourceId.get(source.sourceId);
-      if (existing) return existing;
-    }
   }
 
   for (const table of targetTables) {
