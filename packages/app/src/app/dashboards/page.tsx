@@ -106,11 +106,6 @@ export default function DashboardsPage() {
     isLoading: visualizationsLoading,
     isError: visualizationsLoadError,
   } = queryStatus(useQuery({ query: api.app.listVisualizations, args: {} }));
-  const {
-    data: insights = [],
-    isLoading: insightsLoading,
-    isError: insightsLoadError,
-  } = queryStatus(useQuery({ query: api.app.listInsights, args: {} }));
   const commitBatch = useMutation(api.app.commitBatch);
   const { showError } = useToastStore();
   const { confirm } = useConfirmDialogStore();
@@ -161,13 +156,12 @@ export default function DashboardsPage() {
       )
     : dashboards;
   const reportContentIndexes = useMemo(
-    () => indexReportContents(visualizations, insights),
-    [insights, visualizations],
+    () => indexReportContents(visualizations, []),
+    [visualizations],
   );
-  const hasLoadError =
-    dashboardsLoadError || visualizationsLoadError || insightsLoadError;
+  const hasLoadError = dashboardsLoadError || visualizationsLoadError;
 
-  if (dashboardsLoading || visualizationsLoading || insightsLoading) {
+  if (dashboardsLoading || visualizationsLoading) {
     return (
       <div className="flex h-full items-center justify-center">
         <p className="text-sm text-neutral-fg-subtle">Loading reports...</p>

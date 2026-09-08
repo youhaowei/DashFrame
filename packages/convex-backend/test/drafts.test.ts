@@ -41,6 +41,30 @@ async function seed() {
   return { sourceId, tableId };
 }
 const rename = (id: string, name: string) => cmd("RenameNode", { id, name });
+async function seedInsightWithField(selected: boolean) {
+  const { tableId } = await seed();
+  const fieldId = uuid();
+  const insightId = uuid();
+  const field = {
+    id: fieldId,
+    name: "Amount",
+    tableId,
+    columnName: "amount",
+    type: "number" as const,
+  };
+  await user().mutation(api.app.commitBatch, {
+    commands: [
+      cmd("AddField", { nodeId: tableId, field }),
+      cmd("CreateInsight", {
+        id: insightId,
+        name: selected ? "Configured question" : "Existing question",
+        source: { sourceType: "dataTable", sourceId: tableId },
+        ...(selected ? { selectedFields: [fieldId] } : {}),
+      }),
+    ],
+  });
+  return { tableId, fieldId, insightId, field };
+}
 async function publication(draftId: string) {
   const review = await user().query(api.app.draftPublishReview, { draftId });
   return {
@@ -379,6 +403,144 @@ it("keeps explicit question source reuse before the question is edited", async (
       },
     ],
     remainingIntentCount: 1,
+  });
+});
+
+it("tracks question reuse after a source transition and before a later edit", async () => {
+  const { sourceId, tableId: firstTableId } = await seed();
+  const secondTableId = uuid();
+  const fieldId = uuid();
+  const insightId = uuid();
+  await user().mutation(api.app.commitBatch, {
+    commands: [
+      cmd("CreateDataTable", {
+        id: secondTableId,
+        dataSourceId: sourceId,
+        name: "Second table",
+        table: "second.csv",
+      }),
+      cmd("AddField", {
+        nodeId: secondTableId,
+        field: {
+          id: fieldId,
+          name: "Amount",
+          tableId: secondTableId,
+          columnName: "amount",
+          type: "number",
+        },
+      }),
+      cmd("CreateInsight", {
+        id: insightId,
+        name: "Existing question",
+        source: { sourceType: "dataTable", sourceId: firstTableId },
+      }),
+    ],
+  });
+
+  const { draftId } = await user().mutation(api.app.draftBatch, {
+    commands: [
+      cmd("SetInsightSource", {
+        id: insightId,
+        source: { sourceType: "dataTable", sourceId: secondTableId },
+      }),
+      cmd("GetOrCreateInsightDraft", {
+        id: uuid(),
+        name: "Would create",
+        source: { sourceType: "dataTable", sourceId: secondTableId },
+      }),
+      cmd("SelectFields", { id: insightId, fieldIds: [fieldId] }),
+    ],
+  });
+
+  const listed = (await user().query(api.app.listDrafts, {})).find(
+    (draft) => draft.draftId === draftId,
+  );
+  expect(listed?.summary).toEqual({
+    directNodes: [
+      {
+        nodeId: insightId,
+        kind: "insight",
+        name: "Existing question",
+        intent: [
+          {
+            command: "SetInsightSource",
+            summary: "Change question source",
+          },
+          {
+            command: "GetOrCreateInsightDraft",
+            summary: 'Use or create question "Would create"',
+          },
+        ],
+      },
+    ],
+    remainingIntentCount: 1,
+  });
+});
+
+it("does not reuse a question after a field is selected through AddField", async () => {
+  const { tableId, fieldId, insightId, field } =
+    await seedInsightWithField(false);
+
+  const { draftId } = await user().mutation(api.app.draftBatch, {
+    commands: [
+      cmd("AddField", { nodeId: insightId, field }),
+      cmd("GetOrCreateInsightDraft", {
+        id: uuid(),
+        name: "Fresh question",
+        source: { sourceType: "dataTable", sourceId: tableId },
+      }),
+    ],
+  });
+
+  const listed = (await user().query(api.app.listDrafts, {})).find(
+    (draft) => draft.draftId === draftId,
+  );
+  expect(listed?.summary).toEqual({
+    directNodes: [
+      {
+        nodeId: insightId,
+        kind: "insight",
+        name: "Existing question",
+        intent: [{ command: "AddField", summary: 'Add field "Amount"' }],
+      },
+    ],
+    remainingIntentCount: 1,
+  });
+});
+
+it("reuses a question after RemoveField clears its last selected field", async () => {
+  const { tableId, fieldId, insightId } = await seedInsightWithField(true);
+
+  const { draftId } = await user().mutation(api.app.draftBatch, {
+    commands: [
+      cmd("RemoveField", { nodeId: insightId, fieldId }),
+      cmd("GetOrCreateInsightDraft", {
+        id: uuid(),
+        name: "Would create",
+        source: { sourceType: "dataTable", sourceId: tableId },
+      }),
+    ],
+  });
+
+  const listed = (await user().query(api.app.listDrafts, {})).find(
+    (draft) => draft.draftId === draftId,
+  );
+  expect(listed?.summary).toEqual({
+    directNodes: [
+      {
+        nodeId: insightId,
+        kind: "insight",
+        name: "Configured question",
+        intent: [
+          { command: "RemoveField", summary: "Remove field" },
+          {
+            command: "GetOrCreateInsightDraft",
+            summary: 'Use or create question "Would create"',
+          },
+        ],
+      },
+    ],
+    remainingIntentCount: 0,
   });
 });
 

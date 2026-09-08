@@ -1,6 +1,7 @@
 import { assertResourcesWritable, enqueueCleanup, resources } from "./cleanup";
 import { stable } from "./values";
 import { v, ConvexError } from "convex/values";
+import { isUnmodifiedDraft } from "@dashframe/types";
 import type {
   DataSource,
   DataTable,
@@ -12,7 +13,6 @@ import type {
   PreviewDiff,
   CommandRegistryPath,
 } from "@dashframe/types";
-import { isUnmodifiedDraft } from "@dashframe/types";
 import {
   query,
   mutation,
@@ -736,72 +736,182 @@ function explicitCreateTarget(command: Command): DraftCommandTarget | null {
   };
 }
 
-function rememberInsightDraftTargetBySourceId(
-  targets: Map<string, DraftCommandTarget>,
-  id: string,
-  row: Pick<ArtifactRow, "definition" | "name">,
-) {
-  if (!row.definition) return;
-  const definition = storedInsightDefinitionSchema.parse(row.definition);
-  if (
-    definition.source.sourceType !== "dataTable" ||
-    !isUnmodifiedDraft(definition) ||
-    targets.has(definition.source.sourceId)
-  ) {
-    return;
-  }
-  targets.set(definition.source.sourceId, {
-    id,
-    table: "insights",
-    name: row.name.length > 0 ? row.name : "Untitled artifact",
-  });
+type InsightDraftResolutionState = {
+  target: DraftCommandTarget;
+  sourceId: string | null;
+  selectedFields: readonly unknown[];
+  metrics: readonly unknown[];
+  filters: readonly unknown[];
+  sorts: readonly unknown[];
+  joins: readonly unknown[];
+};
+
+function dataTableSourceId(sourceValue: unknown): string | null {
+  const source = record(sourceValue);
+  return source.sourceType === "dataTable" &&
+    typeof source.sourceId === "string"
+    ? source.sourceId
+    : null;
 }
 
-function rememberInsightCreationResolutionBySourceId(
-  targets: Map<string, DraftCommandTarget>,
+function values(value: unknown): readonly unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function insightDraftResolutionState(
+  target: DraftCommandTarget,
+  row: Pick<ArtifactRow, "definition">,
+): InsightDraftResolutionState | null {
+  if (!row.definition) return null;
+  const definition = storedInsightDefinitionSchema.parse(row.definition);
+  return {
+    target,
+    sourceId: dataTableSourceId(definition.source),
+    selectedFields: definition.selectedFields,
+    metrics: definition.metrics,
+    filters: definition.filters ?? [],
+    sorts: definition.sorts ?? [],
+    joins: definition.joins ?? [],
+  };
+}
+
+function createdInsightDraftResolutionState(
   command: Command,
   target: DraftCommandTarget,
-) {
+): InsightDraftResolutionState | null {
   if (
     command.path !== "getOrCreateInsightDraft" &&
     command.path !== "createInsightCmd"
   ) {
-    return;
-  }
-  if (target.table !== "insights") {
-    return;
+    return null;
   }
   const args = record(command.args);
-  if (command.path === "createInsightCmd" && !isUnmodifiedDraft(args)) {
+  if (args.id !== target.id) return null;
+  return {
+    target,
+    sourceId: dataTableSourceId(args.source),
+    selectedFields: values(args.selectedFields),
+    metrics: values(args.metrics),
+    filters: [],
+    sorts: [],
+    joins: [],
+  };
+}
+
+function isReusableInsightDraft(state: InsightDraftResolutionState): boolean {
+  return isUnmodifiedDraft(state);
+}
+
+function rebuildInsightDraftTargets(
+  targets: Map<string, DraftCommandTarget>,
+  states: ReadonlyMap<string, InsightDraftResolutionState>,
+) {
+  targets.clear();
+  for (const state of states.values()) {
+    if (
+      state.sourceId &&
+      isReusableInsightDraft(state) &&
+      !targets.has(state.sourceId)
+    ) {
+      targets.set(state.sourceId, state.target);
+    }
+  }
+}
+
+function updateInsightDraftResolution(
+  targets: Map<string, DraftCommandTarget>,
+  states: Map<string, InsightDraftResolutionState>,
+  command: Command,
+  target: DraftCommandTarget,
+) {
+  if (target.table !== "insights") return;
+  if (command.path === "deleteNode") {
+    states.delete(target.id);
+    rebuildInsightDraftTargets(targets, states);
     return;
   }
-  const source = record(args.source);
-  if (
-    source.sourceType === "dataTable" &&
-    typeof source.sourceId === "string" &&
-    !targets.has(source.sourceId)
-  ) {
-    // Record what this command resolved to before later commands can modify the
-    // final materialized row and make it ineligible for unmodified-draft reuse.
-    targets.set(source.sourceId, target);
+
+  let state =
+    createdInsightDraftResolutionState(command, target) ??
+    states.get(target.id);
+  if (!state) return;
+  const args = record(command.args);
+  if (command.path === "setInsightSource") {
+    state = { ...state, sourceId: dataTableSourceId(args.source) };
+  } else if (command.path === "selectFields") {
+    state = {
+      ...state,
+      selectedFields: values(args.fieldIds),
+    };
+  } else if (command.path === "setInsightFilter") {
+    state = {
+      ...state,
+      filters: values(args.filters),
+    };
+  } else if (command.path === "setInsightSort") {
+    state = {
+      ...state,
+      sorts: values(args.sorts),
+    };
+  } else if (command.path === "addField") {
+    const fieldId = record(args.field).id;
+    if (typeof fieldId === "string") {
+      state = {
+        ...state,
+        selectedFields: [...state.selectedFields, fieldId],
+      };
+    }
+  } else if (command.path === "removeField") {
+    state = {
+      ...state,
+      selectedFields: state.selectedFields.filter(
+        (fieldId) => fieldId !== args.fieldId,
+      ),
+    };
+  } else if (command.path === "addMetric") {
+    state = { ...state, metrics: [...state.metrics, args.metric] };
+  } else if (command.path === "removeMetric") {
+    state = {
+      ...state,
+      metrics: state.metrics.filter(
+        (metric) => record(metric).id !== args.metricId,
+      ),
+    };
+  } else if (command.path === "addJoin") {
+    state = { ...state, joins: [...state.joins, args.join] };
+  } else if (command.path === "removeJoin") {
+    state = {
+      ...state,
+      joins: state.joins.filter((_, index) => index !== args.joinIndex),
+    };
   }
+
+  states.set(target.id, state);
+  rebuildInsightDraftTargets(targets, states);
 }
 
 async function listExistingInsightDraftTargets(
   ctx: QueryCtx,
   workspaceId: string,
-): Promise<Map<string, DraftCommandTarget>> {
+): Promise<Map<string, InsightDraftResolutionState>> {
   const rows = await ctx.db
     .query("insights")
     .withIndex("by_workspaceId_and_id", (q) => q.eq("workspaceId", workspaceId))
     .take(LIMIT + 1);
   assertCompleteArtifactRows(rows, "insights");
 
-  const targets = new Map<string, DraftCommandTarget>();
+  const states = new Map<string, InsightDraftResolutionState>();
   for (const row of rows) {
-    rememberInsightDraftTargetBySourceId(targets, row.id, row);
+    const target = {
+      id: row.id,
+      table: "insights" as const,
+      name: row.name.length > 0 ? row.name : "Untitled artifact",
+    };
+    const state = insightDraftResolutionState(target, row);
+    if (!state) continue;
+    states.set(row.id, state);
   }
-  return targets;
+  return states;
 }
 
 async function resolveDraftCommandTarget(
@@ -867,9 +977,11 @@ async function summarizeDraftForList(
   workspaceId: string,
   commands: Command[],
   changes: Doc<"draftChanges">[],
-  existingInsightDraftsBySourceId: ReadonlyMap<string, DraftCommandTarget>,
+  existingInsightDraftStates: ReadonlyMap<string, InsightDraftResolutionState>,
 ) {
-  const insightDraftsBySourceId = new Map(existingInsightDraftsBySourceId);
+  const insightDraftsBySourceId = new Map<string, DraftCommandTarget>();
+  const insightDraftStatesById = new Map(existingInsightDraftStates);
+  rebuildInsightDraftTargets(insightDraftsBySourceId, insightDraftStatesById);
   const createdTargets = new Map<string, DraftCommandTarget>();
   const targets: Array<{
     key: string;
@@ -896,24 +1008,12 @@ async function summarizeDraftForList(
     if (explicitCreateTarget(command)) {
       createdTargets.set(`${target.table}:${target.id}`, target);
     }
-    rememberInsightCreationResolutionBySourceId(
+    updateInsightDraftResolution(
       insightDraftsBySourceId,
+      insightDraftStatesById,
       command,
       target,
     );
-    if (target.table === "insights") {
-      const change = changes.find(
-        (candidate) =>
-          candidate.table === "insights" && candidate.id === target.id,
-      );
-      if (change?.value) {
-        rememberInsightDraftTargetBySourceId(
-          insightDraftsBySourceId,
-          change.id,
-          change.value,
-        );
-      }
-    }
   }
 
   const primary = targets[0];
@@ -995,9 +1095,9 @@ export const listDrafts = query({
       (commands) =>
         commands.some((command) => command.path === "getOrCreateInsightDraft"),
     );
-    const existingInsightDraftsBySourceId = needsExistingInsightDrafts
+    const existingInsightDraftStates = needsExistingInsightDrafts
       ? await listExistingInsightDraftTargets(ctx, who.workspaceId)
-      : new Map<string, DraftCommandTarget>();
+      : new Map<string, InsightDraftResolutionState>();
     await Promise.all(
       rows.map(async (row) => {
         const commands = commandsByDraft.get(row.draftId) ?? [];
@@ -1008,7 +1108,7 @@ export const listDrafts = query({
             who.workspaceId,
             commands,
             await draftChanges(ctx, who.workspaceId, row.draftId),
-            existingInsightDraftsBySourceId,
+            existingInsightDraftStates,
           ),
         );
       }),

@@ -399,6 +399,47 @@ describe("DashboardsPage – delete confirmation", () => {
     });
   });
 
+  it("renders report cards when only the insight collection fails", () => {
+    mockUseQuery.mockImplementation((ref: { _path: string }) => {
+      if (ref._path === "listDashboards") {
+        return {
+          data: [
+            {
+              id: "dashboard-1",
+              name: "Quarterly plan",
+              items: [{ type: "visualization", visualizationId: "view-1" }],
+              createdAt: 0,
+              updatedAt: 0,
+            },
+          ],
+          isLoading: false,
+        };
+      }
+      if (ref._path === "listVisualizations") {
+        return {
+          data: [{ id: "view-1", insightId: "question-1" }],
+          isLoading: false,
+        };
+      }
+      if (ref._path === "listInsights") {
+        return {
+          isError: true,
+          error: new Error("Insight collection limit exceeded"),
+        };
+      }
+      return { data: [], isLoading: false };
+    });
+
+    render(<DashboardsPage />);
+
+    screen.getByRole("link", {
+      name: /Quarterly plan 1 question 1 saved view/,
+    });
+    expect(
+      screen.queryByRole("heading", { name: "Couldn't load reports" }),
+    ).toBeNull();
+  });
+
   it.each(["pointer", "Enter", "Space"] as const)(
     "opens the card menu with %s without navigating the card",
     async (activation) => {
