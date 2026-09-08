@@ -203,6 +203,7 @@ export async function createHostedServerSurface(options: {
           allowInsecureLoopbackForTests: options.allowInsecureLoopbackForTests,
           workspaceId,
           workspaceOwnerId: ownerId,
+          requestSignal: signal,
           source: source,
           tokens,
           resources: {

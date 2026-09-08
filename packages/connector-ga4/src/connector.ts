@@ -163,6 +163,7 @@ async function refreshAccessToken(
   fetchImpl: typeof fetch,
   now: () => number,
   oauthClient: GoogleOAuthClientCredentials | undefined,
+  signal?: AbortSignal,
 ): Promise<GoogleOAuthTokenBundle> {
   if (!bundle.refreshToken) {
     throw new Error("[GA4Connector] Google authorization must be renewed");
@@ -193,6 +194,7 @@ async function refreshAccessToken(
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,
+    signal,
   });
   if (!response.ok) {
     throw new Error(
@@ -226,6 +228,7 @@ async function accessTokenFor(
   now: () => number,
   oauthClient: GoogleOAuthClientCredentials | undefined,
   persist: PersistTokenBundle | undefined,
+  signal?: AbortSignal,
 ): Promise<string> {
   const bundle = parseTokenBundle(raw);
   if (bundle.expiresAt > now() + 60_000) return bundle.accessToken;
@@ -234,6 +237,7 @@ async function accessTokenFor(
     fetchImpl,
     now,
     oauthClient,
+    signal,
   );
   if (persist) {
     try {
@@ -397,6 +401,7 @@ export class Ga4Connector extends RemoteApiConnector {
         this.#now,
         this.#oauthClient,
         this.#persistTokenBundle,
+        options?.signal,
       );
       const acquisition = this.#reportVersion === "v2";
       const dateRange = acquisition
@@ -424,6 +429,7 @@ export class Ga4Connector extends RemoteApiConnector {
               dimension: { dimensionName },
             })),
           }),
+          signal: options?.signal,
         },
       )) as RunReportResponse;
 

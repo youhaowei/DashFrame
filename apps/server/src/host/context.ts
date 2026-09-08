@@ -17,6 +17,8 @@ export interface HostContext {
   /** Personal workspace owner resolved by hosted admission, never request input.
    * Omitted only for the local desktop/loopback composition. */
   workspaceOwnerId?: string;
+  /** Lifetime of the admitted hosted request. Omitted for local composition. */
+  requestSignal?: AbortSignal;
   metadata: HostMetadata;
   cleanupResources?: () => Promise<void>;
   accessCredentials?: Pick<ApiAccessCredentials, "issue" | "list" | "revoke">;

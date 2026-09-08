@@ -432,7 +432,10 @@ export class PostgresConnector extends RemoteApiConnector {
     // this class for static metadata (id/name/icon/getFormFields) and never
     // calls createClient — so pg is never evaluated in a browser context.
     const { default: pg } = await import("pg");
-    const client = new pg.Client({ connectionString: dsn });
+    const client = new pg.Client({
+      connectionString: dsn,
+      connectionTimeoutMillis: 30_000,
+    });
     await client.connect();
     return client as unknown as PgClientLike;
   }

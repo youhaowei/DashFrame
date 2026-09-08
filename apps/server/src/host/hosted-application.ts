@@ -35,6 +35,7 @@ export function createHostedApplication(options: {
   source: HostedPrincipalTokenSource;
   workspaceId: string;
   workspaceOwnerId: string;
+  requestSignal?: AbortSignal;
   tokens: Pick<
     HostedTokenIssuer,
     "browser" | "service" | "metadata" | "credentialOwnership"
@@ -117,6 +118,7 @@ export function createHostedApplication(options: {
       : undefined,
     principal,
     workspaceOwnerId,
+    requestSignal: options.requestSignal,
     metadata,
     cleanupResources: () => cleanup.run(),
   };

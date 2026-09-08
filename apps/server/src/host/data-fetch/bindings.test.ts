@@ -23,6 +23,7 @@ vi.mock("../connectors", () => ({
 import {
   fetchGa4Binding,
   fetchLocalBinding,
+  fetchNotionBinding,
   fetchSourceBinding,
   resolveSourceBinding,
 } from "./bindings";
@@ -304,6 +305,40 @@ describe("Source Binding registry", () => {
     expect(
       tableFromIPC(Buffer.from(result.arrowBuffer, "base64")).numRows,
     ).toBe(10_002);
+  });
+
+  it("bounds hosted GA4 to one sentinel window and rejects a prefix", async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValue(page(Array.from({ length: 10_001 }, (_, i) => i)));
+    ga4ConnectorFor.mockResolvedValue({ query });
+    const ctx = context({ table, source }, "owner");
+    const binding = await resolveSourceBinding(ctx, table.id);
+
+    await expect(fetchGa4Binding(ctx, binding)).rejects.toThrow(
+      "FETCH_EXECUTION_FAILED",
+    );
+    expect(query).toHaveBeenCalledWith(table.table, table.id, {
+      pagination: { offset: 0, limit: 10_001 },
+    });
+    expect(query).toHaveBeenCalledOnce();
+  });
+
+  it("bounds hosted Notion before its connector paginates the complete source", async () => {
+    const query = vi.fn().mockResolvedValue(page([1, 2]));
+    notionConnectorFor.mockResolvedValue({ query });
+    const notionSource = { ...source, kind: "notion" };
+    const ctx = context({ table, source: notionSource }, "owner");
+    const binding = await resolveSourceBinding(ctx, table.id);
+
+    await expect(fetchNotionBinding(ctx, binding)).resolves.toMatchObject({
+      rowCount: 2,
+    });
+    expect(query).toHaveBeenCalledWith(table.table, table.id, {
+      pagination: { offset: 0, limit: 10_001 },
+      maxRows: 10_000,
+      maxBytes: Math.floor(MAX_LOCAL_ARROW_BYTES / 4),
+    });
   });
 
   it("canonicalizes first-page field identity while accepting fresh ids on later GA4 pages", async () => {
