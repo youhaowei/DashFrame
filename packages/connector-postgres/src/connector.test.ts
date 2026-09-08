@@ -621,6 +621,20 @@ describe("AC5 — Arrow output shape matches registry contract", () => {
 // ---------------------------------------------------------------------------
 
 describe("pagination pushdown (table-ref path)", () => {
+  it("rejects server-owned ceilings on user SQL before connecting", async () => {
+    const spyClient = makeSpyClient([{ id: 1 }]);
+    const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
+
+    await expect(
+      connector.query("SELECT * FROM public.users", crypto.randomUUID(), {
+        pagination: { offset: 0, limit: 10_001 },
+        maxBytes: 1024,
+        maxRows: 10_000,
+      }),
+    ).rejects.toThrow("server-owned ceiling requires a table reference");
+    expect(spyClient.spy).not.toHaveBeenCalled();
+  });
+
   it("measures and fetches a hosted window in one repeatable-read snapshot", async () => {
     const query = vi.fn(async (sql: string | PgQueryConfig) => {
       const text = callText(sql);

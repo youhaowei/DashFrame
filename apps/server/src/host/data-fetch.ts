@@ -356,6 +356,7 @@ export function toFetchFailure(
   const code =
     RUNTIME_FAILURE_CODES.has(sourceCode) ||
     sourceCode === "SOURCE_SCHEMA_CHANGED" ||
+    sourceCode === "SOURCE_NOT_REFRESHABLE" ||
     sourceCode === "TARGET_NOT_READY"
       ? sourceCode
       : fallback;
@@ -365,6 +366,8 @@ export function toFetchFailure(
       code,
       "The source schema changed and the Insight needs review.",
     );
+  else if (code === "SOURCE_NOT_REFRESHABLE")
+    result = failed(code, "This persisted source cannot be refreshed.");
   else if (code === "TARGET_NOT_READY")
     result = failed(code, "The requested data target is not ready yet.", true);
   else

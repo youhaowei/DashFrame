@@ -52,6 +52,10 @@ export type PublishMaterialization = {
   fetchedAt: number;
 };
 
+function assertPersistedSourceRefreshable(target: MaterializationTarget): void {
+  if (target.kind === "refresh") throw new Error("SOURCE_NOT_REFRESHABLE");
+}
+
 export function fieldsFromInsightResult(
   schema: InsightFetchReady["schema"],
   tableId: UUID,
@@ -211,6 +215,7 @@ async function materializeOnce(
     const tables = new Map<UUID, DataTable>();
     for (const source of sources) {
       if (source.existingFrameId) {
+        assertPersistedSourceRefreshable(args.target);
         await runtime.registerArrowTable(
           dependencies.tableName(source.existingFrameId),
           source.arrow,

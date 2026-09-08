@@ -165,9 +165,9 @@ async function fetchPagedRemoteBinding(
 }
 
 /**
- * Notion and Postgres already exhaust their source inside one connector query.
- * Passing synthetic offsets to Notion would repeatedly fetch its first page;
- * keep provider-specific continuation ownership below the binding seam.
+ * Notion exhausts its source inside one connector query. Hosted PostgreSQL
+ * reads one bounded window and rejects results above its row ceiling instead
+ * of paginating. Keep provider-specific continuation ownership below this seam.
  */
 async function fetchExhaustiveRemoteBinding(
   ctx: HostContext,

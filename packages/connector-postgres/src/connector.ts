@@ -570,6 +570,10 @@ export class PostgresConnector extends RemoteApiConnector {
     if (!isTableRef) {
       // Layer 2 allowlist — runs BEFORE #withClient (zero network side-effects).
       assertReadOnlyQuery(databaseId);
+      if (options?.maxBytes !== undefined || options?.maxRows !== undefined)
+        throw new Error(
+          "[PostgresConnector] A server-owned ceiling requires a table reference",
+        );
     }
 
     const limit = options?.pagination?.limit;

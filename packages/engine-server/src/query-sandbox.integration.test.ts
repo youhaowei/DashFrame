@@ -276,7 +276,7 @@ describe.skipIf(process.platform !== "linux")(
         const worker = resolve(output, `bad-${kind}.cjs`);
         await writeFile(
           worker,
-          `process.stdin.once('data',()=>process.stdout.write(Buffer.from('${response}','base64')));process.stdout.write(Buffer.from('${ready}','base64'));setInterval(()=>{},1000);`,
+          `process.stdin.once('data',()=>process.stdout.write(Buffer.from(${JSON.stringify(response)},'base64')));process.stdout.write(Buffer.from(${JSON.stringify(ready)},'base64'));setInterval(()=>{},1000);`,
         );
         const bad = engine(`bad-${kind}`, { worker });
         const operation =

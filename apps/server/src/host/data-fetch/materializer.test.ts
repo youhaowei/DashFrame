@@ -157,6 +157,26 @@ const insight = {
 };
 
 describe("immutable Insight materializer", () => {
+  it("rejects refreshes of persisted local sources as non-refreshable", async () => {
+    const persisted = source("base");
+    persisted.existingFrameId = "existing-frame";
+    const h = harness({ resolveSource: vi.fn(async () => persisted) });
+
+    await expect(
+      createInsightMaterializer(h.dependencies).materialize({
+        ctx: {} as never,
+        target: { kind: "refresh" },
+        insight: {
+          baseTableId: "base",
+          selectedFields: [],
+          metrics: [],
+        },
+      }),
+    ).rejects.toThrow("SOURCE_NOT_REFRESHABLE");
+    expect(h.storage.save).not.toHaveBeenCalled();
+    expect(h.publish).not.toHaveBeenCalled();
+  });
+
   it("refreshes one source without creating an unused result frame", async () => {
     const compile = vi.fn(() => "SELECT 1");
     const h = harness({ compile });
