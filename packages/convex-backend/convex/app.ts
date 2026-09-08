@@ -1,7 +1,6 @@
 import { assertResourcesWritable, enqueueCleanup, resources } from "./cleanup";
 import { stable } from "./values";
 import { v, ConvexError } from "convex/values";
-import { isUnmodifiedDraft } from "@dashframe/types";
 import type {
   DataSource,
   DataTable,
@@ -11,7 +10,6 @@ import type {
   Visualization,
   Dashboard,
   PreviewDiff,
-  CommandRegistryPath,
 } from "@dashframe/types";
 import {
   query,
@@ -47,21 +45,8 @@ import {
 } from "./store";
 import { execute } from "./engine";
 import { type Graph, capMessage } from "./graph";
-import {
-  publicRow,
-  preview,
-  lateBound,
-  signature,
-  redact,
-  describeCommand,
-} from "./preview";
-import {
-  artifactKinds,
-  artifactTables,
-  type ArtifactRow,
-  type ArtifactTable,
-} from "./model";
-import { storedInsightDefinitionSchema } from "./insightCodec";
+import { publicRow, preview, lateBound, signature, redact } from "./preview";
+import { artifactTables, type ArtifactTable } from "./model";
 const draftArg = { draftId: v.optional(v.string()) };
 async function readOne(
   ctx: QueryCtx,
@@ -530,25 +515,6 @@ export const getDraftLog = query({
   },
 });
 
-const draftSummaryNode = v.object({
-  nodeId: v.string(),
-  kind: v.union(
-    v.literal("dataSource"),
-    v.literal("dataTable"),
-    v.literal("insight"),
-    v.literal("dataFrame"),
-    v.literal("visualization"),
-    v.literal("dashboard"),
-  ),
-  name: v.string(),
-  intent: v.array(
-    v.object({
-      command: v.string(),
-      summary: v.string(),
-    }),
-  ),
-});
-
 type VisibleDraftPrincipal = Awaited<ReturnType<typeof principal>>;
 
 async function listVisibleDraftRows(
@@ -648,417 +614,6 @@ export const workspaceArtifactPresence = query({
   },
 });
 
-const fixedDraftTargetTables: Record<
-  CommandRegistryPath,
-  readonly ArtifactTable[]
-> = {
-  getOrCreateDataSource: ["dataSources"],
-  createDataSource: ["dataSources"],
-  setDataSourceConfig: ["dataSources"],
-  createDataTable: ["dataTables"],
-  setDataTableSchema: ["dataTables"],
-  refreshDataTableCmd: ["dataTables"],
-  addField: ["dataTables", "insights"],
-  updateField: ["dataTables", "insights"],
-  removeField: ["dataTables", "insights"],
-  addMetric: ["dataTables", "insights"],
-  updateMetric: ["dataTables", "insights"],
-  removeMetric: ["dataTables", "insights"],
-  getOrCreateInsightDraft: ["insights"],
-  createInsightCmd: ["insights"],
-  setInsightSource: ["insights"],
-  selectFields: ["insights"],
-  setInsightFilter: ["insights"],
-  setInsightSort: ["insights"],
-  setInsightRuntimeControls: ["insights"],
-  addJoin: ["insights"],
-  updateJoin: ["insights"],
-  removeJoin: ["insights"],
-  createVisualizationCmd: ["visualizations"],
-  setChartType: ["visualizations"],
-  setChartEncoding: ["visualizations"],
-  createDashboardCmd: ["dashboards"],
-  addDashboardItemCmd: ["dashboards"],
-  updateDashboardItemCmd: ["dashboards"],
-  setDashboardLayout: ["dashboards"],
-  removeDashboardItemCmd: ["dashboards"],
-  patchDashboardItemOverrideCmd: ["dashboards"],
-  setDashboardControls: ["dashboards"],
-  fanOutDashboardItemsCmd: ["dashboards"],
-  renameNode: artifactTables,
-  deleteNode: [
-    "visualizations",
-    "dashboards",
-    "insights",
-    "dataTables",
-    "dataSources",
-  ],
-};
-
-function getDraftTargetTables(path: string): readonly ArtifactTable[] {
-  return Object.hasOwn(fixedDraftTargetTables, path)
-    ? fixedDraftTargetTables[path as CommandRegistryPath]
-    : [];
-}
-
-type DraftCommandTarget = {
-  id: string;
-  table: ArtifactTable;
-  name: string;
-};
-
-const explicitCreateTargetTables: Partial<
-  Record<CommandRegistryPath, ArtifactTable>
-> = {
-  getOrCreateDataSource: "dataSources",
-  createDataSource: "dataSources",
-  createDataTable: "dataTables",
-  getOrCreateInsightDraft: "insights",
-  createInsightCmd: "insights",
-  createVisualizationCmd: "visualizations",
-  createDashboardCmd: "dashboards",
-};
-
-function explicitCreateTarget(command: Command): DraftCommandTarget | null {
-  const table = Object.hasOwn(explicitCreateTargetTables, command.path)
-    ? explicitCreateTargetTables[command.path as CommandRegistryPath]
-    : undefined;
-  if (!table) return null;
-  const args = record(command.args);
-  if (typeof args.id !== "string") return null;
-  return {
-    id: args.id,
-    table,
-    name:
-      typeof args.name === "string" && args.name.length > 0
-        ? args.name
-        : "Untitled artifact",
-  };
-}
-
-type InsightDraftResolutionState = {
-  target: DraftCommandTarget;
-  sourceId: string | null;
-  selectedFields: readonly unknown[];
-  metrics: readonly unknown[];
-  filters: readonly unknown[];
-  sorts: readonly unknown[];
-  joins: readonly unknown[];
-};
-
-function dataTableSourceId(sourceValue: unknown): string | null {
-  const source = record(sourceValue);
-  return source.sourceType === "dataTable" &&
-    typeof source.sourceId === "string"
-    ? source.sourceId
-    : null;
-}
-
-function values(value: unknown): readonly unknown[] {
-  return Array.isArray(value) ? value : [];
-}
-
-function insightDraftResolutionState(
-  target: DraftCommandTarget,
-  row: Pick<ArtifactRow, "definition">,
-): InsightDraftResolutionState | null {
-  if (!row.definition) return null;
-  const definition = storedInsightDefinitionSchema.parse(row.definition);
-  return {
-    target,
-    sourceId: dataTableSourceId(definition.source),
-    selectedFields: definition.selectedFields,
-    metrics: definition.metrics,
-    filters: definition.filters ?? [],
-    sorts: definition.sorts ?? [],
-    joins: definition.joins ?? [],
-  };
-}
-
-function createdInsightDraftResolutionState(
-  command: Command,
-  target: DraftCommandTarget,
-): InsightDraftResolutionState | null {
-  if (
-    command.path !== "getOrCreateInsightDraft" &&
-    command.path !== "createInsightCmd"
-  ) {
-    return null;
-  }
-  const args = record(command.args);
-  if (args.id !== target.id) return null;
-  return {
-    target,
-    sourceId: dataTableSourceId(args.source),
-    selectedFields: values(args.selectedFields),
-    metrics: values(args.metrics),
-    filters: [],
-    sorts: [],
-    joins: [],
-  };
-}
-
-function isReusableInsightDraft(state: InsightDraftResolutionState): boolean {
-  return isUnmodifiedDraft(state);
-}
-
-function rebuildInsightDraftTargets(
-  targets: Map<string, DraftCommandTarget>,
-  states: ReadonlyMap<string, InsightDraftResolutionState>,
-) {
-  targets.clear();
-  for (const state of states.values()) {
-    if (
-      state.sourceId &&
-      isReusableInsightDraft(state) &&
-      !targets.has(state.sourceId)
-    ) {
-      targets.set(state.sourceId, state.target);
-    }
-  }
-}
-
-function updateInsightDraftResolution(
-  targets: Map<string, DraftCommandTarget>,
-  states: Map<string, InsightDraftResolutionState>,
-  command: Command,
-  target: DraftCommandTarget,
-) {
-  if (target.table !== "insights") return;
-  if (command.path === "deleteNode") {
-    states.delete(target.id);
-    rebuildInsightDraftTargets(targets, states);
-    return;
-  }
-
-  let state =
-    createdInsightDraftResolutionState(command, target) ??
-    states.get(target.id);
-  if (!state) return;
-  const args = record(command.args);
-  if (command.path === "setInsightSource") {
-    state = { ...state, sourceId: dataTableSourceId(args.source) };
-  } else if (command.path === "selectFields") {
-    state = {
-      ...state,
-      selectedFields: values(args.fieldIds),
-    };
-  } else if (command.path === "setInsightFilter") {
-    state = {
-      ...state,
-      filters: values(args.filters),
-    };
-  } else if (command.path === "setInsightSort") {
-    state = {
-      ...state,
-      sorts: values(args.sorts),
-    };
-  } else if (command.path === "addField") {
-    const fieldId = record(args.field).id;
-    if (typeof fieldId === "string") {
-      state = {
-        ...state,
-        selectedFields: [...state.selectedFields, fieldId],
-      };
-    }
-  } else if (command.path === "removeField") {
-    state = {
-      ...state,
-      selectedFields: state.selectedFields.filter(
-        (fieldId) => fieldId !== args.fieldId,
-      ),
-    };
-  } else if (command.path === "addMetric") {
-    state = { ...state, metrics: [...state.metrics, args.metric] };
-  } else if (command.path === "removeMetric") {
-    state = {
-      ...state,
-      metrics: state.metrics.filter(
-        (metric) => record(metric).id !== args.metricId,
-      ),
-    };
-  } else if (command.path === "addJoin") {
-    state = { ...state, joins: [...state.joins, args.join] };
-  } else if (command.path === "removeJoin") {
-    state = {
-      ...state,
-      joins: state.joins.filter((_, index) => index !== args.joinIndex),
-    };
-  }
-
-  states.set(target.id, state);
-  rebuildInsightDraftTargets(targets, states);
-}
-
-async function listExistingInsightDraftTargets(
-  ctx: QueryCtx,
-  workspaceId: string,
-): Promise<Map<string, InsightDraftResolutionState>> {
-  const rows = await ctx.db
-    .query("insights")
-    .withIndex("by_workspaceId_and_id", (q) => q.eq("workspaceId", workspaceId))
-    .take(LIMIT + 1);
-  assertCompleteArtifactRows(rows, "insights");
-
-  const states = new Map<string, InsightDraftResolutionState>();
-  for (const row of rows) {
-    const target = {
-      id: row.id,
-      table: "insights" as const,
-      name: row.name.length > 0 ? row.name : "Untitled artifact",
-    };
-    const state = insightDraftResolutionState(target, row);
-    if (!state) continue;
-    states.set(row.id, state);
-  }
-  return states;
-}
-
-async function resolveDraftCommandTarget(
-  ctx: QueryCtx,
-  workspaceId: string,
-  command: Command,
-  changes: readonly Doc<"draftChanges">[],
-  existingInsightDraftsBySourceId: ReadonlyMap<string, DraftCommandTarget>,
-  createdTargets: ReadonlyMap<string, DraftCommandTarget>,
-): Promise<DraftCommandTarget | null> {
-  const args = record(command.args);
-  const targetId = args.nodeId ?? args.dashboardId ?? args.id;
-  if (typeof targetId !== "string") return null;
-
-  if (command.path === "getOrCreateInsightDraft") {
-    const source = record(args.source);
-    if (
-      source.sourceType === "dataTable" &&
-      typeof source.sourceId === "string"
-    ) {
-      const existing = existingInsightDraftsBySourceId.get(source.sourceId);
-      if (existing) return existing;
-    }
-  }
-
-  const targetTables = getDraftTargetTables(command.path);
-  for (const table of targetTables) {
-    const change = changes.find(
-      (candidate) => candidate.table === table && candidate.id === targetId,
-    );
-    if (!change) continue;
-    return {
-      id: change.id,
-      table,
-      name: change.base?.name ?? change.value?.name ?? "Deleted artifact",
-    };
-  }
-
-  for (const table of targetTables) {
-    const created = createdTargets.get(`${table}:${targetId}`);
-    if (created) return created;
-  }
-
-  for (const table of targetTables) {
-    const row = await find(ctx, workspaceId, table, targetId);
-    if (!row) continue;
-    const value = rowValue(row);
-    return {
-      id: targetId,
-      table,
-      name:
-        typeof value.name === "string" && value.name.length > 0
-          ? value.name
-          : "Untitled artifact",
-    };
-  }
-
-  return explicitCreateTarget(command);
-}
-
-async function summarizeDraftForList(
-  ctx: QueryCtx,
-  workspaceId: string,
-  commands: Command[],
-  changes: Doc<"draftChanges">[],
-  existingInsightDraftStates: ReadonlyMap<string, InsightDraftResolutionState>,
-) {
-  const insightDraftsBySourceId = new Map<string, DraftCommandTarget>();
-  const insightDraftStatesById = new Map(existingInsightDraftStates);
-  rebuildInsightDraftTargets(insightDraftsBySourceId, insightDraftStatesById);
-  const createdTargets = new Map<string, DraftCommandTarget>();
-  const targets: Array<{
-    key: string;
-    id: string;
-    table: ArtifactTable;
-    name: string;
-    command: Command;
-  }> = [];
-  for (const command of commands) {
-    const target = await resolveDraftCommandTarget(
-      ctx,
-      workspaceId,
-      command,
-      changes,
-      insightDraftsBySourceId,
-      createdTargets,
-    );
-    if (!target) continue;
-    targets.push({
-      key: `${target.table}:${target.id}`,
-      ...target,
-      command,
-    });
-    if (explicitCreateTarget(command)) {
-      createdTargets.set(`${target.table}:${target.id}`, target);
-    }
-    updateInsightDraftResolution(
-      insightDraftsBySourceId,
-      insightDraftStatesById,
-      command,
-      target,
-    );
-  }
-
-  const primary = targets[0];
-  if (primary) {
-    const intent = targets
-      .filter((target) => target.key === primary.key)
-      .slice(0, 2)
-      .map((target) => describeCommand(target.command));
-    return {
-      directNodes: [
-        {
-          nodeId: primary.id,
-          kind: artifactKinds[primary.table],
-          name: primary.name,
-          intent,
-        },
-      ],
-      remainingIntentCount: Math.max(0, commands.length - intent.length),
-    };
-  }
-
-  const change = changes.find((candidate) =>
-    artifactTables.includes(candidate.table as ArtifactTable),
-  );
-  if (change) {
-    const table = change.table as ArtifactTable;
-    return {
-      directNodes: [
-        {
-          nodeId: change.id,
-          kind: artifactKinds[table],
-          name: change.base?.name ?? change.value?.name ?? "Deleted artifact",
-          intent: [],
-        },
-      ],
-      remainingIntentCount: commands.length,
-    };
-  }
-
-  return {
-    directNodes: [],
-    remainingIntentCount: commands.length,
-  };
-}
-
 export const listDrafts = query({
   args: {},
   returns: v.array(
@@ -1069,48 +624,18 @@ export const listDrafts = query({
       commandCount: v.number(),
       kinds: v.record(v.string(), v.number()),
       paths: v.array(v.string()),
-      summary: v.object({
-        directNodes: v.array(draftSummaryNode),
-        remainingIntentCount: v.number(),
-      }),
     }),
   ),
   handler: async (ctx) => {
     const who = await principal(ctx);
     const rows = await listVisibleDraftRows(ctx, who);
     const commandsByDraft = new Map<string, Command[]>();
-    const summaryByDraft = new Map<
-      string,
-      Awaited<ReturnType<typeof summarizeDraftForList>>
-    >();
     await Promise.all(
       rows.map(async (row) => {
         const commands = (await log(ctx, who.workspaceId, row.draftId)).map(
           (entry) => entry.command,
         );
         commandsByDraft.set(row.draftId, commands);
-      }),
-    );
-    const needsExistingInsightDrafts = [...commandsByDraft.values()].some(
-      (commands) =>
-        commands.some((command) => command.path === "getOrCreateInsightDraft"),
-    );
-    const existingInsightDraftStates = needsExistingInsightDrafts
-      ? await listExistingInsightDraftTargets(ctx, who.workspaceId)
-      : new Map<string, InsightDraftResolutionState>();
-    await Promise.all(
-      rows.map(async (row) => {
-        const commands = commandsByDraft.get(row.draftId) ?? [];
-        summaryByDraft.set(
-          row.draftId,
-          await summarizeDraftForList(
-            ctx,
-            who.workspaceId,
-            commands,
-            await draftChanges(ctx, who.workspaceId, row.draftId),
-            existingInsightDraftStates,
-          ),
-        );
       }),
     );
     return rows.map((row) => {
@@ -1125,10 +650,6 @@ export const listDrafts = query({
         commandCount: row.commandCount,
         kinds,
         paths: [...new Set(paths)],
-        summary: summaryByDraft.get(row.draftId) ?? {
-          directNodes: [],
-          remainingIntentCount: row.commandCount,
-        },
       };
     });
   },

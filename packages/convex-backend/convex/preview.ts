@@ -155,9 +155,9 @@ function nestedName(value: Json | undefined): string | null {
 }
 
 /**
- * Deterministic, credential-free intent copy shared by detailed review and the
- * lightweight draft collection summary. This deliberately describes the typed
- * command rather than exposing registry paths or executing a preview.
+ * Deterministic, credential-free intent copy for detailed review. This
+ * describes the typed command rather than exposing registry paths or
+ * executing a preview.
  */
 export function describeCommand(command: Command): PreviewIntent {
   const args = record(command.args);

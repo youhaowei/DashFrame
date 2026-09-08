@@ -267,6 +267,30 @@ describe("VisualizationPageContent delete confirmation", () => {
     );
   });
 
+  it("returns to the originating report after saved-view deletion", async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <VisualizationPageContent visualizationId="viz-1" reportId="report-b" />
+        <ConfirmDialog />
+      </>,
+    );
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    await user.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: "Delete",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(mockCommitBatch).toHaveBeenCalledWith({
+        commands: [{ path: "deleteNode", args: { id: "viz-1" } }],
+      });
+      expect(mockNavigate).toHaveBeenCalledWith({ to: "/dashboards/report-b" });
+    });
+    expect(mockNavigate).not.toHaveBeenCalledWith({ to: "/insights" });
+  });
+
   it("returns to the source question with the originating report", async () => {
     const user = userEvent.setup();
 

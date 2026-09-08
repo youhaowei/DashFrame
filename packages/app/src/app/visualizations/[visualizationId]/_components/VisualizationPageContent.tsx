@@ -687,7 +687,11 @@ export default function VisualizationPageContent({
       onConfirm: async () => {
         try {
           await removeVisualizationMutation({ id: visualizationId as UUID });
-          navigate({ to: "/insights" });
+          navigate(
+            (reportId
+              ? { to: `/dashboards/${reportId}` }
+              : { to: "/insights" }) as never,
+          );
         } catch {
           toast.error("Couldn't delete the visualization");
         }

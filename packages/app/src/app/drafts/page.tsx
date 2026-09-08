@@ -41,15 +41,13 @@ export default function DraftsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const query = searchQuery.trim().toLowerCase();
   const filteredDrafts = drafts.filter((draft) => {
-    const summaryText = draft.summary.directNodes
-      .flatMap((node) => [
-        node.name,
-        ...node.intent.map((intent) => intent.summary),
-      ])
-      .join(" ");
-    return `${draft.draftId} ${draft.commandCount} changes ${summaryText}`
-      .toLowerCase()
-      .includes(query);
+    const haystack = [
+      draft.draftId,
+      `${draft.commandCount} changes`,
+      ...draft.paths,
+      ...Object.keys(draft.kinds),
+    ].join(" ");
+    return haystack.toLowerCase().includes(query);
   });
   const discardDraft = useMutation(api.app.discardDraft);
   const draftCount = getDraftCountPresentation(

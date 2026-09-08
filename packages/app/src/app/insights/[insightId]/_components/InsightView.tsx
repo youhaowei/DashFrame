@@ -160,6 +160,32 @@ export function resolvePendingVisualModeTarget(input: {
   return resolveVisualModeTarget(input);
 }
 
+export type AddToReportTarget<T> =
+  | { kind: "pending" }
+  | { kind: "query-error" }
+  | { kind: "missing-report" }
+  | { kind: "ready"; dashboard: T | undefined };
+
+export function resolveAddToReportTarget<
+  T extends { id: string; items: readonly { y: number; height: number }[] },
+>(input: {
+  reportId?: string;
+  dashboards: readonly T[] | undefined;
+  isPending: boolean;
+  isError: boolean;
+}): AddToReportTarget<T> {
+  if (input.isPending) return { kind: "pending" };
+  if (input.isError) return { kind: "query-error" };
+  if (input.reportId) {
+    const dashboard = (input.dashboards ?? []).find(
+      (candidate) => candidate.id === input.reportId,
+    );
+    if (!dashboard) return { kind: "missing-report" };
+    return { kind: "ready", dashboard };
+  }
+  return { kind: "ready", dashboard: input.dashboards?.[0] };
+}
+
 interface InsightViewProps {
   insight: Insight;
   visualizeIntent?: boolean;
@@ -809,9 +835,11 @@ export function InsightView({
   const { data: allVisualizations = [] } = queryStatus(
     useQuery({ query: api.app.listVisualizations, args: {} }),
   );
-  const { data: dashboards = [] } = queryStatus(
-    useQuery({ query: api.app.listDashboards, args: {} }),
-  );
+  const {
+    data: dashboards = [],
+    isPending: dashboardsPending,
+    isError: dashboardsError,
+  } = queryStatus(useQuery({ query: api.app.listDashboards, args: {} }));
   const persistedActiveView = useInsightCanvasStore(
     (s) => s.activeViewByInsight[insightId],
   );
@@ -1266,15 +1294,25 @@ export function InsightView({
       return null;
     }, [activeChartSuggestion, activeView, pinChartSuggestion]);
 
+  const addToReportTarget = resolveAddToReportTarget({
+    reportId,
+    dashboards,
+    isPending: dashboardsPending,
+    isError: dashboardsError,
+  });
+
   const handleAddActiveViewToDashboard = useCallback(async () => {
     try {
-      const dashboard = reportId
-        ? dashboards.find((candidate) => candidate.id === reportId)
-        : dashboards[0];
-      if (reportId && !dashboard) {
+      if (addToReportTarget.kind === "pending") return;
+      if (addToReportTarget.kind === "query-error") {
+        toast.error("Couldn't load reports");
+        return;
+      }
+      if (addToReportTarget.kind === "missing-report") {
         toast.error("This report is no longer available");
         return;
       }
+      const dashboard = addToReportTarget.dashboard;
       const visualizationId = await ensureActiveVisualization();
       if (!visualizationId) return;
       const dashboardId = dashboard?.id ?? (crypto.randomUUID() as UUID);
@@ -1315,8 +1353,8 @@ export function InsightView({
       toast.error("Couldn't add to dashboard");
     }
   }, [
+    addToReportTarget,
     commitBatch,
-    dashboards,
     ensureActiveVisualization,
     insight.name,
     reportId,
@@ -1425,8 +1463,9 @@ export function InsightView({
   const canPinActiveChart =
     activeView.kind === "chart" && activeChartSuggestion !== undefined;
   const canAddActiveViewToDashboard =
-    activeView.kind === "visualization" ||
-    (activeView.kind === "chart" && activeChartSuggestion !== undefined);
+    (activeView.kind === "visualization" ||
+      (activeView.kind === "chart" && activeChartSuggestion !== undefined)) &&
+    addToReportTarget.kind !== "pending";
 
   // Data table not found - check after all hooks are called
   if (!dataTable || !authoringTable) {

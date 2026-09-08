@@ -22,15 +22,6 @@ export interface DraftListEntry {
   updatedAt: Date | string | null;
   kinds: Record<string, number>;
   paths: string[];
-  summary: {
-    directNodes: Array<{
-      nodeId: string;
-      kind: string;
-      name: string;
-      intent: Array<{ command: string; summary: string }>;
-    }>;
-    remainingIntentCount: number;
-  };
 }
 
 function toEpoch(value: Date | string | null | undefined): number | null {
@@ -101,8 +92,6 @@ export function DraftListItem({
   const now = useSyncExternalStore(subscribeNow, getNow, getServerNow);
   const updatedMs = toEpoch(draft.updatedAt) ?? toEpoch(draft.createdAt);
   const updated = updatedMs != null ? formatRelativeTime(now, updatedMs) : "—";
-  const primaryNode = draft.summary.directNodes[0];
-  const intentLines = draft.summary.directNodes.flatMap((node) => node.intent);
 
   const discard = async () => {
     if (!onDiscard) return;
@@ -116,32 +105,21 @@ export function DraftListItem({
   };
 
   const changeCountLabel = `${draft.commandCount} change${draft.commandCount === 1 ? "" : "s"}`;
-  const proposedUpdateLabel = `${draft.commandCount} proposed update${draft.commandCount === 1 ? "" : "s"}`;
-  const cardName =
-    primaryNode?.name ??
-    (draft.commandCount === 0 ? "No changes yet" : proposedUpdateLabel);
 
   return (
     <ArtifactCard
       className={className}
       to={`/drafts/${draft.draftId}`}
-      name={cardName}
+      name={draft.commandCount === 0 ? "No changes yet" : changeCountLabel}
       icon={<FileIcon className="h-5 w-5" />}
       metadata={
         <>
-          {intentLines.map((intent, index) => (
-            <span key={`${intent.command}:${index}`} className="block">
-              {intent.summary}
+          <span className="block">Updated {updated}</span>
+          {draft.paths.length > 0 && (
+            <span className="mt-2 block break-all font-mono">
+              {draft.paths.join(" · ")}
             </span>
-          ))}
-          {draft.summary.remainingIntentCount > 0 ? (
-            <span className="block">
-              +{draft.summary.remainingIntentCount} more
-            </span>
-          ) : null}
-          <span className="mt-3 block">
-            {changeCountLabel} · Updated {updated}
-          </span>
+          )}
         </>
       }
       actions={
