@@ -5,7 +5,7 @@ import {
   RESOURCE_REFERENCE_SCAN_CAP_CODE,
 } from "@dashframe/convex-backend/model";
 import type { HostContext } from "./context";
-import type { HostMetadata } from "./metadata";
+import type { HostMetadata, LocalRecoveryMetadata } from "./metadata";
 import type { HostedLifecycleMetadata } from "./hosted-convex-lifecycle";
 
 type CleanupMetadata = Pick<
@@ -13,7 +13,7 @@ type CleanupMetadata = Pick<
   "listCleanup" | "claimCleanup" | "ackCleanup"
 > &
   (
-    | Pick<HostMetadata, "listPendingHostBatches" | "settleHostBatch">
+    | (LocalRecoveryMetadata & Pick<HostMetadata, "settleHostBatch">)
     | Pick<
         HostedLifecycleMetadata,
         "listRecoverableHostBatches" | "recoverHostBatch"

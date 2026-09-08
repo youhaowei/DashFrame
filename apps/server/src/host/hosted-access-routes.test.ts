@@ -30,7 +30,8 @@ function fixture(
       expiresAt: Date.now() + 60_000,
     })),
   };
-  const ensureWorkspace = vi.fn(async () => {});
+  const execute = vi.fn(async () => ({ ok: true }));
+  const ensureWorkspace = vi.fn(async () => ({ execute }));
   const app = createHostedAccessRoutes({
     publicOrigin: "https://app.invalid",
     session,
@@ -47,7 +48,7 @@ function fixture(
         subject: "attacker-selected",
       }),
     });
-  return { session, admission, tokens, ensureWorkspace, app, request };
+  return { session, admission, tokens, ensureWorkspace, execute, app, request };
 }
 
 it.each(["signedout", "unavailable"] as const)(
@@ -116,4 +117,34 @@ it("rejects foreign origins before authentication and maps startup failure to un
   expect((await f.app.request("https://app.invalid/api/runtime")).status).toBe(
     405,
   );
+});
+
+it("binds hosted operation dispatch to current admission and rejects unknown routes", async () => {
+  const f = fixture();
+  expect((await f.request("host/getAccessCapabilities")).status).toBe(200);
+  expect(f.execute).toHaveBeenCalledWith(
+    "getAccessCapabilities",
+    expect.anything(),
+    { principal: { kind: "user", userId: "verified-a" } },
+  );
+  expect((await f.request("host/notPublished")).status).toBe(404);
+  expect(f.ensureWorkspace).toHaveBeenCalledTimes(1);
+  for (const status of ["pending", "revoked"] as const) {
+    const denied = fixture("authenticated", status);
+    expect((await denied.request("host/getAccessCapabilities")).status).toBe(
+      403,
+    );
+    expect(denied.execute).not.toHaveBeenCalled();
+    expect(denied.ensureWorkspace).not.toHaveBeenCalled();
+  }
+  const foreign = fixture();
+  expect(
+    (
+      await foreign.request(
+        "host/getAccessCapabilities",
+        "https://foreign.invalid",
+      )
+    ).status,
+  ).toBe(403);
+  expect(foreign.session.resolve).not.toHaveBeenCalled();
 });

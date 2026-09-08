@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, expect, it } from "vite-plus/test";
 import { CREDENTIAL_CLASS } from "@dashframe/server-core";
 import { createWorkspaceSecrets } from "./workspace-secrets";
+import { HostedWorkspacePool } from "./hosted-workspace-pool";
 import { loadSecretKeyring } from "../secret-file-backend";
 
 const directories: string[] = [];
@@ -89,4 +90,34 @@ it("rejects invalid workspace identities before creating workspace files", async
       "Invalid admitted workspace identity",
     );
   expect(await readdir(directory)).toEqual([]);
+});
+
+it("drains concurrent pooled vault writes before reopening durable mappings", async () => {
+  const { directory, keyring, factory } = await fixture();
+  let starts = 0;
+  const pool = new HostedWorkspacePool(1, async (workspaceId) => {
+    starts++;
+    return {
+      resources: await factory.forWorkspace(workspaceId),
+      close: async () => {},
+    };
+  });
+  const writes = Array.from({ length: 12 }, (_, index) =>
+    pool.run("pooled", "owner", (vault) =>
+      vault.store(`synthetic-value-${index}`, {
+        class: CREDENTIAL_CLASS.ConnectorKey,
+      }),
+    ),
+  );
+  const shutdown = pool.close();
+  const refs = await Promise.all(writes);
+  await shutdown;
+  expect(starts).toBe(1);
+  const reopened = await (
+    await createWorkspaceSecrets(directory, keyring)
+  ).forWorkspace("pooled");
+  for (const [index, ref] of refs.entries())
+    expect(await reopened.withSecret(ref, async (value) => value)).toBe(
+      `synthetic-value-${index}`,
+    );
 });

@@ -25,7 +25,7 @@ let directory: string;
 let native: ReturnType<typeof convexTest>;
 let storage: FileDataFrameStorage;
 let cleanup: HostResourceCleanup;
-let context: HostContext;
+let context: HostContext & { metadata: ReturnType<typeof createHostMetadata> };
 
 beforeEach(async () => {
   directory = await mkdtemp(path.join(os.tmpdir(), "local-import-race-"));

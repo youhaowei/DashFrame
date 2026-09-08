@@ -35,7 +35,7 @@ const modules = import.meta.glob(
 );
 const makeNative = () => convexTest(schema, modules);
 let native: ReturnType<typeof makeNative>;
-let ctx: HostContext;
+let ctx: HostContext & { metadata: ReturnType<typeof createHostMetadata> };
 let cleanup: HostResourceCleanup;
 let refs: SecretRef[];
 let storeCredential: SecretVault["store"];

@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { generateKeyPairSync, sign } from "node:crypto";
+import { generateKeyPairSync, randomBytes, sign } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -12,12 +12,28 @@ import { api, internal } from "@dashframe/convex-backend/api";
 import { startLocalConvex, type LocalConvex } from "@dashframe/convex-local";
 import { cmd, type Field } from "@dashframe/types";
 import { CREDENTIAL_CLASS } from "@dashframe/server-core";
+import type { SecretVault } from "@wystack/secret-vault";
+import { createWorkspaceSecrets } from "./workspace-secrets";
+import { loadSecretKeyring } from "../secret-file-backend";
 import {
-  InMemoryMappingStore,
-  SecretRegistry,
-  SecretVault,
-  TestBackend,
-} from "@wystack/secret-vault";
+  createHostedConnectorSessionDocument,
+  createHostedConnectorSessionStore,
+} from "../connector-setup/hosted-session-store";
+import {
+  startSession,
+  consumeCallback,
+  markVerifying,
+  sweep,
+} from "../connector-setup/session-store";
+import {
+  saveAssistantProviderConfig,
+  removeAssistantProviderConfig,
+  startAssistantOAuthLogin,
+} from "./assistant-providers";
+import { createHostedAdmissionService } from "./hosted-admission-service";
+import { createHostedAccessRoutes } from "./hosted-access-routes";
+import { createHostedApplication } from "./hosted-application";
+import { bindHostedMetadata } from "./bound-hosted-metadata";
 import { HostResourceCleanup } from "./resource-cleanup";
 import { createHostedProviderMetadata } from "./hosted-convex-provider-metadata";
 import { createHostedSourceMetadata } from "./hosted-convex-source-operations";
@@ -552,13 +568,16 @@ it(
         ),
       ).toBe(true);
 
-      const workspaceVault = () => {
-        const registry = new SecretRegistry();
-        registry.register("test", new TestBackend(), { fallback: true });
-        return new SecretVault(registry, new InMemoryMappingStore());
-      };
-      const vaultA = workspaceVault(),
-        vaultB = workspaceVault();
+      const sessionKeyring = await loadSecretKeyring({
+        DASHFRAME_SECRET_KEY: randomBytes(32).toString("base64"),
+      });
+      if (!sessionKeyring) throw new Error("Synthetic keyring required");
+      const vaultFactory = await createWorkspaceSecrets(
+        path.join(directory, "workspace-secrets"),
+        sessionKeyring,
+      );
+      const vaultA = await vaultFactory.forWorkspace(workspaces[0]!);
+      const vaultB = await vaultFactory.forWorkspace(workspaces[1]!);
       const providerRefA = await vaultA.store("provider-a", {
           class: CREDENTIAL_CLASS.AssistantProvider,
         }),
@@ -580,6 +599,257 @@ it(
           vaultA,
         ),
         providersB = providerMetadata(userClaims("b", workspaces[1]!), vaultB);
+      const sessionDirectory = path.join(directory, "workspace-a-sessions");
+      const sessionDocument = createHostedConnectorSessionDocument(
+        sessionDirectory,
+        workspaces[0]!,
+        sessionKeyring,
+      );
+      const sessionsA = createHostedConnectorSessionStore({
+        document: sessionDocument,
+        ownerSubject: "a",
+        getDataSourceKind: async (id) =>
+          (await providersA.getDataSource(id))?.kind ?? null,
+      });
+      const sessionsB = createHostedConnectorSessionStore({
+        document: sessionDocument,
+        ownerSubject: "b",
+        getDataSourceKind: async (id) =>
+          (await providersB.getDataSource(id))?.kind ?? null,
+      });
+      const boundMetadata = bindHostedMetadata({
+        principal: { kind: "user", userId: "a" },
+        metadata: providersA,
+        connectorSetup: sessionsA,
+        credentialOwnership: {
+          revoke: async () => {
+            throw new Error("Not used by this fixture");
+          },
+        },
+      });
+      const boundBatch = {
+        operationId: "bound-runtime-batch",
+        requestHash: "e".repeat(64),
+      };
+      const boundPrincipal = { kind: "user" as const, userId: "a" };
+      await boundMetadata.prepareHostBatch({
+        ...boundBatch,
+        principal: boundPrincipal,
+        commands: [],
+        mode: "commit",
+        stagedRefs: [],
+      });
+      await expect(
+        boundMetadata.executeHostBatch({
+          ...boundBatch,
+          principal: { kind: "user", userId: "b" },
+        }),
+      ).rejects.toThrow("FORBIDDEN");
+      await boundMetadata.executeHostBatch({
+        ...boundBatch,
+        principal: boundPrincipal,
+      });
+      expect(
+        (
+          await boundMetadata.getHostBatch({
+            ...boundBatch,
+            principal: boundPrincipal,
+          })
+        )?.status,
+      ).toBe("completed");
+      await expect(
+        boundMetadata.commitBatch({ kind: "user", userId: "b" }, []),
+      ).rejects.toThrow("FORBIDDEN");
+      await boundMetadata.commitBatch(boundPrincipal, []);
+      const issued = (claims: Record<string, string>) => ({
+        token: token(runtime, claims),
+        expiresAt: Date.now() + 60_000,
+      });
+      const hostedApplication = createHostedApplication({
+        deploymentUrl: backend.url,
+        allowInsecureLoopbackForTests: true,
+        source: { kind: "user", userId: "a", expiresAt: Date.now() + 120_000 },
+        workspaceId: workspaces[0]!,
+        workspaceOwnerId: "a",
+        resources: {
+          vault: vaultA,
+          connectorSetup: sessionsA,
+          getServerEndpoint: () => undefined,
+        },
+        tokens: {
+          metadata: (source, workspaceId) => {
+            if (source.kind !== "user")
+              throw new Error("Unexpected fixture service");
+            return issued(userClaims(source.userId, workspaceId));
+          },
+          browser: (user, workspaceId) =>
+            issued({
+              sub: `user:${user.userId}`,
+              userId: user.userId,
+              principalKind: "user",
+              authority: "browser",
+              workspaceId,
+            }),
+          service: (service, workspaceId) =>
+            issued({
+              sub: `service:${service.credentialId}`,
+              credentialId: service.credentialId,
+              principalKind: "service",
+              authority: "service",
+              workspaceId,
+            }),
+          credentialOwnership: (user, workspaceId) =>
+            issued({
+              ...userClaims(user.userId, workspaceId),
+              purpose: "host-credentials",
+            }),
+        },
+      });
+      const ownerContext = hostedApplication.context;
+      let httpAllocations = 0;
+      const httpApp = createHostedAccessRoutes({
+        publicOrigin: "https://hosted-app.invalid",
+        session: {
+          resolve: async () => ({
+            status: "authenticated",
+            identity: { subject: "a" },
+            expiresAt: Date.now() + 120_000,
+          }),
+        },
+        admission: createHostedAdmissionService({
+          deploymentUrl: backend.url,
+          allowInsecureLoopbackForTests: true,
+          tokens: {
+            admission: (user) =>
+              issued({
+                sub: `user:${user.userId}`,
+                userId: user.userId,
+                principalKind: "user",
+                authority: "host",
+              }),
+          },
+        }),
+        tokens: {
+          browser: (user, workspaceId) =>
+            issued({
+              sub: `user:${user.userId}`,
+              userId: user.userId,
+              principalKind: "user",
+              authority: "browser",
+              workspaceId,
+            }),
+        },
+        ensureWorkspace: async (workspaceId, user) => {
+          expect(workspaceId).toBe(workspaces[0]);
+          expect(user.userId).toBe("a");
+          httpAllocations++;
+          return hostedApplication.application;
+        },
+      });
+      const httpOperation = (operation: string, input: unknown) =>
+        httpApp.request(`https://hosted-app.invalid/api/host/${operation}`, {
+          method: "POST",
+          headers: {
+            Origin: "https://hosted-app.invalid",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(input),
+        });
+      const httpSourceId = crypto.randomUUID();
+      expect(
+        (
+          await httpOperation("getOrCreateDataSource", {
+            id: httpSourceId,
+            type: "csv",
+            name: "HTTP admitted source",
+          })
+        ).status,
+      ).toBe(200);
+      expect(await a.getDataSource(httpSourceId)).toMatchObject({
+        id: httpSourceId,
+      });
+      expect(await b.getDataSource(httpSourceId)).toBeNull();
+      const handshake = await startSession(sessionsA, {
+        connectorId: "csv",
+        requestedName: "Scoped recovery",
+        scopes: [],
+      });
+      await expect(
+        consumeCallback(sessionsB, handshake.stateNonce),
+      ).rejects.toThrow();
+      await consumeCallback(sessionsA, handshake.stateNonce);
+      await markVerifying(sessionsA, handshake.session.id, httpSourceId);
+      await sweep(sessionsA, new Date(), 0);
+      expect((await sessionsA.get(handshake.session.id))?.state).toBe(
+        "connected",
+      );
+      expect(await sessionsB.get(handshake.session.id)).toBeNull();
+      const encryptedSessions = await readFile(
+        path.join(sessionDirectory, "connector-sessions.dfsd"),
+      );
+      expect(
+        encryptedSessions.includes(Buffer.from(handshake.session.codeVerifier)),
+      ).toBe(false);
+      expect(
+        encryptedSessions.includes(Buffer.from(handshake.stateNonce)),
+      ).toBe(false);
+      const applicationSourceId = crypto.randomUUID();
+      await hostedApplication.application.execute("getOrCreateDataSource", {
+        id: applicationSourceId,
+        type: "csv",
+        name: "Composed hosted source",
+      });
+      expect(
+        await hostedApplication.application.execute("getDataSource", {
+          id: applicationSourceId,
+        }),
+      ).toMatchObject({ id: applicationSourceId });
+      expect(await b.getDataSource(applicationSourceId)).toBeNull();
+      await expect(
+        hostedApplication.application
+          .forPrincipal({ kind: "user", userId: "b" })
+          .execute("getDataTable", { id: tableId }),
+      ).rejects.toThrow("FORBIDDEN");
+      const hostedProviderInput = {
+        providerId: "openai",
+        displayLabel: "Hosted owner provider",
+        authKind: "api-key" as const,
+        credential: "synthetic-workspace-provider-key",
+        defaultModel: "gpt-5",
+      };
+      await expect(
+        saveAssistantProviderConfig(
+          { ...ownerContext, principal: { kind: "user", userId: "b" } },
+          { input: hostedProviderInput },
+        ),
+      ).rejects.toThrow("FORBIDDEN");
+      await expect(
+        saveAssistantProviderConfig(ownerContext, {
+          input: { ...hostedProviderInput, authKind: "oauth" },
+        }),
+      ).rejects.toThrow("Use an API key");
+      await expect(
+        startAssistantOAuthLogin(ownerContext, { id: crypto.randomUUID() }),
+      ).rejects.toThrow("Use an API key");
+      const ownedProvider = await saveAssistantProviderConfig(ownerContext, {
+        input: hostedProviderInput,
+      });
+      const ownedRow = await providersA.getAssistantProviderConfig(
+        ownedProvider.id,
+      );
+      expect(ownedRow?.credentialRef).toMatch(/^secret:/);
+      expect(JSON.stringify(ownedRow)).not.toContain(
+        hostedProviderInput.credential,
+      );
+      expect(
+        await providersB.getAssistantProviderConfig(ownedProvider.id),
+      ).toBeNull();
+      await removeAssistantProviderConfig(ownerContext, {
+        id: ownedProvider.id,
+      });
+      expect(
+        await providersA.getAssistantProviderConfig(ownedProvider.id),
+      ).toBeNull();
       const providerRow = {
         id: crypto.randomUUID(),
         providerId: "openai",
@@ -632,6 +902,11 @@ it(
       await expect(service.getDataTable(tableId)).rejects.toThrow();
       await expect(service.draftBatch([])).rejects.toThrow();
       await operatorClient.mutation(api.admission.revoke, { subject: "a" });
+      const allocationsBeforeRevokedRequest = httpAllocations;
+      expect((await httpOperation("getAccessCapabilities", {})).status).toBe(
+        403,
+      );
+      expect(httpAllocations).toBe(allocationsBeforeRevokedRequest);
       await expect(providersA.listAssistantProviderConfigs()).rejects.toThrow();
       await expect(a.clearAllData()).rejects.toThrow();
       await expect(a.listCleanup(paging)).rejects.toThrow();

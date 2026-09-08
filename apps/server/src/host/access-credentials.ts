@@ -1,7 +1,11 @@
 import type { AccessCredentialRecord } from "@dashframe/server-core";
 import type { AccessCredential } from "@dashframe/types";
 import { z } from "zod";
-import { requireLocalOperator, type HostContext } from "./context";
+import {
+  isWorkspaceOwner,
+  requireWorkspaceOwner,
+  type HostContext,
+} from "./context";
 
 function toDto(record: AccessCredentialRecord): AccessCredential {
   return {
@@ -16,7 +20,7 @@ function toDto(record: AccessCredentialRecord): AccessCredential {
 }
 
 function credentials(ctx: HostContext) {
-  requireLocalOperator(ctx);
+  requireWorkspaceOwner(ctx);
   if (!ctx.accessCredentials)
     throw new Error("No secret key configured for named access credentials");
   return ctx.accessCredentials;
@@ -25,9 +29,7 @@ function credentials(ctx: HostContext) {
 export async function getAccessCapabilities(ctx: HostContext) {
   return {
     canManageCredentials: Boolean(
-      ctx.accessCredentials &&
-      ctx.principal.kind === "user" &&
-      ctx.principal.userId === "local-user",
+      ctx.accessCredentials && isWorkspaceOwner(ctx),
     ),
   };
 }
