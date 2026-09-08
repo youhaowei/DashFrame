@@ -122,7 +122,7 @@ async function fixture(total = 25_007) {
             scopes: [],
           }),
         ),
-      { fetch: fetchImpl as typeof fetch },
+      { fetch: fetchImpl as unknown as typeof fetch },
     ),
   );
   const ctx = {
