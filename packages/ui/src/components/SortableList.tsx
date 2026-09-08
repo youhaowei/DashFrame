@@ -442,6 +442,7 @@ function SortableItem<T extends SortableListItem>({
       >
         {/* Drag handle */}
         <button
+          type="button"
           className="shrink-0 cursor-grab text-neutral-fg-subtle hover:text-neutral-fg active:cursor-grabbing"
           aria-label="Drag to reorder"
           {...attributes}

@@ -415,8 +415,9 @@ describe("MCP route", () => {
         page: { offset: 0, limit: 50, returned: 2 },
       },
     });
+    expect(result.structuredContent).toBeDefined();
     expect(
-      (result.structuredContent?.report as { schema: unknown[] }).schema,
+      (result.structuredContent!.report as { schema: unknown[] }).schema,
     ).toHaveLength(100);
     const serialized = JSON.stringify(result);
     expect(serialized.includes(providerId)).toBe(false);

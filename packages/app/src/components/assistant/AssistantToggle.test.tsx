@@ -6,7 +6,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { type FC, type ReactNode } from "react";
+import type { FC, ReactNode } from "react";
 import {
   afterEach,
   beforeEach,

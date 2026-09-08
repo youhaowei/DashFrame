@@ -208,7 +208,10 @@ describe("useInsightPagination", () => {
   it("discards a stale materialization after the insight changes", async () => {
     let resolveA!: (value: unknown) => void;
     client.mutate.mockImplementationOnce(
-      () => new Promise((resolve) => (resolveA = resolve)),
+      () =>
+        new Promise((resolve) => {
+          resolveA = resolve;
+        }),
     );
     client.mutate.mockResolvedValueOnce({
       status: "ready",
@@ -263,7 +266,10 @@ describe("useInsightPagination", () => {
     });
     let resolvePage!: (value: unknown) => void;
     queryDataFrame.mockImplementationOnce(
-      () => new Promise((resolve) => (resolvePage = resolve)),
+      () =>
+        new Promise((resolve) => {
+          resolvePage = resolve;
+        }),
     );
     const { result, rerender } = renderHook(
       ({ value, enabled }) => useInsightPagination({ insight: value, enabled }),
@@ -629,9 +635,13 @@ describe("useInsightPagination", () => {
     };
     queryDataFrame.mockImplementation((dataFrameId) => {
       if (dataFrameId === "old-saved-result")
-        return new Promise((resolve) => (resolveOldSavedPage = resolve));
+        return new Promise((resolve) => {
+          resolveOldSavedPage = resolve;
+        });
       if (dataFrameId === "old-preview-result")
-        return new Promise((resolve) => (resolveOldPreviewPage = resolve));
+        return new Promise((resolve) => {
+          resolveOldPreviewPage = resolve;
+        });
       return Promise.resolve(readyPage);
     });
 

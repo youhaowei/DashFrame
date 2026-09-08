@@ -10,7 +10,6 @@ import {
   type CommandName,
   type Command,
 } from "@dashframe/types";
-import { storedInsightDefinitionSchema } from "../convex/insightCodec";
 import type { ArtifactTable } from "../convex/model";
 const modules = import.meta.glob("../convex/**/*.ts");
 const fieldIdToColumnAlias = (id: string) => `field_${id.replaceAll("-", "_")}`;
@@ -371,15 +370,16 @@ describe("existing command behavior on native Convex", () => {
         apiKey: "old",
       }),
     );
-    const refBefore = (
-      (await sourcesById(sourceId))[0]?.config as { apiKey?: string }
-    ).apiKey;
+    const [rowBefore] = await sourcesById(sourceId);
+    expect(rowBefore).toBeDefined();
+    const refBefore = (rowBefore!.config as { apiKey?: string }).apiKey;
     expect(isSecretRef(refBefore)).toBe(true);
 
     await commit(cmd("SetDataSourceConfig", { id: sourceId, apiKey: "new" }));
 
     const [row] = await sourcesById(sourceId);
-    const refAfter = (row?.config as { apiKey?: string }).apiKey;
+    expect(row).toBeDefined();
+    const refAfter = (row!.config as { apiKey?: string }).apiKey;
     // A FRESH ref replaced the old one — prove the binding actually changed.
     expect(isSecretRef(refAfter)).toBe(true);
     expect(refAfter).not.toBe(refBefore);
@@ -398,9 +398,9 @@ describe("existing command behavior on native Convex", () => {
         apiKey: "keep",
       }),
     );
-    const refBefore = (
-      (await sourcesById(sourceId))[0]?.config as { apiKey?: string }
-    ).apiKey;
+    const [rowBefore] = await sourcesById(sourceId);
+    expect(rowBefore).toBeDefined();
+    const refBefore = (rowBefore!.config as { apiKey?: string }).apiKey;
     expect(isSecretRef(refBefore)).toBe(true);
 
     await commit(cmd("RenameNode", { id: sourceId, name: "Renamed" }));
@@ -408,7 +408,8 @@ describe("existing command behavior on native Convex", () => {
     const [row] = await sourcesById(sourceId);
     expect(row?.name).toBe("Renamed");
     // RenameNode does not touch config: the SAME ref is preserved unchanged.
-    const refAfter = (row?.config as { apiKey?: string }).apiKey;
+    expect(row).toBeDefined();
+    const refAfter = (row!.config as { apiKey?: string }).apiKey;
     expect(refAfter).toBe(refBefore);
   });
   it("should report the resolved target on the RenameNode result so the preview can read it (not re-derive)", async () => {
@@ -462,7 +463,8 @@ describe("existing command behavior on native Convex", () => {
     );
 
     let [row] = await tablesById(tableId);
-    expect((row?.fields as { id: string }[]).map((f) => f.id)).toEqual([
+    expect(row).toBeDefined();
+    expect((row!.fields as { id: string }[]).map((f) => f.id)).toEqual([
       fieldId,
     ]);
 
@@ -511,7 +513,8 @@ describe("existing command behavior on native Convex", () => {
     ).rejects.toThrow();
 
     const [row] = await tablesById(tableId);
-    expect((row?.fields as { id: string }[]).map((f) => f.id)).toEqual([
+    expect(row).toBeDefined();
+    expect((row!.fields as { id: string }[]).map((f) => f.id)).toEqual([
       fieldId,
     ]);
   });
@@ -802,7 +805,8 @@ describe("existing command behavior on native Convex", () => {
     ).rejects.toThrow();
 
     const [row] = await tablesById(tableId);
-    expect((row?.metrics as { id: string }[]).map((m) => m.id)).toEqual([
+    expect(row).toBeDefined();
+    expect((row!.metrics as { id: string }[]).map((m) => m.id)).toEqual([
       metricId,
     ]);
   });
@@ -838,9 +842,9 @@ describe("existing command behavior on native Convex", () => {
         apiKey: "original",
       }),
     );
-    const refBefore = (
-      (await sourcesById(sourceId))[0]?.config as { apiKey?: string }
-    ).apiKey;
+    const [rowBefore] = await sourcesById(sourceId);
+    expect(rowBefore).toBeDefined();
+    const refBefore = (rowBefore!.config as { apiKey?: string }).apiKey;
     // Attempt to smuggle a credential via extra — must throw.
     await expect(
       commit(
@@ -851,9 +855,9 @@ describe("existing command behavior on native Convex", () => {
       ),
     ).rejects.toThrow();
     // Config must be unchanged — the original ref is still there.
-    const refAfter = (
-      (await sourcesById(sourceId))[0]?.config as { apiKey?: string }
-    ).apiKey;
+    const [rowAfter] = await sourcesById(sourceId);
+    expect(rowAfter).toBeDefined();
+    const refAfter = (rowAfter!.config as { apiKey?: string }).apiKey;
     expect(refAfter).toBe(refBefore);
   });
   it("SetDataSourceConfig sink guard: extra.connectionString throws and leaves config unchanged", async () => {
@@ -1498,8 +1502,9 @@ describe("existing command behavior on native Convex", () => {
       }),
     );
     const [derived] = await insightsById(derivedId);
+    expect(derived).toBeDefined();
     expect(
-      (derived?.definition as { selectedFields: string[] }).selectedFields,
+      (derived!.definition as { selectedFields: string[] }).selectedFields,
     ).toEqual([outputFieldId]);
     expect(await insightsById(invalidCreateId)).toHaveLength(0);
     expect((await insightsById(rebindId))[0]?.definition).toMatchObject({
@@ -3402,7 +3407,8 @@ describe("existing command behavior on native Convex", () => {
     );
 
     const rows = await dashboardsById(dashId);
-    const item = (rows[0]?.layout as Record<string, unknown>[])[0];
+    expect(rows[0]).toBeDefined();
+    const item = (rows[0]!.layout as Record<string, unknown>[])[0];
     expect(item).toMatchObject({
       content: "Concurrent edit",
       x: 5,
@@ -3426,8 +3432,9 @@ describe("existing command behavior on native Convex", () => {
     ).rejects.toThrow();
 
     const rows = await dashboardsById(dashId);
+    expect(rows[0]).toBeDefined();
     const item = (
-      rows[0]?.layout as {
+      rows[0]!.layout as {
         id: string;
         overrides?: unknown;
       }[]
@@ -3469,8 +3476,9 @@ describe("existing command behavior on native Convex", () => {
     ]);
 
     const rows = await dashboardsById(dashId);
+    expect(rows[0]).toBeDefined();
     const item = (
-      rows[0]?.layout as {
+      rows[0]!.layout as {
         id: string;
         overrides?: {
           filters?: unknown[];
@@ -3535,8 +3543,9 @@ describe("existing command behavior on native Convex", () => {
     );
 
     const rows = await dashboardsById(dashId);
+    expect(rows[0]).toBeDefined();
     const item = (
-      rows[0]?.layout as { id: string; overrides?: unknown }[]
+      rows[0]!.layout as { id: string; overrides?: unknown }[]
     ).find((candidate) => candidate.id === itemId);
     expect(item?.overrides).toBeUndefined();
   });
@@ -3699,7 +3708,8 @@ describe("existing command behavior on native Convex", () => {
     ).rejects.toThrow();
 
     const rows = await dashboardsById(dashId);
-    const item = (rows[0]?.layout as Record<string, unknown>[])[0]!;
+    expect(rows[0]).toBeDefined();
+    const item = (rows[0]!.layout as Record<string, unknown>[])[0]!;
     expect(item).toMatchObject({ x: 1, width: 3, content: "A" });
   });
   it("should replace the whole layout for SetDashboardLayout", async () => {

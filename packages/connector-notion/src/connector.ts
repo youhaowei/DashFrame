@@ -34,7 +34,7 @@ import {
   queryDatabase,
 } from "./client";
 import { convertNotionToDataFrame } from "./converter";
-import { generateFieldsFromNotionSchema } from "./index";
+import { generateFieldsFromNotionSchema } from "./fields";
 
 /**
  * NotionConnector - Handles Notion workspace connection and database queries.

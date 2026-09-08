@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { requireHostedMetadataPrincipal } from "./hostedMetadataGuard";
-import { runHostCommit, runHostDraft } from "./host";
+import { runHostCommit, runHostDraft } from "./hostCommands";
 import { publicationMetadata } from "./publication";
 import { command, json, object, typed } from "./values";
 import type {

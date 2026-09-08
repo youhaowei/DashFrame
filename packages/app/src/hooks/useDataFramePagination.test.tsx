@@ -71,7 +71,10 @@ describe("useDataFramePagination", () => {
     });
     let resolvePage!: (value: unknown) => void;
     queryDataFrame.mockImplementationOnce(
-      () => new Promise((resolve) => (resolvePage = resolve)),
+      () =>
+        new Promise((resolve) => {
+          resolvePage = resolve;
+        }),
     );
     queryDataFrame.mockResolvedValueOnce({
       status: "ready",

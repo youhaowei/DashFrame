@@ -140,6 +140,7 @@ async function configureHosted(
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Disposable deployment failed";
+    // oxlint-disable-next-line preserve-caught-error -- the original error carries the admin key and instance secret that the message above redacts
     throw new Error(
       message
         .replaceAll(config.adminKey, "[redacted]")

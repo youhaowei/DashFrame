@@ -76,6 +76,7 @@ async function localFixtureCli(
       error instanceof Error
         ? error.message
         : "Disposable fixture command failed";
+    // oxlint-disable-next-line preserve-caught-error -- the original error carries the unredacted admin key; attaching it as `cause` would leak it
     throw new Error(
       message
         .replaceAll(config.adminKey, "[redacted]")

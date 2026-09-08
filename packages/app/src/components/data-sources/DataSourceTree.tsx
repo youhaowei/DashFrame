@@ -121,6 +121,7 @@ export function DataSourceTree({
 
             return (
               <button
+                type="button"
                 key={table.id}
                 onClick={() => onTableSelect(table.id)}
                 aria-selected={isSelected}

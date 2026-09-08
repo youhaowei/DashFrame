@@ -2,7 +2,7 @@ import { beforeEach, it, expect } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "../convex/schema";
 import { api, internal } from "../convex/_generated/api";
-import { cmd, type Command } from "@dashframe/types";
+import { cmd } from "@dashframe/types";
 const modules = import.meta.glob("../convex/**/*.ts");
 const makeTest = () => convexTest(schema, modules);
 let t: ReturnType<typeof makeTest>;

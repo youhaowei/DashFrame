@@ -99,6 +99,7 @@ function LocalDataSourceView({
           ) : (
             dataTables.map((table) => (
               <button
+                type="button"
                 key={table.id}
                 onClick={() => setSelectedTableId(table.id)}
                 className={cn(

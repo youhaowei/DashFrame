@@ -93,7 +93,7 @@ export class SampleSeedProjectFixture {
   async queryFrame(dataFrameId: string, sql: string) {
     const tableName = `df_${dataFrameId.replaceAll("-", "_")}`;
     const arrow = await this.engine.queryArrow(
-      sql.replaceAll("$TABLE", `\"${tableName}\"`),
+      sql.replaceAll("$TABLE", `"${tableName}"`),
     );
     return arrowIpcToJsonRows(arrow);
   }

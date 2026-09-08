@@ -64,6 +64,7 @@ function rsaModuli(jwks: string): Set<string> {
       throw new Error("Invalid hosted RSA key");
     const modulus = atob(
       key.n.replaceAll("-", "+").replaceAll("_", "/"),
+      // oxlint-disable-next-line no-control-regex, sonarjs/no-control-regex -- strips leading NUL bytes from the decoded modulus
     ).replace(/^\x00+/, "");
     if (modulus.length < 256)
       throw new Error("Hosted RSA keys must be at least 2048 bits");

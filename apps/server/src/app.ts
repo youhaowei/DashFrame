@@ -355,7 +355,9 @@ async function initializeProject(run: () => Promise<unknown>): Promise<void> {
         error.message !== "Local Convex internal mutation failed (429)."
       )
         throw error;
-      await new Promise((resolve) => setTimeout(resolve, 100 * 2 ** attempt));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 100 * 2 ** attempt);
+      });
     }
   }
 }

@@ -41,7 +41,6 @@ export function Select({
   options,
   placeholder = "Select an option...",
   className,
-  onClear,
   error,
 }: SelectProps) {
   const selectedOption = options.find((option) => option.value === value);

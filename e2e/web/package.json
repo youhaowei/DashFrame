@@ -11,7 +11,8 @@
     "test:debug": "playwright test --debug",
     "test:html": "E2E_REPORT=html playwright test --project=chromium && playwright show-report",
     "codegen": "playwright codegen http://localhost:3000",
-    "report": "playwright show-report"
+    "report": "playwright show-report",
+    "lint": "vp lint ."
   },
   "dependencies": {
     "@dashframe/connector-local": "workspace:*",

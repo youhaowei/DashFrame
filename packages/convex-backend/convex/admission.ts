@@ -96,6 +96,7 @@ function newWorkspaceId() {
   // Convex supplies seeded strong randomness inside mutations for safe retries:
   // https://docs.convex.dev/functions/runtimes#using-randomness-and-time-in-queries-and-mutations
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (position) => {
+    // oxlint-disable-next-line sonarjs/pseudo-random -- see above: Convex seeds Math.random with strong randomness in mutations
     const value = Math.floor(Math.random() * 16);
     return (position === "x" ? value : (value & 3) | 8).toString(16);
   });

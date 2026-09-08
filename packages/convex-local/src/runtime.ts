@@ -180,9 +180,9 @@ async function reservePort() {
   return {
     port: address.port,
     release: () =>
-      new Promise<void>((resolve, reject) =>
-        server.close((error) => (error ? reject(error) : resolve())),
-      ),
+      new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      }),
   };
 }
 
@@ -492,7 +492,8 @@ async function acquireRuntimeLock(lockPath: string) {
   try {
     reclaim = await open(reclaimPath, "wx", 0o600);
   } catch (error) {
-    if (hasErrorCode(error, "EEXIST")) throw new Error(PROJECT_OWNED_MESSAGE);
+    if (hasErrorCode(error, "EEXIST"))
+      throw new Error(PROJECT_OWNED_MESSAGE, { cause: error });
     throw error;
   }
   try {

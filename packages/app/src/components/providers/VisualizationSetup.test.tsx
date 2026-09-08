@@ -133,7 +133,9 @@ describe("VisualizationSetup — error routing (issue #96)", () => {
       renderSetup();
 
       // Give effects a tick to fire — nothing should call showError.
-      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((r) => {
+        setTimeout(r, 0);
+      });
       expect(mockShowError).not.toHaveBeenCalled();
     });
 
@@ -166,7 +168,9 @@ describe("VisualizationSetup — error routing (issue #96)", () => {
     it("does NOT fire a toast on the healthy path (engineError null)", async () => {
       renderSetup();
 
-      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((r) => {
+        setTimeout(r, 0);
+      });
       expect(mockShowError).not.toHaveBeenCalled();
     });
   });

@@ -192,7 +192,7 @@ export const ENCODING_VALUE_FORMAT =
  * was stored, and rejecting it here would be stricter than the reader.
  */
 const ENCODING_VALUE_PATTERN =
-  /^(?:field|metric):[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(?:_j[1-9][0-9]*)?$/;
+  /^(?:field|metric):[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(?:_j[1-9]\d*)?$/;
 
 /**
  * Anything claiming to be an ID reference, well-formed or not. Case-insensitive

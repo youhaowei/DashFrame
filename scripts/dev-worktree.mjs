@@ -118,9 +118,8 @@ function isPid(value) {
   return Number.isInteger(value) && value > 0;
 }
 
-export function writeManifest(
-  info,
-  runtime = {
+export function writeManifest(info, runtimeOverride) {
+  const runtime = runtimeOverride ?? {
     launcherPid: Number(process.env.DASHFRAME_DEV_LAUNCHER_PID),
     processes: {
       server: Number(process.env.DASHFRAME_DEV_SERVER_PID),
@@ -132,8 +131,7 @@ export function writeManifest(
     },
     requiredEndpoints: ["app", "api"],
     projectDir: process.env.DASHFRAME_PROJECT_DIR,
-  },
-) {
+  };
   if (!isPid(runtime.launcherPid)) {
     throw new Error("A positive development launcher PID is required");
   }

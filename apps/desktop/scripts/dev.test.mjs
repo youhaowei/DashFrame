@@ -59,7 +59,9 @@ async function waitFor(condition) {
     } catch {
       // The log is created by the child after startup.
     }
-    await new Promise((resolve) => setTimeout(resolve, 25));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 25);
+    });
   }
   throw new Error("Timed out waiting for the desktop dev launcher");
 }

@@ -766,6 +766,7 @@ export function createWebMCPTools(
               allOf: [
                 {
                   if: { properties: { operator: { const: "between" } } },
+                  // oxlint-disable-next-line unicorn/no-thenable -- JSON Schema `if`/`then` keyword, not a thenable
                   then: {
                     properties: {
                       value: {
@@ -778,6 +779,7 @@ export function createWebMCPTools(
                 },
                 {
                   if: { properties: { operator: { const: "contains" } } },
+                  // oxlint-disable-next-line unicorn/no-thenable -- JSON Schema `if`/`then` keyword, not a thenable
                   then: { properties: { value: { type: "string" } } },
                 },
               ],

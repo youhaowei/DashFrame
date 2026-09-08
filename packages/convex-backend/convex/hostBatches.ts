@@ -18,7 +18,7 @@ import {
   enqueueCleanup,
   secretResources,
 } from "./cleanup";
-import { hostIdentity, runHostCommit, runHostDraft } from "./host";
+import { hostIdentity, runHostCommit, runHostDraft } from "./hostCommands";
 const hostBatchSettlement = v.union(
   hostBatchState,
   v.object({ status: v.literal("conflict"), result: v.null() }),

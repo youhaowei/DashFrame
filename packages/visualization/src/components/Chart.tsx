@@ -3,7 +3,7 @@
 import type { ChartEncoding, VisualizationType } from "@dashframe/types";
 import { useContainerDimensions } from "@dashframe/ui";
 import { Spinner, cn } from "@wystack/ui-react";
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 import { useVisualization } from "../VisualizationProvider";
 import type { ChartConfig, ChartTheme } from "../chart-renderers";
 import { getRenderer, hasRenderer, useRegistryVersion } from "../registry";
@@ -219,12 +219,15 @@ export function Chart({
     !contextRenderer && !providerReady && !providerError;
 
   // Resolve the renderer for this type: provider context first, global second.
-  const resolveRenderer = (type: VisualizationType) => {
-    if (contextRenderer?.supportedTypes.includes(type)) {
-      return contextRenderer;
-    }
-    return getRenderer(type);
-  };
+  const resolveRenderer = useCallback(
+    (type: VisualizationType) => {
+      if (contextRenderer?.supportedTypes.includes(type)) {
+        return contextRenderer;
+      }
+      return getRenderer(type);
+    },
+    [contextRenderer],
+  );
 
   const typeIsRenderable =
     (contextRenderer?.supportedTypes.includes(visualizationType) ?? false) ||
@@ -322,6 +325,8 @@ export function Chart({
     theme,
     chartColors, // Re-render when theme changes
     canRender,
+    containerRef,
+    resolveRenderer,
     registryVersion, // Re-render when renderer is updated (hot reload)
     contextRenderer, // Re-render when the enclosing provider's renderer changes
     providerInitializing, // Re-render once the provider's engine is ready
