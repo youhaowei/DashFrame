@@ -93,6 +93,7 @@ export default function DashboardDetailContent({
     data: dashboards = [],
     isLoading,
     isFetching,
+    isError: dashboardsLoadError,
   } = queryStatus(useQuery({ query: api.app.listDashboards, args: {} }));
   const {
     data: visualizations = [],
@@ -125,6 +126,7 @@ export default function DashboardDetailContent({
     [dashboard, insights, visualizations],
   );
   const questionListState = reportQuestionListState(reportContents);
+  const questionMetadataAvailable = !insightsLoading && !insightsLoadError;
 
   // Bind the assistant to this dashboard (cleared on unmount).
   useBindArtifact(
@@ -205,27 +207,12 @@ export default function DashboardDetailContent({
   // sees stale cache → isLoading=false, dashboard=undefined → instant redirect
   // before the mutation invalidation re-fetch completes.
   useEffect(() => {
-    if (!isLoading && !isFetching && !dashboard) {
+    if (!isLoading && !isFetching && !dashboardsLoadError && !dashboard) {
       navigate({ to: "/dashboards" });
     }
-  }, [isLoading, isFetching, dashboard, navigate]);
+  }, [isLoading, isFetching, dashboardsLoadError, dashboard, navigate]);
 
-  // Show loading state until we have the dashboard (or any fetch is in progress)
-  if (
-    isLoading ||
-    isFetching ||
-    visualizationsLoading ||
-    insightsLoading ||
-    !dashboard
-  ) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <p className="text-sm text-neutral-fg-subtle">Loading report...</p>
-      </div>
-    );
-  }
-
-  if (visualizationsLoadError || insightsLoadError) {
+  if (dashboardsLoadError || visualizationsLoadError) {
     return (
       <div className="flex h-full items-center justify-center px-6 text-center">
         <div>
@@ -236,6 +223,15 @@ export default function DashboardDetailContent({
             Something went wrong. Check your connection and try again.
           </p>
         </div>
+      </div>
+    );
+  }
+
+  // Show loading state until we have the dashboard (or any fetch is in progress)
+  if (isLoading || isFetching || visualizationsLoading || !dashboard) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <p className="text-sm text-neutral-fg-subtle">Loading report...</p>
       </div>
     );
   }
@@ -425,7 +421,7 @@ export default function DashboardDetailContent({
       </div>
 
       {/* Control Bar — only rendered when the dashboard has controls */}
-      {(dashboard.controls ?? []).length > 0 && (
+      {questionMetadataAvailable && (dashboard.controls ?? []).length > 0 && (
         <DashboardControlBar
           controls={dashboard.controls!}
           fieldsByName={fieldsByName}
