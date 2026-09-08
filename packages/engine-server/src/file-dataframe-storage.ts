@@ -14,7 +14,7 @@ import { randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { Transform, type TransformCallback } from "node:stream";
+import { Readable, Transform, type TransformCallback } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
 const FRAME_EXTENSION = ".arrow";
@@ -115,6 +115,7 @@ interface TransferWaiter {
  */
 class TransferCounter extends Transform {
   private position = 0;
+  private terminalFailure: Error | null = null;
   private readonly waiters: TransferWaiter[] = [];
 
   constructor() {
@@ -123,6 +124,7 @@ class TransferCounter extends Transform {
 
   waitFor(position: number): Promise<void> {
     if (this.position >= position) return Promise.resolve();
+    if (this.terminalFailure) return Promise.reject(this.terminalFailure);
     return new Promise((resolve, reject) => {
       this.waiters.push({ position, resolve, reject });
     });
@@ -143,6 +145,7 @@ class TransferCounter extends Transform {
     callback: (error?: Error | null) => void,
   ): void {
     const failure = error ?? new Error("Arrow output stream closed early");
+    this.terminalFailure = failure;
     for (const waiter of this.waiters.splice(0)) waiter.reject(failure);
     callback(error);
   }
@@ -187,6 +190,40 @@ function schemasHaveSameLogicalFields(left: Schema, right: Schema): boolean {
       return true;
     })
   );
+}
+
+async function appendArrowPayload(
+  writer: ObservableRecordBatchStreamWriter,
+  counter: TransferCounter,
+  payload: Uint8Array,
+  expectedSchema: Schema | null,
+): Promise<{ payloadSchema: Schema; populatedSchema: Schema | null }> {
+  const reader = RecordBatchReader.from(payload).open({
+    autoDestroy: false,
+  });
+  let populatedSchema = expectedSchema;
+  try {
+    for await (const batch of reader) {
+      if (batch.numRows === 0) continue;
+      if (!populatedSchema) {
+        populatedSchema = reader.schema;
+        writer.reset(undefined, populatedSchema);
+        await counter.waitFor(writer.outputPosition);
+      } else if (
+        !schemasHaveSameLogicalFields(populatedSchema, reader.schema)
+      ) {
+        throw new Error("Arrow batch schema does not match the first payload");
+      }
+      const normalizedBatch = util.compareSchemas(populatedSchema, batch.schema)
+        ? batch
+        : new RecordBatch(populatedSchema, batch.data);
+      writer.write(normalizedBatch);
+      await counter.waitFor(writer.outputPosition);
+    }
+    return { payloadSchema: reader.schema, populatedSchema };
+  } finally {
+    await reader.cancel();
+  }
 }
 
 /** Durable Arrow IPC storage rooted inside one DashFrame project. */
@@ -242,45 +279,29 @@ export class FileDataFrameStorage implements DataFrameStorage {
     const writer = new ObservableRecordBatchStreamWriter({
       autoDestroy: false,
     });
-    const serialized = writer.toNodeStream();
+    const serialized = Readable.from(writer, {
+      highWaterMark: 64 * 1024,
+      objectMode: false,
+    });
     const outputComplete = pipeline(serialized, counter, output);
+    // The provider may pause between pages after the filesystem has already
+    // failed. Observe the rejection immediately, then await the same promise
+    // below when producer work reaches its normal failure boundary.
+    outputComplete.catch(() => undefined);
 
     try {
       let expectedSchema: Schema | null = null;
       let emptyResultSchema: Schema | null = null;
 
       for await (const payload of batches) {
-        const reader = RecordBatchReader.from(payload).open({
-          autoDestroy: false,
-        });
-        try {
-          emptyResultSchema ??= reader.schema;
-
-          for await (const batch of reader) {
-            if (batch.numRows === 0) continue;
-            if (!expectedSchema) {
-              expectedSchema = reader.schema;
-              writer.reset(undefined, expectedSchema);
-              await counter.waitFor(writer.outputPosition);
-            } else if (
-              !schemasHaveSameLogicalFields(expectedSchema, reader.schema)
-            ) {
-              throw new Error(
-                "Arrow batch schema does not match the first payload",
-              );
-            }
-            const normalizedBatch = util.compareSchemas(
-              expectedSchema,
-              batch.schema,
-            )
-              ? batch
-              : new RecordBatch(expectedSchema, batch.data);
-            writer.write(normalizedBatch);
-            await counter.waitFor(writer.outputPosition);
-          }
-        } finally {
-          await reader.cancel();
-        }
+        const appended = await appendArrowPayload(
+          writer,
+          counter,
+          payload,
+          expectedSchema,
+        );
+        emptyResultSchema ??= appended.payloadSchema;
+        expectedSchema = appended.populatedSchema;
       }
 
       if (!expectedSchema) {

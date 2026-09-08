@@ -1,6 +1,13 @@
 import { tableFromArrays, tableFromIPC, tableToIPC } from "apache-arrow";
 import { ReadStream } from "node:fs";
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
@@ -200,6 +207,39 @@ describe("FileDataFrameStorage", () => {
         })(),
       ),
     ).rejects.toThrow();
+
+    expect(await storage.load(id)).toEqual(prior);
+    expect(
+      (await readdir(directory)).filter((entry) => entry.endsWith(".tmp")),
+    ).toEqual([]);
+  });
+
+  it("settles a delayed producer after an early filesystem failure", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "dashframe-frames-"));
+    roots.push(root);
+    const directory = path.join(root, "frames");
+    const storage = new FileDataFrameStorage(directory);
+    const id = "11111111-1111-4111-8111-111111111111";
+    const prior = new Uint8Array([7, 8, 9]);
+    await storage.save(id, prior);
+    await mkdir(directory, { recursive: true });
+    await chmod(directory, 0o500);
+
+    try {
+      await expect(
+        storage.saveBatches(
+          id,
+          (async function* () {
+            await new Promise<void>((resolve) => {
+              setTimeout(resolve, 30);
+            });
+            yield tableToIPC(tableFromArrays({ value: [1] }), "stream");
+          })(),
+        ),
+      ).rejects.toThrow();
+    } finally {
+      await chmod(directory, 0o700);
+    }
 
     expect(await storage.load(id)).toEqual(prior);
     expect(
