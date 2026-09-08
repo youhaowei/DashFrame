@@ -610,6 +610,107 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
       expect(interrupt).toHaveBeenCalledOnce();
       expect(disconnect.mock.calls.length).toBe(disconnectsBeforeAbort + 1);
     });
+
+    it("closes a connection when abort wins the pending connect race", async () => {
+      engine = new NativeDuckDBEngine();
+      await engine.initialize();
+      const instance = (engine as unknown as { instance: DuckDBInstance })
+        .instance;
+      const dedicatedConnection = await instance.connect();
+      const disconnect = vi.spyOn(DuckDBConnection.prototype, "disconnectSync");
+      let releaseConnection!: (connection: DuckDBConnection) => void;
+      let markConnectRequested!: () => void;
+      const connectRequested = new Promise<void>((resolve) => {
+        markConnectRequested = resolve;
+      });
+      const pendingConnection = new Promise<DuckDBConnection>((resolve) => {
+        releaseConnection = resolve;
+      });
+      vi.spyOn(instance, "connect").mockImplementationOnce(() => {
+        markConnectRequested();
+        return pendingConnection;
+      });
+      const controller = new AbortController();
+      const next = engine
+        .queryArrowBatches("SELECT 1 AS value", [], {
+          signal: controller.signal,
+        })
+        [Symbol.asyncIterator]()
+        .next();
+
+      await connectRequested;
+      controller.abort();
+      releaseConnection(dedicatedConnection);
+
+      await expect(next).rejects.toMatchObject({ name: "AbortError" });
+      expect(disconnect).toHaveBeenCalledOnce();
+    });
+
+    it("closes its dedicated query connection when the consumer returns early", async () => {
+      engine = new NativeDuckDBEngine();
+      const disconnect = vi.spyOn(DuckDBConnection.prototype, "disconnectSync");
+      const iterator = engine
+        .queryArrowBatches("SELECT range AS value FROM range(5000)")
+        [Symbol.asyncIterator]();
+
+      expect((await iterator.next()).done).toBe(false);
+      const disconnectsBeforeReturn = disconnect.mock.calls.length;
+      await iterator.return?.();
+
+      expect(disconnect.mock.calls.length).toBe(disconnectsBeforeReturn + 1);
+      expect((await engine.query("SELECT 1 AS alive")).rows).toEqual([
+        { alive: 1 },
+      ]);
+    });
+
+    it("dispose closes a query connection paused at a yielded batch", async () => {
+      engine = new NativeDuckDBEngine();
+      const disconnect = vi.spyOn(DuckDBConnection.prototype, "disconnectSync");
+      const iterator = engine
+        .queryArrowBatches("SELECT range AS value FROM range(5000)")
+        [Symbol.asyncIterator]();
+
+      expect((await iterator.next()).done).toBe(false);
+      const disconnectsBeforeDispose = disconnect.mock.calls.length;
+      await engine.dispose();
+
+      // Disposal closes both the paused query connection and the shared engine
+      // connection before closing the native instance.
+      expect(disconnect.mock.calls.length).toBeGreaterThanOrEqual(
+        disconnectsBeforeDispose + 2,
+      );
+      await expect(iterator.next()).rejects.toMatchObject({
+        name: "AbortError",
+      });
+    });
+
+    it("dispose does not wait indefinitely for a paused batch producer", async () => {
+      engine = new NativeDuckDBEngine();
+      let markWaiting!: () => void;
+      const waiting = new Promise<void>((resolve) => {
+        markWaiting = resolve;
+      });
+      const never = new Promise<void>(() => {});
+      async function* pausedProducer() {
+        yield batch([1]);
+        markWaiting();
+        await never;
+      }
+
+      const registration = engine.registerArrowBatches(
+        "df_paused_producer",
+        pausedProducer(),
+      );
+      const outcome = registration.then(
+        () => null,
+        (error: unknown) => error,
+      );
+      await waiting;
+      await engine.dispose();
+
+      expect(await outcome).toMatchObject({ name: "AbortError" });
+      expect(engine.isReady()).toBe(false);
+    });
   });
 });
 

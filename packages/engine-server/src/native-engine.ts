@@ -63,6 +63,15 @@ export interface NativeDuckDBEngineOptions {
   databasePath?: string;
 }
 
+type BatchConnectionState = {
+  connection: Connection;
+  pendingNativeCall: Promise<unknown> | null;
+  closed: boolean;
+};
+
+type BatchSignals = readonly (AbortSignal | undefined)[];
+type RunBatchNative = <T>(operation: () => Promise<T>) => Promise<T>;
+
 export class NativeDuckDBEngine implements QueryEngine {
   private readonly databasePath: string;
   private instance: DuckDBInstance | null = null;
@@ -94,6 +103,14 @@ export class NativeDuckDBEngine implements QueryEngine {
    * `this.connection` and race just as badly.
    */
   private _registrationLock: Promise<void> = Promise.resolve();
+  /** Cancels every dedicated batch operation before the DuckDB instance closes. */
+  private readonly _batchDisposal = new AbortController();
+  /** Connections still being created cannot be interrupted until connect resolves. */
+  private readonly _pendingBatchConnections = new Set<Promise<Connection>>();
+  /** Dedicated connections owned by batch queries and registrations. */
+  private readonly _activeBatchConnections = new Set<BatchConnectionState>();
+  /** Registration also awaits an arbitrary producer, so track its settlement. */
+  private readonly _activeBatchRegistrations = new Set<Promise<void>>();
 
   constructor(options: NativeDuckDBEngineOptions = {}) {
     this.databasePath = options.databasePath ?? ":memory:";
@@ -142,6 +159,82 @@ export class NativeDuckDBEngine implements QueryEngine {
       );
     }
     return this.connection;
+  }
+
+  private throwIfBatchAborted(signal?: AbortSignal): void {
+    this._batchDisposal.signal.throwIfAborted();
+    signal?.throwIfAborted();
+  }
+
+  private async openBatchConnection(
+    signal?: AbortSignal,
+  ): Promise<BatchConnectionState> {
+    this.throwIfBatchAborted(signal);
+    const pending = this.instance!.connect();
+    this._pendingBatchConnections.add(pending);
+    let connection: Connection;
+    try {
+      connection = await pending;
+    } finally {
+      this._pendingBatchConnections.delete(pending);
+    }
+
+    try {
+      this.throwIfBatchAborted(signal);
+    } catch (error) {
+      try {
+        connection.disconnectSync();
+      } catch {
+        // Preserve the abort reason if native cleanup also reports a failure.
+      }
+      throw error;
+    }
+    const state: BatchConnectionState = {
+      connection,
+      pendingNativeCall: null,
+      closed: false,
+    };
+    this._activeBatchConnections.add(state);
+    return state;
+  }
+
+  private async runBatchNative<T>(
+    state: BatchConnectionState,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    if (state.closed) {
+      this._batchDisposal.signal.throwIfAborted();
+      throw new Error("Native batch connection is closed");
+    }
+    const pending = operation();
+    state.pendingNativeCall = pending;
+    try {
+      return await pending;
+    } finally {
+      if (state.pendingNativeCall === pending) {
+        state.pendingNativeCall = null;
+      }
+    }
+  }
+
+  private closeBatchConnection(state: BatchConnectionState): void {
+    if (state.closed) return;
+    state.closed = true;
+    this._activeBatchConnections.delete(state);
+    try {
+      state.connection.disconnectSync();
+    } catch {
+      // A concurrent interrupt or native failure may already have closed it.
+    }
+  }
+
+  private interruptBatchConnection(state: BatchConnectionState): void {
+    if (state.closed) return;
+    try {
+      state.connection.interrupt();
+    } catch {
+      // Disposal still waits for the pending native call before disconnecting.
+    }
   }
 
   async query(sql: string): Promise<QueryResult> {
@@ -200,22 +293,27 @@ export class NativeDuckDBEngine implements QueryEngine {
     options: { signal?: AbortSignal } = {},
   ): AsyncIterable<Uint8Array> {
     await this.initialize();
-    options.signal?.throwIfAborted();
-    const connection = await this.instance!.connect();
-    const interrupt = () => connection.interrupt();
+    const state = await this.openBatchConnection(options.signal);
+    const { connection } = state;
+    const interrupt = () => this.interruptBatchConnection(state);
     options.signal?.addEventListener("abort", interrupt, { once: true });
     try {
+      this.throwIfBatchAborted(options.signal);
       const result =
         params.length > 0
-          ? await connection.stream(sql, params as DuckDBValue[])
-          : await connection.stream(sql);
+          ? await this.runBatchNative(state, () =>
+              connection.stream(sql, params as DuckDBValue[]),
+            )
+          : await this.runBatchNative(state, () => connection.stream(sql));
       const columnNames = result.columnNames();
       const columnTypes = result.columnTypes();
       let emitted = false;
       for (;;) {
-        options.signal?.throwIfAborted();
-        const chunk = await result.fetchChunk();
-        options.signal?.throwIfAborted();
+        this.throwIfBatchAborted(options.signal);
+        const chunk = await this.runBatchNative(state, () =>
+          result.fetchChunk(),
+        );
+        this.throwIfBatchAborted(options.signal);
         if (!chunk || chunk.rowCount === 0) break;
         emitted = true;
         yield duckdbColumnsToArrowIpc(
@@ -227,6 +325,7 @@ export class NativeDuckDBEngine implements QueryEngine {
         );
       }
       if (!emitted) {
+        this.throwIfBatchAborted(options.signal);
         yield duckdbColumnsToArrowIpc(
           columnNames.map((name, index) => ({
             name,
@@ -237,7 +336,7 @@ export class NativeDuckDBEngine implements QueryEngine {
       }
     } finally {
       options.signal?.removeEventListener("abort", interrupt);
-      connection.disconnectSync();
+      this.closeBatchConnection(state);
     }
   }
 
@@ -260,17 +359,27 @@ export class NativeDuckDBEngine implements QueryEngine {
     });
     await gate;
     try {
-      options.signal?.throwIfAborted();
-      const connection = await this.instance!.connect();
+      this.throwIfBatchAborted(options.signal);
+      const state = await this.openBatchConnection(options.signal);
+      const interrupt = () => this.interruptBatchConnection(state);
+      options.signal?.addEventListener("abort", interrupt, { once: true });
       try {
-        await replaceArrowTableFromBatches(
-          connection,
+        const registration = replaceArrowTableFromBatches(
+          state.connection,
           name,
           batches,
-          options.signal,
+          [this._batchDisposal.signal, options.signal],
+          (operation) => this.runBatchNative(state, operation),
         );
+        this._activeBatchRegistrations.add(registration);
+        try {
+          await registration;
+        } finally {
+          this._activeBatchRegistrations.delete(registration);
+        }
       } finally {
-        connection.disconnectSync();
+        options.signal?.removeEventListener("abort", interrupt);
+        this.closeBatchConnection(state);
       }
       this._registeredTables.add(name);
     } finally {
@@ -445,6 +554,7 @@ export class NativeDuckDBEngine implements QueryEngine {
   }
 
   async dispose(): Promise<void> {
+    this._batchDisposal.abort();
     // An initialize() may still be in flight (e.g. Electron before-quit fires
     // during DuckDB startup). Tearing down immediately would null out nothing,
     // and the init closure would then assign a live connection/instance AFTER
@@ -455,6 +565,22 @@ export class NativeDuckDBEngine implements QueryEngine {
       await this.initPromise;
     } catch {
       // Failed init closed its own instance — nothing live to tear down.
+    }
+    // A connect that began before disposal has no connection handle to
+    // interrupt yet. Once it resolves, openBatchConnection observes the owned
+    // abort and disconnects it before returning it to its caller.
+    await Promise.allSettled(this._pendingBatchConnections);
+    for (const state of this._activeBatchConnections) {
+      this.interruptBatchConnection(state);
+    }
+    // Registration races producer.next() against the owned abort, so this wait
+    // cannot be held open by a paused or non-cooperative producer.
+    await Promise.allSettled(this._activeBatchRegistrations);
+    for (const state of this._activeBatchConnections) {
+      if (state.pendingNativeCall) {
+        await Promise.allSettled([state.pendingNativeCall]);
+      }
+      this.closeBatchConnection(state);
     }
     this._registeredTables.clear();
     // Disconnect the connection before closing the instance — DuckDB expects
@@ -512,28 +638,37 @@ async function replaceArrowTableFromBatches(
   connection: Connection,
   name: string,
   batches: AsyncIterable<Uint8Array>,
-  signal?: AbortSignal,
+  signals: BatchSignals,
+  runNative: RunBatchNative,
 ): Promise<void> {
-  await connection.run("BEGIN TRANSACTION");
+  throwIfAnyAborted(signals);
+  await runNative(() => connection.run("BEGIN TRANSACTION"));
   let committed = false;
   try {
     const stagingName = await stageArrowBatches(
       connection,
       name,
       batches,
-      signal,
+      signals,
+      runNative,
     );
-    await connection.run(
-      `CREATE OR REPLACE TABLE ${quoteIdent(name)} AS SELECT * FROM ${quoteIdent(stagingName)}`,
+    throwIfAnyAborted(signals);
+    await runNative(() =>
+      connection.run(
+        `CREATE OR REPLACE TABLE ${quoteIdent(name)} AS SELECT * FROM ${quoteIdent(stagingName)}`,
+      ),
     );
-    await connection.run(`DROP TABLE ${quoteIdent(stagingName)}`);
-    signal?.throwIfAborted();
-    await connection.run("COMMIT");
+    throwIfAnyAborted(signals);
+    await runNative(() =>
+      connection.run(`DROP TABLE ${quoteIdent(stagingName)}`),
+    );
+    throwIfAnyAborted(signals);
+    await runNative(() => connection.run("COMMIT"));
     committed = true;
   } finally {
     if (!committed) {
       try {
-        await connection.run("ROLLBACK");
+        await runNative(() => connection.run("ROLLBACK"));
       } catch {
         // The dedicated connection is discarded by the caller.
       }
@@ -545,14 +680,23 @@ async function stageArrowBatches(
   connection: Connection,
   name: string,
   batches: AsyncIterable<Uint8Array>,
-  signal?: AbortSignal,
+  signals: BatchSignals,
+  runNative: RunBatchNative,
 ): Promise<string> {
   const stagingName = `__staging_${name}_${nextStagingId()}`;
   let expectedSchema: string | undefined;
   let appender: DuckDBAppender | null = null;
+  const iterator = batches[Symbol.asyncIterator]();
+  let producerDone = false;
   try {
-    for await (const arrow of batches) {
-      signal?.throwIfAborted();
+    for (;;) {
+      const next = await nextBatchWithAbort(iterator, signals);
+      if (next.done) {
+        producerDone = true;
+        break;
+      }
+      const arrow = next.value;
+      throwIfAnyAborted(signals);
       const table = tableFromIPC(arrow);
       const fields = table.schema.fields;
       if (fields.length === 0) {
@@ -572,22 +716,32 @@ async function stageArrowBatches(
               `${quoteIdent(field.name)} ${arrowFieldToDuckDBType(field)}`,
           )
           .join(", ");
-        await connection.run(
-          `CREATE TABLE ${quoteIdent(stagingName)} (${columnDefs})`,
+        await runNative(() =>
+          connection.run(
+            `CREATE TABLE ${quoteIdent(stagingName)} (${columnDefs})`,
+          ),
         );
-        appender = await connection.createAppender(stagingName);
+        throwIfAnyAborted(signals);
+        appender = await runNative(() =>
+          connection.createAppender(stagingName),
+        );
       }
-      appendArrowRows(appender, table, fields, signal);
+      appendArrowRows(appender, table, fields, signals);
     }
     if (!appender) {
       throw new Error(`Arrow batch stream for table "${name}" is empty`);
     }
-    signal?.throwIfAborted();
+    throwIfAnyAborted(signals);
     appender.flushSync();
     appender.closeSync();
     appender = null;
     return stagingName;
   } finally {
+    if (!producerDone) {
+      // Do not await a producer-controlled return(): a non-cooperative source
+      // must not hold engine disposal open indefinitely.
+      iterator.return?.().catch(() => {});
+    }
     if (appender) {
       try {
         appender.closeSync();
@@ -602,19 +756,68 @@ function appendArrowRows(
   appender: DuckDBAppender,
   table: Awaited<ReturnType<typeof tableFromIPC>>,
   fields: readonly Field[],
-  signal?: AbortSignal,
+  signals: BatchSignals,
 ): void {
   const columns = fields.map((field) => ({
     field,
     vector: table.getChild(field.name),
   }));
   for (let row = 0; row < table.numRows; row++) {
-    if ((row & 2047) === 0) signal?.throwIfAborted();
+    if ((row & 2047) === 0) throwIfAnyAborted(signals);
     for (const column of columns) {
       appendArrowValue(appender, column.field, column.vector?.get(row));
     }
     appender.endRow();
   }
+}
+
+function throwIfAnyAborted(signals: BatchSignals): void {
+  for (const signal of signals) signal?.throwIfAborted();
+}
+
+function nextBatchWithAbort(
+  iterator: AsyncIterator<Uint8Array>,
+  signals: BatchSignals,
+): Promise<IteratorResult<Uint8Array>> {
+  throwIfAnyAborted(signals);
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const cleanup = () => {
+      for (const signal of signals) {
+        signal?.removeEventListener("abort", onAbort);
+      }
+    };
+    const settle = (
+      callback: typeof resolve | typeof reject,
+      value: IteratorResult<Uint8Array> | unknown,
+    ) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      callback(value as IteratorResult<Uint8Array>);
+    };
+    const onAbort = () => {
+      iterator.return?.().catch(() => {});
+      try {
+        throwIfAnyAborted(signals);
+      } catch (error) {
+        settle(reject, error);
+      }
+    };
+    for (const signal of signals) {
+      signal?.addEventListener("abort", onAbort, { once: true });
+    }
+    try {
+      throwIfAnyAborted(signals);
+    } catch (error) {
+      settle(reject, error);
+      return;
+    }
+    iterator.next().then(
+      (result) => settle(resolve, result),
+      (error: unknown) => settle(reject, error),
+    );
+  });
 }
 
 /**
