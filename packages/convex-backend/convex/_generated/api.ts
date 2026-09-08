@@ -10,6 +10,7 @@ import type * as connectorSetup from "../connectorSetup";
 import type * as admission from "../admission";
 import type * as hostedMetadata from "../hostedMetadata";
 import type * as hostedLifecycle from "../hostedLifecycle";
+import type * as hostedSourceOperations from "../hostedSourceOperations";
 const fullApi = anyApi as unknown as ApiFromModules<{
   app: typeof app;
   host: typeof host;
@@ -17,6 +18,7 @@ const fullApi = anyApi as unknown as ApiFromModules<{
   admission: typeof admission;
   hostedMetadata: typeof hostedMetadata;
   hostedLifecycle: typeof hostedLifecycle;
+  hostedSourceOperations: typeof hostedSourceOperations;
 }>;
 export const api = fullApi as FilterApi<
   typeof fullApi,
