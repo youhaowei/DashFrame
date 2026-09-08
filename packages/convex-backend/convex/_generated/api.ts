@@ -8,11 +8,13 @@ import type * as app from "../app";
 import type * as host from "../host";
 import type * as connectorSetup from "../connectorSetup";
 import type * as admission from "../admission";
+import type * as hostedMetadata from "../hostedMetadata";
 const fullApi = anyApi as unknown as ApiFromModules<{
   app: typeof app;
   host: typeof host;
   connectorSetup: typeof connectorSetup;
   admission: typeof admission;
+  hostedMetadata: typeof hostedMetadata;
 }>;
 export const api = fullApi as FilterApi<
   typeof fullApi,
