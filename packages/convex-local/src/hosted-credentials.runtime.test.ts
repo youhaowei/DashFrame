@@ -230,6 +230,7 @@ it(
       const adapter = (userId: string, workspaceId: string) =>
         createHostedCredentialOwnership({
           deploymentUrl: backend!.url,
+          allowInsecureLoopbackForTests: true,
           getToken: async () => token(runtimeKeys, claims(userId, workspaceId)),
         });
       const ownerA = adapter("a", a);

@@ -1,5 +1,6 @@
 import { api } from "@dashframe/convex-backend/api";
 import { ConvexHttpClient } from "convex/browser";
+import { validateHostedDeploymentUrl } from "./hosted-deployment-url";
 
 export interface HostedCredentialOwnership {
   register(credentialId: string): Promise<{
@@ -18,10 +19,16 @@ export interface HostedCredentialOwnership {
 export function createHostedCredentialOwnership(options: {
   deploymentUrl: string;
   getToken: () => Promise<string>;
+  /** Disposable native backend tests only; permits literal 127.0.0.1 HTTP. */
+  allowInsecureLoopbackForTests?: boolean;
 }): HostedCredentialOwnership {
+  const deploymentUrl = validateHostedDeploymentUrl(
+    options.deploymentUrl,
+    options.allowInsecureLoopbackForTests === true,
+  );
   async function client() {
     // Auth is mutable on ConvexHttpClient. Never share it between operations.
-    const result = new ConvexHttpClient(options.deploymentUrl);
+    const result = new ConvexHttpClient(deploymentUrl);
     result.setAuth(await options.getToken());
     return result;
   }
