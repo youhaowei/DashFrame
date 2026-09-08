@@ -197,6 +197,7 @@ it(
         const assertion = token(signingKeys, claims);
         return createHostedMetadata({
           deploymentUrl: backend!.url,
+          allowInsecureLoopbackForTests: true,
           getToken: async () => assertion,
         });
       };

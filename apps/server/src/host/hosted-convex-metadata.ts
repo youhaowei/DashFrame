@@ -3,6 +3,7 @@ import { ConvexHttpClient } from "convex/browser";
 import type { FunctionArgs } from "convex/server";
 import type { Command } from "@dashframe/types";
 import type { HostMetadata } from "./metadata";
+import { validateHostedDeploymentUrl } from "./hosted-deployment-url";
 
 /** Restricted hosted capabilities; broader local/admin operations are not exposed. */
 export type HostedMetadata = Pick<
@@ -26,6 +27,8 @@ export type HostedMetadata = Pick<
 export interface HostedMetadataOptions {
   /** Fixed configured deployment URL, never a request-selected backend. */
   deploymentUrl: string;
+  /** Disposable synthetic native tests only; permits HTTP on literal 127.0.0.1. */
+  allowInsecureLoopbackForTests?: boolean;
   /** Injected request-bound signer: host authority, host-metadata purpose, admitted principal. */
   getToken(): Promise<string>;
 }
@@ -33,7 +36,10 @@ export interface HostedMetadataOptions {
 export function createHostedMetadata(
   options: HostedMetadataOptions,
 ): HostedMetadata {
-  const deploymentUrl = options.deploymentUrl;
+  const deploymentUrl = validateHostedDeploymentUrl(
+    options.deploymentUrl,
+    options.allowInsecureLoopbackForTests,
+  );
   const getToken = options.getToken;
   const client = async () => {
     // setAuth mutates a client. A fresh client per operation prevents concurrent
