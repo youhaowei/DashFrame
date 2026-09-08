@@ -252,11 +252,13 @@ async function materializeOnce(
       // reports failure after making the generation visible.
       created.push({ id: frameId, registered: false });
       await storage.save(frameId, source.arrow);
+      // Registration may succeed before its wrapper discards a cancelled
+      // request's result, so cleanup must assume the catalog entry exists.
+      created.at(-1)!.registered = true;
       await runtime.registerArrowTable(
         dependencies.tableName(frameId),
         source.arrow,
       );
-      created.at(-1)!.registered = true;
       pendingSources.push({ source, frame });
       tables.set(source.table.id, { ...source.table, dataFrameId: frameId });
     }
@@ -277,11 +279,11 @@ async function materializeOnce(
     };
     created.push({ id: resultId, registered: false });
     await storage.save(resultId, resultArrow);
+    created.at(-1)!.registered = true;
     await runtime.registerArrowTable(
       dependencies.tableName(resultId),
       resultArrow,
     );
-    created.at(-1)!.registered = true;
 
     const fetchedAt = dependencies.now();
     const definitionFingerprint = dependencies.fingerprint({

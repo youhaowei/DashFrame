@@ -39,7 +39,7 @@ it("keeps a sibling query alive when one request is cancelled and discards the c
   expect(engine.queryArrow).toHaveBeenNthCalledWith(2, "select 2", []);
 });
 
-it("rejects new operations after the request lifetime ends", async () => {
+it("rejects new work but still permits cleanup after the request lifetime ends", async () => {
   const engine = {
     queryArrow: vi.fn(async () => new Uint8Array()),
     registerArrowTable: vi.fn(async () => {}),
@@ -52,8 +52,8 @@ it("rejects new operations after the request lifetime ends", async () => {
   await expect(
     runtime.registerArrowTable!("frame", new Uint8Array([1])),
   ).rejects.toThrow("expired");
-  await expect(runtime.unregisterTable!("frame")).rejects.toThrow("expired");
+  await expect(runtime.unregisterTable!("frame")).resolves.toBeUndefined();
   expect(engine.queryArrow).not.toHaveBeenCalled();
   expect(engine.registerArrowTable).not.toHaveBeenCalled();
-  expect(engine.unregisterTable).not.toHaveBeenCalled();
+  expect(engine.unregisterTable).toHaveBeenCalledWith("frame");
 });

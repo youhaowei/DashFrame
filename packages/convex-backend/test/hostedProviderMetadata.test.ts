@@ -219,6 +219,10 @@ it("rejects malformed rows and retired references before writes", async () => {
   for (const invalid of [
     { ...row(id, null), credentialRef: "plaintext" },
     { ...row(id, null), baseUrl: "https://user:secret@example.com/v1" },
+    { ...row(id, null), baseUrl: "https://localhost/v1" },
+    { ...row(id, null), baseUrl: "https://10.0.0.5/v1" },
+    { ...row(id, null), baseUrl: "https://169.254.169.254/latest" },
+    { ...row(id, null), baseUrl: "https://[::1]/v1" },
     { ...row(id, null), defaultModel: " model " },
     { ...row(id, null), updatedAt: 0 },
   ])

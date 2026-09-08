@@ -1,5 +1,7 @@
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { createArrowDataPath } from "@dashframe/engine-server/arrow-data-path";
+import { MAX_LOCAL_ARROW_BYTES } from "@dashframe/types";
 import { handleAssistantRunRequest } from "../assistant-run-route";
 import {
   handleConnectorOAuthCallback,
@@ -24,6 +26,7 @@ function runHostedAssistant(
       app: hosted.application,
       metadata: hosted.context.metadata,
       vault: hosted.context.vault,
+      allowOperatorCredentialFallback: false,
       resolveContext: async () => ({ principal: hosted.context.principal }),
     }),
   );
@@ -49,6 +52,7 @@ export function mountHostedBrowserRoutes(
       await next();
     });
   }
+  app.use("/data/*", bodyLimit({ maxSize: MAX_LOCAL_ARROW_BYTES }));
   app.route(
     "/",
     createHostedHttpApplication({

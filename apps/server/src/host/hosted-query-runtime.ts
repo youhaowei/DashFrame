@@ -21,6 +21,7 @@ export function createHostedQueryRuntime(
     queryArrow: (sql, params) => run(() => engine.queryArrow(sql, params)),
     registerArrowTable: (name, bytes) =>
       run(() => engine.registerArrowTable(name, bytes)),
-    unregisterTable: (name) => run(() => engine.unregisterTable(name)),
+    // Cleanup must remain available after the request result is discarded.
+    unregisterTable: (name) => engine.unregisterTable(name),
   };
 }

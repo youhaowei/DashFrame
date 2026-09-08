@@ -502,6 +502,25 @@ describe("immutable Insight materializer", () => {
     expect(h.registered.size).toBe(0);
   });
 
+  it("cleans a registration whose successful result is discarded", async () => {
+    const h = harness();
+    h.runtime.registerArrowTable = vi.fn(async (name, value) => {
+      h.registered.set(name, value);
+      throw new Error("request cancelled after registration");
+    });
+
+    await expect(
+      createInsightMaterializer(h.dependencies).materialize({
+        ctx: {} as never,
+        target: { kind: "saved", insightId: "insight" },
+        insight,
+      }),
+    ).rejects.toThrow("request cancelled after registration");
+    expect(h.bytes.size).toBe(0);
+    expect(h.registered.size).toBe(0);
+    expect(h.runtime.unregisterTable).toHaveBeenCalledWith("df_frame-1");
+  });
+
   it("retains every pending frame when publication commits then loses its response", async () => {
     let committed: PublishMaterialization | undefined;
     const h = harness({

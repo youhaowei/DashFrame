@@ -25,6 +25,7 @@ import { HostedWorkspacePool } from "./host/hosted-workspace-pool";
 import { createHostedWorkspaceResourceFactory } from "./host/hosted-workspace-resources";
 import { createStaticWebSurface } from "./host/web-surface";
 import { mountConvexProxy } from "./host/convex-proxy";
+import { sweep as sweepConnectorSetupSessions } from "./connector-setup/session-store";
 
 function guardApplication(
   application: ApplicationOperations,
@@ -178,6 +179,12 @@ export async function createHostedServerSurface(options: {
           getToken: async () => tokens.metadata(source, workspaceId).token,
         });
         const engine = await resources.getEngine();
+        const connectorSetup = createHostedConnectorSessionStore({
+          document: resources.connectorSessionDocument,
+          ownerSubject: ownerId,
+          getDataSourceKind: async (id) =>
+            (await metadata.getDataSource(id))?.kind ?? null,
+        });
         const hosted = createHostedApplication({
           deploymentUrl,
           allowInsecureLoopbackForTests: options.allowInsecureLoopbackForTests,
@@ -197,17 +204,15 @@ export async function createHostedServerSurface(options: {
               transport: "mcp",
               authentication: "Bearer",
             },
-            connectorSetup: createHostedConnectorSessionStore({
-              document: resources.connectorSessionDocument,
-              ownerSubject: ownerId,
-              getDataSourceKind: async (id) =>
-                (await metadata.getDataSource(id))?.kind ?? null,
-            }),
+            connectorSetup,
           },
         });
         let recovery = recovered.get(resources);
         if (!recovery) {
-          recovery = hosted.cleanup.recoverPendingBatches();
+          recovery = Promise.all([
+            hosted.cleanup.recoverPendingBatches(),
+            sweepConnectorSetupSessions(connectorSetup, new Date(), 0),
+          ]).then(() => undefined);
           recovered.set(resources, recovery);
           recovery.catch(() => {
             if (recovered.get(resources) === recovery)

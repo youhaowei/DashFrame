@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, expect, it, vi } from "vite-plus/test";
 import { createHostedServerSurface } from "./hosted";
+import { MAX_LOCAL_ARROW_BYTES } from "@dashframe/types";
 import { createHostedTokenIssuer } from "./host/hosted-token-issuer";
 import type { HostedBrowserSession } from "./host/hosted-workos-session";
 import type { HostedAdmission } from "./host/hosted-admission-service";
@@ -71,6 +72,18 @@ it("serves the hosted shell and enforces session/admission before opening worksp
     expect((await request("/api/runtime", "POST", origin)).status).toBe(401);
     expect((await request("/data/frame")).status).toBe(401);
     expect((await request("/assistant/run", "POST", origin)).status).toBe(401);
+    expect(
+      (
+        await surface.app.request(`${origin}/data/frame`, {
+          method: "POST",
+          headers: {
+            origin,
+            "content-length": String(MAX_LOCAL_ARROW_BYTES + 1),
+          },
+          body: "oversized",
+        })
+      ).status,
+    ).toBe(413);
     expect(resolveAdmission).not.toHaveBeenCalled();
     expect(open).not.toHaveBeenCalled();
 

@@ -5,6 +5,7 @@ import {
 import { cmd, type Command, type UUID } from "@dashframe/types";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { createDashframeAssistantHost } from "./assistant-host";
+import { resolveAssistantRunProvider } from "./assistant-run-route";
 import type { ApplicationOperations } from "./host/application";
 import { LOCAL_USER_ID } from "./permissions";
 
@@ -40,6 +41,18 @@ const model: CreateAssistantRunOptions["model"] = {
   contextWindow: 100_000,
   maxTokens: 8_192,
 };
+
+it("requires a workspace provider instead of using operator credentials in hosted runs", async () => {
+  await expect(
+    resolveAssistantRunProvider({
+      body: {},
+      metadata: {
+        listAssistantProviderConfigs: vi.fn(async () => []),
+      } as never,
+      allowOperatorCredentialFallback: false,
+    }),
+  ).rejects.toThrow("Configure an assistant provider for this workspace");
+});
 
 function assistantMessage(content: unknown[], stopReason: "toolUse" | "stop") {
   return {

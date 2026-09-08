@@ -1,4 +1,5 @@
 import { ConvexError, v } from "convex/values";
+import ipaddr from "ipaddr.js";
 import { internal } from "./_generated/api";
 import { mutation, query, type QueryCtx } from "./_generated/server";
 import { requireHostedMetadataPrincipal } from "./hostedMetadataGuard";
@@ -25,6 +26,17 @@ async function requireUser(ctx: QueryCtx) {
   if (identity.principal.kind !== "user")
     throw new ConvexError("User permission required");
   return identity;
+}
+
+function isPrivateLiteralOrLocalhost(hostname: string): boolean {
+  // Hosted-only literal floor: local providers remain available outside this
+  // metadata path. DNS resolution and redirect targets need a future fetch-time
+  // egress policy; this validator deliberately does not claim to cover them.
+  let host = hostname.toLowerCase().replace(/^\[/, "").replace(/\]$/, "");
+  while (host.endsWith(".")) host = host.slice(0, -1);
+  if (host === "localhost" || host.endsWith(".localhost")) return true;
+  if (!ipaddr.isValid(host)) return false;
+  return ipaddr.process(host).range() !== "unicast";
 }
 
 function validateRow(row: typeof provider.type) {
@@ -60,7 +72,8 @@ function validateRow(row: typeof provider.type) {
       baseUrl.username ||
       baseUrl.password ||
       baseUrl.search ||
-      baseUrl.hash
+      baseUrl.hash ||
+      isPrivateLiteralOrLocalhost(baseUrl.hostname)
     )
       throw new ConvexError("Invalid provider base URL");
   }
