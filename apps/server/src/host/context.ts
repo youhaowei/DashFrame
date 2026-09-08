@@ -31,6 +31,8 @@ export interface HostContext {
   dataPlaneRuntime?: ArrowQueryRunner &
     Partial<Pick<ArrowTableRegistrar, "registerArrowTable">> & {
       unregisterTable?: (name: string) => Promise<void>;
+      /** Stable identity shared by request-scoped wrappers over one engine. */
+      coalescingIdentity?: object;
     };
 }
 

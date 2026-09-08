@@ -1,6 +1,19 @@
 import { expect, it, vi } from "vite-plus/test";
 import { createHostedQueryRuntime } from "./hosted-query-runtime";
 
+it("shares one coalescing identity across request-scoped wrappers", () => {
+  const engine = {
+    queryArrow: vi.fn(async () => new Uint8Array()),
+    registerArrowTable: vi.fn(async () => {}),
+    unregisterTable: vi.fn(async () => {}),
+  };
+  const first = createHostedQueryRuntime(engine, new AbortController().signal);
+  const second = createHostedQueryRuntime(engine, new AbortController().signal);
+
+  expect(first.coalescingIdentity).toBe(engine);
+  expect(second.coalescingIdentity).toBe(engine);
+});
+
 it("keeps a sibling query alive when one request is cancelled and discards the cancelled result", async () => {
   const pending: Array<{
     resolve: (value: Uint8Array) => void;

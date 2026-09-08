@@ -30,10 +30,11 @@ export function createProductionFetchExecutor(): LiveFetchExecutor {
   const runtimeScope = (ctx: HostContext): string => {
     const runtime = ctx.dataPlaneRuntime;
     if (!runtime) return "missing-runtime";
-    let scope = runtimeScopes.get(runtime);
+    const identity = runtime.coalescingIdentity ?? runtime;
+    let scope = runtimeScopes.get(identity);
     if (!scope) {
       scope = `runtime-${++nextRuntimeScope}`;
-      runtimeScopes.set(runtime, scope);
+      runtimeScopes.set(identity, scope);
     }
     return scope;
   };

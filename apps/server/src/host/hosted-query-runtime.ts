@@ -18,6 +18,7 @@ export function createHostedQueryRuntime(
     return result;
   };
   return {
+    coalescingIdentity: engine,
     queryArrow: (sql, params) => run(() => engine.queryArrow(sql, params)),
     registerArrowTable: (name, bytes) =>
       run(() => engine.registerArrowTable(name, bytes)),
