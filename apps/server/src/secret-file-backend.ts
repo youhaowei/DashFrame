@@ -52,6 +52,7 @@ const KEY_ID_PATTERN = /^[a-f0-9]{16}$/;
 const BASE64_KEY_PATTERN = /^[A-Za-z0-9+/]{43}=$/;
 const AAD_DOMAIN = Buffer.from("dashframe-secret-blob", "ascii");
 const KEY_ID_DOMAIN = Buffer.from("dashframe-secret-key-id\0", "ascii");
+const DOCUMENT_MAGIC = Buffer.from("DFSD", "ascii");
 
 export const ENCRYPTED_FILE_BACKEND_NAME = "dashframe-encrypted-file";
 
@@ -515,6 +516,67 @@ function validateKeyring(config: SecretKeyringConfig): Map<string, Buffer> {
     validated.set(keyId, Buffer.from(key));
   }
   return validated;
+}
+
+/** Encrypt a stable host document without changing the existing DFSB blob format. */
+export function encryptStableDocument(
+  plaintext: string,
+  aad: Buffer,
+  config: SecretKeyringConfig,
+): Buffer {
+  const keys = validateKeyring(config);
+  const keyId = config.activeKeyId;
+  const nonce = randomBytes(NONCE_LENGTH);
+  const { ciphertext, authTag } = encrypt(
+    keys.get(keyId)!,
+    nonce,
+    plaintext,
+    aad,
+  );
+  const keyIdBytes = Buffer.from(keyId, "ascii");
+  return Buffer.concat([
+    DOCUMENT_MAGIC,
+    Buffer.from([FORMAT_VERSION, keyIdBytes.length]),
+    nonce,
+    authTag,
+    keyIdBytes,
+    ciphertext,
+  ]);
+}
+
+/** Decrypt a stable host document with the active or a retained rotation key. */
+export function decryptStableDocument(
+  blob: Buffer,
+  aad: Buffer,
+  config: SecretKeyringConfig,
+): string {
+  const keys = validateKeyring(config);
+  const fixed = DOCUMENT_MAGIC.length + 2 + NONCE_LENGTH + AUTH_TAG_LENGTH;
+  if (blob.length < fixed || !blob.subarray(0, 4).equals(DOCUMENT_MAGIC))
+    throw new Error("[encrypted-file] Invalid stable document envelope");
+  const version = blob[4]!;
+  if (version !== FORMAT_VERSION)
+    throw new Error("[encrypted-file] Unsupported stable document version");
+  const keyIdLength = blob[5]!;
+  const nonceStart = 6;
+  const tagStart = nonceStart + NONCE_LENGTH;
+  const keyIdStart = tagStart + AUTH_TAG_LENGTH;
+  const ciphertextStart = keyIdStart + keyIdLength;
+  if (ciphertextStart > blob.length)
+    throw new Error("[encrypted-file] Truncated stable document envelope");
+  const keyId = blob.subarray(keyIdStart, ciphertextStart).toString("ascii");
+  if (!KEY_ID_PATTERN.test(keyId))
+    throw new Error("[encrypted-file] Invalid stable document metadata");
+  const key = keys.get(keyId);
+  if (!key)
+    throw new Error("[encrypted-file] Stable document key is unavailable");
+  return decrypt(
+    key,
+    blob.subarray(nonceStart, tagStart),
+    blob.subarray(ciphertextStart),
+    blob.subarray(tagStart, keyIdStart),
+    aad,
+  );
 }
 
 function validateLocator(locator: string): void {
