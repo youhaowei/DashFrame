@@ -763,11 +763,11 @@ it(
               workspaceId,
             }),
         },
-        ensureWorkspace: async (workspaceId, user) => {
+        withWorkspace: async (workspaceId, user, request, operation) => {
           expect(workspaceId).toBe(workspaces[0]);
           expect(user.userId).toBe("a");
           httpAllocations++;
-          return hostedApplication.application;
+          return operation(hostedApplication.application, request.signal);
         },
       });
       const httpOperation = (operation: string, input: unknown) =>

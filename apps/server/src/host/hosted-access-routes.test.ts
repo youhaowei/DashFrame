@@ -1,5 +1,15 @@
 import { expect, it, vi } from "vite-plus/test";
+import type { ApplicationOperations } from "./application";
 import { createHostedAccessRoutes } from "./hosted-access-routes";
+import type { HostedUserTokenSource } from "./hosted-token-issuer";
+
+function barrier() {
+  let release = () => {};
+  const promise = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return { promise, release };
+}
 
 function fixture(
   status: "signedout" | "unavailable" | "authenticated" = "authenticated",
@@ -31,13 +41,23 @@ function fixture(
     })),
   };
   const execute = vi.fn(async () => ({ ok: true }));
-  const ensureWorkspace = vi.fn(async () => ({ execute }));
+  const withWorkspace = vi.fn(
+    async (
+      _workspaceId: string,
+      _user: HostedUserTokenSource,
+      request: Request,
+      operation: (
+        application: Pick<ApplicationOperations, "execute">,
+        signal: AbortSignal,
+      ) => Promise<Response>,
+    ) => operation({ execute }, request.signal),
+  );
   const app = createHostedAccessRoutes({
     publicOrigin: "https://app.invalid",
     session,
     admission,
     tokens,
-    ensureWorkspace,
+    withWorkspace,
   });
   const request = (route: string, origin = "https://app.invalid") =>
     app.request(`https://app.invalid/api/${route}`, {
@@ -48,7 +68,7 @@ function fixture(
         subject: "attacker-selected",
       }),
     });
-  return { session, admission, tokens, ensureWorkspace, execute, app, request };
+  return { session, admission, tokens, withWorkspace, execute, app, request };
 }
 
 it.each(["signedout", "unavailable"] as const)(
@@ -58,7 +78,7 @@ it.each(["signedout", "unavailable"] as const)(
     const response = await f.request("runtime");
     expect(response.status).toBe(status === "signedout" ? 401 : 503);
     expect(f.admission.resolve).not.toHaveBeenCalled();
-    expect(f.ensureWorkspace).not.toHaveBeenCalled();
+    expect(f.withWorkspace).not.toHaveBeenCalled();
     expect(f.tokens.browser).not.toHaveBeenCalled();
   },
 );
@@ -69,7 +89,7 @@ it.each(["pending", "revoked"] as const)(
     const f = fixture("authenticated", status);
     expect((await f.request("runtime")).status).toBe(200);
     expect((await f.request("convex-token")).status).toBe(403);
-    expect(f.ensureWorkspace).not.toHaveBeenCalled();
+    expect(f.withWorkspace).not.toHaveBeenCalled();
     expect(f.tokens.browser).not.toHaveBeenCalled();
   },
 );
@@ -87,9 +107,11 @@ it("uses only verified identity and admitted workspace, preserving refreshed coo
     workspaceId: "workspace-a",
     config: { convexUrl: "https://app.invalid/api/convex" },
   });
-  expect(f.ensureWorkspace).toHaveBeenCalledWith(
+  expect(f.withWorkspace).toHaveBeenCalledWith(
     "workspace-a",
     expect.objectContaining({ userId: "verified-a" }),
+    expect.any(Request),
+    expect.any(Function),
   );
   expect(f.tokens.browser).not.toHaveBeenCalled();
   expect((await f.request("convex-token")).status).toBe(200);
@@ -106,7 +128,7 @@ it("rejects foreign origins before authentication and maps startup failure to un
     403,
   );
   expect(f.session.resolve).not.toHaveBeenCalled();
-  f.ensureWorkspace.mockRejectedValueOnce(new Error("private startup detail"));
+  f.withWorkspace.mockRejectedValueOnce(new Error("private startup detail"));
   const failed = await f.request("runtime");
   expect(failed.status).toBe(503);
   expect(await failed.json()).toEqual({
@@ -128,14 +150,14 @@ it("binds hosted operation dispatch to current admission and rejects unknown rou
     { principal: { kind: "user", userId: "verified-a" } },
   );
   expect((await f.request("host/notPublished")).status).toBe(404);
-  expect(f.ensureWorkspace).toHaveBeenCalledTimes(1);
+  expect(f.withWorkspace).toHaveBeenCalledTimes(1);
   for (const status of ["pending", "revoked"] as const) {
     const denied = fixture("authenticated", status);
     expect((await denied.request("host/getAccessCapabilities")).status).toBe(
       403,
     );
     expect(denied.execute).not.toHaveBeenCalled();
-    expect(denied.ensureWorkspace).not.toHaveBeenCalled();
+    expect(denied.withWorkspace).not.toHaveBeenCalled();
   }
   const foreign = fixture();
   expect(
@@ -147,4 +169,32 @@ it("binds hosted operation dispatch to current admission and rejects unknown rou
     ).status,
   ).toBe(403);
   expect(foreign.session.resolve).not.toHaveBeenCalled();
+});
+
+it("executes a hosted operation entirely inside the workspace lifetime", async () => {
+  const f = fixture();
+  const running = barrier();
+  let active = false;
+  f.withWorkspace.mockImplementationOnce(
+    async (_workspaceId, _user, request, operation) => {
+      active = true;
+      try {
+        return await operation({ execute: f.execute }, request.signal);
+      } finally {
+        active = false;
+      }
+    },
+  );
+  f.execute.mockImplementationOnce(async () => {
+    expect(active).toBe(true);
+    await running.promise;
+    expect(active).toBe(true);
+    return { ok: true };
+  });
+  const pending = f.request("host/getAccessCapabilities");
+  await vi.waitFor(() => expect(f.execute).toHaveBeenCalledOnce());
+  expect(active).toBe(true);
+  running.release();
+  expect((await pending).status).toBe(200);
+  expect(active).toBe(false);
 });

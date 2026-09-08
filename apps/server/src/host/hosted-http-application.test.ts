@@ -1,7 +1,9 @@
 import { serve } from "@hono/node-server";
 import { once } from "node:events";
 import { expect, it, vi } from "vite-plus/test";
+import type { ApplicationOperations } from "./application";
 import { createHostedHttpApplication } from "./hosted-http-application";
+import type { HostedUserTokenSource } from "./hosted-token-issuer";
 import { createHostedWorkOSSession } from "./hosted-workos-session";
 
 it("routes the sealed login handshake and denies signed-out workspace allocation", async () => {
@@ -40,7 +42,17 @@ it("routes the sealed login handshake and denies signed-out workspace allocation
       },
     },
   );
-  const ensureWorkspace = vi.fn(async () => ({ execute: async () => null }));
+  const withWorkspace = vi.fn(
+    async (
+      _workspaceId: string,
+      _user: HostedUserTokenSource,
+      request: Request,
+      operation: (
+        application: Pick<ApplicationOperations, "execute">,
+        signal: AbortSignal,
+      ) => Promise<Response>,
+    ) => operation({ execute: async () => null }, request.signal),
+  );
   const admission = vi.fn(async () => ({
     status: "admitted" as const,
     workspaceId: "workspace-a",
@@ -52,7 +64,7 @@ it("routes the sealed login handshake and denies signed-out workspace allocation
     tokens: {
       browser: () => ({ token: "synthetic", expiresAt: Date.now() + 60_000 }),
     },
-    ensureWorkspace,
+    withWorkspace,
   });
   const server = serve({ fetch: app.fetch, hostname: "127.0.0.1", port: 0 });
   await once(server, "listening");
@@ -85,7 +97,7 @@ it("routes the sealed login handshake and denies signed-out workspace allocation
     });
     expect(runtime.status).toBe(401);
     expect(admission).not.toHaveBeenCalled();
-    expect(ensureWorkspace).not.toHaveBeenCalled();
+    expect(withWorkspace).not.toHaveBeenCalled();
     expect(
       (
         await request(`${origin}/auth/logout`, {

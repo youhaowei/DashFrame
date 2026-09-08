@@ -26,11 +26,16 @@ export function createHostedAccessRoutes(options: {
   session: { resolve(request: Request): Promise<BrowserSession> };
   admission: { resolve(user: HostedUserTokenSource): Promise<HostedAdmission> };
   tokens: Pick<HostedTokenIssuer, "browser">;
-  /** Must finish workspace startup/recovery before exposing an admitted runtime. */
-  ensureWorkspace(
+  /** Own the admitted workspace through callback completion and response disposal. */
+  withWorkspace(
     workspaceId: string,
     user: HostedUserTokenSource,
-  ): Promise<Pick<ApplicationOperations, "execute">>;
+    request: Request,
+    operation: (
+      application: Pick<ApplicationOperations, "execute">,
+      signal: AbortSignal,
+    ) => Promise<Response>,
+  ): Promise<Response>;
 }) {
   const origin = new URL(options.publicOrigin);
   if (origin.protocol !== "https:" || origin.origin !== options.publicOrigin)
@@ -83,26 +88,33 @@ export function createHostedAccessRoutes(options: {
             (!operation || !hostOperationByName(operation))
           )
             return c.json({ error: "Unknown host operation" }, 404);
-          const application = await options.ensureWorkspace(
+          return await options.withWorkspace(
             admission.workspaceId,
             user,
+            c.req.raw,
+            async (application, signal) => {
+              if (target === "operation")
+                return executeHostedOperation(
+                  c,
+                  application,
+                  operation!,
+                  user.userId,
+                  signal,
+                );
+              if (signal.aborted) throw signal.reason;
+              if (target === "convex-token")
+                return c.json(
+                  options.tokens.browser(user, admission.workspaceId),
+                );
+              return c.json({
+                mode: "hosted",
+                status: "admitted",
+                subject: user.userId,
+                workspaceId: admission.workspaceId,
+                config: { convexUrl },
+              });
+            },
           );
-          if (target === "operation")
-            return executeHostedOperation(
-              c,
-              application,
-              operation!,
-              user.userId,
-            );
-          if (target === "convex-token")
-            return c.json(options.tokens.browser(user, admission.workspaceId));
-          return c.json({
-            mode: "hosted",
-            status: "admitted",
-            subject: user.userId,
-            workspaceId: admission.workspaceId,
-            config: { convexUrl },
-          });
         } catch {
           // Provider and startup failures must never become a local-mode fallback
           // or an invented authentication rejection. Do not expose their details.
@@ -119,6 +131,7 @@ async function executeHostedOperation(
   application: Pick<ApplicationOperations, "execute">,
   operation: string,
   userId: string,
+  signal: AbortSignal,
 ): Promise<Response> {
   let input: unknown;
   try {
@@ -127,6 +140,7 @@ async function executeHostedOperation(
     return c.json({ error: "Invalid JSON input" }, 400);
   }
   try {
+    if (signal.aborted) throw signal.reason;
     return c.json(
       await application.execute(operation, input, {
         principal: { kind: "user", userId: userId },

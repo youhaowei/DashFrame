@@ -68,6 +68,73 @@ export class HostedWorkspacePool<T> {
     }
   }
 
+  /** Keep workspace ownership active until the response body is consumed or cancelled. */
+  async runRequest(
+    workspaceId: string,
+    ownerId: string,
+    request: Request,
+    expiresAt: number,
+    operation: (resources: T, signal: AbortSignal) => Promise<Response>,
+    maxLifetimeMs: number,
+  ): Promise<Response> {
+    if (!Number.isFinite(expiresAt) || expiresAt <= Date.now())
+      throw new Error("Hosted request credential has expired");
+    if (!Number.isSafeInteger(maxLifetimeMs) || maxLifetimeMs < 1)
+      throw new Error("Invalid hosted request lifetime");
+    const lifetime = new AbortController();
+    const abortFromRequest = () => lifetime.abort(request.signal.reason);
+    if (request.signal.aborted) abortFromRequest();
+    else
+      request.signal.addEventListener("abort", abortFromRequest, {
+        once: true,
+      });
+    const deadline = Math.min(expiresAt, Date.now() + maxLifetimeMs);
+    const timeout = setTimeout(
+      () => lifetime.abort(new Error("Hosted request deadline exceeded")),
+      Math.max(0, deadline - Date.now()),
+    );
+    const endLifetime = () => {
+      lifetime.abort(new Error("Hosted request lifetime ended"));
+      clearTimeout(timeout);
+      request.signal.removeEventListener("abort", abortFromRequest);
+    };
+    let resolveReady!: (response: Response) => void;
+    let rejectReady!: (error: unknown) => void;
+    const ready = new Promise<Response>((resolve, reject) => {
+      resolveReady = resolve;
+      rejectReady = reject;
+    });
+    const execution = this.run(workspaceId, ownerId, async (resources) => {
+      try {
+        const response = await operation(resources, lifetime.signal);
+        if (lifetime.signal.aborted) {
+          await response.body?.cancel(lifetime.signal.reason);
+          throw lifetime.signal.reason;
+        }
+        let finish!: () => void;
+        const finished = new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+        resolveReady(holdResponse(response, lifetime, finish));
+        await finished;
+        return response;
+      } catch (error) {
+        rejectReady(error);
+        throw error;
+      } finally {
+        // Accepted work invalidates its capability before `run` can release it.
+        endLifetime();
+      }
+    });
+    // Also cover startup, capacity, owner, and draining failures that occur
+    // before the operation callback is entered.
+    execution.then(endLifetime, (error) => {
+      endLifetime();
+      rejectReady(error);
+    });
+    return ready;
+  }
+
   /** Reject new work immediately; drain accepted work before closing resources.
    * Failed closes stay retained, and another call retries only those entries. */
   close(): Promise<void> {
@@ -103,6 +170,61 @@ export class HostedWorkspacePool<T> {
     if (failures.length)
       throw new AggregateError(failures, "Hosted workspace shutdown failed");
   }
+}
+
+function holdResponse(
+  response: Response,
+  lifetime: AbortController,
+  finish: () => void,
+): Response {
+  if (!response.body) {
+    lifetime.abort(new Error("Hosted response lifetime ended"));
+    finish();
+    return response;
+  }
+  const reader = response.body.getReader();
+  let finished = false;
+  const complete = () => {
+    if (finished) return;
+    finished = true;
+    lifetime.signal.removeEventListener("abort", abort);
+    lifetime.abort(new Error("Hosted response lifetime ended"));
+    finish();
+  };
+  const abort = () => {
+    reader
+      .cancel(lifetime.signal.reason)
+      .finally(complete)
+      .catch(() => undefined);
+  };
+  lifetime.signal.addEventListener("abort", abort, { once: true });
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      if (lifetime.signal.aborted) {
+        controller.error(lifetime.signal.reason);
+        return;
+      }
+      try {
+        const next = await reader.read();
+        if (next.done) {
+          complete();
+          controller.close();
+        } else controller.enqueue(next.value);
+      } catch (error) {
+        complete();
+        controller.error(error);
+      }
+    },
+    async cancel(reason) {
+      lifetime.abort(reason ?? new Error("Hosted response cancelled"));
+      try {
+        await reader.cancel(reason);
+      } finally {
+        complete();
+      }
+    },
+  });
+  return new Response(body, response);
 }
 
 function validIdentity(value: string): void {

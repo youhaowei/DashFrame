@@ -92,3 +92,166 @@ it("evicts failed startup but keeps resources after a request failure", async ()
   await pool.close();
   expect(close).toHaveBeenCalledOnce();
 });
+
+it("keeps a workspace active until a streamed response drains", async () => {
+  const remaining = barrier();
+  let consumerSignal: AbortSignal | undefined;
+  const close = vi.fn(async () => {});
+  const pool = new HostedWorkspacePool(1, async () => ({
+    resources: {},
+    close,
+  }));
+  const response = await pool.runRequest(
+    "workspace-a",
+    "owner-a",
+    new Request("https://app.invalid/api/runtime"),
+    Date.now() + 10_000,
+    async (_resources, signal) => {
+      consumerSignal = signal;
+      return new Response(
+        new ReadableStream({
+          async start(controller) {
+            controller.enqueue(new TextEncoder().encode("first"));
+            await remaining.promise;
+            controller.close();
+          },
+        }),
+      );
+    },
+    10_000,
+  );
+  const shutdown = pool.close();
+  await Promise.resolve();
+  expect(close).not.toHaveBeenCalled();
+  const reader = response.body!.getReader();
+  expect(new TextDecoder().decode((await reader.read()).value)).toBe("first");
+  remaining.release();
+  expect((await reader.read()).done).toBe(true);
+  expect(consumerSignal?.aborted).toBe(true);
+  await shutdown;
+  expect(close).toHaveBeenCalledOnce();
+});
+
+it("aborts the consumer before releasing a cancelled response", async () => {
+  let consumerSignal: AbortSignal | undefined;
+  const close = vi.fn(async () => {
+    expect(consumerSignal?.aborted).toBe(true);
+  });
+  const pool = new HostedWorkspacePool(1, async () => ({
+    resources: {},
+    close,
+  }));
+  const response = await pool.runRequest(
+    "workspace-a",
+    "owner-a",
+    new Request("https://app.invalid/api/runtime"),
+    Date.now() + 10_000,
+    async (_resources, signal) => {
+      consumerSignal = signal;
+      return new Response(new ReadableStream({ start() {} }));
+    },
+    10_000,
+  );
+  await response.body!.cancel("client disconnected");
+  await pool.close();
+  expect(consumerSignal?.aborted).toBe(true);
+  expect(close).toHaveBeenCalledOnce();
+});
+
+it("bounds a response by the verified credential expiry", async () => {
+  let consumerSignal: AbortSignal | undefined;
+  const pool = new HostedWorkspacePool(1, async () => ({
+    resources: {},
+    close: async () => {},
+  }));
+  const response = await pool.runRequest(
+    "workspace-a",
+    "owner-a",
+    new Request("https://app.invalid/api/runtime"),
+    Date.now() + 20,
+    async (_resources, signal) => {
+      consumerSignal = signal;
+      return new Response(new ReadableStream({ start() {} }));
+    },
+    10_000,
+  );
+  const reader = response.body!.getReader();
+  await expect(reader.read()).resolves.toMatchObject({ done: true });
+  expect(consumerSignal?.aborted).toBe(true);
+  await pool.close();
+});
+
+it("does not release a callback that is still settling after its deadline", async () => {
+  const settling = barrier();
+  let consumerSignal: AbortSignal | undefined;
+  const close = vi.fn(async () => {});
+  const pool = new HostedWorkspacePool(1, async () => ({
+    resources: {},
+    close,
+  }));
+  const response = pool.runRequest(
+    "workspace-a",
+    "owner-a",
+    new Request("https://app.invalid/api/runtime"),
+    Date.now() + 20,
+    async (_resources, signal) => {
+      consumerSignal = signal;
+      await settling.promise;
+      return new Response("late");
+    },
+    20,
+  );
+  const shutdown = pool.close();
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  expect(consumerSignal?.aborted).toBe(true);
+  expect(close).not.toHaveBeenCalled();
+  settling.release();
+  await expect(response).rejects.toThrow("deadline");
+  await shutdown;
+  expect(close).toHaveBeenCalledOnce();
+});
+
+it("invalidates the consumer lifetime when an operation rejects", async () => {
+  let consumerSignal: AbortSignal | undefined;
+  const pool = new HostedWorkspacePool(1, async () => ({
+    resources: {},
+    close: async () => {},
+  }));
+  await expect(
+    pool.runRequest(
+      "workspace-a",
+      "owner-a",
+      new Request("https://app.invalid/api/runtime"),
+      Date.now() + 10_000,
+      async (_resources, signal) => {
+        consumerSignal = signal;
+        throw new Error("operation failed");
+      },
+      10_000,
+    ),
+  ).rejects.toThrow("operation failed");
+  expect(consumerSignal?.aborted).toBe(true);
+  await pool.close();
+});
+
+it("surfaces workspace startup failure before a response exists", async () => {
+  const pool = new HostedWorkspacePool(1, async () => {
+    throw new Error("startup unavailable");
+  });
+  const request = new Request("https://app.invalid/api/runtime");
+  const removeAbortListener = vi.spyOn(request.signal, "removeEventListener");
+  await expect(
+    pool.runRequest(
+      "workspace-a",
+      "owner-a",
+      request,
+      Date.now() + 10_000,
+      async () => new Response(),
+      10_000,
+    ),
+  ).rejects.toThrow("startup unavailable");
+  expect(removeAbortListener).toHaveBeenCalledWith(
+    "abort",
+    expect.any(Function),
+  );
+});
