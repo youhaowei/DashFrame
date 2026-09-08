@@ -41,7 +41,7 @@ function apiServerCommand() {
 }
 
 function webServerCommand(port: number) {
-  return `cd ../../apps/web && VITE_DASHFRAME_URL=${API_URL} bun run build && VITE_DASHFRAME_URL=${API_URL} bun run preview --port ${port} --strictPort`;
+  return `cd ../../apps/web && bun run build && VITE_DASHFRAME_URL=${API_URL} bun run preview --port ${port} --strictPort`;
 }
 
 function getWebServerConfig() {

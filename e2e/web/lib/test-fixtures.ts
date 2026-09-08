@@ -50,7 +50,7 @@ type HomePageFn = () => Promise<void>;
 interface DashFrameAutoFixtures {
   /** Clears the native host project before each test for isolation */
   clearServerDB: void;
-  /** Injects the authenticated API runtime before the app bootstraps. */
+  /** Authenticates browser requests to the isolated API host. */
   authenticatedRuntime: void;
 }
 
@@ -98,24 +98,17 @@ export const test = base.extend<DashFrameFixtures & DashFrameAutoFixtures>({
   ],
 
   authenticatedRuntime: [
-    async ({ page }, use) => {
+    async ({ page, workerBaseURL }, use) => {
       if (!DASHFRAME_URL || !USER_TOKEN)
         throw new Error("E2E runtime was not configured");
-      const response = await fetch(`${DASHFRAME_URL}/api/runtime`, {
-        headers: { Authorization: `Bearer ${USER_TOKEN}` },
+      await page.route(`${workerBaseURL}/api/**`, async (route) => {
+        await route.continue({
+          headers: {
+            ...route.request().headers(),
+            authorization: `Bearer ${USER_TOKEN}`,
+          },
+        });
       });
-      if (!response.ok)
-        throw new Error(`E2E runtime discovery failed: ${response.status}`);
-      const runtime = (await response.json()) as { convexUrl: string };
-      await page.addInitScript(
-        ({ url, token, convexUrl }) => {
-          Object.defineProperty(globalThis, "dashframe", {
-            configurable: true,
-            value: { getServerInfo: async () => ({ url, token, convexUrl }) },
-          });
-        },
-        { url: DASHFRAME_URL, token: USER_TOKEN, convexUrl: runtime.convexUrl },
-      );
       await use();
     },
     { scope: "test", auto: true },
