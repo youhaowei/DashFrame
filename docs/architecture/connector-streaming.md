@@ -48,9 +48,14 @@ Schema evolution requires explicit source schema refresh, never silent coercion.
 Acquisition is pull-driven with no page prefetch. The host admits one streaming
 materialization per runtime and rejects overlapping distinct work rather than
 building an unbounded queue; identical requests retain existing in-flight coalescing.
+One caller cancelling leaves shared work running for its remaining consumers. The
+final consumer's cancellation aborts acquisition and waits for rollback to settle.
 Defaults: 1,000 GA4 rows per page, 8 MiB encoded bytes per batch, 256 MiB total
 encoded bytes per materialization, 2 GiB durable project storage, and five minutes
 per operation. Bytes are IPC accounting, not a promise about JavaScript/native RSS.
+Buffered compatibility adapters retain their whole-payload save contract: the
+8 MiB batch cap does not apply to that payload. Aggregate byte and storage checks
+run after their acquisition, so they do not bound those adapters' acquisition memory.
 Provider JSON is still decoded one page at a time. Native memory and disk-spill
 isolation remain deployment responsibilities; this change does not grant additional
 filesystem or network access to a query engine.
@@ -64,11 +69,17 @@ never progress payloads. No new public job protocol or progress UI is introduced
 - GA4: ordered offset pages; no provider-wide transaction exists, so live report
   changes during pagination remain a consistency limitation. Published snapshots
   are immutable. Acquire another generation to see later provider changes.
-- PostgreSQL: existing buffered fallback. Follow-up: server cursor under one
+- PostgreSQL: existing buffered fallback, with a 30-second statement timeout;
+  connection establishment and result buffering have no new streaming guarantee.
+  Follow-up: server cursor under one
   repeatable-read, read-only transaction, with authoritative OID schema and bounded
   FETCH. Do not simulate snapshot consistency using independent OFFSET queries.
-- Notion: existing buffered fallback. Follow-up: provider cursor pages with stable
-  schema, bounded retries and cancellation. REST/local imports remain unchanged.
+- Notion: existing buffered fallback accumulates 100-row provider pages. The
+  installed SDK defaults to 60 seconds per request, with no total acquisition
+  deadline in that adapter. Follow-up: provider cursor pages with stable schema,
+  bounded retries and cancellation. REST/local imports remain unchanged. Buffered
+  fallback I/O can outlast the new operation deadline; it is rejected at the next
+  budget check and never published as a partial result.
 - Hosted: PR #396 owns a fail-closed Linux worker sandbox whose protocol currently
   accepts whole Arrow buffers. It must add versioned begin/append/commit/abort and
   result-chunk messages with per-message, operation, queue and process limits before

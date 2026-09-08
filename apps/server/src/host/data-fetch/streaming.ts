@@ -86,6 +86,22 @@ export class StreamingBudget {
     this.ctx.requestSignal?.throwIfAborted();
   }
 
+  /** Buffered adapters retain their payload contract, with aggregate accounting. */
+  acceptBuffered(byteLength: number, rowCount: number): void {
+    this.check();
+    this.account(byteLength);
+    this.rows += rowCount;
+    this.report("source");
+  }
+
+  private account(byteLength: number): void {
+    this.bytes += byteLength;
+    if (this.bytes > STREAM_TOTAL_BYTES)
+      throw new Error("SOURCE_RESULT_TOO_LARGE");
+    if (this.initialStorageBytes + this.bytes > STREAM_STORAGE_BYTES)
+      throw new Error("MATERIALIZATION_STORAGE_LIMIT");
+  }
+
   report(phase: "source" | "result" | "publication"): void {
     // Observers cannot change publication or cleanup behavior.
     try {
@@ -108,15 +124,10 @@ export class StreamingBudget {
     this.check();
     for await (const arrow of input) {
       this.check();
-      this.bytes += arrow.byteLength;
-      if (
-        arrow.byteLength > STREAM_BATCH_BYTES ||
-        this.bytes > STREAM_TOTAL_BYTES
-      )
+      if (arrow.byteLength > STREAM_BATCH_BYTES)
         throw new Error("SOURCE_RESULT_TOO_LARGE");
       // IPC schema overhead makes this accounting conservative for saved bytes.
-      if (this.initialStorageBytes + this.bytes > STREAM_STORAGE_BYTES)
-        throw new Error("MATERIALIZATION_STORAGE_LIMIT");
+      this.account(arrow.byteLength);
       const { rowCount } = inspectArrowIpc(arrow);
       this.rows += rowCount;
       inspect?.(arrow);

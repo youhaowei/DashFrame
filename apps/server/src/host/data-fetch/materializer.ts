@@ -475,17 +475,8 @@ async function saveSource(
   }
   const arrow = source.arrow;
   if (!arrow) throw new Error("TARGET_NOT_READY");
-  if (budget) {
-    await storage.saveBatches!(
-      frameId,
-      budget.batches(
-        (async function* () {
-          yield arrow;
-        })(),
-        "source",
-      ),
-    );
-  } else await storage.save(frameId, arrow);
+  budget?.acceptBuffered(arrow.byteLength, source.rowCount);
+  await storage.save(frameId, arrow);
 }
 
 async function registerGeneration(
