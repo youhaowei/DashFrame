@@ -19,11 +19,16 @@ import {
   type SecretRef,
   type SecretVault,
 } from "@wystack/secret-vault";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { requireUser, type HostContext } from "./context";
 import { hostOperation } from "./operation";
-import { publishWithConfirmation } from "./data-fetch/publisher";
+import { stableInput } from "./local-ingest";
+import { ImportPublicationRejectedError } from "./metadata";
+import {
+  PublicationOutcomeUnknownError,
+  publishWithConfirmation,
+} from "./data-fetch/publisher";
 import { parseStoredDataTableState } from "@dashframe/convex-backend/codecs";
 
 type DataSourceConfig = {
@@ -84,7 +89,9 @@ function mintBoundResolver(
 export async function notionConnectorFor(
   ctx: HostContext,
   dataSourceId: UUID,
-): Promise<ReturnType<typeof makeNotionConnector>> {
+): Promise<
+  ReturnType<typeof makeNotionConnector> & { sourceRevision: number }
+> {
   const vault = ctx.vault;
   const row = (await ctx.metadata.getDataSource(dataSourceId)) as
     | DataSourceRow
@@ -99,7 +106,9 @@ export async function notionConnectorFor(
     config.apiKey,
     `DataSource(${dataSourceId})`,
   );
-  return makeNotionConnector(auth);
+  return Object.assign(makeNotionConnector(auth), {
+    sourceRevision: row.revision,
+  });
 }
 
 type NotionDatabase = { id: string; title: string };
@@ -208,6 +217,75 @@ function approvedFieldsForSnapshot(
   });
 }
 
+type ConnectorQueryResult = {
+  arrowBuffer: string;
+  fieldIds: string[];
+  fields: Field[];
+  rowCount: number;
+};
+
+async function runConnectorQuery(
+  ctx: HostContext,
+  input: {
+    connectorKind: "notion" | "postgres" | "googleAnalytics";
+    dataSourceId: UUID;
+    table: DataTableRow;
+    sourceRevision: number;
+    pagination: ReturnType<typeof connectorQueryOptions>;
+    snapshot: boolean | undefined;
+    reviewedFields: unknown;
+    query: () => Promise<ConnectorQueryResult>;
+  },
+): Promise<ConnectorQueryResult & { dataFrameId?: UUID }> {
+  if (!input.snapshot) return input.query();
+  const operationId = randomUUID();
+  const requestHash = createHash("sha256")
+    .update(
+      stableInput({
+        kind: "connector-snapshot",
+        connectorKind: input.connectorKind,
+        dataSourceId: input.dataSourceId,
+        tableId: input.table.id,
+        remoteTable: input.table.table,
+        expectedDataFrameId: input.table.dataFrameId ?? null,
+        expectedDataSourceRevision: input.sourceRevision,
+        pagination: input.pagination ?? null,
+        approvedFields: input.reviewedFields ?? null,
+      }),
+    )
+    .digest("hex");
+  const claim = await ctx.metadata.beginLocalImport({
+    operationId,
+    requestHash,
+  });
+  const identity = { operationId, requestHash };
+  try {
+    const result = await input.query();
+    const dataFrameId = await persistConnectorFrame(ctx, {
+      ...result,
+      dataSourceId: input.dataSourceId,
+      tableId: input.table.id as UUID,
+      expectedDataFrameId: input.table.dataFrameId ?? null,
+      expectedDataSourceRevision: input.sourceRevision,
+      expectedRemoteTable: input.table.table,
+      approvedFields: approvedFieldsForSnapshot(
+        input.reviewedFields,
+        result.fieldIds,
+        result.fields,
+      ),
+      claim: { ...claim, ...identity },
+    });
+    return { ...result, dataFrameId };
+  } catch (error) {
+    if (
+      !(error instanceof PublicationOutcomeUnknownError) &&
+      (await ctx.metadata.cancelLocalImport(identity).catch(() => false))
+    )
+      await ctx.cleanupResources?.();
+    throw error;
+  }
+}
+
 export const queryNotionDatabase = hostOperation({
   input: z
     .object({
@@ -237,21 +315,16 @@ export const queryNotionDatabase = hostOperation({
     const pagination = connectorQueryOptions(limit, snapshot);
     // query() resolves the apiKey via the bound resolver internally and returns
     // a serializable result — no credential in scope here, no DataFrame built.
-    const result = await connector.query(table.table, tableId, pagination);
-    const dataFrameId = snapshot
-      ? await persistConnectorFrame(ctx, {
-          arrowBuffer: result.arrowBuffer,
-          dataSourceId,
-          tableId,
-          fieldIds: result.fieldIds,
-          approvedFields: approvedFieldsForSnapshot(
-            reviewedFields,
-            result.fieldIds,
-            result.fields,
-          ),
-          rowCount: result.rowCount,
-        })
-      : undefined;
+    const { dataFrameId, ...result } = await runConnectorQuery(ctx, {
+      connectorKind: "notion",
+      dataSourceId,
+      table,
+      sourceRevision: connector.sourceRevision,
+      pagination,
+      snapshot,
+      reviewedFields,
+      query: () => connector.query(table.table, tableId, pagination),
+    });
     return {
       ...(dataFrameId ? { dataFrameId } : {}),
       fieldIds: result.fieldIds,
@@ -264,7 +337,9 @@ export const queryNotionDatabase = hostOperation({
 export async function postgresConnectorFor(
   ctx: HostContext,
   dataSourceId: UUID,
-): Promise<ReturnType<typeof makePostgresConnector>> {
+): Promise<
+  ReturnType<typeof makePostgresConnector> & { sourceRevision: number }
+> {
   const vault = ctx.vault;
   const row = (await ctx.metadata.getDataSource(dataSourceId)) as
     | DataSourceRow
@@ -287,10 +362,13 @@ export async function postgresConnectorFor(
   // it's a string before passing it through (config is an untyped JSON blob).
   const defaultSchema =
     typeof config.defaultSchema === "string" ? config.defaultSchema : undefined;
-  return makePostgresConnector(auth, {
-    connectionStringRef: config.connectionString,
-    defaultSchema,
-  });
+  return Object.assign(
+    makePostgresConnector(auth, {
+      connectionStringRef: config.connectionString,
+      defaultSchema,
+    }),
+    { sourceRevision: row.revision },
+  );
 }
 
 type PostgresQueryResult = {
@@ -339,21 +417,16 @@ export const queryPostgresTable = hostOperation({
     }
     await requireConnectorMaterializationPermission(ctx, snapshot);
     const pagination = connectorQueryOptions(limit, snapshot);
-    const result = await connector.query(table.table, tableId, pagination);
-    const dataFrameId = snapshot
-      ? await persistConnectorFrame(ctx, {
-          arrowBuffer: result.arrowBuffer,
-          dataSourceId,
-          tableId,
-          fieldIds: result.fieldIds,
-          approvedFields: approvedFieldsForSnapshot(
-            reviewedFields,
-            result.fieldIds,
-            result.fields,
-          ),
-          rowCount: result.rowCount,
-        })
-      : undefined;
+    const { dataFrameId, ...result } = await runConnectorQuery(ctx, {
+      connectorKind: "postgres",
+      dataSourceId,
+      table,
+      sourceRevision: connector.sourceRevision,
+      pagination,
+      snapshot,
+      reviewedFields,
+      query: () => connector.query(table.table, tableId, pagination),
+    });
     return {
       ...(dataFrameId ? { dataFrameId } : {}),
       fieldIds: result.fieldIds,
@@ -367,7 +440,7 @@ export async function ga4ConnectorFor(
   ctx: HostContext,
   dataSourceId: UUID,
   reportVersion?: Ga4ReportVersion,
-): Promise<ReturnType<typeof makeGa4Connector>> {
+): Promise<ReturnType<typeof makeGa4Connector> & { sourceRevision: number }> {
   const vault = ctx.vault;
   const row = (await ctx.metadata.getDataSource(dataSourceId)) as
     | DataSourceRow
@@ -390,19 +463,22 @@ export async function ga4ConnectorFor(
   // the stored bundle, so rotating the OAuth client is a config change instead
   // of a re-write of every connected source's vault entry.
   const oauthClient = ctx.googleOAuth;
-  return makeGa4Connector(auth, {
-    reportVersion: reportVersion ?? persistedReportVersion,
-    ...(oauthClient
-      ? {
-          oauthClient: {
-            clientId: oauthClient.clientId,
-            clientSecret: oauthClient.clientSecret,
-          },
-        }
-      : {}),
-    persistTokenBundle: (bundle) =>
-      persistGa4TokenBundle(ctx, dataSourceId, vault, bundle),
-  });
+  return Object.assign(
+    makeGa4Connector(auth, {
+      reportVersion: reportVersion ?? persistedReportVersion,
+      ...(oauthClient
+        ? {
+            oauthClient: {
+              clientId: oauthClient.clientId,
+              clientSecret: oauthClient.clientSecret,
+            },
+          }
+        : {}),
+      persistTokenBundle: (bundle) =>
+        persistGa4TokenBundle(ctx, dataSourceId, vault, bundle),
+    }),
+    { sourceRevision: row.revision },
+  );
 }
 
 async function persistGa4TokenBundleLocked(
@@ -506,21 +582,16 @@ export const queryGa4Property = hostOperation({
     const table = await connectorTableBinding(ctx, dataSourceId, tableId);
     await requireConnectorMaterializationPermission(ctx, snapshot);
     const pagination = connectorQueryOptions(limit, snapshot);
-    const result = await connector.query(table.table, tableId, pagination);
-    const dataFrameId = snapshot
-      ? await persistConnectorFrame(ctx, {
-          arrowBuffer: result.arrowBuffer,
-          dataSourceId,
-          tableId,
-          fieldIds: result.fieldIds,
-          approvedFields: approvedFieldsForSnapshot(
-            reviewedFields,
-            result.fieldIds,
-            result.fields,
-          ),
-          rowCount: result.rowCount,
-        })
-      : undefined;
+    const { dataFrameId, ...result } = await runConnectorQuery(ctx, {
+      connectorKind: "googleAnalytics",
+      dataSourceId,
+      table,
+      sourceRevision: connector.sourceRevision,
+      pagination,
+      snapshot,
+      reviewedFields,
+      query: () => connector.query(table.table, tableId, pagination),
+    });
     return {
       ...(dataFrameId ? { dataFrameId } : {}),
       fieldIds: result.fieldIds,
@@ -592,6 +663,15 @@ async function persistConnectorFrame(
     fieldIds: string[];
     approvedFields: Field[];
     rowCount: number;
+    expectedDataFrameId: string | null;
+    expectedDataSourceRevision: number;
+    expectedRemoteTable: string;
+    claim: {
+      frameId: string;
+      fetchedAt: number;
+      operationId: string;
+      requestHash: string;
+    };
   },
 ): Promise<UUID> {
   requireUser(ctx);
@@ -617,16 +697,19 @@ async function persistConnectorFrame(
     args.dataSourceId,
     args.tableId,
   );
-  const id = randomUUID() as UUID;
-  const now = Date.now();
+  if (table.table !== args.expectedRemoteTable)
+    throw new Error("SOURCE_BINDING_CHANGED");
+  const id = args.claim.frameId as UUID;
+  const now = args.claim.fetchedAt;
   await storage.save(id, arrow);
   // Immutable files remain available after a lost commit acknowledgement.
   // An unconfirmed operation may leave an orphan; a missing operation record
   // cannot justify deletion while the publication could still be in flight.
-  const publication = {
+  const publicationRequest = {
     dataTableId: table.id,
     dataSourceId: args.dataSourceId,
-    expectedDataFrameId: table.dataFrameId ?? null,
+    expectedDataFrameId: args.expectedDataFrameId,
+    expectedDataSourceRevision: args.expectedDataSourceRevision,
     frameRow: {
       id,
       storage: { type: "file", key: id },
@@ -646,9 +729,30 @@ async function persistConnectorFrame(
       },
     },
     tableUpdate: { fields, dataFrameId: id, lastFetchedAt: now },
+  } satisfies Omit<
+    Parameters<HostContext["metadata"]["commitImportedFrame"]>[0],
+    "operationId" | "requestHash"
+  >;
+  const publication = {
+    ...publicationRequest,
+    operationId: args.claim.operationId,
+    requestHash: args.claim.requestHash,
   } satisfies Parameters<HostContext["metadata"]["commitImportedFrame"]>[0];
-  await publishWithConfirmation(ctx.metadata, `import:${id}`, publication, () =>
-    ctx.metadata.commitImportedFrame(publication),
+  await publishWithConfirmation(
+    ctx.metadata,
+    `local-import:${args.claim.operationId}`,
+    publicationRequest,
+    async () => {
+      try {
+        await ctx.metadata.commitImportedFrame(publication);
+      } catch (error) {
+        if (error instanceof ImportPublicationRejectedError) {
+          await storage.delete(id);
+        }
+        throw error;
+      }
+    },
+    (error) => error instanceof ImportPublicationRejectedError,
   );
   return id;
 }

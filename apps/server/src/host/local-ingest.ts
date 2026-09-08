@@ -488,7 +488,7 @@ function hasErrorMessage(error: unknown, expected: string): boolean {
   return false;
 }
 
-function stableInput(value: unknown): string {
+export function stableInput(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableInput).join(",")}]`;
   if (value !== null && typeof value === "object")
     return `{${Object.entries(value)

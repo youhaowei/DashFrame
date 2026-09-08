@@ -6,6 +6,7 @@ export type PublicationMetadata = Infer<
 export type ArtifactRow = Infer<typeof artifact>;
 type HostRow = Omit<ArtifactRow, "workspaceId" | "revision">;
 export type DataSourceRow = HostRow & {
+  revision: number;
   kind: string;
   storage: string;
   config: import("./values").ObjectValue;

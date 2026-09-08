@@ -6,6 +6,10 @@ import {
   type HostedMetadata,
   type HostedMetadataOptions,
 } from "./hosted-convex-metadata";
+import {
+  ImportPublicationRejectedError,
+  importPublicationRejection,
+} from "./metadata";
 
 type LifecycleOperations = typeof api.hostedLifecycle;
 export type HostedLifecycleMetadata = HostedMetadata & {
@@ -50,11 +54,18 @@ export function createHostedLifecycleMetadata(
         api.hostedLifecycle.cancelLocalImport,
         wire(input),
       ),
-    commitImportedFrame: async (input) =>
-      (await client()).mutation(
-        api.hostedLifecycle.commitImportedFrame,
-        wire(input),
-      ),
+    commitImportedFrame: async (input) => {
+      try {
+        return await (
+          await client()
+        ).mutation(api.hostedLifecycle.commitImportedFrame, wire(input));
+      } catch (error) {
+        const rejection = importPublicationRejection(error);
+        if (rejection)
+          throw new ImportPublicationRejectedError(rejection, { cause: error });
+        throw error;
+      }
+    },
     listCleanup: async (input) =>
       (await client()).query(api.hostedLifecycle.listCleanup, wire(input)),
     claimCleanup: async (input) =>

@@ -15,7 +15,7 @@ import type {
   FunctionReference,
   FunctionReturnType,
 } from "convex/server";
-import { convexToJson, jsonToConvex } from "convex/values";
+import { ConvexError, convexToJson, jsonToConvex } from "convex/values";
 import type { Value } from "convex/values";
 
 export type InternalQuery = FunctionReference<"query", "internal">;
@@ -87,6 +87,7 @@ export function createAdminInternalClient(
     let result: {
       status?: string;
       value?: Parameters<typeof jsonToConvex>[0];
+      errorData?: Parameters<typeof jsonToConvex>[0];
     } = {};
     try {
       result = JSON.parse(await response.text()) as typeof result;
@@ -98,6 +99,8 @@ export function createAdminInternalClient(
       result.status !== "success" ||
       result.value === undefined
     ) {
+      if (result.errorData !== undefined)
+        throw new ConvexError(jsonToConvex(result.errorData));
       // The admin key is never interpolated into this message: a deployment
       // diagnostic is routinely logged, and a leaked deploy key is full
       // control of the deployment.
