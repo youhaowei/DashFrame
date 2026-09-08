@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from "vite-plus/test";
 import { createHostedSourceMetadata } from "./hosted-convex-source-operations";
 
 afterEach(() => vi.unstubAllGlobals());
-it("uses only the four named Bearer operations without body scope", async () => {
+it("maps host-facing source calls to the four named Bearer wire operations without body scope", async () => {
   const requests: {
     path: string;
     args: unknown[];
@@ -37,8 +37,8 @@ it("uses only the four named Bearer operations without body scope", async () => 
     table: "table.csv",
     fields: [],
   });
-  await metadata.removeDataFrame({ id: "frame" });
-  await metadata.clearAllData({});
+  await metadata.removeDataFrame("frame");
+  await metadata.clearAllData();
   expect(requests.map((request) => request.path)).toEqual(
     [
       "replaceDataSourceConfig",
@@ -52,6 +52,8 @@ it("uses only the four named Bearer operations without body scope", async () => 
     expect(request.args[0]).not.toHaveProperty("workspaceId");
     expect(request.args[0]).not.toHaveProperty("principal");
   }
+  expect(requests[2]!.args).toEqual([{ id: "frame" }]);
+  expect(requests[3]!.args).toEqual([{}]);
   expect(Object.keys(metadata)).toHaveLength(27);
 });
 

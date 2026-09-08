@@ -10,7 +10,7 @@ import { expect, it } from "vite-plus/test";
 import { ConvexHttpClient } from "convex/browser";
 import { api, internal } from "@dashframe/convex-backend/api";
 import { startLocalConvex, type LocalConvex } from "@dashframe/convex-local";
-import { cmd } from "@dashframe/types";
+import { cmd, type Field } from "@dashframe/types";
 import { createHostedSourceMetadata } from "./hosted-convex-source-operations";
 
 const runtimeIssuer = "https://runtime.metadata-test.invalid";
@@ -483,7 +483,7 @@ it(
           columnName: "value",
           type: "number",
         },
-      ];
+      ] satisfies Field[];
       expect(
         await a.prepareRemoteDataTable({
           id: tableId,
@@ -506,13 +506,13 @@ it(
             table: "synthetic.csv",
             fields: remoteFields,
           }),
-        () => service.removeDataFrame({ id: importClaim.frameId }),
-        () => service.clearAllData({}),
+        () => service.removeDataFrame(importClaim.frameId),
+        () => service.clearAllData(),
       ])
         await expect(denied()).rejects.toThrow();
-      await b.removeDataFrame({ id: importClaim.frameId });
+      await b.removeDataFrame(importClaim.frameId);
       expect(await a.getDataFrame(importClaim.frameId)).not.toBeNull();
-      await a.removeDataFrame({ id: importClaim.frameId });
+      await a.removeDataFrame(importClaim.frameId);
       expect(await a.getDataFrame(importClaim.frameId)).toBeNull();
       expect(await a.getDataTable(tableId)).toMatchObject({
         dataFrameId: null,
@@ -530,7 +530,7 @@ it(
           type: "csv",
         }),
       ]);
-      await a.clearAllData({});
+      await a.clearAllData();
       expect(await b.getDataSource(survivingSourceId)).toMatchObject({
         id: survivingSourceId,
         name: "Workspace B survives",
@@ -550,7 +550,7 @@ it(
       await expect(service.getDataTable(tableId)).rejects.toThrow();
       await expect(service.draftBatch([])).rejects.toThrow();
       await operatorClient.mutation(api.admission.revoke, { subject: "a" });
-      await expect(a.clearAllData({})).rejects.toThrow();
+      await expect(a.clearAllData()).rejects.toThrow();
       await expect(a.listCleanup(paging)).rejects.toThrow();
       await expect(
         a.recoverHostBatch({ operationId: "missing" }),
