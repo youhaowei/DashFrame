@@ -11,12 +11,19 @@ import { artifactTables, type ArtifactTable } from "./model";
 import { Graph, LIMIT, rowValue, graphKey, type Overlay } from "./graph";
 export { LIMIT, rowValue };
 import { clean } from "./values";
+import { deploymentMode } from "./admissionConfig";
+import {
+  hostedUserSubject,
+  requireHostedAuthority,
+  requireHostedPrincipalAdmission,
+} from "./admissionGuard";
 export type Principal = {
   workspaceId: string;
   owner: string;
   kind: "user" | "service";
 };
 export async function principal(ctx: QueryCtx): Promise<Principal> {
+  const mode = deploymentMode();
   const who = await ctx.auth.getUserIdentity();
   if (!who || typeof who.workspaceId !== "string")
     throw new ConvexError("Authentication required");
@@ -26,7 +33,19 @@ export async function principal(ctx: QueryCtx): Promise<Principal> {
   const key = kind === "user" ? who.userId : who.credentialId;
   if (typeof key !== "string" || !key)
     throw new ConvexError("Invalid principal");
-  if (kind === "service") {
+  if (mode === "hosted") {
+    requireHostedAuthority(who, kind === "user" ? "browser" : "service");
+    if (kind === "user") hostedUserSubject(who);
+    else if (who.subject !== `service:${key}`)
+      throw new ConvexError("Invalid hosted service identity");
+    await requireHostedPrincipalAdmission(
+      ctx,
+      kind === "user" ? { kind, userId: key } : { kind, credentialId: key },
+      who.workspaceId,
+    );
+  } else if (who.authority !== undefined) {
+    throw new ConvexError("Hosted authority is unavailable in local mode");
+  } else if (kind === "service") {
     const revoked = await ctx.db
       .query("revokedCredentials")
       .withIndex("by_workspaceId_and_credentialId", (q) =>

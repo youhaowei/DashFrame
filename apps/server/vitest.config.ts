@@ -7,6 +7,7 @@ const configDir = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   test: {
+    env: { DASHFRAME_DEPLOYMENT_MODE: "local" },
     environment: "node",
     include: ["**/*.test.{ts,tsx}"],
     // Host integration tests start local services and exercise filesystem I/O.

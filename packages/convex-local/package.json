@@ -15,7 +15,7 @@
     "lint": "vp lint src scripts",
     "test": "vp test run",
     "check": "bun run typecheck && bun run lint && bun run test",
-    "test:runtime": "DASHFRAME_CONVEX_INTEGRATION=1 vp test run src/runtime.test.ts"
+    "test:runtime": "DASHFRAME_CONVEX_INTEGRATION=1 vp test run src/runtime.test.ts src/admission.runtime.test.ts"
   },
   "dependencies": {
     "convex": "1.37.0"

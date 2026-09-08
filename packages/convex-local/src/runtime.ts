@@ -352,6 +352,7 @@ async function deployFunctions(
       },
       body: JSON.stringify({
         changes: [
+          { name: "DASHFRAME_DEPLOYMENT_MODE", value: "local" },
           { name: "DASHFRAME_AUTH_ISSUER", value: options.auth.issuer },
           { name: "DASHFRAME_AUTH_JWKS", value: options.auth.jwksDataUri },
         ],
