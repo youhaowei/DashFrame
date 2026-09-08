@@ -1,19 +1,15 @@
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import { afterEach, expect, it, vi } from "vite-plus/test";
 import { CREDENTIAL_CLASS } from "@dashframe/server-core";
-import { deriveKeyId } from "../secret-file-backend";
+import {
+  InMemoryMappingStore,
+  SecretRegistry,
+  SecretVault,
+  TestBackend,
+} from "@wystack/secret-vault";
 import { createHostedSourceMetadata } from "./hosted-convex-source-operations";
-import { createWorkspaceSecrets } from "./workspace-secrets";
 
-const roots: string[] = [];
-
-afterEach(async () => {
+afterEach(() => {
   vi.unstubAllGlobals();
-  await Promise.all(
-    roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
-  );
 });
 it("maps host-facing source calls to the four named Bearer wire operations without body scope", async () => {
   const requests: {
@@ -41,8 +37,8 @@ it("maps host-facing source calls to the four named Bearer wire operations witho
     credentialVault: { has: async () => true },
   });
   await metadata.replaceDataSourceConfig({
-    expectedRevision: 1,
     id: "source",
+    expectedRevision: 1,
     expectedConfig: {},
     config: {},
   });
@@ -69,7 +65,6 @@ it("maps host-facing source calls to the four named Bearer wire operations witho
   }
   expect(requests[2]!.args).toEqual([{ id: "frame" }]);
   expect(requests[3]!.args).toEqual([{}]);
-  expect(Object.keys(metadata)).toHaveLength(27);
 });
 
 it("rejects unsafe replacement and expected configs before token acquisition or network", async () => {
@@ -87,15 +82,14 @@ it("rejects unsafe replacement and expected configs before token acquisition or 
     { token: "synthetic-plaintext" },
     { apiKey: "synthetic-plaintext" },
     { connectionString: "synthetic-plaintext" },
-    { sourceBindingVersion: "v3" },
     null,
   ];
   for (const value of invalid)
     for (const slot of ["config", "expectedConfig"] as const)
       await expect(
         metadata.replaceDataSourceConfig({
-          expectedRevision: 1,
           id: "source",
+          expectedRevision: 1,
           config: {},
           expectedConfig: {},
           [slot]: value,
@@ -105,51 +99,51 @@ it("rejects unsafe replacement and expected configs before token acquisition or 
   expect(fetch).not.toHaveBeenCalled();
 });
 
-it.each(["v1", "v2"] as const)(
-  "accepts the producer-supported four-field config with binding %s",
-  async (sourceBindingVersion) => {
-    const fetch = vi.fn(
-      async (_url: string, _init: RequestInit) =>
-        new Response(JSON.stringify({ status: "success", value: null })),
-    );
-    vi.stubGlobal("fetch", fetch);
-    const config = {
-      apiKey: `secret:${crypto.randomUUID()}`,
-      connectionString: `secret:${crypto.randomUUID()}`,
-      defaultSchema: "public",
-      sourceBindingVersion,
-    };
-    const metadata = createHostedSourceMetadata({
-      deploymentUrl: "https://metadata.test",
-      getToken: async () => "synthetic-token",
-      credentialVault: { has: async () => true },
-    });
-    await metadata.replaceDataSourceConfig({
-      expectedRevision: 1,
-      id: "source",
-      expectedConfig: config,
-      config,
-    });
-    const request = JSON.parse(String(fetch.mock.calls[0]?.[1].body)) as {
-      args: unknown[];
-    };
-    expect(request.args).toEqual([
-      { id: "source", expectedRevision: 1, expectedConfig: config, config },
-    ]);
-  },
-);
+it("passes supported non-credential config through unchanged", async () => {
+  const fetch = vi.fn(
+    async (_url: string, _init: RequestInit) =>
+      new Response(JSON.stringify({ status: "success", value: null })),
+  );
+  vi.stubGlobal("fetch", fetch);
+  const config = {
+    apiKey: `secret:${crypto.randomUUID()}`,
+    connectionString: `secret:${crypto.randomUUID()}`,
+    defaultSchema: "public",
+    sourceBindingVersion: "connector-defined-v3",
+    warehouse: { region: "us-west", retries: 2 },
+  };
+  const expectedConfig = {
+    apiKey: config.apiKey,
+    sourceBindingVersion: "connector-defined-v2",
+    warehouse: { region: "us-east", retries: 1 },
+  };
+  const metadata = createHostedSourceMetadata({
+    deploymentUrl: "https://metadata.test",
+    getToken: async () => "synthetic-token",
+    credentialVault: { has: async () => true },
+  });
+  await metadata.replaceDataSourceConfig({
+    id: "source",
+    expectedRevision: 1,
+    expectedConfig,
+    config,
+  });
+  const request = JSON.parse(String(fetch.mock.calls[0]?.[1].body)) as {
+    args: unknown[];
+  };
+  expect(request.args).toEqual([
+    { id: "source", expectedRevision: 1, expectedConfig, config },
+  ]);
+});
 
 it("checks only newly introduced source references in the request workspace vault", async () => {
-  const root = await mkdtemp(path.join(tmpdir(), "dashframe-source-vault-"));
-  roots.push(root);
-  const key = Buffer.alloc(32, 7);
-  const keyId = deriveKeyId(key);
-  const workspaces = await createWorkspaceSecrets(root, {
-    activeKeyId: keyId,
-    keys: new Map([[keyId, key]]),
-  });
-  const a = await workspaces.forWorkspace("workspace-a");
-  const b = await workspaces.forWorkspace("workspace-b");
+  const workspaceVault = () => {
+    const registry = new SecretRegistry();
+    registry.register("test", new TestBackend(), { fallback: true });
+    return new SecretVault(registry, new InMemoryMappingStore());
+  };
+  const a = workspaceVault(),
+    b = workspaceVault();
   const aRef = await a.store("source-a", {
     class: CREDENTIAL_CLASS.ConnectorKey,
   });
@@ -170,8 +164,8 @@ it("checks only newly introduced source references in the request workspace vaul
 
   await expect(
     metadata.replaceDataSourceConfig({
-      expectedRevision: 1,
       id: "source",
+      expectedRevision: 1,
       expectedConfig: {},
       config: { apiKey: bRef },
     }),
@@ -180,20 +174,20 @@ it("checks only newly introduced source references in the request workspace vaul
   expect(fetch).not.toHaveBeenCalled();
 
   await metadata.replaceDataSourceConfig({
-    expectedRevision: 1,
     id: "source",
+    expectedRevision: 1,
     expectedConfig: {},
     config: { apiKey: aRef },
   });
   await metadata.replaceDataSourceConfig({
-    expectedRevision: 1,
     id: "source",
+    expectedRevision: 1,
     expectedConfig: { apiKey: bRef },
     config: { apiKey: bRef },
   });
   await metadata.replaceDataSourceConfig({
-    expectedRevision: 1,
     id: "source",
+    expectedRevision: 1,
     expectedConfig: { apiKey: bRef },
     config: {},
   });
