@@ -26,7 +26,7 @@ try {
       "-o",
       resolve(output, "query-launcher"),
     ],
-    { stdio: "inherit" },
+    { stdio: ["ignore", 2, 2] },
   );
   await build({
     entryPoints: [resolve(engineRoot, "src/sandbox-worker.ts")],

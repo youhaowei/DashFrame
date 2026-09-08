@@ -1,3 +1,4 @@
+import { createHostedQueryRuntime } from "./host/hosted-query-runtime";
 import { mountHostedMcpRoutes } from "./host/hosted-mcp-routes";
 import { mountHostedBrowserRoutes } from "./host/hosted-browser-routes";
 import { createHostedServiceAccess } from "./host/hosted-service-access";
@@ -189,13 +190,7 @@ export async function createHostedServerSurface(options: {
             accessCredentials: resources.accessCredentials,
             googleOAuth,
             dataFrameStorage: resources.dataFrameStorage,
-            dataPlaneRuntime: {
-              queryArrow: (sql, params) =>
-                engine.queryArrow(sql, params, signal),
-              registerArrowTable: (name, bytes) =>
-                engine.registerArrowTable(name, bytes, signal),
-              unregisterTable: (name) => engine.unregisterTable(name),
-            },
+            dataPlaneRuntime: createHostedQueryRuntime(engine, signal),
             getServerEndpoint: () => publicOrigin,
             accessConnectionInfo: {
               endpoint: `${publicOrigin}/workspaces/${encodeURIComponent(workspaceId)}/mcp`,

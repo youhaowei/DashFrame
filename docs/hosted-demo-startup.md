@@ -57,3 +57,15 @@ Rotation does not re-encrypt existing secrets. Keep their old keys until those
 secrets have been rewritten or revoked and reissued. Removing an old key makes
 secrets still encrypted with it unreadable. Keep the persistent volume attached
 across restarts.
+
+## Follow-up after the demo
+
+Client cancellation discards that request's result without terminating the shared
+workspace query engine. Accepted engine work stays bounded by its own operation
+timeout. An engine-wide failure or CPU limit can still fail concurrent requests;
+recovery creates a fresh catalog after the worker exits. Automatic query replay
+and closing the short worker-exit retry window remain follow-up work.
+
+Vault and credential handles are retained per admitted workspace for the host
+process lifetime, independently of the eight active-workspace engine limit. Revisit
+cache eviction when the admitted user population grows beyond the demo.

@@ -20,6 +20,8 @@ export async function createWorkspaceSecrets(
 ) {
   await mkdir(dataRoot, { recursive: true, mode: 0o700 });
   const root = await realpath(dataRoot);
+  // Retain one vault per admitted workspace for the factory lifetime; pooled
+  // engine retirement does not evict these shared credential handles.
   const pending = new Map<string, Promise<SecretVault>>();
 
   async function open(workspaceId: string): Promise<SecretVault> {

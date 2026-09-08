@@ -46,6 +46,8 @@ export async function createHostedWorkspaceResourceFactory(
     options.keyring,
   );
   const workspaces = await privateDirectory(path.join(root, "workspaces"));
+  // Retained per admitted workspace for the host lifetime so MCP credentials can
+  // be checked without opening a query worker. The pool bounds engines, not this cache.
   const stores = new Map<string, Promise<ApiAccessCredentials>>();
   const workspaceDirectory = (workspaceId: string) => {
     if (
