@@ -55,6 +55,7 @@ vi.mock("./renderers", () => ({
     return (
       <div>
         <button
+          type="button"
           data-testid={`connector-${connector.id}`}
           disabled={disabled}
           onClick={() => onActivityChange?.(true)}
@@ -62,6 +63,7 @@ vi.mock("./renderers", () => ({
           {connector.name}
         </button>
         <button
+          type="button"
           data-testid={`release-${connector.id}`}
           onClick={() => onActivityChange?.(false)}
         >

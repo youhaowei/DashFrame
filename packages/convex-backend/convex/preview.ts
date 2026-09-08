@@ -146,7 +146,7 @@ export function signature(revision: number, commands: Command[]) {
 }
 
 function quotedName(value: Json | undefined): string | null {
-  return typeof value === "string" && value.length > 0 ? `\"${value}\"` : null;
+  return typeof value === "string" && value.length > 0 ? `"${value}"` : null;
 }
 
 function nestedName(value: Json | undefined): string | null {

@@ -26,7 +26,9 @@ vi.mock("./_components/OnboardingView", () => ({
   }) => (
     <div>
       Project onboarding
-      <button onClick={() => onActivityChange?.(true)}>Start connection</button>
+      <button type="button" onClick={() => onActivityChange?.(true)}>
+        Start connection
+      </button>
     </div>
   ),
 }));

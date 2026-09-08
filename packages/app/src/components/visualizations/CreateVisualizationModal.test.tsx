@@ -28,6 +28,7 @@ vi.mock("@/hooks/useCreateInsight", () => ({
 vi.mock("@/components/data-sources/DataPickerModal", () => ({
   DataPickerModal: ({ onTableSelect }: DataPickerContentProps) => (
     <button
+      type="button"
       onClick={() =>
         mockObserveTableSelection(onTableSelect("table-a", "Table A"))
       }

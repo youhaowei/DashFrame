@@ -15,8 +15,13 @@ vi.mock("@/components/data-sources/DataPickerModal", () => ({
   DataPickerModal: (props: DataPickerModalProps) => (
     <div>
       <span>{props.showInsights ? "insights enabled" : "tables only"}</span>
-      {props.onInsightSelect ? <button>Choose insight</button> : null}
-      <button onClick={() => props.onTableSelect?.("table-b", "Table B")}>
+      {props.onInsightSelect ? (
+        <button type="button">Choose insight</button>
+      ) : null}
+      <button
+        type="button"
+        onClick={() => props.onTableSelect?.("table-b", "Table B")}
+      >
         Choose table
       </button>
     </div>
