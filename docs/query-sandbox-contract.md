@@ -1,6 +1,7 @@
 # Hosted query sandbox implementation contract
 
-This change implements an execution boundary, not hosted admission or tenancy routing.
+This contract describes the query execution boundary. Hosted admission and workspace
+routing are implemented by the server before it opens an engine.
 The host must resolve an authenticated workspace before obtaining an engine handle.
 Connector execution, vault access, metadata and persisted files remain in the trusted
 host. Neither SQL nor the worker protocol can ask the host to read a path or URL.
@@ -30,6 +31,8 @@ timeout/crash/cleanup without exposing host authority. Native probes must test t
 boundary separately from DuckDB's locked external-access settings. Resource support is
 reported explicitly, and local limits do not establish Railway resource enforcement.
 
-Production integration remains blocked until this exact launcher/policy passes on
-Railway, per-workspace host dispatch exists, and independent review plus repository
-gates pass. No WorkOS, production service, domain, data or migration changes belong here.
+The hosted server resolves admission and dispatches requests to a workspace-specific
+engine. Release acceptance still requires this exact launcher and policy to pass on
+the hosting provider, alongside independent review and the repository gates. See
+`hosted-demo-startup.md` for WorkOS, Convex and service configuration. Migration is
+not required for the greenfield 0.3 app.

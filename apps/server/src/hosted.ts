@@ -1,20 +1,14 @@
+import { mountHostedMcpRoutes } from "./host/hosted-mcp-routes";
+import { mountHostedBrowserRoutes } from "./host/hosted-browser-routes";
 import { createHostedServiceAccess } from "./host/hosted-service-access";
-import { createMcpRoute } from "./mcp/route";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { Hono } from "hono";
-import { createArrowDataPath } from "@dashframe/engine-server/arrow-data-path";
 import type {
   HostedUserTokenSource,
   HostedPrincipalTokenSource,
 } from "./host/hosted-token-issuer";
 import type { ApplicationOperations } from "./host/application";
-import { handleAssistantRunRequest } from "./assistant-run-route";
-import {
-  handleConnectorOAuthCallback,
-  handleConnectorSetupResume,
-  handleConnectorResumeLanding,
-} from "./connector-oauth-callback";
 import { readOptionalGoogleOAuthConfig } from "./connector-setup/oauth-provider";
 import { serve } from "@hono/node-server";
 import { createNodeWebSocket } from "@hono/node-ws";
@@ -23,7 +17,6 @@ import { createHostedConnectorSessionStore } from "./connector-setup/hosted-sess
 import { loadSecretKeyring } from "./secret-file-backend";
 import { createHostedApplication } from "./host/hosted-application";
 import { createHostedAdmissionService } from "./host/hosted-admission-service";
-import { createHostedHttpApplication } from "./host/hosted-http-application";
 import { createHostedSourceMetadata } from "./host/hosted-convex-source-operations";
 import { createHostedTokenIssuer } from "./host/hosted-token-issuer";
 import { createHostedWorkOSSession } from "./host/hosted-workos-session";
@@ -31,7 +24,6 @@ import { HostedWorkspacePool } from "./host/hosted-workspace-pool";
 import { createHostedWorkspaceResourceFactory } from "./host/hosted-workspace-resources";
 import { createStaticWebSurface } from "./host/web-surface";
 import { mountConvexProxy } from "./host/convex-proxy";
-import { isHostedOriginAllowed } from "./host/hosted-origin";
 
 function guardApplication(
   application: ApplicationOperations,
@@ -47,23 +39,6 @@ function guardApplication(
       return guardApplication(application.forPrincipal(principal), signal);
     },
   };
-}
-
-function runHostedAssistant(
-  request: Request,
-  hosted: ReturnType<typeof createHostedApplication>,
-  signal: AbortSignal,
-) {
-  const assistant = new Hono();
-  assistant.post("/assistant/run", (context) =>
-    handleAssistantRunRequest(context, {
-      app: hosted.application,
-      metadata: hosted.context.metadata,
-      vault: hosted.context.vault,
-      resolveContext: async () => ({ principal: hosted.context.principal }),
-    }),
-  );
-  return assistant.fetch(new Request(request, { signal }));
 }
 
 /** Explicit hosted entry; the local CLI never imports this module. Start under the volume-lock wrapper. */
@@ -273,185 +248,19 @@ export async function createHostedServerSurface(options: {
     tokens,
     allowInsecureLoopbackForTests: options.allowInsecureLoopbackForTests,
   });
-  app.all("/workspaces/:workspaceId/mcp", async (c) => {
-    c.header("Cache-Control", "no-store");
-    const origin = c.req.header("Origin");
-    if (origin && origin !== publicOrigin)
-      return c.json({ error: "Origin is not allowed" }, 403);
-    const bearer = /^Bearer (dfa_[a-z0-9_-]+)$/i.exec(
-      c.req.header("Authorization") ?? "",
-    );
-    if (!bearer) return c.json({ error: "Unauthorized MCP request" }, 401);
-    if (!options.authenticateCredential)
-      return c.json({ error: "Agent access unavailable" }, 503);
-    const workspaceId = c.req.param("workspaceId");
-    let source: HostedPrincipalTokenSource;
-    let ownerId: string;
-    try {
-      const credentialId = await options.authenticateCredential(
-        workspaceId,
-        bearer[1]!,
-      );
-      if (!credentialId)
-        return c.json({ error: "Unauthorized MCP request" }, 401);
-      source = {
-        kind: "service",
-        credentialId,
-        expiresAt: Date.now() + 60_000,
-      };
-      const binding = await serviceAccess.resolve(workspaceId, source);
-      if (
-        binding.workspaceId !== workspaceId ||
-        binding.credentialId !== credentialId
-      )
-        return c.json({ error: "Unauthorized MCP request" }, 401);
-      ownerId = binding.subject;
-    } catch {
-      return c.json({ error: "Unauthorized MCP request" }, 401);
-    }
-    try {
-      return await withPrincipalContext(
-        workspaceId,
-        ownerId,
-        source,
-        c.req.raw,
-        async (hosted, signal) => {
-          const mcp = new Hono();
-          mcp.all(
-            "*",
-            createMcpRoute({
-              app: hosted.application,
-              mode: "stateless",
-              resolveContext: async () => ({
-                principal: hosted.context.principal,
-              }),
-            }),
-          );
-          return mcp.fetch(new Request(c.req.raw, { signal }));
-        },
-      );
-    } catch {
-      return c.json({ error: "Agent request unavailable" }, 503);
-    }
+  mountHostedMcpRoutes(app, {
+    publicOrigin,
+    authenticateCredential: options.authenticateCredential,
+    serviceAccess,
+    withPrincipalContext,
   });
-  for (const route of ["/api/*", "/data/*", "/assistant/*"]) {
-    app.use(route, async (c, next) => {
-      if (!isHostedOriginAllowed(c.req.raw, publicOrigin))
-        return c.json({ error: "Origin is not allowed" }, 403);
-      await next();
-    });
-  }
-  app.route(
-    "/",
-    createHostedHttpApplication({
-      publicOrigin,
-      session,
-      admission,
-      tokens,
-      withWorkspace: (workspaceId, user, request, operation) =>
-        withHostedContext(workspaceId, user, request, (hosted, signal) =>
-          operation(hosted.application, signal),
-        ),
-    }),
-  );
-  const authenticated = async (
-    request: Request,
-    operation: (
-      hosted: ReturnType<typeof createHostedApplication>,
-      signal: AbortSignal,
-    ) => Promise<Response>,
-  ): Promise<Response> => {
-    let cookie: string | undefined;
-    try {
-      const identity = await session.resolve(request);
-      if ("setCookie" in identity) cookie = identity.setCookie;
-      let response: Response;
-      if (identity.status !== "authenticated") {
-        response = Response.json(
-          { error: "Authentication unavailable" },
-          {
-            status: identity.status === "signedout" ? 401 : 503,
-          },
-        );
-      } else {
-        const user = {
-          userId: identity.identity.subject,
-          expiresAt: identity.expiresAt,
-        };
-        const access = await admission.resolve(user);
-        response =
-          access.status === "admitted"
-            ? await withHostedContext(
-                access.workspaceId,
-                user,
-                request,
-                operation,
-              )
-            : Response.json({ error: "Admission required" }, { status: 403 });
-      }
-      response.headers.set("Cache-Control", "no-store");
-      if (cookie) response.headers.append("Set-Cookie", cookie);
-      return response;
-    } catch {
-      return Response.json(
-        { error: "Hosted service unavailable" },
-        {
-          status: 503,
-          headers: {
-            "Cache-Control": "no-store",
-            ...(cookie ? { "Set-Cookie": cookie } : {}),
-          },
-        },
-      );
-    }
-  };
-  app.all("/data/*", (c) =>
-    authenticated(c.req.raw, async (hosted, signal) => {
-      const data = createArrowDataPath({
-        engine: hosted.context.dataPlaneRuntime!,
-        dataFrameStorage: hosted.context.dataFrameStorage,
-        authorizeRequest: async () => {
-          signal.throwIfAborted();
-          return true;
-        },
-        isFrameAvailable: async (id) => {
-          const frame = await hosted.context.metadata.getDataFrame(id);
-          const storage = frame?.storage;
-          return storage?.type === "file" && storage.key === id;
-        },
-      });
-      const url = new URL(c.req.url);
-      const target = new URL(
-        url.pathname.slice("/data".length) + url.search,
-        publicOrigin,
-      );
-      return data.fetch(
-        new Request(target, new Request(c.req.raw, { signal })),
-      );
-    }),
-  );
-  app.post("/assistant/run", (c) =>
-    authenticated(c.req.raw, async (hosted, signal) =>
-      runHostedAssistant(c.req.raw, hosted, signal),
-    ),
-  );
-  app.get("/api/connectors/oauth/callback", (c) =>
-    authenticated(c.req.raw, async (hosted) =>
-      handleConnectorOAuthCallback(c, hosted.application),
-    ),
-  );
-  app.get("/api/connectors/setup/:sessionId/resume", (c) =>
-    authenticated(c.req.raw, async (hosted) =>
-      handleConnectorSetupResume(c, hosted.application),
-    ),
-  );
-  app.get("/", (c, next) =>
-    c.req.query("resumeConnector")
-      ? authenticated(c.req.raw, async (hosted) =>
-          handleConnectorResumeLanding(c, hosted.application),
-        )
-      : next(),
-  );
+  mountHostedBrowserRoutes(app, {
+    publicOrigin,
+    session,
+    admission,
+    tokens,
+    withHostedContext,
+  });
   app.get("/api/version", (c) =>
     c.json({
       commit: options.revision,
