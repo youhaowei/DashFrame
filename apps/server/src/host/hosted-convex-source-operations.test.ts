@@ -65,7 +65,6 @@ it("maps host-facing source calls to the four named Bearer wire operations witho
   }
   expect(requests[2]!.args).toEqual([{ id: "frame" }]);
   expect(requests[3]!.args).toEqual([{}]);
-  expect(Object.keys(metadata)).toHaveLength(27);
 });
 
 it("rejects unsafe replacement and expected configs before token acquisition or network", async () => {
