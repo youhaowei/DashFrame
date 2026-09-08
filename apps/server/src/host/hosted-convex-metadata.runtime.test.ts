@@ -10,7 +10,14 @@ import { expect, it } from "vite-plus/test";
 import { ConvexHttpClient } from "convex/browser";
 import { api, internal } from "@dashframe/convex-backend/api";
 import { startLocalConvex, type LocalConvex } from "@dashframe/convex-local";
+import { CREDENTIAL_CLASS, FileMappingStore } from "@dashframe/server-core";
 import { cmd, type Field } from "@dashframe/types";
+import { SecretRegistry, SecretVault } from "@wystack/secret-vault";
+import {
+  deriveKeyId,
+  ENCRYPTED_FILE_BACKEND_NAME,
+  EncryptedFileSecretBackend,
+} from "../secret-file-backend";
 import { createHostedSourceMetadata } from "./hosted-convex-source-operations";
 
 const runtimeIssuer = "https://runtime.metadata-test.invalid";
@@ -191,8 +198,32 @@ it(
         purpose: "host-metadata",
         workspaceId,
       });
+      const vaultKey = Buffer.alloc(32, 7),
+        vaultKeyId = deriveKeyId(vaultKey);
+      const workspaceVault = (workspace: string) => {
+        const root = path.join(directory, `vault-${workspace}`);
+        const registry = new SecretRegistry();
+        registry.register(
+          ENCRYPTED_FILE_BACKEND_NAME,
+          new EncryptedFileSecretBackend(path.join(root, "blobs"), {
+            activeKeyId: vaultKeyId,
+            keys: new Map([[vaultKeyId, vaultKey]]),
+          }),
+        );
+        registry.setClassDefault(
+          CREDENTIAL_CLASS.ConnectorKey,
+          ENCRYPTED_FILE_BACKEND_NAME,
+        );
+        return new SecretVault(
+          registry,
+          new FileMappingStore(path.join(root, "mappings.json")),
+        );
+      };
+      const vaultA = workspaceVault("a"),
+        vaultB = workspaceVault("b");
       const metadata = (
         claims: Record<string, string>,
+        credentialVault: SecretVault,
         signingKeys = runtime,
       ) => {
         const assertion = token(signingKeys, claims);
@@ -200,10 +231,11 @@ it(
           deploymentUrl: backend!.url,
           allowInsecureLoopbackForTests: true,
           getToken: async () => assertion,
+          credentialVault,
         });
       };
-      const a = metadata(userClaims("a", workspaces[0]!)),
-        b = metadata(userClaims("b", workspaces[1]!));
+      const a = metadata(userClaims("a", workspaces[0]!), vaultA),
+        b = metadata(userClaims("b", workspaces[1]!), vaultB);
       const sourceId = crypto.randomUUID(),
         tableId = crypto.randomUUID();
       await a.commitBatch([
@@ -250,25 +282,32 @@ it(
       expect(await a.getOperation(`materialize:${resultId}`)).not.toBeNull();
       expect(await b.getOperation(`materialize:${resultId}`)).toBeNull();
       await expect(
-        metadata(userClaims("a", workspaces[1]!)).listDataFrames(),
+        metadata(userClaims("a", workspaces[1]!), vaultA).listDataFrames(),
       ).rejects.toThrow();
       await expect(
-        metadata({
-          ...userClaims("a", workspaces[0]!),
-          purpose: "admission",
-        }).listDataFrames(),
+        metadata(
+          {
+            ...userClaims("a", workspaces[0]!),
+            purpose: "admission",
+          },
+          vaultA,
+        ).listDataFrames(),
       ).rejects.toThrow();
       await expect(
         metadata(
           userClaims("a", workspaces[0]!),
+          vaultA,
           keys("wrong"),
         ).listDataFrames(),
       ).rejects.toThrow();
       await expect(
-        metadata({
-          ...userClaims("a", workspaces[0]!),
-          authority: "browser",
-        }).listDataFrames(),
+        metadata(
+          {
+            ...userClaims("a", workspaces[0]!),
+            authority: "browser",
+          },
+          vaultA,
+        ).listDataFrames(),
       ).rejects.toThrow();
 
       // Ownership provisioning is not a runtime host capability in this slice.
@@ -294,14 +333,17 @@ it(
         "jsonArray",
         ownersFile,
       ]);
-      const service = metadata({
-        sub: "service:credential-a",
-        credentialId: "credential-a",
-        principalKind: "service",
-        authority: "host",
-        purpose: "host-metadata",
-        workspaceId: workspaces[0]!,
-      });
+      const service = metadata(
+        {
+          sub: "service:credential-a",
+          credentialId: "credential-a",
+          principalKind: "service",
+          authority: "host",
+          purpose: "host-metadata",
+          workspaceId: workspaces[0]!,
+        },
+        vaultA,
+      );
       expect((await service.getDataTable(tableId))?.id).toBe(tableId);
       await service.draftBatch([]);
       const batch = {
@@ -421,8 +463,15 @@ it(
         kind: "frame",
         resourceId: abandonedClaim.frameId,
       });
-      const oldRef = `secret:${crypto.randomUUID()}`,
-        nextRef = `secret:${crypto.randomUUID()}`;
+      const oldRef = await vaultA.store("source-old", {
+          class: CREDENTIAL_CLASS.ConnectorKey,
+        }),
+        nextRef = await vaultA.store("source-next", {
+          class: CREDENTIAL_CLASS.ConnectorKey,
+        }),
+        losingRef = await vaultA.store("source-losing-cas", {
+          class: CREDENTIAL_CLASS.ConnectorKey,
+        });
       const originalConfig = (await a.getDataSource(sourceId))!.config ?? {};
       const boundaryClient = new ConvexHttpClient(backend.url);
       boundaryClient.setAuth(token(runtime, userClaims("a", workspaces[0]!)));
@@ -454,7 +503,7 @@ it(
         a.replaceDataSourceConfig({
           id: sourceId,
           expectedConfig: { apiKey: oldRef },
-          config: { apiKey: `secret:${crypto.randomUUID()}` },
+          config: { apiKey: losingRef },
         }),
       ).rejects.toThrow();
       expect((await a.getDataSource(sourceId))!.config).toEqual({
