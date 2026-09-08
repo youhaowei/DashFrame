@@ -13,7 +13,7 @@ COPY . .
 RUN HUSKY=0 bun install --frozen-lockfile
 RUN bun run build:wystack
 RUN bunx turbo build --filter=@dashframe/web
-RUN sandbox_dir="$(bun scripts/build-query-sandbox.ts)" && mv "$sandbox_dir" /opt/dashframe-query
+RUN sandbox_dir="$(bun scripts/build-query-sandbox.ts)" && mv "$sandbox_dir" /opt/dashframe-query && chmod -R a+rX /opt/dashframe-query
 
 ENV NODE_ENV=production
 EXPOSE 8080
