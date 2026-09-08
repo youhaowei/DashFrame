@@ -57,7 +57,9 @@ vi.mock("@/data/host", () => ({
 vi.mock("@/lib/connectors/registry", () => ({ getConnectorById: () => null }));
 vi.mock("@wystack/ui-react", () => ({
   Button: ({ label, onClick }: { label: string; onClick?: () => void }) => (
-    <button onClick={onClick}>{label}</button>
+    <button type="button" onClick={onClick}>
+      {label}
+    </button>
   ),
   cn: (...values: unknown[]) => values.filter(Boolean).join(" "),
   Collapsible: ({ children }: { children: React.ReactNode }) => (

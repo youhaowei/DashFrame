@@ -63,7 +63,7 @@ export function createServerFrameConnector(
       });
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
-        throw new Error("Chart query timed out");
+        throw new Error("Chart query timed out", { cause: error });
       }
       throw error;
     } finally {

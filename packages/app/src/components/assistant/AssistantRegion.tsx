@@ -2,7 +2,7 @@ import { useRenderPerf } from "@/lib/perf";
 import { useAssistantStore } from "@/lib/stores/assistant-store";
 import { useLocation } from "@tanstack/react-router";
 import { Stage } from "@wystack/ui-react";
-import { type ReactNode } from "react";
+import type { ReactNode } from "react";
 
 import { AssistantProviderSettingsDialog } from "./AssistantProviderSettingsDialog";
 import { useAssistantHotkey } from "./useAssistantHotkey";

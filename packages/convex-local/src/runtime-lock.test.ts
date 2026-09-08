@@ -51,7 +51,9 @@ async function captureFailure(projectDir: string): Promise<Error> {
     await start(projectDir);
   } catch (error) {
     if (error instanceof Error) return error;
-    throw new Error("Local Convex startup rejected with a non-Error value");
+    throw new Error("Local Convex startup rejected with a non-Error value", {
+      cause: error,
+    });
   }
   throw new Error("Expected local Convex startup to fail");
 }

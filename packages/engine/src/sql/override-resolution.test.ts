@@ -373,9 +373,7 @@ describe("override-resolution — explicit clear widens (removes insight filter 
     });
 
     expect(params.filters).toHaveLength(1);
-    expect(
-      Object.prototype.hasOwnProperty.call(params.filters[0], "cleared"),
-    ).toBe(false);
+    expect(Object.hasOwn(params.filters[0]!, "cleared")).toBe(false);
   });
 
   it("clear-then-replace on the SAME field: the concrete replacement WINS (not removed, not the insight default)", () => {

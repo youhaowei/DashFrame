@@ -151,6 +151,7 @@ interface FieldOptionProps {
 function FieldOption({ field, isJoined, onClick }: FieldOptionProps) {
   return (
     <button
+      type="button"
       onClick={onClick}
       className={cn(
         "flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors hover:bg-neutral-bg-emphasis",

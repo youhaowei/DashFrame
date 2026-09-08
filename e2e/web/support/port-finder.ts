@@ -1,4 +1,4 @@
-import * as net from "net";
+import * as net from "node:net";
 
 /**
  * Find a base port such that [base, base+count) are all free.

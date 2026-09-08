@@ -146,6 +146,7 @@ describe("runJoinSubmit", () => {
     const setError = vi.fn();
 
     await runJoinSubmit({
+      // oxlint-disable-next-line prefer-promise-reject-errors -- exercises the non-Error rejection path on purpose
       persist: () => Promise.reject("boom"),
       onSuccess: vi.fn(),
       setError,

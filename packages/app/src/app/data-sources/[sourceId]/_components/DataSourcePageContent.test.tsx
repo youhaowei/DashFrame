@@ -204,7 +204,9 @@ vi.mock("@wystack/ui-react", async () => {
       <span>{children}</span>
     ),
     Button: ({ label, onClick }: { label: string; onClick?: () => void }) => (
-      <button onClick={onClick}>{label}</button>
+      <button type="button" onClick={onClick}>
+        {label}
+      </button>
     ),
     ButtonPrimitive: ({
       children,
@@ -212,7 +214,11 @@ vi.mock("@wystack/ui-react", async () => {
       ...props
     }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
       variant?: string;
-    }) => <button {...props}>{children}</button>,
+    }) => (
+      <button type="button" {...props}>
+        {children}
+      </button>
+    ),
     Card: ({ children }: { children: React.ReactNode }) => (
       <div>{children}</div>
     ),
@@ -259,14 +265,19 @@ vi.mock("@wystack/ui-react", async () => {
     }: {
       children: React.ReactNode;
       onClick?: () => void;
-    }) => <button onClick={onClick}>{children}</button>,
+    }) => (
+      <button type="button" onClick={onClick}>
+        {children}
+      </button>
+    ),
     DropdownMenuTrigger: ({ render: r }: { render: React.ReactNode }) => (
       <>{r}</>
     ),
     Popover: ({ children }: { children: React.ReactNode }) => {
       const [open, setOpen] = React.useState(false);
+      const value = React.useMemo(() => ({ open, setOpen }), [open, setOpen]);
       return (
-        <PopoverContext.Provider value={{ open, setOpen }}>
+        <PopoverContext.Provider value={value}>
           <div>{children}</div>
         </PopoverContext.Provider>
       );
@@ -311,7 +322,11 @@ vi.mock("@wystack/ui-react", async () => {
       icon?: React.ReactNode;
       subtitle?: string;
       active?: boolean;
-    }) => <button onClick={onClick}>{title}</button>,
+    }) => (
+      <button type="button" onClick={onClick}>
+        {title}
+      </button>
+    ),
   };
 });
 

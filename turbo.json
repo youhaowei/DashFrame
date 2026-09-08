@@ -12,7 +12,13 @@
       "cache": false,
       "persistent": true
     },
-    "lint": {},
+    "lint": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/vite.config.ts",
+        "$TURBO_ROOT$/scripts/oxlint-plugin-dashframe.mjs"
+      ]
+    },
     "test": {
       "dependsOn": ["^build"],
       "cache": true

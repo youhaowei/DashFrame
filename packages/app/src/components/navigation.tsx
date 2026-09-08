@@ -185,7 +185,10 @@ function SidebarContent({
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
-              <button className="flex w-full items-center gap-2 text-xs text-neutral-fg-subtle transition-colors hover:text-neutral-fg">
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 text-xs text-neutral-fg-subtle transition-colors hover:text-neutral-fg"
+              >
                 <SettingsIcon className="h-4 w-4" />
                 <span>Settings</span>
               </button>

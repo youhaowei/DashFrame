@@ -14,11 +14,14 @@ export async function closeHostServer(
   const bun = typeof process.versions.bun === "string";
   const closed = bun
     ? undefined
-    : new Promise<void>((resolve, reject) =>
-        server.close((error) => (error ? reject(error) : resolve())),
-      );
+    : new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
   const transports = [...sockets].map(
-    (socket) => new Promise<void>((resolve) => socket.once("close", resolve)),
+    (socket) =>
+      new Promise<void>((resolve) => {
+        socket.once("close", resolve);
+      }),
   );
   if (bun) {
     if (!("closeAllConnections" in server))
