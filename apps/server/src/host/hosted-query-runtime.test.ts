@@ -7,14 +7,14 @@ it("shares one coalescing identity across request-scoped wrappers", () => {
     registerArrowTable: vi.fn(async () => {}),
     unregisterTable: vi.fn(async () => {}),
   };
-  const first = createHostedQueryRuntime(engine, new AbortController().signal);
-  const second = createHostedQueryRuntime(engine, new AbortController().signal);
+  const first = createHostedQueryRuntime(engine);
+  const second = createHostedQueryRuntime(engine);
 
   expect(first.coalescingIdentity).toBe(engine);
   expect(second.coalescingIdentity).toBe(engine);
 });
 
-it("keeps a sibling query alive when one request is cancelled and discards the cancelled result", async () => {
+it("keeps accepted shared work independent of any caller cancellation", async () => {
   const pending: Array<{
     resolve: (value: Uint8Array) => void;
     reject: (reason: unknown) => void;
@@ -33,40 +33,34 @@ it("keeps a sibling query alive when one request is cancelled and discards the c
     registerArrowTable: vi.fn(async () => {}),
     unregisterTable: vi.fn(async () => {}),
   };
-  const a = new AbortController();
-  const b = new AbortController();
-  const cancelled = createHostedQueryRuntime(engine, a.signal).queryArrow(
-    "select 1",
-    [],
-  );
-  const sibling = createHostedQueryRuntime(engine, b.signal).queryArrow(
-    "select 2",
-    [],
-  );
-  a.abort(new Error("request cancelled"));
+  const first = createHostedQueryRuntime(engine).queryArrow("select 1", []);
+  const sibling = createHostedQueryRuntime(engine).queryArrow("select 2", []);
   pending[0]!.resolve(new Uint8Array([1]));
   pending[1]!.resolve(new Uint8Array([2]));
-  await expect(cancelled).rejects.toThrow("request cancelled");
+  await expect(first).resolves.toEqual(new Uint8Array([1]));
   await expect(sibling).resolves.toEqual(new Uint8Array([2]));
   expect(engine.queryArrow).toHaveBeenNthCalledWith(1, "select 1", []);
   expect(engine.queryArrow).toHaveBeenNthCalledWith(2, "select 2", []);
 });
 
-it("rejects new work but still permits cleanup after the request lifetime ends", async () => {
+it("permits accepted work and cleanup to settle", async () => {
   const engine = {
     queryArrow: vi.fn(async () => new Uint8Array()),
     registerArrowTable: vi.fn(async () => {}),
     unregisterTable: vi.fn(async () => {}),
   };
-  const controller = new AbortController();
-  const runtime = createHostedQueryRuntime(engine, controller.signal);
-  controller.abort(new Error("expired"));
-  await expect(runtime.queryArrow("select 1")).rejects.toThrow("expired");
+  const runtime = createHostedQueryRuntime(engine);
+  await expect(runtime.queryArrow("select 1")).resolves.toEqual(
+    new Uint8Array(),
+  );
   await expect(
     runtime.registerArrowTable!("frame", new Uint8Array([1])),
-  ).rejects.toThrow("expired");
+  ).resolves.toBeUndefined();
   await expect(runtime.unregisterTable!("frame")).resolves.toBeUndefined();
-  expect(engine.queryArrow).not.toHaveBeenCalled();
-  expect(engine.registerArrowTable).not.toHaveBeenCalled();
+  expect(engine.queryArrow).toHaveBeenCalledWith("select 1", undefined);
+  expect(engine.registerArrowTable).toHaveBeenCalledWith(
+    "frame",
+    new Uint8Array([1]),
+  );
   expect(engine.unregisterTable).toHaveBeenCalledWith("frame");
 });

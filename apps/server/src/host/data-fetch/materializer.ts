@@ -111,6 +111,8 @@ export interface InsightMaterializerDependencies {
     target: MaterializationTarget,
     insight: EffectiveInsightDefinition,
   ): string | Promise<string>;
+  /** Briefly reuse a completed result for sibling consumers of one render. */
+  completedReplayMs?: number;
   uuid(): UUID;
   now(): number;
   tableName(frameId: UUID): string;
@@ -133,13 +135,14 @@ function withPublishedSourceGenerations(
 }
 
 /**
- * Creates the lifecycle owner. Completed results are never cached: the map only
- * coalesces identical work while it is in flight and is cleared on settlement.
+ * Creates the lifecycle owner. A short completed-result replay lets sibling
+ * widgets share one immutable frame without turning this into a durable cache.
  */
 export function createInsightMaterializer(
   dependencies: InsightMaterializerDependencies,
 ): InsightMaterializer {
   const inFlight = new Map<string, Promise<InsightFetchReady>>();
+  const replayMs = dependencies.completedReplayMs ?? 5_000;
 
   const start = (
     key: string,
@@ -149,11 +152,15 @@ export function createInsightMaterializer(
     if (existing) return existing;
 
     const operation = materializeOnce(dependencies, args, [], [], []);
+    if (inFlight.size >= 128) inFlight.delete(inFlight.keys().next().value!);
     inFlight.set(key, operation);
     const clear = () => {
       if (inFlight.get(key) === operation) inFlight.delete(key);
     };
-    operation.then(clear, clear);
+    operation.then(() => {
+      if (replayMs <= 0) clear();
+      else setTimeout(clear, replayMs);
+    }, clear);
     return operation;
   };
 

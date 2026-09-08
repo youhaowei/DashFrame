@@ -7,22 +7,14 @@ export function createHostedQueryRuntime(
     WorkspaceQueryEngine,
     "queryArrow" | "registerArrowTable" | "unregisterTable"
   >,
-  signal: AbortSignal,
 ): HostDataPlaneRuntime {
-  const run = async <T>(operation: () => Promise<T>): Promise<T> => {
-    signal.throwIfAborted();
-    // Keep the workspace lease until accepted work settles. The engine's own
-    // operation timeout bounds it; forwarding this signal would kill siblings.
-    const result = await operation();
-    signal.throwIfAborted();
-    return result;
-  };
   return {
     coalescingIdentity: engine,
-    queryArrow: (sql, params) => run(() => engine.queryArrow(sql, params)),
-    registerArrowTable: (name, bytes) =>
-      run(() => engine.registerArrowTable(name, bytes)),
-    // Cleanup must remain available after the request result is discarded.
+    // Accepted workspace work settles independently of any one HTTP waiter.
+    // The pool discards an aborted caller's response; forwarding that abort to
+    // this shared engine would poison healthy coalesced sibling requests.
+    queryArrow: (sql, params) => engine.queryArrow(sql, params),
+    registerArrowTable: (name, bytes) => engine.registerArrowTable(name, bytes),
     unregisterTable: (name) => engine.unregisterTable(name),
   };
 }

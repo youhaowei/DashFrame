@@ -211,7 +211,7 @@ export async function createHostedServerSurface(options: {
             accessCredentials: resources.accessCredentials,
             googleOAuth,
             dataFrameStorage: resources.dataFrameStorage,
-            dataPlaneRuntime: createHostedQueryRuntime(engine, signal),
+            dataPlaneRuntime: createHostedQueryRuntime(engine),
             getServerEndpoint: () => publicOrigin,
             accessConnectionInfo: {
               endpoint: `${publicOrigin}/workspaces/${encodeURIComponent(workspaceId)}/mcp`,

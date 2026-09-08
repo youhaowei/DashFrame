@@ -126,6 +126,7 @@ function harness(overrides: Partial<InsightMaterializerDependencies> = {}) {
     fingerprint: () => "fingerprint",
     coalescingScope: (_ctx, target, insight) =>
       JSON.stringify([target, insight]),
+    completedReplayMs: 0,
     uuid: () => `frame-${++id}`,
     now: () => 123,
     tableName: (frameId) => `df_${frameId}`,
@@ -709,7 +710,7 @@ describe("immutable Insight materializer", () => {
     expect(h.publish).not.toHaveBeenCalled();
   });
 
-  it("coalesces only in-flight work and performs a new live run after settlement", async () => {
+  it("coalesces in-flight work and performs a new live run when replay is disabled", async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
@@ -737,6 +738,38 @@ describe("immutable Insight materializer", () => {
 
     await materializer.materialize(args);
     expect(resolves).toBe(4);
+  });
+
+  it("briefly replays a completed result to sibling consumers", async () => {
+    vi.useFakeTimers();
+    try {
+      let resolves = 0;
+      const h = harness({
+        completedReplayMs: 5_000,
+        resolveSource: async (_ctx, tableId) => {
+          resolves += 1;
+          return source(tableId);
+        },
+      });
+      const materializer = createInsightMaterializer(h.dependencies);
+      const args = {
+        ctx: {} as never,
+        target: { kind: "saved", insightId: "insight" } as const,
+        insight,
+      };
+
+      const first = await materializer.materialize(args);
+      const sibling = await materializer.materialize(args);
+      expect(sibling.dataFrameId).toBe(first.dataFrameId);
+      expect(resolves).toBe(2);
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      const later = await materializer.materialize(args);
+      expect(later.dataFrameId).not.toBe(first.dataFrameId);
+      expect(resolves).toBe(4);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("does not reuse an in-flight operation after its source generation changes", async () => {
