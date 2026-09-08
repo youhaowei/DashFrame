@@ -29,6 +29,7 @@ export const artifactFields = {
   metrics: v.optional(v.array(object)),
   dataFrameId: v.optional(v.union(v.string(), v.null())),
   lastFetchedAt: v.optional(v.union(v.number(), v.null())),
+  refreshRevision: v.optional(v.string()),
   fieldIds: v.optional(v.array(v.string())),
   primaryKey: v.optional(json),
   insightId: v.optional(v.union(v.string(), v.null())),

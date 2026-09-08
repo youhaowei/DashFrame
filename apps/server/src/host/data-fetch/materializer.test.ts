@@ -186,8 +186,8 @@ describe("immutable Insight materializer", () => {
       provenance: { connectorKind: "googleAnalytics", bindingVersion: "v1" },
       fetchedAt: 123,
       sourceGenerations: [
-        { tableId: "base", dataFrameId: "frame-1" },
-        { tableId: "joined", dataFrameId: "frame-2" },
+        { tableId: "base", dataFrameId: "frame-1", lastFetchedAt: 123 },
+        { tableId: "joined", dataFrameId: "frame-2", lastFetchedAt: 123 },
       ],
     });
     expect(h.bytes.size).toBe(3);
@@ -246,54 +246,78 @@ describe("immutable Insight materializer", () => {
     ]);
   });
 
-  it("materializes an Insight source recursively and reuses its immutable result", async () => {
-    const compile = vi.fn(({ tables }) => {
-      const upstream = tables.get("upstream");
-      if (upstream) {
-        expect(upstream.fields).toEqual([
-          expect.objectContaining({
-            id: "result-field",
-            columnName: "field_result_field",
-          }),
-        ]);
-      }
-      return "select 1";
-    });
-    const h = harness({
-      resolveInsight: vi.fn(async () => ({
-        baseTableId: "base",
-        source: { sourceType: "dataTable" as const, sourceId: "base" },
-        selectedFields: ["base-field"],
-        metrics: [],
-      })),
-      compile,
-      inspect: () => ({
-        rowCount: 2,
-        schema: [{ id: "field_result_field", name: "result", type: "string" }],
-      }),
-    });
-    const ready = await createInsightMaterializer(h.dependencies).materialize({
-      ctx: {} as never,
-      target: { kind: "saved", insightId: "derived" },
-      insight: {
-        baseTableId: "upstream",
-        source: { sourceType: "insight", sourceId: "upstream" },
-        selectedFields: ["result-field"],
-        metrics: [],
-      },
-    });
+  it.each([false, true])(
+    "reports every recursive source publication with overlapping outer join: %s",
+    async (overlappingJoin) => {
+      const compile = vi.fn(({ tables }) => {
+        const upstream = tables.get("upstream");
+        if (upstream) {
+          expect(upstream.fields).toEqual([
+            expect.objectContaining({
+              id: "result-field",
+              columnName: "field_result_field",
+            }),
+          ]);
+        }
+        return "select 1";
+      });
+      const h = harness({
+        resolveInsight: vi.fn(async () => ({
+          baseTableId: "base",
+          source: { sourceType: "dataTable" as const, sourceId: "base" },
+          selectedFields: ["base-field"],
+          metrics: [],
+        })),
+        compile,
+        now: vi.fn().mockReturnValueOnce(123).mockReturnValueOnce(456),
+        inspect: () => ({
+          rowCount: 2,
+          schema: [
+            { id: "field_result_field", name: "result", type: "string" },
+          ],
+        }),
+      });
+      const ready = await createInsightMaterializer(h.dependencies).materialize(
+        {
+          ctx: {} as never,
+          target: { kind: "saved", insightId: "derived" },
+          insight: {
+            baseTableId: "upstream",
+            source: { sourceType: "insight", sourceId: "upstream" },
+            selectedFields: ["result-field"],
+            metrics: [],
+            ...(overlappingJoin
+              ? {
+                  joins: [
+                    {
+                      type: "left" as const,
+                      rightTableId: "base",
+                      leftKey: "result",
+                      rightKey: "value",
+                    },
+                  ],
+                }
+              : {}),
+          },
+        },
+      );
 
-    expect(ready.status).toBe("ready");
-    expect(ready.sourceGenerations).toEqual([
-      { tableId: "base", dataFrameId: "frame-1" },
-    ]);
-    expect(h.resolveSource).toHaveBeenCalledOnce();
-    expect(h.publish).toHaveBeenCalledTimes(2);
-    expect(h.publish.mock.calls[0]![1].target).toEqual({ kind: "transient" });
-    expect(h.bytes.size).toBe(2);
-    expect(h.registered.size).toBe(2);
-    expect(compile).toHaveBeenCalledTimes(2);
-  });
+      expect(ready.status).toBe("ready");
+      expect(ready.fetchedAt).toBe(456);
+      expect(ready.sourceGenerations).toEqual([
+        { tableId: "base", dataFrameId: "frame-1", lastFetchedAt: 123 },
+        ...(overlappingJoin
+          ? [{ tableId: "base", dataFrameId: "frame-3", lastFetchedAt: 456 }]
+          : []),
+      ]);
+      expect(h.resolveSource).toHaveBeenCalledTimes(overlappingJoin ? 2 : 1);
+      expect(h.publish).toHaveBeenCalledTimes(2);
+      expect(h.publish.mock.calls[0]![1].target).toEqual({ kind: "transient" });
+      expect(h.bytes.size).toBe(overlappingJoin ? 3 : 2);
+      expect(h.registered.size).toBe(overlappingJoin ? 3 : 2);
+      expect(compile).toHaveBeenCalledTimes(2);
+    },
+  );
 
   it("removes a recursive transient result when the outer query fails", async () => {
     const baseId = "10000000-0000-4000-8000-000000000001" as UUID;
@@ -336,7 +360,7 @@ describe("immutable Insight materializer", () => {
       .catch((error: unknown) => error);
     expect(failure).toMatchObject({ message: "outer compile" });
     expect(trustedPublishedSourceGenerations(failure)).toEqual([
-      { tableId: baseId, dataFrameId: sourceFrameId },
+      { tableId: baseId, dataFrameId: sourceFrameId, lastFetchedAt: 123 },
     ]);
 
     expect(h.publish).toHaveBeenCalledOnce();

@@ -380,6 +380,7 @@ export const commitImportedFrame = internalMutation({
     });
     await ctx.db.patch(table._id, {
       ...args.tableUpdate,
+      refreshRevision: crypto.randomUUID(),
       revision: table.revision + 1,
       updatedAt: Date.now(),
     });
@@ -878,6 +879,7 @@ export const removeDataFrame = internalMutation({
         await ctx.db.patch(table._id, {
           dataFrameId: null,
           lastFetchedAt: null,
+          refreshRevision: crypto.randomUUID(),
           revision: table.revision + 1,
           updatedAt: Date.now(),
         });

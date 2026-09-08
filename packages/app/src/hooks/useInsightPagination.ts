@@ -15,6 +15,7 @@ import type {
   Insight,
   InsightFetchDefinition,
   InsightRuntimeInput,
+  InsightSourceGeneration,
   UUID,
 } from "@dashframe/types";
 import type {
@@ -31,6 +32,12 @@ import {
   useRef,
   useState,
 } from "react";
+import {
+  isAutomaticSourcePublication,
+  isSelfPublishedSourceRevision,
+} from "./source-publication-revision";
+
+export { isSelfPublishedSourceRevision } from "./source-publication-revision";
 
 const MAX_PAGE_SIZE = 500;
 const SUGGESTION_SAMPLE_SIZE = 100;
@@ -58,9 +65,10 @@ function toFetchDefinition(insight: Insight): InsightFetchDefinition {
 }
 
 /**
- * Track only source-frame generations. Insight result publication does not
- * touch these DataTables, so this invalidates mounted consumers without
- * rematerializing in response to their own result pointer update.
+ * Track source-frame generations so mounted consumers update after an
+ * external refresh. Automatic Insight materializations also publish new
+ * source generations without changing the durable external refresh revision,
+ * so all browser contexts can distinguish them without waiting for the host response.
  */
 export function buildInsightSourceRevision(
   insight: Insight | null | undefined,
@@ -82,9 +90,11 @@ export function buildInsightSourceRevision(
 
   const visitTable = (tableId: UUID) => {
     const table = tableById.get(tableId);
+    const refreshRevision =
+      table?.refreshRevision ?? `legacy-${table?.createdAt}`;
     parts.push(
       table
-        ? `table:${table.id}:${table.dataFrameId ?? ""}:${table.lastFetchedAt ?? ""}`
+        ? `table:${table.id}:${table.dataFrameId ?? ""}:${table.lastFetchedAt ?? ""}:${refreshRevision}`
         : `missing-table:${tableId}`,
     );
   };
@@ -145,35 +155,6 @@ export function resolveInsightSourceDataTable(
     current = insightById.get(current.source.sourceId);
   }
   return undefined;
-}
-
-export function isSelfPublishedSourceRevision(
-  before: string,
-  after: string,
-  sourceGenerations: readonly { tableId: UUID; dataFrameId: UUID }[],
-): boolean {
-  if (before === after) return false;
-  const prior = before.split("|");
-  const next = after.split("|");
-  if (prior.length !== next.length) return false;
-  let changed = false;
-  const published = new Map(
-    sourceGenerations.map(({ tableId, dataFrameId }) => [tableId, dataFrameId]),
-  );
-  for (let index = 0; index < prior.length; index += 1) {
-    if (prior[index] === next[index]) continue;
-    const priorTable = prior[index]?.split(":");
-    const nextTable = next[index]?.split(":");
-    if (
-      priorTable?.[0] !== "table" ||
-      nextTable?.[0] !== "table" ||
-      priorTable[1] !== nextTable[1] ||
-      published.get(nextTable[1] as UUID) !== nextTable[2]
-    )
-      return false;
-    changed = true;
-  }
-  return changed;
 }
 
 type ResultSchemaColumn = Readonly<{
@@ -293,8 +274,13 @@ export function useInsightPagination({
     sourceRevision: string;
   } | null>(null);
   const completedPublication = useRef<{
+    requestIdentity: string;
     sourceRevision: string;
-    sourceGenerations: readonly { tableId: UUID; dataFrameId: UUID }[];
+    sourceGenerations: readonly InsightSourceGeneration[];
+  } | null>(null);
+  const validResult = useRef<{
+    requestIdentity: string;
+    sourceRevision: string;
   } | null>(null);
   const [sourceRetry, setSourceRetry] = useState(0);
   const activeDataFrameId = useRef<UUID | null>(dataFrameId);
@@ -335,23 +321,38 @@ export function useInsightPagination({
 
   useEffect(() => {
     if (activeMaterialization.current?.requestIdentity === requestIdentity) {
-      pendingMaterialization.current = { requestIdentity, sourceRevision };
+      pendingMaterialization.current = {
+        requestIdentity,
+        sourceRevision,
+      };
       return;
     }
     const completed = completedPublication.current;
-    completedPublication.current = null;
     if (
-      completed &&
+      completed?.requestIdentity === requestIdentity &&
       isSelfPublishedSourceRevision(
         completed.sourceRevision,
         sourceRevision,
         completed.sourceGenerations,
       )
-    )
+    ) {
+      if (validResult.current?.requestIdentity === requestIdentity)
+        validResult.current.sourceRevision = sourceRevision;
       return;
+    }
+    completedPublication.current = null;
+    const valid = validResult.current;
+    if (
+      valid?.requestIdentity === requestIdentity &&
+      isAutomaticSourcePublication(valid.sourceRevision, sourceRevision)
+    ) {
+      valid.sourceRevision = sourceRevision;
+      return;
+    }
     const current = generation.current;
     const activeInsight = insight;
     if (!enabled || !activeInsight?.id || !sourcesReady) {
+      validResult.current = null;
       queueMicrotask(() => {
         if (current !== generation.current) return;
         setDataFrameId(null);
@@ -369,6 +370,7 @@ export function useInsightPagination({
       return;
     }
     const activeRequest = { requestIdentity, sourceRevision };
+    validResult.current = null;
     activeMaterialization.current = activeRequest;
     pendingMaterialization.current = null;
     queueMicrotask(() => {
@@ -393,14 +395,18 @@ export function useInsightPagination({
           insightId: activeInsight.id,
           ...(stableRuntime ? { runtime: stableRuntime } : {}),
         });
+    let completedOwnFailure = false;
     let completedSourceGenerations:
-      | readonly { tableId: UUID; dataFrameId: UUID }[]
+      | readonly InsightSourceGeneration[]
       | undefined;
     materialized
       .then(
         async (fetchResult) => {
+          const publishedSourceGenerations = fetchResult.sourceGenerations;
           if (current !== generation.current) return;
-          completedSourceGenerations = fetchResult.sourceGenerations;
+          completedSourceGenerations = publishedSourceGenerations;
+          completedOwnFailure =
+            fetchResult.status === "failed" && !fetchResult.retryable;
           const retained =
             fetchResult.status === "failed" ? fetchResult.lastSuccessful : null;
           if (fetchResult.status === "failed" && !retained) {
@@ -455,6 +461,10 @@ export function useInsightPagination({
             ({ id, type }) => ({ name: id, type: type as ColumnType }),
           );
           setDataFrameId(resultFrame.dataFrameId);
+          validResult.current = {
+            requestIdentity,
+            sourceRevision: activeRequest.sourceRevision,
+          };
           setTotalCount(effectiveCount);
           setColumns(nextColumns);
           setSchema(page.schema);
@@ -486,26 +496,58 @@ export function useInsightPagination({
         if (activeMaterialization.current !== activeRequest) return;
         const started = activeRequest;
         const pending = pendingMaterialization.current;
-        if (completedSourceGenerations?.length)
-          completedPublication.current = {
-            sourceRevision: started.sourceRevision,
-            sourceGenerations: completedSourceGenerations,
-          };
         activeMaterialization.current = null;
         pendingMaterialization.current = null;
-        if (
-          started &&
+        const valid = validResult.current;
+        const canSuppressOwnPublication =
+          valid?.requestIdentity === started.requestIdentity ||
+          completedOwnFailure;
+        const ownsPendingSourceRevision = Boolean(
+          canSuppressOwnPublication &&
+          pending &&
+          completedSourceGenerations?.length &&
+          isSelfPublishedSourceRevision(
+            started.sourceRevision,
+            pending.sourceRevision,
+            completedSourceGenerations,
+          ),
+        );
+        const recognizesPendingSourceRevision = Boolean(
+          pending &&
+          valid?.requestIdentity === started.requestIdentity &&
+          isAutomaticSourcePublication(
+            valid.sourceRevision,
+            pending.sourceRevision,
+          ),
+        );
+        const pendingRequiresRetry = Boolean(
           pending &&
           (pending.requestIdentity !== started.requestIdentity ||
             (pending.sourceRevision !== started.sourceRevision &&
-              (!completedSourceGenerations?.length ||
-                !isSelfPublishedSourceRevision(
-                  started.sourceRevision,
-                  pending.sourceRevision,
-                  completedSourceGenerations,
-                ))))
+              !ownsPendingSourceRevision &&
+              !recognizesPendingSourceRevision)),
+        );
+        if (
+          canSuppressOwnPublication &&
+          completedSourceGenerations?.length &&
+          !pendingRequiresRetry
         )
+          completedPublication.current = {
+            requestIdentity: started.requestIdentity,
+            sourceRevision: started.sourceRevision,
+            sourceGenerations: completedSourceGenerations,
+          };
+        if (
+          pending?.requestIdentity === started.requestIdentity &&
+          (ownsPendingSourceRevision || recognizesPendingSourceRevision) &&
+          valid?.requestIdentity === started.requestIdentity
+        )
+          valid.sourceRevision = pending.sourceRevision;
+        if (pendingRequiresRetry) {
+          completedPublication.current = null;
+          validResult.current = null;
           setSourceRetry((value) => value + 1);
+        }
       });
     // oxlint-disable-next-line react-hooks-js/exhaustive-deps -- structural keys intentionally gate rematerialization.
   }, [

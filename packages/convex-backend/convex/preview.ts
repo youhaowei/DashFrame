@@ -73,6 +73,7 @@ export function publicRow(table: ArtifactTable, row: ArtifactRow): ObjectValue {
       sourceSchema: row.sourceSchema ?? undefined,
       dataFrameId: row.dataFrameId ?? undefined,
       lastFetchedAt: row.lastFetchedAt ?? undefined,
+      refreshRevision: row.refreshRevision ?? `legacy-${row.createdAt}`,
     }) as ObjectValue;
   if (table === "insights")
     return clean({ ...base, ...row.definition }) as ObjectValue;

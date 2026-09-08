@@ -9,6 +9,7 @@ import type {
   Field,
   InsightFetchDefinition,
   InsightFetchReady,
+  InsightSourceGeneration,
   UUID,
 } from "@dashframe/types";
 
@@ -118,25 +119,12 @@ export interface InsightMaterializer {
   }): Promise<InsightFetchReady>;
 }
 
-function dedupeSourceGenerations(
-  generations: readonly { tableId: UUID; dataFrameId: UUID }[],
-) {
-  return [
-    ...new Map(
-      generations.map((generation) => [generation.tableId, generation]),
-    ).values(),
-  ];
-}
-
 function withPublishedSourceGenerations(
   error: unknown,
-  generations: readonly { tableId: UUID; dataFrameId: UUID }[],
+  generations: readonly InsightSourceGeneration[],
 ): unknown {
   if (!generations.length) return error;
-  return new PublishedSourceMaterializationError(
-    error,
-    dedupeSourceGenerations(generations),
-  );
+  return new PublishedSourceMaterializationError(error, generations);
 }
 
 /**
@@ -187,7 +175,7 @@ async function materializeOnce(
   },
   ancestry: readonly UUID[] = [],
   transientResults: Array<{ id: UUID; registered: boolean }> = [],
-  publishedSourceGenerations: Array<{ tableId: UUID; dataFrameId: UUID }> = [],
+  publishedSourceGenerations: InsightSourceGeneration[] = [],
 ): Promise<InsightFetchReady> {
   const storage = dependencies.storage(args.ctx);
   const runtime = dependencies.runtime(args.ctx);
@@ -327,6 +315,7 @@ async function materializeOnce(
       ...pendingSources.map(({ source, frame }) => ({
         tableId: source.table.id,
         dataFrameId: frame.id,
+        lastFetchedAt: fetchedAt,
       })),
     );
     if (args.target.kind === "transient") {
@@ -340,7 +329,7 @@ async function materializeOnce(
       definitionFingerprint,
       provenance,
       fetchedAt,
-      sourceGenerations: dedupeSourceGenerations(publishedSourceGenerations),
+      sourceGenerations: publishedSourceGenerations,
     };
   } catch (error) {
     // A failed response cannot prove the native mutation failed. Its commit
