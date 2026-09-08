@@ -153,7 +153,7 @@ it("keeps a failed CAS claim pending without leaking a frame or completed result
     "complete",
   );
 });
-it("retains completed claims so old operation IDs keep their original result", async () => {
+it("defaults local-ingest claims to durable so old operation IDs keep their result", async () => {
   const { sourceId, tableId } = await seed();
   const pendingRequest = {
     ...request,

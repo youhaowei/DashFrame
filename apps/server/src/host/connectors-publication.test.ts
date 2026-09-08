@@ -121,7 +121,11 @@ async function fixture(
   });
   let loseBeginAcknowledgement = outcome === "beginCommitted";
   const beginLocalImport = vi.fn(
-    async (input: { operationId: string; requestHash: string }) => {
+    async (input: {
+      operationId: string;
+      requestHash: string;
+      claimKind?: "local-ingest" | "connector-snapshot";
+    }) => {
       const claim = await native.mutation(internal.host.beginLocalImport, {
         workspaceId: "workspace",
         ...input,
@@ -224,13 +228,16 @@ describe("connector snapshot publication", () => {
     expect(h.commitImportedFrame).toHaveBeenCalledOnce();
     expect(
       await h.native.run((ctx) => ctx.db.query("localImports").collect()),
-    ).toMatchObject([
-      {
-        frameId: result.dataFrameId,
-        status: "complete",
-        requestHash: expect.stringMatching(/^[0-9a-f]{64}$/),
-      },
-    ]);
+    ).toEqual([]);
+    expect(h.beginLocalImport).toHaveBeenCalledWith(
+      expect.objectContaining({ claimKind: "connector-snapshot" }),
+    );
+    expect(
+      await h.native.query(internal.host.getOperation, {
+        workspaceId: "workspace",
+        operationId: `local-import:${h.commitImportedFrame.mock.calls[0]![0].operationId}`,
+      }),
+    ).toMatchObject({ result: null });
   });
 
   it("cancels the claim when connector fetch fails before publication", async () => {
@@ -272,7 +279,13 @@ describe("connector snapshot publication", () => {
     expect(h.beginLocalImport).toHaveBeenCalledOnce();
     expect(
       await h.native.run((ctx) => ctx.db.query("localImports").collect()),
-    ).toMatchObject([{ frameId: result.dataFrameId, status: "complete" }]);
+    ).toEqual([]);
+    expect(
+      await h.native.query(internal.host.getOperation, {
+        workspaceId: "workspace",
+        operationId: `local-import:${h.commitImportedFrame.mock.calls[0]![0].operationId}`,
+      }),
+    ).toMatchObject({ result: null });
   });
 
   it("advances the GA4 source fence after its own credential refresh", async () => {

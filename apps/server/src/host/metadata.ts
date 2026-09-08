@@ -105,6 +105,7 @@ export interface HostMetadata {
   beginLocalImport(input: {
     operationId: string;
     requestHash: string;
+    claimKind?: "local-ingest" | "connector-snapshot";
   }): Promise<LocalImportClaim>;
   getLocalImport(input: {
     operationId: string;

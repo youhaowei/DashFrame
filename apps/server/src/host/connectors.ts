@@ -261,7 +261,10 @@ async function runConnectorQuery(
   const identity = { operationId, requestHash };
   let claim;
   try {
-    claim = await ctx.metadata.beginLocalImport(identity);
+    claim = await ctx.metadata.beginLocalImport({
+      ...identity,
+      claimKind: "connector-snapshot",
+    });
   } catch (error) {
     // A hosted mutation may commit and lose only its response. Recover the
     // exact identity before any remote work so a retry cannot strand a claim.

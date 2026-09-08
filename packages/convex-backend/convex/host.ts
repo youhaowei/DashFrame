@@ -30,7 +30,7 @@ import {
   type QueryCtx,
   type MutationCtx,
 } from "./_generated/server";
-import { localImportState } from "./schema";
+import { localImportClaimKind, localImportState } from "./schema";
 import { find, rowValue } from "./store";
 import type {
   ArtifactRow,
@@ -384,7 +384,9 @@ export const commitImportedFrame = internalMutation({
       request,
       result: null,
     });
-    if (claim) {
+    if (claim?.claimKind === "connector-snapshot") {
+      await ctx.db.delete(claim._id);
+    } else if (claim) {
       await ctx.db.patch(claim._id, {
         status: "complete",
         result: {
@@ -881,7 +883,10 @@ const importClaimArgs = {
   requestHash: v.string(),
 };
 export const beginLocalImport = internalMutation({
-  args: importClaimArgs,
+  args: {
+    ...importClaimArgs,
+    claimKind: v.optional(localImportClaimKind),
+  },
   returns: localImportState,
   handler: async (ctx, args) => {
     const current = await importClaim(
@@ -912,6 +917,7 @@ export const beginLocalImport = internalMutation({
     await ctx.db.insert("localImports", {
       ...args,
       ...state,
+      claimKind: args.claimKind ?? "local-ingest",
       cancelled: false,
     });
     return state;
