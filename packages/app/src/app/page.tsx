@@ -1,29 +1,58 @@
 import { useQuery_experimental as useQuery } from "convex/react";
+import { useEffect, useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { queryStatus } from "@/data/query-status";
-import { DraftListItem } from "@/components/drafts/DraftListItem";
 import { api } from "@dashframe/convex-backend/api";
 
 import { Spinner } from "@wystack/ui-react";
-import { HomeView } from "./_components/HomeView";
 import { OnboardingView } from "./_components/OnboardingView";
 
 /**
  * Home Page
  *
- * Shows onboarding flow when no visualizations exist,
- * or a dashboard overview when visualizations are present.
+ * Shows onboarding when no artifacts exist. Populated projects enter the
+ * product through Reports so legacy peer collections do not bypass the
+ * report-centered hierarchy.
  */
 export default function HomePage() {
-  const { data: visualizations = [], isLoading } = queryStatus(
-    useQuery({ query: api.app.listVisualizations, args: {} }),
-  );
-  const { data: drafts = [] } = queryStatus(
-    useQuery({ query: api.app.listDrafts, args: {} }),
+  const navigate = useNavigate();
+  const [isOnboardingActive, setIsOnboardingActive] = useState(false);
+  const presenceQuery = queryStatus(
+    useQuery({ query: api.app.workspaceArtifactPresence, args: {} }),
   );
 
-  const hasVisualizations = visualizations.length > 0;
+  const isLoading = presenceQuery.isLoading;
+  const hasLoadError = presenceQuery.isError;
+  const hasProjectArtifacts = presenceQuery.data ?? false;
+  useEffect(() => {
+    if (
+      !isLoading &&
+      !hasLoadError &&
+      hasProjectArtifacts &&
+      !isOnboardingActive
+    ) {
+      void navigate({ to: "/dashboards", replace: true });
+    }
+  }, [
+    hasLoadError,
+    hasProjectArtifacts,
+    isLoading,
+    isOnboardingActive,
+    navigate,
+  ]);
 
-  if (isLoading) {
+  if (hasLoadError && !isOnboardingActive) {
+    return (
+      <div className="flex h-full items-center justify-center bg-neutral-bg">
+        <p role="alert" className="text-sm text-neutral-fg-subtle">
+          Couldn&apos;t determine whether this project is empty. Check your
+          connection and try again.
+        </p>
+      </div>
+    );
+  }
+
+  if (isLoading || (hasProjectArtifacts && !isOnboardingActive)) {
     return (
       <div className="flex h-full items-center justify-center bg-neutral-bg">
         <Spinner size="lg" className="text-neutral-fg-subtle" />
@@ -36,24 +65,7 @@ export default function HomePage() {
       {/* Content */}
       <main className="flex-1 overflow-y-auto">
         <div className="container mx-auto max-w-4xl px-6 py-12">
-          {drafts.length > 0 ? (
-            <section className="mb-8">
-              <h2 className="mb-3 text-sm font-semibold text-neutral-fg">
-                Waiting for review
-              </h2>
-              <div className="space-y-3">
-                {drafts.map((draft) => (
-                  <DraftListItem key={draft.draftId} draft={draft} />
-                ))}
-              </div>
-            </section>
-          ) : null}
-
-          {/* Onboarding View - Show when no visualizations exist */}
-          {!hasVisualizations && <OnboardingView />}
-
-          {/* Home View - Show when visualizations exist */}
-          {hasVisualizations && <HomeView />}
+          <OnboardingView onActivityChange={setIsOnboardingActive} />
         </div>
       </main>
     </div>

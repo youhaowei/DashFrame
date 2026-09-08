@@ -16,13 +16,15 @@ test.describe("Chart Editing", () => {
     });
 
     // Start from the data canvas and save one chart view.
-    // `exact: true` disambiguates against the view switcher's other buttons —
-    // "Horizontal bar" and "Hide sidebar" both contain "bar" as a substring,
-    // which Playwright's default (non-exact) name matching would also match.
-    await expect(page.getByRole("button", { name: "Data" })).toBeVisible({
+    await expect(
+      page.getByRole("button", { name: "Data", exact: true }),
+    ).toBeVisible({
       timeout: 30_000,
     });
     await page.getByRole("button", { name: "Visualize" }).click();
+    // `exact: true` disambiguates against the view switcher's other buttons —
+    // "Horizontal bar" and "Hide sidebar" both contain "bar" as a substring,
+    // which Playwright's default (non-exact) name matching would also match.
     await page.getByRole("button", { name: "Bar", exact: true }).click();
     // "Save chart" appears once chart suggestions are computed (DuckDB init +
     // column analysis run after the table loads), so allow a generous wait.

@@ -38,6 +38,7 @@ describe("DraftListItem discard confirmation", () => {
     expect(
       screen.getByRole("link", { name: /2 changes/ }).getAttribute("href"),
     ).toBe("/drafts/draft-1");
+    expect(screen.getByText("insights/revenue")).not.toBeNull();
     await user.click(screen.getByRole("button", { name: "More options" }));
     await user.click(
       await screen.findByRole("menuitem", { name: "Discard draft" }),

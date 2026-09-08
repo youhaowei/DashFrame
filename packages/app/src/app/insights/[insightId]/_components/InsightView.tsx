@@ -2,6 +2,7 @@ import { useQuery_experimental as useQuery, useMutation } from "convex/react";
 import { queryStatus } from "@/data/query-status";
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { VisualizationPreview } from "@/components/visualizations/VisualizationPreview";
+import { visualizationDetailLink } from "@/components/visualizations/visualization-navigation";
 import {
   resolveInsightSourceDataTable,
   useInsightPagination,
@@ -159,9 +160,36 @@ export function resolvePendingVisualModeTarget(input: {
   return resolveVisualModeTarget(input);
 }
 
+export type AddToReportTarget<T> =
+  | { kind: "pending" }
+  | { kind: "query-error" }
+  | { kind: "missing-report" }
+  | { kind: "ready"; dashboard: T | undefined };
+
+export function resolveAddToReportTarget<
+  T extends { id: string; items: readonly { y: number; height: number }[] },
+>(input: {
+  reportId?: string;
+  dashboards: readonly T[] | undefined;
+  isPending: boolean;
+  isError: boolean;
+}): AddToReportTarget<T> {
+  if (input.isPending) return { kind: "pending" };
+  if (input.isError) return { kind: "query-error" };
+  if (input.reportId) {
+    const dashboard = (input.dashboards ?? []).find(
+      (candidate) => candidate.id === input.reportId,
+    );
+    if (!dashboard) return { kind: "missing-report" };
+    return { kind: "ready", dashboard };
+  }
+  return { kind: "ready", dashboard: input.dashboards?.[0] };
+}
+
 interface InsightViewProps {
   insight: Insight;
   visualizeIntent?: boolean;
+  reportId?: string;
 }
 
 interface ParsedEncoding {
@@ -706,6 +734,7 @@ function EphemeralChartCanvas({
 export function InsightView({
   insight,
   visualizeIntent = false,
+  reportId,
 }: InsightViewProps) {
   const insightId = insight.id;
   const navigate = useNavigate();
@@ -806,9 +835,11 @@ export function InsightView({
   const { data: allVisualizations = [] } = queryStatus(
     useQuery({ query: api.app.listVisualizations, args: {} }),
   );
-  const { data: dashboards = [] } = queryStatus(
-    useQuery({ query: api.app.listDashboards, args: {} }),
-  );
+  const {
+    data: dashboards = [],
+    isPending: dashboardsPending,
+    isError: dashboardsError,
+  } = queryStatus(useQuery({ query: api.app.listDashboards, args: {} }));
   const persistedActiveView = useInsightCanvasStore(
     (s) => s.activeViewByInsight[insightId],
   );
@@ -1263,12 +1294,27 @@ export function InsightView({
       return null;
     }, [activeChartSuggestion, activeView, pinChartSuggestion]);
 
+  const addToReportTarget = resolveAddToReportTarget({
+    reportId,
+    dashboards,
+    isPending: dashboardsPending,
+    isError: dashboardsError,
+  });
+
   const handleAddActiveViewToDashboard = useCallback(async () => {
     try {
+      if (addToReportTarget.kind === "pending") return;
+      if (addToReportTarget.kind === "query-error") {
+        toast.error("Couldn't load reports");
+        return;
+      }
+      if (addToReportTarget.kind === "missing-report") {
+        toast.error("This report is no longer available");
+        return;
+      }
+      const dashboard = addToReportTarget.dashboard;
       const visualizationId = await ensureActiveVisualization();
       if (!visualizationId) return;
-
-      const dashboard = dashboards[0];
       const dashboardId = dashboard?.id ?? (crypto.randomUUID() as UUID);
       const bottomY =
         dashboard?.items.reduce(
@@ -1300,12 +1346,20 @@ export function InsightView({
           }),
         ],
       });
-      toast.success("Added to dashboard");
+      toast.success("Added to report");
+      if (reportId) navigate({ to: `/dashboards/${reportId}` } as never);
     } catch (error) {
       console.error("[InsightView] Add to dashboard failed:", error);
       toast.error("Couldn't add to dashboard");
     }
-  }, [commitBatch, dashboards, ensureActiveVisualization, insight.name]);
+  }, [
+    addToReportTarget,
+    commitBatch,
+    ensureActiveVisualization,
+    insight.name,
+    reportId,
+    navigate,
+  ]);
 
   // Handle duplicating a visualization
   const handleDuplicateVisualization = useCallback(
@@ -1321,9 +1375,15 @@ export function InsightView({
         encoding: viz.encoding,
       });
 
-      navigate({ to: `/visualizations/${newVizId}` } as never);
+      navigate(visualizationDetailLink(newVizId, reportId) as never);
     },
-    [insightVisualizations, createVisualizationLocal, insightId, navigate],
+    [
+      insightVisualizations,
+      createVisualizationLocal,
+      insightId,
+      navigate,
+      reportId,
+    ],
   );
 
   // Handle deleting a visualization
@@ -1403,8 +1463,9 @@ export function InsightView({
   const canPinActiveChart =
     activeView.kind === "chart" && activeChartSuggestion !== undefined;
   const canAddActiveViewToDashboard =
-    activeView.kind === "visualization" ||
-    (activeView.kind === "chart" && activeChartSuggestion !== undefined);
+    (activeView.kind === "visualization" ||
+      (activeView.kind === "chart" && activeChartSuggestion !== undefined)) &&
+    addToReportTarget.kind !== "pending";
 
   // Data table not found - check after all hooks are called
   if (!dataTable || !authoringTable) {
@@ -1414,7 +1475,7 @@ export function InsightView({
   return (
     <AppLayout
       breadcrumbs={[
-        { label: "Insights", to: "/insights" },
+        { label: "Questions", to: "/insights" },
         { label: localName || "Untitled" },
       ]}
       leftPanel={
@@ -1424,6 +1485,7 @@ export function InsightView({
           allDataTables={allDataTables}
           name={localName}
           onNameChange={handleNameChange}
+          reportId={reportId}
         />
       }
     >
@@ -1463,6 +1525,13 @@ export function InsightView({
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                icon={TableIcon}
+                label="Inspect data frames"
+                onClick={() => navigate({ to: "/data-frames" })}
+              />
               {canPinActiveChart && (
                 <ControlTooltip
                   label="Save chart"
@@ -1481,7 +1550,7 @@ export function InsightView({
                 size="sm"
                 variant="outline"
                 icon={DashboardIcon}
-                label="Add to dashboard"
+                label="Add to report"
                 onClick={handleAddActiveViewToDashboard}
                 disabled={!canAddActiveViewToDashboard}
               />
