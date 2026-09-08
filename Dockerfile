@@ -8,6 +8,7 @@ COPY . .
 
 RUN HUSKY=0 bun install --frozen-lockfile
 RUN bun run build:wystack
+RUN bunx turbo build --filter=@dashframe/web
 
 ENV NODE_ENV=production
 EXPOSE 8080
