@@ -126,6 +126,10 @@ async function unregisterIfPresent(
   }
 }
 
+function isMissingFrame(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
+}
+
 async function frameIsUnavailable(
   options: ArrowDataPathOptions,
   id: UUID,
@@ -433,7 +437,12 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
     }
     try {
       await register(name);
-    } catch {
+    } catch (error) {
+      if (
+        isMissingFrame(error) &&
+        (await unregisterIfPresent(options.engine, name))
+      )
+        return c.json({ error: "Frame not found" }, 404);
       return c.json({ error: "Failed to register frame" }, 500);
     }
     // Ownership can disappear while native registration is in flight. Undo
@@ -497,7 +506,12 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
     if (!register) return c.json({ error: "Frame not found" }, 404);
     try {
       await register(frameTableName(id));
-    } catch {
+    } catch (error) {
+      if (
+        isMissingFrame(error) &&
+        (await unregisterIfPresent(options.engine, frameTableName(id)))
+      )
+        return c.json({ error: "Frame not found" }, 404);
       return c.json({ error: "Failed to register frame" }, 500);
     }
     // The frame can be deleted while registration is in flight. Match the

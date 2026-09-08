@@ -303,6 +303,57 @@ describe("Arrow data path — /tables/:name content-type enforcement", () => {
     expect(await response.json()).toEqual({ ok: true, id, name: "df_server" });
   });
 
+  it.each(["tables/df_server", "mosaic"])(
+    "returns 404 and removes stale registration if a frame vanishes before %s opens it",
+    async (route) => {
+      const id = "11111111-1111-4111-8111-111111111111";
+      const name =
+        route === "mosaic" ? `df_${id.replaceAll("-", "_")}` : "df_server";
+      const registered = new Set([name]);
+      let queries = 0;
+      const app = createArrowDataPath({
+        engine: {
+          queryArrow: async () => {
+            queries++;
+            return new Uint8Array();
+          },
+          registerArrowTable: async () => {},
+          registerArrowBatches: async (_name, batches) => {
+            for await (const _batch of batches) {
+              throw new Error("Unexpected batch");
+            }
+          },
+          unregisterTable: async (table) => {
+            registered.delete(table);
+          },
+        },
+        dataFrameStorage: {
+          save: async () => {},
+          load: async () => null,
+          delete: async () => {},
+          exists: async () => true,
+          list: async () => [id],
+          getUsage: async () => ({ count: 1 }),
+          loadBatches: async function* () {
+            // The frame passed exists(), but deletion wins before lazy open.
+            throw Object.assign(new Error("Frame disappeared"), {
+              code: "ENOENT",
+            });
+          },
+        },
+      });
+      const response = await app.request(`/frames/${id}/${route}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "arrow", sql: `SELECT * FROM "${id}"` }),
+      });
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual({ error: "Frame not found" });
+      expect(registered.size).toBe(0);
+      expect(queries).toBe(0);
+    },
+  );
+
   it("rejects a browser-simple frame registration before loading bytes", async () => {
     const engine = fakeRegistrar();
     const id = "11111111-1111-4111-8111-111111111111";
