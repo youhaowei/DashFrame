@@ -303,13 +303,19 @@ describe("Arrow data path — /tables/:name content-type enforcement", () => {
     expect(await response.json()).toEqual({ ok: true, id, name: "df_server" });
   });
 
-  it.each(["tables/df_server", "mosaic"])(
-    "returns 404 and removes stale registration if a frame vanishes before %s opens it",
-    async (route) => {
+  it.each([
+    ["tables/df_server", true],
+    ["mosaic", true],
+    ["tables/df_server", false],
+    ["mosaic", false],
+  ] as const)(
+    "returns 404 and removes stale registration before %s opens a vanished frame (native error: %s)",
+    async (route, nativeError) => {
       const id = "11111111-1111-4111-8111-111111111111";
       const name =
         route === "mosaic" ? `df_${id.replaceAll("-", "_")}` : "df_server";
       const registered = new Set([name]);
+      let exists = true;
       let queries = 0;
       const app = createArrowDataPath({
         engine: {
@@ -331,14 +337,18 @@ describe("Arrow data path — /tables/:name content-type enforcement", () => {
           save: async () => {},
           load: async () => null,
           delete: async () => {},
-          exists: async () => true,
+          exists: async () => exists,
           list: async () => [id],
           getUsage: async () => ({ count: 1 }),
           loadBatches: async function* () {
             // The frame passed exists(), but deletion wins before lazy open.
-            throw Object.assign(new Error("Frame disappeared"), {
-              code: "ENOENT",
-            });
+            exists = false;
+            yield await Promise.reject<Uint8Array>(
+              Object.assign(
+                new Error("Frame disappeared"),
+                nativeError ? { code: "ENOENT" } : {},
+              ),
+            );
           },
         },
       });

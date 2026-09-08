@@ -126,8 +126,36 @@ async function unregisterIfPresent(
   }
 }
 
-function isMissingFrame(error: unknown): boolean {
-  return error instanceof Error && "code" in error && error.code === "ENOENT";
+async function frameDisappeared(
+  storage: DataFrameStorage,
+  id: UUID,
+): Promise<boolean> {
+  try {
+    return !(await storage.exists(id));
+  } catch {
+    // An unreadable storage catalog is still a server failure.
+    return false;
+  }
+}
+
+async function registrationFailure(
+  register: (name: string) => Promise<void>,
+  storage: DataFrameStorage,
+  engine: ArrowDataPathOptions["engine"],
+  id: UUID,
+  name: string,
+): Promise<{ error: string; status: 404 | 500 } | null> {
+  try {
+    await register(name);
+    return null;
+  } catch {
+    if (
+      (await frameDisappeared(storage, id)) &&
+      (await unregisterIfPresent(engine, name))
+    )
+      return { error: "Frame not found", status: 404 };
+    return { error: "Failed to register frame", status: 500 };
+  }
 }
 
 async function frameIsUnavailable(
@@ -435,16 +463,14 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
       }
       return c.json({ error: "Frame is no longer available" }, 404);
     }
-    try {
-      await register(name);
-    } catch (error) {
-      if (
-        isMissingFrame(error) &&
-        (await unregisterIfPresent(options.engine, name))
-      )
-        return c.json({ error: "Frame not found" }, 404);
-      return c.json({ error: "Failed to register frame" }, 500);
-    }
+    const failure = await registrationFailure(
+      register,
+      options.dataFrameStorage,
+      options.engine,
+      id as UUID,
+      name,
+    );
+    if (failure) return c.json({ error: failure.error }, failure.status);
     // Ownership can disappear while native registration is in flight. Undo
     // that late registration before acknowledging it.
     if (await frameIsUnavailable(options, id as UUID)) {
@@ -504,16 +530,14 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
       c.req.raw.signal,
     );
     if (!register) return c.json({ error: "Frame not found" }, 404);
-    try {
-      await register(frameTableName(id));
-    } catch (error) {
-      if (
-        isMissingFrame(error) &&
-        (await unregisterIfPresent(options.engine, frameTableName(id)))
-      )
-        return c.json({ error: "Frame not found" }, 404);
-      return c.json({ error: "Failed to register frame" }, 500);
-    }
+    const failure = await registrationFailure(
+      register,
+      options.dataFrameStorage,
+      options.engine,
+      id as UUID,
+      frameTableName(id),
+    );
+    if (failure) return c.json({ error: failure.error }, failure.status);
     // The frame can be deleted while registration is in flight. Match the
     // sibling registration route: remove the late native table before any
     // Mosaic query can run against a no-longer-owned frame.
