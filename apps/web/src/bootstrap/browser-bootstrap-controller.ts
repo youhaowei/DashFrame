@@ -19,6 +19,8 @@ export type BrowserBootstrapView<TConfig, TRuntime extends BrowserRuntime> =
 
 export interface BrowserBootstrapController {
   retry(): Promise<void>;
+  revalidate(): Promise<void>;
+  invalidate(error?: unknown): Promise<void>;
   teardown(): Promise<void>;
 }
 
@@ -34,6 +36,8 @@ export interface BrowserBootstrapDependencies<
     >,
   ): TRuntime | Promise<TRuntime>;
   publish(view: BrowserBootstrapView<TConfig, TRuntime>): void;
+  beforeClose?(runtime: TRuntime): void;
+  sameConfig(left: TConfig, right: TConfig): boolean;
   signIn(): void;
   signOut(): void;
 }
@@ -71,6 +75,12 @@ export function startBrowserBootstrap<TConfig, TRuntime extends BrowserRuntime>(
   let lookupAbort: AbortController | undefined;
   let runtime: TRuntime | undefined;
   let runtimeOwner = 0;
+  let readyAccess:
+    | Extract<
+        BrowserAccessResult<TConfig>,
+        { status: "local-ready" | "admitted" }
+      >
+    | undefined;
   let teardownPromise: Promise<void> | undefined;
   const runtimeClosures = new WeakMap<TRuntime, Promise<void>>();
   const runtimeAttempts = new Set<Promise<void>>();
@@ -82,7 +92,22 @@ export function startBrowserBootstrap<TConfig, TRuntime extends BrowserRuntime>(
     const existing = runtimeClosures.get(candidate);
     if (existing) return existing;
 
-    const closing = Promise.resolve().then(() => candidate.close());
+    const closing = Promise.resolve().then(async () => {
+      const errors: unknown[] = [];
+      try {
+        dependencies.beforeClose?.(candidate);
+      } catch (error) {
+        errors.push(error);
+      }
+      try {
+        await candidate.close();
+      } catch (error) {
+        errors.push(error);
+      }
+      if (errors.length === 1) throw errors[0];
+      if (errors.length > 1)
+        throw new AggregateError(errors, "Runtime detach and close failed");
+    });
     runtimeClosures.set(candidate, closing);
     closingRuntimes.add(closing);
     closing.then(
@@ -98,6 +123,7 @@ export function startBrowserBootstrap<TConfig, TRuntime extends BrowserRuntime>(
   async function releaseRuntime(): Promise<void> {
     const owned = runtime;
     runtime = undefined;
+    readyAccess = undefined;
     await closeRuntime(owned);
   }
 
@@ -126,7 +152,11 @@ export function startBrowserBootstrap<TConfig, TRuntime extends BrowserRuntime>(
     });
   }
 
-  async function run(attempt: number, signal: AbortSignal): Promise<void> {
+  async function run(
+    attempt: number,
+    signal: AbortSignal,
+    retainMatchingRuntime: boolean,
+  ): Promise<void> {
     try {
       const result: unknown = await dependencies.lookup(signal);
       if (!isCurrent(attempt)) return;
@@ -135,6 +165,17 @@ export function startBrowserBootstrap<TConfig, TRuntime extends BrowserRuntime>(
       }
 
       if (result.status === "local-ready" || result.status === "admitted") {
+        if (
+          retainMatchingRuntime &&
+          runtime &&
+          readyAccess?.status === result.status &&
+          dependencies.sameConfig(readyAccess.config, result.config)
+        ) {
+          readyAccess = result;
+          runtimeOwner = attempt;
+          return;
+        }
+
         const startingRuntime = (async () => {
           const nextRuntime = await dependencies.createRuntime(result);
           if (runtimeClosures.has(nextRuntime)) {
@@ -149,6 +190,7 @@ export function startBrowserBootstrap<TConfig, TRuntime extends BrowserRuntime>(
 
           const previousRuntime = runtime;
           runtime = nextRuntime;
+          readyAccess = undefined;
           runtimeOwner = attempt;
           try {
             if (previousRuntime !== nextRuntime)
@@ -163,6 +205,7 @@ export function startBrowserBootstrap<TConfig, TRuntime extends BrowserRuntime>(
             }
           }
           if (!isCurrent(attempt)) return;
+          readyAccess = result;
           dependencies.publish({ ...result, runtime: nextRuntime });
         })();
         runtimeAttempts.add(startingRuntime);
@@ -200,14 +243,30 @@ export function startBrowserBootstrap<TConfig, TRuntime extends BrowserRuntime>(
     }
   }
 
-  function retry(): Promise<void> {
+  function checkAccess(publishLoading: boolean): Promise<void> {
     if (stopped) return Promise.resolve();
     lookupAbort?.abort();
     const abort = new AbortController();
     lookupAbort = abort;
     const attempt = ++generation;
-    dependencies.publish({ status: "loading" });
-    return run(attempt, abort.signal);
+    if (publishLoading) dependencies.publish({ status: "loading" });
+    return run(attempt, abort.signal, !publishLoading);
+  }
+
+  function retry(): Promise<void> {
+    return checkAccess(true);
+  }
+
+  function revalidate(): Promise<void> {
+    return checkAccess(false);
+  }
+
+  async function invalidate(error?: unknown): Promise<void> {
+    if (stopped) return;
+    lookupAbort?.abort();
+    lookupAbort = undefined;
+    const attempt = ++generation;
+    await publishUnavailable(attempt, error);
   }
 
   function teardown(): Promise<void> {
@@ -239,5 +298,5 @@ export function startBrowserBootstrap<TConfig, TRuntime extends BrowserRuntime>(
   }
 
   retry().catch(() => undefined);
-  return { retry, teardown };
+  return { retry, revalidate, invalidate, teardown };
 }

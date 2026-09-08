@@ -52,20 +52,13 @@ describe("native Convex runtime bootstrap", () => {
     vi.unstubAllEnvs();
   });
 
-  it("uses the browser-visible host proxy instead of exposing a loopback backend to remote browsers", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi
-        .fn()
-        .mockResolvedValue(
-          Response.json({ convexUrl: "http://127.0.0.1:9137" }),
-        ),
+  it("rejects browser startup through the desktop resolver without making a request", async () => {
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    await expect(resolveAppConfig()).rejects.toThrow(
+      "Browser startup must resolve access",
     );
-    const config = await resolveAppConfig();
-    expect(config.url).toBe(globalThis.location.origin);
-    expect(config.convexUrl).toBe(
-      new URL("/api/convex", globalThis.location.origin).toString(),
-    );
+    expect(fetcher).not.toHaveBeenCalled();
   });
 
   it("fails closed when desktop IPC omits its host credential", async () => {
@@ -152,4 +145,59 @@ describe("native Convex runtime bootstrap", () => {
       await runtime.close();
     },
   );
+  it.each([401, 403, 503])(
+    "notifies browser lifecycle on token HTTP %s",
+    async (status) => {
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValue(Response.json({ status: "revoked" }, { status })),
+      );
+      const onAccessInvalidated = vi.fn();
+      const runtime = createAppRuntime({
+        url: "http://127.0.0.1:4000",
+        convexUrl: "http://127.0.0.1:4000/api/convex",
+        onAccessInvalidated,
+      });
+      render(
+        <runtime.Provider>
+          <span>App</span>
+        </runtime.Provider>,
+      );
+      await expect(auth.fetchAccessToken!()).resolves.toBeNull();
+      expect(onAccessInvalidated).toHaveBeenCalledWith(
+        status === 503 ? "unavailable" : "denied",
+      );
+      await runtime.close();
+      onAccessInvalidated.mockClear();
+      await auth.fetchAccessToken!();
+      expect(onAccessInvalidated).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects an expired browser token instead of passing it to Convex", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          Response.json({ token: "expired", expiresAt: Date.now() - 1 }),
+        ),
+    );
+    const onAccessInvalidated = vi.fn();
+    const runtime = createAppRuntime({
+      url: "http://127.0.0.1:4000",
+      convexUrl: "http://127.0.0.1:4000/api/convex",
+      onAccessInvalidated,
+    });
+    render(
+      <runtime.Provider>
+        <span>App</span>
+      </runtime.Provider>,
+    );
+    await expect(auth.fetchAccessToken!()).resolves.toBeNull();
+    expect(onAccessInvalidated).toHaveBeenCalledWith("unavailable");
+    await runtime.close();
+  });
 });
