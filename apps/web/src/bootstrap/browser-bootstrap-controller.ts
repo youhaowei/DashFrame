@@ -150,16 +150,19 @@ export function startBrowserBootstrap<TConfig, TRuntime extends BrowserRuntime>(
           const previousRuntime = runtime;
           runtime = nextRuntime;
           runtimeOwner = attempt;
-          if (previousRuntime !== nextRuntime)
-            await closeRuntime(previousRuntime);
-          if (!isCurrent(attempt)) {
-            if (nextRuntime === runtime && runtimeOwner === attempt) {
-              await releaseRuntime();
-            } else if (nextRuntime !== runtime) {
-              await closeRuntime(nextRuntime);
+          try {
+            if (previousRuntime !== nextRuntime)
+              await closeRuntime(previousRuntime);
+          } finally {
+            if (!isCurrent(attempt)) {
+              if (nextRuntime === runtime && runtimeOwner === attempt) {
+                await releaseRuntime();
+              } else if (nextRuntime !== runtime) {
+                await closeRuntime(nextRuntime);
+              }
             }
-            return;
           }
+          if (!isCurrent(attempt)) return;
           dependencies.publish({ ...result, runtime: nextRuntime });
         })();
         runtimeAttempts.add(startingRuntime);

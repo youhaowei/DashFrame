@@ -362,40 +362,63 @@ describe("browser bootstrap controller", () => {
     });
   });
 
-  it("closes a superseded handoff while the newer lookup remains pending", async () => {
-    const previousClose = deferred<void>();
-    const hangingLookup = deferred<BrowserAccessResult<Config>>();
-    const previous = { close: vi.fn(() => previousClose.promise) };
-    const next = { close: vi.fn(async () => undefined) };
-    const views: BrowserBootstrapView<Config, BrowserRuntime>[] = [];
-    let lookups = 0;
-    let factories = 0;
-    const controller = startBrowserBootstrap({
-      lookup: async () =>
-        ++lookups === 3
-          ? hangingLookup.promise
-          : {
-              status: "admitted" as const,
-              config: { url: "https://dashframe.test" },
-            },
-      createRuntime: () => (++factories === 1 ? previous : next),
-      publish: (view) => views.push(view),
-      signIn: vi.fn(),
-      signOut: vi.fn(),
-    });
-    await vi.waitFor(() => expect(views.at(-1)?.status).toBe("admitted"));
-    const handoff = controller.retry();
-    await vi.waitFor(() => expect(previous.close).toHaveBeenCalledOnce());
-    const newer = controller.retry();
-    previousClose.resolve();
-    await handoff;
-    expect(next.close).toHaveBeenCalledOnce();
-    expect(views.at(-1)?.status).toBe("loading");
-    await controller.teardown();
-    expect(next.close).toHaveBeenCalledOnce();
-    hangingLookup.resolve({ status: "signed-out" });
-    await newer;
-  });
+  it.each([
+    [false, false],
+    [true, false],
+    [false, true],
+    [true, true],
+  ])(
+    "cleans a stale handoff with prior rejection %s and next rejection %s",
+    async (rejectPrevious, rejectNext) => {
+      const previousClose = deferred<void>();
+      const previousError = new Error("previous close failed");
+      const nextError = new Error("next close failed");
+      const hangingLookup = deferred<BrowserAccessResult<Config>>();
+      const previous = { close: vi.fn(() => previousClose.promise) };
+      const next = {
+        close: vi.fn(async () => {
+          if (rejectNext) throw nextError;
+        }),
+      };
+      const views: BrowserBootstrapView<Config, BrowserRuntime>[] = [];
+      let lookups = 0;
+      let factories = 0;
+      const controller = startBrowserBootstrap({
+        lookup: async () =>
+          ++lookups === 3
+            ? hangingLookup.promise
+            : {
+                status: "admitted" as const,
+                config: { url: "https://dashframe.test" },
+              },
+        createRuntime: () => (++factories === 1 ? previous : next),
+        publish: (view) => views.push(view),
+        signIn: vi.fn(),
+        signOut: vi.fn(),
+      });
+      await vi.waitFor(() => expect(views.at(-1)?.status).toBe("admitted"));
+      const handoff = controller.retry();
+      await vi.waitFor(() => expect(previous.close).toHaveBeenCalledOnce());
+      const newer = controller.retry();
+      if (rejectPrevious) previousClose.reject(previousError);
+      else previousClose.resolve();
+      await handoff;
+      expect(next.close).toHaveBeenCalledOnce();
+      expect(views.at(-1)?.status).toBe("loading");
+      const errors = [
+        ...(rejectPrevious ? [previousError] : []),
+        ...(rejectNext ? [nextError] : []),
+      ];
+      if (errors.length) {
+        await expect(controller.teardown()).rejects.toMatchObject({ errors });
+      } else {
+        await controller.teardown();
+      }
+      expect(next.close).toHaveBeenCalledOnce();
+      hangingLookup.resolve({ status: "signed-out" });
+      await newer;
+    },
+  );
 
   it.each(["pending", "completed"] as const)(
     "rejects runtime reuse after %s cleanup",
