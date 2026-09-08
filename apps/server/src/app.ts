@@ -159,12 +159,10 @@ export async function createDashframeServer(
     );
     const serverState: { endpoint?: string } = {};
     cleanup = new HostResourceCleanup({
-      principal: { kind: "user", userId: "local-user" },
       metadata,
       vault: options.vault,
       dataFrameStorage: options.dataFrameStorage,
       dataPlaneRuntime: native?.engine,
-      getServerEndpoint: () => serverState.endpoint,
     });
     await cleanup.recoverPendingBatches();
     await cleanup.run();

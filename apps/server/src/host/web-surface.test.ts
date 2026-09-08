@@ -1,11 +1,74 @@
 import path from "node:path";
+import { randomUUID } from "node:crypto";
+import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
   LoginThrottle,
   parseHeadersFile,
   resolveStaticPath,
+  createWebSurface,
 } from "./web-surface";
+
+it("does not serve a real symlink target outside the bundle", async () => {
+  const fixture = await mkdtemp(path.join(tmpdir(), "dashframe-static-link-"));
+  try {
+    const root = path.join(fixture, "dist");
+    await mkdir(root);
+    await writeFile(path.join(root, "index.html"), "synthetic app shell");
+    await writeFile(
+      path.join(root, "_headers"),
+      "/*\n  X-Content-Type-Options: nosniff\n",
+    );
+    await writeFile(path.join(fixture, "private.txt"), "outside bundle secret");
+    await symlink(
+      path.join(fixture, "private.txt"),
+      path.join(root, "leak.txt"),
+    );
+    const surface = await createWebSurface({
+      staticRoot: root,
+      session: {
+        secret: "synthetic-only",
+        cookieName: "session",
+        ttlMs: 1000,
+        cookie: { secure: true },
+        subject: "fixture",
+        password: randomUUID(),
+      },
+    });
+    const response = await surface.serve(
+      new Request("https://app.invalid/leak.txt"),
+    );
+    expect(await response.text()).toBe("synthetic app shell");
+  } finally {
+    await rm(fixture, { recursive: true });
+  }
+});
+
+it("explains which build artifact is missing at startup", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "dashframe-static-missing-"));
+  try {
+    const options = {
+      staticRoot: root,
+      session: {
+        secret: randomUUID(),
+        cookieName: "session",
+        ttlMs: 1000,
+        cookie: { secure: true },
+        subject: "fixture",
+        password: randomUUID(),
+      },
+    };
+    await expect(createWebSurface(options)).rejects.toThrow("No index.html");
+    await writeFile(path.join(root, "index.html"), "synthetic shell");
+    await expect(createWebSurface(options)).rejects.toThrow(
+      "has no _headers file",
+    );
+  } finally {
+    await rm(root, { recursive: true });
+  }
+});
 
 describe("parsing the build's _headers file", () => {
   const source = [

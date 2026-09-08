@@ -16,7 +16,7 @@
  * host sends, because there is only one place it is written.
  */
 import { createHash, timingSafeEqual } from "node:crypto";
-import { readFile, stat } from "node:fs/promises";
+import { readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 
 import {
@@ -102,7 +102,7 @@ async function readSecurityHeaders(
   const file = path.join(staticRoot, "_headers");
   let source: string;
   try {
-    source = await readFile(file, "utf8");
+    source = await readFile(await containedFile(staticRoot, file), "utf8");
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") {
       // Fail closed. Serving the app without its CSP and cross-origin
@@ -124,10 +124,8 @@ async function readSecurityHeaders(
 /**
  * Resolve a URL path to a file inside `root`, or `undefined` if it escapes.
  *
- * The containment check compares the *resolved* path against the resolved root
- * with a trailing separator, so neither `../` nor a symlink-shaped name can
- * address a file outside the built bundle. A percent-encoded traversal is
- * covered because decoding happens before resolution.
+ * This lexical check rejects decoded traversal. Serving additionally checks
+ * canonical filesystem paths to prevent symlinks escaping the built bundle.
  */
 export function resolveStaticPath(
   root: string,
@@ -148,6 +146,13 @@ export function resolveStaticPath(
   )
     return undefined;
   return candidate;
+}
+
+async function containedFile(root: string, candidate: string): Promise<string> {
+  const canonical = await realpath(candidate);
+  if (!canonical.startsWith(root + path.sep))
+    throw new Error("Static file escapes the built bundle");
+  return canonical;
 }
 
 function passwordMatches(actual: string, expected: string): boolean {
@@ -236,9 +241,10 @@ export interface WebSurface {
 export async function createWebSurface(
   options: WebSurfaceOptions,
 ): Promise<WebSurface> {
-  const root = path.resolve(options.staticRoot);
-  const index = path.join(root, "index.html");
+  const root = await realpath(options.staticRoot);
+  let index: string;
   try {
+    index = await containedFile(root, path.join(root, "index.html"));
     await stat(index);
   } catch {
     throw new Error(
@@ -274,6 +280,7 @@ export async function createWebSurface(
     let file = resolved;
     if (file) {
       try {
+        file = await containedFile(root, file);
         const stats = await stat(file);
         if (stats.isDirectory()) file = undefined;
       } catch {

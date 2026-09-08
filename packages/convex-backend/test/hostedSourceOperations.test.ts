@@ -55,7 +55,6 @@ async function seed(workspaceId: string, subject = "a") {
   const user = host(workspaceId, subject),
     sourceId = crypto.randomUUID(),
     tableId = crypto.randomUUID(),
-    frameId = crypto.randomUUID(),
     ref = secret();
   await user.mutation(api.hostedMetadata.commitBatch, {
     commands: [
@@ -74,7 +73,18 @@ async function seed(workspaceId: string, subject = "a") {
       },
     ],
   });
+  const operation = {
+    operationId: crypto.randomUUID(),
+    requestHash: "a".repeat(64),
+  };
+  const claim = await user.mutation(
+    api.hostedLifecycle.beginLocalImport,
+    operation,
+  );
+  const frameId = claim.frameId;
   await user.mutation(api.hostedLifecycle.commitImportedFrame, {
+    ...operation,
+    expectedDataSourceRevision: 1,
     dataSourceId: sourceId,
     dataTableId: tableId,
     expectedDataFrameId: null,
@@ -85,8 +95,9 @@ async function seed(workspaceId: string, subject = "a") {
       fieldIds: [],
       rowCount: 0,
       columnCount: 0,
+      lastRefreshedAt: claim.fetchedAt,
     },
-    tableUpdate: { dataFrameId: frameId },
+    tableUpdate: { dataFrameId: frameId, lastFetchedAt: claim.fetchedAt },
   });
   return { user, sourceId, tableId, frameId, ref };
 }

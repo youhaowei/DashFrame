@@ -18,6 +18,7 @@ import {
   SecretVault,
   TestBackend,
 } from "@wystack/secret-vault";
+import { HostResourceCleanup } from "./resource-cleanup";
 import { createHostedProviderMetadata } from "./hosted-convex-provider-metadata";
 import { createHostedSourceMetadata } from "./hosted-convex-source-operations";
 
@@ -333,9 +334,9 @@ it(
       expect(await b.recoverHostBatch({ operationId: batch.operationId })).toBe(
         "missing",
       );
-      expect(await a.recoverHostBatch({ operationId: batch.operationId })).toBe(
-        "cancelled",
-      );
+      const startupCleanup = new HostResourceCleanup({ metadata: a });
+      await startupCleanup.recoverPendingBatches();
+      expect((await a.listRecoverableHostBatches(paging)).page).toEqual([]);
       expect(await a.recoverHostBatch({ operationId: batch.operationId })).toBe(
         "cancelled",
       );
