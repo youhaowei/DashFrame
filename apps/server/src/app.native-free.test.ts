@@ -23,6 +23,6 @@ it("imports the app factory in a fresh Bun process without loading DuckDB's nati
     },
   );
   expect(probe.error).toBeUndefined();
-  expect(probe.status, probe.stderr).toBe(0);
+  expect(probe.status).toBe(0);
   expect(probe.stdout.trim()).toBe("native-free app factory");
 });

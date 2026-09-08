@@ -1,18 +1,41 @@
-import { expect, expectTypeOf, it } from "vite-plus/test";
-import { api } from "@dashframe/convex-backend/api";
+import { expect, it } from "vite-plus/test";
 import * as app from "@dashframe/convex-backend/app";
 import { CONVEX_QUERY_NAMES, CONVEX_MUTATION_NAMES } from "./dispatch";
 
-// api.app is a lazy proxy: any property looks valid at runtime. Check its
-// generated type and the actual registered exports, not proxy membership.
+const registeredFunctions = {
+  projectInfo: app.projectInfo,
+  listDataSources: app.listDataSources,
+  getDataSource: app.getDataSource,
+  getDataSourceByType: app.getDataSourceByType,
+  listDataTables: app.listDataTables,
+  getDataTable: app.getDataTable,
+  listDataFrames: app.listDataFrames,
+  getDataFrameEntry: app.getDataFrameEntry,
+  getDataFrameByInsight: app.getDataFrameByInsight,
+  listInsights: app.listInsights,
+  getInsight: app.getInsight,
+  listVisualizations: app.listVisualizations,
+  getVisualization: app.getVisualization,
+  listDashboards: app.listDashboards,
+  getDashboard: app.getDashboard,
+  listDrafts: app.listDrafts,
+  getDraftLog: app.getDraftLog,
+  draftPublishReview: app.draftPublishReview,
+  previewDiff: app.previewDiff,
+  publishDraft: app.publishDraft,
+  discardDraft: app.discardDraft,
+  reviseDraft: app.reviseDraft,
+  updateDataFrameEntry: app.updateDataFrameEntry,
+};
+
+// The generated API is a lazy proxy, so check the actual registered exports.
 it.each([
   ...CONVEX_QUERY_NAMES.map((name) => ({ name, flag: "isQuery" })),
   ...CONVEX_MUTATION_NAMES.map((name) => ({ name, flag: "isMutation" })),
 ])(
   "dispatches $name to an existing Convex $flag function",
   ({ name, flag }) => {
-    expectTypeOf<typeof name>().toExtend<keyof typeof api.app>();
-    expect(app).toHaveProperty(name);
-    expect(app[name]).toHaveProperty(flag, true);
+    expect(registeredFunctions).toHaveProperty(name);
+    expect(registeredFunctions[name]).toHaveProperty(flag, true);
   },
 );
