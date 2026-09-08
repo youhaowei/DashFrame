@@ -413,28 +413,6 @@ export const commitImportedFrame = internalMutation({
       result: null,
     });
     if (claim) {
-      // Keep enough completed claims for ordinary response-loss recovery while
-      // bounding per-refresh growth. Pending claims and clear tombstones are
-      // never eligible for this retention pass.
-      const completed = (
-        await Promise.all(
-          [false, undefined].map((cancelled) =>
-            ctx.db
-              .query("localImports")
-              .withIndex("by_workspaceId_and_status_and_cancelled", (q) =>
-                q
-                  .eq("workspaceId", args.workspaceId)
-                  .eq("status", "complete")
-                  .eq("cancelled", cancelled),
-              )
-              .order("desc")
-              .take(101),
-          ),
-        )
-      )
-        .flat()
-        .sort((a, b) => b._creationTime - a._creationTime);
-      for (const row of completed.slice(99)) await ctx.db.delete(row._id);
       await ctx.db.patch(claim._id, {
         status: "complete",
         result: {

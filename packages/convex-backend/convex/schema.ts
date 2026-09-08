@@ -163,15 +163,9 @@ export default defineSchema({
     workspaceId: v.string(),
     operationId: v.string(),
     requestHash: v.string(),
-    cancelled: v.optional(v.boolean()),
+    cancelled: v.boolean(),
     ...localImportState.fields,
-  })
-    .index("by_workspaceId_and_operationId", ["workspaceId", "operationId"])
-    .index("by_workspaceId_and_status_and_cancelled", [
-      "workspaceId",
-      "status",
-      "cancelled",
-    ]),
+  }).index("by_workspaceId_and_operationId", ["workspaceId", "operationId"]),
   cleanupJobs: defineTable({
     workspaceId: v.string(),
     cleanupId: v.string(),

@@ -515,9 +515,19 @@ async function persistGa4TokenBundleLocked(
   vault: SecretVault | undefined,
   bundle: GoogleOAuthTokenBundle,
   expected: { revision: number; config: unknown },
+  preceding: { revision: number; config: unknown } | null,
 ): Promise<{ revision: number; config: unknown }> {
   if (!vault) throw new Error("TARGET_NOT_READY");
-  const config = { ...((expected.config ?? {}) as DataSourceConfig) };
+  const current = await ctx.metadata.getDataSource(dataSourceId);
+  if (!current) throw new Error("TARGET_NOT_READY");
+  const currentState = { revision: current.revision, config: current.config };
+  const isExpectedState = (state: { revision: number; config: unknown }) =>
+    currentState.revision === state.revision &&
+    stableInput(currentState.config ?? {}) === stableInput(state.config ?? {});
+  if (!isExpectedState(expected) && (!preceding || !isExpectedState(preceding)))
+    throw new Error("DataSource config changed");
+
+  const config = { ...((current.config ?? {}) as DataSourceConfig) };
   const previous = config.apiKey;
   const next = await vault.store(JSON.stringify(bundle), {
     class: CREDENTIAL_CLASS.ConnectorKey,
@@ -530,8 +540,8 @@ async function persistGa4TokenBundleLocked(
   try {
     await ctx.metadata.replaceDataSourceConfig({
       id: dataSourceId,
-      expectedRevision: expected.revision,
-      expectedConfig: expected.config,
+      expectedRevision: current.revision,
+      expectedConfig: current.config,
       config,
     });
   } catch (error) {
@@ -545,7 +555,7 @@ async function persistGa4TokenBundleLocked(
   }
   if (
     !written ||
-    written.revision !== expected.revision + 1 ||
+    written.revision !== current.revision + 1 ||
     stableInput(written.config ?? {}) !== stableInput(config)
   ) {
     if (replaceError) throw replaceError;
@@ -561,7 +571,8 @@ async function persistGa4TokenBundleLocked(
   return { revision: written.revision, config: written.config };
 }
 
-const ga4TokenWrites = new Map<UUID, Promise<void>>();
+type Ga4TokenWriteState = { revision: number; config: unknown };
+const ga4TokenWrites = new Map<UUID, Promise<Ga4TokenWriteState | null>>();
 
 async function persistGa4TokenBundle(
   ctx: HostContext,
@@ -570,14 +581,21 @@ async function persistGa4TokenBundle(
   bundle: GoogleOAuthTokenBundle,
   expected: { revision: number; config: unknown },
 ): Promise<{ revision: number; config: unknown }> {
-  const previous = ga4TokenWrites.get(dataSourceId) ?? Promise.resolve();
+  const previous = ga4TokenWrites.get(dataSourceId) ?? Promise.resolve(null);
   // Chained on a tail that settles either way. A persist failure is non-fatal
   // to the request that hit it (see `accessTokenFor`), so it must not reject
   // every write queued behind it — that would turn one storage hiccup into a
   // permanently broken refresh path for the source.
-  const settle = () =>
-    persistGa4TokenBundleLocked(ctx, dataSourceId, vault, bundle, expected);
-  const result = previous.then(settle, settle);
+  const result = previous.then((preceding) =>
+    persistGa4TokenBundleLocked(
+      ctx,
+      dataSourceId,
+      vault,
+      bundle,
+      expected,
+      preceding,
+    ),
+  );
   // Drop the entry once this is the last write outstanding, or the map grows a
   // permanent entry per source connected in the process's lifetime. Folded
   // into the stored tail rather than chained separately so the cleanup runs
@@ -590,7 +608,16 @@ async function persistGa4TokenBundle(
       ga4TokenWrites.delete(dataSourceId);
     }
   };
-  const tail: Promise<void> = result.then(forget, forget);
+  const tail = result.then(
+    (written) => {
+      forget();
+      return written;
+    },
+    () => {
+      forget();
+      return null;
+    },
+  );
   ga4TokenWrites.set(dataSourceId, tail);
   return result;
 }

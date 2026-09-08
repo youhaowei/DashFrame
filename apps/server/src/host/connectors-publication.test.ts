@@ -23,7 +23,11 @@ vi.mock("@dashframe/connector-ga4", () => ({
     query: (...args: unknown[]) => ga4Query(dependencies, ...args),
   }),
 }));
-import { queryGa4Property, queryNotionDatabase } from "./connectors";
+import {
+  ga4ConnectorFor,
+  queryGa4Property,
+  queryNotionDatabase,
+} from "./connectors";
 const modules = import.meta.glob(
   "../../../../packages/convex-backend/convex/**/*.ts",
 );
@@ -301,6 +305,43 @@ describe("connector snapshot publication", () => {
     expect(
       h.commitImportedFrame.mock.calls[0]![0].expectedDataSourceRevision,
     ).toBe(2);
+  });
+
+  it("serializes concurrent GA4 token writes", async () => {
+    const h = await fixture("success");
+    await h.native.run(async (ctx) => {
+      const source = await ctx.db
+        .query("dataSources")
+        .withIndex("by_workspaceId_and_id", (q) =>
+          q.eq("workspaceId", "workspace").eq("id", h.dataSourceId),
+        )
+        .unique();
+      await ctx.db.patch(source!._id, { kind: "googleAnalytics" });
+    });
+    const first = await ga4ConnectorFor(h.ctx, h.dataSourceId);
+    const second = await ga4ConnectorFor(h.ctx, h.dataSourceId);
+    ga4Query.mockImplementation(async (dependencies) => {
+      await dependencies.persistTokenBundle({
+        accessToken: "fresh",
+        refreshToken: "refresh",
+        expiresAt: Date.now() + 3_600_000,
+        scopes: ["https://www.googleapis.com/auth/analytics.readonly"],
+      });
+      return h.queryResult;
+    });
+    const options = { pagination: { offset: 0, limit: 1 } };
+    await Promise.all([
+      first.query("remote-database", h.tableId, options),
+      second.query("remote-database", h.tableId, options),
+    ]);
+    expect(h.vault.store).toHaveBeenCalledTimes(2);
+    expect(h.vault.delete).toHaveBeenCalledTimes(2);
+    expect(
+      await h.native.query(internal.host.getDataSource, {
+        workspaceId: "workspace",
+        id: h.dataSourceId,
+      }),
+    ).toMatchObject({ revision: 3 });
   });
 
   it("recovers an exact GA4 token write after its acknowledgement is lost", async () => {
