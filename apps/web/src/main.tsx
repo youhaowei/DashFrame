@@ -25,8 +25,9 @@ const session = startBrowserSession({
         <>
           {view.runtime.element}
           <Button
-            className="fixed top-2 left-12 z-50 bg-neutral-bg/90 shadow-sm backdrop-blur"
+            className="fixed top-2 left-12 z-30 bg-neutral-bg/90 shadow-sm backdrop-blur"
             label="Sign out"
+            size="sm"
             variant="outline"
             onClick={view.onSignOut}
           />
