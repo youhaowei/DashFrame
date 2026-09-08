@@ -274,9 +274,11 @@ describe.skipIf(process.platform !== "linux")(
           new Uint8Array([1, 2, 3, 4]),
         ).toString("base64");
         const worker = resolve(output, `bad-${kind}.cjs`);
+        await writeFile(`${worker}.response`, response);
+        await writeFile(`${worker}.ready`, ready);
         await writeFile(
           worker,
-          `process.stdin.once('data',()=>process.stdout.write(Buffer.from(${JSON.stringify(response)},'base64')));process.stdout.write(Buffer.from(${JSON.stringify(ready)},'base64'));setInterval(()=>{},1000);`,
+          "const fs=require('node:fs');const response=Buffer.from(fs.readFileSync(__filename+'.response','utf8'),'base64');const ready=Buffer.from(fs.readFileSync(__filename+'.ready','utf8'),'base64');process.stdin.once('data',()=>process.stdout.write(response));process.stdout.write(ready);setInterval(()=>{},1000);",
         );
         const bad = engine(`bad-${kind}`, { worker });
         const operation =
