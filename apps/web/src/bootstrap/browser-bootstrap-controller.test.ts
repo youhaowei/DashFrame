@@ -97,6 +97,12 @@ describe("browser bootstrap controller", () => {
         config: access.config,
         runtime: test.runtimes[0],
       });
+      if (test.views[1]?.status === "admitted") {
+        test.views[1].onSignOut();
+        expect(test.signOut).toHaveBeenCalledOnce();
+      } else {
+        expect(test.views[1]).not.toHaveProperty("onSignOut");
+      }
       await test.controller.teardown();
       expect(test.runtimes[0]?.close).toHaveBeenCalledTimes(1);
     },

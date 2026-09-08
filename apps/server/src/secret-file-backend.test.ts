@@ -29,6 +29,7 @@ import {
   ENCRYPTED_FILE_BACKEND_NAME,
   EncryptedFileSecretBackend,
   loadSecretKeyring,
+  readSecureKeyFile,
   type SecretKeyringConfig,
 } from "./secret-file-backend";
 
@@ -657,6 +658,14 @@ describe("AC-6: key validation at startup", () => {
     const loaded = await loadSecretKeyring({ DASHFRAME_SECRET_KEY_FILE: file });
     expect(loaded?.activeKeyId).toBe(deriveKeyId(key(1)));
     expect(loaded?.keys.get(deriveKeyId(key(1)))?.equals(key(1))).toBe(true);
+  });
+
+  it("returns raw PEM text without applying symmetric-key decoding", async () => {
+    const file = path.join(root, "signing-key.pem");
+    const pem =
+      "-----BEGIN PRIVATE KEY-----\nopaque-test-key\n-----END PRIVATE KEY-----\n";
+    await fs.writeFile(file, pem, { mode: 0o600 });
+    expect(await readSecureKeyFile(file)).toBe(pem);
   });
 
   it("rejects ambiguous file-plus-inline configuration", async () => {

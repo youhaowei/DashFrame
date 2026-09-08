@@ -739,7 +739,9 @@ export async function loadSecretKeyring(
   // shells, docker `--env-file`) pick one up just as easily as `openssl` does
   // when writing the file, and an asymmetry here is a confusing hard failure.
   const encoded = stripTrailingNewline(
-    hasKeyFile ? await readKeyFile(keyFile as string) : (inlineKey as string),
+    hasKeyFile
+      ? await readSecureKeyFile(keyFile as string)
+      : (inlineKey as string),
   );
   const key = decodeKey(
     encoded,
@@ -780,7 +782,7 @@ function decodePreviousKeys(previous: string | undefined): Buffer[] {
  * and every remaining check runs against `handle.stat()` — the very inode the
  * key is then read from.
  */
-async function readKeyFile(filePath: string): Promise<string> {
+export async function readSecureKeyFile(filePath: string): Promise<string> {
   let handle: FileHandle;
   try {
     handle = await openWithoutFollowing(defaultFileSystem, filePath);

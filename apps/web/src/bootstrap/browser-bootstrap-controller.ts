@@ -12,7 +12,12 @@ export interface BrowserRuntime {
 export type BrowserBootstrapView<TConfig, TRuntime extends BrowserRuntime> =
   | { status: "loading" }
   | { status: "local-ready"; config: TConfig; runtime: TRuntime }
-  | { status: "admitted"; config: TConfig; runtime: TRuntime }
+  | {
+      status: "admitted";
+      config: TConfig;
+      runtime: TRuntime;
+      onSignOut: () => void;
+    }
   | { status: "signed-out"; onSignIn: () => void }
   | { status: "pending-admission"; onSignOut: () => void }
   | { status: "unavailable"; onRetry: () => void; error?: unknown };
@@ -206,7 +211,15 @@ export function startBrowserBootstrap<TConfig, TRuntime extends BrowserRuntime>(
           }
           if (!isCurrent(attempt)) return;
           readyAccess = result;
-          dependencies.publish({ ...result, runtime: nextRuntime });
+          dependencies.publish(
+            result.status === "admitted"
+              ? {
+                  ...result,
+                  runtime: nextRuntime,
+                  onSignOut: () => dependencies.signOut(),
+                }
+              : { ...result, runtime: nextRuntime },
+          );
         })();
         runtimeAttempts.add(startingRuntime);
         startingRuntime.then(

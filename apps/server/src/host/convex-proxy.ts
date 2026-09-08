@@ -7,6 +7,9 @@ export function mountConvexProxy(
   app: Hono,
   upgrade: UpgradeWebSocket,
   backendUrl: string,
+  options?: {
+    authorizeWebSocket?: (request: Request) => Promise<Response | undefined>;
+  },
 ): void {
   const prefix = "/api/convex";
   for (const operation of ["query", "mutation", "action"] as const) {
@@ -31,6 +34,13 @@ export function mountConvexProxy(
             result.headers.get("content-type") ?? "application/json",
         },
       });
+    });
+  }
+  const authorizeWebSocket = options?.authorizeWebSocket;
+  if (authorizeWebSocket) {
+    app.use(`${prefix}/api/:version/sync`, async (c, next) => {
+      const denied = await authorizeWebSocket(c.req.raw);
+      return denied ?? next();
     });
   }
   app.get(

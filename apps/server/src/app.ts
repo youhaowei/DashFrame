@@ -44,6 +44,7 @@ import {
 } from "./connector-setup/oauth-provider";
 import { sweep as sweepConnectorSetup } from "./connector-setup/session-store";
 import { isLoopbackHost } from "./bind-host";
+import { LOCAL_USER_ID } from "./permissions";
 
 type CorsOrigin =
   | string
@@ -147,6 +148,12 @@ export async function createDashframeServer(
         dataPlaneRuntime: native?.engine,
         googleOAuth: options.googleOAuth ?? readOptionalGoogleOAuthConfig(),
       }),
+    });
+    // Callback and resume requests carry no caller credential. Bind the local
+    // server-owned identity at the mount; hosted passes its admitted bound app.
+    const connectorCallbackApplication = application.forPrincipal({
+      kind: "user",
+      userId: LOCAL_USER_ID,
     });
     const resolveContext = async (request: Request) => ({
       principal: await authenticate(request),
@@ -312,12 +319,14 @@ export async function createDashframeServer(
     });
     app.all("/mcp", mcp);
     app.get("/api/connectors/oauth/callback", (c) =>
-      handleConnectorOAuthCallback(c, application),
+      handleConnectorOAuthCallback(c, connectorCallbackApplication),
     );
     app.get("/api/connectors/setup/:sessionId/resume", (c) =>
-      handleConnectorSetupResume(c, application),
+      handleConnectorSetupResume(c, connectorCallbackApplication),
     );
-    app.get("/", (c) => handleConnectorResumeLanding(c, application));
+    app.get("/", (c) =>
+      handleConnectorResumeLanding(c, connectorCallbackApplication),
+    );
     await sweepConnectorSetup(metadata.connectorSetup, new Date(), 0);
     const { server, port } = await new Promise<{
       server: ReturnType<typeof nodeServe>;

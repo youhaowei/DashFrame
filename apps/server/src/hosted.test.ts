@@ -8,6 +8,7 @@ import { MAX_LOCAL_ARROW_BYTES } from "@dashframe/types";
 import { createHostedTokenIssuer } from "./host/hosted-token-issuer";
 import type { HostedBrowserSession } from "./host/hosted-workos-session";
 import type { HostedAdmission } from "./host/hosted-admission-service";
+import { MAX_HOSTED_MCP_BODY_BYTES } from "./host/hosted-mcp-routes";
 
 const directories: string[] = [];
 afterEach(async () => {
@@ -70,6 +71,9 @@ it("serves the hosted shell and enforces session/admission before opening worksp
     });
     expect((await request("/api/unknown")).status).toBe(404);
     expect((await request("/api/runtime", "POST", origin)).status).toBe(401);
+    expect(
+      (await request("/api/convex/api/1.0.0/sync", "GET", origin)).status,
+    ).toBe(401);
     expect((await request("/data/frame")).status).toBe(401);
     expect((await request("/assistant/run", "POST", origin)).status).toBe(401);
     expect(
@@ -79,6 +83,17 @@ it("serves the hosted shell and enforces session/admission before opening worksp
           headers: {
             origin,
             "content-length": String(MAX_LOCAL_ARROW_BYTES + 1),
+          },
+          body: "oversized",
+        })
+      ).status,
+    ).toBe(413);
+    expect(
+      (
+        await surface.app.request(`${origin}/workspaces/workspace-a/mcp`, {
+          method: "POST",
+          headers: {
+            "content-length": String(MAX_HOSTED_MCP_BODY_BYTES + 1),
           },
           body: "oversized",
         })
@@ -95,6 +110,9 @@ it("serves the hosted shell and enforces session/admission before opening worksp
     expect(
       await (await request("/api/runtime", "POST", origin)).json(),
     ).toEqual({ mode: "hosted", status: "pending" });
+    expect(
+      (await request("/api/convex/api/1.0.0/sync", "GET", origin)).status,
+    ).toBe(403);
     expect((await request("/data/frame")).status).toBe(403);
     expect(open).not.toHaveBeenCalled();
 

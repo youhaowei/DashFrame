@@ -2,7 +2,6 @@ import { createHostedQueryRuntime } from "./host/hosted-query-runtime";
 import { mountHostedMcpRoutes } from "./host/hosted-mcp-routes";
 import { mountHostedBrowserRoutes } from "./host/hosted-browser-routes";
 import { createHostedServiceAccess } from "./host/hosted-service-access";
-import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { Hono } from "hono";
 import type {
@@ -15,7 +14,7 @@ import { serve } from "@hono/node-server";
 import { createNodeWebSocket } from "@hono/node-ws";
 import { linuxQuerySandboxReadPaths } from "@dashframe/engine-server/query-sandbox";
 import { createHostedConnectorSessionStore } from "./connector-setup/hosted-session-store";
-import { loadSecretKeyring } from "./secret-file-backend";
+import { loadSecretKeyring, readSecureKeyFile } from "./secret-file-backend";
 import { createHostedApplication } from "./host/hosted-application";
 import { createHostedAdmissionService } from "./host/hosted-admission-service";
 import { createHostedSourceMetadata } from "./host/hosted-convex-source-operations";
@@ -26,6 +25,8 @@ import { createHostedWorkspaceResourceFactory } from "./host/hosted-workspace-re
 import { createStaticWebSurface } from "./host/web-surface";
 import { mountConvexProxy } from "./host/convex-proxy";
 import { sweep as sweepConnectorSetupSessions } from "./connector-setup/session-store";
+
+const HOSTED_WS_MAX_PAYLOAD_BYTES = 16 * 1024 * 1024;
 
 function guardApplication(
   application: ApplicationOperations,
@@ -63,7 +64,8 @@ export async function startHostedServer(
     throw new Error("Set exactly one hosted signing key value or key file");
   const tokens = createHostedTokenIssuer({
     issuer: required("DASHFRAME_AUTH_ISSUER"),
-    privateKey: inlinePrivateKey ?? (await readFile(privateKeyFile!)),
+    privateKey:
+      inlinePrivateKey ?? (await readSecureKeyFile(privateKeyFile as string)),
   });
   const session = createHostedWorkOSSession({
     clientId: required("DASHFRAME_WORKOS_CLIENT_ID"),
@@ -156,6 +158,7 @@ export async function createHostedServerSurface(options: {
   const { upgradeWebSocket, injectWebSocket, wss } = createNodeWebSocket({
     app,
   });
+  wss.options.maxPayload = HOSTED_WS_MAX_PAYLOAD_BYTES;
   const withPrincipalContext = (
     workspaceId: string,
     ownerId: string,
@@ -267,7 +270,38 @@ export async function createHostedServerSurface(options: {
       convex: "cloud",
     }),
   );
-  mountConvexProxy(app, upgradeWebSocket, deploymentUrl);
+  mountConvexProxy(app, upgradeWebSocket, deploymentUrl, {
+    authorizeWebSocket: async (request) => {
+      try {
+        const identity = await session.resolve(request);
+        if (identity.status !== "authenticated") {
+          return Response.json(
+            { error: "Authentication unavailable" },
+            {
+              status: identity.status === "signedout" ? 401 : 503,
+              headers: { "Cache-Control": "no-store" },
+            },
+          );
+        }
+        const access = await admission.resolve({
+          userId: identity.identity.subject,
+          expiresAt: identity.expiresAt,
+        });
+        if (access.status !== "admitted") {
+          return Response.json(
+            { error: "Admission required" },
+            { status: 403, headers: { "Cache-Control": "no-store" } },
+          );
+        }
+        return undefined;
+      } catch {
+        return Response.json(
+          { error: "Hosted service unavailable" },
+          { status: 503, headers: { "Cache-Control": "no-store" } },
+        );
+      }
+    },
+  });
   const staticSurface = await createStaticWebSurface(options.staticDirectory);
   app.get("/health", (c) => c.json({ status: "ok", mode: "hosted" }));
   app.get("*", (c) => {

@@ -1,9 +1,12 @@
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { createMcpRoute } from "../mcp/route";
 import type { HostedPrincipalTokenSource } from "./hosted-token-issuer";
 import type { createHostedServiceAccess } from "./hosted-service-access";
 import type { createHostedWorkspaceResourceFactory } from "./hosted-workspace-resources";
 import type { WithPrincipalContext } from "./hosted-route-context";
+
+export const MAX_HOSTED_MCP_BODY_BYTES = 1024 * 1024;
 
 export function mountHostedMcpRoutes(
   app: Hono,
@@ -22,6 +25,10 @@ export function mountHostedMcpRoutes(
     serviceAccess,
     withPrincipalContext,
   } = options;
+  app.use(
+    "/workspaces/:workspaceId/mcp",
+    bodyLimit({ maxSize: MAX_HOSTED_MCP_BODY_BYTES }),
+  );
   app.all("/workspaces/:workspaceId/mcp", async (c) => {
     c.header("Cache-Control", "no-store");
     const origin = c.req.header("Origin");
