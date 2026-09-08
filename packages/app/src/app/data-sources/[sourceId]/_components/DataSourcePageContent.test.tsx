@@ -43,6 +43,8 @@ const { mockToastError } = vi.hoisted(() => ({
   mockToastError: vi.fn(),
 }));
 
+const { mockFetchData } = vi.hoisted(() => ({ mockFetchData: vi.fn() }));
+
 const { mockCommitBatch } = vi.hoisted(() => ({
   mockCommitBatch: vi.fn(),
 }));
@@ -78,6 +80,7 @@ vi.mock("@/data/host", () => ({
     throw new Error(`Unexpected query: ${ref._path}`);
   }),
   useHostMutation: hostMutationMock((ref: { _path: string }) => {
+    if (ref._path === "fetchData") return { mutateAsync: mockFetchData };
     if (ref._path === "commitBatch") {
       return { mutateAsync: mockCommitBatch };
     }
@@ -100,8 +103,13 @@ vi.mock("@/hooks/useDataFrameData", () => ({
 }));
 
 vi.mock("@/lib/connectors/registry", () => ({
-  getConnectorById: (id: string) =>
-    id === "csv" ? { name: "CSV", icon: "<svg>csv</svg>" } : null,
+  getConnectorById: (id: string) => {
+    if (id === "postgres")
+      return { name: "PostgreSQL", sourceType: "remote-api" };
+    if (id === "csv")
+      return { name: "CSV", sourceType: "file", icon: "<svg>csv</svg>" };
+    return null;
+  },
   useRegistryVersion: () => 0,
 }));
 
@@ -332,6 +340,7 @@ vi.mock("@wystack/ui-react", async () => {
 
 vi.mock("@wystack/ui-react/icons", () => ({
   DatabaseIcon: () => <span data-testid="db-icon" />,
+  RefreshIcon: () => null,
   DeleteIcon: () => <span />,
   ChevronLeftIcon: () => <span />,
   MoreIcon: () => <span />,
@@ -531,6 +540,35 @@ describe("DataSourcePageContent — loading state contract", () => {
     expect(renameTrigger.getAttribute("aria-expanded")).toBe("false");
     fireEvent.click(renameTrigger);
     expect(renameTrigger.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("refreshes the selected remote table and surfaces a failed result", async () => {
+    mockUseDataSources.mockReturnValue({
+      data: [{ ...DATA_SOURCE, type: "postgres" }],
+    });
+    mockUseDataTables.mockReturnValue({
+      data: [{ id: "table-orders", name: "Orders", fields: [], metrics: [] }],
+    });
+    mockFetchData.mockResolvedValue({
+      status: "failed",
+      message: "Connection unavailable",
+    });
+    render(<DataSourcePageContent sourceId={SOURCE_ID} />);
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Refresh", exact: true }),
+      );
+    });
+    expect(mockFetchData).toHaveBeenCalledWith({
+      insight: { baseTableId: "table-orders", selectedFields: [], metrics: [] },
+    });
+    expect(mockToastError).toHaveBeenCalledWith("Connection unavailable");
+    expect(
+      screen
+        .getByRole("button", { name: "Refresh", exact: true })
+        .hasAttribute("disabled"),
+    ).toBe(false);
+    expect(mockCommitBatch).not.toHaveBeenCalled();
   });
 
   it("creates and opens a visualize-intent insight from the selected table", async () => {
