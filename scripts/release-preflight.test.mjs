@@ -409,8 +409,15 @@ test("real CLI uses documented exits and sanitized JSON; it does not mutate the 
   const path = join(dir, "manifest.json");
   const cliPath = join(import.meta.dir, "release-preflight.mjs");
   const symlinkPath = join(dir, "release-preflight-link.mjs");
+  const nodePath = Bun.which("node");
+  if (!nodePath) throw new Error("node executable is required for CLI tests");
+  expect(
+    spawnSync(nodePath, ["-p", "process.release.name"], {
+      encoding: "utf8",
+    }).stdout.trim(),
+  ).toBe("node");
   const run = (entryPath, ...args) =>
-    spawnSync(process.execPath, [entryPath, ...args], { encoding: "utf8" });
+    spawnSync(nodePath, [entryPath, ...args], { encoding: "utf8" });
   try {
     symlinkSync(cliPath, symlinkPath);
     const original = JSON.stringify(fixture());
@@ -425,6 +432,16 @@ test("real CLI uses documented exits and sanitized JSON; it does not mutate the 
       scope: "offline-manifest-only",
       decision: "consistent",
     });
+    const preservedLinked = spawnSync(
+      nodePath,
+      ["--preserve-symlinks-main", symlinkPath, "promote", path],
+      { encoding: "utf8" },
+    );
+    expect(preservedLinked.status).toBe(0);
+    expect(JSON.parse(preservedLinked.stdout)).toMatchObject({
+      scope: "offline-manifest-only",
+      decision: "consistent",
+    });
     const manifest = fixture();
     delete manifest.receipts.backup;
     writeFileSync(path, JSON.stringify(manifest));
@@ -434,6 +451,13 @@ test("real CLI uses documented exits and sanitized JSON; it does not mutate the 
     const linkedMissing = run(symlinkPath, "migrate", path);
     expect(linkedMissing.status).toBe(1);
     expect(JSON.parse(linkedMissing.stdout).decision).toBe("blocked");
+    const preservedLinkedMissing = spawnSync(
+      nodePath,
+      ["--preserve-symlinks-main", symlinkPath, "migrate", path],
+      { encoding: "utf8" },
+    );
+    expect(preservedLinkedMissing.status).toBe(1);
+    expect(JSON.parse(preservedLinkedMissing.stdout).decision).toBe("blocked");
     writeFileSync(path, '{"credential":"sensitive-placeholder"');
     const malformed = run(cliPath, "promote", path);
     expect(malformed.status).toBe(2);
