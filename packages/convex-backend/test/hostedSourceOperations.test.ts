@@ -113,7 +113,12 @@ it("replaces only opaque credential references and leaves the CAS winner's live 
   const a = await admit(),
     { user, sourceId, ref } = await seed(a),
     next = secret(),
-    loser = secret();
+    loser = secret(),
+    nextConfig = {
+      apiKey: next,
+      sourceBindingVersion: "connector-defined-v3",
+      warehouse: { region: "us-west", retries: 2 },
+    };
   await expect(
     user.mutation(api.hostedSourceOperations.replaceDataSourceConfig, {
       id: sourceId,
@@ -131,13 +136,13 @@ it("replaces only opaque credential references and leaves the CAS winner's live 
     id: sourceId,
     expectedRevision: revision,
     expectedConfig: { apiKey: ref },
-    config: { apiKey: next },
+    config: nextConfig,
   });
   await expect(
     user.mutation(api.hostedSourceOperations.replaceDataSourceConfig, {
       id: sourceId,
       expectedRevision: revision,
-      expectedConfig: { apiKey: next },
+      expectedConfig: nextConfig,
       config: { apiKey: loser },
     }),
   ).rejects.toThrow("config changed");
@@ -151,7 +156,7 @@ it("replaces only opaque credential references and leaves the CAS winner's live 
   expect(
     (await user.query(api.hostedMetadata.getDataSource, { id: sourceId }))
       ?.config,
-  ).toEqual({ apiKey: next });
+  ).toEqual(nextConfig);
   const jobs = (await user.query(api.hostedLifecycle.listCleanup, page)).page;
   expect(jobs).toEqual([
     { cleanupId: expect.any(String), kind: "secret", resourceId: ref },
@@ -162,7 +167,7 @@ it("replaces only opaque credential references and leaves the CAS winner's live 
   await expect(
     user.mutation(api.hostedSourceOperations.replaceDataSourceConfig, {
       id: sourceId,
-      expectedConfig: { apiKey: next },
+      expectedConfig: nextConfig,
       config: { apiKey: ref },
     }),
   ).rejects.toThrow("retired");
@@ -333,21 +338,27 @@ it.each(["service", "revoked"] as const)(
   },
 );
 
-it("denies direct source replacement to browser or non-metadata tokens", async () => {
+it("denies shape-valid direct source replacement to browser or non-metadata tokens", async () => {
   const workspaceId = await admit();
   const { sourceId, ref } = await seed(workspaceId);
   const before = await t.run((ctx) => ctx.db.query("dataSources").collect());
-  for (const client of [
-    host(workspaceId, "a", false, { authority: "browser" }),
-    host(workspaceId, "a", false, { purpose: undefined }),
-  ])
+  for (const [client, error] of [
+    [
+      host(workspaceId, "a", false, { authority: "browser" }),
+      "Invalid hosted authority",
+    ],
+    [
+      host(workspaceId, "a", false, { purpose: undefined }),
+      "Host metadata purpose required",
+    ],
+  ] as const)
     await expect(
       client.mutation(api.hostedSourceOperations.replaceDataSourceConfig, {
         id: sourceId,
         expectedConfig: { apiKey: ref },
         config: { apiKey: secret() },
       }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(error);
   expect(await t.run((ctx) => ctx.db.query("dataSources").collect())).toEqual(
     before,
   );
@@ -356,7 +367,7 @@ it("denies direct source replacement to browser or non-metadata tokens", async (
   );
 });
 
-it("rejects unknown credential keys and plaintext expected state without persistence or cleanup", async () => {
+it("rejects plaintext credential slots and non-object expected state without persistence or cleanup", async () => {
   const a = await admit(),
     { user, sourceId, ref } = await seed(a);
   const before = await t.run((ctx) => ctx.db.query("dataSources").collect());
@@ -374,7 +385,6 @@ it("rejects unknown credential keys and plaintext expected state without persist
   for (const expectedConfig of [
     { apiKey: "synthetic-plaintext" },
     { connectionString: "synthetic-plaintext" },
-    { sourceBindingVersion: "v3" },
     null,
   ]) {
     await expect(

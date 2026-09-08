@@ -82,7 +82,6 @@ it("rejects unsafe replacement and expected configs before token acquisition or 
     { token: "synthetic-plaintext" },
     { apiKey: "synthetic-plaintext" },
     { connectionString: "synthetic-plaintext" },
-    { sourceBindingVersion: "v3" },
     null,
   ];
   for (const value of invalid)
@@ -100,39 +99,42 @@ it("rejects unsafe replacement and expected configs before token acquisition or 
   expect(fetch).not.toHaveBeenCalled();
 });
 
-it.each(["v1", "v2"] as const)(
-  "accepts the producer-supported four-field config with binding %s",
-  async (sourceBindingVersion) => {
-    const fetch = vi.fn(
-      async (_url: string, _init: RequestInit) =>
-        new Response(JSON.stringify({ status: "success", value: null })),
-    );
-    vi.stubGlobal("fetch", fetch);
-    const config = {
-      apiKey: `secret:${crypto.randomUUID()}`,
-      connectionString: `secret:${crypto.randomUUID()}`,
-      defaultSchema: "public",
-      sourceBindingVersion,
-    };
-    const metadata = createHostedSourceMetadata({
-      deploymentUrl: "https://metadata.test",
-      getToken: async () => "synthetic-token",
-      credentialVault: { has: async () => true },
-    });
-    await metadata.replaceDataSourceConfig({
-      id: "source",
-      expectedRevision: 1,
-      expectedConfig: config,
-      config,
-    });
-    const request = JSON.parse(String(fetch.mock.calls[0]?.[1].body)) as {
-      args: unknown[];
-    };
-    expect(request.args).toEqual([
-      { id: "source", expectedRevision: 1, expectedConfig: config, config },
-    ]);
-  },
-);
+it("passes supported non-credential config through unchanged", async () => {
+  const fetch = vi.fn(
+    async (_url: string, _init: RequestInit) =>
+      new Response(JSON.stringify({ status: "success", value: null })),
+  );
+  vi.stubGlobal("fetch", fetch);
+  const config = {
+    apiKey: `secret:${crypto.randomUUID()}`,
+    connectionString: `secret:${crypto.randomUUID()}`,
+    defaultSchema: "public",
+    sourceBindingVersion: "connector-defined-v3",
+    warehouse: { region: "us-west", retries: 2 },
+  };
+  const expectedConfig = {
+    apiKey: config.apiKey,
+    sourceBindingVersion: "connector-defined-v2",
+    warehouse: { region: "us-east", retries: 1 },
+  };
+  const metadata = createHostedSourceMetadata({
+    deploymentUrl: "https://metadata.test",
+    getToken: async () => "synthetic-token",
+    credentialVault: { has: async () => true },
+  });
+  await metadata.replaceDataSourceConfig({
+    id: "source",
+    expectedRevision: 1,
+    expectedConfig,
+    config,
+  });
+  const request = JSON.parse(String(fetch.mock.calls[0]?.[1].body)) as {
+    args: unknown[];
+  };
+  expect(request.args).toEqual([
+    { id: "source", expectedRevision: 1, expectedConfig, config },
+  ]);
+});
 
 it("checks only newly introduced source references in the request workspace vault", async () => {
   const workspaceVault = () => {
