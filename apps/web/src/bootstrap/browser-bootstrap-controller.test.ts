@@ -143,7 +143,7 @@ describe("browser bootstrap controller", () => {
       if (!result) throw new Error("missing test result");
       return result;
     });
-    await vi.waitFor(() => expect(test.createRuntime).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(test.views.at(-1)?.status).toBe("admitted"));
 
     await test.controller.retry();
     await test.controller.teardown();
@@ -260,6 +260,82 @@ describe("browser bootstrap controller", () => {
 
     expect(teardownError).toBeInstanceOf(AggregateError);
     expect((teardownError as AggregateError).errors).toEqual([closeFailure]);
+  });
+
+  it("retains a superseded cleanup rejection for later teardown", async () => {
+    const closing = deferred<void>();
+    const failure = new Error("close failed before teardown");
+    const runtime = { close: vi.fn(() => closing.promise) };
+    const views: BrowserBootstrapView<Config, BrowserRuntime>[] = [];
+    let admitted = true;
+    const controller = startBrowserBootstrap({
+      lookup: async () =>
+        admitted
+          ? {
+              status: "admitted" as const,
+              config: { url: "https://dashframe.test" },
+            }
+          : { status: "signed-out" as const },
+      createRuntime: () => runtime,
+      publish: (view) => views.push(view),
+      signIn: vi.fn(),
+      signOut: vi.fn(),
+    });
+    await vi.waitFor(() => expect(views.at(-1)?.status).toBe("admitted"));
+    admitted = false;
+    const losingAccess = controller.retry();
+    await vi.waitFor(() => expect(runtime.close).toHaveBeenCalledOnce());
+    await controller.retry();
+    closing.reject(failure);
+    await losingAccess;
+    await expect(controller.teardown()).rejects.toMatchObject({
+      errors: [failure],
+    });
+    expect(runtime.close).toHaveBeenCalledOnce();
+  });
+
+  it("preserves lookup and cleanup failures in the unavailable view", async () => {
+    const lookupFailure = new Error("lookup failed");
+    const closeFailure = new Error("cleanup failed");
+    const views: BrowserBootstrapView<Config, BrowserRuntime>[] = [];
+    let failLookup = false;
+    const controller = startBrowserBootstrap({
+      lookup: async () => {
+        if (failLookup) throw lookupFailure;
+        return {
+          status: "admitted" as const,
+          config: { url: "https://dashframe.test" },
+        };
+      },
+      createRuntime: () => ({
+        close: async () => {
+          throw closeFailure;
+        },
+      }),
+      publish: (view) => views.push(view),
+      signIn: vi.fn(),
+      signOut: vi.fn(),
+    });
+    await vi.waitFor(() => expect(views.at(-1)?.status).toBe("admitted"));
+    failLookup = true;
+    await controller.retry();
+    const view = views.at(-1);
+    if (view?.status !== "unavailable") throw new Error("wrong view");
+    expect(view.error).toBeInstanceOf(AggregateError);
+    expect(view.error).toMatchObject({ errors: [lookupFailure, closeFailure] });
+    await expect(controller.teardown()).rejects.toMatchObject({
+      errors: [closeFailure],
+    });
+  });
+
+  it("preserves an explicit unavailable error payload", async () => {
+    const error = new Error("service unavailable");
+    const test = harness(async () => ({ status: "unavailable", error }));
+    await vi.waitFor(() =>
+      expect(test.views.at(-1)?.status).toBe("unavailable"),
+    );
+    expect(test.views.at(-1)).toMatchObject({ error });
+    await test.controller.teardown();
   });
 
   it.each([

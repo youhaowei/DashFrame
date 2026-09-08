@@ -74,6 +74,7 @@ export function startBrowserBootstrap<TConfig, TRuntime extends BrowserRuntime>(
   const runtimeClosures = new WeakMap<TRuntime, Promise<void>>();
   const runtimeAttempts = new Set<Promise<void>>();
   const closingRuntimes = new Set<Promise<void>>();
+  const cleanupFailures = new Set<unknown>();
 
   async function closeRuntime(candidate: TRuntime | undefined): Promise<void> {
     if (!candidate) return;
@@ -85,7 +86,10 @@ export function startBrowserBootstrap<TConfig, TRuntime extends BrowserRuntime>(
     closingRuntimes.add(closing);
     closing.then(
       () => closingRuntimes.delete(closing),
-      () => closingRuntimes.delete(closing),
+      (error: unknown) => {
+        cleanupFailures.add(error);
+        closingRuntimes.delete(closing);
+      },
     );
     await closing;
   }
@@ -108,7 +112,10 @@ export function startBrowserBootstrap<TConfig, TRuntime extends BrowserRuntime>(
     try {
       await releaseRuntime();
     } catch (closeError) {
-      unavailableError = closeError;
+      unavailableError = new AggregateError(
+        [error, closeError],
+        "Browser bootstrap failed and the runtime could not be closed",
+      );
     }
     if (!isCurrent(attempt)) return;
     dependencies.publish({
@@ -203,11 +210,12 @@ export function startBrowserBootstrap<TConfig, TRuntime extends BrowserRuntime>(
         ...runtimeAttempts,
         ...closingRuntimes,
       ]);
-      const failures = new Set(
-        results
+      const failures = new Set([
+        ...cleanupFailures,
+        ...results
           .filter((result) => result.status === "rejected")
           .map((result) => result.reason),
-      );
+      ]);
       if (failures.size > 0) {
         throw new AggregateError(
           failures,
