@@ -1,4 +1,5 @@
 import { generateKeyPairSync } from "node:crypto";
+import type { UserIdentity } from "convex/server";
 import { convexTest } from "convex-test";
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
 import schema from "../convex/schema";
@@ -24,7 +25,12 @@ beforeEach(() => {
   t = makeTest();
 });
 afterEach(() => vi.unstubAllEnvs());
-function host(workspaceId: string, subject = "a", service = false) {
+function host(
+  workspaceId: string,
+  subject = "a",
+  service = false,
+  overrides: Partial<UserIdentity> = {},
+) {
   return t.withIdentity({
     issuer: environment.DASHFRAME_AUTH_ISSUER,
     subject: `${service ? "service" : "user"}:${subject}`,
@@ -34,6 +40,7 @@ function host(workspaceId: string, subject = "a", service = false) {
     workspaceId,
     authority: "host",
     purpose: "host-metadata",
+    ...overrides,
   });
 }
 const operator = () =>
@@ -55,7 +62,6 @@ async function seed(workspaceId: string, subject = "a") {
   const user = host(workspaceId, subject),
     sourceId = crypto.randomUUID(),
     tableId = crypto.randomUUID(),
-    frameId = crypto.randomUUID(),
     ref = secret();
   await user.mutation(api.hostedMetadata.commitBatch, {
     commands: [
@@ -74,7 +80,18 @@ async function seed(workspaceId: string, subject = "a") {
       },
     ],
   });
+  const operation = {
+    operationId: crypto.randomUUID(),
+    requestHash: "a".repeat(64),
+  };
+  const claim = await user.mutation(
+    api.hostedLifecycle.beginLocalImport,
+    operation,
+  );
+  const frameId = claim.frameId;
   await user.mutation(api.hostedLifecycle.commitImportedFrame, {
+    ...operation,
+    expectedDataSourceRevision: 1,
     dataSourceId: sourceId,
     dataTableId: tableId,
     expectedDataFrameId: null,
@@ -85,8 +102,9 @@ async function seed(workspaceId: string, subject = "a") {
       fieldIds: [],
       rowCount: 0,
       columnCount: 0,
+      lastRefreshedAt: claim.fetchedAt,
     },
-    tableUpdate: { dataFrameId: frameId },
+    tableUpdate: { dataFrameId: frameId, lastFetchedAt: claim.fetchedAt },
   });
   return { user, sourceId, tableId, frameId, ref };
 }
@@ -106,11 +124,23 @@ it("replaces only opaque credential references and leaves the CAS winner's live 
   expect(
     (await user.query(api.hostedLifecycle.listCleanup, page)).page,
   ).toEqual([]);
+  const revision = (await user.query(api.hostedMetadata.getDataSource, {
+    id: sourceId,
+  }))!.revision;
   await user.mutation(api.hostedSourceOperations.replaceDataSourceConfig, {
     id: sourceId,
+    expectedRevision: revision,
     expectedConfig: { apiKey: ref },
     config: { apiKey: next },
   });
+  await expect(
+    user.mutation(api.hostedSourceOperations.replaceDataSourceConfig, {
+      id: sourceId,
+      expectedRevision: revision,
+      expectedConfig: { apiKey: next },
+      config: { apiKey: loser },
+    }),
+  ).rejects.toThrow("config changed");
   await expect(
     user.mutation(api.hostedSourceOperations.replaceDataSourceConfig, {
       id: sourceId,
@@ -302,6 +332,29 @@ it.each(["service", "revoked"] as const)(
     );
   },
 );
+
+it("denies direct source replacement to browser or non-metadata tokens", async () => {
+  const workspaceId = await admit();
+  const { sourceId, ref } = await seed(workspaceId);
+  const before = await t.run((ctx) => ctx.db.query("dataSources").collect());
+  for (const client of [
+    host(workspaceId, "a", false, { authority: "browser" }),
+    host(workspaceId, "a", false, { purpose: undefined }),
+  ])
+    await expect(
+      client.mutation(api.hostedSourceOperations.replaceDataSourceConfig, {
+        id: sourceId,
+        expectedConfig: { apiKey: ref },
+        config: { apiKey: secret() },
+      }),
+    ).rejects.toThrow();
+  expect(await t.run((ctx) => ctx.db.query("dataSources").collect())).toEqual(
+    before,
+  );
+  expect(await t.run((ctx) => ctx.db.query("cleanupJobs").collect())).toEqual(
+    [],
+  );
+});
 
 it("rejects unknown credential keys and plaintext expected state without persistence or cleanup", async () => {
   const a = await admit(),

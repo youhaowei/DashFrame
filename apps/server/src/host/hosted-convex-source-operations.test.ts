@@ -38,6 +38,7 @@ it("maps host-facing source calls to the four named Bearer wire operations witho
   });
   await metadata.replaceDataSourceConfig({
     id: "source",
+    expectedRevision: 1,
     expectedConfig: {},
     config: {},
   });
@@ -90,6 +91,7 @@ it("rejects unsafe replacement and expected configs before token acquisition or 
       await expect(
         metadata.replaceDataSourceConfig({
           id: "source",
+          expectedRevision: 1,
           config: {},
           expectedConfig: {},
           [slot]: value,
@@ -120,6 +122,7 @@ it.each(["v1", "v2"] as const)(
     });
     await metadata.replaceDataSourceConfig({
       id: "source",
+      expectedRevision: 1,
       expectedConfig: config,
       config,
     });
@@ -127,7 +130,7 @@ it.each(["v1", "v2"] as const)(
       args: unknown[];
     };
     expect(request.args).toEqual([
-      { id: "source", expectedConfig: config, config },
+      { id: "source", expectedRevision: 1, expectedConfig: config, config },
     ]);
   },
 );
@@ -161,6 +164,7 @@ it("checks only newly introduced source references in the request workspace vaul
   await expect(
     metadata.replaceDataSourceConfig({
       id: "source",
+      expectedRevision: 1,
       expectedConfig: {},
       config: { apiKey: bRef },
     }),
@@ -170,16 +174,19 @@ it("checks only newly introduced source references in the request workspace vaul
 
   await metadata.replaceDataSourceConfig({
     id: "source",
+    expectedRevision: 1,
     expectedConfig: {},
     config: { apiKey: aRef },
   });
   await metadata.replaceDataSourceConfig({
     id: "source",
+    expectedRevision: 1,
     expectedConfig: { apiKey: bRef },
     config: { apiKey: bRef },
   });
   await metadata.replaceDataSourceConfig({
     id: "source",
+    expectedRevision: 1,
     expectedConfig: { apiKey: bRef },
     config: {},
   });

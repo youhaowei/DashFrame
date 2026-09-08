@@ -491,17 +491,20 @@ it(
       expect((await a.getDataSource(sourceId))!.config).toEqual(originalConfig);
       await a.replaceDataSourceConfig({
         id: sourceId,
+        expectedRevision: (await a.getDataSource(sourceId))!.revision,
         expectedConfig: originalConfig,
         config: { apiKey: oldRef },
       });
       await a.replaceDataSourceConfig({
         id: sourceId,
+        expectedRevision: (await a.getDataSource(sourceId))!.revision,
         expectedConfig: { apiKey: oldRef },
         config: { apiKey: nextRef },
       });
       await expect(
         a.replaceDataSourceConfig({
           id: sourceId,
+          expectedRevision: 1,
           expectedConfig: { apiKey: oldRef },
           config: { apiKey: losingRef },
         }),
@@ -522,6 +525,7 @@ it(
       await expect(
         b.replaceDataSourceConfig({
           id: sourceId,
+          expectedRevision: 1,
           expectedConfig: { apiKey: nextRef },
           config: {},
         }),
@@ -547,6 +551,7 @@ it(
         () =>
           service.replaceDataSourceConfig({
             id: sourceId,
+            expectedRevision: 1,
             expectedConfig: { apiKey: nextRef },
             config: {},
           }),

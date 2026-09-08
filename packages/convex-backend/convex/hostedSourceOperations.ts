@@ -19,6 +19,7 @@ export const replaceDataSourceConfig = mutation({
   args: {
     id: v.string(),
     expectedConfig: hostedSourceConfigValidator,
+    expectedRevision: v.optional(v.number()),
     config: hostedSourceConfigValidator,
   },
   returns: v.null(),
