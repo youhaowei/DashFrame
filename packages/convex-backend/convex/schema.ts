@@ -84,8 +84,7 @@ export default defineSchema({
   })
     .index("by_subject", ["subject"])
     .index("by_workspaceId", ["workspaceId"]),
-  // Host integration must populate ownership before enabling hosted issuance.
-  // There is intentionally no public writer for this table in this slice.
+  // hostedCredentials binds ownership before the host exposes a named token.
   credentialOwners: defineTable({
     credentialId: v.string(),
     subject: v.string(),
@@ -138,7 +137,9 @@ export default defineSchema({
   revokedCredentials: defineTable({
     workspaceId: v.string(),
     credentialId: v.string(),
-  }).index("by_workspaceId_and_credentialId", ["workspaceId", "credentialId"]),
+  })
+    .index("by_workspaceId_and_credentialId", ["workspaceId", "credentialId"])
+    .index("by_credentialId", ["credentialId"]),
   connectorSetupSessions: defineTable({
     workspaceId: v.string(),
     id: v.string(),
