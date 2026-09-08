@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>B · Split introduction · Hosted access mocks</title>
+    <link rel="stylesheet" href="mocks.css" />
+  </head>
+  <body class="split">
+    <header>
+      <div>
+        <strong>B · Split introduction</strong><br /><span
+          >Persistent product context alongside status. More space; less
+          suitable on narrow screens. Preview only.</span
+        >
+      </div>
+      <button id="theme" type="button" aria-pressed="false">Dark theme</button>
+    </header>
+    <main class="gallery">
+      <section class="specimen">
+        <p>Signed out</p>
+        <div class="viewport">
+          <article class="access">
+            <div class="identity">
+              <p class="brand">DashFrame</p>
+              <p class="description">
+                Your private workspace for data and reports.
+              </p>
+            </div>
+            <div class="content">
+              <h1>Sign in to DashFrame</h1>
+              <p class="description">
+                A private workspace for your data and reports.
+              </p>
+              <div class="actions">
+                <button class="primary" type="button">Sign in</button>
+              </div>
+              <p class="note">Access is currently invite-only.</p>
+            </div>
+          </article>
+        </div>
+      </section>
+      <section class="specimen">
+        <p>Pending admission</p>
+        <div class="viewport">
+          <article class="access">
+            <div class="identity">
+              <p class="brand">DashFrame</p>
+              <p class="description">
+                Your private workspace for data and reports.
+              </p>
+            </div>
+            <div class="content">
+              <h1>This account doesn’t have access</h1>
+              <p class="description">
+                You’re signed in, but DashFrame access is invite-only.
+              </p>
+              <div class="actions">
+                <button class="secondary" type="button">Sign out</button>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+      <section class="specimen">
+        <p>Unavailable</p>
+        <div class="viewport">
+          <article class="access">
+            <div class="identity">
+              <p class="brand">DashFrame</p>
+              <p class="description">
+                Your private workspace for data and reports.
+              </p>
+            </div>
+            <div class="content">
+              <h1>Couldn’t check access</h1>
+              <p class="description">
+                DashFrame couldn’t confirm your access. Try again.
+              </p>
+              <div class="actions">
+                <button class="primary" type="button">Try again</button>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+      <section class="specimen">
+        <p>Loading</p>
+        <div class="viewport">
+          <article class="access">
+            <div class="identity">
+              <p class="brand">DashFrame</p>
+              <p class="description">
+                Your private workspace for data and reports.
+              </p>
+            </div>
+            <div class="content">
+              <h1>Checking access…</h1>
+              <p class="description">
+                Checking your session and DashFrame access.
+              </p>
+            </div>
+          </article>
+        </div>
+      </section>
+    </main>
+    <script>
+      const button = document.getElementById("theme");
+      button.onclick = () => {
+        const dark = document.body.classList.toggle("dark");
+        button.setAttribute("aria-pressed", String(dark));
+        button.textContent = dark ? "Light theme" : "Dark theme";
+      };
+    </script>
+  </body>
+</html>
