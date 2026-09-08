@@ -397,6 +397,52 @@ describe("browser bootstrap controller", () => {
     await newer;
   });
 
+  it.each(["pending", "completed"] as const)(
+    "rejects runtime reuse after %s cleanup",
+    async (cleanup) => {
+      const closing = deferred<void>();
+      const runtime = { close: vi.fn(() => closing.promise) };
+      const views: BrowserBootstrapView<Config, BrowserRuntime>[] = [];
+      let admitted = true;
+      const controller = startBrowserBootstrap({
+        lookup: async () =>
+          admitted
+            ? {
+                status: "admitted" as const,
+                config: { url: "https://dashframe.test" },
+              }
+            : { status: "signed-out" as const },
+        createRuntime: () => runtime,
+        publish: (view) => views.push(view),
+        signIn: vi.fn(),
+        signOut: vi.fn(),
+      });
+      await vi.waitFor(() => expect(views.at(-1)?.status).toBe("admitted"));
+      admitted = false;
+      const loss = controller.retry();
+      await vi.waitFor(() => expect(runtime.close).toHaveBeenCalledOnce());
+      if (cleanup === "completed") {
+        closing.resolve();
+        await loss;
+      }
+      admitted = true;
+      await controller.retry();
+      const view = views.at(-1);
+      if (view?.status !== "unavailable")
+        throw new Error("closing runtime was admitted");
+      expect(view.error).toMatchObject({
+        message: "Runtime factory returned a closing or closed runtime",
+      });
+      expect(views.filter((entry) => entry.status === "admitted")).toHaveLength(
+        1,
+      );
+      closing.resolve();
+      await loss;
+      await controller.teardown();
+      expect(runtime.close).toHaveBeenCalledOnce();
+    },
+  );
+
   it("keeps a memoized owned runtime open across ready retries", async () => {
     const runtime = { close: vi.fn(async () => undefined) };
     const views: BrowserBootstrapView<Config, BrowserRuntime>[] = [];

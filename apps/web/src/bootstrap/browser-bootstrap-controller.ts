@@ -137,6 +137,11 @@ export function startBrowserBootstrap<TConfig, TRuntime extends BrowserRuntime>(
       if (result.status === "local-ready" || result.status === "admitted") {
         const startingRuntime = (async () => {
           const nextRuntime = await dependencies.createRuntime(result);
+          if (runtimeClosures.has(nextRuntime)) {
+            throw new Error(
+              "Runtime factory returned a closing or closed runtime",
+            );
+          }
           if (!isCurrent(attempt)) {
             if (nextRuntime !== runtime) await closeRuntime(nextRuntime);
             return;
