@@ -1,10 +1,42 @@
 import { describe, expect, it } from "vite-plus/test";
-import { formatDashboardItemCount } from "./DashboardDetailContent";
+import {
+  formatReportContentsCount,
+  formatSavedViewType,
+  reportQuestionLink,
+  reportSavedViewLink,
+} from "./DashboardDetailContent";
 
-describe("formatDashboardItemCount", () => {
-  it("uses the singular label only for one dashboard item", () => {
-    expect(formatDashboardItemCount(0)).toBe("0 items");
-    expect(formatDashboardItemCount(1)).toBe("1 item");
-    expect(formatDashboardItemCount(2)).toBe("2 items");
+describe("formatReportContentsCount", () => {
+  it("uses factual singular and plural labels for both nested artifact types", () => {
+    expect(formatReportContentsCount(0, 0)).toBe("0 questions · 0 saved views");
+    expect(formatReportContentsCount(1, 1)).toBe("1 question · 1 saved view");
+    expect(formatReportContentsCount(2, 3)).toBe("2 questions · 3 saved views");
+  });
+});
+
+describe("formatSavedViewType", () => {
+  it("falls back for persisted chart types outside the current metadata set", () => {
+    expect(formatSavedViewType("barX")).toBe("Horizontal bar");
+    expect(formatSavedViewType("legacy-pie")).toBe("Saved view");
+  });
+});
+
+describe("reportQuestionLink", () => {
+  it("keeps an existing question scoped to the report it was opened from", () => {
+    expect(reportQuestionLink("question-1", "report-b")).toEqual({
+      to: "/insights/question-1",
+      search: { reportId: "report-b" },
+    });
+  });
+});
+
+describe("reportSavedViewLink", () => {
+  it("keeps a saved view scoped to the second report it was opened from", () => {
+    const reportIds = ["report-a", "report-b"];
+
+    expect(reportSavedViewLink("view-1", reportIds[1])).toEqual({
+      to: "/visualizations/view-1",
+      search: { reportId: "report-b" },
+    });
   });
 });

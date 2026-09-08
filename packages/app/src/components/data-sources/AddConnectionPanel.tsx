@@ -15,14 +15,14 @@ import {
   Spinner,
 } from "@wystack/ui-react";
 import type { ReactNode } from "react";
-import { useMemo } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { ConnectorCardWithForm } from "./renderers";
 
 export interface AddConnectionPanelProps {
   /** Global error message to display */
   error?: string | null;
   /** Called when a file is selected from a file connector */
-  onFileSelect: (connector: FileSourceConnector, file: File) => void;
+  onFileSelect: (connector: FileSourceConnector, file: File) => Promise<void>;
   /**
    * Called when a remote connector's form is submitted with validated
    * credentials. The credential is resolved server-side — the renderer never
@@ -37,6 +37,7 @@ export interface AddConnectionPanelProps {
     connector: RemoteApiConnector,
     dataSourceId: string,
   ) => Promise<void>;
+  onActivityChange?: (active: boolean) => void;
 }
 
 /**
@@ -56,8 +57,32 @@ export function AddConnectionPanel({
   onFileSelect,
   onConnect,
   onOAuthConnect,
+  onActivityChange,
 }: AddConnectionPanelProps) {
+  const [activeConnectorId, setActiveConnectorId] = useState<string | null>(
+    null,
+  );
+  const activeConnectorIdRef = useRef<string | null>(null);
   const { data: catalog, isLoading, isError, refetch } = useConnectorCatalog();
+
+  const handleActivityChange = useCallback(
+    (connectorId: string, active: boolean): boolean => {
+      if (active) {
+        if (activeConnectorIdRef.current !== null) return false;
+        activeConnectorIdRef.current = connectorId;
+        setActiveConnectorId(connectorId);
+        onActivityChange?.(true);
+        return true;
+      }
+
+      if (activeConnectorIdRef.current !== connectorId) return false;
+      activeConnectorIdRef.current = null;
+      setActiveConnectorId(null);
+      onActivityChange?.(active);
+      return true;
+    },
+    [onActivityChange],
+  );
 
   // Subscribed so `connectors` below recomputes once the client registry
   // hydrates (ConnectorSetup's effect runs after this component's first
@@ -106,7 +131,20 @@ export function AddConnectionPanel({
             connector={connector}
             onFileSelect={onFileSelect}
             onConnect={onConnect}
-            onOAuthConnect={onOAuthConnect}
+            onOAuthConnect={async (...args) => {
+              try {
+                await onOAuthConnect(...args);
+              } catch (cause) {
+                handleActivityChange(connector.id, false);
+                throw cause;
+              }
+            }}
+            onActivityChange={(active) =>
+              handleActivityChange(connector.id, active)
+            }
+            disabled={
+              activeConnectorId !== null && activeConnectorId !== connector.id
+            }
           />
         ))}
       </div>

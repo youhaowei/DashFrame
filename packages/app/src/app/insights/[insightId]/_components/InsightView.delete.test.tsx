@@ -17,6 +17,7 @@ import {
   buildChartSuggestionInsight,
   canAttemptVisualizeIntent,
   requestSavedVisualizationDeletion,
+  resolveAddToReportTarget,
   resolveSuggestionDimensionFieldIds,
   resolvePendingVisualModeTarget,
   resolveVisualModeTarget,
@@ -169,6 +170,35 @@ describe("resolveVisualModeTarget", () => {
         firstSuggestedChartType: "line",
       }),
     ).toEqual({ kind: "chart", chartType: "line" });
+  });
+});
+
+describe("resolveAddToReportTarget", () => {
+  it("does not treat pending or failed dashboard queries as a missing report", () => {
+    expect(
+      resolveAddToReportTarget({
+        reportId: "report-b",
+        dashboards: undefined,
+        isPending: true,
+        isError: false,
+      }),
+    ).toEqual({ kind: "pending" });
+    expect(
+      resolveAddToReportTarget({
+        reportId: "report-b",
+        dashboards: undefined,
+        isPending: false,
+        isError: true,
+      }),
+    ).toEqual({ kind: "query-error" });
+    expect(
+      resolveAddToReportTarget({
+        reportId: "report-b",
+        dashboards: [{ id: "report-a", items: [] }],
+        isPending: false,
+        isError: false,
+      }),
+    ).toEqual({ kind: "missing-report" });
   });
 });
 

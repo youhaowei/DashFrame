@@ -1,4 +1,9 @@
+import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 import { ArtifactPageHeader } from "@/components/artifacts/ArtifactPageHeader";
+import {
+  ArtifactCard,
+  ArtifactGrid,
+} from "@/components/artifacts/ArtifactCollection";
 import { queryStatus } from "@/data/query-status";
 import { Breadcrumb } from "@dashframe/ui";
 import { useQuery_experimental as useQuery, useMutation } from "convex/react";
@@ -9,10 +14,16 @@ import {
   resolveInsightAvailableFields,
   type CombinedField,
 } from "@/lib/insights/compute-combined-fields";
+import {
+  indexReportContents,
+  reportQuestionListState,
+  resolveReportContents,
+} from "@/lib/reports/report-contents";
 import { useWebMCPPageStore } from "@/lib/stores/webmcp-page-store";
 import { api } from "@dashframe/convex-backend/api";
 import {
   cmd,
+  CHART_TYPE_METADATA,
   type DashboardItemType,
   type InsightFilter,
   type UUID,
@@ -45,8 +56,32 @@ interface DashboardDetailContentProps {
   dashboardId: string;
 }
 
-export function formatDashboardItemCount(itemCount: number): string {
-  return `${itemCount} item${itemCount === 1 ? "" : "s"}`;
+export function formatReportContentsCount(
+  questionCount: number,
+  savedViewCount: number,
+): string {
+  return `${questionCount} question${questionCount === 1 ? "" : "s"} · ${savedViewCount} saved view${savedViewCount === 1 ? "" : "s"}`;
+}
+
+export function formatSavedViewType(visualizationType: string): string {
+  return Object.hasOwn(CHART_TYPE_METADATA, visualizationType)
+    ? CHART_TYPE_METADATA[visualizationType as keyof typeof CHART_TYPE_METADATA]
+        .displayName
+    : "Saved view";
+}
+
+export function reportQuestionLink(questionId: string, reportId: string) {
+  return {
+    to: `/insights/${questionId}`,
+    search: { reportId },
+  } as const;
+}
+
+export function reportSavedViewLink(savedViewId: string, reportId: string) {
+  return {
+    to: `/visualizations/${savedViewId}`,
+    search: { reportId },
+  } as const;
 }
 
 export default function DashboardDetailContent({
@@ -59,12 +94,16 @@ export default function DashboardDetailContent({
     isLoading,
     isFetching,
   } = queryStatus(useQuery({ query: api.app.listDashboards, args: {} }));
-  const { data: visualizations = [] } = queryStatus(
-    useQuery({ query: api.app.listVisualizations, args: {} }),
-  );
-  const { data: insights = [] } = queryStatus(
-    useQuery({ query: api.app.listInsights, args: {} }),
-  );
+  const {
+    data: visualizations = [],
+    isLoading: visualizationsLoading,
+    isError: visualizationsLoadError,
+  } = queryStatus(useQuery({ query: api.app.listVisualizations, args: {} }));
+  const {
+    data: insights = [],
+    isLoading: insightsLoading,
+    isError: insightsLoadError,
+  } = queryStatus(useQuery({ query: api.app.listInsights, args: {} }));
   const { data: dataTables = [] } = queryStatus(
     useQuery({ query: api.app.listDataTables, args: {} }),
   );
@@ -75,6 +114,17 @@ export default function DashboardDetailContent({
     () => dashboards.find((d) => d.id === dashboardId),
     [dashboards, dashboardId],
   );
+  const reportContents = useMemo(
+    () =>
+      dashboard
+        ? resolveReportContents(
+            dashboard,
+            indexReportContents(visualizations, insights),
+          )
+        : { savedViews: [], questionIds: [], questions: [] },
+    [dashboard, insights, visualizations],
+  );
+  const questionListState = reportQuestionListState(reportContents);
 
   // Bind the assistant to this dashboard (cleared on unmount).
   useBindArtifact(
@@ -142,6 +192,7 @@ export default function DashboardDetailContent({
 
   // ── Local UI state ────────────────────────────────────────────────────────
   const [isEditable, setIsEditable] = useState(false);
+  const [isCreateQuestionOpen, setIsCreateQuestionOpen] = useState(false);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isAddPending, setIsAddPending] = useState(false);
   const [addType, setAddType] = useState<DashboardItemType>("visualization");
@@ -160,10 +211,31 @@ export default function DashboardDetailContent({
   }, [isLoading, isFetching, dashboard, navigate]);
 
   // Show loading state until we have the dashboard (or any fetch is in progress)
-  if (isLoading || isFetching || !dashboard) {
+  if (
+    isLoading ||
+    isFetching ||
+    visualizationsLoading ||
+    insightsLoading ||
+    !dashboard
+  ) {
     return (
       <div className="flex h-full items-center justify-center">
-        <p className="text-sm text-neutral-fg-subtle">Loading dashboard...</p>
+        <p className="text-sm text-neutral-fg-subtle">Loading report...</p>
+      </div>
+    );
+  }
+
+  if (visualizationsLoadError || insightsLoadError) {
+    return (
+      <div className="flex h-full items-center justify-center px-6 text-center">
+        <div>
+          <h1 className="text-lg font-semibold text-neutral-fg">
+            Couldn&apos;t load report contents
+          </h1>
+          <p className="mt-2 text-sm text-neutral-fg-subtle">
+            Something went wrong. Check your connection and try again.
+          </p>
+        </div>
       </div>
     );
   }
@@ -204,8 +276,8 @@ export default function DashboardDetailContent({
       });
     } catch (error) {
       // Keep the dialog open so the user's selection isn't lost.
-      console.error("Failed to add dashboard widget", error);
-      toast.error("Couldn't add widget");
+      console.error("Failed to add report item", error);
+      toast.error("Couldn't add report item");
       return;
     } finally {
       setIsAddPending(false);
@@ -220,12 +292,15 @@ export default function DashboardDetailContent({
     <div className="flex h-full flex-col">
       <ArtifactPageHeader
         title={dashboard.name}
-        description={formatDashboardItemCount(dashboard.items.length)}
+        description={formatReportContentsCount(
+          reportContents.questionIds.length,
+          reportContents.savedViews.length,
+        )}
         navigation={
           <Breadcrumb
             LinkComponent={Link}
             items={[
-              { label: "Dashboards", to: "/dashboards" },
+              { label: "Reports", to: "/dashboards" },
               { label: dashboard.name },
             ]}
           />
@@ -235,14 +310,14 @@ export default function DashboardDetailContent({
             {isEditable ? (
               <Button
                 icon={CheckIcon}
-                label="Done Editing"
+                label="Done editing"
                 onClick={() => setIsEditable(false)}
               />
             ) : (
               <Button
                 variant="outline"
                 icon={EditIcon}
-                label="Edit Dashboard"
+                label="Edit report"
                 onClick={() => setIsEditable(true)}
               />
             )}
@@ -250,13 +325,104 @@ export default function DashboardDetailContent({
               <Button
                 color="secondary"
                 icon={PlusIcon}
-                label="Add Widget"
+                label="Add item"
                 onClick={() => setIsAddOpen(true)}
               />
             )}
           </>
         }
       />
+
+      <div className="max-h-[42vh] shrink-0 space-y-6 overflow-y-auto bg-neutral-bg px-4 py-5 sm:px-6">
+        <section
+          aria-labelledby="report-questions-heading"
+          className="space-y-3"
+        >
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2
+                id="report-questions-heading"
+                className="text-sm font-semibold text-neutral-fg"
+              >
+                Questions ({reportContents.questionIds.length})
+              </h2>
+              <p className="mt-1 text-xs text-neutral-fg-subtle">
+                Questions used by saved views on this report.
+              </p>
+            </div>
+            <Link
+              to="/insights"
+              className="text-xs font-medium text-palette-primary hover:underline"
+            >
+              View all questions
+            </Link>
+          </div>
+          {reportContents.questions.length > 0 ? (
+            <ArtifactGrid>
+              {reportContents.questions.map((question) => {
+                const savedViewCount = reportContents.savedViews.filter(
+                  (view) => view.insightId === question.id,
+                ).length;
+                return (
+                  <ArtifactCard
+                    key={question.id}
+                    headingLevel={3}
+                    {...reportQuestionLink(question.id, dashboardId)}
+                    name={question.name}
+                    icon={<FileIcon className="h-5 w-5" />}
+                    metadata={`${savedViewCount} saved view${savedViewCount === 1 ? "" : "s"} in this report`}
+                  />
+                );
+              })}
+            </ArtifactGrid>
+          ) : null}
+          {questionListState === "unavailable" ? (
+            <p className="text-sm text-neutral-fg-subtle">
+              Some question details are unavailable.
+            </p>
+          ) : null}
+          {questionListState === "empty" ? (
+            <div className="space-y-3">
+              <p className="text-sm text-neutral-fg-subtle">
+                No questions yet. Start with your data, then add a saved view to
+                this report.
+              </p>
+              <Button
+                label="Create first question"
+                icon={PlusIcon}
+                onClick={() => setIsCreateQuestionOpen(true)}
+              />
+            </div>
+          ) : null}
+        </section>
+
+        <section aria-labelledby="report-views-heading" className="space-y-3">
+          <h2
+            id="report-views-heading"
+            className="text-sm font-semibold text-neutral-fg"
+          >
+            Saved views ({reportContents.savedViews.length})
+          </h2>
+          {reportContents.savedViews.length > 0 ? (
+            <ArtifactGrid>
+              {reportContents.savedViews.map((view) => (
+                <ArtifactCard
+                  key={view.id}
+                  headingLevel={3}
+                  {...reportSavedViewLink(view.id, dashboardId)}
+                  name={view.name}
+                  icon={<ChartIcon className="h-5 w-5" />}
+                  metadata={formatSavedViewType(view.visualizationType)}
+                />
+              ))}
+            </ArtifactGrid>
+          ) : (
+            <p className="text-sm text-neutral-fg-subtle">
+              No saved views are on this report yet.
+            </p>
+          )}
+        </section>
+      </div>
 
       {/* Control Bar — only rendered when the dashboard has controls */}
       {(dashboard.controls ?? []).length > 0 && (
@@ -277,15 +443,22 @@ export default function DashboardDetailContent({
         />
       </div>
 
+      <CreateVisualizationModal
+        isOpen={isCreateQuestionOpen}
+        onClose={() => setIsCreateQuestionOpen(false)}
+        title="Create question"
+        reportId={dashboardId}
+      />
+
       {/* Add Widget Dialog */}
       <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add Widget</DialogTitle>
+            <DialogTitle>Add report item</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label>Widget Type</Label>
+              <Label>Item type</Label>
               <div className="grid grid-cols-2 gap-4">
                 <div
                   className={`cursor-pointer rounded-lg border p-4 transition-all ${
@@ -297,10 +470,10 @@ export default function DashboardDetailContent({
                 >
                   <div className="mb-2 flex items-center gap-2 font-medium">
                     <ChartIcon className="h-4 w-4" />
-                    Visualization
+                    Saved view
                   </div>
                   <p className="text-xs text-neutral-fg-subtle">
-                    Add an existing chart or table
+                    Add an existing saved chart
                   </p>
                 </div>
                 <div
@@ -324,13 +497,13 @@ export default function DashboardDetailContent({
 
             {addType === "visualization" && (
               <div className="space-y-2">
-                <Label>Select Visualization</Label>
+                <Label>Select saved view</Label>
                 <Select
                   value={selectedVizId}
                   onValueChange={(v) => setSelectedVizId(v ?? "")}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Choose a visualization..." />
+                    <SelectValue placeholder="Choose a saved view..." />
                   </SelectTrigger>
                   <SelectContent>
                     {visualizations.map((viz) => (
@@ -350,7 +523,7 @@ export default function DashboardDetailContent({
               onClick={() => setIsAddOpen(false)}
             />
             <Button
-              label="Add Widget"
+              label="Add item"
               onClick={handleAddItem}
               disabled={
                 isAddPending || (addType === "visualization" && !selectedVizId)

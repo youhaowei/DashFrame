@@ -16,7 +16,7 @@ interface ConnectorCardWithFormProps {
   /** The connector to render */
   connector: AnyConnector;
   /** Called when a file is selected (file connectors only) */
-  onFileSelect: (connector: FileSourceConnector, file: File) => void;
+  onFileSelect: (connector: FileSourceConnector, file: File) => Promise<void>;
   /**
    * Called when a remote-api connector's form is submitted with validated
    * credentials. The renderer never calls `connector.connect()` itself — that
@@ -34,6 +34,9 @@ interface ConnectorCardWithFormProps {
     connector: RemoteApiConnector,
     dataSourceId: string,
   ) => Promise<void>;
+  /** Returns false when another connector already owns onboarding. */
+  onActivityChange?: (active: boolean) => boolean | void;
+  disabled?: boolean;
 }
 
 const POLL_INTERVAL_MS = 2_000;
@@ -49,6 +52,8 @@ const POLL_TIMEOUT_MS = 15 * 60 * 1_000;
  */
 interface PollToken {
   cancelled: boolean;
+  activityHeld: boolean;
+  activityTransferred: boolean;
   timer?: number;
 }
 
@@ -66,11 +71,13 @@ async function settleOAuthPoll(
   current: { state: string; dataSourceId?: string; failureMessage?: string },
   connector: RemoteApiConnector,
   onOAuthConnect: ConnectorCardWithFormProps["onOAuthConnect"],
+  token: PollToken,
 ): Promise<boolean> {
   if (current.state === "connected") {
     if (!current.dataSourceId) {
       throw new Error("Connected source id is missing");
     }
+    token.activityTransferred = true;
     await onOAuthConnect(connector, current.dataSourceId);
     return true;
   }
@@ -101,7 +108,8 @@ async function pollOAuthCompletion(
     // Checked again after the round trip: the component can unmount while the
     // query is in flight, and onOAuthConnect updates parent state.
     if (token.cancelled) return;
-    if (await settleOAuthPoll(current, connector, onOAuthConnect)) return;
+    if (await settleOAuthPoll(current, connector, onOAuthConnect, token))
+      return;
   }
   throw new Error("Google authorization timed out");
 }
@@ -184,21 +192,35 @@ export function ConnectorCardWithForm({
   onFileSelect,
   onConnect,
   onOAuthConnect,
+  onActivityChange,
+  disabled,
 }: ConnectorCardWithFormProps) {
   // Hook called at component top level - safe!
   const { form, formFields, execute, isSubmitting, submitError } =
     useConnectorForm(connector);
 
-  const pollToken = useRef<PollToken>({ cancelled: false });
+  const pollToken = useRef<PollToken>({
+    cancelled: false,
+    activityHeld: false,
+    activityTransferred: false,
+  });
+  const onActivityChangeRef = useRef(onActivityChange);
+  useEffect(() => {
+    onActivityChangeRef.current = onActivityChange;
+  }, [onActivityChange]);
   useEffect(() => {
     const token = pollToken.current;
     return () => {
       token.cancelled = true;
       if (token.timer !== undefined) window.clearTimeout(token.timer);
+      if (token.activityHeld && !token.activityTransferred) {
+        token.activityHeld = false;
+        onActivityChangeRef.current?.(false);
+      }
     };
   }, []);
 
-  const handleFileSelect = (file: File) => {
+  const handleFileSelect = async (file: File) => {
     // Type guard with graceful recovery: if type mismatch occurs (e.g., bad data
     // from storage), log error and return instead of crashing the UI
     if (!isFileConnector(connector)) {
@@ -208,7 +230,12 @@ export function ConnectorCardWithForm({
       );
       return;
     }
-    onFileSelect(connector, file);
+    if (disabled || onActivityChange?.(true) === false) return;
+    try {
+      await onFileSelect(connector, file);
+    } finally {
+      onActivityChange?.(false);
+    }
   };
 
   const handleConnect = async () => {
@@ -221,11 +248,19 @@ export function ConnectorCardWithForm({
       );
       return;
     }
+    if (disabled || onActivityChange?.(true) === false) return;
     if (connector.authKind === "oauth") {
-      pollToken.current.cancelled = false;
-      await execute(() =>
-        runOAuthSetup(connector, onOAuthConnect, pollToken.current),
+      const token = pollToken.current;
+      token.cancelled = false;
+      token.activityHeld = true;
+      token.activityTransferred = false;
+      const result = await execute(() =>
+        runOAuthSetup(connector, onOAuthConnect, token),
       );
+      token.activityHeld = false;
+      if (result === null && !token.activityTransferred) {
+        onActivityChange?.(false);
+      }
       return;
     }
 
@@ -234,7 +269,10 @@ export function ConnectorCardWithForm({
     // resolver throws by design). execute() validates the form and returns the
     // credential values; the parent creates the DataSource (storing the key as a
     // vault SecretRef) and lists databases via the listNotionDatabases mutation.
-    await execute((data) => onConnect(connector, data));
+    const result = await execute((data) => onConnect(connector, data));
+    if (result === null) {
+      onActivityChange?.(false);
+    }
   };
 
   return (
@@ -243,6 +281,7 @@ export function ConnectorCardWithForm({
       onFileSelect={handleFileSelect}
       onConnect={handleConnect}
       isLoading={isSubmitting}
+      disabled={disabled}
       submitError={submitError}
     >
       {/* Render TanStack Form fields */}

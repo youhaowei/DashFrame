@@ -1,10 +1,18 @@
 import { nativeQueryMock, hostQueryMock } from "@/test/native-query-fixture";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-const { mockLocation } = vi.hoisted(() => ({
+const { mockClearAllData, mockLocation, mockReloadRoot } = vi.hoisted(() => ({
+  mockClearAllData: vi.fn(),
   mockLocation: { pathname: "/data-sources" },
+  mockReloadRoot: vi.fn(),
 }));
 
 vi.mock("@/components/access-credentials/AccessCredentialsDialog", () => ({
@@ -14,7 +22,13 @@ vi.mock("@/components/theme-toggle", () => ({ ThemeToggle: () => null }));
 vi.mock("@/data", () => ({
   useAccessCapabilities: () => ({ data: { canManageCredentials: false } }),
 }));
-vi.mock("@/lib/data-access/data-frames", () => ({ clearAllData: vi.fn() }));
+vi.mock("@/lib/data-access/data-frames", () => ({
+  clearAllData: mockClearAllData,
+}));
+vi.mock("@/lib/clear-all-data-navigation", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/clear-all-data-navigation")>()),
+  reloadRootWithFreshWorkspaceState: mockReloadRoot,
+}));
 vi.mock("@/lib/perf", () => ({ PerfHud: () => null }));
 vi.mock("@/lib/stores", () => ({
   useToastStore: () => ({ showError: vi.fn(), showSuccess: vi.fn() }),
@@ -30,7 +44,9 @@ vi.mock("@/lib/stores/shell-store", () => ({
 }));
 vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
-  useQuery_experimental: nativeQueryMock(() => ({ data: [] })),
+  useQuery_experimental: nativeQueryMock((ref: { _path: string }) => ({
+    data: ref._path === "listDraftCount" ? 0 : [],
+  })),
 }));
 vi.mock("@/data/host", () => ({
   useHostQuery: hostQueryMock(() => ({ data: [] })),
@@ -52,7 +68,6 @@ vi.mock("@tanstack/react-router", () => ({
     select,
   }: { select?: (location: { pathname: string }) => unknown } = {}) =>
     select ? select(mockLocation) : mockLocation,
-  useNavigate: () => vi.fn(),
 }));
 vi.mock("@wystack/ui-react", () => ({
   Badge: ({ children }: { children: React.ReactNode }) => (
@@ -95,8 +110,16 @@ vi.mock("@wystack/ui-react", () => ({
   DropdownMenuContent: ({ children }: { children: React.ReactNode }) => (
     <div>{children}</div>
   ),
-  DropdownMenuItem: ({ children }: { children: React.ReactNode }) => (
-    <button type="button">{children}</button>
+  DropdownMenuItem: ({
+    children,
+    onClick,
+  }: {
+    children: React.ReactNode;
+    onClick?: () => void;
+  }) => (
+    <button type="button" onClick={onClick}>
+      {children}
+    </button>
   ),
   DropdownMenuTrigger: ({ render: trigger }: { render: React.ReactNode }) => (
     <>{trigger}</>
@@ -122,6 +145,25 @@ import { Navigation } from "./navigation";
 describe("Navigation", () => {
   beforeEach(() => {
     mockLocation.pathname = "/data-sources";
+    mockClearAllData.mockReset();
+    mockClearAllData.mockResolvedValue(undefined);
+    mockReloadRoot.mockReset();
+  });
+
+  it("renders exactly the three ratified roots in order", () => {
+    render(<Navigation />);
+
+    const links = within(screen.getByRole("navigation")).getAllByRole("link");
+    expect(links.map((link) => link.textContent?.trim())).toEqual([
+      "Reports",
+      "Data Sources",
+      "Drafts",
+    ]);
+    expect(links.map((link) => link.getAttribute("href"))).toEqual([
+      "/dashboards",
+      "/data-sources",
+      "/drafts",
+    ]);
   });
 
   it("closes the mobile drawer when the active route is tapped", () => {
@@ -148,5 +190,19 @@ describe("Navigation", () => {
     rerender(<Navigation />);
 
     expect(screen.queryByTestId("mobile-drawer")).toBeNull();
+  });
+
+  it("reloads the root with a fresh client after clear-all succeeds", async () => {
+    render(<Navigation />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear all data" }));
+    expect(screen.getByText("Clear all data?")).not.toBeNull();
+    const clearButtons = screen.getAllByRole("button", {
+      name: "Clear all data",
+    });
+    fireEvent.click(clearButtons.at(-1)!);
+
+    await waitFor(() => expect(mockClearAllData).toHaveBeenCalledOnce());
+    expect(mockReloadRoot).toHaveBeenCalledOnce();
   });
 });

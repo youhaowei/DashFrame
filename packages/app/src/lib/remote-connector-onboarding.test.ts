@@ -1,7 +1,10 @@
 import type { UUID } from "@dashframe/types";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { connectRemoteSource } from "./remote-connector-onboarding";
+import {
+  connectRemoteSource,
+  RemoteSourceCleanupError,
+} from "./remote-connector-onboarding";
 
 const SOURCE_ID = "11111111-1111-4111-8111-111111111111" as UUID;
 
@@ -64,8 +67,9 @@ describe("connectRemoteSource", () => {
     const probeError = new Error("invalid token");
     const cleanupError = new Error("vault unavailable");
 
-    await expect(
-      connectRemoteSource({
+    let thrown: unknown;
+    try {
+      await connectRemoteSource({
         connectorId: "notion",
         connectorName: "Notion",
         credentials: { apiKey: "secret_test" },
@@ -77,9 +81,16 @@ describe("connectRemoteSource", () => {
           throw probeError;
         }),
         listPostgresTables: vi.fn(),
-      }),
-    ).rejects.toMatchObject({
+      });
+    } catch (cause) {
+      thrown = cause;
+    }
+
+    expect(thrown).toBeInstanceOf(RemoteSourceCleanupError);
+    expect(thrown).toMatchObject({
+      name: "RemoteSourceCleanupError",
       message: "Failed to connect and clean up the data source",
+      sourceId: SOURCE_ID,
       errors: [probeError, cleanupError],
     });
   });

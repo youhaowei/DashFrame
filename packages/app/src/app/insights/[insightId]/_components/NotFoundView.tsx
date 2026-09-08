@@ -26,7 +26,7 @@ export function NotFoundView({ type }: NotFoundViewProps) {
         <Button
           onClick={() => navigate({ to: "/insights" })}
           className="mt-4"
-          label="Go to Insights"
+          label="Go to Questions"
         />
       </div>
     </div>

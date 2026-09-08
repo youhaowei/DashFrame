@@ -1,59 +1,58 @@
 /**
- * Dashboard Tests
+ * Report Tests
  *
- * Tests for creating dashboards and managing widgets
+ * Tests for creating reports and managing report items
  */
 import { expect, test } from "../lib/test-fixtures";
 
-test.describe("Dashboard", () => {
-  test("create dashboard", async ({ page, homePage }) => {
+test.describe("Reports", () => {
+  test("create report", async ({ page, homePage }) => {
     await homePage();
 
-    // Navigate to dashboards
-    await page.getByRole("link", { name: /dashboards/i }).click();
+    // Navigate to reports
+    await page.getByRole("link", { name: "Reports" }).click();
     await expect(page).toHaveURL(/\/dashboards/);
 
-    // Create new dashboard - button text varies:
-    // "New Dashboard" when dashboards exist, "Create Dashboard" when empty
-    const newDashboardBtn = page.getByRole("button", { name: "New Dashboard" });
-    const createDashboardBtn = page.getByRole("button", {
-      name: "Create Dashboard",
+    // Create new report - button text varies by collection state.
+    const newReportButton = page.getByRole("button", { name: "New report" });
+    const createReportButton = page.getByRole("button", {
+      name: "Create report",
     });
 
-    if (await newDashboardBtn.isVisible()) {
-      await newDashboardBtn.click();
+    if (await newReportButton.isVisible()) {
+      await newReportButton.click();
     } else {
-      await createDashboardBtn.click();
+      await createReportButton.click();
     }
 
-    // Fill in the dashboard name in the dialog
-    await page.getByPlaceholder("e.g., Sales Overview").fill("Test Dashboard");
+    // Fill in the report name in the dialog
+    await page.getByPlaceholder("e.g., Sales overview").fill("Test report");
     await page.getByRole("button", { name: "Create" }).click();
 
-    // Should redirect to new dashboard
+    // Should redirect to the new report detail.
     await expect(page).toHaveURL(/\/dashboards\/[a-zA-Z0-9-]+/, {
       timeout: 10_000,
     });
 
-    // Verify dashboard page loaded
+    // Verify report page loaded
     await expect(
-      page.getByRole("heading", { name: "Test Dashboard" }),
+      page.getByRole("heading", { name: "Test report" }),
     ).toBeVisible();
   });
 
-  test("navigate between dashboards list and detail", async ({
+  test("navigate between reports list and detail", async ({
     page,
     homePage,
   }) => {
     await homePage();
 
-    // Navigate to dashboards
-    await page.getByRole("link", { name: /dashboards/i }).click();
+    // Navigate to reports
+    await page.getByRole("link", { name: "Reports" }).click();
     await expect(page).toHaveURL(/\/dashboards/);
 
-    // Verify dashboards page loads (use exact match to avoid "No dashboards yet" heading)
+    // Verify reports page loads (use exact match to avoid "No reports yet" heading)
     await expect(
-      page.getByRole("heading", { name: "Dashboards", exact: true }),
+      page.getByRole("heading", { name: "Reports", exact: true }),
     ).toBeVisible();
   });
 });

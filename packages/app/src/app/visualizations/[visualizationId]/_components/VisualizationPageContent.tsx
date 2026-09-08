@@ -5,6 +5,7 @@ import { AppLayout } from "@/components/layouts/AppLayout";
 import { useContextPanelSection } from "@/components/shell/context-panel-outlet";
 import { AxisSelectField } from "@/components/visualizations/AxisSelectField";
 import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
+import { visualizationSourceQuestionLink } from "@/components/visualizations/visualization-navigation";
 import {
   resolveInsightSourceDataTable,
   useInsightPagination,
@@ -66,6 +67,7 @@ import { useCompiledInsight } from "../_hooks/useCompiledInsight";
 
 interface VisualizationPageContentProps {
   visualizationId: string;
+  reportId?: string;
 }
 
 type EncodingField = "x" | "y" | "color" | "size";
@@ -138,6 +140,7 @@ function AlternativeChartTypeButtons({
  */
 export default function VisualizationPageContent({
   visualizationId,
+  reportId,
 }: VisualizationPageContentProps) {
   const navigate = useNavigate();
 
@@ -684,7 +687,11 @@ export default function VisualizationPageContent({
       onConfirm: async () => {
         try {
           await removeVisualizationMutation({ id: visualizationId as UUID });
-          navigate({ to: "/insights" });
+          navigate(
+            (reportId
+              ? { to: `/dashboards/${reportId}` }
+              : { to: "/insights" }) as never,
+          );
         } catch {
           toast.error("Couldn't delete the visualization");
         }
@@ -809,15 +816,18 @@ export default function VisualizationPageContent({
             <Card
               className="cursor-pointer transition-colors hover:bg-neutral-bg-muted/50"
               onClick={() =>
-                navigate({
-                  to: `/insights/${visualization.insightId}`,
-                } as never)
+                navigate(
+                  visualizationSourceQuestionLink(
+                    visualization.insightId,
+                    reportId,
+                  ) as never,
+                )
               }
             >
               <CardContent className="p-3">
-                <p className="truncate text-sm font-medium">Source Insight</p>
+                <p className="truncate text-sm font-medium">Source question</p>
                 <p className="text-xs text-neutral-fg-subtle">
-                  Click to view insight details
+                  Click to view question details
                 </p>
               </CardContent>
             </Card>
@@ -842,6 +852,7 @@ export default function VisualizationPageContent({
     instanceAwareFields,
     isScatterType,
     navigate,
+    reportId,
     scatterRenderModeOptions,
     visualization,
     vizTypeOptions,
@@ -884,7 +895,7 @@ export default function VisualizationPageContent({
             The visualization you&apos;re looking for doesn&apos;t exist.
           </p>
           <Button
-            label="Go to Insights"
+            label="Go to Questions"
             onClick={() => navigate({ to: "/insights" })}
             className="mt-4"
           />
@@ -927,9 +938,12 @@ export default function VisualizationPageContent({
                 <Button
                   label="Go to Source Insight"
                   onClick={() =>
-                    navigate({
-                      to: `/insights/${visualization.insightId}`,
-                    } as never)
+                    navigate(
+                      visualizationSourceQuestionLink(
+                        visualization.insightId,
+                        reportId,
+                      ) as never,
+                    )
                   }
                 />
               )}
@@ -975,9 +989,12 @@ export default function VisualizationPageContent({
                 <button
                   type="button"
                   onClick={() =>
-                    navigate({
-                      to: `/insights/${visualization.insightId}`,
-                    } as never)
+                    navigate(
+                      visualizationSourceQuestionLink(
+                        visualization.insightId,
+                        reportId,
+                      ) as never,
+                    )
                   }
                   className="text-palette-primary hover:underline"
                 >

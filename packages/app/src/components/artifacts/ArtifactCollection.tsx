@@ -122,6 +122,7 @@ export function ArtifactEmptyState({
 
 export type ArtifactCardProps = {
   to?: string;
+  search?: Record<string, string | undefined>;
   name: ReactNode;
   headingLevel?: 2 | 3;
   metadata?: ReactNode;
@@ -134,6 +135,7 @@ export type ArtifactCardProps = {
 /** Shared content card; menus and confirmation controls stay outside navigation. */
 export function ArtifactCard({
   to,
+  search,
   name,
   headingLevel = 2,
   metadata,
@@ -175,6 +177,7 @@ export function ArtifactCard({
       {to ? (
         <Link
           to={to as never}
+          search={search as never}
           className={`${contentClassName} outline-none focus-visible:ring-2 focus-visible:ring-neutral-ring focus-visible:ring-offset-2 focus-visible:ring-offset-neutral-bg`}
         >
           {content}
