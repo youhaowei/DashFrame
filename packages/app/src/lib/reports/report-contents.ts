@@ -36,3 +36,15 @@ export function resolveReportContents(
 
   return { savedViews, questionIds, questions };
 }
+
+export function reportQuestionListState(
+  contents: Pick<
+    ReturnType<typeof resolveReportContents>,
+    "questionIds" | "questions"
+  >,
+): "available" | "unavailable" | "empty" {
+  if (contents.questionIds.length === 0) return "empty";
+  return contents.questions.length === contents.questionIds.length
+    ? "available"
+    : "unavailable";
+}

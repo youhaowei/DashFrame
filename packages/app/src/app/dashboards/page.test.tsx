@@ -367,7 +367,7 @@ describe("DashboardsPage – delete confirmation", () => {
     expect(screen.queryByText("Quarterly plan")).toBeNull();
   });
 
-  it("does not count a missing question row from a dangling saved view", () => {
+  it("retains the referenced question count while its row is unavailable", () => {
     mockUseQuery.mockImplementation((ref: { _path: string }) => {
       if (ref._path === "listDashboards") {
         return {
@@ -395,7 +395,7 @@ describe("DashboardsPage – delete confirmation", () => {
     render(<DashboardsPage />);
 
     screen.getByRole("link", {
-      name: /Quarterly plan 0 questions 1 saved view/,
+      name: /Quarterly plan 1 question 1 saved view/,
     });
   });
 

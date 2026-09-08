@@ -771,7 +771,11 @@ function rememberInsightCreationResolutionBySourceId(
   if (target.table !== "insights") {
     return;
   }
-  const source = record(record(command.args).source);
+  const args = record(command.args);
+  if (command.path === "createInsightCmd" && !isUnmodifiedDraft(args)) {
+    return;
+  }
+  const source = record(args.source);
   if (
     source.sourceType === "dataTable" &&
     typeof source.sourceId === "string" &&

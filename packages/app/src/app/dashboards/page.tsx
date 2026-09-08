@@ -227,8 +227,8 @@ export default function DashboardsPage() {
                 name={dashboard.name}
                 metadata={
                   <>
-                    {contents.questions.length} question
-                    {contents.questions.length !== 1 ? "s" : ""}
+                    {contents.questionIds.length} question
+                    {contents.questionIds.length !== 1 ? "s" : ""}
                     <span aria-hidden="true"> · </span>
                     {contents.savedViews.length} saved view
                     {contents.savedViews.length !== 1 ? "s" : ""}

@@ -2,6 +2,7 @@ import { useQuery_experimental as useQuery, useMutation } from "convex/react";
 import { queryStatus } from "@/data/query-status";
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { VisualizationPreview } from "@/components/visualizations/VisualizationPreview";
+import { visualizationDetailLink } from "@/components/visualizations/visualization-navigation";
 import {
   resolveInsightSourceDataTable,
   useInsightPagination,
@@ -1336,9 +1337,15 @@ export function InsightView({
         encoding: viz.encoding,
       });
 
-      navigate({ to: `/visualizations/${newVizId}` } as never);
+      navigate(visualizationDetailLink(newVizId, reportId) as never);
     },
-    [insightVisualizations, createVisualizationLocal, insightId, navigate],
+    [
+      insightVisualizations,
+      createVisualizationLocal,
+      insightId,
+      navigate,
+      reportId,
+    ],
   );
 
   // Handle deleting a visualization

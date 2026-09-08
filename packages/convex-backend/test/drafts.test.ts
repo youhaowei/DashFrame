@@ -382,6 +382,78 @@ it("keeps explicit question source reuse before the question is edited", async (
   });
 });
 
+it.each(["selected fields", "metrics"] as const)(
+  "does not reuse a question created with initial %s",
+  async (initialConfiguration) => {
+    const { tableId } = await seed();
+    const fieldId = uuid();
+    await user().mutation(api.app.commitBatch, {
+      commands: [
+        cmd("AddField", {
+          nodeId: tableId,
+          field: {
+            id: fieldId,
+            name: "Amount",
+            tableId,
+            columnName: "amount",
+            type: "number",
+          },
+        }),
+      ],
+    });
+    const configuredInsightId = uuid();
+    const discardedDraftInsightId = uuid();
+    const { draftId } = await user().mutation(api.app.draftBatch, {
+      commands: [
+        cmd("CreateInsight", {
+          id: configuredInsightId,
+          name: "Configured question",
+          source: { sourceType: "dataTable", sourceId: tableId },
+          ...(initialConfiguration === "selected fields"
+            ? { selectedFields: [fieldId] }
+            : {
+                metrics: [
+                  {
+                    id: uuid(),
+                    name: "sum(Amount)",
+                    sourceTable: tableId,
+                    columnName: `field_${fieldId.replaceAll("-", "_")}`,
+                    aggregation: "sum" as const,
+                  },
+                ],
+              }),
+        }),
+        cmd("GetOrCreateInsightDraft", {
+          id: discardedDraftInsightId,
+          name: "Fresh question",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+        cmd("DeleteNode", { id: discardedDraftInsightId }),
+      ],
+    });
+
+    const listed = (await user().query(api.app.listDrafts, {})).find(
+      (draft) => draft.draftId === draftId,
+    );
+    expect(listed?.summary).toEqual({
+      directNodes: [
+        {
+          nodeId: configuredInsightId,
+          kind: "insight",
+          name: "Configured question",
+          intent: [
+            {
+              command: "CreateInsight",
+              summary: 'Create question "Configured question"',
+            },
+          ],
+        },
+      ],
+      remainingIntentCount: 2,
+    });
+  },
+);
+
 it("keeps create and delete intent for a draft-local report", async () => {
   const reportId = uuid();
   const { draftId } = await user().mutation(api.app.draftBatch, {

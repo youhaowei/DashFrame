@@ -16,6 +16,7 @@ import {
 } from "@/lib/insights/compute-combined-fields";
 import {
   indexReportContents,
+  reportQuestionListState,
   resolveReportContents,
 } from "@/lib/reports/report-contents";
 import { useWebMCPPageStore } from "@/lib/stores/webmcp-page-store";
@@ -123,6 +124,7 @@ export default function DashboardDetailContent({
         : { savedViews: [], questionIds: [], questions: [] },
     [dashboard, insights, visualizations],
   );
+  const questionListState = reportQuestionListState(reportContents);
 
   // Bind the assistant to this dashboard (cleared on unmount).
   useBindArtifact(
@@ -291,7 +293,7 @@ export default function DashboardDetailContent({
       <ArtifactPageHeader
         title={dashboard.name}
         description={formatReportContentsCount(
-          reportContents.questions.length,
+          reportContents.questionIds.length,
           reportContents.savedViews.length,
         )}
         navigation={
@@ -342,7 +344,7 @@ export default function DashboardDetailContent({
                 id="report-questions-heading"
                 className="text-sm font-semibold text-neutral-fg"
               >
-                Questions ({reportContents.questions.length})
+                Questions ({reportContents.questionIds.length})
               </h2>
               <p className="mt-1 text-xs text-neutral-fg-subtle">
                 Questions used by saved views on this report.
@@ -373,7 +375,13 @@ export default function DashboardDetailContent({
                 );
               })}
             </ArtifactGrid>
-          ) : (
+          ) : null}
+          {questionListState === "unavailable" ? (
+            <p className="text-sm text-neutral-fg-subtle">
+              Some question details are unavailable.
+            </p>
+          ) : null}
+          {questionListState === "empty" ? (
             <div className="space-y-3">
               <p className="text-sm text-neutral-fg-subtle">
                 No questions yet. Start with your data, then add a saved view to
@@ -385,7 +393,7 @@ export default function DashboardDetailContent({
                 onClick={() => setIsCreateQuestionOpen(true)}
               />
             </div>
-          )}
+          ) : null}
         </section>
 
         <section aria-labelledby="report-views-heading" className="space-y-3">

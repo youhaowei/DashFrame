@@ -5,6 +5,7 @@ import { AppLayout } from "@/components/layouts/AppLayout";
 import { useContextPanelSection } from "@/components/shell/context-panel-outlet";
 import { AxisSelectField } from "@/components/visualizations/AxisSelectField";
 import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
+import { visualizationSourceQuestionLink } from "@/components/visualizations/visualization-navigation";
 import {
   resolveInsightSourceDataTable,
   useInsightPagination,
@@ -93,16 +94,6 @@ function getVizIcon(type: string) {
 
 function isAxisEncodingField(field: EncodingField): field is AxisEncodingField {
   return field === "x" || field === "y";
-}
-
-export function visualizationSourceQuestionLink(
-  insightId: string,
-  reportId?: string,
-) {
-  return {
-    to: `/insights/${insightId}`,
-    search: reportId ? { reportId } : {},
-  } as const;
 }
 
 function AlternativeChartTypeButtons({

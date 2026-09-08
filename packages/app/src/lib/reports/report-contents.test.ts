@@ -1,6 +1,10 @@
 import type { Dashboard, Insight, Visualization } from "@dashframe/types";
 import { describe, expect, it } from "vite-plus/test";
-import { indexReportContents, resolveReportContents } from "./report-contents";
+import {
+  indexReportContents,
+  reportQuestionListState,
+  resolveReportContents,
+} from "./report-contents";
 
 const report = {
   id: "report-1",
@@ -71,6 +75,7 @@ describe("resolveReportContents", () => {
     expect(contents.questions.map((question) => question.id)).toEqual([
       "question-1",
     ]);
+    expect(reportQuestionListState(contents)).toBe("available");
   });
 
   it("keeps a factual question count when the Insight row is unavailable", () => {
@@ -81,5 +86,6 @@ describe("resolveReportContents", () => {
 
     expect(contents.questionIds).toEqual(["question-1"]);
     expect(contents.questions).toEqual([]);
+    expect(reportQuestionListState(contents)).toBe("unavailable");
   });
 });
