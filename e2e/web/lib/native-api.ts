@@ -1,4 +1,4 @@
-/** Exercise the same authenticated native metadata endpoint used by the renderer. */
+/** Exercise the same native metadata endpoint used by the renderer. */
 export async function nativeCall<T>(
   kind: "query" | "mutation",
   path: string,
@@ -12,7 +12,7 @@ export async function nativeCall<T>(
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!issued.ok)
-    throw new Error(`Native authentication failed: ${issued.status}`);
+    throw new Error(`Native identity issuance failed: ${issued.status}`);
   const identity = (await issued.json()) as { token: string };
   const response = await fetch(`${url}/api/convex/api/${kind}`, {
     method: "POST",

@@ -18,7 +18,6 @@ const fixturesDir = path.join(__dirname, "..", "fixtures");
 const isCI = !!process.env.CI;
 const BASE_PORT = Number(process.env.E2E_BASE_PORT ?? 3100);
 const DASHFRAME_URL = process.env.E2E_DASHFRAME_URL;
-const USER_TOKEN = process.env.E2E_USER_TOKEN;
 
 /**
  * Get the base URL for a worker based on its parallel index.
@@ -50,8 +49,6 @@ type HomePageFn = () => Promise<void>;
 interface DashFrameAutoFixtures {
   /** Clears the native host project before each test for isolation */
   clearServerDB: void;
-  /** Authenticates browser requests to the isolated API host. */
-  authenticatedRuntime: void;
 }
 
 interface DashFrameFixtures {
@@ -82,7 +79,6 @@ export const test = base.extend<DashFrameFixtures & DashFrameAutoFixtures>({
           method: "POST",
           headers: {
             "content-type": "application/json",
-            ...(USER_TOKEN ? { Authorization: `Bearer ${USER_TOKEN}` } : {}),
           },
           body: "{}",
         });
@@ -92,23 +88,6 @@ export const test = base.extend<DashFrameFixtures & DashFrameAutoFixtures>({
           );
         }
       }
-      await use();
-    },
-    { scope: "test", auto: true },
-  ],
-
-  authenticatedRuntime: [
-    async ({ page, workerBaseURL }, use) => {
-      if (!DASHFRAME_URL || !USER_TOKEN)
-        throw new Error("E2E runtime was not configured");
-      await page.route(`${workerBaseURL}/api/**`, async (route) => {
-        await route.continue({
-          headers: {
-            ...route.request().headers(),
-            authorization: `Bearer ${USER_TOKEN}`,
-          },
-        });
-      });
       await use();
     },
     { scope: "test", auto: true },
