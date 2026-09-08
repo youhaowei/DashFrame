@@ -5,7 +5,7 @@ import { internal } from "./_generated/api";
 import { requireHostedMetadataPrincipal } from "./hostedMetadataGuard";
 import { hostBatchState, cleanupItem, cleanupClaim } from "./lifecycleValues";
 import { enqueueCleanup, secretResources } from "./cleanup";
-import { localImportState } from "./schema";
+import { localImportClaimKind, localImportState } from "./schema";
 import { command, object } from "./values";
 
 async function requireOwner(ctx: QueryCtx) {
@@ -83,7 +83,10 @@ export const settleHostBatch = mutation({
 });
 
 export const beginLocalImport = mutation({
-  args: importIdentity,
+  args: {
+    ...importIdentity,
+    claimKind: v.optional(localImportClaimKind),
+  },
   returns: localImportState,
   handler: async (ctx, args): Promise<typeof localImportState.type> => {
     const { workspaceId } = await requireOwner(ctx);

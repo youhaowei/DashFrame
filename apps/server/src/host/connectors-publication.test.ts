@@ -23,7 +23,11 @@ vi.mock("@dashframe/connector-ga4", () => ({
     query: (...args: unknown[]) => ga4Query(dependencies, ...args),
   }),
 }));
-import { queryGa4Property, queryNotionDatabase } from "./connectors";
+import {
+  ga4ConnectorFor,
+  queryGa4Property,
+  queryNotionDatabase,
+} from "./connectors";
 const modules = import.meta.glob(
   "../../../../packages/convex-backend/convex/**/*.ts",
 );
@@ -32,7 +36,7 @@ async function fixture(
   outcome:
     | "success"
     | "committed"
-    | "unknown"
+    | "committedUnavailable"
     | "unavailable"
     | "beginCommitted",
 ) {
@@ -100,6 +104,7 @@ async function fixture(
       if (
         outcome === "success" ||
         outcome === "committed" ||
+        outcome === "committedUnavailable" ||
         outcome === "beginCommitted"
       ) {
         await nativeMetadata.commitImportedFrame(input);
@@ -109,7 +114,8 @@ async function fixture(
     },
   );
   const getOperation = vi.fn(async (operationId: string) => {
-    if (outcome === "unavailable") throw new Error("confirmation unavailable");
+    if (outcome === "unavailable" || outcome === "committedUnavailable")
+      throw new Error("confirmation unavailable");
     return native.query(internal.host.getOperation, {
       workspaceId: "workspace",
       operationId,
@@ -117,7 +123,11 @@ async function fixture(
   });
   let loseBeginAcknowledgement = outcome === "beginCommitted";
   const beginLocalImport = vi.fn(
-    async (input: { operationId: string; requestHash: string }) => {
+    async (input: {
+      operationId: string;
+      requestHash: string;
+      claimKind?: "local-ingest" | "connector-snapshot";
+    }) => {
       const claim = await native.mutation(internal.host.beginLocalImport, {
         workspaceId: "workspace",
         ...input,
@@ -128,6 +138,13 @@ async function fixture(
       }
       return claim;
     },
+  );
+  const cancelLocalImport = vi.fn(
+    (input: { operationId: string; requestHash: string }) =>
+      native.mutation(internal.host.cancelLocalImport, {
+        workspaceId: "workspace",
+        ...input,
+      }),
   );
   const ctx = {
     principal: { kind: "user", userId: "local-user" },
@@ -150,14 +167,7 @@ async function fixture(
           workspaceId: "workspace",
           ...input,
         }),
-      cancelLocalImport: (input: {
-        operationId: string;
-        requestHash: string;
-      }) =>
-        native.mutation(internal.host.cancelLocalImport, {
-          workspaceId: "workspace",
-          ...input,
-        }),
+      cancelLocalImport,
       commitImportedFrame,
       getOperation,
       replaceDataSourceConfig: (input: {
@@ -191,11 +201,13 @@ async function fixture(
     });
   return {
     native,
+    nativeMetadata,
     bytes,
     storage,
     commitImportedFrame,
     getOperation,
     beginLocalImport,
+    cancelLocalImport,
     queryResult,
     execute,
     dataSourceId,
@@ -220,13 +232,16 @@ describe("connector snapshot publication", () => {
     expect(h.commitImportedFrame).toHaveBeenCalledOnce();
     expect(
       await h.native.run((ctx) => ctx.db.query("localImports").collect()),
-    ).toMatchObject([
-      {
-        frameId: result.dataFrameId,
-        status: "complete",
-        requestHash: expect.stringMatching(/^[0-9a-f]{64}$/),
-      },
-    ]);
+    ).toEqual([]);
+    expect(h.beginLocalImport).toHaveBeenCalledWith(
+      expect.objectContaining({ claimKind: "connector-snapshot" }),
+    );
+    expect(
+      await h.native.query(internal.host.getOperation, {
+        workspaceId: "workspace",
+        operationId: `local-import:${h.commitImportedFrame.mock.calls[0]![0].operationId}`,
+      }),
+    ).toMatchObject({ result: null });
   });
 
   it("cancels the claim when connector fetch fails before publication", async () => {
@@ -268,7 +283,13 @@ describe("connector snapshot publication", () => {
     expect(h.beginLocalImport).toHaveBeenCalledOnce();
     expect(
       await h.native.run((ctx) => ctx.db.query("localImports").collect()),
-    ).toMatchObject([{ frameId: result.dataFrameId, status: "complete" }]);
+    ).toEqual([]);
+    expect(
+      await h.native.query(internal.host.getOperation, {
+        workspaceId: "workspace",
+        operationId: `local-import:${h.commitImportedFrame.mock.calls[0]![0].operationId}`,
+      }),
+    ).toMatchObject({ result: null });
   });
 
   it("advances the GA4 source fence after its own credential refresh", async () => {
@@ -301,6 +322,43 @@ describe("connector snapshot publication", () => {
     expect(
       h.commitImportedFrame.mock.calls[0]![0].expectedDataSourceRevision,
     ).toBe(2);
+  });
+
+  it("serializes concurrent GA4 token writes", async () => {
+    const h = await fixture("success");
+    await h.native.run(async (ctx) => {
+      const source = await ctx.db
+        .query("dataSources")
+        .withIndex("by_workspaceId_and_id", (q) =>
+          q.eq("workspaceId", "workspace").eq("id", h.dataSourceId),
+        )
+        .unique();
+      await ctx.db.patch(source!._id, { kind: "googleAnalytics" });
+    });
+    const first = await ga4ConnectorFor(h.ctx, h.dataSourceId);
+    const second = await ga4ConnectorFor(h.ctx, h.dataSourceId);
+    ga4Query.mockImplementation(async (dependencies) => {
+      await dependencies.persistTokenBundle({
+        accessToken: "fresh",
+        refreshToken: "refresh",
+        expiresAt: Date.now() + 3_600_000,
+        scopes: ["https://www.googleapis.com/auth/analytics.readonly"],
+      });
+      return h.queryResult;
+    });
+    const options = { pagination: { offset: 0, limit: 1 } };
+    await Promise.all([
+      first.query("remote-database", h.tableId, options),
+      second.query("remote-database", h.tableId, options),
+    ]);
+    expect(h.vault.store).toHaveBeenCalledTimes(2);
+    expect(h.vault.delete).toHaveBeenCalledTimes(2);
+    expect(
+      await h.native.query(internal.host.getDataSource, {
+        workspaceId: "workspace",
+        id: h.dataSourceId,
+      }),
+    ).toMatchObject({ revision: 3 });
   });
 
   it("recovers an exact GA4 token write after its acknowledgement is lost", async () => {
@@ -496,24 +554,56 @@ describe("connector snapshot publication", () => {
     ).toMatchObject([{ kind: "frame", state: "pending" }]);
   });
 
-  it.each(["unknown", "unavailable"] as const)(
-    "retains immutable bytes when publication is %s",
-    async (outcome) => {
-      const h = await fixture(outcome);
-      await expect(h.execute()).rejects.toBeInstanceOf(
-        PublicationOutcomeUnknownError,
-      );
-      expect(h.bytes.size).toBe(1);
-      expect(h.storage.delete).not.toHaveBeenCalled();
-      expect(h.commitImportedFrame).toHaveBeenCalledOnce();
-      expect(
-        await h.native.query(internal.host.getDataTable, {
-          workspaceId: "workspace",
-          id: h.tableId,
-        }),
-      ).not.toHaveProperty("dataFrameId");
-    },
-  );
+  it("does not delete a referenced frame when an unconfirmed commit won the claim race", async () => {
+    const h = await fixture("committedUnavailable");
+    await expect(h.execute()).rejects.toBeInstanceOf(
+      PublicationOutcomeUnknownError,
+    );
+    const committed = h.commitImportedFrame.mock.calls[0]![0];
+    expect(h.bytes.has(committed.frameRow.id)).toBe(true);
+    expect(h.storage.delete).not.toHaveBeenCalled();
+    expect(await h.cancelLocalImport.mock.results[0]!.value).toBe(false);
+    expect(
+      await h.native.run((ctx) => ctx.db.query("localImports").collect()),
+    ).toEqual([]);
+    expect(
+      await h.native.run((ctx) => ctx.db.query("cleanupJobs").collect()),
+    ).toEqual([]);
+    expect(
+      await h.native.query(internal.host.getDataTable, {
+        workspaceId: "workspace",
+        id: h.tableId,
+      }),
+    ).toMatchObject({ dataFrameId: committed.frameRow.id });
+  });
+
+  it("queues cleanup and fences a late commit when cancellation wins an unknown outcome", async () => {
+    const h = await fixture("unavailable");
+    await expect(h.execute()).rejects.toBeInstanceOf(
+      PublicationOutcomeUnknownError,
+    );
+    const publication = h.commitImportedFrame.mock.calls[0]![0];
+    expect(h.cancelLocalImport).toHaveBeenCalledOnce();
+    expect(await h.cancelLocalImport.mock.results[0]!.value).toBe(true);
+    expect(h.bytes.has(publication.frameRow.id)).toBe(true);
+    expect(
+      await h.native.run((ctx) => ctx.db.query("localImports").collect()),
+    ).toEqual([]);
+    expect(
+      await h.native.run((ctx) => ctx.db.query("cleanupJobs").collect()),
+    ).toMatchObject([
+      { kind: "frame", resourceId: publication.frameRow.id, state: "pending" },
+    ]);
+    await expect(
+      h.nativeMetadata.commitImportedFrame(publication),
+    ).rejects.toBeInstanceOf(ImportPublicationRejectedError);
+    expect(
+      await h.native.query(internal.host.getDataTable, {
+        workspaceId: "workspace",
+        id: h.tableId,
+      }),
+    ).not.toHaveProperty("dataFrameId");
+  });
 
   it("rejects publication when the workspace is cleared during connector fetch", async () => {
     const h = await fixture("committed");

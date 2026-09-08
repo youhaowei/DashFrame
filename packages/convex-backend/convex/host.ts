@@ -30,7 +30,7 @@ import {
   type QueryCtx,
   type MutationCtx,
 } from "./_generated/server";
-import { localImportState } from "./schema";
+import { localImportClaimKind, localImportState } from "./schema";
 import { find, rowValue } from "./store";
 import type {
   ArtifactRow,
@@ -384,29 +384,9 @@ export const commitImportedFrame = internalMutation({
       request,
       result: null,
     });
-    if (claim) {
-      // Keep enough completed claims for ordinary response-loss recovery while
-      // bounding per-refresh growth. Pending claims and clear tombstones are
-      // never eligible for this retention pass.
-      const completed = (
-        await Promise.all(
-          [false, undefined].map((cancelled) =>
-            ctx.db
-              .query("localImports")
-              .withIndex("by_workspaceId_and_status_and_cancelled", (q) =>
-                q
-                  .eq("workspaceId", args.workspaceId)
-                  .eq("status", "complete")
-                  .eq("cancelled", cancelled),
-              )
-              .order("desc")
-              .take(101),
-          ),
-        )
-      )
-        .flat()
-        .sort((a, b) => b._creationTime - a._creationTime);
-      for (const row of completed.slice(99)) await ctx.db.delete(row._id);
+    if (claim?.claimKind === "connector-snapshot") {
+      await ctx.db.delete(claim._id);
+    } else if (claim) {
       await ctx.db.patch(claim._id, {
         status: "complete",
         result: {
@@ -903,7 +883,10 @@ const importClaimArgs = {
   requestHash: v.string(),
 };
 export const beginLocalImport = internalMutation({
-  args: importClaimArgs,
+  args: {
+    ...importClaimArgs,
+    claimKind: v.optional(localImportClaimKind),
+  },
   returns: localImportState,
   handler: async (ctx, args) => {
     const current = await importClaim(
@@ -934,6 +917,7 @@ export const beginLocalImport = internalMutation({
     await ctx.db.insert("localImports", {
       ...args,
       ...state,
+      claimKind: args.claimKind ?? "local-ingest",
       cancelled: false,
     });
     return state;

@@ -415,6 +415,7 @@ export async function ingestLocalDataFrame(
     const claim = await ctx.metadata.beginLocalImport({
       operationId,
       requestHash,
+      claimKind: "local-ingest",
     });
     if (claim.status === "complete" && claim.result) return claim.result;
     const claimedImport = { ...claim, operationId, requestHash };
