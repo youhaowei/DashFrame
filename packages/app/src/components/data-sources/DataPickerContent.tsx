@@ -202,6 +202,10 @@ export function DataPickerContent({
   const [importingResourceId, setImportingResourceId] = useState<string | null>(
     null,
   );
+  const [
+    locallyImportedRemoteResourceKeys,
+    setLocallyImportedRemoteResourceKeys,
+  ] = useState<ReadonlySet<string>>(() => new Set());
   const isMountedRef = useRef(true);
   const retainOnboardingActivityRef = useRef(false);
 
@@ -273,12 +277,33 @@ export function DataPickerContent({
       ),
     [allDataTables, excludeTableIds],
   );
+  const importedRemoteResourceIds = useMemo(
+    () =>
+      new Set(
+        allDataTables
+          .filter(
+            (table) => table.dataSourceId === remoteResourceState?.sourceId,
+          )
+          .map((table) => table.table),
+      ),
+    [allDataTables, remoteResourceState?.sourceId],
+  );
   const selectableRemoteResources = useMemo(
     () =>
       (remoteResourceState?.resources ?? []).filter(
-        (resource) => !excludedRemoteResourceIds.has(resource.id),
+        (resource) =>
+          !excludedRemoteResourceIds.has(resource.id) &&
+          !importedRemoteResourceIds.has(resource.id) &&
+          !locallyImportedRemoteResourceKeys.has(
+            `${remoteResourceState?.sourceId}:${resource.id}`,
+          ),
       ),
-    [excludedRemoteResourceIds, remoteResourceState],
+    [
+      excludedRemoteResourceIds,
+      importedRemoteResourceIds,
+      locallyImportedRemoteResourceKeys,
+      remoteResourceState,
+    ],
   );
 
   // Build DataFrame lookup by insight ID
@@ -543,7 +568,22 @@ export function DataPickerContent({
             });
           },
         });
-        await onTableSelect(tableId, resource.title);
+        // The table now exists even if question creation fails. Remove this
+        // resource from the import choices immediately, before subscriptions
+        // catch up, so retry goes through the existing table instead of
+        // creating a duplicate DataTable.
+        setLocallyImportedRemoteResourceKeys((current) => {
+          const next = new Set(current);
+          next.add(`${remoteResourceState.sourceId}:${resource.id}`);
+          return next;
+        });
+        retainOnboardingActivityRef.current = true;
+        const selection = await onTableSelect(tableId, resource.title);
+        if (selection === null) {
+          throw new RemoteImportUserError(
+            "Couldn't create a question from the imported table. Try again.",
+          );
+        }
       } catch (cause) {
         const stableError =
           cause instanceof RemoteImportUserError

@@ -338,6 +338,50 @@ it("keeps both get-or-create intents after the resolved question is edited", asy
   });
 });
 
+it("keeps explicit question source reuse before the question is edited", async () => {
+  const { tableId } = await seed();
+  const createdInsightId = uuid();
+  const { draftId } = await user().mutation(api.app.draftBatch, {
+    commands: [
+      cmd("CreateInsight", {
+        id: createdInsightId,
+        name: "First question",
+        source: { sourceType: "dataTable", sourceId: tableId },
+      }),
+      cmd("GetOrCreateInsightDraft", {
+        id: uuid(),
+        name: "Second question",
+        source: { sourceType: "dataTable", sourceId: tableId },
+      }),
+      cmd("SelectFields", { id: createdInsightId, fieldIds: [uuid()] }),
+    ],
+  });
+
+  const listed = (await user().query(api.app.listDrafts, {})).find(
+    (draft) => draft.draftId === draftId,
+  );
+  expect(listed?.summary).toEqual({
+    directNodes: [
+      {
+        nodeId: createdInsightId,
+        kind: "insight",
+        name: "First question",
+        intent: [
+          {
+            command: "CreateInsight",
+            summary: 'Create question "First question"',
+          },
+          {
+            command: "GetOrCreateInsightDraft",
+            summary: 'Use or create question "Second question"',
+          },
+        ],
+      },
+    ],
+    remainingIntentCount: 1,
+  });
+});
+
 it("keeps create and delete intent for a draft-local report", async () => {
   const reportId = uuid();
   const { draftId } = await user().mutation(api.app.draftBatch, {

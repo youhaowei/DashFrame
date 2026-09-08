@@ -1439,6 +1439,7 @@ export function InsightView({
           allDataTables={allDataTables}
           name={localName}
           onNameChange={handleNameChange}
+          reportId={reportId}
         />
       }
     >

@@ -448,7 +448,59 @@ describe("DataPickerContent file replacement", () => {
       finishQuestion?.();
       await Promise.resolve();
     });
-    expect((resourceButton as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByRole("button", { name: "Roadmap" })).toBeNull();
+  });
+
+  it("keeps a persisted remote table and prevents duplicate import after question creation returns null", async () => {
+    mockHostRequest.mockResolvedValue({
+      commands: [{ path: "createDataSource", args: {} }],
+      results: [{ value: { id: REMOTE_SOURCE_ID } }],
+    });
+    mockListResources.mockResolvedValue([{ id: "db-1", title: "Roadmap" }]);
+    mockNativeCommit.mockResolvedValue(undefined);
+
+    render(<DataPickerContent onTableSelect={async () => null} />);
+    await act(async () => {
+      await handleConnect?.(
+        { id: "notion", name: "Notion" } as RemoteApiConnector,
+        { apiKey: "secret-for-host-vault" },
+      );
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Roadmap" }));
+
+    expect(
+      await screen.findByText(
+        "Couldn't create a question from the imported table. Try again.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Roadmap" })).toBeNull();
+    expect(mockNativeCommit).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not offer a remote resource whose table is already imported", async () => {
+    queryData.dataSources = [
+      makeSource(REMOTE_SOURCE_ID, "Roadmap workspace", "notion"),
+    ];
+    queryData.dataTables = [
+      makeTable(REMOTE_TABLE_ID, REMOTE_SOURCE_ID, "db-1"),
+    ];
+    mockHostRequest.mockResolvedValue({
+      commands: [{ path: "createDataSource", args: {} }],
+      results: [{ value: { id: REMOTE_SOURCE_ID } }],
+    });
+    mockListResources.mockResolvedValue([{ id: "db-1", title: "Roadmap" }]);
+
+    render(<DataPickerContent onTableSelect={vi.fn()} />);
+    await act(async () => {
+      await handleConnect?.(
+        { id: "notion", name: "Notion" } as RemoteApiConnector,
+        { apiKey: "secret-for-host-vault" },
+      );
+    });
+
+    expect(screen.queryByRole("button", { name: "Roadmap" })).toBeNull();
+    expect(mockNativeCommit).not.toHaveBeenCalled();
   });
 
   it("creates a new table rather than offering to replace a same-named remote table", async () => {

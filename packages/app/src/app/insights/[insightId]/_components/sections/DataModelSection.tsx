@@ -34,6 +34,7 @@ interface DataModelSectionProps {
   allDataTables: DataTable[];
   combinedFieldCount: number;
   compact?: boolean;
+  reportId?: string;
 }
 
 /**
@@ -152,6 +153,7 @@ export const DataModelSection = memo(function DataModelSection({
   allDataTables,
   combinedFieldCount,
   compact = false,
+  reportId,
 }: DataModelSectionProps) {
   const navigate = useNavigate();
   const [isJoinFlowOpen, setIsJoinFlowOpen] = useState(false);
@@ -367,6 +369,7 @@ export const DataModelSection = memo(function DataModelSection({
         dataTable={dataTable}
         isOpen={isJoinFlowOpen}
         onOpenChange={setIsJoinFlowOpen}
+        reportId={reportId}
       />
     </>
   );

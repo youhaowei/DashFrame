@@ -757,15 +757,18 @@ function rememberInsightDraftTargetBySourceId(
   });
 }
 
-function rememberGetOrCreateResolutionBySourceId(
+function rememberInsightCreationResolutionBySourceId(
   targets: Map<string, DraftCommandTarget>,
   command: Command,
   target: DraftCommandTarget,
 ) {
   if (
-    command.path !== "getOrCreateInsightDraft" ||
-    target.table !== "insights"
+    command.path !== "getOrCreateInsightDraft" &&
+    command.path !== "createInsightCmd"
   ) {
+    return;
+  }
+  if (target.table !== "insights") {
     return;
   }
   const source = record(record(command.args).source);
@@ -889,7 +892,7 @@ async function summarizeDraftForList(
     if (explicitCreateTarget(command)) {
       createdTargets.set(`${target.table}:${target.id}`, target);
     }
-    rememberGetOrCreateResolutionBySourceId(
+    rememberInsightCreationResolutionBySourceId(
       insightDraftsBySourceId,
       command,
       target,

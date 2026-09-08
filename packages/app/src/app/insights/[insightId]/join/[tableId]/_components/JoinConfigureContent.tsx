@@ -51,6 +51,14 @@ import { runJoinSubmit } from "./join-preview-run";
 interface JoinConfigureContentProps {
   insightId: string;
   tableId: string;
+  reportId?: string;
+}
+
+export function joinSourceQuestionLink(insightId: string, reportId?: string) {
+  return {
+    to: `/insights/${insightId}`,
+    search: reportId ? { reportId } : {},
+  } as const;
 }
 
 /** Local type for join preview result (static data for VirtualTable) */
@@ -130,6 +138,7 @@ export function resolveJoinImmediateSourceInsight(
 export default function JoinConfigureContent({
   insightId,
   tableId: joinTableId,
+  reportId,
 }: JoinConfigureContentProps) {
   const navigate = useNavigate();
 
@@ -445,7 +454,8 @@ export default function JoinConfigureContent({
         // which ensures we always show raw joined data (not aggregated data).
       },
       // Navigate back to the same insight only on success.
-      onSuccess: () => navigate({ to: `/insights/${insightId}` } as never),
+      onSuccess: () =>
+        navigate(joinSourceQuestionLink(insightId, reportId) as never),
       setError,
       setSubmitting: setIsSubmitting,
     });
@@ -462,6 +472,7 @@ export default function JoinConfigureContent({
     commitBatch,
     previewResult,
     navigate,
+    reportId,
     toConfigType,
   ]);
 
@@ -529,7 +540,9 @@ export default function JoinConfigureContent({
           </p>
           <Button
             label="Back to Insight"
-            onClick={() => navigate({ to: `/insights/${insightId}` } as never)}
+            onClick={() =>
+              navigate(joinSourceQuestionLink(insightId, reportId) as never)
+            }
             className="mt-4"
           />
         </Surface>
@@ -552,7 +565,7 @@ export default function JoinConfigureContent({
                 label="Cancel"
                 size="sm"
                 onClick={() =>
-                  navigate({ to: `/insights/${insightId}` } as never)
+                  navigate(joinSourceQuestionLink(insightId, reportId) as never)
                 }
               />
               <div>
