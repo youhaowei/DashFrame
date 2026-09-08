@@ -121,6 +121,34 @@ describe.runIf(live)("native host and local Convex integration", () => {
   it("requires host identity and native JWT, and never proxies admin endpoints", async () => {
     expect((await fetch(`${server.url}/api/runtime`)).status).toBe(401);
     expect(
+      (await fetch(`${server.url}/api/runtime`, { method: "POST" })).status,
+    ).toBe(401);
+    const runtime = await fetch(`${server.url}/api/runtime`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        origin: "https://native-qa.localhost",
+      },
+    });
+    expect(runtime.headers.get("cache-control")).toBe("no-store");
+    expect(await runtime.json()).toEqual({
+      mode: "local",
+      status: "local-ready",
+      config: { convexUrl: "https://native-qa.localhost/api/convex" },
+    });
+    expect(
+      (
+        await fetch(`${server.url}/api/runtime`, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${token}`,
+            origin: "https://foreign.invalid",
+          },
+        })
+      ).status,
+    ).toBe(403);
+
+    expect(
       (await fetch(`${server.url}/api/convex/api/run`, { method: "POST" }))
         .status,
     ).toBe(404);

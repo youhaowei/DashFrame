@@ -15,8 +15,16 @@ import { isSecretRef, type SecretRef } from "@wystack/secret-vault";
 import { spawn } from "node:child_process";
 import { z } from "zod";
 
-import { requireLocalOperator, requireUser, type HostContext } from "./context";
+import {
+  requireUser,
+  requireWorkspaceOwner,
+  type HostContext,
+} from "./context";
 import type { AssistantProviderConfigRow } from "./metadata";
+import {
+  assertHostedProviderTransport,
+  hostedProviderBaseUrl,
+} from "./hosted-convex-provider-metadata";
 const vaultFromCtx = (ctx: HostContext) => ctx.vault;
 const withClassBoundaryMessage = <T>(operation: () => Promise<T>) =>
   operation();
@@ -175,8 +183,12 @@ export async function saveAssistantProviderConfig(
   ctx: HostContext,
   args: { input: SaveAssistantProviderConfigInput },
 ) {
-  requireLocalOperator(ctx);
+  requireWorkspaceOwner(ctx);
   const input = saveInputSchema.parse(args.input);
+  if (ctx.workspaceOwnerId !== undefined && input.authKind === "oauth")
+    throw new Error("Use an API key for hosted assistant providers");
+  if (ctx.workspaceOwnerId !== undefined && input.baseUrl !== undefined)
+    hostedProviderBaseUrl.parse(input.baseUrl);
   if (
     !getAssistantProviderCatalog().some(
       (entry) => entry.providerId === input.providerId,
@@ -187,14 +199,19 @@ export async function saveAssistantProviderConfig(
   const current = input.id
     ? await ctx.metadata.getAssistantProviderConfig(input.id)
     : null;
+  const changedKind = current !== null && current.authKind !== input.authKind;
+  const clearCredential = changedKind || input.credential === "";
+  assertHostedProviderTransport(
+    input.baseUrl?.trim() || null,
+    Boolean(input.credential) ||
+      (!clearCredential && current?.credentialRef !== null),
+  );
   const id = input.id ?? crypto.randomUUID();
   const mintedRef = await storeAssistantCredential({
     vault: ctx.vault,
     plaintext: input.credential,
     locatorHint: `assistant-provider-${id}`,
   });
-  const changedKind = current !== null && current.authKind !== input.authKind;
-  const clearCredential = changedKind || input.credential === "";
   if (clearCredential)
     assertVaultPresentForStoredCredential(
       current?.credentialRef,
@@ -230,7 +247,7 @@ export async function removeAssistantProviderConfig(
   ctx: HostContext,
   args: { id: string },
 ) {
-  requireLocalOperator(ctx);
+  requireWorkspaceOwner(ctx);
   const id = z.string().uuid().parse(args.id);
   const current = await ctx.metadata.getAssistantProviderConfig(id);
   if (!current) throw new Error("Assistant provider config not found");
@@ -248,7 +265,7 @@ export async function setAssistantDefaultModel(
   ctx: HostContext,
   args: { input: SetAssistantDefaultModelInput },
 ) {
-  requireLocalOperator(ctx);
+  requireWorkspaceOwner(ctx);
   const input = setDefaultModelSchema.parse(args.input);
   const current = await ctx.metadata.getAssistantProviderConfig(input.id);
   if (!current || current.defaultModel !== input.expectedDefaultModel)
@@ -268,7 +285,11 @@ export async function startAssistantOAuthLogin(
   ctx: HostContext,
   args: { id: string },
 ) {
-  requireLocalOperator(ctx);
+  requireWorkspaceOwner(ctx);
+  // This flow opens the host browser and uses its OS credential session. It is
+  // a local-only capability until a workspace-isolated OAuth flow exists.
+  if (ctx.workspaceOwnerId !== undefined)
+    throw new Error("Use an API key for hosted assistant providers");
   const id = z.string().uuid().parse(args.id);
   const current = await ctx.metadata.getAssistantProviderConfig(id);
   if (!current || current.authKind !== "oauth")

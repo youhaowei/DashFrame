@@ -123,10 +123,11 @@ describe("GA4 connector", () => {
       now: () => Date.parse("2026-08-05T12:00:00Z"),
       reportVersion: "v2",
     });
+    const controller = new AbortController();
     const result = await connector.query(
       "properties/123",
       crypto.randomUUID(),
-      { pagination: { offset: 0, limit: 25 } },
+      { pagination: { offset: 0, limit: 25 }, signal: controller.signal },
     );
     const arrow = tableFromIPC(Buffer.from(result.arrowBuffer, "base64"));
     expect(result.rowCount).toBe(1);
@@ -176,6 +177,7 @@ describe("GA4 connector", () => {
         { dimension: { dimensionName: "sessionDefaultChannelGroup" } },
       ],
     });
+    expect(fetchImpl.mock.calls[0]?.[1]?.signal).toBe(controller.signal);
   });
 
   it("preserves the legacy v1 report shape unless acquisition is explicit", async () => {

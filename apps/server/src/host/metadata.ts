@@ -86,12 +86,6 @@ export interface HostMetadata {
       "workspaceId"
     >,
   ): Promise<FunctionReturnType<typeof internal.host.settleHostBatch>>;
-  listPendingHostBatches(
-    input: Omit<
-      FunctionArgs<typeof internal.host.listPendingHostBatches>,
-      "workspaceId"
-    >,
-  ): Promise<FunctionReturnType<typeof internal.host.listPendingHostBatches>>;
   listCleanup(
     input: Omit<FunctionArgs<typeof internal.host.listCleanup>, "workspaceId">,
   ): Promise<FunctionReturnType<typeof internal.host.listCleanup>>;
@@ -182,4 +176,14 @@ export interface HostMetadata {
     id: string;
     expected: AssistantProviderConfigRow;
   }): Promise<void>;
+}
+
+/** Recovery records available only to the local administrative backend. */
+export interface LocalRecoveryMetadata {
+  listPendingHostBatches(
+    input: Omit<
+      FunctionArgs<typeof internal.host.listPendingHostBatches>,
+      "workspaceId"
+    >,
+  ): Promise<FunctionReturnType<typeof internal.host.listPendingHostBatches>>;
 }

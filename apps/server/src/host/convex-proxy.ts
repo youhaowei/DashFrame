@@ -7,6 +7,12 @@ export function mountConvexProxy(
   app: Hono,
   upgrade: UpgradeWebSocket,
   backendUrl: string,
+  options?: {
+    authorizeWebSocket?: (
+      request: Request,
+    ) => Promise<Response | { headers: Headers } | undefined>;
+    applyWebSocketHeaders?: (request: object, headers: Headers) => void;
+  },
 ): void {
   const prefix = "/api/convex";
   for (const operation of ["query", "mutation", "action"] as const) {
@@ -33,6 +39,26 @@ export function mountConvexProxy(
       });
     });
   }
+  const authorizeWebSocket = options?.authorizeWebSocket;
+  if (authorizeWebSocket) {
+    app.use(`${prefix}/api/:version/sync`, async (c, next) => {
+      const authorization = await authorizeWebSocket(c.req.raw);
+      if (authorization instanceof Response) return authorization;
+      if (authorization) {
+        const incoming = (c.env as { incoming?: unknown }).incoming;
+        if (
+          incoming !== null &&
+          typeof incoming === "object" &&
+          options?.applyWebSocketHeaders
+        )
+          options.applyWebSocketHeaders(incoming, authorization.headers);
+        authorization.headers.forEach((value, name) =>
+          c.header(name, value, { append: true }),
+        );
+      }
+      return next();
+    });
+  }
   app.get(
     `${prefix}/api/:version/sync`,
     upgrade((c) => {
@@ -40,7 +66,12 @@ export function mountConvexProxy(
       if (!version || !/^\d+\.\d+\.\d+$/.test(version))
         throw new Error("Unsupported Convex protocol");
       const target = new URL(`/api/${version}/sync`, backendUrl);
-      target.protocol = "ws:";
+      // Carry the backend's transport security across to the WebSocket scheme.
+      // A hosted deployment is an https Convex Cloud origin, and forcing `ws:`
+      // there both downgrades the hop and points at a port that is not
+      // listening — the sync socket never opens and the app hangs on
+      // AuthLoading. Local backends stay http/ws exactly as before.
+      target.protocol = target.protocol === "https:" ? "wss:" : "ws:";
       let upstream: WebSocket | undefined;
       const pending: Array<string | ArrayBuffer> = [];
       return {

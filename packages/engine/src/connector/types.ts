@@ -98,6 +98,12 @@ export interface RemoteDatabase {
  */
 export interface QueryOptions {
   pagination?: { offset: number; limit: number };
+  /** Server-owned cancellation for remote I/O. */
+  signal?: AbortSignal;
+  /** Server-owned preflight ceiling for connectors that can measure remotely. */
+  maxBytes?: number;
+  /** Reject a result above this row count instead of returning a partial prefix. */
+  maxRows?: number;
   // Future: Add filters, sorting, etc.
 }
 

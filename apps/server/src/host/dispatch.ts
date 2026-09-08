@@ -50,7 +50,7 @@ function object(input: unknown): Record<string, Value> {
 export function createApplicationOperations(
   options: {
     convexUrl: string;
-    identity: ConvexIdentity;
+    identity: Pick<ConvexIdentity, "issue">;
     context(principal: Principal): HostContext;
   },
   bound?: Principal,

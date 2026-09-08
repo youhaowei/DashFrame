@@ -25,21 +25,26 @@ export function createHostAuthenticator(options: {
   if (!protectedHost && !isLoopbackHost(options.hostname)) {
     throw new Error("Non-loopback host requires authentication");
   }
+  const matchesPrimaryToken = async (token: string): Promise<boolean> => {
+    if (options.authRef)
+      return options.vault!.withSecret(options.authRef, async (expected) =>
+        tokenMatches(token, expected),
+      );
+    return options.authToken ? tokenMatches(token, options.authToken) : false;
+  };
   return async (request) => {
     if (!protectedHost) return { kind: "user", userId: "loopback-anonymous" };
     const authorization = request.headers.get("authorization") ?? "";
     const token = authorization.startsWith("Bearer ")
       ? authorization.slice(7)
       : "";
-    if (!token) throw new Error("Unauthorized");
-    const primary = options.authRef
-      ? await options.vault!.withSecret(options.authRef, async (expected) =>
-          tokenMatches(token, expected),
-        )
-      : tokenMatches(token, options.authToken!);
-    if (primary) return { kind: "user", userId: "local-user" };
-    const credentialId = await options.accessCredentials?.authenticate(token);
-    if (credentialId) return { kind: "service", credentialId };
+    if (token) {
+      const primary = await matchesPrimaryToken(token);
+      if (primary) return { kind: "user", userId: "local-user" };
+      const credentialId = await options.accessCredentials?.authenticate(token);
+      if (credentialId) return { kind: "service", credentialId };
+      throw new Error("Unauthorized");
+    }
     throw new Error("Unauthorized");
   };
 }

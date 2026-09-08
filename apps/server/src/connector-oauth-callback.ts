@@ -6,12 +6,6 @@ import type {
   PublicConnectorSetupResumeDto,
 } from "./host/connector-setup";
 import { connectorSetupGateCode } from "./host/connector-setup";
-const LOCAL_USER_ID = "local-user";
-
-const INTERNAL_PRINCIPAL = {
-  kind: "user" as const,
-  userId: LOCAL_USER_ID,
-};
 
 function secureHtml(c: Context, title: string, message: string, status = 200) {
   c.header("Cache-Control", "no-store");
@@ -34,13 +28,11 @@ export async function handleConnectorOAuthCallback(
   const code = c.req.query("code");
   const oauthError = c.req.query("error");
   try {
-    const call = await app.execute(
-      "completeConnectorOAuth",
-      { state, code, oauthError },
-      // Fixed server-owned identity. No callback query/header value can select
-      // or alter the principal used for the project mutation.
-      { principal: INTERNAL_PRINCIPAL },
-    );
+    const call = await app.execute("completeConnectorOAuth", {
+      state,
+      code,
+      oauthError,
+    });
     const result = call as ConnectorSetupSessionDto;
     if (result.state === "connected") {
       return secureHtml(
@@ -92,11 +84,9 @@ export async function handleConnectorSetupResume(
     // Resuming means handing back a working authorize URL, which rotates the
     // state nonce. That is a write, so this calls the mutation rather than the
     // read-only query.
-    const call = await app.execute(
-      "reissueConnectorSetupResume",
-      { sessionId: c.req.param("sessionId") },
-      { principal: INTERNAL_PRINCIPAL },
-    );
+    const call = await app.execute("reissueConnectorSetupResume", {
+      sessionId: c.req.param("sessionId"),
+    });
     return c.json(call as PublicConnectorSetupResumeDto);
   } catch {
     return c.json({ error: "Connector setup session is unavailable" }, 404);
@@ -113,11 +103,9 @@ export async function handleConnectorResumeLanding(
   }
 
   try {
-    const call = await app.execute(
-      "reissueConnectorSetupResume",
-      { sessionId },
-      { principal: INTERNAL_PRINCIPAL },
-    );
+    const call = await app.execute("reissueConnectorSetupResume", {
+      sessionId,
+    });
     const result = call as PublicConnectorSetupResumeDto;
     if (result.state === "awaiting-user-auth" && result.authorizeUrl) {
       c.header("Cache-Control", "no-store");

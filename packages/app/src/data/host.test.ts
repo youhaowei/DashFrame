@@ -1,16 +1,24 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
+const { onAccessInvalidated } = vi.hoisted(() => ({
+  onAccessInvalidated: vi.fn(),
+}));
+
 vi.mock("./runtime", () => ({
   getRuntimeConfig: () => ({
     url: "http://127.0.0.1:4000",
     token: "host-token",
+    onAccessInvalidated,
   }),
   hostHeaders: () => ({ Authorization: "Bearer host-token" }),
 }));
 import { requestHost, HostOperationError } from "./host";
 
 describe("host resource transport", () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    onAccessInvalidated.mockClear();
+  });
 
   it("sends host credentials and connector arguments without wrapping the response", async () => {
     const fetch = vi
@@ -50,6 +58,7 @@ describe("host resource transport", () => {
     await expect(requestHost("getAccessCapabilities", {})).rejects.toThrow(
       "Access credential revoked",
     );
+    expect(onAccessInvalidated).toHaveBeenCalledWith("denied");
   });
   it.each(["network", "unconfirmed", "malformed"])(
     "preserves the batch retry identity after a %s response",

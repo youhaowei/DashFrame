@@ -18,7 +18,6 @@ const fixturesDir = path.join(__dirname, "..", "fixtures");
 const isCI = !!process.env.CI;
 const BASE_PORT = Number(process.env.E2E_BASE_PORT ?? 3100);
 const DASHFRAME_URL = process.env.E2E_DASHFRAME_URL;
-const USER_TOKEN = process.env.E2E_USER_TOKEN;
 
 /**
  * Get the base URL for a worker based on its parallel index.
@@ -50,8 +49,6 @@ type HomePageFn = () => Promise<void>;
 interface DashFrameAutoFixtures {
   /** Clears the native host project before each test for isolation */
   clearServerDB: void;
-  /** Injects the authenticated API runtime before the app bootstraps. */
-  authenticatedRuntime: void;
 }
 
 interface DashFrameFixtures {
@@ -82,7 +79,6 @@ export const test = base.extend<DashFrameFixtures & DashFrameAutoFixtures>({
           method: "POST",
           headers: {
             "content-type": "application/json",
-            ...(USER_TOKEN ? { Authorization: `Bearer ${USER_TOKEN}` } : {}),
           },
           body: "{}",
         });
@@ -92,30 +88,6 @@ export const test = base.extend<DashFrameFixtures & DashFrameAutoFixtures>({
           );
         }
       }
-      await use();
-    },
-    { scope: "test", auto: true },
-  ],
-
-  authenticatedRuntime: [
-    async ({ page }, use) => {
-      if (!DASHFRAME_URL || !USER_TOKEN)
-        throw new Error("E2E runtime was not configured");
-      const response = await fetch(`${DASHFRAME_URL}/api/runtime`, {
-        headers: { Authorization: `Bearer ${USER_TOKEN}` },
-      });
-      if (!response.ok)
-        throw new Error(`E2E runtime discovery failed: ${response.status}`);
-      const runtime = (await response.json()) as { convexUrl: string };
-      await page.addInitScript(
-        ({ url, token, convexUrl }) => {
-          Object.defineProperty(globalThis, "dashframe", {
-            configurable: true,
-            value: { getServerInfo: async () => ({ url, token, convexUrl }) },
-          });
-        },
-        { url: DASHFRAME_URL, token: USER_TOKEN, convexUrl: runtime.convexUrl },
-      );
       await use();
     },
     { scope: "test", auto: true },

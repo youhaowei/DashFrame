@@ -22,9 +22,9 @@ host-credential directories. Tests run serially, clear native metadata and
 host-owned data before each test, and use fresh browser contexts. Arrow files
 belong to the host; IndexedDB is not the data store under test.
 
-The fixtures authenticate through the host, discover its Convex URL, and inject
-that runtime before the renderer starts. Draft fixtures call native Convex
-queries and mutations; host-only operations use `/api/host/*`.
+The browser reaches the tokenless loopback host through the same-origin preview
+proxy and resolves its runtime through the production bootstrap. Draft fixtures
+call native Convex queries and mutations; host-only operations use `/api/host/*`.
 
 Run a specific workflow or inspect the suite:
 

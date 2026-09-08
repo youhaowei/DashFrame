@@ -108,6 +108,19 @@ export default defineConfig(({ mode }) => {
       "VITE_DASHFRAME_URL is required for web development. Start the app with `bun run dev:web` so the DashFrame server and Vite proxy are launched together.",
     );
   }
+  const proxy = hostUrl
+    ? {
+        "/api": {
+          target: hostUrl,
+          changeOrigin: true,
+          ws: true,
+        },
+        "/data": {
+          target: hostUrl,
+          changeOrigin: true,
+        },
+      }
+    : undefined;
 
   return {
     plugins: lazyPlugins(() => [
@@ -148,20 +161,9 @@ export default defineConfig(({ mode }) => {
       host: env.DASHFRAME_VITE_HOST?.trim() || undefined,
       port,
       strictPort: true,
-      proxy: hostUrl
-        ? {
-            "/api": {
-              target: hostUrl,
-              changeOrigin: true,
-              ws: true,
-            },
-            "/data": {
-              target: hostUrl,
-              changeOrigin: true,
-            },
-          }
-        : undefined,
+      proxy,
     },
+    preview: { proxy },
     build: {
       outDir: "dist",
       emptyOutDir: true,

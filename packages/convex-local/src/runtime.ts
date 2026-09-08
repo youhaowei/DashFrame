@@ -17,14 +17,11 @@ import { createServer } from "node:net";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
-import { getFunctionName, makeFunctionReference } from "convex/server";
-import type {
-  FunctionArgs,
-  FunctionReference,
-  FunctionReturnType,
-} from "convex/server";
-import { ConvexError, convexToJson, jsonToConvex } from "convex/values";
-import type { Value } from "convex/values";
+import { makeFunctionReference } from "convex/server";
+import type { FunctionReference } from "convex/server";
+import { createAdminInternalClient } from "./admin-client.js";
+import type { InternalClient } from "./admin-client.js";
+
 import {
   BACKEND_VERSION,
   CONVEX_VERSION,
@@ -44,19 +41,6 @@ export interface LocalConvexOptions {
   auth: { issuer: string; jwksDataUri: string; audience: "dashframe" };
   binaryPath?: string;
   onUnexpectedExit?: () => void;
-}
-
-type InternalQuery = FunctionReference<"query", "internal">;
-type InternalMutation = FunctionReference<"mutation", "internal">;
-export interface InternalClient {
-  query<Q extends InternalQuery>(
-    query: Q,
-    args: FunctionArgs<Q>,
-  ): Promise<FunctionReturnType<Q>>;
-  mutation<M extends InternalMutation>(
-    mutation: M,
-    args: FunctionArgs<M>,
-  ): Promise<FunctionReturnType<M>>;
 }
 
 export interface LocalConvex {
@@ -288,56 +272,6 @@ function ownedProcess(
       })();
       return stopping;
     },
-  };
-}
-
-function internalClient(url: string, adminKey: string): InternalClient {
-  async function call(
-    type: "query" | "mutation",
-    reference: InternalQuery | InternalMutation,
-    args: Value,
-  ) {
-    const response = await fetch(`${url}/api/${type}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Convex ${adminKey}`,
-      },
-      body: JSON.stringify({
-        path: getFunctionName(reference),
-        args: [convexToJson(args)],
-        format: "convex_encoded_json",
-      }),
-      signal: AbortSignal.timeout(30_000),
-    });
-    const result = (await response.json()) as {
-      status?: string;
-      value?: Parameters<typeof jsonToConvex>[0];
-      errorData?: Parameters<typeof jsonToConvex>[0];
-    };
-    if (
-      !response.ok ||
-      result.status !== "success" ||
-      result.value === undefined
-    ) {
-      if (result.errorData !== undefined) {
-        throw new ConvexError(jsonToConvex(result.errorData));
-      }
-      throw new Error(
-        `Local Convex internal ${type} failed (${response.status}).`,
-      );
-    }
-    return jsonToConvex(result.value);
-  }
-  return {
-    query: async <Q extends InternalQuery>(
-      reference: Q,
-      args: FunctionArgs<Q>,
-    ) => (await call("query", reference, args)) as FunctionReturnType<Q>,
-    mutation: async <M extends InternalMutation>(
-      reference: M,
-      args: FunctionArgs<M>,
-    ) => (await call("mutation", reference, args)) as FunctionReturnType<M>,
   };
 }
 
@@ -655,7 +589,11 @@ export async function startLocalConvex(
     if (backend.exited)
       throw new Error("Local Convex could not own its loopback ports.");
     await deployFunctions(options, state, url, config);
-    const client = internalClient(url, config.adminKey);
+    const client = createAdminInternalClient({
+      url,
+      adminKey: config.adminKey,
+      label: "Local Convex",
+    });
     const readiness = makeFunctionReference<
       "query",
       Record<string, never>,

@@ -88,6 +88,7 @@ export async function queryDatabase(
   databaseId: string,
   options?: {
     pageSize?: number; // Limit number of rows fetched
+    signal?: AbortSignal;
   },
 ): Promise<QueryDatabaseResponse> {
   // Notion API pagination - fetch all results (or up to pageSize)
@@ -97,6 +98,7 @@ export async function queryDatabase(
   const maxRows = options?.pageSize || Infinity;
 
   while (hasMore && allResults.length < maxRows) {
+    options?.signal?.throwIfAborted();
     const response: QueryDatabaseResponse = await client.databases.query({
       database_id: databaseId,
       start_cursor: startCursor,
@@ -108,6 +110,7 @@ export async function queryDatabase(
     });
 
     allResults.push(...response.results);
+    options?.signal?.throwIfAborted();
 
     // Stop if we hit page size limit
     if (options?.pageSize && allResults.length >= options.pageSize) {

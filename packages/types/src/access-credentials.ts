@@ -17,7 +17,7 @@ export interface IssuedAccessCredential {
 
 export interface AccessConnectionInfo {
   endpoint: string;
-  transport: "dashframe-http";
+  transport: "dashframe-http" | "mcp";
   authentication: "Bearer";
 }
 

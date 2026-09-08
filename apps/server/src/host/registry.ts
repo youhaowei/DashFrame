@@ -104,6 +104,10 @@ export const hostOperations = {
     z.object({ insight: z.unknown() }).strict(),
     fetchOperations.fetchData,
   ),
+  refreshDataTable: operation(
+    z.object({ tableId: z.string().uuid() }).strict(),
+    fetchOperations.refreshDataTable,
+  ),
   runInsight: operation(
     z
       .object({ insightId: z.string().uuid(), runtime: z.unknown().optional() })

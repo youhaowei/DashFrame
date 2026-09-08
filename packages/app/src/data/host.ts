@@ -40,6 +40,7 @@ export async function requestHost<K extends HostOperationName>(
       credentials: "same-origin",
     },
     operationId,
+    config.onAccessInvalidated,
   );
   if (!response.ok)
     throw responseError(operation, response.status, body, operationId);
@@ -50,9 +51,12 @@ async function readHostResponse(
   url: URL,
   init: RequestInit,
   operationId?: string,
+  onAccessInvalidated?: (reason: "denied" | "unavailable") => void,
 ) {
   try {
     const response = await fetch(url, init);
+    if (response.status === 401 || response.status === 403)
+      onAccessInvalidated?.("denied");
     const body: unknown = await response.json();
     return { response, body };
   } catch (error) {

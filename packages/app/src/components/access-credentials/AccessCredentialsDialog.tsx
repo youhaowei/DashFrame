@@ -110,7 +110,7 @@ export function AccessCredentialsDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
+      <DialogContent className="max-h-[85vh] w-[calc(100%-2rem)] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Access credentials</DialogTitle>
           <DialogDescription>
@@ -119,7 +119,7 @@ export function AccessCredentialsDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-6">
+        <div className="min-w-0 space-y-6">
           {connection.data && (
             <section className="space-y-2">
               <h3 className="text-sm font-semibold">Connection</h3>
@@ -136,14 +136,19 @@ export function AccessCredentialsDialog({
                   />
                 </div>
                 <p className="text-neutral-fg-subtle">
-                  {connection.data.transport} · Bearer authentication
+                  {connection.data.transport === "mcp"
+                    ? "MCP"
+                    : connection.data.transport}{" "}
+                  · Bearer authentication
                 </p>
-                <p className="mt-2 text-neutral-fg-subtle">
-                  WebSocket:{" "}
-                  <code>
-                    {connection.data.endpoint.replace(/^http/, "ws")}/ws
-                  </code>
-                </p>
+                {connection.data.transport === "dashframe-http" && (
+                  <p className="mt-2 text-neutral-fg-subtle">
+                    WebSocket:{" "}
+                    <code>
+                      {connection.data.endpoint.replace(/^http/, "ws")}/ws
+                    </code>
+                  </p>
+                )}
               </div>
             </section>
           )}

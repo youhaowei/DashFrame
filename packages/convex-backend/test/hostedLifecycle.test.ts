@@ -395,7 +395,7 @@ it("rejects identity-free and stale claimed imports after workspace clear", asyn
 });
 
 it.each(["service", "revoked"] as const)(
-  "denies %s callers every owner-only import, cleanup, and recovery capability",
+  "denies %s callers owner-only import and cleanup capabilities",
   async (kind) => {
     const a = await admit(),
       service = await credential(a),
@@ -428,7 +428,7 @@ it.each(["service", "revoked"] as const)(
       () => client.query(api.hostedLifecycle.listRecoverableHostBatches, page),
       () =>
         client.mutation(api.hostedLifecycle.recoverHostBatch, {
-          operationId: "x",
+          operationId: batch.operationId,
         }),
     ];
     for (const invoke of denied)
@@ -445,3 +445,19 @@ it.each(["service", "revoked"] as const)(
     );
   },
 );
+
+it("permits owner-authorized startup recovery", async () => {
+  const workspaceId = await admit();
+  const service = await credential(workspaceId);
+  const user = host(workspaceId);
+  await service.mutation(api.hostedLifecycle.prepareHostBatch, prepare);
+  expect(
+    (await user.query(api.hostedLifecycle.listRecoverableHostBatches, page))
+      .page,
+  ).toEqual([{ operationId: batch.operationId }]);
+  expect(
+    await user.mutation(api.hostedLifecycle.recoverHostBatch, {
+      operationId: batch.operationId,
+    }),
+  ).toBe("cancelled");
+});

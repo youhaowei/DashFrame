@@ -8,7 +8,30 @@ import {
 } from "./browser-bootstrap-controller";
 
 interface Config {
-  url: string;
+  identity: string;
+  workspaceId: string;
+  mode: "local" | "hosted";
+  endpoint: string;
+}
+
+const defaultConfig: Config = {
+  identity: "user-1",
+  workspaceId: "workspace-1",
+  mode: "hosted",
+  endpoint: "https://dashframe.test",
+};
+
+function config(overrides: Partial<Config> = {}): Config {
+  return { ...defaultConfig, ...overrides };
+}
+
+function sameConfig(left: Config, right: Config): boolean {
+  return (
+    left.identity === right.identity &&
+    left.workspaceId === right.workspaceId &&
+    left.mode === right.mode &&
+    left.endpoint === right.endpoint
+  );
 }
 
 interface Deferred<T> {
@@ -43,6 +66,7 @@ function harness(
     lookup,
     createRuntime,
     publish: (view) => views.push(view),
+    sameConfig,
     signIn,
     signOut,
   });
@@ -60,7 +84,7 @@ describe("browser bootstrap controller", () => {
   it.each(["local-ready", "admitted"] as const)(
     "starts the runtime exactly once for %s access",
     async (status) => {
-      const access = { status, config: { url: "https://dashframe.test" } };
+      const access = { status, config: config() };
       const test = harness(async () => access);
 
       expect(test.views).toEqual([{ status: "loading" }]);
@@ -73,6 +97,12 @@ describe("browser bootstrap controller", () => {
         config: access.config,
         runtime: test.runtimes[0],
       });
+      if (test.views[1]?.status === "admitted") {
+        test.views[1].onSignOut();
+        expect(test.signOut).toHaveBeenCalledOnce();
+      } else {
+        expect(test.views[1]).not.toHaveProperty("onSignOut");
+      }
       await test.controller.teardown();
       expect(test.runtimes[0]?.close).toHaveBeenCalledTimes(1);
     },
@@ -122,7 +152,7 @@ describe("browser bootstrap controller", () => {
 
     first.resolve({
       status: "admitted",
-      config: { url: "https://stale.test" },
+      config: config({ endpoint: "https://stale.test" }),
     });
     await first.promise;
     expect(test.createRuntime).not.toHaveBeenCalled();
@@ -135,7 +165,7 @@ describe("browser bootstrap controller", () => {
 
   it("closes the owned runtime once when access is lost", async () => {
     const results: BrowserAccessResult<Config>[] = [
-      { status: "admitted", config: { url: "https://dashframe.test" } },
+      { status: "admitted", config: config() },
       { status: "pending-admission" },
     ];
     const test = harness(async () => {
@@ -150,6 +180,157 @@ describe("browser bootstrap controller", () => {
 
     expect(test.runtimes[0]?.close).toHaveBeenCalledTimes(1);
     expect(test.views.at(-1)?.status).toBe("pending-admission");
+  });
+
+  it("quietly retains a healthy runtime when revalidation returns the same config", async () => {
+    const test = harness(async () => ({
+      status: "admitted",
+      config: config(),
+    }));
+    await vi.waitFor(() => expect(test.createRuntime).toHaveBeenCalledOnce());
+    expect(test.views).toHaveLength(2);
+
+    await test.controller.revalidate();
+
+    expect(test.views).toHaveLength(2);
+    expect(test.createRuntime).toHaveBeenCalledTimes(1);
+    expect(test.runtimes[0]?.close).not.toHaveBeenCalled();
+    await test.controller.teardown();
+  });
+
+  it("quietly replaces the runtime when revalidation changes identity", async () => {
+    const results: BrowserAccessResult<Config>[] = [
+      { status: "admitted", config: config() },
+      {
+        status: "admitted",
+        config: config({ identity: "user-2", workspaceId: "workspace-2" }),
+      },
+    ];
+    const test = harness(async () => {
+      const result = results.shift();
+      if (!result) throw new Error("missing test result");
+      return result;
+    });
+    await vi.waitFor(() => expect(test.createRuntime).toHaveBeenCalledOnce());
+
+    await test.controller.revalidate();
+
+    expect(test.views.map((view) => view.status)).toEqual([
+      "loading",
+      "admitted",
+      "admitted",
+    ]);
+    expect(test.createRuntime).toHaveBeenCalledTimes(2);
+    expect(test.runtimes[0]?.close).toHaveBeenCalledTimes(1);
+    expect(test.runtimes[1]?.close).not.toHaveBeenCalled();
+    await test.controller.teardown();
+    expect(test.runtimes[1]?.close).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["pending-admission", "unavailable"] as const)(
+    "closes an admitted runtime when revalidation reports %s",
+    async (status) => {
+      const results: BrowserAccessResult<Config>[] = [
+        { status: "admitted", config: config() },
+        { status },
+      ];
+      const test = harness(async () => {
+        const result = results.shift();
+        if (!result) throw new Error("missing test result");
+        return result;
+      });
+      await vi.waitFor(() => expect(test.createRuntime).toHaveBeenCalledOnce());
+
+      await test.controller.revalidate();
+
+      expect(test.views.map((view) => view.status)).toEqual([
+        "loading",
+        "admitted",
+        status,
+      ]);
+      expect(test.runtimes[0]?.close).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("discards a stale revalidation superseded by an explicit retry", async () => {
+    const revalidation = deferred<BrowserAccessResult<Config>>();
+    const retryResult = deferred<BrowserAccessResult<Config>>();
+    const signals: AbortSignal[] = [];
+    const lookup = vi
+      .fn<(signal: AbortSignal) => Promise<BrowserAccessResult<Config>>>()
+      .mockImplementationOnce(async (signal) => {
+        signals.push(signal);
+        return { status: "admitted", config: config() };
+      })
+      .mockImplementationOnce((signal) => {
+        signals.push(signal);
+        return revalidation.promise;
+      })
+      .mockImplementationOnce((signal) => {
+        signals.push(signal);
+        return retryResult.promise;
+      });
+    const test = harness(lookup);
+    await vi.waitFor(() => expect(test.createRuntime).toHaveBeenCalledOnce());
+
+    const staleRevalidation = test.controller.revalidate();
+    const retry = test.controller.retry();
+    expect(signals[1]?.aborted).toBe(true);
+    revalidation.resolve({
+      status: "admitted",
+      config: config({ identity: "stale-user" }),
+    });
+    await staleRevalidation;
+    expect(test.createRuntime).toHaveBeenCalledTimes(1);
+
+    retryResult.resolve({ status: "signed-out" });
+    await retry;
+    expect(test.views.map((view) => view.status)).toEqual([
+      "loading",
+      "admitted",
+      "loading",
+      "signed-out",
+    ]);
+    expect(test.runtimes[0]?.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("invalidates an active runtime and discards a pending revalidation", async () => {
+    const pendingRevalidation = deferred<BrowserAccessResult<Config>>();
+    const signals: AbortSignal[] = [];
+    const lookup = vi
+      .fn<(signal: AbortSignal) => Promise<BrowserAccessResult<Config>>>()
+      .mockImplementationOnce(async (signal) => {
+        signals.push(signal);
+        return { status: "admitted", config: config() };
+      })
+      .mockImplementationOnce((signal) => {
+        signals.push(signal);
+        return pendingRevalidation.promise;
+      });
+    const test = harness(lookup);
+    await vi.waitFor(() => expect(test.createRuntime).toHaveBeenCalledOnce());
+    const staleRevalidation = test.controller.revalidate();
+    const failure = new Error("token response was malformed");
+
+    await test.controller.invalidate(failure);
+
+    expect(signals[1]?.aborted).toBe(true);
+    expect(test.runtimes[0]?.close).toHaveBeenCalledTimes(1);
+    expect(test.views.at(-1)).toMatchObject({
+      status: "unavailable",
+      error: failure,
+    });
+    const viewsAfterInvalidation = test.views.length;
+    pendingRevalidation.resolve({
+      status: "admitted",
+      config: config({ identity: "stale-user" }),
+    });
+    await staleRevalidation;
+
+    expect(test.createRuntime).toHaveBeenCalledTimes(1);
+    expect(test.views).toHaveLength(viewsAfterInvalidation);
+    await test.controller.teardown();
+    expect(test.runtimes[0]?.close).toHaveBeenCalledTimes(1);
   });
 
   it("aborts an in-flight lookup on idempotent teardown", async () => {
@@ -168,7 +349,7 @@ describe("browser bootstrap controller", () => {
 
     lookupResult.resolve({
       status: "local-ready",
-      config: { url: "https://late.test" },
+      config: config({ endpoint: "https://late.test" }),
     });
     await lookupResult.promise;
     await Promise.resolve();
@@ -184,10 +365,11 @@ describe("browser bootstrap controller", () => {
     const controller = startBrowserBootstrap({
       lookup: async () => ({
         status: "admitted" as const,
-        config: { url: "https://dashframe.test" },
+        config: config(),
       }),
       createRuntime,
       publish: (view) => views.push(view),
+      sameConfig,
       signIn: vi.fn(),
       signOut: vi.fn(),
     });
@@ -230,10 +412,11 @@ describe("browser bootstrap controller", () => {
     const controller = startBrowserBootstrap({
       lookup: async () => ({
         status: "admitted" as const,
-        config: { url: "https://dashframe.test" },
+        config: config(),
       }),
       createRuntime,
       publish: vi.fn(),
+      sameConfig,
       signIn: vi.fn(),
       signOut: vi.fn(),
     });
@@ -273,11 +456,12 @@ describe("browser bootstrap controller", () => {
         admitted
           ? {
               status: "admitted" as const,
-              config: { url: "https://dashframe.test" },
+              config: config(),
             }
           : { status: "signed-out" as const },
       createRuntime: () => runtime,
       publish: (view) => views.push(view),
+      sameConfig,
       signIn: vi.fn(),
       signOut: vi.fn(),
     });
@@ -304,7 +488,7 @@ describe("browser bootstrap controller", () => {
         if (failLookup) throw lookupFailure;
         return {
           status: "admitted" as const,
-          config: { url: "https://dashframe.test" },
+          config: config(),
         };
       },
       createRuntime: () => ({
@@ -313,6 +497,7 @@ describe("browser bootstrap controller", () => {
         },
       }),
       publish: (view) => views.push(view),
+      sameConfig,
       signIn: vi.fn(),
       signOut: vi.fn(),
     });
@@ -339,7 +524,7 @@ describe("browser bootstrap controller", () => {
           ? { status: "unavailable" as const, error }
           : {
               status: "admitted" as const,
-              config: { url: "https://dashframe.test" },
+              config: config(),
             },
       createRuntime: () => ({
         close: async () => {
@@ -347,6 +532,7 @@ describe("browser bootstrap controller", () => {
         },
       }),
       publish: (view) => views.push(view),
+      sameConfig,
       signIn: vi.fn(),
       signOut: vi.fn(),
     });
@@ -389,10 +575,11 @@ describe("browser bootstrap controller", () => {
             ? hangingLookup.promise
             : {
                 status: "admitted" as const,
-                config: { url: "https://dashframe.test" },
+                config: config(),
               },
         createRuntime: () => (++factories === 1 ? previous : next),
         publish: (view) => views.push(view),
+        sameConfig,
         signIn: vi.fn(),
         signOut: vi.fn(),
       });
@@ -432,11 +619,12 @@ describe("browser bootstrap controller", () => {
           admitted
             ? {
                 status: "admitted" as const,
-                config: { url: "https://dashframe.test" },
+                config: config(),
               }
             : { status: "signed-out" as const },
         createRuntime: () => runtime,
         publish: (view) => views.push(view),
+        sameConfig,
         signIn: vi.fn(),
         signOut: vi.fn(),
       });
@@ -472,10 +660,11 @@ describe("browser bootstrap controller", () => {
     const controller = startBrowserBootstrap({
       lookup: async () => ({
         status: "admitted" as const,
-        config: { url: "https://dashframe.test" },
+        config: config(),
       }),
       createRuntime: () => runtime,
       publish: (view) => views.push(view),
+      sameConfig,
       signIn: vi.fn(),
       signOut: vi.fn(),
     });
@@ -486,6 +675,40 @@ describe("browser bootstrap controller", () => {
     await controller.teardown();
     expect(runtime.close).toHaveBeenCalledOnce();
   });
+
+  it.each([false, true])(
+    "closes despite a detach failure, close rejects %s",
+    async (rejectClose) => {
+      const detachError = new Error("detach failed");
+      const closeError = new Error("close failed");
+      const runtime = {
+        close: vi.fn(async () => {
+          if (rejectClose) throw closeError;
+        }),
+      };
+      const views: BrowserBootstrapView<Config, BrowserRuntime>[] = [];
+      const controller = startBrowserBootstrap({
+        lookup: async () => ({ status: "admitted" as const, config: config() }),
+        createRuntime: () => runtime,
+        publish: (view) => views.push(view),
+        beforeClose: () => {
+          throw detachError;
+        },
+        sameConfig,
+        signIn: vi.fn(),
+        signOut: vi.fn(),
+      });
+      await vi.waitFor(() => expect(views.at(-1)?.status).toBe("admitted"));
+      const teardown = controller.teardown();
+      await expect(teardown).rejects.toMatchObject({
+        errors: rejectClose
+          ? [{ errors: [detachError, closeError] }]
+          : [detachError],
+      });
+      expect(runtime.close).toHaveBeenCalledOnce();
+      expect(controller.teardown()).toBe(teardown);
+    },
+  );
 
   it("preserves an explicit unavailable error payload", async () => {
     const error = new Error("service unavailable");

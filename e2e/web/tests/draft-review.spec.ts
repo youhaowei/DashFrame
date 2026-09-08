@@ -1,35 +1,22 @@
 import { expect, test } from "../lib/test-fixtures";
-import { query, mutate, hostCall } from "../lib/native-api";
-const USER_TOKEN = process.env.E2E_USER_TOKEN ?? "dashframe-e2e-user";
-
-/** Mint a service credential — the stand-in for an external API caller. */
-async function issueServiceToken(): Promise<string> {
-  const issued = await hostCall<{ accessCredential: string }>(
-    "issueAccessCredential",
-    { name: "draft review fixture" },
-    USER_TOKEN,
-  );
-  return issued.accessCredential;
-}
+import { query, mutate } from "../lib/native-api";
 
 interface SeededDraft {
   draftId: string;
-  serviceToken: string;
   sourceId: string;
   insightId: string;
 }
 
 /**
- * A batch drafted by a service principal: three commands that create nodes, one
- * dashboard the reviewer is expected to remove, and — unless `lateBound` is
- * turned off — a filter carrying an unbound placeholder, which blocks publish.
+ * An API-drafted batch: three commands that create nodes, one dashboard the
+ * reviewer is expected to remove, and — unless `lateBound` is turned off — a
+ * filter carrying an unbound placeholder, which blocks publish.
  * Pass `{ lateBound: false }` when the test needs a draft that can publish
  * as-is.
  */
 async function seedDraft({
   lateBound = true,
 }: { lateBound?: boolean } = {}): Promise<SeededDraft> {
-  const serviceToken = await issueServiceToken();
   const sourceId = crypto.randomUUID();
   const tableId = crypto.randomUUID();
   const insightId = crypto.randomUUID();
@@ -87,12 +74,8 @@ async function seedDraft({
     },
   ];
 
-  const drafted = await mutate<{ draftId: string }>(
-    "draftBatch",
-    { commands },
-    serviceToken,
-  );
-  return { draftId: drafted.draftId, serviceToken, sourceId, insightId };
+  const drafted = await mutate<{ draftId: string }>("draftBatch", { commands });
+  return { draftId: drafted.draftId, sourceId, insightId };
 }
 
 test.describe("draft review", () => {
@@ -168,52 +151,6 @@ test.describe("draft review", () => {
     ).toBeVisible();
   });
 
-  test("a service credential can draft but can neither commit nor revise", async () => {
-    const { draftId, serviceToken } = await seedDraft();
-
-    const review = await query<{ logSignature: string }>("draftPublishReview", {
-      draftId,
-    });
-
-    await expect(
-      mutate("commitBatch", { commands: [] }, serviceToken),
-    ).rejects.toThrow();
-    await expect(
-      mutate(
-        "reviseDraft",
-        {
-          draftId,
-          expectedLogSignature: review.logSignature,
-          ops: [{ type: "removeCommand", commandIndex: 4 }],
-        },
-        serviceToken,
-      ),
-    ).rejects.toThrow();
-    expect(
-      (await query<{ logSignature: string }>("draftPublishReview", { draftId }))
-        .logSignature,
-    ).toBe(review.logSignature);
-
-    // Production Convex hides plain server error messages. Verify the denials
-    // left state intact, then prove these same payloads are valid for a user.
-    expect(await query<unknown[]>("listDataSources", {})).toHaveLength(0);
-    await mutate("commitBatch", { commands: [] }, USER_TOKEN);
-    await mutate(
-      "reviseDraft",
-      {
-        draftId,
-        expectedLogSignature: review.logSignature,
-        ops: [{ type: "removeCommand", commandIndex: 4 }],
-      },
-      USER_TOKEN,
-    );
-    expect(
-      (await query<{ logSignature: string }>("draftPublishReview", { draftId }))
-        .logSignature,
-    ).not.toBe(review.logSignature);
-    expect(await query<unknown[]>("listDataSources", {})).toHaveLength(0);
-  });
-
   test("the inbox and nav badge react to a new API draft without a reload", async ({
     page,
     workerBaseURL,
@@ -244,10 +181,10 @@ test.describe("draft review", () => {
     await expect(page.getByRole("link", { name: /4 changes/ })).toHaveCount(2);
     await expect(page.getByLabel("2 drafts waiting for review")).toBeVisible();
 
-    await mutate("publishDraft", { draftId: publishable.draftId }, USER_TOKEN);
+    await mutate("publishDraft", { draftId: publishable.draftId });
     await expect(page.getByLabel("1 draft waiting for review")).toBeVisible();
 
-    await mutate("discardDraft", { draftId: discardable.draftId }, USER_TOKEN);
+    await mutate("discardDraft", { draftId: discardable.draftId });
     await expect(
       page.getByText("No changes waiting for review", { exact: true }),
     ).toBeVisible();

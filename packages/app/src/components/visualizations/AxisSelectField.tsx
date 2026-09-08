@@ -106,7 +106,7 @@ interface AxisSelectFieldProps {
  *
  * Computes available options from the compiled insight:
  * - Dimensions: from compiledInsight.dimensions (resolved Field objects)
- * - Metrics: from compiledInsight.metrics (using metric.name as value)
+ * - Metrics: from compiledInsight.metrics (using metricEncoding(metric.id), i.e. metric:<uuid>)
  *
  * Provides:
  * - Hard enforcement of valid columns for each chart type
@@ -301,7 +301,12 @@ export function AxisSelectField({
   const sqlAliasToEncoding = useMemo(() => {
     const map = new Map<string, string>();
     for (const [enc, alias] of encodingToSqlAlias.entries()) {
-      map.set(alias, map.get(alias) ?? enc);
+      const existing = map.get(alias);
+      // Analysis may insert a raw SQL alias before the canonical metric.
+      // Keep the storage identity so SelectField can find the selected label.
+      if (!existing || (!parseEncoding(existing) && parseEncoding(enc))) {
+        map.set(alias, enc);
+      }
     }
     return map;
   }, [encodingToSqlAlias]);

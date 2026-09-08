@@ -44,6 +44,7 @@ import {
 } from "./connector-setup/oauth-provider";
 import { sweep as sweepConnectorSetup } from "./connector-setup/session-store";
 import { isLoopbackHost } from "./bind-host";
+import { LOCAL_USER_ID } from "./permissions";
 
 type CorsOrigin =
   | string
@@ -82,7 +83,10 @@ export async function createDashframeServer(
   const hostname = options.hostname ?? "127.0.0.1";
   // Fails closed on a non-loopback bind without a token before any child
   // process starts.
-  const authenticate = createHostAuthenticator({ ...options, hostname });
+  const authenticate = createHostAuthenticator({
+    ...options,
+    hostname,
+  });
   const identity = await createConvexIdentity(
     path.join(options.project.dir, ".convex"),
     options.project.workspaceId,
@@ -123,12 +127,10 @@ export async function createDashframeServer(
     );
     const serverState: { endpoint?: string } = {};
     cleanup = new HostResourceCleanup({
-      principal: { kind: "user", userId: "local-user" },
       metadata,
       vault: options.vault,
       dataFrameStorage: options.dataFrameStorage,
       dataPlaneRuntime: native?.engine,
-      getServerEndpoint: () => serverState.endpoint,
     });
     await cleanup.recoverPendingBatches();
     await cleanup.run();
@@ -146,6 +148,12 @@ export async function createDashframeServer(
         dataPlaneRuntime: native?.engine,
         googleOAuth: options.googleOAuth ?? readOptionalGoogleOAuthConfig(),
       }),
+    });
+    // Callback and resume requests carry no caller credential. Bind the local
+    // server-owned identity at the mount; hosted passes its admitted bound app.
+    const connectorCallbackApplication = application.forPrincipal({
+      kind: "user",
+      userId: LOCAL_USER_ID,
     });
     const resolveContext = async (request: Request) => ({
       principal: await authenticate(request),
@@ -216,6 +224,21 @@ export async function createDashframeServer(
       try {
         await authenticate(c.req.raw);
         return c.json({ convexUrl: `${new URL(c.req.url).origin}/api/convex` });
+      } catch {
+        return c.json({ error: "Unauthorized" }, 401);
+      }
+    });
+    app.post("/api/runtime", async (c) => {
+      try {
+        await authenticate(c.req.raw);
+        // Origin was validated by the middleware above. Vite rewrites Host
+        // while proxying, so use the browser origin for its same-origin URL.
+        const origin = c.req.header("origin") ?? new URL(c.req.url).origin;
+        return c.json({
+          mode: "local",
+          status: "local-ready",
+          config: { convexUrl: `${origin}/api/convex` },
+        });
       } catch {
         return c.json({ error: "Unauthorized" }, 401);
       }
@@ -296,12 +319,14 @@ export async function createDashframeServer(
     });
     app.all("/mcp", mcp);
     app.get("/api/connectors/oauth/callback", (c) =>
-      handleConnectorOAuthCallback(c, application),
+      handleConnectorOAuthCallback(c, connectorCallbackApplication),
     );
     app.get("/api/connectors/setup/:sessionId/resume", (c) =>
-      handleConnectorSetupResume(c, application),
+      handleConnectorSetupResume(c, connectorCallbackApplication),
     );
-    app.get("/", (c) => handleConnectorResumeLanding(c, application));
+    app.get("/", (c) =>
+      handleConnectorResumeLanding(c, connectorCallbackApplication),
+    );
     await sweepConnectorSetup(metadata.connectorSetup, new Date(), 0);
     const { server, port } = await new Promise<{
       server: ReturnType<typeof nodeServe>;

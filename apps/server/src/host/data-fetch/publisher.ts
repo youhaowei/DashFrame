@@ -68,7 +68,12 @@ export async function publishMaterialization(
     target:
       value.target.kind === "saved"
         ? { kind: "saved", insightId: value.target.insightId }
-        : { kind: value.target.kind },
+        : {
+            kind:
+              value.target.kind === "refresh"
+                ? ("transient" as const)
+                : value.target.kind,
+          },
     sources: value.sources.map(({ source, frame }) => ({
       source: {
         table: {
@@ -92,6 +97,10 @@ export async function publishMaterialization(
     request,
     () => ctx.metadata.publishMaterialization(request),
   );
+  // Publication can prune generations and enqueue their frame handles. Drain
+  // that durable outbox while this workspace is active instead of waiting for
+  // pool eviction or a process restart.
+  await ctx.cleanupResources?.();
 }
 
 export function staleFrameMetadata(row: {

@@ -1,6 +1,7 @@
 import { ArtifactPageHeader } from "@/components/artifacts/ArtifactPageHeader";
 import { ArtifactSwitcher } from "@/components/artifacts/ArtifactSwitcher";
 import { useQuery_experimental as useQuery, useMutation } from "convex/react";
+import { RefreshTableButton } from "@/components/data-sources/RefreshTableButton";
 import { queryStatus } from "@/data/query-status";
 import {
   type ArtifactContextValue,
@@ -478,6 +479,13 @@ export default function DataSourcePageContent({
                 </p>
               </div>
               <div className="flex items-center gap-2">
+                {connector?.sourceType === "remote-api" && (
+                  <RefreshTableButton
+                    key={effectiveSelectedTableId}
+                    tableId={effectiveSelectedTableId}
+                    tableName={tableDetails.dataTable.name}
+                  />
+                )}
                 <Button
                   label="Visualize this data"
                   onClick={() => handleCreateInsight(effectiveSelectedTableId)}

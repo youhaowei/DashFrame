@@ -1,5 +1,5 @@
 /** Server-only Source Binding resolution for live data fetches. */
-import type { Field, UUID } from "@dashframe/types";
+import { MAX_LOCAL_ARROW_BYTES, type Field, type UUID } from "@dashframe/types";
 import { Table, tableFromIPC, tableToIPC } from "apache-arrow";
 
 import type { HostContext } from "../context";
@@ -13,6 +13,7 @@ const SOURCE_BINDING_VERSION = "v1";
 const GA4_ACQUISITION_BINDING_VERSION = "v2";
 /** GA4 supports offset windows; other adapters own their provider pagination. */
 const GA4_PAGE_SIZE = 10_000;
+const HOSTED_REMOTE_MAX_BYTES = Math.floor(MAX_LOCAL_ARROW_BYTES / 4);
 
 import type {
   DataSourceRow as SourceRow,
@@ -85,7 +86,12 @@ type QueryConnector = {
   query: (
     resource: string,
     tableId: UUID,
-    options?: { pagination: { offset: number; limit: number } },
+    options?: {
+      pagination?: { offset: number; limit: number };
+      maxBytes?: number;
+      maxRows?: number;
+      signal?: AbortSignal;
+    },
   ) => Promise<{
     arrowBuffer: string;
     fieldIds: string[];
@@ -93,6 +99,15 @@ type QueryConnector = {
     rowCount: number;
   }>;
 };
+
+function assertHostedRemoteResult(
+  result: Awaited<ReturnType<QueryConnector["query"]>>,
+) {
+  if (result.rowCount > GA4_PAGE_SIZE)
+    throw new Error("SOURCE_RESULT_TOO_LARGE");
+  if (Buffer.byteLength(result.arrowBuffer, "base64") > HOSTED_REMOTE_MAX_BYTES)
+    throw new Error("SOURCE_RESULT_TOO_LARGE");
+}
 
 /**
  * Runs a persisted remote binding to exhaustion. The connector factory is
@@ -112,6 +127,27 @@ async function fetchPagedRemoteBinding(
     throw new Error("TARGET_NOT_READY");
   try {
     const connector = await connectorFor(ctx, binding.dataSourceId);
+    if (ctx.workspaceOwnerId !== undefined) {
+      // One sentinel row distinguishes a complete 10,000-row result from a
+      // truncated prefix without retaining an unbounded sequence of pages.
+      const result = await connector.query(
+        binding.table.table,
+        binding.table.id,
+        {
+          pagination: { offset: 0, limit: GA4_PAGE_SIZE + 1 },
+          signal: ctx.requestSignal,
+        },
+      );
+      pageSignature(result);
+      assertHostedRemoteResult(result);
+      return {
+        ...result,
+        provenance: {
+          connectorKind: binding.connectorKind,
+          sourceBindingVersion: binding.sourceBindingVersion,
+        },
+      };
+    }
     const pages: Array<Awaited<ReturnType<QueryConnector["query"]>>> = [];
     let offset = 0;
     let expectedStructure: string | undefined;
@@ -161,9 +197,9 @@ async function fetchPagedRemoteBinding(
 }
 
 /**
- * Notion and Postgres already exhaust their source inside one connector query.
- * Passing synthetic offsets to Notion would repeatedly fetch its first page;
- * keep provider-specific continuation ownership below the binding seam.
+ * Notion exhausts its source inside one connector query. Hosted PostgreSQL
+ * reads one bounded window and rejects results above its row ceiling instead
+ * of paginating. Keep provider-specific continuation ownership below this seam.
  */
 async function fetchExhaustiveRemoteBinding(
   ctx: HostContext,
@@ -178,8 +214,28 @@ async function fetchExhaustiveRemoteBinding(
     throw new Error("TARGET_NOT_READY");
   try {
     const connector = await connectorFor(ctx, binding.dataSourceId);
-    const result = await connector.query(binding.table.table, binding.table.id);
+    const hostedRemoteOptions =
+      ctx.workspaceOwnerId !== undefined
+        ? {
+            // One sentinel row distinguishes an exact 10,000-row result from
+            // a truncated prefix while the connector transaction is open.
+            pagination: { offset: 0, limit: GA4_PAGE_SIZE + 1 },
+            maxRows: GA4_PAGE_SIZE,
+            // JSON text is only a prebuffer proxy for Arrow/in-memory size.
+            // Keep a conservative quarter-budget before the shared host reads rows.
+            maxBytes: HOSTED_REMOTE_MAX_BYTES,
+            signal: ctx.requestSignal,
+          }
+        : undefined;
+    const result = hostedRemoteOptions
+      ? await connector.query(
+          binding.table.table,
+          binding.table.id,
+          hostedRemoteOptions,
+        )
+      : await connector.query(binding.table.table, binding.table.id);
     pageSignature(result);
+    if (hostedRemoteOptions) assertHostedRemoteResult(result);
     return {
       ...result,
       provenance: {
