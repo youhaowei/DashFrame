@@ -262,6 +262,7 @@ it("completes a durable import idempotently and isolates cancellation and cleanu
   ).toBe(false);
   const input = {
     ...batch,
+    expectedDataSourceRevision: 1,
     dataTableId: tableId,
     dataSourceId: sourceId,
     expectedDataFrameId: null,
@@ -295,6 +296,37 @@ it("completes a durable import idempotently and isolates cancellation and cleanu
   expect(
     await user.mutation(api.hostedLifecycle.cancelLocalImport, pending),
   ).toBe(true);
+  const cancelledInput = {
+    ...input,
+    ...pending,
+    frameRow: { ...input.frameRow, id: second.frameId },
+    tableUpdate: {
+      dataFrameId: second.frameId,
+      lastFetchedAt: second.fetchedAt,
+    },
+  };
+  await expect(
+    user.mutation(api.hostedLifecycle.commitImportedFrame, {
+      ...cancelledInput,
+      operationId: undefined,
+      requestHash: undefined,
+    } as never),
+  ).rejects.toThrow();
+  await expect(
+    user.mutation(api.hostedLifecycle.commitImportedFrame, {
+      ...cancelledInput,
+      operationId: undefined,
+    } as never),
+  ).rejects.toThrow();
+  await expect(
+    user.mutation(api.hostedLifecycle.commitImportedFrame, {
+      ...cancelledInput,
+      requestHash: undefined,
+    } as never),
+  ).rejects.toThrow();
+  await expect(
+    user.mutation(api.hostedLifecycle.commitImportedFrame, cancelledInput),
+  ).rejects.toThrow("claim missing");
   expect(
     (await user.query(api.hostedLifecycle.listCleanup, page)).page,
   ).toContainEqual({
@@ -302,6 +334,64 @@ it("completes a durable import idempotently and isolates cancellation and cleanu
     kind: "frame",
     resourceId: second.frameId,
   });
+});
+
+it("rejects identity-free and stale claimed imports after workspace clear", async () => {
+  const workspaceId = await admit(),
+    user = host(workspaceId),
+    sourceId = crypto.randomUUID(),
+    tableId = crypto.randomUUID();
+  const createArtifacts = () =>
+    user.mutation(api.hostedMetadata.commitBatch, {
+      commands: [
+        cmd("CreateDataSource", { id: sourceId, name: "S", type: "csv" }),
+        cmd("CreateDataTable", {
+          id: tableId,
+          dataSourceId: sourceId,
+          name: "T",
+          table: "t.csv",
+        }),
+      ].map((command) => ({ ...command, args: record(command.args) })),
+    });
+  await createArtifacts();
+  const identity = {
+      operationId: "cleared-import",
+      requestHash: "c".repeat(64),
+    },
+    claim = await user.mutation(api.hostedLifecycle.beginLocalImport, identity),
+    input = {
+      ...identity,
+      expectedDataSourceRevision: 1,
+      dataTableId: tableId,
+      dataSourceId: sourceId,
+      expectedDataFrameId: null,
+      frameRow: {
+        id: claim.frameId,
+        name: "F",
+        storage: { type: "file", key: claim.frameId },
+        fieldIds: [],
+        rowCount: 3,
+        columnCount: 0,
+        lastRefreshedAt: claim.fetchedAt,
+      },
+      tableUpdate: {
+        dataFrameId: claim.frameId,
+        lastFetchedAt: claim.fetchedAt,
+      },
+    };
+  await t.mutation(internal.host.clearAllData, { workspaceId });
+  await createArtifacts();
+  await expect(
+    user.mutation(api.hostedLifecycle.commitImportedFrame, {
+      ...input,
+      operationId: undefined,
+      requestHash: undefined,
+    } as never),
+  ).rejects.toThrow();
+  await expect(
+    user.mutation(api.hostedLifecycle.commitImportedFrame, input),
+  ).rejects.toThrow("invalidated");
+  expect(await user.query(api.hostedMetadata.listDataFrames, {})).toEqual([]);
 });
 
 it.each(["service", "revoked"] as const)(
@@ -319,6 +409,8 @@ it.each(["service", "revoked"] as const)(
       () => client.mutation(api.hostedLifecycle.cancelLocalImport, batch),
       () =>
         client.mutation(api.hostedLifecycle.commitImportedFrame, {
+          ...batch,
+          expectedDataSourceRevision: 1,
           dataTableId: "table",
           dataSourceId: "source",
           expectedDataFrameId: null,

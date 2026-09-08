@@ -387,6 +387,7 @@ it(
       expect(await b.getLocalImport(imported)).toBeNull();
       const importInput = {
         ...imported,
+        expectedDataSourceRevision: 1,
         dataSourceId: sourceId,
         dataTableId: tableId,
         expectedDataFrameId: frameId,

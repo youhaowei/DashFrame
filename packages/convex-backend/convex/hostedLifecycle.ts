@@ -117,13 +117,13 @@ export const cancelLocalImport = mutation({
 
 export const commitImportedFrame = mutation({
   args: {
+    ...importIdentity,
+    expectedDataSourceRevision: v.number(),
     dataTableId: v.string(),
     dataSourceId: v.string(),
     expectedDataFrameId: v.union(v.string(), v.null()),
     frameRow: object,
     tableUpdate: object,
-    operationId: v.optional(v.string()),
-    requestHash: v.optional(v.string()),
   },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {

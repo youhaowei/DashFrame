@@ -15,7 +15,7 @@ import { byFreshness, frameHistory, pruneFrames } from "./frameRetention";
 import { LIMIT } from "./graph";
 import type { Doc } from "./_generated/dataModel";
 import { redact } from "./preview";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import {
   internalMutation,
   internalQuery,
@@ -288,6 +288,7 @@ export const commitImportedFrame = internalMutation({
     tableUpdate: object,
     operationId: v.optional(v.string()),
     requestHash: v.optional(v.string()),
+    expectedDataSourceRevision: v.optional(v.number()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -301,7 +302,7 @@ export const commitImportedFrame = internalMutation({
         args.operationId,
         args.requestHash,
       );
-      if (!claim) throw new Error("Local import claim missing");
+      if (!claim) rejectImportPublication("Local import claim missing");
       if (claim.frameId !== args.frameRow.id)
         throw new Error("Local import frame differs from claim");
       if (claim.status === "complete") return null;
@@ -322,6 +323,9 @@ export const commitImportedFrame = internalMutation({
     }
 
     const request = clean({
+        ...(args.expectedDataSourceRevision === undefined
+          ? {}
+          : { expectedDataSourceRevision: args.expectedDataSourceRevision }),
         dataTableId: args.dataTableId,
         dataSourceId: args.dataSourceId,
         expectedDataFrameId: args.expectedDataFrameId,
@@ -332,6 +336,17 @@ export const commitImportedFrame = internalMutation({
         ? `local-import:${args.operationId}`
         : (args.operationId ?? `import:${String(args.frameRow.id)}`);
     if (await operation(ctx, args.workspaceId, op, request)) return null;
+    const source = await find(
+      ctx,
+      args.workspaceId,
+      "dataSources",
+      args.dataSourceId,
+    );
+    if (
+      args.expectedDataSourceRevision !== undefined &&
+      (!source || source.revision !== args.expectedDataSourceRevision)
+    )
+      rejectImportPublication("SOURCE_BINDING_CHANGED");
     const table = await find(
       ctx,
       args.workspaceId,
@@ -343,7 +358,7 @@ export const commitImportedFrame = internalMutation({
       table.dataSourceId !== args.dataSourceId ||
       (table.dataFrameId ?? null) !== args.expectedDataFrameId
     )
-      throw new Error("SOURCE_BINDING_CHANGED");
+      rejectImportPublication("SOURCE_BINDING_CHANGED");
     if (
       args.tableUpdate.dataSourceId !== undefined &&
       args.tableUpdate.dataSourceId !== args.dataSourceId
@@ -984,8 +999,11 @@ async function importClaim(
   if (row && row.requestHash !== requestHash)
     throw new Error("Local import operationId reused with different request");
   if (row?.cancelled)
-    throw new Error("Local import invalidated by workspace clear");
+    rejectImportPublication("Local import invalidated by workspace clear");
   return row;
+}
+function rejectImportPublication(message: string): never {
+  throw new ConvexError({ code: "IMPORT_PUBLICATION_REJECTED", message });
 }
 const importClaimArgs = {
   ...workspace,

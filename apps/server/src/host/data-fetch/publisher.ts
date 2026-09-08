@@ -27,12 +27,14 @@ export async function publishWithConfirmation(
   operationId: string,
   request: unknown,
   publish: () => Promise<void>,
+  isDefinitiveRejection: (error: unknown) => boolean = () => false,
 ): Promise<void> {
   // Match the JSON boundary used by the host's native metadata adapter.
   const expected: unknown = JSON.parse(JSON.stringify(request));
   try {
     await publish();
   } catch (error) {
+    if (isDefinitiveRejection(error)) throw error;
     try {
       const committed = await metadata.getOperation(operationId);
       if (committed && isDeepStrictEqual(committed.request, expected)) return;
