@@ -1,5 +1,7 @@
 FROM oven/bun:1.4.2
 
+RUN flock --version > /dev/null
+
 WORKDIR /app
 
 COPY . .

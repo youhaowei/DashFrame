@@ -10,6 +10,6 @@ volume_root="${RAILWAY_VOLUME_MOUNT_PATH}"
 export DASHFRAME_PROJECT_DIR="${volume_root}/project"
 export DASHFRAME_DATA_DIR="${volume_root}/host-data"
 
-exec bun run --cwd apps/server start -- \
+exec sh scripts/with-hosted-volume-lock.sh bun apps/server/src/index.ts \
   --bind "0.0.0.0:${PORT}" \
   --mcp-mode stateless
