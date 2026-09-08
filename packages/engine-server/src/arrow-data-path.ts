@@ -85,6 +85,19 @@ export interface ArrowDataPathOptions {
    * `authRef` is set.
    */
   vault?: SecretVault;
+  /**
+   * Authoritative request authentication supplied by the host. When present,
+   * this replaces the bearer-token chain below, including tokenless access.
+   *
+   * This exists for the hosted browser surface, which authenticates with a
+   * signed session cookie because it has no channel to receive a bearer token.
+   * The host owns that decision; this path only asks.
+   *
+   * Returning `false` or throwing denies the request. A rejected or revoked
+   * identity must never fall through to another credential or tokenless mode.
+   * Leaving it unset preserves the standalone token chain.
+   */
+  authorizeRequest?: (request: Request) => Promise<boolean> | boolean;
 }
 
 async function unregisterIfPresent(
@@ -210,6 +223,8 @@ async function dispatchArrowQuery(
  * boundary. Every branch that cannot positively confirm the token denies it.
  *
  * Priority:
+ *   0. `authorizeRequest` set — the host owns the entire authentication
+ *      decision. False or an exception denies, without any fallback.
  *   1. `authRef` set — vault-backed auth is configured. The expected token is
  *      resolved from the vault at call time (no plaintext held in a field). If
  *      `vault` is missing (misconfiguration), or `withSecret` rejects (e.g. a
@@ -224,9 +239,17 @@ async function dispatchArrowQuery(
  * every other case (wrong token, missing vault, resolution failure).
  */
 async function checkAuth(
-  authHeader: string | undefined,
+  request: Request,
   options: ArrowDataPathOptions,
 ): Promise<boolean> {
+  const authHeader = request.headers.get("authorization") ?? undefined;
+  if (options.authorizeRequest) {
+    try {
+      return await options.authorizeRequest(request);
+    } catch {
+      return false;
+    }
+  }
   if (options.authRef) {
     // Vault is required whenever authRef is set. createArrowDataPath enforces
     // this at construction, but defend here too: a missing vault means we
@@ -270,7 +293,7 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
   // POST /arrow  — query endpoint (native shape + Mosaic Coordinator shape)
   // -------------------------------------------------------------------------
   app.post("/arrow", async (c) => {
-    if (!(await checkAuth(c.req.header("authorization"), options))) {
+    if (!(await checkAuth(c.req.raw, options))) {
       return c.json({ error: "Unauthorized" }, 401);
     }
 
@@ -299,7 +322,7 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
   // POST /tables/:name  — register an Arrow IPC buffer as a named table
   // -------------------------------------------------------------------------
   app.post("/tables/:name", async (c) => {
-    if (!(await checkAuth(c.req.header("authorization"), options))) {
+    if (!(await checkAuth(c.req.raw, options))) {
       return c.json({ error: "Unauthorized" }, 401);
     }
 
@@ -359,7 +382,7 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
   // Register a durable project frame directly in native DuckDB. The browser
   // sends only opaque identifiers; Arrow bytes never make a client roundtrip.
   app.post("/frames/:id/tables/:name", async (c) => {
-    if (!(await checkAuth(c.req.header("authorization"), options))) {
+    if (!(await checkAuth(c.req.raw, options))) {
       return c.json({ error: "Unauthorized" }, 401);
     }
     const contentType = c.req.header("content-type")?.split(";", 1)[0]?.trim();
@@ -422,7 +445,7 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
   // its canonical native table here, then replace the UUID identifier in the
   // Mosaic-generated SQL. This keeps table naming and registration server-owned.
   app.post("/frames/:id/mosaic", async (c) => {
-    if (!(await checkAuth(c.req.header("authorization"), options))) {
+    if (!(await checkAuth(c.req.raw, options))) {
       return c.json({ error: "Unauthorized" }, 401);
     }
     const contentType = c.req.header("content-type")?.split(";", 1)[0]?.trim();

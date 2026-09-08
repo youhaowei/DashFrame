@@ -40,7 +40,12 @@ export function mountConvexProxy(
       if (!version || !/^\d+\.\d+\.\d+$/.test(version))
         throw new Error("Unsupported Convex protocol");
       const target = new URL(`/api/${version}/sync`, backendUrl);
-      target.protocol = "ws:";
+      // Carry the backend's transport security across to the WebSocket scheme.
+      // A hosted deployment is an https Convex Cloud origin, and forcing `ws:`
+      // there both downgrades the hop and points at a port that is not
+      // listening — the sync socket never opens and the app hangs on
+      // AuthLoading. Local backends stay http/ws exactly as before.
+      target.protocol = target.protocol === "https:" ? "wss:" : "ws:";
       let upstream: WebSocket | undefined;
       const pending: Array<string | ArrayBuffer> = [];
       return {

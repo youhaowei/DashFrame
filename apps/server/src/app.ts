@@ -28,6 +28,9 @@ import { createApplicationOperations } from "./host/dispatch";
 import { hostOperationByName } from "./host/registry";
 import { NativeTableLifecycle } from "./host/native-tables";
 import { mountConvexProxy } from "./host/convex-proxy";
+import { connectConvexCloud, type ConvexBackend } from "./host/convex-cloud";
+import type { HostSessionAuth } from "./host/auth";
+import type { WebSurface } from "./host/web-surface";
 import { HostBatchOutcomeUnknownError } from "./host/commands";
 import { HostResourceCleanup } from "./host/resource-cleanup";
 import { closeHostServer } from "./host/server-lifecycle";
@@ -69,6 +72,20 @@ export interface DashframeServerOptions {
   mcpStatefulSessionTtlMs?: number;
   mcpSessionNow?: () => number;
   convexRuntime?: { binaryPath?: string; functionsDirectory?: string };
+  /**
+   * Attach to an existing Convex Cloud deployment instead of supervising a
+   * local backend. Hosted deployments use this; desktop and loopback web do
+   * not, and keep their local-first backend unchanged.
+   */
+  convexCloud?: { url: string; adminKey: string };
+  /** Browser session credential the host accepts in addition to bearer tokens. */
+  session?: HostSessionAuth;
+  /** Built web app to serve on this origin. Absent on desktop and loopback web. */
+  webSurface?: WebSurface;
+  /** Commit the running build came from, reported by `GET /api/version`. */
+  buildSha?: string;
+  /** Public origin the browser reaches this host on, behind a TLS proxy. */
+  publicOrigin?: string;
 }
 export interface DashframeServer {
   url: string;
@@ -76,35 +93,54 @@ export interface DashframeServer {
   convexUrl: string;
   stop(): Promise<void>;
 }
+/** Paths owned by the host API rather than by the built web app. */
+function isHostPath(pathname: string): boolean {
+  return (
+    pathname === "/mcp" ||
+    pathname.startsWith("/api/") ||
+    pathname.startsWith("/data/") ||
+    pathname.startsWith("/assistant/")
+  );
+}
+
 export async function createDashframeServer(
   options: DashframeServerOptions,
 ): Promise<DashframeServer> {
   const hostname = options.hostname ?? "127.0.0.1";
   // Fails closed on a non-loopback bind without a token before any child
   // process starts.
-  const authenticate = createHostAuthenticator({ ...options, hostname });
+  const authenticate = createHostAuthenticator({
+    ...options,
+    hostname,
+    session: options.session,
+  });
   const identity = await createConvexIdentity(
     path.join(options.project.dir, ".convex"),
     options.project.workspaceId,
   );
   let stop: (() => Promise<void>) | undefined;
-  const convex = await startLocalConvex({
-    projectDir: options.project.dir,
-    functionsDirectory:
-      options.convexRuntime?.functionsDirectory ??
-      path.dirname(
-        fileURLToPath(
-          import.meta.resolve("@dashframe/convex-backend/package.json"),
-        ),
-      ),
-    binaryPath: options.convexRuntime?.binaryPath,
-    auth: identity,
-    onUnexpectedExit: () => {
-      stop?.().catch(() =>
-        console.error("Failed to stop the host after Convex exited"),
-      );
-    },
-  });
+  // One host, two backends. The cloud path never spawns a process, never
+  // deploys functions and never touches the project directory's Convex state;
+  // the local path is byte-for-byte what it was.
+  const convex: ConvexBackend = options.convexCloud
+    ? await connectConvexCloud(options.convexCloud)
+    : await startLocalConvex({
+        projectDir: options.project.dir,
+        functionsDirectory:
+          options.convexRuntime?.functionsDirectory ??
+          path.dirname(
+            fileURLToPath(
+              import.meta.resolve("@dashframe/convex-backend/package.json"),
+            ),
+          ),
+        binaryPath: options.convexRuntime?.binaryPath,
+        auth: identity,
+        onUnexpectedExit: () => {
+          stop?.().catch(() =>
+            console.error("Failed to stop the host after Convex exited"),
+          );
+        },
+      });
   let cleanup: HostResourceCleanup | undefined;
   const native = options.arrowEngine
     ? new NativeTableLifecycle(options.arrowEngine)
@@ -159,6 +195,12 @@ export async function createDashframeServer(
       origin: string,
       c: Context,
     ): Promise<string | undefined> => {
+      // The origin the app is actually served on is always allowed: behind a
+      // TLS-terminating proxy the request URL says `http://0.0.0.0:8080` while
+      // the browser says `https://dashframe.dev`, so same-origin cannot be
+      // derived from the request and has to be configured.
+      if (options.publicOrigin && origin === options.publicOrigin)
+        return origin;
       const configured = options.corsOrigin;
       if (typeof configured === "function")
         return (await configured(origin, c)) ?? undefined;
@@ -187,7 +229,12 @@ export async function createDashframeServer(
       const origin = c.req.header("origin");
       if (origin && !(await allowedOrigin(origin, c)))
         return c.json({ error: "Origin is not allowed" }, 403);
-      c.header("Cache-Control", "no-store");
+      // Host responses carry project data and must never be cached. Built app
+      // assets are content-hashed and immutable, and the web surface sets its
+      // own caching; a blanket no-store there would re-download the entire
+      // bundle on every page load.
+      if (!options.webSurface || isHostPath(new URL(c.req.url).pathname))
+        c.header("Cache-Control", "no-store");
       await next();
     });
     app.use(
@@ -276,6 +323,19 @@ export async function createDashframeServer(
           ...(options.authRef && options.vault
             ? { authRef: options.authRef, vault: options.vault }
             : { authToken: options.authToken }),
+          // Chart queries are issued by the renderer with no Authorization
+          // header (packages/visualization/src/server-frame-connector.ts), so
+          // on the hosted surface they arrive carrying only the session cookie.
+          // Use the same principal resolution and bearer precedence as host
+          // operations; checking the cookie signature alone bypasses admission.
+          ...(options.webSurface || options.session
+            ? {
+                authorizeRequest: async (request: Request) => {
+                  await authenticate(request);
+                  return true;
+                },
+              }
+            : {}),
         }),
       );
     app.post("/assistant/run", (c) =>
@@ -301,7 +361,38 @@ export async function createDashframeServer(
     app.get("/api/connectors/setup/:sessionId/resume", (c) =>
       handleConnectorSetupResume(c, application),
     );
-    app.get("/", (c) => handleConnectorResumeLanding(c, application));
+    // Unauthenticated on purpose: this is how a deploy is verified to be
+    // serving the commit it claims, from outside. It reveals only a commit of a
+    // public repository.
+    app.get("/api/version", (c) =>
+      c.json({
+        name: "dashframe",
+        commit: options.buildSha ?? null,
+        convex: options.convexCloud ? "cloud" : "local",
+      }),
+    );
+    app.get("/", async (c, next) => {
+      // The OAuth resume landing owns `/` only when it is actually a resume;
+      // otherwise the root is the app itself.
+      if (!options.webSurface || c.req.query("resumeConnector"))
+        return handleConnectorResumeLanding(c, application);
+      return next();
+    });
+    const web = options.webSurface;
+    if (web) {
+      app.get("/login", (c) => web.handleLoginPage(c.req.raw));
+      app.post("/login", (c) => web.handleLoginSubmit(c.req.raw));
+      app.post("/logout", () => web.handleLogout());
+      app.get("*", async (c) => {
+        const { pathname } = new URL(c.req.url);
+        // A GET that fell through the host routes is a genuine 404, not a
+        // client route. Returning the SPA shell for it would turn a typo'd API
+        // path into an HTML 200 and hide real integration failures.
+        if (isHostPath(pathname)) return c.json({ error: "Not found" }, 404);
+        if (!web.isSignedIn(c.req.raw)) return c.redirect("/login", 303);
+        return web.serve(c.req.raw);
+      });
+    }
     await sweepConnectorSetup(metadata.connectorSetup, new Date(), 0);
     const { server, port } = await new Promise<{
       server: ReturnType<typeof nodeServe>;

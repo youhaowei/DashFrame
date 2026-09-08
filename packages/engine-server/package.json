@@ -6,6 +6,7 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
+    "./query-sandbox": "./src/query-sandbox.ts",
     ".": {
       "bun": "./src/index.ts",
       "default": "./src/index.ts"
