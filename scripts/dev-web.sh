@@ -75,6 +75,24 @@ fi
 if [[ -n "${PORT:-}" ]]; then
   PORTLESS_ARGS+=(--app-port "${PORT}")
 fi
+# portless needs a proxy already running: the run path refuses when there is
+# none and exits non-zero, which under `set -e` takes this launcher down with
+# it. It prints the unprivileged-port fallback ("portless proxy start --port
+# 1355 --https") but never takes it, so an agent or a fresh machine sees the
+# remedy and still gets no dev server. Start one only when none exists --
+# `portless list` succeeds whenever a proxy is up, including one on 443, so an
+# existing privileged proxy is left alone rather than shadowed by a second one
+# on 1355. `proxy start` is itself idempotent and falls back to an unprivileged
+# port when 443 would need a sudo password it cannot prompt for.
+if ! portless list >/dev/null 2>&1; then
+  echo "[dev-web] no portless proxy running; starting one on port ${PORTLESS_PROXY_PORT:-1355}"
+  portless proxy start --port "${PORTLESS_PROXY_PORT:-1355}" --https || {
+    echo "[dev-web] could not start a portless proxy; start one yourself with:" >&2
+    echo "[dev-web]   portless proxy start --port ${PORTLESS_PROXY_PORT:-1355} --https" >&2
+    exit 1
+  }
+fi
+
 portless "${PORTLESS_ARGS[@]}" "${ROOT}/scripts/dev-web-child.sh" "$@" &
 PORTLESS_PID=$!
 wait "${PORTLESS_PID}"
