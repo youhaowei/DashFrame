@@ -1,7 +1,7 @@
-import type { AppRuntimeConfig } from "@dashframe/app";
+import type { AppRuntimeConfig } from "../data/runtime";
 import { z } from "zod";
 
-import type { BrowserAccessResult } from "./browser-bootstrap-controller";
+import type { HostAccessResult } from "./host-bootstrap-controller";
 
 const nonBlank = z
   .string()
@@ -34,15 +34,15 @@ const replySchema = z.union([
 ]);
 
 export type RuntimeReply = z.infer<typeof replySchema>;
-export type BrowserRuntimeConfig = AppRuntimeConfig &
+export type HostRuntimeConfig = AppRuntimeConfig &
   (
     | { mode: "local" }
     | { mode: "hosted"; subject: string; workspaceId: string }
   );
 
-export function sameBrowserRuntime(
-  a: BrowserRuntimeConfig,
-  b: BrowserRuntimeConfig,
+export function sameHostRuntime(
+  a: HostRuntimeConfig,
+  b: HostRuntimeConfig,
 ): boolean {
   return (
     a.mode === b.mode &&
@@ -56,10 +56,10 @@ export function sameBrowserRuntime(
 }
 
 /** Only a validated response from the configured host can select local mode. */
-export async function lookupBrowserRuntime(
+export async function lookupHostRuntime(
   hostUrl: string,
   signal: AbortSignal,
-): Promise<BrowserAccessResult<BrowserRuntimeConfig>> {
+): Promise<HostAccessResult<HostRuntimeConfig>> {
   try {
     const response = await fetch(new URL("/api/runtime", hostUrl), {
       method: "POST",

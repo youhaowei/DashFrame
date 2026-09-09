@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
-  startBrowserBootstrap,
-  type BrowserAccessResult,
-  type BrowserBootstrapView,
-  type BrowserRuntime,
-} from "./browser-bootstrap-controller";
+  startHostBootstrap,
+  type HostAccessResult,
+  type HostBootstrapView,
+  type ClientRuntime,
+} from "./host-bootstrap-controller";
 
 interface Config {
   identity: string;
@@ -51,10 +51,10 @@ function deferred<T>(): Deferred<T> {
 }
 
 function harness(
-  lookup: (signal: AbortSignal) => Promise<BrowserAccessResult<Config>>,
+  lookup: (signal: AbortSignal) => Promise<HostAccessResult<Config>>,
 ) {
-  const views: BrowserBootstrapView<Config, BrowserRuntime>[] = [];
-  const runtimes: BrowserRuntime[] = [];
+  const views: HostBootstrapView<Config, ClientRuntime>[] = [];
+  const runtimes: ClientRuntime[] = [];
   const createRuntime = vi.fn(() => {
     const runtime = { close: vi.fn(async () => undefined) };
     runtimes.push(runtime);
@@ -62,7 +62,7 @@ function harness(
   });
   const signIn = vi.fn();
   const signOut = vi.fn();
-  const controller = startBrowserBootstrap({
+  const controller = startHostBootstrap({
     lookup,
     createRuntime,
     publish: (view) => views.push(view),
@@ -131,11 +131,11 @@ describe("browser bootstrap controller", () => {
   );
 
   it("aborts a superseded lookup and discards its late admitted result", async () => {
-    const first = deferred<BrowserAccessResult<Config>>();
-    const second = deferred<BrowserAccessResult<Config>>();
+    const first = deferred<HostAccessResult<Config>>();
+    const second = deferred<HostAccessResult<Config>>();
     const signals: AbortSignal[] = [];
     const lookup = vi
-      .fn<(signal: AbortSignal) => Promise<BrowserAccessResult<Config>>>()
+      .fn<(signal: AbortSignal) => Promise<HostAccessResult<Config>>>()
       .mockImplementationOnce((signal) => {
         signals.push(signal);
         return first.promise;
@@ -164,7 +164,7 @@ describe("browser bootstrap controller", () => {
   });
 
   it("closes the owned runtime once when access is lost", async () => {
-    const results: BrowserAccessResult<Config>[] = [
+    const results: HostAccessResult<Config>[] = [
       { status: "admitted", config: config() },
       { status: "pending-admission" },
     ];
@@ -199,7 +199,7 @@ describe("browser bootstrap controller", () => {
   });
 
   it("quietly replaces the runtime when revalidation changes identity", async () => {
-    const results: BrowserAccessResult<Config>[] = [
+    const results: HostAccessResult<Config>[] = [
       { status: "admitted", config: config() },
       {
         status: "admitted",
@@ -230,7 +230,7 @@ describe("browser bootstrap controller", () => {
   it.each(["pending-admission", "unavailable"] as const)(
     "closes an admitted runtime when revalidation reports %s",
     async (status) => {
-      const results: BrowserAccessResult<Config>[] = [
+      const results: HostAccessResult<Config>[] = [
         { status: "admitted", config: config() },
         { status },
       ];
@@ -253,11 +253,11 @@ describe("browser bootstrap controller", () => {
   );
 
   it("discards a stale revalidation superseded by an explicit retry", async () => {
-    const revalidation = deferred<BrowserAccessResult<Config>>();
-    const retryResult = deferred<BrowserAccessResult<Config>>();
+    const revalidation = deferred<HostAccessResult<Config>>();
+    const retryResult = deferred<HostAccessResult<Config>>();
     const signals: AbortSignal[] = [];
     const lookup = vi
-      .fn<(signal: AbortSignal) => Promise<BrowserAccessResult<Config>>>()
+      .fn<(signal: AbortSignal) => Promise<HostAccessResult<Config>>>()
       .mockImplementationOnce(async (signal) => {
         signals.push(signal);
         return { status: "admitted", config: config() };
@@ -295,10 +295,10 @@ describe("browser bootstrap controller", () => {
   });
 
   it("invalidates an active runtime and discards a pending revalidation", async () => {
-    const pendingRevalidation = deferred<BrowserAccessResult<Config>>();
+    const pendingRevalidation = deferred<HostAccessResult<Config>>();
     const signals: AbortSignal[] = [];
     const lookup = vi
-      .fn<(signal: AbortSignal) => Promise<BrowserAccessResult<Config>>>()
+      .fn<(signal: AbortSignal) => Promise<HostAccessResult<Config>>>()
       .mockImplementationOnce(async (signal) => {
         signals.push(signal);
         return { status: "admitted", config: config() };
@@ -334,7 +334,7 @@ describe("browser bootstrap controller", () => {
   });
 
   it("aborts an in-flight lookup on idempotent teardown", async () => {
-    const lookupResult = deferred<BrowserAccessResult<Config>>();
+    const lookupResult = deferred<HostAccessResult<Config>>();
     let signal: AbortSignal | undefined;
     const test = harness(async (nextSignal) => {
       signal = nextSignal;
@@ -358,11 +358,11 @@ describe("browser bootstrap controller", () => {
   });
 
   it("waits for an in-flight runtime factory and closes its late runtime once", async () => {
-    const runtimeResult = deferred<BrowserRuntime>();
+    const runtimeResult = deferred<ClientRuntime>();
     const runtime = { close: vi.fn(async () => undefined) };
-    const views: BrowserBootstrapView<Config, BrowserRuntime>[] = [];
+    const views: HostBootstrapView<Config, ClientRuntime>[] = [];
     const createRuntime = vi.fn(() => runtimeResult.promise);
-    const controller = startBrowserBootstrap({
+    const controller = startHostBootstrap({
       lookup: async () => ({
         status: "admitted" as const,
         config: config(),
@@ -391,8 +391,8 @@ describe("browser bootstrap controller", () => {
   });
 
   it("settles every in-flight runtime close before teardown reports a failure", async () => {
-    const firstRuntimeResult = deferred<BrowserRuntime>();
-    const secondRuntimeResult = deferred<BrowserRuntime>();
+    const firstRuntimeResult = deferred<ClientRuntime>();
+    const secondRuntimeResult = deferred<ClientRuntime>();
     const runtimeResults = [firstRuntimeResult, secondRuntimeResult];
     const secondClose = deferred<void>();
     const closeFailure = new Error("first close failed");
@@ -409,7 +409,7 @@ describe("browser bootstrap controller", () => {
       if (!result) throw new Error("missing runtime result");
       return result.promise;
     });
-    const controller = startBrowserBootstrap({
+    const controller = startHostBootstrap({
       lookup: async () => ({
         status: "admitted" as const,
         config: config(),
@@ -449,9 +449,9 @@ describe("browser bootstrap controller", () => {
     const closing = deferred<void>();
     const failure = new Error("close failed before teardown");
     const runtime = { close: vi.fn(() => closing.promise) };
-    const views: BrowserBootstrapView<Config, BrowserRuntime>[] = [];
+    const views: HostBootstrapView<Config, ClientRuntime>[] = [];
     let admitted = true;
-    const controller = startBrowserBootstrap({
+    const controller = startHostBootstrap({
       lookup: async () =>
         admitted
           ? {
@@ -481,9 +481,9 @@ describe("browser bootstrap controller", () => {
   it("preserves lookup and cleanup failures in the unavailable view", async () => {
     const lookupFailure = new Error("lookup failed");
     const closeFailure = new Error("cleanup failed");
-    const views: BrowserBootstrapView<Config, BrowserRuntime>[] = [];
+    const views: HostBootstrapView<Config, ClientRuntime>[] = [];
     let failLookup = false;
-    const controller = startBrowserBootstrap({
+    const controller = startHostBootstrap({
       lookup: async () => {
         if (failLookup) throw lookupFailure;
         return {
@@ -516,9 +516,9 @@ describe("browser bootstrap controller", () => {
   it("preserves an explicit unavailable error when owned cleanup fails", async () => {
     const error = new Error("service unavailable");
     const closeError = new Error("close failed");
-    const views: BrowserBootstrapView<Config, BrowserRuntime>[] = [];
+    const views: HostBootstrapView<Config, ClientRuntime>[] = [];
     let unavailable = false;
-    const controller = startBrowserBootstrap({
+    const controller = startHostBootstrap({
       lookup: async () =>
         unavailable
           ? { status: "unavailable" as const, error }
@@ -559,17 +559,17 @@ describe("browser bootstrap controller", () => {
       const previousClose = deferred<void>();
       const previousError = new Error("previous close failed");
       const nextError = new Error("next close failed");
-      const hangingLookup = deferred<BrowserAccessResult<Config>>();
+      const hangingLookup = deferred<HostAccessResult<Config>>();
       const previous = { close: vi.fn(() => previousClose.promise) };
       const next = {
         close: vi.fn(async () => {
           if (rejectNext) throw nextError;
         }),
       };
-      const views: BrowserBootstrapView<Config, BrowserRuntime>[] = [];
+      const views: HostBootstrapView<Config, ClientRuntime>[] = [];
       let lookups = 0;
       let factories = 0;
-      const controller = startBrowserBootstrap({
+      const controller = startHostBootstrap({
         lookup: async () =>
           ++lookups === 3
             ? hangingLookup.promise
@@ -612,9 +612,9 @@ describe("browser bootstrap controller", () => {
     async (cleanup) => {
       const closing = deferred<void>();
       const runtime = { close: vi.fn(() => closing.promise) };
-      const views: BrowserBootstrapView<Config, BrowserRuntime>[] = [];
+      const views: HostBootstrapView<Config, ClientRuntime>[] = [];
       let admitted = true;
-      const controller = startBrowserBootstrap({
+      const controller = startHostBootstrap({
         lookup: async () =>
           admitted
             ? {
@@ -656,8 +656,8 @@ describe("browser bootstrap controller", () => {
 
   it("keeps a memoized owned runtime open across ready retries", async () => {
     const runtime = { close: vi.fn(async () => undefined) };
-    const views: BrowserBootstrapView<Config, BrowserRuntime>[] = [];
-    const controller = startBrowserBootstrap({
+    const views: HostBootstrapView<Config, ClientRuntime>[] = [];
+    const controller = startHostBootstrap({
       lookup: async () => ({
         status: "admitted" as const,
         config: config(),
@@ -686,8 +686,8 @@ describe("browser bootstrap controller", () => {
           if (rejectClose) throw closeError;
         }),
       };
-      const views: BrowserBootstrapView<Config, BrowserRuntime>[] = [];
-      const controller = startBrowserBootstrap({
+      const views: HostBootstrapView<Config, ClientRuntime>[] = [];
+      const controller = startHostBootstrap({
         lookup: async () => ({ status: "admitted" as const, config: config() }),
         createRuntime: () => runtime,
         publish: (view) => views.push(view),
@@ -727,7 +727,7 @@ describe("browser bootstrap controller", () => {
     "publishes unavailable when lookup is %s",
     async (_name, lookup) => {
       const test = harness(
-        lookup as (signal: AbortSignal) => Promise<BrowserAccessResult<Config>>,
+        lookup as (signal: AbortSignal) => Promise<HostAccessResult<Config>>,
       );
 
       await vi.waitFor(() => expect(test.views).toHaveLength(2));

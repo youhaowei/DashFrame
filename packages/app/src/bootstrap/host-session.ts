@@ -1,21 +1,21 @@
 import {
-  startBrowserBootstrap,
-  type BrowserBootstrapView,
-  type BrowserRuntime,
-} from "./browser-bootstrap-controller";
+  startHostBootstrap,
+  type HostBootstrapView,
+  type ClientRuntime,
+} from "./host-bootstrap-controller";
 import {
-  lookupBrowserRuntime,
-  sameBrowserRuntime,
-  type BrowserRuntimeConfig,
+  lookupHostRuntime,
+  sameHostRuntime,
+  type HostRuntimeConfig,
 } from "./runtime-transport";
 
-export function startBrowserSession<TRuntime extends BrowserRuntime>(options: {
+export function startHostSession<TRuntime extends ClientRuntime>(options: {
   hostUrl: string;
   createRuntime(
-    config: BrowserRuntimeConfig,
+    config: HostRuntimeConfig,
     onAccessInvalidated: (reason: "denied" | "unavailable") => void,
   ): TRuntime | Promise<TRuntime>;
-  publish(view: BrowserBootstrapView<BrowserRuntimeConfig, TRuntime>): void;
+  publish(view: HostBootstrapView<HostRuntimeConfig, TRuntime>): void;
   unmount(): void;
   events?: Window;
 }) {
@@ -24,9 +24,9 @@ export function startBrowserSession<TRuntime extends BrowserRuntime>(options: {
   let signingOut = false;
   const actionAbort = new AbortController();
   let visibleRuntime: TRuntime | undefined;
-  const controller = startBrowserBootstrap({
-    lookup: (signal) => lookupBrowserRuntime(options.hostUrl, signal),
-    sameConfig: sameBrowserRuntime,
+  const controller = startHostBootstrap({
+    lookup: (signal) => lookupHostRuntime(options.hostUrl, signal),
+    sameConfig: sameHostRuntime,
     createRuntime: (access) =>
       options.createRuntime(access.config, (reason) => {
         if (stopped) return;

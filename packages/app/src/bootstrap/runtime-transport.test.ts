@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
-import { lookupBrowserRuntime } from "./runtime-transport";
+import { lookupHostRuntime } from "./runtime-transport";
 
 const origin = "https://dashframe.test";
 const config = { convexUrl: `${origin}/api/convex` };
@@ -29,7 +29,7 @@ describe("browser runtime transport", () => {
       .mockResolvedValue(Response.json(body, { status: Number(status) }));
     vi.stubGlobal("fetch", fetcher);
     const signal = new AbortController().signal;
-    expect((await lookupBrowserRuntime(origin, signal)).status).toBe(expected);
+    expect((await lookupHostRuntime(origin, signal)).status).toBe(expected);
     expect(fetcher).toHaveBeenCalledWith(
       new URL(`${origin}/api/runtime`),
       expect.objectContaining({
@@ -87,7 +87,7 @@ describe("browser runtime transport", () => {
       vi.fn().mockResolvedValue(Response.json(body, { status })),
     );
     expect(
-      await lookupBrowserRuntime(origin, new AbortController().signal),
+      await lookupHostRuntime(origin, new AbortController().signal),
     ).toEqual({ status: "unavailable" });
   });
 
@@ -109,7 +109,7 @@ describe("browser runtime transport", () => {
     vi.stubGlobal("fetch", fetcher);
     for (let i = 0; i < 3; i++)
       expect(
-        await lookupBrowserRuntime(origin, new AbortController().signal),
+        await lookupHostRuntime(origin, new AbortController().signal),
       ).toEqual({ status: "unavailable" });
   });
 });

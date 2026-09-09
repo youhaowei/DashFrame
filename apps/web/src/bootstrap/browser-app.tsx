@@ -1,11 +1,14 @@
 import type { AppRouterContext, ProviderWrapper } from "@dashframe/app";
-import { ChartEngineProvider, createAppRuntime } from "@dashframe/app";
+import {
+  ChartEngineProvider,
+  createAppRuntime,
+  type HostRuntimeConfig,
+} from "@dashframe/app";
 import { createServerFrameConnector } from "@dashframe/visualization";
 import { createRouter, RouterProvider } from "@tanstack/react-router";
 
 import { routeTree } from "../routeTree.gen";
 import { WebProviders } from "../web-providers";
-import type { BrowserRuntimeConfig } from "./runtime-transport";
 
 function createBrowserRouter() {
   return createRouter({ routeTree, context: {} as AppRouterContext });
@@ -19,7 +22,7 @@ declare module "@tanstack/react-router" {
 
 /** Called only after the transport has resolved an explicitly ready state. */
 export async function createBrowserApp(
-  config: BrowserRuntimeConfig,
+  config: HostRuntimeConfig,
   onAccessInvalidated: (reason: "denied" | "unavailable") => void,
 ) {
   let closed = false;

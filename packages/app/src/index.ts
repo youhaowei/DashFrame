@@ -19,3 +19,21 @@ export {
   type AppRuntime,
   type AppRuntimeConfig,
 } from "./data/runtime";
+
+export {
+  startHostBootstrap,
+  type ClientRuntime,
+  type HostAccessResult,
+  type HostBootstrapController,
+  type HostBootstrapDependencies,
+  type HostBootstrapView,
+} from "./bootstrap/host-bootstrap-controller";
+
+export { startHostSession } from "./bootstrap/host-session";
+
+export {
+  lookupHostRuntime,
+  sameHostRuntime,
+  type HostRuntimeConfig,
+  type RuntimeReply,
+} from "./bootstrap/runtime-transport";
