@@ -21,6 +21,34 @@ import { NativeDuckDBEngine } from "./native-engine";
 
 const MS_PER_HOUR = 3_600_000;
 
+/**
+ * A pair of Arrow-stream sources that each block until BOTH have started.
+ * The pair can only finish on its own if the two registrations held their
+ * leases AT THE SAME TIME — so "both settled" means overlap and "nothing
+ * settled" means the second never got past the lock. `open()` releases the
+ * barrier by hand when a test needs the serialized pair to drain afterwards.
+ */
+function overlapBarrier(arrow: Uint8Array): {
+  source: () => AsyncGenerator<Uint8Array>;
+  open: () => void;
+} {
+  let started = 0;
+  let openGate!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    openGate = resolve;
+  });
+  return {
+    source: () =>
+      (async function* () {
+        started += 1;
+        if (started === 2) openGate();
+        await gate;
+        yield arrow;
+      })(),
+    open: () => openGate(),
+  };
+}
+
 describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
   let engine: NativeDuckDBEngine | null = null;
 
@@ -864,22 +892,11 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
       new Table({ v: vectorFromArray([1, 2, 3], new Int32()) }),
       "stream",
     );
-    let started = 0;
-    let openGate!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      openGate = resolve;
-    });
-    const source = () =>
-      (async function* () {
-        started += 1;
-        if (started === 2) openGate();
-        await gate;
-        yield arrow;
-      })();
+    const barrier = overlapBarrier(arrow);
 
     const both = Promise.all([
-      engine.registerArrowStream("df_parallel_a", source()),
-      engine.registerArrowStream("df_parallel_b", source()),
+      engine.registerArrowStream("df_parallel_a", barrier.source()),
+      engine.registerArrowStream("df_parallel_b", barrier.source()),
     ]);
     const outcome = await Promise.race([
       both.then(
@@ -898,6 +915,46 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
       const rows = await engine.query(`SELECT COUNT(*) AS cnt FROM "${name}"`);
       expect(Number(rows.rows[0]?.cnt)).toBe(3);
     }
+  });
+
+  it("serializes registrations whose names differ only in case", async () => {
+    // DuckDB identifiers are case-insensitive even when quoted, so "Sales" and
+    // "sales" are ONE catalog entry: letting them run concurrently reproduces
+    // the write-write conflict the lock exists to prevent. Same barrier as the
+    // test above, inverted — if the two ever hold their leases at the same
+    // time the gate opens and both finish fast; correct behaviour is that the
+    // second cannot start until the first has released, so the race times out.
+    engine = new NativeDuckDBEngine();
+    await engine.initialize();
+    const arrow = tableToIPC(
+      new Table({ v: vectorFromArray([1, 2, 3], new Int32()) }),
+      "stream",
+    );
+    const barrier = overlapBarrier(arrow);
+
+    const both = Promise.all([
+      engine.registerArrowStream("df_Case_Lock", barrier.source()),
+      engine.registerArrowStream("df_case_lock", barrier.source()),
+    ]);
+    const outcome = await Promise.race([
+      both.then(
+        () => "concurrent" as const,
+        () => "failed" as const,
+      ),
+      new Promise<"serialized">((resolve) => {
+        setTimeout(() => resolve("serialized"), 750);
+      }),
+    ]);
+    expect(outcome).toBe("serialized");
+
+    // Release the holder so the pair can drain, and prove both registrations
+    // still complete once they are properly ordered.
+    barrier.open();
+    await both;
+    const rows = await engine.query(
+      `SELECT COUNT(*) AS cnt FROM "df_case_lock"`,
+    );
+    expect(Number(rows.rows[0]?.cnt)).toBe(3);
   });
 
   it("stays fully usable after a failed appender, with no connection to recover", async () => {

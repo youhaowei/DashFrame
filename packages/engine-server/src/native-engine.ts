@@ -494,19 +494,28 @@ export class NativeDuckDBEngine implements QueryEngine {
    * interleaved with another swap of the same name.
    */
   private async acquireTableLock(name: string): Promise<() => void> {
-    const gate = this._tableLocks.get(name) ?? Promise.resolve();
+    // DuckDB identifiers are case-insensitive even when quoted: "Sales" and
+    // "sales" are one catalog entry (probed: 20/20 cross-case write-write
+    // conflicts). Keying the map on the raw name would hand them separate
+    // locks and let the conflict this lock exists to prevent happen anyway.
+    // Folding can only ever over-lock two names DuckDB keeps apart, which is
+    // safe; under-locking is the bug. Registered names are ASCII identifiers
+    // (`df_<uuid>` or the transport's `^[a-zA-Z_]\w*$`), so ASCII folding and
+    // DuckDB's own agree on every name that reaches here.
+    const key = name.toLowerCase();
+    const gate = this._tableLocks.get(key) ?? Promise.resolve();
     let unlock!: () => void;
     const tail = new Promise<void>((resolve) => {
       unlock = resolve;
     });
-    this._tableLocks.set(name, tail);
+    this._tableLocks.set(key, tail);
     await gate;
     return () => {
       unlock();
       // Only the last holder clears the key. Deleting unconditionally would
       // drop the gate a caller queued behind us is already awaiting, letting
       // the next arrival run concurrently with them.
-      if (this._tableLocks.get(name) === tail) this._tableLocks.delete(name);
+      if (this._tableLocks.get(key) === tail) this._tableLocks.delete(key);
     };
   }
 
