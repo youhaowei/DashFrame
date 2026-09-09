@@ -2,7 +2,7 @@
 
 [![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/youhaowei/DashFrame)](https://coderabbit.ai)
 
-DashFrame is a local-first business intelligence tool focused on the data → chart journey: import data, query it with DuckDB, and build visualizations. It ships as **two surfaces of the same UI** (`packages/app`) — an Electron **desktop** app and a browser **web** app — both backed by local Convex and the same Hono host API. Architecture and design docs are maintained separately (not in this repo).
+DashFrame is a local-first business intelligence tool focused on the data → chart journey: import data, query it with DuckDB, and build visualizations. It ships as **two surfaces of the same UI** (`packages/app`) — an Electron **desktop** app and a browser **web** app — both backed by local Convex and the same Hono host API. [PRODUCT.md](PRODUCT.md), [DESIGN.md](DESIGN.md), and [GLOSSARY.md](GLOSSARY.md) cover the product, its UI conventions, and its vocabulary; architecture specs are maintained separately.
 
 ## Stack
 

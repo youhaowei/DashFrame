@@ -1,12 +1,20 @@
 {
   "files": [
     {
+      "path": "PRODUCT.md",
+      "description": "What DashFrame is, its commitments (local-first, sensitivity gating, immediate, truthful) and non-goals. Load before judging whether a feature or element belongs."
+    },
+    {
       "path": "DESIGN.md",
-      "description": "Visual design system: surface-system tokens, register, anti-patterns. Source of truth for any UI review."
+      "description": "Product design: direction and references, surface-system tokens, workbench panes, form/pane conventions, artifact page model, rejected directions, do's and don'ts. Source of truth for any UI review."
+    },
+    {
+      "path": "GLOSSARY.md",
+      "description": "Canonical product vocabulary and model-type mapping. Load when reviewing user-facing names or model naming."
     },
     {
       "path": "CLAUDE.md",
-      "description": "Project instructions and design-context pointer. Load before UI work."
+      "description": "Project entry point; imports AGENTS.md, which carries the operational rules and the product/design doc map."
     }
   ],
   "customContext": {
@@ -30,7 +38,7 @@
         "scope": ["packages/app/**", "apps/renderer/**", "apps/web/**"]
       },
       {
-        "content": "NO OFF-TOKEN COLOR (invariant). No raw hex/rgb/oklch in classNames or styles. Use @wystack/ui semantic tokens only (neutral-*, palette-*, surface-*). The nav's hardcoded blue shadow is known standing drift; new off-token color is a finding.",
+        "content": "NO OFF-TOKEN COLOR (invariant). No raw hex/rgb/oklch in classNames or styles. Use @wystack/ui semantic tokens only (neutral-*, palette-*, surface-*). Any off-token color is a finding.",
         "scope": ["packages/app/**", "packages/ui/**", "apps/renderer/**"]
       },
       {

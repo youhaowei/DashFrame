@@ -1,16 +1,26 @@
 # DashFrame design
 
+How DashFrame's UI looks and behaves. **This file is product design.** The framework design system — tokens, primitives, the shared visual language across the portfolio — lives in `libs/stdui` and is not restated here.
+
+See [PRODUCT.md](PRODUCT.md) for what the product is and what it refuses to be, and [GLOSSARY.md](GLOSSARY.md) for product vocabulary and model caveats.
+
 ## Direction
 
-Keep the app calm, functional, and dense enough for analysis. Use floating panels on a tinted canvas, subtle shadows, and window chrome integrated with the sidebar. Customize `@wystack/ui-core` defaults only by exception.
+**The primary reference is workforce**, the sibling project, taken deeply: floating surface panels on a tinted canvas, shadow-lifted rather than border-boxed, calm density, window chrome integrated with the sidebar. Where workforce and this document disagree, check workforce first — divergence should be deliberate.
 
-Avoid toolbar-heavy BI chrome, generic dashboards, document-like softness, and a dark-mode-first aesthetic. These anti-references remain provisional. Support light and dark themes; follow the system by default. Brand colour is undecided; use the shared neutral primary.
+`@wystack/ui-core` defaults are the shared portfolio look. DashFrame customizes by exception, not by default.
 
-Use [GLOSSARY.md](GLOSSARY.md) for product vocabulary and model caveats.
+Anti-references, _provisional, to be confirmed in use_: enterprise BI chrome (Tableau/Power BI toolbar density); a generic uncustomized shadcn dashboard; Notion-style document softness (artifacts are tools, not pages); a dark-mode-first hacker aesthetic.
+
+The adjective set is **calm, immediate, crafted**. "Immediate" is the performance commitment made visual — the UI never feels like it is waiting on a server.
+
+Support light and dark themes; follow the system by default. Brand colour is undecided; use the shared neutral primary.
 
 ## Shared components and surfaces
 
-Tokens and utilities come from `@wystack/ui-core`; components from `@wystack/ui-react`; icons from `@wystack/ui-react/icons`. Both packages are vendored in `libs/stdui`. Local extensions belong in `packages/ui` (`@dashframe/ui`). Change shared primitives and tokens upstream, not through local restyling; generalize after three uses.
+Tokens and utilities come from `@wystack/ui-core`; components from `@wystack/ui-react`; icons from `@wystack/ui-react/icons`. Both packages are vendored in `libs/stdui`. Local extensions belong in `packages/ui` (`@dashframe/ui`) — for example `SensitivityBadge`. Change shared primitives and tokens upstream, not through local restyling; generalize after three uses.
+
+In active use from `@wystack/ui-react`: Button, Dialog, DropdownMenu, Tooltip, Breadcrumb, Card, and `cn`. Check here before building a primitive that may already exist.
 
 | Surface               | Recipe                                                                               |
 | --------------------- | ------------------------------------------------------------------------------------ |
@@ -66,19 +76,42 @@ Read order: state and next action → primary work → useful relationships/depe
 
 **Narrow windows:** turn the switcher into a full-width command surface or sheet. Reduce grid columns before cards become cramped. List rows retain identity and their most important state. Stack detail sections; wide previews and data grids scroll locally, without page-level horizontal overflow.
 
+**Rejected directions.** These recur; they stay rejected.
+
+- _Permanent master-detail rails for every artifact._ They spend width on navigation that is idle during most artifact work, and duplicate the application sidebar.
+- _Comparison tables as the universal collection view._ Most artifact states are routine and not meaningfully comparable; repeated healthy columns create noise around the exceptions.
+- _Per-artifact collection and detail shells._ Artifact-specific content is expected, but search, switching, hierarchy, actions, states, and responsive behavior stay shared.
+
 ## Content must help a decision
 
-Every element must explain state, support a decision, or enable an action on that surface. Empty space is fine; decoration and repeated metadata must justify their place.
+[PRODUCT.md](PRODUCT.md) commits to showing only what the product can compute truthfully. In the UI that means every element must explain state, support a decision, or enable an action **on that surface**.
 
-- Previews must show real artifact properties that help recognition or judgment.
-- Show data the product can compute and keep current. “Health”, “quality”, or “freshness” needs a defined source and meaning; otherwise show the concrete fact.
+- Previews must show real artifact properties that help recognition or judgment. A generic chart thumbnail or synthetic sparkline is worse than no preview.
+- “Health”, “quality”, or “freshness” needs a defined source and meaning; otherwise show the concrete fact.
 - Fixtures must represent supported states and plausible data paths, without implying unsupported capabilities.
-- Show badges and warnings where they affect the next action. For example, sensitivity belongs at share/export, not on every field in a picker. Tracking and enforcement do not require a visible badge everywhere.
+- Repeated content must justify repetition. Identity and status may appear in a picker, header, and recovery state only when each placement supports a different local decision.
 
-Before adding an element, name the user question or action, why it belongs here, and its data source and stale/unavailable behavior. If removing it changes no decision, remove it.
+Before adding an element, name the user question or action, why this is the right surface and moment, and its data source and stale/unavailable behavior. If removing it changes no decision, remove it.
+
+**Worked example (GH #81, 2026-06-13).** A per-field sensitivity badge in the insight field picker was built, reviewed clean, and closed unmerged. At field-pick, sensitivity is informative but not decisive — a user who needs the field includes it regardless — and on a scan-list where most fields are unclassified, the marker is wallpaper. Sensitivity is tracked on the field and enforced silently by the cache-write gate; the user-facing flag belongs at the share/export boundary, the one place it changes behavior.
 
 ## Accessibility and copy
 
 Target WCAG AA. Keep all controls keyboard-reachable, including sidebar controls and assistant ⌘J summon/dismiss. Pair status colours with icons or labels. Respect `prefers-reduced-motion`; guard animation-frame work in non-visual runtimes.
 
-Translate runtime errors into plain language with a recovery action; never expose WASM errors or stack traces in dialogs. Voice follows the knowledge vault's product principles and `prd/prd-dashframe-v02.md`. Reserve brand expression and marketing metadata for the marketing site.
+Translate runtime errors into plain language with a recovery action; never expose WASM errors or stack traces in dialogs. Voice follows [PRODUCT.md](PRODUCT.md) — a working instrument, not a document. Reserve brand expression and marketing metadata for the marketing site.
+
+## Do's and Don'ts
+
+- **Do** check workforce first when this document is silent or disagrees.
+- **Do** put token and primitive changes upstream in `libs/stdui`, not in local overrides.
+- **Do** let panels own their height and let pages fill them with `h-full`.
+- **Do** leave empty space when nothing decision-changing fills it.
+- **Do** name the decision an element serves before adding it.
+- **Don't** use raw colour values in styles or class names — tokens only.
+- **Don't** put a border on panel chrome; elevation separates panels from the canvas.
+- **Don't** branch on `isElectron` inside components.
+- **Don't** add a permanent master-detail rail, a per-artifact page shell, or a comparison table as a default collection view.
+- **Don't** show a badge on every row when it changes the decision on only one surface.
+- **Don't** ship a metric the product cannot compute and keep current.
+- **Don't** use a placeholder as a control's only label.

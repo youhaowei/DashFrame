@@ -1,6 +1,6 @@
 # DashFrame glossary
 
-Canonical product terms for UI copy, documentation, and code naming. See [DESIGN.md](DESIGN.md) for presentation and interaction rules.
+Canonical product terms for UI copy, documentation, and code naming. See [PRODUCT.md](PRODUCT.md) for what the product is, and [DESIGN.md](DESIGN.md) for presentation and interaction rules.
 
 ## Terms
 
@@ -24,7 +24,7 @@ The authoring layout: a central work canvas with configuration panes on either s
 
 ## Grouping, pivots, and limits
 
-Accepted targets from [PR #418](https://github.com/youhaowei/DashFrame/pull/418); the model gaps below distinguish intended behavior from current support.
+Accepted behavioral targets. The model gaps below distinguish intended behavior from current support; presentation rules live in [DESIGN.md](DESIGN.md#workbench).
 
 - **Date grouping:** group a date field by granularity (day, week, month, quarter, year) or date part (month of year, day of week, quarter of year). Today `Insight.selectedFields` holds IDs only; `DateTransform` lives on chart encodings.
 - **Pivot:** spread a field's values across columns. Any number of fields may pivot, nested in selected-field order, with one column per value per metric. A pivot remains a dimension, not a metric. Insight-level pivots are not yet modeled.
