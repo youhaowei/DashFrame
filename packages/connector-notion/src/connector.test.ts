@@ -21,6 +21,7 @@ import {
 } from "@wystack/secret-vault";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { makeNotionConnector, NotionConnector } from "./connector";
+import { queryDatabase } from "./client";
 
 // Mock the Notion client so tests don't hit the network
 vi.mock("./client", () => ({
@@ -283,11 +284,13 @@ describe("NotionConnector — bound resolver (capability attenuation)", () => {
     });
 
     const connector = makeNotionConnector(spyingResolver);
+    const controller = new AbortController();
     // Clients are mocked; getDatabaseSchema → [], queryDatabase → { results: [] }.
     // query() runs entirely in Node (no DataFrame.create / IndexedDB).
     const result = await connector.query(
       "db-id",
       crypto.randomUUID() as Parameters<typeof connector.query>[1],
+      { signal: controller.signal },
     );
 
     // Resolver was invoked exactly once for the query.
@@ -303,6 +306,10 @@ describe("NotionConnector — bound resolver (capability attenuation)", () => {
     // DataFrame metadata without re-reading the (server-side) Arrow buffer.
     expect(typeof result.rowCount).toBe("number");
     expect(result).not.toHaveProperty("dataFrame");
+    expect(vi.mocked(queryDatabase)).toHaveBeenCalledWith({}, "db-id", {
+      pageSize: undefined,
+      signal: controller.signal,
+    });
   });
 
   it("makeNotionConnector factory exports a connector with sourceType=remote-api", async () => {

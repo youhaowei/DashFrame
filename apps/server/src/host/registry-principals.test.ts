@@ -25,6 +25,11 @@ const cases = {
     openToService:
       "API clients may materialize unsaved previews from persisted sources.",
   },
+  refreshDataTable: {
+    input: { tableId: id },
+    openToService:
+      "API clients may refresh a persisted source without retaining a preview.",
+  },
   runInsight: {
     input: { insightId: id },
     openToService: "API clients may execute saved Insight definitions.",

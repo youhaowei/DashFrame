@@ -52,6 +52,7 @@ interface AssistantRunRouteOptions {
   app: ApplicationOperations;
   metadata: HostMetadata;
   vault?: SecretVault;
+  allowOperatorCredentialFallback?: boolean;
   resolveContext?: (req: Request) => Promise<Record<string, unknown>>;
 }
 
@@ -246,10 +247,11 @@ async function selectAssistantProviderConfigForRun(args: {
   return args.modelId ? { ...selected, defaultModel: args.modelId } : selected;
 }
 
-async function resolveRunProvider(args: {
+export async function resolveAssistantRunProvider(args: {
   body: AssistantRunRequestBody;
   metadata: HostMetadata;
   vault?: SecretVault;
+  allowOperatorCredentialFallback?: boolean;
 }): Promise<{
   model: ReturnType<typeof resolveDefaultAnthropicModel>;
   getApiKey: CreateAssistantRunOptions["getApiKey"];
@@ -263,6 +265,9 @@ async function resolveRunProvider(args: {
   });
 
   if (!row) {
+    if (args.allowOperatorCredentialFallback === false) {
+      throw new Error("Configure an assistant provider for this workspace");
+    }
     const model = resolveDefaultAnthropicModel(modelId);
     return { model, getApiKey: getScopedApiKey };
   }
@@ -324,12 +329,13 @@ export async function handleAssistantRunRequest(
     return c.json({ error: "Assistant prompt is required" }, 400);
   }
 
-  let runProvider: Awaited<ReturnType<typeof resolveRunProvider>>;
+  let runProvider: Awaited<ReturnType<typeof resolveAssistantRunProvider>>;
   try {
-    runProvider = await resolveRunProvider({
+    runProvider = await resolveAssistantRunProvider({
       body,
       metadata: options.metadata,
       vault: options.vault,
+      allowOperatorCredentialFallback: options.allowOperatorCredentialFallback,
     });
   } catch (err) {
     // Unknown requested model id is a client error; a failure to resolve

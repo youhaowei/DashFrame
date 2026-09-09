@@ -9,7 +9,6 @@ import {
   handleConnectorSetupResume,
 } from "./connector-oauth-callback";
 import { ConnectorSetupGateError } from "./connector-setup/session-store";
-import { LOCAL_USER_ID } from "./permissions";
 
 function fakeApp(
   execute: ApplicationOperations["execute"],
@@ -35,18 +34,14 @@ describe("connector OAuth browser routes", () => {
       },
     );
     expect(response.status).toBe(200);
-    expect(execute).toHaveBeenCalledExactlyOnceWith(
-      "completeConnectorOAuth",
-      {
-        state: "opaque",
-        code: "authorization-code",
-        oauthError: undefined,
-      },
-      { principal: { kind: "user", userId: LOCAL_USER_ID } },
-    );
+    expect(execute).toHaveBeenCalledExactlyOnceWith("completeConnectorOAuth", {
+      state: "opaque",
+      code: "authorization-code",
+      oauthError: undefined,
+    });
   });
 
-  it("requires no bearer and delegates completion with the fixed local principal", async () => {
+  it("requires no bearer and delegates completion through the bound application", async () => {
     const call = vi.fn(async () => ({ state: "connected" }));
     const hono = new Hono();
     hono.get("/api/connectors/oauth/callback", (c) =>
@@ -57,15 +52,11 @@ describe("connector OAuth browser routes", () => {
       "/api/connectors/oauth/callback?state=opaque&code=authorization-code",
     );
     expect(response.status).toBe(200);
-    expect(call).toHaveBeenCalledWith(
-      "completeConnectorOAuth",
-      {
-        state: "opaque",
-        code: "authorization-code",
-        oauthError: undefined,
-      },
-      { principal: { kind: "user", userId: LOCAL_USER_ID } },
-    );
+    expect(call).toHaveBeenCalledWith("completeConnectorOAuth", {
+      state: "opaque",
+      code: "authorization-code",
+      oauthError: undefined,
+    });
   });
 
   it("returns only the minimal public resume DTO", async () => {
@@ -107,11 +98,75 @@ describe("connector OAuth browser routes", () => {
     expect(response.status).toBe(302);
     expect(response.headers.get("location")).toBe(authorizeUrl);
     expect(response.headers.get("referrer-policy")).toBe("no-referrer");
-    expect(call).toHaveBeenCalledWith(
-      "reissueConnectorSetupResume",
-      { sessionId: "opaque-session" },
-      { principal: { kind: "user", userId: LOCAL_USER_ID } },
+    expect(call).toHaveBeenCalledWith("reissueConnectorSetupResume", {
+      sessionId: "opaque-session",
+    });
+  });
+
+  it("preserves a nonlocal hosted subject through callback and both resume paths", async () => {
+    const subject = "workos-user-a";
+    const call = vi.fn(async (operation: string, _input: unknown) =>
+      operation === "completeConnectorOAuth"
+        ? { state: "connected" }
+        : {
+            state: "awaiting-user-auth",
+            authorizeUrl: "https://accounts.google.com/authorize",
+          },
     );
+    const executeSpy = vi.fn(async (...args: unknown[]) => {
+      if (args.length !== 2) {
+        throw new Error("Principal mismatch");
+      }
+      return call(args[0] as string, args[1]);
+    });
+    const execute = executeSpy as unknown as ApplicationOperations["execute"];
+    const unbound: ApplicationOperations = {
+      execute: async () => {
+        throw new Error("Application is not bound");
+      },
+      forPrincipal(principal) {
+        if (principal.kind !== "user" || principal.userId !== subject) {
+          throw new Error("Wrong hosted subject");
+        }
+        return fakeApp(execute);
+      },
+    };
+    const bound = unbound.forPrincipal({ kind: "user", userId: subject });
+    const hono = new Hono();
+    hono.get("/api/connectors/oauth/callback", (c) =>
+      handleConnectorOAuthCallback(c, bound),
+    );
+    hono.get("/api/connectors/setup/:sessionId/resume", (c) =>
+      handleConnectorSetupResume(c, bound),
+    );
+    hono.get("/", (c) => handleConnectorResumeLanding(c, bound));
+
+    expect(
+      (
+        await hono.request(
+          "/api/connectors/oauth/callback?state=opaque&code=code",
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      (await hono.request("/api/connectors/setup/session/resume")).status,
+    ).toBe(200);
+    expect(
+      (
+        await hono.request("/?resumeConnector=session", {
+          redirect: "manual",
+        })
+      ).status,
+    ).toBe(302);
+    expect(call.mock.calls).toEqual([
+      [
+        "completeConnectorOAuth",
+        { state: "opaque", code: "code", oauthError: undefined },
+      ],
+      ["reissueConnectorSetupResume", { sessionId: "session" }],
+      ["reissueConnectorSetupResume", { sessionId: "session" }],
+    ]);
+    expect(executeSpy.mock.calls.every((args) => args.length === 2)).toBe(true);
   });
 
   it("renders a generic error and logs only a session-free gate code", async () => {

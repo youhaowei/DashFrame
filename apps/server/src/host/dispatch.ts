@@ -47,10 +47,18 @@ function object(input: unknown): Record<string, Value> {
   return cleaned as Record<string, Value>;
 }
 
+function combinedRequestSignal(
+  admitted?: AbortSignal,
+  caller?: AbortSignal,
+): AbortSignal | undefined {
+  if (!caller) return admitted;
+  return admitted ? AbortSignal.any([admitted, caller]) : caller;
+}
+
 export function createApplicationOperations(
   options: {
     convexUrl: string;
-    identity: ConvexIdentity;
+    identity: Pick<ConvexIdentity, "issue">;
     context(principal: Principal): HostContext;
   },
   bound?: Principal,
@@ -68,7 +76,10 @@ export function createApplicationOperations(
       )
         throw new Error("Principal mismatch");
       const host = options.context(principal);
-      host.requestSignal = context?.signal;
+      host.requestSignal = combinedRequestSignal(
+        host.requestSignal,
+        context?.signal,
+      );
       host.application = application.forPrincipal(principal);
       const operation = hostOperationByName(name);
       if (operation) return operation.execute(host, input);

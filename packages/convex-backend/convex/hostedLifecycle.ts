@@ -175,7 +175,8 @@ export const ackCleanup = mutation({
   },
 });
 
-/** Only for an exclusive workspace startup phase before new requests are accepted. */
+/** Owner-authorized host startup recovery. The host mints owner metadata even
+ * when a verified service is the first caller. */
 export const listRecoverableHostBatches = query({
   args: pagination,
   returns: v.object({
@@ -201,7 +202,7 @@ export const listRecoverableHostBatches = query({
   },
 });
 
-/** Cancels stored pending work only. Host startup fencing is a separate prerequisite. */
+/** Owner-authorized cancellation of stored pending work during fenced startup. */
 export const recoverHostBatch = mutation({
   args: { operationId: v.string() },
   returns: v.union(

@@ -1,3 +1,4 @@
+import type { AccessConnectionInfo } from "@dashframe/types";
 import type { DataFrameStorage } from "@dashframe/engine";
 import type {
   ArrowQueryRunner,
@@ -13,10 +14,14 @@ import type { ApplicationOperations } from "./application";
 /** Capabilities injected after HTTP authentication, never accepted from request JSON. */
 export interface HostContext {
   principal: Principal;
+  /** Personal workspace owner resolved by hosted admission, never request input.
+   * Omitted only for the local desktop/loopback composition. */
+  workspaceOwnerId?: string;
   metadata: HostMetadata;
   cleanupResources?: () => Promise<void>;
-  accessCredentials?: ApiAccessCredentials;
+  accessCredentials?: Pick<ApiAccessCredentials, "issue" | "list" | "revoke">;
   getServerEndpoint: () => string | undefined;
+  accessConnectionInfo?: AccessConnectionInfo;
   vault?: SecretVault;
   googleOAuth?: GoogleOAuthConfig;
   application?: ApplicationOperations;
@@ -35,6 +40,8 @@ export interface HostContext {
       Pick<ArrowTableRegistrar, "registerArrowTable" | "registerArrowBatches">
     > & {
       unregisterTable?: (name: string) => Promise<void>;
+      /** Stable identity shared by request-scoped wrappers over one engine. */
+      coalescingIdentity?: object;
     };
 }
 
@@ -44,8 +51,21 @@ export function requireUser(ctx: HostContext): void {
   if (ctx.principal.kind !== "user") throw new Error("FORBIDDEN");
 }
 
-export function requireLocalOperator(ctx: HostContext): void {
-  if (ctx.principal.kind !== "user" || ctx.principal.userId !== "local-user") {
-    throw new Error("FORBIDDEN");
-  }
+export function isWorkspaceOwner(
+  ctx: Pick<HostContext, "principal" | "workspaceOwnerId">,
+): boolean {
+  const ownerId = ctx.workspaceOwnerId ?? "local-user";
+  return Boolean(
+    ownerId &&
+    ownerId.trim() === ownerId &&
+    !/[\s\p{Cc}]/u.test(ownerId) &&
+    ctx.principal.kind === "user" &&
+    ctx.principal.userId === ownerId,
+  );
+}
+
+export function requireWorkspaceOwner(
+  ctx: Pick<HostContext, "principal" | "workspaceOwnerId">,
+): void {
+  if (!isWorkspaceOwner(ctx)) throw new Error("FORBIDDEN");
 }

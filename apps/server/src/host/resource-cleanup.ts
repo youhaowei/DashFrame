@@ -5,6 +5,27 @@ import {
   RESOURCE_REFERENCE_SCAN_CAP_CODE,
 } from "@dashframe/convex-backend/model";
 import type { HostContext } from "./context";
+import type { HostMetadata, LocalRecoveryMetadata } from "./metadata";
+import type { HostedLifecycleMetadata } from "./hosted-convex-lifecycle";
+
+type CleanupMetadata = Pick<
+  HostMetadata,
+  "listCleanup" | "claimCleanup" | "ackCleanup"
+> &
+  (
+    | (LocalRecoveryMetadata & Pick<HostMetadata, "settleHostBatch">)
+    | Pick<
+        HostedLifecycleMetadata,
+        "listRecoverableHostBatches" | "recoverHostBatch"
+      >
+  );
+
+type CleanupContext = Pick<
+  HostContext,
+  "vault" | "dataFrameStorage" | "dataPlaneRuntime"
+> & {
+  metadata: CleanupMetadata;
+};
 
 function reportCleanupFailure(error: unknown, retained: string): void {
   // Match the structured payload, never the message text: `String(error)` is
@@ -25,16 +46,31 @@ export class HostResourceCleanup {
   private active: Promise<void> | undefined;
   private timer: ReturnType<typeof setInterval> | undefined;
   private closed = false;
-  constructor(private readonly ctx: HostContext) {}
+  constructor(private readonly ctx: CleanupContext) {}
 
   async recoverPendingBatches(): Promise<void> {
+    const metadata = this.ctx.metadata;
     let cursor: string | null = null;
+    // The caller must exclusively fence workspace startup before recovery.
+    // Hosted recovery sends only IDs; stored principals and staged secrets stay
+    // inside the backend transaction that cancels the abandoned batch.
+    if ("listRecoverableHostBatches" in metadata) {
+      for (;;) {
+        const page = await metadata.listRecoverableHostBatches({
+          paginationOpts: { cursor, numItems: 100 },
+        });
+        for (const batch of page.page)
+          await metadata.recoverHostBatch({ operationId: batch.operationId });
+        if (page.isDone) return;
+        cursor = page.continueCursor;
+      }
+    }
     for (;;) {
-      const page = await this.ctx.metadata.listPendingHostBatches({
+      const page = await metadata.listPendingHostBatches({
         paginationOpts: { cursor, numItems: 100 },
       });
       for (const batch of page.page) {
-        await this.ctx.metadata.settleHostBatch({
+        await metadata.settleHostBatch({
           operationId: batch.operationId,
           principal: batch.principal,
           requestHash: batch.requestHash,

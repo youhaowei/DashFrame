@@ -34,6 +34,58 @@ function fakeEngine(): ArrowQueryRunner & {
 
 const TOKEN = "secret-loopback-token";
 
+describe("Arrow data path — host authorization", () => {
+  it.each([
+    "/arrow",
+    "/tables/example",
+    "/frames/example/tables/example",
+    "/frames/example/mosaic",
+  ])("honors host denial before parsing or executing %s", async (route) => {
+    const engine = fakeEngine();
+    for (const authToken of [undefined, TOKEN]) {
+      for (const authorizeRequest of [
+        () => false,
+        () => {
+          throw new Error("Session identity is unavailable");
+        },
+      ]) {
+        const app = createArrowDataPath({
+          engine,
+          authToken,
+          authorizeRequest,
+        });
+        const response = await app.request(route, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${TOKEN}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ sql: "SELECT 1" }),
+        });
+        expect(response.status).toBe(401);
+      }
+    }
+    expect(engine.calls).toHaveLength(0);
+  });
+
+  it("accepts a request authenticated by the host", async () => {
+    const engine = fakeEngine();
+    const app = createArrowDataPath({
+      engine,
+      authToken: TOKEN,
+      authorizeRequest: (request) =>
+        request.headers.get("cookie") === "session=valid",
+    });
+    const response = await app.request("/arrow", {
+      method: "POST",
+      headers: { Cookie: "session=valid", "Content-Type": "application/json" },
+      body: JSON.stringify({ sql: "SELECT 1" }),
+    });
+    expect(response.status).toBe(200);
+    expect(engine.calls).toHaveLength(1);
+  });
+});
+
 describe("Arrow data path — auth + IPC roundtrip (Stage 5)", () => {
   it("rejects a request with no Authorization header", async () => {
     const app = createArrowDataPath({ engine: fakeEngine(), authToken: TOKEN });

@@ -23,6 +23,7 @@ import {
   STREAM_DURATION_MS,
   STREAM_STORAGE_BYTES,
   StreamingBudget,
+  supportsStreaming,
   withStreamingBudget,
 } from "./streaming";
 
@@ -175,6 +176,13 @@ async function fixture(total = 25_007) {
 }
 
 describe("streaming production materialization", () => {
+  it("keeps hosted contexts on their bounded worker protocol even with native capabilities", async () => {
+    const f = await fixture(1);
+    expect(supportsStreaming(f.ctx)).toBe(true);
+    expect(supportsStreaming({ ...f.ctx, workspaceOwnerId: "owner" })).toBe(
+      false,
+    );
+  });
   it("retains complete files when publication acknowledgement is unknown", async () => {
     const f = await fixture(1);
     vi.spyOn(f.ctx.metadata, "publishMaterialization").mockRejectedValue(

@@ -8,6 +8,8 @@ export const STREAM_STORAGE_BYTES = 2 * 1024 * 1024 * 1024;
 export const STREAM_DURATION_MS = 5 * 60 * 1000;
 
 export function supportsStreaming(ctx: HostContext): boolean {
+  // Hosted workers retain their negotiated protocol and existing ceilings.
+  if (ctx.workspaceOwnerId !== undefined) return false;
   return Boolean(
     ctx.dataFrameStorage?.saveBatches &&
     ctx.dataFrameStorage.loadBatches &&

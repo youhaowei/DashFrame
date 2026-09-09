@@ -133,9 +133,11 @@ export class NotionConnector extends RemoteApiConnector {
   ): Promise<ConnectorQueryResult> {
     return this.auth(async (apiKey) => {
       const client = createNotionClient(apiKey);
+      options?.signal?.throwIfAborted();
 
       // Step 1: Get database schema
       const schema = await getDatabaseSchema(client, databaseId);
+      options?.signal?.throwIfAborted();
 
       // Step 2: Generate fields from schema
       const { fields } = generateFieldsFromNotionSchema(schema, tableId);
@@ -144,6 +146,7 @@ export class NotionConnector extends RemoteApiConnector {
       const pageSize = options?.pagination?.limit;
       const response = await queryDatabase(client, databaseId, {
         pageSize,
+        signal: options?.signal,
       });
 
       // Step 4: Convert to a serializable result (raw Arrow buffer + ids).

@@ -1,23 +1,46 @@
 import { execFile } from "node:child_process";
-import { generateKeyPairSync, sign } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { generateKeyPairSync, randomBytes, sign } from "node:crypto";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { expect, it } from "vite-plus/test";
+import { expect, it, vi } from "vite-plus/test";
 import { ConvexHttpClient } from "convex/browser";
 import { api, internal } from "@dashframe/convex-backend/api";
 import { startLocalConvex, type LocalConvex } from "@dashframe/convex-local";
-import { CREDENTIAL_CLASS, FileMappingStore } from "@dashframe/server-core";
 import { cmd, type Field } from "@dashframe/types";
-import { SecretRegistry, SecretVault } from "@wystack/secret-vault";
+import { ApiAccessCredentials, CREDENTIAL_CLASS } from "@dashframe/server-core";
+import type { SecretVault } from "@wystack/secret-vault";
+import { createWorkspaceSecrets } from "./workspace-secrets";
+import { loadSecretKeyring } from "../secret-file-backend";
 import {
-  deriveKeyId,
-  ENCRYPTED_FILE_BACKEND_NAME,
-  EncryptedFileSecretBackend,
-} from "../secret-file-backend";
+  createHostedConnectorSessionDocument,
+  createHostedConnectorSessionStore,
+} from "../connector-setup/hosted-session-store";
+import {
+  startSession,
+  consumeCallback,
+  markVerifying,
+  sweep,
+} from "../connector-setup/session-store";
+import {
+  saveAssistantProviderConfig,
+  removeAssistantProviderConfig,
+  startAssistantOAuthLogin,
+} from "./assistant-providers";
+import { createHostedAdmissionService } from "./hosted-admission-service";
+import { createHostedServerSurface } from "../hosted";
+import { NativeDuckDBEngine } from "@dashframe/engine-server";
+import { FileDataFrameStorage } from "@dashframe/engine-server/file-dataframe-storage";
+import { tableFromIPC } from "apache-arrow";
+import { z } from "zod";
+import { createHostedApplication } from "./hosted-application";
+import { createHostedServiceAccess } from "./hosted-service-access";
+import { bindHostedMetadata } from "./bound-hosted-metadata";
+import { HostResourceCleanup } from "./resource-cleanup";
+import { createHostedProviderMetadata } from "./hosted-convex-provider-metadata";
 import { createHostedSourceMetadata } from "./hosted-convex-source-operations";
 
 const runtimeIssuer = "https://runtime.metadata-test.invalid";
@@ -148,6 +171,9 @@ it(
     const runtime = keys("runtime"),
       operator = keys("operator");
     let backend: LocalConvex | undefined;
+    let httpSurface:
+      | Awaited<ReturnType<typeof createHostedServerSurface>>
+      | undefined;
     try {
       backend = await startLocalConvex({
         projectDir: directory,
@@ -198,29 +224,16 @@ it(
         purpose: "host-metadata",
         workspaceId,
       });
-      const vaultKey = Buffer.alloc(32, 7),
-        vaultKeyId = deriveKeyId(vaultKey);
-      const workspaceVault = (workspace: string) => {
-        const root = path.join(directory, `vault-${workspace}`);
-        const registry = new SecretRegistry();
-        registry.register(
-          ENCRYPTED_FILE_BACKEND_NAME,
-          new EncryptedFileSecretBackend(path.join(root, "blobs"), {
-            activeKeyId: vaultKeyId,
-            keys: new Map([[vaultKeyId, vaultKey]]),
-          }),
-        );
-        registry.setClassDefault(
-          CREDENTIAL_CLASS.ConnectorKey,
-          ENCRYPTED_FILE_BACKEND_NAME,
-        );
-        return new SecretVault(
-          registry,
-          new FileMappingStore(path.join(root, "mappings.json")),
-        );
-      };
-      const vaultA = workspaceVault("a"),
-        vaultB = workspaceVault("b");
+      const sessionKeyring = await loadSecretKeyring({
+        DASHFRAME_SECRET_KEY: randomBytes(32).toString("base64"),
+      });
+      if (!sessionKeyring) throw new Error("Synthetic keyring required");
+      const vaultFactory = await createWorkspaceSecrets(
+        path.join(directory, "workspace-secrets"),
+        sessionKeyring,
+      );
+      const vaultA = await vaultFactory.forWorkspace(workspaces[0]!);
+      const vaultB = await vaultFactory.forWorkspace(workspaces[1]!);
       const metadata = (
         claims: Record<string, string>,
         credentialVault: SecretVault,
@@ -357,8 +370,18 @@ it(
         mode: "draft",
         stagedRefs: [stagedRef],
       });
+      const externalService = metadata(
+        {
+          sub: "service:credential-a",
+          credentialId: "credential-a",
+          principalKind: "service",
+          authority: "service",
+          workspaceId: workspaces[0]!,
+        },
+        vaultA,
+      );
       await expect(
-        service.recoverHostBatch({ operationId: batch.operationId }),
+        externalService.recoverHostBatch({ operationId: batch.operationId }),
       ).rejects.toThrow();
       await expect(a.executeHostBatch(batch)).rejects.toThrow();
       const paging = { paginationOpts: { cursor: null, numItems: 100 } };
@@ -368,9 +391,9 @@ it(
       expect(await b.recoverHostBatch({ operationId: batch.operationId })).toBe(
         "missing",
       );
-      expect(await a.recoverHostBatch({ operationId: batch.operationId })).toBe(
-        "cancelled",
-      );
+      const startupCleanup = new HostResourceCleanup({ metadata: service });
+      await startupCleanup.recoverPendingBatches();
+      expect((await a.listRecoverableHostBatches(paging)).page).toEqual([]);
       expect(await a.recoverHostBatch({ operationId: batch.operationId })).toBe(
         "cancelled",
       );
@@ -503,8 +526,8 @@ it(
       });
       await expect(
         a.replaceDataSourceConfig({
-          id: sourceId,
           expectedRevision: 1,
+          id: sourceId,
           expectedConfig: { apiKey: oldRef },
           config: { apiKey: losingRef },
         }),
@@ -524,8 +547,8 @@ it(
       ).toBe(false);
       await expect(
         b.replaceDataSourceConfig({
-          id: sourceId,
           expectedRevision: 1,
+          id: sourceId,
           expectedConfig: { apiKey: nextRef },
           config: {},
         }),
@@ -550,8 +573,8 @@ it(
       for (const denied of [
         () =>
           service.replaceDataSourceConfig({
-            id: sourceId,
             expectedRevision: 1,
+            id: sourceId,
             expectedConfig: { apiKey: nextRef },
             config: {},
           }),
@@ -597,6 +620,615 @@ it(
           (job) => job.resourceId === nextRef,
         ),
       ).toBe(true);
+
+      const providerRefA = await vaultA.store("provider-a", {
+          class: CREDENTIAL_CLASS.AssistantProvider,
+        }),
+        providerRefB = await vaultB.store("provider-b", {
+          class: CREDENTIAL_CLASS.AssistantProvider,
+        });
+      const providerMetadata = (
+        claims: Record<string, string>,
+        credentialVault: SecretVault,
+      ) =>
+        createHostedProviderMetadata({
+          deploymentUrl: backend!.url,
+          allowInsecureLoopbackForTests: true,
+          credentialVault,
+          getToken: async () => token(runtime, claims),
+        });
+      const providersA = providerMetadata(
+          userClaims("a", workspaces[0]!),
+          vaultA,
+        ),
+        providersB = providerMetadata(userClaims("b", workspaces[1]!), vaultB);
+      const sessionDirectory = path.join(directory, "workspace-a-sessions");
+      const sessionDocument = createHostedConnectorSessionDocument(
+        sessionDirectory,
+        workspaces[0]!,
+        sessionKeyring,
+      );
+      const sessionsA = createHostedConnectorSessionStore({
+        document: sessionDocument,
+        ownerSubject: "a",
+        getDataSourceKind: async (id) =>
+          (await providersA.getDataSource(id))?.kind ?? null,
+      });
+      const sessionsB = createHostedConnectorSessionStore({
+        document: sessionDocument,
+        ownerSubject: "b",
+        getDataSourceKind: async (id) =>
+          (await providersB.getDataSource(id))?.kind ?? null,
+      });
+      const boundMetadata = bindHostedMetadata({
+        principal: { kind: "user", userId: "a" },
+        metadata: providersA,
+        connectorSetup: sessionsA,
+        credentialOwnership: {
+          revoke: async () => {
+            throw new Error("Not used by this fixture");
+          },
+        },
+      });
+      const boundBatch = {
+        operationId: "bound-runtime-batch",
+        requestHash: "e".repeat(64),
+      };
+      const boundPrincipal = { kind: "user" as const, userId: "a" };
+      await boundMetadata.prepareHostBatch({
+        ...boundBatch,
+        principal: boundPrincipal,
+        commands: [],
+        mode: "commit",
+        stagedRefs: [],
+      });
+      await expect(
+        boundMetadata.executeHostBatch({
+          ...boundBatch,
+          principal: { kind: "user", userId: "b" },
+        }),
+      ).rejects.toThrow("FORBIDDEN");
+      await boundMetadata.executeHostBatch({
+        ...boundBatch,
+        principal: boundPrincipal,
+      });
+      expect(
+        (
+          await boundMetadata.getHostBatch({
+            ...boundBatch,
+            principal: boundPrincipal,
+          })
+        )?.status,
+      ).toBe("completed");
+      await expect(
+        boundMetadata.commitBatch({ kind: "user", userId: "b" }, []),
+      ).rejects.toThrow("FORBIDDEN");
+      await boundMetadata.commitBatch(boundPrincipal, []);
+      const issued = (claims: Record<string, string>) => ({
+        token: token(runtime, claims),
+        expiresAt: Date.now() + 60_000,
+      });
+      const applicationTokens: Parameters<
+        typeof createHostedApplication
+      >[0]["tokens"] = {
+        metadata: (source, workspaceId) => {
+          return source.kind === "user"
+            ? issued(userClaims(source.userId, workspaceId))
+            : issued({
+                sub: `service:${source.credentialId}`,
+                credentialId: source.credentialId,
+                principalKind: "service",
+                authority: "host",
+                purpose: "host-metadata",
+                workspaceId,
+              });
+        },
+        browser: (user, workspaceId) =>
+          issued({
+            sub: `user:${user.userId}`,
+            userId: user.userId,
+            principalKind: "user",
+            authority: "browser",
+            workspaceId,
+          }),
+        service: (service, workspaceId) =>
+          issued({
+            sub: `service:${service.credentialId}`,
+            credentialId: service.credentialId,
+            principalKind: "service",
+            authority: "service",
+            workspaceId,
+          }),
+        credentialOwnership: (user, workspaceId) =>
+          issued({
+            ...userClaims(user.userId, workspaceId),
+            purpose: "host-credentials",
+          }),
+      };
+      const httpCredentials = new ApiAccessCredentials(
+        vaultA,
+        path.join(directory, "named-credentials"),
+      );
+      const hostedApplication = createHostedApplication({
+        deploymentUrl: backend.url,
+        allowInsecureLoopbackForTests: true,
+        source: { kind: "user", userId: "a", expiresAt: Date.now() + 120_000 },
+        workspaceId: workspaces[0]!,
+        workspaceOwnerId: "a",
+        resources: {
+          vault: vaultA,
+          accessCredentials: httpCredentials,
+          connectorSetup: sessionsA,
+          getServerEndpoint: () => undefined,
+        },
+        tokens: applicationTokens,
+      });
+      const ownerContext = hostedApplication.context;
+      const credentialSourceId = crypto.randomUUID();
+      await a.commitBatch([
+        cmd("CreateDataSource", {
+          id: credentialSourceId,
+          name: "Credential acceptance",
+          type: "csv",
+        }),
+      ]);
+      const namedCredential = z
+        .object({
+          credential: z.object({ id: z.string().uuid() }),
+          accessCredential: z.string().min(1),
+        })
+        .parse(
+          await hostedApplication.application.execute("issueAccessCredential", {
+            name: "Native hosted agent",
+          }),
+        );
+      const serviceCleanupRef = await vaultA.store("service-cleanup", {
+        class: CREDENTIAL_CLASS.AssistantProvider,
+      });
+      const serviceCleanupRow = {
+        id: crypto.randomUUID(),
+        providerId: "openai",
+        displayLabel: "Service cleanup fixture",
+        authKind: "api-key" as const,
+        baseUrl: "https://api.openai.com/v1",
+        credentialRef: serviceCleanupRef,
+        defaultModel: "gpt-5",
+        isDefault: false,
+        createdAt: 1,
+        updatedAt: 1,
+      };
+      await providersA.saveAssistantProviderConfig({
+        row: serviceCleanupRow,
+        expected: null,
+      });
+      await providersA.removeAssistantProviderConfig({
+        id: serviceCleanupRow.id,
+        expected: serviceCleanupRow,
+      });
+      const serviceHostedApplication = createHostedApplication({
+        deploymentUrl: backend.url,
+        allowInsecureLoopbackForTests: true,
+        source: {
+          kind: "service",
+          credentialId: namedCredential.credential.id,
+          expiresAt: Date.now() + 120_000,
+        },
+        workspaceId: workspaces[0]!,
+        workspaceOwnerId: "a",
+        resources: {
+          vault: vaultA,
+          accessCredentials: httpCredentials,
+          connectorSetup: sessionsA,
+          getServerEndpoint: () => undefined,
+        },
+        tokens: applicationTokens,
+      });
+      await serviceHostedApplication.cleanup.run();
+      expect(await vaultA.has(serviceCleanupRef)).toBe(false);
+      const namedService = metadata(
+        {
+          sub: `service:${namedCredential.credential.id}`,
+          credentialId: namedCredential.credential.id,
+          principalKind: "service",
+          authority: "host",
+          purpose: "host-metadata",
+          workspaceId: workspaces[0]!,
+        },
+        vaultA,
+      );
+      expect((await namedService.getDataSource(credentialSourceId))?.id).toBe(
+        credentialSourceId,
+      );
+      const serviceAccess = createHostedServiceAccess({
+        deploymentUrl: backend.url,
+        allowInsecureLoopbackForTests: true,
+        tokens: {
+          metadata: (source, workspaceId) => {
+            if (source.kind !== "service")
+              throw new Error("Expected service fixture");
+            return issued({
+              sub: `service:${source.credentialId}`,
+              credentialId: source.credentialId,
+              principalKind: "service",
+              authority: "host",
+              purpose: "host-metadata",
+              workspaceId,
+            });
+          },
+        },
+      });
+      const verifiedCredential = {
+        credentialId: namedCredential.credential.id,
+        expiresAt: Date.now() + 60_000,
+      };
+      expect(
+        await serviceAccess.resolve(workspaces[0]!, verifiedCredential),
+      ).toEqual({
+        credentialId: namedCredential.credential.id,
+        subject: "a",
+        workspaceId: workspaces[0],
+      });
+      await expect(
+        serviceAccess.resolve(workspaces[1]!, verifiedCredential),
+      ).rejects.toThrow();
+      await hostedApplication.application.execute("revokeAccessCredential", {
+        id: namedCredential.credential.id,
+      });
+      await expect(
+        namedService.getDataSource(credentialSourceId),
+      ).rejects.toThrow();
+      await expect(
+        serviceAccess.resolve(workspaces[0]!, verifiedCredential),
+      ).rejects.toThrow();
+      let httpAllocations = 0;
+      const queryEngine = new NativeDuckDBEngine();
+      const staticDirectory = path.join(directory, "browser");
+      await mkdir(staticDirectory);
+      await writeFile(
+        path.join(staticDirectory, "index.html"),
+        "<!doctype html><title>Hosted runtime fixture</title>",
+      );
+      await writeFile(
+        path.join(staticDirectory, "_headers"),
+        "/*\n  Cross-Origin-Opener-Policy: same-origin\n",
+      );
+      httpSurface = await createHostedServerSurface({
+        deploymentUrl: backend.url,
+        allowInsecureLoopbackForTests: true,
+        staticDirectory,
+        revision: "synthetic",
+        publicOrigin: "https://hosted-app.invalid",
+        session: {
+          login: async () => Response.redirect("https://hosted-app.invalid/"),
+          callback: async () =>
+            Response.redirect("https://hosted-app.invalid/"),
+          logout: () => new Response(null, { status: 204 }),
+          resolve: async () => ({
+            status: "authenticated",
+            identity: { subject: "a" },
+            expiresAt: Date.now() + 120_000,
+          }),
+        },
+        admission: createHostedAdmissionService({
+          deploymentUrl: backend.url,
+          allowInsecureLoopbackForTests: true,
+          tokens: {
+            admission: (user) =>
+              issued({
+                sub: `user:${user.userId}`,
+                userId: user.userId,
+                principalKind: "user",
+                authority: "host",
+              }),
+          },
+        }),
+        tokens: applicationTokens,
+        authenticateCredential: async (workspaceId, bearer) =>
+          workspaceId === workspaces[0]
+            ? httpCredentials.authenticate(bearer)
+            : null,
+        open: async (workspaceId) => {
+          expect(workspaceId).toBe(workspaces[0]);
+          httpAllocations++;
+          return {
+            resources: {
+              directory: sessionDirectory,
+              vault: vaultA,
+              accessCredentials: httpCredentials,
+              connectorSessionDocument: sessionDocument,
+              dataFrameStorage: new FileDataFrameStorage(
+                path.join(directory, "frames"),
+              ),
+              getEngine: async () => {
+                await queryEngine.initialize();
+                return queryEngine;
+              },
+            },
+            close: () => queryEngine.dispose(),
+          };
+        },
+      });
+      const httpApp = httpSurface.app;
+      const mcpCredential = z
+        .object({
+          credential: z.object({ id: z.string() }),
+          accessCredential: z.string(),
+        })
+        .parse(
+          await hostedApplication.application.execute("issueAccessCredential", {
+            name: "HTTP MCP agent",
+          }),
+        );
+      const mcpRequest = async (
+        bearer: string,
+        workspaceId = workspaces[0]!,
+        call?: { name: string; arguments: Record<string, string> },
+      ) => {
+        const response = await httpApp.request(
+          `https://hosted-app.invalid/workspaces/${workspaceId}/mcp`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${bearer}`,
+              "Content-Type": "application/json",
+              Accept: "application/json, text/event-stream",
+            },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              method: call ? "tools/call" : "tools/list",
+              params: call ?? {},
+            }),
+          },
+        );
+        return new Response(await response.arrayBuffer(), response);
+      };
+      expect((await mcpRequest("dfa_invalid")).status).toBe(401);
+      expect(
+        (await mcpRequest(mcpCredential.accessCredential, workspaces[1]!))
+          .status,
+      ).toBe(401);
+      expect(httpAllocations).toBe(0);
+      const toolsResponse = await mcpRequest(mcpCredential.accessCredential);
+      expect(toolsResponse.status).toBe(200);
+      expect(await toolsResponse.json()).toMatchObject({
+        result: {
+          tools: expect.arrayContaining([
+            expect.objectContaining({ name: expect.any(String) }),
+          ]),
+        },
+      });
+      expect(httpAllocations).toBe(1);
+      const readResponse = await mcpRequest(
+        mcpCredential.accessCredential,
+        workspaces[0]!,
+        {
+          name: "read_neighborhood",
+          arguments: { kind: "dataSource", id: credentialSourceId },
+        },
+      );
+      expect(readResponse.status).toBe(200);
+      const readResult = z
+        .object({
+          result: z.object({
+            isError: z.boolean().optional(),
+            content: z.array(
+              z.object({ type: z.string(), text: z.string().optional() }),
+            ),
+          }),
+        })
+        .parse(await readResponse.json());
+      expect(readResult.result.isError).not.toBe(true);
+      expect(
+        readResult.result.content.map((item) => item.text).join("\n"),
+      ).toContain("Credential acceptance");
+      await hostedApplication.application.execute("revokeAccessCredential", {
+        id: mcpCredential.credential.id,
+      });
+      expect((await mcpRequest(mcpCredential.accessCredential)).status).toBe(
+        401,
+      );
+      expect(httpAllocations).toBe(1);
+      const httpOperation = async (operation: string, input: unknown) => {
+        const response = await httpApp.request(
+          `https://hosted-app.invalid/api/host/${operation}`,
+          {
+            method: "POST",
+            headers: {
+              Origin: "https://hosted-app.invalid",
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(input),
+          },
+        );
+        // Consume the body like a real client, releasing the workspace lease.
+        return new Response(await response.arrayBuffer(), response);
+      };
+      const connectionResponse = await httpOperation(
+        "getAccessConnectionInfo",
+        {},
+      );
+      expect(connectionResponse.status).toBe(200);
+      expect(await connectionResponse.json()).toEqual({
+        endpoint: `https://hosted-app.invalid/workspaces/${encodeURIComponent(workspaces[0]!)}/mcp`,
+        transport: "mcp",
+        authentication: "Bearer",
+      });
+      const httpSourceId = crypto.randomUUID();
+      expect(
+        (
+          await httpOperation("getOrCreateDataSource", {
+            id: httpSourceId,
+            type: "csv",
+            name: "HTTP admitted source",
+          })
+        ).status,
+      ).toBe(200);
+      expect(await a.getDataSource(httpSourceId)).toMatchObject({
+        id: httpSourceId,
+      });
+      expect(await b.getDataSource(httpSourceId)).toBeNull();
+      const arrowResponse = await httpApp.request(
+        "https://hosted-app.invalid/data/arrow",
+        {
+          method: "POST",
+          headers: {
+            Origin: "https://hosted-app.invalid",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ sql: "SELECT 7::INTEGER AS demo_value" }),
+        },
+      );
+      expect(arrowResponse.status).toBe(200);
+      expect(
+        tableFromIPC(new Uint8Array(await arrowResponse.arrayBuffer()))
+          .toArray()
+          .map((row) => row.toJSON()),
+      ).toEqual([{ demo_value: 7 }]);
+      const handshake = await startSession(sessionsA, {
+        connectorId: "csv",
+        requestedName: "Scoped recovery",
+        scopes: [],
+      });
+      await expect(
+        consumeCallback(sessionsB, handshake.stateNonce),
+      ).rejects.toThrow();
+      await consumeCallback(sessionsA, handshake.stateNonce);
+      await markVerifying(sessionsA, handshake.session.id, httpSourceId);
+      await sweep(sessionsA, new Date(), 0);
+      expect((await sessionsA.get(handshake.session.id))?.state).toBe(
+        "connected",
+      );
+      expect(await sessionsB.get(handshake.session.id)).toBeNull();
+      const encryptedSessions = await readFile(
+        path.join(sessionDirectory, "connector-sessions.dfsd"),
+      );
+      expect(
+        encryptedSessions.includes(Buffer.from(handshake.session.codeVerifier)),
+      ).toBe(false);
+      expect(
+        encryptedSessions.includes(Buffer.from(handshake.stateNonce)),
+      ).toBe(false);
+      const applicationSourceId = crypto.randomUUID();
+      await hostedApplication.application.execute("getOrCreateDataSource", {
+        id: applicationSourceId,
+        type: "csv",
+        name: "Composed hosted source",
+      });
+      expect(
+        await hostedApplication.application.execute("getDataSource", {
+          id: applicationSourceId,
+        }),
+      ).toMatchObject({ id: applicationSourceId });
+      expect(await b.getDataSource(applicationSourceId)).toBeNull();
+      await expect(
+        hostedApplication.application
+          .forPrincipal({ kind: "user", userId: "b" })
+          .execute("getDataTable", { id: tableId }),
+      ).rejects.toThrow("FORBIDDEN");
+      const hostedProviderInput = {
+        providerId: "openai",
+        displayLabel: "Hosted owner provider",
+        authKind: "api-key" as const,
+        credential: "synthetic-workspace-provider-key",
+        defaultModel: "gpt-5",
+      };
+      const storeCredential = vi.spyOn(vaultA, "store");
+      const storesBeforeUnsafeUrl = storeCredential.mock.calls.length;
+      await expect(
+        saveAssistantProviderConfig(ownerContext, {
+          input: {
+            ...hostedProviderInput,
+            baseUrl: "https://169.254.169.254/latest",
+          },
+        }),
+      ).rejects.toThrow("Invalid provider base URL");
+      expect(storeCredential).toHaveBeenCalledTimes(storesBeforeUnsafeUrl);
+      await expect(
+        saveAssistantProviderConfig(ownerContext, {
+          input: {
+            ...hostedProviderInput,
+            baseUrl: "http://public.example.com/v1",
+          },
+        }),
+      ).rejects.toThrow("must use HTTPS");
+      expect(storeCredential).toHaveBeenCalledTimes(storesBeforeUnsafeUrl);
+      await expect(
+        saveAssistantProviderConfig(
+          { ...ownerContext, principal: { kind: "user", userId: "b" } },
+          { input: hostedProviderInput },
+        ),
+      ).rejects.toThrow("FORBIDDEN");
+      await expect(
+        saveAssistantProviderConfig(ownerContext, {
+          input: { ...hostedProviderInput, authKind: "oauth" },
+        }),
+      ).rejects.toThrow("Use an API key");
+      await expect(
+        startAssistantOAuthLogin(ownerContext, { id: crypto.randomUUID() }),
+      ).rejects.toThrow("Use an API key");
+      const ownedProvider = await saveAssistantProviderConfig(ownerContext, {
+        input: hostedProviderInput,
+      });
+      const ownedRow = await providersA.getAssistantProviderConfig(
+        ownedProvider.id,
+      );
+      expect(ownedRow?.credentialRef).toMatch(/^secret:/);
+      expect(JSON.stringify(ownedRow)).not.toContain(
+        hostedProviderInput.credential,
+      );
+      expect(
+        await providersB.getAssistantProviderConfig(ownedProvider.id),
+      ).toBeNull();
+      await removeAssistantProviderConfig(ownerContext, {
+        id: ownedProvider.id,
+      });
+      expect(
+        await providersA.getAssistantProviderConfig(ownedProvider.id),
+      ).toBeNull();
+      const providerRow = {
+        id: crypto.randomUUID(),
+        providerId: "openai",
+        displayLabel: "OpenAI",
+        authKind: "api-key" as const,
+        baseUrl: "https://api.openai.com/v1",
+        credentialRef: providerRefA,
+        defaultModel: "gpt-5",
+        isDefault: true,
+        createdAt: 1,
+        updatedAt: 1,
+      };
+      await expect(
+        providersA.saveAssistantProviderConfig({
+          row: { ...providerRow, credentialRef: providerRefB },
+          expected: null,
+        }),
+      ).rejects.toThrow("unavailable in this workspace");
+      expect(
+        await providersA.saveAssistantProviderConfig({
+          row: providerRow,
+          expected: null,
+        }),
+      ).toEqual(providerRow);
+      expect(await providersA.listAssistantProviderConfigs()).toEqual([
+        providerRow,
+      ]);
+      expect(
+        await providersB.getAssistantProviderConfig(providerRow.id),
+      ).toBeNull();
+      await expect(
+        providerMetadata(
+          {
+            sub: "service:credential-a",
+            credentialId: "credential-a",
+            principalKind: "service",
+            authority: "host",
+            purpose: "host-metadata",
+            workspaceId: workspaces[0]!,
+          },
+          vaultA,
+        ).listAssistantProviderConfigs(),
+      ).rejects.toThrow();
       await expect(service.commitBatch([])).rejects.toThrow();
       await backend.internalClient.mutation(internal.host.revokeCredential, {
         workspaceId: workspaces[0]!,
@@ -606,6 +1238,12 @@ it(
       await expect(service.getDataTable(tableId)).rejects.toThrow();
       await expect(service.draftBatch([])).rejects.toThrow();
       await operatorClient.mutation(api.admission.revoke, { subject: "a" });
+      const allocationsBeforeRevokedRequest = httpAllocations;
+      expect((await httpOperation("getAccessCapabilities", {})).status).toBe(
+        403,
+      );
+      expect(httpAllocations).toBe(allocationsBeforeRevokedRequest);
+      await expect(providersA.listAssistantProviderConfigs()).rejects.toThrow();
       await expect(a.clearAllData()).rejects.toThrow();
       await expect(a.listCleanup(paging)).rejects.toThrow();
       await expect(
@@ -616,6 +1254,8 @@ it(
       await expect(a.commitBatch([])).rejects.toThrow();
       expect(await b.listDataFrames()).toEqual([]);
     } finally {
+      httpSurface?.closeConnections();
+      await httpSurface?.closeResources();
       await backend?.stop();
       await rm(directory, { recursive: true, force: true });
     }

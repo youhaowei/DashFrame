@@ -1,77 +1,53 @@
 import "@dashframe/app/globals.css";
 
-import type { AppRouterContext, ProviderWrapper } from "@dashframe/app";
-import {
-  ChartEngineProvider,
-  createAppRuntime,
-  resolveAppConfig,
-} from "@dashframe/app";
-import { createServerFrameConnector } from "@dashframe/visualization";
-import { createRouter, RouterProvider } from "@tanstack/react-router";
+import { HostedAccessScreen } from "@/components/hosted-access/HostedAccessScreen";
+import { ThemeProvider } from "@/components/theme-provider";
+import { Button } from "@wystack/ui-react";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { flushSync } from "react-dom";
 
-import { routeTree } from "./routeTree.gen";
-import { WebProviders } from "./web-providers";
+import { createBrowserApp } from "./bootstrap/browser-app";
+import { startBrowserSession } from "./bootstrap/browser-session";
 
-// Router at module scope (registers `typeof router`); runtime context injected
-// after the async URL resolve. On web the URL is same-origin (or
-// VITE_DASHFRAME_URL), so the resolve is effectively synchronous — but we keep
-// the async shape for parity with the Electron host's IPC handshake.
-const router = createRouter({
-  routeTree,
-  context: {} as AppRouterContext,
+const container = document.getElementById("root");
+if (!container) throw new Error("Root container #root not found");
+const root = createRoot(container);
+const override = import.meta.env?.VITE_DASHFRAME_URL;
+const hostUrl = override && !import.meta.env.DEV ? override : location.origin;
+const session = startBrowserSession({
+  hostUrl,
+  createRuntime: createBrowserApp,
+  publish(view) {
+    let content;
+    if (view.status === "admitted") {
+      content = (
+        <>
+          {view.runtime.element}
+          <Button
+            className="fixed top-2 left-12 z-30 bg-neutral-bg/90 shadow-sm backdrop-blur"
+            label="Sign out"
+            size="sm"
+            variant="outline"
+            onClick={view.onSignOut}
+          />
+        </>
+      );
+    } else if (view.status === "local-ready") {
+      content = view.runtime.element;
+    } else {
+      content = (
+        <ThemeProvider>
+          <HostedAccessScreen {...view} />
+        </ThemeProvider>
+      );
+    }
+    // Flush provider cleanup before the controller closes its Convex client.
+    flushSync(() => root.render(<StrictMode>{content}</StrictMode>));
+  },
+  unmount: () => root.unmount(),
 });
-
-declare module "@tanstack/react-router" {
-  interface Register {
-    router: typeof router;
-  }
-}
-
-function renderBootstrapError(error: unknown) {
-  console.error("Failed to start DashFrame web app", error);
-  const container = document.getElementById("root");
-  if (!container) return;
-
-  createRoot(container).render(
-    <div role="alert" className="p-6 text-sm text-red-700">
-      DashFrame failed to start. Check the DashFrame server connection and
-      reload.
-    </div>,
-  );
-}
-
-async function bootstrap() {
-  const config = await resolveAppConfig();
-  const { Provider } = createAppRuntime(config);
-  const connector = createServerFrameConnector({
-    serverUrl: config.url,
-    ...(config.token ? { token: config.token } : {}),
+if (import.meta.hot)
+  import.meta.hot.dispose(() => {
+    return session.teardown();
   });
-
-  // DashFrame Provider wraps PostHog so every data hook (and PostHogPageView's
-  // router hooks) sees both contexts. The composed wrapper rides the
-  // providerWrapper slot into the shared RouteRoot.
-  const providerWrapper: ProviderWrapper = ({ children }) => (
-    <Provider>
-      <ChartEngineProvider connector={connector}>
-        <WebProviders>{children}</WebProviders>
-      </ChartEngineProvider>
-    </Provider>
-  );
-  router.update({ context: { providerWrapper } });
-
-  const container = document.getElementById("root");
-  if (!container) {
-    throw new Error("Root container #root not found");
-  }
-
-  createRoot(container).render(
-    <StrictMode>
-      <RouterProvider router={router} />
-    </StrictMode>,
-  );
-}
-
-bootstrap().catch(renderBootstrapError);

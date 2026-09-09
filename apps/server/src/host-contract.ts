@@ -10,6 +10,7 @@ export type HostOperationName =
   | "clearAllData"
   | "getOrCreateDataSource"
   | "fetchData"
+  | "refreshDataTable"
   | "runInsight"
   | "getConnectorCatalog"
   | "prepareRemoteDataTable"

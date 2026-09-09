@@ -27,8 +27,6 @@ const RUN_DIRECTORY =
   process.env.E2E_RUN_DIRECTORY ??
   mkdtempSync(path.join(tmpdir(), "dashframe-e2e-"));
 process.env.E2E_RUN_DIRECTORY = RUN_DIRECTORY;
-const USER_TOKEN = "dashframe-e2e-user";
-process.env.E2E_USER_TOKEN = USER_TOKEN;
 
 // Export for use in test fixtures
 export { API_URL, BASE_PORT, isCI, WORKER_COUNT };
@@ -37,11 +35,11 @@ function shellQuote(value: string) {
   return "'" + value.replaceAll("'", "'\"'\"'") + "'";
 }
 function apiServerCommand() {
-  return `cd ../.. && DASHFRAME_SECRET_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= bun run --filter @dashframe/server start -- --host 127.0.0.1 --port ${API_PORT} --token ${USER_TOKEN} --project ${shellQuote(path.join(RUN_DIRECTORY, "project"))} --data-dir ${shellQuote(path.join(RUN_DIRECTORY, "host-data"))}`;
+  return `cd ../.. && DASHFRAME_SECRET_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= bun run --filter @dashframe/server start -- --host 127.0.0.1 --port ${API_PORT} --project ${shellQuote(path.join(RUN_DIRECTORY, "project"))} --data-dir ${shellQuote(path.join(RUN_DIRECTORY, "host-data"))}`;
 }
 
 function webServerCommand(port: number) {
-  return `cd ../../apps/web && VITE_DASHFRAME_URL=${API_URL} bun run build && VITE_DASHFRAME_URL=${API_URL} bun run preview --port ${port} --strictPort`;
+  return `cd ../../apps/web && bun run build && VITE_DASHFRAME_URL=${API_URL} bun run preview --port ${port} --strictPort`;
 }
 
 function getWebServerConfig() {
@@ -50,8 +48,8 @@ function getWebServerConfig() {
     return [
       {
         command: apiServerCommand(),
-        // Authentication failures are valid readiness responses; fixtures then
-        // require a successful authenticated runtime query before navigation.
+        // Error responses still satisfy Playwright readiness; fixtures then
+        // require a successful runtime query before navigation.
         url: `${API_URL}/api/runtime`,
         gracefulShutdown: { signal: "SIGTERM" as const, timeout: 15_000 },
         reuseExistingServer: false,

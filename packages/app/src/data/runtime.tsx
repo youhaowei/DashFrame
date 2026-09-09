@@ -12,6 +12,8 @@ export interface AppRuntimeConfig {
   url: string;
   token?: string;
   convexUrl?: string;
+  /** Browser host access changed; the entrypoint owns revalidation and teardown. */
+  onAccessInvalidated?: (reason: "denied" | "unavailable") => void;
 }
 
 export interface AppRuntime {
@@ -43,6 +45,10 @@ export function createAppRuntime(config: AppRuntimeConfig): AppRuntime {
   const client = new ConvexReactClient(config.convexUrl);
   convexClient = client;
   const queryClient = new QueryClient();
+  let closed = false;
+  const invalidateAccess = (reason: "denied" | "unavailable") => {
+    if (!closed) config.onAccessInvalidated?.(reason);
+  };
 
   async function fetchAccessToken(): Promise<string | null> {
     try {
@@ -50,21 +56,46 @@ export function createAppRuntime(config: AppRuntimeConfig): AppRuntime {
         method: "POST",
         headers: hostHeaders(config),
         credentials: "same-origin",
+        redirect: "error",
+        cache: "no-store",
       });
-      if (!response.ok) return null;
+      if (!response.ok) {
+        invalidateAccess(
+          response.status === 401 || response.status === 403
+            ? "denied"
+            : "unavailable",
+        );
+        return null;
+      }
+      if (
+        config.onAccessInvalidated &&
+        response.headers.get("content-type")?.split(";")[0]?.trim() !==
+          "application/json"
+      ) {
+        invalidateAccess("unavailable");
+        return null;
+      }
       const body: unknown = await response.json();
       if (
         !body ||
         typeof body !== "object" ||
         !("token" in body) ||
         typeof body.token !== "string" ||
-        !body.token
-      )
+        !body.token.trim() ||
+        (config.onAccessInvalidated &&
+          (!("expiresAt" in body) ||
+            typeof body.expiresAt !== "number" ||
+            !Number.isFinite(body.expiresAt) ||
+            body.expiresAt <= Date.now()))
+      ) {
+        invalidateAccess("unavailable");
         return null;
-      return body.token;
+      }
+      return closed ? null : body.token;
     } catch {
       // Convex needs null to leave AuthLoading and show Unauthenticated. A thrown
       // token fetch leaves the client waiting indefinitely after a host failure.
+      invalidateAccess("unavailable");
       return null;
     }
   }
@@ -101,6 +132,7 @@ export function createAppRuntime(config: AppRuntimeConfig): AppRuntime {
   return {
     Provider,
     async close() {
+      closed = true;
       queryClient.clear();
       await client.close();
       if (convexClient === client) {
@@ -123,38 +155,13 @@ export async function resolveAppConfig(): Promise<AppRuntimeConfig> {
       };
     }
   ).dashframe;
-  let config: AppRuntimeConfig;
-  if (desktop) {
-    config = await desktop.getServerInfo();
-    if (!config.token)
-      throw new Error("Desktop getServerInfo returned no loopback token");
-    return {
-      ...config,
-      convexUrl: new URL("/api/convex", config.url).toString(),
-    };
-  } else {
-    const override = import.meta.env?.VITE_DASHFRAME_URL;
-    config = {
-      url:
-        override && !import.meta.env?.DEV
-          ? override
-          : globalThis.location.origin,
-    };
-  }
-  const response = await fetch(new URL("/api/runtime", config.url), {
-    headers: hostHeaders(config),
-  });
-  if (!response.ok)
-    throw new Error("Could not load the DashFrame runtime configuration");
-  const body: unknown = await response.json();
-  if (
-    !body ||
-    typeof body !== "object" ||
-    !("convexUrl" in body) ||
-    typeof body.convexUrl !== "string"
-  ) {
-    throw new Error("Host did not provide a Convex URL");
-  }
+  if (!desktop)
+    throw new Error(
+      "Browser startup must resolve access before creating a runtime",
+    );
+  const config = await desktop.getServerInfo();
+  if (!config.token)
+    throw new Error("Desktop getServerInfo returned no loopback token");
   return {
     ...config,
     convexUrl: new URL("/api/convex", config.url).toString(),

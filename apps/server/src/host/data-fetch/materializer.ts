@@ -18,6 +18,7 @@ import { PublishedSourceMaterializationError } from "./published-source-error";
 import { inspectArrowIpc } from "@dashframe/engine-server/arrow-data-path";
 import {
   CoalescedOperation,
+  supportsStreaming,
   withStreamingBudget,
   type StreamingBudget,
 } from "./streaming";
@@ -29,6 +30,7 @@ export type EffectiveInsightDefinition = InsightFetchDefinition & {
 
 export type MaterializationTarget =
   | { kind: "ephemeral" }
+  | { kind: "refresh" }
   | { kind: "transient" }
   | { kind: "saved"; insightId: UUID };
 
@@ -58,6 +60,10 @@ export type PublishMaterialization = {
   provenance: InsightFetchReady["provenance"];
   fetchedAt: number;
 };
+
+function assertPersistedSourceRefreshable(target: MaterializationTarget): void {
+  if (target.kind === "refresh") throw new Error("SOURCE_NOT_REFRESHABLE");
+}
 
 export function fieldsFromInsightResult(
   schema: InsightFetchReady["schema"],
@@ -114,6 +120,14 @@ export interface InsightMaterializerDependencies {
     target: MaterializationTarget,
     insight: EffectiveInsightDefinition,
   ): string | Promise<string>;
+  completedReplayScope?(
+    initialScope: string,
+    result: InsightFetchReady,
+  ): string | undefined;
+  /** Caller-independent deadline for shared hosted provider work. */
+  sharedOperationTimeoutMs: number;
+  /** Briefly reuse a completed result for sibling consumers of one render. */
+  completedReplayMs?: number;
   uuid(): UUID;
   now(): number;
   tableName(frameId: UUID): string;
@@ -136,33 +150,119 @@ function withPublishedSourceGenerations(
 }
 
 /**
- * Creates the lifecycle owner. Completed results are never cached: the map only
- * coalesces identical work while it is in flight and is cleared on settlement.
+ * Creates the lifecycle owner. A short completed-result replay lets sibling
+ * widgets share one immutable frame without turning this into a durable cache.
  */
 export function createInsightMaterializer(
   dependencies: InsightMaterializerDependencies,
 ): InsightMaterializer {
   const inFlight = new Map<string, CoalescedOperation<InsightFetchReady>>();
+  const replayMs = dependencies.completedReplayMs ?? 5_000;
+  const remember = (
+    key: string,
+    operation: CoalescedOperation<InsightFetchReady>,
+  ) => {
+    if (inFlight.size >= 128) inFlight.delete(inFlight.keys().next().value!);
+    inFlight.set(key, operation);
+  };
+  const forgetLater = (
+    key: string,
+    operation: CoalescedOperation<InsightFetchReady>,
+  ) =>
+    setTimeout(() => {
+      if (inFlight.get(key) === operation) inFlight.delete(key);
+    }, replayMs);
 
   const start = (
     key: string,
     args: Parameters<InsightMaterializer["materialize"]>[0],
   ) => {
-    if (args.ctx.requestSignal?.aborted)
+    const streaming = supportsStreaming(args.ctx);
+    if (streaming && args.ctx.requestSignal?.aborted)
       return Promise.reject(args.ctx.requestSignal.reason);
+    const waiterSignal = streaming ? args.ctx.requestSignal : undefined;
     const existing = inFlight.get(key);
-    if (existing) return existing.wait(args.ctx.requestSignal);
-    const operation = new CoalescedOperation((requestSignal) =>
-      withStreamingBudget({ ...args.ctx, requestSignal }, (ctx, budget) =>
-        materializeOnce(dependencies, { ...args, ctx }, [], [], [], budget),
-      ),
-    );
-    inFlight.set(key, operation);
-    const clear = () => {
-      if (inFlight.get(key) === operation) inFlight.delete(key);
+    if (existing) return existing.wait(waiterSignal);
+
+    // No caller's disconnect may cancel work a sibling is waiting on. Every
+    // caller retains its workspace lease until this promise settles; the
+    // independent deadline bounds provider work. Other capabilities still
+    // come from the first caller's admitted context.
+    const sharedLifetime =
+      !streaming && args.ctx.requestSignal ? new AbortController() : undefined;
+    const sharedDeadline = sharedLifetime
+      ? setTimeout(
+          () =>
+            sharedLifetime.abort(
+              new Error("Materialization deadline exceeded"),
+            ),
+          dependencies.sharedOperationTimeoutMs,
+        )
+      : undefined;
+    const sharedArgs = {
+      ...args,
+      ctx: {
+        ...args.ctx,
+        requestSignal: sharedLifetime?.signal,
+      },
     };
-    operation.promise.then(clear, clear);
-    return operation.wait(args.ctx.requestSignal);
+    const replayKeys = new Set([key]);
+    const operation = new CoalescedOperation((signal) =>
+      withStreamingBudget(
+        {
+          ...sharedArgs.ctx,
+          requestSignal: streaming ? signal : sharedArgs.ctx.requestSignal,
+        },
+        (ctx, budget) =>
+          materializeOnce(
+            dependencies,
+            { ...sharedArgs, ctx },
+            [],
+            [],
+            [],
+            budget,
+          ),
+      )
+        .then((result) => {
+          if (replayMs > 0) {
+            // Remote publication advances its own source generation. Install the
+            // replay alias before resolving callers so an immediate sibling sees
+            // the immutable result under the exact generation it published. Never
+            // re-read mutable metadata here: a concurrent refresh may already have
+            // advanced beyond the generation that produced this result.
+            let settledKey: string | undefined;
+            try {
+              settledKey = dependencies.completedReplayScope?.(key, result);
+            } catch {
+              // Replay is best-effort and must not fail a completed publication.
+            }
+            if (
+              settledKey !== undefined &&
+              settledKey !== key &&
+              !inFlight.has(settledKey)
+            ) {
+              replayKeys.add(settledKey);
+              remember(settledKey, operation);
+            }
+          }
+          return result;
+        })
+        .finally(() => {
+          if (sharedDeadline !== undefined) clearTimeout(sharedDeadline);
+        }),
+    );
+    remember(key, operation);
+    const clear = () => {
+      for (const replayKey of replayKeys) {
+        if (inFlight.get(replayKey) === operation) inFlight.delete(replayKey);
+      }
+    };
+    operation.promise.then(() => {
+      if (replayMs <= 0) clear();
+      else
+        for (const replayKey of replayKeys) forgetLater(replayKey, operation);
+    }, clear);
+    return operation.wait(waiterSignal);
   };
 
   return {
@@ -200,47 +300,17 @@ async function materializeOnce(
   try {
     const tableIds = referencedTableIds(args.insight);
     const sources = await Promise.all(
-      tableIds.map(async (tableId) => {
-        if (
-          tableId === args.insight.baseTableId &&
-          args.insight.source?.sourceType === "insight"
-        ) {
-          if (ancestry.includes(tableId) || ancestry.length >= 16)
-            throw new Error("TARGET_NOT_READY");
-          const upstream = await dependencies.resolveInsight(args.ctx, tableId);
-          const ready = await materializeOnce(
-            dependencies,
-            { ctx: args.ctx, target: { kind: "transient" }, insight: upstream },
-            [...ancestry, tableId],
-            transientResults,
-            publishedSourceGenerations,
-            budget,
-          );
-          const arrow = budget
-            ? undefined
-            : await storage.load(ready.dataFrameId);
-          if (!budget && !arrow) throw new Error("TARGET_NOT_READY");
-          const fields = fieldsFromInsightResult(ready.schema, tableId);
-          return {
-            table: {
-              id: tableId,
-              dataSourceId: tableId,
-              name: `Insight ${tableId}`,
-              table: dependencies.tableName(ready.dataFrameId),
-              fields,
-              metrics: [],
-              dataFrameId: ready.dataFrameId,
-              createdAt: ready.fetchedAt,
-            },
-            ...(arrow ? { arrow } : {}),
-            fields,
-            rowCount: ready.rowCount,
-            provenance: ready.provenance,
-            existingFrameId: ready.dataFrameId,
-          } satisfies SourceGeneration;
-        }
-        return dependencies.resolveSource(args.ctx, tableId);
-      }),
+      tableIds.map((tableId) =>
+        resolveMaterializationSource(
+          dependencies,
+          args,
+          tableId,
+          ancestry,
+          transientResults,
+          publishedSourceGenerations,
+          budget,
+        ),
+      ),
     );
     for (const source of sources) {
       assertSourceSchema(source);
@@ -251,6 +321,8 @@ async function materializeOnce(
       source.fields = source.table.fields.map((field) => ({ ...field }));
     }
 
+    if (sources.some((source) => source.existingFrameId))
+      assertPersistedSourceRefreshable(args.target);
     const { pendingSources, tables } = await stageSources(
       dependencies,
       args.ctx,
@@ -258,6 +330,45 @@ async function materializeOnce(
       created,
       budget,
     );
+
+    if (args.target.kind === "refresh") {
+      const refreshed = pendingSources[0];
+      if (!refreshed || pendingSources.length !== 1)
+        throw new Error("TARGET_NOT_READY");
+      const fetchedAt = dependencies.now();
+      const definitionFingerprint = dependencies.fingerprint({
+        insight: args.insight,
+        sources,
+      });
+      budget?.check();
+      budget?.report("publication");
+      budget?.check();
+      publicationAttempted = true;
+      await dependencies.publish(args.ctx, {
+        target: args.target,
+        sources: pendingSources,
+        result: refreshed.frame,
+        definitionFingerprint,
+        provenance: refreshed.source.provenance,
+        fetchedAt,
+      });
+      const sourceGeneration = {
+        tableId: refreshed.source.table.id,
+        dataFrameId: refreshed.frame.id,
+        lastFetchedAt: fetchedAt,
+      };
+      publishedSourceGenerations.push(sourceGeneration);
+      return {
+        status: "ready",
+        dataFrameId: refreshed.frame.id,
+        schema: refreshed.frame.schema,
+        rowCount: refreshed.frame.rowCount,
+        definitionFingerprint,
+        provenance: refreshed.source.provenance,
+        fetchedAt,
+        sourceGenerations: publishedSourceGenerations,
+      };
+    }
 
     const sql = dependencies.compile({ insight: args.insight, tables });
     if (!sql) throw new Error("FETCH_COMPILE_FAILED");
@@ -327,15 +438,86 @@ async function materializeOnce(
     // may already reference any pending generation, or still be in flight.
     // Retain bytes and registrations after publication starts; unresolved
     // attempts may leave orphans until a future reconciliation pass.
-    if (!publicationAttempted) {
-      await cleanupNewFrames(storage, runtime, dependencies, created);
-    }
-    if (args.target.kind !== "transient") {
-      await cleanupNewFrames(storage, runtime, dependencies, transientResults);
-      transientResults.length = 0;
-    }
+    await cleanupFailedMaterialization(
+      storage,
+      runtime,
+      dependencies,
+      args.target,
+      created,
+      transientResults,
+      publicationAttempted,
+    );
     throw withPublishedSourceGenerations(error, publishedSourceGenerations);
   }
+}
+
+async function cleanupFailedMaterialization(
+  storage: DataFrameStorage,
+  runtime: HostDataPlaneRuntime,
+  dependencies: InsightMaterializerDependencies,
+  target: MaterializationTarget,
+  created: Array<{ id: UUID; registered: boolean }>,
+  transientResults: Array<{ id: UUID; registered: boolean }>,
+  publicationAttempted: boolean,
+): Promise<void> {
+  if (!publicationAttempted)
+    await cleanupNewFrames(storage, runtime, dependencies, created);
+  if (target.kind === "transient") return;
+  await cleanupNewFrames(storage, runtime, dependencies, transientResults);
+  transientResults.length = 0;
+}
+
+async function resolveMaterializationSource(
+  dependencies: InsightMaterializerDependencies,
+  args: {
+    ctx: HostContext;
+    target: MaterializationTarget;
+    insight: EffectiveInsightDefinition;
+  },
+  tableId: UUID,
+  ancestry: readonly UUID[],
+  transientResults: Array<{ id: UUID; registered: boolean }>,
+  publishedSourceGenerations: InsightSourceGeneration[],
+  budget?: StreamingBudget,
+): Promise<SourceGeneration> {
+  if (
+    tableId !== args.insight.baseTableId ||
+    args.insight.source?.sourceType !== "insight"
+  )
+    return dependencies.resolveSource(args.ctx, tableId);
+  if (ancestry.includes(tableId) || ancestry.length >= 16)
+    throw new Error("TARGET_NOT_READY");
+  const upstream = await dependencies.resolveInsight(args.ctx, tableId);
+  const ready = await materializeOnce(
+    dependencies,
+    { ctx: args.ctx, target: { kind: "transient" }, insight: upstream },
+    [...ancestry, tableId],
+    transientResults,
+    publishedSourceGenerations,
+    budget,
+  );
+  const arrow = budget
+    ? undefined
+    : await dependencies.storage(args.ctx).load(ready.dataFrameId);
+  if (!budget && !arrow) throw new Error("TARGET_NOT_READY");
+  const fields = fieldsFromInsightResult(ready.schema, tableId);
+  return {
+    table: {
+      id: tableId,
+      dataSourceId: tableId,
+      name: `Insight ${tableId}`,
+      table: dependencies.tableName(ready.dataFrameId),
+      fields,
+      metrics: [],
+      dataFrameId: ready.dataFrameId,
+      createdAt: ready.fetchedAt,
+    },
+    ...(arrow ? { arrow } : {}),
+    fields,
+    rowCount: ready.rowCount,
+    provenance: ready.provenance,
+    existingFrameId: ready.dataFrameId,
+  };
 }
 
 async function cleanupTransientFrames(

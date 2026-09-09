@@ -92,10 +92,12 @@ describe("publication acknowledgement recovery", () => {
         operationId,
       }),
     );
+    const cleanupResources = vi.fn(async () => {});
     await expect(
       publishMaterialization(
         {
           metadata: { publishMaterialization: publish, getOperation },
+          cleanupResources,
         } as unknown as HostContext,
         value,
       ),
@@ -122,6 +124,7 @@ describe("publication acknowledgement recovery", () => {
       }),
     ).toMatchObject({ dataFrameId: sourceFrameId });
     expect(getOperation).toHaveBeenCalledWith(`materialize:${id}`);
+    expect(cleanupResources).toHaveBeenCalledOnce();
     expect(
       await native
         .withIdentity({

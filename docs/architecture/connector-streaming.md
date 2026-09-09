@@ -48,8 +48,10 @@ Schema evolution requires explicit source schema refresh, never silent coercion.
 Acquisition is pull-driven with no page prefetch. The host admits one streaming
 materialization per runtime and rejects overlapping distinct work rather than
 building an unbounded queue; identical requests retain existing in-flight coalescing.
-One caller cancelling leaves shared work running for its remaining consumers. The
-final consumer's cancellation aborts acquisition and waits for rollback to settle.
+For local streaming, one caller cancelling leaves shared work running for its
+remaining consumers. The final consumer's cancellation aborts acquisition and
+waits for rollback to settle. Completed results retain the existing short sibling
+replay cache. Hosted work retains its independent deadline and workspace leases.
 Defaults: 1,000 GA4 rows per page, 8 MiB encoded bytes per batch, 256 MiB total
 encoded bytes per materialization, 2 GiB durable project storage, and five minutes
 per operation. Bytes are IPC accounting, not a promise about JavaScript/native RSS.
@@ -80,13 +82,16 @@ never progress payloads. No new public job protocol or progress UI is introduced
   bounded retries and cancellation. REST/local imports remain unchanged. Buffered
   fallback I/O can outlast the new operation deadline; it is rejected at the next
   budget check and never published as a partial result.
-- Hosted: PR #396 owns a fail-closed Linux worker sandbox whose protocol currently
+- Hosted: the sandbox landed in PR #396 while this branch was being reviewed.
+  Its fail-closed Linux worker protocol currently
   accepts whole Arrow buffers. It must add versioned begin/append/commit/abort and
   result-chunk messages with per-message, operation, queue and process limits before
   enabling these optional capabilities. Durable paths and credentials stay in the
   trusted host; workers receive bytes and opaque table handles. Never fall back to
-  in-process execution or send host filesystem paths across that seam. This PR is
-  based on main and does not modify, merge, or ship the hosted protocol of PR #396.
+  in-process execution or send host filesystem paths across that seam. This branch
+  integrates the landed main behavior without changing that protocol.
+  Hosted contexts explicitly remain on their existing bounded compatibility path;
+  native method presence alone cannot enable streaming for them.
 
 ## Plan and acceptance
 

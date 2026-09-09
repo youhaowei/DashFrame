@@ -51,7 +51,39 @@ import {
   type ResultColumn,
 } from "./arrow-encode";
 
+/**
+ * Deny filesystem and network access on `connection`, then lock the
+ * configuration so user SQL cannot restore it.
+ *
+ * Order matters: `lock_configuration` must be set LAST, because it also locks
+ * itself and every setting after it. The lock is what makes this a boundary
+ * rather than a default — without it a chart query could simply issue
+ * `SET enable_external_access=true` first.
+ *
+ * Applied once, on the connection opened at initialize(). These settings are
+ * scoped to the DATABASE INSTANCE, not to the connection: a later connection
+ * from the same instance — the one the appender-taint recovery path opens —
+ * inherits them already locked and cannot lift them. Verified against
+ * @duckdb/node-api 1.5.3-r.3. A separate instance is independently configured,
+ * which is what makes a per-workspace instance a meaningful unit.
+ */
+async function applyAccessRestrictions(
+  connection: Connection,
+  restrict: boolean,
+): Promise<void> {
+  if (!restrict) return;
+  await connection.run("SET enable_external_access=false");
+  await connection.run("SET allow_unsigned_extensions=false");
+  await connection.run("SET lock_configuration=true");
+}
+
 export interface NativeDuckDBEngineOptions {
+  /** Additional fixed limits for an OS-isolated worker; never a sandbox alone. */
+  sandboxLimits?: {
+    memoryBytes: number;
+    threads: number;
+    maxResultRows: number;
+  };
   /**
    * DuckDB database path. Default `:memory:` — an in-memory database.
    *
@@ -61,6 +93,29 @@ export interface NativeDuckDBEngineOptions {
    * rest unless a query is explicitly cached.
    */
   databasePath?: string;
+  /**
+   * Deny DuckDB every filesystem and network primitive, and lock that decision
+   * so no later statement can undo it. Defaults to `true`.
+   *
+   * This engine executes SQL that originates in the browser: Mosaic composes
+   * chart queries client-side and posts them to the Arrow data path, which
+   * checks only that the statement mentions the frame it names. Everything else
+   * in the statement runs as written. Without this, `read_text('/proc/self/environ')`,
+   * `ATTACH`, `COPY ... TO` and `INSTALL` are all reachable from a chart — an
+   * arbitrary read of, and write to, whatever the host process can touch.
+   *
+   * Nothing in DashFrame needs the access it removes. Frame data reaches DuckDB
+   * through `registerArrowTable`, which decodes Arrow in-process and inserts via
+   * the typed Appender API — no file is read by the database engine. A
+   * file-backed `databasePath` keeps working: the database file is attached
+   * before these settings apply, and reads, writes and CHECKPOINT against it are
+   * unaffected.
+   *
+   * Set it to `false` only for a caller that genuinely needs DuckDB to touch the
+   * filesystem — the Parquet cache is the one such consumer — and only where the
+   * SQL reaching that engine cannot come from a client.
+   */
+  restrictFileAccess?: boolean;
 }
 
 type BatchConnectionState = {
@@ -73,7 +128,9 @@ type BatchSignals = readonly (AbortSignal | undefined)[];
 type RunBatchNative = <T>(operation: () => Promise<T>) => Promise<T>;
 
 export class NativeDuckDBEngine implements QueryEngine {
+  private readonly sandboxLimits: NativeDuckDBEngineOptions["sandboxLimits"];
   private readonly databasePath: string;
+  private readonly restrictFileAccess: boolean;
   private instance: DuckDBInstance | null = null;
   private connection: Connection | null = null;
   /**
@@ -113,7 +170,16 @@ export class NativeDuckDBEngine implements QueryEngine {
   private readonly _activeBatchRegistrations = new Set<Promise<void>>();
 
   constructor(options: NativeDuckDBEngineOptions = {}) {
+    this.sandboxLimits = options.sandboxLimits;
+    if (
+      this.sandboxLimits &&
+      Object.values(this.sandboxLimits).some(
+        (value) => !Number.isSafeInteger(value) || value <= 0,
+      )
+    )
+      throw new Error("Invalid sandbox engine limits");
     this.databasePath = options.databasePath ?? ":memory:";
+    this.restrictFileAccess = options.restrictFileAccess ?? true;
   }
 
   async initialize(): Promise<void> {
@@ -123,7 +189,18 @@ export class NativeDuckDBEngine implements QueryEngine {
     // both awaits resolve) would let two callers both create an instance. Latch
     // the first call's promise and hand it to everyone else.
     this.initPromise ??= (async () => {
-      const instance = await DuckDBInstance.create(this.databasePath);
+      const instance = await DuckDBInstance.create(
+        this.databasePath,
+        this.sandboxLimits
+          ? {
+              memory_limit: `${this.sandboxLimits.memoryBytes}B`,
+              threads: String(this.sandboxLimits.threads),
+              temp_directory: "",
+              autoinstall_known_extensions: "false",
+              autoload_known_extensions: "false",
+            }
+          : undefined,
+      );
       let connection: Connection;
       try {
         connection = await instance.connect();
@@ -132,6 +209,16 @@ export class NativeDuckDBEngine implements QueryEngine {
         // (native handle, background threads, file lock on a non-:memory:
         // path) — it was never assigned to this.instance, so nothing else
         // could ever close it. Close it before surfacing the error.
+        instance.closeSync();
+        throw err;
+      }
+      try {
+        await applyAccessRestrictions(connection, this.restrictFileAccess);
+      } catch (err) {
+        // The restriction is a security control, not a tuning knob. If it
+        // cannot be applied, the engine must not come up serving client SQL
+        // with the restriction silently absent.
+        connection.closeSync();
         instance.closeSync();
         throw err;
       }
@@ -266,10 +353,19 @@ export class NativeDuckDBEngine implements QueryEngine {
     sql: string,
     params: readonly unknown[] = [],
   ): Promise<Uint8Array> {
-    const reader =
-      params.length > 0
-        ? await this.conn().runAndReadAll(sql, params as DuckDBValue[])
-        : await this.conn().runAndReadAll(sql);
+    const values = params.length > 0 ? (params as DuckDBValue[]) : undefined;
+    const reader = this.sandboxLimits
+      ? await this.conn().runAndReadUntil(
+          sql,
+          this.sandboxLimits.maxResultRows + 1,
+          values,
+        )
+      : await this.conn().runAndReadAll(sql, values);
+    if (
+      this.sandboxLimits &&
+      reader.currentRowCount > this.sandboxLimits.maxResultRows
+    )
+      throw new Error("Sandbox result row limit exceeded");
     const columnNames = reader.columnNames();
     const columnTypes = reader.columnTypes();
     const columnsObject = reader.getColumnsObjectJson() as Record<
@@ -492,6 +588,8 @@ export class NativeDuckDBEngine implements QueryEngine {
         }
         this.connection = null;
         try {
+          // No need to re-apply the access restrictions here: they belong to
+          // the instance, not to this connection, and are already locked.
           this.connection = await this.instance!.connect();
         } catch {
           // Reconnect failed — engine is unusable; surface on next call via conn()

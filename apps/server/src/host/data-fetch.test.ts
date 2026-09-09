@@ -344,6 +344,16 @@ describe("applyInsightRuntime", () => {
       code: "TARGET_NOT_READY",
       retryable: true,
     });
+    expect(
+      toFetchFailure(
+        new Error("SOURCE_NOT_REFRESHABLE"),
+        "FETCH_SOURCE_FAILED",
+      ),
+    ).toMatchObject({
+      status: "failed",
+      code: "SOURCE_NOT_REFRESHABLE",
+      retryable: false,
+    });
   });
 
   it("accepts publication pointers only from the branded materializer failure", () => {

@@ -6,13 +6,14 @@ import {
   ImportPublicationRejectedError,
   importPublicationRejection,
   type HostMetadata,
+  type LocalRecoveryMetadata,
 } from "./metadata";
 
 /** Translate host domain operations to private, generated Convex functions. */
 export function createHostMetadata(
   client: LocalConvex["internalClient"],
   workspaceId: string,
-): HostMetadata {
+): HostMetadata & LocalRecoveryMetadata {
   return {
     prepareHostBatch: (input) =>
       client.mutation(
