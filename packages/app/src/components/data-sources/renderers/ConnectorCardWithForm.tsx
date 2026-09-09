@@ -36,7 +36,6 @@ interface ConnectorCardWithFormProps {
   ) => Promise<void>;
   /** Returns false when another connector already owns onboarding. */
   onActivityChange?: (active: boolean) => boolean | void;
-  disabled?: boolean;
   /** Whether this connector's setup form is open. */
   expanded?: boolean;
   /** Toggle handler for the disclosure header. */
@@ -197,7 +196,6 @@ export function ConnectorCardWithForm({
   onConnect,
   onOAuthConnect,
   onActivityChange,
-  disabled,
   expanded,
   onToggle,
 }: ConnectorCardWithFormProps) {
@@ -236,7 +234,7 @@ export function ConnectorCardWithForm({
       );
       return;
     }
-    if (disabled || onActivityChange?.(true) === false) return;
+    if (onActivityChange?.(true) === false) return;
     try {
       await onFileSelect(connector, file);
     } finally {
@@ -254,7 +252,7 @@ export function ConnectorCardWithForm({
       );
       return;
     }
-    if (disabled || onActivityChange?.(true) === false) return;
+    if (onActivityChange?.(true) === false) return;
     if (connector.authKind === "oauth") {
       const token = pollToken.current;
       token.cancelled = false;
@@ -289,7 +287,6 @@ export function ConnectorCardWithForm({
       onFileSelect={handleFileSelect}
       onConnect={handleConnect}
       isLoading={isSubmitting}
-      disabled={disabled}
       submitError={submitError}
     >
       {/* Render TanStack Form fields */}

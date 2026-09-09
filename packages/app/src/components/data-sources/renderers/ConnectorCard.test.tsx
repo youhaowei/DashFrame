@@ -79,15 +79,13 @@ describe("ConnectorCard disclosure", () => {
     ).toBe("true");
   });
 
-  it("does not open while another connector owns onboarding", () => {
-    const onToggle = vi.fn();
-    render(
-      <ConnectorCard connector={connector} onToggle={onToggle} disabled />,
-    );
+  it("renders a static row when there is no toggle handler", () => {
+    render(<ConnectorCard connector={connector} expanded />);
 
-    const header = screen.getByRole("button", {
-      name: /csv file/i,
-    }) as HTMLButtonElement;
-    expect(header.disabled).toBe(true);
+    // The panel drops `onToggle` once this connector has been picked: the row
+    // still says what is being set up, but it is no longer a choice.
+    expect(screen.queryByRole("button", { name: /csv file/i })).toBeNull();
+    expect(screen.getByText("CSV file")).not.toBeNull();
+    expect(screen.getByLabelText("Select CSV file")).not.toBeNull();
   });
 });

@@ -15,7 +15,8 @@ interface ConnectorCardProps {
   /**
    * Toggle handler for the disclosure header. Omit to render a static row —
    * the header stops being a button and only the icon, name and description
-   * show.
+   * show. That is what the panel does once a connector has been picked: the
+   * row still says what is being set up, but it is no longer a choice.
    */
   onToggle?: () => void;
   /** Called when a file is selected (file connectors only) */
@@ -24,8 +25,6 @@ interface ConnectorCardProps {
   onConnect?: () => void;
   /** Whether an action is in progress */
   isLoading?: boolean;
-  /** Disable this connector while another connector owns onboarding. */
-  disabled?: boolean;
   /** Error message to display */
   submitError?: string | null;
   /** Form fields to render (passed as children from TanStack Form) */
@@ -60,7 +59,6 @@ export function ConnectorCard({
   onFileSelect,
   onConnect,
   isLoading,
-  disabled,
   submitError,
   children,
 }: ConnectorCardProps) {
@@ -105,9 +103,8 @@ export function ConnectorCard({
         <button
           type="button"
           onClick={onToggle}
-          disabled={disabled}
           aria-expanded={expanded}
-          className="flex w-full items-center gap-3 rounded-[var(--surface-radius)] px-3 py-2.5 text-left transition hover:bg-neutral-bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex w-full items-center gap-3 rounded-[var(--surface-radius)] px-3 py-2.5 text-left transition hover:bg-neutral-bg-muted"
         >
           {identity}
           <Chevron className="h-4 w-4 shrink-0 text-neutral-fg-subtle" />
@@ -136,7 +133,7 @@ export function ConnectorCard({
                 type="file"
                 accept={fileConnector?.accept}
                 className="hidden"
-                disabled={isLoading || disabled}
+                disabled={isLoading}
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (file) {
@@ -153,7 +150,7 @@ export function ConnectorCard({
             <Button
               label={connectButtonLabel}
               onClick={onConnect}
-              disabled={isLoading || disabled}
+              disabled={isLoading}
               className="w-full"
             />
           )}

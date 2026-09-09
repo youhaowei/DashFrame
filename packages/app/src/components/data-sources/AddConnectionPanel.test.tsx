@@ -44,13 +44,11 @@ vi.mock("@/data/connector-catalog", () => ({
 vi.mock("./renderers", () => ({
   ConnectorCardWithForm: ({
     connector,
-    disabled,
     expanded,
     onToggle,
     onActivityChange,
   }: {
     connector: { id: string; name: string };
-    disabled?: boolean;
     expanded?: boolean;
     onToggle?: () => void;
     onActivityChange?: (active: boolean) => boolean;
@@ -58,18 +56,22 @@ vi.mock("./renderers", () => ({
     activityHandlers[connector.id] = onActivityChange;
     return (
       <div>
-        <button
-          type="button"
-          data-testid={`toggle-${connector.id}`}
-          aria-expanded={expanded ?? false}
-          onClick={onToggle}
-        >
-          Toggle {connector.name}
-        </button>
+        {/* The panel omits onToggle once this connector is the picked one. */}
+        {onToggle ? (
+          <button
+            type="button"
+            data-testid={`toggle-${connector.id}`}
+            aria-expanded={expanded ?? false}
+            onClick={onToggle}
+          >
+            Toggle {connector.name}
+          </button>
+        ) : (
+          <span data-testid={`static-${connector.id}`}>{connector.name}</span>
+        )}
         <button
           type="button"
           data-testid={`connector-${connector.id}`}
-          disabled={disabled}
           onClick={() => onActivityChange?.(true)}
         >
           {connector.name}
@@ -210,7 +212,7 @@ describe("AddConnectionPanel — registry hydration race (B1)", () => {
     expect(refetch).toHaveBeenCalledTimes(1);
   });
 
-  it("prevents another connector from starting while one owns onboarding", () => {
+  it("releases onboarding ownership only for the connector that claimed it", () => {
     mockUseConnectorCatalog.mockReturnValue({
       data: TWO_CONNECTOR_CATALOG,
       isLoading: false,
@@ -227,19 +229,20 @@ describe("AddConnectionPanel — registry hydration race (B1)", () => {
     const onActivityChange = vi.fn();
     renderPanel(onActivityChange);
 
-    const local = screen.getByTestId("connector-local") as HTMLButtonElement;
-    const notion = screen.getByTestId("connector-notion") as HTMLButtonElement;
-    act(() => local.click());
+    act(() => screen.getByTestId("toggle-local").click());
+    act(() => screen.getByTestId("connector-local").click());
+    expect(onActivityChange.mock.calls).toEqual([[true]]);
 
-    expect(local.disabled).toBe(false);
-    expect(notion.disabled).toBe(true);
-
-    act(() => screen.getByTestId("release-notion").click());
-    expect(notion.disabled).toBe(true);
-    expect(onActivityChange).toHaveBeenCalledTimes(1);
+    // A release from a connector that never claimed ownership is ignored —
+    // an unmounted card's cleanup must not free the lock someone else holds.
+    let released: boolean | undefined;
+    act(() => {
+      released = activityHandlers.notion?.(false);
+    });
+    expect(released).toBe(false);
+    expect(onActivityChange.mock.calls).toEqual([[true]]);
 
     act(() => screen.getByTestId("release-local").click());
-    expect(notion.disabled).toBe(false);
     expect(onActivityChange.mock.calls).toEqual([[true], [false]]);
   });
 
@@ -270,7 +273,7 @@ describe("AddConnectionPanel — registry hydration race (B1)", () => {
     expect(secondClaim).toBe(false);
   });
 
-  it("opens one connector at a time and keeps the active one open", () => {
+  it("narrows to the picked connector and back", () => {
     mockUseConnectorCatalog.mockReturnValue({
       data: TWO_CONNECTOR_CATALOG,
       isLoading: false,
@@ -286,26 +289,32 @@ describe("AddConnectionPanel — registry hydration race (B1)", () => {
 
     renderPanel();
 
-    const localToggle = screen.getByTestId("toggle-local");
-    const notionToggle = screen.getByTestId("toggle-notion");
-    expect(localToggle.getAttribute("aria-expanded")).toBe("false");
+    const back = () =>
+      screen.queryByRole("button", {
+        name: /choose another source/i,
+      }) as HTMLButtonElement | null;
 
-    act(() => localToggle.click());
-    expect(localToggle.getAttribute("aria-expanded")).toBe("true");
+    // The list: every source, nothing chosen, nothing to go back to.
+    expect(screen.getByTestId("toggle-local")).not.toBeNull();
+    expect(screen.getByTestId("toggle-notion")).not.toBeNull();
+    expect(back()).toBeNull();
 
-    // Opening another closes the first — one setup form at a time.
-    act(() => notionToggle.click());
-    expect(localToggle.getAttribute("aria-expanded")).toBe("false");
-    expect(notionToggle.getAttribute("aria-expanded")).toBe("true");
+    act(() => screen.getByTestId("toggle-notion").click());
 
-    // Clicking the open one closes it again...
-    act(() => notionToggle.click());
-    expect(notionToggle.getAttribute("aria-expanded")).toBe("false");
+    // Picking one drops the alternatives; the chosen source stays as a row
+    // that says what is being set up, without offering itself again.
+    expect(screen.queryByTestId("connector-local")).toBeNull();
+    expect(screen.queryByTestId("toggle-notion")).toBeNull();
+    expect(screen.getByTestId("static-notion")).not.toBeNull();
+    expect(back()?.disabled).toBe(false);
+
+    act(() => back()?.click());
+    expect(screen.getByTestId("toggle-local")).not.toBeNull();
+    expect(back()).toBeNull();
 
     // ...unless it owns onboarding, whose progress and errors render inside.
-    act(() => notionToggle.click());
+    act(() => screen.getByTestId("toggle-notion").click());
     act(() => screen.getByTestId("connector-notion").click());
-    act(() => notionToggle.click());
-    expect(notionToggle.getAttribute("aria-expanded")).toBe("true");
+    expect(back()?.disabled).toBe(true);
   });
 });
