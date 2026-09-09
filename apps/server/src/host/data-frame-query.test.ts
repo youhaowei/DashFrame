@@ -82,27 +82,37 @@ describe("queryDataFrame", () => {
       },
     } as unknown as DataFrameStorage;
 
-    const contextWith = (getDataFrame: () => Promise<unknown>) =>
-      ({
+    const tableName = "df_22222222_2222_4222_8222_222222222222";
+
+    const contextWith = (
+      getDataFrame: () => Promise<unknown>,
+      unregisterTable: (name: string) => Promise<void> = async () => {},
+    ) => {
+      const runtime = {
+        queryArrow: vi.fn(async () => tableToIPC(tableFromArrays({}))),
+        registerArrowStream: vi.fn(async (_name, stream) => {
+          for await (const _chunk of stream) {
+            // Drain like the native runtime, surfacing the storage error.
+          }
+        }),
+        unregisterTable: vi.fn(unregisterTable),
+      } satisfies HostDataPlaneRuntime;
+      const ctx = {
         metadata: { getDataFrame: vi.fn(getDataFrame) },
         dataFrameStorage: storage,
-        dataPlaneRuntime: {
-          queryArrow: vi.fn(async () => tableToIPC(tableFromArrays({}))),
-          registerArrowStream: vi.fn(async (_name, stream) => {
-            for await (const _chunk of stream) {
-              // Drain like the native runtime, surfacing the storage error.
-            }
-          }),
-          unregisterTable: vi.fn(async () => {}),
-        } satisfies HostDataPlaneRuntime,
-      }) as unknown as HostContext;
+        dataPlaneRuntime: runtime,
+      } as unknown as HostContext;
+      return { ctx, runtime };
+    };
 
     it("reports a frame revoked mid-registration as FRAME_NOT_FOUND", async () => {
       // The metadata row survives the first read and is gone by the time the
       // registration failure is classified — exactly the delete-during-load
       // race. The sibling Arrow routes call this "not found"; so must this.
       let call = 0;
-      const ctx = contextWith(async () => (call++ === 0 ? row : undefined));
+      const { ctx, runtime } = contextWith(async () =>
+        call++ === 0 ? row : undefined,
+      );
 
       const result = await queryDataFrame(ctx, { dataFrameId: id });
 
@@ -110,12 +120,41 @@ describe("queryDataFrame", () => {
         status: "failed",
         code: "FRAME_NOT_FOUND",
       });
+      // Pin the cleanup contract, not just the status code: the revoked frame's
+      // table must actually be dropped, under its own name.
+      expect(runtime.registerArrowStream).toHaveBeenCalledWith(
+        tableName,
+        expect.anything(),
+        undefined,
+      );
+      expect(runtime.unregisterTable).toHaveBeenCalledWith(tableName);
+    });
+
+    it("keeps FRAME_NOT_FOUND when the cleanup itself rejects", async () => {
+      // A disposed runtime rejects unregisterTable(). Cleanup is best-effort:
+      // its failure must not resurface as an execution fault when the frame is
+      // simply gone. HostResourceCleanup owns the durable retry.
+      let call = 0;
+      const { ctx, runtime } = contextWith(
+        async () => (call++ === 0 ? row : undefined),
+        async () => {
+          throw Object.assign(new Error("disposed"), { name: "AbortError" });
+        },
+      );
+
+      const result = await queryDataFrame(ctx, { dataFrameId: id });
+
+      expect(result).toMatchObject({
+        status: "failed",
+        code: "FRAME_NOT_FOUND",
+      });
+      expect(runtime.unregisterTable).toHaveBeenCalledWith(tableName);
     });
 
     it("still reports a genuine fault on a live frame as QUERY_EXECUTION_FAILED", async () => {
       // Ownership holds throughout, so the failure is a real execution fault
       // and must not be laundered into a not-found.
-      const ctx = contextWith(async () => row);
+      const { ctx } = contextWith(async () => row);
 
       const result = await queryDataFrame(ctx, { dataFrameId: id });
 

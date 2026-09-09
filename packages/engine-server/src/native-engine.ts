@@ -605,10 +605,18 @@ export class NativeDuckDBEngine implements QueryEngine {
     await gate;
 
     try {
+      // A queued registration can wait here across a whole dispose(). Opening a
+      // native connection after teardown has begun both does pointless work and
+      // holds dispose() open while it waits on `operationsIdle`.
+      throwIfAborted(operationSignal);
       const conn = await this.instance!.connect();
       const interrupt = () => conn.interrupt();
       operationSignal.addEventListener("abort", interrupt, { once: true });
       try {
+        // connect() is itself awaited, so abort may have fired during it. This
+        // check belongs inside the try: the finally below is what disconnects
+        // `conn`, so throwing above it would leak the connection.
+        throwIfAborted(operationSignal);
         const reader = await RecordBatchReader.from(
           abortableBytes(rawIPCStream, operationSignal),
         );
