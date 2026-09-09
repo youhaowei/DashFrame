@@ -68,7 +68,7 @@ function isAccessResult<TConfig>(
 }
 
 /**
- * Starts the browser access check and owns every runtime it creates.
+ * Starts the host access check and owns every runtime it creates.
  *
  * The caller owns the single React root and maps each published view into it.
  */
@@ -299,7 +299,7 @@ export function startHostBootstrap<TConfig, TRuntime extends ClientRuntime>(
       if (failures.size > 0) {
         throw new AggregateError(
           failures,
-          "Failed to close the browser bootstrap runtime",
+          "Failed to close the host bootstrap runtime",
         );
       }
     })();

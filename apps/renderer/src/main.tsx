@@ -8,6 +8,7 @@ import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 
 import { createDesktopApp } from "./bootstrap/desktop-app";
+import { resolveDesktopHost } from "./bootstrap/desktop-host";
 import { isServerFrameEngineLoss } from "./server-frame-engine-loss";
 
 function renderBootstrapError(error: unknown) {
@@ -28,17 +29,14 @@ function renderBootstrapError(error: unknown) {
 // the access state machine below is the same one the browser client runs, so a
 // remote host answering "signed-out" or "pending" renders the same screens.
 async function bootstrap() {
-  const desktop = window.dashframe;
-  if (!desktop)
-    throw new Error("Desktop IPC bridge is unavailable in this renderer");
-  const { url, token } = await desktop.getServerInfo();
-  if (!token) throw new Error("Desktop server info omitted its loopback token");
+  const { url, token } = await resolveDesktopHost(window.dashframe);
 
   const container = document.getElementById("root");
   if (!container) throw new Error("Root container #root not found");
   const root = createRoot(container);
 
-  const session = startHostSession({
+  // startHostSession owns its own pagehide teardown; do not double-register.
+  startHostSession({
     hostUrl: url,
     token,
     createRuntime: createDesktopApp,
@@ -56,13 +54,6 @@ async function bootstrap() {
     },
     unmount: () => root.unmount(),
   });
-  window.addEventListener(
-    "pagehide",
-    () => {
-      session.teardown().catch(() => undefined);
-    },
-    { once: true },
-  );
 }
 
 bootstrap().catch(renderBootstrapError);

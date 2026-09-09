@@ -76,8 +76,17 @@ function toAccessResult(
   if (reply.status !== "local-ready" && reply.status !== "admitted")
     return { status: "unavailable" };
   const convex = new URL(reply.config.convexUrl);
-  if (convex.href !== new URL("/api/convex", hostUrl).href)
-    return { status: "unavailable" };
+  const expected = new URL("/api/convex", hostUrl);
+  if (convex.href !== expected.href)
+    // Naming both sides matters: a host whose public origin does not match the
+    // address the client dialed is otherwise indistinguishable from a host that
+    // is simply down, and the screen says the same thing for both.
+    return {
+      status: "unavailable",
+      error: new Error(
+        `Host named a Convex URL it was not reached on: expected ${expected.href}, received ${convex.href}`,
+      ),
+    };
   const config = {
     url: new URL(hostUrl).origin,
     convexUrl: convex.href,

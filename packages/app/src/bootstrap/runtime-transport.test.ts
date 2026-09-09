@@ -41,6 +41,30 @@ describe("host runtime transport", () => {
     );
   });
 
+  it("names both origins when the host's Convex URL is not the one dialed", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        Response.json(
+          {
+            mode: "local",
+            status: "local-ready",
+            config: { convexUrl: "https://elsewhere.test/api/convex" },
+          },
+          { status: 200 },
+        ),
+      ),
+    );
+    const result = await lookupHostRuntime(
+      origin,
+      new AbortController().signal,
+    );
+    expect(result.status).toBe("unavailable");
+    const { error } = result as { error?: Error };
+    expect(error?.message).toContain(`${origin}/api/convex`);
+    expect(error?.message).toContain("https://elsewhere.test/api/convex");
+  });
+
   it("sends the client credential as a bearer header and keeps it on the config", async () => {
     const fetcher = vi
       .fn()
@@ -133,9 +157,11 @@ describe("host runtime transport", () => {
       "fetch",
       vi.fn().mockResolvedValue(Response.json(body, { status })),
     );
+    // toMatchObject, not toEqual: the convexUrl-mismatch case additionally
+    // carries a diagnostic `error`. What every case must share is fail-closed.
     expect(
       await lookupHostRuntime(origin, new AbortController().signal),
-    ).toEqual({ status: "unavailable" });
+    ).toMatchObject({ status: "unavailable" });
   });
 
   it("does not infer signed-out or local from HTML, a redirect, or a network failure", async () => {

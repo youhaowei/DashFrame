@@ -247,7 +247,9 @@ export async function createDashframeServer(
     app.get("/api/runtime", async (c) => {
       try {
         await authenticate(c.req.raw);
-        return c.json({ convexUrl: `${new URL(c.req.url).origin}/api/convex` });
+        return c.json({
+          convexUrl: `${publicOrigin ?? new URL(c.req.url).origin}/api/convex`,
+        });
       } catch {
         return c.json({ error: "Unauthorized" }, 401);
       }
