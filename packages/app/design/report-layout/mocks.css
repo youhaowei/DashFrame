@@ -1,0 +1,409 @@
+@import "../../src/globals.css";
+
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family:
+    system-ui,
+    -apple-system,
+    sans-serif;
+  --bg: var(--surface-base);
+  --surface: var(--neutral-bg);
+  --text: var(--neutral-fg);
+  --muted: var(--neutral-fg-subtle);
+  --line: var(--neutral-border);
+  --accent: var(--palette-primary);
+  --accent-text: var(--palette-primary-fg);
+}
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 24px 32px;
+  border-bottom: 1px solid var(--line);
+}
+header strong {
+  font-size: 14px;
+}
+header span {
+  font-size: 12px;
+  color: var(--muted);
+}
+button {
+  font: inherit;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 9px 15px;
+  font-size: 13px;
+  font-weight: 550;
+}
+button:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+.primary {
+  background: var(--accent);
+  color: var(--accent-text);
+  border-color: transparent;
+}
+.gallery {
+  max-width: 1500px;
+  margin: 0 auto;
+  padding: 32px;
+  display: grid;
+  gap: 34px;
+}
+.specimen > p {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* The viewport stands in for the Stage surface the shell hands a page. */
+.viewport {
+  height: 560px;
+  overflow: hidden;
+  background: var(--surface);
+  border-radius: var(--surface-radius);
+  box-shadow: var(--surface-shadow);
+  display: flex;
+  flex-direction: column;
+}
+.viewport.short {
+  height: 380px;
+}
+
+/* ── Shared page header ─────────────────────────────────────────── */
+.page-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 20px 12px;
+}
+.crumbs {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 0 0 4px;
+}
+.crumbs a {
+  color: var(--muted);
+  text-decoration: none;
+}
+.crumbs a:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+.page-head h1 {
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.4px;
+  margin: 0;
+}
+.page-head .sub {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 3px 0 0;
+}
+.head-actions {
+  display: flex;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+.icon-btn {
+  padding: 7px 10px;
+  font-size: 13px;
+}
+
+/* ── Widgets ─────────────────────────────────────────────────────── */
+.canvas {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 20px 20px;
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.widget {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--inner-radius);
+  padding: 12px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 176px;
+}
+.widget.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.widget-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.widget-title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.1px;
+}
+/* Provenance lives on the widget, so no separate catalog is needed. */
+.widget-source {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.widget-source a {
+  color: var(--muted);
+}
+.widget-menu {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 6px;
+  border: 0;
+  background: none;
+}
+
+/* Bars are drawn from tokens so the mock reads as the product, not a chart lib. */
+.chart {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-start;
+  gap: 12px;
+  padding-top: 6px;
+  border-bottom: 1px solid var(--line);
+}
+.chart i {
+  flex: 0 1 34px;
+  background: var(--neutral-bg-strongest);
+  border-radius: 3px 3px 0 0;
+  display: block;
+}
+.chart.accent i {
+  background: var(--neutral-bg-bold);
+}
+.chart i:first-child {
+  background: var(--accent);
+  opacity: 0.75;
+}
+
+.add-tile {
+  border: 1px dashed var(--line);
+  border-radius: var(--inner-radius);
+  background: none;
+  color: var(--muted);
+  min-height: 176px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+.add-tile:hover {
+  color: var(--text);
+  border-color: var(--muted);
+}
+
+/* ── Empty states ────────────────────────────────────────────────── */
+.empty {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  text-align: center;
+  padding: 24px;
+}
+.empty h2 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+}
+.empty p {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0;
+  max-width: 340px;
+  line-height: 1.55;
+}
+
+/* ── B: inspector ────────────────────────────────────────────────── */
+.split {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 268px;
+}
+.inspector {
+  border-left: 1px solid var(--line);
+  overflow-y: auto;
+  padding: 14px 16px;
+  background: var(--neutral-bg-subtle);
+}
+.inspector-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 14px;
+}
+.inspector-tabs button {
+  padding: 5px 10px;
+  font-size: 12px;
+  border-radius: 6px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+}
+.inspector-tabs button[aria-selected="true"] {
+  background: var(--neutral-bg-emphasis);
+  color: var(--text);
+}
+.inspector h3 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 2px;
+}
+.inspector .from {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 0 0 14px;
+}
+.field {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+}
+.field span:first-child {
+  color: var(--muted);
+}
+.inspector .actions {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 16px;
+}
+.inspector .actions button {
+  width: 100%;
+  font-size: 12px;
+  padding: 7px 10px;
+}
+.contents-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+.contents-row span:last-child {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+/* ── C: document ─────────────────────────────────────────────────── */
+.doc-split {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+}
+.outline {
+  border-right: 1px solid var(--line);
+  padding: 16px 14px;
+  overflow-y: auto;
+}
+.outline p {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 0 0 10px;
+  font-weight: 550;
+}
+.outline a {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  text-decoration: none;
+  padding: 5px 8px;
+  border-radius: 6px;
+  margin-left: -8px;
+}
+.outline a.current {
+  background: var(--neutral-bg-emphasis);
+  color: var(--text);
+}
+.outline a.nested {
+  padding-left: 20px;
+  font-size: 11.5px;
+}
+.doc {
+  overflow-y: auto;
+  padding: 20px 32px 32px;
+}
+.doc-body {
+  max-width: 640px;
+}
+.doc h2 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 26px 0 6px;
+  letter-spacing: -0.2px;
+}
+.doc h2:first-child {
+  margin-top: 0;
+}
+.doc p {
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--muted);
+  margin: 0 0 14px;
+}
+.doc-figure {
+  margin: 0 0 8px;
+}
+.doc-figure .chart {
+  height: 128px;
+}
+.doc-figure figcaption {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 7px;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+.doc-add {
+  margin-top: 18px;
+}
+
+@media (max-width: 900px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+  .split,
+  .doc-split {
+    grid-template-columns: 1fr;
+  }
+  .inspector,
+  .outline {
+    display: none;
+  }
+}

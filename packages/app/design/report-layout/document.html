@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>C · Document · Report layout mocks</title>
+    <link rel="stylesheet" href="mocks.css" />
+  </head>
+  <body class="document-direction">
+    <header>
+      <div>
+        <strong>C · Document</strong><br /><span
+          >The report is a narrative you read top to bottom. Charts sit inline
+          in a reading column; the old catalog becomes an outline that scrolls
+          rather than navigates away. Preview only.</span
+        >
+      </div>
+      <button id="theme" type="button" aria-pressed="false">Dark theme</button>
+    </header>
+    <main class="gallery">
+      <section class="specimen">
+        <p>A report with three views — findings first, charts as evidence</p>
+        <div class="viewport">
+          <div class="page-head">
+            <div>
+              <p class="crumbs"><a href="#">Reports</a> › Q3 revenue review</p>
+              <h1>Q3 revenue review</h1>
+              <p class="sub">Edited 2 hours ago</p>
+            </div>
+            <div class="head-actions">
+              <button class="icon-btn" type="button">Share</button>
+              <button class="primary" type="button">Add</button>
+            </div>
+          </div>
+          <div class="doc-split">
+            <nav class="outline" aria-label="Report outline">
+              <p>On this report</p>
+              <a class="current" href="#">Where revenue came from</a>
+              <a class="nested" href="#">Revenue by region</a>
+              <a href="#">How the quarter moved</a>
+              <a class="nested" href="#">Monthly trend</a>
+              <a href="#">Who drove it</a>
+              <a class="nested" href="#">Top accounts</a>
+            </nav>
+            <div class="doc">
+              <div class="doc-body">
+                <h2>Where revenue came from</h2>
+                <p>
+                  West finished ahead of East for the third quarter running,
+                  though the gap narrowed by roughly a fifth.
+                </p>
+                <figure class="doc-figure">
+                  <div class="chart">
+                    <i style="height: 82%"></i><i style="height: 61%"></i>
+                  </div>
+                  <figcaption>
+                    <span>Revenue by region</span><span>from q3-revenue</span>
+                  </figcaption>
+                </figure>
+
+                <h2>How the quarter moved</h2>
+                <p>
+                  Growth was steady month over month, with no single month
+                  carrying the quarter.
+                </p>
+                <figure class="doc-figure">
+                  <div class="chart accent">
+                    <i style="height: 44%"></i><i style="height: 58%"></i
+                    ><i style="height: 71%"></i><i style="height: 88%"></i>
+                  </div>
+                  <figcaption>
+                    <span>Monthly trend</span><span>from q3-revenue</span>
+                  </figcaption>
+                </figure>
+
+                <h2>Who drove it</h2>
+                <p>
+                  The top five accounts are a little over half of the total, so
+                  concentration is worth watching into Q4.
+                </p>
+                <figure class="doc-figure">
+                  <div class="chart accent">
+                    <i style="height: 92%"></i><i style="height: 70%"></i
+                    ><i style="height: 55%"></i><i style="height: 38%"></i
+                    ><i style="height: 24%"></i>
+                  </div>
+                  <figcaption>
+                    <span>Top accounts</span><span>from accounts-2026</span>
+                  </figcaption>
+                </figure>
+
+                <div class="doc-add">
+                  <button class="add-tile" type="button">
+                    + Add a section or a view
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="specimen">
+        <p>Empty — the document invites a first line, not a first widget</p>
+        <div class="viewport short">
+          <div class="page-head">
+            <div>
+              <p class="crumbs"><a href="#">Reports</a> › Q3 revenue review</p>
+              <h1>Q3 revenue review</h1>
+              <p class="sub">Nothing on it yet</p>
+            </div>
+            <div class="head-actions">
+              <button class="icon-btn" type="button">Share</button>
+              <button class="primary" type="button">Add</button>
+            </div>
+          </div>
+          <div class="empty">
+            <h2>Start the report</h2>
+            <p>
+              Write what you are looking at, then pin the chart that shows it.
+              Sections and views can come in any order.
+            </p>
+            <div class="head-actions">
+              <button class="primary" type="button">Ask a question</button>
+              <button type="button">Write a section</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+    <script>
+      const button = document.getElementById("theme");
+      button.onclick = () => {
+        const dark = document.body.classList.toggle("dark");
+        button.setAttribute("aria-pressed", String(dark));
+        button.textContent = dark ? "Light theme" : "Dark theme";
+      };
+    </script>
+  </body>
+</html>

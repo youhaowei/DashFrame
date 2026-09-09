@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>B · Inspector · Report layout mocks</title>
+    <link rel="stylesheet" href="mocks.css" />
+  </head>
+  <body class="inspector-direction">
+    <header>
+      <div>
+        <strong>B · Inspector</strong><br /><span
+          >The grid is the report; the catalog folds into a contextual
+          inspector. Selecting a widget shows its question and encoding in
+          place, with no navigation. Preview only.</span
+        >
+      </div>
+      <button id="theme" type="button" aria-pressed="false">Dark theme</button>
+    </header>
+    <main class="gallery">
+      <section class="specimen">
+        <p>
+          A widget selected — its question is right there, still on the report
+        </p>
+        <div class="viewport">
+          <div class="page-head">
+            <div>
+              <p class="crumbs"><a href="#">Reports</a> › Q3 revenue review</p>
+              <h1>Q3 revenue review</h1>
+              <p class="sub">Edited 2 hours ago</p>
+            </div>
+            <div class="head-actions">
+              <button class="icon-btn" type="button">Share</button>
+              <button class="primary" type="button">Add</button>
+            </div>
+          </div>
+          <div class="split">
+            <div class="canvas">
+              <div class="grid">
+                <article class="widget selected">
+                  <div class="widget-head">
+                    <div class="widget-title">Revenue by region</div>
+                    <button
+                      class="widget-menu"
+                      type="button"
+                      aria-label="Widget actions"
+                    >
+                      ···
+                    </button>
+                  </div>
+                  <div class="chart">
+                    <i style="height: 82%"></i><i style="height: 61%"></i>
+                  </div>
+                </article>
+                <article class="widget">
+                  <div class="widget-head">
+                    <div class="widget-title">Monthly trend</div>
+                    <button
+                      class="widget-menu"
+                      type="button"
+                      aria-label="Widget actions"
+                    >
+                      ···
+                    </button>
+                  </div>
+                  <div class="chart accent">
+                    <i style="height: 44%"></i><i style="height: 58%"></i
+                    ><i style="height: 71%"></i><i style="height: 88%"></i>
+                  </div>
+                </article>
+                <article class="widget">
+                  <div class="widget-head">
+                    <div class="widget-title">Top accounts</div>
+                    <button
+                      class="widget-menu"
+                      type="button"
+                      aria-label="Widget actions"
+                    >
+                      ···
+                    </button>
+                  </div>
+                  <div class="chart accent">
+                    <i style="height: 92%"></i><i style="height: 70%"></i
+                    ><i style="height: 55%"></i><i style="height: 38%"></i
+                    ><i style="height: 24%"></i>
+                  </div>
+                </article>
+                <button class="add-tile" type="button">+ Add a view</button>
+              </div>
+            </div>
+            <aside class="inspector" aria-label="Selected view">
+              <div class="inspector-tabs" role="tablist">
+                <button role="tab" aria-selected="true" type="button">
+                  Selected
+                </button>
+                <button role="tab" aria-selected="false" type="button">
+                  Contents
+                </button>
+              </div>
+              <h3>Revenue by region</h3>
+              <p class="from">
+                Bar · from question <strong>q3-revenue</strong>
+              </p>
+              <div class="field"><span>Dimension</span><span>region</span></div>
+              <div class="field">
+                <span>Metric</span><span>sum(revenue)</span>
+              </div>
+              <div class="field"><span>Filters</span><span>None</span></div>
+              <div class="field"><span>Rows</span><span>2</span></div>
+              <div class="actions">
+                <button type="button">Edit this view here</button>
+                <button type="button">Open the question</button>
+                <button type="button">Remove from report</button>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </section>
+
+      <section class="specimen">
+        <p>
+          Contents tab — the old catalog, on demand, for the one job it served
+        </p>
+        <div class="viewport">
+          <div class="page-head">
+            <div>
+              <p class="crumbs"><a href="#">Reports</a> › Q3 revenue review</p>
+              <h1>Q3 revenue review</h1>
+              <p class="sub">Edited 2 hours ago</p>
+            </div>
+            <div class="head-actions">
+              <button class="icon-btn" type="button">Share</button>
+              <button class="primary" type="button">Add</button>
+            </div>
+          </div>
+          <div class="split">
+            <div class="canvas">
+              <div class="grid">
+                <article class="widget">
+                  <div class="widget-head">
+                    <div class="widget-title">Revenue by region</div>
+                    <button
+                      class="widget-menu"
+                      type="button"
+                      aria-label="Widget actions"
+                    >
+                      ···
+                    </button>
+                  </div>
+                  <div class="chart">
+                    <i style="height: 82%"></i><i style="height: 61%"></i>
+                  </div>
+                </article>
+                <article class="widget">
+                  <div class="widget-head">
+                    <div class="widget-title">Monthly trend</div>
+                    <button
+                      class="widget-menu"
+                      type="button"
+                      aria-label="Widget actions"
+                    >
+                      ···
+                    </button>
+                  </div>
+                  <div class="chart accent">
+                    <i style="height: 44%"></i><i style="height: 58%"></i
+                    ><i style="height: 71%"></i><i style="height: 88%"></i>
+                  </div>
+                </article>
+                <article class="widget">
+                  <div class="widget-head">
+                    <div class="widget-title">Top accounts</div>
+                    <button
+                      class="widget-menu"
+                      type="button"
+                      aria-label="Widget actions"
+                    >
+                      ···
+                    </button>
+                  </div>
+                  <div class="chart accent">
+                    <i style="height: 92%"></i><i style="height: 70%"></i
+                    ><i style="height: 55%"></i><i style="height: 38%"></i
+                    ><i style="height: 24%"></i>
+                  </div>
+                </article>
+                <button class="add-tile" type="button">+ Add a view</button>
+              </div>
+            </div>
+            <aside class="inspector" aria-label="Report contents">
+              <div class="inspector-tabs" role="tablist">
+                <button role="tab" aria-selected="false" type="button">
+                  Selected
+                </button>
+                <button role="tab" aria-selected="true" type="button">
+                  Contents
+                </button>
+              </div>
+              <h3>2 questions</h3>
+              <p class="from">Behind the 3 views on this report</p>
+              <div class="contents-row">
+                <span>q3-revenue</span><span>2 views</span>
+              </div>
+              <div class="contents-row">
+                <span>accounts-2026</span><span>1 view</span>
+              </div>
+              <div class="actions">
+                <button type="button">Browse all questions</button>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </section>
+    </main>
+    <script>
+      const button = document.getElementById("theme");
+      button.onclick = () => {
+        const dark = document.body.classList.toggle("dark");
+        button.setAttribute("aria-pressed", String(dark));
+        button.textContent = dark ? "Light theme" : "Dark theme";
+      };
+    </script>
+  </body>
+</html>

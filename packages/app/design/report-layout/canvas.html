@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>A · Canvas · Report layout mocks</title>
+    <link rel="stylesheet" href="mocks.css" />
+  </head>
+  <body class="canvas-direction">
+    <header>
+      <div>
+        <strong>A · Canvas</strong><br /><span
+          >The grid is the report. The Questions and Saved views catalogs are
+          deleted; provenance moves onto each widget. Preview only.</span
+        >
+      </div>
+      <button id="theme" type="button" aria-pressed="false">Dark theme</button>
+    </header>
+    <main class="gallery">
+      <section class="specimen">
+        <p>Three saved views — the report starts at the top of the page</p>
+        <div class="viewport">
+          <div class="page-head">
+            <div>
+              <p class="crumbs"><a href="#">Reports</a> › Q3 revenue review</p>
+              <h1>Q3 revenue review</h1>
+              <p class="sub">Edited 2 hours ago</p>
+            </div>
+            <div class="head-actions">
+              <button class="icon-btn" type="button">Share</button>
+              <button class="primary" type="button">Add</button>
+            </div>
+          </div>
+          <div class="canvas">
+            <div class="grid">
+              <article class="widget">
+                <div class="widget-head">
+                  <div>
+                    <div class="widget-title">Revenue by region</div>
+                    <div class="widget-source">
+                      from <a href="#">q3-revenue</a>
+                    </div>
+                  </div>
+                  <button
+                    class="widget-menu"
+                    type="button"
+                    aria-label="Widget actions"
+                  >
+                    ···
+                  </button>
+                </div>
+                <div class="chart">
+                  <i style="height: 82%"></i><i style="height: 61%"></i>
+                </div>
+              </article>
+              <article class="widget">
+                <div class="widget-head">
+                  <div>
+                    <div class="widget-title">Monthly trend</div>
+                    <div class="widget-source">
+                      from <a href="#">q3-revenue</a>
+                    </div>
+                  </div>
+                  <button
+                    class="widget-menu"
+                    type="button"
+                    aria-label="Widget actions"
+                  >
+                    ···
+                  </button>
+                </div>
+                <div class="chart accent">
+                  <i style="height: 44%"></i><i style="height: 58%"></i
+                  ><i style="height: 71%"></i><i style="height: 88%"></i>
+                </div>
+              </article>
+              <article class="widget">
+                <div class="widget-head">
+                  <div>
+                    <div class="widget-title">Top accounts</div>
+                    <div class="widget-source">
+                      from <a href="#">accounts-2026</a>
+                    </div>
+                  </div>
+                  <button
+                    class="widget-menu"
+                    type="button"
+                    aria-label="Widget actions"
+                  >
+                    ···
+                  </button>
+                </div>
+                <div class="chart accent">
+                  <i style="height: 92%"></i><i style="height: 70%"></i
+                  ><i style="height: 55%"></i><i style="height: 38%"></i
+                  ><i style="height: 24%"></i>
+                </div>
+              </article>
+              <button class="add-tile" type="button">+ Add a view</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="specimen">
+        <p>Empty — one invitation, not three zero counts</p>
+        <div class="viewport short">
+          <div class="page-head">
+            <div>
+              <p class="crumbs"><a href="#">Reports</a> › Q3 revenue review</p>
+              <h1>Q3 revenue review</h1>
+              <p class="sub">Nothing on it yet</p>
+            </div>
+            <div class="head-actions">
+              <button class="icon-btn" type="button">Share</button>
+              <button class="primary" type="button">Add</button>
+            </div>
+          </div>
+          <div class="empty">
+            <h2>Put something on this report</h2>
+            <p>
+              Ask a question of your data and pin the answer here, or drop in a
+              view you already saved.
+            </p>
+            <div class="head-actions">
+              <button class="primary" type="button">Ask a question</button>
+              <button type="button">Add a saved view</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+    <script>
+      const button = document.getElementById("theme");
+      button.onclick = () => {
+        const dark = document.body.classList.toggle("dark");
+        button.setAttribute("aria-pressed", String(dark));
+        button.textContent = dark ? "Light theme" : "Dark theme";
+      };
+    </script>
+  </body>
+</html>
