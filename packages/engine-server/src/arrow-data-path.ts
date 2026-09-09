@@ -582,6 +582,7 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
         options,
         id as UUID,
         frameTableName(id),
+        true,
       );
       if (registration !== "registered") {
         return c.json({ error: "Frame not found" }, 404);
