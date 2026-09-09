@@ -55,24 +55,28 @@ if ! portless proxy start --https; then
   exit 1
 fi
 
-# The browser's Origin carries the proxy's port whenever portless fell back off
-# 443 (`https://<name>.localhost:1355`), and the server matches Origin by exact
-# string (apps/server/src/app.ts allowedOrigin -> `configured.includes(origin)`).
-# Passing only the port-less origins makes every same-origin POST and WebSocket
-# fail 403 "Origin is not allowed" while the HTML still loads -- which is why a
-# plain 200 check on `/` does not catch it. So allow both forms.
+# The server can advertise only one address, and portless serves https. Allowing
+# the http origin too would let a developer open a URL the client then rejects,
+# because the advertised https Convex URL would not match the origin they dialed.
+#
+# That single address must carry the proxy's port whenever portless fell back
+# off 443, because the browser then dials `https://<name>.localhost:1355` and
+# the server matches Origin by exact string (apps/server/src/app.ts
+# allowedOrigin -> `configured.includes(origin)`). Passing the port-less form
+# alone still serves the HTML while every same-origin POST and WebSocket fails
+# 403 "Origin is not allowed", and leaves the advertised Convex URL missing its
+# port -- which is why a plain 200 check on `/` does not catch it.
 #
 # `portless get` applies its own worktree-subdomain logic to the HOSTNAME, so
 # only its port is reliable here; the hostname is the one this launcher passes
 # to `portless --name` below.
-CORS_ARGS=(--cors-origin "https://${DEV_NAME}.localhost" --cors-origin "http://${DEV_NAME}.localhost")
+DEV_ORIGIN="https://${DEV_NAME}.localhost"
 PROXY_PORT="$(portless get "${DEV_NAME}" 2>/dev/null | sed -n 's|^https\{0,1\}://[^/]*:\([0-9]\{1,\}\).*$|\1|p' | tail -n 1)"
 if [[ -n "${PROXY_PORT}" && "${PROXY_PORT}" != "443" ]]; then
-  CORS_ARGS+=(--cors-origin "https://${DEV_NAME}.localhost:${PROXY_PORT}")
-  CORS_ARGS+=(--cors-origin "http://${DEV_NAME}.localhost:${PROXY_PORT}")
+  DEV_ORIGIN="${DEV_ORIGIN}:${PROXY_PORT}"
 fi
 
-(cd "${ROOT}" && exec bun run apps/server/src/index.ts --port 0 "${CORS_ARGS[@]}") >"${SERVER_LOG}" 2>&1 &
+(cd "${ROOT}" && exec bun run apps/server/src/index.ts --port 0 --cors-origin "${DEV_ORIGIN}" --public-origin "${DEV_ORIGIN}") >"${SERVER_LOG}" 2>&1 &
 SERVER_PID=$!
 
 DASHFRAME_URL=""

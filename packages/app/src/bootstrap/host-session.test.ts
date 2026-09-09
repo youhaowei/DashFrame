@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
-import { startBrowserSession } from "./browser-session";
-import type { BrowserBootstrapView } from "./browser-bootstrap-controller";
-import type { BrowserRuntimeConfig } from "./runtime-transport";
+import { startHostSession } from "./host-session";
+import type { HostBootstrapView } from "./host-bootstrap-controller";
+import type { HostRuntimeConfig } from "./runtime-transport";
 
 const origin = "https://dashframe.test";
 const admitted = {
@@ -27,7 +27,7 @@ it("rechecks on focus, online and interval without recreating healthy runtime, t
   const createRuntime = vi.fn(() => ({ close }));
   const publish = vi.fn();
   const unmount = vi.fn();
-  const session = startBrowserSession({
+  const session = startHostSession({
     hostUrl: origin,
     createRuntime,
     publish,
@@ -65,11 +65,11 @@ describe("runtime access invalidation", () => {
       vi.stubGlobal("fetch", fetcher);
       let notify: ((reason: "denied" | "unavailable") => void) | undefined;
       const close = vi.fn(async () => {});
-      const views: BrowserBootstrapView<
-        BrowserRuntimeConfig,
+      const views: HostBootstrapView<
+        HostRuntimeConfig,
         { close: typeof close }
       >[] = [];
-      const session = startBrowserSession({
+      const session = startHostSession({
         hostUrl: origin,
         createRuntime: (_config, callback) => {
           notify = callback;
@@ -106,7 +106,7 @@ it("signs out through the fixed POST action then rechecks, with no redirect fall
   vi.stubGlobal("fetch", fetcher);
   const publish = vi.fn();
   const createRuntime = vi.fn(() => ({ close: async () => {} }));
-  const session = startBrowserSession({
+  const session = startHostSession({
     hostUrl: origin,
     createRuntime,
     publish,

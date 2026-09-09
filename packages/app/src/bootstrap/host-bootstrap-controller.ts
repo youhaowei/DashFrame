@@ -1,15 +1,15 @@
-export type BrowserAccessResult<TConfig> =
+export type HostAccessResult<TConfig> =
   | { status: "local-ready"; config: TConfig }
   | { status: "admitted"; config: TConfig }
   | { status: "signed-out" }
   | { status: "pending-admission" }
   | { status: "unavailable"; error?: unknown };
 
-export interface BrowserRuntime {
+export interface ClientRuntime {
   close(): void | Promise<void>;
 }
 
-export type BrowserBootstrapView<TConfig, TRuntime extends BrowserRuntime> =
+export type HostBootstrapView<TConfig, TRuntime extends ClientRuntime> =
   | { status: "loading" }
   | { status: "local-ready"; config: TConfig; runtime: TRuntime }
   | {
@@ -22,25 +22,25 @@ export type BrowserBootstrapView<TConfig, TRuntime extends BrowserRuntime> =
   | { status: "pending-admission"; onSignOut: () => void }
   | { status: "unavailable"; onRetry: () => void; error?: unknown };
 
-export interface BrowserBootstrapController {
+export interface HostBootstrapController {
   retry(): Promise<void>;
   revalidate(): Promise<void>;
   invalidate(error?: unknown): Promise<void>;
   teardown(): Promise<void>;
 }
 
-export interface BrowserBootstrapDependencies<
+export interface HostBootstrapDependencies<
   TConfig,
-  TRuntime extends BrowserRuntime,
+  TRuntime extends ClientRuntime,
 > {
-  lookup(signal: AbortSignal): Promise<BrowserAccessResult<TConfig>>;
+  lookup(signal: AbortSignal): Promise<HostAccessResult<TConfig>>;
   createRuntime(
     access: Extract<
-      BrowserAccessResult<TConfig>,
+      HostAccessResult<TConfig>,
       { status: "local-ready" | "admitted" }
     >,
   ): TRuntime | Promise<TRuntime>;
-  publish(view: BrowserBootstrapView<TConfig, TRuntime>): void;
+  publish(view: HostBootstrapView<TConfig, TRuntime>): void;
   beforeClose?(runtime: TRuntime): void;
   sameConfig(left: TConfig, right: TConfig): boolean;
   signIn(): void;
@@ -49,7 +49,7 @@ export interface BrowserBootstrapDependencies<
 
 function isAccessResult<TConfig>(
   value: unknown,
-): value is BrowserAccessResult<TConfig> {
+): value is HostAccessResult<TConfig> {
   if (!value || typeof value !== "object" || !("status" in value)) {
     return false;
   }
@@ -68,23 +68,20 @@ function isAccessResult<TConfig>(
 }
 
 /**
- * Starts the browser access check and owns every runtime it creates.
+ * Starts the host access check and owns every runtime it creates.
  *
  * The caller owns the single React root and maps each published view into it.
  */
-export function startBrowserBootstrap<TConfig, TRuntime extends BrowserRuntime>(
-  dependencies: BrowserBootstrapDependencies<TConfig, TRuntime>,
-): BrowserBootstrapController {
+export function startHostBootstrap<TConfig, TRuntime extends ClientRuntime>(
+  dependencies: HostBootstrapDependencies<TConfig, TRuntime>,
+): HostBootstrapController {
   let generation = 0;
   let stopped = false;
   let lookupAbort: AbortController | undefined;
   let runtime: TRuntime | undefined;
   let runtimeOwner = 0;
   let readyAccess:
-    | Extract<
-        BrowserAccessResult<TConfig>,
-        { status: "local-ready" | "admitted" }
-      >
+    | Extract<HostAccessResult<TConfig>, { status: "local-ready" | "admitted" }>
     | undefined;
   let teardownPromise: Promise<void> | undefined;
   const runtimeClosures = new WeakMap<TRuntime, Promise<void>>();
@@ -146,7 +143,7 @@ export function startBrowserBootstrap<TConfig, TRuntime extends BrowserRuntime>(
     } catch (closeError) {
       unavailableError = new AggregateError(
         [error, closeError],
-        "Browser bootstrap failed and the runtime could not be closed",
+        "Host bootstrap failed and the runtime could not be closed",
       );
     }
     if (!isCurrent(attempt)) return;
@@ -166,7 +163,7 @@ export function startBrowserBootstrap<TConfig, TRuntime extends BrowserRuntime>(
       const result: unknown = await dependencies.lookup(signal);
       if (!isCurrent(attempt)) return;
       if (!isAccessResult<TConfig>(result)) {
-        throw new Error("Browser access lookup returned an invalid result");
+        throw new Error("Host access lookup returned an invalid result");
       }
 
       if (result.status === "local-ready" || result.status === "admitted") {
@@ -231,6 +228,19 @@ export function startBrowserBootstrap<TConfig, TRuntime extends BrowserRuntime>(
       }
 
       if (result.status === "unavailable") {
+        // A revalidation that cannot reach the host is transient, and the
+        // session re-checks on a timer and on focus/online/pageshow. Keep the
+        // mounted runtime rather than discarding the router, Convex client,
+        // query cache and React tree that a recovered host would still serve —
+        // on desktop that is the whole workbench, and it cannot be rebuilt.
+        // An explicit check (initial load, or Retry) has nothing to keep, and
+        // invalidate() is a deliberate signal rather than a failed reach.
+        // readyAccess, not just `runtime`: during a handoff `runtime` already
+        // points at a replacement that has not been published, and whose
+        // superseded attempt will close it — retaining that one would leave the
+        // client with no runtime and no view. readyAccess is set only after a
+        // successful publish and cleared on release, so it means "mounted".
+        if (retainMatchingRuntime && runtime && readyAccess) return;
         await publishUnavailable(attempt, result.error);
         return;
       }
@@ -302,7 +312,7 @@ export function startBrowserBootstrap<TConfig, TRuntime extends BrowserRuntime>(
       if (failures.size > 0) {
         throw new AggregateError(
           failures,
-          "Failed to close the browser bootstrap runtime",
+          "Failed to close the host bootstrap runtime",
         );
       }
     })();

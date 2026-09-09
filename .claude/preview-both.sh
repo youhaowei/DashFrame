@@ -39,4 +39,4 @@ desktop_pid=$!
 #    Not `exec`: the script must stay alive so the EXIT trap can tear down the
 #    desktop process when Preview stops the web.
 echo "[preview-both] starting web (previewable) on portless…"
-"${ROOT}/.claude/portless-shim.sh" bunx vite
+"${ROOT}/.claude/portless-shim.sh" bunx vp dev
