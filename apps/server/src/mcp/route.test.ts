@@ -709,6 +709,9 @@ describe("MCP route", () => {
         "metric_123e4567_e89b_42d3_a456_426614174000",
       );
       expect(writeTool?.description).toContain(
+        "required for sum, avg, min, max, and count_distinct; optional for count",
+      );
+      expect(writeTool?.description).toContain(
         "field_223e4567_e89b_42d3_a456_426614174000",
       );
       expect(writeTool?.description).toContain(

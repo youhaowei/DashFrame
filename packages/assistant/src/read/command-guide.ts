@@ -227,7 +227,7 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
       source: "{ sourceType: 'dataTable'|'insight', sourceId: UUID }",
       "selectedFields?": "UUID[]",
       "metrics?":
-        "{ id: UUID, name: display name, sourceTable: UUID, columnName?: source column name, aggregation: 'sum'|'avg'|'count'|'min'|'max'|'count_distinct' }[]",
+        "{ id: UUID, name: display name, sourceTable: UUID, columnName: source column name (required for sum, avg, min, max, and count_distinct; optional for count), aggregation: 'sum'|'avg'|'count'|'min'|'max'|'count_distinct' }[]",
     },
     notes: "Validates source exists; rejects self-reference cycles.",
   },
