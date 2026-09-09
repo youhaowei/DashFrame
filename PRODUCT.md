@@ -19,7 +19,7 @@ Everything a user makes is an artifact with a name, a definition, and a result: 
 ## Commitments
 
 - **Local-first.** Data and query stay on infrastructure the user controls. Query runs in a host process with native DuckDB — the desktop app embeds it; the web app talks to it. No third party sits between a user and their own data by default.
-- **Sensitivity is classified and visible.** Every field carries a sensitivity classification, applied on local ingest and confirmed by the user at the import review gate, and surfaced in the UI and in assistant/MCP field descriptors. Raw sample values are never persisted in analysis metadata. Classification does not gate persistence at rest today — row data is per-project and unencrypted — and a stricter at-rest floor is a future consideration, not a current guarantee.
+- **Sensitivity is classified and visible.** Every field carries a sensitivity classification, surfaced in the UI and in assistant/MCP field descriptors. Remote imports require every column to be reviewed before import; local file ingest validates the classification it is given but does not require review. Raw sample values are never persisted in analysis metadata. Classification does not gate persistence at rest today — row data is per-project and unencrypted — and a stricter at-rest floor is a future consideration, not a current guarantee.
 - **Immediate.** The UI does not feel like it is waiting on a server. Interaction responds now; long work reports progress rather than freezing behind a spinner.
 - **Truthful.** Show only what the product can compute and keep current. A number the product cannot defend is worse than no number.
 
