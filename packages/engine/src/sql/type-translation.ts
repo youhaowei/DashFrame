@@ -82,13 +82,23 @@ export const DUCKDB_TYPE_NAMES_BY_COLUMN_TYPE = defineColumnTypeMap({
   unknown: [],
 });
 
+/** A DuckDB type name this contract knows — the vocabulary of the table above. */
+export type DuckDBTypeName =
+  (typeof DUCKDB_TYPE_NAMES_BY_COLUMN_TYPE)[ColumnType][number];
+
 /**
  * DuckDB column type for each Arrow logical type, used for ingest DDL.
  *
- * Keys are `apache-arrow` `Type` enum member names. The renderer's producer
- * emits only Float64, Bool, TimestampMillisecond and Utf8, which map
- * losslessly; Int and Date are covered so a different producer round-trips
- * rather than degrading. Anything absent falls back to
+ * Keys are `apache-arrow` `Type` enum member names; values are constrained to
+ * `DuckDBTypeName`, so ingest and egress share one vocabulary and a typo'd DDL
+ * type is a compile error here rather than a `CREATE TABLE` that fails at
+ * runtime. (`engine-server` separately proves every such name is a real
+ * `DuckDBTypeId` member, so the two checks together admit only types DuckDB
+ * actually has.)
+ *
+ * The renderer's producer emits only Float64, Bool, TimestampMillisecond and
+ * Utf8, which map losslessly; Int and Date are covered so a different producer
+ * round-trips rather than degrading. Anything absent falls back to
  * `DEFAULT_DUCKDB_INGEST_TYPE`.
  */
 export const DUCKDB_INGEST_TYPE_BY_ARROW_TYPE = {
@@ -99,14 +109,14 @@ export const DUCKDB_INGEST_TYPE_BY_ARROW_TYPE = {
   Date: "DATE",
   Utf8: "VARCHAR",
   LargeUtf8: "VARCHAR",
-} as const;
+} as const satisfies Record<string, DuckDBTypeName>;
 
 /** An `apache-arrow` `Type` member name this contract can ingest natively. */
 export type IngestibleArrowTypeName =
   keyof typeof DUCKDB_INGEST_TYPE_BY_ARROW_TYPE;
 
 /** Where an Arrow type with no native mapping lands: stringified VARCHAR. */
-export const DEFAULT_DUCKDB_INGEST_TYPE = "VARCHAR";
+export const DEFAULT_DUCKDB_INGEST_TYPE: DuckDBTypeName = "VARCHAR";
 
 /**
  * Decode options the chart side must pass to flechette's `tableFromIPC`.
