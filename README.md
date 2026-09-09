@@ -9,7 +9,7 @@ DashFrame is a local-first business intelligence tool focused on the data → ch
 - **Electron** desktop app + **Vite/React 19** web app — one shared UI (`packages/app`)
 - **Convex** stores artifact metadata and drafts and serves reactive queries; each project owns a local backend process
 - **Hono** host API (`apps/server`, `packages/server-core`) owns sessions, connectors, secrets, and data access
-- **DuckDB** for query — native (`@duckdb/node-api`) on desktop, **DuckDB-WASM** in the browser
+- **DuckDB** for query — native (`@duckdb/node-api`) in the host process, which the desktop app embeds and the web app connects to
 - **WyStack** (`libs/wystack`) — shared identity and secret-vault support; **stdui** (`libs/stdui`) — the `@wystack/ui-*` design system (both git submodules)
 - **Bun** for package management and runtime, **Turborepo** for workspace orchestration
 - **Tailwind CSS v4**, **Vega-Lite** for declarative chart rendering

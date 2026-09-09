@@ -6,7 +6,7 @@ What DashFrame is, what it commits to, and what it refuses to be. Read this befo
 
 ## The product
 
-DashFrame is a local-first business intelligence tool for the data → chart journey: import data, query it with DuckDB, build visualizations, arrange them into dashboards. It ships as an Electron desktop app and a browser web app rendering the same UI.
+DashFrame is a local-first business intelligence tool for the data → chart journey: import data, query it with DuckDB, build visualizations, arrange them into dashboards. It ships as an Electron desktop app and a browser web app rendering the same UI, both backed by the same host process.
 
 The app is a **working instrument**, not a document and not a presentation. A user opens it to answer a question about their data and to keep that answer current. Brand register belongs to the marketing site; nothing in-app performs personality.
 
@@ -18,8 +18,8 @@ Everything a user makes is an artifact with a name, a definition, and a result: 
 
 ## Commitments
 
-- **Local-first.** Data lives on the user's machine. Query runs locally — native DuckDB on desktop, DuckDB-WASM in the browser. Working offline is normal operation, not degraded mode.
-- **Sensitive data stays put.** Sensitivity is tracked per field and enforced at the cache-write gate: only cleared columns reach the on-disk cache. Enforcement is silent and fail-closed; the user-facing prompt appears where data would leave the local context.
+- **Local-first.** Data and query stay on infrastructure the user controls. Query runs in a host process with native DuckDB — the desktop app embeds it; the web app talks to it. No third party sits between a user and their own data by default.
+- **Sensitivity is classified and visible.** Every field carries a sensitivity classification, applied on local ingest and confirmed by the user at the import review gate, and surfaced in the UI and in assistant/MCP field descriptors. Raw sample values are never persisted in analysis metadata. Classification does not gate persistence at rest today — row data is per-project and unencrypted — and a stricter at-rest floor is a future consideration, not a current guarantee.
 - **Immediate.** The UI does not feel like it is waiting on a server. Interaction responds now; long work reports progress rather than freezing behind a spinner.
 - **Truthful.** Show only what the product can compute and keep current. A number the product cannot defend is worse than no number.
 
