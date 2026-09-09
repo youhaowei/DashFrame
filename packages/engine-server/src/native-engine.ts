@@ -700,10 +700,16 @@ export class NativeDuckDBEngine implements QueryEngine {
           }));
           const rowCount = arrowTable.numRows;
           for (let i = 0; i < rowCount; i++) {
-            // Checked per row, not once at entry: a large buffer spends most
-            // of this operation inside this loop, and a caller that gave up
-            // should not wait out the whole ingest.
-            if ((i & 0x3ff) === 0) throwIfAborted(operationSignal);
+            // A large buffer spends nearly all of this operation inside this
+            // loop, and a caller that gave up should not wait out the whole
+            // ingest. Checking `aborted` alone would not achieve that: the
+            // loop is synchronous, so a timer- or socket-driven abort could
+            // not even run until it finished. Yielding to the event loop
+            // first is what makes the check able to see anything.
+            if ((i & 0x3ff) === 0) {
+              await yieldToEventLoop();
+              throwIfAborted(operationSignal);
+            }
             for (const col of columns) {
               appendArrowValue(appender, col.field, col.vector?.get(i));
             }
@@ -916,6 +922,18 @@ function disposedError(): DOMException {
 
 function quoteIdent(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
+}
+
+/**
+ * Hand the event loop one turn. A synchronous ingest loop starves timers and
+ * I/O callbacks, so an `AbortSignal` driven by either cannot fire until the
+ * loop ends — checking `aborted` without yielding first can only ever observe
+ * an abort that had already happened when the loop started.
+ */
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => {
+    setImmediate(resolve);
+  });
 }
 
 function throwIfAborted(signal?: AbortSignal): void {
