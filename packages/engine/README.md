@@ -12,11 +12,11 @@ bun add @dashframe/engine
 
 The engine package defines runtime-agnostic interfaces:
 
-| Interface          | Real implementation today                                             |
-| ------------------ | --------------------------------------------------------------------- |
-| `QueryEngine`      | `NativeDuckDBEngine` (`@dashframe/engine-server`)                     |
-| `DataFrameStorage` | Project files for server snapshots; retained IndexedDB implementation |
-| `DataFrame`        | Server query results; retained `BrowserDataFrame` implementation      |
+| Interface          | Real implementation today                                                    |
+| ------------------ | ---------------------------------------------------------------------------- |
+| `QueryEngine`      | `NativeDuckDBEngine` and `WorkspaceQueryEngine` (`@dashframe/engine-server`) |
+| `DataFrameStorage` | Project files for server snapshots; retained IndexedDB implementation        |
+| `DataFrame`        | Server query results; retained `BrowserDataFrame` implementation             |
 
 Remote imports and refreshes use **server-side native DuckDB** (`NativeDuckDBEngine`) and durable project-file snapshots for both desktop and web. Local-file import still uses the legacy browser/IndexedDB path until the required server-ingestion follow-up lands. There is no selectable WASM mode or fallback.
 

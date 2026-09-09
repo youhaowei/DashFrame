@@ -702,7 +702,9 @@ export async function registerStoredFrame(
   } else {
     const bytes = fallback ?? (await storage.load(id));
     if (!bytes) throw new Error("TARGET_NOT_READY");
-    await runtime.registerArrowTable(name, bytes);
+    // The load above is the slow part; a caller that gave up during it must
+    // not still have a table registered on its behalf afterwards.
+    await runtime.registerArrowTable(name, bytes, signal);
   }
 }
 

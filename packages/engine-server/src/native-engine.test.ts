@@ -790,7 +790,6 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
       "isReady",
       "hasTable",
       "getTableNames",
-      "registerTable", // unsupported; throws before touching anything
       "dispose", // runs in afterEach, after the raw handles are restored
       "teardown", // dispose()'s body
     ]);

@@ -6,6 +6,7 @@ import type { HostContext, HostDataPlaneRuntime } from "../context";
 import {
   createInsightMaterializer,
   fieldsFromInsightResult,
+  registerStoredFrame,
   type InsightMaterializerDependencies,
   type PublishMaterialization,
   type SourceGeneration,
@@ -1034,6 +1035,40 @@ it("retains hosted buffered refresh ceilings independently of native transfer bu
   });
   expect(result.status).toBe("ready");
   expect(h.storage.getUsage).not.toHaveBeenCalled();
+});
+
+it("carries a caller abort into a buffered registration, not only into the load", async () => {
+  // The load is the slow half of registerStoredFrame's buffered branch. A
+  // caller that gave up while it ran must not end up with a table registered
+  // on its behalf, so the signal has to reach the registration too.
+  const h = harness();
+  const controller = new AbortController();
+  const registerArrowTable = vi.fn(
+    async (_name: string, _bytes: Uint8Array, signal?: AbortSignal) => {
+      signal?.throwIfAborted();
+    },
+  );
+  Object.assign(h.runtime, { registerArrowTable });
+  Object.assign(h.storage, {
+    load: async () => {
+      controller.abort();
+      return new Uint8Array([1]);
+    },
+  });
+  await expect(
+    registerStoredFrame(
+      h.storage,
+      h.runtime,
+      "df_cancelled",
+      "frame-1" as UUID,
+      controller.signal,
+    ),
+  ).rejects.toThrow();
+  expect(registerArrowTable).toHaveBeenCalledWith(
+    "df_cancelled",
+    new Uint8Array([1]),
+    controller.signal,
+  );
 });
 
 it("refuses a batched source on a hosted runtime without consuming or saving it", async () => {

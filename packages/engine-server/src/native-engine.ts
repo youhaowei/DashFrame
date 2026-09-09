@@ -1,15 +1,16 @@
 /**
  * Stage 3 — Execute: the native DuckDB engine.
  *
- * The primary `QueryEngine` for the **server process** (desktop loopback today;
- * headless `serve` + web-via-server is the same class). Desktop and web share
- * this implementation so the data plane stays consistent; DuckDB-WASM in
- * `@dashframe/engine-browser` is a **backup / local-first** path, not a second
- * peer `QueryEngine` and not the long-term web default.
+ * The in-process `QueryEngine`: DuckDB inside the server process itself
+ * (desktop loopback today; headless `serve` + web-via-server is the same
+ * class). Desktop and web share this implementation so the data plane stays
+ * consistent. Its sibling backing is `WorkspaceQueryEngine` (query-sandbox.ts),
+ * which runs DuckDB behind a confined worker for the hosted surface; the
+ * DuckDB-WASM helpers in `@dashframe/engine-browser` are a renderer fallback
+ * and implement no `QueryEngine` today.
  *
  * Electron main and headless `serve` both construct this engine and mount Stage
- * 5. Cloud remote compute is not a binding; this class is the intended seam
- * there too once that tier exists.
+ * 5.
  *
  * Results leave as Arrow IPC bytes (`queryArrow` buffered, `queryArrowBatches`
  * chunked) — the payload the dedicated data path (Stage 5) streams. Arrow
