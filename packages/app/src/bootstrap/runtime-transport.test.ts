@@ -5,7 +5,7 @@ const origin = "https://dashframe.test";
 const config = { convexUrl: `${origin}/api/convex` };
 afterEach(() => vi.unstubAllGlobals());
 
-describe("browser runtime transport", () => {
+describe("host runtime transport", () => {
   it.each([
     [{ mode: "local", status: "local-ready", config }, 200, "local-ready"],
     [
@@ -38,6 +38,53 @@ describe("browser runtime transport", () => {
         redirect: "error",
         signal,
       }),
+    );
+  });
+
+  it("sends the client credential as a bearer header and keeps it on the config", async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValue(
+        Response.json(
+          { mode: "local", status: "local-ready", config },
+          { status: 200 },
+        ),
+      );
+    vi.stubGlobal("fetch", fetcher);
+    const result = await lookupHostRuntime(
+      origin,
+      new AbortController().signal,
+      { token: "host-token" },
+    );
+    expect(result).toMatchObject({
+      status: "local-ready",
+      config: { token: "host-token" },
+    });
+    expect(fetcher.mock.calls[0]?.[1]?.headers).toMatchObject({
+      Authorization: "Bearer host-token",
+    });
+  });
+
+  it("sends no authorization header when the client has no credential", async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValue(
+        Response.json(
+          { mode: "local", status: "local-ready", config },
+          { status: 200 },
+        ),
+      );
+    vi.stubGlobal("fetch", fetcher);
+    const result = await lookupHostRuntime(
+      origin,
+      new AbortController().signal,
+    );
+    expect(result).toMatchObject({ status: "local-ready" });
+    expect((result as { config: { token?: string } }).config.token).toBe(
+      undefined,
+    );
+    expect(fetcher.mock.calls[0]?.[1]?.headers).not.toHaveProperty(
+      "Authorization",
     );
   });
 

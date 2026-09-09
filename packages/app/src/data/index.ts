@@ -1,6 +1,5 @@
 export {
   createAppRuntime,
-  resolveAppConfig,
   getRuntimeConfig,
   getConvexClient,
   type AppRuntime,

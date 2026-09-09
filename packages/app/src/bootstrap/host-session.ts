@@ -11,6 +11,8 @@ import {
 
 export function startHostSession<TRuntime extends ClientRuntime>(options: {
   hostUrl: string;
+  /** Client credential for this host; omitted by browser clients on a cookie session. */
+  token?: string;
   createRuntime(
     config: HostRuntimeConfig,
     onAccessInvalidated: (reason: "denied" | "unavailable") => void,
@@ -25,7 +27,8 @@ export function startHostSession<TRuntime extends ClientRuntime>(options: {
   const actionAbort = new AbortController();
   let visibleRuntime: TRuntime | undefined;
   const controller = startHostBootstrap({
-    lookup: (signal) => lookupHostRuntime(options.hostUrl, signal),
+    lookup: (signal) =>
+      lookupHostRuntime(options.hostUrl, signal, { token: options.token }),
     sameConfig: sameHostRuntime,
     createRuntime: (access) =>
       options.createRuntime(access.config, (reason) => {

@@ -15,7 +15,6 @@ export {
 
 export {
   createAppRuntime,
-  resolveAppConfig,
   type AppRuntime,
   type AppRuntimeConfig,
 } from "./data/runtime";

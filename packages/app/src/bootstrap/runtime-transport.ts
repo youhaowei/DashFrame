@@ -48,6 +48,7 @@ export function sameHostRuntime(
     a.mode === b.mode &&
     a.url === b.url &&
     a.convexUrl === b.convexUrl &&
+    a.token === b.token &&
     (a.mode === "local" ||
       (b.mode === "hosted" &&
         a.subject === b.subject &&
@@ -55,10 +56,18 @@ export function sameHostRuntime(
   );
 }
 
-/** Only a validated response from the configured host can select local mode. */
+/**
+ * Only a validated response from the configured host can select local mode.
+ *
+ * `token` is the client's own credential for this host — the desktop shell's
+ * per-launch loopback token today. It rides alongside the cookie rather than
+ * replacing it: a browser client sends neither header nor token and keeps the
+ * same-origin session it already had.
+ */
 export async function lookupHostRuntime(
   hostUrl: string,
   signal: AbortSignal,
+  options?: { token?: string },
 ): Promise<HostAccessResult<HostRuntimeConfig>> {
   try {
     const response = await fetch(new URL("/api/runtime", hostUrl), {
@@ -67,7 +76,12 @@ export async function lookupHostRuntime(
       cache: "no-store",
       redirect: "error",
       signal,
-      headers: { Accept: "application/json" },
+      headers: {
+        Accept: "application/json",
+        ...(options?.token
+          ? { Authorization: `Bearer ${options.token}` }
+          : undefined),
+      },
     });
     if (
       response.redirected ||
@@ -92,7 +106,11 @@ export async function lookupHostRuntime(
     const convex = new URL(reply.config.convexUrl);
     const expected = new URL("/api/convex", hostUrl);
     if (convex.href !== expected.href) return { status: "unavailable" };
-    const config = { url: new URL(hostUrl).origin, convexUrl: convex.href };
+    const config = {
+      url: new URL(hostUrl).origin,
+      convexUrl: convex.href,
+      ...(options?.token ? { token: options.token } : undefined),
+    };
     return reply.mode === "local"
       ? { status: "local-ready", config: { ...config, mode: "local" } }
       : {
