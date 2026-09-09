@@ -278,7 +278,10 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
     args: { id: "UUID", sorts: "InsightSort[] ({ field, direction })" },
     notes:
       "field is an output column identifier, not a field or metric UUID. " +
-      "For a selected dimension use its source column name. For a metric UUID " +
+      "For a selected dimension from a data table use its source column name. " +
+      "For a selected dimension from an insight source, field UUID " +
+      "223e4567-e89b-42d3-a456-426614174000 becomes " +
+      "field_223e4567_e89b_42d3_a456_426614174000. For a metric UUID " +
       "such as 123e4567-e89b-42d3-a456-426614174000 use " +
       "metric_123e4567_e89b_42d3_a456_426614174000. Sort identifiers differ " +
       "from chart encoding references: encodings use field:<uuid> or metric:<uuid>.",
