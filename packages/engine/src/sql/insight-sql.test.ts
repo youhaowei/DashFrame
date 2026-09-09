@@ -207,11 +207,12 @@ describe("buildInsightSQL — operators", () => {
   });
 
   it("escapes LIKE wildcards and the quote in a contains value", () => {
-    // The wildcard escaping and the literal quoting are two separate steps
-    // over the same string, and their order matters: quoting first would
-    // double the backslash the ESCAPE clause introduces. Only a value that
-    // carries a quote AND a wildcard AND a backslash can tell them apart, and
-    // getting it wrong is an injection-class defect that renders as valid SQL.
+    // Two independent escapes run over the same value: `quoteLiteral` doubles
+    // the single quote, and the LIKE step escapes a backslash, `%` and `_` so
+    // a user's wildcards match literally. Neither touches the other's characters, so
+    // order does not matter — but only a value carrying a quote AND a wildcard
+    // AND a backslash exercises both at once, and the previous `contains` case
+    // used "ME", which exercises neither.
     const sql = build(
       groupedInsight([
         { field: "region", operator: "contains", value: String.raw`a'b%c_d\e` },
