@@ -3,6 +3,7 @@ import { access, readFile, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, resolve } from "node:path";
 import type { QueryEngine } from "@dashframe/engine";
 import { tableFromIPC } from "apache-arrow";
+import { tableKey } from "./table-identity";
 import {
   SANDBOX_MAX_ARROW,
   SANDBOX_MAX_ROWS,
@@ -119,12 +120,16 @@ export class WorkspaceQueryEngine implements QueryEngine {
   private idleTimer: ReturnType<typeof setTimeout> | undefined;
   private closedPromise: Promise<void> = Promise.resolve();
   /**
-   * Names this engine has registered, mirrored here so `hasTable` and
+   * Tables this engine has registered, mirrored here so `hasTable` and
    * `getTableNames` answer synchronously as the interface requires. The worker
-   * owns the catalog; this is a projection of the registrations we sent, and
-   * it is only updated after the worker acknowledges one.
+   * owns the catalog; this is a projection of the registrations it has
+   * acknowledged, and it is only written after an acknowledgement.
+   *
+   * Keyed by `tableKey()` and valued by the registered spelling, for the same
+   * reason as the native engine: the worker's DuckDB identifies `"Sales"` and
+   * `"sales"` as one table, so a raw-keyed set would claim two.
    */
-  private readonly registered = new Set<string>();
+  private readonly registered = new Map<string, string>();
   private startupReject: ((error: Error) => void) | undefined;
   private startupTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly options: QuerySandboxConfiguration;
@@ -316,10 +321,11 @@ export class WorkspaceQueryEngine implements QueryEngine {
 
   /**
    * The worker answers a query with one framed Arrow payload, bounded by
-   * `SANDBOX_MAX_ROWS`, so a batch sequence here is that single buffer. It
-   * exists because the interface is one shape across backings; a caller that
-   * wants incremental delivery gets it from the native backing, not from a
-   * request/response worker protocol pretending to stream.
+   * `SANDBOX_MAX_ROWS`, so a batch sequence here is that single buffer — the
+   * whole result is resident before the first yield. It exists because the
+   * interface is one shape across backings; a caller that must bound memory
+   * gets that from the native backing, not from a request/response worker
+   * protocol pretending to stream.
    */
   async *queryArrowBatches(
     sql: string,
@@ -341,7 +347,7 @@ export class WorkspaceQueryEngine implements QueryEngine {
       bytes,
       signal,
     );
-    this.registered.add(name);
+    this.registered.set(tableKey(name), name);
   }
 
   /**
@@ -383,15 +389,15 @@ export class WorkspaceQueryEngine implements QueryEngine {
 
   async unregisterTable(name: string): Promise<void> {
     await this.request({ operation: "unregister", name: tableName(name) });
-    this.registered.delete(name);
+    this.registered.delete(tableKey(name));
   }
 
   hasTable(name: string): boolean {
-    return this.registered.has(name);
+    return this.registered.has(tableKey(name));
   }
 
   getTableNames(): string[] {
-    return [...this.registered];
+    return [...this.registered.values()];
   }
 
   private request(
@@ -525,6 +531,8 @@ export class WorkspaceQueryEngine implements QueryEngine {
 
   async dispose(): Promise<void> {
     this.fail(new Error("SANDBOX_CLOSED"));
+    // The worker and its catalog are gone; the projection of it must go too.
+    this.registered.clear();
     await this.closedPromise;
   }
 }

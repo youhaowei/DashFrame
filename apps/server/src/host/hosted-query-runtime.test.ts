@@ -66,3 +66,20 @@ it("permits accepted work and cleanup to settle", async () => {
   );
   expect(calls.unregisterTable).toHaveBeenCalledWith("frame");
 });
+
+it("refuses to start or terminate the shared engine on behalf of one request", async () => {
+  // Engine lifetime belongs to the workspace pool that created it. A request
+  // handler calling these would start or kill an engine serving other
+  // requests, so the facade rejects rather than delegating.
+  const calls = {
+    initialize: vi.fn(async () => {}),
+    dispose: vi.fn(async () => {}),
+  };
+  const runtime = createHostedQueryRuntime(stubQueryEngine(calls));
+  await expect(runtime.initialize()).rejects.toThrow(
+    "ENGINE_LIFECYCLE_NOT_OWNED",
+  );
+  await expect(runtime.dispose()).rejects.toThrow("ENGINE_LIFECYCLE_NOT_OWNED");
+  expect(calls.initialize).not.toHaveBeenCalled();
+  expect(calls.dispose).not.toHaveBeenCalled();
+});

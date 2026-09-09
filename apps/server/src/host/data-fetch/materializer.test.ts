@@ -1036,6 +1036,44 @@ it("retains hosted buffered refresh ceilings independently of native transfer bu
   expect(h.storage.getUsage).not.toHaveBeenCalled();
 });
 
+it("refuses a batched source on a hosted runtime without consuming or saving it", async () => {
+  // The hosted backing joins chunks at its worker seam, so accepting batches
+  // there would consume and persist the source only to reload the whole frame
+  // afterwards. Method presence can no longer say which backing this is —
+  // every backing implements registerArrowStream — so the branch reads the
+  // binding's own `nativeTransfer`, which the hosted facade never sets.
+  const h = harness();
+  let pulled = 0;
+  const saveBatches = vi.fn(async () => {
+    throw new Error("hosted runtime must not save batches");
+  });
+  Object.assign(h.storage, {
+    saveBatches,
+    stream: async function* () {
+      yield new Uint8Array([1]);
+    },
+  });
+  vi.mocked(h.storage.getUsage).mockResolvedValue({ count: 0, totalBytes: 0 });
+  h.resolveSource.mockImplementation(async (_ctx, tableId: UUID) => ({
+    ...source(tableId),
+    arrow: undefined,
+    batches: (async function* () {
+      pulled += 1;
+      yield new Uint8Array([1]);
+    })(),
+  }));
+  await expect(
+    createInsightMaterializer(h.dependencies).materialize({
+      ctx: {} as HostContext,
+      target: { kind: "refresh" },
+      insight: { baseTableId: "source", selectedFields: [], metrics: [] },
+    }),
+  ).rejects.toThrow("TARGET_NOT_READY");
+  expect(pulled).toBe(0);
+  expect(saveBatches).not.toHaveBeenCalled();
+  expect(h.storage.save).not.toHaveBeenCalled();
+});
+
 it("charges a buffered native source as a whole transfer rather than one streamed batch", async () => {
   const h = harness({
     transferLimits: { ...DEFAULT_TRANSFER_LIMITS, batchBytes: 0 },

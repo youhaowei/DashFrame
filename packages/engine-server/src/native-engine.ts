@@ -51,6 +51,7 @@ import {
 } from "apache-arrow";
 
 import { duckdbColumnsToArrowIpc, type ResultColumn } from "./arrow-encode";
+import { tableKey } from "./table-identity";
 
 /**
  * Deny filesystem and network access on `connection`, then lock the
@@ -662,7 +663,7 @@ export class NativeDuckDBEngine implements QueryEngine {
     throwIfAborted(signal);
     await this.initialize();
     await this.withConnection(
-      async (conn) => {
+      async (conn, operationSignal) => {
         // Decode the Arrow IPC stream buffer.
         const arrowTable = tableFromIPC(arrow);
         const fields = arrowTable.schema.fields;
@@ -698,11 +699,16 @@ export class NativeDuckDBEngine implements QueryEngine {
           }));
           const rowCount = arrowTable.numRows;
           for (let i = 0; i < rowCount; i++) {
+            // Checked per row, not once at entry: a large buffer spends most
+            // of this operation inside this loop, and a caller that gave up
+            // should not wait out the whole ingest.
+            if ((i & 0x3ff) === 0) throwIfAborted(operationSignal);
             for (const col of columns) {
               appendArrowValue(appender, col.field, col.vector?.get(i));
             }
             appender.endRow();
           }
+          throwIfAborted(operationSignal);
           appender.flushSync();
         } catch (err) {
           // Append failed — the partially written staging table and any
@@ -734,7 +740,7 @@ export class NativeDuckDBEngine implements QueryEngine {
 
         this._registeredTables.set(tableKey(name), name);
       },
-      { lockTable: name },
+      { signal, lockTable: name },
     );
   }
 
@@ -909,23 +915,6 @@ function disposedError(): DOMException {
 
 function quoteIdent(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
-}
-
-/**
- * How DuckDB identifies a table, as opposed to how it spells it. Identifiers
- * are case-insensitive even when quoted, so `"Sales"` and `"sales"` name ONE
- * catalog entry — probed at 20/20 cross-case write-write conflicts against
- * @duckdb/node-api 1.5.3-r.3. Both the per-name lock and the registered-table
- * registry key on this, so neither can be fooled into treating one table as
- * two, or two as one.
- *
- * The fold is ASCII-only because DuckDB's is: probed on the same version,
- * `"Ä"`/`"ä"`, `"İ"`/`"i̇"` and `"ß"`/`"ss"` each create two distinct catalog
- * tables, while `"A"`/`"a"` create one. `String.toLowerCase()` would merge the
- * first pair and leave the registry claiming one table where DuckDB has two.
- */
-function tableKey(name: string): string {
-  return name.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
 }
 
 function throwIfAborted(signal?: AbortSignal): void {

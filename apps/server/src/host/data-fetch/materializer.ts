@@ -302,7 +302,6 @@ async function materializeOnce(
 ): Promise<InsightFetchReady> {
   const storage = dependencies.storage(args.ctx);
   const runtime = dependencies.runtime(args.ctx);
-  if (!runtime.registerArrowTable) throw new Error("TARGET_NOT_READY");
 
   const created: Array<{ id: UUID; registered: boolean }> = [];
   let publicationAttempted = false;
@@ -796,7 +795,10 @@ async function saveSource(
     await storage.save(id, source.arrow);
     return;
   }
-  if (!storage.saveBatches || !storage.stream || !runtime.registerArrowStream)
+  // A batched source is a native-transfer path end to end: the hosted backing
+  // joins chunks at its worker seam, so accepting batches there would consume
+  // and persist the source only to reload the whole frame afterwards.
+  if (!storage.saveBatches || !storage.stream || !runtime.nativeTransfer)
     throw new Error("TARGET_NOT_READY");
   await transfer.admit(storage);
   source.rowCount = 0;

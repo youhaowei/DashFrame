@@ -962,6 +962,37 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     expect(Number(rows[0]?.cnt)).toBe(3);
   });
 
+  it("aborts a buffered registration in flight, not just before it starts", async () => {
+    // registerArrowTable takes a caller signal like every other operation. A
+    // large buffer spends nearly all of its time inside the appender loop, so
+    // checking the signal only on entry would leave a cancelled caller waiting
+    // out the whole ingest and would leave the table registered afterwards.
+    engine = new NativeDuckDBEngine();
+    await engine.initialize();
+    const rows = 400_000;
+    const arrow = tableToIPC(
+      new Table({
+        v: vectorFromArray(
+          Array.from({ length: rows }, (_, i) => i),
+          new Float64(),
+        ),
+      }),
+    );
+    const controller = new AbortController();
+    const registration = engine.registerArrowTable(
+      "df_aborted",
+      arrow,
+      controller.signal,
+    );
+    // Abort synchronously after the call returns: the entry check has already
+    // run and passed, so only a signal that reached the operation itself can
+    // stop this. A timer could not do it — the appender loop is synchronous
+    // and would starve the timer until the ingest had already finished.
+    controller.abort();
+    await expect(registration).rejects.toMatchObject({ name: "AbortError" });
+    expect(engine.hasTable("df_aborted")).toBe(false);
+  });
+
   it("tracks registered tables the way DuckDB identifies them, not by spelling", async () => {
     // One catalog table must be one registry entry. If the registry keyed on
     // the raw spelling, registering "df_CaseName" and then "df_casename" would

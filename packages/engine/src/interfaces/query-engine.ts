@@ -6,10 +6,11 @@
  * `@dashframe/engine-server/arrow-data-path`), not on this interface.
  *
  * Backings: `NativeDuckDBEngine` (`@dashframe/engine-server`) runs DuckDB in
- * the server process; `WorkspaceQueryEngine` (same package) runs it behind the
- * sandboxed hosted worker; the DuckDB-WASM helpers in
- * `@dashframe/engine-browser` are the availability-checked renderer fallback.
- * They are backings of one interface, not sibling APIs.
+ * the server process, and `WorkspaceQueryEngine` (same package) runs it behind
+ * the sandboxed hosted worker. They are backings of one interface, not sibling
+ * APIs. The DuckDB-WASM helpers in `@dashframe/engine-browser` are a separate
+ * renderer fallback and do NOT implement this interface today; binding them as
+ * a third backing is its own step.
  *
  * There is no Postgres `QueryEngine` and no shared `QueryPlanner` /
  * `QueryPushDownCapable` API in this package. Individual connectors may still
@@ -42,7 +43,14 @@ export interface QueryEngine {
 
   /**
    * Execute `sql` and yield the result as a sequence of Arrow IPC stream
-   * buffers, so a large result never has to be resident whole.
+   * buffers.
+   *
+   * This is a delivery shape, not a promise about production. The native
+   * backing genuinely produces batches incrementally, so a large result never
+   * has to be resident whole; the hosted backing answers a query with one
+   * framed payload and yields that single buffer. Callers that must bound
+   * memory need the native binding, and `nativeTransfer` on the host runtime
+   * is how they tell.
    */
   queryArrowBatches(
     sql: string,

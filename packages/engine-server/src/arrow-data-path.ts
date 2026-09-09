@@ -131,9 +131,14 @@ async function registerStoredFrame(
   checkAvailabilityBeforeRegistration = false,
 ): Promise<"registered" | "missing" | "unavailable"> {
   const storage = options.dataFrameStorage!;
-  // Stream when storage can produce one — the frame's bytes then never have to
-  // be resident whole on this side. Storage is the only variable here: every
-  // engine backing accepts both shapes.
+  // Stream when storage can produce one. Every backing accepts both shapes, so
+  // storage is the only variable here — but they do not stream alike: the
+  // native backing appends chunk by chunk, while the hosted one joins them at
+  // its worker seam, holding the chunks and the joined buffer at once. That is
+  // the better trade even so, because an oversized frame is rejected on the
+  // chunk that crosses SANDBOX_MAX_ARROW instead of after reading the whole
+  // file. (The host runtime's own registerStoredFrame makes the opposite call,
+  // for the opposite reason: it may already be holding the bytes.)
   if (typeof storage.stream === "function") {
     if (!(await storage.exists(id))) return "missing";
     const stream = storage.stream(id);
