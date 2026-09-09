@@ -255,6 +255,59 @@ describe("browser bootstrap controller", () => {
     expect(test.runtimes[0]?.close).not.toHaveBeenCalled();
   });
 
+  it("does not retain a replacement runtime that was never published", async () => {
+    // Window: a ready revalidation has swapped `runtime` to B and cleared
+    // readyAccess, but is still awaiting A.close(), so nothing is published. A
+    // superseding revalidation that reports unavailable must not mistake B for
+    // a mounted runtime — the superseded handoff closes B, and retaining would
+    // leave the client with no runtime and no view.
+    const closeA = deferred<undefined>();
+    const views: HostBootstrapView<Config, ClientRuntime>[] = [];
+    const runtimes: ClientRuntime[] = [];
+    const createRuntime = vi.fn(() => {
+      // Only A's close hangs, and the decision is made at creation time: by the
+      // time close is called the list already holds both runtimes.
+      const isFirst = runtimes.length === 0;
+      const runtime = {
+        close: vi.fn(() => (isFirst ? closeA.promise : undefined)),
+      } as unknown as ClientRuntime;
+      runtimes.push(runtime);
+      return runtime;
+    });
+    const results: HostAccessResult<Config>[] = [
+      { status: "admitted", config: config() },
+      {
+        status: "admitted",
+        config: config({ endpoint: "https://second.test" }),
+      },
+      { status: "unavailable" },
+    ];
+    const controller = startHostBootstrap({
+      lookup: async () => {
+        const result = results.shift();
+        if (!result) throw new Error("missing test result");
+        return result;
+      },
+      createRuntime,
+      publish: (view) => views.push(view),
+      sameConfig,
+      signIn: vi.fn(),
+      signOut: vi.fn(),
+    });
+    await vi.waitFor(() => expect(createRuntime).toHaveBeenCalledOnce());
+
+    const handoff = controller.revalidate();
+    await vi.waitFor(() => expect(createRuntime).toHaveBeenCalledTimes(2));
+    await Promise.resolve();
+
+    await controller.revalidate();
+    closeA.resolve(undefined);
+    await handoff;
+
+    expect(views.at(-1)?.status).toBe("unavailable");
+    await controller.teardown().catch(() => undefined);
+  });
+
   it.each(["pending-admission"] as const)(
     "closes an admitted runtime when revalidation reports %s",
     async (status) => {

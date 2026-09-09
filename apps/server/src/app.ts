@@ -89,6 +89,11 @@ function normalizePublicOrigin(value: string | undefined): string | undefined {
   }
   if (parsed.origin !== value)
     throw new Error(`publicOrigin must be an exact origin: ${value}`);
+  // A non-HTTP scheme parses and round-trips through URL.origin, but the client
+  // would be handed a Convex URL it cannot fetch — fail at startup instead of
+  // on every client's access screen.
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:")
+    throw new Error(`publicOrigin must be http or https: ${value}`);
   return parsed.origin;
 }
 

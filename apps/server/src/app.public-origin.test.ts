@@ -20,18 +20,23 @@ const otherOrigin = "https://other-qa.localhost";
 describe("public origin validation", () => {
   // These reject inside createDashframeServer before it starts anything, so
   // they need no project and no Convex backend.
-  it.each(["not a url", "https://proxy.localhost/api", "https://a.test?b=1"])(
-    "refuses %j before starting anything",
-    async (value) => {
-      await expect(
-        createDashframeServer({
-          project: { dir: "/nonexistent", workspaceId: "w", name: "n" },
-          authToken: token,
-          publicOrigin: value,
-        }),
-      ).rejects.toThrow(/publicOrigin/);
-    },
-  );
+  it.each([
+    "not a url",
+    "https://proxy.localhost/api",
+    "https://a.test?b=1",
+    // These round-trip through URL.origin, so only a scheme check rejects them.
+    "ftp://example.com",
+    "ws://example.com",
+    "wss://example.com",
+  ])("refuses %j before starting anything", async (value) => {
+    await expect(
+      createDashframeServer({
+        project: { dir: "/nonexistent", workspaceId: "w", name: "n" },
+        authToken: token,
+        publicOrigin: value,
+      }),
+    ).rejects.toThrow(/publicOrigin/);
+  });
 });
 
 // Starting a server spawns the pinned local Convex backend, which CI's `check`

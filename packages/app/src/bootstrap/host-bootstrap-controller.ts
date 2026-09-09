@@ -235,7 +235,12 @@ export function startHostBootstrap<TConfig, TRuntime extends ClientRuntime>(
         // on desktop that is the whole workbench, and it cannot be rebuilt.
         // An explicit check (initial load, or Retry) has nothing to keep, and
         // invalidate() is a deliberate signal rather than a failed reach.
-        if (retainMatchingRuntime && runtime) return;
+        // readyAccess, not just `runtime`: during a handoff `runtime` already
+        // points at a replacement that has not been published, and whose
+        // superseded attempt will close it — retaining that one would leave the
+        // client with no runtime and no view. readyAccess is set only after a
+        // successful publish and cleared on release, so it means "mounted".
+        if (retainMatchingRuntime && runtime && readyAccess) return;
         await publishUnavailable(attempt, result.error);
         return;
       }
