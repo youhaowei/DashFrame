@@ -1,6 +1,17 @@
 import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import {
+  Float64,
+  Field,
+  RecordBatch,
+  Schema,
+  Table,
+  tableFromIPC,
+  tableToIPC,
+  Utf8,
+  vectorFromArray,
+} from "apache-arrow";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { FileDataFrameStorage } from "./file-dataframe-storage";
@@ -13,6 +24,115 @@ describe("FileDataFrameStorage", () => {
     await Promise.all(
       roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
     );
+  });
+
+  it("persists standalone batches as one restart-compatible IPC stream", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "dashframe-frames-"));
+    roots.push(root);
+    const directory = path.join(root, "frames");
+    const id = "11111111-1111-4111-8111-111111111111";
+    let pulls = 0;
+    const batches = (async function* () {
+      for (let start = 0; start < 25_001; start += 2048) {
+        pulls += 1;
+        const values = Array.from(
+          { length: Math.min(2048, 25_001 - start) },
+          (_, index) => start + index,
+        );
+        yield tableToIPC(
+          new Table({ value: vectorFromArray(values, new Float64()) }),
+        );
+      }
+    })();
+
+    await new FileDataFrameStorage(directory).saveBatches(id, batches);
+    expect(pulls).toBe(13);
+
+    const restarted = new FileDataFrameStorage(directory);
+    const table = await tableFromIPC(restarted.stream(id));
+    expect(table.numRows).toBe(25_001);
+    expect(table.getChild("value")?.get(25_000)).toBe(25_000);
+  });
+
+  it("keeps the previous generation when incremental persistence fails", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "dashframe-frames-"));
+    roots.push(root);
+    const directory = path.join(root, "frames");
+    const storage = new FileDataFrameStorage(directory);
+    const id = "11111111-1111-4111-8111-111111111111";
+    const original = tableToIPC(
+      new Table({ value: vectorFromArray([7], new Float64()) }),
+    );
+    await storage.save(id, original);
+
+    const failing = (async function* () {
+      yield tableToIPC(
+        new Table({ value: vectorFromArray([1, 2], new Float64()) }),
+      );
+      throw new Error("provider failed");
+    })();
+    await expect(storage.saveBatches(id, failing)).rejects.toThrow(
+      "provider failed",
+    );
+    expect(await storage.load(id)).toEqual(original);
+    expect(
+      (await readdir(directory)).filter((entry) => entry.endsWith(".tmp")),
+    ).toEqual([]);
+  });
+
+  it("rejects schema drift without replacing the previous generation", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "dashframe-frames-"));
+    roots.push(root);
+    const storage = new FileDataFrameStorage(path.join(root, "frames"));
+    const id = "11111111-1111-4111-8111-111111111111";
+    const original = tableToIPC(
+      new Table({ value: vectorFromArray([7], new Float64()) }),
+    );
+    await storage.save(id, original);
+    const drifting = (async function* () {
+      yield tableToIPC(
+        new Table({ value: vectorFromArray([1], new Float64()) }),
+      );
+      yield tableToIPC(
+        new Table({ value: vectorFromArray(["wrong"], new Utf8()) }),
+      );
+    })();
+
+    await expect(storage.saveBatches(id, drifting)).rejects.toThrow(
+      "schema does not match",
+    );
+    expect(await storage.load(id)).toEqual(original);
+  });
+
+  it("rejects metadata drift before emitting a second IPC stream", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "dashframe-frames-"));
+    roots.push(root);
+    const storage = new FileDataFrameStorage(path.join(root, "frames"));
+    const id = "11111111-1111-4111-8111-111111111111";
+    const first = new Table({
+      value: vectorFromArray([1], new Float64()),
+    });
+    const changedSchema = new Schema(
+      [
+        new Field(
+          "value",
+          new Float64(),
+          true,
+          new Map([["field-id", "changed"]]),
+        ),
+      ],
+      new Map([["generation", "changed"]]),
+    );
+    const changedBatch = new RecordBatch(changedSchema, first.batches[0]!.data);
+    const drifting = (async function* () {
+      yield tableToIPC(first);
+      yield tableToIPC(new Table(changedSchema, [changedBatch]));
+    })();
+
+    await expect(storage.saveBatches(id, drifting)).rejects.toThrow(
+      "schema does not match",
+    );
+    expect(await storage.exists(id)).toBe(false);
   });
 
   it("survives recreation against the same project directory", async () => {

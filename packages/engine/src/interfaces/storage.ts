@@ -17,11 +17,21 @@ export interface DataFrameStorage {
   save(id: UUID, data: Uint8Array): Promise<void>;
 
   /**
+   * Incrementally persist standalone Arrow IPC batches as one ordinary Arrow
+   * IPC stream. Implementations must await durable consumption of each batch
+   * before requesting the next one.
+   */
+  saveBatches?(id: UUID, batches: AsyncIterable<Uint8Array>): Promise<void>;
+
+  /**
    * Retrieve a DataFrame's binary data.
    * @param id - Unique identifier for the data
    * @returns Arrow IPC buffer or null if not found
    */
   load(id: UUID): Promise<Uint8Array | null>;
+
+  /** Read the stored Arrow IPC file incrementally, without buffering it all. */
+  stream?(id: UUID): AsyncIterable<Uint8Array>;
 
   /**
    * Delete a DataFrame's binary data.

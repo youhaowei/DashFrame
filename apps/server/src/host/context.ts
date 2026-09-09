@@ -29,7 +29,7 @@ export interface HostContext {
   application?: ApplicationOperations;
   dataFrameStorage?: DataFrameStorage;
   dataPlaneRuntime?: ArrowQueryRunner &
-    Partial<Pick<ArrowTableRegistrar, "registerArrowTable">> & {
+    Partial<ArrowTableRegistrar> & {
       unregisterTable?: (name: string) => Promise<void>;
       /** Stable identity shared by request-scoped wrappers over one engine. */
       coalescingIdentity?: object;

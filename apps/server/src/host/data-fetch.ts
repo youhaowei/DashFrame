@@ -355,13 +355,45 @@ export function toFetchFailure(
   const sourceCode = error instanceof Error ? error.message : "";
   const code =
     RUNTIME_FAILURE_CODES.has(sourceCode) ||
+    [
+      "FETCH_BUSY",
+      "FETCH_BATCH_BYTES_EXCEEDED",
+      "FETCH_BYTE_BUDGET_EXCEEDED",
+      "FETCH_STORAGE_BUDGET_EXCEEDED",
+      "FETCH_DEADLINE_EXCEEDED",
+    ].includes(sourceCode) ||
     sourceCode === "SOURCE_SCHEMA_CHANGED" ||
+    sourceCode === "SOURCE_VALUE_UNSUPPORTED" ||
     sourceCode === "SOURCE_NOT_REFRESHABLE" ||
     sourceCode === "TARGET_NOT_READY"
       ? sourceCode
       : fallback;
   let result: InsightFetchResult;
-  if (code === "SOURCE_SCHEMA_CHANGED")
+  if (code === "FETCH_BUSY")
+    result = failed(
+      code,
+      "Another snapshot is being materialized. Retry when it finishes.",
+      true,
+    );
+  else if (code === "FETCH_DEADLINE_EXCEEDED")
+    result = failed(code, "The snapshot exceeded its time budget.", true);
+  else if (
+    [
+      "FETCH_BATCH_BYTES_EXCEEDED",
+      "FETCH_BYTE_BUDGET_EXCEEDED",
+      "FETCH_STORAGE_BUDGET_EXCEEDED",
+    ].includes(code)
+  )
+    result = failed(
+      code,
+      "The snapshot exceeded its transfer or storage budget.",
+    );
+  else if (code === "SOURCE_VALUE_UNSUPPORTED")
+    result = failed(
+      code,
+      "The source contains a value that cannot be represented in a snapshot.",
+    );
+  else if (code === "SOURCE_SCHEMA_CHANGED")
     result = failed(
       code,
       "The source schema changed and the Insight needs review.",

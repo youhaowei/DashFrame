@@ -409,3 +409,16 @@ describe("applyInsightRuntime", () => {
     });
   });
 });
+
+it("reports unsupported source values separately from schema changes", () => {
+  expect(
+    toFetchFailure(
+      new Error("SOURCE_VALUE_UNSUPPORTED"),
+      "FETCH_SOURCE_FAILED",
+    ),
+  ).toMatchObject({
+    status: "failed",
+    code: "SOURCE_VALUE_UNSUPPORTED",
+    retryable: false,
+  });
+});

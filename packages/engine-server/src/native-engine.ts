@@ -38,11 +38,18 @@ import {
   DuckDBDateValue,
   DuckDBInstance,
   DuckDBTimestampValue,
+  JsonDuckDBValueConverter,
   type DuckDBConnection as Connection,
   type DuckDBAppender,
   type DuckDBValue,
 } from "@duckdb/node-api";
-import { Type as ArrowType, tableFromIPC, type Field } from "apache-arrow";
+import {
+  RecordBatchReader,
+  Type as ArrowType,
+  tableFromIPC,
+  type Field,
+  type RecordBatch,
+} from "apache-arrow";
 
 import {
   duckdbColumnsToArrowIpc,
@@ -150,6 +157,11 @@ export class NativeDuckDBEngine implements QueryEngine {
    * `this.connection` and race just as badly.
    */
   private _registrationLock: Promise<void> = Promise.resolve();
+  private lifecycleAbort = new AbortController();
+  private activeNativeOperations = 0;
+  private operationsIdle: Promise<void> | null = null;
+  private resolveOperationsIdle: (() => void) | null = null;
+  private activeQueryIterators = new Set<AsyncGenerator<Uint8Array>>();
 
   constructor(options: NativeDuckDBEngineOptions = {}) {
     this.sandboxLimits = options.sandboxLimits;
@@ -166,6 +178,9 @@ export class NativeDuckDBEngine implements QueryEngine {
 
   async initialize(): Promise<void> {
     if (this.connection) return;
+    if (this.lifecycleAbort.signal.aborted) {
+      this.lifecycleAbort = new AbortController();
+    }
     // Guard against concurrent initialize() calls: the `await` below yields the
     // event loop, so a plain `if (this.connection)` check (which is null until
     // both awaits resolve) would let two callers both create an instance. Latch
@@ -286,6 +301,88 @@ export class NativeDuckDBEngine implements QueryEngine {
     }));
 
     return duckdbColumnsToArrowIpc(columns);
+  }
+
+  queryArrowBatches(
+    sql: string,
+    params: readonly unknown[] = [],
+    signal?: AbortSignal,
+  ): AsyncIterable<Uint8Array> {
+    const lifecycleSignal = this.lifecycleAbort.signal;
+    const iterator = this.queryArrowBatchGenerator(
+      sql,
+      params,
+      signal,
+      lifecycleSignal,
+      () => this.activeQueryIterators.add(iterator),
+      () => this.activeQueryIterators.delete(iterator),
+    );
+    return iterator;
+  }
+
+  private async *queryArrowBatchGenerator(
+    sql: string,
+    params: readonly unknown[],
+    signal: AbortSignal | undefined,
+    lifecycleSignal: AbortSignal,
+    onStarted: () => void,
+    onClosed: () => void,
+  ): AsyncGenerator<Uint8Array> {
+    let operationSignal: AbortSignal | undefined;
+    let connection: Connection | undefined;
+    let interrupt: (() => void) | undefined;
+    onStarted();
+    try {
+      throwIfAborted(lifecycleSignal);
+      await this.initialize();
+      throwIfAborted(lifecycleSignal);
+      throwIfAborted(signal);
+      operationSignal = this.beginNativeOperation(signal);
+      connection = await this.instance!.connect();
+      interrupt = () => connection!.interrupt();
+      operationSignal.addEventListener("abort", interrupt, { once: true });
+      throwIfAborted(operationSignal);
+      const result =
+        params.length > 0
+          ? await connection.stream(sql, params as DuckDBValue[])
+          : await connection.stream(sql);
+      const names = result.columnNames();
+      const types = result.columnTypes();
+      let yielded = false;
+      let rowCount = 0;
+      while (true) {
+        throwIfAborted(operationSignal);
+        const chunk = await result.fetchChunk();
+        if (!chunk || chunk.rowCount === 0) break;
+        rowCount += chunk.rowCount;
+        if (this.sandboxLimits && rowCount > this.sandboxLimits.maxResultRows) {
+          throw new Error("Sandbox result row limit exceeded");
+        }
+        yielded = true;
+        yield duckdbColumnsToArrowIpc(
+          names.map((name, index) => ({
+            name,
+            typeId: types[index]?.typeId,
+            values: chunk.convertColumnValues(index, JsonDuckDBValueConverter),
+          })),
+        );
+      }
+      if (!yielded) {
+        yield duckdbColumnsToArrowIpc(
+          names.map((name, index) => ({
+            name,
+            typeId: types[index]?.typeId,
+            values: [],
+          })),
+        );
+      }
+      throwIfAborted(operationSignal);
+    } finally {
+      if (interrupt) operationSignal?.removeEventListener("abort", interrupt);
+      connection?.disconnectSync();
+      if (operationSignal) this.endNativeOperation();
+      onClosed();
+    }
   }
 
   /**
@@ -422,6 +519,85 @@ export class NativeDuckDBEngine implements QueryEngine {
     }
   }
 
+  async registerArrowStream(
+    name: string,
+    rawIPCStream: AsyncIterable<Uint8Array>,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    await this.initialize();
+    throwIfAborted(signal);
+    const operationSignal = this.beginNativeOperation(signal);
+
+    const gate = this._registrationLock;
+    let unlock!: () => void;
+    this._registrationLock = new Promise<void>((resolve) => {
+      unlock = resolve;
+    });
+    await gate;
+
+    try {
+      const conn = await this.instance!.connect();
+      const interrupt = () => conn.interrupt();
+      operationSignal.addEventListener("abort", interrupt, { once: true });
+      try {
+        const reader = await RecordBatchReader.from(
+          abortableBytes(rawIPCStream, operationSignal),
+        );
+        await reader.open();
+        const fields = reader.schema.fields;
+        if (fields.length === 0) {
+          throw new Error(`Arrow stream for table "${name}" has no columns`);
+        }
+        const stagingName = `__staging_${name}_${nextStagingId()}`;
+        const columnDefs = fields
+          .map(
+            (field) =>
+              `${quoteIdent(field.name)} ${arrowFieldToDuckDBType(field)}`,
+          )
+          .join(", ");
+        await conn.run(
+          `CREATE OR REPLACE TEMP TABLE ${quoteIdent(stagingName)} (${columnDefs})`,
+        );
+        let appender: DuckDBAppender | undefined;
+        try {
+          appender = await conn.createAppender(stagingName);
+          for await (const batch of reader) {
+            throwIfAborted(operationSignal);
+            if (!sameArrowFields(fields, batch.schema.fields)) {
+              throw new Error(
+                "Arrow batch schema does not match the first batch",
+              );
+            }
+
+            appendArrowBatch(appender, fields, batch, operationSignal);
+            appender!.flushSync();
+          }
+          throwIfAborted(operationSignal);
+          appender.closeSync();
+          appender = undefined;
+          await conn.run(
+            `CREATE OR REPLACE TABLE ${quoteIdent(name)} AS SELECT * FROM ${quoteIdent(stagingName)}`,
+          );
+          this._registeredTables.add(name);
+        } finally {
+          if (appender) {
+            try {
+              appender.closeSync();
+            } catch {
+              // Disconnect below discards this connection and its TEMP state.
+            }
+          }
+        }
+      } finally {
+        operationSignal.removeEventListener("abort", interrupt);
+        conn.disconnectSync();
+      }
+    } finally {
+      unlock();
+      this.endNativeOperation();
+    }
+  }
+
   async registerTable(_name: string, _dataFrame: DataFrame): Promise<void> {
     throw new Error(
       "NativeDuckDBEngine.registerTable is not supported — upload Arrow IPC via registerArrowTable, or query sources directly (read_parquet)",
@@ -468,6 +644,16 @@ export class NativeDuckDBEngine implements QueryEngine {
     } catch {
       // Failed init closed its own instance — nothing live to tear down.
     }
+    this.lifecycleAbort.abort(
+      new DOMException("NativeDuckDBEngine disposed", "AbortError"),
+    );
+    const activeQueries = [...this.activeQueryIterators];
+    await Promise.allSettled(
+      activeQueries.map((iterator) => iterator.return(undefined)),
+    );
+    for (const iterator of activeQueries)
+      this.activeQueryIterators.delete(iterator);
+    await this.operationsIdle;
     this._registeredTables.clear();
     // Disconnect the connection before closing the instance — DuckDB expects
     // all connections to be released before the instance is closed.
@@ -487,10 +673,124 @@ export class NativeDuckDBEngine implements QueryEngine {
     this.instance = null;
     this.initPromise = null;
   }
+
+  private beginNativeOperation(signal?: AbortSignal): AbortSignal {
+    this.activeNativeOperations += 1;
+    if (this.activeNativeOperations === 1) {
+      this.operationsIdle = new Promise<void>((resolve) => {
+        this.resolveOperationsIdle = resolve;
+      });
+    }
+    return signal
+      ? AbortSignal.any([signal, this.lifecycleAbort.signal])
+      : this.lifecycleAbort.signal;
+  }
+
+  private endNativeOperation(): void {
+    this.activeNativeOperations -= 1;
+    if (this.activeNativeOperations === 0) {
+      this.resolveOperationsIdle?.();
+      this.resolveOperationsIdle = null;
+      this.operationsIdle = null;
+    }
+  }
 }
 
 function quoteIdent(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw signal.reason instanceof Error
+      ? signal.reason
+      : new DOMException("The operation was aborted", "AbortError");
+  }
+}
+
+async function* abortableBytes(
+  source: AsyncIterable<Uint8Array>,
+  signal: AbortSignal,
+): AsyncIterable<Uint8Array> {
+  const iterator = source[Symbol.asyncIterator]();
+  try {
+    while (true) {
+      const result = await nextOrAbort(iterator, signal);
+      if (result.done) return;
+      yield result.value;
+    }
+  } finally {
+    // An arbitrary provider may ignore cancellation while its next() is
+    // pending. Request closure, but do not let that non-cooperative promise
+    // prevent native connection cleanup or engine disposal.
+    try {
+      const closing = iterator.return?.();
+      if (closing) Promise.resolve(closing).catch(() => undefined);
+    } catch {
+      // The native operation is already cancelled; provider cleanup is best effort.
+    }
+  }
+}
+
+function nextOrAbort<T>(
+  iterator: AsyncIterator<T>,
+  signal: AbortSignal,
+): Promise<IteratorResult<T>> {
+  throwIfAborted(signal);
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      signal.removeEventListener("abort", onAbort);
+      reject(
+        signal.reason instanceof Error
+          ? signal.reason
+          : new DOMException("The operation was aborted", "AbortError"),
+      );
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    iterator.next().then(
+      (result) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(result);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
+function sameArrowFields(
+  expected: readonly Field[],
+  actual: readonly Field[],
+): boolean {
+  return (
+    expected.length === actual.length &&
+    expected.every(
+      (field, index) =>
+        field.name === actual[index]?.name &&
+        field.type.toString() === actual[index]?.type.toString(),
+    )
+  );
+}
+
+function appendArrowBatch(
+  appender: DuckDBAppender,
+  fields: readonly Field[],
+  batch: RecordBatch,
+  signal: AbortSignal,
+): void {
+  const columns = fields.map((field) => ({
+    field,
+    vector: batch.getChild(field.name),
+  }));
+  for (let row = 0; row < batch.numRows; row++) {
+    throwIfAborted(signal);
+    for (const column of columns) {
+      appendArrowValue(appender, column.field, column.vector?.get(row));
+    }
+    appender.endRow();
+  }
 }
 
 const MS_PER_DAY = 86_400_000;

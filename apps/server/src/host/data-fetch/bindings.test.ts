@@ -26,6 +26,7 @@ import {
   fetchNotionBinding,
   fetchSourceBinding,
   resolveSourceBinding,
+  streamPostgresBinding,
 } from "./bindings";
 
 const table = {
@@ -437,5 +438,119 @@ describe("Source Binding registry", () => {
     await expect(
       fetchGa4Binding(context({ table, source }), binding),
     ).rejects.toThrow("FETCH_EXECUTION_FAILED");
+  });
+});
+
+describe("PostgreSQL streaming binding", () => {
+  it("preserves the unsupported-value error from the connector", async () => {
+    postgresConnectorFor.mockResolvedValue({
+      queryBatches: async function* () {
+        yield await Promise.reject(new Error("SOURCE_VALUE_UNSUPPORTED"));
+      },
+    });
+    const binding = {
+      connectorKind: "postgres",
+      sourceBindingVersion: "v1",
+      dataSourceId: "source-1",
+      table,
+    };
+    await expect(
+      streamPostgresBinding(context({ table }), binding as never).next(),
+    ).rejects.toThrow("SOURCE_VALUE_UNSUPPORTED");
+  });
+  it("applies a custom batch byte ceiling before decoding", async () => {
+    const batch = page([1, 2]);
+    const bytes = Buffer.byteLength(batch.arrowBuffer, "base64");
+    const queryBatches = vi.fn(async function* () {
+      yield batch;
+    });
+    postgresConnectorFor.mockResolvedValue({ queryBatches });
+    const binding = {
+      connectorKind: "postgres",
+      sourceBindingVersion: "v1",
+      dataSourceId: "source-1",
+      table: { ...table, fields: batch.fields },
+    };
+    const rejected = streamPostgresBinding(
+      context({ table }),
+      binding as never,
+      undefined,
+      bytes - 1,
+    );
+    const decode = vi.spyOn(Buffer, "from");
+    await expect(rejected.next()).rejects.toThrow("FETCH_BATCH_BYTES_EXCEEDED");
+    expect(
+      decode.mock.calls.some((args) => args[0] === batch.arrowBuffer),
+    ).toBe(false);
+    decode.mockRestore();
+    const accepted = streamPostgresBinding(
+      context({ table }),
+      binding as never,
+      undefined,
+      bytes,
+    );
+    expect(tableFromIPC((await accepted.next()).value!).numRows).toBe(2);
+    await accepted.return(undefined);
+  });
+
+  it("pulls lazily and validates persisted schema on every batch", async () => {
+    const batch = page([1, 2]);
+    const query = vi.fn();
+    let pulls = 0;
+    const queryBatches = vi.fn(async function* () {
+      pulls++;
+      yield batch;
+      pulls++;
+      yield page([3], "changed");
+    });
+    postgresConnectorFor.mockResolvedValue({ query, queryBatches });
+    const binding = {
+      connectorKind: "postgres",
+      sourceBindingVersion: "v1",
+      dataSourceId: "source-1",
+      table: { ...table, fields: batch.fields },
+    };
+    const iterator = streamPostgresBinding(
+      context({ table }),
+      binding as never,
+    );
+    expect(pulls).toBe(0);
+    expect(tableFromIPC((await iterator.next()).value!).numRows).toBe(2);
+    expect(pulls).toBe(1);
+    await expect(iterator.next()).rejects.toThrow("SOURCE_SCHEMA_CHANGED");
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it("forwards cancellation and closes a producer when its consumer stops", async () => {
+    const batch = page([1]);
+    const signal = new AbortController().signal;
+    let closed = false;
+    const queryBatches = vi.fn(async function* () {
+      try {
+        yield batch;
+        yield batch;
+      } finally {
+        closed = true;
+      }
+    });
+    postgresConnectorFor.mockResolvedValue({ queryBatches });
+    const binding = {
+      connectorKind: "postgres",
+      sourceBindingVersion: "v1",
+      dataSourceId: "source-1",
+      table: { ...table, fields: batch.fields },
+    };
+    const iterator = streamPostgresBinding(
+      context({ table }),
+      binding as never,
+      signal,
+    );
+    await iterator.next();
+    await iterator.return(undefined);
+    expect(closed).toBe(true);
+    expect(queryBatches).toHaveBeenCalledWith(table.table, table.id, {
+      signal,
+      batchRows: 2048,
+    });
   });
 });

@@ -3,6 +3,7 @@ import { arrowIpcToJsonRows } from "@dashframe/engine-server/arrow-data-path";
 import type { UUID } from "@dashframe/types";
 import { z } from "zod";
 
+import { registerStoredFrame } from "./data-fetch/materializer";
 import type { HostContext } from "./context";
 
 const MAX_PAGE_SIZE = 500;
@@ -81,12 +82,7 @@ async function ensureRegistered(
   const runtime = ctx.dataPlaneRuntime;
   if (!runtime?.registerArrowTable || !ctx.dataFrameStorage)
     throw new Error("TARGET_NOT_READY");
-  const bytes = await ctx.dataFrameStorage.load(id);
-  if (!bytes) throw new Error("FRAME_UNAVAILABLE");
-  // Registration is host-owned and idempotent (the native engine atomically
-  // replaces the same table). Rehydrate before a read, so a process restart
-  // cannot turn a valid persisted frame handle into a caller-visible table id.
-  await runtime.registerArrowTable(name, bytes);
+  await registerStoredFrame(ctx.dataFrameStorage, runtime, name, id);
 }
 
 async function frameIsOwned(ctx: HostContext, id: UUID): Promise<boolean> {

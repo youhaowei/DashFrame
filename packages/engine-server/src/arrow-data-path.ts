@@ -44,6 +44,11 @@ const frameTableName = (id: string): string => `df_${id.replaceAll("-", "_")}`;
 /** What the data path needs from an engine: compiled SQL → Arrow IPC bytes. */
 export interface ArrowQueryRunner {
   queryArrow(sql: string, params?: readonly unknown[]): Promise<Uint8Array>;
+  queryArrowBatches?(
+    sql: string,
+    params?: readonly unknown[],
+    signal?: AbortSignal,
+  ): AsyncIterable<Uint8Array>;
 }
 
 /**
@@ -53,6 +58,11 @@ export interface ArrowQueryRunner {
  */
 export interface ArrowTableRegistrar {
   registerArrowTable(name: string, arrow: Uint8Array): Promise<void>;
+  registerArrowStream?(
+    name: string,
+    rawIPCStream: AsyncIterable<Uint8Array>,
+    signal?: AbortSignal,
+  ): Promise<void>;
   unregisterTable?(name: string): Promise<void>;
 }
 
@@ -119,6 +129,49 @@ async function frameIsUnavailable(
   return options.isFrameAvailable
     ? !(await options.isFrameAvailable(id))
     : false;
+}
+
+async function registerStoredFrame(
+  options: ArrowDataPathOptions,
+  id: UUID,
+  name: string,
+  checkAvailabilityBeforeRegistration = false,
+): Promise<"registered" | "missing" | "unavailable"> {
+  const storage = options.dataFrameStorage!;
+  if (
+    typeof storage.stream === "function" &&
+    typeof options.engine.registerArrowStream === "function"
+  ) {
+    if (!(await storage.exists(id))) return "missing";
+    await options.engine.registerArrowStream(name, storage.stream(id));
+    return "registered";
+  }
+  const arrow = await storage.load(id);
+  if (!arrow) return "missing";
+  if (
+    checkAvailabilityBeforeRegistration &&
+    (await frameIsUnavailable(options, id))
+  ) {
+    return "unavailable";
+  }
+  await options.engine.registerArrowTable!(name, arrow);
+  return "registered";
+}
+
+async function unavailableFrameResponse(
+  options: ArrowDataPathOptions,
+  id: UUID,
+  name: string,
+  cleanupError: string,
+): Promise<Response | null> {
+  if (!(await frameIsUnavailable(options, id))) return null;
+  if (!(await unregisterIfPresent(options.engine, name))) {
+    return Response.json({ error: cleanupError }, { status: 500 });
+  }
+  return Response.json(
+    { error: "Frame is no longer available" },
+    { status: 409 },
+  );
 }
 
 /** Native shape: `{ sql, params? }` */
@@ -392,7 +445,10 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
     if (!options.dataFrameStorage) {
       return c.json({ error: "Server DataFrame storage is unavailable" }, 503);
     }
-    if (typeof options.engine.registerArrowTable !== "function") {
+    if (
+      typeof options.engine.registerArrowTable !== "function" &&
+      typeof options.engine.registerArrowStream !== "function"
+    ) {
       return c.json(
         { error: "Engine does not support table registration" },
         501,
@@ -409,8 +465,6 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
         400,
       );
     }
-    const arrow = await options.dataFrameStorage.load(id as UUID);
-    if (!arrow) return c.json({ error: "Frame not found" }, 404);
     if (await frameIsUnavailable(options, id as UUID)) {
       // Also retries cleanup from an earlier request whose post-registration
       // ownership check lost the race but whose native DROP failed.
@@ -423,7 +477,15 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
       return c.json({ error: "Frame is no longer available" }, 404);
     }
     try {
-      await options.engine.registerArrowTable(name, arrow);
+      const registration = await registerStoredFrame(
+        options,
+        id as UUID,
+        name,
+        true,
+      );
+      if (registration !== "registered") {
+        return c.json({ error: "Frame not found" }, 404);
+      }
     } catch {
       return c.json({ error: "Failed to register frame" }, 500);
     }
@@ -454,7 +516,8 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
     }
     if (
       !options.dataFrameStorage ||
-      typeof options.engine.registerArrowTable !== "function"
+      (typeof options.engine.registerArrowTable !== "function" &&
+        typeof options.engine.registerArrowStream !== "function")
     ) {
       return c.json({ error: "Server DataFrame storage is unavailable" }, 503);
     }
@@ -479,25 +542,28 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
         400,
       );
     }
-    const arrow = await options.dataFrameStorage.load(id as UUID);
-    if (!arrow) return c.json({ error: "Frame not found" }, 404);
     try {
-      await options.engine.registerArrowTable(frameTableName(id), arrow);
+      const registration = await registerStoredFrame(
+        options,
+        id as UUID,
+        frameTableName(id),
+      );
+      if (registration !== "registered") {
+        return c.json({ error: "Frame not found" }, 404);
+      }
     } catch {
       return c.json({ error: "Failed to register frame" }, 500);
     }
     // The frame can be deleted while registration is in flight. Match the
     // sibling registration route: remove the late native table before any
     // Mosaic query can run against a no-longer-owned frame.
-    if (await frameIsUnavailable(options, id as UUID)) {
-      if (!(await unregisterIfPresent(options.engine, frameTableName(id)))) {
-        return c.json(
-          { error: "Frame was deleted and registration cleanup failed" },
-          500,
-        );
-      }
-      return c.json({ error: "Frame is no longer available" }, 409);
-    }
+    const registrationRace = await unavailableFrameResponse(
+      options,
+      id as UUID,
+      frameTableName(id),
+      "Frame was deleted and registration cleanup failed",
+    );
+    if (registrationRace) return registrationRace;
     const response = await dispatchArrowQuery(options.engine, {
       ...body,
       sql: sql.split(frameIdentifier).join(quoteIdent(frameTableName(id))),
@@ -505,15 +571,13 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
     // Query execution is another asynchronous boundary. A frame deleted while
     // DuckDB is producing the result must not have its bytes returned after its
     // project ownership has been revoked.
-    if (await frameIsUnavailable(options, id as UUID)) {
-      if (!(await unregisterIfPresent(options.engine, frameTableName(id)))) {
-        return c.json(
-          { error: "Frame was deleted and query cleanup failed" },
-          500,
-        );
-      }
-      return c.json({ error: "Frame is no longer available" }, 409);
-    }
+    const queryRace = await unavailableFrameResponse(
+      options,
+      id as UUID,
+      frameTableName(id),
+      "Frame was deleted and query cleanup failed",
+    );
+    if (queryRace) return queryRace;
     return response;
   });
 
