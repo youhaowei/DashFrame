@@ -75,3 +75,9 @@ coverage
 # Shell capture output — never committed. The script defaults to a temp dir;
 # this guards against an OUT_DIR=docs/screenshots run dirtying the tree.
 docs/screenshots/
+
+# Local agent/session scratch — release notes, one-off scripts, tool captures.
+# Untracked-but-unignored scratch is a leak risk in a public repo: a single
+# `git add -A` would publish whatever a session left behind.
+.local/
+.playwright-mcp/
