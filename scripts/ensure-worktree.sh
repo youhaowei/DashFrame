@@ -106,6 +106,63 @@ init_unpopulated_submodules() {
   done
 }
 
+# clone_node_modules <worktree_path>
+# Seed a never-provisioned worktree's node_modules by APFS-cloning the main
+# checkout's, so the install that follows has almost nothing left to do.
+#
+# `bun install` in a fresh worktree costs ~313 MiB of real disk even with a warm
+# bun cache, because the parts bun materialises rather than links — Electron's
+# unpacked `dist`, every `.bun/` package tree — are written as new blocks per
+# worktree. Cloning first costs ~43 MiB: `cp -c` is macOS copy-on-write
+# (clonefile), so the copy shares blocks with the source until something writes.
+# Measured on this repo: 1362 MiB cold / 313 MiB warm for a plain install,
+# against 43 MiB and about a second for clone-then-install.
+#
+# This is an OPTIMISATION ONLY, never a substitute for the install below, and
+# the ordering is what makes that true. The clone runs after the marker and
+# node_modules backfill gates and immediately before
+# `bun install --frozen-lockfile`, so the install always reconciles what was
+# cloned against THIS branch's lockfile:
+#   identical lockfile  -> a ~600 ms no-op that adds 0 MiB;
+#   different lockfile  -> installs only the delta;
+#   clone failed        -> a full install, exactly as before this existed.
+# Seeding before those gates would trip the "node_modules exists -> already
+# provisioned" backfill and skip the reconciliation entirely, handing out a tree
+# populated from whatever the reference happened to hold.
+#
+# Every failure is non-fatal by construction — a machine without APFS, a
+# WORKTREE_BASE on another volume, a main checkout that has never installed.
+# A partial copy is removed rather than left for bun to reason about: a
+# half-written tree is worse input to `--frozen-lockfile` than no tree at all.
+# A copy that succeeds but whose install then does not is the caller's
+# pending marker to clean up, not this function's.
+clone_node_modules() {
+  _cnm_wt="$1"
+
+  # The reference is the main checkout, found from the common gitdir rather
+  # than $repo_root: install_dependencies is also reached from the path where
+  # the caller was already inside a worktree, which never sets repo_root.
+  _cnm_common=$(cd "$_cnm_wt" && git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 0
+  _cnm_src=$(dirname "$_cnm_common")/node_modules
+  [ -d "$_cnm_src" ] || return 0
+  [ -e "$_cnm_wt/node_modules" ] && return 0
+
+  # clonefile cannot cross volumes, and a plain cross-volume copy of ~1.4 GiB
+  # would be slower than the install it is meant to replace. Skip rather than
+  # let cp fall back to a real copy.
+  _cnm_src_dev=$(stat -f '%d' "$_cnm_src" 2>/dev/null || echo "")
+  _cnm_dst_dev=$(stat -f '%d' "$_cnm_wt" 2>/dev/null || echo "")
+  if [ -z "$_cnm_src_dev" ] || [ "$_cnm_src_dev" != "$_cnm_dst_dev" ]; then
+    return 0
+  fi
+
+  echo "[ensure-worktree] cloning node_modules from '$_cnm_src' (APFS copy-on-write)..." >&2
+  if ! cp -c -R "$_cnm_src" "$_cnm_wt/node_modules" 2>/dev/null; then
+    rm -rf "$_cnm_wt/node_modules"
+    echo "[ensure-worktree] clone failed; falling back to a full install." >&2
+  fi
+}
+
 # install_dependencies <worktree_path>
 # A fresh worktree has no node_modules at all: `git worktree add` copies
 # tracked files only, and nothing else in this script installs. Every agent
@@ -117,6 +174,11 @@ init_unpopulated_submodules() {
 #
 # It installs EXACTLY ONCE per worktree, gated on a marker in the worktree's
 # private gitdir, and both halves of that are load-bearing.
+#
+# The install is preceded by clone_node_modules, which seeds the tree from the
+# main checkout at near-zero disk cost. That is purely a head start: the
+# install below still runs, and still decides what this branch's node_modules
+# must contain.
 #
 # Installing once, rather than on every call, is what keeps the script safe to
 # re-run. `bun install` is not inert on an already-provisioned tree: every
@@ -147,20 +209,41 @@ install_dependencies() {
     exit 1
   }
   _idep_marker="$_idep_gitdir/ensure-worktree-provisioned"
+  _idep_pending="$_idep_gitdir/ensure-worktree-install-pending"
 
   # Already provisioned: leave it completely alone. No install, so nothing can
   # clobber a `bun link` or a hand-edited node_modules.
   [ -f "$_idep_marker" ] && return
+
+  # A previous provisioning attempt got as far as putting files under
+  # node_modules and never reached a successful install. Discard them and
+  # start over.
+  #
+  # This has to be a marker on disk rather than cleanup on the failure path,
+  # because the failure that matters is the one no handler runs for: SIGKILL,
+  # a closed laptop, a power cut. What such an attempt leaves behind is a
+  # node_modules that is COMPLETE — it is a clone of the reference tree — but
+  # holds the reference branch's dependencies and was never reconciled against
+  # this branch's lockfile. The backfill gate below reads any node_modules as
+  # evidence someone installed here, so without this it would write the
+  # provisioned marker over exactly that tree and skip the install forever.
+  #
+  # It supersedes cleaning up on the ordinary failure path: leaving the debris
+  # for the retry to discard covers the graceful and the violent failure with
+  # one rule. It also closes the same hazard for a tree bun itself half-wrote,
+  # which previously survived into the backfill gate.
+  if [ -f "$_idep_pending" ]; then
+    rm -rf "$_idep_wt/node_modules"
+    rm -f "$_idep_pending"
+  fi
 
   # Backfill the marker for a worktree that predates it. Without this, the
   # first run after this change treats every existing worktree as unprovisioned
   # and forces a frozen install on a tree whose manifests an agent may already
   # have edited — exiting 1 and withholding the path to the only copy of their
   # work. An existing node_modules is sufficient evidence that someone
-  # installed here. The residual risk runs the safe direction: if a failed
-  # first provision did leave a partial node_modules behind, the cost is
-  # skipping an install and surfacing the ordinary missing-dependency error,
-  # which is recoverable, rather than stranding a worktree, which is not.
+  # installed here. Debris from a provisioning attempt this script itself
+  # abandoned cannot reach here — the pending marker above removed it.
   if [ -d "$_idep_wt/node_modules" ]; then
     : >"$_idep_marker"
     return
@@ -173,14 +256,24 @@ install_dependencies() {
     exit 1
   fi
 
+  # Claim the tree before writing a single byte into it, and hold the claim
+  # until the install has actually succeeded. Anything that stops this script
+  # in between — a failed install, a kill, a reboot — leaves the marker, and
+  # the retry discards the tree instead of trusting it.
+  : >"$_idep_pending"
+
+  clone_node_modules "$_idep_wt"
+
   echo "[ensure-worktree] installing dependencies (bun install --frozen-lockfile)..." >&2
   if ! (cd "$_idep_wt" && bun install --frozen-lockfile >&2); then
     echo "ERROR [ensure-worktree]: 'bun install --frozen-lockfile' failed in '$_idep_wt'." >&2
     echo "  The lockfile does not match the manifests on this branch. Fix it and re-run;" >&2
-    echo "  the worktree is left in place and re-running retries the install." >&2
+    echo "  the worktree is left in place and re-running discards the partial" >&2
+    echo "  node_modules and retries the install." >&2
     exit 1
   fi
 
+  rm -f "$_idep_pending"
   : >"$_idep_marker"
 }
 
