@@ -333,7 +333,10 @@ export class NativeDuckDBEngine implements QueryEngine {
   }
 
   /**
-   * The only way to reach a native handle. Enrols the caller in the lifecycle
+   * The only way an operation reaches a native handle. The lifecycle methods
+   * (`openInstance`, `teardown`, `replaceTaintedConnection`) own the handles
+   * outside any operation — before one can be enrolled, or after all have
+   * drained. Enrols the caller in the lifecycle
    * FIRST, so dispose() waits on `operationsIdle` for the lease instead of
    * disconnecting under it; then checks the joined signal so a lease requested
    * in the teardown window fails with the lifecycle abort before touching

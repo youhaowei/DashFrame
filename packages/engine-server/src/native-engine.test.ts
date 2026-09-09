@@ -676,14 +676,18 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
   });
 
   it("reaches native handles only from inside an enrolled lifecycle operation", async () => {
-    // Structural pin for the lifecycle contract. Every native call made
-    // through the persistent connection, the instance, or a dedicated
-    // connection opened from the instance must happen while the engine has an
-    // operation enrolled (`activeNativeOperations > 0`) — that enrolment is
-    // what makes dispose() wait instead of closing the handle underneath the
-    // call. The proxies below record any native call made unenrolled, so a
-    // method that reaches the handle without going through the lease fails
-    // here even though it would "work" on a live engine.
+    // Structural pin for the lifecycle contract on OPERATIONS: every native
+    // call an operation makes through the persistent connection, the
+    // instance, or a dedicated connection opened from the instance must
+    // happen while the engine has an operation enrolled
+    // (`activeNativeOperations > 0`) — that enrolment is what makes dispose()
+    // wait instead of closing the handle underneath the call. The lifecycle
+    // methods are out of scope by construction: openInstance() runs before
+    // the proxies are installed and teardown() after they are removed, since
+    // both legitimately touch handles with nothing enrolled. The proxies
+    // record any native call made unenrolled, so an operation that reaches a
+    // handle without going through the lease fails here even though it would
+    // "work" on a live engine.
     //
     // Every method on the class must run inside this test, so a new entry
     // point cannot skip the check silently: spies on the prototype fail the
