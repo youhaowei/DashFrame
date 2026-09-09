@@ -56,6 +56,46 @@ export function sameHostRuntime(
   );
 }
 
+/** Maps a schema-valid reply onto an access result, rejecting mismatched framing. */
+function toAccessResult(
+  reply: RuntimeReply,
+  responseStatus: number,
+  hostUrl: string,
+  token: string | undefined,
+): HostAccessResult<HostRuntimeConfig> {
+  let expectedStatus = 200;
+  if (reply.status === "signed-out") expectedStatus = 401;
+  if (reply.status === "unavailable") expectedStatus = 503;
+  if (responseStatus !== expectedStatus) return { status: "unavailable" };
+  if (reply.status === "signed-out" || reply.status === "unavailable")
+    return { status: reply.status };
+  if (reply.status === "pending" || reply.status === "revoked")
+    return { status: "pending-admission" };
+  // Redundant by the schema union, but it is what narrows `reply` to a ready
+  // variant — removing it drops `config`, `subject` and `workspaceId`.
+  if (reply.status !== "local-ready" && reply.status !== "admitted")
+    return { status: "unavailable" };
+  const convex = new URL(reply.config.convexUrl);
+  if (convex.href !== new URL("/api/convex", hostUrl).href)
+    return { status: "unavailable" };
+  const config = {
+    url: new URL(hostUrl).origin,
+    convexUrl: convex.href,
+    ...(token ? { token } : undefined),
+  };
+  return reply.mode === "local"
+    ? { status: "local-ready", config: { ...config, mode: "local" } }
+    : {
+        status: "admitted",
+        config: {
+          ...config,
+          mode: "hosted",
+          subject: reply.subject,
+          workspaceId: reply.workspaceId,
+        },
+      };
+}
+
 /**
  * Only a validated response from the configured host can select local mode.
  *
@@ -92,36 +132,12 @@ export async function lookupHostRuntime(
     }
     const parsed = replySchema.safeParse(await response.json());
     if (!parsed.success) return { status: "unavailable" };
-    const reply = parsed.data;
-    let expectedStatus = 200;
-    if (reply.status === "signed-out") expectedStatus = 401;
-    if (reply.status === "unavailable") expectedStatus = 503;
-    if (response.status !== expectedStatus) return { status: "unavailable" };
-    if (reply.status === "signed-out" || reply.status === "unavailable")
-      return { status: reply.status };
-    if (reply.status === "pending" || reply.status === "revoked")
-      return { status: "pending-admission" };
-    if (reply.status !== "local-ready" && reply.status !== "admitted")
-      return { status: "unavailable" };
-    const convex = new URL(reply.config.convexUrl);
-    const expected = new URL("/api/convex", hostUrl);
-    if (convex.href !== expected.href) return { status: "unavailable" };
-    const config = {
-      url: new URL(hostUrl).origin,
-      convexUrl: convex.href,
-      ...(options?.token ? { token: options.token } : undefined),
-    };
-    return reply.mode === "local"
-      ? { status: "local-ready", config: { ...config, mode: "local" } }
-      : {
-          status: "admitted",
-          config: {
-            ...config,
-            mode: "hosted",
-            subject: reply.subject,
-            workspaceId: reply.workspaceId,
-          },
-        };
+    return toAccessResult(
+      parsed.data,
+      response.status,
+      hostUrl,
+      options?.token,
+    );
   } catch (error) {
     if (signal.aborted) throw error;
     return { status: "unavailable" };

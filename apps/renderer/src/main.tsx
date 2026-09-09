@@ -56,9 +56,13 @@ async function bootstrap() {
     },
     unmount: () => root.unmount(),
   });
-  window.addEventListener("pagehide", () => void session.teardown(), {
-    once: true,
-  });
+  window.addEventListener(
+    "pagehide",
+    () => {
+      session.teardown().catch(() => undefined);
+    },
+    { once: true },
+  );
 }
 
 bootstrap().catch(renderBootstrapError);

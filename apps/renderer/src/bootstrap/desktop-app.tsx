@@ -1,8 +1,9 @@
-import type { AppRouterContext, ProviderWrapper } from "@dashframe/app";
 import {
   ChartEngineProvider,
   createAppRuntime,
+  type AppRouterContext,
   type HostRuntimeConfig,
+  type ProviderWrapper,
 } from "@dashframe/app";
 import { createServerFrameConnector } from "@dashframe/visualization";
 import { createRouter, RouterProvider } from "@tanstack/react-router";
