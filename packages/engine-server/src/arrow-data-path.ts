@@ -13,8 +13,10 @@
  *
  * `POST /arrow`
  *   Accepts two overlapping request shapes:
- *   - Native shape: `{ sql: string, params?: unknown[] }` — used by the
- *     compiled-query cache path. Returns Arrow IPC.
+ *   - Native shape: `{ sql: string, params?: unknown[] }` — SQL plus values
+ *     the engine binds as parameters rather than interpolating into the text.
+ *     No product client sends it; `apps/desktop/scripts/verify-native-engine.mjs`
+ *     and this package's tests drive it. Returns Arrow IPC.
  *   - Mosaic shape: `{ type: 'arrow'|'exec'|'json', sql: string }` — the
  *     protocol Mosaic's Coordinator issues to any restConnector-compatible
  *     server. Returns Arrow IPC, empty body, or JSON rows respectively.
@@ -219,8 +221,8 @@ async function dispatchArrowQuery(
     );
   }
 
-  // Determine query type: Mosaic sends explicit `type`; the native compiled
-  // path has no `type` field and always wants Arrow IPC.
+  // Determine query type: Mosaic sends explicit `type`; the native shape has
+  // no `type` field and always wants Arrow IPC.
   let queryType: "arrow" | "exec" | "json";
   if (body.type === "exec") {
     queryType = "exec";
@@ -231,7 +233,7 @@ async function dispatchArrowQuery(
   }
 
   // Validate params on the native path (no `type` field). Mosaic never sends
-  // params, so only the native compiled-query path can hit this. A scalar
+  // params, so only a native-shape request can reach this. A scalar
   // params silently coerced to [] would produce a binding-mismatch 500 later;
   // fail clearly at the request boundary instead.
   if (
@@ -578,7 +580,8 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
 
 function parseParams(body: RequestBody): readonly unknown[] {
   // Mosaic requests don't carry params (SQL is fully resolved by the time it
-  // reaches the connector). The native compiled-query path may supply them.
+  // reaches the connector). A native-shape request may supply them, and they
+  // are bound by the engine, never spliced into the SQL text.
   if ("params" in body && Array.isArray(body.params)) {
     return body.params as readonly unknown[];
   }
