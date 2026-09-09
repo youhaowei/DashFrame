@@ -21,7 +21,7 @@ import {
 } from "@wystack/secret-vault";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { makeNotionConnector, NotionConnector } from "./connector";
-import { queryDatabase } from "./client";
+import { createNotionClient, queryDatabase } from "./client";
 
 // Mock the Notion client so tests don't hit the network
 vi.mock("./client", () => ({
@@ -306,6 +306,10 @@ describe("NotionConnector — bound resolver (capability attenuation)", () => {
     // DataFrame metadata without re-reading the (server-side) Arrow buffer.
     expect(typeof result.rowCount).toBe("number");
     expect(result).not.toHaveProperty("dataFrame");
+    expect(vi.mocked(createNotionClient)).toHaveBeenCalledWith(
+      "secret_querykey",
+      { signal: controller.signal },
+    );
     expect(vi.mocked(queryDatabase)).toHaveBeenCalledWith({}, "db-id", {
       pageSize: undefined,
       signal: controller.signal,

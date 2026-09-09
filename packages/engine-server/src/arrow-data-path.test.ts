@@ -355,6 +355,48 @@ describe("Arrow data path — /tables/:name content-type enforcement", () => {
     expect(await response.json()).toEqual({ ok: true, id, name: "df_server" });
   });
 
+  it("rejects incompatible stream-only registration capability before loading storage", async () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    let loads = 0;
+    const engine: ArrowQueryRunner & {
+      registerArrowStream(
+        name: string,
+        stream: AsyncIterable<Uint8Array>,
+      ): Promise<void>;
+    } = {
+      queryArrow: async () => new Uint8Array(),
+      async registerArrowStream() {},
+    };
+    const app = createArrowDataPath({
+      engine,
+      dataFrameStorage: {
+        save: async () => {},
+        load: async () => {
+          loads += 1;
+          return new Uint8Array([1]);
+        },
+        delete: async () => {},
+        exists: async () => true,
+        list: async () => [id],
+        getUsage: async () => ({ count: 1 }),
+      },
+    });
+
+    const registration = await app.request(`/frames/${id}/tables/df_server`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    const mosaic = await app.request(`/frames/${id}/mosaic`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "arrow", sql: `SELECT * FROM "${id}"` }),
+    });
+
+    expect(registration.status).toBe(501);
+    expect(mosaic.status).toBe(503);
+    expect(loads).toBe(0);
+  });
+
   it("rejects a browser-simple frame registration before loading bytes", async () => {
     const engine = fakeRegistrar();
     const id = "11111111-1111-4111-8111-111111111111";
@@ -415,6 +457,7 @@ describe("Arrow data path — /tables/:name content-type enforcement", () => {
     const request = app.request(`/frames/${id}/tables/df_delayed`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "arrow", sql: `SELECT * FROM "${id}"` }),
     });
     await readStarted;
     available = false;
@@ -426,13 +469,77 @@ describe("Arrow data path — /tables/:name content-type enforcement", () => {
     expect(engine.registrations).toEqual([]);
   });
 
+  it.each(["tables/df_delayed", "mosaic"])(
+    "does not consume a revoked stream while %s registration waits",
+    async (route) => {
+      const id = "11111111-1111-4111-8111-111111111111";
+      let available = true;
+      let pulls = 0;
+      let releaseRegistration!: () => void;
+      let signalRegistration!: () => void;
+      const registrationStarted = new Promise<void>((resolve) => {
+        signalRegistration = resolve;
+      });
+      const registrationReleased = new Promise<void>((resolve) => {
+        releaseRegistration = resolve;
+      });
+      const engine = {
+        queryArrow: async () => new Uint8Array(),
+        async registerArrowStream(
+          _name: string,
+          stream: AsyncIterable<Uint8Array>,
+        ) {
+          signalRegistration();
+          await registrationReleased;
+          for await (const _bytes of stream) {
+            // A revoked frame must fail before its source reaches this loop body.
+          }
+        },
+      };
+      const app = createArrowDataPath({
+        engine,
+        isFrameAvailable: async () => available,
+        dataFrameStorage: {
+          save: async () => {},
+          load: async () => null,
+          delete: async () => {},
+          exists: async () => true,
+          list: async () => [id],
+          getUsage: async () => ({ count: 1 }),
+          async *stream() {
+            pulls += 1;
+            yield new Uint8Array([1, 2, 3]);
+          },
+        },
+      });
+
+      const request = app.request(`/frames/${id}/${route}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "arrow", sql: `SELECT * FROM "${id}"` }),
+      });
+      await registrationStarted;
+      available = false;
+      releaseRegistration();
+
+      const response = await request;
+      expect(response.status).toBe(404);
+      expect(pulls).toBe(0);
+    },
+  );
+
   it("removes a Mosaic frame whose ownership disappears during registration", async () => {
     const engine = fakeRegistrar();
     const id = "11111111-1111-4111-8111-111111111111";
-    let ownershipChecks = 0;
+    let available = true;
+    const register = engine.registerArrowTable.bind(engine);
+    engine.registerArrowTable = async (name, bytes) => {
+      await register(name, bytes);
+      available = false;
+    };
     const app = createArrowDataPath({
       engine,
-      isFrameAvailable: async () => ++ownershipChecks === 1,
+      isFrameAvailable: async () => available,
       dataFrameStorage: {
         save: async () => {},
         load: async () => new Uint8Array([1, 2, 3]),
@@ -457,15 +564,16 @@ describe("Arrow data path — /tables/:name content-type enforcement", () => {
   it("discards a Mosaic result when frame ownership disappears during the query", async () => {
     const engine = fakeRegistrar();
     let queryCalls = 0;
+    let available = true;
     engine.queryArrow = async () => {
       queryCalls += 1;
+      available = false;
       return new Uint8Array();
     };
     const id = "11111111-1111-4111-8111-111111111111";
-    let ownershipChecks = 0;
     const app = createArrowDataPath({
       engine,
-      isFrameAvailable: async () => ++ownershipChecks < 3,
+      isFrameAvailable: async () => available,
       dataFrameStorage: {
         save: async () => {},
         load: async () => new Uint8Array([1, 2, 3]),

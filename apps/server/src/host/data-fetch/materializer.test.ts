@@ -11,6 +11,7 @@ import {
   type SourceGeneration,
 } from "./materializer";
 import { trustedPublishedSourceGenerations } from "./published-source-error";
+import { DEFAULT_TRANSFER_LIMITS } from "./transfer";
 import {
   publishMaterialization,
   PublicationOutcomeUnknownError,
@@ -220,6 +221,21 @@ describe("immutable Insight materializer", () => {
     });
     expect(h.bytes.size).toBe(1);
     expect(h.registered.size).toBe(1);
+  });
+
+  it("does not start another connector after a source resolution failure", async () => {
+    const h = harness();
+    h.resolveSource.mockRejectedValueOnce(new Error("source unavailable"));
+    await expect(
+      createInsightMaterializer(h.dependencies).materialize({
+        ctx: {} as never,
+        target: { kind: "ephemeral" },
+        insight,
+      }),
+    ).rejects.toThrow("source unavailable");
+    expect(h.resolveSource).toHaveBeenCalledTimes(1);
+    expect(h.publish).not.toHaveBeenCalled();
+    expect(h.bytes.size).toBe(0);
   });
 
   it("fetches every source and publishes only metadata after the result is saved", async () => {
@@ -853,13 +869,14 @@ describe("immutable Insight materializer", () => {
       ...args,
       ctx: { requestSignal: sibling.signal } as HostContext,
     });
-    await vi.waitFor(() => expect(observedSignals).toHaveLength(2));
+    await vi.waitFor(() => expect(observedSignals).toHaveLength(1));
     leader.abort(new Error("leader disconnected"));
     release();
 
     const [firstResult, siblingResult] = await Promise.all([first, second]);
     expect(siblingResult.dataFrameId).toBe(firstResult.dataFrameId);
     expect(observedSignals[0]).toBeInstanceOf(AbortSignal);
+    expect(observedSignals).toHaveLength(2);
     expect(observedSignals[1]).toBe(observedSignals[0]);
     expect(observedSignals[0]).not.toBe(leader.signal);
     expect(observedSignals[0]?.aborted).toBe(false);
@@ -974,4 +991,63 @@ it("preserves the published table when refresh rejects an oversized source", asy
   // every Report that refers to it remain the active generation.
   expect(h.storage.save).not.toHaveBeenCalled();
   expect(h.publish).not.toHaveBeenCalled();
+});
+
+it.each(["storageBytes", "runBytes"] as const)(
+  "accounts for buffered native refresh sources against %s",
+  async (limit) => {
+    const h = harness({
+      transferLimits: { ...DEFAULT_TRANSFER_LIMITS, [limit]: 0 },
+    });
+    h.runtime.queryArrowBatches = async function* () {
+      yield new Uint8Array();
+    };
+    vi.mocked(h.storage.getUsage).mockResolvedValue({
+      count: 1,
+      totalBytes: 1,
+    });
+    await expect(
+      createInsightMaterializer(h.dependencies).materialize({
+        ctx: {} as HostContext,
+        target: { kind: "refresh" },
+        insight: { baseTableId: "source", selectedFields: [], metrics: [] },
+      }),
+    ).rejects.toThrow(/FETCH_.*BUDGET_EXCEEDED/);
+    expect(h.storage.save).not.toHaveBeenCalled();
+    expect(h.publish).not.toHaveBeenCalled();
+  },
+);
+
+it("retains hosted buffered refresh ceilings independently of native transfer budgets", async () => {
+  const h = harness({
+    transferLimits: {
+      ...DEFAULT_TRANSFER_LIMITS,
+      storageBytes: 0,
+      runBytes: 0,
+    },
+  });
+  const result = await createInsightMaterializer(h.dependencies).materialize({
+    ctx: {} as HostContext,
+    target: { kind: "refresh" },
+    insight: { baseTableId: "source", selectedFields: [], metrics: [] },
+  });
+  expect(result.status).toBe("ready");
+  expect(h.storage.getUsage).not.toHaveBeenCalled();
+});
+
+it("charges a buffered native source as a whole transfer rather than one streamed batch", async () => {
+  const h = harness({
+    transferLimits: { ...DEFAULT_TRANSFER_LIMITS, batchBytes: 0 },
+  });
+  h.runtime.queryArrowBatches = async function* () {
+    yield new Uint8Array();
+  };
+  vi.mocked(h.storage.getUsage).mockResolvedValue({ count: 0, totalBytes: 0 });
+  const result = await createInsightMaterializer(h.dependencies).materialize({
+    ctx: {} as HostContext,
+    target: { kind: "refresh" },
+    insight: { baseTableId: "source", selectedFields: [], metrics: [] },
+  });
+  expect(result.status).toBe("ready");
+  expect(h.storage.save).toHaveBeenCalledOnce();
 });

@@ -1,7 +1,15 @@
 import type { DataFrameStorage } from "@dashframe/engine";
 import type { UUID } from "@dashframe/types";
+import {
+  RecordBatchStreamWriter,
+  tableFromIPC,
+  type Schema,
+} from "apache-arrow";
+import type { ArrayBufferViewInput } from "apache-arrow/util/buffer";
+import { compareSchemas } from "apache-arrow/visitor/typecomparator";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import path from "node:path";
 
 const FRAME_EXTENSION = ".arrow";
@@ -88,6 +96,96 @@ class StagedDeleteCollisionError extends Error {
   }
 }
 
+/**
+ * Arrow's public writer always targets an AsyncByteQueue. Its `write()` method
+ * is synchronous, so using that queue while awaiting an unrelated file stream
+ * can accumulate every encoded batch. This small subclass replaces the sink
+ * with a one-batch collection that callers drain before pulling the next input.
+ */
+class BoundedRecordBatchWriter extends RecordBatchStreamWriter {
+  private chunks: Uint8Array[] = [];
+
+  protected override _write(chunk: ArrayBufferViewInput): this {
+    if (!this._started || chunk == null) return this;
+    const bytes = toUint8ArrayView(chunk);
+    if (bytes.byteLength > 0) {
+      this.chunks.push(bytes);
+      this._position += bytes.byteLength;
+    }
+    return this;
+  }
+
+  takeChunks(): Uint8Array[] {
+    const chunks = this.chunks;
+    this.chunks = [];
+    // RecordBatchWriter tracks file-footer offsets even for stream writers,
+    // although stream IPC has no random-access footer. Discard those unused
+    // entries after every durable batch so metadata remains bounded too.
+    this._recordBatchBlocks = [];
+    this._dictionaryBlocks = [];
+    return chunks;
+  }
+}
+
+function toUint8ArrayView(chunk: ArrayBufferViewInput): Uint8Array {
+  if (ArrayBuffer.isView(chunk)) {
+    return new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+  }
+  if (chunk instanceof ArrayBuffer || chunk instanceof SharedArrayBuffer) {
+    return new Uint8Array(chunk);
+  }
+  return Uint8Array.from(chunk as Iterable<number>);
+}
+
+async function writePendingChunks(
+  handle: FileHandle,
+  writer: BoundedRecordBatchWriter,
+): Promise<void> {
+  for (const chunk of writer.takeChunks()) await handle.writeFile(chunk);
+}
+
+function sameSchema(expected: Schema, actual: Schema): boolean {
+  return (
+    compareSchemas(expected, actual) &&
+    sameMetadata(expected.metadata, actual.metadata) &&
+    expected.fields.every((field, index) =>
+      sameMetadata(field.metadata, actual.fields[index]!.metadata),
+    )
+  );
+}
+
+function sameMetadata(
+  expected: ReadonlyMap<string, string>,
+  actual: ReadonlyMap<string, string>,
+): boolean {
+  return (
+    expected.size === actual.size &&
+    [...expected].every(([key, value]) => actual.get(key) === value)
+  );
+}
+
+async function appendStandaloneIpc(
+  handle: FileHandle,
+  writer: BoundedRecordBatchWriter,
+  ipcBatch: Uint8Array,
+  expectedSchema?: Schema,
+): Promise<Schema> {
+  const table = tableFromIPC(ipcBatch);
+  const schema = expectedSchema ?? table.schema;
+  if (!sameSchema(schema, table.schema)) {
+    throw new Error("Arrow batch schema does not match the first batch");
+  }
+  const payloads = table.batches.length > 0 ? table.batches : [table];
+  for (const payload of payloads) {
+    if (!sameSchema(schema, payload.schema)) {
+      throw new Error("Arrow batch schema does not match the first batch");
+    }
+    writer.write(payload);
+    await writePendingChunks(handle, writer);
+  }
+  return schema;
+}
+
 /** Durable Arrow IPC storage rooted inside one DashFrame project. */
 export class FileDataFrameStorage implements DataFrameStorage {
   constructor(
@@ -126,6 +224,45 @@ export class FileDataFrameStorage implements DataFrameStorage {
     }
   }
 
+  async saveBatches(
+    id: UUID,
+    batches: AsyncIterable<Uint8Array>,
+  ): Promise<void> {
+    const target = this.framePath(id);
+    await ensureDirectory(this.directory, this.sync);
+    const temporary = path.join(
+      this.directory,
+      `.${id}.${process.pid}.${randomUUID()}.tmp`,
+    );
+    const writer = new BoundedRecordBatchWriter({ autoDestroy: false });
+    let expectedSchema: Schema | undefined;
+    try {
+      const handle = await fs.open(temporary, "wx", 0o600);
+      try {
+        for await (const ipcBatch of batches) {
+          expectedSchema = await appendStandaloneIpc(
+            handle,
+            writer,
+            ipcBatch,
+            expectedSchema,
+          );
+        }
+        if (!expectedSchema) {
+          throw new Error("Cannot save an empty Arrow batch stream");
+        }
+        writer.finish();
+        await writePendingChunks(handle, writer);
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+      await fs.rename(temporary, target);
+      await this.sync(this.directory);
+    } finally {
+      await fs.rm(temporary, { force: true }).catch(() => undefined);
+    }
+  }
+
   async load(id: UUID): Promise<Uint8Array | null> {
     try {
       return new Uint8Array(await fs.readFile(this.framePath(id)));
@@ -138,6 +275,20 @@ export class FileDataFrameStorage implements DataFrameStorage {
         return null;
       }
       throw error;
+    }
+  }
+
+  async *stream(id: UUID): AsyncIterable<Uint8Array> {
+    const handle = await fs.open(this.framePath(id), "r");
+    try {
+      const buffer = new Uint8Array(64 * 1024);
+      while (true) {
+        const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
+        if (bytesRead === 0) return;
+        yield buffer.slice(0, bytesRead);
+      }
+    } finally {
+      await handle.close();
     }
   }
 
@@ -351,11 +502,14 @@ export class FileDataFrameStorage implements DataFrameStorage {
   async getUsage(): Promise<{ count: number; totalBytes: number }> {
     const ids = await this.list();
     const sizes = await Promise.all(
-      ids.map(async (id) => (await fs.stat(this.framePath(id))).size),
+      ids.map(async (id) => (await statIfExists(this.framePath(id)))?.size),
+    );
+    const existingSizes = sizes.filter(
+      (size): size is number => size !== undefined,
     );
     return {
-      count: ids.length,
-      totalBytes: sizes.reduce((total, size) => total + size, 0),
+      count: existingSizes.length,
+      totalBytes: existingSizes.reduce((total, size) => total + size, 0),
     };
   }
 }

@@ -15,7 +15,11 @@ import {
   type LiveFetchExecutor,
 } from "../data-fetch";
 import { decodeInsight, type InsightRow } from "../insights";
-import { fetchSourceBinding, resolveSourceBinding } from "./bindings";
+import {
+  fetchSourceBinding,
+  resolveSourceBinding,
+  streamPostgresBinding,
+} from "./bindings";
 import type {
   EffectiveInsightDefinition,
   InsightMaterializerDependencies,
@@ -51,6 +55,8 @@ export function createProductionFetchExecutor(): LiveFetchExecutor {
     sharedOperationTimeoutMs: MATERIALIZATION_TIMEOUT_MS,
     uuid: () => randomUUID(),
     now: () => Date.now(),
+    transferCompleted: (summary) =>
+      console.info("[dashframe] snapshot transfer", summary),
     tableName: (id) => `df_${id.replaceAll("-", "_")}`,
   });
   return async ({ context, insight, target }) =>
@@ -274,8 +280,34 @@ export function productionMaterializerDependencies(): Pick<
 async function resolveProductionSource(
   ctx: HostContext,
   tableId: string,
+  signal?: AbortSignal,
+  batchBytes?: number,
 ): Promise<SourceGeneration> {
   const binding = await resolveSourceBinding(ctx, tableId);
+  if (
+    binding.connectorKind === "postgres" &&
+    ctx.workspaceOwnerId === undefined
+  ) {
+    // The hosted sandbox still uses its bounded compatibility adapter.
+    // Native streaming capabilities are mandatory here: do not silently buffer a large source.
+    if (
+      !ctx.dataFrameStorage?.saveBatches ||
+      !ctx.dataFrameStorage.stream ||
+      !ctx.dataPlaneRuntime?.registerArrowStream ||
+      !ctx.dataPlaneRuntime.queryArrowBatches
+    )
+      throw new Error("TARGET_NOT_READY");
+    return {
+      table: binding.table as never,
+      fields: binding.table.fields as SourceGeneration["fields"],
+      rowCount: 0,
+      batches: streamPostgresBinding(ctx, binding, signal, batchBytes),
+      provenance: {
+        connectorKind: "postgres",
+        bindingVersion: binding.sourceBindingVersion,
+      },
+    };
+  }
   const result = await fetchSourceBinding(ctx, binding);
   return {
     table: binding.table as never,

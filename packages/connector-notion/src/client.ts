@@ -1,4 +1,5 @@
 import { Client } from "@notionhq/client";
+import type { ClientOptions } from "@notionhq/client/build/src/Client";
 import type {
   GetDatabaseResponse,
   QueryDatabaseResponse,
@@ -16,14 +17,51 @@ export type NotionProperty = {
   type: string;
 };
 
+type SupportedFetch = NonNullable<ClientOptions["fetch"]>;
+type FetchInitWithSignal = NonNullable<Parameters<SupportedFetch>[1]> & {
+  signal?: AbortSignal;
+};
+export type NotionTransportFetch = (
+  url: Parameters<SupportedFetch>[0],
+  init?: FetchInitWithSignal,
+) => ReturnType<SupportedFetch>;
+
+function combinedSignal(
+  clientSignal: AbortSignal | undefined,
+  requestSignal: AbortSignal | undefined,
+): AbortSignal | undefined {
+  if (!clientSignal) return requestSignal;
+  if (!requestSignal || requestSignal === clientSignal) return clientSignal;
+  return AbortSignal.any([clientSignal, requestSignal]);
+}
+
 /**
  * Create a Notion API client for the given plaintext API key.
  * Callers are responsible for caching the instance when reuse is desired.
  * The key must not be stored as a Map key or in any scope that outlives
  * the enclosing `withSecret` callback window.
  */
-export function createNotionClient(apiKey: string): Client {
-  return new Client({ auth: apiKey });
+export function createNotionClient(
+  apiKey: string,
+  options: {
+    signal?: AbortSignal;
+    fetch?: NotionTransportFetch;
+  } = {},
+): Client {
+  if (!options.signal && !options.fetch) return new Client({ auth: apiKey });
+
+  const transport: NotionTransportFetch =
+    options.fetch ??
+    ((url, init) => globalThis.fetch(url, init as RequestInit));
+  const fetchWithSignal: SupportedFetch = (url, init) => {
+    options.signal?.throwIfAborted();
+    const requestInit = init as FetchInitWithSignal | undefined;
+    return transport(url, {
+      ...requestInit,
+      signal: combinedSignal(options.signal, requestInit?.signal),
+    });
+  };
+  return new Client({ auth: apiKey, fetch: fetchWithSignal });
 }
 
 /**

@@ -80,6 +80,126 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     expect([...table.getChild("v")!.toArray()].map(Number)).toEqual([42]);
   });
 
+  it("streams every native chunk, including the tail, as standalone IPC", async () => {
+    engine = new NativeDuckDBEngine();
+    const batches: Uint8Array[] = [];
+    for await (const batch of engine.queryArrowBatches(
+      "SELECT range::DOUBLE AS value FROM range(25001)",
+    )) {
+      batches.push(batch);
+    }
+
+    const tables = batches.map((batch) => tableFromIPC(batch));
+    expect(tables.length).toBeGreaterThan(1);
+    expect(tables.reduce((rows, table) => rows + table.numRows, 0)).toBe(
+      25_001,
+    );
+    expect(tables.at(-1)?.getChild("value")?.get(-1)).toBeUndefined();
+    const tail = tables.at(-1)!;
+    expect(tail.getChild("value")?.get(tail.numRows - 1)).toBe(25_000);
+  });
+
+  it("yields a typed standalone IPC batch for a zero-row query", async () => {
+    engine = new NativeDuckDBEngine();
+    const batches: Uint8Array[] = [];
+    for await (const batch of engine.queryArrowBatches(
+      "SELECT 1::DOUBLE AS value WHERE false",
+    )) {
+      batches.push(batch);
+    }
+    expect(batches).toHaveLength(1);
+    const table = tableFromIPC(batches[0]!);
+    expect(table.numRows).toBe(0);
+    expect(table.schema.fields.map((field) => field.name)).toEqual(["value"]);
+  });
+
+  it("enforces the sandbox row limit across streamed result chunks", async () => {
+    engine = new NativeDuckDBEngine({
+      sandboxLimits: {
+        memoryBytes: 64 * 1024 * 1024,
+        threads: 1,
+        maxResultRows: 2_048,
+      },
+    });
+    let yieldedRows = 0;
+    const consume = async () => {
+      for await (const batch of engine!.queryArrowBatches(
+        "SELECT range::DOUBLE AS value FROM range(5000)",
+      )) {
+        yieldedRows += tableFromIPC(batch).numRows;
+      }
+    };
+
+    await expect(consume()).rejects.toThrow(
+      "Sandbox result row limit exceeded",
+    );
+    expect(yieldedRows).toBeLessThanOrEqual(2_048);
+  });
+
+  it("stops a streaming native query when its signal is cancelled", async () => {
+    engine = new NativeDuckDBEngine();
+    const controller = new AbortController();
+    const iterator = engine
+      .queryArrowBatches(
+        "SELECT range::DOUBLE AS value FROM range(100000)",
+        [],
+        controller.signal,
+      )
+      [Symbol.asyncIterator]();
+    expect((await iterator.next()).done).toBe(false);
+    controller.abort(new Error("cancelled"));
+    await expect(iterator.next()).rejects.toThrow("cancelled");
+  });
+
+  it("registers a chunked raw IPC stream atomically and preserves its tail", async () => {
+    engine = new NativeDuckDBEngine();
+    const ipc = tableToIPC(
+      new Table({
+        value: vectorFromArray(
+          Array.from({ length: 25_001 }, (_, index) => index),
+          new Float64(),
+        ),
+      }),
+    );
+    const chunks = (async function* () {
+      for (let offset = 0; offset < ipc.byteLength; offset += 4093) {
+        yield ipc.subarray(offset, offset + 4093);
+      }
+    })();
+    await engine.registerArrowStream("df_streamed", chunks);
+
+    const result = await engine.query(
+      "SELECT count(*) AS n, max(value) AS tail, sum(value) AS total FROM df_streamed",
+    );
+    expect(result.rows[0]).toMatchObject({
+      n: "25001",
+      tail: 25_000,
+      total: 312_512_500,
+    });
+  });
+
+  it("keeps the previous table when a raw IPC stream fails", async () => {
+    engine = new NativeDuckDBEngine();
+    const original = tableToIPC(
+      new Table({ value: vectorFromArray([7], new Float64()) }),
+    );
+    await engine.registerArrowTable("df_atomic_stream", original);
+    const replacement = tableToIPC(
+      new Table({ value: vectorFromArray([1, 2, 3], new Float64()) }),
+    );
+    const failing = (async function* () {
+      yield replacement.subarray(0, Math.floor(replacement.byteLength / 2));
+      throw new Error("source failed");
+    })();
+
+    await expect(
+      engine.registerArrowStream("df_atomic_stream", failing),
+    ).rejects.toThrow("source failed");
+    expect(
+      (await engine.query("SELECT value FROM df_atomic_stream")).rows,
+    ).toEqual([{ value: 7 }]);
+  });
+
   it("is not usable after dispose()", async () => {
     engine = new NativeDuckDBEngine();
     await engine.initialize();
@@ -127,6 +247,93 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     await expect(engine.query("SELECT 1")).rejects.toThrow(
       "NativeDuckDBEngine not initialized",
     );
+  });
+
+  it("dispose() closes a streaming query paused at a yielded batch", async () => {
+    engine = new NativeDuckDBEngine();
+    const iterator = engine
+      .queryArrowBatches("SELECT range FROM range(5000)")
+      [Symbol.asyncIterator]();
+    expect((await iterator.next()).done).toBe(false);
+
+    const disposed = engine.dispose().then(() => "disposed" as const);
+    const outcome = await Promise.race([
+      disposed,
+      new Promise<"blocked">((resolve) => {
+        setTimeout(() => resolve("blocked"), 500);
+      }),
+    ]);
+
+    expect(outcome).toBe("disposed");
+    expect(engine.isReady()).toBe(false);
+    await expect(iterator.next()).resolves.toMatchObject({ done: true });
+  });
+
+  it("dispose() cancels registration when the IPC producer never settles", async () => {
+    engine = new NativeDuckDBEngine();
+    let startNext!: () => void;
+    const nextStarted = new Promise<void>((resolve) => {
+      startNext = resolve;
+    });
+    let closeRequested = false;
+    const stalled: AsyncIterable<Uint8Array> = {
+      [Symbol.asyncIterator]() {
+        return {
+          next() {
+            startNext();
+            return new Promise<IteratorResult<Uint8Array>>(() => {});
+          },
+          return() {
+            closeRequested = true;
+            return Promise.resolve({ done: true, value: undefined });
+          },
+        };
+      },
+    };
+    const registration = engine.registerArrowStream("df_stalled", stalled);
+    const registrationOutcome = registration.catch((error: unknown) => error);
+    await nextStarted;
+
+    const disposed = engine.dispose().then(() => "disposed" as const);
+    const outcome = await Promise.race([
+      disposed,
+      new Promise<"blocked">((resolve) => {
+        setTimeout(() => resolve("blocked"), 500);
+      }),
+    ]);
+
+    expect(outcome).toBe("disposed");
+    expect(await registrationOutcome).toMatchObject({ name: "AbortError" });
+    expect(closeRequested).toBe(true);
+    expect(engine.hasTable("df_stalled")).toBe(false);
+  });
+
+  it("registration awaiting initialize rejects the lifecycle abort after disposal", async () => {
+    engine = new NativeDuckDBEngine();
+    await engine.initialize();
+    let resumeInitialize!: () => void;
+    let signalInitialize!: () => void;
+    const initializeStarted = new Promise<void>((resolve) => {
+      signalInitialize = resolve;
+    });
+    const initializeResumed = new Promise<void>((resolve) => {
+      resumeInitialize = resolve;
+    });
+    vi.spyOn(engine, "initialize").mockImplementationOnce(async () => {
+      signalInitialize();
+      await initializeResumed;
+    });
+    const source = (async function* () {
+      yield new Uint8Array();
+    })();
+    const registration = engine.registerArrowStream("df_disposed", source);
+    await initializeStarted;
+
+    await engine.dispose();
+    resumeInitialize();
+
+    await expect(registration).rejects.toMatchObject({ name: "AbortError" });
+    expect(engine.hasTable("df_disposed")).toBe(false);
   });
 
   it("is idempotent under concurrent initialize() — one connection, no leaked instance", async () => {

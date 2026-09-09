@@ -132,7 +132,9 @@ export class NotionConnector extends RemoteApiConnector {
     options?: QueryOptions,
   ): Promise<ConnectorQueryResult> {
     return this.auth(async (apiKey) => {
-      const client = createNotionClient(apiKey);
+      const client = createNotionClient(apiKey, {
+        signal: options?.signal,
+      });
       options?.signal?.throwIfAborted();
 
       // Step 1: Get database schema
