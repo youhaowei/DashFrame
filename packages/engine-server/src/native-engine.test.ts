@@ -216,6 +216,38 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     );
   });
 
+  it("registerArrowTable() after dispose() fails closed instead of resurrecting", async () => {
+    engine = new NativeDuckDBEngine();
+    await engine.initialize();
+    await engine.dispose();
+
+    // Re-arming the lifecycle controller inside initialize() would build a
+    // fresh instance and connection here that nothing will ever close — the
+    // owner already disposed. Disposal is terminal for every entry point.
+    await expect(
+      engine.registerArrowTable(
+        "df_after_dispose",
+        tableToIPC(
+          new Table({ id: vectorFromArray([1, 2], new Int32()) }),
+          "stream",
+        ),
+      ),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(engine.isReady()).toBe(false);
+    expect(engine.hasTable("df_after_dispose")).toBe(false);
+  });
+
+  it("unregisterTable() after dispose() fails closed instead of resurrecting", async () => {
+    engine = new NativeDuckDBEngine();
+    await engine.initialize();
+    await engine.dispose();
+
+    await expect(engine.unregisterTable("df_gone")).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    expect(engine.isReady()).toBe(false);
+  });
+
   it("dispose() is idempotent — calling it twice does not throw", async () => {
     engine = new NativeDuckDBEngine();
     await engine.initialize();

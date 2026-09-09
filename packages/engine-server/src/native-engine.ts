@@ -178,9 +178,14 @@ export class NativeDuckDBEngine implements QueryEngine {
 
   async initialize(): Promise<void> {
     if (this.connection) return;
-    if (this.lifecycleAbort.signal.aborted) {
-      this.lifecycleAbort = new AbortController();
-    }
+    // Disposal is terminal. Re-arming the lifecycle controller here would let
+    // any initialize() caller resurrect a disposed engine: dispose() nulls the
+    // connection, so this method would build a fresh DuckDBInstance and
+    // connection that the owner — which already disposed — will never close,
+    // leaking a native handle, its background threads, and any file lock on a
+    // non-:memory: path. Failing closed at this single chokepoint covers every
+    // entry point rather than each one re-deriving the check.
+    throwIfAborted(this.lifecycleAbort.signal);
     // Guard against concurrent initialize() calls: the `await` below yields the
     // event loop, so a plain `if (this.connection)` check (which is null until
     // both awaits resolve) would let two callers both create an instance. Latch
