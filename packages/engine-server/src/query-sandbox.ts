@@ -509,6 +509,11 @@ export class WorkspaceQueryEngine implements QueryEngine {
     if (this.closed) return;
     this.closed = error;
     this.ready = false;
+    // Every way this engine ends comes through here — dispose(), idle expiry,
+    // an operation timeout, a protocol violation, the worker exiting. The
+    // worker's catalog dies with it, so the projection of that catalog must
+    // not outlive it and claim tables nothing holds.
+    this.registered.clear();
     clearTimeout(this.idleTimer);
     clearTimeout(this.startupTimer);
     this.startupReject?.(error);
@@ -531,8 +536,6 @@ export class WorkspaceQueryEngine implements QueryEngine {
 
   async dispose(): Promise<void> {
     this.fail(new Error("SANDBOX_CLOSED"));
-    // The worker and its catalog are gone; the projection of it must go too.
-    this.registered.clear();
     await this.closedPromise;
   }
 }

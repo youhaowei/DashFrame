@@ -1037,6 +1037,33 @@ it("retains hosted buffered refresh ceilings independently of native transfer bu
   expect(h.storage.getUsage).not.toHaveBeenCalled();
 });
 
+it("gives the buffered result query the same deadline as the batched one", async () => {
+  // The batched branch passes transfer.signal; the buffered branch runs the
+  // whole insight query and must not outlive the materialization that asked
+  // for it either.
+  const h = harness();
+  const seen: (AbortSignal | undefined)[] = [];
+  Object.assign(h.runtime, {
+    queryArrow: vi.fn(
+      async (
+        _sql: string,
+        _params?: readonly unknown[],
+        signal?: AbortSignal,
+      ) => {
+        seen.push(signal);
+        return new Uint8Array([9]);
+      },
+    ),
+  });
+  await createInsightMaterializer(h.dependencies).materialize({
+    ctx: {} as HostContext,
+    target: { kind: "ephemeral" },
+    insight,
+  });
+  expect(seen).not.toHaveLength(0);
+  expect(seen.every((signal) => signal instanceof AbortSignal)).toBe(true);
+});
+
 it("carries a caller abort into a buffered registration, not only into the load", async () => {
   // The load is the slow half of registerStoredFrame's buffered branch. A
   // caller that gave up while it ran must not end up with a table registered

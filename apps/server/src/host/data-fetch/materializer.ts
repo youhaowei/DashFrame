@@ -753,7 +753,10 @@ async function saveResult(args: {
     await storage.saveBatches(resultId, inspectedBatches());
     if (!schema) throw new Error("SOURCE_SCHEMA_CHANGED");
   } else {
-    const bytes = await runtime.queryArrow(sql, []);
+    // Same deadline as the batched branch above. The hosted facade drops the
+    // signal on purpose (a request cannot cancel shared work); on the native
+    // binding this is what stops a query the materialization has given up on.
+    const bytes = await runtime.queryArrow(sql, [], transfer.signal);
     const inspected = dependencies.inspect(bytes, { insight, tables });
     schema = inspected.schema;
     rowCount = inspected.rowCount;

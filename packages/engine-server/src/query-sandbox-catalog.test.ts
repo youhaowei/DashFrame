@@ -66,6 +66,20 @@ describe("WorkspaceQueryEngine — registered-table projection", () => {
     expect(engine.hasTable("orders")).toBe(false);
   });
 
+  it("forgets them however the worker died, not only on dispose()", async () => {
+    // dispose() is one of several ways this engine ends: idle expiry, an
+    // operation timeout, a protocol violation and the worker exiting all retire
+    // it through the same internal failure path. The worker's catalog dies with
+    // it every time, so the projection must not survive any of them.
+    const engine = acknowledging();
+    await engine.registerArrowTable("orders", new Uint8Array([1]));
+    (engine as unknown as { fail: (error: Error) => void }).fail(
+      new Error("SANDBOX_IDLE"),
+    );
+    expect(engine.getTableNames()).toEqual([]);
+    expect(engine.hasTable("orders")).toBe(false);
+  });
+
   it("joins a chunked source and enforces the size ceiling on the running total", async () => {
     const engine = acknowledging();
     const sent: Uint8Array[] = [];
