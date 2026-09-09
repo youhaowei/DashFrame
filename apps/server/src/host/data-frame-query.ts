@@ -125,7 +125,11 @@ async function revokedDuringRegistration(
   try {
     await ctx.dataPlaneRuntime?.unregisterTable?.(name);
   } catch {
-    // Leave the stale table; the next request retries this same cleanup.
+    // Leave the stale table. There is no request-driven retry: this path runs
+    // only for an already-revoked frame, and a later request for it returns
+    // FRAME_NOT_FOUND at the metadata check above without reaching here.
+    // HostResourceCleanup owns the durable retry, retaining its record until
+    // the drop succeeds.
   }
   return {
     status: "failed" as const,
