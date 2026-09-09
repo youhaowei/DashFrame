@@ -170,10 +170,23 @@ interface AcquireOptions {
    *
    * Concurrency between *different* tables is safe by construction now that
    * every operation owns its connection: an appender lives and dies on a
-   * connection nobody else can see. What is still not safe is two operations
-   * racing to `CREATE OR REPLACE` the *same* live table — a last-writer-wins
-   * swap can interleave with another swap of the same name. The lock is
-   * per-name for exactly that, and nothing wider.
+   * connection nobody else can see, and eight concurrent `CREATE OR REPLACE`
+   * of eight distinct names across eight connections raise nothing.
+   *
+   * The SAME name is a different story, and not the one the old global lock
+   * was written for. DuckDB does not silently interleave two swaps: it aborts
+   * one side with `TransactionContext Error: Catalog write-write conflict`
+   * (20/20 rounds when probed cross-connection against
+   * @duckdb/node-api 1.5.3-r.3). So the lock is not preventing corruption —
+   * it is preventing a legitimate registration from failing hard because
+   * another upload of the same frame happened to overlap it. That mechanism is
+   * platform-independent, unlike the Linux-only appender taint the global lock
+   * once guarded.
+   *
+   * Scope boundary: only registration-shaped operations take a lock. Arbitrary
+   * DDL arriving as client SQL through `query`/`queryArrow` does not, so it
+   * could in principle conflict with a concurrent registration of the same
+   * name. Nothing in the product issues DDL through those entry points.
    */
   lockTable?: string;
 }
@@ -258,8 +271,8 @@ export class NativeDuckDBEngine implements QueryEngine {
         // Disposal is terminal. Re-opening here would build a fresh
         // DuckDBInstance the owner will never close — a leaked native handle,
         // its background threads, and any file lock on a non-:memory: path.
-        // Checking the phase (not the connection) is what makes this hold in
-        // the teardown window too, where the connection is still live.
+        // Checking the phase (not the instance handle) is what makes this
+        // hold in the teardown window too, where the instance is still live.
         throw disposedError();
       case "initializing":
         break;
@@ -837,8 +850,8 @@ export class NativeDuckDBEngine implements QueryEngine {
     this.lifecycleAbort.abort(disposedError());
     // An initialize() may still be in flight (e.g. Electron before-quit fires
     // during DuckDB startup). Tearing down immediately would null out nothing,
-    // and the init closure would then assign a live connection/instance AFTER
-    // this teardown — an engine alive past disposal, its native handle and any
+    // and the init closure would then assign a live instance AFTER this
+    // teardown — an engine alive past disposal, its native handle and any
     // file lock never released. Wait for the latch to settle first; a failed
     // init has already cleaned up after itself, so its error is swallowed.
     try {

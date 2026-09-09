@@ -274,7 +274,8 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
 
     const disposing = engine.dispose();
 
-    // Must reject promptly rather than queue behind the registration lock.
+    // Must reject promptly rather than queue behind the in-flight
+    // registration's lock on the same table name.
     const arrow = tableToIPC(
       new Table({ id: vectorFromArray([1], new Int32()) }),
       "stream",
@@ -505,14 +506,14 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     expect(engine.hasTable("df_disposed")).toBe(false);
   });
 
-  it("is idempotent under concurrent initialize() — one connection, no leaked instance", async () => {
+  it("is idempotent under concurrent initialize() — one instance, none leaked", async () => {
     engine = new NativeDuckDBEngine();
     // Two callers race before the first await resolves; both must converge on
-    // the same connection rather than each creating a DuckDBInstance.
+    // one DuckDBInstance rather than each creating their own.
     await Promise.all([engine.initialize(), engine.initialize()]);
     expect(engine.isReady()).toBe(true);
 
-    // A query still works on the single surviving connection.
+    // A query still works against the single surviving instance.
     const result = await engine.query("SELECT 1 AS one");
     expect(result.rows.map((r) => Number(r.one))).toEqual([1]);
   });
@@ -1190,10 +1191,14 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
       // one upload's complete rows (last-writer-wins), never a mix or a thrown
       // error.
       //
-      // The NAPI pending-result taint (the corruption mechanism) is Linux-only;
-      // this test passes on macOS regardless of the lock shape. It documents the
-      // contract and fires on Linux CI as the discriminating run. A higher-
-      // concurrency stress variant below maximises interleaving on both platforms.
+      // What punishes a lost same-name lock is DuckDB's catalog write-write
+      // conflict: two connections both running `CREATE OR REPLACE TABLE live`
+      // abort one side, on every platform (20/20 rounds when probed). So this
+      // test discriminates the LOSS of same-name serialization everywhere,
+      // locally included — it is not a macOS smoke screen. (It does not
+      // discriminate the lock's SHAPE: the old global lock also passes.)
+      // Historical: before one connection per operation, the mechanism was the
+      // Linux-only NAPI pending-result taint on the shared connection.
       engine = new NativeDuckDBEngine();
 
       const bufferA = tableToIPC(
@@ -1237,9 +1242,9 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
       // Contract: each named table ends with one upload's complete row count;
       // no thrown errors; no leaked staging tables.
       //
-      // Like the 2-way variant above, the NAPI taint is Linux-only; the
-      // structural argument (a lock per table name, plus a connection per
-      // operation) is the durable proof.
+      // Like the 2-way variant above, dropping same-name serialization surfaces
+      // as a catalog write-write conflict on every platform, so this run is
+      // discriminating rather than a smoke screen.
       engine = new NativeDuckDBEngine();
 
       const uploads: Array<{ name: string; expectedCounts: number[] }> = [
