@@ -1163,6 +1163,48 @@ describe("queryBatches PostgreSQL cursor", () => {
     await expect(pending).rejects.toThrow("connection terminated");
     expect(client.end).toHaveBeenCalled();
   });
+
+  it("ends the client to interrupt pending connection establishment", async () => {
+    let rejectConnect: ((error: Error) => void) | undefined;
+    let connectStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      connectStarted = resolve;
+    });
+    const client: PgClientLike & {
+      abortConnection: ReturnType<typeof vi.fn>;
+      connect: ReturnType<typeof vi.fn>;
+      end: ReturnType<typeof vi.fn>;
+    } = {
+      abortConnection: vi.fn(() =>
+        rejectConnect?.(new Error("connection terminated")),
+      ),
+      connect: vi.fn(
+        () =>
+          new Promise<void>((_resolve, reject) => {
+            rejectConnect = reject;
+            connectStarted();
+          }),
+      ),
+      query: vi.fn() as unknown as PgClientLike["query"],
+      end: vi.fn().mockResolvedValue(undefined),
+    };
+    const connector = makeTestConnector(noopDsnResolver, baseConfig, client);
+    const abort = new AbortController();
+    const iterator = connector
+      .queryBatches("public.users", crypto.randomUUID(), {
+        signal: abort.signal,
+      })
+      [Symbol.asyncIterator]();
+
+    const pending = iterator.next();
+    await started;
+    abort.abort(new Error("cancelled"));
+
+    await expect(pending).rejects.toThrow("connection terminated");
+    expect(client.abortConnection).toHaveBeenCalled();
+    expect(client.end).toHaveBeenCalled();
+    expect(client.query).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------

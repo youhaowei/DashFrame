@@ -154,6 +154,8 @@ export interface PgQueryResult {
 }
 
 export interface PgClientLike {
+  abortConnection?(): void;
+  connect?(): Promise<void>;
   query(text: string): Promise<PgQueryResult>;
   query(text: string, values: unknown[]): Promise<PgQueryResult>;
   query(config: PgQueryConfig): Promise<PgQueryResult>;
@@ -539,7 +541,8 @@ export class PostgresConnector extends RemoteApiConnector {
   /**
    * Overridable client factory — enables test subclasses to inject a spy/stub
    * without dynamic-importing the real pg package. The default implementation
-   * dynamically imports pg, constructs a Client, and connects it.
+   * dynamically imports pg and constructs an unconnected Client. #withClient
+   * owns connect() so cancellation covers connection establishment.
    *
    * @param dsn - Plaintext DSN, valid only within the auth callback scope.
    */
@@ -552,8 +555,9 @@ export class PostgresConnector extends RemoteApiConnector {
       connectionString: dsn,
       connectionTimeoutMillis: 30_000,
     });
-    await client.connect();
-    return client as unknown as PgClientLike;
+    const connectorClient = client as unknown as PgClientLike;
+    connectorClient.abortConnection = () => client.connection.stream.destroy();
+    return connectorClient;
   }
 
   constructor(auth: SecretResolver, config: PostgresConnectorConfig) {
@@ -588,8 +592,10 @@ export class PostgresConnector extends RemoteApiConnector {
       // constructed with the DSN and closed before the callback returns.
       const client = await this.createClient(dsn);
       const onAbort = () => {
-        // node-postgres destroys the socket when end() observes an active
-        // query, which interrupts a pending connect/setup/FETCH operation.
+        // During connection setup node-postgres end() gracefully half-closes
+        // the socket and can still wait for the remote peer. Force-close the
+        // default client's stream first so a pending connect rejects promptly.
+        client.abortConnection?.();
         client.end().catch(() => undefined);
       };
       signal?.addEventListener("abort", onAbort, { once: true });
@@ -599,6 +605,8 @@ export class PostgresConnector extends RemoteApiConnector {
           onAbort();
           throw abortReason(signal);
         }
+        await client.connect?.();
+        if (signal?.aborted) throw abortReason(signal);
         // Layer 1 — hard read-only guard. This is the FIRST query on every
         // connection — before any introspection or user query.
         await client.query(
