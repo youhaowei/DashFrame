@@ -301,6 +301,57 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     expect(engine.isReady()).toBe(false);
   });
 
+  it("rejects direct queries that arrive while dispose() is tearing down", async () => {
+    engine = new NativeDuckDBEngine();
+    await engine.initialize();
+
+    let releaseProducer!: () => void;
+    const producerReleased = new Promise<void>((resolve) => {
+      releaseProducer = resolve;
+    });
+    let producerStarted!: () => void;
+    const producerHasStarted = new Promise<void>((resolve) => {
+      producerStarted = resolve;
+    });
+    const source = (async function* () {
+      producerStarted();
+      await producerReleased;
+      yield new Uint8Array();
+    })();
+    const inFlight = engine.registerArrowStream("df_holding_query", source);
+    await producerHasStarted;
+
+    const disposing = engine.dispose();
+
+    // query()/queryArrow() reach the persistent connection directly. Unenrolled,
+    // dispose() sees no tracked operation and can disconnect underneath them.
+    await expect(engine.queryArrow("SELECT 1")).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    await expect(engine.query("SELECT 1")).rejects.toMatchObject({
+      name: "AbortError",
+    });
+
+    releaseProducer();
+    await expect(inFlight).rejects.toMatchObject({ name: "AbortError" });
+    await disposing;
+    expect(engine.isReady()).toBe(false);
+  });
+
+  it("dispose() before initialize() on a fresh engine leaves it dead", async () => {
+    engine = new NativeDuckDBEngine();
+
+    // dispose() yields at `await this.initPromise` even when that field is
+    // null, so an initialize() landing in that window would otherwise pass the
+    // lifecycle guard and assign a live instance the teardown already passed.
+    const disposing = engine.dispose();
+    const initializing = engine.initialize();
+
+    await disposing;
+    await expect(initializing).rejects.toMatchObject({ name: "AbortError" });
+    expect(engine.isReady()).toBe(false);
+  });
+
   it("dispose() is idempotent — calling it twice does not throw", async () => {
     engine = new NativeDuckDBEngine();
     await engine.initialize();
