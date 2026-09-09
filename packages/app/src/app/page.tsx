@@ -65,7 +65,7 @@ export default function HomePage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-4xl px-6 py-8">
+    <div className="mx-auto w-full max-w-2xl px-6 py-8">
       <OnboardingView onActivityChange={setIsOnboardingActive} />
     </div>
   );
