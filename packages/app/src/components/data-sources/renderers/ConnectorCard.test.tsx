@@ -29,7 +29,13 @@ describe("ConnectorCard file input", () => {
       type: "text/csv",
     });
 
-    render(<ConnectorCard connector={connector} onFileSelect={onFileSelect} />);
+    render(
+      <ConnectorCard
+        connector={connector}
+        expanded
+        onFileSelect={onFileSelect}
+      />,
+    );
 
     const input = screen.getByLabelText("Select CSV file");
     await user.upload(input, file);
@@ -41,5 +47,47 @@ describe("ConnectorCard file input", () => {
 
     expect(onFileSelect).toHaveBeenCalledTimes(2);
     expect(onFileSelect).toHaveBeenLastCalledWith(file);
+  });
+});
+
+describe("ConnectorCard disclosure", () => {
+  it("keeps the setup form closed until the header is opened", async () => {
+    const user = userEvent.setup();
+    const onToggle = vi.fn();
+
+    const { rerender } = render(
+      <ConnectorCard connector={connector} onToggle={onToggle} />,
+    );
+
+    // Collapsed: the row states what the connector is, and nothing else.
+    expect(screen.queryByLabelText("Select CSV file")).toBeNull();
+    const header = screen.getByRole("button", { name: /csv file/i });
+    expect(header.getAttribute("aria-expanded")).toBe("false");
+
+    await user.click(header);
+    expect(onToggle).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <ConnectorCard connector={connector} expanded onToggle={onToggle} />,
+    );
+
+    expect(screen.getByLabelText("Select CSV file")).not.toBeNull();
+    expect(
+      screen
+        .getByRole("button", { name: /csv file/i })
+        .getAttribute("aria-expanded"),
+    ).toBe("true");
+  });
+
+  it("does not open while another connector owns onboarding", () => {
+    const onToggle = vi.fn();
+    render(
+      <ConnectorCard connector={connector} onToggle={onToggle} disabled />,
+    );
+
+    const header = screen.getByRole("button", {
+      name: /csv file/i,
+    }) as HTMLButtonElement;
+    expect(header.disabled).toBe(true);
   });
 });

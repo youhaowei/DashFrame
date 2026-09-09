@@ -62,6 +62,12 @@ export function AddConnectionPanel({
   const [activeConnectorId, setActiveConnectorId] = useState<string | null>(
     null,
   );
+  // Which connector's setup form is open. Deliberately separate from
+  // `activeConnectorId`: that one is the in-flight ownership lock, and folding
+  // the two together would collapse a card mid-upload.
+  const [expandedConnectorId, setExpandedConnectorId] = useState<string | null>(
+    null,
+  );
   const activeConnectorIdRef = useRef<string | null>(null);
   const { data: catalog, isLoading, isError, refetch } = useConnectorCatalog();
 
@@ -124,11 +130,17 @@ export function AddConnectionPanel({
     );
   } else {
     body = (
-      <div className="space-y-4">
+      <div className="space-y-1">
         {connectors.map((connector) => (
           <ConnectorCardWithForm
             key={connector.id}
             connector={connector}
+            expanded={expandedConnectorId === connector.id}
+            onToggle={() =>
+              setExpandedConnectorId((current) =>
+                current === connector.id ? null : connector.id,
+              )
+            }
             onFileSelect={onFileSelect}
             onConnect={onConnect}
             onOAuthConnect={async (...args) => {

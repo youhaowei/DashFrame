@@ -37,6 +37,10 @@ interface ConnectorCardWithFormProps {
   /** Returns false when another connector already owns onboarding. */
   onActivityChange?: (active: boolean) => boolean | void;
   disabled?: boolean;
+  /** Whether this connector's setup form is open. */
+  expanded?: boolean;
+  /** Toggle handler for the disclosure header. */
+  onToggle?: () => void;
 }
 
 const POLL_INTERVAL_MS = 2_000;
@@ -194,6 +198,8 @@ export function ConnectorCardWithForm({
   onOAuthConnect,
   onActivityChange,
   disabled,
+  expanded,
+  onToggle,
 }: ConnectorCardWithFormProps) {
   // Hook called at component top level - safe!
   const { form, formFields, execute, isSubmitting, submitError } =
@@ -278,6 +284,8 @@ export function ConnectorCardWithForm({
   return (
     <ConnectorCard
       connector={connector}
+      expanded={expanded}
+      onToggle={onToggle}
       onFileSelect={handleFileSelect}
       onConnect={handleConnect}
       isLoading={isSubmitting}
