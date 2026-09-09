@@ -227,7 +227,35 @@ describe("browser bootstrap controller", () => {
     expect(test.runtimes[1]?.close).toHaveBeenCalledTimes(1);
   });
 
-  it.each(["pending-admission", "unavailable"] as const)(
+  it("keeps an admitted runtime when revalidation cannot reach the host", async () => {
+    const results: HostAccessResult<Config>[] = [
+      { status: "admitted", config: config() },
+      { status: "unavailable" },
+      { status: "admitted", config: config() },
+    ];
+    const test = harness(async () => {
+      const result = results.shift();
+      if (!result) throw new Error("missing test result");
+      return result;
+    });
+    await vi.waitFor(() => expect(test.createRuntime).toHaveBeenCalledOnce());
+
+    await test.controller.revalidate();
+
+    // The transient failure neither tears the runtime down nor changes the
+    // view: a host that comes back is served by the same mounted app.
+    expect(test.runtimes[0]?.close).not.toHaveBeenCalled();
+    expect(test.views.map((view) => view.status)).toEqual([
+      "loading",
+      "admitted",
+    ]);
+
+    await test.controller.revalidate();
+    expect(test.createRuntime).toHaveBeenCalledOnce();
+    expect(test.runtimes[0]?.close).not.toHaveBeenCalled();
+  });
+
+  it.each(["pending-admission"] as const)(
     "closes an admitted runtime when revalidation reports %s",
     async (status) => {
       const results: HostAccessResult<Config>[] = [

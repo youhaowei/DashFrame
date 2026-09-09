@@ -228,6 +228,14 @@ export function startHostBootstrap<TConfig, TRuntime extends ClientRuntime>(
       }
 
       if (result.status === "unavailable") {
+        // A revalidation that cannot reach the host is transient, and the
+        // session re-checks on a timer and on focus/online/pageshow. Keep the
+        // mounted runtime rather than discarding the router, Convex client,
+        // query cache and React tree that a recovered host would still serve —
+        // on desktop that is the whole workbench, and it cannot be rebuilt.
+        // An explicit check (initial load, or Retry) has nothing to keep, and
+        // invalidate() is a deliberate signal rather than a failed reach.
+        if (retainMatchingRuntime && runtime) return;
         await publishUnavailable(attempt, result.error);
         return;
       }

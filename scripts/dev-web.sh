@@ -36,7 +36,10 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-(cd "${ROOT}" && exec bun run apps/server/src/index.ts --port 0 --cors-origin "https://${DEV_NAME}.localhost" --cors-origin "http://${DEV_NAME}.localhost" --public-origin "https://${DEV_NAME}.localhost") >"${SERVER_LOG}" 2>&1 &
+# The server can advertise only one address, and portless serves https. Allowing
+# the http origin too would let a developer open a URL the client then rejects,
+# because the advertised https Convex URL would not match the origin they dialed.
+(cd "${ROOT}" && exec bun run apps/server/src/index.ts --port 0 --cors-origin "https://${DEV_NAME}.localhost" --public-origin "https://${DEV_NAME}.localhost") >"${SERVER_LOG}" 2>&1 &
 SERVER_PID=$!
 
 DASHFRAME_URL=""

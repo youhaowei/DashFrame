@@ -35,7 +35,13 @@ function shellQuote(value: string) {
   return "'" + value.replaceAll("'", "'\"'\"'") + "'";
 }
 function apiServerCommand() {
-  return `cd ../.. && DASHFRAME_SECRET_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= bun run --filter @dashframe/server start -- --host 127.0.0.1 --port ${API_PORT} --project ${shellQuote(path.join(RUN_DIRECTORY, "project"))} --data-dir ${shellQuote(path.join(RUN_DIRECTORY, "host-data"))}`;
+  // The browser reaches this server through Vite preview's /api proxy, which
+  // rewrites Host — so the server cannot infer the address the client dialed.
+  // Without --public-origin it would advertise its own 127.0.0.1 origin, the
+  // client would reject the reply, and every test would land on the access
+  // screen. The built bundle has no VITE_DASHFRAME_URL inlined (it is set only
+  // for `preview`), so the client's host is the preview origin below.
+  return `cd ../.. && DASHFRAME_SECRET_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= bun run --filter @dashframe/server start -- --host 127.0.0.1 --port ${API_PORT} --public-origin http://localhost:${BASE_PORT} --project ${shellQuote(path.join(RUN_DIRECTORY, "project"))} --data-dir ${shellQuote(path.join(RUN_DIRECTORY, "host-data"))}`;
 }
 
 function webServerCommand(port: number) {
