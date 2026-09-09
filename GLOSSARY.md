@@ -4,7 +4,7 @@ Canonical product terms for UI copy, documentation, and code naming. See [PRODUC
 
 ## Terms
 
-Do not use “question”, “query”, or “report” as alternative names for an insight in navigation or actions. Model types live in `@dashframe/types`.
+These are the canonical target terms. Model types live in `@dashframe/types`. New surfaces and new copy use this vocabulary; some shipped copy does not yet — see **Rename in progress** below.
 
 | Term            | Meaning                                                                                      | Model                                    |
 | --------------- | -------------------------------------------------------------------------------------------- | ---------------------------------------- |
@@ -17,6 +17,18 @@ Do not use “question”, “query”, or “report” as alternative names for
 | Viewer controls | Filters, sort, and limit a dashboard viewer may change                                       | `InsightRuntimeDeclaration`              |
 | Visualization   | Chart of an insight's result, with encodings and appearance; many per insight                | `Visualization`, `VisualizationEncoding` |
 | Dashboard       | Arrangement of visualizations and text, with controls                                        | `Dashboard`, `DashboardControl`          |
+
+## Rename in progress
+
+The shipped UI still uses an older vocabulary in these three places. The canonical term is the target; the shipped term is debt, not an alternative spelling. Do not introduce the shipped term into new copy, and prefer the canonical term when you are already editing a surface that uses it.
+
+| Canonical     | Shipped today | Where                                                                         |
+| ------------- | ------------- | ----------------------------------------------------------------------------- |
+| Insight       | question      | `packages/app/src/app/insights/page.tsx` — delete confirmations, draft counts |
+| Visualization | saved view    | same confirmations                                                            |
+| Dashboard     | report        | `packages/app/src/components/navigation.tsx` — nav item and description       |
+
+Do not use “query” for an insight anywhere.
 
 ## Workbench
 
