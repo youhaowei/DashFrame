@@ -2,10 +2,11 @@
  * ChartEngineProvider — the chart compute injection point.
  *
  * The visualization system (Mosaic + vgplot) needs a DuckDB connection to run
- * chart queries. The host resolves which rung of the placement ladder it can
- * reach and injects the resulting Mosaic Connector here; today every host
- * reaches a server engine, so the connector routes to native DuckDB through the
- * server Arrow endpoint.
+ * chart queries. The host injects the Mosaic Connector for the rung it binds;
+ * today both hosts bind the server rung unconditionally, so the connector
+ * routes to native DuckDB through the server Arrow endpoint. The DuckDB-WASM
+ * rung is reachable only by a caller that hands `VisualizationProvider` a `db`
+ * + `connection`, and no host does.
  *
  * The connector is injected here via context rather than via an `isElectron`
  * branch in components (see DESIGN.md anti-patterns): placement is an
@@ -28,8 +29,7 @@ export type { MosaicConnector } from "@dashframe/visualization";
 
 interface ChartEngineContextValue {
   /**
-   * Connector wired into the Mosaic Coordinator, onto whichever engine the host
-   * could reach.
+   * Connector wired into the Mosaic Coordinator, onto the engine the host bound.
    */
   connector: MosaicConnector | null;
   /**

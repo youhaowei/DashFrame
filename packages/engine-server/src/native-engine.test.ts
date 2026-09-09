@@ -1197,10 +1197,12 @@ describe("NativeDuckDBEngine — real native DuckDB", () => {
       expect(result.map((r) => Number(r.ms))).toEqual([ts, ts + MS_PER_HOUR]);
     });
 
-    it("never writes row data to the filesystem", async () => {
-      // The old implementation staged rows as an NDJSON temp file. Ingest is
-      // in-memory end to end — pin that contract by checking no staging file
-      // appears in tmpdir.
+    it("never stages row data through a file on the default database", async () => {
+      // The old implementation staged rows as an NDJSON temp file. Ingest now
+      // passes no row through the filesystem, and this engine takes the default
+      // `:memory:` database — pin both by checking no staging file appears in
+      // tmpdir. (A file-backed `databasePath` would persist the published table
+      // itself; that is the caller's choice and not what this pins.)
       engine = new NativeDuckDBEngine();
       await engine.registerArrowTable("df_privacy_probe", producerBuffer());
 

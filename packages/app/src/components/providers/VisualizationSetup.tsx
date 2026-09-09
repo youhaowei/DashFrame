@@ -102,10 +102,10 @@ interface VisualizationSetupProps {
 /**
  * VisualizationSetup - Wires up the visualization system.
  *
- * The connector comes from `ChartEngineProvider` — whatever rung of the
- * placement ladder the host resolved. Today every host reaches a server engine
- * and injects a connector onto it; the DuckDB-WASM backup rung is opted into at
- * `VisualizationProvider`, never selected here and never by surface.
+ * The connector comes from `ChartEngineProvider` — the rung the host bound.
+ * Today both hosts bind the server rung unconditionally and inject a connector
+ * onto it; the DuckDB-WASM backup rung is opted into at `VisualizationProvider`
+ * by handing it a `db` + `connection`, never selected here and never by surface.
  *
  * ## Error surfaces
  *

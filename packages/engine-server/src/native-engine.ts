@@ -20,10 +20,11 @@
  * decode the same bytes in transport with `arrowIpcToJsonRows`.
  *
  * `registerArrowTable` accepts an Arrow IPC stream buffer, decodes it with
- * apache-arrow, and ingests it into an in-memory DuckDB table via the typed
- * Appender API. Row data stays in process memory and never reaches the
- * filesystem. Tables persist for the session lifetime and are re-registered on
- * reconnect.
+ * apache-arrow, and ingests it into a DuckDB table via the typed Appender API.
+ * Nothing is staged through the filesystem on the way in; where the rows come to
+ * rest is the `databasePath` decision — under the default `:memory:` database
+ * they stay in process memory. Tables persist for the session lifetime and are
+ * re-registered on reconnect.
  *
  * Two-Arrow-library seam: this side decodes with `apache-arrow`, but the chart
  * layer (Mosaic / `@uwdata/vgplot`) decodes the same IPC with `@uwdata/flechette`.
@@ -649,9 +650,12 @@ export class NativeDuckDBEngine implements QueryEngine {
    *
    * Implementation: decode with apache-arrow, create the table with a schema
    * derived from the Arrow schema, and stream rows in through DuckDB's typed
-   * Appender. The whole path is in-memory — row data never touches the
-   * filesystem — and typed appends preserve timestamps/dates exactly instead
-   * of round-tripping through JSON strings.
+   * Appender. No row ever passes through a file on the way in — the staging
+   * table is TEMP and the published table is written by DuckDB, so with the
+   * default `:memory:` database the whole path stays in process memory, while a
+   * file-backed `databasePath` persists a registered table like any other.
+   * Typed appends preserve timestamps/dates exactly instead of round-tripping
+   * through JSON strings.
    */
   async registerArrowTable(
     name: string,
