@@ -84,7 +84,7 @@ commits that already landed, or misses the ones it was meant to catch.
    - UI changes additionally require visual proof from the running app in the PR
      (relevant states, light + dark) — see `CLAUDE.md` → **Pull requests**.
      Keep screenshots out of the repository: capture them to `/tmp` and attach
-     them to the PR with `pr-screenshots` instead of committing image files.
+     them to the PR with `gh pr edit --attach` instead of committing image files.
 
 3. **Second reviewer.** The same diff, read again by a model that is neither the
    one that wrote the change nor the one that ran step 1 — the requirement is a
