@@ -303,8 +303,14 @@ loopback host does not need an operator token and owns the Convex child process.
 
 ```sh
 cd apps/server
-bun run src/index.ts --host 127.0.0.1 --port 4000
+bun run src/index.ts --host 127.0.0.1 --port 4000 --public-origin http://127.0.0.1:3000
 ```
+
+`--public-origin` names the address the browser opens. Vite rewrites `Host`
+while proxying, so without it the server names the address it was reached on
+instead, the client refuses the reply, and the app shows "Couldn't check
+access". For the same reason bare `bun run dev` does not serve the browser
+client: it passes no `--public-origin` and takes an OS-assigned port.
 
 ```sh
 cd apps/web
