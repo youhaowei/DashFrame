@@ -75,22 +75,23 @@ fi
 if [[ -n "${PORT:-}" ]]; then
   PORTLESS_ARGS+=(--app-port "${PORT}")
 fi
-# portless needs a proxy already running: the run path refuses when there is
-# none and exits non-zero, which under `set -e` takes this launcher down with
-# it. It prints the unprivileged-port fallback ("portless proxy start --port
-# 1355 --https") but never takes it, so an agent or a fresh machine sees the
-# remedy and still gets no dev server. Start one only when none exists --
-# `portless list` succeeds whenever a proxy is up, including one on 443, so an
-# existing privileged proxy is left alone rather than shadowed by a second one
-# on 1355. `proxy start` is itself idempotent and falls back to an unprivileged
-# port when 443 would need a sudo password it cannot prompt for.
-if ! portless list >/dev/null 2>&1; then
-  echo "[dev-web] no portless proxy running; starting one on port ${PORTLESS_PROXY_PORT:-1355}"
-  portless proxy start --port "${PORTLESS_PROXY_PORT:-1355}" --https || {
-    echo "[dev-web] could not start a portless proxy; start one yourself with:" >&2
-    echo "[dev-web]   portless proxy start --port ${PORTLESS_PROXY_PORT:-1355} --https" >&2
-    exit 1
-  }
+# portless refuses to run an app when no proxy is running: it exits non-zero
+# and, under `set -euo pipefail`, takes this launcher down with it -- printing
+# the unprivileged-port fallback without ever taking it, so a fresh machine or
+# a headless agent is shown the remedy and still gets no dev server.
+#
+# `portless proxy start` is idempotent and self-deduplicating: it reports an
+# already-running proxy on ANY port (verified against a proxy on 1355 while the
+# command defaults to 443), and otherwise falls back from 443 to an
+# unprivileged port on its own when it cannot prompt for sudo. Letting it pick
+# the port keeps that fallback logic in portless rather than duplicating it.
+#
+# Do NOT gate this on `portless list`: that command loads stored routes and
+# exits 0 even when no proxy is running, so it is not a liveness probe.
+if ! portless proxy start --https; then
+  echo "[dev-web] could not start a portless proxy; start one yourself with:" >&2
+  echo "[dev-web]   portless proxy start --https" >&2
+  exit 1
 fi
 
 portless "${PORTLESS_ARGS[@]}" "${ROOT}/scripts/dev-web-child.sh" "$@" &
