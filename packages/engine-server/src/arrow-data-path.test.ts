@@ -468,6 +468,61 @@ describe("Arrow data path — /tables/:name content-type enforcement", () => {
     expect(engine.registrations).toEqual([]);
   });
 
+  it("does not consume a stream revoked while registration waits", async () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    let available = true;
+    let pulls = 0;
+    let releaseRegistration!: () => void;
+    let signalRegistration!: () => void;
+    const registrationStarted = new Promise<void>((resolve) => {
+      signalRegistration = resolve;
+    });
+    const registrationReleased = new Promise<void>((resolve) => {
+      releaseRegistration = resolve;
+    });
+    const engine = {
+      queryArrow: async () => new Uint8Array(),
+      async registerArrowStream(
+        _name: string,
+        stream: AsyncIterable<Uint8Array>,
+      ) {
+        signalRegistration();
+        await registrationReleased;
+        for await (const _bytes of stream) {
+          // A revoked frame must fail before its source reaches this loop body.
+        }
+      },
+    };
+    const app = createArrowDataPath({
+      engine,
+      isFrameAvailable: async () => available,
+      dataFrameStorage: {
+        save: async () => {},
+        load: async () => null,
+        delete: async () => {},
+        exists: async () => true,
+        list: async () => [id],
+        getUsage: async () => ({ count: 1 }),
+        async *stream() {
+          pulls += 1;
+          yield new Uint8Array([1, 2, 3]);
+        },
+      },
+    });
+
+    const request = app.request(`/frames/${id}/tables/df_delayed`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    await registrationStarted;
+    available = false;
+    releaseRegistration();
+
+    const response = await request;
+    expect(response.status).toBe(404);
+    expect(pulls).toBe(0);
+  });
+
   it("removes a Mosaic frame whose ownership disappears during registration", async () => {
     const engine = fakeRegistrar();
     const id = "11111111-1111-4111-8111-111111111111";

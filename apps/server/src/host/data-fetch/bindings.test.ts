@@ -203,7 +203,9 @@ describe("Source Binding registry", () => {
       });
       expect(connectorFor).toHaveBeenCalledWith(expect.anything(), source.id);
       expect(query).toHaveBeenCalledTimes(1);
-      expect(query).toHaveBeenCalledWith(table.table, table.id);
+      expect(query).toHaveBeenCalledWith(table.table, table.id, {
+        signal: undefined,
+      });
     },
   );
 
@@ -307,6 +309,41 @@ describe("Source Binding registry", () => {
       tableFromIPC(Buffer.from(result.arrowBuffer, "base64")).numRows,
     ).toBe(10_002);
   });
+
+  it.each([
+    ["googleAnalytics", ga4ConnectorFor, fetchGa4Binding],
+    ["notion", notionConnectorFor, fetchNotionBinding],
+  ] as const)(
+    "cancels a pending native %s provider request",
+    async (kind, factory, fetchBinding) => {
+      const abort = new AbortController();
+      const ctx = context({ table, source: { ...source, kind } });
+      Object.assign(ctx, { requestSignal: abort.signal });
+      let started!: () => void;
+      const pendingProvider = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      const query = vi.fn(
+        (_table: string, _id: string, options?: { signal?: AbortSignal }) => {
+          started();
+          return new Promise<ReturnType<typeof page>>((_resolve, reject) => {
+            options?.signal?.addEventListener(
+              "abort",
+              () => reject(options.signal?.reason),
+              { once: true },
+            );
+          });
+        },
+      );
+      factory.mockResolvedValue({ query });
+      const binding = await resolveSourceBinding(ctx, table.id);
+      const pending = fetchBinding(ctx, binding);
+      await pendingProvider;
+      abort.abort(new Error("FETCH_DEADLINE_EXCEEDED"));
+      await expect(pending).rejects.toThrow("FETCH_EXECUTION_FAILED");
+      expect(query.mock.calls[0]?.[2]?.signal).toBe(abort.signal);
+    },
+  );
 
   it("bounds hosted GA4 to one sentinel window and rejects a prefix", async () => {
     const query = vi

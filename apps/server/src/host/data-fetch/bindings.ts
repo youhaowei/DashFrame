@@ -160,6 +160,7 @@ async function fetchPagedRemoteBinding(
         binding.table.id,
         {
           pagination: { offset, limit: GA4_PAGE_SIZE },
+          signal: ctx.requestSignal,
         },
       );
       pageSignature(page);
@@ -235,7 +236,9 @@ async function fetchExhaustiveRemoteBinding(
           binding.table.id,
           hostedRemoteOptions,
         )
-      : await connector.query(binding.table.table, binding.table.id);
+      : await connector.query(binding.table.table, binding.table.id, {
+          signal: ctx.requestSignal,
+        });
     pageSignature(result);
     if (hostedRemoteOptions) assertHostedRemoteResult(result);
     return {

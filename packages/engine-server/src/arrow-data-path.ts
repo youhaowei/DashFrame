@@ -141,6 +141,19 @@ function supportsStoredFrameRegistration(
   );
 }
 
+class FrameUnavailableBeforeStreamReadError extends Error {}
+
+async function* availableFrameStream(
+  options: ArrowDataPathOptions,
+  id: UUID,
+  source: AsyncIterable<Uint8Array>,
+): AsyncIterable<Uint8Array> {
+  if (await frameIsUnavailable(options, id)) {
+    throw new FrameUnavailableBeforeStreamReadError();
+  }
+  yield* source;
+}
+
 async function registerStoredFrame(
   options: ArrowDataPathOptions,
   id: UUID,
@@ -153,7 +166,20 @@ async function registerStoredFrame(
     typeof options.engine.registerArrowStream === "function"
   ) {
     if (!(await storage.exists(id))) return "missing";
-    await options.engine.registerArrowStream(name, storage.stream(id));
+    const stream = storage.stream(id);
+    try {
+      await options.engine.registerArrowStream(
+        name,
+        checkAvailabilityBeforeRegistration
+          ? availableFrameStream(options, id, stream)
+          : stream,
+      );
+    } catch (error) {
+      if (error instanceof FrameUnavailableBeforeStreamReadError) {
+        return "unavailable";
+      }
+      throw error;
+    }
     return "registered";
   }
   if (typeof options.engine.registerArrowTable !== "function") {

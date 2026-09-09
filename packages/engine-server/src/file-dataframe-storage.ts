@@ -502,11 +502,14 @@ export class FileDataFrameStorage implements DataFrameStorage {
   async getUsage(): Promise<{ count: number; totalBytes: number }> {
     const ids = await this.list();
     const sizes = await Promise.all(
-      ids.map(async (id) => (await fs.stat(this.framePath(id))).size),
+      ids.map(async (id) => (await statIfExists(this.framePath(id)))?.size),
+    );
+    const existingSizes = sizes.filter(
+      (size): size is number => size !== undefined,
     );
     return {
-      count: ids.length,
-      totalBytes: sizes.reduce((total, size) => total + size, 0),
+      count: existingSizes.length,
+      totalBytes: existingSizes.reduce((total, size) => total + size, 0),
     };
   }
 }

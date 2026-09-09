@@ -151,6 +151,24 @@ describe("FileDataFrameStorage", () => {
     expect(await restarted.getUsage()).toEqual({ count: 1, totalBytes: 4 });
   });
 
+  it("ignores a frame deleted after usage enumeration", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "dashframe-frames-"));
+    roots.push(root);
+    const directory = path.join(root, "frames");
+    const storage = new FileDataFrameStorage(directory);
+    const id = "11111111-1111-4111-8111-111111111111";
+    await storage.save(id, new Uint8Array([1, 2, 3, 4]));
+    vi.spyOn(storage, "list").mockImplementationOnce(async () => {
+      await rm(path.join(directory, `${id}.arrow`));
+      return [id];
+    });
+
+    await expect(storage.getUsage()).resolves.toEqual({
+      count: 0,
+      totalBytes: 0,
+    });
+  });
+
   it("rejects ids that could escape the storage directory", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "dashframe-frames-"));
     roots.push(root);
