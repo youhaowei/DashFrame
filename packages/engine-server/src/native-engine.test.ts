@@ -503,6 +503,132 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     ]);
   });
 
+  it("a dedicated connection that fails to disconnect still hands back the lock and refcount", async () => {
+    engine = new NativeDuckDBEngine();
+    await engine.initialize();
+    const internals = engine as unknown as {
+      instance: { connect(): Promise<{ disconnectSync(): void }> };
+    };
+    const rawInstance = internals.instance;
+    // Make the NEXT dedicated connection's disconnectSync() throw on release.
+    internals.instance = new Proxy(rawInstance, {
+      get(target, prop, receiver) {
+        if (prop !== "connect") return Reflect.get(target, prop, receiver);
+        return async () => {
+          const conn = await target.connect();
+          conn.disconnectSync = () => {
+            throw new Error("disconnect failed");
+          };
+          return conn;
+        };
+      },
+    });
+    const arrow = tableToIPC(
+      new Table({ v: vectorFromArray([1], new Int32()) }),
+      "stream",
+    );
+    await expect(
+      engine.registerArrowStream(
+        "df_bad_disconnect",
+        (async function* () {
+          yield arrow;
+        })(),
+      ),
+    ).rejects.toThrow("disconnect failed");
+    internals.instance = rawInstance;
+
+    // The lock and the refcount must both be free: a queued registration and
+    // dispose() settle instead of waiting on a lease that already ended.
+    const settles = (promise: Promise<unknown>) =>
+      Promise.race([
+        promise.then(() => "settled"),
+        new Promise((resolve) => {
+          setTimeout(() => resolve("stuck"), 500);
+        }),
+      ]);
+    expect(await settles(engine.registerArrowTable("df_next", arrow))).toBe(
+      "settled",
+    );
+    expect(await settles(engine.dispose())).toBe("settled");
+    expect(engine.isReady()).toBe(false);
+  });
+
+  it("dispose() completes and closes the instance even when the connection refuses to disconnect", async () => {
+    engine = new NativeDuckDBEngine();
+    await engine.initialize();
+    const internals = engine as unknown as {
+      connection: { disconnectSync(): void };
+      instance: { closeSync(): void } | null;
+    };
+    vi.spyOn(internals.connection, "disconnectSync").mockImplementation(() => {
+      throw new Error("disconnect failed");
+    });
+    const closeSync = vi.spyOn(internals.instance!, "closeSync");
+
+    await expect(engine.dispose()).resolves.toBeUndefined();
+    expect(closeSync).toHaveBeenCalledTimes(1);
+    expect(engine.isReady()).toBe(false);
+    await expect(engine.dispose()).resolves.toBeUndefined();
+    await expect(engine.initialize()).rejects.toMatchObject({
+      name: "AbortError",
+    });
+  });
+
+  it("queues a registration behind a connection swap instead of rejecting it", async () => {
+    engine = new NativeDuckDBEngine();
+    await engine.initialize();
+    // Reproduce the window replaceTaintedConnection() opens: the registration
+    // lock is held and the persistent handle is null until the reconnect
+    // resolves. A registration arriving now must wait for the lock and use
+    // the replacement, not fail with "not initialized".
+    const internals = engine as unknown as {
+      connection: unknown;
+      acquireRegistrationLock(): Promise<() => void>;
+    };
+    const unlock = await internals.acquireRegistrationLock();
+    const liveConnection = internals.connection;
+    internals.connection = null;
+
+    const arrow = tableToIPC(
+      new Table({ v: vectorFromArray([1, 2, 3], new Int32()) }),
+      "stream",
+    );
+    const queued = engine.registerArrowTable("df_after_swap", arrow);
+    await new Promise((resolve) => {
+      setTimeout(resolve, 20);
+    });
+    internals.connection = liveConnection;
+    unlock();
+
+    await expect(queued).resolves.toBeUndefined();
+    expect(engine.hasTable("df_after_swap")).toBe(true);
+  });
+
+  it("an initialize() that fails while dispose() is in flight does not reopen the engine", async () => {
+    engine = new NativeDuckDBEngine({
+      databasePath: "/nonexistent/dir/db.duckdb",
+    });
+    // The failing init must not reset the lifecycle to idle underneath a
+    // dispose() that already began — that would let a later initialize()
+    // build an instance nothing will close.
+    const init = engine.initialize();
+    const disposing = engine.dispose();
+    // Retry in the same tick the failure surfaces, while teardown is still
+    // parked on the failed init latch. The retry must see a disposing engine,
+    // not an idle one — otherwise it starts an init teardown has walked past.
+    const retry = init.then(
+      () => {
+        throw new Error("init unexpectedly succeeded");
+      },
+      () => engine!.initialize(),
+    );
+    await disposing;
+
+    await expect(retry).rejects.toMatchObject({ name: "AbortError" });
+    expect(engine.isReady()).toBe(false);
+    expect((engine as unknown as { instance: unknown }).instance).toBeNull();
+  });
+
   it("reaches native handles only from inside an enrolled lifecycle operation", async () => {
     // Structural pin for the lifecycle contract. Every native call made
     // through the persistent connection, the instance, or a dedicated

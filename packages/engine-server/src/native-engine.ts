@@ -182,10 +182,10 @@ export class NativeDuckDBEngine implements QueryEngine {
   private phase: LifecyclePhase = "idle";
   private instance: DuckDBInstance | null = null;
   /**
-   * The persistent connection. Nothing outside the lifecycle methods
-   * (`initialize`, `dispose`, `replaceTaintedConnection`) and
-   * `acquireConnection` reads or writes this — every query and registration
-   * receives it as a lease argument instead.
+   * The persistent connection. Written only by the lifecycle methods
+   * (`initialize`, `dispose`, `replaceTaintedConnection`); read only by
+   * `acquireConnection` (via `persistentConnection`) and `isReady`. Every
+   * query and registration receives it as a lease argument instead.
    */
   private connection: Connection | null = null;
   /**
@@ -361,16 +361,29 @@ export class NativeDuckDBEngine implements QueryEngine {
     let connection: Connection | undefined;
     let interrupt: (() => void) | undefined;
     let released = false;
+    // Every step runs even if an earlier one throws: a disconnect that fails
+    // must still hand back the lock and the refcount, or every later
+    // registration queues forever and dispose() never drains.
     const release = () => {
       if (released) return;
       released = true;
-      if (interrupt) signal.removeEventListener("abort", interrupt);
-      if (dedicated) connection?.disconnectSync();
-      unlock?.();
-      this.endNativeOperation();
+      try {
+        if (interrupt) signal.removeEventListener("abort", interrupt);
+        if (dedicated) connection?.disconnectSync();
+      } finally {
+        try {
+          unlock?.();
+        } finally {
+          this.endNativeOperation();
+        }
+      }
     };
     try {
-      if (!dedicated) this.persistentConnection();
+      // Persistent, unserialized leases resolve the handle up front so a
+      // caller on a disposed engine hears "not initialized". A serialized
+      // lease must not: the registration holding the lock may be mid-swap in
+      // replaceTaintedConnection, with the handle null until it reconnects.
+      if (!dedicated && !serialize) this.persistentConnection();
       throwIfAborted(signal);
       if (serialize) {
         unlock = await this.acquireRegistrationLock();
@@ -723,6 +736,8 @@ export class NativeDuckDBEngine implements QueryEngine {
     rawIPCStream: AsyncIterable<Uint8Array>,
     signal?: AbortSignal,
   ): Promise<void> {
+    // An already-cancelled caller must not pay for DuckDB startup.
+    throwIfAborted(signal);
     await this.initialize();
     await this.withConnection(
       async (conn, operationSignal) => {
@@ -844,8 +859,14 @@ export class NativeDuckDBEngine implements QueryEngine {
     await this.operationsIdle;
     this._registeredTables.clear();
     // Disconnect the connection before closing the instance — DuckDB expects
-    // all connections to be released before the instance is closed.
-    this.connection?.disconnectSync();
+    // all connections to be released before the instance is closed. Teardown
+    // is best effort and memoized: a throw here would be cached as a rejected
+    // dispose() and leave the instance (and any file lock) open for good.
+    try {
+      this.connection?.disconnectSync();
+    } catch {
+      // Already disconnected — closing the instance below still releases it.
+    }
     this.connection = null;
     // Close the native instance: releases the background I/O threads, the
     // file lock on the database path, and any native heap the instance holds.
