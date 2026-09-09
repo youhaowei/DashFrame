@@ -314,10 +314,11 @@ function barCategorySort(chartType: "barY" | "barX", encoding: ChartEncoding) {
   // order. Preserve the category channel's first-seen order instead of
   // letting Plot infer an alphabetical ordinal domain. Transformed temporal
   // categories retain Plot's chronological domain inference.
-  if (chartType === "barX") {
-    return encoding.yTransform ? {} : { sort: { y: null } };
-  }
-  return encoding.xTransform ? {} : { sort: { x: null } };
+  const categoryTransform =
+    chartType === "barX" ? encoding.yTransform : encoding.xTransform;
+  const isTemporal = categoryTransform?.transform.kind === "temporal";
+  if (chartType === "barX") return isTemporal ? {} : { sort: { y: null } };
+  return isTemporal ? {} : { sort: { x: null } };
 }
 
 /**

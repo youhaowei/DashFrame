@@ -121,12 +121,18 @@ describe.each(["barY", "barX"] as const)("%s chart defaults", (type) => {
           ? {
               x: "value",
               y: "category",
-              yTransform: { type: "date" },
+              yTransform: {
+                type: "date",
+                transform: { kind: "temporal", aggregation: "yearMonth" },
+              },
             }
           : {
               x: "category",
               y: "value",
-              xTransform: { type: "date" },
+              xTransform: {
+                type: "date",
+                transform: { kind: "temporal", aggregation: "yearMonth" },
+              },
             },
     });
 
@@ -135,6 +141,31 @@ describe.each(["barY", "barX"] as const)("%s chart defaults", (type) => {
       "2026-02-01",
       "2026-03-01",
     ]);
+  });
+
+  it("preserves result order for categorical date transforms", async () => {
+    const rows = [
+      { category: "March", value: 60 },
+      { category: "January", value: 420 },
+      { category: "February", value: 150 },
+    ];
+    const transform = {
+      type: "date" as const,
+      transform: {
+        kind: "categorical" as const,
+        groupBy: "monthName" as const,
+      },
+    };
+    const svg = await renderChart(rows, type, {
+      encoding:
+        type === "barX"
+          ? { x: "value", y: "category", yTransform: transform }
+          : { x: "category", y: "value", xTransform: transform },
+    });
+
+    expect(svg.scale(type === "barX" ? "y" : "x")?.domain).toEqual(
+      rows.map(({ category }) => category),
+    );
   });
 
   it.each([1, 2, 32])(
