@@ -1,4 +1,9 @@
-import { frameTableName, type DataFrame } from "@dashframe/engine";
+import {
+  frameTableName,
+  quoteIdentifier,
+  quoteLiteral,
+  type DataFrame,
+} from "@dashframe/engine";
 import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
 import { BrowserDataFrame } from "./dataframe";
 import { debugLog } from "./debug";
@@ -78,16 +83,13 @@ async function awaitExistingLoad(
   return ensureTableLoaded(dataFrame, conn);
 }
 
-const quoteIdent = (identifier: string): string =>
-  `"${identifier.replace(/"/g, '""')}"`;
-
 const formatValue = (value: unknown): string => {
   if (value === null || value === undefined) return "NULL";
   if (typeof value === "number" || typeof value === "bigint")
     return String(value);
   if (typeof value === "boolean") return value ? "TRUE" : "FALSE";
-  if (value instanceof Date) return `'${value.toISOString()}'`;
-  return `'${String(value).replace(/'/g, "''")}'`;
+  if (value instanceof Date) return quoteLiteral(value.toISOString());
+  return quoteLiteral(String(value));
 };
 
 const loadedTableGenerations = new Map<string, TableGeneration>();
@@ -192,7 +194,7 @@ type QueryPlan = {
 // ============================================================================
 
 const formatPredicate = (pred: FilterPredicateLocal): string => {
-  const column = quoteIdent(pred.columnName);
+  const column = quoteIdentifier(pred.columnName);
   const operator = pred.operator.toUpperCase();
 
   if (operator === "IS NULL" || operator === "IS NOT NULL") {
@@ -247,22 +249,22 @@ const buildPlan = (operations: Operation[]): QueryPlan => {
 const buildSelectClause = (plan: QueryPlan): string => {
   if (plan.groupColumns?.length) {
     if (plan.selectColumns?.length) {
-      return plan.selectColumns.map(quoteIdent).join(", ");
+      return plan.selectColumns.map(quoteIdentifier).join(", ");
     }
 
-    const groupCols = plan.groupColumns.map(quoteIdent);
+    const groupCols = plan.groupColumns.map(quoteIdentifier);
     const aggregations =
       plan.aggregations?.map((agg) => {
         const func = agg.function.toUpperCase();
-        const alias = agg.alias ? ` AS ${quoteIdent(agg.alias)}` : "";
-        return `${func}(${quoteIdent(agg.columnName)})${alias}`;
+        const alias = agg.alias ? ` AS ${quoteIdentifier(agg.alias)}` : "";
+        return `${func}(${quoteIdentifier(agg.columnName)})${alias}`;
       }) ?? [];
 
     return [...aggregations, ...groupCols].join(", ");
   }
 
   if (plan.selectColumns?.length) {
-    return plan.selectColumns.map(quoteIdent).join(", ");
+    return plan.selectColumns.map(quoteIdentifier).join(", ");
   }
 
   return "*";
@@ -273,7 +275,7 @@ const buildOrderClause = (sorts: SortOrderLocal[]): string | undefined => {
   return sorts
     .map(
       (order) =>
-        `${quoteIdent(order.columnName)} ${order.direction.toUpperCase()}`,
+        `${quoteIdentifier(order.columnName)} ${order.direction.toUpperCase()}`,
     )
     .join(", ");
 };
@@ -327,7 +329,7 @@ export async function ensureTableLoaded(
     }
 
     // Table doesn't exist - create it
-    await conn.query(`DROP TABLE IF EXISTS ${quoteIdent(tableName)}`);
+    await conn.query(`DROP TABLE IF EXISTS ${quoteIdentifier(tableName)}`);
 
     switch (dataFrame.storage.type) {
       case "indexeddb": {
@@ -434,7 +436,7 @@ export class QueryBuilder {
     baseTableName: string,
     joins: JoinOperation[],
   ): Promise<string> {
-    let clause = quoteIdent(baseTableName);
+    let clause = quoteIdentifier(baseTableName);
 
     for (const join of joins) {
       const rightTable = await ensureTableLoaded(
@@ -442,7 +444,7 @@ export class QueryBuilder {
         this.conn,
       );
       const joinTypeKeyword = joinTypeToSQL(join.options.type ?? "inner");
-      clause = `${clause} ${joinTypeKeyword} JOIN ${quoteIdent(rightTable)} ON ${quoteIdent(baseTableName)}.${quoteIdent(join.options.leftColumn)} = ${quoteIdent(rightTable)}.${quoteIdent(join.options.rightColumn)}`;
+      clause = `${clause} ${joinTypeKeyword} JOIN ${quoteIdentifier(rightTable)} ON ${quoteIdentifier(baseTableName)}.${quoteIdentifier(join.options.leftColumn)} = ${quoteIdentifier(rightTable)}.${quoteIdentifier(join.options.rightColumn)}`;
     }
 
     return clause;
@@ -459,7 +461,7 @@ export class QueryBuilder {
         ? plan.filters.map(formatPredicate).join(" AND ")
         : "";
     const groupClause = plan.groupColumns?.length
-      ? plan.groupColumns.map(quoteIdent).join(", ")
+      ? plan.groupColumns.map(quoteIdentifier).join(", ")
       : "";
     const orderClause = buildOrderClause(plan.sorts);
 

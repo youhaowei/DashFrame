@@ -29,12 +29,22 @@
  * Two-Arrow-library seam: this side decodes with `apache-arrow`, but the chart
  * layer (Mosaic / `@uwdata/vgplot`) decodes the same IPC with `@uwdata/flechette`.
  * They share the wire format but NOT JS value semantics (`.get()` differs per
- * type — Date32/64 is the known case). Value-translation knowledge currently
- * lives in the type switches below; the planned consolidation into one
- * anti-corruption bridge is tracked in #95 (triggered at the 3rd cross-library
- * type). When adding an Arrow type here, pin a value-equality check across the seam.
+ * type — Date32/64 is the known case, #95). The knowledge of what a type means
+ * on each side is not here: it lives in `@dashframe/engine`'s type-translation
+ * contract, which this module reads for the DDL type and the value
+ * conversions. What stays here is the `apache-arrow` and DuckDB Appender API
+ * calls the contract cannot make without those dependencies. When adding an
+ * Arrow type, add it to the contract and pin a value-equality check across the
+ * seam (`arrow-roundtrip.test.ts`).
  */
-import type { QueryEngine } from "@dashframe/engine";
+import {
+  arrowDateToDuckDBDays,
+  DEFAULT_DUCKDB_INGEST_TYPE,
+  DUCKDB_INGEST_TYPE_BY_ARROW_TYPE,
+  quoteIdentifier,
+  type IngestibleArrowTypeName,
+  type QueryEngine,
+} from "@dashframe/engine";
 import {
   DuckDBDateValue,
   DuckDBInstance,
@@ -686,10 +696,10 @@ export class NativeDuckDBEngine implements QueryEngine {
         // reused within one connection's lifetime.
         const stagingName = `__staging_${name}_${nextStagingId()}`;
         const columnDefs = fields
-          .map((f) => `${quoteIdent(f.name)} ${arrowFieldToDuckDBType(f)}`)
+          .map((f) => `${quoteIdentifier(f.name)} ${arrowFieldToDuckDBType(f)}`)
           .join(", ");
         await conn.run(
-          `CREATE OR REPLACE TEMP TABLE ${quoteIdent(stagingName)} (${columnDefs})`,
+          `CREATE OR REPLACE TEMP TABLE ${quoteIdentifier(stagingName)} (${columnDefs})`,
         );
 
         // Stream rows into the staging table — no disk, no string round-trip.
@@ -742,9 +752,9 @@ export class NativeDuckDBEngine implements QueryEngine {
         // copy. Both DDL statements run in the same connection, so the live
         // table is never observable in a half-replaced state.
         await conn.run(
-          `CREATE OR REPLACE TABLE ${quoteIdent(name)} AS SELECT * FROM ${quoteIdent(stagingName)}`,
+          `CREATE OR REPLACE TABLE ${quoteIdentifier(name)} AS SELECT * FROM ${quoteIdentifier(stagingName)}`,
         );
-        await conn.run(`DROP TABLE IF EXISTS ${quoteIdent(stagingName)}`);
+        await conn.run(`DROP TABLE IF EXISTS ${quoteIdentifier(stagingName)}`);
 
         this._registeredTables.set(tableKey(name), name);
       },
@@ -774,11 +784,11 @@ export class NativeDuckDBEngine implements QueryEngine {
         const columnDefs = fields
           .map(
             (field) =>
-              `${quoteIdent(field.name)} ${arrowFieldToDuckDBType(field)}`,
+              `${quoteIdentifier(field.name)} ${arrowFieldToDuckDBType(field)}`,
           )
           .join(", ");
         await conn.run(
-          `CREATE OR REPLACE TEMP TABLE ${quoteIdent(stagingName)} (${columnDefs})`,
+          `CREATE OR REPLACE TEMP TABLE ${quoteIdentifier(stagingName)} (${columnDefs})`,
         );
         let appender: DuckDBAppender | undefined;
         try {
@@ -798,7 +808,7 @@ export class NativeDuckDBEngine implements QueryEngine {
           appender.closeSync();
           appender = undefined;
           await conn.run(
-            `CREATE OR REPLACE TABLE ${quoteIdent(name)} AS SELECT * FROM ${quoteIdent(stagingName)}`,
+            `CREATE OR REPLACE TABLE ${quoteIdentifier(name)} AS SELECT * FROM ${quoteIdentifier(stagingName)}`,
           );
           this._registeredTables.set(tableKey(name), name);
         } finally {
@@ -821,7 +831,7 @@ export class NativeDuckDBEngine implements QueryEngine {
     await this.withConnection(
       async (connection) => {
         if (!this._registeredTables.has(tableKey(name))) return;
-        await connection.run(`DROP TABLE IF EXISTS ${quoteIdent(name)}`);
+        await connection.run(`DROP TABLE IF EXISTS ${quoteIdentifier(name)}`);
         // Forget the registration only after DuckDB confirms the DROP. A
         // transient native failure must leave the entry discoverable so cleanup
         // can retry instead of leaking a table the registry claims is gone.
@@ -919,10 +929,6 @@ export class NativeDuckDBEngine implements QueryEngine {
 
 function disposedError(): DOMException {
   return new DOMException("NativeDuckDBEngine disposed", "AbortError");
-}
-
-function quoteIdent(name: string): string {
-  return `"${name.replace(/"/g, '""')}"`;
 }
 
 /**
@@ -1030,8 +1036,6 @@ function appendArrowBatch(
   }
 }
 
-const MS_PER_DAY = 86_400_000;
-
 /**
  * Monotonic counter for unique staging-table names. A process-local counter is
  * sufficient — more than sufficient, now that a staging table is visible only
@@ -1046,12 +1050,18 @@ function nextStagingId(): number {
 }
 
 /**
- * Map an Arrow schema field to a DuckDB column type for table DDL.
+ * Arrow -> DuckDB ingest: the DDL type and the Appender call for one field.
+ *
+ * Which DuckDB type an Arrow type becomes is the shared contract's decision
+ * (`DUCKDB_INGEST_TYPE_BY_ARROW_TYPE` in `@dashframe/engine`); the Appender
+ * method that carries a value there is this module's, because only this side
+ * has `@duckdb/node-api`. Pairing them in one table keeps a type from being
+ * declared one way and appended another.
  *
  * The renderer's producer (`createArrowIPCBufferFromRows` in engine-browser)
  * emits exactly four Arrow types — Float64, Bool, TimestampMillisecond, Utf8 —
- * which map losslessly here. Int/Date are covered for robustness against
- * future producers; anything else degrades to VARCHAR via String().
+ * which map losslessly. Int/Date are covered for robustness against other
+ * producers; anything else degrades to VARCHAR via String().
  */
 type ArrowValueAppender = (appender: DuckDBAppender, value: unknown) => void;
 
@@ -1060,52 +1070,64 @@ type ArrowTypeAdapter = {
   append: ArrowValueAppender;
 };
 
-const VARCHAR_ARROW_ADAPTER: ArrowTypeAdapter = {
-  duckdbType: "VARCHAR",
-  append: (appender, value) => appender.appendVarchar(String(value)),
+const APPEND_AS_VARCHAR: ArrowValueAppender = (appender, value) =>
+  appender.appendVarchar(String(value));
+
+/**
+ * How each Arrow type the contract names is handed to the DuckDB Appender.
+ *
+ * apache-arrow's `.get()` normalizes values per logical type: Timestamp and
+ * Date come back as epoch milliseconds (number), Int64 as bigint, the rest as
+ * their natural JS primitives. The millis -> DuckDB unit conversions are the
+ * contract's (`arrowDateToDuckDBDays`, and the micros factor below).
+ */
+const ARROW_VALUE_APPENDERS: Record<
+  IngestibleArrowTypeName,
+  ArrowValueAppender
+> = {
+  Bool: (appender, value) => appender.appendBoolean(Boolean(value)),
+  Int: (appender, value) =>
+    appender.appendBigInt(
+      typeof value === "bigint" ? value : BigInt(Math.trunc(Number(value))),
+    ),
+  Float: (appender, value) => appender.appendDouble(Number(value)),
+  // Arrow JS yields epoch millis; DuckDB TIMESTAMP stores micros.
+  Timestamp: (appender, value) =>
+    appender.appendTimestamp(
+      new DuckDBTimestampValue(BigInt(Math.round(Number(value))) * 1000n),
+    ),
+  Date: (appender, value) =>
+    appender.appendDate(new DuckDBDateValue(arrowDateToDuckDBDays(value))),
+  Utf8: APPEND_AS_VARCHAR,
+  LargeUtf8: APPEND_AS_VARCHAR,
+};
+
+/** Where an Arrow type the contract does not name lands. */
+const FALLBACK_ARROW_ADAPTER: ArrowTypeAdapter = {
+  duckdbType: DEFAULT_DUCKDB_INGEST_TYPE,
+  append: APPEND_AS_VARCHAR,
 };
 
 /**
- * One adapter table owns both sides of Arrow -> DuckDB conversion. Keeping the
- * DDL type and Appender operation together prevents those formerly independent
- * switches from accepting a type differently.
+ * The contract names Arrow types; `ArrowType` (apache-arrow's own `Type` enum)
+ * turns a name into the id a field actually carries. Resolving here rather
+ * than copying enum values into the shared module keeps one table and no
+ * numeric constant that can drift silently.
  */
-const ARROW_TYPE_ADAPTERS: Partial<Record<ArrowType, ArrowTypeAdapter>> = {
-  [ArrowType.Bool]: {
-    duckdbType: "BOOLEAN",
-    append: (appender, value) => appender.appendBoolean(Boolean(value)),
-  },
-  [ArrowType.Int]: {
-    duckdbType: "BIGINT",
-    append: (appender, value) =>
-      appender.appendBigInt(
-        typeof value === "bigint" ? value : BigInt(Math.trunc(Number(value))),
-      ),
-  },
-  [ArrowType.Float]: {
-    duckdbType: "DOUBLE",
-    append: (appender, value) => appender.appendDouble(Number(value)),
-  },
-  [ArrowType.Timestamp]: {
-    duckdbType: "TIMESTAMP",
-    // Arrow JS yields epoch millis; DuckDB TIMESTAMP stores micros.
-    append: (appender, value) =>
-      appender.appendTimestamp(
-        new DuckDBTimestampValue(BigInt(Math.round(Number(value))) * 1000n),
-      ),
-  },
-  [ArrowType.Date]: {
-    duckdbType: "DATE",
-    append: (appender, value) =>
-      appender.appendDate(new DuckDBDateValue(arrowDateToDuckDBDays(value))),
-  },
-  [ArrowType.Utf8]: VARCHAR_ARROW_ADAPTER,
-  [ArrowType.LargeUtf8]: VARCHAR_ARROW_ADAPTER,
-};
+const ARROW_TYPE_ADAPTERS = new Map<number, ArrowTypeAdapter>(
+  Object.entries(DUCKDB_INGEST_TYPE_BY_ARROW_TYPE).map(([name, duckdbType]) => [
+    ArrowType[name as IngestibleArrowTypeName],
+    {
+      duckdbType,
+      append: ARROW_VALUE_APPENDERS[name as IngestibleArrowTypeName],
+    },
+  ]),
+);
 
 function arrowTypeAdapter(field: Field): ArrowTypeAdapter {
   return (
-    ARROW_TYPE_ADAPTERS[field.type.typeId as ArrowType] ?? VARCHAR_ARROW_ADAPTER
+    ARROW_TYPE_ADAPTERS.get(field.type.typeId as number) ??
+    FALLBACK_ARROW_ADAPTER
   );
 }
 
@@ -1117,16 +1139,10 @@ function arrowFieldToDuckDBType(field: Field): string {
  * Append one Arrow value to a DuckDB Appender using the typed append method
  * matching the column type chosen by `arrowFieldToDuckDBType`.
  *
- * apache-arrow's `.get()` normalizes values per logical type: Timestamp and
- * Date come back as epoch milliseconds (number), Int64 as bigint, the rest as
- * their natural JS primitives.
- *
- * Date handling reads the column's `DateUnit` (DAY for Date32, MILLISECOND for
- * Date64) and converts to the day count DuckDB DATE stores. apache-arrow (v21)
- * normalizes BOTH units to epoch millis through the Date visitor on `.get()`,
- * so both divide by MS_PER_DAY — but keying on the unit makes that explicit and
- * keeps the branch honest if a future producer or arrow version surfaces raw
- * Date32 days. A Date32 round-trip test pins the behavior.
+ * Date32 (DAY) and Date64 (MILLISECOND) share one adapter: apache-arrow (v21)
+ * normalizes both units to epoch millis through the Date visitor on `.get()`,
+ * so both go through the contract's single millis -> days conversion. The
+ * cross-library round-trip test pins that for both.
  */
 function appendArrowValue(
   appender: DuckDBAppender,
@@ -1138,14 +1154,4 @@ function appendArrowValue(
     return;
   }
   arrowTypeAdapter(field).append(appender, value);
-}
-
-/**
- * Convert an apache-arrow Date `.get()` result to the day count DuckDB DATE
- * stores. In apache-arrow v21 the Date visitor normalizes both Date32 (DAY) and
- * Date64 (MILLISECOND) to epoch millis on read, so a single millis → days
- * conversion is correct for both units. Pinned by the Date32 round-trip test.
- */
-function arrowDateToDuckDBDays(value: unknown): number {
-  return Math.floor(Number(value) / MS_PER_DAY);
 }

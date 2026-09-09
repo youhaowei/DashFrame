@@ -691,6 +691,7 @@
       },
       "devDependencies": {
         "@types/node": "^22.10.1",
+        "@uwdata/flechette": "^2.2.5",
         "esbuild": "^0.28.0",
         "typescript": "5.7.2",
         "vite-plus": "catalog:",

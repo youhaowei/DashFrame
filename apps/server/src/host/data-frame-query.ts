@@ -1,5 +1,5 @@
 /** Closed, bounded reads of project-owned materialized DataFrames. */
-import { frameTableName } from "@dashframe/engine";
+import { frameTableName, quoteIdentifier } from "@dashframe/engine";
 import { arrowIpcToJsonRows } from "@dashframe/engine-server/arrow-data-path";
 import type { UUID } from "@dashframe/types";
 import { z } from "zod";
@@ -29,10 +29,6 @@ const requestSchema = z.object({
     .optional()
     .default([]),
 });
-
-function quoteIdentifier(identifier: string): string {
-  return `"${identifier.replaceAll('"', '""')}"`;
-}
 
 function frameSchema(analysis: unknown, fieldIds: unknown) {
   const ids = Array.isArray(fieldIds)

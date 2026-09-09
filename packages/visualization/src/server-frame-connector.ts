@@ -1,4 +1,8 @@
-import { frameTableName, quoteIdentifier } from "@dashframe/engine";
+import {
+  FLECHETTE_DECODE_OPTIONS,
+  frameTableName,
+  quoteIdentifier,
+} from "@dashframe/engine";
 import { tableFromIPC } from "@uwdata/flechette";
 
 import type { MosaicConnector } from "./VisualizationProvider";
@@ -77,9 +81,10 @@ export function createServerFrameConnector(
       if (type === "exec") return;
       if (type === "json")
         return (await response.json()) as Record<string, unknown>[];
-      return tableFromIPC(new Uint8Array(await response.arrayBuffer()), {
-        useDate: true,
-      });
+      return tableFromIPC(
+        new Uint8Array(await response.arrayBuffer()),
+        FLECHETTE_DECODE_OPTIONS,
+      );
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
         throw new Error("Chart query timed out", { cause: error });

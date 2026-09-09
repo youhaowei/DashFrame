@@ -1,14 +1,26 @@
 /**
  * Server-side Arrow IPC encoding for native DuckDB results.
  *
- * Mirrors the renderer's `createArrowIPCBufferFromRows` (engine-browser) so the
- * binary format the data path serves matches exactly what DuckDB-WASM ingests.
- * DuckDB type IDs are normalized to DashFrame's `ColumnType`, then encoded with
- * `apache-arrow`'s `tableToIPC`. Values arrive already JSON-normalized
- * (`getColumnsObjectJson`): BigInt → string, Date/timestamp → string — so the
- * encoder coerces to the Arrow physical type here.
+ * The type map, the encoding choice per `ColumnType`, and the value
+ * normalization all come from `@dashframe/engine`'s type-translation contract;
+ * this module is the `apache-arrow` half of it. That is what makes the binary
+ * format the data path serves match what the renderer's producer emits — both
+ * encode from the same table rather than from two switches that have to be
+ * kept in step by hand.
+ *
+ * Values arrive already JSON-normalized (`getColumnsObjectJson`): BigInt →
+ * string, Date/timestamp → string, so the contract's normalizers coerce them
+ * to the Arrow physical type here.
  */
-import { defineColumnTypeMap, type ColumnType } from "@dashframe/engine";
+import {
+  ARROW_ENCODING_BY_COLUMN_TYPE,
+  defineColumnTypeMap,
+  duckdbJsonToEpochMillis,
+  duckdbJsonToNumber,
+  DUCKDB_TYPE_NAMES_BY_COLUMN_TYPE,
+  type ArrowEncodingName,
+  type ColumnType,
+} from "@dashframe/engine";
 import { DuckDBTypeId } from "@duckdb/node-api";
 import {
   Bool,
@@ -30,38 +42,18 @@ export interface ResultColumn {
   values: unknown[];
 }
 
-const DUCKDB_TYPE_IDS_BY_COLUMN_TYPE = defineColumnTypeMap({
-  boolean: [DuckDBTypeId.BOOLEAN],
-  number: [
-    DuckDBTypeId.TINYINT,
-    DuckDBTypeId.SMALLINT,
-    DuckDBTypeId.INTEGER,
-    DuckDBTypeId.BIGINT,
-    DuckDBTypeId.UTINYINT,
-    DuckDBTypeId.USMALLINT,
-    DuckDBTypeId.UINTEGER,
-    DuckDBTypeId.UBIGINT,
-    DuckDBTypeId.HUGEINT,
-    DuckDBTypeId.UHUGEINT,
-    DuckDBTypeId.FLOAT,
-    DuckDBTypeId.DOUBLE,
-    DuckDBTypeId.DECIMAL,
-  ],
-  date: [
-    DuckDBTypeId.DATE,
-    DuckDBTypeId.TIMESTAMP,
-    DuckDBTypeId.TIMESTAMP_S,
-    DuckDBTypeId.TIMESTAMP_MS,
-    DuckDBTypeId.TIMESTAMP_NS,
-    DuckDBTypeId.TIMESTAMP_TZ,
-  ],
-  string: [DuckDBTypeId.VARCHAR],
-  unknown: [],
-});
-
+/**
+ * The shared contract names DuckDB types; `DuckDBTypeId` turns a name into the
+ * id a result actually carries. Resolving here rather than copying numbers
+ * into the shared module keeps one table and no constant that can drift.
+ */
 const COLUMN_TYPE_BY_DUCKDB_TYPE_ID = new Map<number, ColumnType>(
-  Object.entries(DUCKDB_TYPE_IDS_BY_COLUMN_TYPE).flatMap(([columnType, ids]) =>
-    ids.map((id) => [id, columnType as ColumnType]),
+  Object.entries(DUCKDB_TYPE_NAMES_BY_COLUMN_TYPE).flatMap(
+    ([columnType, names]) =>
+      names.map((name) => [
+        DuckDBTypeId[name as keyof typeof DuckDBTypeId],
+        columnType as ColumnType,
+      ]),
   ),
 );
 
@@ -104,94 +96,33 @@ export function duckdbColumnsToArrowIpc(columns: ResultColumn[]): Uint8Array {
   return tableToIPC(new Table(arrowColumns));
 }
 
+/** The `apache-arrow` constructor behind each name the contract encodes to. */
+const ARROW_VECTOR_FACTORIES: Record<
+  ArrowEncodingName,
+  (values: unknown[]) => Vector<DataType>
+> = {
+  Bool: (values) => vectorFromArray(values, new Bool()),
+  Float64: (values) => vectorFromArray(values, new Float64()),
+  TimestampMillisecond: (values) =>
+    vectorFromArray(values, new TimestampMillisecond()),
+  Utf8: (values) => vectorFromArray(values, new Utf8()),
+};
+
+/** How a JSON-normalized DuckDB value is coerced for its Arrow encoding. */
+const VALUE_NORMALIZERS = defineColumnTypeMap({
+  boolean: (value: unknown) => (value == null ? null : Boolean(value)),
+  number: duckdbJsonToNumber,
+  date: duckdbJsonToEpochMillis,
+  string: (value: unknown) => (value == null ? null : String(value)),
+  unknown: (value: unknown) => (value == null ? null : String(value)),
+});
+
 function encodeColumn(
   colType: ColumnType,
   values: unknown[],
 ): Vector<DataType> {
-  switch (colType) {
-    case "number":
-      return vectorFromArray(values.map(toNumber), new Float64());
-    case "boolean":
-      return vectorFromArray(
-        values.map((v) => (v == null ? null : Boolean(v))),
-        new Bool(),
-      );
-    case "date":
-      return vectorFromArray(
-        values.map(toEpochMillis),
-        new TimestampMillisecond(),
-      );
-    default:
-      return vectorFromArray(
-        values.map((v) => (v == null ? null : String(v))),
-        new Utf8(),
-      );
-  }
-}
-
-/** Matches a whole-integer string (the JSON form of BIGINT/UBIGINT/HUGEINT). */
-const INTEGER_STRING = /^-?\d+$/;
-/** Captures the integer part of a fractional string (the JSON form of DECIMAL). */
-const DECIMAL_STRING = /^(-?\d+)\.\d+$/;
-
-function toNumber(value: unknown): number | null {
-  if (value == null) return null;
-  if (typeof value === "number") return Number.isNaN(value) ? null : value;
-  // BigInt and decimal arrive as strings from getColumnsObjectJson. The column
-  // is encoded as Float64, which holds integers exactly only up to 2^53-1: a
-  // BIGINT id or count — or a high-precision DECIMAL's integer part — beyond
-  // that would round SILENTLY through Number(). Fail closed on unsafe integer
-  // parts instead of corrupting results in transit.
-  //
-  // Policy: the guard covers the INTEGER part only — magnitude (IDs, money).
-  // Fractional digits beyond Float64's precision round to nearest; that is
-  // the accepted semantics of the f64 physical type the renderer-parity
-  // design encodes to, and failing closed on every >15-significant-digit
-  // fraction would break legitimate DECIMAL(38,20) columns over
-  // sub-precision noise. Exact decimal semantics would require a DECIMAL128
-  // Arrow column type on both ends — out of scope here.
-  const s = String(value);
-  const integerPart = INTEGER_STRING.test(s) ? s : s.match(DECIMAL_STRING)?.[1];
-  if (integerPart != null) {
-    const big = BigInt(integerPart);
-    if (
-      big > BigInt(Number.MAX_SAFE_INTEGER) ||
-      big < BigInt(Number.MIN_SAFE_INTEGER)
-    ) {
-      throw new Error(
-        `arrow-encode: numeric value ${s} exceeds Float64's exact range (2^53-1) — would silently lose precision`,
-      );
-    }
-    if (integerPart === s) return Number(big);
-  }
-  const n = Number(s);
-  return Number.isNaN(n) ? null : n;
-}
-
-/**
- * Trailing zone designator on a date-time string: `Z` or a numeric offset
- * (`-07`, `-0800`, `+05:30`). DuckDB renders TIMESTAMP_TZ with an hour-only
- * offset (`2024-01-01 00:00:00-07`), which `Date.parse` rejects.
- */
-const ZONE_DESIGNATOR = /([zZ]|[+-]\d{2}(?::?\d{2})?)$/;
-const HOUR_ONLY_OFFSET = /^[+-]\d{2}$/;
-
-function toEpochMillis(value: unknown): number | null {
-  if (value == null) return null;
-  if (typeof value === "number") return value;
-  // DuckDB serializes zone-less TIMESTAMP as "YYYY-MM-DD HH:MM:SS[.ffffff]".
-  // Date.parse reads a zone-less date-time as host-LOCAL time, silently
-  // shifting every value by the user's UTC offset in transit. Normalize to
-  // ISO-8601 and pin UTC explicitly. A value that already carries a zone
-  // designator (TIMESTAMP_TZ) keeps it — appending Z would double-shift it —
-  // but an hour-only offset is widened to ±HH:00 so Date.parse accepts it.
-  // Date-only strings (no time part) are already parsed as UTC per ISO-8601.
-  let s = String(value).replace(" ", "T");
-  if (s.includes("T")) {
-    const zone = s.match(ZONE_DESIGNATOR)?.[1];
-    if (zone == null) s += "Z";
-    else if (HOUR_ONLY_OFFSET.test(zone)) s += ":00";
-  }
-  const ms = Date.parse(s);
-  return Number.isNaN(ms) ? null : ms;
+  const normalize = VALUE_NORMALIZERS[colType];
+  return ARROW_VECTOR_FACTORIES[ARROW_ENCODING_BY_COLUMN_TYPE[colType]](
+    values.map((value) => normalize(value)),
+  );
 }
