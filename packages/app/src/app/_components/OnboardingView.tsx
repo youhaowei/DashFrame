@@ -1,20 +1,15 @@
 import { DataPickerContent } from "@/components/data-sources/DataPickerContent";
 import { useCreateInsight } from "@/hooks/useCreateInsight";
-import { Card, CardContent } from "@wystack/ui-react";
-import { ChartIcon } from "@wystack/ui-react/icons";
 
-const WelcomeHeader = () => (
-  <div className="mb-8 text-center">
-    <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-palette-primary/10">
-      <ChartIcon className="h-6 w-6 text-palette-primary" />
-    </div>
-    <h2 className="mb-2 text-2xl font-bold">Welcome to DashFrame</h2>
-    <p className="text-base text-neutral-fg-subtle">
-      Create beautiful visualizations from your data.
-    </p>
-  </div>
-);
-
+/**
+ * First-run view for an empty project: the identity line, the one next step,
+ * and the data picker itself.
+ *
+ * Deliberately unadorned. The Stage is already the elevated surface this page
+ * sits on, so the view adds no panel or card of its own, and no decorative
+ * badge — per DESIGN.md the app is a working instrument, and an element that
+ * answers no question earns no place here.
+ */
 export function OnboardingView({
   onActivityChange,
 }: {
@@ -24,18 +19,25 @@ export function OnboardingView({
     useCreateInsight();
 
   return (
-    <>
-      <WelcomeHeader />
-      <Card>
-        <CardContent className="p-6">
-          <DataPickerContent
-            onTableSelect={createInsightFromTable}
-            onInsightSelect={(id, name) => createInsightFromInsight(id, name)}
-            showInsights={true}
-            onActivityChange={onActivityChange}
-          />
-        </CardContent>
-      </Card>
-    </>
+    <section aria-labelledby="onboarding-heading">
+      <h1
+        id="onboarding-heading"
+        className="text-xl font-semibold text-neutral-fg"
+      >
+        Welcome to DashFrame
+      </h1>
+      <p className="mt-1 text-sm text-neutral-fg-subtle">
+        Connect a data source to build your first insight.
+      </p>
+
+      <div className="mt-8">
+        <DataPickerContent
+          onTableSelect={createInsightFromTable}
+          onInsightSelect={(id, name) => createInsightFromInsight(id, name)}
+          showInsights={true}
+          onActivityChange={onActivityChange}
+        />
+      </div>
+    </section>
   );
 }
