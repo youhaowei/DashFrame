@@ -177,15 +177,22 @@ export class NativeDuckDBEngine implements QueryEngine {
   }
 
   async initialize(): Promise<void> {
-    if (this.connection) return;
-    // Disposal is terminal. Re-arming the lifecycle controller here would let
-    // any initialize() caller resurrect a disposed engine: dispose() nulls the
-    // connection, so this method would build a fresh DuckDBInstance and
-    // connection that the owner — which already disposed — will never close,
+    // Disposal is terminal, and this check must precede the `this.connection`
+    // early return: dispose() aborts the signal but keeps the connection alive
+    // until it has drained `operationsIdle`, so a guard placed after the early
+    // return would wave callers straight through that teardown window. Failing
+    // closed here also stops a re-armed controller from resurrecting a disposed
+    // engine — dispose() nulls the connection, so a later initialize() would
+    // otherwise build a fresh DuckDBInstance the owner will never close,
     // leaking a native handle, its background threads, and any file lock on a
-    // non-:memory: path. Failing closed at this single chokepoint covers every
-    // entry point rather than each one re-deriving the check.
+    // non-:memory: path.
+    //
+    // This guard alone is not sufficient: it cannot stop an operation that
+    // passed it *before* dispose() aborted. Every method using the persistent
+    // connection must also enrol in beginNativeOperation() so teardown waits
+    // for it.
     throwIfAborted(this.lifecycleAbort.signal);
+    if (this.connection) return;
     // Guard against concurrent initialize() calls: the `await` below yields the
     // event loop, so a plain `if (this.connection)` check (which is null until
     // both awaits resolve) would let two callers both create an instance. Latch
@@ -407,7 +414,22 @@ export class NativeDuckDBEngine implements QueryEngine {
    */
   async registerArrowTable(name: string, arrow: Uint8Array): Promise<void> {
     await this.initialize();
+    // Enrol before the lock wait so dispose() blocks on `operationsIdle`
+    // rather than disconnecting the connection out from under this appender.
+    const operationSignal = this.beginNativeOperation();
+    try {
+      throwIfAborted(operationSignal);
+      await this.registerArrowTableLocked(name, arrow, operationSignal);
+    } finally {
+      this.endNativeOperation();
+    }
+  }
 
+  private async registerArrowTableLocked(
+    name: string,
+    arrow: Uint8Array,
+    operationSignal: AbortSignal,
+  ): Promise<void> {
     // Serialize all registrations through a global promise-chain lock. DuckDB
     // appenders are not concurrent-safe on a shared connection — two in-flight
     // registrations both using `this.connection` can trigger the Linux
@@ -423,6 +445,9 @@ export class NativeDuckDBEngine implements QueryEngine {
     await gate;
 
     try {
+      // A queued registration can wait here across a dispose(); the connection
+      // it was about to use may already be gone.
+      throwIfAborted(operationSignal);
       const conn = this.conn();
       // Decode the Arrow IPC stream buffer.
       const arrowTable = tableFromIPC(arrow);
@@ -614,6 +639,19 @@ export class NativeDuckDBEngine implements QueryEngine {
 
   async unregisterTable(name: string): Promise<void> {
     await this.initialize();
+    const operationSignal = this.beginNativeOperation();
+    try {
+      throwIfAborted(operationSignal);
+      await this.unregisterTableLocked(name, operationSignal);
+    } finally {
+      this.endNativeOperation();
+    }
+  }
+
+  private async unregisterTableLocked(
+    name: string,
+    operationSignal: AbortSignal,
+  ): Promise<void> {
     const gate = this._registrationLock;
     let unlock!: () => void;
     this._registrationLock = new Promise<void>((resolve) => {
@@ -621,6 +659,7 @@ export class NativeDuckDBEngine implements QueryEngine {
     });
     await gate;
     try {
+      throwIfAborted(operationSignal);
       if (!this._registeredTables.has(name)) return;
       await this.conn().run(`DROP TABLE IF EXISTS ${quoteIdent(name)}`);
       // Forget the registration only after DuckDB confirms the DROP. A

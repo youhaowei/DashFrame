@@ -248,6 +248,59 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     expect(engine.isReady()).toBe(false);
   });
 
+  it("rejects table operations that arrive while dispose() is tearing down", async () => {
+    engine = new NativeDuckDBEngine();
+    await engine.initialize();
+
+    // Hold a registration open so dispose() parks on `operationsIdle` with the
+    // connection still live — the window a guard placed after initialize()'s
+    // `this.connection` early return would wave callers straight through.
+    let releaseProducer!: () => void;
+    const producerReleased = new Promise<void>((resolve) => {
+      releaseProducer = resolve;
+    });
+    let producerStarted!: () => void;
+    const producerHasStarted = new Promise<void>((resolve) => {
+      producerStarted = resolve;
+    });
+    const source = (async function* () {
+      producerStarted();
+      await producerReleased;
+      yield new Uint8Array();
+    })();
+    const inFlight = engine.registerArrowStream("df_holding", source);
+    await producerHasStarted;
+
+    const disposing = engine.dispose();
+
+    // Must reject promptly rather than queue behind the registration lock.
+    const arrow = tableToIPC(
+      new Table({ id: vectorFromArray([1], new Int32()) }),
+      "stream",
+    );
+    const settle = (promise: Promise<unknown>) =>
+      Promise.race([
+        promise.then(
+          () => "resolved",
+          (error: { name?: string }) =>
+            error?.name === "AbortError" ? "aborted" : "other",
+        ),
+        new Promise((resolve) => {
+          setTimeout(() => resolve("pending"), 250);
+        }),
+      ]);
+
+    expect(await settle(engine.registerArrowTable("late", arrow))).toBe(
+      "aborted",
+    );
+    expect(await settle(engine.unregisterTable("df_holding"))).toBe("aborted");
+
+    releaseProducer();
+    await expect(inFlight).rejects.toMatchObject({ name: "AbortError" });
+    await disposing;
+    expect(engine.isReady()).toBe(false);
+  });
+
   it("dispose() is idempotent — calling it twice does not throw", async () => {
     engine = new NativeDuckDBEngine();
     await engine.initialize();
