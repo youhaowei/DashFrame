@@ -54,7 +54,6 @@ export {
   DUCKDB_INGEST_TYPE_BY_ARROW_TYPE,
   DUCKDB_TYPE_NAMES_BY_COLUMN_TYPE,
   FLECHETTE_DECODE_OPTIONS,
-  MS_PER_DAY,
   type ArrowEncodingName,
   type IngestibleArrowTypeName,
 } from "./type-translation";

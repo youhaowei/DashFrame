@@ -112,16 +112,20 @@ export const DEFAULT_DUCKDB_INGEST_TYPE = "VARCHAR";
  * Decode options the chart side must pass to flechette's `tableFromIPC`.
  *
  * The two Arrow libraries disagree on what a temporal value is when you read
- * it. `apache-arrow`'s `.get()` normalizes Date32 and Date64 to epoch
- * milliseconds; flechette's default returns the raw stored value, so a Date32
- * column reads back as a day count and renders as 1970 — see
- * https://github.com/youhaowei/DashFrame/issues/95. `useDate: true` makes
- * flechette materialize temporal columns as JS `Date`s, which is the shape
- * Mosaic and vgplot expect.
+ * it: `apache-arrow`'s `.get()` normalizes temporal types to epoch
+ * milliseconds, while flechette's default hands back the raw stored value —
+ * the disagreement tracked in https://github.com/youhaowei/DashFrame/issues/95.
+ * On DashFrame's egress every temporal column leaves as
+ * `TimestampMillisecond` (see `ARROW_ENCODING_BY_COLUMN_TYPE`), so what this
+ * option buys today is the *shape*: `useDate: true` materializes temporal
+ * columns as JS `Date`s rather than numbers, which is what Mosaic and vgplot
+ * expect. It is also what would keep a producer that emitted Date32 directly
+ * from reading back as a 1970-era instant.
  */
 export const FLECHETTE_DECODE_OPTIONS = { useDate: true } as const;
 
-export const MS_PER_DAY = 86_400_000;
+/** Module-private: the only conversion that needs it is the one below. */
+const MS_PER_DAY = 86_400_000;
 
 /**
  * Convert an `apache-arrow` Date `.get()` result to the day count DuckDB DATE

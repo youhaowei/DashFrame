@@ -1078,8 +1078,9 @@ const APPEND_AS_VARCHAR: ArrowValueAppender = (appender, value) =>
  *
  * apache-arrow's `.get()` normalizes values per logical type: Timestamp and
  * Date come back as epoch milliseconds (number), Int64 as bigint, the rest as
- * their natural JS primitives. The millis -> DuckDB unit conversions are the
- * contract's (`arrowDateToDuckDBDays`, and the micros factor below).
+ * their natural JS primitives. The millis -> day conversion is the contract's
+ * (`arrowDateToDuckDBDays`); the millis -> micros factor below is local,
+ * because it belongs to the DuckDB Appender call it sits in.
  */
 const ARROW_VALUE_APPENDERS: Record<
   IngestibleArrowTypeName,
@@ -1109,14 +1110,23 @@ const FALLBACK_ARROW_ADAPTER: ArrowTypeAdapter = {
 };
 
 /**
+ * Compile-time proof that every Arrow type name the contract lists is a real
+ * `Type` member. The contract cannot import apache-arrow, so a typo there
+ * would otherwise resolve to `undefined` and quietly send that type to the
+ * VARCHAR fallback instead of failing.
+ */
+const CONTRACT_NAMES_RESOLVE: Record<IngestibleArrowTypeName, number> =
+  ArrowType;
+
+/**
  * The contract names Arrow types; `ArrowType` (apache-arrow's own `Type` enum)
  * turns a name into the id a field actually carries. Resolving here rather
- * than copying enum values into the shared module keeps one table and no
- * numeric constant that can drift silently.
+ * than copying enum values into the shared module keeps one table and one
+ * place a name is checked.
  */
 const ARROW_TYPE_ADAPTERS = new Map<number, ArrowTypeAdapter>(
   Object.entries(DUCKDB_INGEST_TYPE_BY_ARROW_TYPE).map(([name, duckdbType]) => [
-    ArrowType[name as IngestibleArrowTypeName],
+    CONTRACT_NAMES_RESOLVE[name as IngestibleArrowTypeName],
     {
       duckdbType,
       append: ARROW_VALUE_APPENDERS[name as IngestibleArrowTypeName],

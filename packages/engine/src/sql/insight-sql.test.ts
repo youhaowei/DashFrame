@@ -205,6 +205,23 @@ describe("buildInsightSQL — operators", () => {
 
     expect(sql).toContain(`"${regionAlias}" LIKE '%ME%'`);
   });
+
+  it("escapes LIKE wildcards and the quote in a contains value", () => {
+    // The wildcard escaping and the literal quoting are two separate steps
+    // over the same string, and their order matters: quoting first would
+    // double the backslash the ESCAPE clause introduces. Only a value that
+    // carries a quote AND a wildcard AND a backslash can tell them apart, and
+    // getting it wrong is an injection-class defect that renders as valid SQL.
+    const sql = build(
+      groupedInsight([
+        { field: "region", operator: "contains", value: String.raw`a'b%c_d\e` },
+      ]),
+    );
+
+    expect(sql).toContain(
+      String.raw`"${regionAlias}" LIKE '%a''b\%c\_d\\e%' ESCAPE '\'`,
+    );
+  });
 });
 
 describe("buildInsightSQL — regression: filters are no longer silently dropped", () => {

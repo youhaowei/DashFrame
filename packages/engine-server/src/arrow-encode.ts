@@ -1,9 +1,11 @@
 /**
  * Server-side Arrow IPC encoding for native DuckDB results.
  *
- * The type map, the encoding choice per `ColumnType`, and the value
- * normalization all come from `@dashframe/engine`'s type-translation contract;
- * this module is the `apache-arrow` half of it. That is what makes the binary
+ * The type map, the encoding choice per `ColumnType`, and the numeric and
+ * temporal value normalization come from `@dashframe/engine`'s
+ * type-translation contract; this module is the `apache-arrow` half of it, and
+ * owns the vector constructors plus the boolean and string coercions, which
+ * need no shared knowledge. That is what makes the binary
  * format the data path serves match what the renderer's producer emits — both
  * encode from the same table rather than from two switches that have to be
  * kept in step by hand.
@@ -43,15 +45,27 @@ export interface ResultColumn {
 }
 
 /**
+ * Compile-time proof that every DuckDB type name the contract lists is a real
+ * `DuckDBTypeId` member. The contract cannot import the enum, so the names are
+ * plain strings there and a typo would otherwise resolve to `undefined` at the
+ * boundary below — the column would silently egress as `unknown`/VARCHAR
+ * instead of failing. This assignment is the check the enum used to give.
+ */
+type ContractDuckDBTypeName =
+  (typeof DUCKDB_TYPE_NAMES_BY_COLUMN_TYPE)[ColumnType][number];
+const CONTRACT_NAMES_RESOLVE: Record<ContractDuckDBTypeName, number> =
+  DuckDBTypeId;
+
+/**
  * The shared contract names DuckDB types; `DuckDBTypeId` turns a name into the
  * id a result actually carries. Resolving here rather than copying numbers
- * into the shared module keeps one table and no constant that can drift.
+ * into the shared module keeps one table and one place a name is checked.
  */
 const COLUMN_TYPE_BY_DUCKDB_TYPE_ID = new Map<number, ColumnType>(
   Object.entries(DUCKDB_TYPE_NAMES_BY_COLUMN_TYPE).flatMap(
     ([columnType, names]) =>
       names.map((name) => [
-        DuckDBTypeId[name as keyof typeof DuckDBTypeId],
+        CONTRACT_NAMES_RESOLVE[name],
         columnType as ColumnType,
       ]),
   ),
