@@ -85,10 +85,13 @@ function ReportsCollectionContent({
 /**
  * The empty reports list, as a starting point rather than a notice.
  *
- * A reader with no reports also has nothing to put in one, so the first useful
- * move is the same one onboarding offers: pick data and get a question. Naming
- * an empty report is still one click away in the collection header, which is
- * why that path is named here rather than repeated as a second button.
+ * What a report holds is questions, so the useful move from an empty list is
+ * the same one onboarding offers: pick data and get a question. This branch
+ * says nothing about what else the project contains — questions and saved
+ * views exist independently of reports — so the copy stays neutral about
+ * whether this is the reader's first. Naming an empty report is still one
+ * click away in the collection header, which is why that path is named here
+ * rather than repeated as a second button.
  */
 function ReportsStart() {
   const { createInsightFromTable, createInsightFromInsight } =
@@ -98,7 +101,7 @@ function ReportsStart() {
     <div className="mx-auto w-full max-w-2xl py-8">
       <StartFromData
         title="No reports yet"
-        description="Pick a table to build your first question, or use New report above to name an empty one."
+        description="Pick data to start a question, or use New report above to name an empty one."
         headingLevel={2}
         onTableSelect={createInsightFromTable}
         onInsightSelect={(id, name) => createInsightFromInsight(id, name)}
