@@ -675,6 +675,57 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     expect((engine as unknown as { instance: unknown }).instance).toBeNull();
   });
 
+  it("a query resuming into a dispose() queued ahead of it never starts its statement", async () => {
+    engine = new NativeDuckDBEngine();
+    await engine.initialize();
+    const internals = engine as unknown as {
+      connection: { runAndReadAll: (...args: unknown[]) => unknown };
+    };
+    const runAndReadAll = vi.spyOn(internals.connection, "runAndReadAll");
+
+    // Acquisition yields once before the callback runs. A dispose() landing
+    // in that microtask has already interrupted a statement that does not
+    // exist yet; the query must notice and stop, not run unstoppable through
+    // teardown.
+    let disposing!: Promise<void>;
+    queueMicrotask(() => {
+      disposing = engine!.dispose();
+    });
+    await expect(engine.query("SELECT 1")).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    await disposing;
+
+    expect(runAndReadAll).not.toHaveBeenCalled();
+    expect(engine.isReady()).toBe(false);
+  });
+
+  it("dispose() keeps the instance and retries when closeSync() fails", async () => {
+    engine = new NativeDuckDBEngine();
+    await engine.initialize();
+    const internals = engine as unknown as {
+      instance: { closeSync(): void } | null;
+    };
+    const closeSync = vi
+      .spyOn(internals.instance!, "closeSync")
+      .mockImplementationOnce(() => {
+        throw new Error("close failed");
+      });
+
+    // A close that fails leaves native threads and any file lock live;
+    // swallowing it and dropping the handle would make that leak permanent.
+    await expect(engine.dispose()).rejects.toThrow("close failed");
+    expect(internals.instance).not.toBeNull();
+    expect(engine.isReady()).toBe(false);
+
+    await expect(engine.dispose()).resolves.toBeUndefined();
+    expect(closeSync).toHaveBeenCalledTimes(2);
+    expect(internals.instance).toBeNull();
+    await expect(engine.initialize()).rejects.toMatchObject({
+      name: "AbortError",
+    });
+  });
+
   it("reaches native handles only from inside an enrolled lifecycle operation", async () => {
     // Structural pin for the lifecycle contract on OPERATIONS: every native
     // call an operation makes through the persistent connection, the

@@ -421,6 +421,11 @@ export class NativeDuckDBEngine implements QueryEngine {
   ): Promise<T> {
     const lease = await this.acquireConnection(options);
     try {
+      // The await above yields even when acquisition did no async work, and a
+      // dispose() queued in that gap has already fired interrupt() against a
+      // statement that does not exist yet. Re-check so the statement never
+      // starts, instead of running unstoppable through teardown.
+      throwIfAborted(lease.signal);
       return await run(lease.connection, lease.signal);
     } finally {
       lease.release();
@@ -441,6 +446,8 @@ export class NativeDuckDBEngine implements QueryEngine {
   ): AsyncGenerator<Uint8Array> {
     const lease = await this.acquireConnection(options);
     try {
+      // Same gap as withConnection(): see the re-check there.
+      throwIfAborted(lease.signal);
       yield* run(lease.connection, lease.signal);
     } finally {
       lease.release();
@@ -877,12 +884,16 @@ export class NativeDuckDBEngine implements QueryEngine {
     this.connection = null;
     // Close the native instance: releases the background I/O threads, the
     // file lock on the database path, and any native heap the instance holds.
-    // The init-failure path already calls closeSync() inline; tolerating an
-    // already-closed instance here keeps teardown from throwing on it.
+    // This is the only closeSync() on `this.instance` — a failed init never
+    // assigns it, and teardown runs once — so a throw here is a real failure
+    // to close, not a double close. Keep the handle and forget the memoized
+    // teardown so a later dispose() retries instead of silently leaking the
+    // threads and the file lock.
     try {
       this.instance?.closeSync();
-    } catch {
-      // Already closed — safe to ignore.
+    } catch (err) {
+      this.disposal = null;
+      throw err;
     }
     this.instance = null;
     this.initPromise = null;
