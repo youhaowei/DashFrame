@@ -308,6 +308,34 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     expect(engine.hasTable("df_stalled")).toBe(false);
   });
 
+  it("registration awaiting initialize rejects the lifecycle abort after disposal", async () => {
+    engine = new NativeDuckDBEngine();
+    await engine.initialize();
+    let resumeInitialize!: () => void;
+    let signalInitialize!: () => void;
+    const initializeStarted = new Promise<void>((resolve) => {
+      signalInitialize = resolve;
+    });
+    const initializeResumed = new Promise<void>((resolve) => {
+      resumeInitialize = resolve;
+    });
+    vi.spyOn(engine, "initialize").mockImplementationOnce(async () => {
+      signalInitialize();
+      await initializeResumed;
+    });
+    const source = (async function* () {
+      yield new Uint8Array();
+    })();
+    const registration = engine.registerArrowStream("df_disposed", source);
+    await initializeStarted;
+
+    await engine.dispose();
+    resumeInitialize();
+
+    await expect(registration).rejects.toMatchObject({ name: "AbortError" });
+    expect(engine.hasTable("df_disposed")).toBe(false);
+  });
+
   it("is idempotent under concurrent initialize() — one connection, no leaked instance", async () => {
     engine = new NativeDuckDBEngine();
     // Two callers race before the first await resolves; both must converge on

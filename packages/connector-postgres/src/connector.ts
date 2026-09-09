@@ -594,9 +594,16 @@ export class PostgresConnector extends RemoteApiConnector {
       const onAbort = () => {
         // During connection setup node-postgres end() gracefully half-closes
         // the socket and can still wait for the remote peer. Force-close the
-        // default client's stream first so a pending connect rejects promptly.
-        client.abortConnection?.();
-        client.end().catch(() => undefined);
+        // default client's stream without calling end() yet: end() marks the
+        // client as intentionally ending and suppresses connect's rejection.
+        // The finally block calls end() after connect/query has settled.
+        if (client.abortConnection) {
+          client.abortConnection();
+        } else {
+          // Test doubles and alternate clients without the pg-specific hook
+          // retain the previous cancellation fallback.
+          client.end().catch(() => undefined);
+        }
       };
       signal?.addEventListener("abort", onAbort, { once: true });
 

@@ -267,13 +267,17 @@ describe("streaming immutable materialization", () => {
     }
   });
 
-  it.each(["batchBytes", "runBytes", "storageBytes"] as const)(
+  it.each([
+    ["batchBytes", "FETCH_BATCH_BYTES_EXCEEDED"],
+    ["runBytes", "FETCH_BYTE_BUDGET_EXCEEDED"],
+    ["storageBytes", "FETCH_STORAGE_BUDGET_EXCEEDED"],
+  ] as const)(
     "rejects %s exhaustion without publication",
-    async (key) => {
+    async (key, code) => {
       const h = await fixture({
         limits: { ...DEFAULT_TRANSFER_LIMITS, [key]: 100 },
       });
-      await expect(h.run()).rejects.toThrow(/FETCH_.*EXCEEDED/);
+      await expect(h.run()).rejects.toThrow(code);
       expect(await h.storage.list()).toEqual([]);
       expect(h.publish).not.toHaveBeenCalled();
       expect(h.state().closed).toBe(true);

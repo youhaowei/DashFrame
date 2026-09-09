@@ -18,6 +18,7 @@ import {
   TestBackend,
 } from "@wystack/secret-vault";
 import { tableFromIPC } from "apache-arrow";
+import { createServer, type Socket } from "node:net";
 import {
   afterEach,
   beforeEach,
@@ -1204,6 +1205,66 @@ describe("queryBatches PostgreSQL cursor", () => {
     expect(client.abortConnection).toHaveBeenCalled();
     expect(client.end).toHaveBeenCalled();
     expect(client.query).not.toHaveBeenCalled();
+  });
+
+  it("settles a real pg pending connect when aborted", async () => {
+    const sockets = new Set<Socket>();
+    let acceptConnection!: () => void;
+    const accepted = new Promise<void>((resolve) => {
+      acceptConnection = resolve;
+    });
+    const server = createServer((socket) => {
+      sockets.add(socket);
+      socket.once("close", () => sockets.delete(socket));
+      acceptConnection();
+      // Deliberately never send a PostgreSQL startup response.
+    });
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error("Expected a loopback TCP address");
+    }
+
+    const dsn = `postgresql://user:pass@127.0.0.1:${address.port}/db`;
+    const connector = new PostgresConnector((use) => use(dsn), baseConfig);
+    const abort = new AbortController();
+    const iterator = connector
+      .queryBatches("public.users", crypto.randomUUID(), {
+        signal: abort.signal,
+      })
+      [Symbol.asyncIterator]();
+    const pending = iterator.next();
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+
+    try {
+      await accepted;
+      abort.abort(new Error("cancelled"));
+      const boundedPending = Promise.race([
+        pending,
+        new Promise<never>((_resolve, reject) => {
+          deadline = setTimeout(
+            () => reject(new Error("pending connect did not settle")),
+            1_000,
+          );
+        }),
+      ]);
+      await expect(boundedPending).rejects.toThrow(
+        "Connection terminated unexpectedly",
+      );
+    } finally {
+      if (deadline) clearTimeout(deadline);
+      for (const socket of sockets) socket.destroy();
+      await pending.catch(() => undefined);
+      await iterator.return?.().catch(() => undefined);
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error) reject(error);
+          else resolve();
+        });
+      });
+    }
   });
 });
 

@@ -131,6 +131,16 @@ async function frameIsUnavailable(
     : false;
 }
 
+function supportsStoredFrameRegistration(
+  options: ArrowDataPathOptions,
+): boolean {
+  return (
+    typeof options.engine.registerArrowTable === "function" ||
+    (typeof options.dataFrameStorage?.stream === "function" &&
+      typeof options.engine.registerArrowStream === "function")
+  );
+}
+
 async function registerStoredFrame(
   options: ArrowDataPathOptions,
   id: UUID,
@@ -146,6 +156,9 @@ async function registerStoredFrame(
     await options.engine.registerArrowStream(name, storage.stream(id));
     return "registered";
   }
+  if (typeof options.engine.registerArrowTable !== "function") {
+    throw new Error("Engine does not support buffered table registration");
+  }
   const arrow = await storage.load(id);
   if (!arrow) return "missing";
   if (
@@ -154,7 +167,7 @@ async function registerStoredFrame(
   ) {
     return "unavailable";
   }
-  await options.engine.registerArrowTable!(name, arrow);
+  await options.engine.registerArrowTable(name, arrow);
   return "registered";
 }
 
@@ -445,10 +458,7 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
     if (!options.dataFrameStorage) {
       return c.json({ error: "Server DataFrame storage is unavailable" }, 503);
     }
-    if (
-      typeof options.engine.registerArrowTable !== "function" &&
-      typeof options.engine.registerArrowStream !== "function"
-    ) {
+    if (!supportsStoredFrameRegistration(options)) {
       return c.json(
         { error: "Engine does not support table registration" },
         501,
@@ -516,8 +526,7 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
     }
     if (
       !options.dataFrameStorage ||
-      (typeof options.engine.registerArrowTable !== "function" &&
-        typeof options.engine.registerArrowStream !== "function")
+      !supportsStoredFrameRegistration(options)
     ) {
       return c.json({ error: "Server DataFrame storage is unavailable" }, 503);
     }

@@ -524,7 +524,10 @@ export class NativeDuckDBEngine implements QueryEngine {
     rawIPCStream: AsyncIterable<Uint8Array>,
     signal?: AbortSignal,
   ): Promise<void> {
+    const lifecycleSignal = this.lifecycleAbort.signal;
+    throwIfAborted(lifecycleSignal);
     await this.initialize();
+    throwIfAborted(lifecycleSignal);
     throwIfAborted(signal);
     const operationSignal = this.beginNativeOperation(signal);
 
