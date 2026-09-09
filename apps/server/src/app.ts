@@ -63,6 +63,13 @@ export interface DashframeServerOptions {
   vault?: SecretVault;
   accessCredentials?: ApiAccessCredentials;
   corsOrigin?: CorsOrigin;
+  /**
+   * Address clients should use to reach this server, when that differs from
+   * the one requests arrive on — a dev proxy rewrites Host, so the server
+   * cannot see it. Its own request origin is used when unset, which is right
+   * for every client that connects directly.
+   */
+  publicOrigin?: string;
   arrowEngine?: ArrowQueryRunner & Partial<ArrowTableRegistrar>;
   googleOAuth?: GoogleOAuthConfig;
   mcpMode?: McpMode;
@@ -71,6 +78,20 @@ export interface DashframeServerOptions {
   mcpSessionNow?: () => number;
   convexRuntime?: { binaryPath?: string; functionsDirectory?: string };
 }
+/** Rejects anything that is not an exact origin, so clients never get a path or query. */
+function normalizePublicOrigin(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(`publicOrigin is not a valid URL: ${value}`);
+  }
+  if (parsed.origin !== value)
+    throw new Error(`publicOrigin must be an exact origin: ${value}`);
+  return parsed.origin;
+}
+
 export interface DashframeServer {
   url: string;
   port: number;
@@ -81,6 +102,9 @@ export async function createDashframeServer(
   options: DashframeServerOptions,
 ): Promise<DashframeServer> {
   const hostname = options.hostname ?? "127.0.0.1";
+  // Validate before anything starts: a bad origin must not surface as a
+  // client that cannot reach Convex after the server is already up.
+  const publicOrigin = normalizePublicOrigin(options.publicOrigin);
   // Fails closed on a non-loopback bind without a token before any child
   // process starts.
   const authenticate = createHostAuthenticator({
@@ -231,13 +255,16 @@ export async function createDashframeServer(
     app.post("/api/runtime", async (c) => {
       try {
         await authenticate(c.req.raw);
-        // Origin was validated by the middleware above. Vite rewrites Host
-        // while proxying, so use the browser origin for its same-origin URL.
-        const origin = c.req.header("origin") ?? new URL(c.req.url).origin;
+        // The server names its own address. Echoing the caller's Origin was
+        // wrong for any client that is not proxied same-origin: a desktop
+        // renderer dials the loopback port directly while its page origin is
+        // the dev server, and a packaged one sends Origin: null.
         return c.json({
           mode: "local",
           status: "local-ready",
-          config: { convexUrl: `${origin}/api/convex` },
+          config: {
+            convexUrl: `${publicOrigin ?? new URL(c.req.url).origin}/api/convex`,
+          },
         });
       } catch {
         return c.json({ error: "Unauthorized" }, 401);

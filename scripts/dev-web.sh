@@ -36,7 +36,7 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-(cd "${ROOT}" && exec bun run apps/server/src/index.ts --port 0 --cors-origin "https://${DEV_NAME}.localhost" --cors-origin "http://${DEV_NAME}.localhost") >"${SERVER_LOG}" 2>&1 &
+(cd "${ROOT}" && exec bun run apps/server/src/index.ts --port 0 --cors-origin "https://${DEV_NAME}.localhost" --cors-origin "http://${DEV_NAME}.localhost" --public-origin "https://${DEV_NAME}.localhost") >"${SERVER_LOG}" 2>&1 &
 SERVER_PID=$!
 
 DASHFRAME_URL=""

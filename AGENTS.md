@@ -318,7 +318,7 @@ the pinned backend. Startup never downloads a binary or creates a cloud deployme
 Run two foreground processes; the host owns the additional Convex child process:
 
 1. Host API server (fixed loopback port; loopback needs no operator token):
-   `cd apps/server && bun run src/index.ts --host 127.0.0.1 --port 4000`
+   `cd apps/server && bun run src/index.ts --host 127.0.0.1 --port 4000 --public-origin http://127.0.0.1:3000`
    (bare `bun run dev` also works but picks an OS-assigned port). It opens a
    project at `~/.DashFrame/web-project`, with native metadata in `.convex/`.
    Existing WyStack/PGlite projects are not migrated. Host-local data (access credentials)

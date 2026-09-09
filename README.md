@@ -129,6 +129,8 @@ can only fetch commits that exist upstream.
   (`cd apps/server && bun run src/index.ts --host 127.0.0.1 --port 4000`) and point
   the web app at it
   (`cd apps/web && VITE_DASHFRAME_URL=http://127.0.0.1:4000 bun run dev:direct`).
+  Start the server with `--public-origin http://127.0.0.1:3000` so it names the
+  address the browser uses rather than the one Vite proxies to.
 
 ### Packages
 
