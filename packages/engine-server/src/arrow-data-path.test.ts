@@ -60,52 +60,108 @@ function fakeEngine(): QueryEngine & {
 
 const TOKEN = "secret-loopback-token";
 
-describe("Arrow data path — host authorization", () => {
-  it.each([
-    "/arrow",
-    "/tables/example",
-    "/frames/example/tables/example",
-    "/frames/example/mosaic",
-  ])("honors host denial before parsing or executing %s", async (route) => {
-    const engine = fakeEngine();
-    for (const authToken of [undefined, TOKEN]) {
-      for (const authorizeRequest of [
-        () => false,
-        () => {
-          throw new Error("Session identity is unavailable");
-        },
-      ]) {
-        const app = createArrowDataPath({
-          engine,
-          authToken,
-          authorizeRequest,
-        });
-        const response = await app.request(route, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${TOKEN}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ sql: "SELECT 1" }),
-        });
-        expect(response.status).toBe(401);
-      }
-    }
-    expect(engine.calls).toHaveLength(0);
+/** A frame id these tests address the Mosaic route by. */
+const MOSAIC_FRAME_ID = "11111111-1111-4111-8111-111111111111";
+
+/**
+ * Storage that owns exactly `MOSAIC_FRAME_ID`, so the Mosaic route's ownership
+ * checks pass and a test can be about something else.
+ */
+function ownedFrameStorage() {
+  return {
+    save: async () => {},
+    load: async () => new Uint8Array([1, 2, 3]),
+    delete: async () => {},
+    exists: async () => true,
+    list: async () => [MOSAIC_FRAME_ID],
+    getUsage: async () => ({ count: 1 }),
+  };
+}
+
+/**
+ * Mount the data path with everything the Mosaic route needs, so these cases
+ * exercise the transport contracts — auth, Content-Type, body shape, error
+ * opacity — over the route that actually exists.
+ */
+function mosaicPath(
+  engine: QueryEngine,
+  extra: Partial<Parameters<typeof createArrowDataPath>[0]> = {},
+): ReturnType<typeof createArrowDataPath> {
+  return createArrowDataPath({
+    engine: Object.assign(engine, {
+      registerArrowTable: async () => {},
+      unregisterTable: async () => {},
+    }),
+    dataFrameStorage: ownedFrameStorage(),
+    ...extra,
   });
+}
+
+/** `POST /frames/:id/mosaic` with the given headers and body. */
+async function mosaicRequest(
+  app: ReturnType<typeof createArrowDataPath>,
+  init: { headers: Record<string, string>; body: unknown },
+): Promise<Response> {
+  return await app.request(`/frames/${MOSAIC_FRAME_ID}/mosaic`, {
+    method: "POST",
+    headers: init.headers,
+    body: JSON.stringify(init.body),
+  });
+}
+
+const JSON_HEADERS = { "Content-Type": "application/json" };
+const AUTHED_HEADERS = {
+  ...JSON_HEADERS,
+  Authorization: `Bearer ${TOKEN}`,
+};
+
+describe("Arrow data path — host authorization", () => {
+  it.each(["/frames/example/tables/example", "/frames/example/mosaic"])(
+    "honors host denial before parsing or executing %s",
+    async (route) => {
+      const engine = fakeEngine();
+      for (const authToken of [undefined, TOKEN]) {
+        for (const authorizeRequest of [
+          () => false,
+          () => {
+            throw new Error("Session identity is unavailable");
+          },
+        ]) {
+          const app = createArrowDataPath({
+            engine,
+            authToken,
+            authorizeRequest,
+          });
+          const response = await app.request(route, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${TOKEN}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ sql: "SELECT 1" }),
+          });
+          expect(response.status).toBe(401);
+        }
+      }
+      expect(engine.calls).toHaveLength(0);
+    },
+  );
 
   it("accepts a request authenticated by the host", async () => {
     const engine = fakeEngine();
-    const app = createArrowDataPath({
-      engine,
+    const authed = createArrowDataPath({
+      engine: Object.assign(engine, {
+        registerArrowTable: async () => {},
+        unregisterTable: async () => {},
+      }),
       authToken: TOKEN,
+      dataFrameStorage: ownedFrameStorage(),
       authorizeRequest: (request) =>
         request.headers.get("cookie") === "session=valid",
     });
-    const response = await app.request("/arrow", {
-      method: "POST",
+    const response = await mosaicRequest(authed, {
       headers: { Cookie: "session=valid", "Content-Type": "application/json" },
-      body: JSON.stringify({ sql: "SELECT 1" }),
+      body: { sql: "SELECT 1" },
     });
     expect(response.status).toBe(200);
     expect(engine.calls).toHaveLength(1);
@@ -114,46 +170,39 @@ describe("Arrow data path — host authorization", () => {
 
 describe("Arrow data path — auth + IPC roundtrip", () => {
   it("rejects a request with no Authorization header", async () => {
-    const app = createArrowDataPath({ engine: fakeEngine(), authToken: TOKEN });
-    const res = await app.request("/arrow", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sql: "SELECT 1" }),
+    const app = mosaicPath(fakeEngine(), { authToken: TOKEN });
+    const res = await mosaicRequest(app, {
+      headers: JSON_HEADERS,
+      body: { sql: "SELECT 1" },
     });
     expect(res.status).toBe(401);
   });
 
   it("rejects a request with a wrong token", async () => {
-    const app = createArrowDataPath({ engine: fakeEngine(), authToken: TOKEN });
-    const res = await app.request("/arrow", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer wrong",
-      },
-      body: JSON.stringify({ sql: "SELECT 1" }),
+    const app = mosaicPath(fakeEngine(), { authToken: TOKEN });
+    const res = await mosaicRequest(app, {
+      headers: { ...JSON_HEADERS, Authorization: "Bearer wrong" },
+      body: { sql: "SELECT 1" },
     });
     expect(res.status).toBe(401);
   });
 
   it("does not run the engine when auth fails", async () => {
     const engine = fakeEngine();
-    const app = createArrowDataPath({ engine, authToken: TOKEN });
-    await app.request("/arrow", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sql: "SELECT 1" }),
+    const app = mosaicPath(engine, { authToken: TOKEN });
+    await mosaicRequest(app, {
+      headers: JSON_HEADERS,
+      body: { sql: "SELECT 1" },
     });
     expect(engine.calls).toHaveLength(0);
   });
 
   it("rejects a tokenless text/plain query before SQL execution", async () => {
     const engine = fakeEngine();
-    const app = createArrowDataPath({ engine });
-    const res = await app.request("/arrow", {
-      method: "POST",
+    const app = mosaicPath(engine);
+    const res = await mosaicRequest(app, {
       headers: { "Content-Type": "text/plain" },
-      body: JSON.stringify({ sql: "SELECT 1" }),
+      body: { sql: "SELECT 1" },
     });
     expect(res.status).toBe(415);
     expect(engine.calls).toHaveLength(0);
@@ -161,28 +210,35 @@ describe("Arrow data path — auth + IPC roundtrip", () => {
 
   it("threads params to the engine so parameterized queries are not silently dropped", async () => {
     const engine = fakeEngine();
-    const app = createArrowDataPath({ engine, authToken: TOKEN });
-    await app.request("/arrow", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${TOKEN}`,
-      },
-      body: JSON.stringify({ sql: "SELECT ? AS v", params: [42] }),
+    const app = mosaicPath(engine, { authToken: TOKEN });
+    await mosaicRequest(app, {
+      headers: AUTHED_HEADERS,
+      body: { sql: "SELECT ? AS v", params: [42] },
     });
     expect(engine.calls).toHaveLength(1);
     expect(engine.calls[0]?.params).toEqual([42]);
   });
 
+  it("passes the client SQL to the engine unaltered", async () => {
+    // The route used to demand that the SQL mention the quoted frame UUID and
+    // then substitute the table name into it. Naming is the client's job now
+    // and this side is a pass-through — pin that it does not touch the text.
+    const engine = fakeEngine();
+    const app = mosaicPath(engine, { authToken: TOKEN });
+    const sql = `SELECT a FROM "df_totally_unrelated" WHERE b = '${MOSAIC_FRAME_ID}'`;
+    await mosaicRequest(app, {
+      headers: AUTHED_HEADERS,
+      body: { type: "arrow", sql },
+    });
+    expect(engine.calls).toHaveLength(1);
+    expect(engine.calls[0]?.sql).toBe(sql);
+  });
+
   it("streams Arrow IPC for a valid token, roundtrips through apache-arrow", async () => {
-    const app = createArrowDataPath({ engine: fakeEngine(), authToken: TOKEN });
-    const res = await app.request("/arrow", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${TOKEN}`,
-      },
-      body: JSON.stringify({ sql: "SELECT id, label FROM t", params: [] }),
+    const app = mosaicPath(fakeEngine(), { authToken: TOKEN });
+    const res = await mosaicRequest(app, {
+      headers: AUTHED_HEADERS,
+      body: { sql: "SELECT id, label FROM t", params: [] },
     });
 
     expect(res.status).toBe(200);
@@ -203,17 +259,10 @@ describe("Arrow data path — auth + IPC roundtrip", () => {
         throw new Error(leakyMessage);
       },
     });
-    const app = createArrowDataPath({
-      engine: throwingEngine,
-      authToken: TOKEN,
-    });
-    const res = await app.request("/arrow", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${TOKEN}`,
-      },
-      body: JSON.stringify({ sql: "SELECT secret FROM internal_table" }),
+    const app = mosaicPath(throwingEngine, { authToken: TOKEN });
+    const res = await mosaicRequest(app, {
+      headers: AUTHED_HEADERS,
+      body: { sql: "SELECT secret FROM internal_table" },
     });
 
     expect(res.status).toBe(500);
@@ -225,14 +274,10 @@ describe("Arrow data path — auth + IPC roundtrip", () => {
   });
 
   it("rejects a body with no sql", async () => {
-    const app = createArrowDataPath({ engine: fakeEngine(), authToken: TOKEN });
-    const res = await app.request("/arrow", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${TOKEN}`,
-      },
-      body: JSON.stringify({ params: [] }),
+    const app = mosaicPath(fakeEngine(), { authToken: TOKEN });
+    const res = await mosaicRequest(app, {
+      headers: AUTHED_HEADERS,
+      body: { params: [] },
     });
     expect(res.status).toBe(400);
   });
@@ -241,31 +286,38 @@ describe("Arrow data path — auth + IPC roundtrip", () => {
     // params: 42 silently becoming [] would surface later as an opaque 500
     // binding mismatch — fail clearly at the request boundary instead.
     const engine = fakeEngine();
-    const app = createArrowDataPath({ engine, authToken: TOKEN });
-    const res = await app.request("/arrow", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${TOKEN}`,
-      },
-      body: JSON.stringify({ sql: "SELECT ? AS v", params: 42 }),
+    const app = mosaicPath(engine, { authToken: TOKEN });
+    const res = await mosaicRequest(app, {
+      headers: AUTHED_HEADERS,
+      body: { sql: "SELECT ? AS v", params: 42 },
     });
     expect(res.status).toBe(400);
     expect(engine.calls).toHaveLength(0);
   });
 
   it("serves without auth when no token is configured (loopback)", async () => {
-    const app = createArrowDataPath({ engine: fakeEngine() });
-    const res = await app.request("/arrow", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sql: "SELECT 1" }),
+    const app = mosaicPath(fakeEngine());
+    const res = await mosaicRequest(app, {
+      headers: JSON_HEADERS,
+      body: { sql: "SELECT 1" },
     });
     expect(res.status).toBe(200);
   });
+
+  it("404s the routes that no longer exist", async () => {
+    const app = mosaicPath(fakeEngine());
+    for (const path of ["/arrow", "/tables/orders"]) {
+      const res = await app.request(path, {
+        method: "POST",
+        headers: JSON_HEADERS,
+        body: JSON.stringify({ sql: "SELECT 1" }),
+      });
+      expect(res.status).toBe(404);
+    }
+  });
 });
 
-describe("Arrow data path — /tables/:name content-type enforcement", () => {
+describe("Arrow data path — server frame registration and Mosaic queries", () => {
   /** Records what was registered, so a route's effect can be asserted. */
   function fakeRegistrar(): QueryEngine & {
     registrations: Array<{ name: string; bytes: Uint8Array }>;
@@ -290,67 +342,6 @@ describe("Arrow data path — /tables/:name content-type enforcement", () => {
       { registrations, calls },
     );
   }
-
-  it("rejects a non-Arrow Content-Type with 415 before reaching registerArrowTable", async () => {
-    // A client that sends the wrong content-type (e.g. application/octet-stream)
-    // should get a 415 rather than a 500 from registerArrowTable trying to
-    // decode non-Arrow bytes as Arrow IPC.
-    const engine = fakeRegistrar();
-    const app = createArrowDataPath({ engine, authToken: TOKEN });
-
-    const res = await app.request("/tables/df_test", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${TOKEN}`,
-        "Content-Type": "application/octet-stream",
-      },
-      body: new Uint8Array([0xff, 0xfe]).buffer,
-    });
-
-    expect(res.status).toBe(415);
-    const body = await res.json();
-    expect(body.error).toContain(ARROW_STREAM_CONTENT_TYPE);
-    // registerArrowTable must NOT have been called
-    expect(engine.registrations).toHaveLength(0);
-  });
-
-  it("rejects a missing Content-Type with 415", async () => {
-    const engine = fakeRegistrar();
-    const app = createArrowDataPath({ engine, authToken: TOKEN });
-
-    const res = await app.request("/tables/df_test", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${TOKEN}` },
-      body: new Uint8Array([0]).buffer,
-    });
-
-    expect(res.status).toBe(415);
-    expect(engine.registrations).toHaveLength(0);
-  });
-
-  it("accepts the correct Arrow content-type and calls registerArrowTable", async () => {
-    const engine = fakeRegistrar();
-    const app = createArrowDataPath({ engine, authToken: TOKEN });
-
-    const bytes = new Uint8Array([0x41, 0x52, 0x52, 0x4f, 0x57, 0x31]); // "ARROW1"
-    const res = await app.request("/tables/df_ok", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${TOKEN}`,
-        "Content-Type": ARROW_STREAM_CONTENT_TYPE,
-      },
-      body: bytes.buffer,
-    });
-
-    // registerArrowTable may throw on invalid Arrow bytes (fine here —
-    // we only care that the content-type check passed and the call was made).
-    // A real Arrow IPC buffer would return 200; the fake above always succeeds.
-    expect([200, 500]).toContain(res.status);
-    if (res.status === 200) {
-      expect(engine.registrations).toHaveLength(1);
-      expect(engine.registrations[0]?.name).toBe("df_ok");
-    }
-  });
 
   it("registers a durable server frame without returning its bytes", async () => {
     const engine = fakeRegistrar();
@@ -599,14 +590,10 @@ describe("Arrow data path — vault-backed auth (fail-closed)", () => {
   it("resolves the expected token from the vault: correct Bearer → 200", async () => {
     const { vault, store } = buildVault(TOKEN);
     const authRef = await store();
-    const app = createArrowDataPath({ engine: fakeEngine(), authRef, vault });
-    const res = await app.request("/arrow", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${TOKEN}`,
-      },
-      body: JSON.stringify({ sql: "SELECT 1" }),
+    const app = mosaicPath(fakeEngine(), { authRef, vault });
+    const res = await mosaicRequest(app, {
+      headers: AUTHED_HEADERS,
+      body: { sql: "SELECT 1" },
     });
     expect(res.status).toBe(200);
   });
@@ -614,14 +601,10 @@ describe("Arrow data path — vault-backed auth (fail-closed)", () => {
   it("rejects a wrong token against the vault-stored token → 401", async () => {
     const { vault, store } = buildVault(TOKEN);
     const authRef = await store();
-    const app = createArrowDataPath({ engine: fakeEngine(), authRef, vault });
-    const res = await app.request("/arrow", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer wrong",
-      },
-      body: JSON.stringify({ sql: "SELECT 1" }),
+    const app = mosaicPath(fakeEngine(), { authRef, vault });
+    const res = await mosaicRequest(app, {
+      headers: { ...JSON_HEADERS, Authorization: "Bearer wrong" },
+      body: { sql: "SELECT 1" },
     });
     expect(res.status).toBe(401);
   });
@@ -643,14 +626,10 @@ describe("Arrow data path — vault-backed auth (fail-closed)", () => {
     const vault = new SecretVault(registry, new InMemoryMappingStore());
     const unstoredRef = makeSecretRef();
     const engine = fakeEngine();
-    const app = createArrowDataPath({ engine, authRef: unstoredRef, vault });
-    const res = await app.request("/arrow", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${TOKEN}`,
-      },
-      body: JSON.stringify({ sql: "SELECT 1" }),
+    const app = mosaicPath(engine, { authRef: unstoredRef, vault });
+    const res = await mosaicRequest(app, {
+      headers: AUTHED_HEADERS,
+      body: { sql: "SELECT 1" },
     });
     expect(res.status).toBe(401);
     // The engine never ran — auth failed closed before dispatch.

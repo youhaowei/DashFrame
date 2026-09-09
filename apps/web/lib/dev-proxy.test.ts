@@ -36,12 +36,11 @@ describe("createDevProxy", () => {
   });
 
   it.each([
-    "/data/arrow",
-    "/data/tables/orders",
+    "/data/frames/frame-1/mosaic",
     "/data/frames/frame-1/tables/orders",
     "/data",
     "/data?limit=10",
-    "/data/tables/orders?format=json",
+    "/data/frames/frame-1/mosaic?format=json",
   ])("proxies the API data path %s", (url) => {
     expect(matchProxyKey(url)).toBe(DEV_DATA_PROXY_KEY);
   });

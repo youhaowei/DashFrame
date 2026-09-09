@@ -11,21 +11,26 @@
  * protects WyStack HTTP/WS — PRs #47/#49). A request with no/invalid token is
  * rejected before any query runs.
  *
- * `POST /arrow`
- *   Accepts two overlapping request shapes:
- *   - Native shape: `{ sql: string, params?: unknown[] }` — used by the
- *     compiled-query cache path. Returns Arrow IPC.
- *   - Mosaic shape: `{ type: 'arrow'|'exec'|'json', sql: string }` — the
- *     protocol Mosaic's Coordinator issues to any restConnector-compatible
- *     server. Returns Arrow IPC, empty body, or JSON rows respectively.
+ * Every route is addressed by frame id. There is no route that takes raw SQL
+ * with no frame, and none that accepts an Arrow upload from a client: remote
+ * Arrow upload and client SQL planning are off the active path, so the bytes of
+ * a project frame never make a client roundtrip.
  *
- * `POST /tables/:name`
- *   Accepts a raw Arrow IPC stream body (`application/vnd.apache.arrow.stream`)
- *   and registers it as a named in-memory table in the engine. Retained explicit
- *   backup paths may upload Arrow here; project-owned file frames instead use
- *   `POST /frames/:id/tables/:name` so bytes never cross the client.
+ * `POST /frames/:id/tables/:name`
+ *   Registers the stored frame `:id` in the engine under `:name`. The browser
+ *   sends only opaque identifiers.
+ *
+ * `POST /frames/:id/mosaic`
+ *   Accepts the Mosaic Coordinator shape `{ type: 'arrow'|'exec'|'json', sql }`
+ *   against the frame named in the path, returning Arrow IPC, an empty body, or
+ *   JSON rows respectively.
+ *
+ * This module never inspects or rewrites the SQL it is given. Frames register
+ * under the canonical `frameTableName(id)` and client SQL references that name
+ * directly — see the route docblock below for why that is not a weakening.
  */
 import type { DataFrameStorage, QueryEngine } from "@dashframe/engine";
+import { frameTableName } from "@dashframe/engine";
 import type { UUID } from "@dashframe/types";
 import type { SecretRef, SecretVault } from "@wystack/secret-vault";
 import { tableFromIPC } from "apache-arrow";
@@ -35,11 +40,6 @@ import { createHash, timingSafeEqual } from "node:crypto";
 export const ARROW_STREAM_CONTENT_TYPE = "application/vnd.apache.arrow.stream";
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-const quoteIdent = (identifier: string): string =>
-  `"${identifier.replace(/"/g, '""')}"`;
-
-const frameTableName = (id: string): string => `df_${id.replaceAll("-", "_")}`;
 
 export interface ArrowDataPathOptions {
   /**
@@ -353,85 +353,6 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
 
   const app = new Hono();
 
-  // -------------------------------------------------------------------------
-  // POST /arrow  — query endpoint (native shape + Mosaic Coordinator shape)
-  // -------------------------------------------------------------------------
-  app.post("/arrow", async (c) => {
-    if (!(await checkAuth(c.req.raw, options))) {
-      return c.json({ error: "Unauthorized" }, 401);
-    }
-
-    // A tokenless loopback server still needs a browser-origin boundary. CORS
-    // prevents a hostile page from reading a response, but a safelisted
-    // `text/plain` request can be sent without preflight and would execute SQL
-    // before the browser blocks that response. Requiring JSON forces a
-    // cross-origin browser to preflight, where the server's CORS policy can
-    // reject the origin before this handler executes.
-    const contentType = c.req.header("content-type")?.split(";", 1)[0]?.trim();
-    if (contentType?.toLowerCase() !== "application/json") {
-      return c.json({ error: "Content-Type must be application/json" }, 415);
-    }
-
-    let body: RequestBody;
-    try {
-      body = (await c.req.json()) as RequestBody;
-    } catch {
-      return c.json({ error: "Invalid JSON body" }, 400);
-    }
-
-    return dispatchArrowQuery(options.engine, body);
-  });
-
-  // -------------------------------------------------------------------------
-  // POST /tables/:name  — register an Arrow IPC buffer as a named table
-  // -------------------------------------------------------------------------
-  app.post("/tables/:name", async (c) => {
-    if (!(await checkAuth(c.req.raw, options))) {
-      return c.json({ error: "Unauthorized" }, 401);
-    }
-
-    const name = c.req.param("name");
-    if (!name || !/^[a-zA-Z_]\w*$/.test(name)) {
-      return c.json(
-        { error: "Table name must be a valid SQL identifier" },
-        400,
-      );
-    }
-
-    // Reject non-Arrow content at the boundary — a wrong Content-Type means
-    // the client sent the wrong format; a 415 is clearer than a 500 from
-    // registerArrowTable trying to decode garbage as Arrow IPC.
-    const contentType = c.req.header("content-type") ?? "";
-    if (!contentType.includes(ARROW_STREAM_CONTENT_TYPE)) {
-      return c.json(
-        {
-          error: `Content-Type must be ${ARROW_STREAM_CONTENT_TYPE}`,
-        },
-        415,
-      );
-    }
-
-    let arrowBytes: Uint8Array;
-    try {
-      const buf = await c.req.arrayBuffer();
-      arrowBytes = new Uint8Array(buf);
-    } catch {
-      return c.json({ error: "Failed to read request body" }, 400);
-    }
-
-    if (arrowBytes.byteLength === 0) {
-      return c.json({ error: "Empty Arrow IPC body" }, 400);
-    }
-
-    try {
-      await options.engine.registerArrowTable(name, arrowBytes);
-    } catch {
-      return c.json({ error: "Failed to register table" }, 500);
-    }
-
-    return c.json({ ok: true, name });
-  });
-
   // Register a durable project frame directly in native DuckDB. The browser
   // sends only opaque identifiers; Arrow bytes never make a client roundtrip.
   app.post("/frames/:id/tables/:name", async (c) => {
@@ -497,6 +418,17 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
   // Mosaic charts receive only the opaque DataFrame UUID. Resolve and register
   // its canonical native table here, then replace the UUID identifier in the
   // Mosaic-generated SQL. This keeps table naming and registration server-owned.
+  // Run a Mosaic query against one stored frame.
+  //
+  // The frame is named by the path parameter and checked for ownership twice —
+  // before registration and after — and the SQL is passed to the engine
+  // untouched. That is deliberate, and it is not a weakening: isolation between
+  // principals is by ENGINE INSTANCE (one per workspace on the hosted surface),
+  // never by reading the statement. The route previously demanded that the SQL
+  // mention the double-quoted frame UUID and then substituted the table name
+  // into it; a statement naming any other table still ran as written, so the
+  // check bought nothing it appeared to buy. Frames now register under the
+  // canonical `frameTableName(id)` and the client references that name itself.
   app.post("/frames/:id/mosaic", async (c) => {
     if (!(await checkAuth(c.req.raw, options))) {
       return c.json({ error: "Unauthorized" }, 401);
@@ -521,14 +453,6 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
     } catch {
       return c.json({ error: "Invalid JSON body" }, 400);
     }
-    const frameIdentifier = quoteIdent(id);
-    const sql = typeof body.sql === "string" ? body.sql : "";
-    if (!sql.includes(frameIdentifier)) {
-      return c.json(
-        { error: "Chart query must reference its server DataFrame" },
-        400,
-      );
-    }
     try {
       const registration = await registerStoredFrame(
         options,
@@ -552,10 +476,7 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
       "Frame was deleted and registration cleanup failed",
     );
     if (registrationRace) return registrationRace;
-    const response = await dispatchArrowQuery(options.engine, {
-      ...body,
-      sql: sql.split(frameIdentifier).join(quoteIdent(frameTableName(id))),
-    });
+    const response = await dispatchArrowQuery(options.engine, body);
     // Query execution is another asynchronous boundary. A frame deleted while
     // DuckDB is producing the result must not have its bytes returned after its
     // project ownership has been revoked.

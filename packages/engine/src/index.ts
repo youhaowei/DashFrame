@@ -138,6 +138,8 @@ export { resolveEffectiveParams, type EffectiveParams } from "./sql";
 // SQL Quoting Utilities
 // ============================================================================
 
+export { frameTableName } from "./sql";
+
 export { quoteIdentifier, quoteLiteral } from "./sql";
 
 // ============================================================================

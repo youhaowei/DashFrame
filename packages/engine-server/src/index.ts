@@ -37,6 +37,13 @@ export {
   type ResultColumn,
 } from "./arrow-encode";
 
+/**
+ * The frame naming contract, re-exported from `@dashframe/engine` where it is
+ * defined. Consumers of the transport need the name the transport registers
+ * under; there is still exactly one definition.
+ */
+export { frameTableName } from "@dashframe/engine";
+
 export {
   ARROW_STREAM_CONTENT_TYPE,
   arrowIpcToJsonRows,

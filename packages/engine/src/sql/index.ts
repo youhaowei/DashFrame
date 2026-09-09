@@ -42,4 +42,6 @@ export {
   type EffectiveParams,
 } from "./override-resolution";
 
+export { frameTableName } from "./frame-table-name";
+
 export { quoteIdentifier, quoteLiteral } from "./quoting";
