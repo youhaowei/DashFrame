@@ -45,15 +45,27 @@ vi.mock("./renderers", () => ({
   ConnectorCardWithForm: ({
     connector,
     disabled,
+    expanded,
+    onToggle,
     onActivityChange,
   }: {
     connector: { id: string; name: string };
     disabled?: boolean;
+    expanded?: boolean;
+    onToggle?: () => void;
     onActivityChange?: (active: boolean) => boolean;
   }) => {
     activityHandlers[connector.id] = onActivityChange;
     return (
       <div>
+        <button
+          type="button"
+          data-testid={`toggle-${connector.id}`}
+          aria-expanded={expanded ?? false}
+          onClick={onToggle}
+        >
+          Toggle {connector.name}
+        </button>
         <button
           type="button"
           data-testid={`connector-${connector.id}`}
@@ -256,5 +268,44 @@ describe("AddConnectionPanel — registry hydration race (B1)", () => {
 
     expect(firstClaim).toBe(true);
     expect(secondClaim).toBe(false);
+  });
+
+  it("opens one connector at a time and keeps the active one open", () => {
+    mockUseConnectorCatalog.mockReturnValue({
+      data: TWO_CONNECTOR_CATALOG,
+      isLoading: false,
+      isFetching: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+    hydrateConnectorRegistry(TWO_CONNECTOR_CATALOG, {
+      local: () => localFileConnector,
+      notion: () => remoteConnector,
+    });
+
+    renderPanel();
+
+    const localToggle = screen.getByTestId("toggle-local");
+    const notionToggle = screen.getByTestId("toggle-notion");
+    expect(localToggle.getAttribute("aria-expanded")).toBe("false");
+
+    act(() => localToggle.click());
+    expect(localToggle.getAttribute("aria-expanded")).toBe("true");
+
+    // Opening another closes the first — one setup form at a time.
+    act(() => notionToggle.click());
+    expect(localToggle.getAttribute("aria-expanded")).toBe("false");
+    expect(notionToggle.getAttribute("aria-expanded")).toBe("true");
+
+    // Clicking the open one closes it again...
+    act(() => notionToggle.click());
+    expect(notionToggle.getAttribute("aria-expanded")).toBe("false");
+
+    // ...unless it owns onboarding, whose progress and errors render inside.
+    act(() => notionToggle.click());
+    act(() => screen.getByTestId("connector-notion").click());
+    act(() => notionToggle.click());
+    expect(notionToggle.getAttribute("aria-expanded")).toBe("true");
   });
 });

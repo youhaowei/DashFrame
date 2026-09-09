@@ -137,9 +137,15 @@ export function AddConnectionPanel({
             connector={connector}
             expanded={expandedConnectorId === connector.id}
             onToggle={() =>
-              setExpandedConnectorId((current) =>
-                current === connector.id ? null : connector.id,
-              )
+              setExpandedConnectorId((current) => {
+                // A connector that owns onboarding stays open: its progress
+                // label and submit error live inside the disclosure, and
+                // collapsing mid-connect would hide both.
+                if (current === connector.id) {
+                  return activeConnectorId === connector.id ? current : null;
+                }
+                return connector.id;
+              })
             }
             onFileSelect={onFileSelect}
             onConnect={onConnect}
