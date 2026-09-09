@@ -11,9 +11,11 @@ import type {
 import {
   Alert,
   AlertDescription,
+  Button,
   ErrorState,
   Spinner,
 } from "@wystack/ui-react";
+import { ArrowLeftIcon } from "@wystack/ui-react/icons";
 import type { ReactNode } from "react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { ConnectorCardWithForm } from "./renderers";
@@ -62,6 +64,12 @@ export function AddConnectionPanel({
   const [activeConnectorId, setActiveConnectorId] = useState<string | null>(
     null,
   );
+  // Which connector's setup form is open. Deliberately separate from
+  // `activeConnectorId`: that one is the in-flight ownership lock, and folding
+  // the two together would collapse a card mid-upload.
+  const [expandedConnectorId, setExpandedConnectorId] = useState<string | null>(
+    null,
+  );
   const activeConnectorIdRef = useRef<string | null>(null);
   const { data: catalog, isLoading, isError, refetch } = useConnectorCatalog();
 
@@ -100,6 +108,33 @@ export function AddConnectionPanel({
     // oxlint-disable-next-line react-hooks-js/exhaustive-deps
   }, [catalog, registryVersion]);
 
+  // The connector the reader picked, if it is still in the catalog. A stale id
+  // (the registry rehydrated without it) falls back to the list rather than
+  // rendering an empty detail view.
+  const selectedConnector = expandedConnectorId
+    ? connectors.find((connector) => connector.id === expandedConnectorId)
+    : undefined;
+
+  const renderCard = (connector: AnyConnector, onToggle?: () => void) => (
+    <ConnectorCardWithForm
+      key={connector.id}
+      connector={connector}
+      expanded={selectedConnector?.id === connector.id}
+      onToggle={onToggle}
+      onFileSelect={onFileSelect}
+      onConnect={onConnect}
+      onOAuthConnect={async (...args) => {
+        try {
+          await onOAuthConnect(...args);
+        } catch (cause) {
+          handleActivityChange(connector.id, false);
+          throw cause;
+        }
+      }}
+      onActivityChange={(active) => handleActivityChange(connector.id, active)}
+    />
+  );
+
   let body: ReactNode;
   if (isLoading) {
     body = (
@@ -122,31 +157,34 @@ export function AddConnectionPanel({
         No connectors are available.
       </p>
     );
+  } else if (selectedConnector) {
+    // Picking a source is a decision, and once it is made the alternatives stop
+    // being useful — they are a list of things the reader has just declined,
+    // sitting between them and the credential fields they now have to fill in.
+    // The chosen connector stays on screen as a static row so it still says
+    // what is being set up; going back is the one competing action left.
+    body = (
+      <div className="space-y-1">
+        <Button
+          label="Choose another source"
+          variant="ghost"
+          size="sm"
+          icon={ArrowLeftIcon}
+          // A connector that owns onboarding cannot be left: its progress label
+          // and submit error render inside the card, and returning to the list
+          // mid-connect would hide both.
+          disabled={activeConnectorId === selectedConnector.id}
+          onClick={() => setExpandedConnectorId(null)}
+        />
+        {renderCard(selectedConnector)}
+      </div>
+    );
   } else {
     body = (
-      <div className="space-y-4">
-        {connectors.map((connector) => (
-          <ConnectorCardWithForm
-            key={connector.id}
-            connector={connector}
-            onFileSelect={onFileSelect}
-            onConnect={onConnect}
-            onOAuthConnect={async (...args) => {
-              try {
-                await onOAuthConnect(...args);
-              } catch (cause) {
-                handleActivityChange(connector.id, false);
-                throw cause;
-              }
-            }}
-            onActivityChange={(active) =>
-              handleActivityChange(connector.id, active)
-            }
-            disabled={
-              activeConnectorId !== null && activeConnectorId !== connector.id
-            }
-          />
-        ))}
+      <div className="space-y-1">
+        {connectors.map((connector) =>
+          renderCard(connector, () => setExpandedConnectorId(connector.id)),
+        )}
       </div>
     );
   }

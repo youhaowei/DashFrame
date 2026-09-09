@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig, loadEnv, type Plugin, lazyPlugins } from "vite-plus";
 
+import { createDevProxy } from "./lib/dev-proxy";
 import { getSecurityHeaders } from "./lib/security-headers";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -108,19 +109,9 @@ export default defineConfig(({ mode }) => {
       "VITE_DASHFRAME_URL is required for web development. Start the app with `bun run dev:web` so the DashFrame server and Vite proxy are launched together.",
     );
   }
-  const proxy = hostUrl
-    ? {
-        "/api": {
-          target: hostUrl,
-          changeOrigin: true,
-          ws: true,
-        },
-        "/data": {
-          target: hostUrl,
-          changeOrigin: true,
-        },
-      }
-    : undefined;
+  // Keys come from lib/dev-proxy.ts — `/data` must not prefix-match the
+  // `/data-sources` and `/data-frames` SPA routes. See that module.
+  const proxy = hostUrl ? createDevProxy(hostUrl) : undefined;
 
   return {
     plugins: lazyPlugins(() => [

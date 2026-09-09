@@ -1,7 +1,6 @@
 // Core visualization components
 export { CreateVisualizationModal } from "./CreateVisualizationModal";
 export { DateTransformPicker } from "./DateTransformPicker";
-export { EmptyState } from "./EmptyState";
 export { JoinFlowModal } from "./JoinFlowModal";
 export { VisualizationDisplay } from "./VisualizationDisplay";
 export { VisualizationItemCard } from "./VisualizationItemCard";

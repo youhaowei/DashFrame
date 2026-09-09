@@ -13,6 +13,10 @@ import { OnboardingView } from "./_components/OnboardingView";
  * Shows onboarding when no artifacts exist. Populated projects enter the
  * product through Reports so legacy peer collections do not bypass the
  * report-centered hierarchy.
+ *
+ * The Stage owns this page's panel, background and scroll container, so nothing
+ * here paints a surface or opens a second <main> — the page only owns the
+ * reading column.
  */
 export default function HomePage() {
   const navigate = useNavigate();
@@ -43,7 +47,7 @@ export default function HomePage() {
 
   if (hasLoadError && !isOnboardingActive) {
     return (
-      <div className="flex h-full items-center justify-center bg-neutral-bg">
+      <div className="flex h-full items-center justify-center">
         <p role="alert" className="text-sm text-neutral-fg-subtle">
           Couldn&apos;t determine whether this project is empty. Check your
           connection and try again.
@@ -54,20 +58,15 @@ export default function HomePage() {
 
   if (isLoading || (hasProjectArtifacts && !isOnboardingActive)) {
     return (
-      <div className="flex h-full items-center justify-center bg-neutral-bg">
+      <div className="flex h-full items-center justify-center">
         <Spinner size="lg" className="text-neutral-fg-subtle" />
       </div>
     );
   }
 
   return (
-    <div className="flex h-full flex-col bg-neutral-bg">
-      {/* Content */}
-      <main className="flex-1 overflow-y-auto">
-        <div className="container mx-auto max-w-4xl px-6 py-12">
-          <OnboardingView onActivityChange={setIsOnboardingActive} />
-        </div>
-      </main>
+    <div className="mx-auto w-full max-w-2xl px-6 py-8">
+      <OnboardingView onActivityChange={setIsOnboardingActive} />
     </div>
   );
 }
