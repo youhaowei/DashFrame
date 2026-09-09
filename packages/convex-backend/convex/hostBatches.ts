@@ -1,10 +1,11 @@
 import { paginationOptsValidator } from "convex/server";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import {
   internalMutation,
   internalQuery,
   type QueryCtx,
 } from "./_generated/server";
+import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import {
   hostBatchIdentity,
@@ -180,6 +181,30 @@ export const executeHostBatch = internalMutation({
       secretResources(row.stagedRefs),
     );
     return { status: "completed" as const, result };
+  },
+});
+export const executeHostBatchChecked = internalMutation({
+  args: hostBatchIdentity,
+  returns: hostBatchState,
+  handler: async (ctx, args): Promise<typeof hostBatchState.type> => {
+    try {
+      return await ctx.runMutation(internal.host.executeHostBatch, args);
+    } catch (error) {
+      // The nested mutation rejected, so Convex rolled its transaction back.
+      // Mark this separately from a client transport failure where the caller
+      // cannot know whether execution committed before the response was lost.
+      const message =
+        error instanceof Error
+          ? error.message
+              .split("\n", 1)[0]!
+              .replace(/^(?:Uncaught Error:\s*)+/, "")
+          : "Host command batch was rejected";
+      throw new ConvexError({
+        code: "HOST_BATCH_REJECTED",
+        message,
+        ...(error instanceof ConvexError ? { cause: error.data } : {}),
+      });
+    }
   },
 });
 export const settleHostBatch = internalMutation({

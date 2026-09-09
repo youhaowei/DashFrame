@@ -15,10 +15,7 @@ import {
 import { cmd, COMMAND_PATHS } from "@dashframe/types";
 import type { HostContext } from "./context";
 import { createHostMetadata } from "./convex-metadata";
-import {
-  executeHostCommandBatch,
-  HostBatchOutcomeUnknownError,
-} from "./commands";
+import { executeHostCommandBatch, HostBatchRejectedError } from "./commands";
 
 const modules = import.meta.glob(
   "../../../../packages/convex-backend/convex/**/*.ts",
@@ -129,7 +126,7 @@ describe("host batch retry fence", () => {
     expect(hashes[8]).not.toBe(hashes[6]);
   });
 
-  it("keeps a deterministic mutation failure retryable under the same operation ID", async () => {
+  it("requires a new operation ID after a deterministic mutation rejection", async () => {
     const id = crypto.randomUUID();
     const input = {
       operationId: crypto.randomUUID(),
@@ -138,14 +135,15 @@ describe("host batch retry fence", () => {
 
     await expect(
       executeHostCommandBatch(ctx, input, "commit"),
-    ).rejects.toBeInstanceOf(HostBatchOutcomeUnknownError);
+    ).rejects.toBeInstanceOf(HostBatchRejectedError);
 
     await native.withIdentity(userIdentity).mutation(api.app.commitBatch, {
       commands: [cmd("CreateDataSource", { id, name: "Before", type: "csv" })],
     });
 
+    const { operationId: _rejectedOperationId, ...corrected } = input;
     await expect(
-      executeHostCommandBatch(ctx, input, "commit"),
+      executeHostCommandBatch(ctx, corrected, "commit"),
     ).resolves.toMatchObject({ mode: "commit" });
     expect((await ctx.metadata.getDataSource(id))?.name).toBe("Recovered");
   });

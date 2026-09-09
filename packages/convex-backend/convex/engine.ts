@@ -187,7 +187,11 @@ async function validateDerived(graph: Graph, def: ObjectValue) {
       throw new Error("Filter field is not output by source");
   for (const s of objects(def.sorts ?? [], "sorts"))
     if (!resultColumns.has(str(s.field, "sort field")))
-      throw new Error("Sort field is not output by source");
+      throw new Error(
+        `Sort field ${String(s.field)} is not output by source; expected one of: ${[
+          ...resultColumns,
+        ].join(", ")}`,
+      );
 }
 function prune(def: ObjectValue) {
   if (!def.runtimeControls) return;

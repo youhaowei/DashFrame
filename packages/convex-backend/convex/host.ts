@@ -971,6 +971,7 @@ export {
   getHostBatch,
   prepareHostBatch,
   executeHostBatch,
+  executeHostBatchChecked,
   settleHostBatch,
   listPendingHostBatches,
 } from "./hostBatches";
