@@ -83,6 +83,60 @@ const bars = (svg: SVGSVGElement) => [
 ];
 
 describe.each(["barY", "barX"] as const)("%s chart defaults", (type) => {
+  it.each([
+    {
+      name: "metric-descending results",
+      rows: [
+        { category: "Laptop", value: 420 },
+        { category: "Keyboard", value: 150 },
+        { category: "Mouse", value: 60 },
+      ],
+    },
+    {
+      name: "dimension-descending results",
+      rows: [
+        { category: "Mouse", value: 60 },
+        { category: "Laptop", value: 420 },
+        { category: "Keyboard", value: 150 },
+      ],
+    },
+  ])("preserves $name on the category axis", async ({ rows }) => {
+    const svg = await renderChart(rows, type);
+
+    expect(svg.scale(type === "barX" ? "y" : "x")?.domain).toEqual(
+      rows.map(({ category }) => category),
+    );
+  });
+
+  it("keeps temporal categories in chronological order", async () => {
+    const rows = [
+      { category: "2026-03-01", value: 60 },
+      { category: "2026-01-01", value: 420 },
+      { category: "2026-02-01", value: 150 },
+    ];
+    const categoryAxis = type === "barX" ? "y" : "x";
+    const svg = await renderChart(rows, type, {
+      encoding:
+        type === "barX"
+          ? {
+              x: "value",
+              y: "category",
+              yTransform: { type: "date" },
+            }
+          : {
+              x: "category",
+              y: "value",
+              xTransform: { type: "date" },
+            },
+    });
+
+    expect(svg.scale(categoryAxis)?.domain).toEqual([
+      "2026-01-01",
+      "2026-02-01",
+      "2026-03-01",
+    ]);
+  });
+
   it.each([1, 2, 32])(
     "bounds %i categories at both card and full widths",
     async (count) => {
