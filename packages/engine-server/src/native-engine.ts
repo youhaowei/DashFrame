@@ -167,10 +167,10 @@ interface AcquireOptions {
   serialize?: boolean;
   /**
    * Open a private connection from the instance instead of handing out the
-   * persistent one, and wire `interrupt()` to the lease signal so cancellation
-   * stops the native statement. Streaming reads and streaming ingest need
-   * this: they hold a native result open across awaits, and interrupting the
-   * shared connection would cancel everyone else's statement too.
+   * persistent one. Streaming reads and streaming ingest need this: they hold
+   * a native result open across awaits and accept a caller signal, and
+   * interrupting the shared connection on a caller's cancel would cancel
+   * everyone else's statement too.
    */
   dedicated?: boolean;
 }
@@ -220,7 +220,8 @@ export class NativeDuckDBEngine implements QueryEngine {
   /**
    * Fires once, on the transition to `disposing`. The phase is the state; this
    * is how in-flight operations hear about it — joined into every lease signal
-   * so a native statement can be interrupted and a lock wait abandoned.
+   * so a native statement is interrupted, and a registration that was queued
+   * on the lock fails as soon as it acquires it.
    */
   private readonly lifecycleAbort = new AbortController();
   private activeNativeOperations = 0;
@@ -389,17 +390,20 @@ export class NativeDuckDBEngine implements QueryEngine {
         unlock = await this.acquireRegistrationLock();
         throwIfAborted(signal);
       }
-      if (dedicated) {
-        const opened = await this.liveInstance().connect();
-        connection = opened;
-        interrupt = () => opened.interrupt();
-        // Listener first, then re-check: an abort that landed between
-        // connect() and this line would otherwise never reach interrupt().
-        signal.addEventListener("abort", interrupt, { once: true });
-        throwIfAborted(signal);
-      } else {
-        connection = this.persistentConnection();
-      }
+      const leased = dedicated
+        ? await this.liveInstance().connect()
+        : this.persistentConnection();
+      connection = leased;
+      // Every lease interrupts its statement on abort. Enrolling makes
+      // dispose() wait for the operation; without a way to stop it, a long or
+      // nonterminating query would turn into a hung shutdown, since both the
+      // desktop and standalone hosts await dispose(). A persistent lease
+      // carries only the lifecycle signal, so this fires only at teardown.
+      // Listener first, then re-check: an abort that landed during connect()
+      // would otherwise never reach interrupt().
+      interrupt = () => leased.interrupt();
+      signal.addEventListener("abort", interrupt, { once: true });
+      throwIfAborted(signal);
       return { connection, signal, release };
     } catch (err) {
       release();
