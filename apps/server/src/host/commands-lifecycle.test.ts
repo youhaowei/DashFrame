@@ -8,7 +8,6 @@ import {
   vi,
 } from "vite-plus/test";
 import { convexTest } from "convex-test";
-import { ConvexError } from "convex/values";
 import schema from "@dashframe/convex-backend/schema";
 import { RESOURCE_REFERENCE_SCAN_CAP_CODE } from "@dashframe/convex-backend/model";
 import { api } from "@dashframe/convex-backend/api";
@@ -88,15 +87,15 @@ const create = (id = crypto.randomUUID(), key = "synthetic-secret") => ({
 
 describe("staged credential lifecycle", () => {
   it("surfaces a confirmed validation rejection and requires a new operation", async () => {
-    vi.spyOn(ctx.metadata, "executeHostBatch").mockRejectedValueOnce(
-      new ConvexError(
+    vi.spyOn(ctx.metadata, "executeHostBatch").mockRejectedValueOnce({
+      data: JSON.stringify(
         JSON.stringify({
           code: "HOST_BATCH_REJECTED",
           message:
             "Sort field bad-id is not output by source; expected one of: metric_good_id",
         }),
       ),
-    );
+    });
     const input = { ...create(), operationId: crypto.randomUUID() };
     await expect(executeHostCommandBatch(ctx, input, "commit")).rejects.toThrow(
       "Sort field bad-id is not output by source; expected one of: metric_good_id. Resolve the reported error and submit the batch as a new operation without the previous operationId.",

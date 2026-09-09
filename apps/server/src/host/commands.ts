@@ -1,7 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { COMMAND_PATHS, type Command } from "@dashframe/types";
 import { z } from "zod";
-import { ConvexError } from "convex/values";
 import { CREDENTIAL_CLASS } from "@dashframe/server-core";
 import type { SecretRef } from "@wystack/secret-vault";
 import type { HostContext } from "./context";
@@ -250,8 +249,9 @@ async function settleFailure(
 }
 
 function confirmedHostBatchRejection(error: unknown): Error | null {
-  if (!(error instanceof ConvexError)) return null;
-  let data: unknown = error.data;
+  if (typeof error !== "object" || error === null || !("data" in error))
+    return null;
+  let data: unknown = (error as { data: unknown }).data;
   for (let depth = 0; typeof data === "string" && depth < 4; depth++) {
     try {
       data = JSON.parse(data);
