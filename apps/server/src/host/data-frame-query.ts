@@ -80,9 +80,15 @@ async function ensureRegistered(
   name: string,
 ): Promise<void> {
   const runtime = ctx.dataPlaneRuntime;
-  if (!runtime?.registerArrowTable || !ctx.dataFrameStorage)
+  const storage = ctx.dataFrameStorage;
+  if (
+    !runtime ||
+    !storage ||
+    (!runtime.registerArrowTable &&
+      !(runtime.registerArrowStream && storage.stream))
+  )
     throw new Error("TARGET_NOT_READY");
-  await registerStoredFrame(ctx.dataFrameStorage, runtime, name, id);
+  await registerStoredFrame(storage, runtime, name, id);
 }
 
 async function frameIsOwned(ctx: HostContext, id: UUID): Promise<boolean> {

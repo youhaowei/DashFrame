@@ -555,6 +555,11 @@ export class PostgresConnector extends RemoteApiConnector {
       connectionString: dsn,
       connectionTimeoutMillis: 30_000,
     });
+    // Socket failure rejects the active connect/query promise, but pg also
+    // emits the same failure on Client. EventEmitter treats an unhandled
+    // "error" event as an uncaught exception, so keep a listener installed for
+    // the client's auth-scoped lifetime. Callers still receive the rejection.
+    client.on("error", () => undefined);
     const connectorClient = client as unknown as PgClientLike;
     connectorClient.abortConnection = () => client.connection.stream.destroy();
     return connectorClient;

@@ -1266,6 +1266,109 @@ describe("queryBatches PostgreSQL cursor", () => {
       });
     }
   });
+
+  it("settles a real pg pending query when aborted", async () => {
+    const message = (type: string, payload: Buffer): Buffer => {
+      const header = Buffer.alloc(5);
+      header.write(type, 0, 1, "ascii");
+      header.writeUInt32BE(payload.length + 4, 1);
+      return Buffer.concat([header, payload]);
+    };
+    const authenticationOk = message("R", Buffer.alloc(4));
+    const ready = message("Z", Buffer.from("I"));
+    const commandComplete = (tag: string) =>
+      Buffer.concat([message("C", Buffer.from(`${tag}\0`)), ready]);
+
+    const sockets = new Set<Socket>();
+    let startFetch!: () => void;
+    const fetchStarted = new Promise<void>((resolve) => {
+      startFetch = resolve;
+    });
+    const server = createServer((socket) => {
+      sockets.add(socket);
+      socket.once("close", () => sockets.delete(socket));
+      socket.on("error", () => undefined);
+      let startupComplete = false;
+      let buffered = Buffer.alloc(0);
+      socket.on("data", (chunk) => {
+        buffered = Buffer.concat([buffered, chunk]);
+        if (!startupComplete) {
+          if (buffered.length < 4) return;
+          const startupLength = buffered.readUInt32BE(0);
+          if (buffered.length < startupLength) return;
+          buffered = buffered.subarray(startupLength);
+          startupComplete = true;
+          socket.write(Buffer.concat([authenticationOk, ready]));
+        }
+
+        while (buffered.length >= 5) {
+          const length = buffered.readUInt32BE(1);
+          const totalLength = length + 1;
+          if (buffered.length < totalLength) return;
+          const type = buffered.toString("ascii", 0, 1);
+          const payload = buffered.subarray(5, totalLength);
+          buffered = buffered.subarray(totalLength);
+          if (type !== "Q") continue;
+          const sql = payload.toString("utf8", 0, payload.length - 1);
+          if (sql.toUpperCase().startsWith("FETCH")) {
+            startFetch();
+            continue;
+          }
+          const upper = sql.toUpperCase();
+          const tag = ["BEGIN", "DECLARE"].find((candidate) =>
+            upper.startsWith(candidate),
+          );
+          socket.write(commandComplete(tag ?? "SET"));
+        }
+      });
+    });
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error("Expected a loopback TCP address");
+    }
+
+    const dsn = `postgresql://user:pass@127.0.0.1:${address.port}/db`;
+    const connector = new PostgresConnector((use) => use(dsn), baseConfig);
+    const abort = new AbortController();
+    const iterator = connector
+      .queryBatches("public.users", crypto.randomUUID(), {
+        signal: abort.signal,
+      })
+      [Symbol.asyncIterator]();
+    const pending = iterator.next();
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+
+    try {
+      await fetchStarted;
+      abort.abort(new Error("cancelled"));
+      const boundedPending = Promise.race([
+        pending,
+        new Promise<never>((_resolve, reject) => {
+          deadline = setTimeout(
+            () => reject(new Error("pending query did not settle")),
+            1_000,
+          );
+        }),
+      ]);
+      await expect(boundedPending).rejects.toThrow(
+        "Connection terminated unexpectedly",
+      );
+    } finally {
+      if (deadline) clearTimeout(deadline);
+      for (const socket of sockets) socket.destroy();
+      await pending.catch(() => undefined);
+      await iterator.return?.().catch(() => undefined);
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error) reject(error);
+          else resolve();
+        });
+      });
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
