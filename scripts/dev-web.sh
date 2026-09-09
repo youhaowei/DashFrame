@@ -36,10 +36,47 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+# portless refuses to run an app when no proxy is running: it exits non-zero
+# and, under `set -euo pipefail`, takes this launcher down with it -- printing
+# the unprivileged-port fallback without ever taking it, so a fresh machine or
+# a headless agent is shown the remedy and still gets no dev server.
+#
+# `portless proxy start` is idempotent and self-deduplicating: it reports an
+# already-running proxy on ANY port (verified against a proxy on 1355 while the
+# command defaults to 443), and otherwise falls back from 443 to an
+# unprivileged port on its own when it cannot prompt for sudo. Letting it pick
+# the port keeps that fallback logic in portless rather than duplicating it.
+#
+# Do NOT gate this on `portless list`: that command loads stored routes and
+# exits 0 even when no proxy is running, so it is not a liveness probe.
+if ! portless proxy start --https; then
+  echo "[dev-web] could not start a portless proxy; start one yourself with:" >&2
+  echo "[dev-web]   portless proxy start --https" >&2
+  exit 1
+fi
+
 # The server can advertise only one address, and portless serves https. Allowing
 # the http origin too would let a developer open a URL the client then rejects,
 # because the advertised https Convex URL would not match the origin they dialed.
-(cd "${ROOT}" && exec bun run apps/server/src/index.ts --port 0 --cors-origin "https://${DEV_NAME}.localhost" --public-origin "https://${DEV_NAME}.localhost") >"${SERVER_LOG}" 2>&1 &
+#
+# That single address must carry the proxy's port whenever portless fell back
+# off 443, because the browser then dials `https://<name>.localhost:1355` and
+# the server matches Origin by exact string (apps/server/src/app.ts
+# allowedOrigin -> `configured.includes(origin)`). Passing the port-less form
+# alone still serves the HTML while every same-origin POST and WebSocket fails
+# 403 "Origin is not allowed", and leaves the advertised Convex URL missing its
+# port -- which is why a plain 200 check on `/` does not catch it.
+#
+# `portless get` applies its own worktree-subdomain logic to the HOSTNAME, so
+# only its port is reliable here; the hostname is the one this launcher passes
+# to `portless --name` below.
+DEV_ORIGIN="https://${DEV_NAME}.localhost"
+PROXY_PORT="$(portless get "${DEV_NAME}" 2>/dev/null | sed -n 's|^https\{0,1\}://[^/]*:\([0-9]\{1,\}\).*$|\1|p' | tail -n 1)"
+if [[ -n "${PROXY_PORT}" && "${PROXY_PORT}" != "443" ]]; then
+  DEV_ORIGIN="${DEV_ORIGIN}:${PROXY_PORT}"
+fi
+
+(cd "${ROOT}" && exec bun run apps/server/src/index.ts --port 0 --cors-origin "${DEV_ORIGIN}" --public-origin "${DEV_ORIGIN}") >"${SERVER_LOG}" 2>&1 &
 SERVER_PID=$!
 
 DASHFRAME_URL=""
@@ -78,6 +115,7 @@ fi
 if [[ -n "${PORT:-}" ]]; then
   PORTLESS_ARGS+=(--app-port "${PORT}")
 fi
+
 portless "${PORTLESS_ARGS[@]}" "${ROOT}/scripts/dev-web-child.sh" "$@" &
 PORTLESS_PID=$!
 wait "${PORTLESS_PID}"
