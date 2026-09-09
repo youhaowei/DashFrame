@@ -979,6 +979,30 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     await expect(engine.query('SELECT * FROM "df_CaseName"')).rejects.toThrow();
   });
 
+  it("keeps names DuckDB keeps apart apart, folding only ASCII case", async () => {
+    // DuckDB's identifier folding is ASCII-only: "A"/"a" are one table, but
+    // "Ä"/"ä" are two (probed on @duckdb/node-api 1.5.3-r.3). A full Unicode
+    // fold would merge them in the registry while the catalog kept both, so
+    // dropping one would strand the other until teardown.
+    engine = new NativeDuckDBEngine();
+    const arrow = tableToIPC(
+      new Table({ v: vectorFromArray([1, 2, 3], new Int32()) }),
+    );
+    await engine.registerArrowTable("Ä", arrow);
+    await engine.registerArrowTable("ä", arrow);
+    expect(engine.getTableNames().sort()).toEqual(["ä", "Ä"].sort());
+
+    await engine.unregisterTable("Ä");
+    expect(engine.hasTable("ä")).toBe(true);
+    expect(engine.hasTable("Ä")).toBe(false);
+    // The survivor is still in the catalog, and unregistering it still works.
+    expect(
+      (await engine.query('SELECT COUNT(*) AS cnt FROM "ä"')).rows[0]?.cnt,
+    ).toBe("3");
+    await engine.unregisterTable("ä");
+    expect(engine.getTableNames()).toEqual([]);
+  });
+
   it("stays fully usable after a failed appender, with no connection to recover", async () => {
     // The appender-taint recovery is gone, not replaced: a failed appender's
     // connection is discarded with the operation that opened it, and every

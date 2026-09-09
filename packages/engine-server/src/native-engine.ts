@@ -932,16 +932,17 @@ function quoteIdent(name: string): string {
  * How DuckDB identifies a table, as opposed to how it spells it. Identifiers
  * are case-insensitive even when quoted, so `"Sales"` and `"sales"` name ONE
  * catalog entry — probed at 20/20 cross-case write-write conflicts against
- * @duckdb/node-api 1.5.3-r.3. Both the per-name lock and the registry key on
- * this, so neither can be fooled into treating one table as two.
+ * @duckdb/node-api 1.5.3-r.3. Both the per-name lock and the registered-table
+ * registry key on this, so neither can be fooled into treating one table as
+ * two, or two as one.
  *
- * Folding can only ever merge two names DuckDB keeps apart, which is safe;
- * failing to merge two it does not is the bug. Registered names are ASCII
- * identifiers (`df_<uuid>`, or the transport's `^[a-zA-Z_]\w*$`), so this
- * folding and DuckDB's own agree on every name that reaches here.
+ * The fold is ASCII-only because DuckDB's is: probed on the same version,
+ * `"Ä"`/`"ä"`, `"İ"`/`"i̇"` and `"ß"`/`"ss"` each create two distinct catalog
+ * tables, while `"A"`/`"a"` create one. `String.toLowerCase()` would merge the
+ * first pair and leave the registry claiming one table where DuckDB has two.
  */
 function tableKey(name: string): string {
-  return name.toLowerCase();
+  return name.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
 }
 
 function throwIfAborted(signal?: AbortSignal): void {
