@@ -338,10 +338,10 @@ export class NativeDuckDBEngine implements QueryEngine {
    * in the teardown window fails with the lifecycle abort before touching
    * anything native.
    *
-   * Ordering that the tests pin: the persistent handle is resolved before the
-   * abort check. After dispose() has *finished* the handle is gone and callers
-   * must hear "not initialized"; while it is *in progress* the handle is live
-   * and they must hear the abort.
+   * Ordering that the tests pin for an unserialized persistent lease: the
+   * handle is resolved before the abort check. After dispose() has *finished*
+   * the handle is gone and callers must hear "not initialized"; while it is
+   * *in progress* the handle is live and they must hear the abort.
    *
    * A serialized lease re-checks the signal after the lock wait — a queued
    * registration can sit there across a dispose() — and resolves the

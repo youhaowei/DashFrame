@@ -629,6 +629,21 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     expect((engine as unknown as { instance: unknown }).instance).toBeNull();
   });
 
+  it("registerArrowStream() with an already-cancelled signal never starts DuckDB", async () => {
+    engine = new NativeDuckDBEngine();
+    const source = (async function* () {
+      yield new Uint8Array();
+    })();
+
+    await expect(
+      engine.registerArrowStream("df_cancelled", source, AbortSignal.abort()),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    // The caller had already given up; building an instance for it would be
+    // startup cost spent on nothing.
+    expect(engine.isReady()).toBe(false);
+    expect((engine as unknown as { instance: unknown }).instance).toBeNull();
+  });
+
   it("reaches native handles only from inside an enrolled lifecycle operation", async () => {
     // Structural pin for the lifecycle contract. Every native call made
     // through the persistent connection, the instance, or a dedicated
@@ -638,6 +653,30 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     // call. The proxies below record any native call made unenrolled, so a
     // method that reaches the handle without going through the lease fails
     // here even though it would "work" on a live engine.
+    //
+    // Every method on the class must run inside this test, so a new entry
+    // point cannot skip the check silently: spies on the prototype fail the
+    // test for any method the exercise block below never reached.
+    const notNativeTouching = new Set([
+      "constructor",
+      "isReady",
+      "hasTable",
+      "getTableNames",
+      "registerTable", // unsupported; throws before touching anything
+      "dispose", // runs in afterEach, after the raw handles are restored
+      "teardown", // dispose()'s body
+    ]);
+    const prototype = NativeDuckDBEngine.prototype as unknown as Record<
+      string,
+      (...args: unknown[]) => unknown
+    >;
+    const spies = Object.getOwnPropertyNames(prototype)
+      .filter(
+        (name) =>
+          !notNativeTouching.has(name) && typeof prototype[name] === "function",
+      )
+      .map((name) => [name, vi.spyOn(prototype, name)] as const);
+
     engine = new NativeDuckDBEngine();
     await engine.initialize();
     const internals = engine as unknown as {
@@ -690,55 +729,32 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
       }
       await engine.unregisterTable("df_enrolled");
       await engine.unregisterTable("df_enrolled_stream");
-      expect(unenrolled).toEqual([]);
+      // The appender-failure path swaps the persistent connection; it must do
+      // so from inside the lease like everything else.
+      await expect(
+        engine.registerArrowTable(
+          "df_overflow",
+          tableToIPC(
+            new Table({
+              n: vectorFromArray([9223372036854775808n], new Uint64()),
+            }),
+            "stream",
+          ),
+        ),
+      ).rejects.toThrow();
+      // The swap installed a replacement (opened through the guarded
+      // instance, so still proxied); afterEach must disconnect that one, so
+      // leave it in place.
+      expect(internals.connection).not.toBe(rawConnection);
 
-      // Every native-touching public method above is exercised. A new one
-      // must be added to this list — and to the calls above — or it escapes
-      // the structural check.
-      const publicMethods = Object.getOwnPropertyNames(
-        NativeDuckDBEngine.prototype,
-      )
-        .filter((name) => name !== "constructor" && !name.startsWith("_"))
-        .filter(
-          (name) =>
-            typeof (engine as unknown as Record<string, unknown>)[name] ===
-            "function",
-        );
-      expect(publicMethods.sort()).toEqual(
-        [
-          "initialize",
-          "isReady",
-          "query",
-          "queryArrow",
-          "queryArrowBatches",
-          "registerArrowTable",
-          "registerArrowStream",
-          "registerTable",
-          "unregisterTable",
-          "hasTable",
-          "getTableNames",
-          "dispose",
-          // private — TypeScript-only visibility, so they surface here too
-          "openInstance",
-          "acquireConnection",
-          "withConnection",
-          "streamWithConnection",
-          "persistentConnection",
-          "liveInstance",
-          "acquireRegistrationLock",
-          "replaceTaintedConnection",
-          "trackedQueryStream",
-          "streamBatches",
-          "teardown",
-          "beginNativeOperation",
-          "endNativeOperation",
-        ].sort(),
+      expect(unenrolled).toEqual([]);
+      const unexercised = spies
+        .filter(([, spy]) => spy.mock.calls.length === 0)
+        .map(([name]) => name);
+      expect(unexercised, "add the new method to the exercise block").toEqual(
+        [],
       );
     } finally {
-      // dispose() legitimately touches both handles outside any enrolment —
-      // it is the teardown the enrolment protects against — so hand the raw
-      // objects back before afterEach tears down.
-      internals.connection = rawConnection;
       internals.instance = rawInstance;
     }
   });
