@@ -23,6 +23,46 @@
 
 **Aesthetic adjective set**: calm, immediate, crafted. ("Immediate" is the drive-feel performance thesis made visual — the UI never feels like it's waiting on a server.)
 
+## Artifact navigation and page model
+
+> Accepted: 2026-08-29
+> Applies to: Data Sources, Insights, Visualizations, Dashboards, and future collection/detail artifact types
+
+DashFrame uses one recognizable model for finding and working with artifacts. Collection pages share a list/grid index; detail pages give the selected artifact the full content width. Artifact types customize content and actions inside that structure rather than inventing their own navigation model.
+
+### Collection pages: shared list/grid index
+
+- Every artifact collection uses the same page header, search, filters, sort, view toggle, empty/loading/error states, and creation-action placement.
+- **Grid is the default** when recognition, recency, ownership, or a meaningful preview helps selection. **List is the compact alternative** when names and metadata are sufficient. Preserve the user's view choice per artifact type.
+- Search covers the artifact name plus type-relevant identity such as provider, source, host, or owner. Filters are artifact-specific but use the same interaction and placement.
+- Results prioritize decision-changing state. “Needs attention,” failed, stale, or draft state may alter ordering or grouping; healthy routine state stays quiet.
+- Tables are not the default artifact browser. Use a comparison table only when users repeatedly judge several artifacts across meaningful, decision-changing columns.
+
+### Detail pages: full-width artifact home
+
+- The selected artifact owns the content canvas. Do not reserve permanent horizontal space for an artifact list or master rail.
+- The page header contains breadcrumb/back context, artifact identity, status when decision-relevant, primary action, overflow actions, and a compact artifact switcher.
+- The artifact switcher is searchable and filterable, supports keyboard navigation, includes useful result metadata, and provides a **Browse all** path back to the shared collection index. It is a temporary navigation surface, not a persistent second sidebar.
+- Detail content follows a consistent reading order:
+  1. **State and summary** — what this artifact is, whether it needs attention, and the primary recovery or next action.
+  2. **Primary work surface** — the visualization, dashboard, insight result/configuration, source schema/preview, or equivalent core task.
+  3. **Relationships and impact** — upstream sources, downstream consumers, lineage, joins, or dependencies when useful.
+  4. **Activity and provenance** — refreshes, edits, runs, failures, and ownership history.
+- Sections may become tabs, inspectors, or editing modes when the artifact's core task requires sustained manipulation. These are local work surfaces; they do not replace the shared page anatomy.
+- Editing preserves spatial continuity with the read view. Prefer contextual inspectors or in-place modes over navigating to a visually unrelated editor.
+
+### Responsive behavior
+
+- On narrow windows the artifact switcher becomes a full-width command surface or sheet; it never becomes a permanently visible rail.
+- Collection grid columns collapse before content becomes cramped. List rows retain identity and the one most important state; secondary metadata may move into the detail page.
+- Detail sections stack in reading order. Wide previews and data grids own explicit local horizontal scrolling rather than forcing page-level overflow.
+
+### Rejected recurring directions
+
+- **Permanent master-detail rails for every artifact.** They spend width on navigation that is idle during most artifact work and duplicate the application sidebar.
+- **Comparison tables as the universal collection view.** Most artifact states are routine and not meaningfully comparable; repeated healthy columns create noise around exceptions.
+- **Per-artifact collection and detail shells.** Artifact-specific content is expected, but search, switching, hierarchy, actions, states, and responsive behavior remain shared.
+
 ## Theme
 
 - **Mode**: both; default follows system.
@@ -63,6 +103,27 @@ Apply the test per surface, not per datum: the same fact can be signal on one su
 Track always, enforce silently, flag only where it's decision-affecting. A property can be tracked on the model and enforced by the system without ever being shown — show it to the user only at the surface where it changes a decision with consequences.
 
 - **Lesson (GH #81, 2026-06-13):** a per-field sensitivity badge in the insight field picker was built, reviewed clean, and _closed unmerged_ — at field-pick, sensitivity is informative, not decisive (a user who needs the field includes it regardless), and on a scan-list where most fields are unclassified the marker is wallpaper. Sensitivity is tracked on the field and enforced silently by the cache-write gate; the user-facing flag belongs at the **share/export boundary**, the one place it changes behavior (caution before sensitive data leaves the local context).
+
+## Principle: every element earns its place
+
+**An interface element exists to help the user understand state, make a decision, or perform an action. Visual completeness is not a reason to add it.**
+
+- Do not add decorative KPIs, charts, thumbnails, cards, activity, metadata, status pills, filters, tabs, or actions merely to make a page look populated or polished.
+- A preview must help recognize or judge the artifact. A generic chart thumbnail, arbitrary illustration, or synthetic sparkline that communicates no real artifact property is worse than no preview.
+- Show only data the product can compute truthfully and keep current. Labels such as “health,” “impact,” “quality,” or “freshness” require a defined source and interpretation; otherwise use the underlying concrete fact.
+- Demo and prototype content must represent a supported product state and plausible data path. It may use fixtures, but it must not imply unsupported analytics, automation, collaboration, monitoring, or lineage.
+- Empty space is allowed. Do not fill it with low-value cards or repeated metadata. Increase density only when the additional information changes a decision on that surface.
+- Repeated content must justify repetition. Identity and status may appear in a picker, header, and recovery state only when each placement supports a different local decision.
+
+### Element review gate
+
+Before an element graduates from a mock into production, answer:
+
+1. What user question does it answer or what action does it enable?
+2. Why is this the right surface and moment for it?
+3. What real source supplies the content, and when can it be stale or unavailable?
+4. What changes in the user's decision if the element is present?
+5. If removing it changes nothing, remove it.
 
 ## Project-specific anti-patterns
 

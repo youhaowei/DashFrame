@@ -9,7 +9,7 @@
  * One isolated host project owns all metadata and Arrow files. Tests run
  * serially and clear that project before navigating a fresh browser context.
  */
-import { test as base, expect } from "@playwright/test";
+import { test as base, expect, type Page } from "@playwright/test";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -30,6 +30,27 @@ function getWorkerBaseURL(parallelIndex: number): string {
     return `http://localhost:${BASE_PORT}`;
   }
   return `http://localhost:${BASE_PORT + parallelIndex}`;
+}
+
+/**
+ * Open the "Local Files" connector so its file input is in the DOM.
+ *
+ * The connector list is a disclosure: only the picked connector renders its
+ * setup form, so the file input does not exist until the row is opened. Once
+ * it is open the panel drops the toggle and the header stops being a button,
+ * which is why this checks for the input rather than the row's state.
+ */
+async function openLocalFilesConnector(page: Page): Promise<void> {
+  const fileInput = page.locator('input[type="file"]');
+  if ((await fileInput.count()) > 0) return;
+  // Matched on the connector's description, not its name: once a file has been
+  // uploaded a data source called "Local Files" also appears in the picker.
+  await page
+    .getByRole("button", {
+      name: /Upload a CSV or JSON file from your computer/,
+    })
+    .click();
+  await expect(fileInput).toHaveCount(1);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -112,6 +133,7 @@ export const test = base.extend<DashFrameFixtures & DashFrameAutoFixtures>({
     await use(async (fileName: string) => {
       const filePath = path.join(fixturesDir, fileName);
 
+      await openLocalFilesConnector(page);
       const [fileChooser] = await Promise.all([
         page.waitForEvent("filechooser"),
         page.getByText("Select Local Files").click(),
@@ -130,6 +152,7 @@ export const test = base.extend<DashFrameFixtures & DashFrameAutoFixtures>({
   uploadBuffer: async ({ page }, use) => {
     await use(
       async (name: string, content: string, mimeType = "text/plain") => {
+        await openLocalFilesConnector(page);
         const fileInput = page.locator('input[type="file"]');
         await fileInput.setInputFiles({
           name,

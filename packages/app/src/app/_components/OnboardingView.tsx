@@ -1,20 +1,12 @@
-import { DataPickerContent } from "@/components/data-sources/DataPickerContent";
+import { StartFromData } from "@/components/data-sources/StartFromData";
 import { useCreateInsight } from "@/hooks/useCreateInsight";
-import { Card, CardContent } from "@wystack/ui-react";
-import { ChartIcon } from "@wystack/ui-react/icons";
 
-const WelcomeHeader = () => (
-  <div className="mb-8 text-center">
-    <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-palette-primary/10">
-      <ChartIcon className="h-6 w-6 text-palette-primary" />
-    </div>
-    <h2 className="mb-2 text-2xl font-bold">Welcome to DashFrame</h2>
-    <p className="text-base text-neutral-fg-subtle">
-      Create beautiful visualizations from your data.
-    </p>
-  </div>
-);
-
+/**
+ * First-run view for an empty project.
+ *
+ * The layout is `StartFromData`; what this view owns is the welcome copy and
+ * the terminal action — a first insight, opened as soon as it exists.
+ */
 export function OnboardingView({
   onActivityChange,
 }: {
@@ -24,18 +16,12 @@ export function OnboardingView({
     useCreateInsight();
 
   return (
-    <>
-      <WelcomeHeader />
-      <Card>
-        <CardContent className="p-6">
-          <DataPickerContent
-            onTableSelect={createInsightFromTable}
-            onInsightSelect={(id, name) => createInsightFromInsight(id, name)}
-            showInsights={true}
-            onActivityChange={onActivityChange}
-          />
-        </CardContent>
-      </Card>
-    </>
+    <StartFromData
+      title="Welcome to DashFrame"
+      description="Connect a data source to build your first insight."
+      onTableSelect={createInsightFromTable}
+      onInsightSelect={(id, name) => createInsightFromInsight(id, name)}
+      onActivityChange={onActivityChange}
+    />
   );
 }

@@ -12,6 +12,8 @@ import {
   ArtifactGrid,
 } from "@/components/artifacts/ArtifactCollection";
 import { RoutedCardActionMenuTrigger } from "@/components/RoutedCardActionMenuTrigger";
+import { StartFromData } from "@/components/data-sources/StartFromData";
+import { useCreateInsight } from "@/hooks/useCreateInsight";
 import { api } from "@dashframe/convex-backend/api";
 import { cmd, type UUID } from "@dashframe/types";
 import { useNavigate } from "@tanstack/react-router";
@@ -42,14 +44,12 @@ function ReportsCollectionContent({
   isEmpty,
   searchQuery,
   onClearSearch,
-  onCreateReport,
   children,
 }: {
   hasLoadError: boolean;
   isEmpty: boolean;
   searchQuery: string;
   onClearSearch: () => void;
-  onCreateReport: () => void;
   children: ReactNode;
 }) {
   if (hasLoadError) {
@@ -79,18 +79,34 @@ function ReportsCollectionContent({
     );
   }
 
+  return <ReportsStart />;
+}
+
+/**
+ * The empty reports list, as a starting point rather than a notice.
+ *
+ * What a report holds is questions, so the useful move from an empty list is
+ * the same one onboarding offers: pick data and get a question. This branch
+ * says nothing about what else the project contains — questions and saved
+ * views exist independently of reports — so the copy stays neutral about
+ * whether this is the reader's first. Naming an empty report is still one
+ * click away in the collection header, which is why that path is named here
+ * rather than repeated as a second button.
+ */
+function ReportsStart() {
+  const { createInsightFromTable, createInsightFromInsight } =
+    useCreateInsight();
+
   return (
-    <ArtifactEmptyState
-      title="No reports yet"
-      description="Create your first report to organize questions and saved views."
-      action={
-        <Button
-          icon={PlusIcon}
-          label="Create report"
-          onClick={onCreateReport}
-        />
-      }
-    />
+    <div className="mx-auto w-full max-w-2xl py-8">
+      <StartFromData
+        title="No reports yet"
+        description="Pick data to start a question, or use New report above to name an empty one."
+        headingLevel={2}
+        onTableSelect={createInsightFromTable}
+        onInsightSelect={(id, name) => createInsightFromInsight(id, name)}
+      />
+    </div>
   );
 }
 
@@ -205,7 +221,6 @@ export default function DashboardsPage() {
         isEmpty={filteredDashboards.length === 0}
         searchQuery={searchQuery}
         onClearSearch={() => setSearchQuery("")}
-        onCreateReport={() => setIsCreateOpen(true)}
       >
         <ArtifactGrid>
           {filteredDashboards.map((dashboard) => {
