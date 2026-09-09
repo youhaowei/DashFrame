@@ -17,8 +17,10 @@
  * a project frame never make a client roundtrip.
  *
  * `POST /frames/:id/tables/:name`
- *   Registers the stored frame `:id` in the engine under `:name`. The browser
- *   sends only opaque identifiers.
+ *   Registers the stored frame `:id` in the engine. The browser sends only
+ *   opaque identifiers. `:name` must be the frame's canonical
+ *   `frameTableName(id)` — a frame has exactly one name, so any other
+ *   identifier is a 400 rather than a second registration of the same frame.
  *
  * `POST /frames/:id/mosaic`
  *   Accepts the Mosaic Coordinator shape `{ type: 'arrow'|'exec'|'json', sql }`
@@ -371,9 +373,14 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
     if (!UUID_PATTERN.test(id)) {
       return c.json({ error: "Invalid frame id" }, 400);
     }
-    if (!name || !/^[a-zA-Z_]\w*$/.test(name)) {
+    // A frame has exactly one name — `frameTableName(id)`. Accepting any other
+    // identifier here would reopen what the naming contract closes: an alias
+    // that deletion cleanup (which drops only the canonical name) would leave
+    // registered, and a way to overwrite another frame's table by registering
+    // under its name.
+    if (name !== frameTableName(id)) {
       return c.json(
-        { error: "Table name must be a valid SQL identifier" },
+        { error: "Table name must be the frame's canonical table name" },
         400,
       );
     }

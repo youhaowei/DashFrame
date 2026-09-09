@@ -9,6 +9,7 @@ import { tableFromIPC } from "apache-arrow";
 import { describe, expect, it } from "vite-plus/test";
 
 import type { QueryEngine } from "@dashframe/engine";
+import { frameTableName } from "@dashframe/engine";
 import {
   ARROW_STREAM_CONTENT_TYPE,
   createArrowDataPath,
@@ -360,7 +361,50 @@ describe("Arrow data path — server frame registration and Mosaic queries", () 
       },
     });
 
-    const response = await app.request(`/frames/${id}/tables/df_server`, {
+    const response = await app.request(
+      `/frames/${id}/tables/${frameTableName(id)}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${TOKEN}`,
+          "Content-Type": "application/json",
+        },
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(engine.registrations).toEqual([{ name: frameTableName(id), bytes }]);
+    expect(await response.json()).toEqual({
+      ok: true,
+      id,
+      name: frameTableName(id),
+    });
+  });
+
+  it("rejects a registration under any name but the frame's canonical one", async () => {
+    const engine = fakeRegistrar();
+    const id = "11111111-1111-4111-8111-111111111111";
+    let loads = 0;
+    const app = createArrowDataPath({
+      engine,
+      authToken: TOKEN,
+      dataFrameStorage: {
+        save: async () => {},
+        load: async () => {
+          loads += 1;
+          return new Uint8Array([1, 2, 3]);
+        },
+        delete: async () => {},
+        exists: async () => true,
+        list: async () => [id],
+        getUsage: async () => ({ count: 1 }),
+      },
+    });
+
+    // A valid SQL identifier, so only the canonical-name check can reject it.
+    // An alias would survive deletion cleanup, which drops only the canonical
+    // name, and could overwrite another frame's table.
+    const response = await app.request(`/frames/${id}/tables/stale_alias`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${TOKEN}`,
@@ -368,9 +412,9 @@ describe("Arrow data path — server frame registration and Mosaic queries", () 
       },
     });
 
-    expect(response.status).toBe(200);
-    expect(engine.registrations).toEqual([{ name: "df_server", bytes }]);
-    expect(await response.json()).toEqual({ ok: true, id, name: "df_server" });
+    expect(response.status).toBe(400);
+    expect(engine.registrations).toEqual([]);
+    expect(loads).toBe(0);
   });
 
   it("rejects a browser-simple frame registration before loading bytes", async () => {
@@ -392,9 +436,12 @@ describe("Arrow data path — server frame registration and Mosaic queries", () 
       },
     });
 
-    const response = await app.request(`/frames/${id}/tables/df_server`, {
-      method: "POST",
-    });
+    const response = await app.request(
+      `/frames/${id}/tables/${frameTableName(id)}`,
+      {
+        method: "POST",
+      },
+    );
 
     expect(response.status).toBe(415);
     expect(loads).toBe(0);
@@ -430,14 +477,14 @@ describe("Arrow data path — server frame registration and Mosaic queries", () 
       },
     });
 
-    const request = app.request(`/frames/${id}/tables/df_delayed`, {
+    const request = app.request(`/frames/${id}/tables/${frameTableName(id)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ type: "arrow", sql: `SELECT * FROM "${id}"` }),
     });
     await readStarted;
     available = false;
-    await engine.unregisterTable("df_delayed");
+    await engine.unregisterTable(frameTableName(id));
     releaseLoad();
 
     const response = await request;
@@ -445,7 +492,9 @@ describe("Arrow data path — server frame registration and Mosaic queries", () 
     expect(engine.registrations).toEqual([]);
   });
 
-  it.each(["tables/df_delayed", "mosaic"])(
+  const FRAME_ID_FIXTURE = "11111111-1111-4111-8111-111111111111";
+
+  it.each([`tables/${frameTableName(FRAME_ID_FIXTURE)}`, "mosaic"])(
     "does not consume a revoked stream while %s registration waits",
     async (route) => {
       const id = "11111111-1111-4111-8111-111111111111";
