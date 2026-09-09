@@ -503,6 +503,120 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     ]);
   });
 
+  it("reaches native handles only from inside an enrolled lifecycle operation", async () => {
+    // Structural pin for the lifecycle contract. Every native call made
+    // through the persistent connection, the instance, or a dedicated
+    // connection opened from the instance must happen while the engine has an
+    // operation enrolled (`activeNativeOperations > 0`) — that enrolment is
+    // what makes dispose() wait instead of closing the handle underneath the
+    // call. The proxies below record any native call made unenrolled, so a
+    // method that reaches the handle without going through the lease fails
+    // here even though it would "work" on a live engine.
+    engine = new NativeDuckDBEngine();
+    await engine.initialize();
+    const internals = engine as unknown as {
+      connection: object;
+      instance: object;
+      activeNativeOperations: number;
+    };
+    const rawConnection = internals.connection;
+    const rawInstance = internals.instance;
+    const unenrolled: string[] = [];
+    const guarded = <T extends object>(target: T, label: string): T =>
+      new Proxy(target, {
+        get(obj, prop, receiver) {
+          const value = Reflect.get(obj, prop, receiver) as unknown;
+          if (typeof value !== "function") return value;
+          return (...args: unknown[]) => {
+            if (internals.activeNativeOperations === 0) {
+              unenrolled.push(`${label}.${String(prop)}`);
+            }
+            const result: unknown = Reflect.apply(value, obj, args);
+            // A dedicated connection is born from `instance.connect()`; guard
+            // it too so streaming paths are held to the same rule.
+            return prop === "connect" && result instanceof Promise
+              ? result.then((conn: object) => guarded(conn, "dedicated"))
+              : result;
+          };
+        },
+      });
+    internals.connection = guarded(rawConnection, "connection");
+    internals.instance = guarded(rawInstance, "instance");
+
+    try {
+      const arrow = tableToIPC(
+        new Table({ v: vectorFromArray([1, 2], new Int32()) }),
+        "stream",
+      );
+      await engine.query("SELECT 1");
+      await engine.queryArrow("SELECT ? AS v", [1]);
+      await engine.registerArrowTable("df_enrolled", arrow);
+      await engine.registerArrowStream(
+        "df_enrolled_stream",
+        (async function* () {
+          yield arrow;
+        })(),
+      );
+      for await (const batch of engine.queryArrowBatches(
+        "SELECT * FROM df_enrolled",
+      )) {
+        expect(tableFromIPC(batch).numRows).toBeGreaterThan(0);
+      }
+      await engine.unregisterTable("df_enrolled");
+      await engine.unregisterTable("df_enrolled_stream");
+      expect(unenrolled).toEqual([]);
+
+      // Every native-touching public method above is exercised. A new one
+      // must be added to this list — and to the calls above — or it escapes
+      // the structural check.
+      const publicMethods = Object.getOwnPropertyNames(
+        NativeDuckDBEngine.prototype,
+      )
+        .filter((name) => name !== "constructor" && !name.startsWith("_"))
+        .filter(
+          (name) =>
+            typeof (engine as unknown as Record<string, unknown>)[name] ===
+            "function",
+        );
+      expect(publicMethods.sort()).toEqual(
+        [
+          "initialize",
+          "isReady",
+          "query",
+          "queryArrow",
+          "queryArrowBatches",
+          "registerArrowTable",
+          "registerArrowStream",
+          "registerTable",
+          "unregisterTable",
+          "hasTable",
+          "getTableNames",
+          "dispose",
+          // private — TypeScript-only visibility, so they surface here too
+          "openInstance",
+          "acquireConnection",
+          "withConnection",
+          "streamWithConnection",
+          "persistentConnection",
+          "liveInstance",
+          "acquireRegistrationLock",
+          "replaceTaintedConnection",
+          "trackedQueryStream",
+          "streamBatches",
+          "teardown",
+          "beginNativeOperation",
+          "endNativeOperation",
+        ].sort(),
+      );
+    } finally {
+      // dispose() legitimately touches both handles outside any enrolment —
+      // it is the teardown the enrolment protects against — so hand the raw
+      // objects back before afterEach tears down.
+      internals.connection = rawConnection;
+      internals.instance = rawInstance;
+    }
+  });
+
   describe("registerArrowTable — in-memory Arrow ingest", () => {
     /**
      * Build an Arrow IPC buffer the same way the renderer's producer does
