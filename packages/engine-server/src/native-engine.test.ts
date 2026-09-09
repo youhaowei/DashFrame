@@ -207,7 +207,8 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
 
     await engine.dispose();
 
-    // isReady() must return false — the connection reference is gone.
+    // isReady() must return false — the engine's phase is terminal and the
+    // instance is closed.
     expect(engine.isReady()).toBe(false);
     // query() must throw rather than silently return empty results, so callers
     // discover the misuse instead of seeing a ghost success.
@@ -323,8 +324,9 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
 
     const disposing = engine.dispose();
 
-    // query()/queryArrow() reach the persistent connection directly. Unenrolled,
-    // dispose() sees no tracked operation and can disconnect underneath them.
+    // query()/queryArrow() open a connection of their own. Unenrolled,
+    // dispose() sees no tracked operation and can close the instance
+    // underneath them.
     await expect(engine.queryArrow("SELECT 1")).rejects.toMatchObject({
       name: "AbortError",
     });
@@ -534,14 +536,14 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     ]);
   });
 
-  it("a dedicated connection that fails to disconnect still hands back the lock and refcount", async () => {
+  it("a leased connection that fails to disconnect still hands back the lock and refcount", async () => {
     engine = new NativeDuckDBEngine();
     await engine.initialize();
     const internals = engine as unknown as {
       instance: { connect(): Promise<{ disconnectSync(): void }> };
     };
     const rawInstance = internals.instance;
-    // Make the NEXT dedicated connection's disconnectSync() throw on release.
+    // Make the NEXT leased connection's disconnectSync() throw on release.
     internals.instance = new Proxy(rawInstance, {
       get(target, prop, receiver) {
         if (prop !== "connect") return Reflect.get(target, prop, receiver);
@@ -584,17 +586,36 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     expect(engine.isReady()).toBe(false);
   });
 
-  it("dispose() completes and closes the instance even when the connection refuses to disconnect", async () => {
+  it("dispose() completes and closes the instance even when a leased connection refuses to disconnect", async () => {
     engine = new NativeDuckDBEngine();
     await engine.initialize();
+    // Teardown no longer disconnects anything: every operation closes its own
+    // connection on release. The hazard that survives is a connection whose
+    // close FAILED — the instance must still be closed exactly once, and
+    // disposal must stay terminal, rather than the failure leaving a live
+    // instance nothing will ever reclaim.
     const internals = engine as unknown as {
-      connection: { disconnectSync(): void };
-      instance: { closeSync(): void } | null;
+      instance: {
+        connect(): Promise<{ disconnectSync(): void }>;
+        closeSync(): void;
+      };
     };
-    vi.spyOn(internals.connection, "disconnectSync").mockImplementation(() => {
-      throw new Error("disconnect failed");
+    const rawInstance = internals.instance;
+    internals.instance = new Proxy(rawInstance, {
+      get(target, prop, receiver) {
+        if (prop !== "connect") return Reflect.get(target, prop, receiver);
+        return async () => {
+          const conn = await target.connect();
+          conn.disconnectSync = () => {
+            throw new Error("disconnect failed");
+          };
+          return conn;
+        };
+      },
     });
-    const closeSync = vi.spyOn(internals.instance!, "closeSync");
+    await expect(engine.query("SELECT 1")).rejects.toThrow("disconnect failed");
+    internals.instance = rawInstance;
+    const closeSync = vi.spyOn(rawInstance, "closeSync");
 
     await expect(engine.dispose()).resolves.toBeUndefined();
     expect(closeSync).toHaveBeenCalledTimes(1);
@@ -603,36 +624,6 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     await expect(engine.initialize()).rejects.toMatchObject({
       name: "AbortError",
     });
-  });
-
-  it("queues a registration behind a connection swap instead of rejecting it", async () => {
-    engine = new NativeDuckDBEngine();
-    await engine.initialize();
-    // Reproduce the window replaceTaintedConnection() opens: the registration
-    // lock is held and the persistent handle is null until the reconnect
-    // resolves. A registration arriving now must wait for the lock and use
-    // the replacement, not fail with "not initialized".
-    const internals = engine as unknown as {
-      connection: unknown;
-      acquireRegistrationLock(): Promise<() => void>;
-    };
-    const unlock = await internals.acquireRegistrationLock();
-    const liveConnection = internals.connection;
-    internals.connection = null;
-
-    const arrow = tableToIPC(
-      new Table({ v: vectorFromArray([1, 2, 3], new Int32()) }),
-      "stream",
-    );
-    const queued = engine.registerArrowTable("df_after_swap", arrow);
-    await new Promise((resolve) => {
-      setTimeout(resolve, 20);
-    });
-    internals.connection = liveConnection;
-    unlock();
-
-    await expect(queued).resolves.toBeUndefined();
-    expect(engine.hasTable("df_after_swap")).toBe(true);
   });
 
   it("an initialize() that fails while dispose() is in flight does not reopen the engine", async () => {
@@ -679,9 +670,30 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     engine = new NativeDuckDBEngine();
     await engine.initialize();
     const internals = engine as unknown as {
-      connection: { runAndReadAll: (...args: unknown[]) => unknown };
+      instance: { connect(): Promise<Record<string, unknown>> };
     };
-    const runAndReadAll = vi.spyOn(internals.connection, "runAndReadAll");
+    const rawInstance = internals.instance;
+    // Record every native call the operation's own connection makes, so the
+    // test can assert the statement never started.
+    const nativeCalls: string[] = [];
+    internals.instance = new Proxy(rawInstance, {
+      get(target, prop, receiver) {
+        if (prop !== "connect") return Reflect.get(target, prop, receiver);
+        return async () => {
+          const conn = await target.connect();
+          return new Proxy(conn, {
+            get(obj, name, self) {
+              const value = Reflect.get(obj, name, self) as unknown;
+              if (typeof value !== "function") return value;
+              return (...args: unknown[]) => {
+                nativeCalls.push(String(name));
+                return Reflect.apply(value, obj, args);
+              };
+            },
+          });
+        };
+      },
+    });
 
     // Acquisition yields once before the callback runs. A dispose() landing
     // in that microtask has already interrupted a statement that does not
@@ -695,8 +707,9 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
       name: "AbortError",
     });
     await disposing;
+    internals.instance = rawInstance;
 
-    expect(runAndReadAll).not.toHaveBeenCalled();
+    expect(nativeCalls).not.toContain("runAndReadAll");
     expect(engine.isReady()).toBe(false);
   });
 
@@ -728,17 +741,16 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
 
   it("reaches native handles only from inside an enrolled lifecycle operation", async () => {
     // Structural pin for the lifecycle contract on OPERATIONS: every native
-    // call an operation makes through the persistent connection, the
-    // instance, or a dedicated connection opened from the instance must
-    // happen while the engine has an operation enrolled
-    // (`activeNativeOperations > 0`) — that enrolment is what makes dispose()
-    // wait instead of closing the handle underneath the call. The lifecycle
-    // methods are out of scope by construction: openInstance() runs before
-    // the proxies are installed and teardown() after they are removed, since
-    // both legitimately touch handles with nothing enrolled. The proxies
-    // record any native call made unenrolled, so an operation that reaches a
-    // handle without going through the lease fails here even though it would
-    // "work" on a live engine.
+    // call an operation makes — through the instance, or through the
+    // connection it opens from the instance — must happen while the engine
+    // has an operation enrolled (`activeNativeOperations > 0`); that
+    // enrolment is what makes dispose() wait instead of closing the handle
+    // underneath the call. The lifecycle methods are out of scope by
+    // construction: openInstance() runs before the proxy is installed and
+    // teardown() after it is removed, since both legitimately touch the
+    // instance with nothing enrolled. The proxy records any native call made
+    // unenrolled, so an operation that reaches a handle without going through
+    // the lease fails here even though it would "work" on a live engine.
     //
     // Every method on the class must run inside this test, so a new entry
     // point cannot skip the check silently: spies on the prototype fail the
@@ -766,11 +778,9 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     engine = new NativeDuckDBEngine();
     await engine.initialize();
     const internals = engine as unknown as {
-      connection: object;
       instance: object;
       activeNativeOperations: number;
     };
-    const rawConnection = internals.connection;
     const rawInstance = internals.instance;
     const unenrolled: string[] = [];
     const guarded = <T extends object>(target: T, label: string): T =>
@@ -783,15 +793,14 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
               unenrolled.push(`${label}.${String(prop)}`);
             }
             const result: unknown = Reflect.apply(value, obj, args);
-            // A dedicated connection is born from `instance.connect()`; guard
-            // it too so streaming paths are held to the same rule.
+            // Every connection is born from `instance.connect()`; guard each
+            // one so every operation is held to the same rule.
             return prop === "connect" && result instanceof Promise
-              ? result.then((conn: object) => guarded(conn, "dedicated"))
+              ? result.then((conn: object) => guarded(conn, "connection"))
               : result;
           };
         },
       });
-    internals.connection = guarded(rawConnection, "connection");
     internals.instance = guarded(rawInstance, "instance");
 
     try {
@@ -815,8 +824,8 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
       }
       await engine.unregisterTable("df_enrolled");
       await engine.unregisterTable("df_enrolled_stream");
-      // The appender-failure path swaps the persistent connection; it must do
-      // so from inside the lease like everything else.
+      // The appender-failure path closes a failed appender and discards its
+      // connection; it must do so from inside the lease like everything else.
       await expect(
         engine.registerArrowTable(
           "df_overflow",
@@ -828,10 +837,6 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
           ),
         ),
       ).rejects.toThrow();
-      // The swap installed a replacement (opened through the guarded
-      // instance, so still proxied); afterEach must disconnect that one, so
-      // leave it in place.
-      expect(internals.connection).not.toBe(rawConnection);
 
       expect(unenrolled).toEqual([]);
       const unexercised = spies
@@ -843,6 +848,125 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     } finally {
       internals.instance = rawInstance;
     }
+  });
+
+  it("runs registrations of different table names concurrently", async () => {
+    // The lock is per table name, so two registrations that name different
+    // tables must be in their critical sections AT THE SAME TIME — not merely
+    // both eventually succeed. Each source blocks until both have started, so
+    // the pair can only finish if both leases were granted concurrently. A
+    // global lock (the old shape) never lets the second generator start, and
+    // this test times out instead of passing.
+    engine = new NativeDuckDBEngine();
+    await engine.initialize();
+    const arrow = tableToIPC(
+      new Table({ v: vectorFromArray([1, 2, 3], new Int32()) }),
+      "stream",
+    );
+    let started = 0;
+    let openGate!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
+    const source = () =>
+      (async function* () {
+        started += 1;
+        if (started === 2) openGate();
+        await gate;
+        yield arrow;
+      })();
+
+    const both = Promise.all([
+      engine.registerArrowStream("df_parallel_a", source()),
+      engine.registerArrowStream("df_parallel_b", source()),
+    ]);
+    const outcome = await Promise.race([
+      both.then(
+        () => "concurrent" as const,
+        () => "failed" as const,
+      ),
+      new Promise<"serialized">((resolve) => {
+        setTimeout(() => resolve("serialized"), 2_000);
+      }),
+    ]);
+
+    expect(outcome).toBe("concurrent");
+    expect(engine.hasTable("df_parallel_a")).toBe(true);
+    expect(engine.hasTable("df_parallel_b")).toBe(true);
+    for (const name of ["df_parallel_a", "df_parallel_b"]) {
+      const rows = await engine.query(`SELECT COUNT(*) AS cnt FROM "${name}"`);
+      expect(Number(rows.rows[0]?.cnt)).toBe(3);
+    }
+  });
+
+  it("stays fully usable after a failed appender, with no connection to recover", async () => {
+    // The appender-taint recovery is gone, not replaced: a failed appender's
+    // connection is discarded with the operation that opened it, and every
+    // later operation opens a clean one. Nothing shared was ever touched, so
+    // reads, buffered registrations and streamed registrations all keep
+    // working with no recovery step in between.
+    engine = new NativeDuckDBEngine();
+    await engine.registerArrowTable(
+      "df_survivor",
+      tableToIPC(new Table({ n: vectorFromArray([1, 2, 3], new Float64()) })),
+    );
+
+    const OVER_INT64 = 9223372036854775808n; // 2^63 — exceeds DuckDB BIGINT
+    await expect(
+      engine.registerArrowTable(
+        "df_survivor",
+        tableToIPC(
+          new Table({ n: vectorFromArray([1n, OVER_INT64], new Uint64()) }),
+        ),
+      ),
+    ).rejects.toThrow("bigint out of int64 range");
+
+    expect(engine.isReady()).toBe(true);
+    // The live table is untouched by the failed replacement of its own name.
+    expect(
+      Number(
+        (await engine.query('SELECT COUNT(*) AS cnt FROM "df_survivor"'))
+          .rows[0]?.cnt,
+      ),
+    ).toBe(3);
+    expect(
+      tableFromIPC(await engine.queryArrow("SELECT 1 AS alive"))
+        .getChild("alive")
+        ?.get(0),
+    ).toBe(1);
+    await engine.registerArrowStream(
+      "df_after_failed_appender",
+      (async function* () {
+        yield tableToIPC(
+          new Table({ v: vectorFromArray([9], new Int32()) }),
+          "stream",
+        );
+      })(),
+    );
+    expect(engine.hasTable("df_after_failed_appender")).toBe(true);
+    await engine.unregisterTable("df_survivor");
+    expect(engine.hasTable("df_survivor")).toBe(false);
+  });
+
+  it("locks access restrictions on the instance, so a fresh connection cannot lift them", async () => {
+    // The restriction is applied at initialize() on a connection that is
+    // closed again immediately. Every operation below runs on a connection
+    // opened afterwards: if the settings were connection-scoped rather than
+    // instance-scoped, client SQL could simply turn them back on and the whole
+    // connection-per-operation model would hand every chart query a way out.
+    engine = new NativeDuckDBEngine();
+    await engine.initialize();
+
+    await expect(
+      engine.query("SET enable_external_access=true"),
+    ).rejects.toThrow(/locked/);
+    await expect(
+      engine.queryArrow("SET lock_configuration=false"),
+    ).rejects.toThrow(/locked/);
+    const setting = await engine.query(
+      "SELECT current_setting('enable_external_access') AS enabled",
+    );
+    expect(setting.rows[0]?.enabled).toBe(false);
   });
 
   describe("registerArrowTable — in-memory Arrow ingest", () => {
@@ -930,18 +1054,34 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     it("keeps a registration retryable when native DROP fails transiently", async () => {
       engine = new NativeDuckDBEngine();
       await engine.registerArrowTable("df_retry_drop", producerBuffer());
-      const connection = (
-        engine as unknown as {
-          connection: { run(sql: string): Promise<unknown> };
-        }
-      ).connection;
-      vi.spyOn(connection, "run").mockRejectedValueOnce(
-        new Error("transient native DROP failure"),
-      );
+      // Fail the DROP on the connection the unregister opens for itself.
+      const internals = engine as unknown as {
+        instance: {
+          connect(): Promise<{ run(sql: string): Promise<unknown> }>;
+        };
+      };
+      const rawInstance = internals.instance;
+      let failNextRun = true;
+      internals.instance = new Proxy(rawInstance, {
+        get(target, prop, receiver) {
+          if (prop !== "connect") return Reflect.get(target, prop, receiver);
+          return async () => {
+            const conn = await target.connect();
+            const run = conn.run.bind(conn);
+            conn.run = (sql: string) => {
+              if (!failNextRun) return run(sql);
+              failNextRun = false;
+              return Promise.reject(new Error("transient native DROP failure"));
+            };
+            return conn;
+          };
+        },
+      });
 
       await expect(engine.unregisterTable("df_retry_drop")).rejects.toThrow(
         "transient native DROP failure",
       );
+      internals.instance = rawInstance;
       expect(engine.hasTable("df_retry_drop")).toBe(true);
       expect(
         Number(
@@ -1046,12 +1186,12 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
 
     it("does not corrupt concurrent registrations of the same table name", async () => {
       // Two in-flight registrations of the same live table must not corrupt
-      // each other. The global registration lock serializes them; the live table
-      // ends with one upload's complete rows (last-writer-wins), never a mix or
-      // a thrown error.
+      // each other. That name's lock serializes them; the live table ends with
+      // one upload's complete rows (last-writer-wins), never a mix or a thrown
+      // error.
       //
       // The NAPI pending-result taint (the corruption mechanism) is Linux-only;
-      // this test passes on macOS regardless of the fix. It documents the
+      // this test passes on macOS regardless of the lock shape. It documents the
       // contract and fires on Linux CI as the discriminating run. A higher-
       // concurrency stress variant below maximises interleaving on both platforms.
       engine = new NativeDuckDBEngine();
@@ -1080,7 +1220,10 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
       const cnt = Number(result.rows[0]?.cnt);
       expect([5, 7]).toContain(cnt);
 
-      // No leaked staging tables remain after the swaps.
+      // No leaked staging tables remain after the swaps. Staging tables are TEMP
+      // and connection-local, so this query — on its own fresh connection —
+      // could not see one even if it leaked; what it still pins is that the
+      // swap does not leave a NON-temp table behind under a staging name.
       const staging = await engine.query(
         `SELECT COUNT(*) AS cnt FROM duckdb_tables()
          WHERE table_name LIKE '__staging_df_concurrent%'`,
@@ -1090,12 +1233,13 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
 
     it("handles high-concurrency registrations without corruption or error", async () => {
       // Stress variant: 8 concurrent uploads across 4 distinct table names
-      // (2 per name) maximise lock-queue depth and appender interleaving.
+      // (2 per name) — four lock queues two deep, running against each other.
       // Contract: each named table ends with one upload's complete row count;
       // no thrown errors; no leaked staging tables.
       //
       // Like the 2-way variant above, the NAPI taint is Linux-only; the
-      // structural argument (global serialization lock) is the durable proof.
+      // structural argument (a lock per table name, plus a connection per
+      // operation) is the durable proof.
       engine = new NativeDuckDBEngine();
 
       const uploads: Array<{ name: string; expectedCounts: number[] }> = [
@@ -1139,7 +1283,9 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
         expect(expectedCounts).toContain(Number(result.rows[0]?.cnt));
       }
 
-      // No staging tables should survive.
+      // No staging tables should survive. Same caveat as the 2-way variant:
+      // this fresh connection cannot see another connection's TEMP tables, so
+      // it pins the absence of a non-temp leftover.
       const leaked = await engine!.query(
         `SELECT COUNT(*) AS cnt FROM duckdb_tables()
          WHERE table_name LIKE '__staging_%'`,
@@ -1149,7 +1295,7 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
   });
 });
 
-// ─── Connection-reset mechanism: disconnect + reconnect after appender error ──
+// ─── The DuckDB property the connection-per-operation design rests on ────────
 //
 // On Linux, duckdb_appender_close() on a failed appender marks the connection
 // with a pending-result error. The next duckdb_query() on the same connection
@@ -1157,23 +1303,23 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
 // query result" — emitted as an unhandled NAPI-layer rejection that bypasses
 // the surrounding JS try/catch.
 //
-// this.connection is the PERSISTENT connection reused for the whole session
-// (query, queryArrow, every registerArrowTable call). A simple "issue cleanup
-// on a fresh connection" approach leaves this.connection tainted, relocating
-// the flake to the NEXT operation. The fix disconnects this.connection and
-// reconnects from the same DuckDBInstance — preserving all non-TEMP tables
-// (instance-scoped) while discarding the tainted connection state. The partial
-// staging TEMP table (connection-local) is dropped automatically by DuckDB
-// when the old connection closes.
+// The engine no longer has a shared connection for that taint to spread
+// through: a failed appender's connection is closed with the operation that
+// opened it, and the next operation opens its own. This test pins the DuckDB
+// property that makes discarding sufficient rather than merely convenient —
+// that a fresh connection from the SAME instance is clean after a tainted
+// close, and that the closed connection's TEMP tables (the partial staging
+// copy) go with it. Both are load-bearing: without them, discarding the
+// connection would leave either a poisoned instance or a leaked staging table.
 //
-// These tests pin the mechanism at the DuckDBInstance layer, independent of
-// the registerArrowTable contract tests above. The Linux-specific taint cannot
-// be reproduced on macOS (conn.run() succeeds after appender error there), so
-// these tests act as a smoke screen locally; Linux CI is the discriminating run.
-describe("DuckDB connection-reset mechanism — appender-error recovery", () => {
+// It sits at the DuckDBInstance layer, independent of the engine contract
+// tests above. The Linux-specific taint cannot be reproduced on macOS
+// (conn.run() succeeds after appender error there), so this acts as a smoke
+// screen locally; Linux CI is the discriminating run.
+describe("DuckDB instance semantics — a fresh connection after a tainted appender", () => {
   it("a fresh connection from the same instance works after a tainted appender closeSync", async () => {
-    // Reproduce: force appender into error state → closeSync → disconnect the
-    // tainted conn → reconnect from same instance → new conn is clean.
+    // Force appender into error state → closeSync → disconnect the tainted
+    // conn → connect again from the same instance → the new conn is clean.
     // The TEMP staging table (connection-local) must be gone after disconnect.
     const instance = await DuckDBInstance.create(":memory:");
     const conn = await instance.connect();
@@ -1196,7 +1342,8 @@ describe("DuckDB connection-reset mechanism — appender-error recovery", () => 
         /* close may also throw in error state — ignored */
       }
 
-      // Disconnect the tainted connection (mirrors the fix in registerArrowTable).
+      // Discard the tainted connection — what a lease's release() does for
+      // the operation that failed.
       conn.disconnectSync();
 
       // A fresh connection from the same instance must be clean and functional.
@@ -1226,9 +1373,9 @@ describe("DuckDB connection-reset mechanism — appender-error recovery", () => 
 // The taint is Linux-only; macOS conn.run() succeeds even after appender error.
 // This test verifies the ENGINE-LEVEL contract: registerArrowTable failure must
 // not leave the engine in a state where subsequent operations throw. On macOS
-// this passes regardless of fix (no taint), so the local run is a smoke test;
-// Linux CI is the discriminating run. The test documents the CONTRACT even if
-// it cannot reproduce the exact failure mode here.
+// this passes regardless of the connection model (no taint), so the local run is
+// a smoke test; Linux CI is the discriminating run. The test documents the
+// CONTRACT even if it cannot reproduce the exact failure mode here.
 describe("NativeDuckDBEngine — reuse after registerArrowTable failure", () => {
   let engine: NativeDuckDBEngine | null = null;
 
@@ -1252,9 +1399,10 @@ describe("NativeDuckDBEngine — reuse after registerArrowTable failure", () => 
     // appender is open.
     //
     // On macOS this path does NOT taint the connection (macOS-specific DuckDB
-    // behavior), so the test passes regardless of the fix there. On Linux the
-    // connection IS tainted by the failed appendBigInt; without the fix the
-    // subsequent query() would hit the "pending-result" unhandled rejection.
+    // behavior), so the test passes regardless of the connection model there. On
+    // Linux the connection IS tainted by the failed appendBigInt; on a shared
+    // connection the subsequent query() would hit the "pending-result"
+    // unhandled rejection. It cannot now: that connection is already closed.
     // Linux CI is the discriminating run; this test documents the contract and
     // verifies the catch-block failure path is actually reached.
     engine = new NativeDuckDBEngine();
@@ -1283,9 +1431,9 @@ describe("NativeDuckDBEngine — reuse after registerArrowTable failure", () => 
       engine.registerArrowTable("df_overflow", overflowBuf),
     ).rejects.toThrow("bigint out of int64 range"); // precondition: catch block exercised
 
-    // The engine must still be operational after the failure.
-    // On Linux without the fix this would throw "executing an unsuccessful or
-    // closed pending query result" as an unhandled NAPI rejection.
+    // The engine must still be operational after the failure. On Linux, on a
+    // shared connection, this would throw "executing an unsuccessful or closed
+    // pending query result" as an unhandled NAPI rejection.
     const after = await engine.query('SELECT COUNT(*) AS cnt FROM "df_before"');
     expect(Number(after.rows[0]?.cnt)).toBe(3); // pre-existing table intact
 
