@@ -28,7 +28,7 @@ import { api } from "@dashframe/convex-backend/api";
 import type { ApplicationOperations } from "../host/application";
 import { REPORT_APP_MIME_TYPE, REPORT_APP_URI } from "./report-app";
 import { createMcpRoute, type McpMode } from "./route";
-import { createMcpTools } from "./tools";
+import { createMcpTools, draftSafeCommandNames } from "./tools";
 
 const USER_TOKEN = "mcp-test-user-token";
 const modules = import.meta.glob(
@@ -683,6 +683,34 @@ describe("MCP route", () => {
       expect(writeTool?.description).toContain(
         "Carry the returned draftId forward",
       );
+      expect(writeTool?.description).toContain(
+        "metric_44444444_4444_4444_8444_444444444444",
+      );
+      expect(writeTool?.description).toContain('"visualizationType": "barY"');
+      expect(writeTool?.description).toContain(
+        "new operation without the rejected operationId",
+      );
+      const inputSchema = writeTool?.inputSchema as
+        | {
+            properties?: {
+              commands?: {
+                items?: { properties?: { type?: { enum?: string[] } } };
+              };
+            };
+          }
+        | undefined;
+      const commandType =
+        inputSchema?.properties?.commands?.items?.properties?.type;
+      expect(commandType?.enum).toEqual(draftSafeCommandNames());
+      expect(commandType?.enum).not.toContain("DeleteNode");
+      expect(commandType?.enum).not.toContain("GetOrCreateDataSource");
+      expect(commandType?.enum).not.toContain("SetDataSourceConfig");
+      expect(writeTool?.description).toContain(
+        "metric_123e4567_e89b_42d3_a456_426614174000",
+      );
+      expect(writeTool?.description).toContain(
+        "'barY'|'barX'|'line'|'areaY'|'dot'|'hexbin'|'heatmap'|'raster'",
+      );
 
       // Every read tool, against an empty graph. `isError` alone would pass on
       // a tool that returned nothing at all, so each one asserts the shape it
@@ -997,7 +1025,7 @@ describe("MCP route", () => {
             },
           ],
         },
-        /not draft-safe/i,
+        /allowed values/i,
       );
       await expectToolError(
         client,
@@ -1014,7 +1042,7 @@ describe("MCP route", () => {
             },
           ],
         },
-        /not draft-safe/i,
+        /allowed values/i,
       );
       // Lifecycle procedures are not command names, so they are denied by the
       // name-level allow-list rather than by the registry-path check. There is
@@ -1029,7 +1057,7 @@ describe("MCP route", () => {
           client,
           "draft_batch",
           { commands: [{ type, args: {} }] },
-          /is not draft-safe/i,
+          /allowed values/i,
         );
       }
       await expectToolError(
@@ -1046,7 +1074,7 @@ describe("MCP route", () => {
             },
           ],
         },
-        /not draft-safe/i,
+        /allowed values/i,
       );
       expect(
         await native.run((ctx) => ctx.db.query("draftLog").collect()),
@@ -1361,7 +1389,7 @@ describe("MCP route", () => {
           commands: [
             {
               type: "SetChartType",
-              args: { id: missingId, visualizationType: "bar" },
+              args: { id: missingId, visualizationType: "barY" },
             },
           ],
         },
@@ -1376,6 +1404,38 @@ describe("MCP route", () => {
       ).toHaveLength(0);
       expect(
         await native.run((ctx) => ctx.db.query("draftLog").collect()),
+      ).toHaveLength(0);
+    } finally {
+      await transport.close();
+    }
+  });
+
+  it("rejects unsupported visualization types before creating a draft", async () => {
+    const { client, transport } = await connect();
+    try {
+      const result = await client.callTool({
+        name: "draft_batch",
+        arguments: {
+          commands: [
+            {
+              type: "CreateVisualization",
+              args: {
+                id: crypto.randomUUID(),
+                name: "Unsupported chart",
+                insightId: crypto.randomUUID(),
+                visualizationType: "bar",
+                spec: {},
+              },
+            },
+          ],
+        },
+      });
+      expect(result.isError).toBe(true);
+      expect(resultText(result)).toContain(
+        'unsupported visualizationType "bar". Use one of: barY, barX, line, areaY, dot, hexbin, heatmap, raster.',
+      );
+      expect(
+        await native.run((ctx) => ctx.db.query("drafts").collect()),
       ).toHaveLength(0);
     } finally {
       await transport.close();
@@ -1468,7 +1528,7 @@ describe("MCP route", () => {
               },
               {
                 type: "SetChartType",
-                args: { id: crypto.randomUUID(), visualizationType: "bar" },
+                args: { id: crypto.randomUUID(), visualizationType: "barY" },
               },
             ],
           },
@@ -1529,7 +1589,7 @@ describe("MCP route", () => {
               },
               {
                 type: "SetChartType",
-                args: { id: crypto.randomUUID(), visualizationType: "bar" },
+                args: { id: crypto.randomUUID(), visualizationType: "barY" },
               },
             ],
           },

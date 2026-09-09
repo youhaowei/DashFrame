@@ -24,7 +24,14 @@
  * source.
  */
 
-import { ENCODING_VALUE_FORMAT } from "@dashframe/types";
+import { CHART_TYPE_METADATA, ENCODING_VALUE_FORMAT } from "@dashframe/types";
+
+const VISUALIZATION_TYPE_CONTRACT = Object.keys(CHART_TYPE_METADATA)
+  .map((type) => `'${type}'`)
+  .join("|");
+const VISUALIZATION_TYPE_MEANINGS = Object.entries(CHART_TYPE_METADATA)
+  .map(([type, metadata]) => `${type} = ${metadata.description}`)
+  .join("; ");
 
 /**
  * The encoding argument is the one place the guide's terseness cost real
@@ -219,7 +226,8 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
       name: "display name",
       source: "{ sourceType: 'dataTable'|'insight', sourceId: UUID }",
       "selectedFields?": "UUID[]",
-      "metrics?": "InsightMetric[] (sourceTable, not tableId)",
+      "metrics?":
+        "{ id: UUID, name: display name, sourceTable: UUID, columnName?: source column name, aggregation: 'sum'|'avg'|'count'|'min'|'max'|'count_distinct' }[]",
     },
     notes: "Validates source exists; rejects self-reference cycles.",
   },
@@ -268,6 +276,12 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
     group: "insight",
     summary: "Replace-all the insight's sort order.",
     args: { id: "UUID", sorts: "InsightSort[] ({ field, direction })" },
+    notes:
+      "field is an output column identifier, not a field or metric UUID. " +
+      "For a selected dimension use its source column name. For a metric UUID " +
+      "such as 123e4567-e89b-42d3-a456-426614174000 use " +
+      "metric_123e4567_e89b_42d3_a456_426614174000. Sort identifiers differ " +
+      "from chart encoding references: encodings use field:<uuid> or metric:<uuid>.",
   },
   {
     name: "SetInsightRuntimeControls",
@@ -312,17 +326,20 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
       id: "UUID",
       name: "display name",
       insightId: "UUID",
-      visualizationType: "chart type",
+      visualizationType: VISUALIZATION_TYPE_CONTRACT,
       spec: "Vega-Lite spec",
       "encoding?": ENCODING_ARG_CONTRACT,
     },
-    notes: `The \`data\` key is stripped from spec before storage. ${ENCODING_ARG_NOTE}`,
+    notes: `Types: ${VISUALIZATION_TYPE_MEANINGS}. The \`data\` key is stripped from spec before storage. ${ENCODING_ARG_NOTE}`,
   },
   {
     name: "SetChartType",
     group: "visualization",
     summary: "Change a chart's type.",
-    args: { id: "UUID", visualizationType: "chart type" },
+    args: {
+      id: "UUID",
+      visualizationType: VISUALIZATION_TYPE_CONTRACT,
+    },
   },
   {
     name: "SetChartEncoding",
