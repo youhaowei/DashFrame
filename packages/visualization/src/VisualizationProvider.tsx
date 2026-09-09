@@ -75,7 +75,13 @@ const VisualizationContext = createContext<VisualizationContextValue>({
 // Provider Props
 // ============================================================================
 
-/** WASM-backed props: pass db + connection from DuckDB-WASM. */
+/**
+ * WASM-backed props: pass db + connection from DuckDB-WASM.
+ *
+ * The backup rung of the placement ladder. Nothing selects it implicitly and
+ * nothing detects a platform to reach it — a caller reaches it only by handing
+ * over a DuckDB-WASM database and connection.
+ */
 interface WasmProviderProps {
   /** DuckDB-WASM database instance */
   db: duckdb.AsyncDuckDB;
@@ -92,9 +98,9 @@ interface ConnectorProviderProps {
   db?: never;
   connection?: never;
   /**
-   * Pre-built Mosaic Connector. The desktop host supplies a connector that
-   * routes all Mosaic queries to the native DuckDB engine via the loopback
-   * Arrow IPC path instead of DuckDB-WASM.
+   * Pre-built Mosaic Connector — the first rung of the placement ladder. A host
+   * that can reach a server engine supplies this, and all Mosaic queries route
+   * to that engine over the Arrow IPC path instead of DuckDB-WASM.
    */
   connector: MosaicConnector;
   /** Children to render */
@@ -115,7 +121,23 @@ export type VisualizationProviderProps =
  * This provider sets up Mosaic vgplot connected to a DuckDB instance,
  * enabling chart components to render visualizations with query pushdown.
  *
- * ## Usage: WASM (web tier)
+ * ## Placement
+ *
+ * The provider does not pick an engine by surface. It takes whichever rung the
+ * caller resolved: a Mosaic connector onto a reachable server engine, or — only
+ * when the caller explicitly hands over `db` + `connection` — the DuckDB-WASM
+ * backup. There is no per-surface table and no platform detection here.
+ *
+ * ## Usage: server connector (both surfaces)
+ *
+ * ```tsx
+ * // The host supplies a connector that routes to the server engine.
+ * <VisualizationProvider connector={serverConnector}>
+ *   <MyCharts />
+ * </VisualizationProvider>
+ * ```
+ *
+ * ## Usage: DuckDB-WASM backup rung
  *
  * ```tsx
  * import { VisualizationProvider, useVisualization } from "@dashframe/visualization";
@@ -133,19 +155,10 @@ export type VisualizationProviderProps =
  * }
  * ```
  *
- * ## Usage: custom connector (desktop / native engine)
- *
- * ```tsx
- * // Desktop host supplies a connector that routes to the loopback server.
- * <VisualizationProvider connector={nativeConnector}>
- *   <MyCharts />
- * </VisualizationProvider>
- * ```
- *
  * ## How It Works
  *
  * 1. Creates a Mosaic Coordinator
- * 2. Connects via wasmConnector (WASM path) or the supplied connector
+ * 2. Connects via the supplied connector, or wasmConnector on the backup rung
  * 3. Creates vgplot API context for building charts
  * 4. Provides context to child components
  *
@@ -182,9 +195,8 @@ export function VisualizationProvider(props: VisualizationProviderProps) {
         const coordinator = new vg.Coordinator();
 
         if (connector) {
-          // Desktop path: use the supplied Mosaic Connector directly.
-          // The connector routes queries to the native DuckDB engine via
-          // the loopback Arrow IPC endpoint.
+          // First rung: a server engine is reachable, so use the connector the
+          // host resolved onto it. Queries go over the Arrow IPC endpoint.
           //
           // Cast required: our structural MosaicConnector declares `query` for
           // the arrow case as `Promise<unknown>` to avoid a direct dep on
@@ -197,7 +209,8 @@ export function VisualizationProvider(props: VisualizationProviderProps) {
             >[0],
           );
         } else if (db && connection) {
-          // WASM path: connect to the provided DuckDB instance using the SAME
+          // Backup rung, entered only because the caller handed over a
+          // DuckDB-WASM database: connect using the SAME
           // connection. Views created on one connection are not visible to
           // queries on a different connection. By passing both db AND
           // connection, Mosaic reuses the existing connection.

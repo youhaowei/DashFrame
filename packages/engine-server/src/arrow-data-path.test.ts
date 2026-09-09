@@ -112,7 +112,7 @@ describe("Arrow data path — host authorization", () => {
   });
 });
 
-describe("Arrow data path — auth + IPC roundtrip (Stage 5)", () => {
+describe("Arrow data path — auth + IPC roundtrip", () => {
   it("rejects a request with no Authorization header", async () => {
     const app = createArrowDataPath({ engine: fakeEngine(), authToken: TOKEN });
     const res = await app.request("/arrow", {

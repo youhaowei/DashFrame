@@ -1,12 +1,15 @@
 /**
- * ChartEngineProvider — surface-scoped chart compute injection point.
+ * ChartEngineProvider — the chart compute injection point.
  *
  * The visualization system (Mosaic + vgplot) needs a DuckDB connection to run
- * chart queries. Web and desktop hosts both inject a Mosaic Connector that
- * routes those queries to native DuckDB through the server Arrow endpoint.
+ * chart queries. The host resolves which rung of the placement ladder it can
+ * reach and injects the resulting Mosaic Connector here; today every host
+ * reaches a server engine, so the connector routes to native DuckDB through the
+ * server Arrow endpoint.
  *
  * The connector is injected here via context rather than via an `isElectron`
- * branch in components (see DESIGN.md anti-patterns).
+ * branch in components (see DESIGN.md anti-patterns): placement is an
+ * availability fact the host establishes, never a surface the tree detects.
  *
  * The MosaicConnector shape mirrors `@uwdata/mosaic-core`'s `Connector`
  * interface, kept inline here so this package has no direct dep on mosaic-core.
@@ -25,7 +28,8 @@ export type { MosaicConnector } from "@dashframe/visualization";
 
 interface ChartEngineContextValue {
   /**
-   * Server-native connector wired into the Mosaic Coordinator.
+   * Connector wired into the Mosaic Coordinator, onto whichever engine the host
+   * could reach.
    */
   connector: MosaicConnector | null;
   /**
@@ -47,8 +51,7 @@ export interface ChartEngineProviderProps {
 }
 
 /**
- * Provide a custom Mosaic Connector for chart compute.
- * Both hosts supply a native-engine-backed connector here.
+ * Provide the Mosaic Connector for chart compute.
  */
 export function ChartEngineProvider({
   connector,
@@ -72,7 +75,7 @@ export function ChartEngineProvider({
 }
 
 /**
- * Read the server chart connector.
+ * Read the chart connector the host resolved.
  */
 export function useChartEngine(): ChartEngineContextValue {
   return useContext(ChartEngineContext);

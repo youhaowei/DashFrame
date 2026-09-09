@@ -1,5 +1,5 @@
 /**
- * Stage 3 — Execute: the native DuckDB engine.
+ * The native DuckDB engine — DashFrame's in-process execution backing.
  *
  * The in-process `QueryEngine`: DuckDB inside the server process itself
  * (desktop loopback today; headless `serve` + web-via-server is the same
@@ -9,11 +9,11 @@
  * DuckDB-WASM helpers in `@dashframe/engine-browser` are a renderer fallback
  * and implement no `QueryEngine` today.
  *
- * Electron main and headless `serve` both construct this engine and mount Stage
- * 5.
+ * Electron main and headless `serve` both construct this engine and mount the
+ * Arrow data path over it.
  *
  * Results leave as Arrow IPC bytes (`queryArrow` buffered, `queryArrowBatches`
- * chunked) — the payload the dedicated data path (Stage 5) streams. Arrow
+ * chunked) — the payload the dedicated data path streams. Arrow
  * encoding is delegated to `apache-arrow` rather than DuckDB's Arrow extension,
  * so the binary format matches what clients ingest (including the WASM backup
  * path) and stays in one well-exercised library. Callers that want JSON rows
@@ -21,9 +21,9 @@
  *
  * `registerArrowTable` accepts an Arrow IPC stream buffer, decodes it with
  * apache-arrow, and ingests it into an in-memory DuckDB table via the typed
- * Appender API. Row data stays in process memory (privacy floor: sensitive data
- * is never at rest outside the gated cache; see #67). Tables persist for the
- * session lifetime and are re-registered on reconnect.
+ * Appender API. Row data stays in process memory and never reaches the
+ * filesystem. Tables persist for the session lifetime and are re-registered on
+ * reconnect.
  *
  * Two-Arrow-library seam: this side decodes with `apache-arrow`, but the chart
  * layer (Mosaic / `@uwdata/vgplot`) decodes the same IPC with `@uwdata/flechette`.
@@ -93,10 +93,8 @@ export interface NativeDuckDBEngineOptions {
   /**
    * DuckDB database path. Default `:memory:` — an in-memory database.
    *
-   * The cache-write gate (see #67) keeps sensitive columns memory-only by
-   * excluding them from the on-disk Parquet cache (Stage 4); the engine's own
-   * working database is in-memory by default so a session leaves nothing at
-   * rest unless a query is explicitly cached.
+   * In-memory by default so a session leaves nothing at rest. A caller that
+   * passes a path is choosing durability for that database explicitly.
    */
   databasePath?: string;
   /**
@@ -518,7 +516,7 @@ export class NativeDuckDBEngine implements QueryEngine {
 
   /**
    * Execute `sql` (with optional positional `params`) and return the result as
-   * an Arrow IPC stream buffer — the payload the data path (Stage 5) serves as
+   * an Arrow IPC stream buffer — the payload the data path serves as
    * `application/vnd.apache.arrow.stream`.
    *
    * Params bind through DuckDB's native positional binding (the `values`
@@ -652,8 +650,7 @@ export class NativeDuckDBEngine implements QueryEngine {
    * Implementation: decode with apache-arrow, create the table with a schema
    * derived from the Arrow schema, and stream rows in through DuckDB's typed
    * Appender. The whole path is in-memory — row data never touches the
-   * filesystem (privacy floor: sensitive data is never at rest outside the
-   * gated cache), and typed appends preserve timestamps/dates exactly instead
+   * filesystem — and typed appends preserve timestamps/dates exactly instead
    * of round-tripping through JSON strings.
    */
   async registerArrowTable(

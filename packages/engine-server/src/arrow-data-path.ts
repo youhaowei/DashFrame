@@ -1,5 +1,5 @@
 /**
- * Stage 5 — Transport: the dedicated Arrow IPC data path.
+ * Transport: the dedicated Arrow IPC data path.
  *
  * WyStack RPC carries metadata only; Arrow/binary rides this separate HTTP
  * endpoint — the hard boundary from the Data Path & Transport spec (D3). On

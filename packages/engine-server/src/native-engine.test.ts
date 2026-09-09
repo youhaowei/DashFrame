@@ -63,7 +63,7 @@ function overlapBarrier(arrow: Uint8Array): {
   };
 }
 
-describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
+describe("NativeDuckDBEngine — real native DuckDB", () => {
   let engine: NativeDuckDBEngine | null = null;
 
   afterEach(async () => {
@@ -1197,10 +1197,10 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
       expect(result.map((r) => Number(r.ms))).toEqual([ts, ts + MS_PER_HOUR]);
     });
 
-    it("never writes row data to the filesystem (privacy floor)", async () => {
-      // The old implementation staged rows as an NDJSON temp file. The privacy
-      // floor forbids row data at rest outside the gated cache — pin the
-      // in-memory contract by checking no staging file appears in tmpdir.
+    it("never writes row data to the filesystem", async () => {
+      // The old implementation staged rows as an NDJSON temp file. Ingest is
+      // in-memory end to end — pin that contract by checking no staging file
+      // appears in tmpdir.
       engine = new NativeDuckDBEngine();
       await engine.registerArrowTable("df_privacy_probe", producerBuffer());
 
