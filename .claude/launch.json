@@ -4,7 +4,7 @@
     {
       "name": "web",
       "runtimeExecutable": "./.claude/portless-shim.sh",
-      "runtimeArgs": ["bunx", "vite"],
+      "runtimeArgs": ["bunx", "vp", "dev"],
       "port": 3000,
       "autoPort": true
     },
