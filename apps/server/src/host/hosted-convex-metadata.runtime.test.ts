@@ -34,7 +34,6 @@ import { createHostedAdmissionService } from "./hosted-admission-service";
 import { createHostedServerSurface } from "../hosted";
 import { NativeDuckDBEngine } from "@dashframe/engine-server";
 import { FileDataFrameStorage } from "@dashframe/engine-server/file-dataframe-storage";
-import { tableFromIPC } from "apache-arrow";
 import { z } from "zod";
 import { createHostedApplication } from "./hosted-application";
 import { createHostedServiceAccess } from "./hosted-service-access";
@@ -1068,7 +1067,24 @@ it(
         id: httpSourceId,
       });
       expect(await b.getDataSource(httpSourceId)).toBeNull();
-      const arrowResponse = await httpApp.request(
+      // The admitted session reaches the data plane. Every route is addressed by
+      // frame id now, so this asks for a frame the workspace does not own: the
+      // route answers "Frame not found", which it can only do after passing the
+      // origin, auth and storage gates. A rejected origin would be a 403 and an
+      // unmounted path a bare 404 with no body — both distinguishable below.
+      const framePath = `https://hosted-app.invalid/data/frames/${crypto.randomUUID()}/mosaic`;
+      const frameResponse = await httpApp.request(framePath, {
+        method: "POST",
+        headers: {
+          Origin: "https://hosted-app.invalid",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ type: "arrow", sql: "SELECT 1" }),
+      });
+      expect(frameResponse.status).toBe(404);
+      expect(await frameResponse.json()).toEqual({ error: "Frame not found" });
+      // The raw SQL upload/query routes are retired: not mounted at all.
+      const retiredResponse = await httpApp.request(
         "https://hosted-app.invalid/data/arrow",
         {
           method: "POST",
@@ -1079,12 +1095,8 @@ it(
           body: JSON.stringify({ sql: "SELECT 7::INTEGER AS demo_value" }),
         },
       );
-      expect(arrowResponse.status).toBe(200);
-      expect(
-        tableFromIPC(new Uint8Array(await arrowResponse.arrayBuffer()))
-          .toArray()
-          .map((row) => row.toJSON()),
-      ).toEqual([{ demo_value: 7 }]);
+      expect(retiredResponse.status).toBe(404);
+      await expect(retiredResponse.json()).rejects.toThrow();
       const handshake = await startSession(sessionsA, {
         connectorId: "csv",
         requestedName: "Scoped recovery",

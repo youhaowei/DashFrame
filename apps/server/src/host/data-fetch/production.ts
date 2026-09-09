@@ -3,6 +3,7 @@ import {
   buildInsightAvailableFields,
   buildInsightSQL,
   fieldIdToColumnAlias,
+  frameTableName,
   metricIdToColumnAlias,
 } from "@dashframe/engine";
 import { inspectArrowIpc } from "@dashframe/engine-server/arrow-data-path";
@@ -57,7 +58,7 @@ export function createProductionFetchExecutor(): LiveFetchExecutor {
     now: () => Date.now(),
     transferCompleted: (summary) =>
       console.info("[dashframe] snapshot transfer", summary),
-    tableName: (id) => `df_${id.replaceAll("-", "_")}`,
+    tableName: frameTableName,
   });
   return async ({ context, insight, target }) =>
     materializer.materialize({ ctx: context, insight, target });

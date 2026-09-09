@@ -38,9 +38,9 @@ export {
 } from "./arrow-encode";
 
 /**
- * The frame naming contract, re-exported from `@dashframe/engine` where it is
- * defined. Consumers of the transport need the name the transport registers
- * under; there is still exactly one definition.
+ * The frame naming contract, re-exported from `@dashframe/engine`, which owns
+ * the only definition. Consumers of the transport need the name the transport
+ * registers under, and this saves them a second dependency for one function.
  */
 export { frameTableName } from "@dashframe/engine";
 

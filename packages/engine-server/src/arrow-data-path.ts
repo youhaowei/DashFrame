@@ -415,9 +415,6 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
     return c.json({ ok: true, id, name });
   });
 
-  // Mosaic charts receive only the opaque DataFrame UUID. Resolve and register
-  // its canonical native table here, then replace the UUID identifier in the
-  // Mosaic-generated SQL. This keeps table naming and registration server-owned.
   // Run a Mosaic query against one stored frame.
   //
   // The frame is named by the path parameter and checked for ownership twice —
