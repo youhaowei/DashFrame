@@ -6,6 +6,7 @@ import { afterEach, expect, it, vi } from "vite-plus/test";
 import { CREDENTIAL_CLASS } from "@dashframe/server-core";
 import type { UUID } from "@dashframe/types";
 import { loadSecretKeyring } from "../secret-file-backend";
+import { stubQueryEngine } from "./query-engine.fixture";
 import { createHostedWorkspaceResourceFactory } from "./hosted-workspace-resources";
 
 const directories: string[] = [];
@@ -43,12 +44,8 @@ async function options() {
 
 // The broker is synthetic; disk storage and encrypted vaults are real.
 function engine() {
-  return {
-    initialize: vi.fn(async () => {}),
-    queryArrow: vi.fn(async () => new Uint8Array()),
-    registerArrowTable: vi.fn(async () => {}),
-    unregisterTable: vi.fn(async () => {}),
-  };
+  const initialize = vi.fn(async () => {});
+  return Object.assign(stubQueryEngine({ initialize }), { initialize });
 }
 
 it("keeps frame bytes and vault references workspace scoped across reopening", async () => {

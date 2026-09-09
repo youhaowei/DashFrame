@@ -1,11 +1,19 @@
-import type {
-  ArrowQueryRunner,
-  ArrowTableRegistrar,
-} from "@dashframe/engine-server/arrow-data-path";
+import type { QueryEngine } from "@dashframe/engine";
 const NATIVE_UNREGISTER_MAX_ATTEMPTS = 3;
 const NATIVE_UNREGISTER_RETRY_MS = 250;
 export class NativeTableLifecycle {
-  readonly engine: ArrowQueryRunner & Partial<ArrowTableRegistrar>;
+  /**
+   * The engine as request handlers and the transport see it: every
+   * registration and unregistration is serialized per table name and carries a
+   * generation, so a late cleanup cannot drop a table a newer registration has
+   * already replaced.
+   *
+   * Lifecycle is deliberately not forwarded. The server composition owns the
+   * engine it constructed; a request handler that called `initialize()` or
+   * `dispose()` would be reaching past its own request into a process-wide
+   * resource other requests are using. They reject rather than delegate.
+   */
+  readonly engine: QueryEngine & { nativeTransfer: true };
   private readonly generations = new Map<string, number>();
   private readonly operations = new Map<string, Promise<void>>();
   private readonly retryTimers = new Map<
@@ -14,37 +22,26 @@ export class NativeTableLifecycle {
   >();
   private closed = false;
 
-  constructor(
-    private readonly native: ArrowQueryRunner & Partial<ArrowTableRegistrar>,
-  ) {
+  constructor(private readonly native: QueryEngine) {
     this.engine = {
-      queryArrow: (sql, params) => native.queryArrow(sql, params),
-      ...(native.queryArrowBatches
-        ? { queryArrowBatches: native.queryArrowBatches.bind(native) }
-        : {}),
-      ...(native.registerArrowStream
-        ? {
-            registerArrowStream: (
-              name: string,
-              stream: AsyncIterable<Uint8Array>,
-              signal?: AbortSignal,
-            ) => this.registerStream(name, stream, signal),
-          }
-        : {}),
-      ...(typeof native.registerArrowTable === "function"
-        ? {
-            registerArrowTable: (name: string, arrow: Uint8Array) =>
-              this.register(name, arrow),
-          }
-        : {}),
-      ...(typeof native.unregisterTable === "function"
-        ? { unregisterTable: (name: string) => this.unregisterCurrent(name) }
-        : {}),
+      nativeTransfer: true,
+      initialize: () => Promise.reject(new Error("ENGINE_LIFECYCLE_NOT_OWNED")),
+      dispose: () => Promise.reject(new Error("ENGINE_LIFECYCLE_NOT_OWNED")),
+      isReady: () => native.isReady(),
+      queryArrow: (sql, params, signal) =>
+        native.queryArrow(sql, params, signal),
+      queryArrowBatches: native.queryArrowBatches.bind(native),
+      registerArrowTable: (name, arrow, signal) =>
+        this.register(name, arrow, signal),
+      registerArrowStream: (name, stream, signal) =>
+        this.registerStream(name, stream, signal),
+      unregisterTable: (name) => this.unregisterCurrent(name),
+      hasTable: (name) => native.hasTable(name),
+      getTableNames: () => native.getTableNames(),
     };
   }
 
   async unregisterCommittedFrames(ids: readonly string[]): Promise<void> {
-    if (typeof this.native.unregisterTable !== "function") return;
     await Promise.all(
       ids.map((id) => {
         const name = `df_${id.replaceAll("-", "_")}`;
@@ -63,11 +60,15 @@ export class NativeTableLifecycle {
     return this.generations.get(name) ?? 0;
   }
 
-  private async register(name: string, arrow: Uint8Array): Promise<void> {
+  private async register(
+    name: string,
+    arrow: Uint8Array,
+    signal?: AbortSignal,
+  ): Promise<void> {
     if (this.closed) throw new Error("Native table lifecycle is closed");
     await this.enqueue(name, async () => {
       if (this.closed) throw new Error("Native table lifecycle is closed");
-      await this.native.registerArrowTable!(name, arrow);
+      await this.native.registerArrowTable(name, arrow, signal);
       this.generations.set(name, this.generation(name) + 1);
       this.cancelRetry(name);
     });
@@ -81,14 +82,13 @@ export class NativeTableLifecycle {
     if (this.closed) throw new Error("Native table lifecycle is closed");
     await this.enqueue(name, async () => {
       if (this.closed) throw new Error("Native table lifecycle is closed");
-      await this.native.registerArrowStream!(name, stream, signal);
+      await this.native.registerArrowStream(name, stream, signal);
       this.generations.set(name, this.generation(name) + 1);
       this.cancelRetry(name);
     });
   }
 
   private async unregisterCurrent(name: string): Promise<void> {
-    if (typeof this.native.unregisterTable !== "function") return;
     const generation = this.generation(name);
     await this.enqueue(name, async () => {
       if (this.closed || this.generation(name) !== generation) return;
@@ -104,7 +104,7 @@ export class NativeTableLifecycle {
     try {
       await this.enqueue(name, async () => {
         if (this.closed || this.generation(name) !== generation) return;
-        await this.native.unregisterTable!(name);
+        await this.native.unregisterTable(name);
       });
     } catch (error) {
       if (this.closed || this.generation(name) !== generation) return;

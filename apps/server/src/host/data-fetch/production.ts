@@ -293,8 +293,7 @@ async function resolveProductionSource(
     if (
       !ctx.dataFrameStorage?.saveBatches ||
       !ctx.dataFrameStorage.stream ||
-      !ctx.dataPlaneRuntime?.registerArrowStream ||
-      !ctx.dataPlaneRuntime.queryArrowBatches
+      !ctx.dataPlaneRuntime?.nativeTransfer
     )
       throw new Error("TARGET_NOT_READY");
     return {

@@ -53,8 +53,6 @@ export {
   arrowIpcToJsonRows,
   createArrowDataPath,
   type ArrowDataPathOptions,
-  type ArrowQueryRunner,
-  type ArrowTableRegistrar,
 } from "./arrow-data-path";
 
 export { FileDataFrameStorage } from "./file-dataframe-storage";

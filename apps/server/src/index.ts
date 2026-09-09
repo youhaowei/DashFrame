@@ -6,10 +6,7 @@
  * by an on-disk DashFrame project. Web dev can point `VITE_DASHFRAME_URL` at the
  * printed URL.
  */
-import type {
-  ArrowQueryRunner,
-  ArrowTableRegistrar,
-} from "@dashframe/engine-server/arrow-data-path";
+import type { QueryEngine } from "@dashframe/engine";
 import { FileDataFrameStorage } from "@dashframe/engine-server/file-dataframe-storage";
 import {
   ApiAccessCredentials,
@@ -271,13 +268,8 @@ export interface StandaloneSecretServices {
   accessCredentials?: ApiAccessCredentials;
 }
 
-interface StandaloneArrowEngine extends ArrowQueryRunner, ArrowTableRegistrar {
-  initialize(): Promise<void>;
-  dispose(): Promise<void>;
-}
-
 interface NativeEngineModule {
-  NativeDuckDBEngine: new () => StandaloneArrowEngine;
+  NativeDuckDBEngine: new () => QueryEngine;
 }
 
 type LoadNativeEngineModule = () => Promise<NativeEngineModule>;
@@ -293,8 +285,8 @@ type LoadNativeEngineModule = () => Promise<NativeEngineModule>;
  */
 export async function createStandaloneArrowEngine(
   loadModule: LoadNativeEngineModule = () => import("@dashframe/engine-server"),
-): Promise<StandaloneArrowEngine> {
-  let engine: StandaloneArrowEngine | undefined;
+): Promise<QueryEngine> {
+  let engine: QueryEngine | undefined;
   try {
     const { NativeDuckDBEngine } = await loadModule();
     engine = new NativeDuckDBEngine();
@@ -455,7 +447,7 @@ export function createStandaloneServerOptions(
   opts: CliOptions,
   project: LocalProjectHandle,
   secretServices: StandaloneSecretServices,
-  arrowEngine: ArrowQueryRunner & ArrowTableRegistrar,
+  arrowEngine: QueryEngine,
 ): DashframeServerOptions {
   return {
     project,
@@ -476,7 +468,7 @@ export function createStandaloneServerOptions(
 function closeOnSignal(
   project: LocalProjectHandle,
   server: DashframeServer,
-  engine: StandaloneArrowEngine,
+  engine: QueryEngine,
 ): void {
   let closing = false;
   const close = async () => {
@@ -491,7 +483,7 @@ function closeOnSignal(
 export interface StandaloneShutdownResources {
   project: Pick<LocalProjectHandle, "close">;
   server: Pick<DashframeServer, "stop">;
-  engine: Pick<StandaloneArrowEngine, "dispose">;
+  engine: Pick<QueryEngine, "dispose">;
 }
 
 /** Stop the host and Convex before disposing the native engine. */
@@ -516,7 +508,7 @@ export async function shutdownStandaloneResources(
 }
 
 async function disposeEngineAfterStartupFailure(
-  engine: StandaloneArrowEngine | undefined,
+  engine: QueryEngine | undefined,
 ): Promise<void> {
   try {
     await engine?.dispose();
@@ -567,7 +559,7 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     name: opts.name,
   });
 
-  let engine: StandaloneArrowEngine | undefined;
+  let engine: QueryEngine | undefined;
   let server: DashframeServer;
   try {
     engine = await createStandaloneArrowEngine();

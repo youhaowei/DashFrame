@@ -26,7 +26,6 @@ export type {
   DataFrameStorageLocation,
   // Query Engine
   QueryEngine,
-  QueryResult,
 } from "./interfaces";
 
 export {

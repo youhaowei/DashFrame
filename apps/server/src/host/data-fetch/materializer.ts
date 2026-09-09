@@ -219,7 +219,7 @@ export function createInsightMaterializer(
     const replayKeys = new Set([key]);
     let release: (() => void) | undefined;
     const operation = (async () => {
-      if (runtime.queryArrowBatches)
+      if (runtime.nativeTransfer)
         release = await acquireNativeTransfer(identity, transfer.signal);
       transfer.check();
       return materializeOnce(dependencies, sharedArgs, [], [], [], transfer);
@@ -695,12 +695,14 @@ export async function registerStoredFrame(
   fallback?: Uint8Array,
 ): Promise<void> {
   signal?.throwIfAborted();
-  if (storage.stream && runtime.registerArrowStream) {
+  // Stream only where streaming is real. The hosted backing joins the chunks
+  // at its worker seam, so feeding it a stream would re-read bytes this caller
+  // may already be holding in `fallback` and buy nothing for it.
+  if (storage.stream && runtime.nativeTransfer) {
     await runtime.registerArrowStream(name, storage.stream(id), signal);
   } else {
     const bytes = fallback ?? (await storage.load(id));
-    if (!bytes || !runtime.registerArrowTable)
-      throw new Error("TARGET_NOT_READY");
+    if (!bytes) throw new Error("TARGET_NOT_READY");
     await runtime.registerArrowTable(name, bytes);
   }
 }
@@ -727,15 +729,10 @@ async function saveResult(args: {
   } = args;
   let schema: InsightFetchReady["schema"] | undefined;
   let rowCount = 0;
-  if (
-    storage.saveBatches &&
-    runtime.queryArrowBatches &&
-    storage.stream &&
-    runtime.registerArrowStream
-  ) {
+  if (storage.saveBatches && storage.stream && runtime.nativeTransfer) {
     await transfer.admit(storage);
     async function* inspectedBatches() {
-      for await (const bytes of runtime.queryArrowBatches!(
+      for await (const bytes of runtime.queryArrowBatches(
         sql,
         [],
         transfer.signal,
@@ -774,7 +771,7 @@ async function loadFallback(
   runtime: HostDataPlaneRuntime,
   id: UUID,
 ): Promise<Uint8Array | undefined> {
-  if (storage.stream && runtime.registerArrowStream) return undefined;
+  if (storage.stream && runtime.nativeTransfer) return undefined;
   const bytes = await storage.load(id);
   if (!bytes) throw new Error("TARGET_NOT_READY");
   return bytes;
@@ -792,7 +789,7 @@ async function saveSource(
     // Native compatibility adapters still allocate one buffered source. Count
     // that transfer before saving, including source-only refreshes; hosted
     // runtimes keep their existing independent ceilings.
-    if (runtime.queryArrowBatches) {
+    if (runtime.nativeTransfer) {
       await transfer.admit(storage);
       transfer.consumeBuffered(source.arrow, source.rowCount);
     }

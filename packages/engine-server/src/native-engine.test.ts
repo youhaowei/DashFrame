@@ -17,7 +17,21 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
+import { arrowIpcToJsonRows } from "./arrow-data-path";
 import { NativeDuckDBEngine } from "./native-engine";
+
+/**
+ * The engine speaks Arrow only. JSON rows are decoded where transport decodes
+ * them, so these tests use the same decoder the data path uses rather than a
+ * second row-shaped engine method.
+ */
+async function queryRows(
+  engine: NativeDuckDBEngine,
+  sql: string,
+  params?: readonly unknown[],
+): Promise<Record<string, unknown>[]> {
+  return arrowIpcToJsonRows(await engine.queryArrow(sql, params));
+}
 
 const MS_PER_HOUR = 3_600_000;
 
@@ -68,29 +82,13 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     await engine.initialize();
     expect(engine.isReady()).toBe(true);
 
-    const result = await engine.query(
+    const result = await queryRows(
+      engine,
       "SELECT range AS n FROM range(3) ORDER BY n",
     );
-    expect(result.rowCount).toBe(3);
-    expect(result.columns.map((c) => c.name)).toEqual(["n"]);
-    expect(result.rows.map((r) => Number(r.n))).toEqual([0, 1, 2]);
-  });
-
-  it("query() returns normalized column types, not raw DuckDB type ids", async () => {
-    engine = new NativeDuckDBEngine();
-    await engine.initialize();
-
-    // Same normalization the Arrow path (queryArrow → arrow-encode) applies:
-    // semantic ColumnType names, never numeric DuckDB type-id strings. A caller
-    // branching on column.type must see "number"/"string", not "4"/"17".
-    const result = await engine.query(
-      "SELECT 1::int AS i, 'a' AS s, 1.5::double AS d",
-    );
-    expect(result.columns).toEqual([
-      { name: "i", type: "number" },
-      { name: "s", type: "string" },
-      { name: "d", type: "number" },
-    ]);
+    expect(result.length).toBe(3);
+    expect(Object.keys(result[0]!)).toEqual(["n"]);
+    expect(result.map((r) => Number(r.n))).toEqual([0, 1, 2]);
   });
 
   it("does not corrupt a literal '?' when binding positional params (native binding, not text scan)", async () => {
@@ -196,11 +194,12 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     })();
     await engine.registerArrowStream("df_streamed", chunks);
 
-    const result = await engine.query(
+    const result = await queryRows(
+      engine,
       "SELECT count(*) AS n, max(value) AS tail, sum(value) AS total FROM df_streamed",
     );
-    expect(result.rows[0]).toMatchObject({
-      n: "25001",
+    expect(result[0]).toMatchObject({
+      n: 25_001,
       tail: 25_000,
       total: 312_512_500,
     });
@@ -224,7 +223,7 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
       engine.registerArrowStream("df_atomic_stream", failing),
     ).rejects.toThrow("source failed");
     expect(
-      (await engine.query("SELECT value FROM df_atomic_stream")).rows,
+      await queryRows(engine, "SELECT value FROM df_atomic_stream"),
     ).toEqual([{ value: 7 }]);
   });
 
@@ -240,7 +239,7 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     expect(engine.isReady()).toBe(false);
     // query() must throw rather than silently return empty results, so callers
     // discover the misuse instead of seeing a ghost success.
-    await expect(engine.query("SELECT 1")).rejects.toThrow(
+    await expect(engine.queryArrow("SELECT 1")).rejects.toThrow(
       "NativeDuckDBEngine not initialized",
     );
   });
@@ -359,7 +358,7 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     await expect(engine.queryArrow("SELECT 1")).rejects.toMatchObject({
       name: "AbortError",
     });
-    await expect(engine.query("SELECT 1")).rejects.toMatchObject({
+    await expect(engine.queryArrow("SELECT 1")).rejects.toMatchObject({
       name: "AbortError",
     });
 
@@ -395,7 +394,7 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
       // until this completes — hanging desktop and server shutdown, both of
       // which await dispose().
       const reading = engine
-        .query(
+        .queryArrow(
           "SELECT count(*) FROM range(2000000) t1, range(2000000) t2, range(2000000) t3",
         )
         .then(
@@ -442,7 +441,7 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     await init;
 
     expect(engine.isReady()).toBe(false);
-    await expect(engine.query("SELECT 1")).rejects.toThrow(
+    await expect(engine.queryArrow("SELECT 1")).rejects.toThrow(
       "NativeDuckDBEngine not initialized",
     );
   });
@@ -542,8 +541,8 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     expect(engine.isReady()).toBe(true);
 
     // A query still works against the single surviving instance.
-    const result = await engine.query("SELECT 1 AS one");
-    expect(result.rows.map((r) => Number(r.one))).toEqual([1]);
+    const result = await queryRows(engine, "SELECT 1 AS one");
+    expect(result.map((r) => Number(r.one))).toEqual([1]);
   });
 
   it("produces Arrow IPC that roundtrips through apache-arrow", async () => {
@@ -642,7 +641,9 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
         };
       },
     });
-    await expect(engine.query("SELECT 1")).rejects.toThrow("disconnect failed");
+    await expect(engine.queryArrow("SELECT 1")).rejects.toThrow(
+      "disconnect failed",
+    );
     internals.instance = rawInstance;
     const closeSync = vi.spyOn(rawInstance, "closeSync");
 
@@ -732,7 +733,7 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     queueMicrotask(() => {
       disposing = engine!.dispose();
     });
-    await expect(engine.query("SELECT 1")).rejects.toMatchObject({
+    await expect(engine.queryArrow("SELECT 1")).rejects.toMatchObject({
       name: "AbortError",
     });
     await disposing;
@@ -837,7 +838,7 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
         new Table({ v: vectorFromArray([1, 2], new Int32()) }),
         "stream",
       );
-      await engine.query("SELECT 1");
+      await engine.queryArrow("SELECT 1");
       await engine.queryArrow("SELECT ? AS v", [1]);
       await engine.registerArrowTable("df_enrolled", arrow);
       await engine.registerArrowStream(
@@ -912,8 +913,11 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     expect(engine.hasTable("df_parallel_a")).toBe(true);
     expect(engine.hasTable("df_parallel_b")).toBe(true);
     for (const name of ["df_parallel_a", "df_parallel_b"]) {
-      const rows = await engine.query(`SELECT COUNT(*) AS cnt FROM "${name}"`);
-      expect(Number(rows.rows[0]?.cnt)).toBe(3);
+      const rows = await queryRows(
+        engine,
+        `SELECT COUNT(*) AS cnt FROM "${name}"`,
+      );
+      expect(Number(rows[0]?.cnt)).toBe(3);
     }
   });
 
@@ -951,10 +955,11 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     // still complete once they are properly ordered.
     barrier.open();
     await both;
-    const rows = await engine.query(
+    const rows = await queryRows(
+      engine,
       `SELECT COUNT(*) AS cnt FROM "df_case_lock"`,
     );
-    expect(Number(rows.rows[0]?.cnt)).toBe(3);
+    expect(Number(rows[0]?.cnt)).toBe(3);
   });
 
   it("tracks registered tables the way DuckDB identifies them, not by spelling", async () => {
@@ -976,7 +981,9 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     expect(engine.hasTable("df_CaseName")).toBe(false);
     expect(engine.getTableNames()).toEqual([]);
     // The registry and the catalog agree: the table is really gone.
-    await expect(engine.query('SELECT * FROM "df_CaseName"')).rejects.toThrow();
+    await expect(
+      engine.queryArrow('SELECT * FROM "df_CaseName"'),
+    ).rejects.toThrow();
   });
 
   it("keeps names DuckDB keeps apart apart, folding only ASCII case", async () => {
@@ -997,8 +1004,8 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     expect(engine.hasTable("Ä")).toBe(false);
     // The survivor is still in the catalog, and unregistering it still works.
     expect(
-      (await engine.query('SELECT COUNT(*) AS cnt FROM "ä"')).rows[0]?.cnt,
-    ).toBe("3");
+      (await queryRows(engine, 'SELECT COUNT(*) AS cnt FROM "ä"'))[0]?.cnt,
+    ).toBe(3);
     await engine.unregisterTable("ä");
     expect(engine.getTableNames()).toEqual([]);
   });
@@ -1029,8 +1036,9 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     // The live table is untouched by the failed replacement of its own name.
     expect(
       Number(
-        (await engine.query('SELECT COUNT(*) AS cnt FROM "df_survivor"'))
-          .rows[0]?.cnt,
+        (
+          await queryRows(engine, 'SELECT COUNT(*) AS cnt FROM "df_survivor"')
+        )[0]?.cnt,
       ),
     ).toBe(3);
     expect(
@@ -1062,15 +1070,16 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     await engine.initialize();
 
     await expect(
-      engine.query("SET enable_external_access=true"),
+      engine.queryArrow("SET enable_external_access=true"),
     ).rejects.toThrow(/locked/);
     await expect(
       engine.queryArrow("SET lock_configuration=false"),
     ).rejects.toThrow(/locked/);
-    const setting = await engine.query(
+    const setting = await queryRows(
+      engine,
       "SELECT current_setting('enable_external_access') AS enabled",
     );
-    expect(setting.rows[0]?.enabled).toBe(false);
+    expect(setting[0]?.enabled).toBe(false);
   });
 
   describe("registerArrowTable — in-memory Arrow ingest", () => {
@@ -1098,17 +1107,18 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
       engine = new NativeDuckDBEngine();
       await engine.registerArrowTable("df_test", producerBuffer());
 
-      const result = await engine.query(
+      const result = await queryRows(
+        engine,
         'SELECT amount, active, label FROM "df_test" ORDER BY amount NULLS LAST',
       );
-      expect(result.rowCount).toBe(3);
-      expect(result.rows[0]).toMatchObject({
+      expect(result.length).toBe(3);
+      expect(result[0]).toMatchObject({
         amount: 10.5,
         active: true,
         label: "a",
       });
-      expect(result.rows[1]).toMatchObject({ amount: 33.25, label: null });
-      expect(result.rows[2]).toMatchObject({ amount: null, label: "b" });
+      expect(result[1]).toMatchObject({ amount: 33.25, label: null });
+      expect(result[2]).toMatchObject({ amount: null, label: "b" });
     });
 
     it("preserves timestamps as native TIMESTAMP, not strings (type fidelity)", async () => {
@@ -1117,16 +1127,14 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
 
       // typeof() proves the column landed as TIMESTAMP — a JSON round-trip
       // would have degraded it to VARCHAR. epoch_ms proves value fidelity.
-      const result = await engine.query(
+      const result = await queryRows(
+        engine,
         `SELECT typeof(created) AS t, epoch_ms(created) AS ms
          FROM "df_ts" WHERE created IS NOT NULL ORDER BY created`,
       );
-      expect(result.rows.map((r) => r.t)).toEqual(["TIMESTAMP", "TIMESTAMP"]);
+      expect(result.map((r) => r.t)).toEqual(["TIMESTAMP", "TIMESTAMP"]);
       const ts = Date.UTC(2026, 0, 15, 12, 30, 0);
-      expect(result.rows.map((r) => Number(r.ms))).toEqual([
-        ts,
-        ts + MS_PER_HOUR,
-      ]);
+      expect(result.map((r) => Number(r.ms))).toEqual([ts, ts + MS_PER_HOUR]);
     });
 
     it("never writes row data to the filesystem (privacy floor)", async () => {
@@ -1151,7 +1159,7 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
       await engine.unregisterTable("df_tracked");
       expect(engine.hasTable("df_tracked")).toBe(false);
       await expect(
-        engine.query('SELECT * FROM "df_tracked"'),
+        engine.queryArrow('SELECT * FROM "df_tracked"'),
       ).rejects.toThrow();
     });
 
@@ -1189,15 +1197,16 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
       expect(engine.hasTable("df_retry_drop")).toBe(true);
       expect(
         Number(
-          (await engine.query('SELECT COUNT(*) AS n FROM "df_retry_drop"'))
-            .rows[0]?.n,
+          (
+            await queryRows(engine, 'SELECT COUNT(*) AS n FROM "df_retry_drop"')
+          )[0]?.n,
         ),
       ).toBe(3);
 
       await engine.unregisterTable("df_retry_drop");
       expect(engine.hasTable("df_retry_drop")).toBe(false);
       await expect(
-        engine.query('SELECT * FROM "df_retry_drop"'),
+        engine.queryArrow('SELECT * FROM "df_retry_drop"'),
       ).rejects.toThrow();
     });
 
@@ -1211,7 +1220,9 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
       const unregistering = engine.unregisterTable("df_race");
       await Promise.all([registering, unregistering]);
       expect(engine.hasTable("df_race")).toBe(false);
-      await expect(engine.query('SELECT * FROM "df_race"')).rejects.toThrow();
+      await expect(
+        engine.queryArrow('SELECT * FROM "df_race"'),
+      ).rejects.toThrow();
     });
 
     it("atomic ingest — a failed append leaves the prior table intact (no partial replace)", async () => {
@@ -1224,10 +1235,11 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
       await engine.registerArrowTable("df_atomic", producerBuffer());
 
       // Confirm the initial data is there (3 rows).
-      const before = await engine.query(
+      const before = await queryRows(
+        engine,
         'SELECT COUNT(*) AS cnt FROM "df_atomic"',
       );
-      expect(Number(before.rows[0]?.cnt)).toBe(3);
+      expect(Number(before[0]?.cnt)).toBe(3);
 
       // Attempt a second registration with corrupted (non-Arrow) bytes.
       // This should throw during staging-table creation or append.
@@ -1239,10 +1251,11 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
       ).rejects.toThrow();
 
       // The live table must still have the original 3 rows — not 0 or partial.
-      const after = await engine.query(
+      const after = await queryRows(
+        engine,
         'SELECT COUNT(*) AS cnt FROM "df_atomic"',
       );
-      expect(Number(after.rows[0]?.cnt)).toBe(3);
+      expect(Number(after[0]?.cnt)).toBe(3);
     });
 
     it("preserves date-only (Date32/DateDay) columns without shifting to epoch", async () => {
@@ -1261,15 +1274,13 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
       );
       await engine.registerArrowTable("df_date32", buffer);
 
-      const result = await engine.query(
+      const result = await queryRows(
+        engine,
         `SELECT typeof(d) AS t, strftime(d, '%Y-%m-%d') AS iso
          FROM "df_date32" WHERE d IS NOT NULL ORDER BY d`,
       );
-      expect(result.rows.map((r) => r.t)).toEqual(["DATE", "DATE"]);
-      expect(result.rows.map((r) => r.iso)).toEqual([
-        "1999-12-31",
-        "2021-01-02",
-      ]);
+      expect(result.map((r) => r.t)).toEqual(["DATE", "DATE"]);
+      expect(result.map((r) => r.iso)).toEqual(["1999-12-31", "2021-01-02"]);
     });
 
     it("preserves Date64 (DateMillisecond) columns to the correct calendar day", async () => {
@@ -1282,10 +1293,11 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
       );
       await engine.registerArrowTable("df_date64", buffer);
 
-      const result = await engine.query(
+      const result = await queryRows(
+        engine,
         `SELECT strftime(d, '%Y-%m-%d') AS iso FROM "df_date64"`,
       );
-      expect(result.rows[0]?.iso).toBe("2024-06-13");
+      expect(result[0]?.iso).toBe("2024-06-13");
     });
 
     it("does not corrupt concurrent registrations of the same table name", async () => {
@@ -1322,21 +1334,23 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
       ]);
 
       // The table must hold exactly one upload's rows (5 or 7), never a mix.
-      const result = await engine.query(
+      const result = await queryRows(
+        engine,
         'SELECT COUNT(*) AS cnt FROM "df_concurrent"',
       );
-      const cnt = Number(result.rows[0]?.cnt);
+      const cnt = Number(result[0]?.cnt);
       expect([5, 7]).toContain(cnt);
 
       // No leaked staging tables remain after the swaps. Staging tables are TEMP
       // and connection-local, so this query — on its own fresh connection —
       // could not see one even if it leaked; what it still pins is that the
       // swap does not leave a NON-temp table behind under a staging name.
-      const staging = await engine.query(
+      const staging = await queryRows(
+        engine,
         `SELECT COUNT(*) AS cnt FROM duckdb_tables()
          WHERE table_name LIKE '__staging_df_concurrent%'`,
       );
-      expect(Number(staging.rows[0]?.cnt)).toBe(0);
+      expect(Number(staging[0]?.cnt)).toBe(0);
     });
 
     it("handles high-concurrency registrations without corruption or error", async () => {
@@ -1385,20 +1399,22 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
       await Promise.all(tasks);
 
       for (const { name, expectedCounts } of uploads) {
-        const result = await engine!.query(
+        const result = await queryRows(
+          engine!,
           `SELECT COUNT(*) AS cnt FROM "${name}"`,
         );
-        expect(expectedCounts).toContain(Number(result.rows[0]?.cnt));
+        expect(expectedCounts).toContain(Number(result[0]?.cnt));
       }
 
       // No staging tables should survive. Same caveat as the 2-way variant:
       // this fresh connection cannot see another connection's TEMP tables, so
       // it pins the absence of a non-temp leftover.
-      const leaked = await engine!.query(
+      const leaked = await queryRows(
+        engine!,
         `SELECT COUNT(*) AS cnt FROM duckdb_tables()
          WHERE table_name LIKE '__staging_%'`,
       );
-      expect(Number(leaked.rows[0]?.cnt)).toBe(0);
+      expect(Number(leaked[0]?.cnt)).toBe(0);
     });
   });
 });
@@ -1521,10 +1537,11 @@ describe("NativeDuckDBEngine — reuse after registerArrowTable failure", () => 
       new Table({ n: vectorFromArray([1.0, 2.0, 3.0], new Float64()) }),
     );
     await engine.registerArrowTable("df_before", goodInitBuf);
-    const before = await engine.query(
+    const before = await queryRows(
+      engine,
       'SELECT COUNT(*) AS cnt FROM "df_before"',
     );
-    expect(Number(before.rows[0]?.cnt)).toBe(3); // precondition
+    expect(Number(before[0]?.cnt)).toBe(3); // precondition
 
     // Trigger a failure INSIDE the append loop (inside the try block, after the
     // appender is created). 2^63 is a valid Uint64 value in Arrow but exceeds
@@ -1542,8 +1559,11 @@ describe("NativeDuckDBEngine — reuse after registerArrowTable failure", () => 
     // The engine must still be operational after the failure. On Linux, on a
     // shared connection, this would throw "executing an unsuccessful or closed
     // pending query result" as an unhandled NAPI rejection.
-    const after = await engine.query('SELECT COUNT(*) AS cnt FROM "df_before"');
-    expect(Number(after.rows[0]?.cnt)).toBe(3); // pre-existing table intact
+    const after = await queryRows(
+      engine,
+      'SELECT COUNT(*) AS cnt FROM "df_before"',
+    );
+    expect(Number(after[0]?.cnt)).toBe(3); // pre-existing table intact
 
     // registerArrowTable with valid data must succeed on the SAME engine instance.
     const goodBuf = tableToIPC(
@@ -1553,9 +1573,10 @@ describe("NativeDuckDBEngine — reuse after registerArrowTable failure", () => 
       engine.registerArrowTable("df_after_failure", goodBuf),
     ).resolves.toBeUndefined();
 
-    const afterReg = await engine.query(
+    const afterReg = await queryRows(
+      engine,
       'SELECT COUNT(*) AS cnt FROM "df_after_failure"',
     );
-    expect(Number(afterReg.rows[0]?.cnt)).toBe(1);
+    expect(Number(afterReg[0]?.cnt)).toBe(1);
   });
 });

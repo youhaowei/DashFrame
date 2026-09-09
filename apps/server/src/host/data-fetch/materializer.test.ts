@@ -10,6 +10,7 @@ import {
   type PublishMaterialization,
   type SourceGeneration,
 } from "./materializer";
+import { stubQueryEngine } from "../query-engine.fixture";
 import { trustedPublishedSourceGenerations } from "./published-source-error";
 import { DEFAULT_TRANSFER_LIMITS } from "./transfer";
 import {
@@ -92,6 +93,7 @@ function harness(overrides: Partial<InsightMaterializerDependencies> = {}) {
     getUsage: vi.fn(async () => ({ count: bytes.size })),
   };
   const runtime: HostDataPlaneRuntime = {
+    ...stubQueryEngine(),
     queryArrow: vi.fn(async () => new Uint8Array([9])),
     registerArrowTable: vi.fn(async (name, value) => {
       registered.set(name, value);
@@ -999,9 +1001,8 @@ it.each(["storageBytes", "runBytes"] as const)(
     const h = harness({
       transferLimits: { ...DEFAULT_TRANSFER_LIMITS, [limit]: 0 },
     });
-    h.runtime.queryArrowBatches = async function* () {
-      yield new Uint8Array();
-    };
+    // The native binding, not method presence, is what marks a runtime native.
+    h.runtime.nativeTransfer = true;
     vi.mocked(h.storage.getUsage).mockResolvedValue({
       count: 1,
       totalBytes: 1,
@@ -1039,9 +1040,7 @@ it("charges a buffered native source as a whole transfer rather than one streame
   const h = harness({
     transferLimits: { ...DEFAULT_TRANSFER_LIMITS, batchBytes: 0 },
   });
-  h.runtime.queryArrowBatches = async function* () {
-    yield new Uint8Array();
-  };
+  h.runtime.nativeTransfer = true;
   vi.mocked(h.storage.getUsage).mockResolvedValue({ count: 0, totalBytes: 0 });
   const result = await createInsightMaterializer(h.dependencies).materialize({
     ctx: {} as HostContext,

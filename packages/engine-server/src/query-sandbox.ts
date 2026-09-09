@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { access, readFile, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, resolve } from "node:path";
+import type { QueryEngine } from "@dashframe/engine";
 import { tableFromIPC } from "apache-arrow";
 import {
   SANDBOX_MAX_ARROW,
@@ -100,8 +101,12 @@ export async function linuxQuerySandboxReadPaths(
   return [...new Set([...required, ...limits])];
 }
 
-/** One immutable workspace binding, process, and disposable catalog. */
-export class WorkspaceQueryEngine {
+/**
+ * One immutable workspace binding, process, and disposable catalog — the
+ * `QueryEngine` backing for the hosted surface, where DuckDB runs behind a
+ * seccomp-confined worker process instead of in the app server.
+ */
+export class WorkspaceQueryEngine implements QueryEngine {
   private child: ChildProcessWithoutNullStreams | undefined;
   private opening: Promise<void> | undefined;
   private closed: Error | undefined;
@@ -113,6 +118,13 @@ export class WorkspaceQueryEngine {
   private pendingBytes = 0;
   private idleTimer: ReturnType<typeof setTimeout> | undefined;
   private closedPromise: Promise<void> = Promise.resolve();
+  /**
+   * Names this engine has registered, mirrored here so `hasTable` and
+   * `getTableNames` answer synchronously as the interface requires. The worker
+   * owns the catalog; this is a projection of the registrations we sent, and
+   * it is only updated after the worker acknowledges one.
+   */
+  private readonly registered = new Set<string>();
   private startupReject: ((error: Error) => void) | undefined;
   private startupTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly options: QuerySandboxConfiguration;
@@ -302,6 +314,21 @@ export class WorkspaceQueryEngine {
     }
   }
 
+  /**
+   * The worker answers a query with one framed Arrow payload, bounded by
+   * `SANDBOX_MAX_ROWS`, so a batch sequence here is that single buffer. It
+   * exists because the interface is one shape across backings; a caller that
+   * wants incremental delivery gets it from the native backing, not from a
+   * request/response worker protocol pretending to stream.
+   */
+  async *queryArrowBatches(
+    sql: string,
+    params: readonly unknown[] = [],
+    signal?: AbortSignal,
+  ): AsyncGenerator<Uint8Array> {
+    yield await this.queryArrow(sql, params, signal);
+  }
+
   async registerArrowTable(
     name: string,
     bytes: Uint8Array,
@@ -314,10 +341,57 @@ export class WorkspaceQueryEngine {
       bytes,
       signal,
     );
+    this.registered.add(name);
+  }
+
+  /**
+   * Same contract as `registerArrowTable`, fed by chunks.
+   *
+   * The worker protocol is one framed request carrying one payload, so the
+   * chunks are joined here and registered as a single buffer. That is the whole
+   * of the "streaming" this backing can offer — but the size ceiling still has
+   * to hold, so it is enforced on the running total as chunks arrive rather
+   * than after the join: a source larger than the limit is rejected without
+   * ever being resident whole.
+   *
+   * `signal` is checked between chunks, which is the only cancellation this
+   * method can offer — the hosted binding drops caller signals anyway
+   * (`createHostedQueryRuntime`), so in practice a long source read here runs
+   * to completion.
+   */
+  async registerArrowStream(
+    name: string,
+    chunks: AsyncIterable<Uint8Array>,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const parts: Uint8Array[] = [];
+    let total = 0;
+    for await (const chunk of chunks) {
+      if (signal?.aborted) throw new Error("SANDBOX_CANCELLED");
+      total += chunk.byteLength;
+      if (total > SANDBOX_MAX_ARROW) throw new Error("SANDBOX_MESSAGE_LIMIT");
+      parts.push(chunk);
+    }
+    const joined = new Uint8Array(total);
+    let offset = 0;
+    for (const part of parts) {
+      joined.set(part, offset);
+      offset += part.byteLength;
+    }
+    await this.registerArrowTable(name, joined, signal);
   }
 
   async unregisterTable(name: string): Promise<void> {
     await this.request({ operation: "unregister", name: tableName(name) });
+    this.registered.delete(name);
+  }
+
+  hasTable(name: string): boolean {
+    return this.registered.has(name);
+  }
+
+  getTableNames(): string[] {
+    return [...this.registered];
   }
 
   private request(

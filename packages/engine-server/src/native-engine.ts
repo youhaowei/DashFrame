@@ -11,18 +11,18 @@
  * 5. Cloud remote compute is not a binding; this class is the intended seam
  * there too once that tier exists.
  *
- * Beyond the row-shaped `QueryEngine.query`, it exposes `queryArrow` — the
- * Arrow IPC bytes the dedicated data path (Stage 5) streams. Arrow encoding is
- * delegated to `apache-arrow` rather than DuckDB's Arrow extension, so the binary
- * format matches what clients ingest (including the WASM backup path) and stays
- * in one well-exercised library.
+ * Results leave as Arrow IPC bytes (`queryArrow` buffered, `queryArrowBatches`
+ * chunked) — the payload the dedicated data path (Stage 5) streams. Arrow
+ * encoding is delegated to `apache-arrow` rather than DuckDB's Arrow extension,
+ * so the binary format matches what clients ingest (including the WASM backup
+ * path) and stays in one well-exercised library. Callers that want JSON rows
+ * decode the same bytes in transport with `arrowIpcToJsonRows`.
  *
  * `registerArrowTable` accepts an Arrow IPC stream buffer, decodes it with
  * apache-arrow, and ingests it into an in-memory DuckDB table via the typed
- * Appender API. `registerTable(DataFrame)` is intentionally unsupported — use
- * Arrow upload or direct source SQL. Row data stays in process memory (privacy
- * floor: sensitive data is never at rest outside the gated cache; see #67).
- * Tables persist for the session lifetime and are re-registered on reconnect.
+ * Appender API. Row data stays in process memory (privacy floor: sensitive data
+ * is never at rest outside the gated cache; see #67). Tables persist for the
+ * session lifetime and are re-registered on reconnect.
  *
  * Two-Arrow-library seam: this side decodes with `apache-arrow`, but the chart
  * layer (Mosaic / `@uwdata/vgplot`) decodes the same IPC with `@uwdata/flechette`.
@@ -32,8 +32,7 @@
  * anti-corruption bridge is tracked in #95 (triggered at the 3rd cross-library
  * type). When adding an Arrow type here, pin a value-equality check across the seam.
  */
-import type { DataFrame, QueryEngine, QueryResult } from "@dashframe/engine";
-import type { TableColumn } from "@dashframe/types";
+import type { QueryEngine } from "@dashframe/engine";
 import {
   DuckDBDateValue,
   DuckDBInstance,
@@ -51,11 +50,7 @@ import {
   type RecordBatch,
 } from "apache-arrow";
 
-import {
-  duckdbColumnsToArrowIpc,
-  duckdbTypeIdToColumnType,
-  type ResultColumn,
-} from "./arrow-encode";
+import { duckdbColumnsToArrowIpc, type ResultColumn } from "./arrow-encode";
 
 /**
  * Deny filesystem and network access on `connection`, then lock the
@@ -519,22 +514,6 @@ export class NativeDuckDBEngine implements QueryEngine {
     };
   }
 
-  async query(sql: string): Promise<QueryResult> {
-    return this.withConnection(async (connection) => {
-      const reader = await connection.runAndReadAll(sql);
-      const columnNames = reader.columnNames();
-      const columnTypes = reader.columnTypes();
-      const rows = reader.getRowObjectsJson() as Record<string, unknown>[];
-
-      const columns: TableColumn[] = columnNames.map((name, i) => ({
-        name,
-        type: duckdbTypeIdToColumnType(columnTypes[i]?.typeId),
-      }));
-
-      return { columns, rows, rowCount: rows.length };
-    });
-  }
-
   /**
    * Execute `sql` (with optional positional `params`) and return the result as
    * an Arrow IPC stream buffer — the payload the data path (Stage 5) serves as
@@ -549,36 +528,41 @@ export class NativeDuckDBEngine implements QueryEngine {
   async queryArrow(
     sql: string,
     params: readonly unknown[] = [],
+    signal?: AbortSignal,
   ): Promise<Uint8Array> {
-    return this.withConnection(async (connection) => {
-      const values = params.length > 0 ? (params as DuckDBValue[]) : undefined;
-      const reader = this.sandboxLimits
-        ? await connection.runAndReadUntil(
-            sql,
-            this.sandboxLimits.maxResultRows + 1,
-            values,
-          )
-        : await connection.runAndReadAll(sql, values);
-      if (
-        this.sandboxLimits &&
-        reader.currentRowCount > this.sandboxLimits.maxResultRows
-      )
-        throw new Error("Sandbox result row limit exceeded");
-      const columnNames = reader.columnNames();
-      const columnTypes = reader.columnTypes();
-      const columnsObject = reader.getColumnsObjectJson() as Record<
-        string,
-        unknown[]
-      >;
+    return this.withConnection(
+      async (connection) => {
+        const values =
+          params.length > 0 ? (params as DuckDBValue[]) : undefined;
+        const reader = this.sandboxLimits
+          ? await connection.runAndReadUntil(
+              sql,
+              this.sandboxLimits.maxResultRows + 1,
+              values,
+            )
+          : await connection.runAndReadAll(sql, values);
+        if (
+          this.sandboxLimits &&
+          reader.currentRowCount > this.sandboxLimits.maxResultRows
+        )
+          throw new Error("Sandbox result row limit exceeded");
+        const columnNames = reader.columnNames();
+        const columnTypes = reader.columnTypes();
+        const columnsObject = reader.getColumnsObjectJson() as Record<
+          string,
+          unknown[]
+        >;
 
-      const columns: ResultColumn[] = columnNames.map((name, i) => ({
-        name,
-        typeId: columnTypes[i]?.typeId,
-        values: columnsObject[name] ?? [],
-      }));
+        const columns: ResultColumn[] = columnNames.map((name, i) => ({
+          name,
+          typeId: columnTypes[i]?.typeId,
+          values: columnsObject[name] ?? [],
+        }));
 
-      return duckdbColumnsToArrowIpc(columns);
-    });
+        return duckdbColumnsToArrowIpc(columns);
+      },
+      { signal },
+    );
   }
 
   queryArrowBatches(
@@ -670,7 +654,12 @@ export class NativeDuckDBEngine implements QueryEngine {
    * gated cache), and typed appends preserve timestamps/dates exactly instead
    * of round-tripping through JSON strings.
    */
-  async registerArrowTable(name: string, arrow: Uint8Array): Promise<void> {
+  async registerArrowTable(
+    name: string,
+    arrow: Uint8Array,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    throwIfAborted(signal);
     await this.initialize();
     await this.withConnection(
       async (conn) => {
@@ -810,12 +799,6 @@ export class NativeDuckDBEngine implements QueryEngine {
         }
       },
       { signal, lockTable: name },
-    );
-  }
-
-  async registerTable(_name: string, _dataFrame: DataFrame): Promise<void> {
-    throw new Error(
-      "NativeDuckDBEngine.registerTable is not supported — upload Arrow IPC via registerArrowTable, or query sources directly (read_parquet)",
     );
   }
 

@@ -1,81 +1,79 @@
-import type { TableColumn } from "@dashframe/types";
-import type { DataFrame } from "./dataframe";
-
 /**
- * Query result from engine execution.
- */
-export interface QueryResult {
-  /** Column definitions */
-  columns: TableColumn[];
-  /** Result rows as records */
-  rows: Record<string, unknown>[];
-  /** Number of rows returned */
-  rowCount: number;
-}
-
-/**
- * QueryEngine interface — execute SQL against registered tables.
+ * QueryEngine — the Arrow-native surface every DuckDB backing implements.
  *
- * Primary implementer: `NativeDuckDBEngine` (`@dashframe/engine-server`) —
- * native DuckDB in the server process (desktop today; web-via-serve is the
- * same class once wired). DuckDB-WASM helpers in `@dashframe/engine-browser`
- * are a backup path and do not implement this interface.
+ * SQL goes in, Arrow IPC stream buffers come out. Row-shaped JSON is a
+ * transport concern and lives there (`arrowIpcToJsonRows` in
+ * `@dashframe/engine-server/arrow-data-path`), not on this interface.
+ *
+ * Backings: `NativeDuckDBEngine` (`@dashframe/engine-server`) runs DuckDB in
+ * the server process; `WorkspaceQueryEngine` (same package) runs it behind the
+ * sandboxed hosted worker; the DuckDB-WASM helpers in
+ * `@dashframe/engine-browser` are the availability-checked renderer fallback.
+ * They are backings of one interface, not sibling APIs.
  *
  * There is no Postgres `QueryEngine` and no shared `QueryPlanner` /
  * `QueryPushDownCapable` API in this package. Individual connectors may still
  * run remote queries themselves (e.g. the Postgres connector pushes LIMIT/OFFSET
  * on table-reference fetches); that is connector-local, not a cross-engine planner.
+ *
+ * Every operation that can run long takes a caller `signal`. `params` bind
+ * natively — no backing may substitute placeholder text into the SQL.
  */
 export interface QueryEngine {
-  /**
-   * Execute a SQL query and return results.
-   * @param sql - SQL query string
-   */
-  query(sql: string): Promise<QueryResult>;
+  /** Initialize the engine (open the database, apply access restrictions). */
+  initialize(): Promise<void>;
 
-  /**
-   * Register a DataFrame as a named table for queries.
-   * @param name - Table name to use in queries
-   * @param dataFrame - DataFrame to register
-   */
-  registerTable(name: string, dataFrame: DataFrame): Promise<void>;
+  /** Release every resource the engine owns. Safe to call more than once. */
+  dispose(): Promise<void>;
 
-  /**
-   * Register Arrow IPC data directly as a table.
-   * @param name - Table name to use in queries
-   * @param arrowBuffer - Arrow IPC buffer
-   */
-  registerArrowTable(name: string, arrowBuffer: Uint8Array): Promise<void>;
-
-  /**
-   * Unregister a table.
-   * @param name - Table name to remove
-   */
-  unregisterTable(name: string): Promise<void>;
-
-  /**
-   * Check if a table is registered.
-   * @param name - Table name to check
-   */
-  hasTable(name: string): boolean;
-
-  /**
-   * Get list of registered table names.
-   */
-  getTableNames(): string[];
-
-  /**
-   * Check if engine is initialized and ready.
-   */
+  /** True once `initialize()` has completed and the engine has not been disposed. */
   isReady(): boolean;
 
   /**
-   * Initialize the engine (load WASM, connect to DB, etc.).
+   * Execute `sql` and return the whole result as one Arrow IPC stream buffer.
+   * @param params - Positional bind values, bound natively.
+   * @param signal - Cancels the statement in flight.
    */
-  initialize(): Promise<void>;
+  queryArrow(
+    sql: string,
+    params?: readonly unknown[],
+    signal?: AbortSignal,
+  ): Promise<Uint8Array>;
 
   /**
-   * Cleanup resources.
+   * Execute `sql` and yield the result as a sequence of Arrow IPC stream
+   * buffers, so a large result never has to be resident whole.
    */
-  dispose(): Promise<void>;
+  queryArrowBatches(
+    sql: string,
+    params?: readonly unknown[],
+    signal?: AbortSignal,
+  ): AsyncIterable<Uint8Array>;
+
+  /**
+   * Register an Arrow IPC stream buffer as the named table, replacing any
+   * previous table of that name. Atomic: a failure leaves the previous table
+   * untouched.
+   */
+  registerArrowTable(
+    name: string,
+    arrow: Uint8Array,
+    signal?: AbortSignal,
+  ): Promise<void>;
+
+  /** Same contract as `registerArrowTable`, fed by a chunked Arrow IPC stream. */
+  registerArrowStream(
+    name: string,
+    chunks: AsyncIterable<Uint8Array>,
+    signal?: AbortSignal,
+  ): Promise<void>;
+
+  /** Drop a registered table. Unknown names are not an error. */
+  unregisterTable(name: string): Promise<void>;
+
+  /** Whether `name` is currently registered with this engine. */
+  hasTable(name: string): boolean;
+
+  /** Every table name currently registered with this engine. */
+  getTableNames(): string[];
 }

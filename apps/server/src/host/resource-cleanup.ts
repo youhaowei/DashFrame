@@ -125,7 +125,7 @@ export class HostResourceCleanup {
       if (!job) return;
       if (job.kind === "frame") {
         if (!this.ctx.dataFrameStorage) return;
-        await this.ctx.dataPlaneRuntime?.unregisterTable?.(
+        await this.ctx.dataPlaneRuntime?.unregisterTable(
           `df_${job.resourceId.replaceAll("-", "_")}`,
         );
         await this.ctx.dataFrameStorage.delete(job.resourceId as UUID);
