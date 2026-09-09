@@ -957,6 +957,28 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     expect(Number(rows.rows[0]?.cnt)).toBe(3);
   });
 
+  it("tracks registered tables the way DuckDB identifies them, not by spelling", async () => {
+    // One catalog table must be one registry entry. If the registry keyed on
+    // the raw spelling, registering "df_CaseName" and then "df_casename" would
+    // list two tables for DuckDB's one, and dropping either would leave the
+    // other claiming a table that no longer exists.
+    engine = new NativeDuckDBEngine();
+    const arrow = tableToIPC(
+      new Table({ v: vectorFromArray([1, 2, 3], new Int32()) }),
+    );
+    await engine.registerArrowTable("df_CaseName", arrow);
+    expect(engine.hasTable("df_casename")).toBe(true);
+
+    await engine.registerArrowTable("df_casename", arrow);
+    expect(engine.getTableNames()).toEqual(["df_casename"]);
+
+    await engine.unregisterTable("DF_CASENAME");
+    expect(engine.hasTable("df_CaseName")).toBe(false);
+    expect(engine.getTableNames()).toEqual([]);
+    // The registry and the catalog agree: the table is really gone.
+    await expect(engine.query('SELECT * FROM "df_CaseName"')).rejects.toThrow();
+  });
+
   it("stays fully usable after a failed appender, with no connection to recover", async () => {
     // The appender-taint recovery is gone, not replaced: a failed appender's
     // connection is discarded with the operation that opened it, and every

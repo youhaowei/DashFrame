@@ -213,10 +213,16 @@ export class NativeDuckDBEngine implements QueryEngine {
   /** Memoized teardown, so a second dispose() joins the first. */
   private disposal: Promise<void> | null = null;
   /**
-   * Set of table names currently registered via `registerArrowTable`. Used to
-   * answer `hasTable`/`getTableNames` without an async DB round-trip.
+   * Tables currently registered through this engine, keyed the way DuckDB
+   * identifies them — case-folded, because a quoted identifier is still
+   * case-insensitive — and valued by the spelling they were registered under,
+   * which is what DuckDB stores in its catalog and what `getTableNames()`
+   * reports. Keying it raw would let `Sales` and `sales` occupy two entries
+   * for one catalog table, so dropping either would leave the other claiming
+   * a table that no longer exists. Answers `hasTable`/`getTableNames` without
+   * an async DB round-trip.
    */
-  private _registeredTables = new Set<string>();
+  private _registeredTables = new Map<string, string>();
   /**
    * Per-table-name serializer, keyed by the live table an operation replaces or
    * drops. Guards concurrent `CREATE OR REPLACE` of the SAME name only:
@@ -494,15 +500,9 @@ export class NativeDuckDBEngine implements QueryEngine {
    * interleaved with another swap of the same name.
    */
   private async acquireTableLock(name: string): Promise<() => void> {
-    // DuckDB identifiers are case-insensitive even when quoted: "Sales" and
-    // "sales" are one catalog entry (probed: 20/20 cross-case write-write
-    // conflicts). Keying the map on the raw name would hand them separate
-    // locks and let the conflict this lock exists to prevent happen anyway.
-    // Folding can only ever over-lock two names DuckDB keeps apart, which is
-    // safe; under-locking is the bug. Registered names are ASCII identifiers
-    // (`df_<uuid>` or the transport's `^[a-zA-Z_]\w*$`), so ASCII folding and
-    // DuckDB's own agree on every name that reaches here.
-    const key = name.toLowerCase();
+    // Two names DuckDB cannot tell apart must not get two locks, or the
+    // conflict this lock exists to prevent happens anyway.
+    const key = tableKey(name);
     const gate = this._tableLocks.get(key) ?? Promise.resolve();
     let unlock!: () => void;
     const tail = new Promise<void>((resolve) => {
@@ -743,7 +743,7 @@ export class NativeDuckDBEngine implements QueryEngine {
         );
         await conn.run(`DROP TABLE IF EXISTS ${quoteIdent(stagingName)}`);
 
-        this._registeredTables.add(name);
+        this._registeredTables.set(tableKey(name), name);
       },
       { lockTable: name },
     );
@@ -797,7 +797,7 @@ export class NativeDuckDBEngine implements QueryEngine {
           await conn.run(
             `CREATE OR REPLACE TABLE ${quoteIdent(name)} AS SELECT * FROM ${quoteIdent(stagingName)}`,
           );
-          this._registeredTables.add(name);
+          this._registeredTables.set(tableKey(name), name);
         } finally {
           if (appender) {
             try {
@@ -823,23 +823,23 @@ export class NativeDuckDBEngine implements QueryEngine {
     await this.initialize();
     await this.withConnection(
       async (connection) => {
-        if (!this._registeredTables.has(name)) return;
+        if (!this._registeredTables.has(tableKey(name))) return;
         await connection.run(`DROP TABLE IF EXISTS ${quoteIdent(name)}`);
         // Forget the registration only after DuckDB confirms the DROP. A
         // transient native failure must leave the entry discoverable so cleanup
         // can retry instead of leaking a table the registry claims is gone.
-        this._registeredTables.delete(name);
+        this._registeredTables.delete(tableKey(name));
       },
       { lockTable: name },
     );
   }
 
   hasTable(name: string): boolean {
-    return this._registeredTables.has(name);
+    return this._registeredTables.has(tableKey(name));
   }
 
   getTableNames(): string[] {
-    return [...this._registeredTables];
+    return [...this._registeredTables.values()];
   }
 
   dispose(): Promise<void> {
@@ -926,6 +926,22 @@ function disposedError(): DOMException {
 
 function quoteIdent(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
+}
+
+/**
+ * How DuckDB identifies a table, as opposed to how it spells it. Identifiers
+ * are case-insensitive even when quoted, so `"Sales"` and `"sales"` name ONE
+ * catalog entry — probed at 20/20 cross-case write-write conflicts against
+ * @duckdb/node-api 1.5.3-r.3. Both the per-name lock and the registry key on
+ * this, so neither can be fooled into treating one table as two.
+ *
+ * Folding can only ever merge two names DuckDB keeps apart, which is safe;
+ * failing to merge two it does not is the bug. Registered names are ASCII
+ * identifiers (`df_<uuid>`, or the transport's `^[a-zA-Z_]\w*$`), so this
+ * folding and DuckDB's own agree on every name that reaches here.
+ */
+function tableKey(name: string): string {
+  return name.toLowerCase();
 }
 
 function throwIfAborted(signal?: AbortSignal): void {
