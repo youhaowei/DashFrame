@@ -156,5 +156,5 @@ import type {
 
 ## Implementations
 
-- **`@dashframe/engine-server`** — primary: native DuckDB pipeline (`NativeDuckDBEngine`, Arrow data path, placement policy)
+- **`@dashframe/engine-server`** — primary: native DuckDB in the server process (`NativeDuckDBEngine`) plus the Arrow IPC data path over it
 - **`@dashframe/engine-browser`** — retained DuckDB-WASM, IndexedDB, and BrowserDataFrame implementation; local-file import still depends on it pending server ingestion

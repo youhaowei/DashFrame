@@ -116,8 +116,8 @@ export interface NativeDuckDBEngineOptions {
    * unaffected.
    *
    * Set it to `false` only for a caller that genuinely needs DuckDB to touch the
-   * filesystem — the Parquet cache is the one such consumer — and only where the
-   * SQL reaching that engine cannot come from a client.
+   * filesystem, and only where the SQL reaching that engine cannot come from a
+   * client. No caller does today.
    */
   restrictFileAccess?: boolean;
 }
