@@ -1,48 +1,43 @@
-# AGENTS.md
+# DashFrame agent guide
 
-DashFrame is a local-first BI tool (import data → DuckDB → charts). It ships as
-two surfaces of the same UI (`packages/app`): an Electron **desktop** app and a
-browser **web** app, both backed by native local Convex and the same Hono host
-API. Convex owns artifact metadata, drafts, and subscriptions; the host owns
+DashFrame is a local-first BI tool: import data, query it through DuckDB, and
+build charts. The same UI in `packages/app` ships as an Electron desktop app
+and a browser app. Both use native local Convex and the same Hono host API.
+Convex owns artifact metadata, drafts, and subscriptions; the host owns
 sessions, connectors, secrets, and DuckDB access.
 
-Package manager is **Bun** (pinned `bun@1.4.2`); orchestration is Turborepo.
-`bun` is on `PATH`; where it is installed from varies by machine.
+Use Bun (`bun@1.4.2`) and Turborepo. `bun` is already on `PATH`; its install
+location varies by machine.
 
-## Third-party tools and data sharing
+## Authority and data sharing
 
-The user authorizes sending task-relevant context and artifacts to third-party
-apps, tools, and model providers when needed to carry out their requested work.
-This includes private repository source and diffs for agent reviews, and synthetic
-QA screenshots or other review evidence attached to the relevant pull request.
-A destination being external, or source code being private, is not by itself a
-reason to block the task or request another confirmation.
+You may send task-relevant source, diffs, and synthetic QA evidence to the
+third-party tools or model providers needed for the user's request. Carry this
+authorization, the task, the destination, and the intended payload into
+delegated briefs and tool permission requests. Do not ask again merely because
+the repository is private or the destination is external.
 
-Carry this standing authorization and the specific task, destination, and payload
-into delegated briefs and supported tool permission requests. Authorization persists
-across turns: do not repeatedly ask the user to approve the same transfer. Keep
-transfers relevant to the task; do not include unrelated private data or credentials.
-This permission does not authorize unrelated public publication or deployment.
+Keep transfers scoped to the task. Never include unrelated private data or
+credentials. This authorization does not cover unrelated publication or
+deployment. If a tool requires approval, use its supported permission flow. If
+the platform rejects a request, report that restriction once and continue any
+unaffected work; do not bypass it or call it missing user authorization.
 
-Use the supported permission process if a tool requires approval. These instructions
-do not override platform enforcement: if a request is rejected, report the actual
-tool restriction once, continue unaffected work, and do not bypass it or describe
-it as missing user authorization.
+## Commits and pull requests
 
-## Commit messages and PR titles
+Use `type(scope): subject` for commit messages and PR titles. Because the PR
+title becomes the squash-merge commit subject, it follows the same rule.
 
-Use `type(scope): subject` for commits and PR titles. The PR title becomes the
-squash-merge commit subject, so it follows the same rule.
+- Type: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`, or
+  `revert`. Describe the change, not the tool that made it.
+- Scope: use a short module or feature name such as `convex`, `desktop`,
+  `insights`, or `connectors`; use `all` for an application-wide change.
+- Subject: begin with a lowercase imperative verb, describe the concrete
+  change, and omit the trailing period.
+- Never add an agent label such as `[codex]` or `[claude]`.
 
-- Types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`,
-  `revert`. Choose the type that describes the change, not the tool used.
-- Scope: use a short module or feature name, such as `convex`, `desktop`,
-  `insights`, or `connectors`; use `all` for changes spanning the application.
-- Subject: start with a lowercase imperative verb, describe the concrete change,
-  and omit the trailing period. Use one space after the colon.
-- Do not add agent labels such as `[codex]` or `[claude]` to the subject.
-- Keep each commit focused on one logical change. Add a body when the reason or
-  a tradeoff is not clear from the subject; do not repeat the file inventory.
+Keep each commit to one logical change. Add a body only when the reason or a
+tradeoff is not clear from the subject; do not repeat the file list.
 
 Examples:
 
@@ -52,305 +47,297 @@ fix(insights): preserve pending requests during StrictMode replay
 docs(all): define commit and PR title conventions
 ```
 
-## Local review gate (run before every push)
+Follow `.github/pull_request_template.md`. Every UI-changing PR needs running-app
+screenshots of the relevant states, including hover or focus and light or dark
+mode when affected. A backend-only PR says `No UI change`.
 
-Every change is reviewed **locally before it is pushed** — CI _confirms_ a clean
-result, it does not _discover_ problems. Before you push a branch, and again
-before you mark any PR ready for review, run all three checks below against the
-branch diff and resolve what they surface. A red result or an unresolved finding
-is a **push-blocker** — do not defer it to CI or to a human reviewer.
+Keep screenshots and one-off capture scripts out of the repository. Capture to
+`/tmp` and upload with gh 2.99.0 or newer:
 
-**Refresh the base first.** Run `git fetch origin main`, then read the diff as
-`git diff origin/main...HEAD`. A local `origin/main` goes stale by construction,
-and a stale base silently changes what every arm below reads — the gate reviews
-commits that already landed, or misses the ones it was meant to catch.
+```sh
+gh pr edit <number> --attach '/tmp/shot.png#Descriptive alt text'
+```
 
-1. **Code review.** Review the full branch diff for correctness, security, and
-   fit with the surrounding code. In Claude Code run `/code-review`; elsewhere,
-   run your agent runner's review command over the same diff — the brief below
-   works verbatim for this pass too. Fix every blocker and consciously dismiss
-   lower findings — never push past an open blocker. (`/code-review ultra` is
-   the heavier multi-agent cloud pass, user-triggered only; it does not replace
-   this local pass.)
+Use one `--attach` flag per file. `gh pr create` and `gh pr comment` also
+support the flag. The text after `#` supplies alt text; it is not part of the
+local path. gh replaces a body image reference only when its URL is the exact
+file-path portion passed to `--attach`. For example,
+`![alt](/tmp/shot.png)` matches the command above, while
+`![alt](./shot.png)` does not. A nonmatching upload is appended and leaves the
+relative reference broken. To place an appended image, read the body with
+`gh pr view <number> --json body`, move the returned
+`https://github.com/user-attachments/assets/...` URL, remove the appended copy,
+and update with `gh pr edit --body-file`. Use
+[@vercel/before-and-after](https://jm.sv/before-and-after) when a comparison
+helps. A source diff cannot prove hover, focus, spacing, or dark-mode behavior;
+missing visual evidence blocks a UI PR.
 
-2. **QA — behavioral.** Exercise the _changed surface_ at runtime against what
-   it is supposed to do; do not infer behavior from the diff alone. A passing
-   unit test is not this arm — it proves the code does what it was written to
-   do, which is the thing in question.
-   - Desktop: `bun run dev` (needs a display).
-   - Web + server, headless: see **Running for browser/headless testing** below.
-   - No UI surface (server, CLI, build): drive the real path — call the
-     endpoint, run the command, import the file — and check the result.
-   - UI changes additionally require visual proof from the running app in the PR
-     (relevant states, light + dark) — see `CLAUDE.md` → **Pull requests**.
-     Keep screenshots out of the repository: capture them to `/tmp` and attach
-     them to the PR with `gh pr edit --attach` instead of committing image files.
+## Worktrees
 
-3. **Second reviewer.** The same diff, read again by a model that is neither the
-   one that wrote the change nor the one that ran step 1 — the requirement is a
-   second, genuinely independent read, not a particular vendor. Writing in
-   Claude and reviewing in Codex is the usual pairing here — from the repo root:
+Every agent that changes source files must work in an isolated git worktree,
+never in the shared main checkout at `/Users/youhaowei/Projects/DashFrame`.
+Agents sharing a checkout can overwrite each other's uncommitted work.
 
-   ```sh
-   codex exec "Follow the second-reviewer brief in AGENTS.md — the block quote
-   under the '### Second-reviewer brief' heading. Do exactly what it says."
-   ```
-
-   Nothing else needs wiring up: the reviewer reads the brief out of this file,
-   and the brief tells it to take the diff itself. If Codex already wrote the
-   change or ran step 1, route this arm elsewhere; any second model in your own
-   editor or agent runner counts, given the same diff and the same brief. Land
-   or consciously dismiss every finding; an open finding is a push-blocker, and
-   "the other reviewer didn't flag it" is not a dismissal.
-
-**Narrow exception.** A change confined to documentation and other prose files
-may skip QA and the second reviewer, but still gets the code-review pass.
-Anything executable does not qualify — application source, scripts, CI
-workflows, package manifests, build wiring — even when no application source is
-touched. A comment-only edit inside a source file does not qualify either: a
-comment that misstates behavior is a defect, and the second reviewer is the arm
-that catches it.
-
-### Second-reviewer brief
-
-Pass this with the diff. These rules are the distilled prompt discipline from
-Clawpatch, which this arm replaced — the finding quality came from the rules,
-not from the harness around them.
-
-> Review `git diff origin/main...HEAD`. Read whatever else in the repo you need:
-> the diff is the subject, not the limit of your evidence.
->
-> Look for correctness bugs; security issues; race and concurrency bugs; data
-> loss or corruption; resource leaks; bad error handling; permission and auth
-> gaps; API contract mismatches; missing or weak tests; release and build
-> hazards; and maintainability risks with concrete impact. Shell scripts and CI
-> workflow files are in scope, not just application code.
->
-> Rules:
->
-> - Tests are first-class evidence of intended behavior. If a test contradicts a
->   suspected bug, drop the finding or downgrade its confidence and say why.
-> - Do not report behavior as a bug merely because a helper's name implies a
->   broader contract than it has.
-> - Deduplicate root causes: one finding with several evidence refs, never one
->   per affected file.
-> - No speculative, low-evidence findings.
-> - Comments and docblocks are code. A comment that misstates real behavior is a
->   defect — report it as one.
->
-> For each finding give: severity (critical/high/medium/low); evidence as
-> `path:startLine-endLine`; reasoning; reproduction; recommendation; why the
-> existing tests do not already cover it; a suggested regression test; and the
-> minimum fix scope.
->
-> Standing repo conventions — do not report these as findings:
->
-> - Bun is the package manager (`packageManager: bun@1.4.2`). Bun-only scripts
->   and documented Bun commands are intended.
-> - Some first-party packages deliberately ship a TypeScript `main` with no
->   `dist`, for TS-aware runtimes only. Findings that a Node consumer would
->   resolve raw TypeScript are wrong by policy.
-
-## Lint / test / build
-
-Use the project's own gate `bun run check`. It runs four things through
-`scripts/run-checks.mjs` — the three convention guards (`check:ticket-refs`,
-`check:wystack-domain-nouns`, `check:apply-commands-boundary`) and then
-`check:packages`, which is
-`turbo check --filter=!@wystack/* --continue=dependencies-successful` (lint +
-typecheck + test, excluding the vendored submodule packages). **Every one of them
-runs even when an earlier one fails**, and the summary at the end lists each
-result; the overall exit code is non-zero if any did not pass. That is deliberate — the
-guards each take under a second, and when they were chained with `&&` a one-line
-convention violation hid every type error and failing test behind it. The
-`--continue` flag is the same fix one level down: turbo's default is
-`--continue=never`, so without it a single lint error cancelled every pending
-typecheck and test task. Re-run just the one that failed with `bun run <name>`.
-
-A summary line reads `PASS`, `FAIL`, or `SKIP`. `SKIP` means the check could
-not inspect its subject at all — it exits `78` rather than `0` — and it **fails
-the gate**, because "we did not look" is not evidence of correctness. Today the
-only check that can skip is `check:wystack-domain-nouns`, when `libs/wystack` is
-not checked out; the fix is `git submodule update --init`. CI checks out
-`submodules: recursive`, so it never skips there.
-
-Formatting is **not** part of `bun run check` — run `bun run format:check`
-separately. In CI it is its own job for the same reason: a formatter diff must not
-be able to hide a real failure.
-
-`@dashframe/ui`'s `test` script is `vp test run --project=unit`, deliberately
-scoped. Its Vite+ test config also declares a `storybook` project that renders
-stories in a real headless Chromium through Playwright, and the `check` CI job
-installs no browsers — an unscoped `vp test run` there fails on a clean tree.
-Those story tests still have no gate; running them needs a browser install in
-whichever job takes them.
-
-The `@wystack/*` packages lint with `oxlint`, which is not installed, so a raw
-`bun run lint` / `turbo lint` fails on `@wystack/ui`; the project deliberately
-filters them out. The per-task commands below skip the convention guards — run
-`bun run check` if you touched code that might carry ticket references.
-
-- Lint: `bunx turbo lint --filter='!@wystack/*'`
-- Test: `bunx turbo test --filter='!@wystack/*'`
-- Build: `bunx turbo build --filter='!@wystack/*'`
-
-## Lint policy
-
-`vite.config.ts` at the root is the only lint configuration; package `lint`
-scripts just point it at their sources. The policy is: oxlint's `correctness`
-category on for every enabled plugin, a curated list of explicit rules, and
-every rule at `error` — a warning does not fail the gate, so a rule at `warn`
-is a rule nobody sees. The rules were chosen by measurement, not taste;
-`docs/audits/lint-guardrails-evaluation-2026-09-07.md` records the counts and
-the rejections. Three things follow:
-
-- **Measure before adopting.** Run the candidate over the repo and read the
-  findings before enabling it; enable it at `error` with a note, or not at all.
-- **A disable needs a reason.** `oxlint-disable-next-line <rule> -- <why>`,
-  never a bare directive, and never a blanket file-level disable
-  (`unicorn/no-abusive-eslint-disable` rejects those).
-- **Turning a rule off is a config change with a comment**, next to the rule,
-  saying what it flagged and why that was wrong for this codebase.
-
-Root `scripts/` and `vite.config.ts` lint through `check:root-lint`, part of
-`bun run check`.
-
-## Worktrees (all agents)
-
-Every agent that touches source files works in an isolated git worktree — never
-in the shared main checkout (`/Users/youhaowei/Projects/DashFrame`). Two agents
-in the same checkout revert each other's uncommitted work.
-
-**Bootstrap (first step in any feature-branch brief):**
+Start feature-branch work with:
 
 ```sh
 worktree=$(scripts/ensure-worktree.sh <branch-name>)
 cd "$worktree"
-# all work happens here
 ```
 
-`scripts/ensure-worktree.sh` creates `~/worktrees/dashframe/<branch-slug>`
-(forward-slashes and colons in the branch name become dashes, lowercase) if not
-already there, populates and heals submodule checkouts, runs `bun install`, and
-prints the path — a newly created worktree is ready to work in, with no separate
-install step. (`git worktree add` copies tracked files only, so without that a
-fresh worktree has no `node_modules` at all: no Electron binary, no vitest, and
-no resolvable `@wystack/*` imports.) You still need `bun run build:wystack`
-before the `@wystack/*` **built** output exists.
+The script creates or reuses `~/worktrees/dashframe/<branch-slug>`, initializes
+and repairs submodules, and runs `bun install --frozen-lockfile` when first
+provisioning the worktree. A reused worktree is left untouched, so local
+`bun link` overrides survive. If a manifest changes, refresh dependencies
+explicitly. Run `bun run build:wystack` when built `@wystack/*` output is
+needed.
 
-The install happens **once per worktree**, on first provision, and it runs
-`--frozen-lockfile` so bootstrapping can never rewrite `bun.lock`. An
-already-provisioned worktree is handed back untouched — re-running the script
-is free and safe. That matters if you use `bun link` to point an `@wystack/*`
-package at a checkout elsewhere: an install would silently undo the link (see
-`README.md`), so the script does not run one behind your back. Refresh
-dependencies yourself with `bun install` when you have changed a manifest.
+If provisioning fails, rerun the same command after fixing the cause; do not
+improvise another checkout. A failed first run leaves a resumable worktree.
 
-If the first provision fails — no `bun` on `PATH`, or a lockfile that does not
-match the branch — the script exits non-zero and leaves the worktree in place.
-Re-running it resumes the install rather than treating the half-provisioned
-tree as ready.
+The pre-commit hook blocks non-default branches in the shared main checkout.
+Set `ALLOW_MAIN_CHECKOUT_COMMIT=1` only when the environment itself provides
+single-agent isolation and you knowingly own that checkout. The hook still
+runs lint-staged formatting.
 
-If it fails, STOP — do not improvise another location.
+Remove a worktree with `scripts/remove-worktree.sh <path>`, never
+`git worktree remove --force` or `rm -rf`. The guard refuses to discard
+uncommitted, unpushed, stashed, or in-progress work in the parent or its
+submodules. Resolve what it reports. Gitignored files are not protected, so
+copy out any `.env` or local artifact you need first.
 
-**Enforcement:** `.husky/pre-commit` blocks commits on a non-default branch in
-the main checkout. Bypass with `ALLOW_MAIN_CHECKOUT_COMMIT=1` only when you
-knowingly own that checkout — e.g. a cloud/VM agent working on its branch in
-the environment's single checkout, where isolation is provided by the VM
-itself. The hook still runs `lint-staged` (Oxfmt) on staged files.
+## Submodules
 
-**Teardown:** remove worktrees with `scripts/remove-worktree.sh <path>` — never
-`git worktree remove --force` or `rm -rf`. The guard refuses when removal would
-destroy uncommitted, unpushed, stashed, or mid-operation work, in the worktree
-or any of its submodules, and tells you what to do instead. A refusal means
-there is work to save, not a broken script. Gitignored files are the one
-exemption: the checks never see ignored content, so a hand-made `.env` or a
-local build artifact is removed with the worktree — copy those out yourself.
+`libs/wystack` and `libs/stdui` are separate repositories:
 
-## Git submodules (`libs/wystack`, `libs/stdui`)
+- `libs/wystack` → `youhaowei/wystack`: shared identity, permissions, and
+  secret-vault packages. DashFrame does not use its RPC/database runtime.
+- `libs/stdui` → `youhaowei/stdui`: the `@wystack/ui-*` design system.
 
-Two vendored dependencies are **git submodules**, each with its own GitHub repo:
+DashFrame consumes their built output. If `@wystack/*` imports do not resolve,
+run:
 
-- `libs/wystack` → `youhaowei/wystack` — shared identity, permissions, and
-  secret-vault support (`@wystack/*`). DashFrame no longer uses its RPC/database runtime.
-- `libs/stdui` → `youhaowei/stdui` — the `@wystack/ui-*` design system.
+```sh
+git submodule update --init --recursive
+bun run build:wystack
+```
 
-The `@dashframe/*` packages consume their **built** output, so `bun run setup`
-(and CI) init the submodules and run `bun run build:wystack` before anything
-else. If imports from `@wystack/*` fail to resolve, the submodule is
-uninitialized or unbuilt — run `git submodule update --init --recursive && bun run build:wystack`.
+Branch switches do not synchronize submodules. Only `scripts/ensure-worktree.sh`
+and `bun run setup` populate them; teardown still goes through
+`scripts/remove-worktree.sh`.
 
-**Nothing syncs submodules automatically.** There is no post-checkout hook:
-switching branches never touches a submodule checkout, so a submodule parked on
-its own branch stays there. Only `scripts/ensure-worktree.sh` (which also heals
-half-initialized checkouts) and `bun run setup` populate them. Teardown goes through
-`scripts/remove-worktree.sh` (see **Worktrees** above). See `README.md` → the
-submodule workflow section for the full contract.
+A submodule change is a two-repository change:
 
-**Changing submodule code is a two-repo change — never edit in place and commit
-only the pin.** The parent repo records a submodule as a pinned commit SHA; a
-bare pin bump merges even when the submodule code it points at was never
-reviewed. The workflow:
+1. Make the change in an isolated worktree for the submodule repository. Run
+   that repository's gate, open its PR, and merge it first. DashFrame's checks
+   exclude `@wystack/*` and do not validate submodule source.
+2. In the DashFrame worktree, check out the merged submodule commit, stage the
+   submodule path, run `bun run build:wystack`, and run `bun run check`.
+3. Pin the commit that landed on the submodule's default branch. If its PR was
+   squashed or rebased, do not pin the pre-merge feature commit.
 
-1. **Land the submodule change first, in its own repo.** Open and merge a PR in
-   `youhaowei/wystack` (or `youhaowei/stdui`) against that repo's default branch.
-   Run its own gate there — the parent's `bun run check` filters `@wystack/*` out
-   (`--filter=!@wystack/*`), so it does **not** cover submodule code.
-2. **Then bump the pin in DashFrame.** In the submodule dir, check out the merged
-   commit; from the repo root, `git add libs/wystack` (or `libs/stdui`) and commit
-   the new SHA. Rebuild: `bun run build:wystack`, then run the full `bun run check` so
-   the parent is verified against the new substrate — a pin that merges is not the
-   same as a submodule that is compatible.
-3. **Re-point after the submodule merges.** If the submodule PR merged with a
-   squash/rebase, the pin must point at the merged commit on the default branch,
-   not the pre-merge feature SHA.
+Never edit a shared submodule checkout or commit only an unreviewed pin.
+Parallel submodule changes need separate submodule worktrees.
 
-**Worktree isolation applies to submodules too.** Parallel agents that both touch
-`libs/wystack` need their **own** wystack worktree each — two agents sharing one
-submodule checkout revert each other exactly like the parent repo (**Worktrees** above). Trust the submodule PR's own remote state as the source of
-truth for what has landed.
+## Local review gate
 
-## Running for browser/headless testing
+Before every push, and again before marking a PR ready, refresh the base:
 
-The web app needs the Hono host API and local Convex. After `bun run setup`,
-run `bun --filter @dashframe/convex-local provision` once to download and verify
-the pinned backend. Startup never downloads a binary or creates a cloud deployment.
-Run two foreground processes; the host owns the additional Convex child process:
+```sh
+git fetch origin main
+git diff origin/main...HEAD
+```
 
-1. Host API server (fixed loopback port; loopback needs no operator token):
-   `cd apps/server && bun run src/index.ts --host 127.0.0.1 --port 4000`
-   (bare `bun run dev` also works but picks an OS-assigned port). It opens a
-   project at `~/.DashFrame/web-project`, with native metadata in `.convex/`.
-   Existing WyStack/PGlite projects are not migrated. Host-local data (access credentials)
-   goes to `~/.DashFrame/data`, overridable with `--data-dir` or
-   `DASHFRAME_DATA_DIR` and required to sit outside the project directory.
-   Named access credentials additionally need an encryption key — set
-   `DASHFRAME_SECRET_KEY` (base64 of 32 bytes) or `DASHFRAME_SECRET_KEY_FILE`;
-   without one the server still serves normally but fails closed on anything
-   credential-bearing. Run `--help` for the full rotation story.
-2. Web app pointed at it:
-   `cd apps/web && PORT=3000 VITE_DASHFRAME_URL=http://127.0.0.1:4000 bun run dev:direct`
-   Open `http://127.0.0.1:3000/`. In dev the browser talks same-origin and Vite
-   proxies `/api` (including native Convex WebSockets) and `/data` to
-   `VITE_DASHFRAME_URL`. Use `dev:direct` (plain
-   Vite) rather than `bun run dev`, which wraps Vite in `portless`.
+Review that exact branch diff through all three arms below. A failed check or an
+unresolved finding blocks the push. CI confirms this work; it does not replace
+it.
 
-Agent-owned development uses one worktree identity across both product
-surfaces. `bun run dev:info` prints that identity, and `bun run dev:status`
-lists every live or stale surface runtime discovered in `.data/dev-*.json`.
-Each manifest is private to its surface and records only local endpoints,
-owned PIDs, and the project directory; it appears after the surface is ready
-and is removed only after its owned processes stop. Stop the owning foreground
-terminal instead of killing a guessed shared process.
+1. **Code review.** Review the full diff for correctness, security, and fit with
+   surrounding code. In Claude Code use `/code-review`; elsewhere use the local
+   agent runner with the second-reviewer brief below. Resolve blockers and
+   consciously dismiss lower-severity findings. `/code-review ultra` is a
+   user-triggered cloud review and does not replace this pass.
+2. **Behavioral QA.** Exercise the changed surface through its real runtime
+   path. A unit test is supporting evidence, not behavioral QA. Run desktop
+   changes with `bun run dev`; for headless web testing, use the commands under
+   **Run locally**. For a server, CLI, or build change, call the endpoint, run
+   the command, or import the output. UI changes also require the PR screenshots
+   described above.
+3. **Independent review.** Have a model other than the author and first reviewer
+   inspect the same diff. From the repository root, a qualifying Codex pass is:
 
-- Browser web: `bun run dev:web:agent` builds dependencies and launches the
-  server, Portless, and Vite. It assigns a stable Portless hostname from the
-  worktree path, including detached-HEAD worktrees. Set `DASHFRAME_DEV_NAME`
-  when a shorter human-readable hostname is useful; inspect only this surface
-  with `bun run dev:web:status`.
-- Electron desktop: root `bun run dev` builds and launches the renderer,
-  Electron, its embedded loopback host, and an owned local Convex backend.
-  In a worktree it defaults to an isolated `.data/desktop-project`; Electron receives an available CDP port
-  and publishes the renderer, embedded API, and CDP endpoints. Inspect only
-  this surface with `bun run dev:desktop:status`. It needs a display, so use
-  the browser-web launcher in headless environments.
+   ```sh
+   codex exec "Follow the second-reviewer brief in AGENTS.md. Do exactly what it says."
+   ```
+
+   If Codex authored the change or ran the first review, use another model. Give
+   every reviewer the same diff and brief. Resolve or explicitly dismiss every
+   finding; another reviewer's silence is not a dismissal.
+
+A change confined to documentation or prose files may skip behavioral QA and
+the independent review, but it still needs code review. Application source,
+scripts, CI workflows, package manifests, build wiring, and comments inside
+source files are executable-change territory and do not qualify.
+
+### Second-reviewer brief
+
+> Review `git diff origin/main...HEAD`. Read any surrounding repository code you
+> need; the diff is the subject, not the limit of the evidence.
+>
+> Look for correctness and security bugs, race conditions, data loss or
+> corruption, resource leaks, faulty error handling, authorization gaps, API
+> contract mismatches, weak tests, release or build hazards, and maintainability
+> risks with concrete impact. Shell scripts, workflows, comments, and docblocks
+> are in scope.
+>
+> Treat tests as evidence of intended behavior. If a test contradicts a suspected
+> bug, drop the finding or lower its confidence and explain why. Do not infer a
+> contract from a helper's name. Deduplicate root causes. Report no speculative or
+> low-evidence findings.
+>
+> For each finding, give its severity (`critical`, `high`, `medium`, or `low`),
+> evidence as `path:startLine-endLine`, reasoning, reproduction, recommendation,
+> why existing tests miss it, a regression test, and the minimum fix scope.
+>
+> Do not report these repository conventions as findings:
+>
+> - Bun is the package manager (`packageManager: bun@1.4.2`); Bun-only scripts and
+>   documented Bun commands are intentional.
+> - Some first-party packages intentionally expose a TypeScript `main` without
+>   `dist` for TS-aware runtimes.
+
+## Checks
+
+Run the repository gate after code changes:
+
+```sh
+bun run check
+```
+
+`scripts/run-checks.mjs` runs every convention guard and then
+`turbo check --filter=!@wystack/* --continue=dependencies-successful`. Each
+summary line is `PASS`, `FAIL`, or `SKIP`; both `FAIL` and `SKIP` fail the gate.
+Today only `check:wystack-domain-nouns` can skip, when `libs/wystack` is absent.
+Initialize the submodule and rerun. Re-run an individual failure with
+`bun run <check-name>`.
+
+Formatting is separate:
+
+```sh
+bun run format:check
+```
+
+Focused commands omit convention guards, so do not substitute them for
+`bun run check` when changed code may contain ticket references:
+
+```sh
+bunx turbo lint --filter='!@wystack/*'
+bunx turbo test --filter='!@wystack/*'
+bunx turbo build --filter='!@wystack/*'
+```
+
+Do not run unfiltered `turbo lint`: `@wystack/*` uses `oxlint`, which is not
+installed here. `@dashframe/ui` intentionally runs unit tests with
+`vp test run --project=unit`; its Storybook project needs Playwright browsers
+that the check job does not install, so it has no current gate.
+
+## Lint policy
+
+The root `vite.config.ts` is the only lint configuration. Package scripts point
+it at their source. Enabled rules run at `error`; a warning would not fail the
+gate. `docs/audits/lint-guardrails-evaluation-2026-09-07.md` records the measured
+rule choices.
+
+- Measure a candidate rule against the repository before adopting it. Enable it
+  at `error` with a note, or leave it disabled.
+- Every suppression needs its reason:
+  `oxlint-disable-next-line <rule> -- <why>`. Never use a blanket file-level
+  disable.
+- Turning off a rule requires a nearby config comment stating what it flagged
+  and why that result was wrong for this codebase.
+
+Root scripts and `vite.config.ts` are covered by `check:root-lint`, which is part
+of `bun run check`.
+
+## UI work
+
+Read `DESIGN.md` before changing UI. `@wystack/ui-core` supplies tokens and
+utilities; `@wystack/ui-react` supplies components. Both come from
+`libs/stdui`, whose directory name is historical.
+
+Use the surface system: `bg-surface-base` for the canvas,
+`--surface-radius` and `--surface-inset` for geometry, and shadow-lifted panels
+without borders. Do not introduce raw colors or per-surface UI forks; web and
+Electron render the same UI.
+
+For non-trivial UI, layout, or copy changes, create several materially distinct
+static HTML mocks before editing production components.
+
+## Run locally
+
+In a checkout that was not provisioned by `scripts/ensure-worktree.sh`, run
+`bun run setup` first. In an ensured worktree, build `@wystack/*` output with
+`bun run build:wystack` when needed. Provision the pinned local Convex backend
+once:
+
+```sh
+bun --filter @dashframe/convex-local provision
+```
+
+Startup does not download a binary or create a cloud deployment.
+
+### Browser and headless testing
+
+The preferred agent launcher is:
+
+```sh
+bun run dev:web:agent
+```
+
+It builds dependencies and launches the server, Portless, and Vite with a stable
+hostname derived from the worktree path. Set `DASHFRAME_DEV_NAME` for a shorter
+name. Inspect it with `bun run dev:web:status`.
+
+For a fixed loopback setup, run these as separate foreground processes. The
+loopback host does not need an operator token and owns the Convex child process.
+
+```sh
+cd apps/server
+bun run src/index.ts --host 127.0.0.1 --port 4000
+```
+
+```sh
+cd apps/web
+PORT=3000 VITE_DASHFRAME_URL=http://127.0.0.1:4000 bun run dev:direct
+```
+
+Open `http://127.0.0.1:3000/`. Vite proxies `/api`, native Convex WebSockets,
+and `/data` to the host. Use `dev:direct`, not the Portless wrapper at
+`bun run dev`.
+
+The server opens `~/.DashFrame/web-project`; it does not migrate older
+WyStack/PGlite projects. Host-local data defaults to `~/.DashFrame/data` and
+must remain outside the project directory. Override it with `--data-dir` or
+`DASHFRAME_DATA_DIR`. Named credentials require `DASHFRAME_SECRET_KEY` (a
+base64-encoded 32-byte key) or `DASHFRAME_SECRET_KEY_FILE`. Without one, the
+server continues to run but rejects credential-bearing operations. Use
+`--help` for key rotation details.
+
+### Desktop
+
+Run:
+
+```sh
+bun run dev
+```
+
+In a worktree, the desktop app defaults to `.data/desktop-project`, assigns an
+available CDP port, and publishes the renderer, embedded API, and CDP endpoints.
+Inspect it with `bun run dev:desktop:status`. Desktop needs a display; use the
+browser launcher in headless environments.
+
+Both launchers use one worktree identity. `bun run dev:info` prints it, and
+`bun run dev:status` lists live and stale surface manifests in
+`.data/dev-*.json`. Each manifest contains only local endpoints, owned PIDs,
+and its project directory. Stop the owning foreground terminal instead of
+killing a guessed shared process.
