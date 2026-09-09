@@ -237,8 +237,8 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     // isReady() must return false — the engine's phase is terminal and the
     // instance is closed.
     expect(engine.isReady()).toBe(false);
-    // query() must throw rather than silently return empty results, so callers
-    // discover the misuse instead of seeing a ghost success.
+    // queryArrow() must throw rather than silently return empty bytes, so
+    // callers discover the misuse instead of seeing a ghost success.
     await expect(engine.queryArrow("SELECT 1")).rejects.toThrow(
       "NativeDuckDBEngine not initialized",
     );
@@ -352,12 +352,8 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
 
     const disposing = engine.dispose();
 
-    // query()/queryArrow() open a connection of their own. Unenrolled,
-    // dispose() sees no tracked operation and can close the instance
-    // underneath them.
-    await expect(engine.queryArrow("SELECT 1")).rejects.toMatchObject({
-      name: "AbortError",
-    });
+    // queryArrow() opens a connection of its own. Unenrolled, dispose() would
+    // see no tracked operation and could close the instance underneath it.
     await expect(engine.queryArrow("SELECT 1")).rejects.toMatchObject({
       name: "AbortError",
     });
@@ -1538,7 +1534,7 @@ describe("NativeDuckDBEngine — reuse after registerArrowTable failure", () => 
     engine = null;
   });
 
-  it("engine remains usable for query() and registerArrowTable() after a failed ingest", async () => {
+  it("engine remains usable for queryArrow() and registerArrowTable() after a failed ingest", async () => {
     // Scenario: registerArrowTable fails INSIDE the append loop (valid Arrow
     // buffer decodes without error, but appending a Uint64 value that exceeds
     // DuckDB's signed BIGINT range throws "bigint out of int64 range" synchronously
@@ -1555,7 +1551,7 @@ describe("NativeDuckDBEngine — reuse after registerArrowTable failure", () => 
     // On macOS this path does NOT taint the connection (macOS-specific DuckDB
     // behavior), so the test passes regardless of the connection model there. On
     // Linux the connection IS tainted by the failed appendBigInt; on a shared
-    // connection the subsequent query() would hit the "pending-result"
+    // connection the subsequent queryArrow() would hit the "pending-result"
     // unhandled rejection. It cannot now: that connection is already closed.
     // Linux CI is the discriminating run; this test documents the contract and
     // verifies the catch-block failure path is actually reached.
