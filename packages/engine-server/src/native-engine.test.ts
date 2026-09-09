@@ -352,6 +352,37 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     expect(engine.isReady()).toBe(false);
   });
 
+  it(
+    "interrupts an in-flight read so dispose() can finish",
+    { timeout: 20_000 },
+    async () => {
+      engine = new NativeDuckDBEngine();
+      await engine.initialize();
+
+      // Big enough that it cannot finish on its own before dispose() is called.
+      // Enrolled but uninterruptible, dispose() would block on `operationsIdle`
+      // until this completes — hanging desktop and server shutdown, both of
+      // which await dispose().
+      const reading = engine
+        .query(
+          "SELECT count(*) FROM range(2000000) t1, range(2000000) t2, range(2000000) t3",
+        )
+        .then(
+          () => "resolved" as const,
+          () => "failed" as const,
+        );
+      // Let the native read actually start before teardown begins.
+      await new Promise((resolve) => {
+        setTimeout(resolve, 250);
+      });
+
+      await engine.dispose();
+
+      expect(engine.isReady()).toBe(false);
+      expect(await reading).toBe("failed");
+    },
+  );
+
   it("dispose() is idempotent — calling it twice does not throw", async () => {
     engine = new NativeDuckDBEngine();
     await engine.initialize();

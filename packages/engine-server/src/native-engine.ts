@@ -264,10 +264,17 @@ export class NativeDuckDBEngine implements QueryEngine {
     // begun, so dispose() waits for this read instead of closing under it.
     const connection = this.conn();
     const operationSignal = this.beginNativeOperation();
+    // Enrolling makes dispose() wait for this read; without a way to stop it,
+    // that turns a long or nonterminating query into a hung shutdown, since
+    // both the desktop and standalone hosts await dispose(). Interrupt on
+    // abort, exactly as the streaming paths do.
+    const interrupt = () => connection.interrupt();
+    operationSignal.addEventListener("abort", interrupt, { once: true });
     try {
       throwIfAborted(operationSignal);
       return await this.readQuery(connection, sql);
     } finally {
+      operationSignal.removeEventListener("abort", interrupt);
       this.endNativeOperation();
     }
   }
@@ -309,10 +316,13 @@ export class NativeDuckDBEngine implements QueryEngine {
     // waits for this read rather than disconnecting under it.
     const connection = this.conn();
     const operationSignal = this.beginNativeOperation();
+    const interrupt = () => connection.interrupt();
+    operationSignal.addEventListener("abort", interrupt, { once: true });
     try {
       throwIfAborted(operationSignal);
       return await this.readQueryArrow(connection, sql, params);
     } finally {
+      operationSignal.removeEventListener("abort", interrupt);
       this.endNativeOperation();
     }
   }
