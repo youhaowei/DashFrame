@@ -46,13 +46,17 @@ restore_or_discard_private_backup() {
   [ -n "$_private_backup" ] || return 0
   _restore_failed=false
   if [ "$_private_backup_action" = restore ]; then
-    rm -rf "$pkg/dist" 2>/dev/null || true
-    rm -f "$pkg/path.txt" 2>/dev/null || true
     if [ -e "$_private_backup/dist" ] || [ -L "$_private_backup/dist" ]; then
-      mv "$_private_backup/dist" "$pkg/dist" 2>/dev/null || _restore_failed=true
+      rm -rf "$pkg/dist" 2>/dev/null || true
+      if ! mv "$_private_backup/dist" "$pkg/dist" 2>/dev/null; then
+        _restore_failed=true
+      fi
     fi
     if [ -e "$_private_backup/path.txt" ] || [ -L "$_private_backup/path.txt" ]; then
-      mv "$_private_backup/path.txt" "$pkg/path.txt" 2>/dev/null || _restore_failed=true
+      rm -f "$pkg/path.txt" 2>/dev/null || true
+      if ! mv "$_private_backup/path.txt" "$pkg/path.txt" 2>/dev/null; then
+        _restore_failed=true
+      fi
     fi
   fi
   if [ "$_restore_failed" = true ]; then
@@ -193,6 +197,10 @@ if ! command -v node >/dev/null 2>&1; then
   echo "[electron-dist] Node.js is required to provision Electron." >&2
   exit 1
 fi
+if ! command -v file >/dev/null 2>&1; then
+  echo "[electron-dist] file(1) is required to verify Electron's architecture." >&2
+  exit 1
+fi
 
 version=$(node -p "require(process.argv[1] + '/package.json').version" "$pkg" 2>/dev/null) \
   || give_up "cannot read Electron's version from $pkg."
@@ -205,15 +213,21 @@ fi
 # worktree (or vice versa), and the executable-bit usability check cannot tell.
 target_platform=$(node -p "process.env.npm_config_platform || process.platform") \
   || give_up "cannot determine Electron's target platform."
-target_arch=$(node -p "process.env.npm_config_arch || process.arch") \
+target_arch=$(node -e '
+  const childProcess = require("child_process");
+  let arch = process.env.npm_config_arch || process.arch;
+  const platform = process.env.npm_config_platform || process.platform;
+  if (platform === "darwin" && process.platform === "darwin" && arch === "x64"
+      && process.env.npm_config_arch === undefined) {
+    try {
+      if (childProcess.execSync("sysctl -in sysctl.proc_translated").toString().trim() === "1") {
+        arch = "arm64";
+      }
+    } catch {}
+  }
+  process.stdout.write(arch);
+') \
   || give_up "cannot determine Electron's target architecture."
-if [ "$target_platform" = darwin ] \
-  && [ "$(node -p 'process.platform')" = darwin ] \
-  && [ "$target_arch" = x64 ] \
-  && [ "${npm_config_arch+x}" != x ] \
-  && [ "$(sysctl -in sysctl.proc_translated 2>/dev/null || true)" = 1 ]; then
-  target_arch=arm64
-fi
 case "$version" in
   ""|.|..|*[!A-Za-z0-9._-]*)
     give_up "Electron's cache identity contains unsupported characters."
@@ -284,6 +298,7 @@ replace_private() {
   _rp_source="$1"
   _rp_path="$2"
   _rp_mode="$3"
+  [ -z "$_private_backup" ] || return 1
   _cleanup_replacement=$(mktemp -d "$pkg/.dist-replacement.XXXXXX") || return 1
   if [ "$_rp_mode" = clone ]; then
     cp -c -R "$_rp_source" "$_cleanup_replacement/dist" 2>/dev/null || return 1
@@ -351,22 +366,40 @@ fi
 # the private installer instead of failing under `set -e`.
 if [ -z "${DASHFRAME_ELECTRON_DIST_LOCKED:-}" ]; then
   if command -v lockf >/dev/null 2>&1; then
+    _lock_rc=0
     if [ "$force" = true ]; then
-      DASHFRAME_ELECTRON_DIST_LOCKED=1 lockf -t 900 "$cache/.lock" "$0" --force "$wt" && exit 0
+      DASHFRAME_ELECTRON_DIST_LOCKED=1 lockf -t 900 "$cache/.lock" "$0" --force "$wt" \
+        || _lock_rc=$?
     else
-      DASHFRAME_ELECTRON_DIST_LOCKED=1 lockf -t 900 "$cache/.lock" "$0" "$wt" && exit 0
+      DASHFRAME_ELECTRON_DIST_LOCKED=1 lockf -t 900 "$cache/.lock" "$0" "$wt" \
+        || _lock_rc=$?
     fi
-    use_private "shared cache lock could not be acquired"
-    exit 0
+    case "$_lock_rc" in
+      0) exit 0 ;;
+      1|2) exit "$_lock_rc" ;;
+      *)
+        use_private "shared cache lock could not be acquired"
+        exit 0
+        ;;
+    esac
   fi
   if command -v flock >/dev/null 2>&1; then
+    _lock_rc=0
     if [ "$force" = true ]; then
-      DASHFRAME_ELECTRON_DIST_LOCKED=1 flock -w 900 "$cache/.lock" "$0" --force "$wt" && exit 0
+      DASHFRAME_ELECTRON_DIST_LOCKED=1 flock -E 75 -w 900 "$cache/.lock" "$0" --force "$wt" \
+        || _lock_rc=$?
     else
-      DASHFRAME_ELECTRON_DIST_LOCKED=1 flock -w 900 "$cache/.lock" "$0" "$wt" && exit 0
+      DASHFRAME_ELECTRON_DIST_LOCKED=1 flock -E 75 -w 900 "$cache/.lock" "$0" "$wt" \
+        || _lock_rc=$?
     fi
-    use_private "shared cache lock could not be acquired"
-    exit 0
+    case "$_lock_rc" in
+      0) exit 0 ;;
+      75)
+        use_private "shared cache lock could not be acquired"
+        exit 0
+        ;;
+      *) exit "$_lock_rc" ;;
+    esac
   fi
   use_private "no shared cache locking tool is available"
   exit 0
