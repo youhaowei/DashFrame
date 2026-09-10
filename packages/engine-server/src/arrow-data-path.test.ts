@@ -61,6 +61,49 @@ function fakeEngine(): QueryEngine & {
 
 const TOKEN = "secret-loopback-token";
 
+it.each([
+  ["/arrow", "arrow"],
+  ["/arrow", "exec"],
+  ["/frames/11111111-1111-4111-8111-111111111111/mosaic", "arrow"],
+  ["/frames/11111111-1111-4111-8111-111111111111/mosaic", "exec"],
+] as const)(
+  "forwards the request signal through %s (%s)",
+  async (route, type) => {
+    const controller = new AbortController();
+    let received: AbortSignal | undefined;
+    const app = createArrowDataPath({
+      engine: stubEngine({
+        registerArrowTable: async () => {},
+        queryArrow: async (_sql, _params, signal) => {
+          received = signal;
+          return new Uint8Array();
+        },
+      }),
+      dataFrameStorage: {
+        save: async () => {},
+        load: async () => new Uint8Array([1]),
+        delete: async () => {},
+        exists: async () => true,
+        list: async () => [],
+        getUsage: async () => ({ count: 1 }),
+      },
+    });
+    const request = new Request(`http://localhost${route}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type,
+        sql: 'SELECT * FROM "11111111-1111-4111-8111-111111111111"',
+      }),
+      signal: controller.signal,
+    });
+    expect((await app.fetch(request)).status).toBe(200);
+    expect(received).toBe(request.signal);
+    controller.abort();
+    expect(received?.aborted).toBe(true);
+  },
+);
+
 describe("Arrow data path — host authorization", () => {
   it.each([
     "/arrow",

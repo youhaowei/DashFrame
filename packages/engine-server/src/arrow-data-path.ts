@@ -267,6 +267,7 @@ type RequestBody = NativeRequestBody | MosaicRequestBody;
 async function dispatchArrowQuery(
   engine: QueryEngine,
   body: RequestBody,
+  signal: AbortSignal,
 ): Promise<Response> {
   const sql = typeof body.sql === "string" ? body.sql.trim() : "";
   if (!sql) {
@@ -302,7 +303,7 @@ async function dispatchArrowQuery(
 
   if (queryType === "exec") {
     try {
-      await engine.queryArrow(sql, []);
+      await engine.queryArrow(sql, [], signal);
     } catch {
       return Response.json(
         { error: "Query execution failed" },
@@ -314,7 +315,7 @@ async function dispatchArrowQuery(
 
   let arrow: Uint8Array;
   try {
-    arrow = await engine.queryArrow(sql, parseParams(body));
+    arrow = await engine.queryArrow(sql, parseParams(body), signal);
   } catch {
     return Response.json({ error: "Query execution failed" }, { status: 500 });
   }
@@ -436,7 +437,7 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
       return c.json({ error: "Invalid JSON body" }, 400);
     }
 
-    return dispatchArrowQuery(options.engine, body);
+    return dispatchArrowQuery(options.engine, body, c.req.raw.signal);
   });
 
   // -------------------------------------------------------------------------
@@ -619,10 +620,14 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
       "Frame was deleted and registration cleanup failed",
     );
     if (registrationRace) return registrationRace;
-    const response = await dispatchArrowQuery(options.engine, {
-      ...body,
-      sql: sql.split(frameIdentifier).join(quoteIdent(frameTableName(id))),
-    });
+    const response = await dispatchArrowQuery(
+      options.engine,
+      {
+        ...body,
+        sql: sql.split(frameIdentifier).join(quoteIdent(frameTableName(id))),
+      },
+      c.req.raw.signal,
+    );
     // Query execution is another asynchronous boundary. A frame deleted while
     // DuckDB is producing the result must not have its bytes returned after its
     // project ownership has been revoked.
