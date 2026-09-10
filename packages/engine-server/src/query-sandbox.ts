@@ -2,7 +2,8 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { access, readFile, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, resolve } from "node:path";
 import type { QueryEngine } from "@dashframe/engine";
-import { tableFromIPC } from "apache-arrow";
+import { Table, tableFromIPC, tableToIPC } from "apache-arrow";
+import { compareSchemas } from "apache-arrow/visitor/typecomparator";
 import { tableKey } from "./table-identity";
 import {
   SANDBOX_MAX_ARROW,
@@ -390,6 +391,31 @@ export class WorkspaceQueryEngine implements QueryEngine {
   async unregisterTable(name: string): Promise<void> {
     await this.request({ operation: "unregister", name: tableName(name) });
     this.registered.delete(tableKey(name));
+  }
+
+  /** Buffered compatibility adapter; never advertises native transfer semantics. */
+  async registerArrowBatches(
+    name: string,
+    batches: AsyncIterable<Uint8Array>,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const tables: Table[] = [];
+    let total = 0;
+    for await (const bytes of batches) {
+      if (signal?.aborted) throw new Error("SANDBOX_CANCELLED");
+      total += bytes.byteLength;
+      if (total > SANDBOX_MAX_ARROW) throw new Error("SANDBOX_MESSAGE_LIMIT");
+      const table = tableFromIPC(bytes);
+      if (tables[0] && !compareSchemas(tables[0].schema, table.schema))
+        throw new Error("Arrow schema changed while registering table");
+      tables.push(table);
+    }
+    if (!tables.length) throw new Error("Arrow batch stream is empty");
+    const table = new Table(
+      tables[0]!.schema,
+      tables.flatMap((part) => part.batches),
+    );
+    await this.registerArrowTable(name, tableToIPC(table, "stream"), signal);
   }
 
   hasTable(name: string): boolean {

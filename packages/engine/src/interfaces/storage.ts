@@ -33,6 +33,9 @@ export interface DataFrameStorage {
   /** Read the stored Arrow IPC file incrementally, without buffering it all. */
   stream?(id: UUID): AsyncIterable<Uint8Array>;
 
+  /** Read a stored Arrow stream as complete, per-record-batch IPC payloads. */
+  loadBatches?(id: UUID): AsyncIterable<Uint8Array>;
+
   /**
    * Delete a DataFrame's binary data.
    * @param id - Unique identifier for the data

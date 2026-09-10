@@ -295,6 +295,7 @@ export async function createDashframeServer(
         return c.json(
           await application.execute(operation, await c.req.json(), {
             principal,
+            signal: c.req.raw.signal,
           }),
         );
       } catch (error) {

@@ -38,6 +38,7 @@ class StubEngine implements QueryEngine {
   async *queryArrowBatches(): AsyncGenerator<Uint8Array> {}
   async registerArrowTable(): Promise<void> {}
   async registerArrowStream(): Promise<void> {}
+  async registerArrowBatches(): Promise<void> {}
   async unregisterTable(): Promise<void> {}
   hasTable(): boolean {
     return false;

@@ -21,6 +21,7 @@ import {
   type TransferLimits,
 } from "./transfer";
 import { PublishedSourceMaterializationError } from "./published-source-error";
+import { CoalescedOperation, supportsStreaming } from "./streaming";
 
 export type EffectiveInsightDefinition = InsightFetchDefinition & {
   limit?: number;
@@ -167,13 +168,19 @@ function withPublishedSourceGenerations(
 export function createInsightMaterializer(
   dependencies: InsightMaterializerDependencies,
 ): InsightMaterializer {
-  const inFlight = new Map<string, Promise<InsightFetchReady>>();
+  const inFlight = new Map<string, CoalescedOperation<InsightFetchReady>>();
   const replayMs = dependencies.completedReplayMs ?? 5_000;
-  const remember = (key: string, operation: Promise<InsightFetchReady>) => {
+  const remember = (
+    key: string,
+    operation: CoalescedOperation<InsightFetchReady>,
+  ) => {
     if (inFlight.size >= 128) inFlight.delete(inFlight.keys().next().value!);
     inFlight.set(key, operation);
   };
-  const forgetLater = (key: string, operation: Promise<InsightFetchReady>) =>
+  const forgetLater = (
+    key: string,
+    operation: CoalescedOperation<InsightFetchReady>,
+  ) =>
     setTimeout(() => {
       if (inFlight.get(key) === operation) inFlight.delete(key);
     }, replayMs);
@@ -181,9 +188,23 @@ export function createInsightMaterializer(
   const start = (
     key: string,
     args: Parameters<InsightMaterializer["materialize"]>[0],
-  ) => {
+  ): Promise<InsightFetchReady> => {
+    const streaming = supportsStreaming(args.ctx);
+    if (streaming && args.ctx.requestSignal?.aborted)
+      return Promise.reject(args.ctx.requestSignal.reason);
+    const waiterSignal = streaming ? args.ctx.requestSignal : undefined;
     const existing = inFlight.get(key);
-    if (existing) return existing;
+    if (existing) {
+      if (existing.joinable) return existing.wait(waiterSignal);
+      const restart = () => {
+        if (inFlight.get(key) === existing) inFlight.delete(key);
+        return start(key, args);
+      };
+      return existing.promise.then(
+        () => restart(),
+        () => restart(),
+      );
+    }
 
     const runtime = dependencies.runtime(args.ctx);
     const identity = runtime.coalescingIdentity ?? runtime;
@@ -192,9 +213,8 @@ export function createInsightMaterializer(
     // caller retains its workspace lease until this promise settles; the
     // independent deadline bounds provider work. Other capabilities still
     // come from the first caller's admitted context.
-    const sharedLifetime = args.ctx.requestSignal
-      ? new AbortController()
-      : undefined;
+    const sharedLifetime =
+      !streaming && args.ctx.requestSignal ? new AbortController() : undefined;
     const sharedDeadline = sharedLifetime
       ? setTimeout(
           () =>
@@ -211,54 +231,67 @@ export function createInsightMaterializer(
         requestSignal: sharedLifetime?.signal,
       },
     };
-    const transfer = new TransferBudget(
-      dependencies.transferLimits,
-      sharedArgs.ctx.requestSignal,
-    );
-    sharedArgs.ctx.requestSignal = transfer.signal;
     const replayKeys = new Set([key]);
-    let release: (() => void) | undefined;
-    const operation = (async () => {
-      if (runtime.nativeTransfer)
-        release = await acquireNativeTransfer(identity, transfer.signal);
-      transfer.check();
-      return materializeOnce(dependencies, sharedArgs, [], [], [], transfer);
-    })()
-      .then(
-        (result) => {
-          if (replayMs > 0) {
-            // Remote publication advances its own source generation. Install the
-            // replay alias before resolving callers so an immediate sibling sees
-            // the immutable result under the exact generation it published. Never
-            // re-read mutable metadata here: a concurrent refresh may already have
-            // advanced beyond the generation that produced this result.
-            let settledKey: string | undefined;
-            try {
-              settledKey = dependencies.completedReplayScope?.(key, result);
-            } catch {
-              // Replay is best-effort and must not fail a completed publication.
-            }
-            if (
-              settledKey !== undefined &&
-              settledKey !== key &&
-              !inFlight.has(settledKey)
-            ) {
-              replayKeys.add(settledKey);
-              remember(settledKey, operation);
-            }
-          }
-          reportTransfer(dependencies, transfer, "ready");
-          return result;
-        },
-        (error) => {
-          reportTransfer(dependencies, transfer, "failed");
-          throw error;
-        },
-      )
-      .finally(() => {
-        if (sharedDeadline !== undefined) clearTimeout(sharedDeadline);
-        transfer.close();
-        release?.();
+    const operation: CoalescedOperation<InsightFetchReady> =
+      new CoalescedOperation((signal) => {
+        const transfer = new TransferBudget(
+          dependencies.transferLimits,
+          streaming ? signal : sharedArgs.ctx.requestSignal,
+        );
+        const operationArgs = {
+          ...sharedArgs,
+          ctx: { ...sharedArgs.ctx, requestSignal: transfer.signal },
+        };
+        let release: (() => void) | undefined;
+        return (async () => {
+          if (runtime.nativeTransfer)
+            release = await acquireNativeTransfer(identity, transfer.signal);
+          transfer.check();
+          return materializeOnce(
+            dependencies,
+            operationArgs,
+            [],
+            [],
+            [],
+            transfer,
+          );
+        })()
+          .then(
+            (result) => {
+              if (replayMs > 0) {
+                // Remote publication advances its own source generation. Install the
+                // replay alias before resolving callers so an immediate sibling sees
+                // the immutable result under the exact generation it published. Never
+                // re-read mutable metadata here: a concurrent refresh may already have
+                // advanced beyond the generation that produced this result.
+                let settledKey: string | undefined;
+                try {
+                  settledKey = dependencies.completedReplayScope?.(key, result);
+                } catch {
+                  // Replay is best-effort and must not fail a completed publication.
+                }
+                if (
+                  settledKey !== undefined &&
+                  settledKey !== key &&
+                  !inFlight.has(settledKey)
+                ) {
+                  replayKeys.add(settledKey);
+                  remember(settledKey, operation);
+                }
+              }
+              reportTransfer(dependencies, transfer, "ready");
+              return result;
+            },
+            (error) => {
+              reportTransfer(dependencies, transfer, "failed");
+              throw error;
+            },
+          )
+          .finally(() => {
+            if (sharedDeadline !== undefined) clearTimeout(sharedDeadline);
+            transfer.close();
+            release?.();
+          });
       });
     remember(key, operation);
     const clear = () => {
@@ -266,12 +299,12 @@ export function createInsightMaterializer(
         if (inFlight.get(replayKey) === operation) inFlight.delete(replayKey);
       }
     };
-    operation.then(() => {
+    operation.promise.then(() => {
       if (replayMs <= 0) clear();
       else
         for (const replayKey of replayKeys) forgetLater(replayKey, operation);
     }, clear);
-    return operation;
+    return operation.wait(waiterSignal);
   };
 
   return {
@@ -352,7 +385,7 @@ async function materializeOnce(
       // atomically, but cleanup still attempts deletion if an implementation
       // reports failure after making the generation visible.
       created.push({ id: frameId, registered: false });
-      await saveSource(storage, runtime, frameId, source, transfer);
+      await saveSource(storage, runtime, frameId, source, transfer, args.ctx);
       // Registration may succeed before its wrapper discards a cancelled
       // request's result, so cleanup must assume the catalog entry exists.
       created.at(-1)!.registered = true;
@@ -675,12 +708,23 @@ function reportTransfer(
 async function* inspectSourceBatches(
   source: SourceGeneration,
   transfer: TransferBudget,
+  ctx: HostContext,
 ) {
   for await (const bytes of source.batches!) {
     transfer.check();
     const table = tableFromIPC(bytes);
     transfer.consume(bytes, table.numRows);
     source.rowCount += table.numRows;
+    try {
+      ctx.onMaterializationProgress?.({
+        phase: "source",
+        rows: transfer.rows,
+        bytes: transfer.bytes,
+        elapsedMs: Date.now() - transfer.started,
+      });
+    } catch {
+      // Observability must never change materialization behavior.
+    }
     yield bytes;
   }
 }
@@ -699,6 +743,8 @@ export async function registerStoredFrame(
   // may already be holding in `fallback` and buy nothing for it.
   if (storage.stream && runtime.nativeTransfer) {
     await runtime.registerArrowStream(name, storage.stream(id), signal);
+  } else if (storage.loadBatches && runtime.nativeTransfer) {
+    await runtime.registerArrowBatches(name, storage.loadBatches(id), signal);
   } else {
     const bytes = fallback ?? (await storage.load(id));
     if (!bytes) throw new Error("TARGET_NOT_READY");
@@ -775,7 +821,8 @@ async function loadFallback(
   runtime: HostDataPlaneRuntime,
   id: UUID,
 ): Promise<Uint8Array | undefined> {
-  if (storage.stream && runtime.nativeTransfer) return undefined;
+  if ((storage.stream || storage.loadBatches) && runtime.nativeTransfer)
+    return undefined;
   const bytes = await storage.load(id);
   if (!bytes) throw new Error("TARGET_NOT_READY");
   return bytes;
@@ -787,6 +834,7 @@ async function saveSource(
   id: UUID,
   source: SourceGeneration,
   transfer: TransferBudget,
+  ctx: HostContext,
 ): Promise<void> {
   if (!source.batches) {
     if (!source.arrow) throw new Error("TARGET_NOT_READY");
@@ -807,5 +855,5 @@ async function saveSource(
     throw new Error("TARGET_NOT_READY");
   await transfer.admit(storage);
   source.rowCount = 0;
-  await storage.saveBatches(id, inspectSourceBatches(source, transfer));
+  await storage.saveBatches(id, inspectSourceBatches(source, transfer, ctx));
 }

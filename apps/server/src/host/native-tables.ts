@@ -35,6 +35,8 @@ export class NativeTableLifecycle {
         this.register(name, arrow, signal),
       registerArrowStream: (name, stream, signal) =>
         this.registerStream(name, stream, signal),
+      registerArrowBatches: (name, batches, signal) =>
+        this.registerBatches(name, batches, signal),
       unregisterTable: (name) => this.unregisterCurrent(name),
       hasTable: (name) => native.hasTable(name),
       getTableNames: () => native.getTableNames(),
@@ -83,6 +85,20 @@ export class NativeTableLifecycle {
     await this.enqueue(name, async () => {
       if (this.closed) throw new Error("Native table lifecycle is closed");
       await this.native.registerArrowStream(name, stream, signal);
+      this.generations.set(name, this.generation(name) + 1);
+      this.cancelRetry(name);
+    });
+  }
+
+  private async registerBatches(
+    name: string,
+    batches: AsyncIterable<Uint8Array>,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    if (this.closed) throw new Error("Native table lifecycle is closed");
+    await this.enqueue(name, async () => {
+      if (this.closed) throw new Error("Native table lifecycle is closed");
+      await this.native.registerArrowBatches(name, batches, signal);
       this.generations.set(name, this.generation(name) + 1);
       this.cancelRetry(name);
     });

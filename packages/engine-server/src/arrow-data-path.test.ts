@@ -32,6 +32,7 @@ function stubEngine(overrides: Partial<QueryEngine>): QueryEngine {
     queryArrowBatches: unexpected("queryArrowBatches"),
     registerArrowTable: unexpected("registerArrowTable"),
     registerArrowStream: unexpected("registerArrowStream"),
+    registerArrowBatches: unexpected("registerArrowBatches"),
     unregisterTable: async () => {},
     hasTable: () => false,
     getTableNames: () => [],
@@ -382,6 +383,67 @@ describe("Arrow data path — /tables/:name content-type enforcement", () => {
     expect(await response.json()).toEqual({ ok: true, id, name: "df_server" });
   });
 
+  it.each([
+    ["tables/df_server", true],
+    ["mosaic", true],
+    ["tables/df_server", false],
+    ["mosaic", false],
+  ] as const)(
+    "returns 404 and removes stale registration before %s opens a vanished frame (native error: %s)",
+    async (route, nativeError) => {
+      const id = "11111111-1111-4111-8111-111111111111";
+      const name =
+        route === "mosaic" ? `df_${id.replaceAll("-", "_")}` : "df_server";
+      const registered = new Set([name]);
+      let exists = true;
+      let queries = 0;
+      const app = createArrowDataPath({
+        engine: stubEngine({
+          queryArrow: async () => {
+            queries++;
+            return new Uint8Array();
+          },
+          registerArrowTable: async () => {},
+          registerArrowBatches: async (_name, batches) => {
+            for await (const _batch of batches) {
+              throw new Error("Unexpected batch");
+            }
+          },
+          unregisterTable: async (table) => {
+            registered.delete(table);
+          },
+        }),
+        dataFrameStorage: {
+          save: async () => {},
+          load: async () => null,
+          delete: async () => {},
+          exists: async () => exists,
+          list: async () => [id],
+          getUsage: async () => ({ count: 1 }),
+          loadBatches: async function* () {
+            // The frame passed exists(), but deletion wins before lazy open.
+            exists = false;
+            yield await Promise.reject<Uint8Array>(
+              Object.assign(
+                new Error("Frame disappeared"),
+                nativeError ? { code: "ENOENT" } : {},
+              ),
+            );
+          },
+        },
+      });
+      const response = await app.request(`/frames/${id}/${route}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "arrow", sql: `SELECT * FROM "${id}"` }),
+      });
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual({ error: "Frame not found" });
+      expect(registered.size).toBe(0);
+      expect(queries).toBe(0);
+    },
+  );
+
   it("rejects a browser-simple frame registration before loading bytes", async () => {
     const engine = fakeRegistrar();
     const id = "11111111-1111-4111-8111-111111111111";
@@ -512,6 +574,59 @@ describe("Arrow data path — /tables/:name content-type enforcement", () => {
       expect(pulls).toBe(0);
     },
   );
+
+  it("does not consume revoked batches while registration waits", async () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    let available = true;
+    let pulls = 0;
+    let releaseRegistration!: () => void;
+    let signalRegistration!: () => void;
+    const registrationStarted = new Promise<void>((resolve) => {
+      signalRegistration = resolve;
+    });
+    const registrationReleased = new Promise<void>((resolve) => {
+      releaseRegistration = resolve;
+    });
+    const engine = stubEngine({
+      queryArrow: async () => new Uint8Array(),
+      async registerArrowBatches(_name, batches) {
+        signalRegistration();
+        await registrationReleased;
+        for await (const _bytes of batches) {
+          // A revoked frame must fail before its source reaches this loop body.
+        }
+      },
+    });
+    const app = createArrowDataPath({
+      engine,
+      isFrameAvailable: async () => available,
+      dataFrameStorage: {
+        save: async () => {},
+        load: async () => null,
+        delete: async () => {},
+        exists: async () => true,
+        list: async () => [id],
+        getUsage: async () => ({ count: 1 }),
+        async *loadBatches() {
+          pulls += 1;
+          yield new Uint8Array([1, 2, 3]);
+        },
+      },
+    });
+
+    const request = app.request(`/frames/${id}/tables/df_delayed`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "arrow", sql: `SELECT * FROM "${id}"` }),
+    });
+    await registrationStarted;
+    available = false;
+    releaseRegistration();
+
+    const response = await request;
+    expect(response.status).toBe(404);
+    expect(pulls).toBe(0);
+  });
 
   it("removes a Mosaic frame whose ownership disappears during registration", async () => {
     const engine = fakeRegistrar();

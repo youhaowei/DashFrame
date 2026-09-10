@@ -131,14 +131,46 @@ async function registerStoredFrame(
   checkAvailabilityBeforeRegistration = false,
 ): Promise<"registered" | "missing" | "unavailable"> {
   const storage = options.dataFrameStorage!;
-  // Stream when storage can produce one. Every backing accepts both shapes, so
-  // storage is the only variable here — but they do not stream alike: the
-  // native backing appends chunk by chunk, while the hosted one joins them at
-  // its worker seam, holding the chunks and the joined buffer at once. That is
-  // the better trade even so, because an oversized frame is rejected on the
-  // chunk that crosses SANDBOX_MAX_ARROW instead of after reading the whole
-  // file. (The host runtime's own registerStoredFrame makes the opposite call,
-  // for the opposite reason: it may already be holding the bytes.)
+  if (typeof storage.stream === "function")
+    return registerStoredFrameWithoutBatches(
+      options,
+      id,
+      name,
+      checkAvailabilityBeforeRegistration,
+    );
+  if (typeof storage.loadBatches === "function") {
+    if (!(await storage.exists(id))) return "missing";
+    const batches = storage.loadBatches(id);
+    try {
+      await options.engine.registerArrowBatches(
+        name,
+        checkAvailabilityBeforeRegistration
+          ? availableFrameStream(options, id, batches)
+          : batches,
+      );
+    } catch (error) {
+      if (error instanceof FrameUnavailableBeforeStreamReadError) {
+        return "unavailable";
+      }
+      throw error;
+    }
+    return "registered";
+  }
+  return registerStoredFrameWithoutBatches(
+    options,
+    id,
+    name,
+    checkAvailabilityBeforeRegistration,
+  );
+}
+
+async function registerStoredFrameWithoutBatches(
+  options: ArrowDataPathOptions,
+  id: UUID,
+  name: string,
+  checkAvailabilityBeforeRegistration: boolean,
+): Promise<"registered" | "missing" | "unavailable"> {
+  const storage = options.dataFrameStorage!;
   if (typeof storage.stream === "function") {
     if (!(await storage.exists(id))) return "missing";
     const stream = storage.stream(id);
@@ -167,6 +199,31 @@ async function registerStoredFrame(
   }
   await options.engine.registerArrowTable(name, arrow);
   return "registered";
+}
+
+async function frameMissingAfterRegistrationFailure(
+  options: ArrowDataPathOptions,
+  id: UUID,
+  name: string,
+): Promise<boolean> {
+  if (
+    (await options.dataFrameStorage!.exists(id)) &&
+    !(await frameIsUnavailable(options, id))
+  )
+    return false;
+  await unregisterIfPresent(options.engine, name);
+  return true;
+}
+
+async function registrationFailureResponse(
+  options: ArrowDataPathOptions,
+  id: UUID,
+  name: string,
+  message: string,
+): Promise<Response> {
+  if (await frameMissingAfterRegistrationFailure(options, id, name))
+    return Response.json({ error: "Frame not found" }, { status: 404 });
+  return Response.json({ error: message }, { status: 500 });
 }
 
 async function unavailableFrameResponse(
@@ -478,7 +535,12 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
         return c.json({ error: "Frame not found" }, 404);
       }
     } catch {
-      return c.json({ error: "Failed to register frame" }, 500);
+      return registrationFailureResponse(
+        options,
+        id as UUID,
+        name,
+        "Failed to register frame",
+      );
     }
     // Ownership can disappear while native registration is in flight. Undo
     // that late registration before acknowledging it.
@@ -540,7 +602,12 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
         return c.json({ error: "Frame not found" }, 404);
       }
     } catch {
-      return c.json({ error: "Failed to register frame" }, 500);
+      return registrationFailureResponse(
+        options,
+        id as UUID,
+        frameTableName(id),
+        "Failed to register frame",
+      );
     }
     // The frame can be deleted while registration is in flight. Match the
     // sibling registration route: remove the late native table before any

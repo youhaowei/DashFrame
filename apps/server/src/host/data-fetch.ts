@@ -353,8 +353,13 @@ export function toFetchFailure(
   fallback: string,
 ): InsightFetchResult {
   const sourceCode = error instanceof Error ? error.message : "";
+  const streamingFailures: Record<string, string> = {
+    SOURCE_RESULT_TOO_LARGE:
+      "The data exceeds this host's byte budget. Narrow the source report and retry.",
+  };
   const code =
     RUNTIME_FAILURE_CODES.has(sourceCode) ||
+    Object.hasOwn(streamingFailures, sourceCode) ||
     [
       "FETCH_BUSY",
       "FETCH_BATCH_BYTES_EXCEEDED",
@@ -369,7 +374,9 @@ export function toFetchFailure(
       ? sourceCode
       : fallback;
   let result: InsightFetchResult;
-  if (code === "FETCH_BUSY")
+  if (Object.hasOwn(streamingFailures, code))
+    result = failed(code, streamingFailures[code]!);
+  else if (code === "FETCH_BUSY")
     result = failed(
       code,
       "Another snapshot is being materialized. Retry when it finishes.",
