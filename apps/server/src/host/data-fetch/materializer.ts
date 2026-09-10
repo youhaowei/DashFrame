@@ -196,9 +196,13 @@ export function createInsightMaterializer(
     const existing = inFlight.get(key);
     if (existing) {
       if (existing.joinable) return existing.wait(waiterSignal);
+      const restart = () => {
+        if (inFlight.get(key) === existing) inFlight.delete(key);
+        return start(key, args);
+      };
       return existing.promise.then(
-        () => start(key, args),
-        () => start(key, args),
+        () => restart(),
+        () => restart(),
       );
     }
 
