@@ -185,6 +185,12 @@ describe("dashframe serve CLI", () => {
       });
     });
 
+    it("should parse the public origin independently", () => {
+      expect(parseArgs(["--public-origin", "https://app.example"])).toEqual({
+        publicOrigin: "https://app.example",
+      });
+    });
+
     it("should parse port-only and IPv6 bind addresses", () => {
       expect(parseArgs(["--bind", ":4123"])).toEqual({ port: 4123 });
       expect(parseArgs(["--bind", "[::1]:4124"])).toEqual({

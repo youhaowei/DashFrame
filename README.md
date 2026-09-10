@@ -2,14 +2,14 @@
 
 [![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/youhaowei/DashFrame)](https://coderabbit.ai)
 
-DashFrame is a local-first business intelligence tool focused on the data → chart journey: import data, query it with DuckDB, and build visualizations. It ships as **two surfaces of the same UI** (`packages/app`) — an Electron **desktop** app and a browser **web** app — both backed by local Convex and the same Hono host API. Architecture and design docs are maintained separately (not in this repo).
+DashFrame is a local-first business intelligence tool focused on the data → chart journey: import data, query it with DuckDB, and build visualizations. It ships as **two surfaces of the same UI** (`packages/app`) — an Electron **desktop** app and a browser **web** app — both backed by local Convex and the same Hono host API. [PRODUCT.md](PRODUCT.md), [DESIGN.md](DESIGN.md), and [GLOSSARY.md](GLOSSARY.md) cover the product, its UI conventions, and its vocabulary; architecture specs are maintained separately.
 
 ## Stack
 
 - **Electron** desktop app + **Vite/React 19** web app — one shared UI (`packages/app`)
 - **Convex** stores artifact metadata and drafts and serves reactive queries; each project owns a local backend process
 - **Hono** host API (`apps/server`, `packages/server-core`) owns sessions, connectors, secrets, and data access
-- **DuckDB** for query — native (`@duckdb/node-api`) on desktop, **DuckDB-WASM** in the browser
+- **DuckDB** for query — native (`@duckdb/node-api`) in the host process, which the desktop app embeds and the web app connects to
 - **WyStack** (`libs/wystack`) — shared identity and secret-vault support; **stdui** (`libs/stdui`) — the `@wystack/ui-*` design system (both git submodules)
 - **Bun** for package management and runtime, **Turborepo** for workspace orchestration
 - **Tailwind CSS v4**, **Vega-Lite** for declarative chart rendering
@@ -126,9 +126,11 @@ can only fetch commits that exist upstream.
   the host server embedded in-process, an owned local Convex process, and native DuckDB.
 - **Web + server:** the web app needs the backend API running, or data import fails
   with `404` on `/api/*`. Start the server on a fixed port
-  (`cd apps/server && bun run src/index.ts --host 127.0.0.1 --port 4000`) and point
-  the web app at it
+  (`cd apps/server && bun run src/index.ts --host 127.0.0.1 --port 4000 --public-origin http://127.0.0.1:3000`)
+  and point the web app at it
   (`cd apps/web && VITE_DASHFRAME_URL=http://127.0.0.1:4000 bun run dev:direct`).
+  `--public-origin` names the address the browser opens; without it the server
+  names the one Vite proxies to and the client refuses the reply.
 
 ### Packages
 
@@ -167,7 +169,7 @@ DashFrame supports importing data directly from Notion databases:
 
 - ✅ **Electron desktop app** with native DuckDB and an in-process server
 - ✅ **Web app** backed by the same local Convex and Hono host (shared `packages/app` UI)
-- ✅ **Query engine** over DuckDB — native on desktop, WASM in the browser
+- ✅ **Query engine** over DuckDB — native in the host process both surfaces query through
 - ✅ Route-based shell — `/data-sources`, `/insights`, `/visualizations`, `/dashboards`
 - ✅ Data → Vega-Lite charts
 - ✅ Connectors for CSV/JSON, Notion, Postgres, and REST sources
@@ -184,7 +186,7 @@ DashFrame supports importing data directly from Notion databases:
   convention guards, and `bun format:check` for formatting — the two are separate
   gates in CI, and `bun check` does not run Oxfmt
 - Follow the shared Vite+ lint and format config (`bun lint` / `bun format`)
-- Architecture and design notes are maintained separately, not in this repo (release/versioning process stays in `docs/versioning.md`)
+- Product, design, and vocabulary live in [PRODUCT.md](PRODUCT.md), [DESIGN.md](DESIGN.md), and [GLOSSARY.md](GLOSSARY.md); architecture specs are maintained separately (release/versioning process stays in `docs/versioning.md`)
 - Prefer incremental commits per module (app, packages)
 
 ## License

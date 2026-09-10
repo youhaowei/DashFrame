@@ -42,6 +42,7 @@ export interface CliOptions {
   dataDir?: string;
   name?: string;
   corsOrigin?: string | string[];
+  publicOrigin?: string;
   token?: string;
   help?: boolean;
 }
@@ -65,6 +66,8 @@ Options:
   --mcp-mode <mode>       MCP transport: stateful (default) or stateless
   --name <name>           Project display name when initializing
   --cors-origin <origin>  Allowed browser origin; repeat or comma-separate for multiple
+  --public-origin <origin>  Address clients use to reach this server, when a proxy
+                          sits in front of it; defaults to the request's own origin
   --help                  Show this help
 
 Security boundary:
@@ -237,6 +240,9 @@ function parseArgAt(opts: CliOptions, args: string[], index: number): number {
         opts.corsOrigin,
         readValue(args, index, arg),
       );
+      return index + 1;
+    case "--public-origin":
+      opts.publicOrigin = readValue(args, index, arg);
       return index + 1;
     case "--token":
       opts.token = readValue(args, index, arg);
@@ -458,6 +464,7 @@ export function createStandaloneServerOptions(
     port: opts.port,
     mcpMode: opts.mcpMode,
     corsOrigin: opts.corsOrigin,
+    publicOrigin: opts.publicOrigin,
     authToken: opts.token,
     arrowEngine,
     ...secretServices,
