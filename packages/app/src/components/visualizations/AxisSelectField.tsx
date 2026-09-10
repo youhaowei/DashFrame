@@ -81,6 +81,8 @@ interface AxisSelectFieldProps {
   className?: string;
   /** Callback for clear button */
   onClear?: () => void;
+  /** Render an unselected trigger as an empty dashed slot. */
+  emptyDashed?: boolean;
   /** Which axis this select controls */
   axis: "x" | "y";
   /** Current chart type - used for constraint logic */
@@ -121,6 +123,7 @@ export function AxisSelectField({
   placeholder = "Select column...",
   className,
   onClear,
+  emptyDashed = false,
   axis,
   chartType,
   columnAnalysis,
@@ -613,6 +616,7 @@ export function AxisSelectField({
       placeholder={placeholder}
       className={className}
       onClear={onClear}
+      emptyDashed={emptyDashed}
       error={validationError ?? undefined}
     />
   );

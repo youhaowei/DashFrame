@@ -4,6 +4,7 @@ import { useBindArtifact } from "@/components/assistant/artifact-context";
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { useContextPanelSection } from "@/components/shell/context-panel-outlet";
 import { AxisSelectField } from "@/components/visualizations/AxisSelectField";
+import { useVisualizationEncodingChange } from "@/components/visualizations/useVisualizationEncodingChange";
 import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
 import { visualizationSourceQuestionLink } from "@/components/visualizations/visualization-navigation";
 import {
@@ -33,14 +34,12 @@ import type {
   Field,
   Insight as InsightType,
   UUID,
-  VisualizationEncoding,
   VisualizationType,
 } from "@dashframe/types";
 import {
   buildVisualizationUpdateCommands,
   CHART_TYPE_METADATA,
   cmd,
-  parseEncoding,
 } from "@dashframe/types";
 import { SelectField } from "@dashframe/ui";
 import { useNavigate } from "@tanstack/react-router";
@@ -70,9 +69,6 @@ interface VisualizationPageContentProps {
   reportId?: string;
 }
 
-type EncodingField = "x" | "y" | "color" | "size";
-type AxisEncodingField = Extract<EncodingField, "x" | "y">;
-
 // Get icon for visualization type
 function getVizIcon(type: string) {
   switch (type) {
@@ -90,10 +86,6 @@ function getVizIcon(type: string) {
     default:
       return <ChartIcon className="h-5 w-5" />;
   }
-}
-
-function isAxisEncodingField(field: EncodingField): field is AxisEncodingField {
-  return field === "x" || field === "y";
 }
 
 function AlternativeChartTypeButtons({
@@ -419,122 +411,12 @@ export default function VisualizationPageContent({
     });
   };
 
-  // Infer axis type from column analysis semantic type
-  const inferAxisType = (
-    semantic: string,
-  ): "quantitative" | "nominal" | "ordinal" | "temporal" => {
-    if (semantic === "numerical") return "quantitative";
-    if (semantic === "temporal") return "temporal";
-    return "nominal";
-  };
-
-  const resolveEncodingAnalysisAlias = useCallback(
-    (value: string) => {
-      const parsed = parseEncoding(value);
-      if (parsed?.type === "field") return fieldIdToColumnAlias(parsed.id);
-      if (parsed?.type === "metric") return metricIdToColumnAlias(parsed.id);
-
-      const field = dataTable?.fields?.find(
-        (candidate) =>
-          candidate.name === value || candidate.columnName === value,
-      );
-      return field ? fieldIdToColumnAlias(field.id) : value;
-    },
-    [dataTable?.fields],
-  );
-
-  useEffect(() => {
-    if (!visualization || columnAnalysis.length === 0) return;
-
-    const nextEncoding: VisualizationEncoding = {
-      ...visualization.encoding,
-    };
-    let changed = false;
-
-    const clearInvalidDateTransform = (axis: "x" | "y") => {
-      const value = nextEncoding[axis];
-      const transformKey = axis === "x" ? "xTransform" : "yTransform";
-      if (!value || !nextEncoding[transformKey]) return;
-
-      const analysisAlias = resolveEncodingAnalysisAlias(value);
-      const semantic = columnAnalysis.find(
-        (column) => column.columnName === analysisAlias,
-      )?.semantic;
-      if (semantic && semantic !== "temporal") {
-        delete nextEncoding[transformKey];
-        changed = true;
-      }
-    };
-
-    clearInvalidDateTransform("x");
-    clearInvalidDateTransform("y");
-
-    if (changed) {
-      void updateVisualizationMutation({
-        id: visualizationId as UUID,
-        updates: { encoding: nextEncoding },
-      });
-    }
-  }, [
-    columnAnalysis,
-    resolveEncodingAnalysisAlias,
-    updateVisualizationMutation,
+  const handleEncodingChange = useVisualizationEncodingChange({
     visualization,
-    visualizationId,
-  ]);
-
-  const applyAxisAnalysisToEncoding = useCallback(
-    (
-      newEncoding: VisualizationEncoding,
-      field: EncodingField,
-      value: string,
-    ) => {
-      if (!isAxisEncodingField(field)) return;
-
-      const sqlAlias = resolveEncodingAnalysisAlias(value);
-      const colAnalysis = sqlAlias
-        ? columnAnalysis.find((column) => column.columnName === sqlAlias)
-        : undefined;
-      if (!colAnalysis) return;
-
-      const typeField = field === "x" ? "xType" : "yType";
-      newEncoding[typeField] = inferAxisType(colAnalysis.semantic);
-      if (colAnalysis.semantic === "temporal") return;
-
-      if (field === "x") {
-        delete newEncoding.xTransform;
-      } else {
-        delete newEncoding.yTransform;
-      }
-    },
-    [columnAnalysis, resolveEncodingAnalysisAlias],
-  );
-
-  // Handle encoding change
-  // Value comes in as storage encoding format (field:<uuid>, metric:<uuid>)
-  const handleEncodingChange = useCallback(
-    async (field: EncodingField, value: string) => {
-      if (!visualization) return;
-
-      const newEncoding: VisualizationEncoding = {
-        ...visualization.encoding,
-        [field]: value,
-      };
-
-      applyAxisAnalysisToEncoding(newEncoding, field, value);
-
-      await updateVisualizationMutation({
-        id: visualizationId as UUID,
-        updates: { encoding: newEncoding },
-      });
-    },
-    [
-      applyAxisAnalysisToEncoding,
-      updateVisualizationMutation,
-      visualization,
-      visualizationId,
-    ],
-  );
+    dataTable,
+    columnAnalysis,
+    updateVisualization: updateVisualizationMutation,
+  });
 
   // Handle visualization type change
   // Auto-swaps axes when switching between barY and barX
