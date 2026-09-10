@@ -22,7 +22,7 @@ Remote imports and refreshes use **server-side native DuckDB** (`NativeDuckDBEng
 
 This package has no shared `QueryPlanner` / push-down API. Connectors may still run remote queries themselves (e.g. Postgres table-reference fetches push LIMIT/OFFSET server-side); that is connector-local, not a cross-engine planner.
 
-`QueryEngine` is Arrow-native and total: every backing implements every method, and callers upload Arrow IPC via `registerArrowTable`/`registerArrowStream` (or query sources directly, e.g. `read_parquet`). Results leave as Arrow IPC bytes; JSON rows are decoded in transport (`arrowIpcToJsonRows`).
+`QueryEngine` is Arrow-native and total: every backing implements every method. Callers register Arrow IPC as a buffer (`registerArrowTable`), a chunked stream (`registerArrowStream`), or complete batch payloads (`registerArrowBatches`), or query sources directly (e.g. `read_parquet`). Results leave as Arrow IPC bytes; JSON rows are decoded in transport (`arrowIpcToJsonRows`).
 
 ## Usage
 
@@ -66,6 +66,11 @@ interface QueryEngine {
   registerArrowStream(
     name: string,
     chunks: AsyncIterable<Uint8Array>,
+    signal?: AbortSignal,
+  ): Promise<void>;
+  registerArrowBatches(
+    name: string,
+    batches: AsyncIterable<Uint8Array>,
     signal?: AbortSignal,
   ): Promise<void>;
   unregisterTable(name: string): Promise<void>;

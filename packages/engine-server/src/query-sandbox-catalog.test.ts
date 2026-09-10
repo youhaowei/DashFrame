@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
+import { tableFromArrays, tableFromIPC, tableToIPC } from "apache-arrow";
 
 import {
   WorkspaceQueryEngine,
@@ -31,6 +32,132 @@ function acknowledging(): WorkspaceQueryEngine {
 }
 
 describe("WorkspaceQueryEngine — registered-table projection", () => {
+  describe.each(["registerArrowStream", "registerArrowBatches"] as const)(
+    "%s source cancellation",
+    (method) => {
+      it("rejects an already-aborted caller before pulling the source", async () => {
+        const engine = acknowledging();
+        const next = vi.fn(
+          () => new Promise<IteratorResult<Uint8Array>>(() => {}),
+        );
+        const source = { [Symbol.asyncIterator]: () => ({ next }) };
+        await expect(
+          engine[method]("cancelled", source, AbortSignal.abort()),
+        ).rejects.toThrow("SANDBOX_CANCELLED");
+        expect(next).not.toHaveBeenCalled();
+        await engine.dispose();
+      });
+
+      it.each([
+        ["caller", 0],
+        ["caller", 1],
+        ["dispose", 0],
+        ["dispose", 1],
+      ] as const)(
+        "settles a stalled pull on %s after %i chunks without awaiting producer cleanup",
+        async (cancellation, chunks) => {
+          const engine = acknowledging();
+          const controller = new AbortController();
+          let pulled!: () => void;
+          const pendingPull = new Promise<void>((resolve) => {
+            pulled = resolve;
+          });
+          let pulls = 0;
+          const cleanup = vi.fn(
+            () => new Promise<IteratorResult<Uint8Array>>(() => {}),
+          );
+          const source = {
+            [Symbol.asyncIterator]: () => ({
+              next: () => {
+                if (pulls++ < chunks)
+                  return Promise.resolve({
+                    done: false as const,
+                    value: tableToIPC(tableFromArrays({ value: [1] })),
+                  });
+                pulled();
+                return new Promise<IteratorResult<Uint8Array>>(() => {});
+              },
+              return: cleanup,
+            }),
+          };
+          const registration = engine[method](
+            "cancelled",
+            source,
+            controller.signal,
+          );
+          const outcome = registration.catch((error: unknown) => error);
+          await pendingPull;
+          if (cancellation === "caller") controller.abort();
+          else await engine.dispose();
+          expect(await outcome).toMatchObject({
+            message:
+              cancellation === "caller"
+                ? "SANDBOX_CANCELLED"
+                : "SANDBOX_CLOSED",
+          });
+          expect(cleanup).toHaveBeenCalledOnce();
+          expect(engine.hasTable("cancelled")).toBe(false);
+          await engine.dispose();
+        },
+      );
+    },
+  );
+  it("adapts complete batches into one payload and rejects schema drift before registration", async () => {
+    const engine = acknowledging();
+    const sent: Uint8Array[] = [];
+    engine.registerArrowTable = async (_name, bytes) => {
+      sent.push(bytes);
+    };
+    const batch = tableToIPC(tableFromArrays({ value: [1, 2] }));
+    await engine.registerArrowBatches(
+      "joined",
+      (async function* () {
+        yield batch;
+        yield batch;
+      })(),
+    );
+    expect(sent).toHaveLength(1);
+    expect(tableFromIPC(sent[0]!).getChild("value")?.toArray()).toEqual(
+      new Float64Array([1, 2, 1, 2]),
+    );
+    await expect(
+      engine.registerArrowBatches(
+        "joined",
+        (async function* () {
+          yield batch;
+          yield tableToIPC(tableFromArrays({ other: [3] }));
+        })(),
+      ),
+    ).rejects.toThrow("Arrow schema changed");
+    expect(sent).toHaveLength(1);
+  });
+
+  it("stops pulling batch payloads at the hosted byte ceiling", async () => {
+    const engine = acknowledging();
+    const batch = tableToIPC(
+      tableFromArrays({ value: new Float64Array(1024 * 1024) }),
+    );
+    let pulled = 0;
+    let closed = false;
+    await expect(
+      engine.registerArrowBatches(
+        "oversized",
+        (async function* () {
+          try {
+            while (true) {
+              pulled++;
+              yield batch;
+            }
+          } finally {
+            closed = true;
+          }
+        })(),
+      ),
+    ).rejects.toThrow("SANDBOX_MESSAGE_LIMIT");
+    expect(pulled).toBe(4);
+    expect(closed).toBe(true);
+    expect(engine.hasTable("oversized")).toBe(false);
+  });
   it("identifies tables the way the worker's DuckDB does, not by spelling", async () => {
     // The worker runs DuckDB, whose identifiers are case-insensitive even when
     // quoted. A raw-keyed projection would report two tables for the worker's

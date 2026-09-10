@@ -24,6 +24,51 @@ function bundle(overrides: Partial<GoogleOAuthTokenBundle> = {}) {
 const oauthClient = { clientId: "client-id", clientSecret: "client-secret" };
 
 describe("GA4 connector", () => {
+  it("bounds report response bytes and cancels the unread body", async () => {
+    const cancel = vi.fn();
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode('{"rows":[]}'));
+            },
+            cancel,
+          }),
+        ),
+    );
+    const connector = makeGa4Connector(
+      resolver(bundle({ expiresAt: Date.now() + 3_600_000 })),
+      { fetch: fetchImpl as typeof fetch },
+    );
+    await expect(
+      connector.query("properties/123", "table", { maxResponseBytes: 4 }),
+    ).rejects.toThrow("SOURCE_RESULT_TOO_LARGE");
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
+  it("passes cancellation through token refresh and skips already aborted queries", async () => {
+    const controller = new AbortController();
+    const fetchImpl = vi.fn(
+      async (_url: string | URL | Request, init?: RequestInit) => {
+        expect(init?.signal).toBe(controller.signal);
+        controller.abort();
+        init?.signal?.throwIfAborted();
+        return new Response();
+      },
+    );
+    const connector = makeGa4Connector(resolver(bundle({ expiresAt: 0 })), {
+      fetch: fetchImpl as typeof fetch,
+      oauthClient,
+    });
+    await expect(
+      connector.query("properties/123", "table", { signal: controller.signal }),
+    ).rejects.toThrow();
+    await expect(
+      connector.query("properties/123", "table", { signal: controller.signal }),
+    ).rejects.toThrow();
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
   it("lists every accessible property with a bearer header", async () => {
     const fetchImpl = vi.fn(
       async (_url: string | URL | Request, init?: RequestInit) => {
