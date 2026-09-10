@@ -1234,7 +1234,9 @@ async function appendArrowRows(
   }));
   for (let row = 0; row < table.numRows; row++) {
     if ((row & 2047) === 0) {
-      await new Promise<void>((resolve) => setImmediate(resolve));
+      await new Promise<void>((resolve) => {
+        setImmediate(resolve);
+      });
       throwIfAnyAborted(signals);
     }
     for (const column of columns) {
