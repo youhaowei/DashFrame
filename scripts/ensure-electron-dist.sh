@@ -35,6 +35,46 @@
 # package unusable.
 set -eu
 
+_cleanup_target=""
+_cleanup_replacement=""
+_cleanup_stage=""
+_cleanup_stage_path=""
+_private_backup=""
+_private_backup_action=""
+
+restore_or_discard_private_backup() {
+  [ -n "$_private_backup" ] || return 0
+  _restore_failed=false
+  if [ "$_private_backup_action" = restore ]; then
+    rm -rf "$pkg/dist" 2>/dev/null || true
+    rm -f "$pkg/path.txt" 2>/dev/null || true
+    if [ -e "$_private_backup/dist" ] || [ -L "$_private_backup/dist" ]; then
+      mv "$_private_backup/dist" "$pkg/dist" 2>/dev/null || _restore_failed=true
+    fi
+    if [ -e "$_private_backup/path.txt" ] || [ -L "$_private_backup/path.txt" ]; then
+      mv "$_private_backup/path.txt" "$pkg/path.txt" 2>/dev/null || _restore_failed=true
+    fi
+  fi
+  if [ "$_restore_failed" = true ]; then
+    echo "[electron-dist] could not restore the previous private dist from $_private_backup." >&2
+    return 1
+  fi
+  rm -rf "$_private_backup" 2>/dev/null || return 1
+  _private_backup=""
+  _private_backup_action=""
+}
+
+cleanup() {
+  restore_or_discard_private_backup || true
+  [ -z "$_cleanup_target" ] || rm -rf "$_cleanup_target" 2>/dev/null || true
+  [ -z "$_cleanup_replacement" ] || rm -rf "$_cleanup_replacement" 2>/dev/null || true
+  [ -z "$_cleanup_stage" ] || rm -rf "$_cleanup_stage" 2>/dev/null || true
+  [ -z "$_cleanup_stage_path" ] || rm -f "$_cleanup_stage_path" 2>/dev/null || true
+}
+
+trap cleanup 0
+trap 'trap - HUP INT TERM; exit 1' HUP INT TERM
+
 usage() {
   echo "Usage: scripts/ensure-electron-dist.sh [--force] [worktree-path]" >&2
 }
@@ -86,18 +126,42 @@ fi
 # nothing to do, and nothing broken.
 [ -n "$pkg" ] && [ -d "$pkg" ] || exit 0
 
-# usable <dir> <path-file>
-# True when <path-file> names an executable inside <dir>. This is exactly what
-# Electron's own index.js does to find the binary, so it is the only honest
-# test of "is this dist actually usable". An empty or missing path file counts
-# as unusable — `-x` on a bare directory would otherwise pass.
+# usable <dir> <path-file> [<version> <platform> <architecture>]
+# With only a directory and path file, check the same minimum contract as
+# Electron's index.js. Once a cache identity is known, also require the
+# installer's version marker, platform-specific path, and binary architecture.
+# This keeps a stale Rosetta/private install out of another architecture's
+# cache even when its executable bit and path happen to look valid.
 usable() {
   _u_dir="$1"
   _u_file="$2"
   [ -f "$_u_file" ] || return 1
   _u_rel=$(cat "$_u_file" 2>/dev/null) || return 1
   [ -n "$_u_rel" ] || return 1
-  [ -x "$_u_dir/$_u_rel" ]
+  [ -x "$_u_dir/$_u_rel" ] || return 1
+  [ "$#" -ge 5 ] || return 0
+
+  _u_version=$(cat "$_u_dir/version" 2>/dev/null) || return 1
+  _u_version=${_u_version#v}
+  [ "$_u_version" = "$3" ] || return 1
+  case "$4" in
+    darwin|mas) _u_expected="Electron.app/Contents/MacOS/Electron" ;;
+    freebsd|openbsd|linux) _u_expected="electron" ;;
+    win32) _u_expected="electron.exe" ;;
+    *) return 1 ;;
+  esac
+  [ "$_u_rel" = "$_u_expected" ] || return 1
+
+  _u_kind=$(file -b "$_u_dir/$_u_rel" 2>/dev/null) || return 1
+  case "$5:$_u_kind" in
+    x64:*x86_64*|x64:*x86-64*) ;;
+    arm64:*arm64*|arm64:*aarch64*) ;;
+    ia32:*80386*|ia32:*i386*) ;;
+    armv7l:*ARM*|arm:*ARM*) ;;
+    mips64el:*MIPS*) ;;
+    universal:*universal*x86_64*arm64*|universal:*universal*arm64*x86_64*) ;;
+    *) return 1 ;;
+  esac
 }
 
 # give_up <message>
@@ -106,7 +170,13 @@ usable() {
 # success, a worktree with no binaries is a failure the caller must see.
 give_up() {
   echo "[electron-dist] $1" >&2
-  if usable "$pkg/dist" "$pkg/path.txt"; then
+  if [ -n "${version:-}" ] \
+    && [ -n "${target_platform:-}" ] \
+    && [ -n "${target_arch:-}" ]; then
+    if usable "$pkg/dist" "$pkg/path.txt" "$version" "$target_platform" "$target_arch"; then
+      exit 0
+    fi
+  elif usable "$pkg/dist" "$pkg/path.txt"; then
     exit 0
   fi
   echo "[electron-dist] Electron is not installed in $pkg." >&2
@@ -166,15 +236,11 @@ shared_pathfile="$cache/path.txt"
 
 install_private() {
   echo "[electron-dist] running Electron's private installer..." >&2
-  if ! (
-    unset ELECTRON_SKIP_BINARY_DOWNLOAD
-    cd "$pkg"
-    node install.js >&2
-  ); then
+  if ! stage_target_install; then
     give_up "Electron's installer failed."
   fi
-  usable "$pkg/dist" "$pkg/path.txt" \
-    || give_up "Electron's installer reported success but produced no usable dist."
+  replace_private "$_cleanup_target/dist" "$_cleanup_target/path.txt" copy \
+    || give_up "Electron's installer produced a dist that could not replace the private copy."
 }
 
 # use_private <reason>
@@ -182,31 +248,77 @@ install_private() {
 # usable private dist, or install one if this worktree has no usable binaries.
 use_private() {
   echo "[electron-dist] $1; using a private Electron dist." >&2
-  if usable "$pkg/dist" "$pkg/path.txt"; then
+  if usable "$pkg/dist" "$pkg/path.txt" "$version" "$target_platform" "$target_arch"; then
     return 0
   fi
   install_private
 }
 
-# clone_shared
-# Prepare and validate a clone before replacing the current dist. This makes
-# --force safe: if cloning fails, the existing private copy remains usable.
-clone_shared() {
-  _cs_dist="$pkg/dist.tmp.$$"
-  _cs_path="$pkg/path.txt.tmp.$$"
-  rm -rf "$_cs_dist"
-  rm -f "$_cs_path"
-  if ! cp -c -R "$shared" "$_cs_dist" 2>/dev/null \
-    || ! cp "$shared_pathfile" "$_cs_path" 2>/dev/null \
-    || ! usable "$_cs_dist" "$_cs_path"; then
-    rm -rf "$_cs_dist"
-    rm -f "$_cs_path"
+# Install into a target-specific staging package. Electron's own installer
+# verifies the downloaded archive checksum; usable then verifies the extracted
+# version, platform path, architecture, and executable before publication.
+# The live private dist is untouched if download, extraction, or validation
+# fails.
+stage_target_install() {
+  if [ -n "$_cleanup_target" ] \
+    && usable "$_cleanup_target/dist" "$_cleanup_target/path.txt" \
+      "$version" "$target_platform" "$target_arch"; then
+    return 0
+  fi
+  [ -z "$_cleanup_target" ] || rm -rf "$_cleanup_target"
+  _cleanup_target=$(mktemp -d "$pkg/.target-install.XXXXXX") || return 1
+  if ! cp "$pkg/install.js" "$pkg/package.json" "$pkg/checksums.json" "$_cleanup_target/" \
+    || ! (unset ELECTRON_SKIP_BINARY_DOWNLOAD; cd "$_cleanup_target"; node install.js >&2) \
+    || ! usable "$_cleanup_target/dist" "$_cleanup_target/path.txt" \
+      "$version" "$target_platform" "$target_arch"; then
     return 1
   fi
-  rm -rf "$pkg/dist"
-  mv "$_cs_dist" "$pkg/dist"
-  mv "$_cs_path" "$pkg/path.txt"
-  usable "$pkg/dist" "$pkg/path.txt"
+}
+
+# replace_private <source-dist> <source-path-file> <clone|copy>
+# Build and validate the replacement first. The short final swap is guarded by
+# an EXIT/signal cleanup: before validation it restores the previous private
+# install; after validation it only discards the backup. Thus --force never
+# strands a worktree or leaves backup/staging directories behind.
+replace_private() {
+  _rp_source="$1"
+  _rp_path="$2"
+  _rp_mode="$3"
+  _cleanup_replacement=$(mktemp -d "$pkg/.dist-replacement.XXXXXX") || return 1
+  if [ "$_rp_mode" = clone ]; then
+    cp -c -R "$_rp_source" "$_cleanup_replacement/dist" 2>/dev/null || return 1
+  else
+    cp -R "$_rp_source" "$_cleanup_replacement/dist" 2>/dev/null || return 1
+  fi
+  cp "$_rp_path" "$_cleanup_replacement/path.txt" 2>/dev/null || return 1
+  usable "$_cleanup_replacement/dist" "$_cleanup_replacement/path.txt" \
+    "$version" "$target_platform" "$target_arch" || return 1
+
+  _private_backup=$(mktemp -d "$pkg/.dist-backup.XXXXXX") || return 1
+  _private_backup_action=restore
+  if [ -e "$pkg/dist" ] || [ -L "$pkg/dist" ]; then
+    mv "$pkg/dist" "$_private_backup/dist" || return 1
+  fi
+  if [ -e "$pkg/path.txt" ] || [ -L "$pkg/path.txt" ]; then
+    mv "$pkg/path.txt" "$_private_backup/path.txt" || return 1
+  fi
+  if ! mv "$_cleanup_replacement/dist" "$pkg/dist" \
+    || ! mv "$_cleanup_replacement/path.txt" "$pkg/path.txt" \
+    || ! usable "$pkg/dist" "$pkg/path.txt" \
+      "$version" "$target_platform" "$target_arch"; then
+    restore_or_discard_private_backup
+    return 1
+  fi
+
+  _private_backup_action=discard
+  restore_or_discard_private_backup
+  rm -rf "$_cleanup_replacement"
+  _cleanup_replacement=""
+  return 0
+}
+
+clone_shared() {
+  replace_private "$shared" "$shared_pathfile" clone
 }
 
 # The cache must be a writable directory on a clone-compatible filesystem and
@@ -263,20 +375,25 @@ fi
 # Seed through Electron's installer only when no architecture-specific shared
 # copy exists. Publishing uses a staging directory under the lock so a reader
 # can never observe a half-populated cache.
-if ! usable "$shared" "$shared_pathfile"; then
-  if ! usable "$pkg/dist" "$pkg/path.txt"; then
-    echo "[electron-dist] no shared copy for $version ($target_platform-$target_arch) yet." >&2
-    install_private
+if ! usable "$shared" "$shared_pathfile" "$version" "$target_platform" "$target_arch"; then
+  echo "[electron-dist] installing target $version ($target_platform-$target_arch) for cache seeding." >&2
+  if ! stage_target_install; then
+    echo "[electron-dist] target install failed; preserved the previous private install without seeding." >&2
+    exit 1
   fi
 
   _stage="$shared.tmp.$$"
   _stage_path="$shared_pathfile.tmp.$$"
+  _cleanup_stage="$_stage"
+  _cleanup_stage_path="$_stage_path"
   rm -rf "$_stage"
   rm -f "$_stage_path"
-  if ! cp -c -R "$pkg/dist" "$_stage" 2>/dev/null \
-    || ! cp "$pkg/path.txt" "$_stage_path" 2>/dev/null; then
+  if ! cp -c -R "$_cleanup_target/dist" "$_stage" 2>/dev/null \
+    || ! cp "$_cleanup_target/path.txt" "$_stage_path" 2>/dev/null; then
     rm -rf "$_stage"
     rm -f "$_stage_path"
+    _cleanup_stage=""
+    _cleanup_stage_path=""
     use_private "shared cache could not be seeded"
     exit 0
   fi
@@ -290,6 +407,8 @@ if ! usable "$shared" "$shared_pathfile"; then
     use_private "shared cache could not be published"
     exit 0
   fi
+  _cleanup_stage=""
+  _cleanup_stage_path=""
   echo "[electron-dist] seeded shared copy at $shared" >&2
 fi
 
