@@ -18,10 +18,6 @@ These are the canonical target terms. Model types live in `@dashframe/types`. Ne
 | Visualization   | Chart of an insight's result, with encodings and appearance; many per insight                   | `Visualization`, `VisualizationEncoding`                |
 | Dashboard       | Arrangement of visualizations and text, with controls                                           | `Dashboard`, `DashboardControl`                         |
 
-## Planned consolidation
-
-An accepted design direction collapses Insight and Visualization into **one user-visible artifact named Visualization**, carrying the query and its chart. The types stay split — `Insight` remains the query node — but users stop meeting it. Until that lands, both terms below stay in use; afterwards, Insight becomes an implementation detail and does not appear in copy.
-
 ## Rename in progress
 
 The shipped UI still uses an older vocabulary for three terms. The canonical term is the target; the shipped term is debt, not an alternative spelling. Do not introduce the shipped term into new copy, and prefer the canonical term when you are already editing a surface that uses it.
