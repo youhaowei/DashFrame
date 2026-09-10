@@ -39,6 +39,7 @@ _cleanup_target=""
 _cleanup_replacement=""
 _cleanup_stage=""
 _cleanup_stage_path=""
+_cleanup_lock=""
 _private_backup=""
 _private_backup_action=""
 
@@ -69,6 +70,7 @@ restore_or_discard_private_backup() {
 }
 
 cleanup() {
+  [ -z "$_cleanup_lock" ] || rm -rf "$_cleanup_lock" 2>/dev/null || true
   restore_or_discard_private_backup || true
   [ -z "$_cleanup_target" ] || rm -rf "$_cleanup_target" 2>/dev/null || true
   [ -z "$_cleanup_replacement" ] || rm -rf "$_cleanup_replacement" 2>/dev/null || true
@@ -406,22 +408,27 @@ if [ -z "${DASHFRAME_ELECTRON_DIST_LOCKED:-}" ]; then
     esac
   fi
   if command -v flock >/dev/null 2>&1; then
+    # flock uses exit codes for both acquisition errors and child failures.
+    # Record whether the child started instead of guessing from its status.
+    _cleanup_lock=$(mktemp -d "$pkg/.lock-attempt.XXXXXX") || {
+      use_private "shared cache lock attempt could not be staged"
+      exit 0
+    }
     _lock_rc=0
     if [ "$force" = true ]; then
-      DASHFRAME_ELECTRON_DIST_LOCKED=1 flock -E 75 -w 900 "$cache/.lock" "$0" --force "$wt" \
+      DASHFRAME_ELECTRON_DIST_LOCKED=1 flock -E 75 -w 900 "$cache/.lock" \
+        sh -c ': > "$1/started" || exit 1; shift; exec "$@"' sh "$_cleanup_lock" "$0" --force "$wt" \
         || _lock_rc=$?
     else
-      DASHFRAME_ELECTRON_DIST_LOCKED=1 flock -E 75 -w 900 "$cache/.lock" "$0" "$wt" \
+      DASHFRAME_ELECTRON_DIST_LOCKED=1 flock -E 75 -w 900 "$cache/.lock" \
+        sh -c ': > "$1/started" || exit 1; shift; exec "$@"' sh "$_cleanup_lock" "$0" "$wt" \
         || _lock_rc=$?
     fi
-    case "$_lock_rc" in
-      0) exit 0 ;;
-      75)
-        use_private "shared cache lock could not be acquired"
-        exit 0
-        ;;
-      *) exit "$_lock_rc" ;;
-    esac
+    if [ -f "$_cleanup_lock/started" ]; then
+      exit "$_lock_rc"
+    fi
+    use_private "shared cache lock could not be acquired"
+    exit 0
   fi
   use_private "no shared cache locking tool is available"
   exit 0
