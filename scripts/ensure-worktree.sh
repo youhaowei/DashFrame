@@ -396,7 +396,9 @@ install_dependencies() {
     # still repairs it.
     if [ "$_idep_locked" != true ]; then
       echo "ERROR [ensure-worktree]: '$_idep_wt' has an interrupted provisioning attempt to clean up, and this host has no way to lock it." >&2
-      echo "  Install lockf(1) or flock(1), or remove '$_idep_wt/node_modules' by hand and re-run." >&2
+      echo "  Install lockf(1) or flock(1) and re-run — that is the only path that repairs it here." >&2
+      echo "  To clear it by hand instead, remove BOTH '$_idep_wt/node_modules' and" >&2
+      echo "  '$_idep_pending'; removing only the first leaves this same refusal." >&2
       exit 1
     fi
     rm -rf "$_idep_wt/node_modules"
