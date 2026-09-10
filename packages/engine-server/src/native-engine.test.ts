@@ -998,6 +998,7 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
   it.each([
     "buffered registration",
     "streamed registration",
+    "batch registration",
     "buffered query",
     "streamed query",
   ] as const)(
@@ -1013,6 +1014,7 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
           "streamed query": "stream",
           "buffered registration": "run",
           "streamed registration": "run",
+          "batch registration": "run",
         } as const
       )[operation];
       const nativeCall = vi
@@ -1044,6 +1046,13 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
               controller.signal,
             );
           case "buffered query":
+          case "batch registration":
+            if (operation === "batch registration")
+              return engine!.registerArrowBatches(
+                "cancelled",
+                source(),
+                controller.signal,
+              );
             return engine!.queryArrow("SELECT 1", [], controller.signal);
           case "streamed query":
             for await (const _batch of engine!.queryArrowBatches(

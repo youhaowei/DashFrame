@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
+import { tableFromArrays, tableFromIPC, tableToIPC } from "apache-arrow";
 
 import {
   WorkspaceQueryEngine,
@@ -31,6 +32,62 @@ function acknowledging(): WorkspaceQueryEngine {
 }
 
 describe("WorkspaceQueryEngine — registered-table projection", () => {
+  it("adapts complete batches into one payload and rejects schema drift before registration", async () => {
+    const engine = acknowledging();
+    const sent: Uint8Array[] = [];
+    engine.registerArrowTable = async (_name, bytes) => {
+      sent.push(bytes);
+    };
+    const batch = tableToIPC(tableFromArrays({ value: [1, 2] }));
+    await engine.registerArrowBatches(
+      "joined",
+      (async function* () {
+        yield batch;
+        yield batch;
+      })(),
+    );
+    expect(sent).toHaveLength(1);
+    expect(tableFromIPC(sent[0]!).getChild("value")?.toArray()).toEqual(
+      new Float64Array([1, 2, 1, 2]),
+    );
+    await expect(
+      engine.registerArrowBatches(
+        "joined",
+        (async function* () {
+          yield batch;
+          yield tableToIPC(tableFromArrays({ other: [3] }));
+        })(),
+      ),
+    ).rejects.toThrow("Arrow schema changed");
+    expect(sent).toHaveLength(1);
+  });
+
+  it("stops pulling batch payloads at the hosted byte ceiling", async () => {
+    const engine = acknowledging();
+    const batch = tableToIPC(
+      tableFromArrays({ value: new Float64Array(1024 * 1024) }),
+    );
+    let pulled = 0;
+    let closed = false;
+    await expect(
+      engine.registerArrowBatches(
+        "oversized",
+        (async function* () {
+          try {
+            while (true) {
+              pulled++;
+              yield batch;
+            }
+          } finally {
+            closed = true;
+          }
+        })(),
+      ),
+    ).rejects.toThrow("SANDBOX_MESSAGE_LIMIT");
+    expect(pulled).toBe(4);
+    expect(closed).toBe(true);
+    expect(engine.hasTable("oversized")).toBe(false);
+  });
   it("identifies tables the way the worker's DuckDB does, not by spelling", async () => {
     // The worker runs DuckDB, whose identifiers are case-insensitive even when
     // quoted. A raw-keyed projection would report two tables for the worker's
