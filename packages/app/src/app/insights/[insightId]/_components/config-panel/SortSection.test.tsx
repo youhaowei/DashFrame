@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { SortSection } from "./SortSection";
 
 const field = {
-  id: "field-1",
+  id: "00000000-0000-4000-8000-000000000001",
   name: "Created at",
   columnName: "created_at",
   displayName: "Created at",
@@ -13,37 +13,39 @@ const field = {
 } as CombinedField;
 
 describe("SortSection", () => {
-  it("adds the first available result field as an ascending sort", () => {
+  it("flips an ascending sort to descending from its direction button", () => {
     const onChange = vi.fn();
-
     render(
       <SortSection
-        sorts={[]}
+        sorts={[{ field: "created_at", direction: "asc" }]}
         fields={[field]}
         metrics={[]}
         onChange={onChange}
+        onRuntimeChange={vi.fn()}
       />,
     );
-
-    fireEvent.click(screen.getByRole("button", { name: "Add" }));
-
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Ascending; switch to descending",
+      }),
+    );
     expect(onChange).toHaveBeenCalledWith([
-      { field: "created_at", direction: "asc" },
+      { field: "created_at", direction: "desc" },
     ]);
   });
 
-  it("does not offer another sort when all available fields are used", () => {
+  it("does not offer another sort when all result columns are used", () => {
     render(
       <SortSection
         sorts={[{ field: "created_at", direction: "asc" }]}
         fields={[field]}
         metrics={[]}
         onChange={vi.fn()}
+        onRuntimeChange={vi.fn()}
       />,
     );
-
     expect(
-      screen.getByRole("button", { name: "Add" }).hasAttribute("disabled"),
+      screen.getByRole("button", { name: "Add sort" }).hasAttribute("disabled"),
     ).toBe(true);
   });
 });

@@ -1,203 +1,306 @@
-import type { InsightMetric } from "@dashframe/types";
-import { SortableList, type SortableListItem } from "@dashframe/ui";
+import type {
+  AggregationType,
+  DataTable,
+  InsightMetric,
+  UUID,
+} from "@dashframe/types";
 import {
-  Badge,
+  SortableList,
+  WorkbenchAddRow,
+  WorkbenchChip,
+  type SortableListItem,
+} from "@dashframe/ui";
+import {
+  Alert,
+  AlertDescription,
   Button,
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-  cn,
+  Input,
+  Label,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@wystack/ui-react";
-import {
-  CalculatorIcon,
-  ChevronRightIcon,
-  CloseIcon,
-  EditIcon,
-  PlusIcon,
-} from "@wystack/ui-react/icons";
-import { useCallback, useState } from "react";
+import { Sigma } from "lucide-react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { metricColumnNameForSave } from "./metric-formula";
+import { useSaveDismissGuard, useSavingFlag } from "./use-save-dismiss-guard";
 
-/** Extended sortable item with metric data */
 interface MetricSortableItem extends SortableListItem {
   metric: InsightMetric;
 }
 
-interface MetricsSectionProps {
-  metrics: InsightMetric[];
-  onReorder: (metrics: InsightMetric[]) => void;
-  onRemove: (metricId: string) => void;
-  onEditClick: (metric: InsightMetric) => void;
-  onAddClick: () => void;
-  defaultOpen?: boolean;
-  embedded?: boolean;
+const AGGREGATIONS: Array<{ value: AggregationType; label: string }> = [
+  { value: "count", label: "Count" },
+  { value: "sum", label: "Sum" },
+  { value: "avg", label: "Average" },
+  { value: "min", label: "Minimum" },
+  { value: "max", label: "Maximum" },
+  { value: "count_distinct", label: "Count distinct" },
+];
+
+function metricDescription(metric: InsightMetric): string {
+  return metric.aggregation === "count" && !metric.columnName
+    ? "count"
+    : `${metric.aggregation} · ${metric.columnName ?? ""}`;
 }
 
-/**
- * MetricsSection - Collapsible section for managing insight metrics (aggregations)
- *
- * Shows a sortable list of metrics with drag-and-drop reordering.
- * Each metric displays name and aggregation type.
- */
+function autoMetricName(
+  aggregation: AggregationType,
+  columnName: string,
+  dataTable: DataTable,
+): string {
+  if (aggregation === "count" && !columnName) return "Count";
+  const field = dataTable.fields?.find(
+    (candidate) => candidate.columnName === columnName,
+  );
+  if (!field) return "";
+  const prefix: Record<AggregationType, string> = {
+    sum: "Total",
+    avg: "Average",
+    count: "Count",
+    min: "Minimum",
+    max: "Maximum",
+    count_distinct: "Unique",
+  };
+  return `${prefix[aggregation]} ${field.name}`;
+}
+
+function MetricEditor({
+  metric,
+  dataTable,
+  dragHandle,
+  onSave,
+  onRemove,
+}: {
+  metric?: InsightMetric;
+  dataTable: DataTable;
+  dragHandle?: ReactNode;
+  onSave: (metric: InsightMetric) => Promise<void> | void;
+  onRemove?: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [aggregation, setAggregation] = useState<AggregationType>(
+    metric?.aggregation ?? "count",
+  );
+  const [columnName, setColumnName] = useState(metric?.columnName ?? "");
+  const [customName, setCustomName] = useState<string | null>(
+    metric?.name ?? null,
+  );
+  const [error, setError] = useState<string | null>(null);
+  const { setPending, isPending } = useSaveDismissGuard();
+  const [isSaving, setIsSaving] = useSavingFlag(setPending);
+  const fields = useMemo(
+    () =>
+      (dataTable.fields ?? []).filter(
+        (field) => !field.name.startsWith("_") && field.columnName,
+      ),
+    [dataTable.fields],
+  );
+  const filteredFields =
+    aggregation === "sum" || aggregation === "avg"
+      ? fields.filter((field) =>
+          ["number", "integer", "float", "decimal"].includes(
+            field.type.toLowerCase(),
+          ),
+        )
+      : fields;
+  const name = customName ?? autoMetricName(aggregation, columnName, dataTable);
+  const needsField = aggregation !== "count";
+
+  const reset = () => {
+    setAggregation(metric?.aggregation ?? "count");
+    setColumnName(metric?.columnName ?? "");
+    setCustomName(metric?.name ?? null);
+    setError(null);
+  };
+  const close = () => {
+    if (isPending()) return;
+    setOpen(false);
+    reset();
+  };
+  const save = async () => {
+    if (!name.trim() || (needsField && !columnName)) return;
+    setIsSaving(true);
+    setError(null);
+    try {
+      await onSave({
+        id: metric?.id ?? (crypto.randomUUID() as UUID),
+        name: name.trim(),
+        sourceTable: metric?.sourceTable ?? dataTable.id,
+        columnName: metricColumnNameForSave(aggregation, columnName),
+        aggregation,
+      });
+      setOpen(false);
+      reset();
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "Unknown error";
+      setError(`Failed to save metric: ${message}`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const trigger = metric ? (
+    <WorkbenchChip
+      dragHandle={dragHandle}
+      icon={<Sigma className="h-3.5 w-3.5" />}
+      open={open}
+      content={
+        <PopoverTrigger
+          render={
+            <button
+              type="button"
+              className="min-w-0 flex-1 text-left focus-visible:outline-none"
+              aria-label={`Edit ${metric.name}`}
+            >
+              <span className="block truncate font-medium">{metric.name}</span>
+              <span className="block truncate text-[11px] leading-4 text-neutral-fg-subtle">
+                {metricDescription(metric)}
+              </span>
+            </button>
+          }
+        />
+      }
+      removeLabel={`Remove ${metric.name}`}
+      onRemove={onRemove}
+    />
+  ) : (
+    <PopoverTrigger render={<WorkbenchAddRow>Add metric</WorkbenchAddRow>} />
+  );
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) close();
+        else setOpen(true);
+      }}
+    >
+      {trigger}
+      <PopoverContent align="start" className="w-80 space-y-3">
+        {error && (
+          <Alert color="danger">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+        <div className="flex gap-2">
+          <Select
+            value={aggregation}
+            onValueChange={(value) => {
+              const next = value as AggregationType;
+              setAggregation(next);
+              setCustomName(null);
+              if (next === "count") setColumnName("");
+            }}
+          >
+            <SelectTrigger aria-label="Aggregation" className="w-32">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {AGGREGATIONS.map((item) => (
+                <SelectItem key={item.value} value={item.value}>
+                  {item.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={columnName}
+            onValueChange={(value) => {
+              setColumnName(value ?? "");
+              setCustomName(null);
+            }}
+            disabled={!needsField}
+          >
+            <SelectTrigger aria-label="Column" className="min-w-0 flex-1">
+              <SelectValue placeholder={needsField ? "Column" : "All rows"} />
+            </SelectTrigger>
+            <SelectContent>
+              {filteredFields.map((field) => (
+                <SelectItem key={field.id} value={field.columnName!}>
+                  {field.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor={`metric-name-${metric?.id ?? "new"}`}>Name</Label>
+          <Input
+            id={`metric-name-${metric?.id ?? "new"}`}
+            value={name}
+            onChange={(event) => setCustomName(event.target.value)}
+          />
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button
+            label="Cancel"
+            variant="ghost"
+            size="sm"
+            disabled={isSaving}
+            onClick={close}
+          />
+          <Button
+            label={metric ? "Save" : "Add metric"}
+            size="sm"
+            loading={isSaving}
+            disabled={!name.trim() || (needsField && !columnName)}
+            onClick={() => void save()}
+          />
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 export function MetricsSection({
   metrics,
+  dataTable,
   onReorder,
   onRemove,
-  onEditClick,
-  onAddClick,
-  defaultOpen = true,
-  embedded = false,
-}: MetricsSectionProps) {
-  const [isOpen, setIsOpen] = useState(defaultOpen);
-
-  // Convert InsightMetric to sortable item format
-  const sortableItems: MetricSortableItem[] = metrics.map((metric) => ({
+  onAdd,
+  onEdit,
+}: {
+  metrics: InsightMetric[];
+  dataTable: DataTable;
+  onReorder: (metrics: InsightMetric[]) => void;
+  onRemove: (metricId: string) => void;
+  onAdd: (metric: InsightMetric) => Promise<void> | void;
+  onEdit: (metric: InsightMetric) => Promise<void> | void;
+}) {
+  const items: MetricSortableItem[] = metrics.map((metric) => ({
     id: metric.id,
     metric,
   }));
-
-  // Handle reorder - convert back to metrics
   const handleReorder = useCallback(
-    (items: MetricSortableItem[]) => {
-      onReorder(items.map((item) => item.metric));
-    },
+    (next: MetricSortableItem[]) => onReorder(next.map((item) => item.metric)),
     [onReorder],
   );
-
-  const content = (
-    <div className={embedded ? "p-4" : "overflow-hidden px-4 pb-4"}>
-      {embedded && (
-        <div className="mb-3 flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-semibold text-neutral-fg">Metrics</h3>
-            <p className="text-xs text-neutral-fg-subtle">
-              Define the values to aggregate.
-            </p>
-          </div>
-          <Button
-            label="Add"
-            icon={PlusIcon}
-            variant="outline"
-            size="sm"
-            onClick={onAddClick}
-          />
-        </div>
-      )}
-      {sortableItems.length > 0 ? (
+  return (
+    <div className="space-y-1">
+      {items.length > 0 && (
         <SortableList
-          items={sortableItems}
+          items={items}
           onReorder={handleReorder}
-          gap={6}
-          itemClassName="bg-palette-primary/5 border-palette-primary/20"
-          renderItem={(item) => (
-            <MetricItemContent
+          gap={3}
+          unstyledItems
+          renderItem={(item, _index, { dragHandle }) => (
+            <MetricEditor
               metric={item.metric}
+              dataTable={dataTable}
+              dragHandle={dragHandle}
+              onSave={onEdit}
               onRemove={() => onRemove(item.id)}
-              onEditClick={() => onEditClick(item.metric)}
             />
           )}
         />
-      ) : (
-        <p className="py-2 text-sm text-neutral-fg-subtle">
-          No metrics configured.
-        </p>
       )}
-    </div>
-  );
-
-  if (embedded) return content;
-
-  return (
-    <Collapsible open={isOpen} onOpenChange={setIsOpen}>
-      <div className="border-b">
-        <div className="flex items-center justify-between px-4 py-3">
-          <CollapsibleTrigger
-            render={
-              <button
-                type="button"
-                className="-ml-2 flex items-center gap-1.5 rounded-md px-2 py-1 text-left transition-colors hover:bg-neutral-bg-emphasis/50"
-              >
-                <ChevronRightIcon
-                  className={cn(
-                    "h-4 w-4 text-neutral-fg-subtle transition-transform",
-                    isOpen && "rotate-90",
-                  )}
-                />
-                <CalculatorIcon className="h-4 w-4 text-neutral-fg-subtle" />
-                <span className="text-sm leading-none font-medium">
-                  Metrics
-                </span>
-                <Badge
-                  variant="soft"
-                  className="h-5 px-1.5 text-xs leading-none tabular-nums"
-                >
-                  {metrics.length}
-                </Badge>
-              </button>
-            }
-          />
-          <Button
-            label="Add"
-            icon={PlusIcon}
-            variant="ghost"
-            size="sm"
-            onClick={onAddClick}
-          />
-        </div>
-        <CollapsibleContent>{content}</CollapsibleContent>
-      </div>
-    </Collapsible>
-  );
-}
-
-interface MetricItemContentProps {
-  metric: InsightMetric;
-  onRemove: () => void;
-  onEditClick: () => void;
-}
-
-function MetricItemContent({
-  metric,
-  onRemove,
-  onEditClick,
-}: MetricItemContentProps) {
-  return (
-    <div className="flex min-w-0 flex-1 items-center gap-2">
-      <CalculatorIcon className="h-3 w-3 shrink-0 text-palette-primary" />
-      <span
-        className="min-w-0 flex-1 cursor-pointer truncate text-sm text-palette-primary hover:underline"
-        onClick={(e) => {
-          e.stopPropagation();
-          onEditClick();
-        }}
-        title={`${metric.name} (click to edit)`}
-      >
-        {metric.name}
-      </span>
-      <span className="shrink-0 text-xs text-palette-primary/60">
-        {metric.aggregation}
-      </span>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onEditClick();
-        }}
-        className="shrink-0 rounded-full p-0.5 text-palette-primary/60 hover:bg-palette-primary/10 hover:text-palette-primary"
-        aria-label={`Edit ${metric.name}`}
-      >
-        <EditIcon className="h-3 w-3" />
-      </button>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onRemove();
-        }}
-        className="shrink-0 rounded-full p-0.5 text-palette-primary/60 hover:bg-palette-primary/10 hover:text-palette-primary"
-        aria-label={`Remove ${metric.name}`}
-      >
-        <CloseIcon className="h-3 w-3" />
-      </button>
+      <MetricEditor dataTable={dataTable} onSave={onAdd} />
     </div>
   );
 }
