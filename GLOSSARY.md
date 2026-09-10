@@ -28,7 +28,7 @@ Shipped copy still says **question** — the insights page, dashboard detail, an
 
 ### Field
 
-A column of an insight's tables.
+A user-facing column owned by a data table. An insight selects fields by id; it does not own them.
 
 Model: `Field`
 
@@ -56,7 +56,7 @@ A chart of an insight's result, with encodings and appearance. An insight may ha
 
 Model: `Visualization`, `VisualizationEncoding`
 
-Shipped copy still says **saved view**, in insight and dashboard delete confirmations.
+Shipped copy still says **saved view** — dashboard detail and the insights collection are entry points, not an inventory.
 
 ### Dashboard
 
