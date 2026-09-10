@@ -883,6 +883,80 @@ describe("immutable Insight materializer", () => {
     expect(h.publish).toHaveBeenCalledOnce();
   });
 
+  it("retries a late waiter after the only streaming consumer aborts", async () => {
+    let releaseRollback!: () => void;
+    let observedFirst!: () => void;
+    const rollback = new Promise<void>((resolve) => {
+      releaseRollback = resolve;
+    });
+    const firstObserved = new Promise<void>((resolve) => {
+      observedFirst = resolve;
+    });
+    let resolves = 0;
+    const h = harness({
+      resolveSource: async (ctx, tableId) => {
+        resolves += 1;
+        if (resolves === 1) {
+          observedFirst();
+          await rollback;
+          ctx.requestSignal?.throwIfAborted();
+        }
+        return source(tableId);
+      },
+    });
+    h.storage.saveBatches = vi.fn(async (id, batches) => {
+      let last = new Uint8Array();
+      for await (const batch of batches) last = batch;
+      h.bytes.set(id, last);
+    });
+    h.storage.getUsage = vi.fn(async () => ({ count: 0, totalBytes: 0 }));
+    h.storage.stream = async function* (id) {
+      const value = h.bytes.get(id);
+      if (value) yield value;
+    };
+    h.runtime.registerArrowStream = vi.fn(async (_name, stream) => {
+      for await (const _chunk of stream) {
+        // Drain like the native runtime.
+      }
+    });
+    h.runtime.queryArrowBatches = async function* () {
+      yield new Uint8Array([9]);
+    };
+    const materializer = createInsightMaterializer(h.dependencies);
+    const firstController = new AbortController();
+    const replacementController = new AbortController();
+    const args = {
+      target: { kind: "saved", insightId: "insight" } as const,
+      insight,
+    };
+
+    const first = materializer.materialize({
+      ...args,
+      ctx: {
+        requestSignal: firstController.signal,
+        dataFrameStorage: h.storage,
+        dataPlaneRuntime: h.runtime,
+      } as HostContext,
+    });
+    await firstObserved;
+    firstController.abort(new Error("first left"));
+    const replacement = materializer.materialize({
+      ...args,
+      ctx: {
+        requestSignal: replacementController.signal,
+        dataFrameStorage: h.storage,
+        dataPlaneRuntime: h.runtime,
+      } as HostContext,
+    });
+
+    expect(resolves).toBe(1);
+    releaseRollback();
+    await expect(first).rejects.toThrow("first left");
+    await expect(replacement).resolves.toMatchObject({ status: "ready" });
+    expect(resolves).toBe(3);
+    expect(h.publish).toHaveBeenCalledOnce();
+  });
+
   it("bounds shared provider work with an independent deadline", async () => {
     vi.useFakeTimers();
     try {

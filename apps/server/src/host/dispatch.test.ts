@@ -1,6 +1,50 @@
-import { expect, it } from "vite-plus/test";
+import { expect, it, vi } from "vite-plus/test";
+import type { HostContext } from "./context";
+import { hostOperations } from "./registry";
 import * as app from "@dashframe/convex-backend/app";
-import { CONVEX_QUERY_NAMES, CONVEX_MUTATION_NAMES } from "./dispatch";
+import {
+  CONVEX_QUERY_NAMES,
+  CONVEX_MUTATION_NAMES,
+  createApplicationOperations,
+} from "./dispatch";
+
+it.each([false, true])(
+  "preserves admitted cancellation when dispatch adds a caller signal: %s",
+  async (includeCaller) => {
+    const admitted = new AbortController();
+    const caller = new AbortController();
+    let observed: AbortSignal | undefined;
+    const stop = new Error("probe complete");
+    const spy = vi
+      .spyOn(hostOperations.getConnectorCatalog, "execute")
+      .mockImplementation(async (ctx) => {
+        observed = ctx.requestSignal;
+        throw stop;
+      });
+    try {
+      const application = createApplicationOperations({
+        convexUrl: "https://metadata.test",
+        identity: { issue: () => ({ token: "fixture", expiresAt: 1 }) },
+        context: (principal) =>
+          ({ principal, requestSignal: admitted.signal }) as HostContext,
+      });
+      await expect(
+        application.execute(
+          "getConnectorCatalog",
+          {},
+          {
+            principal: { kind: "user", userId: "owner" },
+            ...(includeCaller ? { signal: caller.signal } : {}),
+          },
+        ),
+      ).rejects.toThrow(stop);
+      admitted.abort();
+      expect(observed?.aborted).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
+  },
+);
 
 const registeredFunctions = {
   projectInfo: app.projectInfo,

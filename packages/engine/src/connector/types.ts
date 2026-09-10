@@ -104,6 +104,8 @@ export interface QueryOptions {
   maxBytes?: number;
   /** Reject a result above this row count instead of returning a partial prefix. */
   maxRows?: number;
+  /** Optional provider response budget, enforced by supporting connectors. */
+  maxResponseBytes?: number;
   // Future: Add filters, sorting, etc.
 }
 

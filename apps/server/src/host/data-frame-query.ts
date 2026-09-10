@@ -85,9 +85,11 @@ async function ensureRegistered(
     !runtime ||
     !storage ||
     (!runtime.registerArrowTable &&
+      !(runtime.registerArrowBatches && storage.loadBatches) &&
       !(runtime.registerArrowStream && storage.stream))
   )
     throw new Error("TARGET_NOT_READY");
+  if (!(await storage.exists(id))) throw new Error("FRAME_UNAVAILABLE");
   await registerStoredFrame(storage, runtime, name, id);
 }
 
@@ -116,7 +118,9 @@ async function revokedDuringRegistration(
   id: UUID,
   name: string,
 ) {
-  if (await frameIsOwned(ctx, id)) return undefined;
+  const owned = await frameIsOwned(ctx, id);
+  const exists = await ctx.dataFrameStorage!.exists(id);
+  if (owned && exists) return undefined;
   // Best-effort, like the sibling routes: drop any table an earlier request
   // registered under this name so a revoked frame keeps no rows in the engine.
   // Cleanup must not change the classification — a disposed runtime rejects

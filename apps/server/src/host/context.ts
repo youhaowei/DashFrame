@@ -28,6 +28,13 @@ export interface HostContext {
   googleOAuth?: GoogleOAuthConfig;
   application?: ApplicationOperations;
   dataFrameStorage?: DataFrameStorage;
+  /** Value-free instrumentation for a materialization owned by this host. */
+  onMaterializationProgress?: (progress: {
+    phase: "source" | "result" | "publication";
+    rows: number;
+    bytes: number;
+    elapsedMs: number;
+  }) => void;
   dataPlaneRuntime?: ArrowQueryRunner &
     Partial<ArrowTableRegistrar> & {
       unregisterTable?: (name: string) => Promise<void>;
