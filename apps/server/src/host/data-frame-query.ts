@@ -99,6 +99,45 @@ async function frameIsOwned(ctx: HostContext, id: UUID): Promise<boolean> {
   return !!row && storage?.type === "file" && storage.key === row.id;
 }
 
+/**
+ * Classifies a failed registration. Registration crosses an async storage
+ * boundary, so the frame can be revoked between the metadata read and the
+ * bytes actually loading. That race is a missing frame, not an execution
+ * fault: the sibling Arrow registration routes already answer it as "not
+ * found", and letting it fall through to the caller's catch-all would make
+ * two paths disagree about the same race. Ownership is re-checked only after
+ * the failure, so the answer reflects settled state instead of opening
+ * another check-then-act window.
+ *
+ * Returns undefined when the frame is still owned and the fault is genuine.
+ */
+async function revokedDuringRegistration(
+  ctx: HostContext,
+  id: UUID,
+  name: string,
+) {
+  if (await frameIsOwned(ctx, id)) return undefined;
+  // Best-effort, like the sibling routes: drop any table an earlier request
+  // registered under this name so a revoked frame keeps no rows in the engine.
+  // Cleanup must not change the classification — a disposed runtime rejects
+  // here, and that cannot resurface as an execution failure when the frame is
+  // simply gone.
+  try {
+    await ctx.dataPlaneRuntime?.unregisterTable?.(name);
+  } catch {
+    // Leave the stale table. There is no request-driven retry: this path runs
+    // only for an already-revoked frame, and a later request for it returns
+    // FRAME_NOT_FOUND at the metadata check above without reaching here.
+    // HostResourceCleanup owns the durable retry, retaining its record until
+    // the drop succeeds.
+  }
+  return {
+    status: "failed" as const,
+    code: "FRAME_NOT_FOUND",
+    message: "The requested DataFrame is unavailable.",
+  };
+}
+
 export async function queryDataFrame(
   ctx: HostContext,
   input: {
@@ -161,7 +200,13 @@ export async function queryDataFrame(
   }
   const name = tableName(row.id);
   try {
-    await ensureRegistered(ctx, row.id, name);
+    try {
+      await ensureRegistered(ctx, row.id, name);
+    } catch (error) {
+      const revoked = await revokedDuringRegistration(ctx, row.id, name);
+      if (revoked) return revoked;
+      throw error;
+    }
     // Registration crosses an asynchronous storage/runtime boundary. The
     // frame may be revoked while bytes are loading, so re-check project
     // ownership before executing any SQL against the registered table.
