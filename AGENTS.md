@@ -276,6 +276,19 @@ rule choices.
 Root scripts and `vite.config.ts` are covered by `check:root-lint`, which is part
 of `bun run check`.
 
+## Product and design docs
+
+Three files, three reader moments. Load the one that matches the work:
+
+- Load `PRODUCT.md` before deciding whether a feature or element belongs, and before product copy or UX writing.
+- Load `DESIGN.md` before changing UI — layout, components, styling, or interaction.
+- Load `GLOSSARY.md` before naming anything a user sees, or a model type.
+
+`DESIGN.md` is product design. Framework design — the shared visual language,
+tokens, and primitives across the portfolio — lives in `libs/stdui` and is not
+restated in this repo. Plans, sequencing, pricing, and positioning belong in the
+private tracker, never in these files.
+
 ## UI work
 
 Read `DESIGN.md` before changing UI. `@wystack/ui-core` supplies tokens and
