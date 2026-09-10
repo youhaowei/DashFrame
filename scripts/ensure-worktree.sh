@@ -145,15 +145,30 @@ init_unpopulated_submodules() {
 acquire_provisioning_lock() {
   _apl_lock="$1"
 
-  # A failed redirection on `exec` terminates a non-interactive shell, so
-  # confirm the directory is writable rather than letting that abort the run.
-  [ -w "$(dirname "$_apl_lock")" ] || return 1
-
   if command -v lockf >/dev/null 2>&1; then
     _apl_tool=lockf
   elif command -v flock >/dev/null 2>&1; then
     _apl_tool=flock
   else
+    return 1
+  fi
+
+  # Prove the open succeeds BEFORE `exec` does it. A redirection error on
+  # `exec` does not reliably abort: called as the condition of an `if`, this
+  # function keeps running past a failed one, and if fd 9 happened to be open
+  # already, the lock tool would lock that unrelated descriptor and report
+  # success — the critical section entered while believing itself locked. The
+  # concrete way to get here is a DIRECTORY at the lock path, which is exactly
+  # what an older revision of this script created. `: >` opens with the same
+  # semantics as the redirection below, so it fails on precisely the cases the
+  # redirection would.
+  if [ -e "$_apl_lock" ] && [ ! -f "$_apl_lock" ]; then
+    echo "WARNING [ensure-worktree]: '$_apl_lock' exists and is not a regular file; provisioning unserialized." >&2
+    echo "  Remove it to restore locking." >&2
+    return 1
+  fi
+  if ! : >"$_apl_lock" 2>/dev/null; then
+    echo "WARNING [ensure-worktree]: cannot open '$_apl_lock'; provisioning unserialized." >&2
     return 1
   fi
 
@@ -371,7 +386,19 @@ install_dependencies() {
   # for the retry to discard covers the graceful and the violent failure with
   # one rule. It also closes the same hazard for a tree bun itself half-wrote,
   # which previously survived into the backfill gate.
-  if [ "$_idep_locked" = true ] && [ -f "$_idep_pending" ]; then
+  if [ -f "$_idep_pending" ]; then
+    # Recovering means deleting, which is only safe while nobody else can be
+    # provisioning here. Unlocked, refuse rather than fall through: the backfill
+    # gate below would read the interrupted clone as evidence of an install and
+    # stamp it provisioned, which is the exact defect the pending marker exists
+    # to prevent — and it would do so permanently, since every later run stops
+    # at the provisioned gate. Leave the marker in place so a run that CAN lock
+    # still repairs it.
+    if [ "$_idep_locked" != true ]; then
+      echo "ERROR [ensure-worktree]: '$_idep_wt' has an interrupted provisioning attempt to clean up, and this host has no way to lock it." >&2
+      echo "  Install lockf(1) or flock(1), or remove '$_idep_wt/node_modules' by hand and re-run." >&2
+      exit 1
+    fi
     rm -rf "$_idep_wt/node_modules"
     rm -f "$_idep_pending"
   fi
