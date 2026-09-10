@@ -1,35 +1,15 @@
 import "@dashframe/app/globals.css";
 
-import type { AppRouterContext, ProviderWrapper } from "@dashframe/app";
-import {
-  ChartEngineProvider,
-  createAppRuntime,
-  resolveAppConfig,
-} from "@dashframe/app";
-import { createServerFrameConnector } from "@dashframe/visualization";
-import { createRouter, RouterProvider } from "@tanstack/react-router";
+import { HostedAccessScreen } from "@/components/hosted-access/HostedAccessScreen";
+import { ThemeProvider } from "@/components/theme-provider";
+import { startHostSession } from "@dashframe/app";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { flushSync } from "react-dom";
 
-import { routeTree } from "./routeTree.gen";
+import { createDesktopApp } from "./bootstrap/desktop-app";
+import { resolveDesktopHost } from "./bootstrap/desktop-host";
 import { isServerFrameEngineLoss } from "./server-frame-engine-loss";
-import { createRendererHistory } from "./renderer-history";
-
-// Router is created at module scope (so `typeof router` registers the type),
-// with an empty context. The runtime context — the Convex Provider wrapper —
-// is injected after the async URL handshake, via router.update(), before the
-// first render.
-const router = createRouter({
-  routeTree,
-  history: createRendererHistory(),
-  context: {} as AppRouterContext,
-});
-
-declare module "@tanstack/react-router" {
-  interface Register {
-    router: typeof router;
-  }
-}
 
 function renderBootstrapError(error: unknown) {
   console.error("Failed to start DashFrame renderer", error);
@@ -43,53 +23,37 @@ function renderBootstrapError(error: unknown) {
   );
 }
 
-// The renderer is a localhost client of the loopback host server the
-// Electron main process starts. Resolve its URL via IPC, mint the client once,
-// and inject the Convex Provider through the shared app's providerWrapper slot.
-//
-// Desktop charts use the same server-frame Mosaic connector as web. The shared
-// tree receives no Electron-specific data-plane injection.
+// The renderer is a client of whichever host it is pointed at. Today the
+// Electron main process resolves that host over IPC — the loopback server it
+// started, with the per-launch bearer token that authenticates against it — but
+// the access state machine below is the same one the browser client runs, so a
+// remote host answering "signed-out" or "pending" renders the same screens.
 async function bootstrap() {
-  const config = await resolveAppConfig();
-  const { Provider, close } = createAppRuntime(config);
-  window.addEventListener(
-    "pagehide",
-    () => {
-      close();
-    },
-    { once: true },
-  );
-
-  if (!config.token) {
-    throw new Error(
-      "Desktop server info omitted its loopback token; server frame access unavailable",
-    );
-  }
-  const connector = createServerFrameConnector({
-    serverUrl: config.url,
-    token: config.token,
-  });
-
-  const providerWrapper: ProviderWrapper = ({ children }) => (
-    <Provider>
-      <ChartEngineProvider connector={connector}>
-        {children}
-      </ChartEngineProvider>
-    </Provider>
-  );
-
-  router.update({ context: { providerWrapper } });
+  const { url, token } = await resolveDesktopHost(window.dashframe);
 
   const container = document.getElementById("root");
-  if (!container) {
-    throw new Error("Root container #root not found");
-  }
+  if (!container) throw new Error("Root container #root not found");
+  const root = createRoot(container);
 
-  createRoot(container).render(
-    <StrictMode>
-      <RouterProvider router={router} />
-    </StrictMode>,
-  );
+  // startHostSession owns its own pagehide teardown; do not double-register.
+  startHostSession({
+    hostUrl: url,
+    token,
+    createRuntime: createDesktopApp,
+    publish(view) {
+      const content =
+        view.status === "local-ready" || view.status === "admitted" ? (
+          view.runtime.element
+        ) : (
+          <ThemeProvider>
+            <HostedAccessScreen {...view} />
+          </ThemeProvider>
+        );
+      // Flush provider cleanup before the controller closes its Convex client.
+      flushSync(() => root.render(<StrictMode>{content}</StrictMode>));
+    },
+    unmount: () => root.unmount(),
+  });
 }
 
 bootstrap().catch(renderBootstrapError);
