@@ -356,12 +356,6 @@ export function toFetchFailure(
   const streamingFailures: Record<string, string> = {
     SOURCE_RESULT_TOO_LARGE:
       "The data exceeds this host's byte budget. Narrow the source report and retry.",
-    MATERIALIZATION_STORAGE_LIMIT:
-      "The workspace has insufficient snapshot storage. Remove unused data and retry.",
-    MATERIALIZATION_BUSY:
-      "Another data refresh is running in this workspace. Retry when it finishes.",
-    MATERIALIZATION_TIMEOUT:
-      "The data refresh exceeded this host's time budget.",
   };
   const code =
     RUNTIME_FAILURE_CODES.has(sourceCode) ||
@@ -381,11 +375,7 @@ export function toFetchFailure(
       : fallback;
   let result: InsightFetchResult;
   if (Object.hasOwn(streamingFailures, code))
-    result = failed(
-      code,
-      streamingFailures[code]!,
-      code === "MATERIALIZATION_BUSY" || code === "MATERIALIZATION_TIMEOUT",
-    );
+    result = failed(code, streamingFailures[code]!);
   else if (code === "FETCH_BUSY")
     result = failed(
       code,

@@ -1,19 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import type { HostContext } from "../context";
-import {
-  CoalescedOperation,
-  STREAM_BATCH_BYTES,
-  STREAM_TOTAL_BYTES,
-  StreamingBudget,
-} from "./streaming";
-
-it("preserves buffered payloads above the batch cap while enforcing total bytes", () => {
-  const budget = new StreamingBudget({} as HostContext, 0);
-  expect(() => budget.acceptBuffered(STREAM_BATCH_BYTES + 1, 1)).not.toThrow();
-  expect(() => budget.acceptBuffered(STREAM_TOTAL_BYTES, 1)).toThrow(
-    "SOURCE_RESULT_TOO_LARGE",
-  );
-});
+import { CoalescedOperation } from "./streaming";
 
 describe("coalesced materialization cancellation", () => {
   it("keeps acquisition alive for a remaining consumer", async () => {

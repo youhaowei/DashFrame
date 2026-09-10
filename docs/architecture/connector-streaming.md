@@ -45,19 +45,21 @@ populated Arrow schema; changed field IDs from provider discovery are ignored.
 An empty terminal page contributes no rows and cannot replace a populated schema.
 Schema evolution requires explicit source schema refresh, never silent coercion.
 
-Acquisition is pull-driven with no page prefetch. The host admits one streaming
-materialization per runtime and rejects overlapping distinct work rather than
-building an unbounded queue; identical requests retain existing in-flight coalescing.
+Acquisition is pull-driven with no page prefetch. The host admits one active
+streaming materialization per runtime and queues at most four distinct definitions;
+further work fails with `FETCH_BUSY`. Identical requests retain existing in-flight
+coalescing rather than taking another queue slot.
 For local streaming, one caller cancelling leaves shared work running for its
 remaining consumers. The final consumer's cancellation aborts acquisition and
 waits for rollback to settle. Completed results retain the existing short sibling
 replay cache. Hosted work retains its independent deadline and workspace leases.
-Defaults: 1,000 GA4 rows per page, 8 MiB encoded bytes per batch, 256 MiB total
-encoded bytes per materialization, 2 GiB durable project storage, and five minutes
-per operation. Bytes are IPC accounting, not a promise about JavaScript/native RSS.
-Buffered compatibility adapters retain their whole-payload save contract: the
-8 MiB batch cap does not apply to that payload. Aggregate byte and storage checks
-run after their acquisition, so they do not bound those adapters' acquisition memory.
+Defaults: 1,000 GA4 rows and 8 MiB of provider response or encoded Arrow per GA4
+page; 16 MiB per source/result transfer batch; 256 MiB total encoded bytes per
+materialization; 2 GiB durable project storage; and two minutes including queue time.
+Bytes are IPC accounting, not a promise about JavaScript/native RSS. Buffered
+compatibility adapters retain their whole-payload save contract: the 16 MiB transfer
+batch cap does not apply to that payload. Aggregate byte and storage checks run after
+their acquisition, so they do not bound those adapters' acquisition memory.
 Provider JSON is still decoded one page at a time. Native memory and disk-spill
 isolation remain deployment responsibilities; this change does not grant additional
 filesystem or network access to a query engine.

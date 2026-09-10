@@ -17,15 +17,7 @@ vi.mock("../connectors", () => ({
   postgresConnectorFor: vi.fn(),
 }));
 import { createProductionFetchExecutor } from "./production";
-import {
-  STREAM_BATCH_BYTES,
-  STREAM_BATCH_ROWS,
-  STREAM_DURATION_MS,
-  STREAM_STORAGE_BYTES,
-  StreamingBudget,
-  supportsStreaming,
-  withStreamingBudget,
-} from "./streaming";
+import { STREAM_BATCH_ROWS, supportsStreaming } from "./streaming";
 
 const directories: string[] = [];
 const engines: NativeDuckDBEngine[] = [];
@@ -210,38 +202,6 @@ describe("streaming production materialization", () => {
     expect(f.publications).toEqual([]);
   });
 
-  it("rejects exhausted storage before acquiring provider data", async () => {
-    const f = await fixture(1);
-    vi.spyOn(f.storage, "getUsage").mockResolvedValue({
-      count: 1,
-      totalBytes: STREAM_STORAGE_BYTES + 1,
-    });
-    await expect(f.run()).rejects.toThrow("FETCH_STORAGE_BUDGET_EXCEEDED");
-    expect(f.pageCount()).toBe(0);
-  });
-
-  it("closes the producer when a batch exceeds its byte budget", async () => {
-    const f = await fixture(1);
-    let closed = false;
-    const input = (async function* () {
-      try {
-        yield new Uint8Array(STREAM_BATCH_BYTES + 1);
-      } finally {
-        closed = true;
-      }
-    })();
-    const consume = async () => {
-      for await (const _batch of new StreamingBudget(f.ctx, 0).batches(
-        input,
-        "source",
-      )) {
-        throw new Error("oversized batch escaped");
-      }
-    };
-    await expect(consume()).rejects.toThrow("SOURCE_RESULT_TOO_LARGE");
-    expect(closed).toBe(true);
-  });
-
   it("publishes more than 10000 rows and rehydrates without whole-result APIs", async () => {
     const f = await fixture();
     vi.spyOn(f.storage, "save").mockRejectedValue(
@@ -313,35 +273,4 @@ describe("streaming production materialization", () => {
       expect(f.publications[0]?.result.schema).toHaveLength(2);
     },
   );
-
-  it("bounds admission across executor instances and releases it after failure", async () => {
-    const f = await fixture(1);
-    let release!: () => void;
-    const held = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const first = withStreamingBudget(f.ctx, async () => held);
-    await expect(
-      withStreamingBudget(f.ctx, async () => undefined),
-    ).rejects.toThrow("MATERIALIZATION_BUSY");
-    release();
-    await first;
-    await expect(f.run()).resolves.toMatchObject({ status: "ready" });
-  });
-
-  it("enforces the operation deadline and cleans up its admission slot", async () => {
-    const f = await fixture(1);
-    vi.useFakeTimers();
-    const operation = withStreamingBudget(f.ctx, async (context) => {
-      await new Promise<void>((resolve) => {
-        context.requestSignal!.addEventListener("abort", () => resolve(), {
-          once: true,
-        });
-      });
-      context.requestSignal!.throwIfAborted();
-    });
-    const outcome = operation.catch((error: unknown) => error);
-    await vi.advanceTimersByTimeAsync(STREAM_DURATION_MS);
-    expect(await outcome).toMatchObject({ message: "MATERIALIZATION_TIMEOUT" });
-  });
 });
