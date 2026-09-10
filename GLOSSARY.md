@@ -34,7 +34,7 @@ The locations below are entry points, not an exhaustive inventory — the older 
 | Visualization | saved view    | insight and dashboard delete confirmations                                           |
 | Dashboard     | report        | `packages/app/src/components/navigation.tsx`, `lib/reports/`, `apps/server/src/mcp/` |
 
-Do not use “query” for an insight anywhere.
+Do not use “query” as the name of an insight in user-facing copy. Definitions and code may describe what an insight is — a saved query.
 
 ## Workbench
 
