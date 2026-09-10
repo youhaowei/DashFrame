@@ -29,6 +29,8 @@ interface SelectProps {
   placeholder?: string;
   className?: string;
   onClear?: () => void;
+  /** Render an unselected trigger as an empty dashed slot. */
+  emptyDashed?: boolean;
   /** Error message to display below the field */
   error?: string;
 }
@@ -42,6 +44,7 @@ export function Select({
   placeholder = "Select an option...",
   className,
   error,
+  emptyDashed = false,
 }: SelectProps) {
   const selectedOption = options.find((option) => option.value === value);
   const items = options.map((option) => ({
@@ -65,6 +68,7 @@ export function Select({
         <SelectTrigger
           className={cn(
             "w-full",
+            emptyDashed && !value && "border-dashed",
             error && "border-palette-danger focus:ring-palette-danger",
           )}
         >
