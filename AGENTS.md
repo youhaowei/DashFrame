@@ -92,6 +92,20 @@ provisioning the worktree. A reused worktree is left untouched, so local
 explicitly. Run `bun run build:wystack` when built `@wystack/*` output is
 needed.
 
+Electron is shared, not copied. Its npm package is a ~1 MiB stub whose
+`postinstall` downloads a ~95 MiB zip and unzips it to ~242 MiB inside
+`node_modules` — per worktree, because the extraction is cached nowhere.
+Provisioning therefore sets `ELECTRON_SKIP_BINARY_DOWNLOAD=1` for the install
+and runs `scripts/ensure-electron-dist.sh`, which keeps one extracted copy per
+version under `~/.cache/dashframe/electron/<version>` and gives each worktree an
+APFS clone of it. The clone is copy-on-write, so a worktree's Electron costs
+~0 MiB instead of 242, and it lands where Electron already looks — nothing
+downstream needs `ELECTRON_OVERRIDE_DIST_PATH`, and no launcher, test, or
+packaging step has to know about any of this. Every failure path falls back to
+Electron's own installer, so a worktree may keep its own copy but is never left
+without Electron. Run the script by hand after a manual `bun install` that
+re-downloads it; `DASHFRAME_ELECTRON_CACHE` overrides the shared location.
+
 If provisioning fails, rerun the same command after fixing the cause; do not
 improvise another checkout. A failed first run leaves a resumable worktree.
 

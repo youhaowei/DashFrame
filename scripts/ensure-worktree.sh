@@ -162,6 +162,12 @@ install_dependencies() {
   # skipping an install and surfacing the ordinary missing-dependency error,
   # which is recoverable, rather than stranding a worktree, which is not.
   if [ -d "$_idep_wt/node_modules" ]; then
+    # Electron still gets checked, because this path also catches the worktree
+    # whose install succeeded and whose Electron step did not: node_modules
+    # exists, so without this the backfill would mark it provisioned and the
+    # missing binaries would never be repaired. The check is a stat when the
+    # dist is already there, so a genuinely pre-existing worktree pays nothing.
+    ensure_electron_dist "$_idep_wt"
     : >"$_idep_marker"
     return
   fi
@@ -173,15 +179,44 @@ install_dependencies() {
     exit 1
   fi
 
+  # ELECTRON_SKIP_BINARY_DOWNLOAD stops Electron's postinstall from downloading
+  # and unzipping ~242 MiB into this worktree. ensure_electron_dist below puts
+  # the binaries in place instead, as a copy-on-write clone of one shared copy.
+  # If that fails for any reason it runs Electron's own installer, so the skip
+  # can never leave a worktree without Electron.
   echo "[ensure-worktree] installing dependencies (bun install --frozen-lockfile)..." >&2
-  if ! (cd "$_idep_wt" && bun install --frozen-lockfile >&2); then
+  if ! (cd "$_idep_wt" && ELECTRON_SKIP_BINARY_DOWNLOAD=1 bun install --frozen-lockfile >&2); then
     echo "ERROR [ensure-worktree]: 'bun install --frozen-lockfile' failed in '$_idep_wt'." >&2
     echo "  The lockfile does not match the manifests on this branch. Fix it and re-run;" >&2
     echo "  the worktree is left in place and re-running retries the install." >&2
     exit 1
   fi
 
+  # After the install, never before: it needs node_modules/electron to exist.
+  # This is what puts Electron's binaries in place at all, because the install
+  # above skipped their download — so a failure here is fatal and the worktree
+  # is NOT marked provisioned. Re-running resumes. Losing only the *sharing*
+  # is not a failure: the script exits zero whenever the worktree ends up with
+  # Electron, shared or private.
+  ensure_electron_dist "$_idep_wt"
+
   : >"$_idep_marker"
+}
+
+# ensure_electron_dist <worktree_path>
+# Hand off to scripts/ensure-electron-dist.sh, which gives the worktree an APFS
+# clone of one shared extracted Electron rather than its own 242 MiB copy. See
+# that script for why this is a clone and not ELECTRON_OVERRIDE_DIST_PATH.
+ensure_electron_dist() {
+  _eed_wt="$1"
+  _eed_script="$_eed_wt/scripts/ensure-electron-dist.sh"
+  [ -x "$_eed_script" ] || return 0
+  if ! "$_eed_script" "$_eed_wt"; then
+    echo "ERROR [ensure-worktree]: Electron's binaries could not be installed in '$_eed_wt'." >&2
+    echo "  The desktop app cannot start without them. Fix the cause and re-run;" >&2
+    echo "  the worktree is left in place and re-running retries just this step." >&2
+    exit 1
+  fi
 }
 
 # assert_submodule_pins_pushed <rev>
