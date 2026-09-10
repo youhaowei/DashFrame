@@ -8,7 +8,7 @@ These are the canonical target terms. Model types live in `@dashframe/types`. Ne
 
 ### Data source
 
-A connection to a file, database, or SaaS account.
+A configured origin for tables, such as a database or SaaS connection. Local file imports share the **Local Files** data source; each imported file becomes a table, not a separate data source.
 
 Model: `DataSource`
 
@@ -34,7 +34,7 @@ Model: `Field`
 
 ### Metric
 
-A column aggregation — sum, count, avg. Either saved on a table for reuse, or defined inside one insight.
+An aggregation definition — sum, count, avg. Row counts (`count()`) need no column; other aggregations target a column. Either saved on a table for reuse, or defined inside one insight.
 
 Model: `Metric` (table-owned), `InsightMetric` (insight-local)
 
@@ -46,9 +46,9 @@ Model: `InsightFilter`
 
 ### Viewer controls
 
-The filters, sort, and limit a dashboard viewer may change.
+Values a dashboard viewer may change through exposed field-filter controls. The insight runtime declaration defines allowed filters, sort, and limit, but the shipped dashboard viewer UI exposes only filter values. Sort and limit are author-owned item overrides available in edit mode.
 
-Model: `InsightRuntimeDeclaration`
+Model: `DashboardControl` (viewer inputs), `InsightRuntimeDeclaration` (allowed runtime inputs)
 
 ### Visualization
 
