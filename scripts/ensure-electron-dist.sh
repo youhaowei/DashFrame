@@ -2,7 +2,11 @@
 # ensure-electron-dist.sh — give a worktree Electron's binaries for ~0 disk
 #
 # USAGE:
-#   scripts/ensure-electron-dist.sh [worktree-path]   # default: repo root
+#   scripts/ensure-electron-dist.sh [--force] [worktree-path]
+#
+# The worktree path defaults to the repository root. --force replaces an
+# existing private dist with a clone from the shared cache when sharing is
+# available; use it after a manual install has downloaded a private copy.
 #
 # Electron's npm package is a ~1 MiB stub whose `postinstall` downloads a
 # ~95 MiB zip and unzips it to ~242 MiB inside node_modules. The download is
@@ -10,8 +14,8 @@
 # is not, so every worktree pays the full 242 MiB and the full unzip. On a
 # machine with a dozen worktrees that is most of what node_modules costs.
 #
-# This keeps ONE extracted copy per version under
-#   ~/.cache/dashframe/electron/<version>/dist
+# This keeps ONE extracted copy per version, platform, and architecture under
+#   ~/.cache/dashframe/electron/<version>/<platform>-<architecture>/dist
 # and gives each worktree an APFS clone of it. `cp -c` is copy-on-write, so the
 # clone shares blocks with the shared copy and costs essentially nothing.
 #
@@ -26,11 +30,34 @@
 # FAIL-OPEN, BUT NOT FAIL-SILENT. Every sharing failure falls back to
 # Electron's own installer, so a worktree may end up with its own full copy —
 # that is fine, it is only the optimisation that was lost. What is NOT fine is
-# ending with no Electron at all: the caller sets ELECTRON_SKIP_BINARY_DOWNLOAD
-# for the install, so this script is the only thing that puts the binaries in
-# place. It therefore exits non-zero whenever it leaves the package unusable,
-# and the caller must not record the worktree as provisioned in that case.
+# ending with no Electron at all: the caller may skip the binary download for
+# the package install, so this script exits non-zero whenever it leaves the
+# package unusable.
 set -eu
+
+usage() {
+  echo "Usage: scripts/ensure-electron-dist.sh [--force] [worktree-path]" >&2
+}
+
+force=false
+case "${1:-}" in
+  --force)
+    force=true
+    shift
+    ;;
+  -h|--help)
+    usage
+    exit 0
+    ;;
+  --*)
+    usage
+    exit 2
+    ;;
+esac
+if [ "$#" -gt 1 ]; then
+  usage
+  exit 2
+fi
 
 wt="${1:-$(git rev-parse --show-toplevel)}"
 
@@ -86,102 +113,187 @@ give_up() {
   exit 1
 }
 
-version=$(node -p "require(process.argv[1] + '/package.json').version" "$pkg" 2>/dev/null || echo "")
+# The common path needs no runtime at all. A forced conversion or missing dist
+# does need Node because Electron's package metadata and installer are Node
+# scripts; fail before claiming that provisioning succeeded when it is absent.
+if [ "$force" = false ] && usable "$pkg/dist" "$pkg/path.txt"; then
+  exit 0
+fi
+if ! command -v node >/dev/null 2>&1; then
+  echo "[electron-dist] Node.js is required to provision Electron." >&2
+  exit 1
+fi
+
+version=$(node -p "require(process.argv[1] + '/package.json').version" "$pkg" 2>/dev/null) \
+  || give_up "cannot read Electron's version from $pkg."
 if [ -z "$version" ]; then
   give_up "cannot read Electron's version from $pkg."
 fi
 
-cache="${DASHFRAME_ELECTRON_CACHE:-$HOME/.cache/dashframe/electron}/$version"
-shared="$cache/dist"
+# Match Electron's install.js target selection, including its Rosetta special
+# case. A version-only key can otherwise hand a darwin-arm64 binary to an x64
+# worktree (or vice versa), and the executable-bit usability check cannot tell.
+target_platform=$(node -p "process.env.npm_config_platform || process.platform") \
+  || give_up "cannot determine Electron's target platform."
+target_arch=$(node -p "process.env.npm_config_arch || process.arch") \
+  || give_up "cannot determine Electron's target architecture."
+if [ "$target_platform" = darwin ] \
+  && [ "$(node -p 'process.platform')" = darwin ] \
+  && [ "$target_arch" = x64 ] \
+  && [ "${npm_config_arch+x}" != x ] \
+  && [ "$(sysctl -in sysctl.proc_translated 2>/dev/null || true)" = 1 ]; then
+  target_arch=arm64
+fi
+case "$version" in
+  ""|.|..|*[!A-Za-z0-9._-]*)
+    give_up "Electron's cache identity contains unsupported characters."
+    ;;
+esac
+case "$target_platform" in
+  ""|.|..|*[!A-Za-z0-9._-]*)
+    give_up "Electron's target platform is not cache-safe."
+    ;;
+esac
+case "$target_arch" in
+  ""|.|..|*[!A-Za-z0-9._-]*)
+    give_up "Electron's target architecture is not cache-safe."
+    ;;
+esac
 
-# `path.txt` is what Electron's own index.js reads to find the executable
-# inside dist. A dist without it is unusable, so it is cached alongside.
+cache="${DASHFRAME_ELECTRON_CACHE:-$HOME/.cache/dashframe/electron}/$version/$target_platform-$target_arch"
+shared="$cache/dist"
 shared_pathfile="$cache/path.txt"
 
-# ── Already provisioned? ─────────────────────────────────────────────────────
-# Tested before taking the lock: the overwhelmingly common case is a worktree
-# that is already done, and it should cost one stat.
-if usable "$pkg/dist" "$pkg/path.txt"; then
+install_private() {
+  echo "[electron-dist] running Electron's private installer..." >&2
+  if ! (
+    unset ELECTRON_SKIP_BINARY_DOWNLOAD
+    cd "$pkg"
+    node install.js >&2
+  ); then
+    give_up "Electron's installer failed."
+  fi
+  usable "$pkg/dist" "$pkg/path.txt" \
+    || give_up "Electron's installer reported success but produced no usable dist."
+}
+
+# use_private <reason>
+# A cache problem loses only the sharing optimisation. Preserve an existing
+# usable private dist, or install one if this worktree has no usable binaries.
+use_private() {
+  echo "[electron-dist] $1; using a private Electron dist." >&2
+  if usable "$pkg/dist" "$pkg/path.txt"; then
+    return 0
+  fi
+  install_private
+}
+
+# clone_shared
+# Prepare and validate a clone before replacing the current dist. This makes
+# --force safe: if cloning fails, the existing private copy remains usable.
+clone_shared() {
+  _cs_dist="$pkg/dist.tmp.$$"
+  _cs_path="$pkg/path.txt.tmp.$$"
+  rm -rf "$_cs_dist"
+  rm -f "$_cs_path"
+  if ! cp -c -R "$shared" "$_cs_dist" 2>/dev/null \
+    || ! cp "$shared_pathfile" "$_cs_path" 2>/dev/null \
+    || ! usable "$_cs_dist" "$_cs_path"; then
+    rm -rf "$_cs_dist"
+    rm -f "$_cs_path"
+    return 1
+  fi
+  rm -rf "$pkg/dist"
+  mv "$_cs_dist" "$pkg/dist"
+  mv "$_cs_path" "$pkg/path.txt"
+  usable "$pkg/dist" "$pkg/path.txt"
+}
+
+# The cache must be a writable directory on a clone-compatible filesystem and
+# volume. The tiny real clone below proves all three properties before the
+# script takes a lock or seeds hundreds of MiB. On Linux `cp -c` is absent; on
+# non-APFS or cross-volume macOS layouts clonefile fails. Those are ordinary
+# private-install paths, not provisioning failures.
+if [ -e "$cache" ] && [ ! -d "$cache" ]; then
+  use_private "shared cache path is not a directory"
+  exit 0
+fi
+if ! mkdir -p "$cache" 2>/dev/null; then
+  use_private "shared cache directory cannot be created"
+  exit 0
+fi
+_probe="$cache/.clone-probe.$$"
+if ! cp -c "$pkg/package.json" "$_probe" 2>/dev/null; then
+  rm -f "$_probe" 2>/dev/null || true
+  use_private "shared cache does not support clonefile from this worktree"
+  exit 0
+fi
+if ! rm -f "$_probe" 2>/dev/null; then
+  use_private "shared cache directory is not writable"
   exit 0
 fi
 
-# ── Serialise everything below, per Electron version ─────────────────────────
-# Two worktrees provisioning the same uncached version otherwise race: one can
-# delete the shared copy from under the other's `cp`, or publish over a copy
-# another process is still reading. The lock is a kernel flock on the lock
-# file, so it is released by the kernel if this process dies — no stale lock
-# survives a crash. Re-exec under it rather than wrapping a block, so the
-# checks above run again on the far side; the loser of a seeding race then
-# correctly takes the cheap clone path instead of seeding a second time.
+# Serialise cache publication and reads. Re-enter under the kernel lock so the
+# checks run again after a competing seeder finishes. If the lock tool is
+# missing, the lock cannot be created, or acquisition times out, fall back to
+# the private installer instead of failing under `set -e`.
 if [ -z "${DASHFRAME_ELECTRON_DIST_LOCKED:-}" ]; then
-  _lockcmd=""
   if command -v lockf >/dev/null 2>&1; then
-    _lockcmd="lockf -t 900"          # macOS
-  elif command -v flock >/dev/null 2>&1; then
-    _lockcmd="flock -w 900"          # util-linux
-  fi
-  if [ -n "$_lockcmd" ]; then
-    mkdir -p "$cache"
-    export DASHFRAME_ELECTRON_DIST_LOCKED=1
-    # shellcheck disable=SC2086  # _lockcmd is a fixed command plus its flag
-    exec $_lockcmd "$cache/.lock" "$0" "$wt"
-  fi
-  # No locking tool at all (neither macOS's lockf nor util-linux's flock).
-  # Carry on, but seeding is disabled below: publishing the shared copy is the
-  # only step that can damage a concurrent reader, and unserialised it can
-  # replace a dist another worktree is mid-copy. Reading an existing shared
-  # copy stays safe, because nothing can be writing one.
-  DASHFRAME_ELECTRON_DIST_NOLOCK=1
-fi
-
-# ── Seed the shared copy, if this is the first worktree to need it ───────────
-if ! usable "$shared" "$shared_pathfile"; then
-  # Let Electron's own installer do the download+extract, exactly once. It
-  # writes into this worktree; we then promote the result to the shared cache.
-  if ! usable "$pkg/dist" "$pkg/path.txt"; then
-    echo "[electron-dist] no shared copy for $version yet; installing once..." >&2
-    (cd "$pkg" && node install.js >&2) \
-      || give_up "Electron's installer failed."
-    usable "$pkg/dist" "$pkg/path.txt" \
-      || give_up "Electron's installer reported success but produced no usable dist."
-  fi
-  if [ -n "${DASHFRAME_ELECTRON_DIST_NOLOCK:-}" ]; then
-    echo "[electron-dist] no locking tool available; not seeding the shared copy." >&2
+    if [ "$force" = true ]; then
+      DASHFRAME_ELECTRON_DIST_LOCKED=1 lockf -t 900 "$cache/.lock" "$0" --force "$wt" && exit 0
+    else
+      DASHFRAME_ELECTRON_DIST_LOCKED=1 lockf -t 900 "$cache/.lock" "$0" "$wt" && exit 0
+    fi
+    use_private "shared cache lock could not be acquired"
     exit 0
   fi
-  mkdir -p "$cache"
-  _stage="$shared.tmp.$$"
-  rm -rf "$_stage"
-  # Copy into a private staging name and rename, so a concurrent reader never
-  # sees a half-populated shared copy. rename(2) is atomic within a filesystem.
-  if cp -c -R "$pkg/dist" "$_stage" 2>/dev/null || cp -R "$pkg/dist" "$_stage" 2>/dev/null; then
-    rm -rf "$shared"
-    mv "$_stage" "$shared"
-    cp "$pkg/path.txt" "$shared_pathfile"
-    echo "[electron-dist] seeded shared copy at $shared" >&2
-  else
-    rm -rf "$_stage"
-    echo "[electron-dist] could not seed the shared copy; this worktree keeps its own." >&2
+  if command -v flock >/dev/null 2>&1; then
+    if [ "$force" = true ]; then
+      DASHFRAME_ELECTRON_DIST_LOCKED=1 flock -w 900 "$cache/.lock" "$0" --force "$wt" && exit 0
+    else
+      DASHFRAME_ELECTRON_DIST_LOCKED=1 flock -w 900 "$cache/.lock" "$0" "$wt" && exit 0
+    fi
+    use_private "shared cache lock could not be acquired"
+    exit 0
   fi
+  use_private "no shared cache locking tool is available"
   exit 0
 fi
 
-# ── Clone the shared copy into this worktree ─────────────────────────────────
-echo "[electron-dist] cloning Electron $version from $shared..." >&2
-rm -rf "$pkg/dist.tmp"
-if cp -c -R "$shared" "$pkg/dist.tmp" 2>/dev/null; then
-  rm -rf "$pkg/dist"
-  mv "$pkg/dist.tmp" "$pkg/dist"
-  cp "$shared_pathfile" "$pkg/path.txt"
-  usable "$pkg/dist" "$pkg/path.txt" \
-    || give_up "the cloned dist is not usable."
-else
-  # Cross-volume, non-APFS, or anything else: fall back to the ordinary
-  # install rather than leaving the worktree without Electron.
-  rm -rf "$pkg/dist.tmp"
-  echo "[electron-dist] clone failed; running Electron's installer instead." >&2
-  (cd "$pkg" && node install.js >&2) \
-    || give_up "Electron's installer failed."
-  usable "$pkg/dist" "$pkg/path.txt" \
-    || give_up "Electron's installer produced no usable dist."
+# Seed through Electron's installer only when no architecture-specific shared
+# copy exists. Publishing uses a staging directory under the lock so a reader
+# can never observe a half-populated cache.
+if ! usable "$shared" "$shared_pathfile"; then
+  if ! usable "$pkg/dist" "$pkg/path.txt"; then
+    echo "[electron-dist] no shared copy for $version ($target_platform-$target_arch) yet." >&2
+    install_private
+  fi
+
+  _stage="$shared.tmp.$$"
+  _stage_path="$shared_pathfile.tmp.$$"
+  rm -rf "$_stage"
+  rm -f "$_stage_path"
+  if ! cp -c -R "$pkg/dist" "$_stage" 2>/dev/null \
+    || ! cp "$pkg/path.txt" "$_stage_path" 2>/dev/null; then
+    rm -rf "$_stage"
+    rm -f "$_stage_path"
+    use_private "shared cache could not be seeded"
+    exit 0
+  fi
+  rm -rf "$shared"
+  rm -f "$shared_pathfile"
+  if ! mv "$_stage" "$shared" \
+    || ! mv "$_stage_path" "$shared_pathfile" \
+    || ! usable "$shared" "$shared_pathfile"; then
+    rm -rf "$_stage"
+    rm -f "$_stage_path"
+    use_private "shared cache could not be published"
+    exit 0
+  fi
+  echo "[electron-dist] seeded shared copy at $shared" >&2
+fi
+
+echo "[electron-dist] cloning Electron $version ($target_platform-$target_arch) from $shared..." >&2
+if ! clone_shared; then
+  use_private "shared dist could not be cloned"
 fi

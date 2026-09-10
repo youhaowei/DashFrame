@@ -141,6 +141,7 @@ init_unpopulated_submodules() {
 # tree that has never been successfully provisioned.
 install_dependencies() {
   _idep_wt="$1"
+  _idep_electron_script="$_idep_wt/scripts/ensure-electron-dist.sh"
 
   _idep_gitdir=$(cd "$_idep_wt" && git rev-parse --absolute-git-dir 2>/dev/null) || {
     echo "ERROR [ensure-worktree]: cannot resolve the gitdir for '$_idep_wt'." >&2
@@ -167,7 +168,14 @@ install_dependencies() {
     # exists, so without this the backfill would mark it provisioned and the
     # missing binaries would never be repaired. The check is a stat when the
     # dist is already there, so a genuinely pre-existing worktree pays nothing.
-    ensure_electron_dist "$_idep_wt"
+    if [ -x "$_idep_electron_script" ]; then
+      ensure_electron_dist "$_idep_wt"
+    else
+      # Do not run Bun again on this backfill path: it intentionally preserves
+      # local links and manifest edits. Validate the existing normal Electron
+      # install directly, and rerun Electron's own postinstall if it is absent.
+      ensure_normal_electron_dist "$_idep_wt"
+    fi
     : >"$_idep_marker"
     return
   fi
@@ -179,13 +187,21 @@ install_dependencies() {
     exit 1
   fi
 
-  # ELECTRON_SKIP_BINARY_DOWNLOAD stops Electron's postinstall from downloading
-  # and unzipping ~242 MiB into this worktree. ensure_electron_dist below puts
-  # the binaries in place instead, as a copy-on-write clone of one shared copy.
-  # If that fails for any reason it runs Electron's own installer, so the skip
-  # can never leave a worktree without Electron.
+  # Skip Electron's postinstall download only when this target branch contains
+  # the executable provisioner that will replace it. Older branches fall
+  # through to Bun's normal postinstall path; they must never be marked ready
+  # after a skipped download with no script available to provide the dist.
   echo "[ensure-worktree] installing dependencies (bun install --frozen-lockfile)..." >&2
-  if ! (cd "$_idep_wt" && ELECTRON_SKIP_BINARY_DOWNLOAD=1 bun install --frozen-lockfile >&2); then
+  if [ -x "$_idep_electron_script" ]; then
+    _idep_install_rc=0
+    (cd "$_idep_wt" && ELECTRON_SKIP_BINARY_DOWNLOAD=1 bun install --frozen-lockfile >&2) \
+      || _idep_install_rc=$?
+  else
+    echo "[ensure-worktree] Electron provisioner unavailable; using the normal package install." >&2
+    _idep_install_rc=0
+    (cd "$_idep_wt" && bun install --frozen-lockfile >&2) || _idep_install_rc=$?
+  fi
+  if [ "$_idep_install_rc" -ne 0 ]; then
     echo "ERROR [ensure-worktree]: 'bun install --frozen-lockfile' failed in '$_idep_wt'." >&2
     echo "  The lockfile does not match the manifests on this branch. Fix it and re-run;" >&2
     echo "  the worktree is left in place and re-running retries the install." >&2
@@ -198,7 +214,11 @@ install_dependencies() {
   # is NOT marked provisioned. Re-running resumes. Losing only the *sharing*
   # is not a failure: the script exits zero whenever the worktree ends up with
   # Electron, shared or private.
-  ensure_electron_dist "$_idep_wt"
+  if [ -x "$_idep_electron_script" ]; then
+    ensure_electron_dist "$_idep_wt"
+  else
+    ensure_normal_electron_dist "$_idep_wt"
+  fi
 
   : >"$_idep_marker"
 }
@@ -210,11 +230,62 @@ install_dependencies() {
 ensure_electron_dist() {
   _eed_wt="$1"
   _eed_script="$_eed_wt/scripts/ensure-electron-dist.sh"
-  [ -x "$_eed_script" ] || return 0
+  if [ ! -x "$_eed_script" ]; then
+    echo "ERROR [ensure-worktree]: Electron provisioner is missing or not executable in '$_eed_wt'." >&2
+    exit 1
+  fi
   if ! "$_eed_script" "$_eed_wt"; then
     echo "ERROR [ensure-worktree]: Electron's binaries could not be installed in '$_eed_wt'." >&2
     echo "  The desktop app cannot start without them. Fix the cause and re-run;" >&2
     echo "  the worktree is left in place and re-running retries just this step." >&2
+    exit 1
+  fi
+}
+
+# ensure_normal_electron_dist <worktree_path>
+# A target branch may predate ensure-electron-dist.sh. Its Bun install must run
+# without ELECTRON_SKIP_BINARY_DOWNLOAD, and this check confirms the normal
+# Electron postinstall actually left usable binaries. Existing worktrees are
+# repaired by rerunning only Electron's installer, preserving local Bun links.
+ensure_normal_electron_dist() {
+  _ned_wt="$1"
+  _ned_pkg=""
+  for _ned_cand in \
+    "$_ned_wt/apps/desktop/node_modules/electron" \
+    "$_ned_wt/node_modules/electron"
+  do
+    if [ -d "$_ned_cand" ]; then _ned_pkg=$(cd -P "$_ned_cand" && pwd); break; fi
+  done
+  if [ -z "$_ned_pkg" ]; then
+    for _ned_cand in "$_ned_wt"/node_modules/.bun/electron@*/node_modules/electron; do
+      if [ -d "$_ned_cand" ]; then _ned_pkg=$(cd -P "$_ned_cand" && pwd); break; fi
+    done
+  fi
+  [ -n "$_ned_pkg" ] || return 0
+
+  _ned_rel=""
+  if [ -f "$_ned_pkg/path.txt" ]; then
+    _ned_rel=$(cat "$_ned_pkg/path.txt" 2>/dev/null || echo "")
+  fi
+  if [ -n "$_ned_rel" ] && [ -x "$_ned_pkg/dist/$_ned_rel" ]; then
+    return 0
+  fi
+  if ! command -v node >/dev/null 2>&1; then
+    echo "ERROR [ensure-worktree]: Node.js is required to install Electron in '$_ned_wt'." >&2
+    exit 1
+  fi
+  echo "[ensure-worktree] normal Electron install is missing; running its postinstall." >&2
+  if ! (
+    unset ELECTRON_SKIP_BINARY_DOWNLOAD
+    cd "$_ned_pkg"
+    node install.js >&2
+  ); then
+    echo "ERROR [ensure-worktree]: Electron's normal postinstall failed in '$_ned_wt'." >&2
+    exit 1
+  fi
+  _ned_rel=$(cat "$_ned_pkg/path.txt" 2>/dev/null || echo "")
+  if [ -z "$_ned_rel" ] || [ ! -x "$_ned_pkg/dist/$_ned_rel" ]; then
+    echo "ERROR [ensure-worktree]: Electron's normal postinstall produced no usable dist in '$_ned_wt'." >&2
     exit 1
   fi
 }
