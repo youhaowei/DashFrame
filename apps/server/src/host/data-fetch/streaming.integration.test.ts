@@ -174,6 +174,11 @@ describe("streaming production materialization", () => {
     expect(supportsStreaming({ ...f.ctx, workspaceOwnerId: "owner" })).toBe(
       false,
     );
+    const registerArrowStream = f.ctx.dataPlaneRuntime?.registerArrowStream;
+    if (!f.ctx.dataPlaneRuntime) throw new Error("runtime missing");
+    f.ctx.dataPlaneRuntime.registerArrowStream = undefined;
+    expect(supportsStreaming(f.ctx)).toBe(false);
+    f.ctx.dataPlaneRuntime.registerArrowStream = registerArrowStream;
   });
   it("retains complete files when publication acknowledgement is unknown", async () => {
     const f = await fixture(1);
@@ -220,7 +225,7 @@ describe("streaming production materialization", () => {
     expect(result.status).toBe("ready");
     if (result.status !== "ready") throw new Error("not ready");
     expect(result.rowCount).toBe(25_007);
-    expect(f.pageCount()).toBe(26);
+    expect(f.pageCount()).toBe(3);
     expect(f.publications).toHaveLength(1);
     expect(f.publications[0]?.sources[0]?.frame.rowCount).toBe(25_007);
     expect(JSON.stringify(f.publications)).not.toContain("fixture-token");

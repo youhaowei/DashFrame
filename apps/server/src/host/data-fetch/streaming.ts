@@ -1,6 +1,6 @@
 import type { HostContext } from "../context";
 
-export const STREAM_BATCH_ROWS = 1_000;
+export const STREAM_BATCH_ROWS = 10_000;
 export const STREAM_BATCH_BYTES = 8 * 1024 * 1024;
 
 export function supportsStreaming(ctx: HostContext): boolean {
@@ -8,10 +8,8 @@ export function supportsStreaming(ctx: HostContext): boolean {
   if (ctx.workspaceOwnerId !== undefined) return false;
   return Boolean(
     ctx.dataFrameStorage?.saveBatches &&
-    ((ctx.dataFrameStorage.loadBatches &&
-      ctx.dataPlaneRuntime?.registerArrowBatches) ||
-      (ctx.dataFrameStorage.stream &&
-        ctx.dataPlaneRuntime?.registerArrowStream)) &&
+    ctx.dataFrameStorage.stream &&
+    ctx.dataPlaneRuntime?.registerArrowStream &&
     ctx.dataPlaneRuntime.queryArrowBatches,
   );
 }

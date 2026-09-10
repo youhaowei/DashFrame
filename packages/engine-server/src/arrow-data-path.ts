@@ -183,7 +183,20 @@ async function registerStoredFrame(
     typeof options.engine.registerArrowBatches === "function"
   ) {
     if (!(await storage.exists(id))) return "missing";
-    await options.engine.registerArrowBatches(name, storage.loadBatches(id));
+    const batches = storage.loadBatches(id);
+    try {
+      await options.engine.registerArrowBatches(
+        name,
+        checkAvailabilityBeforeRegistration
+          ? availableFrameStream(options, id, batches)
+          : batches,
+      );
+    } catch (error) {
+      if (error instanceof FrameUnavailableBeforeStreamReadError) {
+        return "unavailable";
+      }
+      throw error;
+    }
     return "registered";
   }
   return registerStoredFrameWithoutBatches(

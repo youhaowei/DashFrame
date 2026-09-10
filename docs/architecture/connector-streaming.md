@@ -53,7 +53,7 @@ For local streaming, one caller cancelling leaves shared work running for its
 remaining consumers. The final consumer's cancellation aborts acquisition and
 waits for rollback to settle. Completed results retain the existing short sibling
 replay cache. Hosted work retains its independent deadline and workspace leases.
-Defaults: 1,000 GA4 rows and 8 MiB of provider response or encoded Arrow per GA4
+Defaults: 10,000 GA4 rows and 8 MiB of provider response or encoded Arrow per GA4
 page; 16 MiB per source/result transfer batch; 256 MiB total encoded bytes per
 materialization; 2 GiB durable project storage; and two minutes including queue time.
 Bytes are IPC accounting, not a promise about JavaScript/native RSS. Buffered
