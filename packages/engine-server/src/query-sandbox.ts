@@ -112,6 +112,7 @@ export class WorkspaceQueryEngine implements QueryEngine {
   private child: ChildProcessWithoutNullStreams | undefined;
   private opening: Promise<void> | undefined;
   private closed: Error | undefined;
+  private readonly lifetime = new AbortController();
   private ready = false;
   private reaped = true;
   private nextId = 1;
@@ -361,10 +362,8 @@ export class WorkspaceQueryEngine implements QueryEngine {
    * than after the join: a source larger than the limit is rejected without
    * ever being resident whole.
    *
-   * `signal` is checked between chunks, which is the only cancellation this
-   * method can offer — the hosted binding drops caller signals anyway
-   * (`createHostedQueryRuntime`), so in practice a long source read here runs
-   * to completion.
+   * Pending source reads stop on caller cancellation or engine shutdown. The
+   * hosted request facade deliberately drops caller signals for shared work.
    */
   async registerArrowStream(
     name: string,
@@ -373,8 +372,7 @@ export class WorkspaceQueryEngine implements QueryEngine {
   ): Promise<void> {
     const parts: Uint8Array[] = [];
     let total = 0;
-    for await (const chunk of chunks) {
-      if (signal?.aborted) throw new Error("SANDBOX_CANCELLED");
+    for await (const chunk of this.registrationSource(chunks, signal)) {
       total += chunk.byteLength;
       if (total > SANDBOX_MAX_ARROW) throw new Error("SANDBOX_MESSAGE_LIMIT");
       parts.push(chunk);
@@ -401,8 +399,7 @@ export class WorkspaceQueryEngine implements QueryEngine {
   ): Promise<void> {
     const tables: Table[] = [];
     let total = 0;
-    for await (const bytes of batches) {
-      if (signal?.aborted) throw new Error("SANDBOX_CANCELLED");
+    for await (const bytes of this.registrationSource(batches, signal)) {
       total += bytes.byteLength;
       if (total > SANDBOX_MAX_ARROW) throw new Error("SANDBOX_MESSAGE_LIMIT");
       const table = tableFromIPC(bytes);
@@ -420,6 +417,56 @@ export class WorkspaceQueryEngine implements QueryEngine {
 
   hasTable(name: string): boolean {
     return this.registered.has(tableKey(name));
+  }
+
+  private async *registrationSource(
+    source: AsyncIterable<Uint8Array>,
+    callerSignal?: AbortSignal,
+  ): AsyncGenerator<Uint8Array> {
+    const signal = callerSignal
+      ? AbortSignal.any([callerSignal, this.lifetime.signal])
+      : this.lifetime.signal;
+    const cancellationError = () =>
+      this.closed ?? new Error("SANDBOX_CANCELLED");
+    if (signal.aborted) throw cancellationError();
+    const iterator = source[Symbol.asyncIterator]();
+    let done = false;
+    try {
+      while (true) {
+        if (signal.aborted) throw cancellationError();
+        const next = await new Promise<IteratorResult<Uint8Array>>(
+          (resolve, reject) => {
+            const onAbort = () => reject(cancellationError());
+            signal.addEventListener("abort", onAbort, { once: true });
+            Promise.resolve()
+              .then(() => {
+                if (signal.aborted) throw cancellationError();
+                return iterator.next();
+              })
+              .then(resolve, reject)
+              .finally(() => {
+                signal.removeEventListener("abort", onAbort);
+              });
+          },
+        );
+        if (signal.aborted) throw cancellationError();
+        if (next.done) {
+          done = true;
+          return;
+        }
+        yield next.value;
+      }
+    } finally {
+      if (!done) {
+        // A producer may never settle return() either; request cleanup without
+        // allowing it to hold cancellation or engine disposal open.
+        try {
+          iterator.return?.().catch(() => {});
+        } catch {
+          /* best effort */
+        }
+      }
+    }
   }
 
   getTableNames(): string[] {
@@ -534,6 +581,7 @@ export class WorkspaceQueryEngine implements QueryEngine {
   private fail(error: Error): void {
     if (this.closed) return;
     this.closed = error;
+    this.lifetime.abort(error);
     this.ready = false;
     // Every way this engine ends comes through here — dispose(), idle expiry,
     // an operation timeout, a protocol violation, the worker exiting. The
