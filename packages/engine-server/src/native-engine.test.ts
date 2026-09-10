@@ -323,8 +323,9 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
 
     const disposing = engine.dispose();
 
-    // query()/queryArrow() reach the persistent connection directly. Unenrolled,
-    // dispose() sees no tracked operation and can disconnect underneath them.
+    // query()/queryArrow() use persistent leases. During teardown, their joined
+    // lifecycle signal must reject them before either starts a new statement on
+    // the connection that dispose() is draining and about to disconnect.
     await expect(engine.queryArrow("SELECT 1")).rejects.toMatchObject({
       name: "AbortError",
     });
