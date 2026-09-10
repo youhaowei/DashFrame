@@ -2,6 +2,7 @@ import { buildInsightSQL, fieldIdToColumnAlias } from "@dashframe/engine";
 import type { DataTable, Insight, UUID } from "@dashframe/types";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
+import { arrowIpcToJsonRows } from "./arrow-data-path";
 import { NativeDuckDBEngine } from "./native-engine";
 
 describe("Insight SQL filters against real DuckDB", () => {
@@ -54,15 +55,16 @@ describe("Insight SQL filters against real DuckDB", () => {
 
     engine = new NativeDuckDBEngine();
     await engine.initialize();
-    await engine.query(`
+    await engine.queryArrow(`
       CREATE TABLE df_22222222_2222_2222_2222_222222222222 AS
       SELECT * FROM (VALUES ('EMEA'), ('APAC'), ('EMEA')) AS rows(region)
     `);
-    const result = await engine.query(sql!);
+    const result = arrowIpcToJsonRows(await engine.queryArrow(sql!));
 
-    expect(result.rowCount).toBe(2);
-    expect(
-      result.rows.map((row) => row[fieldIdToColumnAlias(regionId)]),
-    ).toEqual(["EMEA", "EMEA"]);
+    expect(result).toHaveLength(2);
+    expect(result.map((row) => row[fieldIdToColumnAlias(regionId)])).toEqual([
+      "EMEA",
+      "EMEA",
+    ]);
   });
 });

@@ -5,9 +5,11 @@ import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { Float64, Table, tableToIPC, vectorFromArray } from "apache-arrow";
 import { NativeDuckDBEngine } from "@dashframe/engine-server";
+import { arrowIpcToJsonRows } from "@dashframe/engine-server/arrow-data-path";
 import { FileDataFrameStorage } from "@dashframe/engine-server/file-dataframe-storage";
 import type { DataTable, Field } from "@dashframe/types";
 import type { HostContext } from "../context";
+import { NativeTableLifecycle } from "../native-tables";
 import {
   createInsightMaterializer,
   registerStoredFrame,
@@ -30,18 +32,28 @@ async function fixture(
 ) {
   const directory = await mkdtemp(join(tmpdir(), "dashframe-stream-test-"));
   owned.push(() => rm(directory, { recursive: true, force: true }));
-  const runtime = new NativeDuckDBEngine();
-  await runtime.initialize();
-  owned.push(() => runtime.dispose());
+  const engine = new NativeDuckDBEngine();
+  await engine.initialize();
+  owned.push(() => engine.dispose());
+  // Read results the way the data path does. The handle is taken before the
+  // buffered entry points are barred below, so barring them still proves the
+  // materialization lifecycle never reached for one.
+  const rawQueryArrow = engine.queryArrow.bind(engine);
+  const readRows = async (sql: string) =>
+    arrowIpcToJsonRows(await rawQueryArrow(sql));
+  // Production hands the host runtime `NativeTableLifecycle.engine`, which is
+  // what declares itself the in-process native binding; the streaming
+  // materialization path keys on that, not on method presence.
+  const runtime = new NativeTableLifecycle(engine).engine;
   const storage = new FileDataFrameStorage(directory);
   // Full-buffer entry points must never be called by the streaming lifecycle.
   vi.spyOn(storage, "load").mockRejectedValue(
     new Error("full file read forbidden"),
   );
-  vi.spyOn(runtime, "queryArrow").mockRejectedValue(
+  vi.spyOn(engine, "queryArrow").mockRejectedValue(
     new Error("full result export forbidden"),
   );
-  vi.spyOn(runtime, "registerArrowTable").mockRejectedValue(
+  vi.spyOn(engine, "registerArrowTable").mockRejectedValue(
     new Error("full registration forbidden"),
   );
   const tableId = randomUUID(),
@@ -132,6 +144,7 @@ async function fixture(
   return {
     storage,
     runtime,
+    readRows,
     dependencies,
     run,
     publish,
@@ -194,37 +207,58 @@ describe("streaming immutable materialization", () => {
     expect(h.publish).toHaveBeenCalledTimes(2);
   });
 
-  it("persists and queries all 25001 rows without any full-buffer entry point", async () => {
-    const h = await fixture();
-    const result = await h.run();
-    expect(result.rowCount).toBe(25_001);
-    expect(h.observed).toHaveLength(13);
-    expect(Math.max(...h.observed)).toBe(2048);
-    expect(h.state()).toEqual({
-      closed: true,
-      emitted: 25_001,
-      pointer: "new-frame",
-    });
-    expect(h.publish).toHaveBeenCalledOnce();
-    const name = `df_${result.dataFrameId.replaceAll("-", "_")}`;
-    const column = result.schema[0]!.id;
-    const aggregate = await h.runtime.query(
-      `SELECT count(*) AS n, max("${column}") AS tail, sum("${column}") AS total FROM "${name}"`,
-    );
-    expect(aggregate.rows[0]).toMatchObject({
-      n: "25001",
-      tail: 25000,
-      total: 312512500,
-    });
-    await h.runtime.unregisterTable(name);
-    await registerStoredFrame(h.storage, h.runtime, name, result.dataFrameId);
-    expect(
-      (await h.runtime.query(`SELECT count(*) AS n FROM "${name}"`)).rows[0]?.n,
-    ).toBe("25001");
-    expect(h.transferCompleted).toHaveBeenCalledWith(
-      expect.objectContaining({ outcome: "ready", rows: 50_002 }),
-    );
-  });
+  it.each(["stream", "loadBatches"] as const)(
+    "persists and queries all 25001 rows through %s without buffering",
+    async (readPath) => {
+      const h = await fixture();
+      if (readPath === "loadBatches") {
+        const storage = {
+          save: h.storage.save.bind(h.storage),
+          load: h.storage.load.bind(h.storage),
+          delete: h.storage.delete.bind(h.storage),
+          exists: h.storage.exists.bind(h.storage),
+          list: h.storage.list.bind(h.storage),
+          getUsage: h.storage.getUsage.bind(h.storage),
+          saveBatches: h.storage.saveBatches.bind(h.storage),
+          loadBatches: h.storage.loadBatches.bind(h.storage),
+        };
+        h.dependencies.storage = () => storage;
+      }
+      const result = await h.run();
+      expect(result.rowCount).toBe(25_001);
+      expect(h.observed).toHaveLength(13);
+      expect(Math.max(...h.observed)).toBe(2048);
+      expect(h.state()).toEqual({
+        closed: true,
+        emitted: 25_001,
+        pointer: "new-frame",
+      });
+      expect(h.publish).toHaveBeenCalledOnce();
+      const name = `df_${result.dataFrameId.replaceAll("-", "_")}`;
+      const column = result.schema[0]!.id;
+      const aggregate = await h.readRows(
+        `SELECT count(*) AS n, max("${column}") AS tail, sum("${column}") AS total FROM "${name}"`,
+      );
+      expect(aggregate[0]).toMatchObject({
+        n: 25_001,
+        tail: 25_000,
+        total: 312_512_500,
+      });
+      await h.runtime.unregisterTable(name);
+      await registerStoredFrame(
+        h.dependencies.storage({} as HostContext),
+        h.runtime,
+        name,
+        result.dataFrameId,
+      );
+      expect(
+        (await h.readRows(`SELECT count(*) AS n FROM "${name}"`))[0]?.n,
+      ).toBe(25_001);
+      expect(h.transferCompleted).toHaveBeenCalledWith(
+        expect.objectContaining({ outcome: "ready", rows: 50_002 }),
+      );
+    },
+  );
 
   it("removes an unpublished prefix and closes the source after provider failure", async () => {
     const h = await fixture({ failAfter: 12_288 });

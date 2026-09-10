@@ -1,11 +1,7 @@
 /** Native host + local Convex composition, shared by desktop and standalone web. */
 import { MAX_LOCAL_ARROW_BYTES } from "@dashframe/types";
-import type { DataFrameStorage } from "@dashframe/engine";
-import {
-  createArrowDataPath,
-  type ArrowQueryRunner,
-  type ArrowTableRegistrar,
-} from "@dashframe/engine-server/arrow-data-path";
+import type { DataFrameStorage, QueryEngine } from "@dashframe/engine";
+import { createArrowDataPath } from "@dashframe/engine-server/arrow-data-path";
 import type {
   ApiAccessCredentials,
   LocalProjectHandle,
@@ -70,7 +66,7 @@ export interface DashframeServerOptions {
    * for every client that connects directly.
    */
   publicOrigin?: string;
-  arrowEngine?: ArrowQueryRunner & Partial<ArrowTableRegistrar>;
+  arrowEngine?: QueryEngine;
   googleOAuth?: GoogleOAuthConfig;
   mcpMode?: McpMode;
   mcpMaxStatefulSessions?: number;

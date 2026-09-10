@@ -1,3 +1,4 @@
+import type { QueryEngine } from "@dashframe/engine";
 import { FileDataFrameStorage } from "@dashframe/engine-server/file-dataframe-storage";
 import {
   ApiAccessCredentials,
@@ -24,6 +25,29 @@ import {
   shutdownStandaloneResources,
 } from "./index";
 
+/** The parts of the engine these composition tests do not exercise. */
+class StubEngine implements QueryEngine {
+  async initialize(): Promise<void> {}
+  async dispose(): Promise<void> {}
+  isReady(): boolean {
+    return true;
+  }
+  async queryArrow(): Promise<Uint8Array> {
+    return new Uint8Array();
+  }
+  async *queryArrowBatches(): AsyncGenerator<Uint8Array> {}
+  async registerArrowTable(): Promise<void> {}
+  async registerArrowStream(): Promise<void> {}
+  async registerArrowBatches(): Promise<void> {}
+  async unregisterTable(): Promise<void> {}
+  hasTable(): boolean {
+    return false;
+  }
+  getTableNames(): string[] {
+    return [];
+  }
+}
+
 describe("dashframe serve CLI", () => {
   describe("native engine composition", () => {
     it("loads and initializes the server-native engine", async () => {
@@ -33,11 +57,11 @@ describe("dashframe serve CLI", () => {
       const registerArrowTable = vi.fn();
 
       const engine = await createStandaloneArrowEngine(async () => ({
-        NativeDuckDBEngine: class {
-          initialize = initialize;
-          dispose = dispose;
-          queryArrow = queryArrow;
-          registerArrowTable = registerArrowTable;
+        NativeDuckDBEngine: class extends StubEngine {
+          override initialize = initialize;
+          override dispose = dispose;
+          override queryArrow = queryArrow;
+          override registerArrowTable = registerArrowTable;
         },
       }));
 
@@ -73,13 +97,13 @@ describe("dashframe serve CLI", () => {
 
       await expect(
         createStandaloneArrowEngine(async () => ({
-          NativeDuckDBEngine: class {
-            async initialize() {
+          NativeDuckDBEngine: class extends StubEngine {
+            override async initialize() {
               throw new Error("connect failed");
             }
-            dispose = dispose;
-            queryArrow = vi.fn();
-            registerArrowTable = vi.fn();
+            override dispose = dispose;
+            override queryArrow = vi.fn();
+            override registerArrowTable = vi.fn();
           },
         })),
       ).rejects.toThrow(/Native DuckDB is required.*connect failed/);
@@ -460,10 +484,7 @@ describe("dashframe serve CLI", () => {
           dir: path.join(dataDir, "project"),
           close: vi.fn().mockResolvedValue(undefined),
         } as unknown as LocalProjectHandle;
-        const arrowEngine = {
-          queryArrow: vi.fn(),
-          registerArrowTable: vi.fn(),
-        };
+        const arrowEngine = new StubEngine();
         const options = createStandaloneServerOptions(
           { token: "plaintext-token" },
           project,
@@ -530,7 +551,7 @@ describe("dashframe serve CLI", () => {
         { token: "plaintext-token" },
         project,
         services,
-        { queryArrow: vi.fn(), registerArrowTable: vi.fn() },
+        new StubEngine(),
       );
       expect(options.vault).toBeUndefined();
       expect(options.accessCredentials).toBeUndefined();

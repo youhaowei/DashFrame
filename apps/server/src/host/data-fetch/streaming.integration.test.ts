@@ -5,6 +5,7 @@ import { tableFromIPC } from "apache-arrow";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { makeGa4Connector } from "@dashframe/connector-ga4";
 import { NativeDuckDBEngine } from "@dashframe/engine-server";
+import { NativeTableLifecycle } from "../native-tables";
 import { FileDataFrameStorage } from "@dashframe/engine-server/file-dataframe-storage";
 import type { PublicationMetadata } from "@dashframe/convex-backend/model";
 import type { Field } from "@dashframe/types";
@@ -122,7 +123,7 @@ async function fixture(total = 25_007) {
     principal: { kind: "user", userId: "local-user" },
     requestSignal: controller.signal,
     dataFrameStorage: storage,
-    dataPlaneRuntime: engine,
+    dataPlaneRuntime: new NativeTableLifecycle(engine).engine,
     getServerEndpoint: () => undefined,
     onMaterializationProgress: (value: (typeof progress)[number]) =>
       progress.push(value),
@@ -171,14 +172,26 @@ describe("streaming production materialization", () => {
   it("keeps hosted contexts on their bounded worker protocol even with native capabilities", async () => {
     const f = await fixture(1);
     expect(supportsStreaming(f.ctx)).toBe(true);
+    // Keep only the batch reader: the production selector must not require
+    // the optional raw-stream reader as well.
+    f.ctx.dataFrameStorage = {
+      save: f.storage.save.bind(f.storage),
+      load: f.storage.load.bind(f.storage),
+      delete: f.storage.delete.bind(f.storage),
+      exists: f.storage.exists.bind(f.storage),
+      list: f.storage.list.bind(f.storage),
+      getUsage: f.storage.getUsage.bind(f.storage),
+      saveBatches: f.storage.saveBatches.bind(f.storage),
+      loadBatches: f.storage.loadBatches.bind(f.storage),
+    };
+    expect(supportsStreaming(f.ctx)).toBe(true);
     expect(supportsStreaming({ ...f.ctx, workspaceOwnerId: "owner" })).toBe(
       false,
     );
-    const registerArrowStream = f.ctx.dataPlaneRuntime?.registerArrowStream;
     if (!f.ctx.dataPlaneRuntime) throw new Error("runtime missing");
-    f.ctx.dataPlaneRuntime.registerArrowStream = undefined;
+    f.ctx.dataPlaneRuntime.nativeTransfer = false;
     expect(supportsStreaming(f.ctx)).toBe(false);
-    f.ctx.dataPlaneRuntime.registerArrowStream = registerArrowStream;
+    f.ctx.dataPlaneRuntime.nativeTransfer = true;
   });
   it("retains complete files when publication acknowledgement is unknown", async () => {
     const f = await fixture(1);
@@ -246,8 +259,10 @@ describe("streaming production materialization", () => {
       "restored",
       f.storage.loadBatches(result.dataFrameId),
     );
-    const summary = await fresh.query("SELECT count(*) AS n FROM restored");
-    expect(Number(summary.rows[0]?.n)).toBe(25_007);
+    const summary = tableFromIPC(
+      await fresh.queryArrow("SELECT count(*) AS n FROM restored"),
+    );
+    expect(Number(summary.getChild("n")?.get(0))).toBe(25_007);
   });
 
   it.each(["failure", "drift", "cancellation"] as const)(

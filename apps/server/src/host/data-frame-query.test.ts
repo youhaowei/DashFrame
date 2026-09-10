@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 import type { HostContext, HostDataPlaneRuntime } from "./context";
 import { queryDataFrame } from "./data-frame-query";
+import { stubQueryEngine } from "./query-engine.fixture";
 
 describe("queryDataFrame", () => {
   it("registers from storage with a streaming-only runtime", async () => {
@@ -30,6 +31,7 @@ describe("queryDataFrame", () => {
       },
     };
     const runtime = {
+      ...stubQueryEngine(),
       queryArrow: vi.fn(async (sql: string) =>
         sql.includes("COUNT(*)")
           ? tableToIPC(tableFromArrays({ count: [1] }))
@@ -40,6 +42,8 @@ describe("queryDataFrame", () => {
           // Consume the storage stream like the native runtime.
         }
       }),
+      // The native binding is what streams; the hosted one buffers.
+      nativeTransfer: true,
     } satisfies HostDataPlaneRuntime;
     const ctx = {
       metadata: { getDataFrame: vi.fn(async () => row) },
@@ -89,6 +93,7 @@ describe("queryDataFrame", () => {
       unregisterTable: (name: string) => Promise<void> = async () => {},
     ) => {
       const runtime = {
+        ...stubQueryEngine(),
         queryArrow: vi.fn(async () => tableToIPC(tableFromArrays({}))),
         registerArrowStream: vi.fn(async (_name, stream) => {
           for await (const _chunk of stream) {
@@ -96,6 +101,7 @@ describe("queryDataFrame", () => {
           }
         }),
         unregisterTable: vi.fn(unregisterTable),
+        nativeTransfer: true,
       } satisfies HostDataPlaneRuntime;
       const ctx = {
         metadata: { getDataFrame: vi.fn(getDataFrame) },

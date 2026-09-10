@@ -1,9 +1,5 @@
 import type { AccessConnectionInfo } from "@dashframe/types";
-import type { DataFrameStorage } from "@dashframe/engine";
-import type {
-  ArrowQueryRunner,
-  ArrowTableRegistrar,
-} from "@dashframe/engine-server/arrow-data-path";
+import type { DataFrameStorage, QueryEngine } from "@dashframe/engine";
 import type { ApiAccessCredentials } from "@dashframe/server-core";
 import type { Principal } from "@wystack/identity";
 import type { SecretVault } from "@wystack/secret-vault";
@@ -28,19 +24,35 @@ export interface HostContext {
   googleOAuth?: GoogleOAuthConfig;
   application?: ApplicationOperations;
   dataFrameStorage?: DataFrameStorage;
-  /** Value-free instrumentation for a materialization owned by this host. */
+  /** Value-free instrumentation for host-owned materialization. */
   onMaterializationProgress?: (progress: {
     phase: "source" | "result" | "publication";
     rows: number;
     bytes: number;
     elapsedMs: number;
   }) => void;
-  dataPlaneRuntime?: ArrowQueryRunner &
-    Partial<ArrowTableRegistrar> & {
-      unregisterTable?: (name: string) => Promise<void>;
-      /** Stable identity shared by request-scoped wrappers over one engine. */
-      coalescingIdentity?: object;
-    };
+  /**
+   * The engine, as one interface rather than a per-caller shape. Absent only
+   * where no engine is bound to the composition at all. The facades that
+   * supply it (`NativeTableLifecycle.engine`, `createHostedQueryRuntime`) do
+   * not forward `initialize`/`dispose`: engine lifetime belongs to whoever
+   * constructed it, never to a request.
+   */
+  dataPlaneRuntime?: QueryEngine & {
+    /** Stable identity shared by request-scoped wrappers over one engine. */
+    coalescingIdentity?: object;
+    /**
+     * True only for the in-process native engine. Materialization uses it to
+     * decide whether to stream batches under the native transfer budget, or
+     * buffer through the hosted surface's bounded adapter — which runs DuckDB
+     * behind a request/response worker, where a "stream" is joined at the seam
+     * and carries none of that budget's guarantees.
+     *
+     * Every backing implements `queryArrowBatches` and `registerArrowStream`,
+     * so method presence can no longer answer this; the binding states it.
+     */
+    nativeTransfer?: boolean;
+  };
 }
 
 export type HostDataPlaneRuntime = NonNullable<HostContext["dataPlaneRuntime"]>;

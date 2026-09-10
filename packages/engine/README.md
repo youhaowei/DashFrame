@@ -12,17 +12,17 @@ bun add @dashframe/engine
 
 The engine package defines runtime-agnostic interfaces:
 
-| Interface          | Real implementation today                                             |
-| ------------------ | --------------------------------------------------------------------- |
-| `QueryEngine`      | `NativeDuckDBEngine` (`@dashframe/engine-server`)                     |
-| `DataFrameStorage` | Project files for server snapshots; retained IndexedDB implementation |
-| `DataFrame`        | Server query results; retained `BrowserDataFrame` implementation      |
+| Interface          | Real implementation today                                                    |
+| ------------------ | ---------------------------------------------------------------------------- |
+| `QueryEngine`      | `NativeDuckDBEngine` and `WorkspaceQueryEngine` (`@dashframe/engine-server`) |
+| `DataFrameStorage` | Project files for server snapshots; retained IndexedDB implementation        |
+| `DataFrame`        | Server query results; retained `BrowserDataFrame` implementation             |
 
 Remote imports and refreshes use **server-side native DuckDB** (`NativeDuckDBEngine`) and durable project-file snapshots for both desktop and web. Local-file import still uses the legacy browser/IndexedDB path until the required server-ingestion follow-up lands. There is no selectable WASM mode or fallback.
 
 This package has no shared `QueryPlanner` / push-down API. Connectors may still run remote queries themselves (e.g. Postgres table-reference fetches push LIMIT/OFFSET server-side); that is connector-local, not a cross-engine planner.
 
-`NativeDuckDBEngine` is a partial `QueryEngine`: `registerTable(DataFrame)` throws — callers upload Arrow IPC via `registerArrowTable` (or query sources directly, e.g. `read_parquet`). The interface still lists `registerTable` for the contract; the native engine documents the restriction at the throw site.
+`QueryEngine` is Arrow-native and total: every backing implements every method. Callers register Arrow IPC as a buffer (`registerArrowTable`), a chunked stream (`registerArrowStream`), or complete batch payloads (`registerArrowBatches`), or query sources directly (e.g. `read_parquet`). Results leave as Arrow IPC bytes; JSON rows are decoded in transport (`arrowIpcToJsonRows`).
 
 ## Usage
 
@@ -45,16 +45,39 @@ Executes SQL queries against registered tables:
 
 ```typescript
 interface QueryEngine {
-  query(sql: string): Promise<QueryResult>;
-  registerTable(name: string, data: DataFrame): Promise<void>;
-  unregisterTable(name: string): Promise<void>;
-  isReady(): boolean;
   initialize(): Promise<void>;
   dispose(): Promise<void>;
+  isReady(): boolean;
+  queryArrow(
+    sql: string,
+    params?: readonly unknown[],
+    signal?: AbortSignal,
+  ): Promise<Uint8Array>;
+  queryArrowBatches(
+    sql: string,
+    params?: readonly unknown[],
+    signal?: AbortSignal,
+  ): AsyncIterable<Uint8Array>;
+  registerArrowTable(
+    name: string,
+    arrow: Uint8Array,
+    signal?: AbortSignal,
+  ): Promise<void>;
+  registerArrowStream(
+    name: string,
+    chunks: AsyncIterable<Uint8Array>,
+    signal?: AbortSignal,
+  ): Promise<void>;
+  registerArrowBatches(
+    name: string,
+    batches: AsyncIterable<Uint8Array>,
+    signal?: AbortSignal,
+  ): Promise<void>;
+  unregisterTable(name: string): Promise<void>;
+  hasTable(name: string): boolean;
+  getTableNames(): string[];
 }
 ```
-
-On `NativeDuckDBEngine`, use `registerArrowTable` for uploads — `registerTable` is intentionally unsupported.
 
 ### DataFrameStorage
 

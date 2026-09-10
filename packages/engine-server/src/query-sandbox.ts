@@ -1,7 +1,10 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { access, readFile, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, resolve } from "node:path";
-import { tableFromIPC } from "apache-arrow";
+import type { QueryEngine } from "@dashframe/engine";
+import { Table, tableFromIPC, tableToIPC } from "apache-arrow";
+import { compareSchemas } from "apache-arrow/visitor/typecomparator";
+import { tableKey } from "./table-identity";
 import {
   SANDBOX_MAX_ARROW,
   SANDBOX_MAX_ROWS,
@@ -100,11 +103,16 @@ export async function linuxQuerySandboxReadPaths(
   return [...new Set([...required, ...limits])];
 }
 
-/** One immutable workspace binding, process, and disposable catalog. */
-export class WorkspaceQueryEngine {
+/**
+ * One immutable workspace binding, process, and disposable catalog — the
+ * `QueryEngine` backing for the hosted surface, where DuckDB runs behind a
+ * seccomp-confined worker process instead of in the app server.
+ */
+export class WorkspaceQueryEngine implements QueryEngine {
   private child: ChildProcessWithoutNullStreams | undefined;
   private opening: Promise<void> | undefined;
   private closed: Error | undefined;
+  private readonly lifetime = new AbortController();
   private ready = false;
   private reaped = true;
   private nextId = 1;
@@ -113,6 +121,17 @@ export class WorkspaceQueryEngine {
   private pendingBytes = 0;
   private idleTimer: ReturnType<typeof setTimeout> | undefined;
   private closedPromise: Promise<void> = Promise.resolve();
+  /**
+   * Tables this engine has registered, mirrored here so `hasTable` and
+   * `getTableNames` answer synchronously as the interface requires. The worker
+   * owns the catalog; this is a projection of the registrations it has
+   * acknowledged, and it is only written after an acknowledgement.
+   *
+   * Keyed by `tableKey()` and valued by the registered spelling, for the same
+   * reason as the native engine: the worker's DuckDB identifies `"Sales"` and
+   * `"sales"` as one table, so a raw-keyed set would claim two.
+   */
+  private readonly registered = new Map<string, string>();
   private startupReject: ((error: Error) => void) | undefined;
   private startupTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly options: QuerySandboxConfiguration;
@@ -302,6 +321,22 @@ export class WorkspaceQueryEngine {
     }
   }
 
+  /**
+   * The worker answers a query with one framed Arrow payload, bounded by
+   * `SANDBOX_MAX_ROWS`, so a batch sequence here is that single buffer — the
+   * whole result is resident before the first yield. It exists because the
+   * interface is one shape across backings; a caller that must bound memory
+   * gets that from the native backing, not from a request/response worker
+   * protocol pretending to stream.
+   */
+  async *queryArrowBatches(
+    sql: string,
+    params: readonly unknown[] = [],
+    signal?: AbortSignal,
+  ): AsyncGenerator<Uint8Array> {
+    yield await this.queryArrow(sql, params, signal);
+  }
+
   async registerArrowTable(
     name: string,
     bytes: Uint8Array,
@@ -314,10 +349,128 @@ export class WorkspaceQueryEngine {
       bytes,
       signal,
     );
+    this.registered.set(tableKey(name), name);
+  }
+
+  /**
+   * Same contract as `registerArrowTable`, fed by chunks.
+   *
+   * The worker protocol is one framed request carrying one payload, so the
+   * chunks are joined here and registered as a single buffer. That is the whole
+   * of the "streaming" this backing can offer — but the size ceiling still has
+   * to hold, so it is enforced on the running total as chunks arrive rather
+   * than after the join: a source larger than the limit is rejected without
+   * ever being resident whole.
+   *
+   * Pending source reads stop on caller cancellation or engine shutdown. The
+   * hosted request facade deliberately drops caller signals for shared work.
+   */
+  async registerArrowStream(
+    name: string,
+    chunks: AsyncIterable<Uint8Array>,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const parts: Uint8Array[] = [];
+    let total = 0;
+    for await (const chunk of this.registrationSource(chunks, signal)) {
+      total += chunk.byteLength;
+      if (total > SANDBOX_MAX_ARROW) throw new Error("SANDBOX_MESSAGE_LIMIT");
+      parts.push(chunk);
+    }
+    const joined = new Uint8Array(total);
+    let offset = 0;
+    for (const part of parts) {
+      joined.set(part, offset);
+      offset += part.byteLength;
+    }
+    await this.registerArrowTable(name, joined, signal);
   }
 
   async unregisterTable(name: string): Promise<void> {
     await this.request({ operation: "unregister", name: tableName(name) });
+    this.registered.delete(tableKey(name));
+  }
+
+  /** Buffered compatibility adapter; never advertises native transfer semantics. */
+  async registerArrowBatches(
+    name: string,
+    batches: AsyncIterable<Uint8Array>,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const tables: Table[] = [];
+    let total = 0;
+    for await (const bytes of this.registrationSource(batches, signal)) {
+      total += bytes.byteLength;
+      if (total > SANDBOX_MAX_ARROW) throw new Error("SANDBOX_MESSAGE_LIMIT");
+      const table = tableFromIPC(bytes);
+      if (tables[0] && !compareSchemas(tables[0].schema, table.schema))
+        throw new Error("Arrow schema changed while registering table");
+      tables.push(table);
+    }
+    if (!tables.length) throw new Error("Arrow batch stream is empty");
+    const table = new Table(
+      tables[0]!.schema,
+      tables.flatMap((part) => part.batches),
+    );
+    await this.registerArrowTable(name, tableToIPC(table, "stream"), signal);
+  }
+
+  hasTable(name: string): boolean {
+    return this.registered.has(tableKey(name));
+  }
+
+  private async *registrationSource(
+    source: AsyncIterable<Uint8Array>,
+    callerSignal?: AbortSignal,
+  ): AsyncGenerator<Uint8Array> {
+    const signal = callerSignal
+      ? AbortSignal.any([callerSignal, this.lifetime.signal])
+      : this.lifetime.signal;
+    const cancellationError = () =>
+      this.closed ?? new Error("SANDBOX_CANCELLED");
+    if (signal.aborted) throw cancellationError();
+    const iterator = source[Symbol.asyncIterator]();
+    let done = false;
+    try {
+      while (true) {
+        if (signal.aborted) throw cancellationError();
+        const next = await new Promise<IteratorResult<Uint8Array>>(
+          (resolve, reject) => {
+            const onAbort = () => reject(cancellationError());
+            signal.addEventListener("abort", onAbort, { once: true });
+            Promise.resolve()
+              .then(() => {
+                if (signal.aborted) throw cancellationError();
+                return iterator.next();
+              })
+              .then(resolve, reject)
+              .finally(() => {
+                signal.removeEventListener("abort", onAbort);
+              });
+          },
+        );
+        if (signal.aborted) throw cancellationError();
+        if (next.done) {
+          done = true;
+          return;
+        }
+        yield next.value;
+      }
+    } finally {
+      if (!done) {
+        // A producer may never settle return() either; request cleanup without
+        // allowing it to hold cancellation or engine disposal open.
+        try {
+          iterator.return?.().catch(() => {});
+        } catch {
+          /* best effort */
+        }
+      }
+    }
+  }
+
+  getTableNames(): string[] {
+    return [...this.registered.values()];
   }
 
   private request(
@@ -428,7 +581,13 @@ export class WorkspaceQueryEngine {
   private fail(error: Error): void {
     if (this.closed) return;
     this.closed = error;
+    this.lifetime.abort(error);
     this.ready = false;
+    // Every way this engine ends comes through here — dispose(), idle expiry,
+    // an operation timeout, a protocol violation, the worker exiting. The
+    // worker's catalog dies with it, so the projection of that catalog must
+    // not outlive it and claim tables nothing holds.
+    this.registered.clear();
     clearTimeout(this.idleTimer);
     clearTimeout(this.startupTimer);
     this.startupReject?.(error);

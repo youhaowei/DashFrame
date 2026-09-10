@@ -8,32 +8,101 @@ import {
 import { tableFromIPC } from "apache-arrow";
 import { describe, expect, it } from "vite-plus/test";
 
+import type { QueryEngine } from "@dashframe/engine";
 import {
   ARROW_STREAM_CONTENT_TYPE,
   createArrowDataPath,
-  type ArrowDataPathOptions,
-  type ArrowQueryRunner,
 } from "./arrow-data-path";
 import { duckdbColumnsToArrowIpc } from "./arrow-encode";
 
-/** A fake engine that echoes a known Arrow table regardless of SQL, recording calls. */
-function fakeEngine(): ArrowQueryRunner & {
-  calls: Array<{ sql: string; params: readonly unknown[] }>;
-} {
-  const calls: Array<{ sql: string; params: readonly unknown[] }> = [];
+/**
+ * A `QueryEngine` whose every method fails loudly, so a test that reaches a
+ * method it did not stub says so instead of quietly succeeding. Tests override
+ * only the operations they are about.
+ */
+function stubEngine(overrides: Partial<QueryEngine>): QueryEngine {
+  const unexpected = (method: string) => () => {
+    throw new Error(`unexpected QueryEngine.${method}`);
+  };
   return {
-    calls,
-    queryArrow: async (sql: string, params: readonly unknown[] = []) => {
-      calls.push({ sql, params });
-      return duckdbColumnsToArrowIpc([
-        { name: "id", typeId: 4 /* INTEGER */, values: [1, 2, 3] },
-        { name: "label", typeId: 17 /* VARCHAR */, values: ["a", "b", "c"] },
-      ]);
-    },
+    initialize: unexpected("initialize"),
+    dispose: unexpected("dispose"),
+    isReady: () => true,
+    queryArrow: unexpected("queryArrow"),
+    queryArrowBatches: unexpected("queryArrowBatches"),
+    registerArrowTable: unexpected("registerArrowTable"),
+    registerArrowStream: unexpected("registerArrowStream"),
+    registerArrowBatches: unexpected("registerArrowBatches"),
+    unregisterTable: async () => {},
+    hasTable: () => false,
+    getTableNames: () => [],
+    ...overrides,
   };
 }
 
+/** A fake engine that echoes a known Arrow table regardless of SQL, recording calls. */
+function fakeEngine(): QueryEngine & {
+  calls: Array<{ sql: string; params: readonly unknown[] }>;
+} {
+  const calls: Array<{ sql: string; params: readonly unknown[] }> = [];
+  return Object.assign(
+    stubEngine({
+      queryArrow: async (sql: string, params: readonly unknown[] = []) => {
+        calls.push({ sql, params });
+        return duckdbColumnsToArrowIpc([
+          { name: "id", typeId: 4 /* INTEGER */, values: [1, 2, 3] },
+          { name: "label", typeId: 17 /* VARCHAR */, values: ["a", "b", "c"] },
+        ]);
+      },
+    }),
+    { calls },
+  );
+}
+
 const TOKEN = "secret-loopback-token";
+
+it.each([
+  ["/arrow", "arrow"],
+  ["/arrow", "exec"],
+  ["/frames/11111111-1111-4111-8111-111111111111/mosaic", "arrow"],
+  ["/frames/11111111-1111-4111-8111-111111111111/mosaic", "exec"],
+] as const)(
+  "forwards the request signal through %s (%s)",
+  async (route, type) => {
+    const controller = new AbortController();
+    let received: AbortSignal | undefined;
+    const app = createArrowDataPath({
+      engine: stubEngine({
+        registerArrowTable: async () => {},
+        queryArrow: async (_sql, _params, signal) => {
+          received = signal;
+          return new Uint8Array();
+        },
+      }),
+      dataFrameStorage: {
+        save: async () => {},
+        load: async () => new Uint8Array([1]),
+        delete: async () => {},
+        exists: async () => true,
+        list: async () => [],
+        getUsage: async () => ({ count: 1 }),
+      },
+    });
+    const request = new Request(`http://localhost${route}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type,
+        sql: 'SELECT * FROM "11111111-1111-4111-8111-111111111111"',
+      }),
+      signal: controller.signal,
+    });
+    expect((await app.fetch(request)).status).toBe(200);
+    expect(received).toBe(request.signal);
+    controller.abort();
+    expect(received?.aborted).toBe(true);
+  },
+);
 
 describe("Arrow data path — host authorization", () => {
   it.each([
@@ -173,11 +242,11 @@ describe("Arrow data path — auth + IPC roundtrip (Stage 5)", () => {
   it("returns an opaque 500 when the engine throws (no DuckDB internals leaked)", async () => {
     const leakyMessage =
       "Binder Error: Referenced column 'secret' not found in FROM clause! Candidate bindings: internal_table.ssn";
-    const throwingEngine: ArrowQueryRunner = {
+    const throwingEngine = stubEngine({
       queryArrow: async () => {
         throw new Error(leakyMessage);
       },
-    };
+    });
     const app = createArrowDataPath({
       engine: throwingEngine,
       authToken: TOKEN,
@@ -241,28 +310,29 @@ describe("Arrow data path — auth + IPC roundtrip (Stage 5)", () => {
 });
 
 describe("Arrow data path — /tables/:name content-type enforcement", () => {
-  /**
-   * A minimal engine that also implements registerArrowTable so the 501 guard
-   * doesn't fire before the content-type check.
-   */
-  function fakeRegistrar(): ArrowQueryRunner & {
-    registerArrowTable(name: string, arrow: Uint8Array): Promise<void>;
-    unregisterTable(name: string): Promise<void>;
+  /** Records what was registered, so a route's effect can be asserted. */
+  function fakeRegistrar(): QueryEngine & {
     registrations: Array<{ name: string; bytes: Uint8Array }>;
+    calls: string[];
   } {
     const registrations: Array<{ name: string; bytes: Uint8Array }> = [];
-    return {
-      calls: [] as never,
-      queryArrow: async () => new Uint8Array(),
-      async registerArrowTable(name: string, arrow: Uint8Array) {
-        registrations.push({ name, bytes: arrow });
-      },
-      async unregisterTable(name: string) {
-        const index = registrations.findIndex((entry) => entry.name === name);
-        if (index >= 0) registrations.splice(index, 1);
-      },
-      registrations,
-    } as ReturnType<typeof fakeRegistrar>;
+    const calls: string[] = [];
+    return Object.assign(
+      stubEngine({
+        queryArrow: async (sql: string) => {
+          calls.push(sql);
+          return new Uint8Array();
+        },
+        async registerArrowTable(name: string, arrow: Uint8Array) {
+          registrations.push({ name, bytes: arrow });
+        },
+        async unregisterTable(name: string) {
+          const index = registrations.findIndex((entry) => entry.name === name);
+          if (index >= 0) registrations.splice(index, 1);
+        },
+      }),
+      { registrations, calls },
+    );
   }
 
   it("rejects a non-Arrow Content-Type with 415 before reaching registerArrowTable", async () => {
@@ -371,7 +441,7 @@ describe("Arrow data path — /tables/:name content-type enforcement", () => {
       let exists = true;
       let queries = 0;
       const app = createArrowDataPath({
-        engine: {
+        engine: stubEngine({
           queryArrow: async () => {
             queries++;
             return new Uint8Array();
@@ -385,7 +455,7 @@ describe("Arrow data path — /tables/:name content-type enforcement", () => {
           unregisterTable: async (table) => {
             registered.delete(table);
           },
-        },
+        }),
         dataFrameStorage: {
           save: async () => {},
           load: async () => null,
@@ -416,48 +486,6 @@ describe("Arrow data path — /tables/:name content-type enforcement", () => {
       expect(queries).toBe(0);
     },
   );
-
-  it("rejects incompatible stream-only registration capability before loading storage", async () => {
-    const id = "11111111-1111-4111-8111-111111111111";
-    let loads = 0;
-    const engine: ArrowQueryRunner & {
-      registerArrowStream(
-        name: string,
-        stream: AsyncIterable<Uint8Array>,
-      ): Promise<void>;
-    } = {
-      queryArrow: async () => new Uint8Array(),
-      async registerArrowStream() {},
-    };
-    const app = createArrowDataPath({
-      engine,
-      dataFrameStorage: {
-        save: async () => {},
-        load: async () => {
-          loads += 1;
-          return new Uint8Array([1]);
-        },
-        delete: async () => {},
-        exists: async () => true,
-        list: async () => [id],
-        getUsage: async () => ({ count: 1 }),
-      },
-    });
-
-    const registration = await app.request(`/frames/${id}/tables/df_server`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-    });
-    const mosaic = await app.request(`/frames/${id}/mosaic`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: "arrow", sql: `SELECT * FROM "${id}"` }),
-    });
-
-    expect(registration.status).toBe(501);
-    expect(mosaic.status).toBe(503);
-    expect(loads).toBe(0);
-  });
 
   it("rejects a browser-simple frame registration before loading bytes", async () => {
     const engine = fakeRegistrar();
@@ -545,7 +573,7 @@ describe("Arrow data path — /tables/:name content-type enforcement", () => {
       const registrationReleased = new Promise<void>((resolve) => {
         releaseRegistration = resolve;
       });
-      const engine = {
+      const engine = stubEngine({
         queryArrow: async () => new Uint8Array(),
         async registerArrowStream(
           _name: string,
@@ -557,7 +585,7 @@ describe("Arrow data path — /tables/:name content-type enforcement", () => {
             // A revoked frame must fail before its source reaches this loop body.
           }
         },
-      };
+      });
       const app = createArrowDataPath({
         engine,
         isFrameAvailable: async () => available,
@@ -602,7 +630,7 @@ describe("Arrow data path — /tables/:name content-type enforcement", () => {
     const registrationReleased = new Promise<void>((resolve) => {
       releaseRegistration = resolve;
     });
-    const engine: ArrowDataPathOptions["engine"] = {
+    const engine = stubEngine({
       queryArrow: async () => new Uint8Array(),
       async registerArrowBatches(_name, batches) {
         signalRegistration();
@@ -611,7 +639,7 @@ describe("Arrow data path — /tables/:name content-type enforcement", () => {
           // A revoked frame must fail before its source reaches this loop body.
         }
       },
-    };
+    });
     const app = createArrowDataPath({
       engine,
       isFrameAvailable: async () => available,
@@ -673,7 +701,7 @@ describe("Arrow data path — /tables/:name content-type enforcement", () => {
 
     expect(response.status).toBe(409);
     expect(engine.registrations).toEqual([]);
-    expect((engine as unknown as { calls: unknown[] }).calls).toEqual([]);
+    expect(engine.calls).toEqual([]);
   });
 
   it("discards a Mosaic result when frame ownership disappears during the query", async () => {

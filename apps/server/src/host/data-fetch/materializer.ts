@@ -244,7 +244,7 @@ export function createInsightMaterializer(
         };
         let release: (() => void) | undefined;
         return (async () => {
-          if (runtime.queryArrowBatches)
+          if (runtime.nativeTransfer)
             release = await acquireNativeTransfer(identity, transfer.signal);
           transfer.check();
           return materializeOnce(
@@ -335,7 +335,6 @@ async function materializeOnce(
 ): Promise<InsightFetchReady> {
   const storage = dependencies.storage(args.ctx);
   const runtime = dependencies.runtime(args.ctx);
-  if (!runtime.registerArrowTable) throw new Error("TARGET_NOT_READY");
 
   const created: Array<{ id: UUID; registered: boolean }> = [];
   let publicationAttempted = false;
@@ -739,17 +738,19 @@ export async function registerStoredFrame(
   fallback?: Uint8Array,
 ): Promise<void> {
   signal?.throwIfAborted();
-  if (storage.stream && runtime.registerArrowStream) {
+  // Stream only where streaming is real. The hosted backing joins the chunks
+  // at its worker seam, so feeding it a stream would re-read bytes this caller
+  // may already be holding in `fallback` and buy nothing for it.
+  if (storage.stream && runtime.nativeTransfer) {
     await runtime.registerArrowStream(name, storage.stream(id), signal);
-  } else if (storage.loadBatches && runtime.registerArrowBatches) {
-    await runtime.registerArrowBatches(name, storage.loadBatches(id), {
-      signal,
-    });
+  } else if (storage.loadBatches && runtime.nativeTransfer) {
+    await runtime.registerArrowBatches(name, storage.loadBatches(id), signal);
   } else {
     const bytes = fallback ?? (await storage.load(id));
-    if (!bytes || !runtime.registerArrowTable)
-      throw new Error("TARGET_NOT_READY");
-    await runtime.registerArrowTable(name, bytes);
+    if (!bytes) throw new Error("TARGET_NOT_READY");
+    // The load above is the slow part; a caller that gave up during it must
+    // not still have a table registered on its behalf afterwards.
+    await runtime.registerArrowTable(name, bytes, signal);
   }
 }
 
@@ -777,15 +778,16 @@ async function saveResult(args: {
   let rowCount = 0;
   if (
     storage.saveBatches &&
-    runtime.queryArrowBatches &&
-    storage.stream &&
-    runtime.registerArrowStream
+    (storage.stream || storage.loadBatches) &&
+    runtime.nativeTransfer
   ) {
     await transfer.admit(storage);
     async function* inspectedBatches() {
-      for await (const bytes of runtime.queryArrowBatches!(sql, [], {
-        signal: transfer.signal,
-      })) {
+      for await (const bytes of runtime.queryArrowBatches(
+        sql,
+        [],
+        transfer.signal,
+      )) {
         const inspected = dependencies.inspect(bytes, { insight, tables });
         if (
           schema &&
@@ -801,7 +803,10 @@ async function saveResult(args: {
     await storage.saveBatches(resultId, inspectedBatches());
     if (!schema) throw new Error("SOURCE_SCHEMA_CHANGED");
   } else {
-    const bytes = await runtime.queryArrow(sql, []);
+    // Same deadline as the batched branch above. The hosted facade drops the
+    // signal on purpose (a request cannot cancel shared work); on the native
+    // binding this is what stops a query the materialization has given up on.
+    const bytes = await runtime.queryArrow(sql, [], transfer.signal);
     const inspected = dependencies.inspect(bytes, { insight, tables });
     schema = inspected.schema;
     rowCount = inspected.rowCount;
@@ -820,10 +825,7 @@ async function loadFallback(
   runtime: HostDataPlaneRuntime,
   id: UUID,
 ): Promise<Uint8Array | undefined> {
-  if (
-    (storage.loadBatches && runtime.registerArrowBatches) ||
-    (storage.stream && runtime.registerArrowStream)
-  )
+  if ((storage.stream || storage.loadBatches) && runtime.nativeTransfer)
     return undefined;
   const bytes = await storage.load(id);
   if (!bytes) throw new Error("TARGET_NOT_READY");
@@ -843,14 +845,21 @@ async function saveSource(
     // Native compatibility adapters still allocate one buffered source. Count
     // that transfer before saving, including source-only refreshes; hosted
     // runtimes keep their existing independent ceilings.
-    if (runtime.queryArrowBatches) {
+    if (runtime.nativeTransfer) {
       await transfer.admit(storage);
       transfer.consumeBuffered(source.arrow, source.rowCount);
     }
     await storage.save(id, source.arrow);
     return;
   }
-  if (!storage.saveBatches || !storage.stream || !runtime.registerArrowStream)
+  // A batched source is a native-transfer path end to end: the hosted backing
+  // joins chunks at its worker seam, so accepting batches there would consume
+  // and persist the source only to reload the whole frame afterwards.
+  if (
+    !storage.saveBatches ||
+    (!storage.stream && !storage.loadBatches) ||
+    !runtime.nativeTransfer
+  )
     throw new Error("TARGET_NOT_READY");
   await transfer.admit(storage);
   source.rowCount = 0;

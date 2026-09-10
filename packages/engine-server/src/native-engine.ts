@@ -1,28 +1,29 @@
 /**
  * Stage 3 — Execute: the native DuckDB engine.
  *
- * The primary `QueryEngine` for the **server process** (desktop loopback today;
- * headless `serve` + web-via-server is the same class). Desktop and web share
- * this implementation so the data plane stays consistent; DuckDB-WASM in
- * `@dashframe/engine-browser` is a **backup / local-first** path, not a second
- * peer `QueryEngine` and not the long-term web default.
+ * The in-process `QueryEngine`: DuckDB inside the server process itself
+ * (desktop loopback today; headless `serve` + web-via-server is the same
+ * class). Desktop and web share this implementation so the data plane stays
+ * consistent. Its sibling backing is `WorkspaceQueryEngine` (query-sandbox.ts),
+ * which runs DuckDB behind a confined worker for the hosted surface; the
+ * DuckDB-WASM helpers in `@dashframe/engine-browser` are a renderer fallback
+ * and implement no `QueryEngine` today.
  *
  * Electron main and headless `serve` both construct this engine and mount Stage
- * 5. Cloud remote compute is not a binding; this class is the intended seam
- * there too once that tier exists.
+ * 5.
  *
- * Beyond the row-shaped `QueryEngine.query`, it exposes `queryArrow` — the
- * Arrow IPC bytes the dedicated data path (Stage 5) streams. Arrow encoding is
- * delegated to `apache-arrow` rather than DuckDB's Arrow extension, so the binary
- * format matches what clients ingest (including the WASM backup path) and stays
- * in one well-exercised library.
+ * Results leave as Arrow IPC bytes (`queryArrow` buffered, `queryArrowBatches`
+ * chunked) — the payload the dedicated data path (Stage 5) streams. Arrow
+ * encoding is delegated to `apache-arrow` rather than DuckDB's Arrow extension,
+ * so the binary format matches what clients ingest (including the WASM backup
+ * path) and stays in one well-exercised library. Callers that want JSON rows
+ * decode the same bytes in transport with `arrowIpcToJsonRows`.
  *
  * `registerArrowTable` accepts an Arrow IPC stream buffer, decodes it with
  * apache-arrow, and ingests it into an in-memory DuckDB table via the typed
- * Appender API. `registerTable(DataFrame)` is intentionally unsupported — use
- * Arrow upload or direct source SQL. Row data stays in process memory (privacy
- * floor: sensitive data is never at rest outside the gated cache; see #67).
- * Tables persist for the session lifetime and are re-registered on reconnect.
+ * Appender API. Row data stays in process memory (privacy floor: sensitive data
+ * is never at rest outside the gated cache; see #67). Tables persist for the
+ * session lifetime and are re-registered on reconnect.
  *
  * Two-Arrow-library seam: this side decodes with `apache-arrow`, but the chart
  * layer (Mosaic / `@uwdata/vgplot`) decodes the same IPC with `@uwdata/flechette`.
@@ -32,8 +33,7 @@
  * anti-corruption bridge is tracked in #95 (triggered at the 3rd cross-library
  * type). When adding an Arrow type here, pin a value-equality check across the seam.
  */
-import type { DataFrame, QueryEngine, QueryResult } from "@dashframe/engine";
-import type { TableColumn } from "@dashframe/types";
+import type { QueryEngine } from "@dashframe/engine";
 import {
   DuckDBDateValue,
   DuckDBInstance,
@@ -51,11 +51,8 @@ import {
   type RecordBatch,
 } from "apache-arrow";
 
-import {
-  duckdbColumnsToArrowIpc,
-  duckdbTypeIdToColumnType,
-  type ResultColumn,
-} from "./arrow-encode";
+import { duckdbColumnsToArrowIpc, type ResultColumn } from "./arrow-encode";
+import { tableKey } from "./table-identity";
 
 /**
  * Deny filesystem and network access on `connection`, then lock the
@@ -461,6 +458,8 @@ export class NativeDuckDBEngine implements QueryEngine {
       // starts, instead of running unstoppable through teardown.
       throwIfAborted(lease.signal);
       return await run(lease.connection, lease.signal);
+    } catch (error) {
+      throw normalizeOperationError(error, lease.signal);
     } finally {
       lease.release();
     }
@@ -483,6 +482,8 @@ export class NativeDuckDBEngine implements QueryEngine {
       // Same gap as withConnection(): see the re-check there.
       throwIfAborted(lease.signal);
       yield* run(lease.connection, lease.signal);
+    } catch (error) {
+      throw normalizeOperationError(error, lease.signal);
     } finally {
       lease.release();
     }
@@ -522,22 +523,6 @@ export class NativeDuckDBEngine implements QueryEngine {
     };
   }
 
-  async query(sql: string): Promise<QueryResult> {
-    return this.withConnection(async (connection) => {
-      const reader = await connection.runAndReadAll(sql);
-      const columnNames = reader.columnNames();
-      const columnTypes = reader.columnTypes();
-      const rows = reader.getRowObjectsJson() as Record<string, unknown>[];
-
-      const columns: TableColumn[] = columnNames.map((name, i) => ({
-        name,
-        type: duckdbTypeIdToColumnType(columnTypes[i]?.typeId),
-      }));
-
-      return { columns, rows, rowCount: rows.length };
-    });
-  }
-
   /**
    * Execute `sql` (with optional positional `params`) and return the result as
    * an Arrow IPC stream buffer — the payload the data path (Stage 5) serves as
@@ -552,44 +537,49 @@ export class NativeDuckDBEngine implements QueryEngine {
   async queryArrow(
     sql: string,
     params: readonly unknown[] = [],
+    signal?: AbortSignal,
   ): Promise<Uint8Array> {
-    return this.withConnection(async (connection) => {
-      const values = params.length > 0 ? (params as DuckDBValue[]) : undefined;
-      const reader = this.sandboxLimits
-        ? await connection.runAndReadUntil(
-            sql,
-            this.sandboxLimits.maxResultRows + 1,
-            values,
-          )
-        : await connection.runAndReadAll(sql, values);
-      if (
-        this.sandboxLimits &&
-        reader.currentRowCount > this.sandboxLimits.maxResultRows
-      )
-        throw new Error("Sandbox result row limit exceeded");
-      const columnNames = reader.columnNames();
-      const columnTypes = reader.columnTypes();
-      const columnsObject = reader.getColumnsObjectJson() as Record<
-        string,
-        unknown[]
-      >;
+    return this.withConnection(
+      async (connection) => {
+        const values =
+          params.length > 0 ? (params as DuckDBValue[]) : undefined;
+        const reader = this.sandboxLimits
+          ? await connection.runAndReadUntil(
+              sql,
+              this.sandboxLimits.maxResultRows + 1,
+              values,
+            )
+          : await connection.runAndReadAll(sql, values);
+        if (
+          this.sandboxLimits &&
+          reader.currentRowCount > this.sandboxLimits.maxResultRows
+        )
+          throw new Error("Sandbox result row limit exceeded");
+        const columnNames = reader.columnNames();
+        const columnTypes = reader.columnTypes();
+        const columnsObject = reader.getColumnsObjectJson() as Record<
+          string,
+          unknown[]
+        >;
 
-      const columns: ResultColumn[] = columnNames.map((name, i) => ({
-        name,
-        typeId: columnTypes[i]?.typeId,
-        values: columnsObject[name] ?? [],
-      }));
+        const columns: ResultColumn[] = columnNames.map((name, i) => ({
+          name,
+          typeId: columnTypes[i]?.typeId,
+          values: columnsObject[name] ?? [],
+        }));
 
-      return duckdbColumnsToArrowIpc(columns);
-    });
+        return duckdbColumnsToArrowIpc(columns);
+      },
+      { signal },
+    );
   }
 
   queryArrowBatches(
     sql: string,
     params: readonly unknown[] = [],
-    options: { signal?: AbortSignal } = {},
+    signal?: AbortSignal,
   ): AsyncIterable<Uint8Array> {
-    const iterator = this.trackedQueryStream(sql, params, options.signal, {
+    const iterator = this.trackedQueryStream(sql, params, signal, {
       onStarted: () => this.activeQueryIterators.add(iterator),
       onClosed: () => this.activeQueryIterators.delete(iterator),
     });
@@ -661,11 +651,11 @@ export class NativeDuckDBEngine implements QueryEngine {
   async registerArrowBatches(
     name: string,
     batches: AsyncIterable<Uint8Array>,
-    options: { signal?: AbortSignal } = {},
+    signal?: AbortSignal,
   ): Promise<void> {
     // Reject caller cancellation before paying for DuckDB startup. A disposed
     // engine is rejected by initialize()'s terminal phase before any re-open.
-    throwIfAborted(options.signal);
+    throwIfAborted(signal);
     await this.initialize();
     await this.withConnection(
       async (connection, operationSignal) => {
@@ -678,7 +668,7 @@ export class NativeDuckDBEngine implements QueryEngine {
         );
         this._registeredTables.set(tableKey(name), name);
       },
-      { signal: options.signal, lockTable: name },
+      { signal, lockTable: name },
     );
   }
 
@@ -697,10 +687,15 @@ export class NativeDuckDBEngine implements QueryEngine {
    * gated cache), and typed appends preserve timestamps/dates exactly instead
    * of round-tripping through JSON strings.
    */
-  async registerArrowTable(name: string, arrow: Uint8Array): Promise<void> {
+  async registerArrowTable(
+    name: string,
+    arrow: Uint8Array,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    throwIfAborted(signal);
     await this.initialize();
     await this.withConnection(
-      async (conn) => {
+      async (conn, operationSignal) => {
         // Decode the Arrow IPC stream buffer.
         const arrowTable = tableFromIPC(arrow);
         const fields = arrowTable.schema.fields;
@@ -736,11 +731,22 @@ export class NativeDuckDBEngine implements QueryEngine {
           }));
           const rowCount = arrowTable.numRows;
           for (let i = 0; i < rowCount; i++) {
+            // A large buffer spends nearly all of this operation inside this
+            // loop, and a caller that gave up should not wait out the whole
+            // ingest. Checking `aborted` alone would not achieve that: the
+            // loop is synchronous, so a timer- or socket-driven abort could
+            // not even run until it finished. Yielding to the event loop
+            // first is what makes the check able to see anything.
+            if ((i & 0x3ff) === 0) {
+              await yieldToEventLoop();
+              throwIfAborted(operationSignal);
+            }
             for (const col of columns) {
               appendArrowValue(appender, col.field, col.vector?.get(i));
             }
             appender.endRow();
           }
+          throwIfAborted(operationSignal);
           appender.flushSync();
         } catch (err) {
           // Append failed — the partially written staging table and any
@@ -772,7 +778,7 @@ export class NativeDuckDBEngine implements QueryEngine {
 
         this._registeredTables.set(tableKey(name), name);
       },
-      { lockTable: name },
+      { signal, lockTable: name },
     );
   }
 
@@ -837,12 +843,6 @@ export class NativeDuckDBEngine implements QueryEngine {
         }
       },
       { signal, lockTable: name },
-    );
-  }
-
-  async registerTable(_name: string, _dataFrame: DataFrame): Promise<void> {
-    throw new Error(
-      "NativeDuckDBEngine.registerTable is not supported — upload Arrow IPC via registerArrowTable, or query sources directly (read_parquet)",
     );
   }
 
@@ -951,25 +951,36 @@ function disposedError(): DOMException {
   return new DOMException("NativeDuckDBEngine disposed", "AbortError");
 }
 
+/** Native interruption errors vary by statement; the lease signal owns cancellation. */
+function normalizeOperationError(error: unknown, signal: AbortSignal): unknown {
+  if (!signal.aborted) return error;
+  if (
+    signal.reason instanceof DOMException &&
+    signal.reason.name === "AbortError"
+  )
+    return signal.reason;
+  return new DOMException(
+    signal.reason instanceof Error
+      ? signal.reason.message
+      : "The operation was aborted",
+    "AbortError",
+  );
+}
+
 function quoteIdent(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
 }
 
 /**
- * How DuckDB identifies a table, as opposed to how it spells it. Identifiers
- * are case-insensitive even when quoted, so `"Sales"` and `"sales"` name ONE
- * catalog entry — probed at 20/20 cross-case write-write conflicts against
- * @duckdb/node-api 1.5.3-r.3. Both the per-name lock and the registered-table
- * registry key on this, so neither can be fooled into treating one table as
- * two, or two as one.
- *
- * The fold is ASCII-only because DuckDB's is: probed on the same version,
- * `"Ä"`/`"ä"`, `"İ"`/`"i̇"` and `"ß"`/`"ss"` each create two distinct catalog
- * tables, while `"A"`/`"a"` create one. `String.toLowerCase()` would merge the
- * first pair and leave the registry claiming one table where DuckDB has two.
+ * Hand the event loop one turn. A synchronous ingest loop starves timers and
+ * I/O callbacks, so an `AbortSignal` driven by either cannot fire until the
+ * loop ends — checking `aborted` without yielding first can only ever observe
+ * an abort that had already happened when the loop started.
  */
-function tableKey(name: string): string {
-  return name.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => {
+    setImmediate(resolve);
+  });
 }
 
 function throwIfAborted(signal?: AbortSignal): void {
@@ -1185,7 +1196,7 @@ async function stageArrowBatches(
           connection.createAppender(stagingName),
         );
       }
-      appendArrowRows(appender, table, fields, signals);
+      await appendArrowRows(appender, table, fields, signals);
     }
     if (!appender) {
       throw new Error(`Arrow batch stream for table "${name}" is empty`);
@@ -1211,18 +1222,23 @@ async function stageArrowBatches(
   }
 }
 
-function appendArrowRows(
+async function appendArrowRows(
   appender: DuckDBAppender,
   table: Awaited<ReturnType<typeof tableFromIPC>>,
   fields: readonly Field[],
   signals: BatchSignals,
-): void {
+): Promise<void> {
   const columns = fields.map((field) => ({
     field,
     vector: table.getChild(field.name),
   }));
   for (let row = 0; row < table.numRows; row++) {
-    if ((row & 2047) === 0) throwIfAnyAborted(signals);
+    if ((row & 2047) === 0) {
+      await new Promise<void>((resolve) => {
+        setImmediate(resolve);
+      });
+      throwIfAnyAborted(signals);
+    }
     for (const column of columns) {
       appendArrowValue(appender, column.field, column.vector?.get(row));
     }

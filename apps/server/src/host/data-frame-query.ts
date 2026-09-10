@@ -81,14 +81,8 @@ async function ensureRegistered(
 ): Promise<void> {
   const runtime = ctx.dataPlaneRuntime;
   const storage = ctx.dataFrameStorage;
-  if (
-    !runtime ||
-    !storage ||
-    (!runtime.registerArrowTable &&
-      !(runtime.registerArrowBatches && storage.loadBatches) &&
-      !(runtime.registerArrowStream && storage.stream))
-  )
-    throw new Error("TARGET_NOT_READY");
+  // Every bound runtime can register: the engine interface is total.
+  if (!runtime || !storage) throw new Error("TARGET_NOT_READY");
   if (!(await storage.exists(id))) throw new Error("FRAME_UNAVAILABLE");
   await registerStoredFrame(storage, runtime, name, id);
 }
@@ -127,7 +121,7 @@ async function revokedDuringRegistration(
   // here, and that cannot resurface as an execution failure when the frame is
   // simply gone.
   try {
-    await ctx.dataPlaneRuntime?.unregisterTable?.(name);
+    await ctx.dataPlaneRuntime?.unregisterTable(name);
   } catch {
     // Leave the stale table. There is no request-driven retry: this path runs
     // only for an already-revoked frame, and a later request for it returns
@@ -215,7 +209,7 @@ export async function queryDataFrame(
     // frame may be revoked while bytes are loading, so re-check project
     // ownership before executing any SQL against the registered table.
     if (!(await frameIsOwned(ctx, row.id))) {
-      await ctx.dataPlaneRuntime?.unregisterTable?.(name);
+      await ctx.dataPlaneRuntime?.unregisterTable(name);
       return {
         status: "failed" as const,
         code: "FRAME_NOT_FOUND",
@@ -243,7 +237,7 @@ export async function queryDataFrame(
     // or return those bytes unless the project still owns the handle after
     // both queries settle.
     if (!(await frameIsOwned(ctx, row.id))) {
-      await ctx.dataPlaneRuntime?.unregisterTable?.(name);
+      await ctx.dataPlaneRuntime?.unregisterTable(name);
       return {
         status: "failed" as const,
         code: "FRAME_NOT_FOUND",

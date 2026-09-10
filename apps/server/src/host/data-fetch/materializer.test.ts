@@ -6,10 +6,12 @@ import type { HostContext, HostDataPlaneRuntime } from "../context";
 import {
   createInsightMaterializer,
   fieldsFromInsightResult,
+  registerStoredFrame,
   type InsightMaterializerDependencies,
   type PublishMaterialization,
   type SourceGeneration,
 } from "./materializer";
+import { stubQueryEngine } from "../query-engine.fixture";
 import { trustedPublishedSourceGenerations } from "./published-source-error";
 import { DEFAULT_TRANSFER_LIMITS } from "./transfer";
 import {
@@ -92,6 +94,7 @@ function harness(overrides: Partial<InsightMaterializerDependencies> = {}) {
     getUsage: vi.fn(async () => ({ count: bytes.size })),
   };
   const runtime: HostDataPlaneRuntime = {
+    ...stubQueryEngine(),
     queryArrow: vi.fn(async () => new Uint8Array([9])),
     registerArrowTable: vi.fn(async (name, value) => {
       registered.set(name, value);
@@ -919,6 +922,7 @@ describe("immutable Insight materializer", () => {
         // Drain like the native runtime.
       }
     });
+    h.runtime.nativeTransfer = true;
     h.runtime.queryArrowBatches = async function* () {
       yield new Uint8Array([9]);
     };
@@ -1073,9 +1077,8 @@ it.each(["storageBytes", "runBytes"] as const)(
     const h = harness({
       transferLimits: { ...DEFAULT_TRANSFER_LIMITS, [limit]: 0 },
     });
-    h.runtime.queryArrowBatches = async function* () {
-      yield new Uint8Array();
-    };
+    // The native binding, not method presence, is what marks a runtime native.
+    h.runtime.nativeTransfer = true;
     vi.mocked(h.storage.getUsage).mockResolvedValue({
       count: 1,
       totalBytes: 1,
@@ -1109,13 +1112,110 @@ it("retains hosted buffered refresh ceilings independently of native transfer bu
   expect(h.storage.getUsage).not.toHaveBeenCalled();
 });
 
+it("gives the buffered result query the same deadline as the batched one", async () => {
+  // The batched branch passes transfer.signal; the buffered branch runs the
+  // whole insight query and must not outlive the materialization that asked
+  // for it either.
+  const h = harness();
+  const seen: (AbortSignal | undefined)[] = [];
+  Object.assign(h.runtime, {
+    queryArrow: vi.fn(
+      async (
+        _sql: string,
+        _params?: readonly unknown[],
+        signal?: AbortSignal,
+      ) => {
+        seen.push(signal);
+        return new Uint8Array([9]);
+      },
+    ),
+  });
+  await createInsightMaterializer(h.dependencies).materialize({
+    ctx: {} as HostContext,
+    target: { kind: "ephemeral" },
+    insight,
+  });
+  expect(seen).not.toHaveLength(0);
+  expect(seen.every((signal) => signal instanceof AbortSignal)).toBe(true);
+});
+
+it("carries a caller abort into a buffered registration, not only into the load", async () => {
+  // The load is the slow half of registerStoredFrame's buffered branch. A
+  // caller that gave up while it ran must not end up with a table registered
+  // on its behalf, so the signal has to reach the registration too.
+  const h = harness();
+  const controller = new AbortController();
+  const registerArrowTable = vi.fn(
+    async (_name: string, _bytes: Uint8Array, signal?: AbortSignal) => {
+      signal?.throwIfAborted();
+    },
+  );
+  Object.assign(h.runtime, { registerArrowTable });
+  Object.assign(h.storage, {
+    load: async () => {
+      controller.abort();
+      return new Uint8Array([1]);
+    },
+  });
+  await expect(
+    registerStoredFrame(
+      h.storage,
+      h.runtime,
+      "df_cancelled",
+      "frame-1" as UUID,
+      controller.signal,
+    ),
+  ).rejects.toThrow();
+  expect(registerArrowTable).toHaveBeenCalledWith(
+    "df_cancelled",
+    new Uint8Array([1]),
+    controller.signal,
+  );
+});
+
+it("refuses a batched source on a hosted runtime without consuming or saving it", async () => {
+  // The hosted backing joins chunks at its worker seam, so accepting batches
+  // there would consume and persist the source only to reload the whole frame
+  // afterwards. Method presence can no longer say which backing this is —
+  // every backing implements registerArrowStream — so the branch reads the
+  // binding's own `nativeTransfer`, which the hosted facade never sets.
+  const h = harness();
+  let pulled = 0;
+  const saveBatches = vi.fn(async () => {
+    throw new Error("hosted runtime must not save batches");
+  });
+  Object.assign(h.storage, {
+    saveBatches,
+    stream: async function* () {
+      yield new Uint8Array([1]);
+    },
+  });
+  vi.mocked(h.storage.getUsage).mockResolvedValue({ count: 0, totalBytes: 0 });
+  h.resolveSource.mockImplementation(async (_ctx, tableId: UUID) => ({
+    ...source(tableId),
+    arrow: undefined,
+    batches: (async function* () {
+      pulled += 1;
+      yield new Uint8Array([1]);
+    })(),
+  }));
+  await expect(
+    createInsightMaterializer(h.dependencies).materialize({
+      ctx: {} as HostContext,
+      target: { kind: "refresh" },
+      insight: { baseTableId: "source", selectedFields: [], metrics: [] },
+    }),
+  ).rejects.toThrow("TARGET_NOT_READY");
+  expect(pulled).toBe(0);
+  expect(saveBatches).not.toHaveBeenCalled();
+  expect(h.storage.save).not.toHaveBeenCalled();
+});
+
 it("charges a buffered native source as a whole transfer rather than one streamed batch", async () => {
   const h = harness({
     transferLimits: { ...DEFAULT_TRANSFER_LIMITS, batchBytes: 0 },
   });
-  h.runtime.queryArrowBatches = async function* () {
-    yield new Uint8Array();
-  };
+  h.runtime.nativeTransfer = true;
   vi.mocked(h.storage.getUsage).mockResolvedValue({ count: 0, totalBytes: 0 });
   const result = await createInsightMaterializer(h.dependencies).materialize({
     ctx: {} as HostContext,

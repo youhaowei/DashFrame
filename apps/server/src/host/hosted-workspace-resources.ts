@@ -1,3 +1,4 @@
+import type { QueryEngine } from "@dashframe/engine";
 import { createHash } from "node:crypto";
 import { lstat, mkdir, realpath } from "node:fs/promises";
 import path from "node:path";
@@ -6,18 +7,13 @@ import { ApiAccessCredentials } from "@dashframe/server-core";
 import {
   WorkspaceQueryEngines,
   type QuerySandboxConfiguration,
-  type WorkspaceQueryEngine,
 } from "@dashframe/engine-server/query-sandbox";
 import { createHostedConnectorSessionDocument } from "../connector-setup/hosted-session-store";
 import type { SecretKeyringConfig } from "../secret-file-backend";
 import { createWorkspaceSecrets } from "./workspace-secrets";
 
-type Engine = Pick<
-  WorkspaceQueryEngine,
-  "initialize" | "queryArrow" | "registerArrowTable" | "unregisterTable"
->;
 interface Broker {
-  forWorkspace(workspaceId: string): Engine;
+  forWorkspace(workspaceId: string): QueryEngine;
   dispose(): Promise<void>;
 }
 

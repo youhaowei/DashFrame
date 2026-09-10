@@ -25,7 +25,7 @@
  *   backup paths may upload Arrow here; project-owned file frames instead use
  *   `POST /frames/:id/tables/:name` so bytes never cross the client.
  */
-import type { DataFrameStorage } from "@dashframe/engine";
+import type { DataFrameStorage, QueryEngine } from "@dashframe/engine";
 import type { UUID } from "@dashframe/types";
 import type { SecretRef, SecretVault } from "@wystack/secret-vault";
 import { tableFromIPC } from "apache-arrow";
@@ -41,39 +41,14 @@ const quoteIdent = (identifier: string): string =>
 
 const frameTableName = (id: string): string => `df_${id.replaceAll("-", "_")}`;
 
-/** What the data path needs from an engine: compiled SQL → Arrow IPC bytes. */
-export interface ArrowQueryRunner {
-  queryArrow(sql: string, params?: readonly unknown[]): Promise<Uint8Array>;
-  queryArrowBatches?(
-    sql: string,
-    params?: readonly unknown[],
-    options?: { signal?: AbortSignal },
-  ): AsyncIterable<Uint8Array>;
-}
-
-/**
- * Optional extension: the engine can accept Arrow IPC buffers as named tables
- * so chart-compute (and other clients) can register the same frame data the
- * server engine will query — without routing bytes through the WASM backup path.
- */
-export interface ArrowTableRegistrar {
-  registerArrowTable(name: string, arrow: Uint8Array): Promise<void>;
-  registerArrowBatches?(
-    name: string,
-    batches: AsyncIterable<Uint8Array>,
-    options?: { signal?: AbortSignal },
-  ): Promise<void>;
-  registerArrowStream?(
-    name: string,
-    rawIPCStream: AsyncIterable<Uint8Array>,
-    signal?: AbortSignal,
-  ): Promise<void>;
-  unregisterTable?(name: string): Promise<void>;
-}
-
 export interface ArrowDataPathOptions {
-  /** The engine that executes compiled SQL and returns Arrow IPC. */
-  engine: ArrowQueryRunner & Partial<ArrowTableRegistrar>;
+  /**
+   * The engine that executes compiled SQL and registers Arrow tables. Every
+   * backing implements the whole `QueryEngine`, so the routes below never have
+   * to ask an engine what it can do — there is no half-capable engine to
+   * discover at runtime.
+   */
+  engine: QueryEngine;
   /** Project-owned frames that may be registered without crossing the client. */
   dataFrameStorage?: DataFrameStorage;
   /** Confirms a durable frame is still canonically owned before registration. */
@@ -116,11 +91,11 @@ export interface ArrowDataPathOptions {
 }
 
 async function unregisterIfPresent(
-  engine: ArrowQueryRunner & Partial<ArrowTableRegistrar>,
+  engine: QueryEngine,
   name: string,
 ): Promise<boolean> {
   try {
-    await engine.unregisterTable?.(name);
+    await engine.unregisterTable(name);
     return true;
   } catch {
     return false;
@@ -134,18 +109,6 @@ async function frameIsUnavailable(
   return options.isFrameAvailable
     ? !(await options.isFrameAvailable(id))
     : false;
-}
-
-function supportsStoredFrameRegistration(
-  options: ArrowDataPathOptions,
-): boolean {
-  return (
-    typeof options.engine.registerArrowTable === "function" ||
-    (typeof options.dataFrameStorage?.loadBatches === "function" &&
-      typeof options.engine.registerArrowBatches === "function") ||
-    (typeof options.dataFrameStorage?.stream === "function" &&
-      typeof options.engine.registerArrowStream === "function")
-  );
 }
 
 class FrameUnavailableBeforeStreamReadError extends Error {}
@@ -168,20 +131,14 @@ async function registerStoredFrame(
   checkAvailabilityBeforeRegistration = false,
 ): Promise<"registered" | "missing" | "unavailable"> {
   const storage = options.dataFrameStorage!;
-  if (
-    typeof storage.stream === "function" &&
-    typeof options.engine.registerArrowStream === "function"
-  )
+  if (typeof storage.stream === "function")
     return registerStoredFrameWithoutBatches(
       options,
       id,
       name,
       checkAvailabilityBeforeRegistration,
     );
-  if (
-    typeof storage.loadBatches === "function" &&
-    typeof options.engine.registerArrowBatches === "function"
-  ) {
+  if (typeof storage.loadBatches === "function") {
     if (!(await storage.exists(id))) return "missing";
     const batches = storage.loadBatches(id);
     try {
@@ -214,10 +171,7 @@ async function registerStoredFrameWithoutBatches(
   checkAvailabilityBeforeRegistration: boolean,
 ): Promise<"registered" | "missing" | "unavailable"> {
   const storage = options.dataFrameStorage!;
-  if (
-    typeof storage.stream === "function" &&
-    typeof options.engine.registerArrowStream === "function"
-  ) {
+  if (typeof storage.stream === "function") {
     if (!(await storage.exists(id))) return "missing";
     const stream = storage.stream(id);
     try {
@@ -234,9 +188,6 @@ async function registerStoredFrameWithoutBatches(
       throw error;
     }
     return "registered";
-  }
-  if (typeof options.engine.registerArrowTable !== "function") {
-    throw new Error("Engine does not support buffered table registration");
   }
   const arrow = await storage.load(id);
   if (!arrow) return "missing";
@@ -314,8 +265,9 @@ type RequestBody = NativeRequestBody | MosaicRequestBody;
  * Extracted to keep the Hono handler below the sonarjs cognitive-complexity cap.
  */
 async function dispatchArrowQuery(
-  engine: ArrowQueryRunner,
+  engine: QueryEngine,
   body: RequestBody,
+  signal: AbortSignal,
 ): Promise<Response> {
   const sql = typeof body.sql === "string" ? body.sql.trim() : "";
   if (!sql) {
@@ -351,7 +303,7 @@ async function dispatchArrowQuery(
 
   if (queryType === "exec") {
     try {
-      await engine.queryArrow(sql, []);
+      await engine.queryArrow(sql, [], signal);
     } catch {
       return Response.json(
         { error: "Query execution failed" },
@@ -363,7 +315,7 @@ async function dispatchArrowQuery(
 
   let arrow: Uint8Array;
   try {
-    arrow = await engine.queryArrow(sql, parseParams(body));
+    arrow = await engine.queryArrow(sql, parseParams(body), signal);
   } catch {
     return Response.json({ error: "Query execution failed" }, { status: 500 });
   }
@@ -485,7 +437,7 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
       return c.json({ error: "Invalid JSON body" }, 400);
     }
 
-    return dispatchArrowQuery(options.engine, body);
+    return dispatchArrowQuery(options.engine, body, c.req.raw.signal);
   });
 
   // -------------------------------------------------------------------------
@@ -514,17 +466,6 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
           error: `Content-Type must be ${ARROW_STREAM_CONTENT_TYPE}`,
         },
         415,
-      );
-    }
-
-    // Engine must support Arrow table registration (native engine only).
-    if (typeof options.engine.registerArrowTable !== "function") {
-      return c.json(
-        {
-          error:
-            "Engine does not support Arrow table registration on this surface",
-        },
-        501,
       );
     }
 
@@ -561,12 +502,6 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
     }
     if (!options.dataFrameStorage) {
       return c.json({ error: "Server DataFrame storage is unavailable" }, 503);
-    }
-    if (!supportsStoredFrameRegistration(options)) {
-      return c.json(
-        { error: "Engine does not support table registration" },
-        501,
-      );
     }
     const id = c.req.param("id");
     const name = c.req.param("name");
@@ -633,10 +568,7 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
     if (contentType?.toLowerCase() !== "application/json") {
       return c.json({ error: "Content-Type must be application/json" }, 415);
     }
-    if (
-      !options.dataFrameStorage ||
-      !supportsStoredFrameRegistration(options)
-    ) {
+    if (!options.dataFrameStorage) {
       return c.json({ error: "Server DataFrame storage is unavailable" }, 503);
     }
     const id = c.req.param("id");
@@ -688,10 +620,14 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
       "Frame was deleted and registration cleanup failed",
     );
     if (registrationRace) return registrationRace;
-    const response = await dispatchArrowQuery(options.engine, {
-      ...body,
-      sql: sql.split(frameIdentifier).join(quoteIdent(frameTableName(id))),
-    });
+    const response = await dispatchArrowQuery(
+      options.engine,
+      {
+        ...body,
+        sql: sql.split(frameIdentifier).join(quoteIdent(frameTableName(id))),
+      },
+      c.req.raw.signal,
+    );
     // Query execution is another asynchronous boundary. A frame deleted while
     // DuckDB is producing the result must not have its bytes returned after its
     // project ownership has been revoked.

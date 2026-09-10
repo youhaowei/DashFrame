@@ -304,13 +304,7 @@ async function resolveProductionSource(
   ) {
     // The hosted sandbox still uses its bounded compatibility adapter.
     // Native streaming capabilities are mandatory here: do not silently buffer a large source.
-    if (
-      !ctx.dataFrameStorage?.saveBatches ||
-      !ctx.dataFrameStorage.stream ||
-      !ctx.dataPlaneRuntime?.registerArrowStream ||
-      !ctx.dataPlaneRuntime.queryArrowBatches
-    )
-      throw new Error("TARGET_NOT_READY");
+    if (!supportsStreaming(ctx)) throw new Error("TARGET_NOT_READY");
     return {
       table: binding.table as never,
       fields: binding.table.fields as SourceGeneration["fields"],
