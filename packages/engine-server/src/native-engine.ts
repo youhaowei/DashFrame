@@ -177,10 +177,22 @@ export class NativeDuckDBEngine implements QueryEngine {
   }
 
   async initialize(): Promise<void> {
+    // Disposal is terminal, and this check must precede the `this.connection`
+    // early return: dispose() aborts the signal but keeps the connection alive
+    // until it has drained `operationsIdle`, so a guard placed after the early
+    // return would wave callers straight through that teardown window. Failing
+    // closed here also stops a re-armed controller from resurrecting a disposed
+    // engine — dispose() nulls the connection, so a later initialize() would
+    // otherwise build a fresh DuckDBInstance the owner will never close,
+    // leaking a native handle, its background threads, and any file lock on a
+    // non-:memory: path.
+    //
+    // This guard alone is not sufficient: it cannot stop an operation that
+    // passed it *before* dispose() aborted. Every method using the persistent
+    // connection must also enrol in beginNativeOperation() so teardown waits
+    // for it.
+    throwIfAborted(this.lifecycleAbort.signal);
     if (this.connection) return;
-    if (this.lifecycleAbort.signal.aborted) {
-      this.lifecycleAbort = new AbortController();
-    }
     // Guard against concurrent initialize() calls: the `await` below yields the
     // event loop, so a plain `if (this.connection)` check (which is null until
     // both awaits resolve) would let two callers both create an instance. Latch
@@ -246,7 +258,32 @@ export class NativeDuckDBEngine implements QueryEngine {
   }
 
   async query(sql: string): Promise<QueryResult> {
-    const reader = await this.conn().runAndReadAll(sql);
+    // conn() first: after dispose() the connection is gone, and callers should
+    // hear "not initialized" rather than a teardown abort. Enrolling second
+    // covers the window where the connection is still live but disposal has
+    // begun, so dispose() waits for this read instead of closing under it.
+    const connection = this.conn();
+    const operationSignal = this.beginNativeOperation();
+    // Enrolling makes dispose() wait for this read; without a way to stop it,
+    // that turns a long or nonterminating query into a hung shutdown, since
+    // both the desktop and standalone hosts await dispose(). Interrupt on
+    // abort, exactly as the streaming paths do.
+    const interrupt = () => connection.interrupt();
+    operationSignal.addEventListener("abort", interrupt, { once: true });
+    try {
+      throwIfAborted(operationSignal);
+      return await this.readQuery(connection, sql);
+    } finally {
+      operationSignal.removeEventListener("abort", interrupt);
+      this.endNativeOperation();
+    }
+  }
+
+  private async readQuery(
+    connection: Connection,
+    sql: string,
+  ): Promise<QueryResult> {
+    const reader = await connection.runAndReadAll(sql);
     const columnNames = reader.columnNames();
     const columnTypes = reader.columnTypes();
     const rows = reader.getRowObjectsJson() as Record<string, unknown>[];
@@ -274,14 +311,35 @@ export class NativeDuckDBEngine implements QueryEngine {
     sql: string,
     params: readonly unknown[] = [],
   ): Promise<Uint8Array> {
+    // Same ordering as query(): resolve the connection first so a disposed
+    // engine reports "not initialized", then enrol so an in-progress dispose()
+    // waits for this read rather than disconnecting under it.
+    const connection = this.conn();
+    const operationSignal = this.beginNativeOperation();
+    const interrupt = () => connection.interrupt();
+    operationSignal.addEventListener("abort", interrupt, { once: true });
+    try {
+      throwIfAborted(operationSignal);
+      return await this.readQueryArrow(connection, sql, params);
+    } finally {
+      operationSignal.removeEventListener("abort", interrupt);
+      this.endNativeOperation();
+    }
+  }
+
+  private async readQueryArrow(
+    connection: Connection,
+    sql: string,
+    params: readonly unknown[],
+  ): Promise<Uint8Array> {
     const values = params.length > 0 ? (params as DuckDBValue[]) : undefined;
     const reader = this.sandboxLimits
-      ? await this.conn().runAndReadUntil(
+      ? await connection.runAndReadUntil(
           sql,
           this.sandboxLimits.maxResultRows + 1,
           values,
         )
-      : await this.conn().runAndReadAll(sql, values);
+      : await connection.runAndReadAll(sql, values);
     if (
       this.sandboxLimits &&
       reader.currentRowCount > this.sandboxLimits.maxResultRows
@@ -402,7 +460,22 @@ export class NativeDuckDBEngine implements QueryEngine {
    */
   async registerArrowTable(name: string, arrow: Uint8Array): Promise<void> {
     await this.initialize();
+    // Enrol before the lock wait so dispose() blocks on `operationsIdle`
+    // rather than disconnecting the connection out from under this appender.
+    const operationSignal = this.beginNativeOperation();
+    try {
+      throwIfAborted(operationSignal);
+      await this.registerArrowTableLocked(name, arrow, operationSignal);
+    } finally {
+      this.endNativeOperation();
+    }
+  }
 
+  private async registerArrowTableLocked(
+    name: string,
+    arrow: Uint8Array,
+    operationSignal: AbortSignal,
+  ): Promise<void> {
     // Serialize all registrations through a global promise-chain lock. DuckDB
     // appenders are not concurrent-safe on a shared connection — two in-flight
     // registrations both using `this.connection` can trigger the Linux
@@ -418,6 +491,9 @@ export class NativeDuckDBEngine implements QueryEngine {
     await gate;
 
     try {
+      // A queued registration can wait here across a dispose(); the connection
+      // it was about to use may already be gone.
+      throwIfAborted(operationSignal);
       const conn = this.conn();
       // Decode the Arrow IPC stream buffer.
       const arrowTable = tableFromIPC(arrow);
@@ -539,10 +615,18 @@ export class NativeDuckDBEngine implements QueryEngine {
     await gate;
 
     try {
+      // A queued registration can wait here across a whole dispose(). Opening a
+      // native connection after teardown has begun both does pointless work and
+      // holds dispose() open while it waits on `operationsIdle`.
+      throwIfAborted(operationSignal);
       const conn = await this.instance!.connect();
       const interrupt = () => conn.interrupt();
       operationSignal.addEventListener("abort", interrupt, { once: true });
       try {
+        // connect() is itself awaited, so abort may have fired during it. This
+        // check belongs inside the try: the finally below is what disconnects
+        // `conn`, so throwing above it would leak the connection.
+        throwIfAborted(operationSignal);
         const reader = await RecordBatchReader.from(
           abortableBytes(rawIPCStream, operationSignal),
         );
@@ -609,6 +693,19 @@ export class NativeDuckDBEngine implements QueryEngine {
 
   async unregisterTable(name: string): Promise<void> {
     await this.initialize();
+    const operationSignal = this.beginNativeOperation();
+    try {
+      throwIfAborted(operationSignal);
+      await this.unregisterTableLocked(name, operationSignal);
+    } finally {
+      this.endNativeOperation();
+    }
+  }
+
+  private async unregisterTableLocked(
+    name: string,
+    operationSignal: AbortSignal,
+  ): Promise<void> {
     const gate = this._registrationLock;
     let unlock!: () => void;
     this._registrationLock = new Promise<void>((resolve) => {
@@ -616,6 +713,7 @@ export class NativeDuckDBEngine implements QueryEngine {
     });
     await gate;
     try {
+      throwIfAborted(operationSignal);
       if (!this._registeredTables.has(name)) return;
       await this.conn().run(`DROP TABLE IF EXISTS ${quoteIdent(name)}`);
       // Forget the registration only after DuckDB confirms the DROP. A
@@ -636,6 +734,14 @@ export class NativeDuckDBEngine implements QueryEngine {
   }
 
   async dispose(): Promise<void> {
+    // Abort synchronously, before the first await. On a fresh engine
+    // `initPromise` is null, and `await null` still yields a microtask — an
+    // initialize() arriving in that window would pass the lifecycle guard,
+    // build an instance this teardown has already walked past, and leave it
+    // live with nothing left to close it.
+    this.lifecycleAbort.abort(
+      new DOMException("NativeDuckDBEngine disposed", "AbortError"),
+    );
     // An initialize() may still be in flight (e.g. Electron before-quit fires
     // during DuckDB startup). Tearing down immediately would null out nothing,
     // and the init closure would then assign a live connection/instance AFTER
