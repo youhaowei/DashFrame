@@ -140,25 +140,40 @@ fi
 # Serialize all mutations of this package, including private fallback and
 # recovery. A cache lock alone cannot protect runs for different target keys.
 if [ "${DASHFRAME_ELECTRON_PACKAGE_LOCKED:-}" != "$pkg" ]; then
+  _package_fallback="no package locking tool is available"
   if command -v lockf >/dev/null 2>&1; then
-    _package_rc=0
-    if [ "$force" = true ]; then
-      DASHFRAME_ELECTRON_PACKAGE_LOCKED="$pkg" lockf -t 900 "$pkg/.provision.lock" "$0" --force "$wt" || _package_rc=$?
-    else
-      DASHFRAME_ELECTRON_PACKAGE_LOCKED="$pkg" lockf -t 900 "$pkg/.provision.lock" "$0" "$wt" || _package_rc=$?
-    fi
-    exit "$_package_rc"
+    set -- lockf -t 900
   elif command -v flock >/dev/null 2>&1; then
+    set -- flock -E 75 -w 900
+  else
+    set --
+  fi
+  if [ "$#" -gt 0 ] && _cleanup_lock=$(mktemp -d "$pkg/.lock-attempt.$$.XXXXXX"); then
+    # Both lockers can fail before invoking the child. Only a started child
+    # owns its exit status; acquisition errors lose the sharing optimisation.
     _package_rc=0
     if [ "$force" = true ]; then
-      DASHFRAME_ELECTRON_PACKAGE_LOCKED="$pkg" flock -w 900 "$pkg/.provision.lock" "$0" --force "$wt" || _package_rc=$?
+      # These arguments expand in the locked child.
+      # shellcheck disable=SC2016
+      DASHFRAME_ELECTRON_PACKAGE_LOCKED="$pkg" "$@" "$pkg/.provision.lock" \
+        sh -c ': > "$1/started" || exit 1; shift; exec "$@"' sh "$_cleanup_lock" "$0" --force "$wt" \
+        || _package_rc=$?
     else
-      DASHFRAME_ELECTRON_PACKAGE_LOCKED="$pkg" flock -w 900 "$pkg/.provision.lock" "$0" "$wt" || _package_rc=$?
+      # These arguments expand in the locked child.
+      # shellcheck disable=SC2016
+      DASHFRAME_ELECTRON_PACKAGE_LOCKED="$pkg" "$@" "$pkg/.provision.lock" \
+        sh -c ': > "$1/started" || exit 1; shift; exec "$@"' sh "$_cleanup_lock" "$0" "$wt" \
+        || _package_rc=$?
     fi
-    exit "$_package_rc"
+    if [ -f "$_cleanup_lock/started" ]; then
+      exit "$_package_rc"
+    fi
+    _package_fallback="package lock could not be acquired"
+  elif [ "$#" -gt 0 ]; then
+    _package_fallback="package lock attempt could not be staged"
   fi
-  # Preserve the existing no-lock-tool private-install path, but do not guess
-  # ownership of abandoned directories without exclusive package access.
+  # Continue to private mode after defining its helpers. Without exclusive
+  # package access, never recover abandoned trees or enter the shared cache.
 fi
 
 # usable <dir> <path-file> [<version> <platform> <architecture>]
@@ -438,6 +453,11 @@ replace_private() {
 clone_shared() {
   replace_private "$shared" "$shared_pathfile" clone
 }
+
+if [ "${DASHFRAME_ELECTRON_PACKAGE_LOCKED:-}" != "$pkg" ]; then
+  use_private "$_package_fallback"
+  exit 0
+fi
 
 # The cache must be a writable directory on a clone-compatible filesystem and
 # volume. The tiny real clone below proves all three properties before the
