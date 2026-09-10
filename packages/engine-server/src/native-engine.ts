@@ -455,6 +455,8 @@ export class NativeDuckDBEngine implements QueryEngine {
       // starts, instead of running unstoppable through teardown.
       throwIfAborted(lease.signal);
       return await run(lease.connection, lease.signal);
+    } catch (error) {
+      throw normalizeOperationError(error, lease.signal);
     } finally {
       lease.release();
     }
@@ -477,6 +479,8 @@ export class NativeDuckDBEngine implements QueryEngine {
       // Same gap as withConnection(): see the re-check there.
       throwIfAborted(lease.signal);
       yield* run(lease.connection, lease.signal);
+    } catch (error) {
+      throw normalizeOperationError(error, lease.signal);
     } finally {
       lease.release();
     }
@@ -918,6 +922,22 @@ export class NativeDuckDBEngine implements QueryEngine {
 
 function disposedError(): DOMException {
   return new DOMException("NativeDuckDBEngine disposed", "AbortError");
+}
+
+/** Native interruption errors vary by statement; the lease signal owns cancellation. */
+function normalizeOperationError(error: unknown, signal: AbortSignal): unknown {
+  if (!signal.aborted) return error;
+  if (
+    signal.reason instanceof DOMException &&
+    signal.reason.name === "AbortError"
+  )
+    return signal.reason;
+  return new DOMException(
+    signal.reason instanceof Error
+      ? signal.reason.message
+      : "The operation was aborted",
+    "AbortError",
+  );
 }
 
 function quoteIdent(name: string): string {

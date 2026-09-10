@@ -1,4 +1,4 @@
-import { DuckDBInstance } from "@duckdb/node-api";
+import { DuckDBConnection, DuckDBInstance } from "@duckdb/node-api";
 import {
   Bool,
   DateDay,
@@ -986,6 +986,86 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     controller.abort();
     await expect(registration).rejects.toMatchObject({ name: "AbortError" });
     expect(engine.hasTable("df_aborted")).toBe(false);
+  });
+
+  it.each([
+    "buffered registration",
+    "streamed registration",
+    "buffered query",
+    "streamed query",
+  ] as const)(
+    "normalizes an interrupted native call during %s",
+    async (operation) => {
+      engine = new NativeDuckDBEngine();
+      await engine.initialize();
+      const controller = new AbortController();
+      const nativeError = new Error("INTERRUPT Error: Interrupted!");
+      const method = (
+        {
+          "buffered query": "runAndReadAll",
+          "streamed query": "stream",
+          "buffered registration": "run",
+          "streamed registration": "run",
+        } as const
+      )[operation];
+      const nativeCall = vi
+        .spyOn(DuckDBConnection.prototype, method)
+        .mockImplementationOnce(async () => {
+          // Cancel only after the operation has entered the native call. This
+          // forces the CI race without relying on a timer winning startup.
+          controller.abort();
+          throw nativeError;
+        });
+      const arrow = tableToIPC(
+        new Table({ v: vectorFromArray([1], new Int32()) }),
+      );
+      const source = async function* () {
+        yield arrow;
+      };
+      const pending = (async () => {
+        switch (operation) {
+          case "buffered registration":
+            return engine!.registerArrowTable(
+              "cancelled",
+              arrow,
+              controller.signal,
+            );
+          case "streamed registration":
+            return engine!.registerArrowStream(
+              "cancelled",
+              source(),
+              controller.signal,
+            );
+          case "buffered query":
+            return engine!.queryArrow("SELECT 1", [], controller.signal);
+          case "streamed query":
+            for await (const _batch of engine!.queryArrowBatches(
+              "SELECT 1",
+              [],
+              controller.signal,
+            )) {
+              /* drain */
+            }
+        }
+      })();
+      await expect(pending).rejects.toBeInstanceOf(DOMException);
+      await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+      expect(nativeCall).toHaveBeenCalledTimes(1);
+      nativeCall.mockRestore();
+      expect(engine.hasTable("cancelled")).toBe(false);
+      // Cancellation must release the lease and leave unrelated work usable.
+      expect(await queryRows(engine, "SELECT 1 AS v")).toEqual([{ v: 1 }]);
+    },
+  );
+
+  it("preserves native failures when the operation was not cancelled", async () => {
+    engine = new NativeDuckDBEngine();
+    await engine.initialize();
+    const failure = new Error("native statement failed");
+    vi.spyOn(DuckDBConnection.prototype, "runAndReadAll").mockRejectedValueOnce(
+      failure,
+    );
+    await expect(engine.queryArrow("SELECT 1")).rejects.toBe(failure);
   });
 
   it("observes a timer-driven abort during a buffered ingest, not only before it", async () => {
