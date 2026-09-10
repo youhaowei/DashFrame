@@ -52,6 +52,15 @@ describe("FileDataFrameStorage", () => {
     const table = await tableFromIPC(restarted.stream(id));
     expect(table.numRows).toBe(25_001);
     expect(table.getChild("value")?.get(25_000)).toBe(25_000);
+
+    let batchRows = 0;
+    let batchCount = 0;
+    for await (const payload of restarted.loadBatches(id)) {
+      batchRows += tableFromIPC(payload).numRows;
+      batchCount += 1;
+    }
+    expect(batchRows).toBe(25_001);
+    expect(batchCount).toBe(13);
   });
 
   it("keeps the previous generation when incremental persistence fails", async () => {

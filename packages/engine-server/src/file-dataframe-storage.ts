@@ -1,13 +1,19 @@
 import type { DataFrameStorage } from "@dashframe/engine";
 import type { UUID } from "@dashframe/types";
 import {
+  DataType,
+  RecordBatch,
+  RecordBatchReader,
   RecordBatchStreamWriter,
+  Table,
   tableFromIPC,
+  tableToIPC,
   type Schema,
 } from "apache-arrow";
 import type { ArrayBufferViewInput } from "apache-arrow/util/buffer";
 import { compareSchemas } from "apache-arrow/visitor/typecomparator";
 import { randomUUID } from "node:crypto";
+import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
 import path from "node:path";
@@ -146,11 +152,24 @@ async function writePendingChunks(
 
 function sameSchema(expected: Schema, actual: Schema): boolean {
   return (
-    compareSchemas(expected, actual) &&
     sameMetadata(expected.metadata, actual.metadata) &&
-    expected.fields.every((field, index) =>
-      sameMetadata(field.metadata, actual.fields[index]!.metadata),
-    )
+    expected.fields.length === actual.fields.length &&
+    expected.fields.every((field, index) => {
+      const other = actual.fields[index];
+      if (
+        !other ||
+        field.name !== other.name ||
+        field.nullable !== other.nullable ||
+        field.type.toString() !== other.type.toString() ||
+        !sameMetadata(field.metadata, other.metadata)
+      )
+        return false;
+      return !(
+        DataType.isDictionary(field.type) &&
+        DataType.isDictionary(other.type) &&
+        field.type.isOrdered !== other.type.isOrdered
+      );
+    })
   );
 }
 
@@ -180,7 +199,11 @@ async function appendStandaloneIpc(
     if (!sameSchema(schema, payload.schema)) {
       throw new Error("Arrow batch schema does not match the first batch");
     }
-    writer.write(payload);
+    const normalized =
+      payload instanceof RecordBatch && !compareSchemas(schema, payload.schema)
+        ? new RecordBatch(schema, payload.data)
+        : payload;
+    writer.write(normalized);
     await writePendingChunks(handle, writer);
   }
   return schema;
@@ -289,6 +312,25 @@ export class FileDataFrameStorage implements DataFrameStorage {
       }
     } finally {
       await handle.close();
+    }
+  }
+
+  async *loadBatches(id: UUID): AsyncIterable<Uint8Array> {
+    const input = createReadStream(this.framePath(id));
+    let reader: Awaited<ReturnType<typeof RecordBatchReader.from>> | null =
+      null;
+    try {
+      reader = await RecordBatchReader.from(input);
+      await reader.open({ autoDestroy: false });
+      let foundBatch = false;
+      for await (const batch of reader) {
+        foundBatch = true;
+        yield tableToIPC(new Table(reader.schema, batch), "stream");
+      }
+      if (!foundBatch) yield tableToIPC(new Table(reader.schema), "stream");
+    } finally {
+      await reader?.cancel();
+      input.destroy();
     }
   }
 
