@@ -106,81 +106,73 @@ init_unpopulated_submodules() {
   done
 }
 
-# acquire_provisioning_lock <lock_dir>
+# acquire_provisioning_lock <lock_file>
 # Serialize provisioning of one worktree, so only the holder may inspect,
-# delete, or write its node_modules and provisioning markers.
+# delete, or write its node_modules and provisioning markers. Returns 0 with
+# the lock held, 1 if this host has no locking tool; exits 1 on timeout.
 #
-# The pending marker alone cannot authorize cleanup, because it means two
-# different things: an attempt that died, and an attempt that is running right
-# now. Without a lock, a second agent provisioning the same branch reads the
-# first agent's LIVE marker as abandoned debris and `rm -rf`s node_modules out
-# from under an install in flight; either process can then write the provisioned
-# marker over the wreckage, and every later invocation trusts it. That is a
-# hazard the pending marker introduced — before it, a concurrent second caller
-# hit the backfill gate and returned harmlessly — so the lock ships with it.
+# The pending marker below cannot authorize cleanup by itself, because it means
+# two different things: an attempt that died, and an attempt running right now.
+# Unserialized, a second agent provisioning the same branch reads the first
+# agent's LIVE marker as abandoned debris and `rm -rf`s node_modules out from
+# under an install in flight; either process can then mark the wreckage
+# provisioned. That hazard arrived with the pending marker — before it, a
+# concurrent caller hit the backfill gate and returned harmlessly — so the lock
+# ships with it.
 #
-# `mkdir` is the primitive: it is atomic on every POSIX filesystem, unlike a
-# test-then-create on a regular file. The owner's pid goes inside, so a lock
-# whose holder died — the same SIGKILL and reboot cases the pending marker
-# exists for — is broken rather than waited out forever. Two waiters can see
-# the same dead pid, so breaking the lock loops back to `mkdir` and lets
-# exactly one of them win instead of assuming the break earned ownership.
+# The lock is a kernel flock(2) on fd 9, taken by lockf(1) (macOS) or flock(1)
+# (Linux), NOT a pid file. That distinction is the whole design:
 #
-# Fail closed on timeout. Handing back a path while another process is still
-# installing into it is the outcome this whole function exists to prevent, and
-# a wait long enough to cover a cold install means anything still holding the
-# lock needs a human to look at it.
+#   - There is nothing to release and no stale state to reclaim. The lock lives
+#     on the open file description, so the kernel drops it when the last holder
+#     exits — including SIGKILL, a crash, or a reboot. Every "break the stale
+#     lock" race disappears because there is no breaking step: no pid to read,
+#     no window between creating the lock and publishing ownership, and no way
+#     for a dying process to delete a successor's lock.
+#   - Children inherit fd 9, so the lock covers the ACTUAL writers. Killing the
+#     provisioning shell while its `cp` or `bun install` keeps running does not
+#     release it — a retry blocks until that writer is gone, instead of deleting
+#     node_modules from under it. Verified both ways: while an orphaned child
+#     held the fd, another acquirer got 75 (timeout); once it exited, 0.
+#
+# Nothing is unlocked here. install_dependencies is the only critical section,
+# and the script exits shortly after it, which closes the fd.
+#
+# A host with neither tool gets no lock, and the caller then skips the clone and
+# the pending marker with it: the optimization and the machinery that makes it
+# safe are one unit, so without the lock the script behaves exactly as it did
+# before the clone existed.
 acquire_provisioning_lock() {
   _apl_lock="$1"
-  _apl_waited=0
-  while :; do
-    # `set -e` would abort the script on the failed mkdir of a contended lock,
-    # so the attempt has to be the condition of an `if`, never a bare command.
-    if mkdir "$_apl_lock" 2>/dev/null; then
-      # Arm the release ONLY after winning: a trap set before the attempt would
-      # have a losing process delete the winner's lock on its way out.
-      _lock_held="$_apl_lock"
-      trap 'if [ -n "${_lock_held:-}" ]; then rm -rf "$_lock_held"; fi' EXIT
-      echo $$ >"$_apl_lock/pid"
-      return 0
-    fi
 
-    _apl_owner=$(cat "$_apl_lock/pid" 2>/dev/null || echo "")
-    # An owner that is not a plain number is not something to send signals to;
-    # treat only a well-formed pid as evidence either way. An empty pid file is
-    # the winner's own gap between mkdir and the write above — wait, never break.
-    case "$_apl_owner" in
-      '' | *[!0-9]*) : ;;
-      *)
-        if ! kill -0 "$_apl_owner" 2>/dev/null; then
-          rm -rf "$_apl_lock" 2>/dev/null || true
-          continue
-        fi
-        ;;
-    esac
+  # A failed redirection on `exec` terminates a non-interactive shell, so
+  # confirm the directory is writable rather than letting that abort the run.
+  [ -w "$(dirname "$_apl_lock")" ] || return 1
 
-    if [ "$_apl_waited" -ge 300 ]; then
-      echo "ERROR [ensure-worktree]: timed out after ${_apl_waited}s waiting for another process to finish provisioning." >&2
-      echo "  Lock: $_apl_lock (held by pid ${_apl_owner:-unknown})" >&2
-      echo "  If no such process is running, remove that directory and re-run." >&2
-      exit 1
-    fi
-    [ "$_apl_waited" -eq 0 ] && echo "[ensure-worktree] another process is provisioning this worktree; waiting..." >&2
-    sleep 1
-    _apl_waited=$((_apl_waited + 1))
-  done
-}
-
-# release_provisioning_lock
-# Drop the lock and disarm the trap. Every path out of install_dependencies
-# that is not an `exit` must call this; the `exit` paths are what the trap is
-# for.
-release_provisioning_lock() {
-  if [ -n "${_lock_held:-}" ]; then
-    rm -rf "$_lock_held"
-    _lock_held=""
+  if command -v lockf >/dev/null 2>&1; then
+    _apl_tool=lockf
+  elif command -v flock >/dev/null 2>&1; then
+    _apl_tool=flock
+  else
+    return 1
   fi
-  trap - EXIT
+
+  exec 9>"$_apl_lock"
+
+  # `set -e` would abort on a contended lock, so the attempt is a condition.
+  if [ "$_apl_tool" = lockf ]; then
+    if lockf -s -t 300 9; then return 0; fi
+  else
+    if flock -w 300 9; then return 0; fi
+  fi
+
+  # Fail closed. Handing back a path while another process installs into it is
+  # the outcome this function exists to prevent, and a wait that outlasts a cold
+  # install means whatever holds the lock needs a human to look at it.
+  echo "ERROR [ensure-worktree]: timed out after 300s waiting for another process to finish provisioning '$_apl_lock'." >&2
+  echo "  Another ensure-worktree.sh, or something it started, still holds the lock." >&2
+  echo "  Wait for it to finish, or stop it, then re-run." >&2
+  exit 1
 }
 
 # clone_node_modules <worktree_path>
@@ -193,13 +185,25 @@ release_provisioning_lock() {
 # worktree. Cloning first costs ~43 MiB: `cp -c` is macOS copy-on-write
 # (clonefile), so the copy shares blocks with the source until something writes.
 #
-# ONLY `node_modules/.bun` is cloned, never the whole tree, and that boundary is
-# a correctness requirement rather than a tuning choice. `.bun` is bun's
-# content-addressed store: entries are keyed by name@version plus an integrity
-# hash, so an entry the branch does not want is simply unreachable — nothing
-# links to it. Everything ABOVE the store — the top-level packages, the
-# per-workspace `node_modules`, the `.bin` shims — is a symlink farm that bun
-# rebuilds from THIS branch's lockfile, and it is where a clone would do damage:
+# ONLY the package entries under `node_modules/.bun` are cloned — never the
+# whole tree, and never `.bun/node_modules` — and both exclusions are
+# correctness requirements rather than tuning choices.
+#
+# `.bun` is bun's content-addressed store, keyed by name@version plus a hash of
+# the resolved dependency set. Its package entries are safe to over-seed: an
+# entry this branch does not want is inert, because reaching it requires a link
+# from the farm bun rebuilds. What is NOT safe is `.bun/node_modules`, the
+# store's shared resolution directory. Node walks parent directories looking for
+# `node_modules`, so from inside any store entry that directory is on the
+# lookup path, and a foreign package left in it resolves. Measured on a
+# two-package fixture whose source declared `is-odd` and whose target did not:
+# cloning `.bun` whole left `is-odd` resolvable from inside `is-number`; cloning
+# it without `.bun/node_modules` did not, and bun rebuilt the directory to the
+# same single entry a clean install produces.
+#
+# Everything ABOVE the store — the top-level packages, the per-workspace
+# `node_modules`, the `.bin` shims — is likewise a symlink farm that bun rebuilds
+# from THIS branch's lockfile, and it is where a whole-tree clone did damage:
 #
 #   - `bun install --frozen-lockfile` does not prune. Verified: a package the
 #     lockfile does not declare, and a symlink pointing outside the worktree,
@@ -210,11 +214,11 @@ release_provisioning_lock() {
 #     agents meant to be isolated would silently build against a shared external
 #     tree — the exact failure worktrees exist to prevent.
 #
-# Cloning only the store makes both moot: bun writes the entire farm itself, so
-# nothing foreign can reach it. Measured after the narrowing, the install is
-# still the same no-op — "Checked 1597 installs across 1668 packages (no
-# changes) [543ms]" — and rebuilt exactly the 17 top-level entries the lockfile
-# calls for.
+# Cloning only the store's package entries makes both moot: bun writes every
+# link itself, so nothing foreign is on any resolution path. Measured after the
+# narrowing, the install is still the same no-op — "Checked 1597 installs across
+# 1668 packages (no changes) [511ms]" — and rebuilt exactly the 17 top-level
+# entries the lockfile calls for.
 #
 # This is an OPTIMISATION ONLY, never a substitute for the install, and the
 # ordering is what makes that true. The clone runs after the marker and backfill
@@ -225,6 +229,15 @@ release_provisioning_lock() {
 #   clone skipped       -> a full install, exactly as before this existed.
 # Seeding before those gates would trip the "node_modules exists -> already
 # provisioned" backfill and skip the reconciliation entirely.
+#
+# What this DOES inherit is the state of the reference store: a package file
+# hand-edited or corrupted under the main checkout's `.bun` is cloned into every
+# worktree seeded afterwards, and `bun install --frozen-lockfile` verifies the
+# lockfile, not the contents of packages already present. Seeding from any local
+# reference has that property — bun's own global cache already did, one level
+# up — and the remedy is the same at both levels: repair the reference, then
+# `rm -rf node_modules` in the affected worktree and re-provision. Verifying
+# every cloned package instead would cost more than the clone saves.
 #
 # Every failure is non-fatal by construction — a machine without APFS, a
 # WORKTREE_BASE on another volume, a main checkout that has never installed or
@@ -263,11 +276,19 @@ clone_node_modules() {
   [ "$_cnm_fstype" = "apfs" ] || return 0
 
   echo "[ensure-worktree] cloning the bun store from '$_cnm_src' (APFS copy-on-write)..." >&2
-  mkdir -p "$_cnm_wt/node_modules"
-  if ! cp -c -R "$_cnm_src" "$_cnm_wt/node_modules/.bun" 2>/dev/null; then
-    rm -rf "$_cnm_wt/node_modules/.bun"
-    echo "[ensure-worktree] clone failed; falling back to a full install." >&2
-  fi
+  mkdir -p "$_cnm_wt/node_modules/.bun"
+  # Entry by entry, so `node_modules` — the shared resolution directory that
+  # must not be seeded — can be skipped. Any failure abandons the whole clone;
+  # a partial store is worse input to `--frozen-lockfile` than none.
+  for _cnm_entry in "$_cnm_src"/*; do
+    [ -e "$_cnm_entry" ] || continue
+    [ "$(basename "$_cnm_entry")" = node_modules ] && continue
+    if ! cp -c -R "$_cnm_entry" "$_cnm_wt/node_modules/.bun/" 2>/dev/null; then
+      rm -rf "$_cnm_wt/node_modules/.bun"
+      echo "[ensure-worktree] clone failed; falling back to a full install." >&2
+      return 0
+    fi
+  done
 }
 
 # install_dependencies <worktree_path>
@@ -324,14 +345,14 @@ install_dependencies() {
   # process can invalidate a moment later, so the checks have to be inside the
   # same exclusive section as the actions they authorize. On the common
   # already-provisioned path this costs one mkdir and one rmdir.
-  acquire_provisioning_lock "$_idep_gitdir/ensure-worktree-install.lock"
+  _idep_locked=false
+  if acquire_provisioning_lock "$_idep_gitdir/ensure-worktree-install.lock"; then
+    _idep_locked=true
+  fi
 
   # Already provisioned: leave it completely alone. No install, so nothing can
   # clobber a `bun link` or a hand-edited node_modules.
-  if [ -f "$_idep_marker" ]; then
-    release_provisioning_lock
-    return
-  fi
+  [ -f "$_idep_marker" ] && return
 
   # A previous provisioning attempt got as far as putting files under
   # node_modules and never reached a successful install. Discard them and
@@ -350,7 +371,7 @@ install_dependencies() {
   # for the retry to discard covers the graceful and the violent failure with
   # one rule. It also closes the same hazard for a tree bun itself half-wrote,
   # which previously survived into the backfill gate.
-  if [ -f "$_idep_pending" ]; then
+  if [ "$_idep_locked" = true ] && [ -f "$_idep_pending" ]; then
     rm -rf "$_idep_wt/node_modules"
     rm -f "$_idep_pending"
   fi
@@ -364,7 +385,6 @@ install_dependencies() {
   # abandoned cannot reach here — the pending marker above removed it.
   if [ -d "$_idep_wt/node_modules" ]; then
     : >"$_idep_marker"
-    release_provisioning_lock
     return
   fi
 
@@ -378,10 +398,14 @@ install_dependencies() {
   # Claim the tree before writing a single byte into it, and hold the claim
   # until the install has actually succeeded. Anything that stops this script
   # in between — a failed install, a kill, a reboot — leaves the marker, and
-  # the retry discards the tree instead of trusting it.
-  : >"$_idep_pending"
-
-  clone_node_modules "$_idep_wt"
+  # the retry discards the tree instead of trusting it. The lock is what makes
+  # that discard safe: it guarantees the marker cannot belong to a live peer.
+  # Both are gated on the lock: the pending marker authorizes a destructive
+  # recovery, which is only safe while nobody else can be provisioning here.
+  if [ "$_idep_locked" = true ]; then
+    : >"$_idep_pending"
+    clone_node_modules "$_idep_wt"
+  fi
 
   echo "[ensure-worktree] installing dependencies (bun install --frozen-lockfile)..." >&2
   if ! (cd "$_idep_wt" && bun install --frozen-lockfile >&2); then
@@ -394,7 +418,6 @@ install_dependencies() {
 
   rm -f "$_idep_pending"
   : >"$_idep_marker"
-  release_provisioning_lock
 }
 
 # assert_submodule_pins_pushed <rev>
