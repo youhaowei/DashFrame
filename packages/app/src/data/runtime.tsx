@@ -142,28 +142,3 @@ export function createAppRuntime(config: AppRuntimeConfig): AppRuntime {
     },
   };
 }
-
-export async function resolveAppConfig(): Promise<AppRuntimeConfig> {
-  const desktop = (
-    globalThis as {
-      dashframe?: {
-        getServerInfo(): Promise<{
-          url: string;
-          token: string;
-          convexUrl?: string;
-        }>;
-      };
-    }
-  ).dashframe;
-  if (!desktop)
-    throw new Error(
-      "Browser startup must resolve access before creating a runtime",
-    );
-  const config = await desktop.getServerInfo();
-  if (!config.token)
-    throw new Error("Desktop getServerInfo returned no loopback token");
-  return {
-    ...config,
-    convexUrl: new URL("/api/convex", config.url).toString(),
-  };
-}

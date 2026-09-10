@@ -24,9 +24,9 @@ export function createHostMetadata(
       ),
     executeHostBatch: (input) =>
       client.mutation(
-        internal.host.executeHostBatch,
+        internal.host.executeHostBatchChecked,
         wire({ workspaceId, ...input }) as FunctionArgs<
-          typeof internal.host.executeHostBatch
+          typeof internal.host.executeHostBatchChecked
         >,
       ),
     getHostBatch: (input) =>

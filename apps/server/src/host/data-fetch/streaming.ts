@@ -12,8 +12,10 @@ export function supportsStreaming(ctx: HostContext): boolean {
   if (ctx.workspaceOwnerId !== undefined) return false;
   return Boolean(
     ctx.dataFrameStorage?.saveBatches &&
-    ctx.dataFrameStorage.loadBatches &&
-    ctx.dataPlaneRuntime?.registerArrowBatches &&
+    ((ctx.dataFrameStorage.loadBatches &&
+      ctx.dataPlaneRuntime?.registerArrowBatches) ||
+      (ctx.dataFrameStorage.stream &&
+        ctx.dataPlaneRuntime?.registerArrowStream)) &&
     ctx.dataPlaneRuntime.queryArrowBatches,
   );
 }
@@ -35,6 +37,10 @@ export class CoalescedOperation<T> {
       this.settled = true;
     };
     this.promise.then(settle, settle);
+  }
+
+  get joinable(): boolean {
+    return !this.controller.signal.aborted;
   }
 
   wait(signal?: AbortSignal): Promise<T> {

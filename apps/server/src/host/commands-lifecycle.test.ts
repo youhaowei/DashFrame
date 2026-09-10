@@ -86,6 +86,27 @@ const create = (id = crypto.randomUUID(), key = "synthetic-secret") => ({
 });
 
 describe("staged credential lifecycle", () => {
+  it("surfaces a confirmed validation rejection and requires a new operation", async () => {
+    vi.spyOn(ctx.metadata, "executeHostBatch").mockRejectedValueOnce({
+      data: JSON.stringify(
+        JSON.stringify({
+          code: "HOST_BATCH_REJECTED",
+          message:
+            "Sort field bad-id is not output by source; expected one of: metric_good_id",
+        }),
+      ),
+    });
+    const input = { ...create(), operationId: crypto.randomUUID() };
+    await expect(executeHostCommandBatch(ctx, input, "commit")).rejects.toThrow(
+      "Sort field bad-id is not output by source; expected one of: metric_good_id. Resolve the reported error and submit the batch as a new operation without the previous operationId.",
+    );
+    await expect(
+      executeHostCommandBatch(ctx, input, "commit"),
+    ).rejects.toBeInstanceOf(HostBatchRejectedError);
+    await expect(
+      executeHostCommandBatch(ctx, create(), "commit"),
+    ).resolves.toMatchObject({ mode: "commit" });
+  });
   it("releases the first credential when the second vault store fails", async () => {
     let calls = 0;
     vi.spyOn(ctx.vault!, "store").mockImplementation(async (...args) => {
@@ -114,7 +135,7 @@ describe("staged credential lifecycle", () => {
     expect(refs).toHaveLength(1);
     expect(await ctx.vault!.has(refs[0]!)).toBe(false);
   });
-  it("reaps a failed attempt's credentials while keeping its operation ID retryable", async () => {
+  it("reaps a rejected attempt's credentials and accepts a corrected new operation", async () => {
     const sourceId = crypto.randomUUID();
     const targetId = crypto.randomUUID();
     const input = {
@@ -129,7 +150,7 @@ describe("staged credential lifecycle", () => {
     };
     await expect(
       executeHostCommandBatch(ctx, input, "commit"),
-    ).rejects.toBeInstanceOf(HostBatchOutcomeUnknownError);
+    ).rejects.toBeInstanceOf(HostBatchRejectedError);
     expect(refs).toHaveLength(2);
     for (const ref of refs) expect(await ctx.vault!.has(ref)).toBe(false);
     expect(await user().query(api.app.listDataSources, {})).toEqual([]);
@@ -147,8 +168,9 @@ describe("staged credential lifecycle", () => {
       },
       "commit",
     );
+    const { operationId: _rejectedOperationId, ...corrected } = input;
     await expect(
-      executeHostCommandBatch(ctx, input, "commit"),
+      executeHostCommandBatch(ctx, corrected, "commit"),
     ).resolves.toMatchObject({ mode: "commit" });
     expect(refs).toHaveLength(4);
     expect((await ctx.metadata.getDataSource(sourceId))?.config.apiKey).toBe(

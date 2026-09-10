@@ -205,6 +205,7 @@ async function settleFailure(
   prepareAttempted: boolean,
   error: unknown,
 ) {
+  const rejection = confirmedHostBatchRejection(error);
   try {
     const observed = await ctx.metadata.getHostBatch(identity);
     if (observed) {
@@ -213,7 +214,7 @@ async function settleFailure(
         await flushCleanup(ctx);
         return observed.result;
       }
-      if (observed.status === "pending")
+      if (observed.status === "pending" && rejection === null)
         return settleRetryablePending(ctx, identity, stagedRefs, error);
     }
   } catch (observationError) {
@@ -239,8 +240,41 @@ async function settleFailure(
   }
   await flushCleanup(ctx);
   if (terminal.status === "completed") return terminal.result;
-  gateHostBatchStatus(terminal.status, identity.operationId, error);
-  throw new HostBatchRejectedError(error);
+  gateHostBatchStatus(
+    terminal.status,
+    identity.operationId,
+    rejection ?? error,
+  );
+  throw new HostBatchRejectedError(rejection ?? error);
+}
+
+function confirmedHostBatchRejection(error: unknown): Error | null {
+  if (typeof error !== "object" || error === null || !("data" in error))
+    return null;
+  let data: unknown = (error as { data: unknown }).data;
+  for (let depth = 0; typeof data === "string" && depth < 4; depth++) {
+    try {
+      data = JSON.parse(data);
+    } catch {
+      return null;
+    }
+  }
+  if (
+    typeof data !== "object" ||
+    data === null ||
+    !("code" in data) ||
+    data.code !== "HOST_BATCH_REJECTED" ||
+    !("message" in data) ||
+    typeof data.message !== "string"
+  )
+    return null;
+  const message = /[.!?]$/.test(data.message)
+    ? data.message
+    : `${data.message}.`;
+  return new Error(
+    `${message} Resolve the reported error and submit the batch as a new operation ` +
+      "without the previous operationId.",
+  );
 }
 
 async function settleRetryablePending(

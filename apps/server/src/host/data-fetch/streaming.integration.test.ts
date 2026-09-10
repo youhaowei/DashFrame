@@ -195,9 +195,9 @@ describe("streaming production materialization", () => {
 
   it("cleans source and result files if native result registration fails", async () => {
     const f = await fixture(1);
-    const original = f.engine.registerArrowBatches.bind(f.engine);
+    const original = f.engine.registerArrowStream.bind(f.engine);
     let calls = 0;
-    vi.spyOn(f.engine, "registerArrowBatches").mockImplementation(
+    vi.spyOn(f.engine, "registerArrowStream").mockImplementation(
       async (...args) => {
         calls++;
         if (calls === 2) throw new Error("registration failed");
@@ -216,7 +216,7 @@ describe("streaming production materialization", () => {
       count: 1,
       totalBytes: STREAM_STORAGE_BYTES + 1,
     });
-    await expect(f.run()).rejects.toThrow("MATERIALIZATION_STORAGE_LIMIT");
+    await expect(f.run()).rejects.toThrow("FETCH_STORAGE_BUDGET_EXCEEDED");
     expect(f.pageCount()).toBe(0);
   });
 

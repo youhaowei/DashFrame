@@ -14,14 +14,14 @@ import type {
 } from "@dashframe/types";
 
 import type { HostContext, HostDataPlaneRuntime } from "../context";
-import { PublishedSourceMaterializationError } from "./published-source-error";
-import { inspectArrowIpc } from "@dashframe/engine-server/arrow-data-path";
+import { tableFromIPC } from "apache-arrow";
 import {
-  CoalescedOperation,
-  supportsStreaming,
-  withStreamingBudget,
-  type StreamingBudget,
-} from "./streaming";
+  acquireNativeTransfer,
+  TransferBudget,
+  type TransferLimits,
+} from "./transfer";
+import { PublishedSourceMaterializationError } from "./published-source-error";
+import { CoalescedOperation, supportsStreaming } from "./streaming";
 
 export type EffectiveInsightDefinition = InsightFetchDefinition & {
   limit?: number;
@@ -37,7 +37,6 @@ export type MaterializationTarget =
 export type SourceGeneration = {
   table: DataTable;
   arrow?: Uint8Array;
-  /** Single-use bounded source stream; rowCount is filled as it is consumed. */
   batches?: AsyncIterable<Uint8Array>;
   fields: Field[];
   rowCount: number;
@@ -88,7 +87,12 @@ export function fieldsFromInsightResult(
 export interface InsightMaterializerDependencies {
   storage(ctx: HostContext): DataFrameStorage;
   runtime(ctx: HostContext): HostDataPlaneRuntime;
-  resolveSource(ctx: HostContext, tableId: UUID): Promise<SourceGeneration>;
+  resolveSource(
+    ctx: HostContext,
+    tableId: UUID,
+    signal?: AbortSignal,
+    batchBytes?: number,
+  ): Promise<SourceGeneration>;
   resolveInsight(
     ctx: HostContext,
     insightId: UUID,
@@ -128,6 +132,14 @@ export interface InsightMaterializerDependencies {
   sharedOperationTimeoutMs: number;
   /** Briefly reuse a completed result for sibling consumers of one render. */
   completedReplayMs?: number;
+  transferLimits?: TransferLimits;
+  transferCompleted?(summary: {
+    bytes: number;
+    batches: number;
+    rows: number;
+    durationMs: number;
+    outcome: "ready" | "failed";
+  }): void;
   uuid(): UUID;
   now(): number;
   tableName(frameId: UUID): string;
@@ -176,13 +188,22 @@ export function createInsightMaterializer(
   const start = (
     key: string,
     args: Parameters<InsightMaterializer["materialize"]>[0],
-  ) => {
+  ): Promise<InsightFetchReady> => {
     const streaming = supportsStreaming(args.ctx);
     if (streaming && args.ctx.requestSignal?.aborted)
       return Promise.reject(args.ctx.requestSignal.reason);
     const waiterSignal = streaming ? args.ctx.requestSignal : undefined;
     const existing = inFlight.get(key);
-    if (existing) return existing.wait(waiterSignal);
+    if (existing) {
+      if (existing.joinable) return existing.wait(waiterSignal);
+      return existing.promise.then(
+        () => start(key, args),
+        () => start(key, args),
+      );
+    }
+
+    const runtime = dependencies.runtime(args.ctx);
+    const identity = runtime.coalescingIdentity ?? runtime;
 
     // No caller's disconnect may cancel work a sibling is waiting on. Every
     // caller retains its workspace lease until this promise settles; the
@@ -207,50 +228,67 @@ export function createInsightMaterializer(
       },
     };
     const replayKeys = new Set([key]);
-    const operation = new CoalescedOperation((signal) =>
-      withStreamingBudget(
-        {
-          ...sharedArgs.ctx,
-          requestSignal: streaming ? signal : sharedArgs.ctx.requestSignal,
-        },
-        (ctx, budget) =>
-          materializeOnce(
+    const operation: CoalescedOperation<InsightFetchReady> =
+      new CoalescedOperation((signal) => {
+        const transfer = new TransferBudget(
+          dependencies.transferLimits,
+          streaming ? signal : sharedArgs.ctx.requestSignal,
+        );
+        const operationArgs = {
+          ...sharedArgs,
+          ctx: { ...sharedArgs.ctx, requestSignal: transfer.signal },
+        };
+        let release: (() => void) | undefined;
+        return (async () => {
+          if (runtime.queryArrowBatches)
+            release = await acquireNativeTransfer(identity, transfer.signal);
+          transfer.check();
+          return materializeOnce(
             dependencies,
-            { ...sharedArgs, ctx },
+            operationArgs,
             [],
             [],
             [],
-            budget,
-          ),
-      )
-        .then((result) => {
-          if (replayMs > 0) {
-            // Remote publication advances its own source generation. Install the
-            // replay alias before resolving callers so an immediate sibling sees
-            // the immutable result under the exact generation it published. Never
-            // re-read mutable metadata here: a concurrent refresh may already have
-            // advanced beyond the generation that produced this result.
-            let settledKey: string | undefined;
-            try {
-              settledKey = dependencies.completedReplayScope?.(key, result);
-            } catch {
-              // Replay is best-effort and must not fail a completed publication.
-            }
-            if (
-              settledKey !== undefined &&
-              settledKey !== key &&
-              !inFlight.has(settledKey)
-            ) {
-              replayKeys.add(settledKey);
-              remember(settledKey, operation);
-            }
-          }
-          return result;
-        })
-        .finally(() => {
-          if (sharedDeadline !== undefined) clearTimeout(sharedDeadline);
-        }),
-    );
+            transfer,
+          );
+        })()
+          .then(
+            (result) => {
+              if (replayMs > 0) {
+                // Remote publication advances its own source generation. Install the
+                // replay alias before resolving callers so an immediate sibling sees
+                // the immutable result under the exact generation it published. Never
+                // re-read mutable metadata here: a concurrent refresh may already have
+                // advanced beyond the generation that produced this result.
+                let settledKey: string | undefined;
+                try {
+                  settledKey = dependencies.completedReplayScope?.(key, result);
+                } catch {
+                  // Replay is best-effort and must not fail a completed publication.
+                }
+                if (
+                  settledKey !== undefined &&
+                  settledKey !== key &&
+                  !inFlight.has(settledKey)
+                ) {
+                  replayKeys.add(settledKey);
+                  remember(settledKey, operation);
+                }
+              }
+              reportTransfer(dependencies, transfer, "ready");
+              return result;
+            },
+            (error) => {
+              reportTransfer(dependencies, transfer, "failed");
+              throw error;
+            },
+          )
+          .finally(() => {
+            if (sharedDeadline !== undefined) clearTimeout(sharedDeadline);
+            transfer.close();
+            release?.();
+          });
+      });
     remember(key, operation);
     const clear = () => {
       for (const replayKey of replayKeys) {
@@ -289,7 +327,7 @@ async function materializeOnce(
   ancestry: readonly UUID[] = [],
   transientResults: Array<{ id: UUID; registered: boolean }> = [],
   publishedSourceGenerations: InsightSourceGeneration[] = [],
-  budget?: StreamingBudget,
+  transfer: TransferBudget,
 ): Promise<InsightFetchReady> {
   const storage = dependencies.storage(args.ctx);
   const runtime = dependencies.runtime(args.ctx);
@@ -299,19 +337,21 @@ async function materializeOnce(
   let publicationAttempted = false;
   try {
     const tableIds = referencedTableIds(args.insight);
-    const sources = await Promise.all(
-      tableIds.map((tableId) =>
-        resolveMaterializationSource(
+    const sources: SourceGeneration[] = [];
+    // An upstream Insight can itself materialize data. Resolve sequentially
+    // so a failed source never leaves a sibling materialization running.
+    for (const tableId of tableIds)
+      sources.push(
+        await resolveMaterializationSource(
           dependencies,
           args,
           tableId,
           ancestry,
           transientResults,
           publishedSourceGenerations,
-          budget,
+          transfer,
         ),
-      ),
-    );
+      );
     for (const source of sources) {
       assertSourceSchema(source);
       // Connector discovery may regenerate Field ids on every request. The
@@ -321,15 +361,43 @@ async function materializeOnce(
       source.fields = source.table.fields.map((field) => ({ ...field }));
     }
 
-    if (sources.some((source) => source.existingFrameId))
-      assertPersistedSourceRefreshable(args.target);
-    const { pendingSources, tables } = await stageSources(
-      dependencies,
-      args.ctx,
-      sources,
-      created,
-      budget,
-    );
+    const pendingSources: PublishMaterialization["sources"] = [];
+    const tables = new Map<UUID, DataTable>();
+    for (const source of sources) {
+      if (source.existingFrameId) {
+        assertPersistedSourceRefreshable(args.target);
+        await registerStoredFrame(
+          storage,
+          runtime,
+          dependencies.tableName(source.existingFrameId),
+          source.existingFrameId,
+          transfer.signal,
+          source.arrow,
+        );
+        tables.set(source.table.id, source.table);
+        continue;
+      }
+      const frameId = dependencies.uuid();
+      // Track before save: storage implementations are required to save
+      // atomically, but cleanup still attempts deletion if an implementation
+      // reports failure after making the generation visible.
+      created.push({ id: frameId, registered: false });
+      await saveSource(storage, runtime, frameId, source, transfer, args.ctx);
+      // Registration may succeed before its wrapper discards a cancelled
+      // request's result, so cleanup must assume the catalog entry exists.
+      created.at(-1)!.registered = true;
+      await registerStoredFrame(
+        storage,
+        runtime,
+        dependencies.tableName(frameId),
+        frameId,
+        transfer.signal,
+        source.arrow,
+      );
+      const frame = pendingFrame(frameId, source.fields, source.rowCount);
+      pendingSources.push({ source, frame });
+      tables.set(source.table.id, { ...source.table, dataFrameId: frameId });
+    }
 
     if (args.target.kind === "refresh") {
       const refreshed = pendingSources[0];
@@ -340,9 +408,7 @@ async function materializeOnce(
         insight: args.insight,
         sources,
       });
-      budget?.check();
-      budget?.report("publication");
-      budget?.check();
+      transfer.check();
       publicationAttempted = true;
       await dependencies.publish(args.ctx, {
         target: args.target,
@@ -372,14 +438,27 @@ async function materializeOnce(
 
     const sql = dependencies.compile({ insight: args.insight, tables });
     if (!sql) throw new Error("FETCH_COMPILE_FAILED");
-    const result = await stageResult(
+    const resultId = dependencies.uuid();
+    created.push({ id: resultId, registered: false });
+    const result = await saveResult({
       dependencies,
-      args.ctx,
-      args.insight,
+      storage,
+      runtime,
+      insight: args.insight,
       tables,
       sql,
-      created,
-      budget,
+      resultId,
+      transfer,
+    });
+    // Keep upstream's conservative cleanup for wrappers that register then
+    // discard a result when a request is cancelled.
+    created.at(-1)!.registered = true;
+    await registerStoredFrame(
+      storage,
+      runtime,
+      dependencies.tableName(resultId),
+      resultId,
+      transfer.signal,
     );
 
     const fetchedAt = dependencies.now();
@@ -401,9 +480,7 @@ async function materializeOnce(
         transientResults,
       );
     }
-    budget?.check();
-    budget?.report("publication");
-    budget?.check();
+    transfer.check();
     publicationAttempted = true;
     await dependencies.publish(args.ctx, {
       target: args.target,
@@ -478,13 +555,18 @@ async function resolveMaterializationSource(
   ancestry: readonly UUID[],
   transientResults: Array<{ id: UUID; registered: boolean }>,
   publishedSourceGenerations: InsightSourceGeneration[],
-  budget?: StreamingBudget,
+  transfer: TransferBudget,
 ): Promise<SourceGeneration> {
   if (
     tableId !== args.insight.baseTableId ||
     args.insight.source?.sourceType !== "insight"
   )
-    return dependencies.resolveSource(args.ctx, tableId);
+    return dependencies.resolveSource(
+      args.ctx,
+      tableId,
+      transfer.signal,
+      transfer.limits.batchBytes,
+    );
   if (ancestry.includes(tableId) || ancestry.length >= 16)
     throw new Error("TARGET_NOT_READY");
   const upstream = await dependencies.resolveInsight(args.ctx, tableId);
@@ -494,12 +576,13 @@ async function resolveMaterializationSource(
     [...ancestry, tableId],
     transientResults,
     publishedSourceGenerations,
-    budget,
+    transfer,
   );
-  const arrow = budget
-    ? undefined
-    : await dependencies.storage(args.ctx).load(ready.dataFrameId);
-  if (!budget && !arrow) throw new Error("TARGET_NOT_READY");
+  const arrow = await loadFallback(
+    dependencies.storage(args.ctx),
+    dependencies.runtime(args.ctx),
+    ready.dataFrameId,
+  );
   const fields = fieldsFromInsightResult(ready.schema, tableId);
   return {
     table: {
@@ -512,7 +595,7 @@ async function resolveMaterializationSource(
       dataFrameId: ready.dataFrameId,
       createdAt: ready.fetchedAt,
     },
-    ...(arrow ? { arrow } : {}),
+    arrow,
     fields,
     rowCount: ready.rowCount,
     provenance: ready.provenance,
@@ -600,158 +683,172 @@ async function cleanupNewFrames(
   );
 }
 
-/** Save and register complete source generations before compiling the result. */
-async function stageSources(
+function reportTransfer(
   dependencies: InsightMaterializerDependencies,
-  ctx: HostContext,
-  sources: SourceGeneration[],
-  created: Array<{ id: UUID; registered: boolean }>,
-  budget?: StreamingBudget,
+  transfer: TransferBudget,
+  outcome: "ready" | "failed",
 ) {
-  const storage = dependencies.storage(ctx);
-  const pendingSources: PublishMaterialization["sources"] = [];
-  const tables = new Map<UUID, DataTable>();
-  for (const source of sources) {
-    if (source.existingFrameId) {
-      await registerGeneration(
-        dependencies,
-        ctx,
-        source.existingFrameId,
-        source.arrow,
-        budget,
-      );
-      tables.set(source.table.id, source.table);
-      continue;
-    }
-    const frameId = dependencies.uuid();
-    // Track before the atomic save, including failures after a successful rename.
-    const tracked = { id: frameId, registered: false };
-    created.push(tracked);
-    await saveSource(storage, source, frameId, budget);
-    // A wrapper may reject after native registration has completed.
-    tracked.registered = true;
-    await registerGeneration(dependencies, ctx, frameId, source.arrow, budget);
-    const frame = pendingFrame(frameId, source.fields, source.rowCount);
-    pendingSources.push({ source, frame });
-    tables.set(source.table.id, { ...source.table, dataFrameId: frameId });
+  if (transfer.batches === 0) return;
+  try {
+    dependencies.transferCompleted?.({
+      bytes: transfer.bytes,
+      batches: transfer.batches,
+      rows: transfer.rows,
+      durationMs: Date.now() - transfer.started,
+      outcome,
+    });
+  } catch {
+    /* Observability must never change a publication outcome. */
   }
-  return { pendingSources, tables };
+}
+
+async function* inspectSourceBatches(
+  source: SourceGeneration,
+  transfer: TransferBudget,
+  ctx: HostContext,
+) {
+  for await (const bytes of source.batches!) {
+    transfer.check();
+    const table = tableFromIPC(bytes);
+    transfer.consume(bytes, table.numRows);
+    source.rowCount += table.numRows;
+    try {
+      ctx.onMaterializationProgress?.({
+        phase: "source",
+        rows: transfer.rows,
+        bytes: transfer.bytes,
+        elapsedMs: Date.now() - transfer.started,
+      });
+    } catch {
+      // Observability must never change materialization behavior.
+    }
+    yield bytes;
+  }
+}
+
+export async function registerStoredFrame(
+  storage: DataFrameStorage,
+  runtime: HostDataPlaneRuntime,
+  name: string,
+  id: UUID,
+  signal?: AbortSignal,
+  fallback?: Uint8Array,
+): Promise<void> {
+  signal?.throwIfAborted();
+  if (storage.stream && runtime.registerArrowStream) {
+    await runtime.registerArrowStream(name, storage.stream(id), signal);
+  } else if (storage.loadBatches && runtime.registerArrowBatches) {
+    await runtime.registerArrowBatches(name, storage.loadBatches(id), {
+      signal,
+    });
+  } else {
+    const bytes = fallback ?? (await storage.load(id));
+    if (!bytes || !runtime.registerArrowTable)
+      throw new Error("TARGET_NOT_READY");
+    await runtime.registerArrowTable(name, bytes);
+  }
+}
+
+async function saveResult(args: {
+  dependencies: InsightMaterializerDependencies;
+  storage: DataFrameStorage;
+  runtime: HostDataPlaneRuntime;
+  insight: EffectiveInsightDefinition;
+  tables: Map<UUID, DataTable>;
+  sql: string;
+  resultId: UUID;
+  transfer: TransferBudget;
+}): Promise<PendingFrame> {
+  const {
+    dependencies,
+    storage,
+    runtime,
+    insight,
+    tables,
+    sql,
+    resultId,
+    transfer,
+  } = args;
+  let schema: InsightFetchReady["schema"] | undefined;
+  let rowCount = 0;
+  if (
+    storage.saveBatches &&
+    runtime.queryArrowBatches &&
+    storage.stream &&
+    runtime.registerArrowStream
+  ) {
+    await transfer.admit(storage);
+    async function* inspectedBatches() {
+      for await (const bytes of runtime.queryArrowBatches!(sql, [], {
+        signal: transfer.signal,
+      })) {
+        const inspected = dependencies.inspect(bytes, { insight, tables });
+        if (
+          schema &&
+          JSON.stringify(schema) !== JSON.stringify(inspected.schema)
+        )
+          throw new Error("SOURCE_SCHEMA_CHANGED");
+        schema = inspected.schema;
+        rowCount += inspected.rowCount;
+        transfer.consume(bytes, inspected.rowCount);
+        yield bytes;
+      }
+    }
+    await storage.saveBatches(resultId, inspectedBatches());
+    if (!schema) throw new Error("SOURCE_SCHEMA_CHANGED");
+  } else {
+    const bytes = await runtime.queryArrow(sql, []);
+    const inspected = dependencies.inspect(bytes, { insight, tables });
+    schema = inspected.schema;
+    rowCount = inspected.rowCount;
+    await storage.save(resultId, bytes);
+  }
+  return {
+    id: resultId,
+    schema,
+    rowCount,
+    fieldIds: schema.map((field) => field.id),
+  };
+}
+
+async function loadFallback(
+  storage: DataFrameStorage,
+  runtime: HostDataPlaneRuntime,
+  id: UUID,
+): Promise<Uint8Array | undefined> {
+  if (
+    (storage.loadBatches && runtime.registerArrowBatches) ||
+    (storage.stream && runtime.registerArrowStream)
+  )
+    return undefined;
+  const bytes = await storage.load(id);
+  if (!bytes) throw new Error("TARGET_NOT_READY");
+  return bytes;
 }
 
 async function saveSource(
   storage: DataFrameStorage,
+  runtime: HostDataPlaneRuntime,
+  id: UUID,
   source: SourceGeneration,
-  frameId: UUID,
-  budget?: StreamingBudget,
+  transfer: TransferBudget,
+  ctx: HostContext,
 ): Promise<void> {
-  if (source.batches) {
-    if (!budget) throw new Error("TARGET_NOT_READY");
-    source.rowCount = 0;
-    await storage.saveBatches!(
-      frameId,
-      budget.batches(source.batches, "source", (arrow) => {
-        source.rowCount += inspectArrowIpc(arrow).rowCount;
-      }),
-    );
+  if (!source.batches) {
+    if (!source.arrow) throw new Error("TARGET_NOT_READY");
+    // Native compatibility adapters still allocate one buffered source. Count
+    // that transfer before saving, including source-only refreshes; hosted
+    // runtimes keep their existing independent ceilings.
+    if (runtime.queryArrowBatches) {
+      await transfer.admit(storage);
+      transfer.consumeBuffered(source.arrow, source.rowCount);
+    }
+    await storage.save(id, source.arrow);
     return;
   }
-  const arrow = source.arrow;
-  if (!arrow) throw new Error("TARGET_NOT_READY");
-  budget?.acceptBuffered(arrow.byteLength, source.rowCount);
-  await storage.save(frameId, arrow);
-}
-
-async function registerGeneration(
-  dependencies: InsightMaterializerDependencies,
-  ctx: HostContext,
-  id: UUID,
-  arrow: Uint8Array | undefined,
-  budget?: StreamingBudget,
-): Promise<void> {
-  const runtime = dependencies.runtime(ctx);
-  if (budget) {
-    budget.check();
-    await runtime.registerArrowBatches!(
-      dependencies.tableName(id),
-      dependencies.storage(ctx).loadBatches!(id),
-      { signal: ctx.requestSignal },
-    );
-  } else {
-    if (!arrow) throw new Error("TARGET_NOT_READY");
-    await runtime.registerArrowTable!(dependencies.tableName(id), arrow);
-  }
-}
-
-/** Stream query output into its immutable frame and inspect one chunk at a time. */
-async function stageResult(
-  dependencies: InsightMaterializerDependencies,
-  ctx: HostContext,
-  insight: EffectiveInsightDefinition,
-  tables: Map<UUID, DataTable>,
-  sql: string,
-  created: Array<{ id: UUID; registered: boolean }>,
-  budget?: StreamingBudget,
-): Promise<PendingFrame> {
-  const storage = dependencies.storage(ctx);
-  const runtime = dependencies.runtime(ctx);
-  const resultId = dependencies.uuid();
-  created.push({ id: resultId, registered: false });
-  let inspected:
-    | ReturnType<InsightMaterializerDependencies["inspect"]>
-    | undefined;
-  if (budget) {
-    let expectedSchema: string | undefined;
-    await storage.saveBatches!(
-      resultId,
-      budget.batches(
-        runtime.queryArrowBatches!(sql, [], {
-          signal: ctx.requestSignal,
-        }),
-        "result",
-        (arrow) => {
-          const batch = dependencies.inspect(arrow, {
-            insight,
-            tables,
-          });
-          const signature = JSON.stringify(batch.schema);
-          if (expectedSchema !== undefined && signature !== expectedSchema)
-            throw new Error("SOURCE_SCHEMA_CHANGED");
-          expectedSchema = signature;
-          inspected = {
-            schema: batch.schema,
-            rowCount: (inspected?.rowCount ?? 0) + batch.rowCount,
-          };
-        },
-      ),
-    );
-    budget.check();
-    created.at(-1)!.registered = true;
-    await runtime.registerArrowBatches!(
-      dependencies.tableName(resultId),
-      storage.loadBatches!(resultId),
-      { signal: ctx.requestSignal },
-    );
-  } else {
-    const resultArrow = await runtime.queryArrow(sql, []);
-    inspected = dependencies.inspect(resultArrow, {
-      insight,
-      tables,
-    });
-    await storage.save(resultId, resultArrow);
-    created.at(-1)!.registered = true;
-    await runtime.registerArrowTable!(
-      dependencies.tableName(resultId),
-      resultArrow,
-    );
-  }
-  if (!inspected) throw new Error("FETCH_EXECUTION_FAILED");
-  const result: PendingFrame = {
-    id: resultId,
-    fieldIds: inspected.schema.map((field) => field.id),
-    rowCount: inspected.rowCount,
-    schema: inspected.schema,
-  };
-  created.at(-1)!.registered = true;
-
-  return result;
+  if (!storage.saveBatches || !storage.stream || !runtime.registerArrowStream)
+    throw new Error("TARGET_NOT_READY");
+  await transfer.admit(storage);
+  source.rowCount = 0;
+  await storage.saveBatches(id, inspectSourceBatches(source, transfer, ctx));
 }

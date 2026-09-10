@@ -11,6 +11,7 @@ import {
   type SourceGeneration,
 } from "./materializer";
 import { trustedPublishedSourceGenerations } from "./published-source-error";
+import { DEFAULT_TRANSFER_LIMITS } from "./transfer";
 import {
   publishMaterialization,
   PublicationOutcomeUnknownError,
@@ -220,6 +221,21 @@ describe("immutable Insight materializer", () => {
     });
     expect(h.bytes.size).toBe(1);
     expect(h.registered.size).toBe(1);
+  });
+
+  it("does not start another connector after a source resolution failure", async () => {
+    const h = harness();
+    h.resolveSource.mockRejectedValueOnce(new Error("source unavailable"));
+    await expect(
+      createInsightMaterializer(h.dependencies).materialize({
+        ctx: {} as never,
+        target: { kind: "ephemeral" },
+        insight,
+      }),
+    ).rejects.toThrow("source unavailable");
+    expect(h.resolveSource).toHaveBeenCalledTimes(1);
+    expect(h.publish).not.toHaveBeenCalled();
+    expect(h.bytes.size).toBe(0);
   });
 
   it("fetches every source and publishes only metadata after the result is saved", async () => {
@@ -853,16 +869,91 @@ describe("immutable Insight materializer", () => {
       ...args,
       ctx: { requestSignal: sibling.signal } as HostContext,
     });
-    await vi.waitFor(() => expect(observedSignals).toHaveLength(2));
+    await vi.waitFor(() => expect(observedSignals).toHaveLength(1));
     leader.abort(new Error("leader disconnected"));
     release();
 
     const [firstResult, siblingResult] = await Promise.all([first, second]);
     expect(siblingResult.dataFrameId).toBe(firstResult.dataFrameId);
     expect(observedSignals[0]).toBeInstanceOf(AbortSignal);
+    expect(observedSignals).toHaveLength(2);
     expect(observedSignals[1]).toBe(observedSignals[0]);
     expect(observedSignals[0]).not.toBe(leader.signal);
     expect(observedSignals[0]?.aborted).toBe(false);
+    expect(h.publish).toHaveBeenCalledOnce();
+  });
+
+  it("retries a late waiter after the only streaming consumer aborts", async () => {
+    let releaseRollback!: () => void;
+    let observedFirst!: () => void;
+    const rollback = new Promise<void>((resolve) => {
+      releaseRollback = resolve;
+    });
+    const firstObserved = new Promise<void>((resolve) => {
+      observedFirst = resolve;
+    });
+    let resolves = 0;
+    const h = harness({
+      resolveSource: async (ctx, tableId) => {
+        resolves += 1;
+        if (resolves === 1) {
+          observedFirst();
+          await rollback;
+          ctx.requestSignal?.throwIfAborted();
+        }
+        return source(tableId);
+      },
+    });
+    h.storage.saveBatches = vi.fn(async (id, batches) => {
+      let last = new Uint8Array();
+      for await (const batch of batches) last = batch;
+      h.bytes.set(id, last);
+    });
+    h.storage.getUsage = vi.fn(async () => ({ count: 0, totalBytes: 0 }));
+    h.storage.stream = async function* (id) {
+      const value = h.bytes.get(id);
+      if (value) yield value;
+    };
+    h.runtime.registerArrowStream = vi.fn(async (_name, stream) => {
+      for await (const _chunk of stream) {
+        // Drain like the native runtime.
+      }
+    });
+    h.runtime.queryArrowBatches = async function* () {
+      yield new Uint8Array([9]);
+    };
+    const materializer = createInsightMaterializer(h.dependencies);
+    const firstController = new AbortController();
+    const replacementController = new AbortController();
+    const args = {
+      target: { kind: "saved", insightId: "insight" } as const,
+      insight,
+    };
+
+    const first = materializer.materialize({
+      ...args,
+      ctx: {
+        requestSignal: firstController.signal,
+        dataFrameStorage: h.storage,
+        dataPlaneRuntime: h.runtime,
+      } as HostContext,
+    });
+    await firstObserved;
+    firstController.abort(new Error("first left"));
+    const replacement = materializer.materialize({
+      ...args,
+      ctx: {
+        requestSignal: replacementController.signal,
+        dataFrameStorage: h.storage,
+        dataPlaneRuntime: h.runtime,
+      } as HostContext,
+    });
+
+    expect(resolves).toBe(1);
+    releaseRollback();
+    await expect(first).rejects.toThrow("first left");
+    await expect(replacement).resolves.toMatchObject({ status: "ready" });
+    expect(resolves).toBe(3);
     expect(h.publish).toHaveBeenCalledOnce();
   });
 
@@ -974,4 +1065,63 @@ it("preserves the published table when refresh rejects an oversized source", asy
   // every Report that refers to it remain the active generation.
   expect(h.storage.save).not.toHaveBeenCalled();
   expect(h.publish).not.toHaveBeenCalled();
+});
+
+it.each(["storageBytes", "runBytes"] as const)(
+  "accounts for buffered native refresh sources against %s",
+  async (limit) => {
+    const h = harness({
+      transferLimits: { ...DEFAULT_TRANSFER_LIMITS, [limit]: 0 },
+    });
+    h.runtime.queryArrowBatches = async function* () {
+      yield new Uint8Array();
+    };
+    vi.mocked(h.storage.getUsage).mockResolvedValue({
+      count: 1,
+      totalBytes: 1,
+    });
+    await expect(
+      createInsightMaterializer(h.dependencies).materialize({
+        ctx: {} as HostContext,
+        target: { kind: "refresh" },
+        insight: { baseTableId: "source", selectedFields: [], metrics: [] },
+      }),
+    ).rejects.toThrow(/FETCH_.*BUDGET_EXCEEDED/);
+    expect(h.storage.save).not.toHaveBeenCalled();
+    expect(h.publish).not.toHaveBeenCalled();
+  },
+);
+
+it("retains hosted buffered refresh ceilings independently of native transfer budgets", async () => {
+  const h = harness({
+    transferLimits: {
+      ...DEFAULT_TRANSFER_LIMITS,
+      storageBytes: 0,
+      runBytes: 0,
+    },
+  });
+  const result = await createInsightMaterializer(h.dependencies).materialize({
+    ctx: {} as HostContext,
+    target: { kind: "refresh" },
+    insight: { baseTableId: "source", selectedFields: [], metrics: [] },
+  });
+  expect(result.status).toBe("ready");
+  expect(h.storage.getUsage).not.toHaveBeenCalled();
+});
+
+it("charges a buffered native source as a whole transfer rather than one streamed batch", async () => {
+  const h = harness({
+    transferLimits: { ...DEFAULT_TRANSFER_LIMITS, batchBytes: 0 },
+  });
+  h.runtime.queryArrowBatches = async function* () {
+    yield new Uint8Array();
+  };
+  vi.mocked(h.storage.getUsage).mockResolvedValue({ count: 0, totalBytes: 0 });
+  const result = await createInsightMaterializer(h.dependencies).materialize({
+    ctx: {} as HostContext,
+    target: { kind: "refresh" },
+    insight: { baseTableId: "source", selectedFields: [], metrics: [] },
+  });
+  expect(result.status).toBe("ready");
+  expect(h.storage.save).toHaveBeenCalledOnce();
 });

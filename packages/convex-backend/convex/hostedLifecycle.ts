@@ -51,7 +51,7 @@ export const executeHostBatch = mutation({
   returns: hostBatchState,
   handler: async (ctx, args): Promise<typeof hostBatchState.type> => {
     const identity = await requireHostedMetadataPrincipal(ctx);
-    return ctx.runMutation(internal.host.executeHostBatch, {
+    return ctx.runMutation(internal.host.executeHostBatchChecked, {
       ...args,
       ...identity,
     });

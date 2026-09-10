@@ -8,6 +8,8 @@ import {
   notionConnectorFor,
   postgresConnectorFor,
 } from "../connectors";
+
+import { DEFAULT_TRANSFER_LIMITS } from "./transfer";
 import { STREAM_BATCH_BYTES, STREAM_BATCH_ROWS } from "./streaming";
 
 const SOURCE_BINDING_VERSION = "v1";
@@ -159,6 +161,7 @@ async function fetchPagedRemoteBinding(
         binding.table.id,
         {
           pagination: { offset, limit: GA4_PAGE_SIZE },
+          signal: ctx.requestSignal,
         },
       );
       pageSignature(page);
@@ -234,7 +237,9 @@ async function fetchExhaustiveRemoteBinding(
           binding.table.id,
           hostedRemoteOptions,
         )
-      : await connector.query(binding.table.table, binding.table.id);
+      : await connector.query(binding.table.table, binding.table.id, {
+          signal: ctx.requestSignal,
+        });
     pageSignature(result);
     if (hostedRemoteOptions) assertHostedRemoteResult(result);
     return {
@@ -541,6 +546,62 @@ export async function fetchSourceBinding(
   return adapter(ctx, binding);
 }
 
+/** PostgreSQL's live path pulls one cursor batch; preview query() stays bounded. */
+export async function* streamPostgresBinding(
+  ctx: HostContext,
+  binding: SourceBinding,
+  signal?: AbortSignal,
+  batchBytes = DEFAULT_TRANSFER_LIMITS.batchBytes,
+): AsyncGenerator<Uint8Array> {
+  if (
+    binding.connectorKind !== "postgres" ||
+    binding.sourceBindingVersion !== "v1"
+  )
+    throw new Error("TARGET_NOT_READY");
+  const connector = await postgresConnectorFor(ctx, binding.dataSourceId);
+  let structure: string | undefined;
+  let physical: string | undefined;
+  const persisted = JSON.stringify({
+    fields: (binding.table.fields as Field[]).map((field) => ({
+      name: field.columnName ?? field.name,
+      type: field.type,
+    })),
+  });
+  try {
+    for await (const batch of connector.queryBatches(
+      binding.table.table,
+      binding.table.id,
+      { signal, batchRows: 2048 },
+    )) {
+      signal?.throwIfAborted();
+      // Measure decoded size without allocating it, using this run's batch limit.
+      if (Buffer.byteLength(batch.arrowBuffer, "base64") > batchBytes)
+        throw new Error("FETCH_BATCH_BYTES_EXCEEDED");
+      pageSignature(batch);
+      [structure, physical] = assertCompatiblePageStructure(
+        batch,
+        structure,
+        physical,
+      );
+      if (structure !== persisted) throw new Error("SOURCE_SCHEMA_CHANGED");
+      yield new Uint8Array(Buffer.from(batch.arrowBuffer, "base64"));
+    }
+  } catch (error) {
+    if (signal?.aborted) throw signal.reason;
+    const code = error instanceof Error ? error.message : "";
+    throw new Error(
+      [
+        "SOURCE_SCHEMA_CHANGED",
+        "SOURCE_VALUE_UNSUPPORTED",
+        "FETCH_BATCH_BYTES_EXCEEDED",
+      ].includes(code)
+        ? code
+        : "FETCH_EXECUTION_FAILED",
+      { cause: error },
+    );
+  }
+}
+
 /** Pull one bounded GA4 page only after the consumer accepts the previous one. */
 export async function* streamGa4Binding(
   ctx: HostContext,
@@ -592,7 +653,6 @@ export async function* streamGa4Binding(
         arrowSchema,
       );
       if (structure !== persisted) throw new Error("SOURCE_SCHEMA_CHANGED");
-      // Null-typed terminal pages cannot change an already established schema.
       if (page.rowCount > 0 || offset === 0)
         yield new Uint8Array(Buffer.from(page.arrowBuffer, "base64"));
       if (page.rowCount < STREAM_BATCH_ROWS) break;

@@ -10,6 +10,7 @@ import {
   type TSchema,
 } from "@dashframe/assistant";
 import {
+  CHART_TYPE_METADATA,
   cmd,
   COMMAND_PATHS,
   type Command,
@@ -950,6 +951,108 @@ function draftSafeCommandList(): string {
     .join(", ");
 }
 
+export function draftSafeCommandNames(): string[] {
+  return [...DRAFT_SAFE_COMMANDS]
+    .filter((name) => isMcpDraftSafeCommand(name))
+    .sort();
+}
+
+const REPORT_DRAFT_EXAMPLE = JSON.stringify(
+  {
+    commands: [
+      {
+        type: "CreateInsight",
+        args: {
+          id: "11111111-1111-4111-8111-111111111111",
+          name: "Revenue by product",
+          source: {
+            sourceType: "dataTable",
+            sourceId: "22222222-2222-4222-8222-222222222222",
+          },
+          selectedFields: ["33333333-3333-4333-8333-333333333333"],
+          metrics: [
+            {
+              id: "44444444-4444-4444-8444-444444444444",
+              name: "Revenue",
+              sourceTable: "22222222-2222-4222-8222-222222222222",
+              columnName: "amount",
+              aggregation: "sum",
+            },
+          ],
+        },
+      },
+      {
+        type: "SetInsightSort",
+        args: {
+          id: "11111111-1111-4111-8111-111111111111",
+          sorts: [
+            {
+              field: "metric_44444444_4444_4444_8444_444444444444",
+              direction: "desc",
+            },
+          ],
+        },
+      },
+      {
+        type: "CreateVisualization",
+        args: {
+          id: "55555555-5555-4555-8555-555555555555",
+          name: "Revenue by product",
+          insightId: "11111111-1111-4111-8111-111111111111",
+          visualizationType: "barY",
+          spec: { mark: "bar" },
+          encoding: {
+            x: "field:33333333-3333-4333-8333-333333333333",
+            y: "metric:44444444-4444-4444-8444-444444444444",
+            xType: "nominal",
+            yType: "quantitative",
+          },
+        },
+      },
+      {
+        type: "CreateDashboard",
+        args: {
+          id: "66666666-6666-4666-8666-666666666666",
+          name: "Sales report",
+          description: "Draft for human review.",
+        },
+      },
+      {
+        type: "AddDashboardItem",
+        args: {
+          dashboardId: "66666666-6666-4666-8666-666666666666",
+          item: {
+            id: "77777777-7777-4777-8777-777777777777",
+            type: "visualization",
+            visualizationId: "55555555-5555-4555-8555-555555555555",
+            x: 0,
+            y: 0,
+            width: 8,
+            height: 6,
+          },
+        },
+      },
+      {
+        type: "AddDashboardItem",
+        args: {
+          dashboardId: "66666666-6666-4666-8666-666666666666",
+          item: {
+            id: "88888888-8888-4888-8888-888888888888",
+            type: "markdown",
+            content: "## Summary\nRevenue is led by the top product.",
+            x: 8,
+            y: 0,
+            width: 4,
+            height: 6,
+          },
+        },
+      },
+    ],
+  },
+  null,
+  2,
+);
+
 function mcpCommandSummary(name: string, fallback: string): string {
   if (name === "CreateDataSource") {
     return "Create a credential-free data source.";
@@ -1019,7 +1122,8 @@ function draftBatchDescription(mode: McpMode): string {
     "Nothing here reaches canonical state; only a person can publish the draft.",
     "The batch is atomic: if any command fails, none of its commands are saved.",
     "An existing draft stays unchanged; a failed first batch creates no draftId.",
-    "After a command validation failure, correct and resubmit the entire batch.",
+    "After a command validation failure, correct and resubmit the entire batch",
+    "as a new operation without the rejected operationId.",
     "If the outcome is unconfirmed, retry the unchanged batch with the returned",
     "operationId. It may already be saved; do not submit it as a new operation.",
     ...continuity,
@@ -1042,6 +1146,11 @@ function draftBatchDescription(mode: McpMode): string {
     "  Publishing is a person's decision.",
     "",
     renderMcpCommandGuide(),
+    "",
+    "# Complete sorted-chart report example",
+    "Replace the example source, field, names, text, and UUIDs with real values.",
+    "Sorts use result column identifiers; chart encodings use field:/metric: refs.",
+    REPORT_DRAFT_EXAMPLE,
   ].join("\n");
 }
 
@@ -1077,6 +1186,19 @@ function assertDraftSafeBatch(
         `${DRAFT_BATCH_TOOL_NAME}: command "${type}" is not a known DashFrame ` +
           "command name.",
       );
+    }
+    if (type === "CreateVisualization" || type === "SetChartType") {
+      const chartType = args.visualizationType;
+      if (
+        typeof chartType !== "string" ||
+        !Object.hasOwn(CHART_TYPE_METADATA, chartType)
+      ) {
+        throw new Error(
+          `${DRAFT_BATCH_TOOL_NAME}: unsupported visualizationType ` +
+            `${JSON.stringify(chartType)}. Use one of: ` +
+            `${Object.keys(CHART_TYPE_METADATA).join(", ")}.`,
+        );
+      }
     }
     if (
       type in CREDENTIAL_COMMAND_ARG_FIELDS &&
@@ -1363,9 +1485,10 @@ export function createMcpTools(
       commands: Type.Array(
         Type.Object({
           type: Type.String({
+            enum: draftSafeCommandNames(),
             description:
-              "Draft-safe DashFrame command name from the guide below, e.g. " +
-              "CreateDataSource or CreateVisualization. Not a registry path.",
+              "Draft-safe DashFrame command name from the guide below. " +
+              "Not a registry path.",
           }),
           args: Type.Record(Type.String(), Type.Any(), {
             description:

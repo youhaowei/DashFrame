@@ -17,6 +17,8 @@ export interface HostContext {
   /** Personal workspace owner resolved by hosted admission, never request input.
    * Omitted only for the local desktop/loopback composition. */
   workspaceOwnerId?: string;
+  /** Lifetime of the admitted hosted request. Omitted for local composition. */
+  requestSignal?: AbortSignal;
   metadata: HostMetadata;
   cleanupResources?: () => Promise<void>;
   accessCredentials?: Pick<ApiAccessCredentials, "issue" | "list" | "revoke">;
@@ -26,8 +28,6 @@ export interface HostContext {
   googleOAuth?: GoogleOAuthConfig;
   application?: ApplicationOperations;
   dataFrameStorage?: DataFrameStorage;
-  /** Host-injected cancellation; never parsed from RPC input. */
-  requestSignal?: AbortSignal;
   /** Value-free instrumentation for a materialization owned by this host. */
   onMaterializationProgress?: (progress: {
     phase: "source" | "result" | "publication";
@@ -36,9 +36,7 @@ export interface HostContext {
     elapsedMs: number;
   }) => void;
   dataPlaneRuntime?: ArrowQueryRunner &
-    Partial<
-      Pick<ArrowTableRegistrar, "registerArrowTable" | "registerArrowBatches">
-    > & {
+    Partial<ArrowTableRegistrar> & {
       unregisterTable?: (name: string) => Promise<void>;
       /** Stable identity shared by request-scoped wrappers over one engine. */
       coalescingIdentity?: object;

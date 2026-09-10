@@ -119,6 +119,37 @@ it("binds ordinary batches to the verified principal and preserves service draft
     await expect(invoke()).rejects.toThrow("Credential revoked");
 });
 
+it("marks a rolled-back host command rejection as deterministic", async () => {
+  const workspaceId = await admit();
+  const service = await credential(workspaceId);
+  const rejected = {
+    operationId: "rejected-batch",
+    requestHash: "b".repeat(64),
+  };
+  await service.mutation(api.hostedLifecycle.prepareHostBatch, {
+    ...rejected,
+    commands: [
+      cmd("SetChartType", {
+        id: crypto.randomUUID(),
+        visualizationType: "barY",
+      }),
+    ].map((command) => ({ ...command, args: record(command.args) })),
+    mode: "draft",
+    stagedRefs: [],
+  });
+  const error = await service
+    .mutation(api.hostedLifecycle.executeHostBatch, rejected)
+    .catch((failure: unknown) => failure);
+  expect(error).toBeInstanceOf(Error);
+  const outerData = JSON.parse((error as { data: string }).data) as unknown;
+  const rejection =
+    typeof outerData === "string" ? JSON.parse(outerData) : outerData;
+  expect(rejection).toMatchObject({
+    code: "HOST_BATCH_REJECTED",
+    message: expect.stringContaining("not found"),
+  });
+});
+
 it("recovers only pending batches in the admitted workspace and retains staged resources for cleanup", async () => {
   const a = await admit(),
     b = await admit("b"),

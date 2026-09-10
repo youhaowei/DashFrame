@@ -309,6 +309,18 @@ function barRenderTransform(
   };
 }
 
+function barCategorySort(chartType: "barY" | "barX", encoding: ChartEncoding) {
+  // Non-temporal insight results are materialized in their requested sort
+  // order. Preserve the category channel's first-seen order instead of
+  // letting Plot infer an alphabetical ordinal domain. Transformed temporal
+  // categories retain Plot's chronological domain inference.
+  const categoryTransform =
+    chartType === "barX" ? encoding.yTransform : encoding.xTransform;
+  const isTemporal = categoryTransform?.transform.kind === "temporal";
+  if (chartType === "barX") return isTemporal ? {} : { sort: { y: null } };
+  return isTemporal ? {} : { sort: { x: null } };
+}
+
 /**
  * Build encoding options for vgplot marks.
  * Parses aggregation expressions and converts them to vgplot API calls.
@@ -353,6 +365,7 @@ function buildEncodingOptions(
   // Bar chart styling (both vertical and horizontal)
   if (chartType === "barY" || chartType === "barX") {
     const isHorizontal = chartType === "barX";
+    Object.assign(options, barCategorySort(chartType, encoding));
     options.render = barRenderTransform(isHorizontal, !!encoding.color);
   }
 

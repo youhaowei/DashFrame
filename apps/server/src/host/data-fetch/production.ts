@@ -19,6 +19,7 @@ import {
   fetchSourceBinding,
   resolveSourceBinding,
   streamGa4Binding,
+  streamPostgresBinding,
 } from "./bindings";
 import { supportsStreaming } from "./streaming";
 import type {
@@ -56,6 +57,8 @@ export function createProductionFetchExecutor(): LiveFetchExecutor {
     sharedOperationTimeoutMs: MATERIALIZATION_TIMEOUT_MS,
     uuid: () => randomUUID(),
     now: () => Date.now(),
+    transferCompleted: (summary) =>
+      console.info("[dashframe] snapshot transfer", summary),
     tableName: (id) => `df_${id.replaceAll("-", "_")}`,
   });
   return async ({ context, insight, target }) =>
@@ -279,6 +282,8 @@ export function productionMaterializerDependencies(): Pick<
 async function resolveProductionSource(
   ctx: HostContext,
   tableId: string,
+  signal?: AbortSignal,
+  batchBytes?: number,
 ): Promise<SourceGeneration> {
   const binding = await resolveSourceBinding(ctx, tableId);
   if (binding.connectorKind === "googleAnalytics" && supportsStreaming(ctx)) {
@@ -289,6 +294,30 @@ async function resolveProductionSource(
       batches: streamGa4Binding(ctx, binding),
       provenance: {
         connectorKind: binding.connectorKind,
+        bindingVersion: binding.sourceBindingVersion,
+      },
+    };
+  }
+  if (
+    binding.connectorKind === "postgres" &&
+    ctx.workspaceOwnerId === undefined
+  ) {
+    // The hosted sandbox still uses its bounded compatibility adapter.
+    // Native streaming capabilities are mandatory here: do not silently buffer a large source.
+    if (
+      !ctx.dataFrameStorage?.saveBatches ||
+      !ctx.dataFrameStorage.stream ||
+      !ctx.dataPlaneRuntime?.registerArrowStream ||
+      !ctx.dataPlaneRuntime.queryArrowBatches
+    )
+      throw new Error("TARGET_NOT_READY");
+    return {
+      table: binding.table as never,
+      fields: binding.table.fields as SourceGeneration["fields"],
+      rowCount: 0,
+      batches: streamPostgresBinding(ctx, binding, signal, batchBytes),
+      provenance: {
+        connectorKind: "postgres",
         bindingVersion: binding.sourceBindingVersion,
       },
     };

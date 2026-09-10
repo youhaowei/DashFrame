@@ -126,9 +126,11 @@ can only fetch commits that exist upstream.
   the host server embedded in-process, an owned local Convex process, and native DuckDB.
 - **Web + server:** the web app needs the backend API running, or data import fails
   with `404` on `/api/*`. Start the server on a fixed port
-  (`cd apps/server && bun run src/index.ts --host 127.0.0.1 --port 4000`) and point
-  the web app at it
+  (`cd apps/server && bun run src/index.ts --host 127.0.0.1 --port 4000 --public-origin http://127.0.0.1:3000`)
+  and point the web app at it
   (`cd apps/web && VITE_DASHFRAME_URL=http://127.0.0.1:4000 bun run dev:direct`).
+  `--public-origin` names the address the browser opens; without it the server
+  names the one Vite proxies to and the client refuses the reply.
 
 ### Packages
 

@@ -59,7 +59,18 @@ import {
   inferStringColumnType,
   quoteIdentifier,
 } from "@dashframe/engine";
-import { tableFromArrays, tableToIPC } from "apache-arrow";
+import {
+  Bool,
+  Float64,
+  Table,
+  TimestampMillisecond,
+  Utf8,
+  tableFromArrays,
+  tableToIPC,
+  vectorFromArray,
+  type DataType,
+  type Vector,
+} from "apache-arrow";
 import type { PostgresConnectorConfig } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -143,11 +154,26 @@ export interface PgQueryResult {
 }
 
 export interface PgClientLike {
+  abortConnection?(): void;
+  connect?(): Promise<void>;
   query(text: string): Promise<PgQueryResult>;
   query(text: string, values: unknown[]): Promise<PgQueryResult>;
   query(config: PgQueryConfig): Promise<PgQueryResult>;
   end(): Promise<void>;
 }
+
+export interface PostgresQueryBatchOptions {
+  signal?: AbortSignal;
+  batchRows?: number;
+}
+
+const DEFAULT_BATCH_ROWS = 2_048;
+const MAX_BATCH_ROWS = 10_000;
+
+type BatchPull = {
+  resolve: (result: IteratorResult<ConnectorQueryResult>) => void;
+  reject: (error: Error) => void;
+};
 
 // ---------------------------------------------------------------------------
 // Introspection helpers (exported for unit testing)
@@ -342,18 +368,23 @@ function columnNamesFromRows(rows: Record<string, unknown>[]): string[] {
  * Priority:
  *   1. OID-based type via `pgOidToColumnType` (highest priority — handles
  *      empty-result and precision-sensitive types like BIGINT/NUMERIC).
- *   2. Value-based inference via `inferStringColumnType` on the first non-null
- *      row value (legacy fallback when OID is absent or unmapped).
+ *   2. In streaming mode, string for an unmapped OID. Text-backed PostgreSQL
+ *      extension and user-defined types must not be guessed from one batch's
+ *      first value, and non-string payloads fail during serialization.
+ *   3. Value-based inference via `inferStringColumnType` on the first non-null
+ *      row value (legacy preview behavior, or when metadata is absent).
  */
 function inferColumnType(
   name: string,
   oidByName: Map<string, number>,
   rows: Record<string, unknown>[],
+  unmappedOidAsString = false,
 ): ReturnType<typeof inferStringColumnType> {
   const oid = oidByName.get(name);
   if (oid !== undefined) {
     const oidType = pgOidToColumnType(oid);
     if (oidType !== undefined) return oidType;
+    if (unmappedOidAsString) return "string";
   }
   for (const row of rows) {
     const v = row[name];
@@ -380,6 +411,7 @@ function inferFieldsFromRows(
   rows: Record<string, unknown>[],
   tableId: UUID,
   pgFields?: PgFieldDef[],
+  unmappedOidsAsStrings = false,
 ): Field[] {
   const hasPgFields = pgFields && pgFields.length > 0;
   const { columnNames, oidByName } = hasPgFields
@@ -391,10 +423,96 @@ function inferFieldsFromRows(
 
   const columns = columnNames.map((name) => ({
     name,
-    type: inferColumnType(name, oidByName, rows),
+    type: inferColumnType(name, oidByName, rows, unmappedOidsAsStrings),
   }));
 
   return createFieldsFromColumns(columns, tableId);
+}
+
+function arrowValue(value: unknown, type: Field["type"]): unknown {
+  if (value === null || value === undefined) return null;
+  switch (type) {
+    case "number":
+      if (typeof value !== "number")
+        throw new Error("SOURCE_VALUE_UNSUPPORTED");
+      return value;
+    case "boolean":
+      if (typeof value !== "boolean")
+        throw new Error("SOURCE_VALUE_UNSUPPORTED");
+      return value;
+    case "date":
+      if (!(value instanceof Date) || Number.isNaN(value.getTime())) {
+        throw new Error("SOURCE_VALUE_UNSUPPORTED");
+      }
+      return value;
+    case "string":
+    case "unknown":
+      if (typeof value !== "string")
+        throw new Error("SOURCE_VALUE_UNSUPPORTED");
+      return value;
+  }
+}
+
+function arrowVector(values: unknown[], type: Field["type"]) {
+  switch (type) {
+    case "number":
+      return vectorFromArray(values, new Float64());
+    case "boolean":
+      return vectorFromArray(values, new Bool());
+    case "date":
+      return vectorFromArray(values, new TimestampMillisecond());
+    case "string":
+    case "unknown":
+      return vectorFromArray(values, new Utf8());
+  }
+}
+
+function serializeBatch(
+  rows: Record<string, unknown>[],
+  fields: Field[],
+): ConnectorQueryResult {
+  const columns: Record<string, Vector<DataType>> = Object.create(
+    null,
+  ) as Record<string, Vector<DataType>>;
+  for (const field of fields) {
+    const name = field.columnName ?? field.name;
+    columns[name] = arrowVector(
+      rows.map((row) => arrowValue(row[name], field.type)),
+      field.type,
+    );
+  }
+  const arrow = new Table(columns);
+  return {
+    arrowBuffer: Buffer.from(tableToIPC(arrow)).toString("base64"),
+    fieldIds: fields.map((field) => field.id),
+    fields,
+    rowCount: rows.length,
+  };
+}
+
+function tableReference(resource: string): { schema: string; table: string } {
+  const trimmed = resource.trim();
+  const dot = trimmed.indexOf(".");
+  if (
+    dot <= 0 ||
+    trimmed.includes(" ") ||
+    trimmed.includes(";") ||
+    trimmed.includes("(") ||
+    dot === trimmed.length - 1
+  ) {
+    throw new Error(
+      "[PostgresConnector] Batch queries require a schema-qualified table reference.",
+    );
+  }
+  return { schema: trimmed.slice(0, dot), table: trimmed.slice(dot + 1) };
+}
+
+function errorFrom(value: unknown, fallback: string): Error {
+  return value instanceof Error ? value : new Error(fallback, { cause: value });
+}
+
+function abortReason(signal: AbortSignal): Error {
+  return errorFrom(signal.reason, "[PostgresConnector] Query cancelled.");
 }
 
 // ---------------------------------------------------------------------------
@@ -423,7 +541,8 @@ export class PostgresConnector extends RemoteApiConnector {
   /**
    * Overridable client factory — enables test subclasses to inject a spy/stub
    * without dynamic-importing the real pg package. The default implementation
-   * dynamically imports pg, constructs a Client, and connects it.
+   * dynamically imports pg and constructs an unconnected Client. #withClient
+   * owns connect() so cancellation covers connection establishment.
    *
    * @param dsn - Plaintext DSN, valid only within the auth callback scope.
    */
@@ -436,8 +555,14 @@ export class PostgresConnector extends RemoteApiConnector {
       connectionString: dsn,
       connectionTimeoutMillis: 30_000,
     });
-    await client.connect();
-    return client as unknown as PgClientLike;
+    // Socket failure rejects the active connect/query promise, but pg also
+    // emits the same failure on Client. EventEmitter treats an unhandled
+    // "error" event as an uncaught exception, so keep a listener installed for
+    // the client's auth-scoped lifetime. Callers still receive the rejection.
+    client.on("error", () => undefined);
+    const connectorClient = client as unknown as PgClientLike;
+    connectorClient.abortConnection = () => client.connection.stream.destroy();
+    return connectorClient;
   }
 
   constructor(auth: SecretResolver, config: PostgresConnectorConfig) {
@@ -454,7 +579,10 @@ export class PostgresConnector extends RemoteApiConnector {
    * If the resolver yields an empty DSN, we throw before constructing the client
    * (fail-closed).
    */
-  async #withClient<T>(use: (client: PgClientLike) => Promise<T>): Promise<T> {
+  async #withClient<T>(
+    use: (client: PgClientLike) => Promise<T>,
+    signal?: AbortSignal,
+  ): Promise<T> {
     return this.auth(async (dsn) => {
       // Fail-closed: a connectionStringRef implies the credential is required.
       if (!dsn) {
@@ -468,8 +596,29 @@ export class PostgresConnector extends RemoteApiConnector {
       // Sink 1: DSN is used only here, inside the auth callback. The client is
       // constructed with the DSN and closed before the callback returns.
       const client = await this.createClient(dsn);
+      const onAbort = () => {
+        // During connection setup node-postgres end() gracefully half-closes
+        // the socket and can still wait for the remote peer. Force-close the
+        // default client's stream without calling end() yet: end() marks the
+        // client as intentionally ending and suppresses connect's rejection.
+        // The finally block calls end() after connect/query has settled.
+        if (client.abortConnection) {
+          client.abortConnection();
+        } else {
+          // Test doubles and alternate clients without the pg-specific hook
+          // retain the previous cancellation fallback.
+          client.end().catch(() => undefined);
+        }
+      };
+      signal?.addEventListener("abort", onAbort, { once: true });
 
       try {
+        if (signal?.aborted) {
+          onAbort();
+          throw abortReason(signal);
+        }
+        await client.connect?.();
+        if (signal?.aborted) throw abortReason(signal);
         // Layer 1 — hard read-only guard. This is the FIRST query on every
         // connection — before any introspection or user query.
         await client.query(
@@ -480,6 +629,7 @@ export class PostgresConnector extends RemoteApiConnector {
         await client.query("SET statement_timeout = '30s'");
         return await use(client);
       } finally {
+        signal?.removeEventListener("abort", onAbort);
         // Ensure the client is closed even on error — DSN never escapes.
         await client.end().catch(() => {
           // Swallow end() errors: the caller's error takes priority.
@@ -534,6 +684,145 @@ export class PostgresConnector extends RemoteApiConnector {
         name: table,
       }));
     });
+  }
+
+  /**
+   * Lazily read a table through one transaction-scoped PostgreSQL cursor.
+   * Each FETCH starts only after the consumer requests the next batch.
+   */
+  async *queryBatches(
+    databaseId: string,
+    tableId: UUID,
+    options: PostgresQueryBatchOptions = {},
+  ): AsyncIterable<ConnectorQueryResult> {
+    const { schema, table } = tableReference(databaseId);
+    const batchRows = options.batchRows ?? DEFAULT_BATCH_ROWS;
+    if (
+      !Number.isSafeInteger(batchRows) ||
+      batchRows <= 0 ||
+      batchRows > MAX_BATCH_ROWS
+    ) {
+      throw new Error(
+        `[PostgresConnector] batchRows must be an integer from 1 to ${MAX_BATCH_ROWS}.`,
+      );
+    }
+    if (options.signal?.aborted) throw abortReason(options.signal);
+
+    const pulls: BatchPull[] = [];
+    let wakeProducer: (() => void) | undefined;
+    let consumerClosed = false;
+    let finished = false;
+    let failure: Error | undefined;
+    let activePull: BatchPull | undefined;
+
+    const nextPull = async (): Promise<BatchPull | undefined> => {
+      while (
+        !consumerClosed &&
+        !options.signal?.aborted &&
+        pulls.length === 0
+      ) {
+        await new Promise<void>((resolve) => {
+          wakeProducer = resolve;
+        });
+        wakeProducer = undefined;
+      }
+      if (options.signal?.aborted) throw abortReason(options.signal);
+      return pulls.shift();
+    };
+
+    const producer = this.#withClient(async (client) => {
+      const cursor = quoteIdentifier(`dashframe_${crypto.randomUUID()}`);
+      let transactionOpen = false;
+      let cursorOpen = false;
+      const wakeOnAbort = () => {
+        wakeProducer?.();
+      };
+      options.signal?.addEventListener("abort", wakeOnAbort, { once: true });
+      try {
+        await client.query(
+          "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY",
+        );
+        transactionOpen = true;
+        await client.query(
+          `DECLARE ${cursor} NO SCROLL CURSOR FOR SELECT * FROM ${quoteIdentifier(schema)}.${quoteIdentifier(table)}`,
+        );
+        cursorOpen = true;
+        let fields: Field[] | undefined;
+        let pgStructure: string | undefined;
+
+        for (;;) {
+          const pull = await nextPull();
+          if (!pull) return;
+          activePull = pull;
+          if (options.signal?.aborted) throw abortReason(options.signal);
+          // batchRows is range-checked above, so the interpolated FETCH count
+          // is a connector-owned integer rather than source input.
+          const result = await client.query(
+            `FETCH FORWARD ${batchRows} FROM ${cursor}`,
+          );
+          if (options.signal?.aborted) throw abortReason(options.signal);
+          const structure = JSON.stringify(
+            result.fields.map((field) => [field.name, field.dataTypeID]),
+          );
+          if (pgStructure !== undefined && structure !== pgStructure) {
+            throw new Error("SOURCE_SCHEMA_CHANGED");
+          }
+          pgStructure ??= structure;
+          fields ??= inferFieldsFromRows(
+            result.rows,
+            tableId,
+            result.fields,
+            true,
+          );
+
+          const batch = serializeBatch(result.rows, fields);
+          finished = result.rows.length < batchRows;
+          activePull = undefined;
+          pull.resolve({ done: false, value: batch });
+          if (finished) return;
+        }
+      } finally {
+        options.signal?.removeEventListener("abort", wakeOnAbort);
+        if (cursorOpen) {
+          await client.query(`CLOSE ${cursor}`).catch(() => undefined);
+        }
+        if (transactionOpen) {
+          await client.query("ROLLBACK").catch(() => undefined);
+        }
+      }
+    }, options.signal).catch((error: unknown) => {
+      failure = errorFrom(error, "[PostgresConnector] Batch query failed.");
+      activePull?.reject(failure);
+      activePull = undefined;
+      for (const pull of pulls.splice(0)) pull.reject(failure);
+    });
+
+    try {
+      for (;;) {
+        if (failure !== undefined) {
+          throw errorFrom(failure, "[PostgresConnector] Batch query failed.");
+        }
+        if (finished) return;
+        const result = await new Promise<IteratorResult<ConnectorQueryResult>>(
+          (resolve, reject) => {
+            if (failure !== undefined) {
+              reject(
+                errorFrom(failure, "[PostgresConnector] Batch query failed."),
+              );
+              return;
+            }
+            pulls.push({ resolve, reject });
+            wakeProducer?.();
+          },
+        );
+        if (result.done) return;
+        yield result.value;
+      }
+    } finally {
+      consumerClosed = true;
+      wakeProducer?.();
+      await producer;
+    }
   }
 
   /**

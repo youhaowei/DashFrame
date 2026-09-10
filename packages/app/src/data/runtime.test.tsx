@@ -35,11 +35,7 @@ vi.mock("convex/react", () => ({
   AuthLoading: () => null,
 }));
 
-import {
-  createAppRuntime,
-  getRuntimeConfig,
-  resolveAppConfig,
-} from "./runtime";
+import { createAppRuntime, getRuntimeConfig } from "./runtime";
 
 describe("native Convex runtime bootstrap", () => {
   beforeEach(() => {
@@ -50,40 +46,6 @@ describe("native Convex runtime bootstrap", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
-  });
-
-  it("rejects browser startup through the desktop resolver without making a request", async () => {
-    const fetcher = vi.fn();
-    vi.stubGlobal("fetch", fetcher);
-    await expect(resolveAppConfig()).rejects.toThrow(
-      "Browser startup must resolve access",
-    );
-    expect(fetcher).not.toHaveBeenCalled();
-  });
-
-  it("fails closed when desktop IPC omits its host credential", async () => {
-    const fetch = vi.fn();
-    vi.stubGlobal("fetch", fetch);
-    vi.stubGlobal("dashframe", {
-      getServerInfo: async () => ({ url: "http://127.0.0.1:4000", token: "" }),
-    });
-    await expect(resolveAppConfig()).rejects.toThrow("no loopback token");
-    expect(fetch).not.toHaveBeenCalled();
-  });
-
-  it("uses desktop metadata URLs without a second runtime lookup", async () => {
-    const config = {
-      url: "http://127.0.0.1:4000",
-      token: "desktop-host-token",
-      convexUrl: "http://127.0.0.1:9137",
-    };
-    vi.stubGlobal("dashframe", { getServerInfo: async () => config });
-    vi.stubGlobal("fetch", vi.fn());
-    await expect(resolveAppConfig()).resolves.toEqual({
-      ...config,
-      convexUrl: "http://127.0.0.1:4000/api/convex",
-    });
-    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("gets fresh scoped tokens from the authenticated host whenever Convex requests refresh", async () => {
