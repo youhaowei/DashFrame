@@ -11,7 +11,9 @@
  *                 returns results in.
  *   - Transport — `createArrowDataPath`, the HTTP Arrow IPC door onto that same
  *                 engine. It owns authentication, request shape and the frame
- *                 ownership check; it never inspects or rewrites SQL.
+ *                 ownership check. The frame route validates and substitutes
+ *                 its server-owned table identifier while leaving the rest of
+ *                 the caller's SQL unchanged.
  *
  * Placement is not decided here. The engine is bound where it is constructed,
  * by availability: a host that can reach a server engine uses it, and the WASM
