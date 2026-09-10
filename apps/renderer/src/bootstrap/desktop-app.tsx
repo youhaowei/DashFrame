@@ -9,20 +9,24 @@ import { createServerFrameConnector } from "@dashframe/visualization";
 import { createRouter, RouterProvider } from "@tanstack/react-router";
 
 import { routeTree } from "../routeTree.gen";
-import { WebProviders } from "../web-providers";
+import { createRendererHistory } from "../renderer-history";
 
-function createBrowserRouter() {
-  return createRouter({ routeTree, context: {} as AppRouterContext });
+function createDesktopRouter() {
+  return createRouter({
+    routeTree,
+    history: createRendererHistory(),
+    context: {} as AppRouterContext,
+  });
 }
 
 declare module "@tanstack/react-router" {
   interface Register {
-    router: ReturnType<typeof createBrowserRouter>;
+    router: ReturnType<typeof createDesktopRouter>;
   }
 }
 
 /** Called only after the transport has resolved an explicitly ready state. */
-export async function createBrowserApp(
+export async function createDesktopApp(
   config: HostRuntimeConfig,
   onAccessInvalidated: (reason: "denied" | "unavailable") => void,
 ) {
@@ -34,13 +38,18 @@ export async function createBrowserApp(
     },
   });
   try {
-    const router = createBrowserRouter();
-    const connector = createServerFrameConnector({ serverUrl: config.url });
+    const router = createDesktopRouter();
+    // Desktop charts use the same server-frame Mosaic connector as web; the
+    // shared tree receives no Electron-specific data-plane injection.
+    const connector = createServerFrameConnector({
+      serverUrl: config.url,
+      ...(config.token ? { token: config.token } : undefined),
+    });
     const Provider = runtime.Provider;
     const providerWrapper: ProviderWrapper = ({ children }) => (
       <Provider>
         <ChartEngineProvider connector={connector}>
-          <WebProviders>{children}</WebProviders>
+          {children}
         </ChartEngineProvider>
       </Provider>
     );
