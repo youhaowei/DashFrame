@@ -166,8 +166,8 @@ install_dependencies() {
     # Electron still gets checked, because this path also catches the worktree
     # whose install succeeded and whose Electron step did not: node_modules
     # exists, so without this the backfill would mark it provisioned and the
-    # missing binaries would never be repaired. The check is a stat when the
-    # dist is already there, so a genuinely pre-existing worktree pays nothing.
+    # missing binaries would never be repaired. The check uses Node to verify
+    # the installed version, platform, and architecture before marking ready.
     if [ -x "$_idep_electron_script" ]; then
       ensure_electron_dist "$_idep_wt"
     else

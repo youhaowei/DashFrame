@@ -156,16 +156,42 @@ usable() {
   esac
   [ "$_u_rel" = "$_u_expected" ] || return 1
 
-  _u_kind=$(file -b "$_u_dir/$_u_rel" 2>/dev/null) || return 1
-  case "$5:$_u_kind" in
-    x64:*x86_64*|x64:*x86-64*) ;;
-    arm64:*arm64*|arm64:*aarch64*) ;;
-    ia32:*80386*|ia32:*i386*) ;;
-    armv7l:*ARM*|arm:*ARM*) ;;
-    mips64el:*MIPS*) ;;
-    universal:*universal*x86_64*arm64*|universal:*universal*arm64*x86_64*) ;;
-    *) return 1 ;;
-  esac
+  # Read executable headers with the runtime already required by install.js.
+  # Minimal Linux installations need no additional file(1) package.
+  node -e '
+    const fs = require("fs");
+    try {
+      const b = fs.readFileSync(process.argv[1]);
+      const platform = process.argv[2];
+      const arch = process.argv[3];
+      let matches = false;
+      if (platform === "darwin" || platform === "mas") {
+        const cpu = {x64: 0x01000007, arm64: 0x0100000c, ia32: 7}[arch];
+        const magic = b.readUInt32BE(0);
+        if (magic === 0xcffaedfe || magic === 0xcefaedfe) {
+          matches = cpu !== undefined && b.readUInt32LE(4) === cpu;
+        } else if (magic === 0xcafebabe || magic === 0xcafebabf) {
+          const count = b.readUInt32BE(4);
+          const stride = magic === 0xcafebabf ? 32 : 20;
+          const cpus = [];
+          for (let i = 0; i < count; i++) cpus.push(b.readUInt32BE(8 + i * stride));
+          matches = arch === "universal"
+            ? cpus.includes(0x01000007) && cpus.includes(0x0100000c)
+            : cpu !== undefined && cpus.includes(cpu);
+        }
+      } else if (platform === "win32" && b.toString("ascii", 0, 2) === "MZ") {
+        const offset = b.readUInt32LE(60);
+        const machine = {x64: 0x8664, arm64: 0xaa64, ia32: 0x14c}[arch];
+        matches = machine !== undefined && b.readUInt32LE(offset) === 0x4550
+          && b.readUInt16LE(offset + 4) === machine;
+      } else if (["linux", "freebsd", "openbsd"].includes(platform)
+          && b.readUInt32BE(0) === 0x7f454c46) {
+        const machine = {x64: 62, arm64: 183, ia32: 3, arm: 40, armv7l: 40, mips64el: 8}[arch];
+        matches = machine !== undefined && b[5] === 1 && b.readUInt16LE(18) === machine;
+      }
+      process.exit(matches ? 0 : 1);
+    } catch { process.exit(1); }
+  ' "$_u_dir/$_u_rel" "$4" "$5"
 }
 
 # give_up <message>
@@ -187,18 +213,9 @@ give_up() {
   exit 1
 }
 
-# The common path needs no runtime at all. A forced conversion or missing dist
-# does need Node because Electron's package metadata and installer are Node
-# scripts; fail before claiming that provisioning succeeded when it is absent.
-if [ "$force" = false ] && usable "$pkg/dist" "$pkg/path.txt"; then
-  exit 0
-fi
+# Validate the requested target even when a private distribution exists.
 if ! command -v node >/dev/null 2>&1; then
   echo "[electron-dist] Node.js is required to provision Electron." >&2
-  exit 1
-fi
-if ! command -v file >/dev/null 2>&1; then
-  echo "[electron-dist] file(1) is required to verify Electron's architecture." >&2
   exit 1
 fi
 
@@ -243,6 +260,11 @@ case "$target_arch" in
     give_up "Electron's target architecture is not cache-safe."
     ;;
 esac
+
+if [ "$force" = false ] \
+  && usable "$pkg/dist" "$pkg/path.txt" "$version" "$target_platform" "$target_arch"; then
+  exit 0
+fi
 
 cache="${DASHFRAME_ELECTRON_CACHE:-$HOME/.cache/dashframe/electron}/$version/$target_platform-$target_arch"
 shared="$cache/dist"
