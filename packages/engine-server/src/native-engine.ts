@@ -66,12 +66,15 @@ import {
  * rather than a default — without it a chart query could simply issue
  * `SET enable_external_access=true` first.
  *
- * Applied once, on the connection opened at initialize(). These settings are
- * scoped to the DATABASE INSTANCE, not to the connection: a later connection
- * from the same instance — the one the appender-taint recovery path opens —
- * inherits them already locked and cannot lift them. Verified against
- * @duckdb/node-api 1.5.3-r.3. A separate instance is independently configured,
- * which is what makes a per-workspace instance a meaningful unit.
+ * Applied once, at initialize(), on a connection opened solely to configure the
+ * instance. These settings are scoped to the DATABASE INSTANCE, not to the
+ * connection: every connection an operation opens later inherits them already
+ * locked and cannot lift them. That instance scope is what makes one connection
+ * per operation safe — the restriction is not something each operation has to
+ * re-apply. Verified against @duckdb/node-api 1.5.3-r.3, and pinned by a test
+ * that runs `SET enable_external_access=true` through a post-initialize
+ * operation and expects it to fail. A separate instance is independently
+ * configured, which is what makes a per-workspace instance a meaningful unit.
  */
 async function applyAccessRestrictions(
   connection: Connection,
@@ -137,9 +140,10 @@ type RunBatchNative = <T>(operation: () => Promise<T>) => Promise<T>;
  *   any ──dispose()──▶ disposing ──drained──▶ disposed ◀┘
  *
  * `disposing` is the teardown window: the lifecycle signal has fired but the
- * persistent connection is still live while dispose() drains enrolled
- * operations. Naming it is the point — every "the guard was in the wrong
- * place" bug this class has had lived in that window while it had no name.
+ * instance is still live while dispose() drains enrolled operations — and each
+ * of those operations still holds its own open connection. Naming it is the
+ * point — every "the guard was in the wrong place" bug this class has had lived
+ * in that window while it had no name.
  */
 type LifecyclePhase =
   | "idle"
@@ -149,8 +153,9 @@ type LifecyclePhase =
   | "disposed";
 
 /**
- * What `acquireConnection()` hands out: a connection that is enrolled in the
- * lifecycle for as long as the lease is held. `release()` is idempotent.
+ * What `acquireConnection()` hands out: a connection opened for this operation
+ * alone, enrolled in the lifecycle for as long as the lease is held.
+ * `release()` closes it and is idempotent.
  */
 interface ConnectionLease {
   readonly connection: Connection;
@@ -163,19 +168,30 @@ interface AcquireOptions {
   /** Caller cancellation, joined with the lifecycle signal. */
   signal?: AbortSignal;
   /**
-   * Take the global registration lock before resolving the connection. DuckDB
-   * appenders are not concurrent-safe on a shared connection, so every
-   * registration-shaped operation serializes here.
+   * Serialize this operation against other operations naming the same live
+   * table, by taking that name's lock before opening the connection.
+   *
+   * Concurrency between *different* tables is safe by construction now that
+   * every operation owns its connection: an appender lives and dies on a
+   * connection nobody else can see, and eight concurrent `CREATE OR REPLACE`
+   * of eight distinct names across eight connections raise nothing.
+   *
+   * The SAME name is a different story, and not the one the old global lock
+   * was written for. DuckDB does not silently interleave two swaps: it aborts
+   * one side with `TransactionContext Error: Catalog write-write conflict`
+   * (20/20 rounds when probed cross-connection against
+   * @duckdb/node-api 1.5.3-r.3). So the lock is not preventing corruption —
+   * it is preventing a legitimate registration from failing hard because
+   * another upload of the same frame happened to overlap it. That mechanism is
+   * platform-independent, unlike the Linux-only appender taint the global lock
+   * once guarded.
+   *
+   * Scope boundary: only registration-shaped operations take a lock. Arbitrary
+   * DDL arriving as client SQL through `query`/`queryArrow` does not, so it
+   * could in principle conflict with a concurrent registration of the same
+   * name. Nothing in the product issues DDL through those entry points.
    */
-  serialize?: boolean;
-  /**
-   * Open a private connection from the instance instead of handing out the
-   * persistent one. Streaming reads and streaming ingest need this: they hold
-   * a native result open across awaits and accept a caller signal, and
-   * interrupting the shared connection on a caller's cancel would cancel
-   * everyone else's statement too.
-   */
-  dedicated?: boolean;
+  lockTable?: string;
 }
 
 export class NativeDuckDBEngine implements QueryEngine {
@@ -183,14 +199,13 @@ export class NativeDuckDBEngine implements QueryEngine {
   private readonly databasePath: string;
   private readonly restrictFileAccess: boolean;
   private phase: LifecyclePhase = "idle";
-  private instance: DuckDBInstance | null = null;
   /**
-   * The persistent connection. Written only by the lifecycle methods
-   * (`initialize`, `dispose`, `replaceTaintedConnection`); read only by
-   * `acquireConnection` (via `persistentConnection`) and `isReady`. Every
-   * query and registration receives it as a lease argument instead.
+   * The only persistent native handle. Written only by the lifecycle methods
+   * (`initialize`, `dispose`); read only by `acquireConnection` (via
+   * `liveInstance`). Connections are not persistent: every operation opens its
+   * own from this instance and closes it when its lease ends.
    */
-  private connection: Connection | null = null;
+  private instance: DuckDBInstance | null = null;
   /**
    * Memoized in-flight initialization. The first caller installs the promise;
    * concurrent callers await the SAME one instead of each racing to create a
@@ -201,25 +216,31 @@ export class NativeDuckDBEngine implements QueryEngine {
   /** Memoized teardown, so a second dispose() joins the first. */
   private disposal: Promise<void> | null = null;
   /**
-   * Set of table names currently registered via `registerArrowTable`. Used to
-   * answer `hasTable`/`getTableNames` without an async DB round-trip.
+   * Tables currently registered through this engine, keyed the way DuckDB
+   * identifies them — case-folded, because a quoted identifier is still
+   * case-insensitive — and valued by the spelling they were registered under,
+   * which is what DuckDB stores in its catalog and what `getTableNames()`
+   * reports. Keying it raw would let `Sales` and `sales` occupy two entries
+   * for one catalog table, so dropping either would leave the other claiming
+   * a table that no longer exists. Answers `hasTable`/`getTableNames` without
+   * an async DB round-trip.
    */
-  private _registeredTables = new Set<string>();
+  private _registeredTables = new Map<string, string>();
   /**
-   * Global serializer for registrations. DuckDB appenders are not
-   * concurrent-safe on a shared connection — two in-flight registrations
-   * sharing `this.connection` can trigger the "pending-result" NAPI taint that
-   * kills the next operation on the connection.
+   * Per-table-name serializer, keyed by the live table an operation replaces or
+   * drops. Guards concurrent `CREATE OR REPLACE` of the SAME name only:
+   * registrations of different names hold different keys and run concurrently.
    *
-   * The lock is a promise chain: each caller captures the previous tail, then
-   * installs a new tail whose resolution (`unlock`) it calls in `finally`. Only
-   * one registration runs at a time; arrivals queue in order.
+   * Each key is a promise chain: a caller captures the previous tail, installs
+   * a new tail, and resolves it (`unlock`) in `finally`. The entry is deleted on
+   * release only when it is still the tail — deleting unconditionally would
+   * drop the gate a queued caller is waiting behind.
    *
-   * Global (not per-name) because the taint is per-connection, not per-table:
-   * two concurrent registrations for *different* names share the same
-   * `this.connection` and race just as badly.
+   * Per-name rather than global because the hazard that forced a global lock is
+   * gone: it was the "pending-result" NAPI taint, which two registrations could
+   * only inflict on each other while they shared one connection.
    */
-  private _registrationLock: Promise<void> = Promise.resolve();
+  private readonly _tableLocks = new Map<string, Promise<void>>();
   /**
    * Fires once, on the transition to `disposing`. The phase is the state; this
    * is how in-flight operations hear about it — joined into every lease signal
@@ -259,22 +280,21 @@ export class NativeDuckDBEngine implements QueryEngine {
         // Disposal is terminal. Re-opening here would build a fresh
         // DuckDBInstance the owner will never close — a leaked native handle,
         // its background threads, and any file lock on a non-:memory: path.
-        // Checking the phase (not the connection) is what makes this hold in
-        // the teardown window too, where the connection is still live.
+        // Checking the phase (not the instance handle) is what makes this
+        // hold in the teardown window too, where the instance is still live.
         throw disposedError();
       case "initializing":
         break;
       case "idle":
         // Latch the first call's promise so concurrent callers converge on one
         // instance: the awaits below yield, and a plain null check on the
-        // connection would let two callers both create an instance.
+        // instance field would let two callers both create one.
         this.phase = "initializing";
         this.initPromise = this.openInstance().then(
-          ({ instance, connection }) => {
+          (instance) => {
             this.instance = instance;
-            this.connection = connection;
             // A dispose() that raced this init is already parked on
-            // `initPromise`; it takes the handles from here and closes them.
+            // `initPromise`; it takes the handle from here and closes it.
             if (this.phase === "initializing") this.phase = "ready";
           },
           (err: unknown) => {
@@ -291,10 +311,13 @@ export class NativeDuckDBEngine implements QueryEngine {
     await this.initPromise;
   }
 
-  private async openInstance(): Promise<{
-    instance: DuckDBInstance;
-    connection: Connection;
-  }> {
+  /**
+   * Create the instance and lock its access restrictions in, before any
+   * operation can be enrolled. The connection opened here exists only to carry
+   * those `SET` statements: the settings are instance-scoped, so it is closed
+   * again immediately and every later operation opens its own.
+   */
+  private async openInstance(): Promise<DuckDBInstance> {
     const instance = await DuckDBInstance.create(
       this.databasePath,
       this.sandboxLimits
@@ -328,55 +351,65 @@ export class NativeDuckDBEngine implements QueryEngine {
       instance.closeSync();
       throw err;
     }
-    return { instance, connection };
+    // The configuration is now locked on the instance; this connection has
+    // nothing left to do. Closing it is best effort — the restrictions are
+    // already in force, and the instance close in teardown() releases it
+    // regardless.
+    try {
+      connection.closeSync();
+    } catch {
+      // Already closed, or a native close failure on a connection nothing
+      // else references. teardown()'s instance close reclaims it.
+    }
+    return instance;
   }
 
   isReady(): boolean {
-    return this.connection !== null;
+    return this.phase === "ready";
   }
 
   /**
-   * The only way an operation reaches a native handle. The lifecycle methods
-   * (`openInstance`, `teardown`, `replaceTaintedConnection`) own the handles
-   * outside any operation — before one can be enrolled, or after all have
-   * drained. Enrols the caller in the lifecycle
-   * FIRST, so dispose() waits on `operationsIdle` for the lease instead of
-   * disconnecting under it; then checks the joined signal so a lease requested
-   * in the teardown window fails with the lifecycle abort before touching
-   * anything native.
+   * The only way an operation reaches a native handle: enrol, open a
+   * connection of its own, run, close. The lifecycle methods (`openInstance`,
+   * `teardown`) own the instance outside any operation — before one can be
+   * enrolled, or after all have drained.
    *
-   * Ordering that the tests pin for an unserialized persistent lease: the
-   * handle is resolved before the abort check. After dispose() has *finished*
-   * the handle is gone and callers must hear "not initialized"; while it is
-   * *in progress* the handle is live and they must hear the abort.
+   * Enrols the caller in the lifecycle FIRST, so dispose() waits on
+   * `operationsIdle` for the lease instead of closing the instance under it;
+   * then checks the joined signal so a lease requested in the teardown window
+   * fails with the lifecycle abort before touching anything native.
    *
-   * A serialized lease re-checks the signal after the lock wait — a queued
-   * registration can sit there across a dispose() — and resolves the
-   * persistent handle only then, because a registration ahead of it in the
-   * queue may have replaced the connection (`replaceTaintedConnection`).
+   * Ordering that the tests pin for an unlocked lease: the instance handle is
+   * resolved before the abort check. After dispose() has *finished* the handle
+   * is gone and callers must hear "not initialized"; while it is *in progress*
+   * the handle is live and they must hear the abort.
+   *
+   * A table-locked lease reverses that: it checks the signal before it queues,
+   * so an operation arriving during teardown aborts immediately instead of
+   * waiting behind a lock the in-flight holder will not release until it too
+   * has aborted. It re-checks after the wait, because a queued operation can
+   * sit there across a dispose().
    */
   private async acquireConnection(
     options: AcquireOptions = {},
   ): Promise<ConnectionLease> {
-    const {
-      signal: callerSignal,
-      serialize = false,
-      dedicated = false,
-    } = options;
+    const { signal: callerSignal, lockTable } = options;
     const signal = this.beginNativeOperation(callerSignal);
     let unlock: (() => void) | undefined;
     let connection: Connection | undefined;
     let interrupt: (() => void) | undefined;
     let released = false;
     // Every step runs even if an earlier one throws: a disconnect that fails
-    // must still hand back the lock and the refcount, or every later
-    // registration queues forever and dispose() never drains.
+    // must still hand back the lock and the refcount, or every later operation
+    // on that table name queues forever and dispose() never drains.
     const release = () => {
       if (released) return;
       released = true;
       try {
+        // Drop the interrupt listener before closing: a lifecycle abort firing
+        // afterwards would otherwise interrupt a disconnected handle.
         if (interrupt) signal.removeEventListener("abort", interrupt);
-        if (dedicated) connection?.disconnectSync();
+        connection?.disconnectSync();
       } finally {
         try {
           unlock?.();
@@ -386,27 +419,25 @@ export class NativeDuckDBEngine implements QueryEngine {
       }
     };
     try {
-      // Persistent, unserialized leases resolve the handle up front so a
-      // caller on a disposed engine hears "not initialized". A serialized
-      // lease must not: the registration holding the lock may be mid-swap in
-      // replaceTaintedConnection, with the handle null until it reconnects.
-      if (!dedicated && !serialize) this.persistentConnection();
+      // Resolve the handle up front so a caller on a disposed engine hears
+      // "not initialized" rather than an abort. A table-locked lease must not:
+      // it has to reach its abort check before it queues.
+      if (lockTable === undefined) this.liveInstance();
       throwIfAborted(signal);
-      if (serialize) {
-        unlock = await this.acquireRegistrationLock();
+      if (lockTable !== undefined) {
+        unlock = await this.acquireTableLock(lockTable);
         throwIfAborted(signal);
       }
-      const leased = dedicated
-        ? await this.liveInstance().connect()
-        : this.persistentConnection();
+      const leased = await this.liveInstance().connect();
       connection = leased;
-      // Every lease interrupts its statement on abort. Enrolling makes
-      // dispose() wait for the operation; without a way to stop it, a long or
-      // nonterminating query would turn into a hung shutdown, since both the
-      // desktop and standalone hosts await dispose(). A persistent lease
-      // carries only the lifecycle signal, so this fires only at teardown.
-      // Listener first, then re-check: an abort that landed during connect()
-      // would otherwise never reach interrupt().
+      // Every lease interrupts its own statement on abort, and only its own:
+      // the connection belongs to this operation, so a caller's cancel can
+      // never reach anyone else's statement. Enrolling makes dispose() wait
+      // for the operation; without a way to stop it, a long or nonterminating
+      // query would turn into a hung shutdown, since both the desktop and
+      // standalone hosts await dispose(). Listener first, then re-check: an
+      // abort that landed during connect() would otherwise never reach
+      // interrupt().
       interrupt = () => leased.interrupt();
       signal.addEventListener("abort", interrupt, { once: true });
       throwIfAborted(signal);
@@ -457,15 +488,6 @@ export class NativeDuckDBEngine implements QueryEngine {
     }
   }
 
-  private persistentConnection(): Connection {
-    if (!this.connection) {
-      throw new Error(
-        "NativeDuckDBEngine not initialized — call initialize() first",
-      );
-    }
-    return this.connection;
-  }
-
   private liveInstance(): DuckDBInstance {
     if (!this.instance) {
       throw new Error(
@@ -475,46 +497,29 @@ export class NativeDuckDBEngine implements QueryEngine {
     return this.instance;
   }
 
-  private async acquireRegistrationLock(): Promise<() => void> {
-    const gate = this._registrationLock;
+  /**
+   * Take `name`'s lock, resolving to the function that releases it. Callers
+   * hold it for the whole lease, so the swap DDL a registration runs is never
+   * interleaved with another swap of the same name.
+   */
+  private async acquireTableLock(name: string): Promise<() => void> {
+    // Two names DuckDB cannot tell apart must not get two locks, or the
+    // conflict this lock exists to prevent happens anyway.
+    const key = tableKey(name);
+    const gate = this._tableLocks.get(key) ?? Promise.resolve();
     let unlock!: () => void;
-    this._registrationLock = new Promise<void>((resolve) => {
+    const tail = new Promise<void>((resolve) => {
       unlock = resolve;
     });
+    this._tableLocks.set(key, tail);
     await gate;
-    return unlock;
-  }
-
-  /**
-   * Swap out the persistent connection after an appender failure.
-   *
-   * On Linux, duckdb_appender_close() on a failed appender marks the
-   * connection with a pending-result error. The next duckdb_query() on the
-   * same connection fails with "Attempting to execute an unsuccessful or
-   * closed pending query result" — emitted as an unhandled NAPI-layer
-   * rejection that bypasses the surrounding try/catch. Leaving the persistent
-   * connection tainted relocates that flake to the NEXT operation instead of
-   * killing it, so the tainted connection is disconnected and replaced with a
-   * fresh one from the same instance. Closing the old connection also drops
-   * its TEMP tables — including the partial staging table — for free.
-   *
-   * Called only under the registration lock, from an enrolled lease.
-   */
-  private async replaceTaintedConnection(): Promise<void> {
-    try {
-      this.connection?.disconnectSync();
-    } catch {
-      // best-effort — continue to reconnect even if disconnect throws
-    }
-    this.connection = null;
-    try {
-      // No need to re-apply the access restrictions here: they belong to
-      // the instance, not to this connection, and are already locked.
-      this.connection = await this.liveInstance().connect();
-    } catch {
-      // Reconnect failed — engine is unusable; the next lease reports
-      // "not initialized".
-    }
+    return () => {
+      unlock();
+      // Only the last holder clears the key. Deleting unconditionally would
+      // drop the gate a caller queued behind us is already awaiting, letting
+      // the next arrival run concurrently with them.
+      if (this._tableLocks.get(key) === tail) this._tableLocks.delete(key);
+    };
   }
 
   async query(sql: string): Promise<QueryResult> {
@@ -603,7 +608,7 @@ export class NativeDuckDBEngine implements QueryEngine {
       yield* this.streamWithConnection(
         (connection, operationSignal) =>
           this.streamBatches(connection, operationSignal, sql, params),
-        { signal, dedicated: true },
+        { signal },
       );
     } finally {
       track.onClosed();
@@ -671,9 +676,9 @@ export class NativeDuckDBEngine implements QueryEngine {
           [operationSignal],
           (operation) => operation(),
         );
-        this._registeredTables.add(name);
+        this._registeredTables.set(tableKey(name), name);
       },
-      { signal: options.signal, dedicated: true, serialize: true },
+      { signal: options.signal, lockTable: name },
     );
   }
 
@@ -703,19 +708,17 @@ export class NativeDuckDBEngine implements QueryEngine {
           throw new Error(`Arrow buffer for table "${name}" has no columns`);
         }
 
-        // Create a session-scoped TEMP table for staging — if the append fails
-        // partway through, the live table is untouched (atomic all-or-nothing).
-        // TEMP tables are connection-local: DuckDB drops them automatically when
-        // the owning connection closes. On the success path, the explicit DROP
-        // after the swap keeps stale staging tables from accumulating across
-        // repeated registerArrowTable calls. On the failure path, the catch block
-        // replaces the connection, so the staging table is dropped then too.
+        // Create a TEMP table for staging — if the append fails partway
+        // through, the live table is untouched (atomic all-or-nothing). TEMP
+        // tables are connection-local, and this connection belongs to this
+        // operation alone: nothing else can see the staging table, and DuckDB
+        // drops it when the lease closes the connection, on both the success
+        // and the failure path. The explicit DROP after the swap is still
+        // worth keeping — it releases the staged copy's memory immediately
+        // rather than holding two copies until the operation ends.
         //
-        // The staging name carries a per-call unique suffix so that the
-        // intermediate per-table catalog entry is distinct per upload even
-        // though only one registration runs at a time (the suffix is still
-        // useful if the same engine is ever queried while a registration is
-        // in-flight, and it documents intent clearly).
+        // The staging name carries a per-call unique suffix so a name is never
+        // reused within one connection's lifetime.
         const stagingName = `__staging_${name}_${nextStagingId()}`;
         const columnDefs = fields
           .map((f) => `${quoteIdent(f.name)} ${arrowFieldToDuckDBType(f)}`)
@@ -740,15 +743,16 @@ export class NativeDuckDBEngine implements QueryEngine {
           }
           appender.flushSync();
         } catch (err) {
-          // Append failed — staging table may be partially written.
+          // Append failed — the partially written staging table and any
+          // pending-result taint the failed appender left behind belong to
+          // this operation's connection, which the lease closes on the way
+          // out. There is nothing to recover: no other operation can observe
+          // either, and the live table was never touched.
           try {
             appender.closeSync();
           } catch {
             // ignore close error — propagate original
           }
-          // `conn` is the persistent connection, and a failed appender may
-          // have tainted it (see replaceTaintedConnection).
-          await this.replaceTaintedConnection();
           throw err;
         }
         // Flush succeeded — close the appender before the swap.
@@ -766,9 +770,9 @@ export class NativeDuckDBEngine implements QueryEngine {
         );
         await conn.run(`DROP TABLE IF EXISTS ${quoteIdent(stagingName)}`);
 
-        this._registeredTables.add(name);
+        this._registeredTables.set(tableKey(name), name);
       },
-      { serialize: true },
+      { lockTable: name },
     );
   }
 
@@ -820,19 +824,19 @@ export class NativeDuckDBEngine implements QueryEngine {
           await conn.run(
             `CREATE OR REPLACE TABLE ${quoteIdent(name)} AS SELECT * FROM ${quoteIdent(stagingName)}`,
           );
-          this._registeredTables.add(name);
+          this._registeredTables.set(tableKey(name), name);
         } finally {
           if (appender) {
             try {
               appender.closeSync();
             } catch {
-              // The lease disconnects this dedicated connection on release,
+              // The lease disconnects this operation's connection on release,
               // discarding it and its TEMP state.
             }
           }
         }
       },
-      { signal, serialize: true, dedicated: true },
+      { signal, lockTable: name },
     );
   }
 
@@ -846,23 +850,23 @@ export class NativeDuckDBEngine implements QueryEngine {
     await this.initialize();
     await this.withConnection(
       async (connection) => {
-        if (!this._registeredTables.has(name)) return;
+        if (!this._registeredTables.has(tableKey(name))) return;
         await connection.run(`DROP TABLE IF EXISTS ${quoteIdent(name)}`);
         // Forget the registration only after DuckDB confirms the DROP. A
         // transient native failure must leave the entry discoverable so cleanup
         // can retry instead of leaking a table the registry claims is gone.
-        this._registeredTables.delete(name);
+        this._registeredTables.delete(tableKey(name));
       },
-      { serialize: true },
+      { lockTable: name },
     );
   }
 
   hasTable(name: string): boolean {
-    return this._registeredTables.has(name);
+    return this._registeredTables.has(tableKey(name));
   }
 
   getTableNames(): string[] {
-    return [...this._registeredTables];
+    return [...this._registeredTables.values()];
   }
 
   dispose(): Promise<void> {
@@ -882,8 +886,8 @@ export class NativeDuckDBEngine implements QueryEngine {
     this.lifecycleAbort.abort(disposedError());
     // An initialize() may still be in flight (e.g. Electron before-quit fires
     // during DuckDB startup). Tearing down immediately would null out nothing,
-    // and the init closure would then assign a live connection/instance AFTER
-    // this teardown — an engine alive past disposal, its native handle and any
+    // and the init closure would then assign a live instance AFTER this
+    // teardown — an engine alive past disposal, its native handle and any
     // file lock never released. Wait for the latch to settle first; a failed
     // init has already cleaned up after itself, so its error is swallowed.
     try {
@@ -897,18 +901,12 @@ export class NativeDuckDBEngine implements QueryEngine {
     );
     for (const iterator of activeQueries)
       this.activeQueryIterators.delete(iterator);
+    // Draining is what releases the connections: every operation closes its
+    // own on release, so by the time `operationsIdle` settles there is no
+    // connection left for teardown to disconnect — which is what DuckDB wants
+    // before the instance is closed.
     await this.operationsIdle;
     this._registeredTables.clear();
-    // Disconnect the connection before closing the instance — DuckDB expects
-    // all connections to be released before the instance is closed. Teardown
-    // is best effort and memoized: a throw here would be cached as a rejected
-    // dispose() and leave the instance (and any file lock) open for good.
-    try {
-      this.connection?.disconnectSync();
-    } catch {
-      // Already disconnected — closing the instance below still releases it.
-    }
-    this.connection = null;
     // Close the native instance: releases the background I/O threads, the
     // file lock on the database path, and any native heap the instance holds.
     // This is the only closeSync() on `this.instance` — a failed init never
@@ -955,6 +953,23 @@ function disposedError(): DOMException {
 
 function quoteIdent(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
+}
+
+/**
+ * How DuckDB identifies a table, as opposed to how it spells it. Identifiers
+ * are case-insensitive even when quoted, so `"Sales"` and `"sales"` name ONE
+ * catalog entry — probed at 20/20 cross-case write-write conflicts against
+ * @duckdb/node-api 1.5.3-r.3. Both the per-name lock and the registered-table
+ * registry key on this, so neither can be fooled into treating one table as
+ * two, or two as one.
+ *
+ * The fold is ASCII-only because DuckDB's is: probed on the same version,
+ * `"Ä"`/`"ä"`, `"İ"`/`"i̇"` and `"ß"`/`"ss"` each create two distinct catalog
+ * tables, while `"A"`/`"a"` create one. `String.toLowerCase()` would merge the
+ * first pair and leave the registry claiming one table where DuckDB has two.
+ */
+function tableKey(name: string): string {
+  return name.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
 }
 
 function throwIfAborted(signal?: AbortSignal): void {
@@ -1054,9 +1069,10 @@ const MS_PER_DAY = 86_400_000;
 
 /**
  * Monotonic counter for unique staging-table names. A process-local counter is
- * sufficient: staging tables are session-scoped to one DuckDB connection, and
- * the only collision we need to avoid is two in-flight registrations of the
- * same live table racing on a shared deterministic staging name.
+ * sufficient — more than sufficient, now that a staging table is visible only
+ * on the one connection that created it, so a cross-operation collision is
+ * impossible by construction. The counter keeps a name from being reused
+ * within a single connection's lifetime and keeps the intent legible.
  */
 let stagingCounter = 0;
 function nextStagingId(): number {
@@ -1113,7 +1129,7 @@ async function replaceArrowTableFromBatches(
       try {
         await runNative(() => connection.run("ROLLBACK"));
       } catch {
-        // The dedicated connection is discarded by the caller.
+        // The operation connection is discarded by the caller.
       }
     }
   }
@@ -1189,7 +1205,7 @@ async function stageArrowBatches(
       try {
         appender.closeSync();
       } catch {
-        // The dedicated connection is discarded by the caller.
+        // The operation connection is discarded by the caller.
       }
     }
   }
