@@ -124,11 +124,69 @@ export interface NativeDuckDBEngineOptions {
   restrictFileAccess?: boolean;
 }
 
+/**
+ * Where the engine is in its life. One field, one transition graph:
+ *
+ *   idle ──initialize()──▶ initializing ──ok──▶ ready
+ *                               │ fail                 │
+ *                               ▼                      │
+ *                             idle                     │
+ *   any ──dispose()──▶ disposing ──drained──▶ disposed ◀┘
+ *
+ * `disposing` is the teardown window: the lifecycle signal has fired but the
+ * persistent connection is still live while dispose() drains enrolled
+ * operations. Naming it is the point — every "the guard was in the wrong
+ * place" bug this class has had lived in that window while it had no name.
+ */
+type LifecyclePhase =
+  | "idle"
+  | "initializing"
+  | "ready"
+  | "disposing"
+  | "disposed";
+
+/**
+ * What `acquireConnection()` hands out: a connection that is enrolled in the
+ * lifecycle for as long as the lease is held. `release()` is idempotent.
+ */
+interface ConnectionLease {
+  readonly connection: Connection;
+  /** Caller signal (if any) joined with the lifecycle signal. */
+  readonly signal: AbortSignal;
+  release(): void;
+}
+
+interface AcquireOptions {
+  /** Caller cancellation, joined with the lifecycle signal. */
+  signal?: AbortSignal;
+  /**
+   * Take the global registration lock before resolving the connection. DuckDB
+   * appenders are not concurrent-safe on a shared connection, so every
+   * registration-shaped operation serializes here.
+   */
+  serialize?: boolean;
+  /**
+   * Open a private connection from the instance instead of handing out the
+   * persistent one. Streaming reads and streaming ingest need this: they hold
+   * a native result open across awaits and accept a caller signal, and
+   * interrupting the shared connection on a caller's cancel would cancel
+   * everyone else's statement too.
+   */
+  dedicated?: boolean;
+}
+
 export class NativeDuckDBEngine implements QueryEngine {
   private readonly sandboxLimits: NativeDuckDBEngineOptions["sandboxLimits"];
   private readonly databasePath: string;
   private readonly restrictFileAccess: boolean;
+  private phase: LifecyclePhase = "idle";
   private instance: DuckDBInstance | null = null;
+  /**
+   * The persistent connection. Written only by the lifecycle methods
+   * (`initialize`, `dispose`, `replaceTaintedConnection`); read only by
+   * `acquireConnection` (via `persistentConnection`) and `isReady`. Every
+   * query and registration receives it as a lease argument instead.
+   */
   private connection: Connection | null = null;
   /**
    * Memoized in-flight initialization. The first caller installs the promise;
@@ -137,16 +195,18 @@ export class NativeDuckDBEngine implements QueryEngine {
    * background threads, and any file lock on the database path).
    */
   private initPromise: Promise<void> | null = null;
+  /** Memoized teardown, so a second dispose() joins the first. */
+  private disposal: Promise<void> | null = null;
   /**
    * Set of table names currently registered via `registerArrowTable`. Used to
    * answer `hasTable`/`getTableNames` without an async DB round-trip.
    */
   private _registeredTables = new Set<string>();
   /**
-   * Global serializer for `registerArrowTable`. DuckDB appenders are not
-   * concurrent-safe on a shared connection — two in-flight registrations sharing
-   * `this.connection` can trigger the "pending-result" NAPI taint that kills the
-   * next operation on the connection.
+   * Global serializer for registrations. DuckDB appenders are not
+   * concurrent-safe on a shared connection — two in-flight registrations
+   * sharing `this.connection` can trigger the "pending-result" NAPI taint that
+   * kills the next operation on the connection.
    *
    * The lock is a promise chain: each caller captures the previous tail, then
    * installs a new tail whose resolution (`unlock`) it calls in `finally`. Only
@@ -157,10 +217,21 @@ export class NativeDuckDBEngine implements QueryEngine {
    * `this.connection` and race just as badly.
    */
   private _registrationLock: Promise<void> = Promise.resolve();
-  private lifecycleAbort = new AbortController();
+  /**
+   * Fires once, on the transition to `disposing`. The phase is the state; this
+   * is how in-flight operations hear about it — joined into every lease signal
+   * so a native statement is interrupted, and a registration that was queued
+   * on the lock fails as soon as it acquires it.
+   */
+  private readonly lifecycleAbort = new AbortController();
   private activeNativeOperations = 0;
   private operationsIdle: Promise<void> | null = null;
   private resolveOperationsIdle: (() => void) | null = null;
+  /**
+   * Streaming queries paused at a `yield` hold a lease the consumer may never
+   * resume. dispose() cannot drain those by waiting, so it tracks the
+   * generators and calls `return()` on each, which runs their `finally`.
+   */
   private activeQueryIterators = new Set<AsyncGenerator<Uint8Array>>();
 
   constructor(options: NativeDuckDBEngineOptions = {}) {
@@ -177,78 +248,213 @@ export class NativeDuckDBEngine implements QueryEngine {
   }
 
   async initialize(): Promise<void> {
-    // Disposal is terminal, and this check must precede the `this.connection`
-    // early return: dispose() aborts the signal but keeps the connection alive
-    // until it has drained `operationsIdle`, so a guard placed after the early
-    // return would wave callers straight through that teardown window. Failing
-    // closed here also stops a re-armed controller from resurrecting a disposed
-    // engine — dispose() nulls the connection, so a later initialize() would
-    // otherwise build a fresh DuckDBInstance the owner will never close,
-    // leaking a native handle, its background threads, and any file lock on a
-    // non-:memory: path.
-    //
-    // This guard alone is not sufficient: it cannot stop an operation that
-    // passed it *before* dispose() aborted. Every method using the persistent
-    // connection must also enrol in beginNativeOperation() so teardown waits
-    // for it.
-    throwIfAborted(this.lifecycleAbort.signal);
-    if (this.connection) return;
-    // Guard against concurrent initialize() calls: the `await` below yields the
-    // event loop, so a plain `if (this.connection)` check (which is null until
-    // both awaits resolve) would let two callers both create an instance. Latch
-    // the first call's promise and hand it to everyone else.
-    this.initPromise ??= (async () => {
-      const instance = await DuckDBInstance.create(
-        this.databasePath,
-        this.sandboxLimits
-          ? {
-              memory_limit: `${this.sandboxLimits.memoryBytes}B`,
-              threads: String(this.sandboxLimits.threads),
-              temp_directory: "",
-              autoinstall_known_extensions: "false",
-              autoload_known_extensions: "false",
-            }
-          : undefined,
-      );
-      let connection: Connection;
-      try {
-        connection = await instance.connect();
-      } catch (err) {
-        // connect() failing would otherwise leak the just-created instance
-        // (native handle, background threads, file lock on a non-:memory:
-        // path) — it was never assigned to this.instance, so nothing else
-        // could ever close it. Close it before surfacing the error.
-        instance.closeSync();
-        throw err;
-      }
-      try {
-        await applyAccessRestrictions(connection, this.restrictFileAccess);
-      } catch (err) {
-        // The restriction is a security control, not a tuning knob. If it
-        // cannot be applied, the engine must not come up serving client SQL
-        // with the restriction silently absent.
-        connection.closeSync();
-        instance.closeSync();
-        throw err;
-      }
-      this.instance = instance;
-      this.connection = connection;
-    })();
+    switch (this.phase) {
+      case "ready":
+        return;
+      case "disposing":
+      case "disposed":
+        // Disposal is terminal. Re-opening here would build a fresh
+        // DuckDBInstance the owner will never close — a leaked native handle,
+        // its background threads, and any file lock on a non-:memory: path.
+        // Checking the phase (not the connection) is what makes this hold in
+        // the teardown window too, where the connection is still live.
+        throw disposedError();
+      case "initializing":
+        break;
+      case "idle":
+        // Latch the first call's promise so concurrent callers converge on one
+        // instance: the awaits below yield, and a plain null check on the
+        // connection would let two callers both create an instance.
+        this.phase = "initializing";
+        this.initPromise = this.openInstance().then(
+          ({ instance, connection }) => {
+            this.instance = instance;
+            this.connection = connection;
+            // A dispose() that raced this init is already parked on
+            // `initPromise`; it takes the handles from here and closes them.
+            if (this.phase === "initializing") this.phase = "ready";
+          },
+          (err: unknown) => {
+            // A failed init must not be cached — return to `idle` so a later
+            // call can retry rather than re-await a permanently-rejected
+            // promise. A dispose() that raced us keeps its own phase.
+            if (this.phase === "initializing") this.phase = "idle";
+            this.initPromise = null;
+            throw err;
+          },
+        );
+        break;
+    }
+    await this.initPromise;
+  }
+
+  private async openInstance(): Promise<{
+    instance: DuckDBInstance;
+    connection: Connection;
+  }> {
+    const instance = await DuckDBInstance.create(
+      this.databasePath,
+      this.sandboxLimits
+        ? {
+            memory_limit: `${this.sandboxLimits.memoryBytes}B`,
+            threads: String(this.sandboxLimits.threads),
+            temp_directory: "",
+            autoinstall_known_extensions: "false",
+            autoload_known_extensions: "false",
+          }
+        : undefined,
+    );
+    let connection: Connection;
     try {
-      await this.initPromise;
+      connection = await instance.connect();
     } catch (err) {
-      // A failed init must not be cached — clear the latch so a later call can
-      // retry rather than re-await a permanently-rejected promise.
-      this.initPromise = null;
+      // connect() failing would otherwise leak the just-created instance
+      // (native handle, background threads, file lock on a non-:memory:
+      // path) — it was never assigned to this.instance, so nothing else
+      // could ever close it. Close it before surfacing the error.
+      instance.closeSync();
       throw err;
     }
+    try {
+      await applyAccessRestrictions(connection, this.restrictFileAccess);
+    } catch (err) {
+      // The restriction is a security control, not a tuning knob. If it
+      // cannot be applied, the engine must not come up serving client SQL
+      // with the restriction silently absent.
+      connection.closeSync();
+      instance.closeSync();
+      throw err;
+    }
+    return { instance, connection };
   }
 
   isReady(): boolean {
     return this.connection !== null;
   }
 
-  private conn(): Connection {
+  /**
+   * The only way an operation reaches a native handle. The lifecycle methods
+   * (`openInstance`, `teardown`, `replaceTaintedConnection`) own the handles
+   * outside any operation — before one can be enrolled, or after all have
+   * drained. Enrols the caller in the lifecycle
+   * FIRST, so dispose() waits on `operationsIdle` for the lease instead of
+   * disconnecting under it; then checks the joined signal so a lease requested
+   * in the teardown window fails with the lifecycle abort before touching
+   * anything native.
+   *
+   * Ordering that the tests pin for an unserialized persistent lease: the
+   * handle is resolved before the abort check. After dispose() has *finished*
+   * the handle is gone and callers must hear "not initialized"; while it is
+   * *in progress* the handle is live and they must hear the abort.
+   *
+   * A serialized lease re-checks the signal after the lock wait — a queued
+   * registration can sit there across a dispose() — and resolves the
+   * persistent handle only then, because a registration ahead of it in the
+   * queue may have replaced the connection (`replaceTaintedConnection`).
+   */
+  private async acquireConnection(
+    options: AcquireOptions = {},
+  ): Promise<ConnectionLease> {
+    const {
+      signal: callerSignal,
+      serialize = false,
+      dedicated = false,
+    } = options;
+    const signal = this.beginNativeOperation(callerSignal);
+    let unlock: (() => void) | undefined;
+    let connection: Connection | undefined;
+    let interrupt: (() => void) | undefined;
+    let released = false;
+    // Every step runs even if an earlier one throws: a disconnect that fails
+    // must still hand back the lock and the refcount, or every later
+    // registration queues forever and dispose() never drains.
+    const release = () => {
+      if (released) return;
+      released = true;
+      try {
+        if (interrupt) signal.removeEventListener("abort", interrupt);
+        if (dedicated) connection?.disconnectSync();
+      } finally {
+        try {
+          unlock?.();
+        } finally {
+          this.endNativeOperation();
+        }
+      }
+    };
+    try {
+      // Persistent, unserialized leases resolve the handle up front so a
+      // caller on a disposed engine hears "not initialized". A serialized
+      // lease must not: the registration holding the lock may be mid-swap in
+      // replaceTaintedConnection, with the handle null until it reconnects.
+      if (!dedicated && !serialize) this.persistentConnection();
+      throwIfAborted(signal);
+      if (serialize) {
+        unlock = await this.acquireRegistrationLock();
+        throwIfAborted(signal);
+      }
+      const leased = dedicated
+        ? await this.liveInstance().connect()
+        : this.persistentConnection();
+      connection = leased;
+      // Every lease interrupts its statement on abort. Enrolling makes
+      // dispose() wait for the operation; without a way to stop it, a long or
+      // nonterminating query would turn into a hung shutdown, since both the
+      // desktop and standalone hosts await dispose(). A persistent lease
+      // carries only the lifecycle signal, so this fires only at teardown.
+      // Listener first, then re-check: an abort that landed during connect()
+      // would otherwise never reach interrupt().
+      interrupt = () => leased.interrupt();
+      signal.addEventListener("abort", interrupt, { once: true });
+      throwIfAborted(signal);
+      return { connection, signal, release };
+    } catch (err) {
+      release();
+      throw err;
+    }
+  }
+
+  /** Run `run` against a leased connection; the lease ends when it settles. */
+  private async withConnection<T>(
+    run: (connection: Connection, signal: AbortSignal) => Promise<T>,
+    options?: AcquireOptions,
+  ): Promise<T> {
+    const lease = await this.acquireConnection(options);
+    try {
+      // The await above yields even when acquisition did no async work, and a
+      // dispose() queued in that gap has already fired interrupt() against a
+      // statement that does not exist yet. Re-check so the statement never
+      // starts, instead of running unstoppable through teardown.
+      throwIfAborted(lease.signal);
+      return await run(lease.connection, lease.signal);
+    } finally {
+      lease.release();
+    }
+  }
+
+  /**
+   * Generator twin of `withConnection`: the lease spans every `yield`, and
+   * ends when the consumer finishes, throws, or calls `return()` — which is
+   * how dispose() closes a stream paused at a yielded batch.
+   */
+  private async *streamWithConnection(
+    run: (
+      connection: Connection,
+      signal: AbortSignal,
+    ) => AsyncGenerator<Uint8Array>,
+    options?: AcquireOptions,
+  ): AsyncGenerator<Uint8Array> {
+    const lease = await this.acquireConnection(options);
+    try {
+      // Same gap as withConnection(): see the re-check there.
+      throwIfAborted(lease.signal);
+      yield* run(lease.connection, lease.signal);
+    } finally {
+      lease.release();
+    }
+  }
+
+  private persistentConnection(): Connection {
     if (!this.connection) {
       throw new Error(
         "NativeDuckDBEngine not initialized — call initialize() first",
@@ -257,43 +463,71 @@ export class NativeDuckDBEngine implements QueryEngine {
     return this.connection;
   }
 
-  async query(sql: string): Promise<QueryResult> {
-    // conn() first: after dispose() the connection is gone, and callers should
-    // hear "not initialized" rather than a teardown abort. Enrolling second
-    // covers the window where the connection is still live but disposal has
-    // begun, so dispose() waits for this read instead of closing under it.
-    const connection = this.conn();
-    const operationSignal = this.beginNativeOperation();
-    // Enrolling makes dispose() wait for this read; without a way to stop it,
-    // that turns a long or nonterminating query into a hung shutdown, since
-    // both the desktop and standalone hosts await dispose(). Interrupt on
-    // abort, exactly as the streaming paths do.
-    const interrupt = () => connection.interrupt();
-    operationSignal.addEventListener("abort", interrupt, { once: true });
+  private liveInstance(): DuckDBInstance {
+    if (!this.instance) {
+      throw new Error(
+        "NativeDuckDBEngine not initialized — call initialize() first",
+      );
+    }
+    return this.instance;
+  }
+
+  private async acquireRegistrationLock(): Promise<() => void> {
+    const gate = this._registrationLock;
+    let unlock!: () => void;
+    this._registrationLock = new Promise<void>((resolve) => {
+      unlock = resolve;
+    });
+    await gate;
+    return unlock;
+  }
+
+  /**
+   * Swap out the persistent connection after an appender failure.
+   *
+   * On Linux, duckdb_appender_close() on a failed appender marks the
+   * connection with a pending-result error. The next duckdb_query() on the
+   * same connection fails with "Attempting to execute an unsuccessful or
+   * closed pending query result" — emitted as an unhandled NAPI-layer
+   * rejection that bypasses the surrounding try/catch. Leaving the persistent
+   * connection tainted relocates that flake to the NEXT operation instead of
+   * killing it, so the tainted connection is disconnected and replaced with a
+   * fresh one from the same instance. Closing the old connection also drops
+   * its TEMP tables — including the partial staging table — for free.
+   *
+   * Called only under the registration lock, from an enrolled lease.
+   */
+  private async replaceTaintedConnection(): Promise<void> {
     try {
-      throwIfAborted(operationSignal);
-      return await this.readQuery(connection, sql);
-    } finally {
-      operationSignal.removeEventListener("abort", interrupt);
-      this.endNativeOperation();
+      this.connection?.disconnectSync();
+    } catch {
+      // best-effort — continue to reconnect even if disconnect throws
+    }
+    this.connection = null;
+    try {
+      // No need to re-apply the access restrictions here: they belong to
+      // the instance, not to this connection, and are already locked.
+      this.connection = await this.liveInstance().connect();
+    } catch {
+      // Reconnect failed — engine is unusable; the next lease reports
+      // "not initialized".
     }
   }
 
-  private async readQuery(
-    connection: Connection,
-    sql: string,
-  ): Promise<QueryResult> {
-    const reader = await connection.runAndReadAll(sql);
-    const columnNames = reader.columnNames();
-    const columnTypes = reader.columnTypes();
-    const rows = reader.getRowObjectsJson() as Record<string, unknown>[];
+  async query(sql: string): Promise<QueryResult> {
+    return this.withConnection(async (connection) => {
+      const reader = await connection.runAndReadAll(sql);
+      const columnNames = reader.columnNames();
+      const columnTypes = reader.columnTypes();
+      const rows = reader.getRowObjectsJson() as Record<string, unknown>[];
 
-    const columns: TableColumn[] = columnNames.map((name, i) => ({
-      name,
-      type: duckdbTypeIdToColumnType(columnTypes[i]?.typeId),
-    }));
+      const columns: TableColumn[] = columnNames.map((name, i) => ({
+        name,
+        type: duckdbTypeIdToColumnType(columnTypes[i]?.typeId),
+      }));
 
-    return { columns, rows, rowCount: rows.length };
+      return { columns, rows, rowCount: rows.length };
+    });
   }
 
   /**
@@ -311,54 +545,35 @@ export class NativeDuckDBEngine implements QueryEngine {
     sql: string,
     params: readonly unknown[] = [],
   ): Promise<Uint8Array> {
-    // Same ordering as query(): resolve the connection first so a disposed
-    // engine reports "not initialized", then enrol so an in-progress dispose()
-    // waits for this read rather than disconnecting under it.
-    const connection = this.conn();
-    const operationSignal = this.beginNativeOperation();
-    const interrupt = () => connection.interrupt();
-    operationSignal.addEventListener("abort", interrupt, { once: true });
-    try {
-      throwIfAborted(operationSignal);
-      return await this.readQueryArrow(connection, sql, params);
-    } finally {
-      operationSignal.removeEventListener("abort", interrupt);
-      this.endNativeOperation();
-    }
-  }
+    return this.withConnection(async (connection) => {
+      const values = params.length > 0 ? (params as DuckDBValue[]) : undefined;
+      const reader = this.sandboxLimits
+        ? await connection.runAndReadUntil(
+            sql,
+            this.sandboxLimits.maxResultRows + 1,
+            values,
+          )
+        : await connection.runAndReadAll(sql, values);
+      if (
+        this.sandboxLimits &&
+        reader.currentRowCount > this.sandboxLimits.maxResultRows
+      )
+        throw new Error("Sandbox result row limit exceeded");
+      const columnNames = reader.columnNames();
+      const columnTypes = reader.columnTypes();
+      const columnsObject = reader.getColumnsObjectJson() as Record<
+        string,
+        unknown[]
+      >;
 
-  private async readQueryArrow(
-    connection: Connection,
-    sql: string,
-    params: readonly unknown[],
-  ): Promise<Uint8Array> {
-    const values = params.length > 0 ? (params as DuckDBValue[]) : undefined;
-    const reader = this.sandboxLimits
-      ? await connection.runAndReadUntil(
-          sql,
-          this.sandboxLimits.maxResultRows + 1,
-          values,
-        )
-      : await connection.runAndReadAll(sql, values);
-    if (
-      this.sandboxLimits &&
-      reader.currentRowCount > this.sandboxLimits.maxResultRows
-    )
-      throw new Error("Sandbox result row limit exceeded");
-    const columnNames = reader.columnNames();
-    const columnTypes = reader.columnTypes();
-    const columnsObject = reader.getColumnsObjectJson() as Record<
-      string,
-      unknown[]
-    >;
+      const columns: ResultColumn[] = columnNames.map((name, i) => ({
+        name,
+        typeId: columnTypes[i]?.typeId,
+        values: columnsObject[name] ?? [],
+      }));
 
-    const columns: ResultColumn[] = columnNames.map((name, i) => ({
-      name,
-      typeId: columnTypes[i]?.typeId,
-      values: columnsObject[name] ?? [],
-    }));
-
-    return duckdbColumnsToArrowIpc(columns);
+      return duckdbColumnsToArrowIpc(columns);
+    });
   }
 
   queryArrowBatches(
@@ -366,81 +581,73 @@ export class NativeDuckDBEngine implements QueryEngine {
     params: readonly unknown[] = [],
     signal?: AbortSignal,
   ): AsyncIterable<Uint8Array> {
-    const lifecycleSignal = this.lifecycleAbort.signal;
-    const iterator = this.queryArrowBatchGenerator(
-      sql,
-      params,
-      signal,
-      lifecycleSignal,
-      () => this.activeQueryIterators.add(iterator),
-      () => this.activeQueryIterators.delete(iterator),
-    );
+    const iterator = this.trackedQueryStream(sql, params, signal, {
+      onStarted: () => this.activeQueryIterators.add(iterator),
+      onClosed: () => this.activeQueryIterators.delete(iterator),
+    });
     return iterator;
   }
 
-  private async *queryArrowBatchGenerator(
+  private async *trackedQueryStream(
     sql: string,
     params: readonly unknown[],
     signal: AbortSignal | undefined,
-    lifecycleSignal: AbortSignal,
-    onStarted: () => void,
-    onClosed: () => void,
+    track: { onStarted: () => void; onClosed: () => void },
   ): AsyncGenerator<Uint8Array> {
-    let operationSignal: AbortSignal | undefined;
-    let connection: Connection | undefined;
-    let interrupt: (() => void) | undefined;
-    onStarted();
+    track.onStarted();
     try {
-      throwIfAborted(lifecycleSignal);
       await this.initialize();
-      throwIfAborted(lifecycleSignal);
-      throwIfAborted(signal);
-      operationSignal = this.beginNativeOperation(signal);
-      connection = await this.instance!.connect();
-      interrupt = () => connection!.interrupt();
-      operationSignal.addEventListener("abort", interrupt, { once: true });
-      throwIfAborted(operationSignal);
-      const result =
-        params.length > 0
-          ? await connection.stream(sql, params as DuckDBValue[])
-          : await connection.stream(sql);
-      const names = result.columnNames();
-      const types = result.columnTypes();
-      let yielded = false;
-      let rowCount = 0;
-      while (true) {
-        throwIfAborted(operationSignal);
-        const chunk = await result.fetchChunk();
-        if (!chunk || chunk.rowCount === 0) break;
-        rowCount += chunk.rowCount;
-        if (this.sandboxLimits && rowCount > this.sandboxLimits.maxResultRows) {
-          throw new Error("Sandbox result row limit exceeded");
-        }
-        yielded = true;
-        yield duckdbColumnsToArrowIpc(
-          names.map((name, index) => ({
-            name,
-            typeId: types[index]?.typeId,
-            values: chunk.convertColumnValues(index, JsonDuckDBValueConverter),
-          })),
-        );
-      }
-      if (!yielded) {
-        yield duckdbColumnsToArrowIpc(
-          names.map((name, index) => ({
-            name,
-            typeId: types[index]?.typeId,
-            values: [],
-          })),
-        );
-      }
-      throwIfAborted(operationSignal);
+      yield* this.streamWithConnection(
+        (connection, operationSignal) =>
+          this.streamBatches(connection, operationSignal, sql, params),
+        { signal, dedicated: true },
+      );
     } finally {
-      if (interrupt) operationSignal?.removeEventListener("abort", interrupt);
-      connection?.disconnectSync();
-      if (operationSignal) this.endNativeOperation();
-      onClosed();
+      track.onClosed();
     }
+  }
+
+  private async *streamBatches(
+    connection: Connection,
+    signal: AbortSignal,
+    sql: string,
+    params: readonly unknown[],
+  ): AsyncGenerator<Uint8Array> {
+    const result =
+      params.length > 0
+        ? await connection.stream(sql, params as DuckDBValue[])
+        : await connection.stream(sql);
+    const names = result.columnNames();
+    const types = result.columnTypes();
+    let yielded = false;
+    let rowCount = 0;
+    while (true) {
+      throwIfAborted(signal);
+      const chunk = await result.fetchChunk();
+      if (!chunk || chunk.rowCount === 0) break;
+      rowCount += chunk.rowCount;
+      if (this.sandboxLimits && rowCount > this.sandboxLimits.maxResultRows) {
+        throw new Error("Sandbox result row limit exceeded");
+      }
+      yielded = true;
+      yield duckdbColumnsToArrowIpc(
+        names.map((name, index) => ({
+          name,
+          typeId: types[index]?.typeId,
+          values: chunk.convertColumnValues(index, JsonDuckDBValueConverter),
+        })),
+      );
+    }
+    if (!yielded) {
+      yield duckdbColumnsToArrowIpc(
+        names.map((name, index) => ({
+          name,
+          typeId: types[index]?.typeId,
+          values: [],
+        })),
+      );
+    }
+    throwIfAborted(signal);
   }
 
   /**
@@ -460,139 +667,82 @@ export class NativeDuckDBEngine implements QueryEngine {
    */
   async registerArrowTable(name: string, arrow: Uint8Array): Promise<void> {
     await this.initialize();
-    // Enrol before the lock wait so dispose() blocks on `operationsIdle`
-    // rather than disconnecting the connection out from under this appender.
-    const operationSignal = this.beginNativeOperation();
-    try {
-      throwIfAborted(operationSignal);
-      await this.registerArrowTableLocked(name, arrow, operationSignal);
-    } finally {
-      this.endNativeOperation();
-    }
-  }
-
-  private async registerArrowTableLocked(
-    name: string,
-    arrow: Uint8Array,
-    operationSignal: AbortSignal,
-  ): Promise<void> {
-    // Serialize all registrations through a global promise-chain lock. DuckDB
-    // appenders are not concurrent-safe on a shared connection — two in-flight
-    // registrations both using `this.connection` can trigger the Linux
-    // "pending-result" NAPI taint on the shared connection, corrupting the
-    // next operation on the connection. Global (not per-name): the taint is
-    // per-connection, not per-table, so two different-name concurrent uploads
-    // race just as badly.
-    const gate = this._registrationLock;
-    let unlock!: () => void;
-    this._registrationLock = new Promise<void>((resolve) => {
-      unlock = resolve;
-    });
-    await gate;
-
-    try {
-      // A queued registration can wait here across a dispose(); the connection
-      // it was about to use may already be gone.
-      throwIfAborted(operationSignal);
-      const conn = this.conn();
-      // Decode the Arrow IPC stream buffer.
-      const arrowTable = tableFromIPC(arrow);
-      const fields = arrowTable.schema.fields;
-      if (fields.length === 0) {
-        throw new Error(`Arrow buffer for table "${name}" has no columns`);
-      }
-
-      // Create a session-scoped TEMP table for staging — if the append fails
-      // partway through, the live table is untouched (atomic all-or-nothing).
-      // TEMP tables are connection-local: DuckDB drops them automatically when
-      // the owning connection closes. On the success path, the explicit DROP after
-      // the swap keeps stale staging tables from accumulating across repeated
-      // registerArrowTable calls. On the failure path, the catch block disconnects
-      // and replaces this.connection, so the staging table is dropped then too.
-      //
-      // The staging name carries a per-call unique suffix so that the
-      // intermediate per-table catalog entry is distinct per upload even though
-      // only one registration runs at a time (the suffix is still useful if the
-      // same engine is ever queried while a registration is in-flight, and it
-      // documents intent clearly).
-      const stagingName = `__staging_${name}_${nextStagingId()}`;
-      const columnDefs = fields
-        .map((f) => `${quoteIdent(f.name)} ${arrowFieldToDuckDBType(f)}`)
-        .join(", ");
-      await conn.run(
-        `CREATE OR REPLACE TEMP TABLE ${quoteIdent(stagingName)} (${columnDefs})`,
-      );
-
-      // Stream rows into the staging table — no disk, no string round-trip.
-      const appender = await conn.createAppender(stagingName);
-      try {
-        const columns = fields.map((f) => ({
-          field: f,
-          vector: arrowTable.getChild(f.name),
-        }));
-        const rowCount = arrowTable.numRows;
-        for (let i = 0; i < rowCount; i++) {
-          for (const col of columns) {
-            appendArrowValue(appender, col.field, col.vector?.get(i));
-          }
-          appender.endRow();
+    await this.withConnection(
+      async (conn) => {
+        // Decode the Arrow IPC stream buffer.
+        const arrowTable = tableFromIPC(arrow);
+        const fields = arrowTable.schema.fields;
+        if (fields.length === 0) {
+          throw new Error(`Arrow buffer for table "${name}" has no columns`);
         }
-        appender.flushSync();
-      } catch (err) {
-        // Append failed — staging table may be partially written.
+
+        // Create a session-scoped TEMP table for staging — if the append fails
+        // partway through, the live table is untouched (atomic all-or-nothing).
+        // TEMP tables are connection-local: DuckDB drops them automatically when
+        // the owning connection closes. On the success path, the explicit DROP
+        // after the swap keeps stale staging tables from accumulating across
+        // repeated registerArrowTable calls. On the failure path, the catch block
+        // replaces the connection, so the staging table is dropped then too.
+        //
+        // The staging name carries a per-call unique suffix so that the
+        // intermediate per-table catalog entry is distinct per upload even
+        // though only one registration runs at a time (the suffix is still
+        // useful if the same engine is ever queried while a registration is
+        // in-flight, and it documents intent clearly).
+        const stagingName = `__staging_${name}_${nextStagingId()}`;
+        const columnDefs = fields
+          .map((f) => `${quoteIdent(f.name)} ${arrowFieldToDuckDBType(f)}`)
+          .join(", ");
+        await conn.run(
+          `CREATE OR REPLACE TEMP TABLE ${quoteIdent(stagingName)} (${columnDefs})`,
+        );
+
+        // Stream rows into the staging table — no disk, no string round-trip.
+        const appender = await conn.createAppender(stagingName);
+        try {
+          const columns = fields.map((f) => ({
+            field: f,
+            vector: arrowTable.getChild(f.name),
+          }));
+          const rowCount = arrowTable.numRows;
+          for (let i = 0; i < rowCount; i++) {
+            for (const col of columns) {
+              appendArrowValue(appender, col.field, col.vector?.get(i));
+            }
+            appender.endRow();
+          }
+          appender.flushSync();
+        } catch (err) {
+          // Append failed — staging table may be partially written.
+          try {
+            appender.closeSync();
+          } catch {
+            // ignore close error — propagate original
+          }
+          // `conn` is the persistent connection, and a failed appender may
+          // have tainted it (see replaceTaintedConnection).
+          await this.replaceTaintedConnection();
+          throw err;
+        }
+        // Flush succeeded — close the appender before the swap.
         try {
           appender.closeSync();
         } catch {
-          // ignore close error — propagate original
+          // close failure after a successful flush must not abort the swap
         }
-        // On Linux, duckdb_appender_close() on a failed appender marks the
-        // connection with a pending-result error. The next duckdb_query() on the
-        // same connection fails with "Attempting to execute an unsuccessful or
-        // closed pending query result" — emitted as an unhandled NAPI-layer
-        // rejection that bypasses the surrounding try/catch.
-        //
-        // `conn` is `this.connection` — the PERSISTENT connection reused for the
-        // whole session (query, queryArrow, registerArrowTable). Leaving it tainted
-        // relocates the flake to the NEXT operation instead of killing it.
-        //
-        // Fix: disconnect the tainted connection and replace it with a fresh one
-        // from the same instance. When the old connection closes, DuckDB drops all
-        // its TEMP tables — including the partial staging table — so the cleanup
-        // also happens for free.
-        try {
-          this.connection!.disconnectSync();
-        } catch {
-          // best-effort — continue to reconnect even if disconnect throws
-        }
-        this.connection = null;
-        try {
-          // No need to re-apply the access restrictions here: they belong to
-          // the instance, not to this connection, and are already locked.
-          this.connection = await this.instance!.connect();
-        } catch {
-          // Reconnect failed — engine is unusable; surface on next call via conn()
-        }
-        throw err;
-      }
-      // Flush succeeded — close the appender before the swap.
-      try {
-        appender.closeSync();
-      } catch {
-        // close failure after a successful flush must not abort the swap
-      }
 
-      // Atomic swap: replace the live table with the fully-ingested staging copy.
-      // Both DDL statements run in the same connection, so the live table is never
-      // observable in a half-replaced state.
-      await conn.run(
-        `CREATE OR REPLACE TABLE ${quoteIdent(name)} AS SELECT * FROM ${quoteIdent(stagingName)}`,
-      );
-      await conn.run(`DROP TABLE IF EXISTS ${quoteIdent(stagingName)}`);
+        // Atomic swap: replace the live table with the fully-ingested staging
+        // copy. Both DDL statements run in the same connection, so the live
+        // table is never observable in a half-replaced state.
+        await conn.run(
+          `CREATE OR REPLACE TABLE ${quoteIdent(name)} AS SELECT * FROM ${quoteIdent(stagingName)}`,
+        );
+        await conn.run(`DROP TABLE IF EXISTS ${quoteIdent(stagingName)}`);
 
-      this._registeredTables.add(name);
-    } finally {
-      unlock();
-    }
+        this._registeredTables.add(name);
+      },
+      { serialize: true },
+    );
   }
 
   async registerArrowStream(
@@ -600,33 +750,11 @@ export class NativeDuckDBEngine implements QueryEngine {
     rawIPCStream: AsyncIterable<Uint8Array>,
     signal?: AbortSignal,
   ): Promise<void> {
-    const lifecycleSignal = this.lifecycleAbort.signal;
-    throwIfAborted(lifecycleSignal);
-    await this.initialize();
-    throwIfAborted(lifecycleSignal);
+    // An already-cancelled caller must not pay for DuckDB startup.
     throwIfAborted(signal);
-    const operationSignal = this.beginNativeOperation(signal);
-
-    const gate = this._registrationLock;
-    let unlock!: () => void;
-    this._registrationLock = new Promise<void>((resolve) => {
-      unlock = resolve;
-    });
-    await gate;
-
-    try {
-      // A queued registration can wait here across a whole dispose(). Opening a
-      // native connection after teardown has begun both does pointless work and
-      // holds dispose() open while it waits on `operationsIdle`.
-      throwIfAborted(operationSignal);
-      const conn = await this.instance!.connect();
-      const interrupt = () => conn.interrupt();
-      operationSignal.addEventListener("abort", interrupt, { once: true });
-      try {
-        // connect() is itself awaited, so abort may have fired during it. This
-        // check belongs inside the try: the finally below is what disconnects
-        // `conn`, so throwing above it would leak the connection.
-        throwIfAborted(operationSignal);
+    await this.initialize();
+    await this.withConnection(
+      async (conn, operationSignal) => {
         const reader = await RecordBatchReader.from(
           abortableBytes(rawIPCStream, operationSignal),
         );
@@ -671,18 +799,14 @@ export class NativeDuckDBEngine implements QueryEngine {
             try {
               appender.closeSync();
             } catch {
-              // Disconnect below discards this connection and its TEMP state.
+              // The lease disconnects this dedicated connection on release,
+              // discarding it and its TEMP state.
             }
           }
         }
-      } finally {
-        operationSignal.removeEventListener("abort", interrupt);
-        conn.disconnectSync();
-      }
-    } finally {
-      unlock();
-      this.endNativeOperation();
-    }
+      },
+      { signal, serialize: true, dedicated: true },
+    );
   }
 
   async registerTable(_name: string, _dataFrame: DataFrame): Promise<void> {
@@ -693,36 +817,17 @@ export class NativeDuckDBEngine implements QueryEngine {
 
   async unregisterTable(name: string): Promise<void> {
     await this.initialize();
-    const operationSignal = this.beginNativeOperation();
-    try {
-      throwIfAborted(operationSignal);
-      await this.unregisterTableLocked(name, operationSignal);
-    } finally {
-      this.endNativeOperation();
-    }
-  }
-
-  private async unregisterTableLocked(
-    name: string,
-    operationSignal: AbortSignal,
-  ): Promise<void> {
-    const gate = this._registrationLock;
-    let unlock!: () => void;
-    this._registrationLock = new Promise<void>((resolve) => {
-      unlock = resolve;
-    });
-    await gate;
-    try {
-      throwIfAborted(operationSignal);
-      if (!this._registeredTables.has(name)) return;
-      await this.conn().run(`DROP TABLE IF EXISTS ${quoteIdent(name)}`);
-      // Forget the registration only after DuckDB confirms the DROP. A
-      // transient native failure must leave the entry discoverable so cleanup
-      // can retry instead of leaking a table the registry claims is gone.
-      this._registeredTables.delete(name);
-    } finally {
-      unlock();
-    }
+    await this.withConnection(
+      async (connection) => {
+        if (!this._registeredTables.has(name)) return;
+        await connection.run(`DROP TABLE IF EXISTS ${quoteIdent(name)}`);
+        // Forget the registration only after DuckDB confirms the DROP. A
+        // transient native failure must leave the entry discoverable so cleanup
+        // can retry instead of leaking a table the registry claims is gone.
+        this._registeredTables.delete(name);
+      },
+      { serialize: true },
+    );
   }
 
   hasTable(name: string): boolean {
@@ -733,15 +838,21 @@ export class NativeDuckDBEngine implements QueryEngine {
     return [...this._registeredTables];
   }
 
-  async dispose(): Promise<void> {
-    // Abort synchronously, before the first await. On a fresh engine
-    // `initPromise` is null, and `await null` still yields a microtask — an
-    // initialize() arriving in that window would pass the lifecycle guard,
-    // build an instance this teardown has already walked past, and leave it
-    // live with nothing left to close it.
-    this.lifecycleAbort.abort(
-      new DOMException("NativeDuckDBEngine disposed", "AbortError"),
-    );
+  dispose(): Promise<void> {
+    // Memoized: a second dispose() joins the first instead of tearing down
+    // twice (a finally-block and an afterEach teardown may both call it).
+    this.disposal ??= this.teardown();
+    return this.disposal;
+  }
+
+  private async teardown(): Promise<void> {
+    // Transition and abort synchronously, before the first await. On a fresh
+    // engine `initPromise` is null, and `await null` still yields a microtask
+    // — an initialize() arriving in that window would otherwise build an
+    // instance this teardown has already walked past, and leave it live with
+    // nothing left to close it.
+    this.phase = "disposing";
+    this.lifecycleAbort.abort(disposedError());
     // An initialize() may still be in flight (e.g. Electron before-quit fires
     // during DuckDB startup). Tearing down immediately would null out nothing,
     // and the init closure would then assign a live connection/instance AFTER
@@ -753,9 +864,6 @@ export class NativeDuckDBEngine implements QueryEngine {
     } catch {
       // Failed init closed its own instance — nothing live to tear down.
     }
-    this.lifecycleAbort.abort(
-      new DOMException("NativeDuckDBEngine disposed", "AbortError"),
-    );
     const activeQueries = [...this.activeQueryIterators];
     await Promise.allSettled(
       activeQueries.map((iterator) => iterator.return(undefined)),
@@ -765,22 +873,31 @@ export class NativeDuckDBEngine implements QueryEngine {
     await this.operationsIdle;
     this._registeredTables.clear();
     // Disconnect the connection before closing the instance — DuckDB expects
-    // all connections to be released before the instance is closed.
-    this.connection?.disconnectSync();
+    // all connections to be released before the instance is closed. Teardown
+    // is best effort and memoized: a throw here would be cached as a rejected
+    // dispose() and leave the instance (and any file lock) open for good.
+    try {
+      this.connection?.disconnectSync();
+    } catch {
+      // Already disconnected — closing the instance below still releases it.
+    }
     this.connection = null;
     // Close the native instance: releases the background I/O threads, the
     // file lock on the database path, and any native heap the instance holds.
-    // The init-failure path already calls closeSync() inline; tolerating an
-    // already-closed instance here makes dispose() idempotent (double-dispose
-    // is safe by design — e.g. both a finally-block and an afterEach teardown
-    // calling dispose() on the same engine must not throw).
+    // This is the only closeSync() on `this.instance` — a failed init never
+    // assigns it, and teardown runs once — so a throw here is a real failure
+    // to close, not a double close. Keep the handle and forget the memoized
+    // teardown so a later dispose() retries instead of silently leaking the
+    // threads and the file lock.
     try {
       this.instance?.closeSync();
-    } catch {
-      // Already closed — safe to ignore.
+    } catch (err) {
+      this.disposal = null;
+      throw err;
     }
     this.instance = null;
     this.initPromise = null;
+    this.phase = "disposed";
   }
 
   private beginNativeOperation(signal?: AbortSignal): AbortSignal {
@@ -803,6 +920,10 @@ export class NativeDuckDBEngine implements QueryEngine {
       this.operationsIdle = null;
     }
   }
+}
+
+function disposedError(): DOMException {
+  return new DOMException("NativeDuckDBEngine disposed", "AbortError");
 }
 
 function quoteIdent(name: string): string {
