@@ -281,9 +281,10 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     engine = new NativeDuckDBEngine();
     await engine.initialize();
 
-    // Hold a registration open so dispose() parks on `operationsIdle` with the
-    // connection still live — the window a guard placed after initialize()'s
-    // `this.connection` early return would wave callers straight through.
+    // Hold a registration open so dispose() parks on `operationsIdle` while the
+    // instance and the holder's operation-owned connection are still live. This
+    // exposes the `disposing` phase before native handles close: new table
+    // operations must reject from lifecycle state, not apparent handle liveness.
     let releaseProducer!: () => void;
     const producerReleased = new Promise<void>((resolve) => {
       releaseProducer = resolve;
@@ -302,8 +303,9 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
 
     const disposing = engine.dispose();
 
-    // Must reject promptly rather than queue behind the in-flight
-    // registration's lock on the same table name.
+    // Both calls must reject promptly in initialize(). In particular, the
+    // unregister of `df_holding` must never reach the per-name lock and queue
+    // behind the in-flight registration.
     const arrow = tableToIPC(
       new Table({ id: vectorFromArray([1], new Int32()) }),
       "stream",
@@ -353,9 +355,10 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
 
     const disposing = engine.dispose();
 
-    // query()/queryArrow() open a connection of their own. Unenrolled,
-    // dispose() sees no tracked operation and can close the instance
-    // underneath them.
+    // query()/queryArrow() would each open an operation-owned connection if
+    // allowed. Their lifecycle check must reject while dispose() drains the
+    // existing holder, before either starts a statement on the instance that is
+    // about to close.
     await expect(engine.queryArrow("SELECT 1")).rejects.toMatchObject({
       name: "AbortError",
     });
