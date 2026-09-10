@@ -23,9 +23,21 @@ export {
 
 export {
   SortableList,
+  type SortableRenderControls,
   type SortableListItem,
   type SortableListProps,
 } from "./components/SortableList";
+
+export {
+  WorkbenchAddRow,
+  WorkbenchChip,
+  WorkbenchJumpBar,
+  WorkbenchPaneSection,
+  useWorkbenchPaneSections,
+  type WorkbenchChipProps,
+  type WorkbenchJumpItem,
+  type WorkbenchPaneSectionProps,
+} from "./components/WorkbenchPane";
 
 export {
   JoinTypeIcon,

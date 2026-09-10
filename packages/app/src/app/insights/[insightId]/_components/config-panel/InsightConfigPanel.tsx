@@ -22,16 +22,19 @@ import {
   buildVisualizationUpdateCommands,
   cmd,
 } from "@dashframe/types";
-import { InputField } from "@dashframe/ui";
+import {
+  WorkbenchJumpBar,
+  WorkbenchPaneSection,
+  useWorkbenchPaneSections,
+} from "@dashframe/ui";
 
-import { Badge, Panel, cn } from "@wystack/ui-react";
 import {
   ArrowUpDown,
   Columns3,
+  Eye,
   ListFilter,
   Sigma,
-  SlidersHorizontal,
-  Workflow,
+  Table2,
 } from "lucide-react";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { DataModelSection } from "../sections/DataModelSection";
@@ -42,29 +45,25 @@ import {
   removeFromEncoding,
   type DeleteItemType,
 } from "./DeleteConfirmDialog";
-import { FieldRenameDialog } from "./FieldRenameDialog";
 import { FieldsSection } from "./FieldsSection";
 import {
   applyFilterSave,
   stripFilterClientMetadata,
   withFilterIds,
 } from "./filter-id";
-import { FilterEditDialog } from "./FilterEditDialog";
-import { FiltersSection, type FilterWithId } from "./FiltersSection";
-import { InsightFieldEditorModal } from "./InsightFieldEditorModal";
-import { InsightMetricEditorModal } from "./InsightMetricEditorModal";
-import { MetricEditDialog } from "./MetricEditDialog";
+import {
+  FiltersSection,
+  type FilterWithId,
+  type RuntimeFilterControl,
+} from "./FiltersSection";
 import { MetricsSection } from "./MetricsSection";
 import { pruneRuntimeControls } from "./runtime-controls";
-import { RuntimeControlsSection } from "./RuntimeControlsSection";
 import { SortSection } from "./SortSection";
 
 interface InsightConfigPanelProps {
   insight: Insight;
   dataTable: DataTable;
   allDataTables: DataTable[];
-  name: string;
-  onNameChange: (name: string) => void;
   reportId?: string;
 }
 
@@ -100,80 +99,67 @@ export async function removeFilterThroughCommands(
   const filters = stripFilterClientMetadata(
     withFilterIds(insight.filters).filter((filter) => filter._id !== filterId),
   );
+  const runtimeControls = pruneRuntimeControls(
+    insight.runtimeControls,
+    filters,
+    [
+      ...(insight.selectedFields ?? []),
+      ...(insight.metrics ?? []).map((metric) => metric.id),
+    ],
+  );
   await commit({
-    commands: [cmd("SetInsightFilter", { id: insight.id, filters })],
+    commands: [
+      cmd("SetInsightFilter", { id: insight.id, filters }),
+      ...(insight.runtimeControls
+        ? [
+            cmd("SetInsightRuntimeControls", {
+              id: insight.id,
+              runtimeControls,
+            }),
+          ]
+        : []),
+    ],
   });
 }
 
 type ConfigSection =
-  | "model"
+  | "tables"
   | "fields"
   | "metrics"
   | "filters"
   | "sort"
-  | "runtime";
+  | "viewer";
 
-interface ConfigSectionButtonProps {
-  active: boolean;
-  count: number;
-  icon: ReactNode;
+const CONFIG_SECTIONS: Array<{
+  id: ConfigSection;
   label: string;
-  onClick: () => void;
-}
-
-function ConfigSectionButton({
-  active,
-  count,
-  icon,
-  label,
-  onClick,
-}: ConfigSectionButtonProps) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "flex h-9 min-w-0 w-full items-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors",
-        "focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none",
-        active
-          ? "bg-neutral-bg-emphasis text-neutral-fg shadow-sm"
-          : "text-neutral-fg-subtle hover:bg-neutral-bg-muted hover:text-neutral-fg",
-      )}
-      aria-pressed={active}
-      title={label}
-    >
-      {icon}
-      <span className="min-w-0 flex-1 truncate text-left">{label}</span>
-      <Badge
-        variant="soft"
-        className="h-4 min-w-4 px-1 text-[10px] leading-none tabular-nums"
-      >
-        {count}
-      </Badge>
-    </button>
-  );
-}
+  icon: typeof Table2;
+}> = [
+  { id: "tables", label: "Tables", icon: Table2 },
+  { id: "fields", label: "Fields", icon: Columns3 },
+  { id: "metrics", label: "Metrics", icon: Sigma },
+  { id: "filters", label: "Filters", icon: ListFilter },
+  { id: "sort", label: "Sort", icon: ArrowUpDown },
+  { id: "viewer", label: "Viewer controls", icon: Eye },
+];
+const CONFIG_SECTION_IDS: ConfigSection[] = CONFIG_SECTIONS.map(
+  (section) => section.id,
+);
 
 export function InsightConfigPanel({
   insight,
   dataTable,
   allDataTables,
-  name,
-  onNameChange,
   reportId,
 }: InsightConfigPanelProps) {
-  const [activeSection, setActiveSection] = useState<ConfigSection>("model");
-  // Modal states
-  const [isFieldEditorOpen, setIsFieldEditorOpen] = useState(false);
-  const [isMetricEditorOpen, setIsMetricEditorOpen] = useState(false);
-  const [fieldToRename, setFieldToRename] = useState<CombinedField | null>(
-    null,
-  );
-  const [metricToEdit, setMetricToEdit] = useState<InsightMetric | null>(null);
-  /** null = closed; FilterWithId = edit; "new" = add */
-  const [filterToEdit, setFilterToEdit] = useState<FilterWithId | "new" | null>(
-    null,
-  );
+  const {
+    openSections,
+    allCollapsed,
+    setSectionOpen,
+    jumpToSection,
+    toggleAll,
+    registerSection,
+  } = useWorkbenchPaneSections(CONFIG_SECTION_IDS);
   const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState>(
     initialDeleteDialogState,
   );
@@ -452,13 +438,30 @@ export function InsightConfigPanel({
   );
 
   const handleSaveFilter = useCallback(
-    async (saved: FilterWithId) => {
+    async (
+      saved: FilterWithId,
+      runtimeControl: RuntimeFilterControl | undefined,
+    ) => {
       const updated = applyFilterSave(filtersWithIds, saved);
+      const controls = (insight.runtimeControls?.filters ?? []).filter(
+        (control) => control.filterId !== saved.id,
+      );
+      if (runtimeControl) controls.push(runtimeControl);
+      const runtimeControls: InsightRuntimeDeclaration = {
+        ...insight.runtimeControls,
+        filters: controls.length > 0 ? controls : undefined,
+      };
       await updateInsight(insight.id, {
         filters: stripFilterClientMetadata(updated),
+        runtimeControls:
+          runtimeControls.filters ||
+          runtimeControls.sort ||
+          runtimeControls.limit
+            ? runtimeControls
+            : undefined,
       });
     },
-    [insight.id, filtersWithIds, updateInsight],
+    [filtersWithIds, insight.id, insight.runtimeControls, updateInsight],
   );
 
   const handleFilterDraftChange = useCallback(
@@ -468,7 +471,7 @@ export function InsightConfigPanel({
         return;
       }
       const pending =
-        filterToEdit === "new"
+        draft._id === "__new__"
           ? [...filtersWithIds, draft]
           : filtersWithIds.map((filter) =>
               filter._id === draft._id ? draft : filter,
@@ -477,7 +480,7 @@ export function InsightConfigPanel({
         pendingFilters: stripFilterClientMetadata(pending),
       });
     },
-    [filterToEdit, filtersWithIds, insight.id, updateWebMCPInsight],
+    [filtersWithIds, insight.id, updateWebMCPInsight],
   );
 
   // --- Delete dialog handlers ---
@@ -572,173 +575,171 @@ export function InsightConfigPanel({
     updateInsight,
   ]);
 
+  const resultLabelById = new Map(
+    runtimeResultFields.map((field) => [field.id, field.label]),
+  );
+  const filterLabelById = new Map(
+    filtersWithIds.flatMap((filter) =>
+      filter.id ? [[filter.id, filter.field] as const] : [],
+    ),
+  );
+  const viewerControls = [
+    ...(insight.runtimeControls?.filters ?? []).map((control) => ({
+      label: control.label,
+      target: `${filterLabelById.get(control.filterId) ?? "Filter"} filter`,
+    })),
+    ...(insight.runtimeControls?.sort
+      ? [
+          {
+            label: "Sort",
+            target: insight.runtimeControls.sort.allowedFieldIds
+              .map((id) => resultLabelById.get(id) ?? id)
+              .join(", "),
+          },
+        ]
+      : []),
+    ...(insight.runtimeControls?.limit
+      ? [
+          {
+            label: "Limit",
+            target: `${insight.runtimeControls.limit.min}–${insight.runtimeControls.limit.max} rows`,
+          },
+        ]
+      : []),
+  ];
+  const summaries: Record<ConfigSection, string> = {
+    tables: [
+      dataTable.name,
+      ...(insight.joins ?? []).map(
+        (join) =>
+          allDataTables.find((table) => table.id === join.rightTableId)?.name ??
+          "Unknown table",
+      ),
+    ].join(", "),
+    fields:
+      selectedFields.map((field) => field.displayName).join(", ") || "None",
+    metrics: visibleMetrics.map((metric) => metric.name).join(", ") || "None",
+    filters: filtersWithIds.map((filter) => filter.field).join(", ") || "None",
+    sort:
+      sorts
+        .map((sort) => {
+          const field = selectedFields.find(
+            (candidate) =>
+              (candidate.columnName ?? candidate.name) === sort.field,
+          );
+          const metric = visibleMetrics.find(
+            (candidate) => `metric_${candidate.id}` === sort.field,
+          );
+          return `${field?.displayName ?? metric?.name ?? sort.field} ${sort.direction}`;
+        })
+        .join(", ") || "None",
+    viewer: viewerControls.map((control) => control.label).join(", ") || "None",
+  };
+  const renderSection = (id: ConfigSection, children: ReactNode) => {
+    const section = CONFIG_SECTIONS.find((item) => item.id === id)!;
+    return (
+      <WorkbenchPaneSection
+        key={id}
+        ref={registerSection(id)}
+        title={section.label}
+        icon={section.icon}
+        open={openSections[id]}
+        summary={summaries[id]}
+        onOpenChange={(open) => setSectionOpen(id, open)}
+      >
+        {children}
+      </WorkbenchPaneSection>
+    );
+  };
+
   return (
-    <Panel
-      header={
-        <div>
-          <div className="p-4 pb-3">
-            <InputField
-              label="Name"
-              value={name}
-              onChange={onNameChange}
-              placeholder="Insight name"
-              className="text-lg font-semibold"
-            />
-          </div>
-          <div
-            className="grid grid-cols-2 gap-1 px-2 pb-2"
-            aria-label="Data model sections"
-          >
-            <ConfigSectionButton
-              active={activeSection === "model"}
-              count={(insight.joins?.length ?? 0) + 1}
-              icon={<Workflow className="h-3.5 w-3.5" />}
-              label="Model"
-              onClick={() => setActiveSection("model")}
-            />
-            <ConfigSectionButton
-              active={activeSection === "fields"}
-              count={selectedFields.length}
-              icon={<Columns3 className="h-3.5 w-3.5" />}
-              label="Fields"
-              onClick={() => setActiveSection("fields")}
-            />
-            <ConfigSectionButton
-              active={activeSection === "metrics"}
-              count={visibleMetrics.length}
-              icon={<Sigma className="h-3.5 w-3.5" />}
-              label="Metrics"
-              onClick={() => setActiveSection("metrics")}
-            />
-            <ConfigSectionButton
-              active={activeSection === "filters"}
-              count={filtersWithIds.length}
-              icon={<ListFilter className="h-3.5 w-3.5" />}
-              label="Filters"
-              onClick={() => setActiveSection("filters")}
-            />
-            <ConfigSectionButton
-              active={activeSection === "sort"}
-              count={sorts.length}
-              icon={<ArrowUpDown className="h-3.5 w-3.5" />}
-              label="Sort"
-              onClick={() => setActiveSection("sort")}
-            />
-            <ConfigSectionButton
-              active={activeSection === "runtime"}
-              count={
-                (insight.runtimeControls?.filters?.length ?? 0) +
-                (insight.runtimeControls?.sort ? 1 : 0) +
-                (insight.runtimeControls?.limit ? 1 : 0)
-              }
-              icon={<SlidersHorizontal className="h-3.5 w-3.5" />}
-              label="Runtime"
-              onClick={() => setActiveSection("runtime")}
-            />
-          </div>
-        </div>
-      }
-    >
-      <div>
-        {activeSection === "model" && (
-          <div className="p-4">
-            <DataModelSection
-              insight={insight}
-              dataTable={dataTable}
-              allDataTables={allDataTables}
-              combinedFieldCount={combinedFields.length}
-              compact
-              reportId={reportId}
-            />
-          </div>
+    <div className="min-h-full bg-neutral-bg px-3 py-3 text-xs">
+      <h2 className="px-0.5 pb-2 text-sm font-semibold">Insight</h2>
+      <WorkbenchJumpBar
+        items={CONFIG_SECTIONS}
+        onJump={(id) => jumpToSection(id as ConfigSection)}
+        allCollapsed={allCollapsed}
+        onToggleAll={toggleAll}
+      />
+      <div className="mt-2">
+        {renderSection(
+          "tables",
+          <DataModelSection
+            insight={insight}
+            dataTable={dataTable}
+            allDataTables={allDataTables}
+            reportId={reportId}
+          />,
         )}
-        {activeSection === "fields" && (
+        {renderSection(
+          "fields",
           <FieldsSection
             selectedFields={selectedFields}
-            baseTableId={dataTable.id}
+            availableFields={availableFields}
+            tables={allDataTables}
             onReorder={handleFieldsReorder}
             onRemove={handleRemoveField}
-            onRenameClick={setFieldToRename}
-            onAddClick={() => setIsFieldEditorOpen(true)}
-            embedded
-          />
+            onRename={handleRenameField}
+            onAdd={handleAddField}
+          />,
         )}
-        {activeSection === "metrics" && (
+        {renderSection(
+          "metrics",
           <MetricsSection
             metrics={visibleMetrics}
+            dataTable={dataTable}
             onReorder={handleMetricsReorder}
             onRemove={handleRemoveMetric}
-            onEditClick={setMetricToEdit}
-            onAddClick={() => setIsMetricEditorOpen(true)}
-            embedded
-          />
+            onAdd={handleAddMetric}
+            onEdit={handleEditMetric}
+          />,
         )}
-        {activeSection === "filters" && (
+        {renderSection(
+          "filters",
           <FiltersSection
             filters={filtersWithIds}
-            combinedFields={combinedFields}
+            combinedFields={filterableFields}
+            runtimeControls={insight.runtimeControls}
             onReorder={handleFiltersReorder}
             onRemove={handleRemoveFilter}
-            onEditClick={setFilterToEdit}
-            onAddClick={() => setFilterToEdit("new")}
-            embedded
-          />
+            onSave={handleSaveFilter}
+            onDraftChange={handleFilterDraftChange}
+          />,
         )}
-        {activeSection === "sort" && (
+        {renderSection(
+          "sort",
           <SortSection
             sorts={sorts}
             fields={selectedFields}
             metrics={visibleMetrics}
+            runtimeControls={insight.runtimeControls}
             onChange={handleSortsChange}
-          />
+            onRuntimeChange={handleRuntimeControlsChange}
+          />,
         )}
-        {activeSection === "runtime" && (
-          <RuntimeControlsSection
-            declaration={insight.runtimeControls}
-            filters={insight.filters ?? []}
-            resultFields={runtimeResultFields}
-            onChange={handleRuntimeControlsChange}
-          />
+        {renderSection(
+          "viewer",
+          viewerControls.length > 0 ? (
+            <dl className="space-y-1 px-1">
+              {viewerControls.map((control) => (
+                <div
+                  key={`${control.label}:${control.target}`}
+                  className="flex gap-3"
+                >
+                  <dt className="min-w-0 flex-1 truncate font-medium">
+                    {control.label}
+                  </dt>
+                  <dd className="min-w-0 flex-1 truncate text-right text-neutral-fg-subtle">
+                    {control.target}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          ) : (
+            <p className="px-1 text-neutral-fg-subtle">Nothing exposed.</p>
+          ),
         )}
       </div>
-
-      <InsightFieldEditorModal
-        isOpen={isFieldEditorOpen}
-        onOpenChange={setIsFieldEditorOpen}
-        availableFields={availableFields}
-        baseTableId={dataTable.id}
-        onSelect={handleAddField}
-      />
-      <InsightMetricEditorModal
-        isOpen={isMetricEditorOpen}
-        onOpenChange={setIsMetricEditorOpen}
-        dataTable={dataTable}
-        onSave={handleAddMetric}
-      />
-      <FieldRenameDialog
-        field={fieldToRename}
-        tableName={
-          fieldToRename
-            ? allDataTables.find((t) => t.id === fieldToRename.sourceTableId)
-                ?.name
-            : undefined
-        }
-        onOpenChange={(open) => !open && setFieldToRename(null)}
-        onSave={handleRenameField}
-      />
-      <MetricEditDialog
-        metric={metricToEdit}
-        dataTable={dataTable}
-        onOpenChange={(open) => !open && setMetricToEdit(null)}
-        onSave={handleEditMetric}
-      />
-      <FilterEditDialog
-        filter={filterToEdit}
-        combinedFields={filterableFields}
-        onOpenChange={(open) => !open && setFilterToEdit(null)}
-        onSave={handleSaveFilter}
-        onDraftChange={handleFilterDraftChange}
-      />
       <DeleteConfirmDialog
         isOpen={deleteDialog.isOpen}
         itemName={deleteDialog.itemName}
@@ -750,6 +751,6 @@ export function InsightConfigPanel({
         onDeleteVisualization={handleDeleteVisualization}
         onDelete={handleConfirmDelete}
       />
-    </Panel>
+    </div>
   );
 }

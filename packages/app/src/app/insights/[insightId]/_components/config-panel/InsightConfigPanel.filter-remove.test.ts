@@ -49,6 +49,17 @@ describe("InsightConfigPanel filter removal mutation", () => {
             ],
           },
         },
+        {
+          path: "setInsightRuntimeControls",
+          args: {
+            id: insight.id,
+            runtimeControls: {
+              filters: [{ key: "period", filterId: "period", label: "Period" }],
+              limit: { min: 1, max: 100 },
+              sort: undefined,
+            },
+          },
+        },
       ],
     });
   });

@@ -2,291 +2,508 @@ import type { CombinedField } from "@/lib/insights/compute-combined-fields";
 import type {
   InsightFilter,
   InsightFilterBetweenValue,
+  InsightRuntimeDeclaration,
 } from "@dashframe/types";
-import { SortableList, type SortableListItem } from "@dashframe/ui";
 import {
-  Badge,
+  SortableList,
+  WorkbenchAddRow,
+  WorkbenchChip,
+  type SortableListItem,
+} from "@dashframe/ui";
+import {
+  Alert,
+  AlertDescription,
   Button,
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-  cn,
+  Checkbox,
+  Input,
+  Label,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@wystack/ui-react";
+import { Eye, ListFilter } from "lucide-react";
 import {
-  ChevronRightIcon,
-  CloseIcon,
-  EditIcon,
-  PlusIcon,
-  SettingsIcon,
-} from "@wystack/ui-react/icons";
-import { useCallback, useMemo, useState } from "react";
-
-// ============================================================================
-// Types
-// ============================================================================
-
-/** Extended sortable item with filter data + stable id */
-interface FilterSortableItem extends SortableListItem {
-  filter: InsightFilter;
-}
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
+import { NEW_FILTER_ID, prepareFilterForSave } from "./filter-id";
+import {
+  buildFilterValue,
+  inputTypeForField,
+  isFilterDraftValid,
+  type FilterDraft,
+} from "./filter-value";
+import { useSaveDismissGuard, useSavingFlag } from "./use-save-dismiss-guard";
 
 export interface FilterWithId extends InsightFilter {
-  /** Stable client-only id for sortable list keying */
   _id: string;
-  /** Whether the next save may append or must update an existing row. */
   _saveIntent?: "create" | "update";
-  /** True only when `_id` was derived from an id-less legacy row. */
   _legacyFallback?: boolean;
-  /** True when this row opened inside a byte-identical legacy duplicate set. */
   _legacyDuplicate?: boolean;
 }
 
-interface FiltersSectionProps {
-  filters: FilterWithId[];
-  combinedFields: CombinedField[];
-  onReorder: (filters: FilterWithId[]) => void;
-  onRemove: (filterId: string) => void;
-  onEditClick: (filter: FilterWithId) => void;
-  onAddClick: () => void;
-  defaultOpen?: boolean;
-  embedded?: boolean;
+export type RuntimeFilterControl = NonNullable<
+  InsightRuntimeDeclaration["filters"]
+>[number];
+
+interface FilterSortableItem extends SortableListItem {
+  filter: FilterWithId;
 }
 
-// ============================================================================
-// Operator label helpers
-// ============================================================================
+const OPERATOR_OPTIONS: Array<{
+  value: InsightFilter["operator"];
+  label: string;
+}> = [
+  { value: "eq", label: "equals" },
+  { value: "ne", label: "is not" },
+  { value: "gt", label: "is greater than" },
+  { value: "gte", label: "is at least" },
+  { value: "lt", label: "is less than" },
+  { value: "lte", label: "is at most" },
+  { value: "contains", label: "contains" },
+  { value: "between", label: "is between" },
+  { value: "in", label: "is one of" },
+];
 
-const OPERATOR_LABELS: Record<InsightFilter["operator"], string> = {
-  eq: "=",
-  ne: "≠",
-  gt: ">",
-  gte: "≥",
-  lt: "<",
-  lte: "≤",
-  contains: "contains",
-  in: "in",
-  between: "between",
-};
-
-function formatFilterValue(filter: InsightFilter): string {
-  if (filter.operator === "between") {
-    const v = filter.value as InsightFilterBetweenValue | undefined;
-    if (v && typeof v === "object" && "low" in v && "high" in v) {
-      return `${String(v.low ?? "")} … ${String(v.high ?? "")}`;
-    }
-    return "…";
+function initialScalarValue(filter: FilterWithId): string {
+  if (filter.operator === "between") return "";
+  if (filter.operator === "in" && Array.isArray(filter.value)) {
+    return filter.value.map(String).join(", ");
   }
-  if (Array.isArray(filter.value)) {
-    return `(${(filter.value as unknown[]).join(", ")})`;
-  }
+  if (Array.isArray(filter.value)) return "";
   return String(filter.value ?? "");
 }
 
-// ============================================================================
-// FiltersSection
-// ============================================================================
+function initialBetweenValue(filter: FilterWithId) {
+  if (
+    filter.operator !== "between" ||
+    !filter.value ||
+    typeof filter.value !== "object" ||
+    Array.isArray(filter.value)
+  ) {
+    return { low: "", high: "" };
+  }
+  const value = filter.value as InsightFilterBetweenValue;
+  return { low: String(value.low ?? ""), high: String(value.high ?? "") };
+}
 
-/**
- * FiltersSection — Collapsible section for managing insight filter predicates.
- *
- * Mirrors MetricsSection exactly: same Collapsible/SortableList/inline-edit
- * pattern. Filters have no visualization encoding dependency so deletion is
- * immediate — no cascade confirmation dialog.
- */
+export function formatFilterValue(filter: InsightFilter): string {
+  if (filter.operator === "between") {
+    const value = filter.value as InsightFilterBetweenValue | undefined;
+    return value && typeof value === "object"
+      ? `${String(value.low ?? "")} and ${String(value.high ?? "")}`
+      : "…";
+  }
+  if (Array.isArray(filter.value)) return filter.value.join(", ");
+  return String(filter.value ?? "");
+}
+
+function FilterEditor({
+  filter,
+  fields,
+  control,
+  dragHandle,
+  onSave,
+  onRemove,
+  onDraftChange,
+}: {
+  filter?: FilterWithId;
+  fields: CombinedField[];
+  control?: RuntimeFilterControl;
+  dragHandle?: ReactNode;
+  onSave: (
+    filter: FilterWithId,
+    control: RuntimeFilterControl | undefined,
+  ) => Promise<void> | void;
+  onRemove?: () => void;
+  onDraftChange?: (filter: FilterWithId | null) => void;
+}) {
+  const defaultField = fields[0]
+    ? (fields[0].columnName ?? fields[0].name)
+    : "";
+  const initial = useMemo<FilterWithId>(
+    () =>
+      filter ?? {
+        _id: NEW_FILTER_ID,
+        field: defaultField,
+        operator: "eq",
+        value: "",
+      },
+    [defaultField, filter],
+  );
+  const initialBetween = initialBetweenValue(initial);
+  const [open, setOpen] = useState(false);
+  const [field, setField] = useState(initial.field);
+  const [operator, setOperator] = useState(initial.operator);
+  const [scalarValue, setScalarValue] = useState(initialScalarValue(initial));
+  const [betweenLow, setBetweenLow] = useState(initialBetween.low);
+  const [betweenHigh, setBetweenHigh] = useState(initialBetween.high);
+  const [viewerEditable, setViewerEditable] = useState(Boolean(control));
+  const [label, setLabel] = useState(control?.label ?? initial.field);
+  const [key, setKey] = useState(
+    control?.key ?? `filter-${initial.id ?? initial._id}`,
+  );
+  const [required, setRequired] = useState(control?.required ?? false);
+  const [allowClear, setAllowClear] = useState(control?.allowClear ?? false);
+  const [dirty, setDirty] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const { setPending, isPending } = useSaveDismissGuard();
+  const [isSaving, setIsSaving] = useSavingFlag(setPending);
+  const selectedField = fields.find(
+    (candidate) => (candidate.columnName ?? candidate.name) === field,
+  );
+  const inputType = inputTypeForField(selectedField);
+  const draft = useMemo<FilterDraft>(
+    () => ({
+      field,
+      operator,
+      inputType,
+      scalarValue,
+      betweenLow,
+      betweenHigh,
+    }),
+    [betweenHigh, betweenLow, field, inputType, operator, scalarValue],
+  );
+  const isValid = isFilterDraftValid(draft);
+  const operatorLabel =
+    OPERATOR_OPTIONS.find((item) => item.value === initial.operator)?.label ??
+    initial.operator;
+
+  useEffect(() => {
+    if (!open || !dirty) return;
+    onDraftChange?.({
+      ...initial,
+      field,
+      operator,
+      value: buildFilterValue(draft),
+    });
+  }, [dirty, draft, field, initial, onDraftChange, open, operator]);
+
+  const reset = () => {
+    const between = initialBetweenValue(initial);
+    setField(initial.field);
+    setOperator(initial.operator);
+    setScalarValue(initialScalarValue(initial));
+    setBetweenLow(between.low);
+    setBetweenHigh(between.high);
+    setViewerEditable(Boolean(control));
+    setLabel(control?.label ?? initial.field);
+    setKey(control?.key ?? `filter-${initial.id ?? initial._id}`);
+    setRequired(control?.required ?? false);
+    setAllowClear(control?.allowClear ?? false);
+    setDirty(false);
+    setError(null);
+  };
+  const close = () => {
+    if (isPending()) return;
+    onDraftChange?.(null);
+    setOpen(false);
+    reset();
+  };
+  const save = async () => {
+    if (!isValid) return;
+    setIsSaving(true);
+    setError(null);
+    try {
+      const saved = prepareFilterForSave({
+        ...initial,
+        field,
+        operator,
+        value: buildFilterValue(draft),
+      });
+      const defaultKey = `filter-${initial.id ?? initial._id}`;
+      const savedControl = viewerEditable
+        ? {
+            filterId: saved.id!,
+            key: key === defaultKey ? `filter-${saved.id}` : key,
+            label: label || selectedField?.displayName || field,
+            required: required || undefined,
+            allowClear: allowClear || undefined,
+          }
+        : undefined;
+      await onSave(saved, savedControl);
+      onDraftChange?.(null);
+      setOpen(false);
+      reset();
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "Unknown error";
+      setError(`Failed to save filter: ${message}`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const setChanged = <T,>(setter: (value: T) => void, value: T) => {
+    setDirty(true);
+    setter(value);
+  };
+
+  const trigger = filter ? (
+    <WorkbenchChip
+      dragHandle={dragHandle}
+      icon={<ListFilter className="h-3.5 w-3.5" />}
+      open={open}
+      content={
+        <PopoverTrigger
+          render={
+            <button
+              type="button"
+              className="min-w-0 flex-1 truncate text-left focus-visible:outline-none"
+              aria-label={`Edit filter ${filter.field}`}
+            >
+              <span className="font-medium">{filter.field}</span>{" "}
+              <span className="text-neutral-fg-subtle">{operatorLabel}</span>{" "}
+              <span className="font-medium">{formatFilterValue(filter)}</span>
+            </button>
+          }
+        />
+      }
+      trailing={
+        control ? (
+          <Eye
+            aria-label="Viewers can change"
+            className="h-3.5 w-3.5 text-neutral-fg-subtle"
+          />
+        ) : undefined
+      }
+      removeLabel={`Remove filter ${filter.field}`}
+      onRemove={onRemove}
+    />
+  ) : (
+    <PopoverTrigger
+      render={
+        <WorkbenchAddRow disabled={fields.length === 0}>
+          Add filter
+        </WorkbenchAddRow>
+      }
+    />
+  );
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) close();
+        else setOpen(true);
+      }}
+    >
+      {trigger}
+      <PopoverContent align="start" className="w-80 space-y-3">
+        {error && (
+          <Alert color="danger">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+        <div className="grid grid-cols-[1fr_auto] gap-2">
+          <Select
+            value={field}
+            onValueChange={(value) => {
+              if (!value) return;
+              setChanged(setField, value);
+              setScalarValue("");
+              setBetweenLow("");
+              setBetweenHigh("");
+            }}
+          >
+            <SelectTrigger aria-label="Field">
+              <SelectValue placeholder="Field" />
+            </SelectTrigger>
+            <SelectContent>
+              {fields.map((item) => (
+                <SelectItem key={item.id} value={item.columnName ?? item.name}>
+                  {item.displayName}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={operator}
+            onValueChange={(value) => {
+              if (!value) return;
+              setChanged(setOperator, value as InsightFilter["operator"]);
+              setScalarValue("");
+              setBetweenLow("");
+              setBetweenHigh("");
+            }}
+          >
+            <SelectTrigger aria-label="Operator" className="w-32">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {OPERATOR_OPTIONS.map((item) => (
+                <SelectItem key={item.value} value={item.value}>
+                  {item.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        {operator === "between" ? (
+          <div className="flex items-center gap-2">
+            <Input
+              aria-label="Range low bound"
+              type={inputType}
+              value={betweenLow}
+              onChange={(event) =>
+                setChanged(setBetweenLow, event.target.value)
+              }
+            />
+            <span className="text-xs text-neutral-fg-subtle">to</span>
+            <Input
+              aria-label="Range high bound"
+              type={inputType}
+              value={betweenHigh}
+              onChange={(event) =>
+                setChanged(setBetweenHigh, event.target.value)
+              }
+            />
+          </div>
+        ) : (
+          <Input
+            aria-label="Value"
+            type={operator === "in" ? "text" : inputType}
+            value={scalarValue}
+            onChange={(event) => setChanged(setScalarValue, event.target.value)}
+            placeholder={operator === "in" ? "Comma-separated values" : "Value"}
+          />
+        )}
+        <label className="flex items-center gap-2 text-xs">
+          <Checkbox
+            checked={viewerEditable}
+            onCheckedChange={(checked) => setViewerEditable(checked === true)}
+          />
+          Viewers can change
+        </label>
+        {viewerEditable && (
+          <div className="space-y-3 border-t border-neutral-border/60 pt-3">
+            <div className="space-y-1.5">
+              <Label htmlFor={`runtime-label-${initial._id}`}>
+                Shown to viewers as
+              </Label>
+              <Input
+                id={`runtime-label-${initial._id}`}
+                value={label}
+                onChange={(event) => setLabel(event.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor={`runtime-key-${initial._id}`}>Control key</Label>
+              <Input
+                id={`runtime-key-${initial._id}`}
+                value={key}
+                onChange={(event) => setKey(event.target.value)}
+              />
+            </div>
+            <div className="flex gap-4">
+              <label className="flex items-center gap-2 text-xs">
+                <Checkbox
+                  checked={required}
+                  onCheckedChange={(checked) => setRequired(checked === true)}
+                />
+                Required
+              </label>
+              <label className="flex items-center gap-2 text-xs">
+                <Checkbox
+                  checked={allowClear}
+                  onCheckedChange={(checked) => setAllowClear(checked === true)}
+                />
+                Allow clear
+              </label>
+            </div>
+          </div>
+        )}
+        <div className="flex justify-end">
+          <Button
+            label="Done"
+            size="sm"
+            loading={isSaving}
+            disabled={
+              !isValid || (viewerEditable && (!label.trim() || !key.trim()))
+            }
+            onClick={() => void save()}
+          />
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 export function FiltersSection({
   filters,
   combinedFields,
+  runtimeControls,
   onReorder,
   onRemove,
-  onEditClick,
-  onAddClick,
-  defaultOpen = true,
-  embedded = false,
-}: FiltersSectionProps) {
-  const [isOpen, setIsOpen] = useState(defaultOpen);
-
-  const sortableItems: FilterSortableItem[] = filters.map((filter) => ({
+  onSave,
+  onDraftChange,
+}: {
+  filters: FilterWithId[];
+  combinedFields: CombinedField[];
+  runtimeControls?: InsightRuntimeDeclaration;
+  onReorder: (filters: FilterWithId[]) => void;
+  onRemove: (filterId: string) => void;
+  onSave: (
+    filter: FilterWithId,
+    control: RuntimeFilterControl | undefined,
+  ) => Promise<void> | void;
+  onDraftChange?: (filter: FilterWithId | null) => void;
+}) {
+  const items: FilterSortableItem[] = filters.map((filter) => ({
     id: filter._id,
     filter,
   }));
-
   const handleReorder = useCallback(
-    (items: FilterSortableItem[]) => {
-      onReorder(items.map((item) => item.filter as FilterWithId));
-    },
+    (next: FilterSortableItem[]) => onReorder(next.map((item) => item.filter)),
     [onReorder],
   );
-
-  const content = (
-    <div className={embedded ? "p-4" : "overflow-hidden px-4 pb-4"}>
-      {embedded && (
-        <div className="mb-3 flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-semibold text-neutral-fg">Filters</h3>
-            <p className="text-xs text-neutral-fg-subtle">
-              Limit the rows included in this insight.
-            </p>
-          </div>
-          <Button
-            label="Add"
-            icon={PlusIcon}
-            variant="outline"
-            size="sm"
-            onClick={onAddClick}
-          />
-        </div>
-      )}
-      {sortableItems.length > 0 ? (
+  const controlsByFilter = useMemo(
+    () =>
+      new Map(
+        (runtimeControls?.filters ?? []).map((control) => [
+          control.filterId,
+          control,
+        ]),
+      ),
+    [runtimeControls?.filters],
+  );
+  return (
+    <div className="space-y-1">
+      {items.length > 0 && (
         <SortableList
-          items={sortableItems}
+          items={items}
           onReorder={handleReorder}
-          gap={6}
-          renderItem={(item) => (
-            <FilterItemContent
-              filter={item.filter as FilterWithId}
-              combinedFields={combinedFields}
+          gap={3}
+          unstyledItems
+          renderItem={(item, _index, { dragHandle }) => (
+            <FilterEditor
+              filter={item.filter}
+              fields={combinedFields}
+              control={
+                item.filter.id
+                  ? controlsByFilter.get(item.filter.id)
+                  : undefined
+              }
+              dragHandle={dragHandle}
+              onSave={onSave}
               onRemove={() => onRemove(item.id)}
-              onEditClick={() => onEditClick(item.filter as FilterWithId)}
+              onDraftChange={onDraftChange}
             />
           )}
         />
-      ) : (
-        <p className="py-2 text-sm text-neutral-fg-subtle">
-          No filters configured.
-        </p>
       )}
-    </div>
-  );
-
-  if (embedded) return content;
-
-  return (
-    <Collapsible open={isOpen} onOpenChange={setIsOpen}>
-      <div className="border-b">
-        <div className="flex items-center justify-between px-4 py-3">
-          <CollapsibleTrigger
-            render={
-              <button
-                type="button"
-                className="-ml-2 flex items-center gap-1.5 rounded-md px-2 py-1 text-left transition-colors hover:bg-neutral-bg-emphasis/50"
-              >
-                <ChevronRightIcon
-                  className={cn(
-                    "h-4 w-4 text-neutral-fg-subtle transition-transform",
-                    isOpen && "rotate-90",
-                  )}
-                />
-                <SettingsIcon className="h-4 w-4 text-neutral-fg-subtle" />
-                <span className="text-sm leading-none font-medium">
-                  Filters
-                </span>
-                <Badge
-                  variant="soft"
-                  className="h-5 px-1.5 text-xs leading-none tabular-nums"
-                >
-                  {filters.length}
-                </Badge>
-              </button>
-            }
-          />
-          <Button
-            label="Add"
-            icon={PlusIcon}
-            variant="ghost"
-            size="sm"
-            onClick={onAddClick}
-          />
-        </div>
-        <CollapsibleContent>{content}</CollapsibleContent>
-      </div>
-    </Collapsible>
-  );
-}
-
-// ============================================================================
-// FilterItemContent
-// ============================================================================
-
-interface FilterItemContentProps {
-  filter: FilterWithId;
-  combinedFields: CombinedField[];
-  onRemove: () => void;
-  onEditClick: () => void;
-}
-
-function FilterItemContent({
-  filter,
-  combinedFields,
-  onRemove,
-  onEditClick,
-}: FilterItemContentProps) {
-  // Resolve display name for the field — stale ref shows fieldName with warning
-  const fieldDisplay = useMemo(() => {
-    const found = combinedFields.find(
-      (f) => (f.columnName ?? f.name) === filter.field,
-    );
-    if (!found) {
-      // Stale field reference — show gracefully, don't crash
-      return { name: filter.field, stale: true };
-    }
-    return { name: found.displayName, stale: false };
-  }, [combinedFields, filter.field]);
-
-  const operatorLabel = OPERATOR_LABELS[filter.operator] ?? filter.operator;
-  const valueLabel = formatFilterValue(filter);
-
-  return (
-    <div className="flex min-w-0 flex-1 items-center gap-2">
-      <span
-        className={cn(
-          "min-w-0 shrink-0 max-w-[6rem] truncate text-sm",
-          fieldDisplay.stale
-            ? "text-palette-danger/80 line-through"
-            : "text-neutral-fg",
-        )}
-        title={
-          fieldDisplay.stale
-            ? `Field "${filter.field}" no longer exists`
-            : fieldDisplay.name
-        }
-      >
-        {fieldDisplay.name}
-      </span>
-      <span className="shrink-0 text-xs font-medium text-neutral-fg-subtle">
-        {operatorLabel}
-      </span>
-      <span
-        className="min-w-0 flex-1 cursor-pointer truncate text-sm text-neutral-fg hover:underline"
-        onClick={(e) => {
-          e.stopPropagation();
-          onEditClick();
-        }}
-        title={`${fieldDisplay.name} ${operatorLabel} ${valueLabel} (click to edit)`}
-      >
-        {valueLabel}
-      </span>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onEditClick();
-        }}
-        className="shrink-0 rounded-full p-0.5 text-neutral-fg-subtle hover:bg-neutral-bg-muted hover:text-neutral-fg"
-        aria-label={`Edit filter on ${fieldDisplay.name}`}
-      >
-        <EditIcon className="h-3 w-3" />
-      </button>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onRemove();
-        }}
-        className="shrink-0 rounded-full p-0.5 text-neutral-fg-subtle hover:bg-neutral-bg-muted hover:text-neutral-fg"
-        aria-label={`Remove filter on ${fieldDisplay.name}`}
-      >
-        <CloseIcon className="h-3 w-3" />
-      </button>
+      <FilterEditor
+        fields={combinedFields}
+        onSave={onSave}
+        onDraftChange={onDraftChange}
+      />
     </div>
   );
 }
