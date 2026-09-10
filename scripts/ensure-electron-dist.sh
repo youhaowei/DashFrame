@@ -64,6 +64,11 @@ restore_or_discard_private_backup() {
     echo "[electron-dist] could not restore the previous private dist from $_private_backup." >&2
     return 1
   fi
+  # Keep the durable commit marker until the old payload is gone. A crash
+  # during recursive deletion must never turn a partial backup into recovery.
+  if [ "$_private_backup_action" = discard ]; then
+    rm -rf "$_private_backup/dist" "$_private_backup/path.txt" 2>/dev/null || return 1
+  fi
   rm -rf "$_private_backup" 2>/dev/null || return 1
   _private_backup=""
   _private_backup_action=""
@@ -131,6 +136,30 @@ fi
 # No Electron in this worktree (server-only checkout, or install skipped) —
 # nothing to do, and nothing broken.
 [ -n "$pkg" ] && [ -d "$pkg" ] || exit 0
+
+# Serialize all mutations of this package, including private fallback and
+# recovery. A cache lock alone cannot protect runs for different target keys.
+if [ "${DASHFRAME_ELECTRON_PACKAGE_LOCKED:-}" != "$pkg" ]; then
+  if command -v lockf >/dev/null 2>&1; then
+    _package_rc=0
+    if [ "$force" = true ]; then
+      DASHFRAME_ELECTRON_PACKAGE_LOCKED="$pkg" lockf -t 900 "$pkg/.provision.lock" "$0" --force "$wt" || _package_rc=$?
+    else
+      DASHFRAME_ELECTRON_PACKAGE_LOCKED="$pkg" lockf -t 900 "$pkg/.provision.lock" "$0" "$wt" || _package_rc=$?
+    fi
+    exit "$_package_rc"
+  elif command -v flock >/dev/null 2>&1; then
+    _package_rc=0
+    if [ "$force" = true ]; then
+      DASHFRAME_ELECTRON_PACKAGE_LOCKED="$pkg" flock -w 900 "$pkg/.provision.lock" "$0" --force "$wt" || _package_rc=$?
+    else
+      DASHFRAME_ELECTRON_PACKAGE_LOCKED="$pkg" flock -w 900 "$pkg/.provision.lock" "$0" "$wt" || _package_rc=$?
+    fi
+    exit "$_package_rc"
+  fi
+  # Preserve the existing no-lock-tool private-install path, but do not guess
+  # ownership of abandoned directories without exclusive package access.
+fi
 
 # usable <dir> <path-file> [<version> <platform> <architecture>]
 # With only a directory and path file, check the same minimum contract as
@@ -263,10 +292,56 @@ case "$target_arch" in
     ;;
 esac
 
-if [ "$force" = false ] \
-  && usable "$pkg/dist" "$pkg/path.txt" "$version" "$target_platform" "$target_arch"; then
-  exit 0
-fi
+# owner_dead <pid>: EPERM and reused/live PIDs are not proof of abandonment.
+owner_dead() {
+  node -e '
+    const pid = Number(process.argv[1]);
+    if (!Number.isSafeInteger(pid) || pid <= 0) process.exit(1);
+    try { process.kill(pid, 0); process.exit(1); }
+    catch (error) { process.exit(error.code === "ESRCH" ? 0 : 1); }
+  ' "$1"
+}
+
+# New package artifacts carry the owning PID. Older releases used random-only
+# names; the exclusive package lock permits recovery of those legacy entries.
+package_artifact_abandoned() {
+  if [ -f "$1/installer.pid" ]; then
+    _pa_installer=$(cat "$1/installer.pid") || return 1
+    owner_dead "$_pa_installer" || return 1
+  fi
+  _pa_suffix=${1##*/}
+  _pa_suffix=${_pa_suffix#.*.}
+  case "$_pa_suffix" in
+    *.*) owner_dead "${_pa_suffix%%.*}" ;;
+    *) [ "${DASHFRAME_ELECTRON_PACKAGE_LOCKED:-}" = "$pkg" ] ;;
+  esac
+}
+
+recover_package() {
+  [ "${DASHFRAME_ELECTRON_PACKAGE_LOCKED:-}" = "$pkg" ] || return 0
+  # Restore before deleting staging: a crash may have moved only one of the
+  # old dist/path pair. A durable marker distinguishes a validated swap.
+  for _recovery in "$pkg"/.dist-backup.*; do
+    [ -d "$_recovery" ] && [ ! -L "$_recovery" ] || continue
+    package_artifact_abandoned "$_recovery" || continue
+    _private_backup="$_recovery"
+    _private_backup_action=restore
+    if [ -f "$_recovery/committed" ] \
+      || usable "$pkg/dist" "$pkg/path.txt" "$version" "$target_platform" "$target_arch"; then
+      _private_backup_action=discard
+    fi
+    restore_or_discard_private_backup || return 1
+    echo "[electron-dist] recovered abandoned private backup $_recovery" >&2
+  done
+  for _recovery in "$pkg"/.target-install.* "$pkg"/.dist-replacement.* "$pkg"/.lock-attempt.*; do
+    [ -d "$_recovery" ] && [ ! -L "$_recovery" ] || continue
+    package_artifact_abandoned "$_recovery" || continue
+    rm -rf "$_recovery" || return 1
+    echo "[electron-dist] removed abandoned staging $_recovery" >&2
+  done
+}
+
+recover_package || exit 1
 
 cache="${DASHFRAME_ELECTRON_CACHE:-$HOME/.cache/dashframe/electron}/$version/$target_platform-$target_arch"
 shared="$cache/dist"
@@ -277,7 +352,7 @@ install_private() {
   if ! stage_target_install; then
     give_up "Electron's installer failed."
   fi
-  replace_private "$_cleanup_target/dist" "$_cleanup_target/path.txt" copy \
+  replace_private "$_cleanup_target/dist" "$_cleanup_target/path.txt" move \
     || give_up "Electron's installer produced a dist that could not replace the private copy."
 }
 
@@ -304,16 +379,19 @@ stage_target_install() {
     return 0
   fi
   [ -z "$_cleanup_target" ] || rm -rf "$_cleanup_target"
-  _cleanup_target=$(mktemp -d "$pkg/.target-install.XXXXXX") || return 1
+  _cleanup_target=$(mktemp -d "$pkg/.target-install.$$.XXXXXX") || return 1
   if ! cp "$pkg/install.js" "$pkg/package.json" "$pkg/checksums.json" "$_cleanup_target/" \
-    || ! (unset ELECTRON_SKIP_BINARY_DOWNLOAD; cd "$_cleanup_target"; node install.js >&2) \
+    || ! (unset ELECTRON_SKIP_BINARY_DOWNLOAD; cd "$_cleanup_target"; node -e '
+      require("fs").writeFileSync("installer.pid", String(process.pid));
+      require("./install.js");
+    ' >&2) \
     || ! usable "$_cleanup_target/dist" "$_cleanup_target/path.txt" \
       "$version" "$target_platform" "$target_arch"; then
     return 1
   fi
 }
 
-# replace_private <source-dist> <source-path-file> <clone|copy>
+# replace_private <source-dist> <source-path-file> <clone|move>
 # Build and validate the replacement first. The short final swap is guarded by
 # an EXIT/signal cleanup: before validation it restores the previous private
 # install; after validation it only discards the backup. Thus --force never
@@ -323,17 +401,17 @@ replace_private() {
   _rp_path="$2"
   _rp_mode="$3"
   [ -z "$_private_backup" ] || return 1
-  _cleanup_replacement=$(mktemp -d "$pkg/.dist-replacement.XXXXXX") || return 1
+  _cleanup_replacement=$(mktemp -d "$pkg/.dist-replacement.$$.XXXXXX") || return 1
   if [ "$_rp_mode" = clone ]; then
     cp -c -R "$_rp_source" "$_cleanup_replacement/dist" 2>/dev/null || return 1
   else
-    cp -R "$_rp_source" "$_cleanup_replacement/dist" 2>/dev/null || return 1
+    mv "$_rp_source" "$_cleanup_replacement/dist" || return 1
   fi
   cp "$_rp_path" "$_cleanup_replacement/path.txt" 2>/dev/null || return 1
   usable "$_cleanup_replacement/dist" "$_cleanup_replacement/path.txt" \
     "$version" "$target_platform" "$target_arch" || return 1
 
-  _private_backup=$(mktemp -d "$pkg/.dist-backup.XXXXXX") || return 1
+  _private_backup=$(mktemp -d "$pkg/.dist-backup.$$.XXXXXX") || return 1
   _private_backup_action=restore
   if [ -e "$pkg/dist" ] || [ -L "$pkg/dist" ]; then
     mv "$pkg/dist" "$_private_backup/dist" || return 1
@@ -350,6 +428,7 @@ replace_private() {
   fi
 
   _private_backup_action=discard
+  : > "$_private_backup/committed" || true
   restore_or_discard_private_backup
   rm -rf "$_cleanup_replacement"
   _cleanup_replacement=""
@@ -410,16 +489,20 @@ if [ -z "${DASHFRAME_ELECTRON_DIST_LOCKED:-}" ]; then
   if command -v flock >/dev/null 2>&1; then
     # flock uses exit codes for both acquisition errors and child failures.
     # Record whether the child started instead of guessing from its status.
-    _cleanup_lock=$(mktemp -d "$pkg/.lock-attempt.XXXXXX") || {
+    _cleanup_lock=$(mktemp -d "$pkg/.lock-attempt.$$.XXXXXX") || {
       use_private "shared cache lock attempt could not be staged"
       exit 0
     }
     _lock_rc=0
     if [ "$force" = true ]; then
+      # These arguments expand in the locked child.
+      # shellcheck disable=SC2016
       DASHFRAME_ELECTRON_DIST_LOCKED=1 flock -E 75 -w 900 "$cache/.lock" \
         sh -c ': > "$1/started" || exit 1; shift; exec "$@"' sh "$_cleanup_lock" "$0" --force "$wt" \
         || _lock_rc=$?
     else
+      # These arguments expand in the locked child.
+      # shellcheck disable=SC2016
       DASHFRAME_ELECTRON_DIST_LOCKED=1 flock -E 75 -w 900 "$cache/.lock" \
         sh -c ': > "$1/started" || exit 1; shift; exec "$@"' sh "$_cleanup_lock" "$0" "$wt" \
         || _lock_rc=$?
@@ -431,6 +514,20 @@ if [ -z "${DASHFRAME_ELECTRON_DIST_LOCKED:-}" ]; then
     exit 0
   fi
   use_private "no shared cache locking tool is available"
+  exit 0
+fi
+
+# Only the holder of this cache key's lock can reap its abandoned publication
+# stages. Keep entries owned by live/reused PIDs and ignore unknown names.
+for _recovery in "$cache"/dist.tmp.* "$cache"/path.txt.tmp.* "$cache"/.clone-probe.*; do
+  [ -e "$_recovery" ] || [ -L "$_recovery" ] || continue
+  owner_dead "${_recovery##*.}" || continue
+  rm -rf "$_recovery" || { use_private "abandoned cache staging could not be removed"; exit 0; }
+  echo "[electron-dist] removed abandoned cache staging $_recovery" >&2
+done
+
+if [ "$force" = false ] \
+  && usable "$pkg/dist" "$pkg/path.txt" "$version" "$target_platform" "$target_arch"; then
   exit 0
 fi
 
