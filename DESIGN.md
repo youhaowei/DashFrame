@@ -22,11 +22,11 @@ Tokens and utilities come from `@wystack/ui-core`; components from `@wystack/ui-
 
 In active use from `@wystack/ui-react`: Button, Dialog, DropdownMenu, Tooltip, Breadcrumb, Card, and `cn`. Check here before building a primitive that may already exist.
 
-| Surface               | Recipe                                                                               |
-| --------------------- | ------------------------------------------------------------------------------------ |
-| Shell backdrop        | `bg-surface-base`                                                                    |
-| Panel shape           | `rounded-[var(--surface-radius)]`; gaps and outer margins use `var(--surface-inset)` |
-| Panel fill and shadow | `bg-neutral-bg/90 saturate-[1.2] shadow-[var(--surface-shadow)]`; no border          |
+The surface recipe:
+
+- **Shell backdrop:** `bg-surface-base`.
+- **Panel shape:** `rounded-[var(--surface-radius)]`; gaps and outer margins use `var(--surface-inset)`.
+- **Panel fill and shadow:** `bg-neutral-bg/90 saturate-[1.2] shadow-[var(--surface-shadow)]`, with no border.
 
 Nav, artifact, and assistant each occupy one panel. Panels own height; page content uses `h-full`, never `h-screen` or `min-h-screen`. Use tokens for colours, radii, and shadows, with no raw colour values in styles or class names. Keep the neutral scale chroma-free; tint belongs to the surface system.
 
@@ -36,11 +36,11 @@ Web and Electron share the same UI. Express capability differences through provi
 
 The workbench is the authoring surface inside an artifact page. Its configuration panes belong to the current artifact; artifact switching stays in the page header.
 
-| Insight workbench | Responsibility                                                                          |
-| ----------------- | --------------------------------------------------------------------------------------- |
-| Left pane         | Configure the query: source, joins, fields, metrics, filters, sort, and viewer controls |
-| Work canvas       | Show the insight result or selected visualization                                       |
-| Right pane        | Configure the selected visualization: chart type, encodings, and appearance             |
+The insight workbench has three regions:
+
+- **Left pane:** configure the query — source, joins, fields, metrics, filters, sort, and viewer controls.
+- **Work canvas:** show the insight result or the selected visualization.
+- **Right pane:** configure the selected visualization — chart type, encodings, and appearance.
 
 Keep query settings in the left pane and chart settings in the right. Edit viewer controls on the items they expose; list them in a read-only rollup.
 

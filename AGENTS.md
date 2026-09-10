@@ -263,11 +263,9 @@ of `bun run check`.
 
 Three files, three reader moments. Load the one that matches the work:
 
-| File          | Load before                                                                |
-| ------------- | -------------------------------------------------------------------------- |
-| `PRODUCT.md`  | Deciding whether a feature or element belongs; product copy and UX writing |
-| `DESIGN.md`   | Changing UI — layout, components, styling, interaction                     |
-| `GLOSSARY.md` | Naming anything a user sees, or a model type                               |
+- Load `PRODUCT.md` before deciding whether a feature or element belongs, and before product copy or UX writing.
+- Load `DESIGN.md` before changing UI — layout, components, styling, or interaction.
+- Load `GLOSSARY.md` before naming anything a user sees, or a model type.
 
 `DESIGN.md` is product design. Framework design — the shared visual language,
 tokens, and primitives across the portfolio — lives in `libs/stdui` and is not

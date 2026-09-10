@@ -4,33 +4,67 @@ Canonical product terms for UI copy, documentation, and code naming. See [PRODUC
 
 ## Terms
 
-These are the canonical target terms. Model types live in `@dashframe/types`. New surfaces and new copy use this vocabulary; some shipped copy does not yet — see **Rename in progress** below.
+These are the canonical target terms. Model types live in `@dashframe/types`. New surfaces and new copy use this vocabulary. Where shipped copy still uses an older word, the entry says so: that word is debt, not an alternative spelling. Do not introduce it into new copy, and prefer the canonical term when you are already editing a surface that uses it.
 
-| Term            | Meaning                                                                                         | Model                                                   |
-| --------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
-| Data source     | Connection to a file, database, or SaaS account                                                 | `DataSource`                                            |
-| Table           | Source table or an insight's result used as a table                                             | `DataTable`, `Insight`                                  |
-| Insight         | Saved query: source, joins, fields, metrics, filters, sort, viewer controls; returns a table    | `Insight`                                               |
-| Field           | Column of an insight's tables                                                                   | `Field`                                                 |
-| Metric          | Column aggregation — sum, count, avg. Saved on a table for reuse, or defined inside one insight | `Metric` (table-owned), `InsightMetric` (insight-local) |
-| Filter          | Row condition, phrased as “channel is not beta”                                                 | `InsightFilter`                                         |
-| Viewer controls | Filters, sort, and limit a dashboard viewer may change                                          | `InsightRuntimeDeclaration`                             |
-| Visualization   | Chart of an insight's result, with encodings and appearance; many per insight                   | `Visualization`, `VisualizationEncoding`                |
-| Dashboard       | Arrangement of visualizations and text, with controls                                           | `Dashboard`, `DashboardControl`                         |
+### Data source
 
-## Rename in progress
+A connection to a file, database, or SaaS account.
 
-The shipped UI still uses an older vocabulary for three terms. The canonical term is the target; the shipped term is debt, not an alternative spelling. Do not introduce the shipped term into new copy, and prefer the canonical term when you are already editing a surface that uses it.
+Model: `DataSource`
 
-The locations below are entry points, not an exhaustive inventory — the older terms appear across insight, dashboard, visualization, and MCP surfaces.
+### Table
 
-| Canonical     | Shipped today | Where                                                                                |
-| ------------- | ------------- | ------------------------------------------------------------------------------------ |
-| Insight       | question      | `packages/app/src/app/insights/page.tsx`, dashboard detail, data-source pickers      |
-| Visualization | saved view    | insight and dashboard delete confirmations                                           |
-| Dashboard     | report        | `packages/app/src/components/navigation.tsx`, `lib/reports/`, `apps/server/src/mcp/` |
+A source table, or an insight's result used as a table.
 
-Do not use “query” as the name of an insight in user-facing copy. Definitions and code may describe what an insight is — a saved query.
+Model: `DataTable`, `Insight`
+
+### Insight
+
+A saved query: source, joins, fields, metrics, filters, sort, and viewer controls. Returns a table.
+
+Model: `Insight`
+
+Shipped copy still says **question** — the insights page, dashboard detail, and data-source pickers are entry points, not an inventory. Do not use “query” as the name of an insight in user-facing copy; definitions and code may still describe an insight as a saved query.
+
+### Field
+
+A column of an insight's tables.
+
+Model: `Field`
+
+### Metric
+
+A column aggregation — sum, count, avg. Either saved on a table for reuse, or defined inside one insight.
+
+Model: `Metric` (table-owned), `InsightMetric` (insight-local)
+
+### Filter
+
+A row condition, phrased as “channel is not beta”.
+
+Model: `InsightFilter`
+
+### Viewer controls
+
+The filters, sort, and limit a dashboard viewer may change.
+
+Model: `InsightRuntimeDeclaration`
+
+### Visualization
+
+A chart of an insight's result, with encodings and appearance. An insight may have many.
+
+Model: `Visualization`, `VisualizationEncoding`
+
+Shipped copy still says **saved view**, in insight and dashboard delete confirmations.
+
+### Dashboard
+
+An arrangement of visualizations and text, with controls.
+
+Model: `Dashboard`, `DashboardControl`
+
+Shipped copy still says **report** — navigation, `lib/reports/`, and the MCP surface in `apps/server/src/mcp/` are entry points, not an inventory.
 
 ## Workbench
 
