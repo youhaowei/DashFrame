@@ -25,7 +25,7 @@ Everything a user makes is an artifact with a name, a definition, and a result: 
 
 ## Non-goals
 
-- **Not a document editor.** Artifacts are tools, not pages. Prose, layout, and presentation polish are not the job.
+- **Not a document editor.** Artifacts are tools, not pages. This rejects general-purpose document editing, not the prose and layout a dashboard already arranges alongside its visualizations.
 - **Not a collaboration platform.** Local-first is the ground; multiplayer editing, comment threads, and workspace permissioning are not what this product is for.
 - **Not a monitoring or alerting system.** DashFrame answers questions and keeps answers current; it does not page anyone.
 - **Not a warehouse.** DuckDB is the query engine, not a system of record for the business.
