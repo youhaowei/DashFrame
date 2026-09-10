@@ -174,11 +174,31 @@ acquire_provisioning_lock() {
 
   exec 9>"$_apl_lock"
 
-  # `set -e` would abort on a contended lock, so the attempt is a condition.
+  # `|| _apl_rc=$?` rather than a bare call: `set -e` would abort the script on
+  # a contended lock before the status could be read.
+  _apl_rc=0
   if [ "$_apl_tool" = lockf ]; then
-    if lockf -s -t 300 9; then return 0; fi
+    lockf -s -t 300 9 || _apl_rc=$?
   else
-    if flock -w 300 9; then return 0; fi
+    # -E makes a flock(1) timeout report 75 too, so one code means one thing.
+    flock -E 75 -w 300 9 || _apl_rc=$?
+  fi
+  if [ "$_apl_rc" -eq 0 ]; then
+    return 0
+  fi
+
+  # Only 75 (EX_TEMPFAIL) means "held by someone else". Any other status means
+  # the tool would not lock this way here at all — a usage error from a build
+  # whose lockf(1) predates the `lockf [-s] [-t seconds] fd` form, say, which
+  # exits 64. Treating that as contention would make every invocation on such a
+  # host fail fatally at a lock nobody holds, and this gate runs before the
+  # provisioned check, so it would break reuse of already-provisioned worktrees
+  # too. Degrade instead: no lock, and the caller then skips the clone and the
+  # pending marker, which is exactly the pre-optimization behaviour.
+  if [ "$_apl_rc" -ne 75 ]; then
+    echo "WARNING [ensure-worktree]: '$_apl_tool' could not lock '$_apl_lock' (exit $_apl_rc); provisioning unserialized." >&2
+    exec 9>&-
+    return 1
   fi
 
   # Fail closed. Handing back a path while another process installs into it is
