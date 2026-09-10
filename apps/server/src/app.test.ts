@@ -131,10 +131,12 @@ describe.runIf(live)("native host and local Convex integration", () => {
       },
     });
     expect(runtime.headers.get("cache-control")).toBe("no-store");
+    // The server names its own address, not the caller's Origin: a client that
+    // reaches it directly must not be sent back to its own page origin.
     expect(await runtime.json()).toEqual({
       mode: "local",
       status: "local-ready",
-      config: { convexUrl: "https://native-qa.localhost/api/convex" },
+      config: { convexUrl: `${server.url}/api/convex` },
     });
     expect(
       (
