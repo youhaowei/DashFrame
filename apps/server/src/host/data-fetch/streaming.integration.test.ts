@@ -172,6 +172,19 @@ describe("streaming production materialization", () => {
   it("keeps hosted contexts on their bounded worker protocol even with native capabilities", async () => {
     const f = await fixture(1);
     expect(supportsStreaming(f.ctx)).toBe(true);
+    // Keep only the batch reader: the production selector must not require
+    // the optional raw-stream reader as well.
+    f.ctx.dataFrameStorage = {
+      save: f.storage.save.bind(f.storage),
+      load: f.storage.load.bind(f.storage),
+      delete: f.storage.delete.bind(f.storage),
+      exists: f.storage.exists.bind(f.storage),
+      list: f.storage.list.bind(f.storage),
+      getUsage: f.storage.getUsage.bind(f.storage),
+      saveBatches: f.storage.saveBatches.bind(f.storage),
+      loadBatches: f.storage.loadBatches.bind(f.storage),
+    };
+    expect(supportsStreaming(f.ctx)).toBe(true);
     expect(supportsStreaming({ ...f.ctx, workspaceOwnerId: "owner" })).toBe(
       false,
     );

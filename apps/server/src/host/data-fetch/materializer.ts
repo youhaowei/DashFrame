@@ -776,7 +776,11 @@ async function saveResult(args: {
   } = args;
   let schema: InsightFetchReady["schema"] | undefined;
   let rowCount = 0;
-  if (storage.saveBatches && storage.stream && runtime.nativeTransfer) {
+  if (
+    storage.saveBatches &&
+    (storage.stream || storage.loadBatches) &&
+    runtime.nativeTransfer
+  ) {
     await transfer.admit(storage);
     async function* inspectedBatches() {
       for await (const bytes of runtime.queryArrowBatches(
@@ -851,7 +855,11 @@ async function saveSource(
   // A batched source is a native-transfer path end to end: the hosted backing
   // joins chunks at its worker seam, so accepting batches there would consume
   // and persist the source only to reload the whole frame afterwards.
-  if (!storage.saveBatches || !storage.stream || !runtime.nativeTransfer)
+  if (
+    !storage.saveBatches ||
+    (!storage.stream && !storage.loadBatches) ||
+    !runtime.nativeTransfer
+  )
     throw new Error("TARGET_NOT_READY");
   await transfer.admit(storage);
   source.rowCount = 0;

@@ -8,7 +8,7 @@ export function supportsStreaming(ctx: HostContext): boolean {
   if (ctx.workspaceOwnerId !== undefined) return false;
   return Boolean(
     ctx.dataFrameStorage?.saveBatches &&
-    ctx.dataFrameStorage.stream &&
+    (ctx.dataFrameStorage.stream || ctx.dataFrameStorage.loadBatches) &&
     ctx.dataPlaneRuntime?.nativeTransfer,
   );
 }
