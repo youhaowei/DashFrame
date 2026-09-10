@@ -24,13 +24,15 @@ An accepted design direction collapses Insight and Visualization into **one user
 
 ## Rename in progress
 
-The shipped UI still uses an older vocabulary in these three places. The canonical term is the target; the shipped term is debt, not an alternative spelling. Do not introduce the shipped term into new copy, and prefer the canonical term when you are already editing a surface that uses it.
+The shipped UI still uses an older vocabulary for three terms. The canonical term is the target; the shipped term is debt, not an alternative spelling. Do not introduce the shipped term into new copy, and prefer the canonical term when you are already editing a surface that uses it.
 
-| Canonical     | Shipped today | Where                                                                         |
-| ------------- | ------------- | ----------------------------------------------------------------------------- |
-| Insight       | question      | `packages/app/src/app/insights/page.tsx` — delete confirmations, draft counts |
-| Visualization | saved view    | same confirmations                                                            |
-| Dashboard     | report        | `packages/app/src/components/navigation.tsx` — nav item and description       |
+The locations below are entry points, not an exhaustive inventory — the older terms appear across insight, dashboard, visualization, and MCP surfaces.
+
+| Canonical     | Shipped today | Where                                                                                |
+| ------------- | ------------- | ------------------------------------------------------------------------------------ |
+| Insight       | question      | `packages/app/src/app/insights/page.tsx`, dashboard detail, data-source pickers      |
+| Visualization | saved view    | insight and dashboard delete confirmations                                           |
+| Dashboard     | report        | `packages/app/src/components/navigation.tsx`, `lib/reports/`, `apps/server/src/mcp/` |
 
 Do not use “query” for an insight anywhere.
 

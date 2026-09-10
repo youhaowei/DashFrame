@@ -169,7 +169,7 @@ DashFrame supports importing data directly from Notion databases:
 
 - ✅ **Electron desktop app** with native DuckDB and an in-process server
 - ✅ **Web app** backed by the same local Convex and Hono host (shared `packages/app` UI)
-- ✅ **Query engine** over DuckDB — native on desktop, WASM in the browser
+- ✅ **Query engine** over DuckDB — native in the host process both surfaces query through
 - ✅ Route-based shell — `/data-sources`, `/insights`, `/visualizations`, `/dashboards`
 - ✅ Data → Vega-Lite charts
 - ✅ Connectors for CSV/JSON, Notion, Postgres, and REST sources
@@ -186,7 +186,7 @@ DashFrame supports importing data directly from Notion databases:
   convention guards, and `bun format:check` for formatting — the two are separate
   gates in CI, and `bun check` does not run Oxfmt
 - Follow the shared Vite+ lint and format config (`bun lint` / `bun format`)
-- Architecture and design notes are maintained separately, not in this repo (release/versioning process stays in `docs/versioning.md`)
+- Product, design, and vocabulary live in [PRODUCT.md](PRODUCT.md), [DESIGN.md](DESIGN.md), and [GLOSSARY.md](GLOSSARY.md); architecture specs are maintained separately (release/versioning process stays in `docs/versioning.md`)
 - Prefer incremental commits per module (app, packages)
 
 ## License
