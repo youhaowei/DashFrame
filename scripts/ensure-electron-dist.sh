@@ -419,8 +419,10 @@ if ! usable "$shared" "$shared_pathfile" "$version" "$target_platform" "$target_
   _stage_path="$shared_pathfile.tmp.$$"
   _cleanup_stage="$_stage"
   _cleanup_stage_path="$_stage_path"
-  rm -rf "$_stage"
-  rm -f "$_stage_path"
+  if ! rm -rf "$_stage" 2>/dev/null || ! rm -f "$_stage_path" 2>/dev/null; then
+    use_private "stale shared cache staging could not be removed"
+    exit 0
+  fi
   if ! cp -c -R "$_cleanup_target/dist" "$_stage" 2>/dev/null \
     || ! cp "$_cleanup_target/path.txt" "$_stage_path" 2>/dev/null; then
     rm -rf "$_stage"
@@ -430,8 +432,10 @@ if ! usable "$shared" "$shared_pathfile" "$version" "$target_platform" "$target_
     use_private "shared cache could not be seeded"
     exit 0
   fi
-  rm -rf "$shared"
-  rm -f "$shared_pathfile"
+  if ! rm -rf "$shared" 2>/dev/null || ! rm -f "$shared_pathfile" 2>/dev/null; then
+    use_private "stale shared cache entry could not be removed"
+    exit 0
+  fi
   if ! mv "$_stage" "$shared" \
     || ! mv "$_stage_path" "$shared_pathfile" \
     || ! usable "$shared" "$shared_pathfile"; then
