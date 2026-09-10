@@ -6,17 +6,21 @@ Canonical product terms for UI copy, documentation, and code naming. See [PRODUC
 
 These are the canonical target terms. Model types live in `@dashframe/types`. New surfaces and new copy use this vocabulary; some shipped copy does not yet — see **Rename in progress** below.
 
-| Term            | Meaning                                                                                      | Model                                    |
-| --------------- | -------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| Data source     | Connection to a file, database, or SaaS account                                              | `DataSource`                             |
-| Table           | Source table or an insight's result used as a table                                          | `DataTable`, `Insight`                   |
-| Insight         | Saved query: source, joins, fields, metrics, filters, sort, viewer controls; returns a table | `Insight`                                |
-| Field           | Column of an insight's tables                                                                | `Field`                                  |
-| Metric          | Saved table aggregation, selected like a field                                               | `Metric`, `InsightMetric`                |
-| Filter          | Row condition, phrased as “channel is not beta”                                              | `InsightFilter`                          |
-| Viewer controls | Filters, sort, and limit a dashboard viewer may change                                       | `InsightRuntimeDeclaration`              |
-| Visualization   | Chart of an insight's result, with encodings and appearance; many per insight                | `Visualization`, `VisualizationEncoding` |
-| Dashboard       | Arrangement of visualizations and text, with controls                                        | `Dashboard`, `DashboardControl`          |
+| Term            | Meaning                                                                                         | Model                                                   |
+| --------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| Data source     | Connection to a file, database, or SaaS account                                                 | `DataSource`                                            |
+| Table           | Source table or an insight's result used as a table                                             | `DataTable`, `Insight`                                  |
+| Insight         | Saved query: source, joins, fields, metrics, filters, sort, viewer controls; returns a table    | `Insight`                                               |
+| Field           | Column of an insight's tables                                                                   | `Field`                                                 |
+| Metric          | Column aggregation — sum, count, avg. Saved on a table for reuse, or defined inside one insight | `Metric` (table-owned), `InsightMetric` (insight-local) |
+| Filter          | Row condition, phrased as “channel is not beta”                                                 | `InsightFilter`                                         |
+| Viewer controls | Filters, sort, and limit a dashboard viewer may change                                          | `InsightRuntimeDeclaration`                             |
+| Visualization   | Chart of an insight's result, with encodings and appearance; many per insight                   | `Visualization`, `VisualizationEncoding`                |
+| Dashboard       | Arrangement of visualizations and text, with controls                                           | `Dashboard`, `DashboardControl`                         |
+
+## Planned consolidation
+
+An accepted design direction collapses Insight and Visualization into **one user-visible artifact named Visualization**, carrying the query and its chart. The types stay split — `Insight` remains the query node — but users stop meeting it. Until that lands, both terms below stay in use; afterwards, Insight becomes an implementation detail and does not appear in copy.
 
 ## Rename in progress
 
