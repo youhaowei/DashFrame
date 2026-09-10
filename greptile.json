@@ -2,7 +2,7 @@
   "files": [
     {
       "path": "PRODUCT.md",
-      "description": "What DashFrame is, its commitments (local-first, per-field sensitivity classification with remote-import review — not an at-rest gate — immediate, truthful) and non-goals. Load before judging whether a feature or element belongs."
+      "description": "What DashFrame is, its commitments (local-first, per-field sensitivity classification — no shipped import review or at-rest gate yet — immediate, truthful) and non-goals. Load before judging whether a feature or element belongs."
     },
     {
       "path": "DESIGN.md",

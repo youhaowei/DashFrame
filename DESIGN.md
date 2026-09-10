@@ -93,7 +93,7 @@ Read order: state and next action → primary work → useful relationships/depe
 
 Before adding an element, name the user question or action, why this is the right surface and moment, and its data source and stale/unavailable behavior. If removing it changes no decision, remove it.
 
-**Worked example (GH #81, 2026-06-13).** A per-field sensitivity badge in the insight field picker was built, reviewed clean, and closed unmerged. At field-pick, sensitivity is informative but not decisive — a user who needs the field includes it regardless — and on a scan-list where most fields are unclassified, the marker is wallpaper. Sensitivity is classified on the field and surfaced where it is decision-affecting — the remote-import review gate, and the share/export boundary where data leaves the local context.
+**Worked example (GH #81, 2026-06-13).** A per-field sensitivity badge in the insight field picker was built, reviewed clean, and closed unmerged. At field-pick, sensitivity is informative but not decisive — a user who needs the field includes it regardless — and on a scan-list where most fields are unclassified, the marker is wallpaper. Sensitivity is classified on the field. Its user-facing flag belongs where it is decision-affecting — a column review before remote import, and the share/export boundary where data leaves the local context. Neither surface exists yet; today `SensitivityBadge` renders only on data-source detail.
 
 ## Accessibility and copy
 
