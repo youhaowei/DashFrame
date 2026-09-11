@@ -654,23 +654,28 @@ function InsightResultTable({
           </button>
         )}
       </div>
-      {!collapsed && (
-        <div className="relative min-h-0 flex-1">
-          {/* Mount only when the pagination hook is ready (per its contract):
+      <div
+        className={cn(
+          "relative min-h-0 flex-1 transition-opacity duration-300 motion-reduce:transition-none",
+          collapsed && "opacity-0",
+        )}
+        inert={collapsed}
+        aria-hidden={collapsed}
+      >
+        {/* Mount only when the pagination hook is ready (per its contract):
               mounting earlier lets the initial fetch race the hook's own
               init-driven fetchData identity changes. */}
-          {isReady && (
-            <div className="absolute inset-0">
-              <VirtualTable
-                onFetchData={fetchData}
-                columnConfigs={columnConfigs}
-                height="100%"
-                compact
-              />
-            </div>
-          )}
-        </div>
-      )}
+        {isReady && (
+          <div className="absolute inset-0">
+            <VirtualTable
+              onFetchData={fetchData}
+              columnConfigs={columnConfigs}
+              height="100%"
+              compact
+            />
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -785,12 +790,7 @@ function InsightCanvasWell({
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[var(--surface-radius)] bg-neutral-bg-muted p-2 shadow-inner dark:bg-neutral-bg-dim">
       {showChart ? (
         <>
-          <div
-            className={cn(
-              "min-h-0 overflow-hidden rounded-[var(--surface-radius)] bg-neutral-bg p-3 shadow-[var(--surface-shadow)] dark:bg-neutral-bg-subtle",
-              resultCollapsed ? "flex-1" : "flex-[1_1_68%]",
-            )}
-          >
+          <div className="min-h-0 flex-[1_1_68%] overflow-hidden rounded-[var(--surface-radius)] bg-neutral-bg p-3 shadow-[var(--surface-shadow)] dark:bg-neutral-bg-subtle">
             {children}
           </div>
           <InsightResultTable
@@ -799,9 +799,11 @@ function InsightCanvasWell({
             onToggleCollapsed={() =>
               setResultCollapsed((collapsed) => !collapsed)
             }
-            className={
-              resultCollapsed ? "shrink-0 pt-1" : "flex-[1_1_32%] pt-1"
-            }
+            // The strip stays visible while the table body slides away.
+            className={cn(
+              "overflow-hidden pt-1 transition-[flex-grow,flex-basis] duration-300 ease-out motion-reduce:transition-none",
+              resultCollapsed ? "flex-[0_0_2.25rem]" : "flex-[1_1_32%]",
+            )}
           />
         </>
       ) : (
