@@ -94,8 +94,9 @@ export interface NativeDuckDBEngineOptions {
   /**
    * DuckDB database path. Default `:memory:` — an in-memory database.
    *
-   * In-memory by default so a session leaves nothing at rest. A caller that
-   * passes a path is choosing durability for that database explicitly.
+   * The in-memory path also disables DuckDB's temporary spill directory, so a
+   * default session leaves no row data at rest. A caller that passes a path is
+   * choosing durability for that database explicitly.
    */
   databasePath?: string;
   /**
@@ -314,18 +315,19 @@ export class NativeDuckDBEngine implements QueryEngine {
    * again immediately and every later operation opens its own.
    */
   private async openInstance(): Promise<DuckDBInstance> {
-    const instance = await DuckDBInstance.create(
-      this.databasePath,
-      this.sandboxLimits
-        ? {
-            memory_limit: `${this.sandboxLimits.memoryBytes}B`,
-            threads: String(this.sandboxLimits.threads),
-            temp_directory: "",
-            autoinstall_known_extensions: "false",
-            autoload_known_extensions: "false",
-          }
-        : undefined,
-    );
+    let config: Record<string, string> | undefined;
+    if (this.sandboxLimits) {
+      config = {
+        memory_limit: `${this.sandboxLimits.memoryBytes}B`,
+        threads: String(this.sandboxLimits.threads),
+        temp_directory: "",
+        autoinstall_known_extensions: "false",
+        autoload_known_extensions: "false",
+      };
+    } else if (this.databasePath === ":memory:") {
+      config = { temp_directory: "" };
+    }
+    const instance = await DuckDBInstance.create(this.databasePath, config);
     let connection: Connection;
     try {
       connection = await instance.connect();

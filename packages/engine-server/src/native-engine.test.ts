@@ -139,6 +139,18 @@ describe("NativeDuckDBEngine — real native DuckDB", () => {
     expect(table.schema.fields.map((field) => field.name)).toEqual(["value"]);
   });
 
+  it("disables temporary spill files for the default in-memory database", async () => {
+    engine = new NativeDuckDBEngine();
+    await engine.initialize();
+
+    const rows = await queryRows(
+      engine,
+      "SELECT current_setting('temp_directory') AS temp_directory",
+    );
+
+    expect(rows).toEqual([{ temp_directory: "" }]);
+  });
+
   it("enforces the sandbox row limit across streamed result chunks", async () => {
     engine = new NativeDuckDBEngine({
       sandboxLimits: {
