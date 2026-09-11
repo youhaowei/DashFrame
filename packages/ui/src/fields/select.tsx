@@ -21,6 +21,8 @@ interface SelectOption {
 
 interface SelectProps {
   label?: string;
+  /** Accessible name for the trigger when the visual label is elsewhere. */
+  ariaLabel?: string;
   /** Optional React node to render alongside the label (e.g., warning badges, help icons) */
   labelAddon?: React.ReactNode;
   value: string;
@@ -37,6 +39,7 @@ interface SelectProps {
 
 export function Select({
   label,
+  ariaLabel,
   labelAddon,
   value,
   onChange,
@@ -53,7 +56,7 @@ export function Select({
   }));
 
   return (
-    <Field className={className}>
+    <Field className={cn("min-w-0", className)}>
       {(label || labelAddon) && (
         <div className="flex items-center justify-between gap-2">
           {label && <FieldLabel>{label}</FieldLabel>}
@@ -66,14 +69,19 @@ export function Select({
         onValueChange={(v) => onChange(typeof v === "string" ? v : "")}
       >
         <SelectTrigger
+          aria-label={ariaLabel}
           className={cn(
-            "w-full",
+            "min-w-0 w-full",
             emptyDashed && !value && "border-dashed",
             error && "border-palette-danger focus:ring-palette-danger",
           )}
         >
-          <SelectValue placeholder={placeholder}>
-            {selectedOption?.label}
+          <SelectValue placeholder={placeholder} className="min-w-0 truncate">
+            {selectedOption ? (
+              <span className="block min-w-0 truncate">
+                {selectedOption.label}
+              </span>
+            ) : undefined}
           </SelectValue>
         </SelectTrigger>
         <SelectContent>

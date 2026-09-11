@@ -31,6 +31,7 @@ import { api } from "@dashframe/convex-backend/api";
 import {
   extractUUIDFromColumnAlias,
   fieldIdToColumnAlias,
+  isGeneratedColumnLabel,
 } from "@dashframe/engine";
 import type {
   ChartEncoding,
@@ -882,6 +883,7 @@ export function InsightView({
   const {
     dataFrameId: chartSuggestionFrameId,
     isReady: areChartSuggestionsReady,
+    columnDisplayNames: chartSuggestionColumnDisplayNames,
     schema: chartSuggestionSchema,
     sampleRows: chartSuggestionRows,
     totalCount: chartSuggestionRowCount,
@@ -906,9 +908,16 @@ export function InsightView({
     ],
   );
   const {
-    columns: encodingColumns,
-    columnDisplayNames: encodingColumnDisplayNames,
+    columns: encodingModelColumns,
+    columnDisplayNames: encodingModelColumnDisplayNames,
     resolvedFields: encodingResolvedFields,
+  } = useInsightPagination({
+    insight,
+    showModelPreview: true,
+    enabled: persistedActiveView?.kind === "visualization",
+  });
+  const {
+    columnDisplayNames: encodingRenderedColumnDisplayNames,
     schema: encodingSchema,
     sampleRows: encodingRows,
     totalCount: encodingRowCount,
@@ -918,6 +927,26 @@ export function InsightView({
     showModelPreview: false,
     enabled: persistedActiveView?.kind === "visualization",
   });
+  const encodingColumnDisplayNames = useMemo(() => {
+    const displayNames = {
+      ...chartSuggestionColumnDisplayNames,
+      ...encodingModelColumnDisplayNames,
+    };
+    for (const column of encodingModelColumns) {
+      const renderedLabel = encodingRenderedColumnDisplayNames[column.name];
+      if (renderedLabel && !isGeneratedColumnLabel(renderedLabel)) {
+        displayNames[column.name] = renderedLabel;
+        continue;
+      }
+      displayNames[column.name] ??= column.name;
+    }
+    return displayNames;
+  }, [
+    chartSuggestionColumnDisplayNames,
+    encodingModelColumnDisplayNames,
+    encodingModelColumns,
+    encodingRenderedColumnDisplayNames,
+  ]);
   const encodingColumnAnalysis = useMemo<ColumnAnalysis[]>(
     () =>
       areEncodingsReady
@@ -1721,13 +1750,13 @@ export function InsightView({
           inert={!visualizationPane.attached}
           aria-hidden={!visualizationPane.attached}
           className={cn(
-            "h-full shrink-0 overflow-hidden transition-[width] duration-200",
+            "h-full min-w-0 shrink-0 overflow-hidden transition-[width] duration-200",
             visualizationPane.attached
               ? "w-72 border-l border-neutral-border/60"
               : "w-0",
           )}
         >
-          <div className="h-full w-72 overflow-y-auto">
+          <div className="h-full w-full min-w-0 overflow-x-hidden overflow-y-auto">
             <VisualizationConfigPanel
               activeChartType={visualizationPane.chartType}
               availableChartTypes={new Set(chartSuggestionsByType.keys())}
@@ -1737,7 +1766,7 @@ export function InsightView({
               compiledInsight={compiledInsightForEncodings}
               dataTable={authoringTable}
               availableFields={encodingAvailableFields}
-              availableColumns={encodingColumns.map((column) => ({
+              availableColumns={encodingModelColumns.map((column) => ({
                 name: column.name,
                 type: column.type ?? "unknown",
               }))}

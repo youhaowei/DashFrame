@@ -1,6 +1,11 @@
 import { AxisSelectField } from "@/components/visualizations/AxisSelectField";
 import { useVisualizationEncodingChange } from "@/components/visualizations/useVisualizationEncodingChange";
-import { getMetricDisplayLabel } from "@dashframe/engine";
+import {
+  extractColumnAliasComponents,
+  fieldIdToColumnAlias,
+  formatAggregationLabel,
+  getMetricDisplayLabel,
+} from "@dashframe/engine";
 import type {
   ChartEncoding,
   ColumnAnalysis,
@@ -84,9 +89,11 @@ function ReadOnlySlot({
 }) {
   return (
     <div className={cn("min-w-0", className)}>
-      <span className="mb-1 block text-[11px] text-neutral-fg-subtle">
-        {label}
-      </span>
+      {label && (
+        <span className="mb-1 block text-[11px] text-neutral-fg-subtle">
+          {label}
+        </span>
+      )}
       <div
         className={cn(
           "truncate rounded-md border border-neutral-border bg-neutral-bg-subtle px-2 py-1.5 text-xs",
@@ -97,6 +104,57 @@ function ReadOnlySlot({
       </div>
     </div>
   );
+}
+
+function unwrapSuggestionValue(value: string): string {
+  const aggregate = value.match(
+    /^(?:sum|avg|count|min|max|count_distinct)\(([^)]+)\)$/i,
+  );
+  if (aggregate?.[1]) return aggregate[1];
+  const legacyDate = value.match(
+    /^(?:dateMonth|dateYear|dateDay|monthname|dayname|quarter)\(([^)]+)\)$/i,
+  );
+  if (legacyDate?.[1]) return legacyDate[1];
+  const dateTrunc = value.match(/^date_trunc\('[^']+',\s*"([^"]+)"\)$/i);
+  return (dateTrunc?.[1] ?? value).replace(/(?:^["'])|(?:["']$)/g, "");
+}
+
+export function getUnsavedEncodingLabel(
+  value: string | undefined,
+  fields: Field[],
+  metrics: CompiledInsight["metrics"],
+  columnDisplayNames: Record<string, string>,
+): string | undefined {
+  if (!value) return undefined;
+  const rawColumn = unwrapSuggestionValue(value);
+  const field = fields.find(
+    (candidate) =>
+      fieldIdToColumnAlias(candidate.id) === rawColumn ||
+      candidate.columnName === rawColumn ||
+      candidate.name === rawColumn,
+  );
+  const fieldLabel =
+    columnDisplayNames[rawColumn] ?? field?.name ?? "Unavailable field";
+  const aggregate = value.match(
+    /^(sum|avg|count|min|max|count_distinct)\(([^)]+)\)$/i,
+  );
+  if (!aggregate?.[1]) return fieldLabel;
+
+  const aggregation =
+    aggregate[1].toLowerCase() as (typeof metrics)[number]["aggregation"];
+  const metric = metrics.find(
+    (candidate) =>
+      candidate.aggregation === aggregation &&
+      (candidate.columnName === rawColumn ||
+        fields.some(
+          (candidateField) =>
+            candidateField.columnName === candidate.columnName &&
+            fieldIdToColumnAlias(candidateField.id) === rawColumn,
+        )),
+  );
+  return metric
+    ? getMetricDisplayLabel(metric, fields)
+    : `${formatAggregationLabel(aggregation)} of ${fieldLabel}`;
 }
 
 function AxesFrame({ children }: { children: React.ReactNode }) {
@@ -111,22 +169,40 @@ function AxesFrame({ children }: { children: React.ReactNode }) {
   );
 }
 
-function UnsavedEncodings({ encoding }: { encoding?: ChartEncoding }) {
+function UnsavedEncodings({
+  encoding,
+  fields,
+  metrics,
+  columnDisplayNames,
+}: {
+  encoding?: ChartEncoding;
+  fields: Field[];
+  metrics: CompiledInsight["metrics"];
+  columnDisplayNames: Record<string, string>;
+}) {
+  const label = (value: string | undefined) =>
+    getUnsavedEncodingLabel(value, fields, metrics, columnDisplayNames);
   return (
     <>
       <AxesFrame>
-        <div className="absolute top-0 right-0 grid w-40 grid-cols-2 gap-1.5">
-          <ReadOnlySlot label="Color" value={encoding?.color} />
-          <ReadOnlySlot label="Size" value={encoding?.size} />
+        <div className="absolute top-0 right-0 grid w-40 min-w-0 grid-cols-2 gap-1.5 [&>*]:min-w-0">
+          <ReadOnlySlot label="Color" value={label(encoding?.color)} />
+          <ReadOnlySlot label="Size" value={label(encoding?.size)} />
         </div>
+        <span
+          aria-hidden
+          className="absolute top-28 -left-1 -rotate-90 text-[11px] text-neutral-fg-subtle"
+        >
+          Y
+        </span>
         <ReadOnlySlot
-          label="Y"
-          value={encoding?.y}
-          className="absolute top-20 -left-8 w-28 -rotate-90"
+          label=""
+          value={label(encoding?.y)}
+          className="absolute top-20 left-3 w-28"
         />
         <ReadOnlySlot
           label="X"
-          value={encoding?.x}
+          value={label(encoding?.x)}
           className="absolute right-2 bottom-0 left-14"
         />
       </AxesFrame>
@@ -162,23 +238,43 @@ function SavedEncodings({
     columnAnalysis,
     updateVisualization,
   });
-  const options = useMemo(
-    () => [
-      ...availableFields.map((field) => ({
-        label: field.name,
+  const options = useMemo(() => {
+    const result: Array<{ label: string; value: string }> =
+      compiledInsight.dimensions.map((field) => ({
+        label: columnDisplayNames[fieldIdToColumnAlias(field.id)] ?? field.name,
         value: fieldEncoding(field.id as UUID),
-      })),
+      }));
+    const added = new Set(result.map((option) => option.value));
+    for (const field of availableFields) {
+      const value = fieldEncoding(field.id as UUID);
+      if (added.has(value)) continue;
+      const components = extractColumnAliasComponents(
+        fieldIdToColumnAlias(field.id),
+      );
+      if (!components || components.instanceIndex === 0) continue;
+      result.push({
+        label: columnDisplayNames[fieldIdToColumnAlias(field.id)] ?? field.name,
+        value,
+      });
+      added.add(value);
+    }
+    result.push(
       ...compiledInsight.metrics.map((metric) => ({
         label: getMetricDisplayLabel(metric, availableFields),
         value: metricEncoding(metric.id),
       })),
-    ],
-    [availableFields, compiledInsight.metrics],
-  );
+    );
+    return result;
+  }, [
+    availableFields,
+    columnDisplayNames,
+    compiledInsight.dimensions,
+    compiledInsight.metrics,
+  ]);
 
   return (
     <AxesFrame>
-      <div className="absolute top-0 right-0 grid w-40 grid-cols-2 gap-1.5">
+      <div className="absolute top-0 right-0 grid w-40 min-w-0 grid-cols-2 gap-1.5 [&>*]:min-w-0">
         <SelectField
           label="Color"
           value={visualization.encoding?.color || ""}
@@ -196,9 +292,16 @@ function SavedEncodings({
           emptyDashed
         />
       </div>
-      <div className="absolute top-20 -left-8 w-28 -rotate-90">
+      <span
+        aria-hidden
+        className="absolute top-28 -left-1 -rotate-90 text-[11px] text-neutral-fg-subtle"
+      >
+        Y
+      </span>
+      <div className="absolute top-20 left-3 w-28">
         <AxisSelectField
           label="Y"
+          showLabel={false}
           value={visualization.encoding?.y || ""}
           onChange={(value) => handleEncodingChange("y", value)}
           placeholder="None"
@@ -281,7 +384,7 @@ export function VisualizationConfigPanel({
   };
 
   return (
-    <div className="min-h-full bg-neutral-bg px-3 py-3 text-xs">
+    <div className="min-h-full min-w-0 overflow-x-hidden bg-neutral-bg px-3 py-3 text-xs">
       <h2 className="px-0.5 pb-2 text-sm font-semibold">Visualization</h2>
       <WorkbenchJumpBar
         items={VISUALIZATION_SECTIONS}
@@ -349,7 +452,12 @@ export function VisualizationConfigPanel({
               updateVisualization={updateVisualization}
             />
           ) : (
-            <UnsavedEncodings encoding={activeSuggestionEncoding} />
+            <UnsavedEncodings
+              encoding={activeSuggestionEncoding}
+              fields={availableFields}
+              metrics={compiledInsight.metrics}
+              columnDisplayNames={columnDisplayNames}
+            />
           ),
         )}
         {renderSection(
