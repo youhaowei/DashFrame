@@ -17,15 +17,17 @@
  * a project frame never make a client roundtrip.
  *
  * `POST /frames/:id/tables/:name`
- *   Registers the stored frame `:id` in the engine. The browser sends only
- *   opaque identifiers. `:name` must be the frame's canonical
+ *   Registers the stored frame `:id` in the engine. The caller sends only
+ *   opaque identifiers, never Arrow bytes. `:name` must be the frame's canonical
  *   `frameTableName(id)` — a frame has exactly one name, so any other
  *   identifier is a 400 rather than a second registration of the same frame.
  *
  * `POST /frames/:id/mosaic`
  *   Accepts the Mosaic Coordinator shape `{ type: 'arrow'|'exec'|'json', sql }`
  *   against the frame named in the path, returning Arrow IPC, an empty body, or
- *   JSON rows respectively.
+ *   JSON rows respectively. Direct native callers may omit `type` and provide
+ *   `{ sql, params? }`; typed Mosaic requests reject `params` rather than
+ *   silently extending that protocol.
  *
  * This module never inspects or rewrites the SQL it is given. Frames register
  * under the canonical `frameTableName(id)` and client SQL references that name
@@ -426,7 +428,7 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
 
   const app = new Hono();
 
-  // Register a durable project frame directly in native DuckDB. The browser
+  // Register a durable project frame directly in native DuckDB. The caller
   // sends only opaque identifiers; Arrow bytes never make a client roundtrip.
   app.post("/frames/:id/tables/:name", async (c) => {
     if (!(await checkAuth(c.req.raw, options))) {
