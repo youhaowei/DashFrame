@@ -470,16 +470,16 @@ describe("Arrow data path — server frame registration and Mosaic queries", () 
   });
 
   it.each([
-    ["tables/df_server", true],
+    ["tables", true],
     ["mosaic", true],
-    ["tables/df_server", false],
+    ["tables", false],
     ["mosaic", false],
   ] as const)(
     "returns 404 and removes stale registration before %s opens a vanished frame (native error: %s)",
-    async (route, nativeError) => {
+    async (routeKind, nativeError) => {
       const id = "11111111-1111-4111-8111-111111111111";
-      const name =
-        route === "mosaic" ? `df_${id.replaceAll("-", "_")}` : "df_server";
+      const name = frameTableName(id);
+      const route = routeKind === "mosaic" ? "mosaic" : `tables/${name}`;
       const registered = new Set([name]);
       let exists = true;
       let queries = 0;
@@ -521,7 +521,10 @@ describe("Arrow data path — server frame registration and Mosaic queries", () 
       const response = await app.request(`/frames/${id}/${route}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "arrow", sql: `SELECT * FROM "${id}"` }),
+        body: JSON.stringify({
+          type: "arrow",
+          sql: `SELECT * FROM "${frameTableName(id)}"`,
+        }),
       });
       expect(response.status).toBe(404);
       expect(await response.json()).toEqual({ error: "Frame not found" });
@@ -705,10 +708,13 @@ describe("Arrow data path — server frame registration and Mosaic queries", () 
       },
     });
 
-    const request = app.request(`/frames/${id}/tables/df_delayed`, {
+    const request = app.request(`/frames/${id}/tables/${frameTableName(id)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: "arrow", sql: `SELECT * FROM "${id}"` }),
+      body: JSON.stringify({
+        type: "arrow",
+        sql: `SELECT * FROM "${frameTableName(id)}"`,
+      }),
     });
     await registrationStarted;
     available = false;
