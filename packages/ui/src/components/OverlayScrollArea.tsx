@@ -72,6 +72,11 @@ export interface OverlayScrollAreaProps {
   topInset?: number;
   /** Fade colour; match the surface behind the content. */
   fadeClassName?: string;
+  /**
+   * "overlay" (default) shows the thin bar on hover and while scrolling.
+   * "none" leaves only the edge fades, for strips too small for a bar.
+   */
+  scrollbar?: "overlay" | "none";
 }
 
 /**
@@ -87,6 +92,7 @@ export function OverlayScrollArea({
   orientation = "vertical",
   topInset = 0,
   fadeClassName = "from-neutral-bg",
+  scrollbar = "overlay",
 }: OverlayScrollAreaProps) {
   const vertical = orientation !== "horizontal";
   const horizontal = orientation !== "vertical";
@@ -109,12 +115,14 @@ export function OverlayScrollArea({
       </ScrollArea.Viewport>
       {vertical && (
         <>
-          <OverlayScrollbar
-            // In "both", stop short of the horizontal bar so the two tracks
-            // don't overlap in the corner.
-            className={cn("my-1 mr-0.5", horizontal && "mb-2.5")}
-            style={topInset ? { marginTop: topInset + 4 } : undefined}
-          />
+          {scrollbar === "overlay" && (
+            <OverlayScrollbar
+              // In "both", stop short of the horizontal bar so the two tracks
+              // don't overlap in the corner.
+              className={cn("my-1 mr-0.5", horizontal && "mb-2.5")}
+              style={topInset ? { marginTop: topInset + 4 } : undefined}
+            />
+          )}
           <div
             aria-hidden
             className={cn(FADE_TOP, fadeClassName)}
@@ -125,10 +133,12 @@ export function OverlayScrollArea({
       )}
       {horizontal && (
         <>
-          <OverlayScrollbar
-            orientation="horizontal"
-            className={cn("mx-1 mb-0.5", vertical && "mr-2.5")}
-          />
+          {scrollbar === "overlay" && (
+            <OverlayScrollbar
+              orientation="horizontal"
+              className={cn("mx-1 mb-0.5", vertical && "mr-2.5")}
+            />
+          )}
           <div aria-hidden className={cn(FADE_LEFT, fadeClassName)} />
           <div aria-hidden className={cn(FADE_RIGHT, fadeClassName)} />
         </>
