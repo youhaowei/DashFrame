@@ -374,6 +374,7 @@ export function VisualizationConfigPanel({
   } = useWorkbenchPaneSections(VISUALIZATION_SECTION_IDS);
   const selectedMetadata = CHART_TYPE_METADATA[activeChartType];
   const handleChartTypeChange = (chartType: VisualizationType) => {
+    if (!availableChartTypes.has(chartType)) return;
     if (!activeVisualization) {
       onSelectChartType(chartType);
       return;
@@ -436,13 +437,16 @@ export function VisualizationConfigPanel({
                       label={CHART_TYPE_METADATA[chartType].displayName}
                       active={selected}
                       aria-pressed={selected}
+                      // aria-disabled keeps the tooltip explaining why.
+                      aria-disabled={!available}
                       onClick={() => handleChartTypeChange(chartType)}
                       className={cn(
                         "aspect-square h-auto w-full",
                         selected
                           ? "bg-neutral-bg-emphasis text-neutral-fg hover:bg-neutral-bg-emphasis"
                           : "bg-neutral-bg-subtle text-neutral-fg-subtle hover:bg-neutral-bg-muted hover:text-neutral-fg",
-                        !available && !selected && "opacity-40",
+                        !available &&
+                          "cursor-not-allowed opacity-40 hover:bg-neutral-bg-subtle hover:text-neutral-fg-subtle",
                       )}
                     >
                       <Icon size={20} aria-hidden />
