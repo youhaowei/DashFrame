@@ -37,6 +37,7 @@ import {
   Table2,
 } from "lucide-react";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { toast } from "sonner";
 import { DataModelSection } from "../sections/DataModelSection";
 import {
   DeleteConfirmDialog,
@@ -271,7 +272,7 @@ export function InsightConfigPanel({
   );
 
   const handleRuntimeControlsChange = useCallback(
-    (runtimeControls: InsightRuntimeDeclaration | undefined) => {
+    async (runtimeControls: InsightRuntimeDeclaration | undefined) => {
       const commands = runtimeControls
         ? buildInsightUpdateCommands(insight.id, insight, { runtimeControls })
         : [
@@ -280,7 +281,13 @@ export function InsightConfigPanel({
               runtimeControls: undefined,
             }),
           ];
-      return commitBatch({ commands }).then(() => undefined);
+      try {
+        await commitBatch({ commands });
+        return true;
+      } catch {
+        toast.error("Failed to update viewer controls");
+        return false;
+      }
     },
     [commitBatch, insight],
   );

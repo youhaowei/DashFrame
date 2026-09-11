@@ -6,7 +6,10 @@ import type { DataTable, Insight, UUID } from "@dashframe/types";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-const { commitBatch } = vi.hoisted(() => ({ commitBatch: vi.fn() }));
+const { commitBatch, toastError } = vi.hoisted(() => ({
+  commitBatch: vi.fn(),
+  toastError: vi.fn(),
+}));
 
 vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
@@ -23,8 +26,20 @@ vi.mock("./MetricsSection", () => ({
   MetricsSection: () => null,
 }));
 vi.mock("./SortSection", () => ({
-  SortSection: () => null,
+  SortSection: ({
+    onRuntimeChange,
+  }: {
+    onRuntimeChange: (value: { limit: { min: number; max: number } }) => void;
+  }) => (
+    <button
+      type="button"
+      onClick={() => onRuntimeChange({ limit: { min: 1, max: 100 } })}
+    >
+      Save viewer controls
+    </button>
+  ),
 }));
+vi.mock("sonner", () => ({ toast: { error: toastError } }));
 vi.mock("./DeleteConfirmDialog", () => ({
   DeleteConfirmDialog: () => null,
   findVisualizationsUsingField: () => [],
@@ -112,6 +127,7 @@ describe("InsightConfigPanel filter saves", () => {
   beforeEach(() => {
     commitBatch.mockReset();
     commitBatch.mockResolvedValue({});
+    toastError.mockReset();
   });
 
   it("preserves the first viewer control when saving a second", async () => {
@@ -155,6 +171,27 @@ describe("InsightConfigPanel filter saves", () => {
     expect(commitBatch.mock.calls[0][0].commands).toHaveLength(1);
     expect(commitBatch.mock.calls[0][0].commands[0].path).toBe(
       "setInsightFilter",
+    );
+  });
+
+  it("reports a rejected runtime-control write", async () => {
+    commitBatch.mockRejectedValueOnce(new Error("write failed"));
+    render(
+      <InsightConfigPanel
+        insight={insight}
+        dataTable={table}
+        allDataTables={[table]}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save viewer controls" }),
+    );
+
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith(
+        "Failed to update viewer controls",
+      ),
     );
   });
 });
