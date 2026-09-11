@@ -56,8 +56,9 @@ import { duckdbColumnsToArrowIpc, type ResultColumn } from "./arrow-encode";
 import { tableKey } from "./table-identity";
 
 /**
- * Deny filesystem and network access on `connection`, then lock the
- * configuration so user SQL cannot restore it.
+ * Deny client-issued SQL access to external filesystem and network primitives
+ * on `connection`, then lock the configuration so user SQL cannot restore it.
+ * This does not disable DuckDB's internal database-file or temporary-spill I/O.
  *
  * Order matters: `lock_configuration` must be set LAST, because it also locks
  * itself and every setting after it. The lock is what makes this a boundary
@@ -101,8 +102,10 @@ export interface NativeDuckDBEngineOptions {
    */
   databasePath?: string;
   /**
-   * Deny DuckDB every filesystem and network primitive, and lock that decision
-   * so no later statement can undo it. Defaults to `true`.
+   * Deny client-issued SQL access to external filesystem and network
+   * primitives, and lock that decision so no later statement can undo it.
+   * Defaults to `true`. DuckDB's internal database-file and temporary-spill I/O
+   * remain available.
    *
    * This engine executes SQL that originates in the browser: Mosaic composes
    * chart queries client-side and posts them to the Arrow data path, which
@@ -118,9 +121,9 @@ export interface NativeDuckDBEngineOptions {
    * before these settings apply, and reads, writes and CHECKPOINT against it are
    * unaffected.
    *
-   * Set it to `false` only for a caller that genuinely needs DuckDB to touch the
-   * filesystem, and only where the SQL reaching that engine cannot come from a
-   * client. No caller does today.
+   * Set it to `false` only for a trusted caller whose SQL genuinely needs
+   * external filesystem or network primitives, and only where that SQL cannot
+   * come from a client. No caller does today.
    */
   restrictFileAccess?: boolean;
 }
@@ -725,7 +728,8 @@ export class NativeDuckDBEngine implements QueryEngine {
           `CREATE OR REPLACE TEMP TABLE ${quoteIdent(stagingName)} (${columnDefs})`,
         );
 
-        // Stream rows into the staging table — no disk, no string round-trip.
+        // Stream rows without an application-owned staging file or string
+        // round-trip. An unsandboxed DuckDB may still spill internally.
         const appender = await conn.createAppender(stagingName);
         try {
           const columns = fields.map((f) => ({
