@@ -1,5 +1,6 @@
 import { AxisSelectField } from "@/components/visualizations/AxisSelectField";
 import { useVisualizationEncodingChange } from "@/components/visualizations/useVisualizationEncodingChange";
+import { getVisualizationTypeChange } from "@/components/visualizations/visualization-type-change";
 import {
   extractColumnAliasComponents,
   fieldIdToColumnAlias,
@@ -15,7 +16,6 @@ import type {
   Field,
   UUID,
   Visualization,
-  VisualizationEncoding,
   VisualizationType,
 } from "@dashframe/types";
 import {
@@ -33,6 +33,7 @@ import {
 import { Button, Tooltip, cn } from "@wystack/ui-react";
 import { BarChart3, Bookmark, Crosshair } from "lucide-react";
 import { useMemo } from "react";
+import { toast } from "sonner";
 
 const VISUALIZATION_SECTION_IDS = [
   "chart-type",
@@ -74,7 +75,9 @@ interface VisualizationConfigPanelProps {
   onSelectVisualization: (visualizationId: UUID) => void;
   updateVisualization: (args: {
     id: UUID;
-    updates: { encoding: VisualizationEncoding };
+    updates: Partial<
+      Pick<Visualization, "visualizationType" | "encoding" | "spec">
+    >;
   }) => Promise<unknown>;
 }
 
@@ -238,6 +241,7 @@ function SavedEncodings({
     columnAnalysis,
     updateVisualization,
   });
+  const encodingsReady = columnAnalysis.length > 0;
   const options = useMemo(() => {
     const result: Array<{ label: string; value: string }> =
       compiledInsight.dimensions.map((field) => ({
@@ -273,66 +277,77 @@ function SavedEncodings({
   ]);
 
   return (
-    <AxesFrame>
-      <div className="absolute top-0 right-0 grid w-40 min-w-0 grid-cols-2 gap-1.5 [&>*]:min-w-0">
-        <SelectField
-          label="Color"
-          value={visualization.encoding?.color || ""}
-          onChange={(value) => handleEncodingChange("color", value)}
-          options={options}
-          placeholder="None"
-          emptyDashed
-        />
-        <SelectField
-          label="Size"
-          value={visualization.encoding?.size || ""}
-          onChange={(value) => handleEncodingChange("size", value)}
-          options={options}
-          placeholder="None"
-          emptyDashed
-        />
-      </div>
-      <span
-        aria-hidden
-        className="absolute top-28 -left-1 -rotate-90 text-[11px] text-neutral-fg-subtle"
-      >
-        Y
-      </span>
-      <div className="absolute top-20 left-3 w-28">
+    <>
+      <AxesFrame>
+        <div className="absolute top-0 right-0 grid w-40 min-w-0 grid-cols-2 gap-1.5 [&>*]:min-w-0">
+          <SelectField
+            label="Color"
+            value={visualization.encoding?.color || ""}
+            onChange={(value) => handleEncodingChange("color", value)}
+            options={options}
+            placeholder="None"
+            emptyDashed
+            disabled={!encodingsReady}
+          />
+          <SelectField
+            label="Size"
+            value={visualization.encoding?.size || ""}
+            onChange={(value) => handleEncodingChange("size", value)}
+            options={options}
+            placeholder="None"
+            emptyDashed
+            disabled={!encodingsReady}
+          />
+        </div>
+        <span
+          aria-hidden
+          className="absolute top-28 -left-1 -rotate-90 text-[11px] text-neutral-fg-subtle"
+        >
+          Y
+        </span>
+        <div className="absolute top-20 left-3 w-28">
+          <AxisSelectField
+            label="Y"
+            showLabel={false}
+            value={visualization.encoding?.y || ""}
+            onChange={(value) => handleEncodingChange("y", value)}
+            placeholder="None"
+            emptyDashed
+            disabled={!encodingsReady}
+            axis="y"
+            chartType={visualization.visualizationType}
+            columnAnalysis={columnAnalysis}
+            compiledInsight={compiledInsight}
+            availableFields={availableFields}
+            availableColumns={availableColumns}
+            columnDisplayNames={columnDisplayNames}
+            otherAxisColumn={visualization.encoding?.x}
+          />
+        </div>
         <AxisSelectField
-          label="Y"
-          showLabel={false}
-          value={visualization.encoding?.y || ""}
-          onChange={(value) => handleEncodingChange("y", value)}
+          label="X"
+          value={visualization.encoding?.x || ""}
+          onChange={(value) => handleEncodingChange("x", value)}
           placeholder="None"
           emptyDashed
-          axis="y"
+          disabled={!encodingsReady}
+          className="absolute right-2 bottom-0 left-14"
+          axis="x"
           chartType={visualization.visualizationType}
           columnAnalysis={columnAnalysis}
           compiledInsight={compiledInsight}
           availableFields={availableFields}
           availableColumns={availableColumns}
           columnDisplayNames={columnDisplayNames}
-          otherAxisColumn={visualization.encoding?.x}
+          otherAxisColumn={visualization.encoding?.y}
         />
-      </div>
-      <AxisSelectField
-        label="X"
-        value={visualization.encoding?.x || ""}
-        onChange={(value) => handleEncodingChange("x", value)}
-        placeholder="None"
-        emptyDashed
-        className="absolute right-2 bottom-0 left-14"
-        axis="x"
-        chartType={visualization.visualizationType}
-        columnAnalysis={columnAnalysis}
-        compiledInsight={compiledInsight}
-        availableFields={availableFields}
-        availableColumns={availableColumns}
-        columnDisplayNames={columnDisplayNames}
-        otherAxisColumn={visualization.encoding?.y}
-      />
-    </AxesFrame>
+      </AxesFrame>
+      {!encodingsReady && (
+        <p className="mt-2 text-[11px] leading-4 text-neutral-fg-subtle">
+          Loading encoding options…
+        </p>
+      )}
+    </>
   );
 }
 
@@ -361,6 +376,17 @@ export function VisualizationConfigPanel({
     registerSection,
   } = useWorkbenchPaneSections(VISUALIZATION_SECTION_IDS);
   const selectedMetadata = CHART_TYPE_METADATA[activeChartType];
+  const handleChartTypeChange = (chartType: VisualizationType) => {
+    if (!activeVisualization) {
+      onSelectChartType(chartType);
+      return;
+    }
+    const updates = getVisualizationTypeChange(activeVisualization, chartType);
+    if (!updates) return;
+    updateVisualization({ id: activeVisualization.id, updates }).catch(() =>
+      toast.error("Failed to update chart type"),
+    );
+  };
 
   const renderSection = (
     id: VisualizationSection,
@@ -412,7 +438,7 @@ export function VisualizationConfigPanel({
                       variant={selected ? "solid" : "ghost"}
                       label={CHART_TYPE_METADATA[chartType].displayName}
                       active={selected}
-                      onClick={() => onSelectChartType(chartType)}
+                      onClick={() => handleChartTypeChange(chartType)}
                       className={cn(
                         "aspect-square h-auto w-full",
                         !available && !selected && "opacity-40",
@@ -467,15 +493,14 @@ export function VisualizationConfigPanel({
             <div className="space-y-1">
               {visualizations.map((visualization) => {
                 const Icon = CHART_ICONS[visualization.visualizationType];
+                const selected = activeVisualization?.id === visualization.id;
                 return (
                   <Button
                     key={visualization.id}
                     size="sm"
-                    variant={
-                      activeVisualization?.id === visualization.id
-                        ? "solid"
-                        : "ghost"
-                    }
+                    variant={selected ? "solid" : "ghost"}
+                    active={selected}
+                    aria-pressed={selected}
                     label={visualization.name}
                     onClick={() => onSelectVisualization(visualization.id)}
                     className="w-full justify-start"

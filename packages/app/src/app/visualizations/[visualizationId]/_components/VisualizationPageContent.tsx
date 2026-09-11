@@ -5,6 +5,7 @@ import { AppLayout } from "@/components/layouts/AppLayout";
 import { useContextPanelSection } from "@/components/shell/context-panel-outlet";
 import { AxisSelectField } from "@/components/visualizations/AxisSelectField";
 import { useVisualizationEncodingChange } from "@/components/visualizations/useVisualizationEncodingChange";
+import { getVisualizationTypeChange } from "@/components/visualizations/visualization-type-change";
 import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
 import { visualizationSourceQuestionLink } from "@/components/visualizations/visualization-navigation";
 import {
@@ -423,38 +424,13 @@ export default function VisualizationPageContent({
   const handleTypeChange = useCallback(
     async (type: string) => {
       const newType = type as VisualizationType;
-      const currentType = visualization?.visualizationType;
-
-      // Check if switching between bar orientations - auto-swap axes
-      const isBarSwitch =
-        (currentType === "barY" && newType === "barX") ||
-        (currentType === "barX" && newType === "barY");
-
-      if (isBarSwitch && visualization?.encoding) {
-        // Swap X and Y when changing bar orientation
-        const currentEncoding = visualization.encoding;
-        const newEncoding = {
-          ...currentEncoding,
-          x: currentEncoding.y,
-          y: currentEncoding.x,
-          xType: currentEncoding.yType,
-          yType: currentEncoding.xType,
-        };
-
-        // Update both type and encoding in a single mutation so a mid-swap
-        // failure can't leave the chart with a swapped type but un-swapped
-        // axes (a visibly broken mapping). Mirrors handleSwapAxes below.
-        await updateVisualizationMutation({
-          id: visualizationId as UUID,
-          updates: { visualizationType: newType, encoding: newEncoding },
-        });
-      } else {
-        // Just update the type
-        await updateVisualizationMutation({
-          id: visualizationId as UUID,
-          updates: { visualizationType: newType },
-        });
-      }
+      if (!visualization) return;
+      const updates = getVisualizationTypeChange(visualization, newType);
+      if (!updates) return;
+      await updateVisualizationMutation({
+        id: visualizationId as UUID,
+        updates,
+      });
     },
     [updateVisualizationMutation, visualization, visualizationId],
   );
