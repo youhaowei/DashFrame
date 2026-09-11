@@ -330,23 +330,6 @@ export function InsightConfigPanel({
     [insight.id, updateInsight],
   );
 
-  const handleRemoveField = useCallback(
-    (fieldId: string) => {
-      // Find the field to get its name
-      const field = combinedFields.find((f) => f.id === fieldId);
-      if (!field) return;
-
-      // Open delete confirmation dialog (affected visualizations computed reactively)
-      setDeleteDialog({
-        isOpen: true,
-        itemId: fieldId,
-        itemName: field.displayName,
-        itemType: "field",
-      });
-    },
-    [combinedFields],
-  );
-
   const handleAddField = useCallback(
     (fieldId: string) => {
       const updated = [...(insight.selectedFields ?? []), fieldId];
@@ -380,23 +363,6 @@ export function InsightConfigPanel({
       });
     },
     [insight.id, insight.metrics, updateInsight],
-  );
-
-  const handleRemoveMetric = useCallback(
-    (metricId: string) => {
-      // Find the metric to get its name
-      const metric = (insight.metrics ?? []).find((m) => m.id === metricId);
-      if (!metric) return;
-
-      // Open delete confirmation dialog (affected visualizations computed reactively)
-      setDeleteDialog({
-        isOpen: true,
-        itemId: metricId,
-        itemName: metric.name,
-        itemType: "metric",
-      });
-    },
-    [insight.metrics],
   );
 
   const handleAddMetric = useCallback(
@@ -552,45 +518,93 @@ export function InsightConfigPanel({
     [removeVisualizationMutation],
   );
 
-  const handleConfirmDelete = useCallback(() => {
-    if (deleteDialog.itemType === "field") {
-      const updated = (insight.selectedFields ?? []).filter(
-        (id) => id !== deleteDialog.itemId,
-      );
-      updateInsight(insight.id, {
-        selectedFields: updated,
-        runtimeControls: pruneRuntimeControls(
-          insight.runtimeControls,
-          insight.filters ?? [],
-          [...updated, ...(insight.metrics ?? []).map((metric) => metric.id)],
-        ),
+  const removeConfigItem = useCallback(
+    (itemType: DeleteDialogState["itemType"], itemId: string) => {
+      if (itemType === "field") {
+        const updated = (insight.selectedFields ?? []).filter(
+          (id) => id !== itemId,
+        );
+        updateInsight(insight.id, {
+          selectedFields: updated,
+          runtimeControls: pruneRuntimeControls(
+            insight.runtimeControls,
+            insight.filters ?? [],
+            [...updated, ...(insight.metrics ?? []).map((metric) => metric.id)],
+          ),
+        });
+      } else {
+        const updated = (insight.metrics ?? []).filter((m) => m.id !== itemId);
+        updateInsight(insight.id, {
+          metrics: updated,
+          runtimeControls: pruneRuntimeControls(
+            insight.runtimeControls,
+            insight.filters ?? [],
+            [
+              ...(insight.selectedFields ?? []),
+              ...updated.map((metric) => metric.id),
+            ],
+          ),
+        });
+      }
+    },
+    [
+      insight.id,
+      insight.selectedFields,
+      insight.metrics,
+      insight.filters,
+      insight.runtimeControls,
+      updateInsight,
+    ],
+  );
+
+  const handleConfirmDelete = useCallback(
+    () => removeConfigItem(deleteDialog.itemType, deleteDialog.itemId),
+    [deleteDialog.itemId, deleteDialog.itemType, removeConfigItem],
+  );
+
+  // Removing an unused field or metric only edits this insight's selection, so
+  // it applies immediately. Confirm only when saved charts depend on it.
+  const handleRemoveField = useCallback(
+    (fieldId: string) => {
+      const field = combinedFields.find((f) => f.id === fieldId);
+      if (!field) return;
+      if (
+        findVisualizationsUsingField(fieldId, insightVisualizations).length ===
+        0
+      ) {
+        removeConfigItem("field", fieldId);
+        return;
+      }
+      setDeleteDialog({
+        isOpen: true,
+        itemId: fieldId,
+        itemName: field.displayName,
+        itemType: "field",
       });
-    } else {
-      const updated = (insight.metrics ?? []).filter(
-        (m) => m.id !== deleteDialog.itemId,
-      );
-      updateInsight(insight.id, {
-        metrics: updated,
-        runtimeControls: pruneRuntimeControls(
-          insight.runtimeControls,
-          insight.filters ?? [],
-          [
-            ...(insight.selectedFields ?? []),
-            ...updated.map((metric) => metric.id),
-          ],
-        ),
+    },
+    [combinedFields, insightVisualizations, removeConfigItem],
+  );
+
+  const handleRemoveMetric = useCallback(
+    (metricId: string) => {
+      const metric = (insight.metrics ?? []).find((m) => m.id === metricId);
+      if (!metric) return;
+      if (
+        findVisualizationsUsingMetric(metricId, insightVisualizations)
+          .length === 0
+      ) {
+        removeConfigItem("metric", metricId);
+        return;
+      }
+      setDeleteDialog({
+        isOpen: true,
+        itemId: metricId,
+        itemName: metric.name,
+        itemType: "metric",
       });
-    }
-  }, [
-    deleteDialog.itemType,
-    deleteDialog.itemId,
-    insight.id,
-    insight.selectedFields,
-    insight.metrics,
-    insight.filters,
-    insight.runtimeControls,
-    updateInsight,
-  ]);
+    },
+    [insight.metrics, insightVisualizations, removeConfigItem],
+  );
 
   const resultLabelById = new Map(
     runtimeResultFields.map((field) => [field.id, field.label]),
