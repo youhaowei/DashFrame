@@ -7,7 +7,7 @@ import type {
   VisualizationEncoding,
 } from "@dashframe/types";
 import { parseEncoding } from "@dashframe/types";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 export type VisualizationEncodingField = "x" | "y" | "color" | "size";
 
@@ -31,6 +31,22 @@ function inferAxisType(
 
 function isAxisField(field: VisualizationEncodingField): field is "x" | "y" {
   return field === "x" || field === "y";
+}
+
+/**
+ * Set the axis type from the column's analysis and drop a date transform that
+ * no longer applies to a non-temporal column.
+ */
+function applyAxisAnalysis(
+  encoding: VisualizationEncoding,
+  axis: "x" | "y",
+  analysis: ColumnAnalysis | undefined,
+): void {
+  if (!analysis) return;
+  encoding[axis === "x" ? "xType" : "yType"] = inferAxisType(analysis.semantic);
+  if (analysis.semantic === "temporal") return;
+  if (axis === "x") delete encoding.xTransform;
+  else delete encoding.yTransform;
 }
 
 /**
@@ -97,34 +113,59 @@ export function useVisualizationEncodingChange({
     visualization,
   ]);
 
+  // Edits made before the subscription echoes the previous write must build
+  // on that write, not on the stale prop, or the later write drops the earlier
+  // channel. Hold the latest local encoding until the prop catches up with no
+  // writes in flight.
+  const pendingEncodingRef = useRef<{
+    id: UUID;
+    encoding: VisualizationEncoding | undefined;
+  } | null>(null);
+  const inFlightWritesRef = useRef(0);
+  useEffect(() => {
+    if (inFlightWritesRef.current === 0) pendingEncodingRef.current = null;
+  }, [visualization?.id, visualization?.encoding]);
+
   return useCallback(
     async (field: VisualizationEncodingField, value: string) => {
       if (!visualization) return;
 
+      const pending = pendingEncodingRef.current;
+      const baseEncoding =
+        pending?.id === visualization.id
+          ? pending.encoding
+          : visualization.encoding;
       const nextEncoding: VisualizationEncoding = {
-        ...visualization.encoding,
+        ...baseEncoding,
         [field]: value,
       };
 
       if (isAxisField(field)) {
-        const analysis = columnAnalysis.find(
-          (column) => column.columnName === resolveAnalysisAlias(value),
+        applyAxisAnalysis(
+          nextEncoding,
+          field,
+          columnAnalysis.find(
+            (column) => column.columnName === resolveAnalysisAlias(value),
+          ),
         );
-        if (analysis) {
-          nextEncoding[field === "x" ? "xType" : "yType"] = inferAxisType(
-            analysis.semantic,
-          );
-          if (analysis.semantic !== "temporal") {
-            if (field === "x") delete nextEncoding.xTransform;
-            else delete nextEncoding.yTransform;
-          }
-        }
       }
 
-      await updateVisualization({
+      pendingEncodingRef.current = {
         id: visualization.id,
-        updates: { encoding: nextEncoding },
-      });
+        encoding: nextEncoding,
+      };
+      inFlightWritesRef.current += 1;
+      try {
+        await updateVisualization({
+          id: visualization.id,
+          updates: { encoding: nextEncoding },
+        });
+      } catch (error) {
+        pendingEncodingRef.current = null;
+        throw error;
+      } finally {
+        inFlightWritesRef.current -= 1;
+      }
     },
     [columnAnalysis, resolveAnalysisAlias, updateVisualization, visualization],
   );
