@@ -4,8 +4,8 @@ import type { CSSProperties, ReactNode, Ref, UIEventHandler } from "react";
 
 /**
  * Thin scrollbar for a Base UI ScrollArea. It stays out of layout and shows
- * while the pointer is over the area (after a short delay, so passing over
- * doesn't flash it) or while the area scrolls.
+ * faintly while the pointer is over the area (after a short delay, so passing
+ * over doesn't flash it) and fully while the area scrolls.
  */
 export function OverlayScrollbar({
   orientation = "vertical",
@@ -22,7 +22,10 @@ export function OverlayScrollbar({
       style={style}
       className={cn(
         "z-20 flex touch-none rounded-full p-0.5 opacity-0 transition-opacity delay-300 duration-300 select-none motion-reduce:transition-none",
-        "data-[hovering]:opacity-100 data-[hovering]:delay-150 data-[hovering]:duration-200 data-[scrolling]:opacity-100 data-[scrolling]:delay-0 data-[scrolling]:duration-100",
+        // Hover shows the bar at 70% and scrolling at full strength. The
+        // targets differ on purpose: with the same target, a delayed hover
+        // transition already under way would also delay the scroll reveal.
+        "data-[hovering]:opacity-70 data-[hovering]:delay-150 data-[hovering]:duration-200 data-[scrolling]:opacity-100 data-[scrolling]:delay-0 data-[scrolling]:duration-100",
         orientation === "vertical" ? "w-2" : "h-2 flex-col",
         className,
       )}
