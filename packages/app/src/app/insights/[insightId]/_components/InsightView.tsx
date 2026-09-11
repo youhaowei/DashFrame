@@ -799,7 +799,7 @@ function InsightCanvasWell({
             onToggleCollapsed={() =>
               setResultCollapsed((collapsed) => !collapsed)
             }
-            // The strip stays visible while the table body slides away.
+            // The strip stays visible while the body fades out and its space shrinks.
             className={cn(
               "overflow-hidden pt-1 transition-[flex-grow,flex-basis] duration-300 ease-out motion-reduce:transition-none",
               resultCollapsed ? "flex-[0_0_2.25rem]" : "flex-[1_1_32%]",
