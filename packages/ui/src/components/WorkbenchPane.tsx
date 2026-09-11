@@ -184,7 +184,6 @@ export interface WorkbenchChipProps {
   content?: ReactNode;
   trailing?: ReactNode;
   open?: boolean;
-  onEdit?: () => void;
   removeLabel?: string;
   onRemove?: () => void;
   className?: string;
@@ -198,7 +197,6 @@ export function WorkbenchChip({
   content,
   trailing,
   open = false,
-  onEdit,
   removeLabel,
   onRemove,
   className,
@@ -218,12 +216,7 @@ export function WorkbenchChip({
         {icon}
       </span>
       {content ?? (
-        <button
-          type="button"
-          className="min-w-0 flex-1 text-left focus-visible:outline-none"
-          onClick={onEdit}
-          disabled={!onEdit}
-        >
+        <div className="min-w-0 flex-1 text-left">
           <span className="block truncate font-medium text-neutral-fg">
             {title}
           </span>
@@ -232,7 +225,7 @@ export function WorkbenchChip({
               {description}
             </span>
           )}
-        </button>
+        </div>
       )}
       {trailing}
       {removeLabel && onRemove && (

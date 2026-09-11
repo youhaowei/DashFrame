@@ -1,12 +1,12 @@
 import { useCallback, useRef, useState } from "react";
 
 /**
- * Keeps a dialog on screen while its save is in flight.
+ * Keeps a popover editor on screen while its save is in flight.
  *
  * Disabling the Cancel button is not enough: Escape and an outside click both
- * reach the dialog shell's `onOpenChange` directly. Dismissing a pending save
+ * reach the popover shell's `onOpenChange` directly. Dismissing a pending save
  * lets the user open a second editor, and when the first promise settles its
- * `onClose` clears the shared parent state and closes the *second* dialog,
+ * completion could otherwise clear state owned by a newly opened editor,
  * discarding that edit.
  *
  * The inner form owns the saving flag, so it reports transitions up through
@@ -14,8 +14,8 @@ import { useCallback, useRef, useState } from "react";
  * A ref rather than state, because a dismissal can arrive in the same tick as
  * the transition that set it.
  *
- * Candidate for extraction into `@wystack/ui-react` — the four insight config
- * dialogs are the same shell shape, and nothing here is insight-specific.
+ * Candidate for extraction into `@wystack/ui-react` — the insight config
+ * popovers share this shell behavior, and nothing here is insight-specific.
  */
 export function useSaveDismissGuard(): {
   setPending: (pending: boolean) => void;
@@ -30,7 +30,7 @@ export function useSaveDismissGuard(): {
 }
 
 /**
- * The saving flag for a dialog's inner form, mirrored to the shell's dismiss
+ * The saving flag for a popover's inner form, mirrored to the shell's dismiss
  * guard. Drop-in for `useState(false)` at each form's `isSaving`, so the two
  * cannot drift apart.
  */

@@ -54,32 +54,6 @@ export const DataModelSection = memo(function DataModelSection({
     },
     [commitBatch, confirm, insight.id],
   );
-  const reorderJoins = useCallback(
-    (reorderedItems: TableItem[]) => {
-      const currentJoins = insight.joins ?? [];
-      const reorderedJoins = reorderedItems
-        .filter((item) => item.joinIndex !== undefined)
-        .map((item) => currentJoins[item.joinIndex!])
-        .filter((join): join is NonNullable<typeof join> => Boolean(join));
-      if (reorderedJoins.every((join, index) => join === currentJoins[index])) {
-        return;
-      }
-
-      commitBatch({
-        commands: [
-          ...currentJoins
-            .map((_, joinIndex) =>
-              cmd("RemoveJoin", { id: insight.id, joinIndex }),
-            )
-            .reverse(),
-          ...reorderedJoins.map((join) =>
-            cmd("AddJoin", { id: insight.id, join }),
-          ),
-        ],
-      }).catch(() => toast.error("Couldn't reorder the tables"));
-    },
-    [commitBatch, insight.id, insight.joins],
-  );
   const items: TableItem[] = [
     {
       id: "base",
@@ -96,6 +70,7 @@ export const DataModelSection = memo(function DataModelSection({
         title: table?.name ?? "Unknown table",
         description: `${join.type} join on ${join.leftKey}`,
         joinIndex: index,
+        disabled: true,
       };
     }),
   ];
@@ -105,12 +80,11 @@ export const DataModelSection = memo(function DataModelSection({
       <div className="space-y-1">
         <SortableList
           items={items}
-          onReorder={reorderJoins}
+          onReorder={() => undefined}
           gap={3}
           unstyledItems
-          renderItem={(item, _index, { dragHandle }) => (
+          renderItem={(item) => (
             <WorkbenchChip
-              dragHandle={dragHandle}
               icon={<Table2 className="h-3.5 w-3.5" />}
               title={item.title}
               description={item.description}

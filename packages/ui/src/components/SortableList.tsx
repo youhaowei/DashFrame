@@ -158,6 +158,7 @@ function renderDragOverlayContent<T extends SortableListItem>(
       ) => React.ReactNode)
     | undefined,
   renderIcon: (icon: ListItem["icon"]) => React.ReactNode,
+  unstyled: boolean,
   itemClassName?: string,
 ): React.ReactNode {
   if (!activeItem) {
@@ -165,6 +166,16 @@ function renderDragOverlayContent<T extends SortableListItem>(
   }
 
   if (renderItem) {
+    if (unstyled) {
+      return (
+        <div className={itemClassName}>
+          {renderItem(activeItem, items.indexOf(activeItem), {
+            dragHandle: null,
+            isDragging: true,
+          })}
+        </div>
+      );
+    }
     return (
       <div
         className={cn(
@@ -410,6 +421,7 @@ export function SortableList<T extends SortableListItem>({
           items,
           renderItem,
           renderIcon,
+          unstyledItems,
           itemClassName,
         )}
       </DragOverlay>

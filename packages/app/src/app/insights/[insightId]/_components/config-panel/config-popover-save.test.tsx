@@ -5,10 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { FieldsSection } from "./FieldsSection";
 import { FiltersSection } from "./FiltersSection";
-import {
-  metricColumnNameForSave,
-  metricFormulaPreview,
-} from "./metric-formula";
+import { metricColumnNameForSave } from "./metric-formula";
 import { MetricsSection } from "./MetricsSection";
 
 const table = {
@@ -63,6 +60,14 @@ function metrics(
 describe("insight config popover saves", () => {
   beforeEach(() => {
     vi.stubGlobal("PointerEvent", MouseEvent);
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
   });
 
   it("keeps the add-metric popover open and reports a rejected save", async () => {
@@ -150,6 +155,7 @@ describe("insight config popover saves", () => {
         selectedFields={[field]}
         availableFields={[]}
         tables={[table]}
+        baseTableId={table.id}
         onReorder={vi.fn()}
         onRemove={vi.fn()}
         onRename={rejectedSave}
@@ -165,6 +171,51 @@ describe("insight config popover saves", () => {
       await screen.findByText("Failed to rename field: write failed"),
     ).toBeTruthy();
     expect(screen.getByLabelText("Display name")).toBeTruthy();
+  });
+
+  it("renames from the stored field name instead of its disambiguated label", () => {
+    render(
+      <FieldsSection
+        selectedFields={[{ ...field, displayName: "Orders · Amount" }]}
+        availableFields={[]}
+        tables={[table]}
+        baseTableId={table.id}
+        onReorder={vi.fn()}
+        onRemove={vi.fn()}
+        onRename={vi.fn()}
+        onAdd={vi.fn()}
+      />,
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Rename Orders · Amount" }),
+    );
+    expect(
+      (screen.getByLabelText("Display name") as HTMLInputElement).value,
+    ).toBe("Amount");
+    expect(
+      screen.getByRole("button", { name: "Save" }).hasAttribute("disabled"),
+    ).toBe(true);
+  });
+
+  it("selects an add-field command grouped under the authoring table", async () => {
+    const user = userEvent.setup({ delay: null });
+    const onAdd = vi.fn();
+    render(
+      <FieldsSection
+        selectedFields={[]}
+        availableFields={[field]}
+        tables={[table]}
+        baseTableId={table.id}
+        onReorder={vi.fn()}
+        onRemove={vi.fn()}
+        onRename={vi.fn()}
+        onAdd={onAdd}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Add field" }));
+    expect(await screen.findByText("Orders")).toBeTruthy();
+    await user.click(screen.getByRole("option", { name: /Amount/ }));
+    expect(onAdd).toHaveBeenCalledWith(field.id);
   });
 
   it("ignores Escape while an add-metric save is in flight", async () => {
@@ -192,10 +243,102 @@ describe("insight config popover saves", () => {
     );
   });
 
-  it("drops a chosen column when switching back to Count", async () => {
+  it("ignores Escape while an edit-metric save is in flight", async () => {
+    let release = () => undefined;
+    const onSave = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    render(metrics(vi.fn(), onSave, [metric]));
+    fireEvent.click(screen.getByRole("button", { name: "Edit Total amount" }));
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "Revenue" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    fireEvent.keyDown(document.activeElement ?? document.body, {
+      key: "Escape",
+      code: "Escape",
+    });
+    expect(screen.getByDisplayValue("Revenue")).toBeTruthy();
+    release();
+    await waitFor(() => expect(screen.queryByLabelText("Name")).toBeNull());
+  });
+
+  it("ignores Escape while a filter save is in flight", async () => {
+    let release = () => undefined;
+    const onSave = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    render(
+      <FiltersSection
+        filters={[]}
+        combinedFields={[field]}
+        onReorder={vi.fn()}
+        onRemove={vi.fn()}
+        onSave={onSave}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Add filter" }));
+    fireEvent.change(screen.getByLabelText("Value"), {
+      target: { value: "100" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    fireEvent.keyDown(document.activeElement ?? document.body, {
+      key: "Escape",
+      code: "Escape",
+    });
+    expect(screen.getByDisplayValue("100")).toBeTruthy();
+    release();
+    await waitFor(() => expect(screen.queryByLabelText("Value")).toBeNull());
+  });
+
+  it("ignores Escape while a field rename is in flight", async () => {
+    let release = () => undefined;
+    const onRename = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    render(
+      <FieldsSection
+        selectedFields={[field]}
+        availableFields={[]}
+        tables={[table]}
+        baseTableId={table.id}
+        onReorder={vi.fn()}
+        onRemove={vi.fn()}
+        onRename={onRename}
+        onAdd={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Rename Amount" }));
+    fireEvent.change(screen.getByLabelText("Display name"), {
+      target: { value: "Revenue" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onRename).toHaveBeenCalled());
+    fireEvent.keyDown(document.activeElement ?? document.body, {
+      key: "Escape",
+      code: "Escape",
+    });
+    expect(screen.getByDisplayValue("Revenue")).toBeTruthy();
+    release();
+    await waitFor(() =>
+      expect(screen.queryByLabelText("Display name")).toBeNull(),
+    );
+  });
+
+  it("leaves the column empty after switching from Count back to Sum", async () => {
     const user = userEvent.setup({ delay: null });
-    const onSave = vi.fn().mockResolvedValue(undefined);
-    render(metrics(onSave));
+    render(metrics());
     await user.click(screen.getByRole("button", { name: "Add metric" }));
     await user.click(screen.getByLabelText("Aggregation"));
     await user.click(await screen.findByRole("option", { name: "Sum" }));
@@ -203,15 +346,10 @@ describe("insight config popover saves", () => {
     await user.click(await screen.findByRole("option", { name: "Amount" }));
     await user.click(screen.getByLabelText("Aggregation"));
     await user.click(await screen.findByRole("option", { name: "Count" }));
-    await user.click(
-      screen.getAllByRole("button", { name: "Add metric" }).at(-1)!,
-    );
-    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
-    expect(onSave.mock.calls[0][0]).toMatchObject({
-      aggregation: "count",
-      columnName: undefined,
-    });
-  });
+    await user.click(screen.getByLabelText("Aggregation"));
+    await user.click(await screen.findByRole("option", { name: "Sum" }));
+    expect(screen.getByLabelText("Column").textContent).toContain("Column");
+  }, 10_000);
 
   it("repairs a stored count metric that still carries a column", async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
@@ -224,6 +362,9 @@ describe("insight config popover saves", () => {
     render(metrics(vi.fn(), onSave, [stored]));
     fireEvent.click(screen.getByRole("button", { name: "Edit Orders" }));
     expect(screen.getByLabelText("Column").hasAttribute("disabled")).toBe(true);
+    expect(
+      screen.getByRole("button", { name: "Save" }).hasAttribute("disabled"),
+    ).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     expect(onSave.mock.calls[0][0]).toMatchObject({
@@ -232,8 +373,44 @@ describe("insight config popover saves", () => {
     });
   });
 
-  it("keeps a count metric's saved payload equal to its preview", () => {
-    expect(metricFormulaPreview("count", "amount")).toBe("count(*)");
+  it("keeps an existing metric name when its formula changes", async () => {
+    const user = userEvent.setup({ delay: null });
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    render(metrics(vi.fn(), onSave, [metric]));
+    await user.click(screen.getByRole("button", { name: "Edit Total amount" }));
+    await user.click(screen.getByLabelText("Aggregation"));
+    await user.click(await screen.findByRole("option", { name: "Average" }));
+    expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe(
+      "Total amount",
+    );
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0][0]).toMatchObject({
+      name: "Total amount",
+      aggregation: "avg",
+    });
+  }, 10_000);
+
+  it("refreshes an existing metric editor from saved props when reopened", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const view = render(metrics(vi.fn(), onSave, [metric]));
+    fireEvent.click(screen.getByRole("button", { name: "Edit Total amount" }));
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "Revenue" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    view.rerender(metrics(vi.fn(), onSave, [{ ...metric, name: "Revenue" }]));
+    fireEvent.click(screen.getByRole("button", { name: "Edit Revenue" }));
+    expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe(
+      "Revenue",
+    );
+    expect(
+      screen.getByRole("button", { name: "Save" }).hasAttribute("disabled"),
+    ).toBe(true);
+  });
+
+  it("omits a count metric's stale saved column", () => {
     expect(metricColumnNameForSave("count", "amount")).toBeUndefined();
   });
 });

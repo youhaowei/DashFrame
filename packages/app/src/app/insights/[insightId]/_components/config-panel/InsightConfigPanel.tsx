@@ -68,13 +68,12 @@ interface InsightConfigPanelProps {
 }
 
 /**
- * InsightConfigPanel - Left panel for configuring insight fields and metrics
+ * InsightConfigPanel - Sectioned workbench pane for configuring an insight.
  *
  * Features:
- * - Editable insight name in header
- * - Grouped sections for Fields (dimensions) and Metrics (aggregations)
+ * - Tables, fields, metrics, filters, sort, and viewer-control sections
  * - Drag-and-drop reordering via @dnd-kit
- * - Add/edit/remove functionality via dialog modals
+ * - Anchored popover editors that preserve pending saves
  */
 /** State for the delete confirmation dialog (minimal state, affected visualizations computed reactively) */
 interface DeleteDialogState {
@@ -230,10 +229,9 @@ export function InsightConfigPanel({
 
   // Fields that can actually back a filter predicate — excludes dropped right
   // join-keys and ambiguous duplicate column names that the SQL builder cannot
-  // resolve. Offered in the FilterEditDialog picker so a saved filter always
-  // produces a working predicate. (FiltersSection still receives the full
-  // combinedFields, so an existing filter on an excluded field renders by name
-  // rather than as a stale reference.)
+  // resolve. Offered in the filter popover picker so a saved filter always
+  // produces a working predicate. FiltersSection also receives combinedFields
+  // so excluded or stale selections retain their display treatment.
   const filterableFields = useMemo(
     () => computeFilterableFields(combinedFields, insight.joins),
     [combinedFields, insight.joins],
@@ -292,7 +290,7 @@ export function InsightConfigPanel({
    * matching an in-flight edit back to its predicate on save.
    *
    * `_id` is sourced from the filter's persisted `id` (generated on add by
-   * FilterEditDialog and the API write boundary, then preserved across
+   * the filter popover and the API write boundary, then preserved across
    * persistence round-trips). This survives a subscription firing mid-edit — a
    * concurrent reorder no longer shifts the id, so handleSaveFilter cannot
    * misroute the save to the wrong filter.
@@ -451,15 +449,20 @@ export function InsightConfigPanel({
         ...insight.runtimeControls,
         filters: controls.length > 0 ? controls : undefined,
       };
-      await updateInsight(insight.id, {
+      const nextRuntimeControls =
+        runtimeControls.filters || runtimeControls.sort || runtimeControls.limit
+          ? runtimeControls
+          : undefined;
+      const updates: Partial<Omit<Insight, "id" | "createdAt">> = {
         filters: stripFilterClientMetadata(updated),
-        runtimeControls:
-          runtimeControls.filters ||
-          runtimeControls.sort ||
-          runtimeControls.limit
-            ? runtimeControls
-            : undefined,
-      });
+      };
+      if (
+        JSON.stringify(nextRuntimeControls) !==
+        JSON.stringify(insight.runtimeControls)
+      ) {
+        updates.runtimeControls = nextRuntimeControls;
+      }
+      await updateInsight(insight.id, updates);
     },
     [filtersWithIds, insight.id, insight.runtimeControls, updateInsight],
   );
@@ -580,7 +583,16 @@ export function InsightConfigPanel({
   );
   const filterLabelById = new Map(
     filtersWithIds.flatMap((filter) =>
-      filter.id ? [[filter.id, filter.field] as const] : [],
+      filter.id
+        ? [
+            [
+              filter.id,
+              combinedFields.find(
+                (field) => (field.columnName ?? field.name) === filter.field,
+              )?.displayName ?? filter.field,
+            ] as const,
+          ]
+        : [],
     ),
   );
   const viewerControls = [
@@ -619,7 +631,15 @@ export function InsightConfigPanel({
     fields:
       selectedFields.map((field) => field.displayName).join(", ") || "None",
     metrics: visibleMetrics.map((metric) => metric.name).join(", ") || "None",
-    filters: filtersWithIds.map((filter) => filter.field).join(", ") || "None",
+    filters:
+      filtersWithIds
+        .map(
+          (filter) =>
+            combinedFields.find(
+              (field) => (field.columnName ?? field.name) === filter.field,
+            )?.displayName ?? filter.field,
+        )
+        .join(", ") || "None",
     sort:
       sorts
         .map((sort) => {
@@ -676,7 +696,11 @@ export function InsightConfigPanel({
           <FieldsSection
             selectedFields={selectedFields}
             availableFields={availableFields}
-            tables={allDataTables}
+            tables={[
+              dataTable,
+              ...allDataTables.filter((table) => table.id !== dataTable.id),
+            ]}
+            baseTableId={dataTable.id}
             onReorder={handleFieldsReorder}
             onRemove={handleRemoveField}
             onRename={handleRenameField}
@@ -699,6 +723,7 @@ export function InsightConfigPanel({
           <FiltersSection
             filters={filtersWithIds}
             combinedFields={filterableFields}
+            displayFields={combinedFields}
             runtimeControls={insight.runtimeControls}
             onReorder={handleFiltersReorder}
             onRemove={handleRemoveFilter}

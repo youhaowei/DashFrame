@@ -1,6 +1,7 @@
 import type { CombinedField } from "@/lib/insights/compute-combined-fields";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vite-plus/test";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { SortSection } from "./SortSection";
 
 const field = {
@@ -13,6 +14,17 @@ const field = {
 } as CombinedField;
 
 describe("SortSection", () => {
+  beforeEach(() => {
+    vi.stubGlobal("PointerEvent", MouseEvent);
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+  });
   it("flips an ascending sort to descending from its direction button", () => {
     const onChange = vi.fn();
     render(
@@ -47,5 +59,79 @@ describe("SortSection", () => {
     expect(
       screen.getByRole("button", { name: "Add sort" }).hasAttribute("disabled"),
     ).toBe(true);
+  });
+
+  it("selects an add-sort command", async () => {
+    const user = userEvent.setup({ delay: null });
+    const onChange = vi.fn();
+    render(
+      <SortSection
+        sorts={[]}
+        fields={[field]}
+        metrics={[]}
+        onChange={onChange}
+        onRuntimeChange={vi.fn()}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Add sort" }));
+    await user.click(await screen.findByRole("option", { name: /Created at/ }));
+    expect(onChange).toHaveBeenCalledWith([
+      { field: "created_at", direction: "asc" },
+    ]);
+  });
+
+  it("starts viewer sort with no allowed columns and opts fields in", () => {
+    const onRuntimeChange = vi.fn();
+    const view = render(
+      <SortSection
+        sorts={[]}
+        fields={[field]}
+        metrics={[]}
+        onChange={vi.fn()}
+        onRuntimeChange={onRuntimeChange}
+      />,
+    );
+    fireEvent.click(
+      screen.getByRole("switch", { name: "Viewers can change sort" }),
+    );
+    expect(onRuntimeChange).toHaveBeenCalledWith({
+      sort: { allowedFieldIds: [], maxKeys: 1 },
+    });
+    view.rerender(
+      <SortSection
+        sorts={[]}
+        fields={[field]}
+        metrics={[]}
+        runtimeControls={{ sort: { allowedFieldIds: [], maxKeys: 1 } }}
+        onChange={vi.fn()}
+        onRuntimeChange={onRuntimeChange}
+      />,
+    );
+    fireEvent.click(screen.getByRole("checkbox", { name: "Created at" }));
+    expect(onRuntimeChange).toHaveBeenLastCalledWith({
+      sort: { allowedFieldIds: [field.id], maxKeys: 1 },
+    });
+  });
+
+  it("commits valid viewer limits on blur rather than each keystroke", () => {
+    const onRuntimeChange = vi.fn();
+    render(
+      <SortSection
+        sorts={[]}
+        fields={[field]}
+        metrics={[]}
+        runtimeControls={{ limit: { min: 1, max: 1000 } }}
+        onChange={vi.fn()}
+        onRuntimeChange={onRuntimeChange}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Minimum"), {
+      target: { value: "10" },
+    });
+    expect(onRuntimeChange).not.toHaveBeenCalled();
+    fireEvent.blur(screen.getByLabelText("Minimum"));
+    expect(onRuntimeChange).toHaveBeenCalledWith({
+      limit: { min: 10, max: 1000 },
+    });
   });
 });

@@ -61,7 +61,7 @@ import {
 import { Chart } from "@dashframe/visualization";
 import { useNavigate } from "@tanstack/react-router";
 
-import { Button, Input, cn } from "@wystack/ui-react";
+import { Button, cn } from "@wystack/ui-react";
 import {
   DashboardIcon,
   PlusIcon,
@@ -1476,13 +1476,18 @@ export function InsightView({
     <AppLayout
       breadcrumbs={[{ label: "Insights", to: "/insights" }]}
       headerContent={
-        <Input
-          aria-label="Insight name"
-          value={localName}
-          onChange={(event) => handleNameChange(event.target.value)}
-          placeholder="Untitled insight"
-          className="h-auto w-full border-0 bg-transparent px-0 py-0 text-lg font-semibold shadow-none focus-visible:ring-0"
-        />
+        <div className="min-w-0 flex-1">
+          <label className="sr-only" htmlFor="insight-name">
+            Insight name
+          </label>
+          <input
+            id="insight-name"
+            value={localName}
+            onChange={(event) => handleNameChange(event.target.value)}
+            placeholder="Untitled insight"
+            className="w-full rounded-sm bg-transparent px-1 py-0.5 text-lg font-semibold text-neutral-fg outline-none placeholder:text-neutral-fg-subtle focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:ring-offset-2 focus-visible:ring-offset-neutral-bg"
+          />
+        </div>
       }
       leftPanel={
         <InsightConfigPanel

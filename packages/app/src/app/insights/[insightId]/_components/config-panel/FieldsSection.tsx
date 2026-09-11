@@ -69,7 +69,7 @@ function FieldRenameEditor({
   onRemove: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [name, setName] = useState(field.displayName);
+  const [name, setName] = useState(field.name);
   const [error, setError] = useState<string | null>(null);
   const { setPending, isPending } = useSaveDismissGuard();
   const [isSaving, setIsSaving] = useSavingFlag(setPending);
@@ -77,12 +77,12 @@ function FieldRenameEditor({
   const close = () => {
     if (isPending()) return;
     setOpen(false);
-    setName(field.displayName);
+    setName(field.name);
     setError(null);
   };
   const save = async () => {
     const next = name.trim();
-    if (!next || next === field.displayName) return;
+    if (!next || next === field.name) return;
     setIsSaving(true);
     setError(null);
     try {
@@ -101,7 +101,11 @@ function FieldRenameEditor({
       open={open}
       onOpenChange={(next) => {
         if (!next) close();
-        else setOpen(true);
+        else {
+          setName(field.name);
+          setError(null);
+          setOpen(true);
+        }
       }}
     >
       <WorkbenchChip
@@ -154,7 +158,7 @@ function FieldRenameEditor({
             label={isSaving ? "Saving…" : "Save"}
             size="sm"
             loading={isSaving}
-            disabled={!name.trim() || name.trim() === field.displayName}
+            disabled={!name.trim() || name.trim() === field.name}
             onClick={() => void save()}
           />
         </div>
@@ -167,6 +171,7 @@ export function FieldsSection({
   selectedFields,
   availableFields,
   tables,
+  baseTableId,
   onReorder,
   onRemove,
   onRename,
@@ -175,6 +180,7 @@ export function FieldsSection({
   selectedFields: CombinedField[];
   availableFields: CombinedField[];
   tables: DataTable[];
+  baseTableId: string;
   onReorder: (newOrder: string[]) => void;
   onRemove: (fieldId: string) => void;
   onRename: (field: CombinedField, name: string) => Promise<void> | void;
@@ -189,14 +195,20 @@ export function FieldsSection({
     (items: FieldSortableItem[]) => onReorder(items.map((item) => item.id)),
     [onReorder],
   );
-  const tableGroups = tables
-    .map((table) => ({
-      table,
-      fields: availableFields.filter(
-        (field) => field.sourceTableId === table.id,
-      ),
-    }))
-    .filter((group) => group.fields.length > 0);
+  const tableById = new Map(tables.map((table) => [table.id, table]));
+  const groupedFields = new Map<string, CombinedField[]>();
+  for (const field of availableFields) {
+    const groupId =
+      field.sourceTableId === baseTableId ? baseTableId : field.sourceTableId;
+    groupedFields.set(groupId, [...(groupedFields.get(groupId) ?? []), field]);
+  }
+  const tableGroups = [...groupedFields].map(([tableId, fields]) => ({
+    tableId,
+    tableName:
+      tableById.get(tableId)?.name ??
+      (tableId === baseTableId ? "Base table" : "Joined table"),
+    fields,
+  }));
 
   return (
     <div className="space-y-1">
@@ -232,13 +244,13 @@ export function FieldsSection({
             />
             <CommandList>
               <CommandEmpty>No matching fields.</CommandEmpty>
-              {tableGroups.map(({ table, fields }) => (
-                <CommandGroup key={table.id} heading={table.name}>
+              {tableGroups.map(({ tableId, tableName, fields }) => (
+                <CommandGroup key={tableId} heading={tableName}>
                   {fields.map((field) => (
                     <CommandItem
                       key={field.id}
                       value={field.id}
-                      keywords={[field.displayName, field.type, table.name]}
+                      keywords={[field.displayName, field.type, tableName]}
                       onSelect={() => {
                         onAdd(field.id);
                         setAddOpen(false);
