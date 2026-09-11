@@ -33,6 +33,7 @@ interface SelectProps {
   onClear?: () => void;
   /** Render an unselected trigger as an empty dashed slot. */
   emptyDashed?: boolean;
+  disabled?: boolean;
   /** Error message to display below the field */
   error?: string;
 }
@@ -48,6 +49,7 @@ export function Select({
   className,
   error,
   emptyDashed = false,
+  disabled = false,
 }: SelectProps) {
   const selectedOption = options.find((option) => option.value === value);
   const items = options.map((option) => ({
@@ -66,6 +68,7 @@ export function Select({
       <SelectPrimitive
         items={items}
         value={value}
+        disabled={disabled}
         onValueChange={(v) => onChange(typeof v === "string" ? v : "")}
       >
         <SelectTrigger
