@@ -1,3 +1,4 @@
+import { ScrollArea } from "@base-ui/react/scroll-area";
 import {
   Button,
   Checkbox,
@@ -20,11 +21,11 @@ import {
   forwardRef,
   useCallback,
   useRef,
-  useEffect,
   useState,
   type ButtonHTMLAttributes,
   type ReactNode,
 } from "react";
+import { OverlayScrollbar } from "./OverlayScrollbar";
 
 export function useWorkbenchPaneSections<const T extends string>(
   ids: readonly T[],
@@ -141,9 +142,9 @@ export const WorkbenchPaneSection = forwardRef<
  * overflow-x-hidden, which would make it the sticky scrollport.
  */
 /**
- * Scroll area for a workbench pane. The scrollbar stays hidden; fades mark the
- * edges that have more content past them. The top fade hangs under a
- * WorkbenchPaneHeader when one is present.
+ * Scroll area for a workbench pane. A thin scrollbar shows while scrolling;
+ * fades mark the edges that have more content past them. The top fade hangs
+ * under a WorkbenchPaneHeader when one is present.
  */
 export function WorkbenchScrollArea({
   className,
@@ -152,45 +153,22 @@ export function WorkbenchScrollArea({
   className?: string;
   children: ReactNode;
 }) {
-  const scrollerRef = useRef<HTMLDivElement>(null);
-  const [edges, setEdges] = useState({ top: false, bottom: false });
-  const update = useCallback(() => {
-    const el = scrollerRef.current;
-    if (!el) return;
-    const top = el.scrollTop > 1;
-    const bottom = el.scrollTop + el.clientHeight < el.scrollHeight - 1;
-    setEdges((prev) =>
-      prev.top === top && prev.bottom === bottom ? prev : { top, bottom },
-    );
-  }, []);
-  useEffect(() => {
-    const el = scrollerRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    // Content grows and shrinks as sections collapse, so watch both boxes.
-    const observer = new ResizeObserver(update);
-    observer.observe(el);
-    if (el.firstElementChild) observer.observe(el.firstElementChild);
-    update();
-    return () => observer.disconnect();
-  }, [update]);
   return (
-    <div className={cn("relative h-full", className)}>
-      <div
-        ref={scrollerRef}
-        onScroll={update}
-        data-scrolled={edges.top || undefined}
-        className="group/pane-scroll h-full overflow-x-hidden overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-      >
+    <ScrollArea.Root
+      className={cn(
+        "group/pane-scroll relative h-full overflow-hidden",
+        className,
+      )}
+    >
+      <ScrollArea.Viewport className="h-full overscroll-contain">
         {children}
-      </div>
+      </ScrollArea.Viewport>
+      <OverlayScrollbar className="my-1 mr-0.5" />
       <div
         aria-hidden
-        className={cn(
-          "pointer-events-none absolute inset-x-0 bottom-0 z-10 h-8 bg-linear-to-t from-neutral-bg to-transparent transition-opacity duration-150",
-          edges.bottom ? "opacity-100" : "opacity-0",
-        )}
+        className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-8 bg-linear-to-t from-neutral-bg to-transparent opacity-0 transition-opacity duration-150 group-data-[overflow-y-end]/pane-scroll:opacity-100"
       />
-    </div>
+    </ScrollArea.Root>
   );
 }
 
@@ -208,7 +186,7 @@ export function WorkbenchPaneHeader({
       {/* Marks content scrolled under the header inside a WorkbenchScrollArea. */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-full h-6 bg-linear-to-b from-neutral-bg to-transparent opacity-0 transition-opacity duration-150 group-data-[scrolled]/pane-scroll:opacity-100"
+        className="pointer-events-none absolute inset-x-0 top-full h-6 bg-linear-to-b from-neutral-bg to-transparent opacity-0 transition-opacity duration-150 group-data-[overflow-y-start]/pane-scroll:opacity-100"
       />
     </div>
   );
