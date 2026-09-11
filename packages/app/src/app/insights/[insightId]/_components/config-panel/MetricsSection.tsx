@@ -202,7 +202,10 @@ function MetricEditor({
             }}
           >
             <SelectTrigger aria-label="Aggregation" className="w-32">
-              <SelectValue />
+              <SelectValue>
+                {AGGREGATIONS.find((item) => item.value === aggregation)
+                  ?.label ?? aggregation}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               {AGGREGATIONS.map((item) => (
@@ -220,7 +223,12 @@ function MetricEditor({
             disabled={!needsField}
           >
             <SelectTrigger aria-label="Column" className="min-w-0 flex-1">
-              <SelectValue placeholder={needsField ? "Column" : "All rows"} />
+              <SelectValue placeholder={needsField ? "Column" : "All rows"}>
+                {columnName
+                  ? (fields.find((field) => field.columnName === columnName)
+                      ?.name ?? columnName)
+                  : undefined}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               {filteredFields.map((field) => (

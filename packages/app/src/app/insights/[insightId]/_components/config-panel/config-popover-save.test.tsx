@@ -218,6 +218,88 @@ describe("insight config popover saves", () => {
     expect(onAdd).toHaveBeenCalledWith(field.id);
   });
 
+  it("shows base fields from an insight authoring source", async () => {
+    const user = userEvent.setup({ delay: null });
+    const onAdd = vi.fn();
+    const upstreamInsightTable = {
+      ...table,
+      id: "upstream-insight",
+      name: "Regional revenue",
+    } as DataTable;
+    const upstreamField = {
+      ...field,
+      sourceTableId: upstreamInsightTable.id,
+    } as CombinedField;
+    render(
+      <FieldsSection
+        selectedFields={[]}
+        availableFields={[upstreamField]}
+        tables={[upstreamInsightTable]}
+        baseTableId={upstreamInsightTable.id}
+        onReorder={vi.fn()}
+        onRemove={vi.fn()}
+        onRename={vi.fn()}
+        onAdd={onAdd}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Add field" }));
+    expect(await screen.findByText("Regional revenue")).toBeTruthy();
+    await user.click(screen.getByRole("option", { name: /Amount/ }));
+    expect(onAdd).toHaveBeenCalledWith(upstreamField.id);
+  });
+
+  it("shows option labels in filter and metric select triggers", async () => {
+    const user = userEvent.setup({ delay: null });
+    const view = render(
+      <FiltersSection
+        filters={[
+          {
+            id: "amount-filter",
+            _id: "amount-filter",
+            field: "amount",
+            operator: "eq",
+            value: 100,
+          },
+        ]}
+        combinedFields={[field]}
+        onReorder={vi.fn()}
+        onRemove={vi.fn()}
+        onSave={vi.fn()}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Edit filter Amount" }),
+    );
+    expect(screen.getByLabelText("Field").textContent).toContain("Amount");
+    view.unmount();
+
+    render(
+      <MetricsSection
+        metrics={[
+          {
+            ...metric,
+            name: "Unique amount",
+            aggregation: "count_distinct",
+          },
+        ]}
+        dataTable={table}
+        onReorder={vi.fn()}
+        onRemove={vi.fn()}
+        onAdd={vi.fn()}
+        onEdit={vi.fn()}
+      />,
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Edit Unique amount" }),
+    );
+    expect(screen.getByLabelText("Aggregation").textContent).toContain(
+      "Count distinct",
+    );
+    expect(screen.getByLabelText("Column").textContent).toContain("Amount");
+  });
+
   it("ignores Escape while an add-metric save is in flight", async () => {
     let release = () => undefined;
     const onSave = vi.fn(
