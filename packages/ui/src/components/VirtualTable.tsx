@@ -505,8 +505,11 @@ export function VirtualTable({
   }, [virtualItems, isAsyncMode, totalCount, pageSize, queuePage]);
 
   // Grid template columns
+  // A leading row-number gutter sized to the largest row number.
+  const rowNumberDigits = Math.max(2, String(virtualRowCount).length);
   const gridTemplateColumns = useMemo(() => {
-    return visibleColumns
+    const gutter = `calc(${rowNumberDigits}ch + 1rem)`;
+    const columns = visibleColumns
       .map((col) => {
         const config = configMap.get(col.name);
         if (config?.width) {
@@ -517,7 +520,8 @@ export function VirtualTable({
         return "minmax(120px, 1fr)";
       })
       .join(" ");
-  }, [visibleColumns, configMap]);
+    return `${gutter} ${columns}`;
+  }, [visibleColumns, configMap, rowNumberDigits]);
 
   // Styles
   const cellPadding = compact ? "px-2 py-1" : "px-2 py-1.5";
@@ -584,15 +588,22 @@ export function VirtualTable({
         viewportRef={tableContainerRef}
         onScroll={measureHeader}
       >
-        {/* Header. The before: strip covers the sub-pixel sliver sticky
-            positioning can leave above it, where scrolled rows showed through.
-            Once rows sit under it (overflow-y-start on the scroll area root,
-            which is root > viewport > header), it casts a shadow onto them. */}
+        {/* Header. At rest it is a flat tonal bar with a bottom rule. Once rows
+            sit under it (overflow-y-start on the scroll area root, which is
+            root > viewport > header), its bar insets into a rounded, shadowed
+            pill that floats over them. The bar is a pseudo-element so the
+            header's height, and the rows below it, never move. */}
         <div
           ref={headerRef}
-          className="sticky top-0 z-10 grid min-w-max border-b border-neutral-border bg-neutral-bg-muted transition-shadow duration-150 before:absolute before:inset-x-0 before:-top-0.5 before:h-0.5 before:bg-neutral-bg-muted [[data-overflow-y-start]>*>&]:shadow-md"
+          className={cn(
+            "sticky top-0 z-20 grid min-w-max px-1",
+            "before:absolute before:inset-0 before:-z-10 before:border-b before:border-neutral-border before:bg-neutral-bg-muted",
+            "before:transition-[inset,border-radius,box-shadow,border-color] before:duration-150 motion-reduce:before:transition-none",
+            "[[data-overflow-y-start]>*>&]:before:inset-x-1 [[data-overflow-y-start]>*>&]:before:inset-y-0.5 [[data-overflow-y-start]>*>&]:before:rounded-md [[data-overflow-y-start]>*>&]:before:border-transparent [[data-overflow-y-start]>*>&]:before:shadow-md",
+          )}
           style={{ gridTemplateColumns }}
         >
+          <div aria-hidden="true" />
           {visibleColumns.map((col) => {
             const config = configMap.get(col.name);
             const highlight = config?.highlight;
@@ -612,7 +623,7 @@ export function VirtualTable({
                 type="button"
                 key={col.name}
                 className={cn(
-                  "cursor-pointer overflow-hidden text-left font-medium text-neutral-fg-subtle select-none",
+                  "cursor-pointer overflow-hidden text-left font-medium text-neutral-fg-subtle select-none hover:text-neutral-fg",
                   "focus-visible:ring-2 focus-visible:ring-neutral-ring focus-visible:ring-offset-1 focus-visible:outline-none",
                   cellPadding,
                   fontSize,
@@ -620,7 +631,6 @@ export function VirtualTable({
                   // line height keeps the sticky header off half-pixel offsets.
                   "leading-4",
                   isHighlighted && highlightHeaderStyles[highlightVariant],
-                  !isHighlighted && "hover:bg-neutral-bg-muted/80",
                 )}
                 title={`Sort by ${columnLabel}`}
                 aria-label={`Sort by ${columnLabel}${sortedSuffix}`}
@@ -642,7 +652,7 @@ export function VirtualTable({
         {/* Body */}
         <div
           className="relative min-w-max bg-neutral-bg"
-          style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+          style={{ height: `${rowVirtualizer.getTotalSize() + 4}px` }}
         >
           {rowVirtualizer.getVirtualItems().map((virtualRow) => {
             const rowData = getRowData(virtualRow.index);
@@ -652,13 +662,14 @@ export function VirtualTable({
               return (
                 <div
                   key={virtualRow.index}
-                  className="absolute grid w-full min-w-fit border-b border-neutral-border"
+                  className="absolute inset-x-1 grid min-w-fit"
                   style={{
                     height: `${virtualRow.size}px`,
                     transform: `translateY(${virtualRow.start}px)`,
                     gridTemplateColumns,
                   }}
                 >
+                  <div aria-hidden="true" />
                   {visibleColumns.map((col) => (
                     <div
                       key={col.name}
@@ -679,13 +690,26 @@ export function VirtualTable({
             return (
               <div
                 key={virtualRow.index}
-                className="group absolute grid w-full min-w-fit border-b border-neutral-border"
+                className={cn(
+                  "absolute inset-x-1 grid min-w-fit rounded hover:bg-neutral-bg-muted",
+                  virtualRow.index % 2 === 1 && "bg-neutral-bg-subtle",
+                )}
                 style={{
                   height: `${virtualRow.size}px`,
                   transform: `translateY(${virtualRow.start}px)`,
                   gridTemplateColumns,
                 }}
               >
+                <div
+                  aria-hidden="true"
+                  className={cn(
+                    cellPadding,
+                    fontSize,
+                    "pr-1.5 text-right text-neutral-fg-subtle/60 tabular-nums",
+                  )}
+                >
+                  {virtualRow.index + 1}
+                </div>
                 {visibleColumns.map((col) => {
                   const config = configMap.get(col.name);
                   const highlight = config?.highlight;
@@ -704,7 +728,7 @@ export function VirtualTable({
                     <div
                       key={col.name}
                       className={cn(
-                        "text-neutral-fg group-hover:bg-neutral-bg-muted/50",
+                        "text-neutral-fg",
                         cellPadding,
                         fontSize,
                         isHighlighted && highlightCellStyles[highlightVariant],
