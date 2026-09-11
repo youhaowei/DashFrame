@@ -60,6 +60,7 @@ Use these control conventions in panes, dialogs, and inline editors. Section hea
 - **Editors float.** Open an anchored Popover without shifting the list below it.
 - **Share sortable lists.** Use one primitive for drag handles, keyboard reorder, and removal. Show the named remove action on hover and keyboard focus. Each chip kind has its own content and editor. Keep short qualifiers inline; wrap long filters or join conditions onto a second line.
 - **Chip states use neutral tones.** Rest, hover, and open deepen the fill slightly; open still reads as a chip, not a pressed button. Hover and open can coexist. Muted text promotes to secondary on hover/open for contrast.
+- **State changes animate.** Hover, open, selected, and scrolled states transition on the properties that change, roughly 150-300ms, with a delay only where it prevents flicker. Respect `prefers-reduced-motion`. No continuous decorative motion.
 - **Sections collapse.** Headers are full-width toggles with a muted icon, body-weight name, right chevron, and hover fill. Collapsed headers keep a one-line summary. Separate sections with a sub-tone hairline, not boxes.
 - **Jump to sections.** Below the pane title, use ghost icon buttons matching section icons, ending with collapse-all. Each opens and jumps to its section. Give buttons accessible names and tooltips, no badges or selected state; several sections may stay open.
 - **Keep hierarchy shallow.** Merge small sections into related ones. Name the pane in its header; name the artifact in the page header.
