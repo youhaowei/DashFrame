@@ -160,14 +160,27 @@ export function getUnsavedEncodingLabel(
     : `${formatAggregationLabel(aggregation)} of ${fieldLabel}`;
 }
 
-function AxesFrame({ children }: { children: React.ReactNode }) {
+/**
+ * Encodings laid out where they land on the chart: legend channels on top,
+ * Y at the head of the vertical axis, X under the baseline. Every control
+ * keeps its label above it, so no position depends on the pane's width.
+ */
+function EncodingMap({
+  legend,
+  y,
+  x,
+}: {
+  legend: React.ReactNode;
+  y: React.ReactNode;
+  x: React.ReactNode;
+}) {
   return (
-    <div className="relative h-56 pt-1">
-      <div
-        aria-hidden
-        className="absolute top-14 right-2 bottom-12 left-14 border-b border-l border-neutral-border"
-      />
-      {children}
+    <div className="min-w-0 space-y-2">
+      <div className="grid grid-cols-2 gap-1.5 [&>*]:min-w-0">{legend}</div>
+      <div className="ml-1 border-b border-l border-neutral-border pb-8 pl-2">
+        <div className="w-4/5 min-w-0">{y}</div>
+      </div>
+      <div className="ml-auto w-4/5 min-w-0">{x}</div>
     </div>
   );
 }
@@ -187,28 +200,16 @@ function UnsavedEncodings({
     getUnsavedEncodingLabel(value, fields, metrics, columnDisplayNames);
   return (
     <>
-      <AxesFrame>
-        <div className="absolute top-0 right-0 grid w-40 min-w-0 grid-cols-2 gap-1.5 [&>*]:min-w-0">
-          <ReadOnlySlot label="Color" value={label(encoding?.color)} />
-          <ReadOnlySlot label="Size" value={label(encoding?.size)} />
-        </div>
-        <span
-          aria-hidden
-          className="absolute top-28 -left-1 -rotate-90 text-[11px] text-neutral-fg-subtle"
-        >
-          Y
-        </span>
-        <ReadOnlySlot
-          label=""
-          value={label(encoding?.y)}
-          className="absolute top-20 left-3 w-28"
-        />
-        <ReadOnlySlot
-          label="X"
-          value={label(encoding?.x)}
-          className="absolute right-2 bottom-0 left-14"
-        />
-      </AxesFrame>
+      <EncodingMap
+        legend={
+          <>
+            <ReadOnlySlot label="Color" value={label(encoding?.color)} />
+            <ReadOnlySlot label="Size" value={label(encoding?.size)} />
+          </>
+        }
+        y={<ReadOnlySlot label="Y" value={label(encoding?.y)} />}
+        x={<ReadOnlySlot label="X" value={label(encoding?.x)} />}
+      />
       <p className="mt-2 text-[11px] leading-4 text-neutral-fg-subtle">
         Save this chart to edit its encodings.
       </p>
@@ -278,37 +279,32 @@ function SavedEncodings({
 
   return (
     <>
-      <AxesFrame>
-        <div className="absolute top-0 right-0 grid w-40 min-w-0 grid-cols-2 gap-1.5 [&>*]:min-w-0">
-          <SelectField
-            label="Color"
-            value={visualization.encoding?.color || ""}
-            onChange={(value) => handleEncodingChange("color", value)}
-            options={options}
-            placeholder="None"
-            emptyDashed
-            disabled={!encodingsReady}
-          />
-          <SelectField
-            label="Size"
-            value={visualization.encoding?.size || ""}
-            onChange={(value) => handleEncodingChange("size", value)}
-            options={options}
-            placeholder="None"
-            emptyDashed
-            disabled={!encodingsReady}
-          />
-        </div>
-        <span
-          aria-hidden
-          className="absolute top-28 -left-1 -rotate-90 text-[11px] text-neutral-fg-subtle"
-        >
-          Y
-        </span>
-        <div className="absolute top-20 left-3 w-28">
+      <EncodingMap
+        legend={
+          <>
+            <SelectField
+              label="Color"
+              value={visualization.encoding?.color || ""}
+              onChange={(value) => handleEncodingChange("color", value)}
+              options={options}
+              placeholder="None"
+              emptyDashed
+              disabled={!encodingsReady}
+            />
+            <SelectField
+              label="Size"
+              value={visualization.encoding?.size || ""}
+              onChange={(value) => handleEncodingChange("size", value)}
+              options={options}
+              placeholder="None"
+              emptyDashed
+              disabled={!encodingsReady}
+            />
+          </>
+        }
+        y={
           <AxisSelectField
             label="Y"
-            showLabel={false}
             value={visualization.encoding?.y || ""}
             onChange={(value) => handleEncodingChange("y", value)}
             placeholder="None"
@@ -323,25 +319,26 @@ function SavedEncodings({
             columnDisplayNames={columnDisplayNames}
             otherAxisColumn={visualization.encoding?.x}
           />
-        </div>
-        <AxisSelectField
-          label="X"
-          value={visualization.encoding?.x || ""}
-          onChange={(value) => handleEncodingChange("x", value)}
-          placeholder="None"
-          emptyDashed
-          disabled={!encodingsReady}
-          className="absolute right-2 bottom-0 left-14"
-          axis="x"
-          chartType={visualization.visualizationType}
-          columnAnalysis={columnAnalysis}
-          compiledInsight={compiledInsight}
-          availableFields={availableFields}
-          availableColumns={availableColumns}
-          columnDisplayNames={columnDisplayNames}
-          otherAxisColumn={visualization.encoding?.y}
-        />
-      </AxesFrame>
+        }
+        x={
+          <AxisSelectField
+            label="X"
+            value={visualization.encoding?.x || ""}
+            onChange={(value) => handleEncodingChange("x", value)}
+            placeholder="None"
+            emptyDashed
+            disabled={!encodingsReady}
+            axis="x"
+            chartType={visualization.visualizationType}
+            columnAnalysis={columnAnalysis}
+            compiledInsight={compiledInsight}
+            availableFields={availableFields}
+            availableColumns={availableColumns}
+            columnDisplayNames={columnDisplayNames}
+            otherAxisColumn={visualization.encoding?.y}
+          />
+        }
+      />
       {!encodingsReady && (
         <p className="mt-2 text-[11px] leading-4 text-neutral-fg-subtle">
           Loading encoding options…
@@ -435,12 +432,16 @@ export function VisualizationConfigPanel({
                   <Tooltip key={chartType} content={tooltip}>
                     <Button
                       size="sm"
-                      variant={selected ? "solid" : "ghost"}
+                      variant="ghost"
                       label={CHART_TYPE_METADATA[chartType].displayName}
                       active={selected}
+                      aria-pressed={selected}
                       onClick={() => handleChartTypeChange(chartType)}
                       className={cn(
                         "aspect-square h-auto w-full",
+                        selected
+                          ? "bg-neutral-bg-emphasis text-neutral-fg hover:bg-neutral-bg-emphasis"
+                          : "bg-neutral-bg-subtle text-neutral-fg-subtle hover:bg-neutral-bg-muted hover:text-neutral-fg",
                         !available && !selected && "opacity-40",
                       )}
                     >
@@ -498,12 +499,16 @@ export function VisualizationConfigPanel({
                   <Button
                     key={visualization.id}
                     size="sm"
-                    variant={selected ? "solid" : "ghost"}
+                    variant="ghost"
                     active={selected}
                     aria-pressed={selected}
                     label={visualization.name}
                     onClick={() => onSelectVisualization(visualization.id)}
-                    className="w-full justify-start"
+                    className={cn(
+                      "w-full justify-start",
+                      selected &&
+                        "bg-neutral-bg-emphasis hover:bg-neutral-bg-emphasis",
+                    )}
                   >
                     <Icon size={14} aria-hidden />
                     <span className="truncate">{visualization.name}</span>
