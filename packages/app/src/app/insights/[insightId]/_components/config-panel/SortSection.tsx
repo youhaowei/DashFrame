@@ -38,6 +38,7 @@ import {
   type ReactNode,
 } from "react";
 import { FieldTypeIcon } from "./FieldsSection";
+import { stableValueSignature } from "./runtime-controls";
 
 interface SortableSort extends SortableListItem {
   sort: InsightSort;
@@ -163,10 +164,12 @@ export function SortSection({
     (option, index, all) =>
       all.findIndex((item) => item.id === option.id) === index,
   );
+  const [runtimeDraft, setRuntimeDraft] = useState(runtimeControls);
+  const [viewerSortEnabled, setViewerSortEnabled] = useState(false);
   const runtimeControlsRef = useRef(runtimeControls);
   const serverRuntimeControlsRef = useRef(runtimeControls);
   const pendingRuntimeSignatureRef = useRef<string | null>(null);
-  const runtimeSignature = JSON.stringify(runtimeControls ?? null);
+  const runtimeSignature = stableValueSignature(runtimeControls ?? null);
   useEffect(() => {
     serverRuntimeControlsRef.current = runtimeControls;
     if (
@@ -174,6 +177,7 @@ export function SortSection({
       pendingRuntimeSignatureRef.current === runtimeSignature
     ) {
       runtimeControlsRef.current = runtimeControls;
+      setRuntimeDraft(runtimeControls);
       pendingRuntimeSignatureRef.current = null;
     }
   }, [runtimeControls, runtimeSignature]);
@@ -188,8 +192,9 @@ export function SortSection({
       candidate.filters || candidate.sort || candidate.limit
         ? candidate
         : undefined;
-    const nextSignature = JSON.stringify(next ?? null);
+    const nextSignature = stableValueSignature(next ?? null);
     runtimeControlsRef.current = next;
+    setRuntimeDraft(next);
     pendingRuntimeSignatureRef.current = nextSignature;
     Promise.resolve(onRuntimeChange(next)).then(
       (saved) => {
@@ -198,18 +203,21 @@ export function SortSection({
           pendingRuntimeSignatureRef.current === nextSignature
         ) {
           runtimeControlsRef.current = serverRuntimeControlsRef.current;
+          setRuntimeDraft(serverRuntimeControlsRef.current);
           pendingRuntimeSignatureRef.current = null;
         }
       },
       () => {
         if (pendingRuntimeSignatureRef.current === nextSignature) {
           runtimeControlsRef.current = serverRuntimeControlsRef.current;
+          setRuntimeDraft(serverRuntimeControlsRef.current);
           pendingRuntimeSignatureRef.current = null;
         }
       },
     );
   };
   const setRuntimeFieldAllowed = (fieldId: UUID, allowed: boolean) => {
+    setViewerSortEnabled(true);
     updateRuntime((latest) => {
       const current = latest?.sort?.allowedFieldIds ?? [];
       const allowedFieldIds = allowed
@@ -217,7 +225,10 @@ export function SortSection({
         : current.filter((id) => id !== fieldId);
       return {
         ...latest,
-        sort: { allowedFieldIds, maxKeys: 1 },
+        sort:
+          allowedFieldIds.length > 0
+            ? { allowedFieldIds, maxKeys: latest?.sort?.maxKeys ?? 1 }
+            : undefined,
       };
     });
   };
@@ -225,6 +236,7 @@ export function SortSection({
     () => new Map(options.map((option) => [option.value, option])),
     [options],
   );
+  const sortEnabled = viewerSortEnabled || Boolean(runtimeDraft?.sort);
 
   return (
     <div className="space-y-2">
@@ -328,25 +340,23 @@ export function SortSection({
         <label className="flex items-center justify-between gap-3 text-xs">
           <span>Viewers can change sort</span>
           <Switch
-            checked={Boolean(runtimeControls?.sort)}
-            onCheckedChange={(checked) =>
-              updateRuntime((current) => ({
-                ...current,
-                sort: checked
-                  ? {
-                      allowedFieldIds: [],
-                      maxKeys: 1,
-                    }
-                  : undefined,
-              }))
-            }
+            checked={sortEnabled}
+            onCheckedChange={(checked) => {
+              setViewerSortEnabled(checked);
+              if (!checked && runtimeControlsRef.current?.sort) {
+                updateRuntime((current) => ({
+                  ...current,
+                  sort: undefined,
+                }));
+              }
+            }}
           />
         </label>
-        {runtimeControls?.sort && (
+        {sortEnabled && (
           <div className="space-y-1 pl-1">
             {resultOptions.map((option) => {
-              const checked = runtimeControls.sort!.allowedFieldIds.includes(
-                option.id,
+              const checked = Boolean(
+                runtimeDraft?.sort?.allowedFieldIds.includes(option.id),
               );
               return (
                 <label
@@ -368,7 +378,7 @@ export function SortSection({
         <label className="flex items-center justify-between gap-3 text-xs">
           <span>Viewers can set a limit</span>
           <Switch
-            checked={Boolean(runtimeControls?.limit)}
+            checked={Boolean(runtimeDraft?.limit)}
             onCheckedChange={(checked) =>
               updateRuntime((current) => ({
                 ...current,
@@ -377,10 +387,10 @@ export function SortSection({
             }
           />
         </label>
-        {runtimeControls?.limit && (
+        {runtimeDraft?.limit && (
           <ViewerLimitFields
-            key={`${runtimeControls.limit.min}:${runtimeControls.limit.max}`}
-            limit={runtimeControls.limit}
+            key={`${runtimeDraft.limit.min}:${runtimeDraft.limit.max}`}
+            limit={runtimeDraft.limit}
             onCommit={(limit) =>
               updateRuntime((current) => ({ ...current, limit }))
             }
