@@ -61,6 +61,48 @@ describe("useVisualizationEncodingChange", () => {
     });
   });
 
+  it("keeps a later edit's channel when an earlier write fails", async () => {
+    let rejectFirst: ((error: Error) => void) | undefined;
+    const updateVisualization = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((_resolve, reject) => {
+            rejectFirst = reject;
+          }),
+      )
+      .mockImplementationOnce(() => new Promise<void>(() => {}))
+      .mockResolvedValue(undefined);
+    const { result } = renderEncodingHook(
+      { y: "revenue" },
+      updateVisualization,
+    );
+
+    let firstWrite: Promise<void> | undefined;
+    await act(async () => {
+      firstWrite = result.current("x", "month");
+      // Never settles: this write stays in flight for the rest of the test.
+      result.current("color", "channel").catch(() => {});
+      rejectFirst?.(new Error("write failed"));
+      await expect(firstWrite).rejects.toThrow("write failed");
+    });
+    await act(async () => {
+      await result.current("size", "orders");
+    });
+
+    expect(updateVisualization).toHaveBeenLastCalledWith({
+      id: visualizationId,
+      updates: {
+        encoding: {
+          y: "revenue",
+          x: "month",
+          color: "channel",
+          size: "orders",
+        },
+      },
+    });
+  });
+
   it("builds on the refreshed encoding once writes have settled", async () => {
     const updateVisualization = vi.fn().mockResolvedValue(undefined);
     const { result, rerender } = renderEncodingHook(
