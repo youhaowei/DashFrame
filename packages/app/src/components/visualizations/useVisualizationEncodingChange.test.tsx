@@ -85,4 +85,46 @@ describe("useVisualizationEncodingChange", () => {
       }),
     );
   });
+
+  it("clears a stored date transform when analysis becomes non-temporal", async () => {
+    const updateVisualization = vi.fn().mockResolvedValue(undefined);
+    const transformed = {
+      ...visualization,
+      encoding: {
+        ...visualization.encoding,
+        x: fieldEncoding(fieldId),
+        xTransform: {
+          type: "date" as const,
+          transform: {
+            kind: "temporal" as const,
+            aggregation: "year" as const,
+          },
+        },
+      },
+    };
+
+    function TransformHarness() {
+      useVisualizationEncodingChange({
+        visualization: transformed,
+        dataTable,
+        columnAnalysis: analysis,
+        updateVisualization,
+      });
+      return null;
+    }
+
+    render(<TransformHarness />);
+
+    await waitFor(() =>
+      expect(updateVisualization).toHaveBeenCalledWith({
+        id: visualizationId,
+        updates: {
+          encoding: {
+            y: "metric:existing",
+            x: fieldEncoding(fieldId),
+          },
+        },
+      }),
+    );
+  });
 });
