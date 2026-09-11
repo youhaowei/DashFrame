@@ -10,7 +10,10 @@ export function stableValueSignature(value: unknown): string {
     return `[${value.map(stableValueSignature).join(",")}]`;
   }
   if (value !== null && typeof value === "object") {
+    // Convex drops undefined-valued keys, so they must not affect equality
+    // with the server echo.
     return `{${Object.entries(value)
+      .filter(([, entry]) => entry !== undefined)
       .sort(([left], [right]) => left.localeCompare(right))
       .map(
         ([key, entry]) =>

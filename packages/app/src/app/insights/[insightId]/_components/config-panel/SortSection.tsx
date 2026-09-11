@@ -196,22 +196,29 @@ export function SortSection({
     runtimeControlsRef.current = next;
     setRuntimeDraft(next);
     pendingRuntimeSignatureRef.current = nextSignature;
+    const serverAtRequest = serverRuntimeControlsRef.current;
+    const resyncFromServer = () => {
+      runtimeControlsRef.current = serverRuntimeControlsRef.current;
+      setRuntimeDraft(serverRuntimeControlsRef.current);
+      pendingRuntimeSignatureRef.current = null;
+    };
     Promise.resolve(onRuntimeChange(next)).then(
       (saved) => {
+        if (pendingRuntimeSignatureRef.current !== nextSignature) return;
+        // A server copy that arrived while this write was pending wins; if
+        // none arrived yet, keep the draft and let the echo sync it.
         if (
-          saved === false &&
-          pendingRuntimeSignatureRef.current === nextSignature
+          saved === false ||
+          serverRuntimeControlsRef.current !== serverAtRequest
         ) {
-          runtimeControlsRef.current = serverRuntimeControlsRef.current;
-          setRuntimeDraft(serverRuntimeControlsRef.current);
+          resyncFromServer();
+        } else {
           pendingRuntimeSignatureRef.current = null;
         }
       },
       () => {
         if (pendingRuntimeSignatureRef.current === nextSignature) {
-          runtimeControlsRef.current = serverRuntimeControlsRef.current;
-          setRuntimeDraft(serverRuntimeControlsRef.current);
-          pendingRuntimeSignatureRef.current = null;
+          resyncFromServer();
         }
       },
     );

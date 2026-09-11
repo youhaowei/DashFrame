@@ -1,7 +1,8 @@
 import type { CombinedField } from "@/lib/insights/compute-combined-fields";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import type { InsightRuntimeDeclaration } from "@dashframe/types";
 import { SortSection } from "./SortSection";
 
 const field = {
@@ -256,6 +257,43 @@ describe("SortSection", () => {
     expect(onRuntimeChange).toHaveBeenLastCalledWith({
       filters: [region, period],
       limit: { min: 1, max: 1000 },
+      sort: { allowedFieldIds: [field.id], maxKeys: 1 },
+    });
+  });
+
+  it("clears a saved draft when the server echo omits an unset control", async () => {
+    const onRuntimeChange = vi.fn().mockResolvedValue(true);
+    const region = { filterId: "region", key: "region", label: "Region" };
+    const period = { filterId: "period", key: "period", label: "Period" };
+    const renderWith = (runtimeControls: InsightRuntimeDeclaration) => (
+      <SortSection
+        sorts={[]}
+        fields={[field]}
+        metrics={[]}
+        runtimeControls={runtimeControls}
+        onChange={vi.fn()}
+        onRuntimeChange={onRuntimeChange}
+      />
+    );
+    const view = render(
+      renderWith({ filters: [region], limit: { min: 1, max: 1000 } }),
+    );
+
+    fireEvent.click(
+      screen.getByRole("switch", { name: "Viewers can set a limit" }),
+    );
+    // Convex drops the undefined `limit` key from the stored document.
+    view.rerender(renderWith({ filters: [region] }));
+    await act(async () => {});
+    // Another editor exposes a second filter.
+    view.rerender(renderWith({ filters: [region, period] }));
+
+    fireEvent.click(
+      screen.getByRole("switch", { name: "Viewers can change sort" }),
+    );
+    fireEvent.click(screen.getByRole("checkbox", { name: "Created at" }));
+    expect(onRuntimeChange).toHaveBeenLastCalledWith({
+      filters: [region, period],
       sort: { allowedFieldIds: [field.id], maxKeys: 1 },
     });
   });
