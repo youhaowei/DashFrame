@@ -7,6 +7,7 @@ import type {
 import {
   SortableList,
   WorkbenchAddRow,
+  WorkbenchCheckbox,
   WorkbenchChip,
   type SortableListItem,
 } from "@dashframe/ui";
@@ -14,7 +15,6 @@ import {
   Alert,
   AlertDescription,
   Button,
-  Checkbox,
   Input,
   Label,
   Popover,
@@ -441,7 +441,7 @@ function FilterEditor({
           />
         )}
         <label className="flex items-center gap-2 text-xs">
-          <Checkbox
+          <WorkbenchCheckbox
             checked={viewerEditable}
             onCheckedChange={(checked) => {
               const next = checked === true;
@@ -484,14 +484,14 @@ function FilterEditor({
             </div>
             <div className="flex gap-4">
               <label className="flex items-center gap-2 text-xs">
-                <Checkbox
+                <WorkbenchCheckbox
                   checked={required}
                   onCheckedChange={(checked) => setRequired(checked === true)}
                 />
                 Required
               </label>
               <label className="flex items-center gap-2 text-xs">
-                <Checkbox
+                <WorkbenchCheckbox
                   checked={allowClear}
                   onCheckedChange={(checked) => setAllowClear(checked === true)}
                 />

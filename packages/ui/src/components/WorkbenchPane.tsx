@@ -1,8 +1,10 @@
 import {
   Button,
+  Checkbox,
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
+  Switch,
   Tooltip,
   cn,
 } from "@wystack/ui-react";
@@ -14,6 +16,7 @@ import {
 } from "@wystack/ui-react/icons";
 import type { LucideIcon } from "@wystack/ui-react/icons";
 import {
+  type ComponentProps,
   forwardRef,
   useCallback,
   useRef,
@@ -265,3 +268,40 @@ export const WorkbenchAddRow = forwardRef<
     </button>
   );
 });
+
+/**
+ * Toggles in panes share the input well: sub tone and a hairline border at
+ * rest, a primary fill once on. Child selectors resize the stdui thumb, which
+ * takes no className of its own.
+ */
+export function WorkbenchSwitch({
+  className,
+  ...props
+}: ComponentProps<typeof Switch>) {
+  return (
+    <Switch
+      className={cn(
+        "h-4 w-7 border border-neutral-border p-px data-[checked]:border-palette-primary data-[unchecked]:bg-neutral-bg-subtle",
+        "[&>span]:h-3 [&>span]:w-3 [&>span]:shadow-sm data-[checked]:[&>span]:translate-x-3",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+/** Checkboxes in panes: an input well at rest, a primary fill when checked. */
+export function WorkbenchCheckbox({
+  className,
+  ...props
+}: ComponentProps<typeof Checkbox>) {
+  return (
+    <Checkbox
+      className={cn(
+        "border-neutral-border bg-neutral-bg-subtle data-[checked]:border-palette-primary [&_svg]:h-3 [&_svg]:w-3",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
