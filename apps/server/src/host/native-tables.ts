@@ -1,4 +1,4 @@
-import type { QueryEngine } from "@dashframe/engine";
+import { frameTableName, type QueryEngine } from "@dashframe/engine";
 import { tableKey } from "@dashframe/engine-server/table-identity";
 const NATIVE_UNREGISTER_MAX_ATTEMPTS = 3;
 const NATIVE_UNREGISTER_RETRY_MS = 250;
@@ -47,7 +47,7 @@ export class NativeTableLifecycle {
   async unregisterCommittedFrames(ids: readonly string[]): Promise<void> {
     await Promise.all(
       ids.map((id) => {
-        const name = `df_${id.replaceAll("-", "_")}`;
+        const name = frameTableName(id);
         return this.tryUnregister(name, this.generation(name), 1);
       }),
     );

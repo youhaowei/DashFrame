@@ -1,3 +1,4 @@
+import { frameTableName } from "@dashframe/engine";
 import type { UUID } from "@dashframe/types";
 import type { SecretRef } from "@wystack/secret-vault";
 import {
@@ -126,7 +127,7 @@ export class HostResourceCleanup {
       if (job.kind === "frame") {
         if (!this.ctx.dataFrameStorage) return;
         await this.ctx.dataPlaneRuntime?.unregisterTable(
-          `df_${job.resourceId.replaceAll("-", "_")}`,
+          frameTableName(job.resourceId),
         );
         await this.ctx.dataFrameStorage.delete(job.resourceId as UUID);
       } else {

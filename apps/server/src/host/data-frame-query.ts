@@ -1,4 +1,5 @@
 /** Closed, bounded reads of project-owned materialized DataFrames. */
+import { frameTableName } from "@dashframe/engine";
 import { arrowIpcToJsonRows } from "@dashframe/engine-server/arrow-data-path";
 import type { UUID } from "@dashframe/types";
 import { z } from "zod";
@@ -31,10 +32,6 @@ const requestSchema = z.object({
 
 function quoteIdentifier(identifier: string): string {
   return `"${identifier.replaceAll('"', '""')}"`;
-}
-
-function tableName(id: UUID): string {
-  return `df_${id.replaceAll("-", "_")}`;
 }
 
 function frameSchema(analysis: unknown, fieldIds: unknown) {
@@ -196,7 +193,7 @@ export async function queryDataFrame(
       message: "The requested sort field is not in this DataFrame schema.",
     };
   }
-  const name = tableName(row.id);
+  const name = frameTableName(row.id);
   try {
     try {
       await ensureRegistered(ctx, row.id, name);

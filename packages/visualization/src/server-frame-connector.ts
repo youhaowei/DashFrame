@@ -1,3 +1,4 @@
+import { frameTableName, quoteIdentifier } from "@dashframe/engine";
 import { tableFromIPC } from "@uwdata/flechette";
 
 import type { MosaicConnector } from "./VisualizationProvider";
@@ -14,9 +15,21 @@ export interface ServerFrameConnectorOptions {
 /**
  * Mosaic-only connector for immutable server DataFrames.
  *
- * Charts name their source by DataFrame UUID. The server resolves that UUID to
- * its native table and executes the Mosaic-generated query; no renderer upload,
- * registration, or provider identity crosses this boundary.
+ * Charts name their source by DataFrame UUID, so the SQL Mosaic composes arrives
+ * here quoting that UUID. This connector resolves the frame the query is about,
+ * addresses the server route by that id, and emits SQL that references the
+ * frame's canonical table name — `frameTableName(id)`, the one name a frame is
+ * registered under — directly.
+ *
+ * The naming is done HERE rather than on the server on purpose. The server used
+ * to require the SQL to mention the quoted UUID and then substitute the table
+ * name in, which read like a guard but was not one: any other table named in the
+ * same statement ran as written. Isolation between principals is by engine
+ * instance, not by reading SQL, so the substitution is naming work and belongs
+ * on the side that composes the statement. The client is not a trust boundary
+ * and this code claims no security property.
+ *
+ * No renderer upload, registration, or provider identity crosses this boundary.
  */
 export function createServerFrameConnector(
   options: ServerFrameConnectorOptions,
@@ -40,6 +53,12 @@ export function createServerFrameConnector(
         "Chart query must reference exactly one server DataFrame",
       );
     }
+    // Every occurrence matched the same id, so a plain split/join rewrites them
+    // all. `FRAME_ID` matched the quoted form, so this replaces `"<uuid>"` with
+    // the quoted canonical table name and cannot touch anything else.
+    const sql = query.sql
+      .split(`"${frameId}"`)
+      .join(quoteIdentifier(frameTableName(frameId)));
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
     try {
@@ -48,7 +67,7 @@ export function createServerFrameConnector(
         {
           method: "POST",
           headers,
-          body: JSON.stringify({ type, sql: query.sql }),
+          body: JSON.stringify({ type, sql }),
           signal: controller.signal,
         },
       );

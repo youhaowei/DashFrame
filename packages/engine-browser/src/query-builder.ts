@@ -1,4 +1,4 @@
-import type { DataFrame } from "@dashframe/engine";
+import { frameTableName, type DataFrame } from "@dashframe/engine";
 import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
 import { BrowserDataFrame } from "./dataframe";
 import { debugLog } from "./debug";
@@ -78,9 +78,6 @@ async function awaitExistingLoad(
   return ensureTableLoaded(dataFrame, conn);
 }
 
-const makeTableName = (dataFrameId: string): string =>
-  `df_${dataFrameId.replace(/-/g, "_")}`;
-
 const quoteIdent = (identifier: string): string =>
   `"${identifier.replace(/"/g, '""')}"`;
 
@@ -127,7 +124,7 @@ function requiresTableLoad(
 
 /** Invalidate the known storage generation for a specific DataFrame. */
 export function invalidateTableCache(dataFrameId: string): void {
-  loadedTableGenerations.delete(makeTableName(dataFrameId));
+  loadedTableGenerations.delete(frameTableName(dataFrameId));
 }
 
 /**
@@ -289,7 +286,7 @@ export async function ensureTableLoaded(
   dataFrame: DataFrame,
   conn: DuckDBConnection,
 ): Promise<string> {
-  const tableName = makeTableName(dataFrame.id);
+  const tableName = frameTableName(dataFrame.id);
   const generation = tableGeneration(dataFrame);
 
   // Check if there's an ongoing load for this table (mutex prevents concurrent loads)
