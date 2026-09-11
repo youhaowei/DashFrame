@@ -610,6 +610,9 @@ export function VirtualTable({
                   "focus-visible:ring-2 focus-visible:ring-neutral-ring focus-visible:ring-offset-1 focus-visible:outline-none",
                   cellPadding,
                   fontSize,
+                  // After fontSize, which would otherwise drop it. A whole-pixel
+                  // line height keeps the sticky header off half-pixel offsets.
+                  "leading-4",
                   isHighlighted && highlightHeaderStyles[highlightVariant],
                   !isHighlighted && "hover:bg-neutral-bg-muted/80",
                 )}
