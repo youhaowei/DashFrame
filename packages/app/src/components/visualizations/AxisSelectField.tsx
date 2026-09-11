@@ -71,6 +71,8 @@ function matchColumnToField(
 interface AxisSelectFieldProps {
   /** Field label displayed above the select */
   label: string;
+  /** Prevent edits until the result analysis used for type inference is ready. */
+  disabled?: boolean;
   /** Currently selected value */
   value: string;
   /** Callback when selection changes */
@@ -81,6 +83,8 @@ interface AxisSelectFieldProps {
   className?: string;
   /** Callback for clear button */
   onClear?: () => void;
+  /** Render an unselected trigger as an empty dashed slot. */
+  emptyDashed?: boolean;
   /** Which axis this select controls */
   axis: "x" | "y";
   /** Current chart type - used for constraint logic */
@@ -116,11 +120,13 @@ interface AxisSelectFieldProps {
  */
 export function AxisSelectField({
   label,
+  disabled = false,
   value,
   onChange,
   placeholder = "Select column...",
   className,
   onClear,
+  emptyDashed = false,
   axis,
   chartType,
   columnAnalysis,
@@ -606,6 +612,7 @@ export function AxisSelectField({
   return (
     <SelectField
       label={semanticLabel}
+      ariaLabel={semanticLabel}
       labelAddon={labelAddon}
       value={value}
       onChange={handleChange}
@@ -613,6 +620,8 @@ export function AxisSelectField({
       placeholder={placeholder}
       className={className}
       onClear={onClear}
+      emptyDashed={emptyDashed}
+      disabled={disabled}
       error={validationError ?? undefined}
     />
   );

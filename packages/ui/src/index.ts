@@ -23,9 +23,24 @@ export {
 
 export {
   SortableList,
+  type SortableRenderControls,
   type SortableListItem,
   type SortableListProps,
 } from "./components/SortableList";
+
+export {
+  WorkbenchAddRow,
+  WorkbenchChip,
+  WorkbenchJumpBar,
+  WorkbenchPaneHeader,
+  WorkbenchCheckbox,
+  WorkbenchPaneSection,
+  WorkbenchSwitch,
+  useWorkbenchPaneSections,
+  type WorkbenchChipProps,
+  type WorkbenchJumpItem,
+  type WorkbenchPaneSectionProps,
+} from "./components/WorkbenchPane";
 
 export {
   JoinTypeIcon,
@@ -87,3 +102,8 @@ export { Select as SelectField } from "./fields/select";
 export { formatNumeric } from "./lib/format-numeric";
 export { formatDateValue } from "./lib/format-virtual-table-value";
 export { groupHoverAndFocusWithinReveal } from "./lib/reveal-on-focus-within";
+export {
+  OverlayScrollArea,
+  OverlayScrollbar,
+  type OverlayScrollAreaProps,
+} from "./components/OverlayScrollArea";

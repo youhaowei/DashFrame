@@ -1,35 +1,39 @@
 import type { CombinedField } from "@/lib/insights/compute-combined-fields";
-import { SortableList, type SortableListItem } from "@dashframe/ui";
+import type { DataTable } from "@dashframe/types";
 import {
-  Badge,
+  SortableList,
+  WorkbenchAddRow,
+  WorkbenchChip,
+  type SortableListItem,
+} from "@dashframe/ui";
+import {
+  Alert,
+  AlertDescription,
   Button,
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-  cn,
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  Input,
+  Label,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
 } from "@wystack/ui-react";
 import {
   BooleanTypeIcon,
-  ChevronRightIcon,
-  CloseIcon,
   DateTypeIcon,
-  EditIcon,
   NumberTypeIcon,
-  PlusIcon,
   TextTypeIcon,
 } from "@wystack/ui-react/icons";
-import { useCallback, useState } from "react";
+import { useCallback, useState, type ReactNode } from "react";
+import { useSaveDismissGuard, useSavingFlag } from "./use-save-dismiss-guard";
 
-/**
- * Render field type icon based on type string.
- * Uses direct JSX rendering to avoid React Compiler "component created during render" error.
- * The icon components (Hash, Calendar, etc.) are statically imported.
- */
-function FieldTypeIcon({ type }: { type: string }) {
-  const className = "text-neutral-fg-subtle h-3 w-3 shrink-0";
+export function FieldTypeIcon({ type }: { type: string }) {
+  const className = "h-3.5 w-3.5";
   const normalizedType = type.toLowerCase();
-
-  // Numeric types
   if (
     ["number", "integer", "float", "decimal", "int", "bigint"].includes(
       normalizedType,
@@ -37,201 +41,243 @@ function FieldTypeIcon({ type }: { type: string }) {
   ) {
     return <NumberTypeIcon className={className} />;
   }
-
-  // Date/time types
   if (
     ["date", "datetime", "timestamp", "time"].includes(normalizedType) ||
     normalizedType.includes("date")
   ) {
     return <DateTypeIcon className={className} />;
   }
-
-  // Boolean types
   if (["boolean", "bool"].includes(normalizedType)) {
     return <BooleanTypeIcon className={className} />;
   }
-
-  // Default to text/string
   return <TextTypeIcon className={className} />;
 }
 
-/** Extended sortable item with field data */
 interface FieldSortableItem extends SortableListItem {
   field: CombinedField;
 }
 
-interface FieldsSectionProps {
+function FieldRenameEditor({
+  field,
+  dragHandle,
+  onRename,
+  onRemove,
+}: {
+  field: CombinedField;
+  dragHandle: ReactNode;
+  onRename: (field: CombinedField, name: string) => Promise<void> | void;
+  onRemove: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState(field.name);
+  const [error, setError] = useState<string | null>(null);
+  const { setPending, isPending } = useSaveDismissGuard();
+  const [isSaving, setIsSaving] = useSavingFlag(setPending);
+
+  const close = () => {
+    if (isPending()) return;
+    setOpen(false);
+    setName(field.name);
+    setError(null);
+  };
+  const save = async () => {
+    const next = name.trim();
+    if (!next || next === field.name) return;
+    setIsSaving(true);
+    setError(null);
+    try {
+      await onRename(field, next);
+      setOpen(false);
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "Unknown error";
+      setError(`Failed to rename field: ${message}`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) close();
+        else {
+          setName(field.name);
+          setError(null);
+          setOpen(true);
+        }
+      }}
+    >
+      <WorkbenchChip
+        dragHandle={dragHandle}
+        icon={<FieldTypeIcon type={field.type} />}
+        open={open}
+        content={
+          <PopoverTrigger
+            render={
+              <button
+                type="button"
+                className="min-w-0 flex-1 truncate text-left font-medium focus-visible:outline-none"
+                aria-label={`Rename ${field.displayName}`}
+              >
+                {field.displayName}
+              </button>
+            }
+          />
+        }
+        removeLabel={`Remove ${field.displayName}`}
+        onRemove={onRemove}
+      />
+      <PopoverContent
+        aria-label="Rename field"
+        align="start"
+        className="w-72 space-y-3"
+      >
+        {error && (
+          <Alert color="danger">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+        <div className="space-y-1.5">
+          <Label htmlFor={`field-name-${field.id}`}>Display name</Label>
+          <Input
+            id={`field-name-${field.id}`}
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") void save();
+            }}
+            autoFocus
+          />
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button
+            label="Cancel"
+            variant="ghost"
+            size="sm"
+            disabled={isSaving}
+            onClick={close}
+          />
+          <Button
+            label={isSaving ? "Saving…" : "Save"}
+            size="sm"
+            loading={isSaving}
+            disabled={!name.trim() || name.trim() === field.name}
+            onClick={() => void save()}
+          />
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+export function FieldsSection({
+  selectedFields,
+  availableFields,
+  tables,
+  baseTableId,
+  onReorder,
+  onRemove,
+  onRename,
+  onAdd,
+}: {
   selectedFields: CombinedField[];
+  availableFields: CombinedField[];
+  tables: DataTable[];
   baseTableId: string;
   onReorder: (newOrder: string[]) => void;
   onRemove: (fieldId: string) => void;
-  onRenameClick: (field: CombinedField) => void;
-  onAddClick: () => void;
-  defaultOpen?: boolean;
-  embedded?: boolean;
-}
-
-/**
- * FieldsSection - Collapsible section for managing insight fields (dimensions)
- *
- * Shows a sortable list of selected fields with drag-and-drop reordering.
- * Each field displays name and type icon.
- */
-export function FieldsSection({
-  selectedFields,
-  onReorder,
-  onRemove,
-  onRenameClick,
-  onAddClick,
-  defaultOpen = true,
-  embedded = false,
-}: FieldsSectionProps) {
-  const [isOpen, setIsOpen] = useState(defaultOpen);
-
-  // Convert CombinedField to sortable item format
+  onRename: (field: CombinedField, name: string) => Promise<void> | void;
+  onAdd: (fieldId: string) => void;
+}) {
+  const [addOpen, setAddOpen] = useState(false);
   const sortableItems: FieldSortableItem[] = selectedFields.map((field) => ({
     id: field.id,
     field,
   }));
-
-  // Handle reorder - convert back to field IDs
   const handleReorder = useCallback(
-    (items: FieldSortableItem[]) => {
-      onReorder(items.map((item) => item.id));
-    },
+    (items: FieldSortableItem[]) => onReorder(items.map((item) => item.id)),
     [onReorder],
   );
+  const tableById = new Map(tables.map((table) => [table.id, table]));
+  const groupedFields = new Map<string, CombinedField[]>();
+  for (const field of availableFields) {
+    const groupId = field.sourceTableId;
+    groupedFields.set(groupId, [...(groupedFields.get(groupId) ?? []), field]);
+  }
+  const tableGroups = [...groupedFields].map(([tableId, fields]) => ({
+    tableId,
+    tableName:
+      tableById.get(tableId)?.name ??
+      (tableId === baseTableId ? "Base table" : "Joined table"),
+    fields,
+  }));
 
-  const content = (
-    <div className={embedded ? "p-4" : "px-4 pb-4"}>
-      {embedded && (
-        <div className="mb-3 flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-semibold text-neutral-fg">Fields</h3>
-            <p className="text-xs text-neutral-fg-subtle">
-              Choose and order the columns in the result.
-            </p>
-          </div>
-          <Button
-            label="Add"
-            icon={PlusIcon}
-            variant="outline"
-            size="sm"
-            onClick={onAddClick}
-          />
-        </div>
-      )}
-      {sortableItems.length > 0 ? (
+  return (
+    <div className="space-y-1">
+      {sortableItems.length > 0 && (
         <SortableList
           items={sortableItems}
           onReorder={handleReorder}
-          gap={6}
-          renderItem={(item) => (
-            <FieldItemContent
+          gap={3}
+          unstyledItems
+          renderItem={(item, _index, { dragHandle }) => (
+            <FieldRenameEditor
               field={item.field}
+              dragHandle={dragHandle}
+              onRename={onRename}
               onRemove={() => onRemove(item.id)}
-              onRenameClick={() => onRenameClick(item.field)}
             />
           )}
         />
-      ) : (
-        <p className="py-2 text-sm text-neutral-fg-subtle">
-          No fields selected.
-        </p>
       )}
-    </div>
-  );
-
-  if (embedded) return content;
-
-  return (
-    <Collapsible open={isOpen} onOpenChange={setIsOpen}>
-      <div className="border-b">
-        <div className="flex items-center justify-between px-4 py-3">
-          <CollapsibleTrigger
-            render={
-              <button
-                type="button"
-                className="-ml-2 flex items-center gap-1.5 rounded-md px-2 py-1 text-left transition-colors hover:bg-neutral-bg-emphasis/50"
-              >
-                <ChevronRightIcon
-                  className={cn(
-                    "h-4 w-4 text-neutral-fg-subtle transition-transform",
-                    isOpen && "rotate-90",
-                  )}
-                />
-                <NumberTypeIcon className="h-4 w-4 text-neutral-fg-subtle" />
-                <span className="text-sm leading-none font-medium">Fields</span>
-                <Badge
-                  variant="soft"
-                  className="h-5 px-1.5 text-xs leading-none tabular-nums"
-                >
-                  {selectedFields.length}
-                </Badge>
-              </button>
-            }
-          />
-          <Button
-            label="Add"
-            icon={PlusIcon}
-            variant="ghost"
-            size="sm"
-            onClick={onAddClick}
-          />
-        </div>
-        <CollapsibleContent>{content}</CollapsibleContent>
-      </div>
-    </Collapsible>
-  );
-}
-
-interface FieldItemContentProps {
-  field: CombinedField;
-  onRemove: () => void;
-  onRenameClick: () => void;
-}
-
-function FieldItemContent({
-  field,
-  onRemove,
-  onRenameClick,
-}: FieldItemContentProps) {
-  return (
-    <div className="flex min-w-0 flex-1 items-center gap-2">
-      {/* Render icon inline to avoid "component created during render" error */}
-      <FieldTypeIcon type={field.type} />
-      <span
-        className="min-w-0 flex-1 cursor-pointer truncate text-sm hover:underline"
-        onClick={(e) => {
-          e.stopPropagation();
-          onRenameClick();
-        }}
-        title={`${field.displayName} (click to rename)`}
-      >
-        {field.displayName}
-      </span>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onRenameClick();
-        }}
-        className="shrink-0 rounded-full p-0.5 text-neutral-fg-subtle hover:bg-neutral-bg-muted hover:text-neutral-fg"
-        aria-label={`Rename ${field.displayName}`}
-      >
-        <EditIcon className="h-3 w-3" />
-      </button>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onRemove();
-        }}
-        className="shrink-0 rounded-full p-0.5 text-neutral-fg-subtle hover:bg-neutral-bg-muted hover:text-neutral-fg"
-        aria-label={`Remove ${field.displayName}`}
-      >
-        <CloseIcon className="h-3 w-3" />
-      </button>
+      <Popover open={addOpen} onOpenChange={setAddOpen}>
+        <PopoverTrigger
+          render={
+            <WorkbenchAddRow disabled={availableFields.length === 0}>
+              Add field
+            </WorkbenchAddRow>
+          }
+        />
+        <PopoverContent
+          aria-label="Add field"
+          align="start"
+          className="w-72 p-0"
+        >
+          <Command label="Add field">
+            <CommandInput
+              placeholder="Search fields…"
+              aria-label="Search fields"
+            />
+            <CommandList>
+              <CommandEmpty>No matching fields.</CommandEmpty>
+              {tableGroups.map(({ tableId, tableName, fields }) => (
+                <CommandGroup key={tableId} heading={tableName}>
+                  {fields.map((field) => (
+                    <CommandItem
+                      key={field.id}
+                      value={field.id}
+                      keywords={[field.displayName, field.type, tableName]}
+                      onSelect={() => {
+                        onAdd(field.id);
+                        setAddOpen(false);
+                      }}
+                    >
+                      <FieldTypeIcon type={field.type} />
+                      <span className="min-w-0 flex-1 truncate">
+                        {field.displayName}
+                      </span>
+                      <span className="text-xs text-neutral-fg-subtle">
+                        {field.type}
+                      </span>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              ))}
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }

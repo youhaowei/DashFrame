@@ -756,6 +756,7 @@
         "@storybook/addon-vitest": "^10.1.11",
         "@storybook/nextjs-vite": "^10.1.11",
         "@tailwindcss/postcss": "4.1.16",
+        "@testing-library/react": "^16.3.0",
         "@types/node": "24.9.1",
         "@types/react": "19.2.7",
         "@types/react-dom": "19.2.3",

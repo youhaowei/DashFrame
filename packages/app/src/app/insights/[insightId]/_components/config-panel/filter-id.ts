@@ -4,7 +4,7 @@ import type { FilterWithId } from "./FiltersSection";
 /**
  * Pure helpers for client-side filter identity and save-merge.
  *
- * Filters carry a persisted `id` (generated on add by FilterEditDialog) that
+ * Filters carry a persisted `id` (generated on add by the filter popover) that
  * survives persistence round-trips. The client `_id` is sourced from it so a
  * subscription firing mid-edit — which recomputes the filter array, possibly
  * reordered — does not shift identities and misroute an in-flight save.

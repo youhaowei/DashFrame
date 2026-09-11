@@ -1,7 +1,7 @@
 /**
  * Chart Editing Tests
  *
- * Tests for switching chart views and pinning visualizations
+ * Tests for saving a chart and editing its type in place
  */
 import { expect, test } from "../lib/test-fixtures";
 
@@ -33,10 +33,11 @@ test.describe("Chart Editing", () => {
     });
     await page.getByRole("button", { name: "Save chart" }).click();
     // The preview already renders before save completes. Wait for the saved
-    // state so a later Data click cannot race the save callback selecting it.
+    // state (Save chart gives way to the saved view) so a later Data click
+    // cannot race the save callback selecting it.
     await expect(
-      page.getByText("Saved chart — reusable in dashboards"),
-    ).toBeVisible();
+      page.getByRole("button", { name: "Save chart" }),
+    ).not.toBeVisible({ timeout: 10_000 });
     await expect(page).toHaveURL(/\/insights\/[a-zA-Z0-9-]+/);
   });
 
@@ -50,19 +51,22 @@ test.describe("Chart Editing", () => {
     await page.getByRole("button", { name: "Data", exact: true }).click();
     await expect(page.getByText("4 rows • 2 fields")).toBeVisible();
 
-    // Each unsaved chart view renders and offers "Save chart"; switching views
-    // does NOT mint a new Visualization (only saving does).
+    // Visualize reopens the saved chart. Changing its type edits that chart in
+    // place: no "Save chart" offer and no second saved chart.
     await page.getByRole("button", { name: "Visualize" }).click();
-    await page.getByRole("button", { name: "Line", exact: true }).click();
-    await expect(
-      page.getByRole("button", { name: "Save chart" }),
-    ).toBeVisible();
-    await waitForChart();
+    for (const chartType of ["Line", "Area"]) {
+      const tile = page.getByRole("button", { name: chartType, exact: true });
+      await tile.click();
+      await expect(tile).toHaveAttribute("aria-pressed", "true");
+      await expect(
+        page.getByRole("button", { name: "Save chart" }),
+      ).not.toBeVisible();
+      await waitForChart();
+    }
 
-    await page.getByRole("button", { name: "Area", exact: true }).click();
-    await expect(
-      page.getByRole("button", { name: "Save chart" }),
-    ).toBeVisible();
-    await waitForChart();
+    // The collapsed Saved charts header summarises the count.
+    const savedCharts = page.getByRole("button", { name: /^Saved charts/ });
+    await savedCharts.click();
+    await expect(savedCharts).toHaveAccessibleName(/1 saved/);
   });
 });
