@@ -139,8 +139,26 @@ describe("NativeDuckDBEngine — real native DuckDB", () => {
     expect(table.schema.fields.map((field) => field.name)).toEqual(["value"]);
   });
 
-  it("disables temporary spill files for the default in-memory database", async () => {
+  it("keeps temporary spilling available for the default engine", async () => {
     engine = new NativeDuckDBEngine();
+    await engine.initialize();
+
+    const rows = await queryRows(
+      engine,
+      "SELECT current_setting('temp_directory') AS temp_directory",
+    );
+
+    expect(rows[0]?.temp_directory).not.toBe("");
+  });
+
+  it("disables temporary spilling for a sandboxed engine", async () => {
+    engine = new NativeDuckDBEngine({
+      sandboxLimits: {
+        memoryBytes: 64 * 1024 * 1024,
+        threads: 1,
+        maxResultRows: 2_048,
+      },
+    });
     await engine.initialize();
 
     const rows = await queryRows(
@@ -1305,12 +1323,10 @@ describe("NativeDuckDBEngine — real native DuckDB", () => {
       expect(result.map((r) => Number(r.ms))).toEqual([ts, ts + MS_PER_HOUR]);
     });
 
-    it("never stages row data through a file on the default database", async () => {
-      // The old implementation staged rows as an NDJSON temp file. Ingest now
-      // passes no row through the filesystem, and this engine takes the default
-      // `:memory:` database — pin both by checking no staging file appears in
-      // tmpdir. (A file-backed `databasePath` would persist the published table
-      // itself; that is the caller's choice and not what this pins.)
+    it("does not create an application-owned row staging file", async () => {
+      // The old implementation staged rows as a named NDJSON temp file. Pin
+      // only the absence of that host-owned artifact; an unsandboxed DuckDB may
+      // still use its own temporary spill directory under memory pressure.
       engine = new NativeDuckDBEngine();
       await engine.registerArrowTable("df_privacy_probe", producerBuffer());
 

@@ -21,10 +21,10 @@
  *
  * `registerArrowTable` accepts an Arrow IPC stream buffer, decodes it with
  * apache-arrow, and ingests it into a DuckDB table via the typed Appender API.
- * Nothing is staged through the filesystem on the way in; where the rows come to
- * rest is the `databasePath` decision — under the default `:memory:` database
- * they stay in process memory. Tables persist for the session lifetime and are
- * re-registered on reconnect.
+ * The host creates no row-shaped staging file on ingest. The default `:memory:`
+ * database has no persistent database file, though an unsandboxed DuckDB may
+ * spill temporary data to disk under memory pressure. Tables persist for the
+ * session lifetime and are re-registered on reconnect.
  *
  * Two-Arrow-library seam: this side decodes with `apache-arrow`, but the chart
  * layer (Mosaic / `@uwdata/vgplot`) decodes the same IPC with `@uwdata/flechette`.
@@ -94,9 +94,10 @@ export interface NativeDuckDBEngineOptions {
   /**
    * DuckDB database path. Default `:memory:` — an in-memory database.
    *
-   * The in-memory path also disables DuckDB's temporary spill directory, so a
-   * default session leaves no row data at rest. A caller that passes a path is
-   * choosing durability for that database explicitly.
+   * The default creates no persistent database file. Unsandboxed engines retain
+   * DuckDB's temporary spill behavior under memory pressure; `sandboxLimits`
+   * disables the spill directory as part of its deliberate confinement. A
+   * caller that passes a path is choosing a persistent database explicitly.
    */
   databasePath?: string;
   /**
@@ -315,19 +316,18 @@ export class NativeDuckDBEngine implements QueryEngine {
    * again immediately and every later operation opens its own.
    */
   private async openInstance(): Promise<DuckDBInstance> {
-    let config: Record<string, string> | undefined;
-    if (this.sandboxLimits) {
-      config = {
-        memory_limit: `${this.sandboxLimits.memoryBytes}B`,
-        threads: String(this.sandboxLimits.threads),
-        temp_directory: "",
-        autoinstall_known_extensions: "false",
-        autoload_known_extensions: "false",
-      };
-    } else if (this.databasePath === ":memory:") {
-      config = { temp_directory: "" };
-    }
-    const instance = await DuckDBInstance.create(this.databasePath, config);
+    const instance = await DuckDBInstance.create(
+      this.databasePath,
+      this.sandboxLimits
+        ? {
+            memory_limit: `${this.sandboxLimits.memoryBytes}B`,
+            threads: String(this.sandboxLimits.threads),
+            temp_directory: "",
+            autoinstall_known_extensions: "false",
+            autoload_known_extensions: "false",
+          }
+        : undefined,
+    );
     let connection: Connection;
     try {
       connection = await instance.connect();
@@ -683,12 +683,12 @@ export class NativeDuckDBEngine implements QueryEngine {
    *
    * Implementation: decode with apache-arrow, create the table with a schema
    * derived from the Arrow schema, and stream rows in through DuckDB's typed
-   * Appender. No row ever passes through a file on the way in — the staging
-   * table is TEMP and the published table is written by DuckDB, so with the
-   * default `:memory:` database the whole path stays in process memory, while a
-   * file-backed `databasePath` persists a registered table like any other.
-   * Typed appends preserve timestamps/dates exactly instead of round-tripping
-   * through JSON strings.
+   * Appender without an application-owned row staging file. The default
+   * `:memory:` database has no persistent database file, but unsandboxed DuckDB
+   * may still spill temporary data under memory pressure; a file-backed
+   * `databasePath` persists a registered table like any other. Typed appends
+   * preserve timestamps/dates exactly instead of round-tripping through JSON
+   * strings.
    */
   async registerArrowTable(
     name: string,
