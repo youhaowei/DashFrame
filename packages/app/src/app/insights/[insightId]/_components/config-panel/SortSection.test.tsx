@@ -134,4 +134,37 @@ describe("SortSection", () => {
       limit: { min: 10, max: 1000 },
     });
   });
+
+  it("preserves a pending sort declaration when limit is toggled immediately", async () => {
+    let resolveFirst = (_value?: boolean) => undefined;
+    const firstWrite = new Promise<boolean | void>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const onRuntimeChange = vi
+      .fn()
+      .mockReturnValueOnce(firstWrite)
+      .mockResolvedValueOnce(true);
+    render(
+      <SortSection
+        sorts={[]}
+        fields={[field]}
+        metrics={[]}
+        onChange={vi.fn()}
+        onRuntimeChange={onRuntimeChange}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("switch", { name: "Viewers can change sort" }),
+    );
+    fireEvent.click(
+      screen.getByRole("switch", { name: "Viewers can set a limit" }),
+    );
+
+    expect(onRuntimeChange).toHaveBeenNthCalledWith(2, {
+      sort: { allowedFieldIds: [], maxKeys: 1 },
+      limit: { min: 1, max: 1000 },
+    });
+    resolveFirst(true);
+  });
 });

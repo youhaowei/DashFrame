@@ -79,6 +79,42 @@ describe("FiltersSection", () => {
     expect(screen.getByLabelText("Operator").textContent).toContain("is not");
   });
 
+  it("includes viewer editability in the chip name without naming the eye", () => {
+    render(
+      <FiltersSection
+        filters={[
+          {
+            id: "filter-id",
+            _id: "filter-id",
+            field: "region",
+            operator: "eq",
+            value: "US",
+          },
+        ]}
+        combinedFields={[field]}
+        runtimeControls={{
+          filters: [
+            {
+              filterId: "filter-id",
+              key: "region",
+              label: "Region",
+            },
+          ],
+        }}
+        onReorder={vi.fn()}
+        onRemove={vi.fn()}
+        onSave={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", {
+        name: "Edit filter Region, viewers can change",
+      }),
+    ).toBeTruthy();
+    expect(screen.queryByLabelText("Viewers can change")).toBeNull();
+  });
+
   it("follows the selected field label until the viewer label is edited", async () => {
     const user = userEvent.setup({ delay: null });
     const city = {

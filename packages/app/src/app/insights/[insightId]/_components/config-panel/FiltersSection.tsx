@@ -111,6 +111,12 @@ export function filterFieldDisplayName(
   return findField(fields, value)?.displayName ?? value;
 }
 
+function filterEditLabel(displayName: string, viewersCanChange: boolean) {
+  return `Edit filter ${displayName}${
+    viewersCanChange ? ", viewers can change" : ""
+  }`;
+}
+
 export function formatFilterValue(filter: InsightFilter): string {
   if (filter.operator === "between") {
     const value = filter.value as InsightFilterBetweenValue | undefined;
@@ -297,7 +303,7 @@ function FilterEditor({
             <button
               type="button"
               className="min-w-0 flex-1 truncate text-left focus-visible:outline-none"
-              aria-label={`Edit filter ${displayName}`}
+              aria-label={filterEditLabel(displayName, Boolean(control))}
             >
               <span
                 className={cn(
@@ -316,10 +322,7 @@ function FilterEditor({
       }
       trailing={
         control ? (
-          <Eye
-            aria-label="Viewers can change"
-            className="h-3.5 w-3.5 text-neutral-fg-subtle"
-          />
+          <Eye aria-hidden className="h-3.5 w-3.5 text-neutral-fg-subtle" />
         ) : undefined
       }
       removeLabel={`Remove filter ${displayName}`}

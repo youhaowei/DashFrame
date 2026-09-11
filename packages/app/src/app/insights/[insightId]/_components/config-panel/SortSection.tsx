@@ -30,7 +30,9 @@ import {
 import { ArrowDown, ArrowUp, Sigma } from "lucide-react";
 import {
   useCallback,
+  useEffect,
   useMemo,
+  useRef,
   useState,
   type KeyboardEvent,
   type ReactNode,
@@ -122,7 +124,9 @@ export function SortSection({
   metrics: InsightMetric[];
   runtimeControls?: InsightRuntimeDeclaration;
   onChange: (sorts: InsightSort[]) => void;
-  onRuntimeChange: (value: InsightRuntimeDeclaration | undefined) => void;
+  onRuntimeChange: (
+    value: InsightRuntimeDeclaration | undefined,
+  ) => boolean | void | Promise<boolean | void>;
 }) {
   const [addOpen, setAddOpen] = useState(false);
   const options = useMemo<SortOption[]>(
@@ -159,8 +163,63 @@ export function SortSection({
     (option, index, all) =>
       all.findIndex((item) => item.id === option.id) === index,
   );
-  const updateRuntime = (next: InsightRuntimeDeclaration) => {
-    onRuntimeChange(next.filters || next.sort || next.limit ? next : undefined);
+  const runtimeControlsRef = useRef(runtimeControls);
+  const serverRuntimeControlsRef = useRef(runtimeControls);
+  const pendingRuntimeSignatureRef = useRef<string | null>(null);
+  const runtimeSignature = JSON.stringify(runtimeControls ?? null);
+  useEffect(() => {
+    serverRuntimeControlsRef.current = runtimeControls;
+    if (
+      pendingRuntimeSignatureRef.current === null ||
+      pendingRuntimeSignatureRef.current === runtimeSignature
+    ) {
+      runtimeControlsRef.current = runtimeControls;
+      pendingRuntimeSignatureRef.current = null;
+    }
+  }, [runtimeControls, runtimeSignature]);
+
+  const updateRuntime = (
+    update: (
+      current: InsightRuntimeDeclaration | undefined,
+    ) => InsightRuntimeDeclaration,
+  ) => {
+    const candidate = update(runtimeControlsRef.current);
+    const next =
+      candidate.filters || candidate.sort || candidate.limit
+        ? candidate
+        : undefined;
+    const nextSignature = JSON.stringify(next ?? null);
+    runtimeControlsRef.current = next;
+    pendingRuntimeSignatureRef.current = nextSignature;
+    Promise.resolve(onRuntimeChange(next)).then(
+      (saved) => {
+        if (
+          saved === false &&
+          pendingRuntimeSignatureRef.current === nextSignature
+        ) {
+          runtimeControlsRef.current = serverRuntimeControlsRef.current;
+          pendingRuntimeSignatureRef.current = null;
+        }
+      },
+      () => {
+        if (pendingRuntimeSignatureRef.current === nextSignature) {
+          runtimeControlsRef.current = serverRuntimeControlsRef.current;
+          pendingRuntimeSignatureRef.current = null;
+        }
+      },
+    );
+  };
+  const setRuntimeFieldAllowed = (fieldId: UUID, allowed: boolean) => {
+    updateRuntime((latest) => {
+      const current = latest?.sort?.allowedFieldIds ?? [];
+      const allowedFieldIds = allowed
+        ? [...current, fieldId]
+        : current.filter((id) => id !== fieldId);
+      return {
+        ...latest,
+        sort: { allowedFieldIds, maxKeys: 1 },
+      };
+    });
   };
   const optionByValue = useMemo(
     () => new Map(options.map((option) => [option.value, option])),
@@ -271,15 +330,15 @@ export function SortSection({
           <Switch
             checked={Boolean(runtimeControls?.sort)}
             onCheckedChange={(checked) =>
-              updateRuntime({
-                ...runtimeControls,
+              updateRuntime((current) => ({
+                ...current,
                 sort: checked
                   ? {
                       allowedFieldIds: [],
                       maxKeys: 1,
                     }
                   : undefined,
-              })
+              }))
             }
           />
         </label>
@@ -296,17 +355,9 @@ export function SortSection({
                 >
                   <Checkbox
                     checked={checked}
-                    onCheckedChange={(next) => {
-                      const current = runtimeControls.sort!.allowedFieldIds;
-                      const allowedFieldIds =
-                        next === true
-                          ? [...current, option.id]
-                          : current.filter((id) => id !== option.id);
-                      updateRuntime({
-                        ...runtimeControls,
-                        sort: { allowedFieldIds, maxKeys: 1 },
-                      });
-                    }}
+                    onCheckedChange={(next) =>
+                      setRuntimeFieldAllowed(option.id, next === true)
+                    }
                   />
                   {option.label}
                 </label>
@@ -319,10 +370,10 @@ export function SortSection({
           <Switch
             checked={Boolean(runtimeControls?.limit)}
             onCheckedChange={(checked) =>
-              updateRuntime({
-                ...runtimeControls,
+              updateRuntime((current) => ({
+                ...current,
                 limit: checked ? { min: 1, max: 1000 } : undefined,
-              })
+              }))
             }
           />
         </label>
@@ -330,7 +381,9 @@ export function SortSection({
           <ViewerLimitFields
             key={`${runtimeControls.limit.min}:${runtimeControls.limit.max}`}
             limit={runtimeControls.limit}
-            onCommit={(limit) => updateRuntime({ ...runtimeControls, limit })}
+            onCommit={(limit) =>
+              updateRuntime((current) => ({ ...current, limit }))
+            }
           />
         )}
       </div>
