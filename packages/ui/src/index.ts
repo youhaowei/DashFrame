@@ -32,6 +32,8 @@ export {
   WorkbenchAddRow,
   WorkbenchChip,
   WorkbenchJumpBar,
+  WorkbenchPaneHeader,
+  WorkbenchScrollArea,
   WorkbenchCheckbox,
   WorkbenchPaneSection,
   WorkbenchSwitch,

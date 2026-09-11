@@ -148,7 +148,8 @@ export function VirtualTable({
   // Edge fades show only while more rows sit past that edge.
   const [scrollEdges, setScrollEdges] = useState({ top: false, bottom: false });
   const [headerHeight, setHeaderHeight] = useState(0);
-  // Space always-visible scrollbars take, so the fades stop short of them.
+  // Space scrollbars take, so the fades stop short of them. The scroller hides
+  // its scrollbars, so this stays 0 unless a platform forces them visible.
   const [scrollbarGutter, setScrollbarGutter] = useState({
     right: 0,
     bottom: 0,
@@ -600,7 +601,7 @@ export function VirtualTable({
       <div
         ref={tableContainerRef}
         onScroll={updateScrollEdges}
-        className="relative min-h-0 flex-1 overflow-auto rounded-lg border border-neutral-border"
+        className="relative min-h-0 flex-1 overflow-auto rounded-lg border border-neutral-border [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         {/* Header. The upward shadow covers the sub-pixel sliver sticky
             positioning can leave above it, where scrolled rows showed through. */}

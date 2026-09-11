@@ -20,6 +20,7 @@ import {
   forwardRef,
   useCallback,
   useRef,
+  useEffect,
   useState,
   type ButtonHTMLAttributes,
   type ReactNode,
@@ -93,7 +94,11 @@ export const WorkbenchPaneSection = forwardRef<
 ) {
   return (
     <Collapsible open={open} onOpenChange={onOpenChange}>
-      <div ref={ref} className="border-t border-neutral-border/60 py-1.5">
+      {/* scroll-mt keeps a jumped-to section clear of the sticky pane header. */}
+      <div
+        ref={ref}
+        className="scroll-mt-20 border-t border-neutral-border/60 py-1.5"
+      >
         <CollapsibleTrigger
           render={
             <button
@@ -128,6 +133,86 @@ export const WorkbenchPaneSection = forwardRef<
     </Collapsible>
   );
 });
+
+/**
+ * Pane title and jump bar. It sticks to the top of the pane's scroll area so
+ * the jump bar stays reachable. The pane body must pad with px-3/py-3 (the
+ * header cancels that padding to paint edge to edge) and must not set
+ * overflow-x-hidden, which would make it the sticky scrollport.
+ */
+/**
+ * Scroll area for a workbench pane. The scrollbar stays hidden; fades mark the
+ * edges that have more content past them. The top fade hangs under a
+ * WorkbenchPaneHeader when one is present.
+ */
+export function WorkbenchScrollArea({
+  className,
+  children,
+}: {
+  className?: string;
+  children: ReactNode;
+}) {
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ top: false, bottom: false });
+  const update = useCallback(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    const top = el.scrollTop > 1;
+    const bottom = el.scrollTop + el.clientHeight < el.scrollHeight - 1;
+    setEdges((prev) =>
+      prev.top === top && prev.bottom === bottom ? prev : { top, bottom },
+    );
+  }, []);
+  useEffect(() => {
+    const el = scrollerRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    // Content grows and shrinks as sections collapse, so watch both boxes.
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    if (el.firstElementChild) observer.observe(el.firstElementChild);
+    update();
+    return () => observer.disconnect();
+  }, [update]);
+  return (
+    <div className={cn("relative h-full", className)}>
+      <div
+        ref={scrollerRef}
+        onScroll={update}
+        data-scrolled={edges.top || undefined}
+        className="group/pane-scroll h-full overflow-x-hidden overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        {children}
+      </div>
+      <div
+        aria-hidden
+        className={cn(
+          "pointer-events-none absolute inset-x-0 bottom-0 z-10 h-8 bg-linear-to-t from-neutral-bg to-transparent transition-opacity duration-150",
+          edges.bottom ? "opacity-100" : "opacity-0",
+        )}
+      />
+    </div>
+  );
+}
+
+export function WorkbenchPaneHeader({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="sticky top-0 z-10 -mx-3 -mt-3 bg-neutral-bg px-3 pt-3 pb-2">
+      <h2 className="px-0.5 pb-2 text-sm font-semibold">{title}</h2>
+      {children}
+      {/* Marks content scrolled under the header inside a WorkbenchScrollArea. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-full h-6 bg-linear-to-b from-neutral-bg to-transparent opacity-0 transition-opacity duration-150 group-data-[scrolled]/pane-scroll:opacity-100"
+      />
+    </div>
+  );
+}
 
 export interface WorkbenchJumpItem {
   id: string;
