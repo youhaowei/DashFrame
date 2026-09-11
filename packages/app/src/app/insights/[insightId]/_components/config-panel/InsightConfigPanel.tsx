@@ -45,6 +45,7 @@ import {
   DeleteConfirmDialog,
   findVisualizationsUsingField,
   findVisualizationsUsingMetric,
+  type UsageStatus,
   removeFromEncoding,
   type DeleteItemType,
 } from "./DeleteConfirmDialog";
@@ -572,6 +573,9 @@ export function InsightConfigPanel({
   // still prunes any viewer controls tied to the item. Confirm when a chart
   // depends on it, or when the chart list hasn't loaded and that is unknown.
   const visualizationsKnown = !visualizationsLoading && !visualizationsError;
+  let usageStatus: UsageStatus = "known";
+  if (visualizationsLoading) usageStatus = "loading";
+  else if (visualizationsError) usageStatus = "error";
   const handleRemoveField = useCallback(
     (fieldId: string) => {
       const field = combinedFields.find((f) => f.id === fieldId);
@@ -821,6 +825,7 @@ export function InsightConfigPanel({
         itemName={deleteDialog.itemName}
         itemType={deleteDialog.itemType}
         affectedVisualizations={affectedVisualizations}
+        usageStatus={usageStatus}
         processingVizId={processingVizId}
         onClose={handleCloseDeleteDialog}
         onRemoveFromVisualization={handleRemoveFromVisualization}

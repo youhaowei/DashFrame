@@ -25,6 +25,9 @@ export interface AffectedVisualization {
 /** Type of item being deleted */
 export type DeleteItemType = "field" | "metric";
 
+/** Whether the saved charts that might use the item have loaded */
+export type UsageStatus = "loading" | "error" | "known";
+
 interface DeleteConfirmDialogProps {
   /** Whether the dialog is open */
   isOpen: boolean;
@@ -34,6 +37,11 @@ interface DeleteConfirmDialogProps {
   itemType: DeleteItemType;
   /** Visualizations that use this item (computed reactively by parent) */
   affectedVisualizations: AffectedVisualization[];
+  /**
+   * Until the saved charts load, an empty affectedVisualizations proves
+   * nothing, so deleting stays disabled.
+   */
+  usageStatus: UsageStatus;
   /** ID of visualization currently being processed (managed by parent) */
   processingVizId: string | null;
   /** Called when dialog is closed */
@@ -58,6 +66,7 @@ export function DeleteConfirmDialog({
   itemName,
   itemType,
   affectedVisualizations,
+  usageStatus,
   processingVizId,
   onClose,
   onRemoveFromVisualization,
@@ -68,6 +77,15 @@ export function DeleteConfirmDialog({
   const affectedCount = affectedVisualizations.length;
   const visualizationWord =
     affectedCount === 1 ? "visualization" : "visualizations";
+
+  let description = `Are you sure you want to delete "${itemName}"? This action cannot be undone.`;
+  if (usageStatus === "loading") {
+    description = `Checking which charts use "${itemName}"…`;
+  } else if (usageStatus === "error") {
+    description = `Couldn't check which charts use "${itemName}". Close this and try again once your charts load.`;
+  } else if (hasAffectedVisualizations) {
+    description = `"${itemName}" is used by ${affectedCount} ${visualizationWord}. You need to resolve these dependencies before deleting.`;
+  }
 
   const handleDelete = () => {
     onDelete();
@@ -82,11 +100,7 @@ export function DeleteConfirmDialog({
             <AlertCircleIcon className="h-5 w-5 text-amber-500" />
             Delete {itemType}
           </DialogTitle>
-          <DialogDescription>
-            {hasAffectedVisualizations
-              ? `"${itemName}" is used by ${affectedCount} ${visualizationWord}. You need to resolve these dependencies before deleting.`
-              : `Are you sure you want to delete "${itemName}"? This action cannot be undone.`}
-          </DialogDescription>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
 
         {hasAffectedVisualizations && (
@@ -143,7 +157,7 @@ export function DeleteConfirmDialog({
             label={`Delete ${itemType}`}
             color="danger"
             onClick={handleDelete}
-            disabled={hasAffectedVisualizations}
+            disabled={usageStatus !== "known" || hasAffectedVisualizations}
           />
         </DialogFooter>
       </DialogContent>

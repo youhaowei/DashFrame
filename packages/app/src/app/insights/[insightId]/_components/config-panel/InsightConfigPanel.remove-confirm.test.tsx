@@ -37,8 +37,13 @@ vi.mock("./FieldsSection", () => ({
   ),
 }));
 vi.mock("./DeleteConfirmDialog", () => ({
-  DeleteConfirmDialog: ({ isOpen }: { isOpen: boolean }) =>
-    isOpen ? <div role="dialog">Confirm removal</div> : null,
+  DeleteConfirmDialog: ({
+    isOpen,
+    usageStatus,
+  }: {
+    isOpen: boolean;
+    usageStatus: string;
+  }) => (isOpen ? <div role="dialog" data-usage-status={usageStatus} /> : null),
   findVisualizationsUsingField: () => usedBy.current,
   findVisualizationsUsingMetric: () => usedBy.current,
   removeFromEncoding: (encoding: unknown) => encoding,
@@ -101,14 +106,14 @@ describe("InsightConfigPanel field removal", () => {
   it("confirms while the saved charts are still loading", () => {
     queryState.current = { isLoading: true };
     removeRegion();
-    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(screen.getByRole("dialog").dataset.usageStatus).toBe("loading");
     expect(commitBatch).not.toHaveBeenCalled();
   });
 
   it("confirms when the saved charts failed to load", () => {
     queryState.current = { isError: true };
     removeRegion();
-    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(screen.getByRole("dialog").dataset.usageStatus).toBe("error");
     expect(commitBatch).not.toHaveBeenCalled();
   });
 });
