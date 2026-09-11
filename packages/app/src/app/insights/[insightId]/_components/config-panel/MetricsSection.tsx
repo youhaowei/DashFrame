@@ -186,7 +186,11 @@ function MetricEditor({
       }}
     >
       {trigger}
-      <PopoverContent align="start" className="w-80 space-y-3">
+      <PopoverContent
+        aria-label={metric ? "Edit metric" : "Add metric"}
+        align="start"
+        className="w-80 space-y-3"
+      >
         {error && (
           <Alert color="danger">
             <AlertDescription>{error}</AlertDescription>
