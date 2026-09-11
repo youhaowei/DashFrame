@@ -440,7 +440,7 @@ function FilterEditor({
             placeholder={operator === "in" ? "Comma-separated values" : "Value"}
           />
         )}
-        <label className="flex items-center gap-2 text-xs">
+        <label className="flex cursor-pointer items-center gap-2 text-xs">
           <WorkbenchCheckbox
             checked={viewerEditable}
             onCheckedChange={(checked) => {
@@ -483,14 +483,14 @@ function FilterEditor({
               )}
             </div>
             <div className="flex gap-4">
-              <label className="flex items-center gap-2 text-xs">
+              <label className="flex cursor-pointer items-center gap-2 text-xs">
                 <WorkbenchCheckbox
                   checked={required}
                   onCheckedChange={(checked) => setRequired(checked === true)}
                 />
                 Required
               </label>
-              <label className="flex items-center gap-2 text-xs">
+              <label className="flex cursor-pointer items-center gap-2 text-xs">
                 <WorkbenchCheckbox
                   checked={allowClear}
                   onCheckedChange={(checked) => setAllowClear(checked === true)}
