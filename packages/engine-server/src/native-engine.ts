@@ -1,5 +1,5 @@
 /**
- * Stage 3 — Execute: the native DuckDB engine.
+ * The native DuckDB engine — DashFrame's in-process execution backing.
  *
  * The in-process `QueryEngine`: DuckDB inside the server process itself
  * (desktop loopback today; headless `serve` + web-via-server is the same
@@ -9,20 +9,21 @@
  * DuckDB-WASM helpers in `@dashframe/engine-browser` are a renderer fallback
  * and implement no `QueryEngine` today.
  *
- * Electron main and headless `serve` both construct this engine and mount Stage
- * 5.
+ * Electron main and headless `serve` both construct this engine and mount the
+ * Arrow data path over it.
  *
  * Results leave as Arrow IPC bytes (`queryArrow` buffered, `queryArrowBatches`
- * chunked) — the payload the dedicated data path (Stage 5) streams. Arrow
+ * chunked) — the payload the dedicated data path streams. Arrow
  * encoding is delegated to `apache-arrow` rather than DuckDB's Arrow extension,
  * so the binary format matches what clients ingest (including the WASM backup
  * path) and stays in one well-exercised library. Callers that want JSON rows
  * decode the same bytes in transport with `arrowIpcToJsonRows`.
  *
  * `registerArrowTable` accepts an Arrow IPC stream buffer, decodes it with
- * apache-arrow, and ingests it into an in-memory DuckDB table via the typed
- * Appender API. Row data stays in process memory (privacy floor: sensitive data
- * is never at rest outside the gated cache; see #67). Tables persist for the
+ * apache-arrow, and ingests it into a DuckDB table via the typed Appender API.
+ * The host creates no row-shaped staging file on ingest. The default `:memory:`
+ * database has no persistent database file, though an unsandboxed DuckDB may
+ * spill temporary data to disk under memory pressure. Tables persist for the
  * session lifetime and are re-registered on reconnect.
  *
  * Two-Arrow-library seam: this side decodes with `apache-arrow`, but the chart
@@ -55,8 +56,9 @@ import { duckdbColumnsToArrowIpc, type ResultColumn } from "./arrow-encode";
 import { tableKey } from "./table-identity";
 
 /**
- * Deny filesystem and network access on `connection`, then lock the
- * configuration so user SQL cannot restore it.
+ * Deny client-issued SQL access to external filesystem and network primitives
+ * on `connection`, then lock the configuration so user SQL cannot restore it.
+ * This does not disable DuckDB's internal database-file or temporary-spill I/O.
  *
  * Order matters: `lock_configuration` must be set LAST, because it also locks
  * itself and every setting after it. The lock is what makes this a boundary
@@ -93,15 +95,17 @@ export interface NativeDuckDBEngineOptions {
   /**
    * DuckDB database path. Default `:memory:` — an in-memory database.
    *
-   * The cache-write gate (see #67) keeps sensitive columns memory-only by
-   * excluding them from the on-disk Parquet cache (Stage 4); the engine's own
-   * working database is in-memory by default so a session leaves nothing at
-   * rest unless a query is explicitly cached.
+   * The default creates no persistent database file. Unsandboxed engines retain
+   * DuckDB's temporary spill behavior under memory pressure; `sandboxLimits`
+   * disables the spill directory as part of its deliberate confinement. A
+   * caller that passes a path is choosing a persistent database explicitly.
    */
   databasePath?: string;
   /**
-   * Deny DuckDB every filesystem and network primitive, and lock that decision
-   * so no later statement can undo it. Defaults to `true`.
+   * Deny client-issued SQL access to external filesystem and network
+   * primitives, and lock that decision so no later statement can undo it.
+   * Defaults to `true`. DuckDB's internal database-file and temporary-spill I/O
+   * remain available.
    *
    * This engine executes SQL that originates in the browser: Mosaic composes
    * chart queries client-side and posts them to the Arrow data path, which
@@ -117,9 +121,9 @@ export interface NativeDuckDBEngineOptions {
    * before these settings apply, and reads, writes and CHECKPOINT against it are
    * unaffected.
    *
-   * Set it to `false` only for a caller that genuinely needs DuckDB to touch the
-   * filesystem — the Parquet cache is the one such consumer — and only where the
-   * SQL reaching that engine cannot come from a client.
+   * Set it to `false` only for a trusted caller whose SQL genuinely needs
+   * external filesystem or network primitives, and only where that SQL cannot
+   * come from a client. No caller does today.
    */
   restrictFileAccess?: boolean;
 }
@@ -525,7 +529,7 @@ export class NativeDuckDBEngine implements QueryEngine {
 
   /**
    * Execute `sql` (with optional positional `params`) and return the result as
-   * an Arrow IPC stream buffer — the payload the data path (Stage 5) serves as
+   * an Arrow IPC stream buffer — the payload the data path serves as
    * `application/vnd.apache.arrow.stream`.
    *
    * Params bind through DuckDB's native positional binding (the `values`
@@ -682,10 +686,12 @@ export class NativeDuckDBEngine implements QueryEngine {
    *
    * Implementation: decode with apache-arrow, create the table with a schema
    * derived from the Arrow schema, and stream rows in through DuckDB's typed
-   * Appender. The whole path is in-memory — row data never touches the
-   * filesystem (privacy floor: sensitive data is never at rest outside the
-   * gated cache), and typed appends preserve timestamps/dates exactly instead
-   * of round-tripping through JSON strings.
+   * Appender without an application-owned row staging file. The default
+   * `:memory:` database has no persistent database file, but unsandboxed DuckDB
+   * may still spill temporary data under memory pressure; a file-backed
+   * `databasePath` persists a registered table like any other. Typed appends
+   * preserve timestamps/dates exactly instead of round-tripping through JSON
+   * strings.
    */
   async registerArrowTable(
     name: string,
@@ -722,7 +728,8 @@ export class NativeDuckDBEngine implements QueryEngine {
           `CREATE OR REPLACE TEMP TABLE ${quoteIdent(stagingName)} (${columnDefs})`,
         );
 
-        // Stream rows into the staging table — no disk, no string round-trip.
+        // Stream rows without an application-owned staging file or string
+        // round-trip. An unsandboxed DuckDB may still spill internally.
         const appender = await conn.createAppender(stagingName);
         try {
           const columns = fields.map((f) => ({

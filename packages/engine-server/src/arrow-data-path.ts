@@ -1,5 +1,5 @@
 /**
- * Stage 5 — Transport: the dedicated Arrow IPC data path.
+ * Transport: the dedicated Arrow IPC data path.
  *
  * WyStack RPC carries metadata only; Arrow/binary rides this separate HTTP
  * endpoint — the hard boundary from the Data Path & Transport spec (D3). On
@@ -13,8 +13,10 @@
  *
  * `POST /arrow`
  *   Accepts two overlapping request shapes:
- *   - Native shape: `{ sql: string, params?: unknown[] }` — used by the
- *     compiled-query cache path. Returns Arrow IPC.
+ *   - Native shape: `{ sql: string, params?: unknown[] }` — SQL plus values
+ *     the engine binds as parameters rather than interpolating into the text.
+ *     No product client sends it; `apps/desktop/scripts/verify-native-engine.mjs`
+ *     and this package's tests drive it. Returns Arrow IPC.
  *   - Mosaic shape: `{ type: 'arrow'|'exec'|'json', sql: string }` — the
  *     protocol Mosaic's Coordinator issues to any restConnector-compatible
  *     server. Returns Arrow IPC, empty body, or JSON rows respectively.
@@ -260,6 +262,29 @@ interface MosaicRequestBody {
 
 type RequestBody = NativeRequestBody | MosaicRequestBody;
 
+function invalidParamsResponse(body: RequestBody): Response | null {
+  // Mosaic never sends params. Reject them on typed requests instead of
+  // accidentally extending that protocol or forwarding hidden bindings.
+  if (body.type !== undefined && "params" in body) {
+    return Response.json(
+      { error: "params are not supported for typed requests" },
+      { status: 400 },
+    );
+  }
+
+  // Native requests may bind an array of values. A scalar silently coerced to
+  // [] would produce a binding-mismatch 500 later, so fail clearly here.
+  if (
+    "params" in body &&
+    body.params !== undefined &&
+    !Array.isArray(body.params)
+  ) {
+    return Response.json({ error: "params must be an array" }, { status: 400 });
+  }
+
+  return null;
+}
+
 /**
  * Dispatch a parsed Arrow query body to the engine and return an HTTP Response.
  * Extracted to keep the Hono handler below the sonarjs cognitive-complexity cap.
@@ -277,8 +302,8 @@ async function dispatchArrowQuery(
     );
   }
 
-  // Determine query type: Mosaic sends explicit `type`; the native compiled
-  // path has no `type` field and always wants Arrow IPC.
+  // Determine query type: Mosaic sends explicit `type`; the native shape has
+  // no `type` field and always wants Arrow IPC.
   let queryType: "arrow" | "exec" | "json";
   if (body.type === "exec") {
     queryType = "exec";
@@ -288,18 +313,8 @@ async function dispatchArrowQuery(
     queryType = "arrow";
   }
 
-  // Validate params on the native path (no `type` field). Mosaic never sends
-  // params, so only the native compiled-query path can hit this. A scalar
-  // params silently coerced to [] would produce a binding-mismatch 500 later;
-  // fail clearly at the request boundary instead.
-  if (
-    !body.type &&
-    "params" in body &&
-    body.params !== undefined &&
-    !Array.isArray(body.params)
-  ) {
-    return Response.json({ error: "params must be an array" }, { status: 400 });
-  }
+  const invalidParams = invalidParamsResponse(body);
+  if (invalidParams) return invalidParams;
 
   if (queryType === "exec") {
     try {
@@ -650,7 +665,8 @@ export function createArrowDataPath(options: ArrowDataPathOptions): Hono {
 
 function parseParams(body: RequestBody): readonly unknown[] {
   // Mosaic requests don't carry params (SQL is fully resolved by the time it
-  // reaches the connector). The native compiled-query path may supply them.
+  // reaches the connector). A native-shape request may supply them, and they
+  // are bound by the engine, never spliced into the SQL text.
   if ("params" in body && Array.isArray(body.params)) {
     return body.params as readonly unknown[];
   }

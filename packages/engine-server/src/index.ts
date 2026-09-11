@@ -2,32 +2,31 @@
  * @dashframe/engine-server — the server-authoritative native execution path.
  *
  * Primary data plane for DashFrame: native DuckDB in the server process, shared
- * by desktop and web. The retained WASM implementation has no active product
- * mode.
+ * by desktop and web.
  *
- * Five-stage pipeline (compile → place → execute → cache → transport):
+ * Two things run here:
  *
- *   - Stage 1 Compile   — `hashCompiledQuery` (content-addressing boundary)
- *   - Stage 2 Place     — `selectEngineBinding` (policy seam; active web and
- *                         desktop hosts both select the native server)
- *   - Stage 3 Execute   — `NativeDuckDBEngine` (native DuckDB QueryEngine)
- *   - Stage 4 Cache     — `ParquetCache` + `CacheWriteGate` seam (sensitivity gate, see #67)
- *   - Stage 5 Transport — `createArrowDataPath` (dedicated Arrow IPC HTTP path)
+ *   - Execute   — `NativeDuckDBEngine`, an Arrow-native `QueryEngine` backing
+ *                 over `@duckdb/node-api`, plus the DuckDB-to-Arrow encoding it
+ *                 returns results in.
+ *   - Transport — `createArrowDataPath`, the HTTP Arrow IPC door onto that same
+ *                 engine. It owns authentication, request shape and the frame
+ *                 ownership check. The frame route validates and substitutes
+ *                 its server-owned table identifier while leaving the rest of
+ *                 the caller's SQL unchanged.
  *
- * Desktop constructs Stage 3+5 in Electron main; headless `serve` constructs
- * the same engine lazily at its runtime edge and injects it into the same path.
+ * Placement is not decided here. The engine is bound where it is constructed,
+ * by availability: a host that can reach a server engine uses it, and the WASM
+ * backing is the explicit backup rung a caller opts into. There is no
+ * per-surface table and nothing platform-detects.
+ *
+ * Desktop constructs the engine and the data path in Electron main; headless
+ * `serve` constructs the same engine lazily at its runtime edge and injects it
+ * into the same path.
  *
  * Native module: this package depends on `@duckdb/node-api`, which must be
  * externalized from the Electron main bundle (and asar-unpacked if packaged).
  */
-
-export { hashCompiledQuery, type CompiledQuery } from "./compile";
-
-export {
-  selectEngineBinding,
-  type Deployment,
-  type EngineBinding,
-} from "./engine-selection";
 
 export {
   NativeDuckDBEngine,
@@ -39,14 +38,6 @@ export {
   duckdbTypeIdToColumnType,
   type ResultColumn,
 } from "./arrow-encode";
-
-export {
-  ParquetCache,
-  identityCacheWriteGate,
-  makeSensitivityCacheWriteGate,
-  type CacheWriteGate,
-  type ParquetCacheOptions,
-} from "./parquet-cache";
 
 export {
   ARROW_STREAM_CONTENT_TYPE,

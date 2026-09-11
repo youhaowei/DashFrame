@@ -2,7 +2,6 @@ import { backendExecutableName } from "@dashframe/convex-local";
 import {
   FileDataFrameStorage,
   NativeDuckDBEngine,
-  selectEngineBinding,
 } from "@dashframe/engine-server";
 import {
   ApiAccessCredentials,
@@ -336,12 +335,13 @@ app
       const corsOrigin = isDev ? new URL(DEV_URL).origin : "null";
       authToken = createLoopbackToken();
 
-      // Desktop resolves to the native DuckDB engine (engine selection policy,
-      // one place). It backs the dedicated Arrow IPC data path on the loopback
-      // server — Electron main stays a thin host; the engine lives in the
-      // server process, not main proper.
-      const binding = selectEngineBinding("desktop");
-      console.log(`[dashframe] engine binding: ${binding}`);
+      // Placement is an availability ladder, resolved here rather than by a
+      // per-surface policy table: a server engine is reachable in this process,
+      // so the host binds it. (The WASM backing is the backup rung a caller
+      // opts into explicitly; nothing platform-detects.) The engine backs the
+      // dedicated Arrow IPC data path on the loopback server — Electron main
+      // stays a thin host; the engine lives in the server process, not main
+      // proper.
       const engine = new NativeDuckDBEngine();
       await engine.initialize();
       lifecycle.setEngine(engine);

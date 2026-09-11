@@ -102,8 +102,10 @@ interface VisualizationSetupProps {
 /**
  * VisualizationSetup - Wires up the visualization system.
  *
- * Both hosts inject the same server-native Mosaic connector. The retained WASM
- * implementation is not an active fallback or selectable mode in v0.3.
+ * The connector comes from `ChartEngineProvider` — the rung the host bound.
+ * Today both hosts bind the server rung unconditionally and inject a connector
+ * onto it; the DuckDB-WASM backup rung is opted into at `VisualizationProvider`
+ * by handing it a `db` + `connection`, never selected here and never by surface.
  *
  * ## Error surfaces
  *
@@ -128,9 +130,8 @@ interface VisualizationSetupProps {
  *
  * ## Provider Hierarchy
  *
- * ### Web and desktop:
  * ```
- * ChartEngineProvider (native Mosaic connector — supplied by the web or desktop host)
+ * ChartEngineProvider (Mosaic connector onto the reachable server engine)
  *     └── DuckDBProvider (server query adapter for table/pagination)
  *         └── VisualizationSetup
  *               └── VisualizationProvider (native connector → Mosaic coordinator)
@@ -161,7 +162,7 @@ export function VisualizationSetup({ children }: VisualizationSetupProps) {
     [showError],
   );
 
-  // ── Native engine path (desktop host supplied a connector) ──────────────
+  // ── Server engine path (the host resolved a connector onto one) ─────────
   if (connector) {
     // VisualizationBoundary wraps the provider's setup components (renderer
     // registration and server error banner) but NOT {children}. Children include the full

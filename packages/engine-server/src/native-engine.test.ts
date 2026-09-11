@@ -63,7 +63,7 @@ function overlapBarrier(arrow: Uint8Array): {
   };
 }
 
-describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
+describe("NativeDuckDBEngine — real native DuckDB", () => {
   let engine: NativeDuckDBEngine | null = null;
 
   afterEach(async () => {
@@ -137,6 +137,36 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
     const table = tableFromIPC(batches[0]!);
     expect(table.numRows).toBe(0);
     expect(table.schema.fields.map((field) => field.name)).toEqual(["value"]);
+  });
+
+  it("keeps temporary spilling available for the default engine", async () => {
+    engine = new NativeDuckDBEngine();
+    await engine.initialize();
+
+    const rows = await queryRows(
+      engine,
+      "SELECT current_setting('temp_directory') AS temp_directory",
+    );
+
+    expect(rows[0]?.temp_directory).not.toBe("");
+  });
+
+  it("disables temporary spilling for a sandboxed engine", async () => {
+    engine = new NativeDuckDBEngine({
+      sandboxLimits: {
+        memoryBytes: 64 * 1024 * 1024,
+        threads: 1,
+        maxResultRows: 2_048,
+      },
+    });
+    await engine.initialize();
+
+    const rows = await queryRows(
+      engine,
+      "SELECT current_setting('temp_directory') AS temp_directory",
+    );
+
+    expect(rows).toEqual([{ temp_directory: "" }]);
   });
 
   it("enforces the sandbox row limit across streamed result chunks", async () => {
@@ -1293,10 +1323,10 @@ describe("NativeDuckDBEngine — real native DuckDB (Stage 3)", () => {
       expect(result.map((r) => Number(r.ms))).toEqual([ts, ts + MS_PER_HOUR]);
     });
 
-    it("never writes row data to the filesystem (privacy floor)", async () => {
-      // The old implementation staged rows as an NDJSON temp file. The privacy
-      // floor forbids row data at rest outside the gated cache — pin the
-      // in-memory contract by checking no staging file appears in tmpdir.
+    it("does not create an application-owned row staging file", async () => {
+      // The old implementation staged rows as a named NDJSON temp file. Pin
+      // only the absence of that host-owned artifact; an unsandboxed DuckDB may
+      // still use its own temporary spill directory under memory pressure.
       engine = new NativeDuckDBEngine();
       await engine.registerArrowTable("df_privacy_probe", producerBuffer());
 

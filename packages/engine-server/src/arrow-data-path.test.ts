@@ -156,7 +156,7 @@ describe("Arrow data path — host authorization", () => {
   });
 });
 
-describe("Arrow data path — auth + IPC roundtrip (Stage 5)", () => {
+describe("Arrow data path — auth + IPC roundtrip", () => {
   it("rejects a request with no Authorization header", async () => {
     const app = createArrowDataPath({ engine: fakeEngine(), authToken: TOKEN });
     const res = await app.request("/arrow", {
@@ -216,6 +216,29 @@ describe("Arrow data path — auth + IPC roundtrip (Stage 5)", () => {
     });
     expect(engine.calls).toHaveLength(1);
     expect(engine.calls[0]?.params).toEqual([42]);
+  });
+
+  it("rejects params on typed requests instead of extending the Mosaic protocol", async () => {
+    const engine = fakeEngine();
+    const app = createArrowDataPath({ engine, authToken: TOKEN });
+    const res = await app.request("/arrow", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${TOKEN}`,
+      },
+      body: JSON.stringify({
+        type: "arrow",
+        sql: "SELECT ? AS v",
+        params: [42],
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({
+      error: "params are not supported for typed requests",
+    });
+    expect(engine.calls).toHaveLength(0);
   });
 
   it("streams Arrow IPC for a valid token, roundtrips through apache-arrow", async () => {
