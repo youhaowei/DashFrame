@@ -695,7 +695,7 @@ function CanvasViewButton({
         onClick={onClick}
         aria-pressed={active}
         className={cn(
-          "flex h-7 max-w-44 items-center gap-1.5 rounded-[5px] px-2 text-xs font-medium transition-colors",
+          "flex h-7 max-w-44 items-center gap-1.5 rounded-sm px-2 text-xs font-medium transition-colors",
           "focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none",
           active
             ? "bg-neutral-bg text-neutral-fg shadow-sm"
@@ -1713,7 +1713,10 @@ export function InsightView({
         </aside>
 
         <section className="flex min-w-0 flex-1 flex-col gap-2 overflow-hidden px-1.5 py-2">
-          <header className="@container flex h-10 shrink-0 items-center gap-1.5 px-1 whitespace-nowrap [&>button]:shrink-0">
+          {/* Collapses by the header's own width: view labels below 48rem,
+              breadcrumb below 42rem, action labels below 36rem. Under ~23rem
+              (both panes open on a small window) it scrolls rather than clip. */}
+          <header className="@container flex h-10 shrink-0 items-center gap-1.5 overflow-x-auto px-1 whitespace-nowrap [scrollbar-width:none] [&>*]:shrink-0 [&>input]:shrink">
             <Button
               size="sm"
               variant="ghost"
@@ -1768,7 +1771,7 @@ export function InsightView({
                 active={activeView.kind !== "table"}
                 icon={<SparklesIcon className="h-3.5 w-3.5" />}
                 label="Visualize"
-                description="Explore chart types before saving a chart."
+                description="Chart the rows produced by the current data model."
                 onClick={handleSelectVisualMode}
               />
             </div>
@@ -1782,22 +1785,26 @@ export function InsightView({
                   variant="outline"
                   label="Save chart"
                   onClick={handlePinActiveChart}
-                  className="shrink-0"
                 >
                   <PlusIcon aria-hidden />
                   <span className="@max-xl:sr-only">Save chart</span>
                 </Button>
               </ControlTooltip>
             )}
-            <Button
-              size="sm"
+            <ControlTooltip
               label="Add to report"
-              onClick={handleAddActiveViewToDashboard}
-              disabled={!canAddActiveViewToDashboard}
+              description="Place this view on a report."
             >
-              <DashboardIcon aria-hidden />
-              <span className="@max-xl:sr-only">Add to report</span>
-            </Button>
+              <Button
+                size="sm"
+                label="Add to report"
+                onClick={handleAddActiveViewToDashboard}
+                disabled={!canAddActiveViewToDashboard}
+              >
+                <DashboardIcon aria-hidden />
+                <span className="@max-xl:sr-only">Add to report</span>
+              </Button>
+            </ControlTooltip>
             <InsightMoreActionsMenu
               onInspectDataFrames={() => navigate({ to: "/data-frames" })}
               savedChart={
