@@ -1728,13 +1728,13 @@ export function InsightView({
             />
             <Link
               to="/insights"
-              className="shrink-0 rounded-sm px-1 text-xs text-neutral-fg-subtle transition-colors hover:text-neutral-fg focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none"
+              className="shrink-0 rounded-sm px-1 @max-2xl:hidden text-xs text-neutral-fg-subtle transition-colors hover:text-neutral-fg focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none"
             >
               Insights
             </Link>
             <span
               aria-hidden
-              className="shrink-0 text-xs text-neutral-fg-subtle"
+              className="shrink-0 text-xs text-neutral-fg-subtle @max-2xl:hidden"
             >
               ›
             </span>
@@ -1746,7 +1746,7 @@ export function InsightView({
               value={localName}
               onChange={(event) => handleNameChange(event.target.value)}
               placeholder="Untitled insight"
-              className="min-w-24 flex-1 truncate rounded-sm bg-transparent px-1 py-0.5 text-sm font-semibold text-neutral-fg outline-none placeholder:text-neutral-fg-subtle focus-visible:ring-2 focus-visible:ring-palette-primary"
+              className="min-w-16 flex-1 truncate rounded-sm bg-transparent px-1 py-0.5 text-sm font-semibold text-neutral-fg outline-none placeholder:text-neutral-fg-subtle focus-visible:ring-2 focus-visible:ring-palette-primary"
             />
             {viewStatus && (
               <span className="hidden max-w-48 min-w-0 truncate text-xs text-neutral-fg-subtle 2xl:inline">
@@ -1780,19 +1780,24 @@ export function InsightView({
                 <Button
                   size="sm"
                   variant="outline"
-                  icon={PlusIcon}
                   label="Save chart"
                   onClick={handlePinActiveChart}
-                />
+                  className="shrink-0"
+                >
+                  <PlusIcon aria-hidden />
+                  <span className="@max-xl:sr-only">Save chart</span>
+                </Button>
               </ControlTooltip>
             )}
             <Button
               size="sm"
-              icon={DashboardIcon}
               label="Add to report"
               onClick={handleAddActiveViewToDashboard}
               disabled={!canAddActiveViewToDashboard}
-            />
+            >
+              <DashboardIcon aria-hidden />
+              <span className="@max-xl:sr-only">Add to report</span>
+            </Button>
             <InsightMoreActionsMenu
               onInspectDataFrames={() => navigate({ to: "/data-frames" })}
               savedChart={
