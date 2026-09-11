@@ -262,6 +262,29 @@ interface MosaicRequestBody {
 
 type RequestBody = NativeRequestBody | MosaicRequestBody;
 
+function invalidParamsResponse(body: RequestBody): Response | null {
+  // Mosaic never sends params. Reject them on typed requests instead of
+  // accidentally extending that protocol or forwarding hidden bindings.
+  if (body.type !== undefined && "params" in body) {
+    return Response.json(
+      { error: "params are not supported for typed requests" },
+      { status: 400 },
+    );
+  }
+
+  // Native requests may bind an array of values. A scalar silently coerced to
+  // [] would produce a binding-mismatch 500 later, so fail clearly here.
+  if (
+    "params" in body &&
+    body.params !== undefined &&
+    !Array.isArray(body.params)
+  ) {
+    return Response.json({ error: "params must be an array" }, { status: 400 });
+  }
+
+  return null;
+}
+
 /**
  * Dispatch a parsed Arrow query body to the engine and return an HTTP Response.
  * Extracted to keep the Hono handler below the sonarjs cognitive-complexity cap.
@@ -290,18 +313,8 @@ async function dispatchArrowQuery(
     queryType = "arrow";
   }
 
-  // Validate params on the native path (no `type` field). Mosaic never sends
-  // params, so only a native-shape request can reach this. A scalar
-  // params silently coerced to [] would produce a binding-mismatch 500 later;
-  // fail clearly at the request boundary instead.
-  if (
-    !body.type &&
-    "params" in body &&
-    body.params !== undefined &&
-    !Array.isArray(body.params)
-  ) {
-    return Response.json({ error: "params must be an array" }, { status: 400 });
-  }
+  const invalidParams = invalidParamsResponse(body);
+  if (invalidParams) return invalidParams;
 
   if (queryType === "exec") {
     try {
