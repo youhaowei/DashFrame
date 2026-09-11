@@ -9,11 +9,12 @@ import type {
 import {
   SortableList,
   WorkbenchAddRow,
+  WorkbenchCheckbox,
   WorkbenchChip,
+  WorkbenchSwitch,
   type SortableListItem,
 } from "@dashframe/ui";
 import {
-  Checkbox,
   Command,
   CommandEmpty,
   CommandGroup,
@@ -25,7 +26,6 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-  Switch,
 } from "@wystack/ui-react";
 import { ArrowDown, ArrowUp, Sigma } from "lucide-react";
 import {
@@ -349,7 +349,7 @@ export function SortSection({
       <div className="space-y-2 border-t border-neutral-border/60 pt-2">
         <label className="flex items-center justify-between gap-3 text-xs">
           <span>Viewers can change sort</span>
-          <Switch
+          <WorkbenchSwitch
             checked={sortEnabled}
             onCheckedChange={(checked) => {
               setViewerSortEnabled(checked);
@@ -373,7 +373,7 @@ export function SortSection({
                   key={option.id}
                   className="flex items-center gap-2 text-xs text-neutral-fg-subtle"
                 >
-                  <Checkbox
+                  <WorkbenchCheckbox
                     checked={checked}
                     onCheckedChange={(next) =>
                       setRuntimeFieldAllowed(option.id, next === true)
@@ -387,7 +387,7 @@ export function SortSection({
         )}
         <label className="flex items-center justify-between gap-3 text-xs">
           <span>Viewers can set a limit</span>
-          <Switch
+          <WorkbenchSwitch
             checked={Boolean(runtimeDraft?.limit)}
             onCheckedChange={(checked) =>
               updateRuntime((current) => ({
