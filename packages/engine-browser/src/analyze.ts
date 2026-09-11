@@ -3,6 +3,7 @@ import {
   type Field,
   extractUUIDFromColumnAlias,
   quoteIdentifier,
+  quoteLiteral,
 } from "@dashframe/engine";
 import type {
   BooleanAnalysis,
@@ -358,7 +359,7 @@ export async function analyzeDataFrame(
       const quotedColumn = quoteIdentifier(columnName);
       return `
         SELECT
-          '${columnName.replace(/'/g, "''")}' as column_name,
+          ${quoteLiteral(columnName)} as column_name,
           COUNT(DISTINCT ${quotedColumn}) as cardinality,
           COUNT(*) - COUNT(${quotedColumn}) as null_count,
           ANY_VALUE(typeof(${quotedColumn})) as data_type,
@@ -379,7 +380,7 @@ export async function analyzeDataFrame(
     .map((columnName) => {
       const quotedColumn = quoteIdentifier(columnName);
       return `
-        SELECT '${columnName.replace(/'/g, "''")}' as col, ${quotedColumn}::VARCHAR as value
+        SELECT ${quoteLiteral(columnName)} as col, ${quotedColumn}::VARCHAR as value
         FROM (SELECT DISTINCT ${quotedColumn} FROM ${quotedTable} WHERE ${quotedColumn} IS NOT NULL LIMIT 10)
       `;
     })
@@ -391,7 +392,7 @@ export async function analyzeDataFrame(
     .map((columnName) => {
       const quotedColumn = quoteIdentifier(columnName);
       return `
-        SELECT '${columnName.replace(/'/g, "''")}' as column_name, MAX(cnt) as max_freq
+        SELECT ${quoteLiteral(columnName)} as column_name, MAX(cnt) as max_freq
         FROM (SELECT COUNT(*) as cnt FROM ${quotedTable} GROUP BY ${quotedColumn})
       `;
     })

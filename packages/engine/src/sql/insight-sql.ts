@@ -30,7 +30,7 @@ import type {
   UUID,
 } from "@dashframe/types";
 
-import { quoteIdentifier } from "./quoting";
+import { quoteIdentifier, quoteLiteral } from "./quoting";
 
 // ============================================================================
 // UUID Column Naming Utilities
@@ -881,9 +881,7 @@ function quoteValue(val: unknown): string {
     return String(val);
   }
   // For everything else (string, Date.toISOString output, etc.) single-quote and escape
-  const str = String(val);
-  // Escape single quotes by doubling them (standard SQL)
-  return `'${str.replace(/'/g, "''")}'`;
+  return quoteLiteral(String(val));
 }
 
 /**
@@ -959,9 +957,9 @@ function buildFilterPredicate(
       const escaped = String(value ?? "")
         .replace(/\\/g, "\\\\")
         .replace(/%/g, "\\%")
-        .replace(/_/g, "\\_")
-        .replace(/'/g, "''");
-      return `${columnRef} LIKE '%${escaped}%' ESCAPE '\\'`;
+        .replace(/_/g, "\\_");
+      const pattern = quoteLiteral(`%${escaped}%`);
+      return `${columnRef} LIKE ${pattern} ESCAPE '\\'`;
     }
     case "in": {
       const arr = Array.isArray(value) ? value : [value];

@@ -44,3 +44,16 @@ export {
 export { frameTableName } from "./frame-table-name";
 
 export { quoteIdentifier, quoteLiteral } from "./quoting";
+
+export {
+  arrowDateToDuckDBDays,
+  ARROW_ENCODING_BY_COLUMN_TYPE,
+  DEFAULT_DUCKDB_INGEST_TYPE,
+  duckdbJsonToEpochMillis,
+  duckdbJsonToNumber,
+  DUCKDB_INGEST_TYPE_BY_ARROW_TYPE,
+  DUCKDB_TYPE_NAMES_BY_COLUMN_TYPE,
+  FLECHETTE_DECODE_OPTIONS,
+  type ArrowEncodingName,
+  type IngestibleArrowTypeName,
+} from "./type-translation";
