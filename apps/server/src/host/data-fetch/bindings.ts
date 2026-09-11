@@ -10,6 +10,7 @@ import {
 } from "../connectors";
 
 import { DEFAULT_TRANSFER_LIMITS } from "./transfer";
+import { STREAM_BATCH_BYTES, STREAM_BATCH_ROWS } from "./streaming";
 
 const SOURCE_BINDING_VERSION = "v1";
 const GA4_ACQUISITION_BINDING_VERSION = "v2";
@@ -595,6 +596,77 @@ export async function* streamPostgresBinding(
         "FETCH_BATCH_BYTES_EXCEEDED",
       ].includes(code)
         ? code
+        : "FETCH_EXECUTION_FAILED",
+      { cause: error },
+    );
+  }
+}
+
+/** Pull one bounded GA4 page only after the consumer accepts the previous one. */
+export async function* streamGa4Binding(
+  ctx: HostContext,
+  binding: SourceBinding,
+): AsyncIterable<Uint8Array> {
+  if (
+    binding.connectorKind !== "googleAnalytics" ||
+    ![SOURCE_BINDING_VERSION, GA4_ACQUISITION_BINDING_VERSION].includes(
+      binding.sourceBindingVersion,
+    )
+  )
+    throw new Error("TARGET_NOT_READY");
+  try {
+    ctx.requestSignal?.throwIfAborted();
+    const connector = await ga4ConnectorFor(
+      ctx,
+      binding.dataSourceId,
+      binding.sourceBindingVersion === "v2" ? "v2" : "v1",
+    );
+    const persisted = JSON.stringify({
+      fields: (binding.table.fields as Field[]).map((field) => ({
+        name: field.columnName ?? field.name,
+        type: field.type,
+      })),
+    });
+    let structure: string | undefined;
+    let arrowSchema: string | undefined;
+    for (let offset = 0; ; offset += STREAM_BATCH_ROWS) {
+      ctx.requestSignal?.throwIfAborted();
+      const page = await connector.query(
+        binding.table.table,
+        binding.table.id,
+        {
+          pagination: { offset, limit: STREAM_BATCH_ROWS },
+          signal: ctx.requestSignal,
+          maxResponseBytes: STREAM_BATCH_BYTES,
+        },
+      );
+      ctx.requestSignal?.throwIfAborted();
+      if (
+        Buffer.byteLength(page.arrowBuffer, "base64") > STREAM_BATCH_BYTES ||
+        page.rowCount > STREAM_BATCH_ROWS
+      )
+        throw new Error("SOURCE_RESULT_TOO_LARGE");
+      pageSignature(page);
+      [structure, arrowSchema] = assertCompatiblePageStructure(
+        page,
+        structure,
+        arrowSchema,
+      );
+      if (structure !== persisted) throw new Error("SOURCE_SCHEMA_CHANGED");
+      if (page.rowCount > 0 || offset === 0)
+        yield new Uint8Array(Buffer.from(page.arrowBuffer, "base64"));
+      if (page.rowCount < STREAM_BATCH_ROWS) break;
+    }
+  } catch (error) {
+    ctx.requestSignal?.throwIfAborted();
+    throw new Error(
+      error instanceof Error &&
+        [
+          "TARGET_NOT_READY",
+          "SOURCE_SCHEMA_CHANGED",
+          "SOURCE_RESULT_TOO_LARGE",
+        ].includes(error.message)
+        ? error.message
         : "FETCH_EXECUTION_FAILED",
       { cause: error },
     );

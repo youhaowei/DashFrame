@@ -22,6 +22,7 @@ export function stubQueryEngine(
     queryArrowBatches: unexpected("queryArrowBatches"),
     registerArrowTable: unexpected("registerArrowTable"),
     registerArrowStream: unexpected("registerArrowStream"),
+    registerArrowBatches: unexpected("registerArrowBatches"),
     unregisterTable: async () => {},
     hasTable: () => false,
     getTableNames: () => [],

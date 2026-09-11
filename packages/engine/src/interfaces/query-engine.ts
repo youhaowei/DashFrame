@@ -76,6 +76,13 @@ export interface QueryEngine {
     signal?: AbortSignal,
   ): Promise<void>;
 
+  /** Atomic replacement fed by complete, schema-compatible IPC batch payloads. */
+  registerArrowBatches(
+    name: string,
+    batches: AsyncIterable<Uint8Array>,
+    signal?: AbortSignal,
+  ): Promise<void>;
+
   /** Drop a registered table. Unknown names are not an error. */
   unregisterTable(name: string): Promise<void>;
 

@@ -21,10 +21,10 @@
  *
  * `registerArrowTable` accepts an Arrow IPC stream buffer, decodes it with
  * apache-arrow, and ingests it into a DuckDB table via the typed Appender API.
- * Nothing is staged through the filesystem on the way in; where the rows come to
- * rest is the `databasePath` decision — under the default `:memory:` database
- * they stay in process memory. Tables persist for the session lifetime and are
- * re-registered on reconnect.
+ * The host creates no row-shaped staging file on ingest. The default `:memory:`
+ * database has no persistent database file, though an unsandboxed DuckDB may
+ * spill temporary data to disk under memory pressure. Tables persist for the
+ * session lifetime and are re-registered on reconnect.
  *
  * Two-Arrow-library seam: this side decodes with `apache-arrow`, but the chart
  * layer (Mosaic / `@uwdata/vgplot`) decodes the same IPC with `@uwdata/flechette`.
@@ -66,8 +66,9 @@ import { duckdbColumnsToArrowIpc, type ResultColumn } from "./arrow-encode";
 import { tableKey } from "./table-identity";
 
 /**
- * Deny filesystem and network access on `connection`, then lock the
- * configuration so user SQL cannot restore it.
+ * Deny client-issued SQL access to external filesystem and network primitives
+ * on `connection`, then lock the configuration so user SQL cannot restore it.
+ * This does not disable DuckDB's internal database-file or temporary-spill I/O.
  *
  * Order matters: `lock_configuration` must be set LAST, because it also locks
  * itself and every setting after it. The lock is what makes this a boundary
@@ -104,13 +105,17 @@ export interface NativeDuckDBEngineOptions {
   /**
    * DuckDB database path. Default `:memory:` — an in-memory database.
    *
-   * In-memory by default so a session leaves nothing at rest. A caller that
-   * passes a path is choosing durability for that database explicitly.
+   * The default creates no persistent database file. Unsandboxed engines retain
+   * DuckDB's temporary spill behavior under memory pressure; `sandboxLimits`
+   * disables the spill directory as part of its deliberate confinement. A
+   * caller that passes a path is choosing a persistent database explicitly.
    */
   databasePath?: string;
   /**
-   * Deny DuckDB every filesystem and network primitive, and lock that decision
-   * so no later statement can undo it. Defaults to `true`.
+   * Deny client-issued SQL access to external filesystem and network
+   * primitives, and lock that decision so no later statement can undo it.
+   * Defaults to `true`. DuckDB's internal database-file and temporary-spill I/O
+   * remain available.
    *
    * This engine executes SQL that originates in the browser: Mosaic composes
    * chart queries client-side and posts them to the Arrow data path, which
@@ -126,12 +131,15 @@ export interface NativeDuckDBEngineOptions {
    * before these settings apply, and reads, writes and CHECKPOINT against it are
    * unaffected.
    *
-   * Set it to `false` only for a caller that genuinely needs DuckDB to touch the
-   * filesystem, and only where the SQL reaching that engine cannot come from a
-   * client. No caller does today.
+   * Set it to `false` only for a trusted caller whose SQL genuinely needs
+   * external filesystem or network primitives, and only where that SQL cannot
+   * come from a client. No caller does today.
    */
   restrictFileAccess?: boolean;
 }
+
+type BatchSignals = readonly (AbortSignal | undefined)[];
+type RunBatchNative = <T>(operation: () => Promise<T>) => Promise<T>;
 
 /**
  * Where the engine is in its life. One field, one transition graph:
@@ -464,6 +472,8 @@ export class NativeDuckDBEngine implements QueryEngine {
       // starts, instead of running unstoppable through teardown.
       throwIfAborted(lease.signal);
       return await run(lease.connection, lease.signal);
+    } catch (error) {
+      throw normalizeOperationError(error, lease.signal);
     } finally {
       lease.release();
     }
@@ -486,6 +496,8 @@ export class NativeDuckDBEngine implements QueryEngine {
       // Same gap as withConnection(): see the re-check there.
       throwIfAborted(lease.signal);
       yield* run(lease.connection, lease.signal);
+    } catch (error) {
+      throw normalizeOperationError(error, lease.signal);
     } finally {
       lease.release();
     }
@@ -650,6 +662,30 @@ export class NativeDuckDBEngine implements QueryEngine {
     throwIfAborted(signal);
   }
 
+  async registerArrowBatches(
+    name: string,
+    batches: AsyncIterable<Uint8Array>,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    // Reject caller cancellation before paying for DuckDB startup. A disposed
+    // engine is rejected by initialize()'s terminal phase before any re-open.
+    throwIfAborted(signal);
+    await this.initialize();
+    await this.withConnection(
+      async (connection, operationSignal) => {
+        await replaceArrowTableFromBatches(
+          connection,
+          name,
+          batches,
+          [operationSignal],
+          (operation) => operation(),
+        );
+        this._registeredTables.set(tableKey(name), name);
+      },
+      { signal, lockTable: name },
+    );
+  }
+
   /**
    * Register an Arrow IPC stream buffer as a named in-memory DuckDB table.
    *
@@ -660,12 +696,12 @@ export class NativeDuckDBEngine implements QueryEngine {
    *
    * Implementation: decode with apache-arrow, create the table with a schema
    * derived from the Arrow schema, and stream rows in through DuckDB's typed
-   * Appender. No row ever passes through a file on the way in — the staging
-   * table is TEMP and the published table is written by DuckDB, so with the
-   * default `:memory:` database the whole path stays in process memory, while a
-   * file-backed `databasePath` persists a registered table like any other.
-   * Typed appends preserve timestamps/dates exactly instead of round-tripping
-   * through JSON strings.
+   * Appender without an application-owned row staging file. The default
+   * `:memory:` database has no persistent database file, but unsandboxed DuckDB
+   * may still spill temporary data under memory pressure; a file-backed
+   * `databasePath` persists a registered table like any other. Typed appends
+   * preserve timestamps/dates exactly instead of round-tripping through JSON
+   * strings.
    */
   async registerArrowTable(
     name: string,
@@ -702,7 +738,8 @@ export class NativeDuckDBEngine implements QueryEngine {
           `CREATE OR REPLACE TEMP TABLE ${quoteIdentifier(stagingName)} (${columnDefs})`,
         );
 
-        // Stream rows into the staging table — no disk, no string round-trip.
+        // Stream rows without an application-owned staging file or string
+        // round-trip. An unsandboxed DuckDB may still spill internally.
         const appender = await conn.createAppender(stagingName);
         try {
           const columns = fields.map((f) => ({
@@ -931,6 +968,22 @@ function disposedError(): DOMException {
   return new DOMException("NativeDuckDBEngine disposed", "AbortError");
 }
 
+/** Native interruption errors vary by statement; the lease signal owns cancellation. */
+function normalizeOperationError(error: unknown, signal: AbortSignal): unknown {
+  if (!signal.aborted) return error;
+  if (
+    signal.reason instanceof DOMException &&
+    signal.reason.name === "AbortError"
+  )
+    return signal.reason;
+  return new DOMException(
+    signal.reason instanceof Error
+      ? signal.reason.message
+      : "The operation was aborted",
+    "AbortError",
+  );
+}
+
 /**
  * Hand the event loop one turn. A synchronous ingest loop starves timers and
  * I/O callbacks, so an `AbortSignal` driven by either cannot fire until the
@@ -1047,6 +1100,210 @@ let stagingCounter = 0;
 function nextStagingId(): number {
   stagingCounter += 1;
   return stagingCounter;
+}
+
+function arrowSchemaSignature(fields: readonly Field[]): string {
+  return JSON.stringify(
+    fields.map((field) => ({
+      name: field.name,
+      nullable: field.nullable,
+      type: field.type.toString(),
+      metadata: Array.from(field.metadata ?? []).sort(([left], [right]) =>
+        left.localeCompare(right),
+      ),
+    })),
+  );
+}
+
+async function replaceArrowTableFromBatches(
+  connection: Connection,
+  name: string,
+  batches: AsyncIterable<Uint8Array>,
+  signals: BatchSignals,
+  runNative: RunBatchNative,
+): Promise<void> {
+  throwIfAnyAborted(signals);
+  await runNative(() => connection.run("BEGIN TRANSACTION"));
+  let committed = false;
+  try {
+    const stagingName = await stageArrowBatches(
+      connection,
+      name,
+      batches,
+      signals,
+      runNative,
+    );
+    throwIfAnyAborted(signals);
+    await runNative(() =>
+      connection.run(
+        `CREATE OR REPLACE TABLE ${quoteIdent(name)} AS SELECT * FROM ${quoteIdent(stagingName)}`,
+      ),
+    );
+    throwIfAnyAborted(signals);
+    await runNative(() =>
+      connection.run(`DROP TABLE ${quoteIdent(stagingName)}`),
+    );
+    throwIfAnyAborted(signals);
+    await runNative(() => connection.run("COMMIT"));
+    committed = true;
+  } finally {
+    if (!committed) {
+      try {
+        await runNative(() => connection.run("ROLLBACK"));
+      } catch {
+        // The operation connection is discarded by the caller.
+      }
+    }
+  }
+}
+
+async function stageArrowBatches(
+  connection: Connection,
+  name: string,
+  batches: AsyncIterable<Uint8Array>,
+  signals: BatchSignals,
+  runNative: RunBatchNative,
+): Promise<string> {
+  const stagingName = `__staging_${name}_${nextStagingId()}`;
+  let expectedSchema: string | undefined;
+  let appender: DuckDBAppender | null = null;
+  const iterator = batches[Symbol.asyncIterator]();
+  let producerDone = false;
+  try {
+    for (;;) {
+      const next = await nextBatchWithAbort(iterator, signals);
+      if (next.done) {
+        producerDone = true;
+        break;
+      }
+      const arrow = next.value;
+      throwIfAnyAborted(signals);
+      const table = tableFromIPC(arrow);
+      const fields = table.schema.fields;
+      if (fields.length === 0) {
+        throw new Error(`Arrow buffer for table "${name}" has no columns`);
+      }
+      const schema = arrowSchemaSignature(fields);
+      if (expectedSchema !== undefined && schema !== expectedSchema) {
+        throw new Error(
+          `Arrow schema changed while registering table "${name}"`,
+        );
+      }
+      if (!appender) {
+        expectedSchema = schema;
+        const columnDefs = fields
+          .map(
+            (field) =>
+              `${quoteIdent(field.name)} ${arrowFieldToDuckDBType(field)}`,
+          )
+          .join(", ");
+        await runNative(() =>
+          connection.run(
+            `CREATE TABLE ${quoteIdent(stagingName)} (${columnDefs})`,
+          ),
+        );
+        throwIfAnyAborted(signals);
+        appender = await runNative(() =>
+          connection.createAppender(stagingName),
+        );
+      }
+      await appendArrowRows(appender, table, fields, signals);
+    }
+    if (!appender) {
+      throw new Error(`Arrow batch stream for table "${name}" is empty`);
+    }
+    throwIfAnyAborted(signals);
+    appender.flushSync();
+    appender.closeSync();
+    appender = null;
+    return stagingName;
+  } finally {
+    if (!producerDone) {
+      // Do not await a producer-controlled return(): a non-cooperative source
+      // must not hold engine disposal open indefinitely.
+      iterator.return?.().catch(() => {});
+    }
+    if (appender) {
+      try {
+        appender.closeSync();
+      } catch {
+        // The operation connection is discarded by the caller.
+      }
+    }
+  }
+}
+
+async function appendArrowRows(
+  appender: DuckDBAppender,
+  table: Awaited<ReturnType<typeof tableFromIPC>>,
+  fields: readonly Field[],
+  signals: BatchSignals,
+): Promise<void> {
+  const columns = fields.map((field) => ({
+    field,
+    vector: table.getChild(field.name),
+  }));
+  for (let row = 0; row < table.numRows; row++) {
+    if ((row & 2047) === 0) {
+      await new Promise<void>((resolve) => {
+        setImmediate(resolve);
+      });
+      throwIfAnyAborted(signals);
+    }
+    for (const column of columns) {
+      appendArrowValue(appender, column.field, column.vector?.get(row));
+    }
+    appender.endRow();
+  }
+}
+
+function throwIfAnyAborted(signals: BatchSignals): void {
+  for (const signal of signals) signal?.throwIfAborted();
+}
+
+function nextBatchWithAbort(
+  iterator: AsyncIterator<Uint8Array>,
+  signals: BatchSignals,
+): Promise<IteratorResult<Uint8Array>> {
+  throwIfAnyAborted(signals);
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const cleanup = () => {
+      for (const signal of signals) {
+        signal?.removeEventListener("abort", onAbort);
+      }
+    };
+    const settle = (
+      callback: typeof resolve | typeof reject,
+      value: IteratorResult<Uint8Array> | unknown,
+    ) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      callback(value as IteratorResult<Uint8Array>);
+    };
+    const onAbort = () => {
+      iterator.return?.().catch(() => {});
+      try {
+        throwIfAnyAborted(signals);
+      } catch (error) {
+        settle(reject, error);
+      }
+    };
+    for (const signal of signals) {
+      signal?.addEventListener("abort", onAbort, { once: true });
+    }
+    try {
+      throwIfAnyAborted(signals);
+    } catch (error) {
+      settle(reject, error);
+      return;
+    }
+    iterator.next().then(
+      (result) => settle(resolve, result),
+      (error: unknown) => settle(reject, error),
+    );
+  });
 }
 
 /**

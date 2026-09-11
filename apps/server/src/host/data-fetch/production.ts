@@ -19,8 +19,10 @@ import { decodeInsight, type InsightRow } from "../insights";
 import {
   fetchSourceBinding,
   resolveSourceBinding,
+  streamGa4Binding,
   streamPostgresBinding,
 } from "./bindings";
+import { supportsStreaming } from "./streaming";
 import type {
   EffectiveInsightDefinition,
   InsightMaterializerDependencies,
@@ -285,18 +287,25 @@ async function resolveProductionSource(
   batchBytes?: number,
 ): Promise<SourceGeneration> {
   const binding = await resolveSourceBinding(ctx, tableId);
+  if (binding.connectorKind === "googleAnalytics" && supportsStreaming(ctx)) {
+    return {
+      table: binding.table as never,
+      fields: binding.table.fields as SourceGeneration["fields"],
+      rowCount: 0,
+      batches: streamGa4Binding(ctx, binding),
+      provenance: {
+        connectorKind: binding.connectorKind,
+        bindingVersion: binding.sourceBindingVersion,
+      },
+    };
+  }
   if (
     binding.connectorKind === "postgres" &&
     ctx.workspaceOwnerId === undefined
   ) {
     // The hosted sandbox still uses its bounded compatibility adapter.
     // Native streaming capabilities are mandatory here: do not silently buffer a large source.
-    if (
-      !ctx.dataFrameStorage?.saveBatches ||
-      !ctx.dataFrameStorage.stream ||
-      !ctx.dataPlaneRuntime?.nativeTransfer
-    )
-      throw new Error("TARGET_NOT_READY");
+    if (!supportsStreaming(ctx)) throw new Error("TARGET_NOT_READY");
     return {
       table: binding.table as never,
       fields: binding.table.fields as SourceGeneration["fields"],

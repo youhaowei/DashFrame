@@ -1071,7 +1071,8 @@ it(
       // frame id now, so this asks for a frame the workspace does not own: the
       // route answers "Frame not found", which it can only do after passing the
       // origin, auth and storage gates. A rejected origin would be a 403 and an
-      // unmounted path a bare 404 with no body — both distinguishable below.
+      // unmounted path a framework 404 with no JSON error body — both are
+      // distinguishable below.
       const framePath = `https://hosted-app.invalid/data/frames/${crypto.randomUUID()}/mosaic`;
       const frameResponse = await httpApp.request(framePath, {
         method: "POST",

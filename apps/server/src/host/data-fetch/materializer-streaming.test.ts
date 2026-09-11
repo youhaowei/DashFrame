@@ -207,37 +207,58 @@ describe("streaming immutable materialization", () => {
     expect(h.publish).toHaveBeenCalledTimes(2);
   });
 
-  it("persists and queries all 25001 rows without any full-buffer entry point", async () => {
-    const h = await fixture();
-    const result = await h.run();
-    expect(result.rowCount).toBe(25_001);
-    expect(h.observed).toHaveLength(13);
-    expect(Math.max(...h.observed)).toBe(2048);
-    expect(h.state()).toEqual({
-      closed: true,
-      emitted: 25_001,
-      pointer: "new-frame",
-    });
-    expect(h.publish).toHaveBeenCalledOnce();
-    const name = `df_${result.dataFrameId.replaceAll("-", "_")}`;
-    const column = result.schema[0]!.id;
-    const aggregate = await h.readRows(
-      `SELECT count(*) AS n, max("${column}") AS tail, sum("${column}") AS total FROM "${name}"`,
-    );
-    expect(aggregate[0]).toMatchObject({
-      n: 25_001,
-      tail: 25_000,
-      total: 312_512_500,
-    });
-    await h.runtime.unregisterTable(name);
-    await registerStoredFrame(h.storage, h.runtime, name, result.dataFrameId);
-    expect(
-      (await h.readRows(`SELECT count(*) AS n FROM "${name}"`))[0]?.n,
-    ).toBe(25_001);
-    expect(h.transferCompleted).toHaveBeenCalledWith(
-      expect.objectContaining({ outcome: "ready", rows: 50_002 }),
-    );
-  });
+  it.each(["stream", "loadBatches"] as const)(
+    "persists and queries all 25001 rows through %s without buffering",
+    async (readPath) => {
+      const h = await fixture();
+      if (readPath === "loadBatches") {
+        const storage = {
+          save: h.storage.save.bind(h.storage),
+          load: h.storage.load.bind(h.storage),
+          delete: h.storage.delete.bind(h.storage),
+          exists: h.storage.exists.bind(h.storage),
+          list: h.storage.list.bind(h.storage),
+          getUsage: h.storage.getUsage.bind(h.storage),
+          saveBatches: h.storage.saveBatches.bind(h.storage),
+          loadBatches: h.storage.loadBatches.bind(h.storage),
+        };
+        h.dependencies.storage = () => storage;
+      }
+      const result = await h.run();
+      expect(result.rowCount).toBe(25_001);
+      expect(h.observed).toHaveLength(13);
+      expect(Math.max(...h.observed)).toBe(2048);
+      expect(h.state()).toEqual({
+        closed: true,
+        emitted: 25_001,
+        pointer: "new-frame",
+      });
+      expect(h.publish).toHaveBeenCalledOnce();
+      const name = `df_${result.dataFrameId.replaceAll("-", "_")}`;
+      const column = result.schema[0]!.id;
+      const aggregate = await h.readRows(
+        `SELECT count(*) AS n, max("${column}") AS tail, sum("${column}") AS total FROM "${name}"`,
+      );
+      expect(aggregate[0]).toMatchObject({
+        n: 25_001,
+        tail: 25_000,
+        total: 312_512_500,
+      });
+      await h.runtime.unregisterTable(name);
+      await registerStoredFrame(
+        h.dependencies.storage({} as HostContext),
+        h.runtime,
+        name,
+        result.dataFrameId,
+      );
+      expect(
+        (await h.readRows(`SELECT count(*) AS n FROM "${name}"`))[0]?.n,
+      ).toBe(25_001);
+      expect(h.transferCompleted).toHaveBeenCalledWith(
+        expect.objectContaining({ outcome: "ready", rows: 50_002 }),
+      );
+    },
+  );
 
   it("removes an unpublished prefix and closes the source after provider failure", async () => {
     const h = await fixture({ failAfter: 12_288 });
