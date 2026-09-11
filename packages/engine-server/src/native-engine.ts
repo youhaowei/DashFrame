@@ -1136,12 +1136,12 @@ async function replaceArrowTableFromBatches(
     throwIfAnyAborted(signals);
     await runNative(() =>
       connection.run(
-        `CREATE OR REPLACE TABLE ${quoteIdent(name)} AS SELECT * FROM ${quoteIdent(stagingName)}`,
+        `CREATE OR REPLACE TABLE ${quoteIdentifier(name)} AS SELECT * FROM ${quoteIdentifier(stagingName)}`,
       ),
     );
     throwIfAnyAborted(signals);
     await runNative(() =>
-      connection.run(`DROP TABLE ${quoteIdent(stagingName)}`),
+      connection.run(`DROP TABLE ${quoteIdentifier(stagingName)}`),
     );
     throwIfAnyAborted(signals);
     await runNative(() => connection.run("COMMIT"));
@@ -1194,12 +1194,12 @@ async function stageArrowBatches(
         const columnDefs = fields
           .map(
             (field) =>
-              `${quoteIdent(field.name)} ${arrowFieldToDuckDBType(field)}`,
+              `${quoteIdentifier(field.name)} ${arrowFieldToDuckDBType(field)}`,
           )
           .join(", ");
         await runNative(() =>
           connection.run(
-            `CREATE TABLE ${quoteIdent(stagingName)} (${columnDefs})`,
+            `CREATE TABLE ${quoteIdentifier(stagingName)} (${columnDefs})`,
           ),
         );
         throwIfAnyAborted(signals);
