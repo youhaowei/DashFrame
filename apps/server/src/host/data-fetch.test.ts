@@ -311,6 +311,14 @@ describe("applyInsightRuntime", () => {
       retryable: true,
     });
     expect(
+      toFetchFailure(new Error("__proto__"), "FETCH_EXECUTION_FAILED"),
+    ).toMatchObject({
+      status: "failed",
+      code: "FETCH_EXECUTION_FAILED",
+      message: "Live data could not be fetched.",
+      retryable: true,
+    });
+    expect(
       toFetchFailure(
         new Error("RUNTIME_connector token=secret"),
         "FETCH_EXECUTION_FAILED",
@@ -342,7 +350,21 @@ describe("applyInsightRuntime", () => {
     ).toMatchObject({
       status: "failed",
       code: "TARGET_NOT_READY",
-      retryable: true,
+      message:
+        "The requested data isn't ready. Check that its sources and tables exist.",
+      retryable: false,
+    });
+    expect(
+      toFetchFailure(
+        new Error("FETCH_COMPILE_FAILED"),
+        "FETCH_EXECUTION_FAILED",
+      ),
+    ).toMatchObject({
+      status: "failed",
+      code: "FETCH_COMPILE_FAILED",
+      message:
+        "This insight couldn't be compiled. Its source table may not have data yet.",
+      retryable: false,
     });
     expect(
       toFetchFailure(
@@ -380,8 +402,10 @@ describe("applyInsightRuntime", () => {
     );
     expect(toFetchFailure(trusted, "FETCH_EXECUTION_FAILED")).toMatchObject({
       status: "failed",
-      code: "FETCH_EXECUTION_FAILED",
-      message: "Live data could not be fetched.",
+      code: "FETCH_COMPILE_FAILED",
+      message:
+        "This insight couldn't be compiled. Its source table may not have data yet.",
+      retryable: false,
       sourceGenerations: [{ tableId, dataFrameId, lastFetchedAt: 123 }],
     });
   });
