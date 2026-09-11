@@ -1,4 +1,5 @@
 import { frameTableName, type QueryEngine } from "@dashframe/engine";
+import { tableKey } from "@dashframe/engine-server/table-identity";
 const NATIVE_UNREGISTER_MAX_ATTEMPTS = 3;
 const NATIVE_UNREGISTER_RETRY_MS = 250;
 export class NativeTableLifecycle {
@@ -35,6 +36,8 @@ export class NativeTableLifecycle {
         this.register(name, arrow, signal),
       registerArrowStream: (name, stream, signal) =>
         this.registerStream(name, stream, signal),
+      registerArrowBatches: (name, batches, signal) =>
+        this.registerBatches(name, batches, signal),
       unregisterTable: (name) => this.unregisterCurrent(name),
       hasTable: (name) => native.hasTable(name),
       getTableNames: () => native.getTableNames(),
@@ -57,7 +60,7 @@ export class NativeTableLifecycle {
   }
 
   private generation(name: string): number {
-    return this.generations.get(name) ?? 0;
+    return this.generations.get(tableKey(name)) ?? 0;
   }
 
   private async register(
@@ -69,7 +72,7 @@ export class NativeTableLifecycle {
     await this.enqueue(name, async () => {
       if (this.closed) throw new Error("Native table lifecycle is closed");
       await this.native.registerArrowTable(name, arrow, signal);
-      this.generations.set(name, this.generation(name) + 1);
+      this.generations.set(tableKey(name), this.generation(name) + 1);
       this.cancelRetry(name);
     });
   }
@@ -83,7 +86,21 @@ export class NativeTableLifecycle {
     await this.enqueue(name, async () => {
       if (this.closed) throw new Error("Native table lifecycle is closed");
       await this.native.registerArrowStream(name, stream, signal);
-      this.generations.set(name, this.generation(name) + 1);
+      this.generations.set(tableKey(name), this.generation(name) + 1);
+      this.cancelRetry(name);
+    });
+  }
+
+  private async registerBatches(
+    name: string,
+    batches: AsyncIterable<Uint8Array>,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    if (this.closed) throw new Error("Native table lifecycle is closed");
+    await this.enqueue(name, async () => {
+      if (this.closed) throw new Error("Native table lifecycle is closed");
+      await this.native.registerArrowBatches(name, batches, signal);
+      this.generations.set(tableKey(name), this.generation(name) + 1);
       this.cancelRetry(name);
     });
   }
@@ -130,32 +147,33 @@ export class NativeTableLifecycle {
   ): void {
     this.cancelRetry(name);
     const timer = setTimeout(() => {
-      const pending = this.retryTimers.get(name);
+      const pending = this.retryTimers.get(tableKey(name));
       if (pending?.generation !== generation) return;
-      this.retryTimers.delete(name);
+      this.retryTimers.delete(tableKey(name));
       this.tryUnregister(name, generation, attempt).catch((error) => {
         console.error("[dashframe] native unregister retry failed", error);
       });
     }, NATIVE_UNREGISTER_RETRY_MS);
-    this.retryTimers.set(name, { generation, timer });
+    this.retryTimers.set(tableKey(name), { generation, timer });
   }
 
   private cancelRetry(name: string): void {
-    const pending = this.retryTimers.get(name);
+    const pending = this.retryTimers.get(tableKey(name));
     if (pending) clearTimeout(pending.timer);
-    this.retryTimers.delete(name);
+    this.retryTimers.delete(tableKey(name));
   }
 
   private enqueue(name: string, operation: () => Promise<void>): Promise<void> {
-    const previous = this.operations.get(name) ?? Promise.resolve();
+    const previous = this.operations.get(tableKey(name)) ?? Promise.resolve();
     const current = previous.catch(() => undefined).then(operation);
     const settled = current.then(
       () => undefined,
       () => undefined,
     );
-    this.operations.set(name, settled);
+    this.operations.set(tableKey(name), settled);
     settled.then(() => {
-      if (this.operations.get(name) === settled) this.operations.delete(name);
+      if (this.operations.get(tableKey(name)) === settled)
+        this.operations.delete(tableKey(name));
     });
     return current;
   }

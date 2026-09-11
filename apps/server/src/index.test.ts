@@ -38,6 +38,7 @@ class StubEngine implements QueryEngine {
   async *queryArrowBatches(): AsyncGenerator<Uint8Array> {}
   async registerArrowTable(): Promise<void> {}
   async registerArrowStream(): Promise<void> {}
+  async registerArrowBatches(): Promise<void> {}
   async unregisterTable(): Promise<void> {}
   hasTable(): boolean {
     return false;
@@ -182,6 +183,12 @@ describe("dashframe serve CLI", () => {
         hostname: "127.0.0.1",
         port: 4100,
         token: "secret",
+      });
+    });
+
+    it("should parse the public origin independently", () => {
+      expect(parseArgs(["--public-origin", "https://app.example"])).toEqual({
+        publicOrigin: "https://app.example",
       });
     });
 

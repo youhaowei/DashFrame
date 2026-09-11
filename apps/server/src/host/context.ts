@@ -24,6 +24,13 @@ export interface HostContext {
   googleOAuth?: GoogleOAuthConfig;
   application?: ApplicationOperations;
   dataFrameStorage?: DataFrameStorage;
+  /** Value-free instrumentation for host-owned materialization. */
+  onMaterializationProgress?: (progress: {
+    phase: "source" | "result" | "publication";
+    rows: number;
+    bytes: number;
+    elapsedMs: number;
+  }) => void;
   /**
    * The engine, as one interface rather than a per-caller shape. Absent only
    * where no engine is bound to the composition at all. The facades that

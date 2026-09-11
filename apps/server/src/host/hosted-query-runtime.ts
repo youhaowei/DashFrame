@@ -29,6 +29,8 @@ export function createHostedQueryRuntime(
     registerArrowTable: (name, bytes) => engine.registerArrowTable(name, bytes),
     registerArrowStream: (name, chunks) =>
       engine.registerArrowStream(name, chunks),
+    registerArrowBatches: (name, batches) =>
+      engine.registerArrowBatches(name, batches),
     unregisterTable: (name) => engine.unregisterTable(name),
     hasTable: (name) => engine.hasTable(name),
     getTableNames: () => engine.getTableNames(),
