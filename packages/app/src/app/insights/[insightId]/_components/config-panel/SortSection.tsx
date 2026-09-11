@@ -347,7 +347,7 @@ export function SortSection({
       </Popover>
 
       <div className="space-y-2 border-t border-neutral-border/60 pt-2">
-        <label className="flex items-center justify-between gap-3 text-xs">
+        <label className="flex cursor-pointer items-center justify-between gap-3 text-xs">
           <span>Viewers can change sort</span>
           <WorkbenchSwitch
             checked={sortEnabled}
@@ -371,7 +371,7 @@ export function SortSection({
               return (
                 <label
                   key={option.id}
-                  className="flex items-center gap-2 text-xs text-neutral-fg-subtle"
+                  className="flex cursor-pointer items-center gap-2 text-xs text-neutral-fg-subtle"
                 >
                   <WorkbenchCheckbox
                     checked={checked}
@@ -385,7 +385,7 @@ export function SortSection({
             })}
           </div>
         )}
-        <label className="flex items-center justify-between gap-3 text-xs">
+        <label className="flex cursor-pointer items-center justify-between gap-3 text-xs">
           <span>Viewers can set a limit</span>
           <WorkbenchSwitch
             checked={Boolean(runtimeDraft?.limit)}

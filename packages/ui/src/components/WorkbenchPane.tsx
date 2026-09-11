@@ -281,7 +281,7 @@ export function WorkbenchSwitch({
   return (
     <Switch
       className={cn(
-        "h-4 w-7 border border-neutral-border p-px data-[checked]:border-palette-primary data-[unchecked]:bg-neutral-bg-subtle",
+        "h-4 w-7 cursor-pointer border border-neutral-border p-px data-[checked]:border-palette-primary data-[unchecked]:bg-neutral-bg-subtle",
         "[&>span]:h-3 [&>span]:w-3 [&>span]:shadow-sm data-[checked]:[&>span]:translate-x-3",
         className,
       )}
@@ -298,7 +298,7 @@ export function WorkbenchCheckbox({
   return (
     <Checkbox
       className={cn(
-        "border-neutral-border bg-neutral-bg-subtle data-[checked]:border-palette-primary [&_svg]:h-3 [&_svg]:w-3",
+        "cursor-pointer border-neutral-border bg-neutral-bg-subtle data-[checked]:border-palette-primary [&_svg]:h-3 [&_svg]:w-3",
         className,
       )}
       {...props}
