@@ -25,6 +25,7 @@ import {
 } from "@dashframe/types";
 import {
   CHART_ICONS,
+  OverlayScrollArea,
   SelectField,
   WorkbenchJumpBar,
   WorkbenchPaneHeader,
@@ -409,7 +410,7 @@ export function VisualizationConfigPanel({
   };
 
   return (
-    <div className="min-h-full min-w-0 overflow-x-clip bg-neutral-bg px-3 py-3 text-xs">
+    <div className="flex h-full min-w-0 flex-col bg-neutral-bg text-xs">
       <WorkbenchPaneHeader title="Visualization">
         <WorkbenchJumpBar
           items={VISUALIZATION_SECTIONS}
@@ -418,117 +419,119 @@ export function VisualizationConfigPanel({
           onToggleAll={toggleAll}
         />
       </WorkbenchPaneHeader>
-      <div>
-        {renderSection(
-          "chart-type",
-          selectedMetadata.displayName,
-          <>
-            <div className="grid grid-cols-4 gap-1.5">
-              {INSIGHT_CANVAS_CHART_TYPES.map((chartType) => {
-                const Icon = CHART_ICONS[chartType];
-                const selected = chartType === activeChartType;
-                const available = availableChartTypes.has(chartType);
-                const tooltip = available
-                  ? CHART_TYPE_METADATA[chartType].displayName
-                  : "No suitable fields are available for this chart type.";
-                return (
-                  <Tooltip key={chartType} content={tooltip}>
+      <OverlayScrollArea className="min-h-0 flex-1">
+        <div className="px-3 pb-3">
+          {renderSection(
+            "chart-type",
+            selectedMetadata.displayName,
+            <>
+              <div className="grid grid-cols-4 gap-1.5">
+                {INSIGHT_CANVAS_CHART_TYPES.map((chartType) => {
+                  const Icon = CHART_ICONS[chartType];
+                  const selected = chartType === activeChartType;
+                  const available = availableChartTypes.has(chartType);
+                  const tooltip = available
+                    ? CHART_TYPE_METADATA[chartType].displayName
+                    : "No suitable fields are available for this chart type.";
+                  return (
+                    <Tooltip key={chartType} content={tooltip}>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        label={CHART_TYPE_METADATA[chartType].displayName}
+                        active={selected}
+                        aria-pressed={selected}
+                        onClick={() => handleChartTypeChange(chartType)}
+                        className={cn(
+                          "aspect-square h-auto w-full",
+                          selected
+                            ? "bg-neutral-bg-emphasis text-neutral-fg hover:bg-neutral-bg-emphasis"
+                            : "bg-neutral-bg-subtle text-neutral-fg-subtle hover:bg-neutral-bg-muted hover:text-neutral-fg",
+                          !available &&
+                            !selected &&
+                            "cursor-not-allowed opacity-40 hover:bg-neutral-bg-subtle hover:text-neutral-fg-subtle",
+                        )}
+                      >
+                        <Icon size={20} aria-hidden />
+                        <span className="sr-only">
+                          {CHART_TYPE_METADATA[chartType].displayName}
+                          {!available && ", no suitable fields"}
+                        </span>
+                      </Button>
+                    </Tooltip>
+                  );
+                })}
+              </div>
+              <div className="flex items-start justify-between gap-2 px-0.5 pt-2">
+                <span className="font-medium text-neutral-fg">
+                  {selectedMetadata.displayName}
+                </span>
+                <span className="text-right text-[11px] leading-4 text-neutral-fg-subtle">
+                  {selectedMetadata.description}
+                </span>
+              </div>
+            </>,
+          )}
+          {renderSection(
+            "encodings",
+            activeVisualization ? "Editable" : "Read-only",
+            activeVisualization ? (
+              <SavedEncodings
+                visualization={activeVisualization}
+                compiledInsight={compiledInsight}
+                dataTable={dataTable}
+                availableFields={availableFields}
+                availableColumns={availableColumns}
+                columnDisplayNames={columnDisplayNames}
+                columnAnalysis={columnAnalysis}
+                updateVisualization={updateVisualization}
+              />
+            ) : (
+              <UnsavedEncodings
+                encoding={activeSuggestionEncoding}
+                fields={availableFields}
+                metrics={compiledInsight.metrics}
+                columnDisplayNames={columnDisplayNames}
+              />
+            ),
+          )}
+          {renderSection(
+            "saved-charts",
+            `${visualizations.length} saved`,
+            visualizations.length > 0 ? (
+              <div className="space-y-1">
+                {visualizations.map((visualization) => {
+                  const Icon = CHART_ICONS[visualization.visualizationType];
+                  const selected = activeVisualization?.id === visualization.id;
+                  return (
                     <Button
+                      key={visualization.id}
                       size="sm"
                       variant="ghost"
-                      label={CHART_TYPE_METADATA[chartType].displayName}
                       active={selected}
                       aria-pressed={selected}
-                      onClick={() => handleChartTypeChange(chartType)}
+                      label={visualization.name}
+                      onClick={() => onSelectVisualization(visualization.id)}
                       className={cn(
-                        "aspect-square h-auto w-full",
-                        selected
-                          ? "bg-neutral-bg-emphasis text-neutral-fg hover:bg-neutral-bg-emphasis"
-                          : "bg-neutral-bg-subtle text-neutral-fg-subtle hover:bg-neutral-bg-muted hover:text-neutral-fg",
-                        !available &&
-                          !selected &&
-                          "cursor-not-allowed opacity-40 hover:bg-neutral-bg-subtle hover:text-neutral-fg-subtle",
+                        "w-full justify-start",
+                        selected &&
+                          "bg-neutral-bg-emphasis hover:bg-neutral-bg-emphasis",
                       )}
                     >
-                      <Icon size={20} aria-hidden />
-                      <span className="sr-only">
-                        {CHART_TYPE_METADATA[chartType].displayName}
-                        {!available && ", no suitable fields"}
-                      </span>
+                      <Icon size={14} aria-hidden />
+                      <span className="truncate">{visualization.name}</span>
                     </Button>
-                  </Tooltip>
-                );
-              })}
-            </div>
-            <div className="flex items-start justify-between gap-2 px-0.5 pt-2">
-              <span className="font-medium text-neutral-fg">
-                {selectedMetadata.displayName}
-              </span>
-              <span className="text-right text-[11px] leading-4 text-neutral-fg-subtle">
-                {selectedMetadata.description}
-              </span>
-            </div>
-          </>,
-        )}
-        {renderSection(
-          "encodings",
-          activeVisualization ? "Editable" : "Read-only",
-          activeVisualization ? (
-            <SavedEncodings
-              visualization={activeVisualization}
-              compiledInsight={compiledInsight}
-              dataTable={dataTable}
-              availableFields={availableFields}
-              availableColumns={availableColumns}
-              columnDisplayNames={columnDisplayNames}
-              columnAnalysis={columnAnalysis}
-              updateVisualization={updateVisualization}
-            />
-          ) : (
-            <UnsavedEncodings
-              encoding={activeSuggestionEncoding}
-              fields={availableFields}
-              metrics={compiledInsight.metrics}
-              columnDisplayNames={columnDisplayNames}
-            />
-          ),
-        )}
-        {renderSection(
-          "saved-charts",
-          `${visualizations.length} saved`,
-          visualizations.length > 0 ? (
-            <div className="space-y-1">
-              {visualizations.map((visualization) => {
-                const Icon = CHART_ICONS[visualization.visualizationType];
-                const selected = activeVisualization?.id === visualization.id;
-                return (
-                  <Button
-                    key={visualization.id}
-                    size="sm"
-                    variant="ghost"
-                    active={selected}
-                    aria-pressed={selected}
-                    label={visualization.name}
-                    onClick={() => onSelectVisualization(visualization.id)}
-                    className={cn(
-                      "w-full justify-start",
-                      selected &&
-                        "bg-neutral-bg-emphasis hover:bg-neutral-bg-emphasis",
-                    )}
-                  >
-                    <Icon size={14} aria-hidden />
-                    <span className="truncate">{visualization.name}</span>
-                  </Button>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="px-1 py-2 text-neutral-fg-subtle">
-              Save a chart to reuse it in reports.
-            </p>
-          ),
-        )}
-      </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="px-1 py-2 text-neutral-fg-subtle">
+                Save a chart to reuse it in reports.
+              </p>
+            ),
+          )}
+        </div>
+      </OverlayScrollArea>
     </div>
   );
 }

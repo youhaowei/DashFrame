@@ -23,6 +23,7 @@ import {
   cmd,
 } from "@dashframe/types";
 import {
+  OverlayScrollArea,
   WorkbenchJumpBar,
   WorkbenchPaneHeader,
   WorkbenchPaneSection,
@@ -720,7 +721,7 @@ export function InsightConfigPanel({
   };
 
   return (
-    <div className="min-h-full bg-neutral-bg px-3 py-3 text-xs">
+    <div className="flex h-full flex-col bg-neutral-bg text-xs">
       <WorkbenchPaneHeader title="Insight">
         <WorkbenchJumpBar
           items={CONFIG_SECTIONS}
@@ -729,90 +730,92 @@ export function InsightConfigPanel({
           onToggleAll={toggleAll}
         />
       </WorkbenchPaneHeader>
-      <div>
-        {renderSection(
-          "tables",
-          <DataModelSection
-            insight={insight}
-            dataTable={dataTable}
-            allDataTables={allDataTables}
-            reportId={reportId}
-          />,
-        )}
-        {renderSection(
-          "fields",
-          <FieldsSection
-            selectedFields={selectedFields}
-            availableFields={availableFields}
-            tables={[
-              dataTable,
-              ...allDataTables.filter((table) => table.id !== dataTable.id),
-            ]}
-            baseTableId={dataTable.id}
-            onReorder={handleFieldsReorder}
-            onRemove={handleRemoveField}
-            onRename={handleRenameField}
-            onAdd={handleAddField}
-          />,
-        )}
-        {renderSection(
-          "metrics",
-          <MetricsSection
-            metrics={visibleMetrics}
-            dataTable={dataTable}
-            onReorder={handleMetricsReorder}
-            onRemove={handleRemoveMetric}
-            onAdd={handleAddMetric}
-            onEdit={handleEditMetric}
-          />,
-        )}
-        {renderSection(
-          "filters",
-          <FiltersSection
-            filters={filtersWithIds}
-            combinedFields={filterableFields}
-            displayFields={combinedFields}
-            runtimeControls={insight.runtimeControls}
-            onReorder={handleFiltersReorder}
-            onRemove={handleRemoveFilter}
-            onSave={handleSaveFilter}
-            onDraftChange={handleFilterDraftChange}
-          />,
-        )}
-        {renderSection(
-          "sort",
-          <SortSection
-            sorts={sorts}
-            fields={selectedFields}
-            metrics={visibleMetrics}
-            runtimeControls={insight.runtimeControls}
-            onChange={handleSortsChange}
-            onRuntimeChange={handleRuntimeControlsChange}
-          />,
-        )}
-        {renderSection(
-          "viewer",
-          viewerControls.length > 0 ? (
-            <dl className="space-y-1 px-1">
-              {viewerControls.map((control) => (
-                <div
-                  key={`${control.label}:${control.target}`}
-                  className="flex gap-3"
-                >
-                  <dt className="min-w-0 flex-1 truncate font-medium">
-                    {control.label}
-                  </dt>
-                  <dd className="min-w-0 flex-1 truncate text-right text-neutral-fg-subtle">
-                    {control.target}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          ) : (
-            <p className="px-1 text-neutral-fg-subtle">Nothing exposed.</p>
-          ),
-        )}
-      </div>
+      <OverlayScrollArea className="min-h-0 flex-1">
+        <div className="px-3 pb-3">
+          {renderSection(
+            "tables",
+            <DataModelSection
+              insight={insight}
+              dataTable={dataTable}
+              allDataTables={allDataTables}
+              reportId={reportId}
+            />,
+          )}
+          {renderSection(
+            "fields",
+            <FieldsSection
+              selectedFields={selectedFields}
+              availableFields={availableFields}
+              tables={[
+                dataTable,
+                ...allDataTables.filter((table) => table.id !== dataTable.id),
+              ]}
+              baseTableId={dataTable.id}
+              onReorder={handleFieldsReorder}
+              onRemove={handleRemoveField}
+              onRename={handleRenameField}
+              onAdd={handleAddField}
+            />,
+          )}
+          {renderSection(
+            "metrics",
+            <MetricsSection
+              metrics={visibleMetrics}
+              dataTable={dataTable}
+              onReorder={handleMetricsReorder}
+              onRemove={handleRemoveMetric}
+              onAdd={handleAddMetric}
+              onEdit={handleEditMetric}
+            />,
+          )}
+          {renderSection(
+            "filters",
+            <FiltersSection
+              filters={filtersWithIds}
+              combinedFields={filterableFields}
+              displayFields={combinedFields}
+              runtimeControls={insight.runtimeControls}
+              onReorder={handleFiltersReorder}
+              onRemove={handleRemoveFilter}
+              onSave={handleSaveFilter}
+              onDraftChange={handleFilterDraftChange}
+            />,
+          )}
+          {renderSection(
+            "sort",
+            <SortSection
+              sorts={sorts}
+              fields={selectedFields}
+              metrics={visibleMetrics}
+              runtimeControls={insight.runtimeControls}
+              onChange={handleSortsChange}
+              onRuntimeChange={handleRuntimeControlsChange}
+            />,
+          )}
+          {renderSection(
+            "viewer",
+            viewerControls.length > 0 ? (
+              <dl className="space-y-1 px-1">
+                {viewerControls.map((control) => (
+                  <div
+                    key={`${control.label}:${control.target}`}
+                    className="flex gap-3"
+                  >
+                    <dt className="min-w-0 flex-1 truncate font-medium">
+                      {control.label}
+                    </dt>
+                    <dd className="min-w-0 flex-1 truncate text-right text-neutral-fg-subtle">
+                      {control.target}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            ) : (
+              <p className="px-1 text-neutral-fg-subtle">Nothing exposed.</p>
+            ),
+          )}
+        </div>
+      </OverlayScrollArea>
       <DeleteConfirmDialog
         isOpen={deleteDialog.isOpen}
         itemName={deleteDialog.itemName}

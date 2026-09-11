@@ -1,4 +1,3 @@
-import { ScrollArea } from "@base-ui/react/scroll-area";
 import {
   Button,
   Checkbox,
@@ -25,7 +24,6 @@ import {
   type ButtonHTMLAttributes,
   type ReactNode,
 } from "react";
-import { OverlayScrollbar } from "./OverlayScrollbar";
 
 export function useWorkbenchPaneSections<const T extends string>(
   ids: readonly T[],
@@ -95,11 +93,7 @@ export const WorkbenchPaneSection = forwardRef<
 ) {
   return (
     <Collapsible open={open} onOpenChange={onOpenChange}>
-      {/* scroll-mt keeps a jumped-to section clear of the sticky pane header. */}
-      <div
-        ref={ref}
-        className="scroll-mt-20 border-t border-neutral-border/60 py-1.5"
-      >
+      <div ref={ref} className="border-t border-neutral-border/60 py-1.5">
         <CollapsibleTrigger
           render={
             <button
@@ -135,43 +129,7 @@ export const WorkbenchPaneSection = forwardRef<
   );
 });
 
-/**
- * Pane title and jump bar. It sticks to the top of the pane's scroll area so
- * the jump bar stays reachable. The pane body must pad with px-3/py-3 (the
- * header cancels that padding to paint edge to edge) and must not set
- * overflow-x-hidden, which would make it the sticky scrollport.
- */
-/**
- * Scroll area for a workbench pane. A thin scrollbar shows while scrolling;
- * fades mark the edges that have more content past them. The top fade hangs
- * under a WorkbenchPaneHeader when one is present.
- */
-export function WorkbenchScrollArea({
-  className,
-  children,
-}: {
-  className?: string;
-  children: ReactNode;
-}) {
-  return (
-    <ScrollArea.Root
-      className={cn(
-        "group/pane-scroll relative h-full overflow-hidden",
-        className,
-      )}
-    >
-      <ScrollArea.Viewport className="h-full overscroll-contain">
-        {children}
-      </ScrollArea.Viewport>
-      <OverlayScrollbar className="my-1 mr-0.5" />
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-8 bg-linear-to-t from-neutral-bg to-transparent opacity-0 transition-opacity duration-150 group-data-[overflow-y-end]/pane-scroll:opacity-100"
-      />
-    </ScrollArea.Root>
-  );
-}
-
+/** Pane title and jump bar. Sits above the pane's scrolling sections. */
 export function WorkbenchPaneHeader({
   title,
   children,
@@ -180,14 +138,9 @@ export function WorkbenchPaneHeader({
   children: ReactNode;
 }) {
   return (
-    <div className="sticky top-0 z-10 -mx-3 -mt-3 bg-neutral-bg px-3 pt-3 pb-2">
+    <div className="shrink-0 px-3 pt-3 pb-2">
       <h2 className="px-0.5 pb-2 text-sm font-semibold">{title}</h2>
       {children}
-      {/* Marks content scrolled under the header inside a WorkbenchScrollArea. */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-full h-6 bg-linear-to-b from-neutral-bg to-transparent opacity-0 transition-opacity duration-150 group-data-[overflow-y-start]/pane-scroll:opacity-100"
-      />
     </div>
   );
 }

@@ -1,12 +1,11 @@
 "use client";
 
 import type { ColumnType } from "@dashframe/types";
-import { ScrollArea } from "@base-ui/react/scroll-area";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn, Spinner } from "@wystack/ui-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { defaultFormatValue } from "../lib/format-virtual-table-value";
-import { OverlayScrollbar } from "./OverlayScrollbar";
+import { OverlayScrollArea } from "./OverlayScrollArea";
 
 // ============================================================================
 // Types
@@ -147,17 +146,10 @@ export function VirtualTable({
   );
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
-  // Edge fades show only while more rows sit past that edge.
-  const [scrollEdges, setScrollEdges] = useState({ top: false, bottom: false });
+  // The overlay scroll area starts its top fade and scrollbar under the
+  // sticky header, so track the header's height.
   const [headerHeight, setHeaderHeight] = useState(0);
-  const updateScrollEdges = useCallback(() => {
-    const el = tableContainerRef.current;
-    if (!el) return;
-    const top = el.scrollTop > 1;
-    const bottom = el.scrollTop + el.clientHeight < el.scrollHeight - 1;
-    setScrollEdges((prev) =>
-      prev.top === top && prev.bottom === bottom ? prev : { top, bottom },
-    );
+  const measureHeader = useCallback(() => {
     setHeaderHeight(headerRef.current?.offsetHeight ?? 0);
   }, []);
 
@@ -447,15 +439,15 @@ export function VirtualTable({
   // container (a collapsed result strip, a window resize); re-check which
   // edges have more rows after either.
   useEffect(() => {
-    updateScrollEdges();
-  }, [totalSize, height, updateScrollEdges]);
+    measureHeader();
+  }, [totalSize, height, measureHeader]);
   useEffect(() => {
     const el = tableContainerRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(updateScrollEdges);
+    const observer = new ResizeObserver(measureHeader);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [updateScrollEdges]);
+  }, [measureHeader]);
   // Read once per render; TanStack memoizes the array, so it is a stable
   // effect dependency that changes only when the visible window changes.
   const virtualItems = rowVirtualizer.getVirtualItems();
@@ -574,113 +566,87 @@ export function VirtualTable({
       )}
 
       {/* Table container */}
-      <ScrollArea.Root className="relative min-h-0 flex-1 overflow-hidden rounded-lg border border-neutral-border">
-        <ScrollArea.Viewport
-          ref={tableContainerRef}
-          onScroll={updateScrollEdges}
-          className="relative h-full overscroll-contain"
+      <OverlayScrollArea
+        orientation="both"
+        topInset={headerHeight}
+        className="min-h-0 flex-1 rounded-lg border border-neutral-border"
+        viewportClassName="relative"
+        viewportRef={tableContainerRef}
+        onScroll={measureHeader}
+      >
+        {/* Header. The before: strip covers the sub-pixel sliver sticky
+            positioning can leave above it, where scrolled rows showed through.
+            Once rows sit under it (overflow-y-start on the scroll area root,
+            which is root > viewport > header), it casts a shadow onto them. */}
+        <div
+          ref={headerRef}
+          className="sticky top-0 z-10 border-b border-neutral-border bg-neutral-bg-muted transition-shadow duration-150 before:absolute before:inset-x-0 before:-top-0.5 before:h-0.5 before:bg-neutral-bg-muted [[data-overflow-y-start]>*>&]:shadow-md"
+          style={{
+            display: "grid",
+            gridTemplateColumns,
+            minWidth: "max-content",
+          }}
         >
-          {/* Header. The upward shadow covers the sub-pixel sliver sticky
-            positioning can leave above it, where scrolled rows showed through. */}
-          <div
-            ref={headerRef}
-            className="sticky top-0 z-10 border-b border-neutral-border bg-neutral-bg-muted shadow-[0_-2px_0_0_var(--color-neutral-bg-muted)]"
-            style={{
-              display: "grid",
-              gridTemplateColumns,
-              minWidth: "max-content",
-            }}
-          >
-            {visibleColumns.map((col) => {
-              const config = configMap.get(col.name);
-              const highlight = config?.highlight;
-              const isHighlighted = !!highlight;
-              const highlightVariant =
-                typeof highlight === "string" ? highlight : "primary";
-              const isSorted = sortColumn === col.name;
-              const columnLabel = config?.label || col.name;
-              const sortDirectionLabel =
-                sortDirection === "asc" ? "ascending" : "descending";
-              const sortedSuffix = isSorted
-                ? `, currently sorted ${sortDirectionLabel}`
-                : "";
+          {visibleColumns.map((col) => {
+            const config = configMap.get(col.name);
+            const highlight = config?.highlight;
+            const isHighlighted = !!highlight;
+            const highlightVariant =
+              typeof highlight === "string" ? highlight : "primary";
+            const isSorted = sortColumn === col.name;
+            const columnLabel = config?.label || col.name;
+            const sortDirectionLabel =
+              sortDirection === "asc" ? "ascending" : "descending";
+            const sortedSuffix = isSorted
+              ? `, currently sorted ${sortDirectionLabel}`
+              : "";
 
-              return (
-                <button
-                  type="button"
-                  key={col.name}
-                  className={cn(
-                    "cursor-pointer overflow-hidden text-left font-medium text-neutral-fg-subtle select-none",
-                    "focus-visible:ring-2 focus-visible:ring-neutral-ring focus-visible:ring-offset-1 focus-visible:outline-none",
-                    cellPadding,
-                    fontSize,
-                    isHighlighted && highlightHeaderStyles[highlightVariant],
-                    !isHighlighted && "hover:bg-neutral-bg-muted/80",
+            return (
+              <button
+                type="button"
+                key={col.name}
+                className={cn(
+                  "cursor-pointer overflow-hidden text-left font-medium text-neutral-fg-subtle select-none",
+                  "focus-visible:ring-2 focus-visible:ring-neutral-ring focus-visible:ring-offset-1 focus-visible:outline-none",
+                  cellPadding,
+                  fontSize,
+                  isHighlighted && highlightHeaderStyles[highlightVariant],
+                  !isHighlighted && "hover:bg-neutral-bg-muted/80",
+                )}
+                title={`Sort by ${columnLabel}`}
+                aria-label={`Sort by ${columnLabel}${sortedSuffix}`}
+                onClick={() => handleSort(col.name)}
+              >
+                <div className="flex items-center gap-1">
+                  <span className="truncate">{columnLabel}</span>
+                  {isSorted && (
+                    <span className="text-[10px]" aria-hidden="true">
+                      {sortDirection === "asc" ? "↑" : "↓"}
+                    </span>
                   )}
-                  title={`Sort by ${columnLabel}`}
-                  aria-label={`Sort by ${columnLabel}${sortedSuffix}`}
-                  onClick={() => handleSort(col.name)}
-                >
-                  <div className="flex items-center gap-1">
-                    <span className="truncate">{columnLabel}</span>
-                    {isSorted && (
-                      <span className="text-[10px]" aria-hidden="true">
-                        {sortDirection === "asc" ? "↑" : "↓"}
-                      </span>
-                    )}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
 
-          {/* Body */}
-          <div
-            className="relative bg-neutral-bg"
-            style={{
-              height: `${rowVirtualizer.getTotalSize()}px`,
-              minWidth: "max-content",
-            }}
-          >
-            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-              const rowData = getRowData(virtualRow.index);
+        {/* Body */}
+        <div
+          className="relative bg-neutral-bg"
+          style={{
+            height: `${rowVirtualizer.getTotalSize()}px`,
+            minWidth: "max-content",
+          }}
+        >
+          {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+            const rowData = getRowData(virtualRow.index);
 
-              // Placeholder for unloaded rows
-              if (!rowData) {
-                return (
-                  <div
-                    key={virtualRow.index}
-                    className="absolute border-b border-neutral-border"
-                    style={{
-                      height: `${virtualRow.size}px`,
-                      transform: `translateY(${virtualRow.start}px)`,
-                      display: "grid",
-                      gridTemplateColumns,
-                      width: "100%",
-                      minWidth: "fit-content",
-                    }}
-                  >
-                    {visibleColumns.map((col) => (
-                      <div
-                        key={col.name}
-                        className={cn(
-                          "text-neutral-fg-subtle/50",
-                          cellPadding,
-                          fontSize,
-                        )}
-                      >
-                        <div className="h-3 w-16 animate-pulse rounded bg-neutral-bg-muted/50" />
-                      </div>
-                    ))}
-                  </div>
-                );
-              }
-
-              // Render row
+            // Placeholder for unloaded rows
+            if (!rowData) {
               return (
                 <div
                   key={virtualRow.index}
-                  className="group absolute border-b border-neutral-border"
+                  className="absolute border-b border-neutral-border"
                   style={{
                     height: `${virtualRow.size}px`,
                     transform: `translateY(${virtualRow.start}px)`,
@@ -690,90 +656,94 @@ export function VirtualTable({
                     minWidth: "fit-content",
                   }}
                 >
-                  {visibleColumns.map((col) => {
-                    const config = configMap.get(col.name);
-                    const highlight = config?.highlight;
-                    const isHighlighted = !!highlight;
-                    const highlightVariant =
-                      typeof highlight === "string" ? highlight : "primary";
-                    const align = config?.align || "left";
-
-                    const rawValue = rowData[col.name];
-                    const cellValue = config?.format
-                      ? config.format(rawValue)
-                      : defaultFormatValue(rawValue, col.type);
-                    const isClickable = !!onCellClick;
-
-                    return (
-                      <div
-                        key={col.name}
-                        className={cn(
-                          "text-neutral-fg group-hover:bg-neutral-bg-muted/50",
-                          cellPadding,
-                          fontSize,
-                          isHighlighted &&
-                            highlightCellStyles[highlightVariant],
-                          isClickable && "cursor-pointer",
-                          align === "right" && "text-right",
-                          align === "center" && "text-center",
-                        )}
-                        title={cellValue}
-                        onClick={
-                          isClickable
-                            ? () =>
-                                onCellClick(
-                                  col.name,
-                                  rawValue,
-                                  virtualRow.index,
-                                )
-                            : undefined
-                        }
-                      >
-                        <div className="flex min-w-0 items-center overflow-hidden">
-                          <span className="truncate">{cellValue}</span>
-                        </div>
-                      </div>
-                    );
-                  })}
+                  {visibleColumns.map((col) => (
+                    <div
+                      key={col.name}
+                      className={cn(
+                        "text-neutral-fg-subtle/50",
+                        cellPadding,
+                        fontSize,
+                      )}
+                    >
+                      <div className="h-3 w-16 animate-pulse rounded bg-neutral-bg-muted/50" />
+                    </div>
+                  ))}
                 </div>
               );
-            })}
+            }
+
+            // Render row
+            return (
+              <div
+                key={virtualRow.index}
+                className="group absolute border-b border-neutral-border"
+                style={{
+                  height: `${virtualRow.size}px`,
+                  transform: `translateY(${virtualRow.start}px)`,
+                  display: "grid",
+                  gridTemplateColumns,
+                  width: "100%",
+                  minWidth: "fit-content",
+                }}
+              >
+                {visibleColumns.map((col) => {
+                  const config = configMap.get(col.name);
+                  const highlight = config?.highlight;
+                  const isHighlighted = !!highlight;
+                  const highlightVariant =
+                    typeof highlight === "string" ? highlight : "primary";
+                  const align = config?.align || "left";
+
+                  const rawValue = rowData[col.name];
+                  const cellValue = config?.format
+                    ? config.format(rawValue)
+                    : defaultFormatValue(rawValue, col.type);
+                  const isClickable = !!onCellClick;
+
+                  return (
+                    <div
+                      key={col.name}
+                      className={cn(
+                        "text-neutral-fg group-hover:bg-neutral-bg-muted/50",
+                        cellPadding,
+                        fontSize,
+                        isHighlighted && highlightCellStyles[highlightVariant],
+                        isClickable && "cursor-pointer",
+                        align === "right" && "text-right",
+                        align === "center" && "text-center",
+                      )}
+                      title={cellValue}
+                      onClick={
+                        isClickable
+                          ? () =>
+                              onCellClick(col.name, rawValue, virtualRow.index)
+                          : undefined
+                      }
+                    >
+                      <div className="flex min-w-0 items-center overflow-hidden">
+                        <span className="truncate">{cellValue}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Empty state */}
+        {virtualRowCount === 0 && !isLoading && (
+          <div
+            className="flex h-32 items-center justify-center"
+            role="status"
+            aria-live="polite"
+          >
+            <span className="text-sm text-neutral-fg-subtle">
+              No data available
+            </span>
           </div>
-
-          {/* Empty state */}
-          {virtualRowCount === 0 && !isLoading && (
-            <div
-              className="flex h-32 items-center justify-center"
-              role="status"
-              aria-live="polite"
-            >
-              <span className="text-sm text-neutral-fg-subtle">
-                No data available
-              </span>
-            </div>
-          )}
-        </ScrollArea.Viewport>
-        {/* The vertical bar starts under the sticky header. */}
-        <OverlayScrollbar style={{ marginTop: headerHeight }} />
-        <OverlayScrollbar orientation="horizontal" />
-      </ScrollArea.Root>
-
-      <div
-        aria-hidden
-        className={cn(
-          "pointer-events-none absolute left-px z-10 h-6 bg-linear-to-b from-neutral-bg to-transparent transition-opacity duration-150",
-          scrollEdges.top ? "opacity-100" : "opacity-0",
         )}
-        style={{ top: headerHeight + 1, right: 1 }}
-      />
-      <div
-        aria-hidden
-        className={cn(
-          "pointer-events-none absolute left-px z-10 h-6 rounded-b-lg bg-linear-to-t from-neutral-bg to-transparent transition-opacity duration-150",
-          scrollEdges.bottom ? "opacity-100" : "opacity-0",
-        )}
-        style={{ right: 1, bottom: 1 }}
-      />
+      </OverlayScrollArea>
     </div>
   );
 }
