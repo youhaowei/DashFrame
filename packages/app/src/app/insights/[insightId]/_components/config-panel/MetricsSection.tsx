@@ -88,9 +88,8 @@ function MetricEditor({
     metric?.aggregation ?? "count",
   );
   const [columnName, setColumnName] = useState(metric?.columnName ?? "");
-  const [customName, setCustomName] = useState<string | null>(
-    metric?.name ?? null,
-  );
+  const [nameDraft, setNameDraft] = useState(metric?.name ?? "");
+  const [nameEdited, setNameEdited] = useState(Boolean(metric));
   const [error, setError] = useState<string | null>(null);
   const { setPending, isPending } = useSaveDismissGuard();
   const [isSaving, setIsSaving] = useSavingFlag(setPending);
@@ -109,13 +108,16 @@ function MetricEditor({
           ),
         )
       : fields;
-  const name = customName ?? autoMetricName(aggregation, columnName, dataTable);
+  const name = nameEdited
+    ? nameDraft
+    : autoMetricName(aggregation, columnName, dataTable);
   const needsField = aggregation !== "count";
 
   const reset = () => {
     setAggregation(metric?.aggregation ?? "count");
     setColumnName(metric?.columnName ?? "");
-    setCustomName(metric?.name ?? null);
+    setNameDraft(metric?.name ?? "");
+    setNameEdited(Boolean(metric));
     setError(null);
   };
   const close = () => {
@@ -136,7 +138,6 @@ function MetricEditor({
         aggregation,
       });
       setOpen(false);
-      reset();
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "Unknown error";
       setError(`Failed to save metric: ${message}`);
@@ -178,7 +179,10 @@ function MetricEditor({
       open={open}
       onOpenChange={(next) => {
         if (!next) close();
-        else setOpen(true);
+        else {
+          reset();
+          setOpen(true);
+        }
       }}
     >
       {trigger}
@@ -194,7 +198,6 @@ function MetricEditor({
             onValueChange={(value) => {
               const next = value as AggregationType;
               setAggregation(next);
-              setCustomName(null);
               if (next === "count") setColumnName("");
             }}
           >
@@ -213,7 +216,6 @@ function MetricEditor({
             value={columnName}
             onValueChange={(value) => {
               setColumnName(value ?? "");
-              setCustomName(null);
             }}
             disabled={!needsField}
           >
@@ -234,7 +236,10 @@ function MetricEditor({
           <Input
             id={`metric-name-${metric?.id ?? "new"}`}
             value={name}
-            onChange={(event) => setCustomName(event.target.value)}
+            onChange={(event) => {
+              setNameEdited(true);
+              setNameDraft(event.target.value);
+            }}
           />
         </div>
         <div className="flex justify-end gap-2">
@@ -249,7 +254,15 @@ function MetricEditor({
             label={metric ? "Save" : "Add metric"}
             size="sm"
             loading={isSaving}
-            disabled={!name.trim() || (needsField && !columnName)}
+            disabled={
+              !name.trim() ||
+              (needsField && !columnName) ||
+              (metric !== undefined &&
+                name.trim() === metric.name &&
+                aggregation === metric.aggregation &&
+                metricColumnNameForSave(aggregation, columnName) ===
+                  (metric.columnName || undefined))
+            }
             onClick={() => void save()}
           />
         </div>

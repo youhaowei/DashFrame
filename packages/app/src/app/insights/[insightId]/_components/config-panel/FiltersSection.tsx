@@ -25,6 +25,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  cn,
 } from "@wystack/ui-react";
 import { Eye, ListFilter } from "lucide-react";
 import {
@@ -95,6 +96,21 @@ function initialBetweenValue(filter: FilterWithId) {
   return { low: String(value.low ?? ""), high: String(value.high ?? "") };
 }
 
+function fieldValue(field: CombinedField): string {
+  return field.columnName ?? field.name;
+}
+
+function findField(fields: CombinedField[], value: string) {
+  return fields.find((field) => fieldValue(field) === value);
+}
+
+export function filterFieldDisplayName(
+  fields: CombinedField[],
+  value: string,
+): string {
+  return findField(fields, value)?.displayName ?? value;
+}
+
 export function formatFilterValue(filter: InsightFilter): string {
   if (filter.operator === "between") {
     const value = filter.value as InsightFilterBetweenValue | undefined;
@@ -109,6 +125,7 @@ export function formatFilterValue(filter: InsightFilter): string {
 function FilterEditor({
   filter,
   fields,
+  displayFields,
   control,
   dragHandle,
   onSave,
@@ -117,6 +134,7 @@ function FilterEditor({
 }: {
   filter?: FilterWithId;
   fields: CombinedField[];
+  displayFields: CombinedField[];
   control?: RuntimeFilterControl;
   dragHandle?: ReactNode;
   onSave: (
@@ -126,9 +144,7 @@ function FilterEditor({
   onRemove?: () => void;
   onDraftChange?: (filter: FilterWithId | null) => void;
 }) {
-  const defaultField = fields[0]
-    ? (fields[0].columnName ?? fields[0].name)
-    : "";
+  const defaultField = fields[0] ? fieldValue(fields[0]) : "";
   const initial = useMemo<FilterWithId>(
     () =>
       filter ?? {
@@ -147,9 +163,17 @@ function FilterEditor({
   const [betweenLow, setBetweenLow] = useState(initialBetween.low);
   const [betweenHigh, setBetweenHigh] = useState(initialBetween.high);
   const [viewerEditable, setViewerEditable] = useState(Boolean(control));
-  const [label, setLabel] = useState(control?.label ?? initial.field);
+  const [label, setLabel] = useState(
+    control?.label ?? filterFieldDisplayName(displayFields, initial.field),
+  );
+  const [labelEdited, setLabelEdited] = useState(
+    Boolean(
+      control &&
+      control.label !== filterFieldDisplayName(displayFields, initial.field),
+    ),
+  );
   const [key, setKey] = useState(
-    control?.key ?? `filter-${initial.id ?? initial._id}`,
+    control?.key ?? (initial.id ? `filter-${initial.id}` : ""),
   );
   const [required, setRequired] = useState(control?.required ?? false);
   const [allowClear, setAllowClear] = useState(control?.allowClear ?? false);
@@ -157,9 +181,13 @@ function FilterEditor({
   const [error, setError] = useState<string | null>(null);
   const { setPending, isPending } = useSaveDismissGuard();
   const [isSaving, setIsSaving] = useSavingFlag(setPending);
-  const selectedField = fields.find(
-    (candidate) => (candidate.columnName ?? candidate.name) === field,
-  );
+  const selectedField =
+    findField(displayFields, field) ?? findField(fields, field);
+  const fieldOptions = useMemo(() => {
+    if (!field || findField(fields, field)) return fields;
+    const current = findField(displayFields, field);
+    return current ? [...fields, current] : fields;
+  }, [displayFields, field, fields]);
   const inputType = inputTypeForField(selectedField);
   const draft = useMemo<FilterDraft>(
     () => ({
@@ -174,8 +202,8 @@ function FilterEditor({
   );
   const isValid = isFilterDraftValid(draft);
   const operatorLabel =
-    OPERATOR_OPTIONS.find((item) => item.value === initial.operator)?.label ??
-    initial.operator;
+    OPERATOR_OPTIONS.find((item) => item.value === filter?.operator)?.label ??
+    filter?.operator;
 
   useEffect(() => {
     if (!open || !dirty) return;
@@ -195,8 +223,16 @@ function FilterEditor({
     setBetweenLow(between.low);
     setBetweenHigh(between.high);
     setViewerEditable(Boolean(control));
-    setLabel(control?.label ?? initial.field);
-    setKey(control?.key ?? `filter-${initial.id ?? initial._id}`);
+    setLabel(
+      control?.label ?? filterFieldDisplayName(displayFields, initial.field),
+    );
+    setLabelEdited(
+      Boolean(
+        control &&
+        control.label !== filterFieldDisplayName(displayFields, initial.field),
+      ),
+    );
+    setKey(control?.key ?? (initial.id ? `filter-${initial.id}` : ""));
     setRequired(control?.required ?? false);
     setAllowClear(control?.allowClear ?? false);
     setDirty(false);
@@ -219,11 +255,10 @@ function FilterEditor({
         operator,
         value: buildFilterValue(draft),
       });
-      const defaultKey = `filter-${initial.id ?? initial._id}`;
       const savedControl = viewerEditable
         ? {
             filterId: saved.id!,
-            key: key === defaultKey ? `filter-${saved.id}` : key,
+            key: key.trim() || `filter-${saved.id}`,
             label: label || selectedField?.displayName || field,
             required: required || undefined,
             allowClear: allowClear || undefined,
@@ -232,7 +267,6 @@ function FilterEditor({
       await onSave(saved, savedControl);
       onDraftChange?.(null);
       setOpen(false);
-      reset();
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "Unknown error";
       setError(`Failed to save filter: ${message}`);
@@ -246,6 +280,12 @@ function FilterEditor({
     setter(value);
   };
 
+  const displayName = filter
+    ? filterFieldDisplayName(displayFields, filter.field)
+    : "";
+  const invalidField = Boolean(
+    filter && !findField(displayFields, filter.field),
+  );
   const trigger = filter ? (
     <WorkbenchChip
       dragHandle={dragHandle}
@@ -257,9 +297,17 @@ function FilterEditor({
             <button
               type="button"
               className="min-w-0 flex-1 truncate text-left focus-visible:outline-none"
-              aria-label={`Edit filter ${filter.field}`}
+              aria-label={`Edit filter ${displayName}`}
             >
-              <span className="font-medium">{filter.field}</span>{" "}
+              <span
+                className={cn(
+                  "font-medium",
+                  invalidField &&
+                    "text-neutral-fg-subtle line-through decoration-neutral-fg-subtle",
+                )}
+              >
+                {displayName}
+              </span>{" "}
               <span className="text-neutral-fg-subtle">{operatorLabel}</span>{" "}
               <span className="font-medium">{formatFilterValue(filter)}</span>
             </button>
@@ -274,7 +322,7 @@ function FilterEditor({
           />
         ) : undefined
       }
-      removeLabel={`Remove filter ${filter.field}`}
+      removeLabel={`Remove filter ${displayName}`}
       onRemove={onRemove}
     />
   ) : (
@@ -292,7 +340,10 @@ function FilterEditor({
       open={open}
       onOpenChange={(next) => {
         if (!next) close();
-        else setOpen(true);
+        else {
+          reset();
+          setOpen(true);
+        }
       }}
     >
       {trigger}
@@ -308,6 +359,9 @@ function FilterEditor({
             onValueChange={(value) => {
               if (!value) return;
               setChanged(setField, value);
+              if (!labelEdited) {
+                setLabel(filterFieldDisplayName(displayFields, value));
+              }
               setScalarValue("");
               setBetweenLow("");
               setBetweenHigh("");
@@ -317,8 +371,11 @@ function FilterEditor({
               <SelectValue placeholder="Field" />
             </SelectTrigger>
             <SelectContent>
-              {fields.map((item) => (
-                <SelectItem key={item.id} value={item.columnName ?? item.name}>
+              {field && !findField(fieldOptions, field) && (
+                <SelectItem value={field}>{field}</SelectItem>
+              )}
+              {fieldOptions.map((item) => (
+                <SelectItem key={item.id} value={fieldValue(item)}>
                   {item.displayName}
                 </SelectItem>
               ))}
@@ -335,7 +392,10 @@ function FilterEditor({
             }}
           >
             <SelectTrigger aria-label="Operator" className="w-32">
-              <SelectValue />
+              <SelectValue>
+                {OPERATOR_OPTIONS.find((item) => item.value === operator)
+                  ?.label ?? operator}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               {OPERATOR_OPTIONS.map((item) => (
@@ -378,7 +438,13 @@ function FilterEditor({
         <label className="flex items-center gap-2 text-xs">
           <Checkbox
             checked={viewerEditable}
-            onCheckedChange={(checked) => setViewerEditable(checked === true)}
+            onCheckedChange={(checked) => {
+              const next = checked === true;
+              setViewerEditable(next);
+              if (next && !labelEdited) {
+                setLabel(selectedField?.displayName ?? field);
+              }
+            }}
           />
           Viewers can change
         </label>
@@ -391,7 +457,10 @@ function FilterEditor({
               <Input
                 id={`runtime-label-${initial._id}`}
                 value={label}
-                onChange={(event) => setLabel(event.target.value)}
+                onChange={(event) => {
+                  setLabelEdited(true);
+                  setLabel(event.target.value);
+                }}
               />
             </div>
             <div className="space-y-1.5">
@@ -400,7 +469,13 @@ function FilterEditor({
                 id={`runtime-key-${initial._id}`}
                 value={key}
                 onChange={(event) => setKey(event.target.value)}
+                placeholder="Generated on save"
               />
+              {!key && (
+                <p className="text-[11px] text-neutral-fg-subtle">
+                  Generated on save
+                </p>
+              )}
             </div>
             <div className="flex gap-4">
               <label className="flex items-center gap-2 text-xs">
@@ -425,9 +500,7 @@ function FilterEditor({
             label="Done"
             size="sm"
             loading={isSaving}
-            disabled={
-              !isValid || (viewerEditable && (!label.trim() || !key.trim()))
-            }
+            disabled={!isValid || (viewerEditable && !label.trim())}
             onClick={() => void save()}
           />
         </div>
@@ -439,6 +512,7 @@ function FilterEditor({
 export function FiltersSection({
   filters,
   combinedFields,
+  displayFields = combinedFields,
   runtimeControls,
   onReorder,
   onRemove,
@@ -447,6 +521,7 @@ export function FiltersSection({
 }: {
   filters: FilterWithId[];
   combinedFields: CombinedField[];
+  displayFields?: CombinedField[];
   runtimeControls?: InsightRuntimeDeclaration;
   onReorder: (filters: FilterWithId[]) => void;
   onRemove: (filterId: string) => void;
@@ -486,6 +561,7 @@ export function FiltersSection({
             <FilterEditor
               filter={item.filter}
               fields={combinedFields}
+              displayFields={displayFields}
               control={
                 item.filter.id
                   ? controlsByFilter.get(item.filter.id)
@@ -501,6 +577,7 @@ export function FiltersSection({
       )}
       <FilterEditor
         fields={combinedFields}
+        displayFields={displayFields}
         onSave={onSave}
         onDraftChange={onDraftChange}
       />

@@ -1,11 +1,11 @@
+import { fireEvent, render, screen } from "@testing-library/react";
+import { TableIcon } from "@wystack/ui-react/icons";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   WorkbenchJumpBar,
   WorkbenchPaneSection,
   useWorkbenchPaneSections,
-} from "@dashframe/ui";
-import { fireEvent, render, screen } from "@testing-library/react";
-import { Table2 } from "lucide-react";
-import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+} from "./WorkbenchPane";
 
 const SECTION_IDS = ["tables"] as const;
 
@@ -14,7 +14,7 @@ function Harness() {
   return (
     <>
       <WorkbenchJumpBar
-        items={[{ id: "tables", label: "Tables", icon: Table2 }]}
+        items={[{ id: "tables", label: "Tables", icon: TableIcon }]}
         onJump={(id) => pane.jumpToSection(id as "tables")}
         allCollapsed={pane.allCollapsed}
         onToggleAll={pane.toggleAll}
@@ -22,7 +22,7 @@ function Harness() {
       <WorkbenchPaneSection
         ref={pane.registerSection("tables")}
         title="Tables"
-        icon={Table2}
+        icon={TableIcon}
         open={pane.openSections.tables}
         summary="orders, customers"
         onOpenChange={(open) => pane.setSectionOpen("tables", open)}

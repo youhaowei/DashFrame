@@ -28,7 +28,13 @@ import {
   Switch,
 } from "@wystack/ui-react";
 import { ArrowDown, ArrowUp, Sigma } from "lucide-react";
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useMemo,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import { FieldTypeIcon } from "./FieldsSection";
 
 interface SortableSort extends SortableListItem {
@@ -41,6 +47,66 @@ interface SortOption {
   id: UUID;
   group: "Fields" | "Metrics";
   icon: ReactNode;
+}
+
+function ViewerLimitFields({
+  limit,
+  onCommit,
+}: {
+  limit: NonNullable<InsightRuntimeDeclaration["limit"]>;
+  onCommit: (limit: NonNullable<InsightRuntimeDeclaration["limit"]>) => void;
+}) {
+  const [minimum, setMinimum] = useState(String(limit.min));
+  const [maximum, setMaximum] = useState(String(limit.max));
+  const [error, setError] = useState<string | null>(null);
+
+  const commit = () => {
+    const min = Number(minimum);
+    const max = Number(maximum);
+    if (!Number.isInteger(min) || !Number.isInteger(max) || min < 1) {
+      setError("Use whole numbers of at least 1.");
+      return;
+    }
+    if (min > max) {
+      setError("Minimum cannot exceed maximum.");
+      return;
+    }
+    setError(null);
+    if (min !== limit.min || max !== limit.max) onCommit({ min, max });
+  };
+  const commitOnEnter = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter") commit();
+  };
+
+  return (
+    <div className="space-y-1.5">
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1">
+          <Label htmlFor="viewer-limit-min">Minimum</Label>
+          <Input
+            id="viewer-limit-min"
+            inputMode="numeric"
+            value={minimum}
+            onChange={(event) => setMinimum(event.target.value)}
+            onBlur={commit}
+            onKeyDown={commitOnEnter}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="viewer-limit-max">Maximum</Label>
+          <Input
+            id="viewer-limit-max"
+            inputMode="numeric"
+            value={maximum}
+            onChange={(event) => setMaximum(event.target.value)}
+            onBlur={commit}
+            onKeyDown={commitOnEnter}
+          />
+        </div>
+      </div>
+      {error && <p className="text-[11px] text-danger-fg">{error}</p>}
+    </div>
+  );
 }
 
 export function SortSection({
@@ -81,8 +147,8 @@ export function SortSection({
   const unusedOptions = options.filter(
     (option) => !sorts.some((sort) => sort.field === option.value),
   );
-  const sortableItems: SortableSort[] = sorts.map((sort, index) => ({
-    id: `${sort.field}:${index}`,
+  const sortableItems: SortableSort[] = sorts.map((sort) => ({
+    id: sort.field,
     sort,
   }));
   const handleReorder = useCallback(
@@ -209,7 +275,7 @@ export function SortSection({
                 ...runtimeControls,
                 sort: checked
                   ? {
-                      allowedFieldIds: resultOptions.map((option) => option.id),
+                      allowedFieldIds: [],
                       maxKeys: 1,
                     }
                   : undefined,
@@ -238,9 +304,7 @@ export function SortSection({
                           : current.filter((id) => id !== option.id);
                       updateRuntime({
                         ...runtimeControls,
-                        sort: allowedFieldIds.length
-                          ? { allowedFieldIds, maxKeys: 1 }
-                          : undefined,
+                        sort: { allowedFieldIds, maxKeys: 1 },
                       });
                     }}
                   />
@@ -263,47 +327,11 @@ export function SortSection({
           />
         </label>
         {runtimeControls?.limit && (
-          <div className="grid grid-cols-2 gap-2">
-            <div className="space-y-1">
-              <Label htmlFor="viewer-limit-min">Minimum</Label>
-              <Input
-                id="viewer-limit-min"
-                type="number"
-                min={1}
-                value={runtimeControls.limit.min}
-                onChange={(event) =>
-                  updateRuntime({
-                    ...runtimeControls,
-                    limit: {
-                      ...runtimeControls.limit!,
-                      min: Math.max(1, Number(event.target.value)),
-                    },
-                  })
-                }
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="viewer-limit-max">Maximum</Label>
-              <Input
-                id="viewer-limit-max"
-                type="number"
-                min={runtimeControls.limit.min}
-                value={runtimeControls.limit.max}
-                onChange={(event) =>
-                  updateRuntime({
-                    ...runtimeControls,
-                    limit: {
-                      ...runtimeControls.limit!,
-                      max: Math.max(
-                        runtimeControls.limit!.min,
-                        Number(event.target.value),
-                      ),
-                    },
-                  })
-                }
-              />
-            </div>
-          </div>
+          <ViewerLimitFields
+            key={`${runtimeControls.limit.min}:${runtimeControls.limit.max}`}
+            limit={runtimeControls.limit}
+            onCommit={(limit) => updateRuntime({ ...runtimeControls, limit })}
+          />
         )}
       </div>
     </div>
