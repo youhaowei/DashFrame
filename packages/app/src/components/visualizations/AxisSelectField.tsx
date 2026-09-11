@@ -71,8 +71,6 @@ function matchColumnToField(
 interface AxisSelectFieldProps {
   /** Field label displayed above the select */
   label: string;
-  /** Hide the visual label when the containing axes map renders it. */
-  showLabel?: boolean;
   /** Prevent edits until the result analysis used for type inference is ready. */
   disabled?: boolean;
   /** Currently selected value */
@@ -122,7 +120,6 @@ interface AxisSelectFieldProps {
  */
 export function AxisSelectField({
   label,
-  showLabel = true,
   disabled = false,
   value,
   onChange,
@@ -614,7 +611,7 @@ export function AxisSelectField({
 
   return (
     <SelectField
-      label={showLabel ? semanticLabel : undefined}
+      label={semanticLabel}
       ariaLabel={semanticLabel}
       labelAddon={labelAddon}
       value={value}
