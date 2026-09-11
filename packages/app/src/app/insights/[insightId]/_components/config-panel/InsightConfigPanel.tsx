@@ -198,7 +198,11 @@ export function InsightConfigPanel({
     [commitBatch],
   );
   // Get visualizations for this insight to check dependencies
-  const { data: insightVisualizations = [] } = queryStatus(
+  const {
+    data: insightVisualizations = [],
+    isLoading: visualizationsLoading,
+    isError: visualizationsError,
+  } = queryStatus(
     useQuery({
       query: api.app.listVisualizations,
       args: { insightId: insight.id },
@@ -562,15 +566,18 @@ export function InsightConfigPanel({
     [deleteDialog.itemId, deleteDialog.itemType, removeConfigItem],
   );
 
-  // Removing an unused field or metric only edits this insight's selection, so
-  // it applies immediately. Confirm only when saved charts depend on it.
+  // Removing a field or metric no saved chart uses applies immediately; it
+  // still prunes any viewer controls tied to the item. Confirm when a chart
+  // depends on it, or when the chart list hasn't loaded and that is unknown.
+  const visualizationsKnown = !visualizationsLoading && !visualizationsError;
   const handleRemoveField = useCallback(
     (fieldId: string) => {
       const field = combinedFields.find((f) => f.id === fieldId);
       if (!field) return;
       if (
+        visualizationsKnown &&
         findVisualizationsUsingField(fieldId, insightVisualizations).length ===
-        0
+          0
       ) {
         removeConfigItem("field", fieldId);
         return;
@@ -582,7 +589,12 @@ export function InsightConfigPanel({
         itemType: "field",
       });
     },
-    [combinedFields, insightVisualizations, removeConfigItem],
+    [
+      combinedFields,
+      insightVisualizations,
+      removeConfigItem,
+      visualizationsKnown,
+    ],
   );
 
   const handleRemoveMetric = useCallback(
@@ -590,6 +602,7 @@ export function InsightConfigPanel({
       const metric = (insight.metrics ?? []).find((m) => m.id === metricId);
       if (!metric) return;
       if (
+        visualizationsKnown &&
         findVisualizationsUsingMetric(metricId, insightVisualizations)
           .length === 0
       ) {
@@ -603,7 +616,12 @@ export function InsightConfigPanel({
         itemType: "metric",
       });
     },
-    [insight.metrics, insightVisualizations, removeConfigItem],
+    [
+      insight.metrics,
+      insightVisualizations,
+      removeConfigItem,
+      visualizationsKnown,
+    ],
   );
 
   const resultLabelById = new Map(

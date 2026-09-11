@@ -148,6 +148,11 @@ export function VirtualTable({
   // Edge fades show only while more rows sit past that edge.
   const [scrollEdges, setScrollEdges] = useState({ top: false, bottom: false });
   const [headerHeight, setHeaderHeight] = useState(0);
+  // Space always-visible scrollbars take, so the fades stop short of them.
+  const [scrollbarGutter, setScrollbarGutter] = useState({
+    right: 0,
+    bottom: 0,
+  });
   const updateScrollEdges = useCallback(() => {
     const el = tableContainerRef.current;
     if (!el) return;
@@ -157,6 +162,26 @@ export function VirtualTable({
       prev.top === top && prev.bottom === bottom ? prev : { top, bottom },
     );
     setHeaderHeight(headerRef.current?.offsetHeight ?? 0);
+    const style = getComputedStyle(el);
+    const gutterRight = Math.max(
+      0,
+      el.offsetWidth -
+        el.clientWidth -
+        parseFloat(style.borderLeftWidth) -
+        parseFloat(style.borderRightWidth),
+    );
+    const gutterBottom = Math.max(
+      0,
+      el.offsetHeight -
+        el.clientHeight -
+        parseFloat(style.borderTopWidth) -
+        parseFloat(style.borderBottomWidth),
+    );
+    setScrollbarGutter((prev) =>
+      prev.right === gutterRight && prev.bottom === gutterBottom
+        ? prev
+        : { right: gutterRight, bottom: gutterBottom },
+    );
   }, []);
 
   // Track loaded page ranges for infinite scroll
@@ -441,10 +466,19 @@ export function VirtualTable({
     overscan: 10,
   });
   const totalSize = rowVirtualizer.getTotalSize();
-  // Content height changes as pages load; re-check which edges have more rows.
+  // Content height changes as pages load, and the viewport resizes with its
+  // container (a collapsed result strip, a window resize); re-check which
+  // edges have more rows after either.
   useEffect(() => {
     updateScrollEdges();
   }, [totalSize, height, updateScrollEdges]);
+  useEffect(() => {
+    const el = tableContainerRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(updateScrollEdges);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [updateScrollEdges]);
   // Read once per render; TanStack memoizes the array, so it is a stable
   // effect dependency that changes only when the visible window changes.
   const virtualItems = rowVirtualizer.getVirtualItems();
@@ -740,17 +774,21 @@ export function VirtualTable({
       <div
         aria-hidden
         className={cn(
-          "pointer-events-none absolute inset-x-px z-10 h-6 bg-linear-to-b from-neutral-bg to-transparent transition-opacity duration-150",
+          "pointer-events-none absolute left-px z-10 h-6 bg-linear-to-b from-neutral-bg to-transparent transition-opacity duration-150",
           scrollEdges.top ? "opacity-100" : "opacity-0",
         )}
-        style={{ top: headerHeight + 1 }}
+        style={{ top: headerHeight + 1, right: scrollbarGutter.right + 1 }}
       />
       <div
         aria-hidden
         className={cn(
-          "pointer-events-none absolute inset-x-px bottom-px z-10 h-6 rounded-b-lg bg-linear-to-t from-neutral-bg to-transparent transition-opacity duration-150",
+          "pointer-events-none absolute left-px z-10 h-6 rounded-b-lg bg-linear-to-t from-neutral-bg to-transparent transition-opacity duration-150",
           scrollEdges.bottom ? "opacity-100" : "opacity-0",
         )}
+        style={{
+          right: scrollbarGutter.right + 1,
+          bottom: scrollbarGutter.bottom + 1,
+        }}
       />
     </div>
   );
