@@ -59,8 +59,11 @@ import {
 } from "@dashframe/types";
 import {
   ControlTooltip,
+  CHART_ICONS,
   VirtualTable,
+  WorkbenchTabs,
   type VirtualTableColumnConfig,
+  type WorkbenchTabItem,
 } from "@dashframe/ui";
 import { Chart } from "@dashframe/visualization";
 import { Link, useNavigate } from "@tanstack/react-router";
@@ -237,29 +240,28 @@ export function canChangeSavedVisualizationType(input: {
   return !errors.x && !errors.y;
 }
 
-export function resolveVisualModeTarget(input: {
-  firstPinnedVisualizationId?: string;
+/**
+ * The new-chart tab opens a fresh draft from the best suggestion. It never
+ * reopens a saved chart: each of those has a tab of its own.
+ */
+export function resolveNewChartTarget(input: {
   suggestionsReady: boolean;
   firstSuggestedChartType?: VisualizationType;
 }): InsightCanvasView | null {
-  if (input.firstPinnedVisualizationId) {
-    return visualizationView(input.firstPinnedVisualizationId);
-  }
   if (!input.suggestionsReady) return null;
   return input.firstSuggestedChartType
     ? chartView(input.firstSuggestedChartType)
     : null;
 }
 
-export function resolvePendingVisualModeTarget(input: {
+export function resolvePendingNewChartTarget(input: {
   requestedInsightId: string | null;
   currentInsightId: string;
-  firstPinnedVisualizationId?: string;
   suggestionsReady: boolean;
   firstSuggestedChartType?: VisualizationType;
 }): InsightCanvasView | null {
   if (input.requestedInsightId !== input.currentInsightId) return null;
-  return resolveVisualModeTarget(input);
+  return resolveNewChartTarget(input);
 }
 
 export type AddToReportTarget<T> =
@@ -644,6 +646,16 @@ function convertToVisualizationEncoding(
   return result;
 }
 
+const DATA_TAB_ID = "canvas:data";
+const DRAFT_TAB_ID = "canvas:draft";
+const VIZ_TAB_PREFIX = "canvas:viz:";
+
+function canvasViewTabId(view: InsightCanvasView): string {
+  if (view.kind === "table") return DATA_TAB_ID;
+  if (view.kind === "chart") return DRAFT_TAB_ID;
+  return `${VIZ_TAB_PREFIX}${view.visualizationId}`;
+}
+
 function chartView(chartType: VisualizationType): InsightCanvasView {
   return { kind: "chart", chartType };
 }
@@ -762,49 +774,6 @@ export function InsightResultTable({
       </div>
     </div>
   );
-}
-
-function CanvasViewButton({
-  active,
-  icon,
-  label,
-  description,
-  onClick,
-}: {
-  active: boolean;
-  icon: ReactNode;
-  label: string;
-  description: string;
-  onClick: () => void;
-}) {
-  return (
-    <ControlTooltip label={label} description={description} side="bottom">
-      <button
-        type="button"
-        onClick={onClick}
-        aria-pressed={active}
-        className={cn(
-          "flex h-7 max-w-44 items-center gap-1.5 rounded-sm px-2 text-xs font-medium transition-colors",
-          "focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none",
-          active
-            ? "bg-neutral-bg text-neutral-fg shadow-sm"
-            : "text-neutral-fg-subtle hover:bg-neutral-bg-muted hover:text-neutral-fg",
-        )}
-      >
-        <span className="shrink-0">{icon}</span>
-        <span className="truncate @max-3xl:sr-only">{label}</span>
-      </button>
-    </ControlTooltip>
-  );
-}
-
-function getViewStatus(
-  view: InsightCanvasView,
-  savedChartName: string | undefined,
-): string | undefined {
-  if (view.kind === "chart") return "Preview, not saved";
-  if (view.kind === "visualization") return savedChartName;
-  return undefined;
 }
 
 function InsightMoreActionsMenu({
@@ -1014,7 +983,7 @@ export function InsightView({
     () => visualizationWriteStatusRef.current,
     [],
   );
-  const [visualModeRequestedFor, setVisualModeRequestedFor] = useState<
+  const [newChartRequestedFor, setNewChartRequestedFor] = useState<
     string | null
   >(null);
 
@@ -1145,7 +1114,7 @@ export function InsightView({
       activeView,
       visualizeIntent,
       hasVisualization: insightVisualizations.length > 0,
-      visualModeRequested: visualModeRequestedFor === insightId,
+      visualModeRequested: newChartRequestedFor === insightId,
     }),
   });
   const {
@@ -1769,56 +1738,113 @@ export function InsightView({
     [confirm, removeVisualizationMutation],
   );
 
-  const handleSelectVisualMode = useCallback(() => {
-    if (activeView.kind !== "table") return;
-    const target = resolveVisualModeTarget({
-      firstPinnedVisualizationId: insightVisualizations[0]?.id,
+  const handleSelectNewChart = useCallback(() => {
+    // The draft already occupies the slot; selecting it just reopens it.
+    if (activeView.kind === "chart") return;
+    const target = resolveNewChartTarget({
       suggestionsReady: areChartSuggestionsReady,
       firstSuggestedChartType: firstChartSuggestion?.chartType,
     });
     if (target) handleSetActiveView(target);
-    else setVisualModeRequestedFor(insightId);
+    else setNewChartRequestedFor(insightId);
   }, [
     activeView.kind,
     areChartSuggestionsReady,
     firstChartSuggestion,
     handleSetActiveView,
     insightId,
-    insightVisualizations,
   ]);
 
+  // A new-chart request made before the suggestions finish computing opens the
+  // draft as soon as they land, or clears itself if none can be suggested.
   useEffect(() => {
-    if (activeView.kind !== "table") return;
-    const requestedForCurrentInsight = visualModeRequestedFor === insightId;
-    const target = resolvePendingVisualModeTarget({
-      requestedInsightId: visualModeRequestedFor,
+    if (newChartRequestedFor !== insightId) return;
+    const target = resolvePendingNewChartTarget({
+      requestedInsightId: newChartRequestedFor,
       currentInsightId: insightId,
-      firstPinnedVisualizationId: insightVisualizations[0]?.id,
       suggestionsReady: areChartSuggestionsReady,
       firstSuggestedChartType: firstChartSuggestion?.chartType,
     });
-    if (!target && !(requestedForCurrentInsight && areChartSuggestionsReady))
-      return;
+    if (!target && !areChartSuggestionsReady) return;
     let cancelled = false;
     queueMicrotask(() => {
       if (cancelled) return;
-      setVisualModeRequestedFor(null);
+      setNewChartRequestedFor(null);
       if (target) handleSetActiveView(target);
     });
     return () => {
       cancelled = true;
     };
   }, [
-    activeView.kind,
     areChartSuggestionsReady,
     firstChartSuggestion,
     handleSetActiveView,
     insightId,
-    insightVisualizations,
-    visualModeRequestedFor,
+    newChartRequestedFor,
   ]);
 
-  const viewStatus = getViewStatus(activeView, activeVisualization?.name);
+  const canvasTabs = useMemo<WorkbenchTabItem[]>(() => {
+    const tabs: WorkbenchTabItem[] = [
+      {
+        id: DATA_TAB_ID,
+        label: "Data",
+        icon: <TableIcon className="size-3.5" />,
+        pinned: "start",
+      },
+      ...insightVisualizations.map((viz) => {
+        const Icon = CHART_ICONS[viz.visualizationType];
+        return {
+          id: `${VIZ_TAB_PREFIX}${viz.id}`,
+          label: viz.name || "Untitled chart",
+          icon: <Icon className="size-3.5" />,
+        };
+      }),
+    ];
+    // One unsaved slot: dashed while it is an invitation, the draft itself
+    // once a chart is open in it.
+    const DraftIcon =
+      activeView.kind === "chart" ? CHART_ICONS[activeView.chartType] : null;
+    tabs.push(
+      activeView.kind === "chart" && DraftIcon
+        ? {
+            id: DRAFT_TAB_ID,
+            label: "Untitled chart",
+            icon: <DraftIcon className="size-3.5" />,
+            pinned: "end",
+            unsaved: true,
+          }
+        : {
+            id: DRAFT_TAB_ID,
+            label: "Chart",
+            icon: <PlusIcon className="size-3.5" />,
+            pinned: "end",
+            dashed: true,
+          },
+    );
+    return tabs;
+  }, [activeView, insightVisualizations]);
+
+  const activeTabId = canvasViewTabId(activeView);
+
+  const handleSelectTab = useCallback(
+    (tabId: string) => {
+      if (tabId === DATA_TAB_ID) {
+        setNewChartRequestedFor(null);
+        handleSetActiveView(TABLE_CANVAS_VIEW);
+        return;
+      }
+      if (tabId === DRAFT_TAB_ID) {
+        handleSelectNewChart();
+        return;
+      }
+      setNewChartRequestedFor(null);
+      handleSetActiveView(
+        visualizationView(tabId.slice(VIZ_TAB_PREFIX.length)),
+      );
+    },
+    [handleSelectNewChart, handleSetActiveView],
+  );
+
   const canPinActiveChart =
     activeView.kind === "chart" && activeChartSuggestion !== undefined;
   const canAddActiveViewToDashboard =
@@ -1903,30 +1929,6 @@ export function InsightView({
               placeholder="Untitled insight"
               className="min-w-16 flex-1 truncate rounded-sm bg-transparent px-1 py-0.5 text-sm font-semibold text-neutral-fg outline-none placeholder:text-neutral-fg-subtle focus-visible:ring-2 focus-visible:ring-palette-primary"
             />
-            {viewStatus && (
-              <span className="hidden max-w-48 min-w-0 truncate text-xs text-neutral-fg-subtle @min-3xl:inline">
-                {viewStatus}
-              </span>
-            )}
-            <div className="flex shrink-0 rounded-md bg-neutral-bg-muted p-0.5">
-              <CanvasViewButton
-                active={activeView.kind === "table"}
-                icon={<TableIcon className="h-3.5 w-3.5" />}
-                label="Data"
-                description="View the rows produced by the current data model."
-                onClick={() => {
-                  setVisualModeRequestedFor(null);
-                  handleSetActiveView(TABLE_CANVAS_VIEW);
-                }}
-              />
-              <CanvasViewButton
-                active={activeView.kind !== "table"}
-                icon={<SparklesIcon className="h-3.5 w-3.5" />}
-                label="Visualize"
-                description="Chart the rows produced by the current data model."
-                onClick={handleSelectVisualMode}
-              />
-            </div>
             {canPinActiveChart && (
               <ControlTooltip
                 label="Save chart"
@@ -1986,6 +1988,16 @@ export function InsightView({
               />
             )}
           </header>
+
+          <WorkbenchTabs
+            label="Canvas views"
+            tabs={canvasTabs}
+            activeId={activeTabId}
+            onSelect={handleSelectTab}
+            findLabel="Find a chart"
+            findEmptyLabel="No matching charts."
+            className="shrink-0 px-1"
+          />
 
           <InsightCanvasWell
             result={
