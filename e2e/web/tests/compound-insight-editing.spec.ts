@@ -126,17 +126,10 @@ test.describe("compound-insight field/metric editing", () => {
     await expectMetricSaved(page, "Count", true);
   }
 
-  /** Remove a chip and confirm the delete dialog that follows. */
-  async function removeItem(
-    page: Page,
-    kind: "field" | "metric",
-    name: string,
-  ) {
+  /** Remove a chip. With no saved chart using it, removal applies at once. */
+  async function removeItem(page: Page, name: string) {
     await page.getByRole("button", { name: `Remove ${name}` }).click();
-    const dialog = page.getByRole("dialog", { name: `Delete ${kind}` });
-    await expect(dialog).toBeVisible({ timeout: 10_000 });
-    await dialog.getByRole("button", { name: `Delete ${kind}` }).click();
-    await expect(dialog).not.toBeVisible({ timeout: 5_000 });
+    await expect(page.getByRole("dialog")).toHaveCount(0);
   }
 
   // ---------------------------------------------------------------------------
@@ -159,7 +152,7 @@ test.describe("compound-insight field/metric editing", () => {
     ).toBeVisible({ timeout: 20_000 });
 
     // ── removeField ──────────────────────────────────────────────────────
-    await removeItem(page, "field", "Product");
+    await removeItem(page, "Product");
     await expectFieldSaved(page, "Product", false);
 
     // Reload to verify removal was persisted — back to the empty state
@@ -255,7 +248,7 @@ test.describe("compound-insight field/metric editing", () => {
     // ── 4. removeField ──────────────────────────────────────────────────────
     // Product was the only field, so Fields returns to its empty state.
     await openSection(page, "Fields");
-    await removeItem(page, "field", "Product");
+    await removeItem(page, "Product");
     await expectFieldSaved(page, "Product", false);
 
     await page.reload();
@@ -266,7 +259,7 @@ test.describe("compound-insight field/metric editing", () => {
 
     // ── 5. removeMetric ─────────────────────────────────────────────────────
     await openSection(page, "Metrics");
-    await removeItem(page, "metric", "Row Count");
+    await removeItem(page, "Row Count");
     await expectMetricSaved(page, "Row Count", false);
 
     await page.reload();
