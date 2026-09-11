@@ -144,6 +144,20 @@ export function VirtualTable({
     [],
   );
   const tableContainerRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
+  // Edge fades show only while more rows sit past that edge.
+  const [scrollEdges, setScrollEdges] = useState({ top: false, bottom: false });
+  const [headerHeight, setHeaderHeight] = useState(0);
+  const updateScrollEdges = useCallback(() => {
+    const el = tableContainerRef.current;
+    if (!el) return;
+    const top = el.scrollTop > 1;
+    const bottom = el.scrollTop + el.clientHeight < el.scrollHeight - 1;
+    setScrollEdges((prev) =>
+      prev.top === top && prev.bottom === bottom ? prev : { top, bottom },
+    );
+    setHeaderHeight(headerRef.current?.offsetHeight ?? 0);
+  }, []);
 
   // Track loaded page ranges for infinite scroll
   const loadedPagesRef = useRef<Set<number>>(new Set());
@@ -426,6 +440,11 @@ export function VirtualTable({
     estimateSize: () => (compact ? 26 : 30),
     overscan: 10,
   });
+  const totalSize = rowVirtualizer.getTotalSize();
+  // Content height changes as pages load; re-check which edges have more rows.
+  useEffect(() => {
+    updateScrollEdges();
+  }, [totalSize, height, updateScrollEdges]);
   // Read once per render; TanStack memoizes the array, so it is a stable
   // effect dependency that changes only when the visible window changes.
   const virtualItems = rowVirtualizer.getVirtualItems();
@@ -546,11 +565,14 @@ export function VirtualTable({
       {/* Table container */}
       <div
         ref={tableContainerRef}
+        onScroll={updateScrollEdges}
         className="relative min-h-0 flex-1 overflow-auto rounded-lg border border-neutral-border"
       >
-        {/* Header */}
+        {/* Header. The upward shadow covers the sub-pixel sliver sticky
+            positioning can leave above it, where scrolled rows showed through. */}
         <div
-          className="sticky top-0 z-10 border-b border-neutral-border bg-neutral-bg-muted"
+          ref={headerRef}
+          className="sticky top-0 z-10 border-b border-neutral-border bg-neutral-bg-muted shadow-[0_-2px_0_0_var(--color-neutral-bg-muted)]"
           style={{
             display: "grid",
             gridTemplateColumns,
@@ -714,6 +736,22 @@ export function VirtualTable({
           </div>
         )}
       </div>
+
+      <div
+        aria-hidden
+        className={cn(
+          "pointer-events-none absolute inset-x-px z-10 h-6 bg-linear-to-b from-neutral-bg to-transparent transition-opacity duration-150",
+          scrollEdges.top ? "opacity-100" : "opacity-0",
+        )}
+        style={{ top: headerHeight + 1 }}
+      />
+      <div
+        aria-hidden
+        className={cn(
+          "pointer-events-none absolute inset-x-px bottom-px z-10 h-6 rounded-b-lg bg-linear-to-t from-neutral-bg to-transparent transition-opacity duration-150",
+          scrollEdges.bottom ? "opacity-100" : "opacity-0",
+        )}
+      />
     </div>
   );
 }
