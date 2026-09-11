@@ -25,7 +25,7 @@ test.describe("CSV to Chart", () => {
 
     // Verify the insight opens data-first.
     await expect(
-      page.getByRole("button", { name: "Data", exact: true }),
+      page.getByRole("tab", { name: "Data", exact: true }),
     ).toBeVisible({
       timeout: 30_000,
     });
@@ -34,7 +34,7 @@ test.describe("CSV to Chart", () => {
     // Switch to an ephemeral chart view, then save it as a Visualization.
     // `exact: true` avoids matching "Horizontal bar" / "Hide sidebar", which
     // both contain "bar" as a substring under Playwright's default name match.
-    await page.getByRole("button", { name: "Visualize" }).click();
+    await page.getByRole("tab", { name: "Chart", exact: true }).click();
     await page.getByRole("button", { name: "Bar", exact: true }).click();
     // "Save chart" appears once the server frame is materialized and its
     // bounded suggestion sample is analyzed, so allow a generous wait.

@@ -19,8 +19,8 @@ import {
   requestSavedVisualizationDeletion,
   resolveAddToReportTarget,
   resolveSuggestionDimensionFieldIds,
-  resolvePendingVisualModeTarget,
-  resolveVisualModeTarget,
+  resolveNewChartTarget,
+  resolvePendingNewChartTarget,
 } from "./InsightView";
 
 describe("resolveSuggestionDimensionFieldIds", () => {
@@ -121,41 +121,29 @@ describe("canAttemptVisualizeIntent", () => {
   });
 });
 
-describe("resolveVisualModeTarget", () => {
+describe("resolveNewChartTarget", () => {
   it("waits for suggestions instead of permanently selecting an unsupported fallback", () => {
     expect(
-      resolveVisualModeTarget({
+      resolveNewChartTarget({
         suggestionsReady: false,
       }),
     ).toBeNull();
     expect(
-      resolveVisualModeTarget({
+      resolveNewChartTarget({
         suggestionsReady: true,
         firstSuggestedChartType: "line",
       }),
     ).toEqual({ kind: "chart", chartType: "line" });
     expect(
-      resolveVisualModeTarget({
+      resolveNewChartTarget({
         suggestionsReady: true,
       }),
     ).toBeNull();
   });
 
-  it("opens an existing saved visualization without waiting for suggestions", () => {
+  it("does not carry a queued new-chart request to another insight", () => {
     expect(
-      resolveVisualModeTarget({
-        firstPinnedVisualizationId: "visualization-1",
-        suggestionsReady: false,
-      }),
-    ).toEqual({
-      kind: "visualization",
-      visualizationId: "visualization-1",
-    });
-  });
-
-  it("does not carry a queued Visualize request to another insight", () => {
-    expect(
-      resolvePendingVisualModeTarget({
+      resolvePendingNewChartTarget({
         requestedInsightId: "insight-a",
         currentInsightId: "insight-b",
         suggestionsReady: true,
@@ -163,7 +151,7 @@ describe("resolveVisualModeTarget", () => {
       }),
     ).toBeNull();
     expect(
-      resolvePendingVisualModeTarget({
+      resolvePendingNewChartTarget({
         requestedInsightId: "insight-a",
         currentInsightId: "insight-a",
         suggestionsReady: true,
