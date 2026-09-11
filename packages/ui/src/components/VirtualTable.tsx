@@ -435,19 +435,11 @@ export function VirtualTable({
     overscan: 10,
   });
   const totalSize = rowVirtualizer.getTotalSize();
-  // Content height changes as pages load, and the viewport resizes with its
-  // container (a collapsed result strip, a window resize); re-check which
-  // edges have more rows after either.
+  // The header only exists once columns do, which arrive with the first rows,
+  // so re-measure its height (the scroll area's topInset) as content loads.
   useEffect(() => {
     measureHeader();
-  }, [totalSize, height, measureHeader]);
-  useEffect(() => {
-    const el = tableContainerRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measureHeader);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [measureHeader]);
+  }, [totalSize, measureHeader]);
   // Read once per render; TanStack memoizes the array, so it is a stable
   // effect dependency that changes only when the visible window changes.
   const virtualItems = rowVirtualizer.getVirtualItems();
@@ -576,7 +568,6 @@ export function VirtualTable({
         className="min-h-0 flex-1 rounded-lg border border-neutral-border"
         viewportClassName="relative"
         viewportRef={tableContainerRef}
-        onScroll={measureHeader}
       >
         {/* Header. At rest it is a flat tonal bar with a bottom rule. Once rows
             sit under it (overflow-y-start on the scroll area root, which is
@@ -647,7 +638,7 @@ export function VirtualTable({
         <div
           className="relative bg-neutral-bg"
           style={{
-            height: `${rowVirtualizer.getTotalSize() + 4}px`,
+            height: `${totalSize + 4}px`,
             minWidth: "max-content",
           }}
         >
