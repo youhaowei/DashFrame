@@ -196,7 +196,9 @@ export function SortSection({
     runtimeControlsRef.current = next;
     setRuntimeDraft(next);
     pendingRuntimeSignatureRef.current = nextSignature;
-    const serverAtRequest = serverRuntimeControlsRef.current;
+    const serverSignatureAtRequest = stableValueSignature(
+      serverRuntimeControlsRef.current ?? null,
+    );
     const resyncFromServer = () => {
       runtimeControlsRef.current = serverRuntimeControlsRef.current;
       setRuntimeDraft(serverRuntimeControlsRef.current);
@@ -209,7 +211,8 @@ export function SortSection({
         // none arrived yet, keep the draft and let the echo sync it.
         if (
           saved === false ||
-          serverRuntimeControlsRef.current !== serverAtRequest
+          stableValueSignature(serverRuntimeControlsRef.current ?? null) !==
+            serverSignatureAtRequest
         ) {
           resyncFromServer();
         } else {

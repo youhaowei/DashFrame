@@ -1716,7 +1716,7 @@ export function InsightView({
           {/* Collapses by the header's own width: view labels below 48rem,
               breadcrumb below 42rem, action labels below 36rem. Under ~23rem
               (both panes open on a small window) it scrolls rather than clip. */}
-          <header className="@container flex h-10 shrink-0 items-center gap-1.5 overflow-x-auto px-1 whitespace-nowrap [scrollbar-width:none] [&>*]:shrink-0 [&>input]:shrink">
+          <header className="@container flex h-10 shrink-0 items-center gap-1.5 overflow-x-auto px-1 whitespace-nowrap [scrollbar-width:thin] [&>*]:shrink-0 [&>input]:shrink">
             <Button
               size="sm"
               variant="ghost"

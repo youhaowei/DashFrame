@@ -437,8 +437,6 @@ export function VisualizationConfigPanel({
                       label={CHART_TYPE_METADATA[chartType].displayName}
                       active={selected}
                       aria-pressed={selected}
-                      // aria-disabled keeps the tooltip explaining why.
-                      aria-disabled={!available}
                       onClick={() => handleChartTypeChange(chartType)}
                       className={cn(
                         "aspect-square h-auto w-full",
@@ -446,12 +444,14 @@ export function VisualizationConfigPanel({
                           ? "bg-neutral-bg-emphasis text-neutral-fg hover:bg-neutral-bg-emphasis"
                           : "bg-neutral-bg-subtle text-neutral-fg-subtle hover:bg-neutral-bg-muted hover:text-neutral-fg",
                         !available &&
+                          !selected &&
                           "cursor-not-allowed opacity-40 hover:bg-neutral-bg-subtle hover:text-neutral-fg-subtle",
                       )}
                     >
                       <Icon size={20} aria-hidden />
                       <span className="sr-only">
                         {CHART_TYPE_METADATA[chartType].displayName}
+                        {!available && ", no suitable fields"}
                       </span>
                     </Button>
                   </Tooltip>
