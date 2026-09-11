@@ -58,7 +58,7 @@ import {
   type RuntimeFilterControl,
 } from "./FiltersSection";
 import { MetricsSection } from "./MetricsSection";
-import { pruneRuntimeControls } from "./runtime-controls";
+import { pruneRuntimeControls, stableValueSignature } from "./runtime-controls";
 import { SortSection } from "./SortSection";
 
 interface InsightConfigPanelProps {
@@ -448,10 +448,17 @@ export function InsightConfigPanel({
       runtimeControl: RuntimeFilterControl | undefined,
     ) => {
       const updated = applyFilterSave(filtersWithIds, saved);
-      const controls = (insight.runtimeControls?.filters ?? []).filter(
-        (control) => control.filterId !== saved.id,
+      const controls = [...(insight.runtimeControls?.filters ?? [])];
+      const controlIndex = controls.findIndex(
+        (control) => control.filterId === saved.id,
       );
-      if (runtimeControl) controls.push(runtimeControl);
+      if (runtimeControl && controlIndex >= 0) {
+        controls[controlIndex] = runtimeControl;
+      } else if (runtimeControl) {
+        controls.push(runtimeControl);
+      } else if (controlIndex >= 0) {
+        controls.splice(controlIndex, 1);
+      }
       const runtimeControls: InsightRuntimeDeclaration = {
         ...insight.runtimeControls,
         filters: controls.length > 0 ? controls : undefined,
@@ -464,8 +471,8 @@ export function InsightConfigPanel({
         filters: stripFilterClientMetadata(updated),
       };
       if (
-        JSON.stringify(nextRuntimeControls) !==
-        JSON.stringify(insight.runtimeControls)
+        stableValueSignature(nextRuntimeControls) !==
+        stableValueSignature(insight.runtimeControls)
       ) {
         updates.runtimeControls = nextRuntimeControls;
       }

@@ -4,6 +4,23 @@ import type {
   UUID,
 } from "@dashframe/types";
 
+/** Compare persisted values independently of Convex's canonical key ordering. */
+export function stableValueSignature(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableValueSignature).join(",")}]`;
+  }
+  if (value !== null && typeof value === "object") {
+    return `{${Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(
+        ([key, entry]) =>
+          `${JSON.stringify(key)}:${stableValueSignature(entry)}`,
+      )
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "undefined";
+}
+
 export function pruneRuntimeControls(
   declaration: InsightRuntimeDeclaration | undefined,
   filters: readonly InsightFilter[],

@@ -96,6 +96,27 @@ vi.mock("./FiltersSection", () => ({
       >
         Save unchanged viewer filter
       </button>
+      <button
+        type="button"
+        onClick={() =>
+          void onSave(
+            {
+              id: "region",
+              _id: "region",
+              field: "region",
+              operator: "eq",
+              value: "APAC",
+            },
+            {
+              filterId: "region",
+              key: "region",
+              label: "Sales region",
+            },
+          )
+        }
+      >
+        Edit first viewer filter
+      </button>
     </>
   ),
 }));
@@ -110,7 +131,7 @@ const table = {
 const insight = {
   id: "10000000-0000-4000-8000-000000000001" as UUID,
   name: "Revenue",
-  baseTableId: table.id,
+  source: { sourceType: "dataTable", sourceId: table.id },
   selectedFields: [],
   metrics: [],
   filters: [
@@ -172,6 +193,46 @@ describe("InsightConfigPanel filter saves", () => {
     expect(commitBatch.mock.calls[0][0].commands[0].path).toBe(
       "setInsightFilter",
     );
+  });
+
+  it("replaces an edited viewer control without moving it", async () => {
+    const insightWithTwoControls: Insight = {
+      ...insight,
+      runtimeControls: {
+        filters: [
+          { filterId: "region", key: "region", label: "Region" },
+          { filterId: "period", key: "period", label: "Period" },
+        ],
+      },
+    };
+    render(
+      <InsightConfigPanel
+        insight={insightWithTwoControls}
+        dataTable={table}
+        allDataTables={[table]}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Edit first viewer filter" }),
+    );
+    await waitFor(() => expect(commitBatch).toHaveBeenCalledOnce());
+    expect(commitBatch.mock.calls[0][0].commands).toContainEqual({
+      path: "setInsightRuntimeControls",
+      args: {
+        id: insight.id,
+        runtimeControls: {
+          filters: [
+            {
+              filterId: "region",
+              key: "region",
+              label: "Sales region",
+            },
+            { filterId: "period", key: "period", label: "Period" },
+          ],
+        },
+      },
+    });
   });
 
   it("reports a rejected runtime-control write", async () => {
