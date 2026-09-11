@@ -3,18 +3,14 @@ import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
 import { api } from "@dashframe/convex-backend/api";
 import type { DataTable, Insight } from "@dashframe/types";
 import { cmd } from "@dashframe/types";
-import {
-  SortableList,
-  WorkbenchAddRow,
-  WorkbenchChip,
-  type SortableListItem,
-} from "@dashframe/ui";
+import { WorkbenchAddRow, WorkbenchChip } from "@dashframe/ui";
 import { useMutation } from "convex/react";
 import { Table2 } from "lucide-react";
 import { memo, useCallback, useState } from "react";
 import { toast } from "sonner";
 
-interface TableItem extends SortableListItem {
+interface TableItem {
+  id: string;
   title: string;
   description: string;
   joinIndex?: number;
@@ -59,7 +55,6 @@ export const DataModelSection = memo(function DataModelSection({
       id: "base",
       title: dataTable.name,
       description: "base",
-      disabled: true,
     },
     ...(insight.joins ?? []).map((join, index) => {
       const table = allDataTables.find(
@@ -70,7 +65,6 @@ export const DataModelSection = memo(function DataModelSection({
         title: table?.name ?? "Unknown table",
         description: `${join.type} join on ${join.leftKey}`,
         joinIndex: index,
-        disabled: true,
       };
     }),
   ];
@@ -78,13 +72,10 @@ export const DataModelSection = memo(function DataModelSection({
   return (
     <>
       <div className="space-y-1">
-        <SortableList
-          items={items}
-          onReorder={() => undefined}
-          gap={3}
-          unstyledItems
-          renderItem={(item) => (
+        <div className="space-y-[3px]">
+          {items.map((item) => (
             <WorkbenchChip
+              key={item.id}
               icon={<Table2 className="h-3.5 w-3.5" />}
               title={item.title}
               description={item.description}
@@ -99,8 +90,8 @@ export const DataModelSection = memo(function DataModelSection({
                   : () => removeJoin(item.joinIndex!, item.title)
               }
             />
-          )}
-        />
+          ))}
+        </div>
         <WorkbenchAddRow onClick={() => setIsJoinFlowOpen(true)}>
           Join a table
         </WorkbenchAddRow>

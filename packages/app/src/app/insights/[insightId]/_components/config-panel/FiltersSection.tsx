@@ -371,7 +371,9 @@ function FilterEditor({
             }}
           >
             <SelectTrigger aria-label="Field">
-              <SelectValue placeholder="Field" />
+              <SelectValue placeholder="Field">
+                {filterFieldDisplayName(displayFields, field)}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               {field && !findField(fieldOptions, field) && (

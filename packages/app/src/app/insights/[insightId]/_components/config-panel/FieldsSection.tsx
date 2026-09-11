@@ -198,8 +198,7 @@ export function FieldsSection({
   const tableById = new Map(tables.map((table) => [table.id, table]));
   const groupedFields = new Map<string, CombinedField[]>();
   for (const field of availableFields) {
-    const groupId =
-      field.sourceTableId === baseTableId ? baseTableId : field.sourceTableId;
+    const groupId = field.sourceTableId;
     groupedFields.set(groupId, [...(groupedFields.get(groupId) ?? []), field]);
   }
   const tableGroups = [...groupedFields].map(([tableId, fields]) => ({
