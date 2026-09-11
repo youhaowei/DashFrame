@@ -115,8 +115,8 @@ export function useVisualizationEncodingChange({
 
   // Edits made before the subscription echoes the previous write must build
   // on that write, not on the stale prop, or the later write drops the earlier
-  // channel. Hold the latest local encoding until the prop catches up with no
-  // writes in flight.
+  // channel. Hold the latest local encoding until the prop changes while no
+  // writes are in flight.
   const pendingEncodingRef = useRef<{
     id: UUID;
     encoding: VisualizationEncoding | undefined;
@@ -161,7 +161,10 @@ export function useVisualizationEncodingChange({
           updates: { encoding: nextEncoding },
         });
       } catch (error) {
-        pendingEncodingRef.current = null;
+        // A later edit may already own pending; only drop what this write set.
+        if (pendingEncodingRef.current?.encoding === nextEncoding) {
+          pendingEncodingRef.current = null;
+        }
         throw error;
       } finally {
         inFlightWritesRef.current -= 1;
