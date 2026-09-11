@@ -27,6 +27,7 @@ import {
   CHART_ICONS,
   SelectField,
   WorkbenchJumpBar,
+  WorkbenchPaneHeader,
   WorkbenchPaneSection,
   useWorkbenchPaneSections,
 } from "@dashframe/ui";
@@ -408,15 +409,16 @@ export function VisualizationConfigPanel({
   };
 
   return (
-    <div className="min-h-full min-w-0 overflow-x-hidden bg-neutral-bg px-3 py-3 text-xs">
-      <h2 className="px-0.5 pb-2 text-sm font-semibold">Visualization</h2>
-      <WorkbenchJumpBar
-        items={VISUALIZATION_SECTIONS}
-        onJump={(id) => jumpToSection(id as VisualizationSection)}
-        allCollapsed={allCollapsed}
-        onToggleAll={toggleAll}
-      />
-      <div className="mt-2">
+    <div className="min-h-full min-w-0 overflow-x-clip bg-neutral-bg px-3 py-3 text-xs">
+      <WorkbenchPaneHeader title="Visualization">
+        <WorkbenchJumpBar
+          items={VISUALIZATION_SECTIONS}
+          onJump={(id) => jumpToSection(id as VisualizationSection)}
+          allCollapsed={allCollapsed}
+          onToggleAll={toggleAll}
+        />
+      </WorkbenchPaneHeader>
+      <div>
         {renderSection(
           "chart-type",
           selectedMetadata.displayName,

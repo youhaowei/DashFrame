@@ -24,6 +24,7 @@ import {
 } from "@dashframe/types";
 import {
   WorkbenchJumpBar,
+  WorkbenchPaneHeader,
   WorkbenchPaneSection,
   useWorkbenchPaneSections,
 } from "@dashframe/ui";
@@ -720,14 +721,15 @@ export function InsightConfigPanel({
 
   return (
     <div className="min-h-full bg-neutral-bg px-3 py-3 text-xs">
-      <h2 className="px-0.5 pb-2 text-sm font-semibold">Insight</h2>
-      <WorkbenchJumpBar
-        items={CONFIG_SECTIONS}
-        onJump={(id) => jumpToSection(id as ConfigSection)}
-        allCollapsed={allCollapsed}
-        onToggleAll={toggleAll}
-      />
-      <div className="mt-2">
+      <WorkbenchPaneHeader title="Insight">
+        <WorkbenchJumpBar
+          items={CONFIG_SECTIONS}
+          onJump={(id) => jumpToSection(id as ConfigSection)}
+          allCollapsed={allCollapsed}
+          onToggleAll={toggleAll}
+        />
+      </WorkbenchPaneHeader>
+      <div>
         {renderSection(
           "tables",
           <DataModelSection

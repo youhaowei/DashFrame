@@ -57,6 +57,7 @@ import {
   ControlTooltip,
   VirtualTable,
   type VirtualTableColumnConfig,
+  WorkbenchScrollArea,
 } from "@dashframe/ui";
 import { Chart } from "@dashframe/visualization";
 import { Link, useNavigate } from "@tanstack/react-router";
@@ -1704,14 +1705,14 @@ export function InsightView({
             insightPaneOpen ? "w-64" : "w-0",
           )}
         >
-          <div className="h-full w-64 overflow-y-auto">
+          <WorkbenchScrollArea className="w-64">
             <InsightConfigPanel
               insight={insight}
               dataTable={authoringTable}
               allDataTables={allDataTables}
               reportId={reportId}
             />
-          </div>
+          </WorkbenchScrollArea>
         </aside>
 
         <section className="flex min-w-0 flex-1 flex-col gap-2 overflow-hidden px-1.5 py-2">
@@ -1866,7 +1867,7 @@ export function InsightView({
             visualizationPane.attached ? "w-60" : "w-0",
           )}
         >
-          <div className="h-full w-60 min-w-0 overflow-x-hidden overflow-y-auto">
+          <WorkbenchScrollArea className="w-60 min-w-0">
             <VisualizationConfigPanel
               activeChartType={visualizationPane.chartType}
               availableChartTypes={new Set(chartSuggestionsByType.keys())}
@@ -1890,7 +1891,7 @@ export function InsightView({
               }
               updateVisualization={updateVisualization}
             />
-          </div>
+          </WorkbenchScrollArea>
         </aside>
       </div>
     </AppLayout>
