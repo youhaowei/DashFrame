@@ -128,7 +128,11 @@ function FieldRenameEditor({
         removeLabel={`Remove ${field.displayName}`}
         onRemove={onRemove}
       />
-      <PopoverContent align="start" className="w-72 space-y-3">
+      <PopoverContent
+        aria-label="Rename field"
+        align="start"
+        className="w-72 space-y-3"
+      >
         {error && (
           <Alert color="danger">
             <AlertDescription>{error}</AlertDescription>
@@ -235,7 +239,11 @@ export function FieldsSection({
             </WorkbenchAddRow>
           }
         />
-        <PopoverContent align="start" className="w-72 p-0">
+        <PopoverContent
+          aria-label="Add field"
+          align="start"
+          className="w-72 p-0"
+        >
           <Command label="Add field">
             <CommandInput
               placeholder="Search fields…"
