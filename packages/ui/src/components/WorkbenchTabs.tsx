@@ -150,15 +150,6 @@ export function WorkbenchTabs({
     measure();
   }, [measure, tabs]);
 
-  // Base UI makes an overflowing viewport a tab stop of its own. Every tab
-  // inside it is already reachable by Tab and the arrow keys, so the scroller
-  // does not need one — and an unnamed focusable presentation element sitting
-  // inside a tablist is a WCAG 4.1.2 failure. No dep array: this has to win
-  // again on every render that re-applies Base UI's own tabIndex.
-  useEffect(() => {
-    if (viewportRef.current) viewportRef.current.tabIndex = -1;
-  });
-
   const revealTab = useCallback((id: string, smooth: boolean) => {
     const strip = stripRef.current;
     if (!strip) return;
@@ -206,43 +197,60 @@ export function WorkbenchTabs({
   }, []);
 
   return (
-    // One tablist spans the strip: the pinned ends and the scrolling middle
-    // are all tabs for the same canvas.
-    <div
-      ref={stripRef}
-      role="tablist"
-      aria-label={label}
-      onKeyDown={handleKeyDown}
-      className={cn("flex min-w-0 items-center gap-1", className)}
-    >
-      {start.map((tab) => (
-        <TabButton
-          key={tab.id}
-          tab={tab}
-          active={tab.id === activeId}
-          panelId={panelId}
-          onSelect={onSelect}
-        />
-      ))}
-      <OverlayScrollArea
-        orientation="horizontal"
-        scrollbar="none"
-        className="min-w-0 flex-1"
-        viewportRef={viewportRef}
+    // The finder is a strip-level control rather than a tab, so it sits
+    // outside the tablist: a tablist may own tabs and nothing else.
+    <div className={cn("flex min-w-0 items-center gap-1", className)}>
+      {/* One tablist spans the tabs: the pinned ends and the scrolling
+          middle are all tabs for the same canvas. */}
+      <div
+        ref={stripRef}
+        role="tablist"
+        aria-label={label}
+        onKeyDown={handleKeyDown}
+        className="flex min-w-0 flex-1 items-center gap-1"
       >
-        {/* Trailing room keeps the last tab clear of the edge fade. */}
-        <div className="flex gap-1 pr-6">
-          {middle.map((tab) => (
-            <TabButton
-              key={tab.id}
-              tab={tab}
-              active={tab.id === activeId}
-              panelId={panelId}
-              onSelect={onSelect}
-            />
-          ))}
-        </div>
-      </OverlayScrollArea>
+        {start.map((tab) => (
+          <TabButton
+            key={tab.id}
+            tab={tab}
+            active={tab.id === activeId}
+            panelId={panelId}
+            onSelect={onSelect}
+          />
+        ))}
+        <OverlayScrollArea
+          orientation="horizontal"
+          scrollbar="none"
+          className="min-w-0 flex-1"
+          viewportRef={viewportRef}
+          // Base UI would make the overflowing viewport its own tab stop. Every
+          // tab inside is already reachable by Tab and the arrow keys, and an
+          // unnamed focusable element inside a tablist fails WCAG 4.1.2.
+          viewportTabIndex={-1}
+        >
+          {/* Trailing room keeps the last tab clear of the edge fade. */}
+          <div className="flex gap-1 pr-6">
+            {middle.map((tab) => (
+              <TabButton
+                key={tab.id}
+                tab={tab}
+                active={tab.id === activeId}
+                panelId={panelId}
+                onSelect={onSelect}
+              />
+            ))}
+          </div>
+        </OverlayScrollArea>
+        {end.map((tab) => (
+          <TabButton
+            key={tab.id}
+            tab={tab}
+            active={tab.id === activeId}
+            panelId={panelId}
+            onSelect={onSelect}
+          />
+        ))}
+      </div>
       {overflowing && (
         <Popover open={findOpen} onOpenChange={setFindOpen}>
           <PopoverTrigger
@@ -293,15 +301,6 @@ export function WorkbenchTabs({
           </PopoverContent>
         </Popover>
       )}
-      {end.map((tab) => (
-        <TabButton
-          key={tab.id}
-          tab={tab}
-          active={tab.id === activeId}
-          panelId={panelId}
-          onSelect={onSelect}
-        />
-      ))}
     </div>
   );
 }
