@@ -13,8 +13,10 @@ import { SearchIcon } from "@wystack/ui-react/icons";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
+  type KeyboardEvent,
   type ReactNode,
 } from "react";
 
@@ -38,6 +40,8 @@ export interface WorkbenchTabsProps {
   tabs: WorkbenchTabItem[];
   activeId: string;
   onSelect: (id: string) => void;
+  /** Id of the region these tabs control, so each tab can point at it. */
+  panelId?: string;
   /** Label for the search control shown once the strip overflows. */
   findLabel?: string;
   findEmptyLabel?: string;
@@ -47,13 +51,17 @@ export interface WorkbenchTabsProps {
 // Slack the overflow test so a sub-pixel layout never flickers the control.
 const OVERFLOW_SLACK = 8;
 
+const ARROW_KEYS = ["ArrowRight", "ArrowLeft", "Home", "End"];
+
 function TabButton({
   tab,
   active,
+  panelId,
   onSelect,
 }: {
   tab: WorkbenchTabItem;
   active: boolean;
+  panelId?: string;
   onSelect: (id: string) => void;
 }) {
   return (
@@ -61,9 +69,15 @@ function TabButton({
       type="button"
       role="tab"
       aria-selected={active}
+      aria-controls={panelId}
+      // Roving tabindex: the strip is a single Tab stop, and the arrow keys
+      // move between tabs inside it.
+      tabIndex={active ? 0 : -1}
       data-tab-id={tab.id}
       onClick={() => onSelect(tab.id)}
-      title={tab.label}
+      // The dot is decorative, so the unsaved state rides on the description
+      // instead — folding it into the accessible name would rename the tab.
+      title={tab.unsaved ? `${tab.label} — not saved` : tab.label}
       className={cn(
         "flex h-7 max-w-44 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium",
         "transition-colors duration-150 motion-reduce:transition-none",
@@ -78,7 +92,7 @@ function TabButton({
       <span className="truncate">{tab.label}</span>
       {tab.unsaved && (
         <span
-          aria-label="Not saved"
+          aria-hidden
           className="size-1.5 shrink-0 rounded-full bg-palette-primary"
         />
       )}
@@ -96,10 +110,12 @@ export function WorkbenchTabs({
   tabs,
   activeId,
   onSelect,
+  panelId,
   findLabel = "Find",
   findEmptyLabel = "No matches.",
   className,
 }: WorkbenchTabsProps) {
+  const stripRef = useRef<HTMLDivElement | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [overflowing, setOverflowing] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
@@ -116,39 +132,87 @@ export function WorkbenchTabs({
     );
   }, []);
 
-  // The strip overflows when either the pane narrows or a tab is added, so
-  // watch the viewport and its content rather than re-measuring on render.
+  // A ResizeObserver catches the pane narrowing, and nothing else: the track is
+  // a block-level flex container, so its own box stays clamped to the viewport
+  // width however many tabs it holds, and adding one never resizes anything.
   useEffect(() => {
     const viewport = viewportRef.current;
     if (!viewport) return;
-    measure();
     const observer = new ResizeObserver(measure);
     observer.observe(viewport);
-    const track = viewport.firstElementChild;
-    if (track) observer.observe(track);
     return () => observer.disconnect();
   }, [measure]);
 
-  const handleSelect = useCallback(
-    (id: string) => {
-      onSelect(id);
-      viewportRef.current
-        ?.querySelector(`[data-tab-id="${CSS.escape(id)}"]`)
-        ?.scrollIntoView({
-          inline: "nearest",
-          block: "nearest",
-          behavior: "smooth",
-        });
-    },
-    [onSelect],
-  );
+  // So the other cause — the tab set itself changing — is measured here. Tabs
+  // arrive well after mount (the saved chart list loads from the server), and
+  // without this the strip would overflow with no scrollbar and no finder.
+  useLayoutEffect(() => {
+    measure();
+  }, [measure, tabs]);
+
+  // Base UI makes an overflowing viewport a tab stop of its own. Every tab
+  // inside it is already reachable by Tab and the arrow keys, so the scroller
+  // does not need one — and an unnamed focusable presentation element sitting
+  // inside a tablist is a WCAG 4.1.2 failure. No dep array: this has to win
+  // again on every render that re-applies Base UI's own tabIndex.
+  useEffect(() => {
+    if (viewportRef.current) viewportRef.current.tabIndex = -1;
+  });
+
+  const revealTab = useCallback((id: string, smooth: boolean) => {
+    const strip = stripRef.current;
+    if (!strip) return;
+    // Matched by value rather than built into a selector, so an id carrying
+    // characters a selector would choke on still finds its tab.
+    const match = [...strip.querySelectorAll<HTMLElement>('[role="tab"]')].find(
+      (tab) => tab.dataset.tabId === id,
+    );
+    match?.scrollIntoView({
+      inline: "nearest",
+      block: "nearest",
+      behavior: smooth ? "smooth" : "auto",
+    });
+  }, []);
+
+  // Reveal whichever tab is active, however it was activated — clicking one is
+  // only one of the ways, alongside saving a chart, restoring a persisted view,
+  // and picking a chart in the visualization pane.
+  useEffect(() => {
+    revealTab(activeId, true);
+  }, [activeId, revealTab]);
+
+  const handleKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
+    if (!ARROW_KEYS.includes(event.key)) return;
+    const strip = stripRef.current;
+    if (!strip) return;
+    const focusable = [
+      ...strip.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
+    ];
+    const current = focusable.indexOf(
+      document.activeElement as HTMLButtonElement,
+    );
+    if (current === -1) return;
+    event.preventDefault();
+    let next: number;
+    if (event.key === "ArrowRight") next = (current + 1) % focusable.length;
+    else if (event.key === "ArrowLeft")
+      next = (current - 1 + focusable.length) % focusable.length;
+    else if (event.key === "Home") next = 0;
+    else next = focusable.length - 1;
+    // Focus moves without selecting: opening a chart loads data, so the user
+    // confirms with Enter or Space rather than arrowing through every chart.
+    focusable[next]?.focus();
+    focusable[next]?.scrollIntoView({ inline: "nearest", block: "nearest" });
+  }, []);
 
   return (
     // One tablist spans the strip: the pinned ends and the scrolling middle
     // are all tabs for the same canvas.
     <div
+      ref={stripRef}
       role="tablist"
       aria-label={label}
+      onKeyDown={handleKeyDown}
       className={cn("flex min-w-0 items-center gap-1", className)}
     >
       {start.map((tab) => (
@@ -156,7 +220,8 @@ export function WorkbenchTabs({
           key={tab.id}
           tab={tab}
           active={tab.id === activeId}
-          onSelect={handleSelect}
+          panelId={panelId}
+          onSelect={onSelect}
         />
       ))}
       <OverlayScrollArea
@@ -172,7 +237,8 @@ export function WorkbenchTabs({
               key={tab.id}
               tab={tab}
               active={tab.id === activeId}
-              onSelect={handleSelect}
+              panelId={panelId}
+              onSelect={onSelect}
             />
           ))}
         </div>
@@ -205,10 +271,14 @@ export function WorkbenchTabs({
                 {tabs.map((tab) => (
                   <CommandItem
                     key={tab.id}
-                    value={tab.label}
+                    // Ids, not labels: two charts over the same columns get the
+                    // same name, and matching items by name would highlight
+                    // both and open whichever came first.
+                    value={tab.id}
+                    keywords={[tab.label]}
                     onSelect={() => {
                       setFindOpen(false);
-                      handleSelect(tab.id);
+                      onSelect(tab.id);
                     }}
                   >
                     {tab.icon && <span className="shrink-0">{tab.icon}</span>}
@@ -228,7 +298,8 @@ export function WorkbenchTabs({
           key={tab.id}
           tab={tab}
           active={tab.id === activeId}
-          onSelect={handleSelect}
+          panelId={panelId}
+          onSelect={onSelect}
         />
       ))}
     </div>

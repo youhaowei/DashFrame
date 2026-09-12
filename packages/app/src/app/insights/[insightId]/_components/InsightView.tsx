@@ -646,6 +646,7 @@ function convertToVisualizationEncoding(
   return result;
 }
 
+const CANVAS_PANEL_ID = "insight-canvas-panel";
 const DATA_TAB_ID = "canvas:data";
 const DRAFT_TAB_ID = "canvas:draft";
 const VIZ_TAB_PREFIX = "canvas:viz:";
@@ -840,7 +841,12 @@ function InsightCanvasWell({
 }) {
   const [resultCollapsed, setResultCollapsed] = useState(false);
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[var(--surface-radius)] bg-neutral-bg-muted p-2 shadow-inner dark:bg-neutral-bg-dim">
+    <div
+      id={CANVAS_PANEL_ID}
+      role="tabpanel"
+      aria-label="Canvas"
+      className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[var(--surface-radius)] bg-neutral-bg-muted p-2 shadow-inner dark:bg-neutral-bg-dim"
+    >
       {showChart ? (
         <>
           <div className="min-h-0 flex-[1_1_68%] overflow-hidden rounded-[var(--surface-radius)] bg-neutral-bg p-3 shadow-[var(--surface-shadow)] dark:bg-neutral-bg-subtle">
@@ -1837,6 +1843,7 @@ export function InsightView({
         handleSelectNewChart();
         return;
       }
+      if (!tabId.startsWith(VIZ_TAB_PREFIX)) return;
       setNewChartRequestedFor(null);
       handleSetActiveView(
         visualizationView(tabId.slice(VIZ_TAB_PREFIX.length)),
@@ -1994,6 +2001,7 @@ export function InsightView({
             tabs={canvasTabs}
             activeId={activeTabId}
             onSelect={handleSelectTab}
+            panelId={CANVAS_PANEL_ID}
             findLabel="Find a chart"
             findEmptyLabel="No matching charts."
             className="shrink-0 px-1"
