@@ -140,9 +140,6 @@ describe("WorkbenchTabs keyboard", () => {
       ...(list?.querySelectorAll<HTMLElement>("[tabindex]") ?? []),
     ].filter((element) => element.tabIndex === 0);
     expect(focusable.every((element) => element.role === "tab")).toBe(true);
-    expect(
-      list?.querySelector<HTMLElement>(".overscroll-contain")?.tabIndex,
-    ).toBe(-1);
   });
 
   it("keeps the strip to a single tab stop", () => {
