@@ -2,6 +2,8 @@
 
 This document details the web app's state management patterns, storage locations, and data flows.
 
+The data plane is server-side: Arrow snapshots on the host, DuckDB in the host process, charts via the Mosaic connector. There is no in-browser DuckDB or IndexedDB frame store.
+
 ## Core Concepts
 
 **Entity Hierarchy:**
@@ -98,8 +100,8 @@ get(id: UUID): DataFrame {
 ┌─────────────────────────────────────────────────────────────────────────┐
 │  SOURCE DATA (Persisted)              QUERY RESULTS (Direct)            │
 │  ───────────────────────              ──────────────────────            │
-│  CSV/Notion → Arrow IPC → IndexedDB   SQL query → vgplot                │
-│            → DuckDB table             (no storage, no temp table)       │
+│  CSV/Notion → Arrow IPC → host file   SQL query → vgplot                │
+│            → server DuckDB table      (via Mosaic connector)            │
 │            → DataFrame reference                                        │
 │                                                                         │
 │  Survives refresh                     Ephemeral, re-run as needed       │
@@ -109,9 +111,9 @@ get(id: UUID): DataFrame {
 **Source Data (CSV, Notion)** - persisted as tables:
 
 ```
-Upload/Sync → Arrow IPC → IndexedDB → DataFrame reference
+Upload/Sync → Arrow IPC → host file → DataFrame reference
                                            ↓
-                                DuckDB loads as table (on-demand)
+                                Server DuckDB loads as table (on-demand)
 ```
 
 **Query Results** - rendered directly, no storage:
@@ -134,15 +136,15 @@ Phase 1: Discovery
 
 Phase 2: Sync
   User syncs database
-         → Fetch rows → Arrow IPC → IndexedDB
+         → Fetch rows → Arrow IPC → host file
          → DataFrame reference
-         → DuckDB table
+         → Server DuckDB table
 
 Phase 3: Query
   Any SQL query → vgplot renders directly
 ```
 
-**Key Insight**: Only source data is stored in DuckDB tables. Query results (joins, aggregations, filters) render directly to vgplot - no intermediate storage.
+**Key Insight**: Source data is stored as host Arrow files and registered in server DuckDB. Chart SQL is posted to that engine; vgplot does not run DuckDB in the browser.
 
 ## Why This Design?
 
