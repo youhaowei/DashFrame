@@ -34,9 +34,9 @@ export interface DataFrameJSON {
  * This interface represents a dataset but does NOT contain the actual data.
  * Instead, it knows WHERE to find the data and provides methods to access it.
  *
- * Implementations:
- * - BrowserDataFrame (engine-browser) - DuckDB-WASM + IndexedDB
- * - ServerDataFrame (engine-server) - DuckDB native + PostgreSQL
+ * New frames are host file-backed Arrow snapshots. DuckDB does not store the
+ * canonical copy. The storage union still names historical locations
+ * (`indexeddb`, `s3`, `r2`) for persisted metadata.
  */
 export interface DataFrame {
   readonly id: UUID;

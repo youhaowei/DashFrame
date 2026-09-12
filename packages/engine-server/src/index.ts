@@ -18,10 +18,8 @@
  *                 `createServerFrameConnector` does the UUID-to-table-name
  *                 substitution before it sends a request down this path.
  *
- * Placement is not decided here. The engine is bound where it is constructed,
- * by availability: a host that can reach a server engine uses it, and the WASM
- * backing is the explicit backup rung a caller opts into. There is no
- * per-surface table and nothing platform-detects.
+ * Placement is not decided here. Hosts construct this engine directly.
+ * There is no DuckDB-WASM backing.
  *
  * Desktop constructs the engine and the data path in Electron main; headless
  * `serve` constructs the same engine lazily at its runtime edge and injects it

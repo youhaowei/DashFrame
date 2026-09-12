@@ -2,6 +2,8 @@
 
 This document details the web app's state management patterns, storage locations, and data flows.
 
+The data plane is server-side: Arrow snapshots on the host, DuckDB in the host process, charts via the Mosaic connector. There is no in-browser DuckDB or IndexedDB frame store.
+
 ## Core Concepts
 
 **Entity Hierarchy:**
@@ -23,25 +25,25 @@ DataSource → DataTable → Field/Metric
 
 **Client-side only:**
 
-- **`DataFrame`** - Class with storage reference (metadata in localStorage, data in IndexedDB)
-- **`QueryBuilder`** - SQL execution engine (loads data into DuckDB on-demand)
+- Chart SQL is composed by Mosaic and posted to the host Arrow path.
+- Local file ingest encodes Arrow in the browser and uploads it to the host.
 
 ## State Split: Storage Locations
 
-| Data               | Location               | Reason                              |
-| ------------------ | ---------------------- | ----------------------------------- |
-| DataSources        | Dexie (IndexedDB)      | User-owned, local-first             |
-| DataTables         | Dexie (IndexedDB)      | Separate table with FK              |
-| Fields/Metrics     | Dexie (IndexedDB)      | Nested in DataTables                |
-| Insights           | Dexie (IndexedDB)      | Query configurations                |
-| Visualizations     | Dexie (IndexedDB)      | vgplot specs                        |
-| DataFrame metadata | Dexie (IndexedDB)      | Small entries (id, name, rowCount)  |
-| DataFrame data     | IndexedDB (idb-keyval) | Arrow IPC binary data               |
-| Active entity      | URL params             | Shareable, browser history          |
-| UI state           | React useState         | Ephemeral, component-local          |
-| DuckDB tables      | Memory                 | Loaded on-demand from Arrow buffers |
+| Data               | Location          | Reason                                |
+| ------------------ | ----------------- | ------------------------------------- |
+| DataSources        | Dexie (IndexedDB) | User-owned, local-first               |
+| DataTables         | Dexie (IndexedDB) | Separate table with FK                |
+| Fields/Metrics     | Dexie (IndexedDB) | Nested in DataTables                  |
+| Insights           | Dexie (IndexedDB) | Query configurations                  |
+| Visualizations     | Dexie (IndexedDB) | vgplot specs                          |
+| DataFrame metadata | Convex            | Pointers to host files                |
+| DataFrame data     | Host files        | Arrow IPC snapshots                   |
+| Active entity      | URL params        | Shareable, browser history            |
+| UI state           | React useState    | Ephemeral, component-local            |
+| DuckDB tables      | Host process      | Server native engine, not the browser |
 
-**Important**: DataFrame binary data is stored in IndexedDB as Arrow IPC format via `idb-keyval`. This avoids the 5-10MB localStorage quota limit.
+**Important**: DataFrame binary data is stored as Arrow IPC files on the host. The browser does not keep a DuckDB or IndexedDB copy of frames.
 
 ## Dexie Query Patterns
 
@@ -98,8 +100,8 @@ get(id: UUID): DataFrame {
 ┌─────────────────────────────────────────────────────────────────────────┐
 │  SOURCE DATA (Persisted)              QUERY RESULTS (Direct)            │
 │  ───────────────────────              ──────────────────────            │
-│  CSV/Notion → Arrow IPC → IndexedDB   SQL query → vgplot                │
-│            → DuckDB table             (no storage, no temp table)       │
+│  CSV/Notion → Arrow IPC → host file   SQL query → vgplot                │
+│            → server DuckDB table      (via Mosaic connector)            │
 │            → DataFrame reference                                        │
 │                                                                         │
 │  Survives refresh                     Ephemeral, re-run as needed       │
@@ -109,9 +111,9 @@ get(id: UUID): DataFrame {
 **Source Data (CSV, Notion)** - persisted as tables:
 
 ```
-Upload/Sync → Arrow IPC → IndexedDB → DataFrame reference
+Upload/Sync → Arrow IPC → host file → DataFrame reference
                                            ↓
-                                DuckDB loads as table (on-demand)
+                                Server DuckDB loads as table (on-demand)
 ```
 
 **Query Results** - rendered directly, no storage:
@@ -134,15 +136,15 @@ Phase 1: Discovery
 
 Phase 2: Sync
   User syncs database
-         → Fetch rows → Arrow IPC → IndexedDB
+         → Fetch rows → Arrow IPC → host file
          → DataFrame reference
-         → DuckDB table
+         → Server DuckDB table
 
 Phase 3: Query
   Any SQL query → vgplot renders directly
 ```
 
-**Key Insight**: Only source data is stored in DuckDB tables. Query results (joins, aggregations, filters) render directly to vgplot - no intermediate storage.
+**Key Insight**: Source data is stored as host Arrow files and registered in server DuckDB. Chart SQL is posted to that engine; vgplot does not run DuckDB in the browser.
 
 ## Why This Design?
 
@@ -159,24 +161,19 @@ Phase 3: Query
 ## Persistence
 
 ```
-Dexie (IndexedDB):
-  dataSources, dataTables, insights, visualizations, dashboards
+Convex:
+  dataSources, dataTables, insights, visualizations, dashboards (metadata)
 
-idb-keyval (IndexedDB):
-  dashframe:arrow:*  (Arrow IPC binary data - actual DataFrame content)
+Host files:
+  {uuid}.arrow  (Arrow IPC snapshots)
 ```
 
 **Storage Model:**
 
-- Entity data in Dexie (structured, indexed, reactive)
-- Arrow IPC in idb-keyval (binary blobs, keyed by DataFrame ID)
-- DuckDB tables for source data (loaded from Arrow IPC on-demand)
-- Query results render directly to vgplot (no storage)
-
-**Key Optimization:** Query results (joins, filters, aggregations) are never stored. vgplot renders directly from DuckDB query execution.
-
-**Future Enhancement - Parquet Compression:**
-Currently using Arrow IPC for fast zero-copy loading. For large datasets, Parquet would reduce IndexedDB storage by 2-5x through columnar compression. Trade-off: decompression overhead on each page load.
+- Artifact metadata in Convex
+- Arrow IPC on the host, keyed by DataFrame ID
+- DuckDB tables in the host process, registered from those files
+- Chart queries go to the server Mosaic connector; vgplot does not run DuckDB in the browser
 
 ## Action-Based Flow Architecture
 

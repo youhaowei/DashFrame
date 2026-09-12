@@ -19,8 +19,8 @@ import {
   fieldIdToColumnAlias,
   metricIdToColumnAlias,
 } from "@dashframe/engine";
-import type { ColumnAnalysis } from "@dashframe/engine-browser";
 import type {
+  ColumnAnalysis,
   CompiledInsight,
   DataTable,
   Field,

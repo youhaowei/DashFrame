@@ -117,20 +117,18 @@ describe("Security Headers", () => {
       expect(cspHeader?.value).toContain("script-src");
       expect(cspHeader?.value).toContain("'self'");
       expect(cspHeader?.value).toContain("'unsafe-inline'");
-      expect(cspHeader?.value).toContain("'wasm-unsafe-eval'");
-      expect(cspHeader?.value).toContain("blob:");
-      expect(cspHeader?.value).toContain("https://cdn.jsdelivr.net");
+      expect(cspHeader?.value).not.toContain("'wasm-unsafe-eval'");
+      expect(cspHeader?.value).not.toContain("https://cdn.jsdelivr.net");
     });
 
-    it("should include worker-src with blob: for DuckDB", () => {
+    it("should include worker-src from the same origin", () => {
       const headers = getSecurityHeaders();
       const cspHeader = headers.find(
         (h) => h.key === "Content-Security-Policy",
       );
 
-      expect(cspHeader?.value).toContain("worker-src");
-      expect(cspHeader?.value).toContain("'self'");
-      expect(cspHeader?.value).toContain("blob:");
+      expect(cspHeader?.value).toContain("worker-src 'self'");
+      expect(cspHeader?.value).not.toContain("worker-src 'self' blob:");
     });
 
     it("should include connect-src with required sources", () => {
@@ -141,8 +139,7 @@ describe("Security Headers", () => {
 
       expect(cspHeader?.value).toContain("connect-src");
       expect(cspHeader?.value).toContain("'self'");
-      expect(cspHeader?.value).toContain("blob:");
-      expect(cspHeader?.value).toContain("https://cdn.jsdelivr.net");
+      expect(cspHeader?.value).not.toContain("https://cdn.jsdelivr.net");
     });
 
     it("should include configured DashFrame host in connect-src", () => {

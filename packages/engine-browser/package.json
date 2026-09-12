@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Browser implementation of DashFrame engine using DuckDB-WASM",
+  "description": "Browser Arrow helpers for local file ingest",
   "main": "src/index.ts",
   "types": "src/index.ts",
   "scripts": {
@@ -18,9 +18,7 @@
   "dependencies": {
     "@dashframe/engine": "workspace:*",
     "@dashframe/types": "workspace:*",
-    "@duckdb/duckdb-wasm": "1.32.0",
-    "apache-arrow": "^21.1.0",
-    "idb-keyval": "^6.2.2"
+    "apache-arrow": "^21.1.0"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "catalog:",
