@@ -48,7 +48,7 @@ function toCatalogEntry(connector: AnyConnector): ConnectorCatalogEntry {
 
 /**
  * The "local" file connector's class lives in @dashframe/connector-local, which
- * value-imports from @dashframe/engine-browser (IndexedDB/DuckDB-WASM). That
+ * value-imports from @dashframe/engine-browser. That
  * package is deliberately NOT a server runtime dependency — see the guard at
  * apps/desktop/src/main-bundle.test.ts ("browser-only code reaching main
  * (#228)"). Its catalog metadata is plain static data, so it's reproduced

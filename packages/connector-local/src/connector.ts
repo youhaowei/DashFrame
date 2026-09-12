@@ -15,14 +15,12 @@ import { csvToDataFrame, parseCSV } from "@dashframe/csv";
 import {
   LOCAL_FILE_HELPER_TEXT,
   LOCAL_FILE_SOURCE_LIMIT_MB,
-} from "@dashframe/engine";
-import {
   FileSourceConnector,
   type FileParseResult,
   type FormField,
   type UUID,
   type ValidationResult,
-} from "@dashframe/engine-browser";
+} from "@dashframe/engine";
 import { jsonToDataFrame, type JSONData } from "@dashframe/json";
 
 /** Supported file extensions */

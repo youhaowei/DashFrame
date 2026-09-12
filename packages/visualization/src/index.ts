@@ -15,9 +15,9 @@
  * } from "@dashframe/visualization";
  *
  * // 1. Wrap your app with VisualizationProvider
- * function App({ db }) {
+ * function App({ connector }) {
  *   return (
- *     <VisualizationProvider db={db}>
+ *     <VisualizationProvider connector={connector}>
  *       <ChartSetup />
  *       <MyCharts />
  *     </VisualizationProvider>

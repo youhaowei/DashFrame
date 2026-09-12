@@ -13,7 +13,6 @@
     "e2e/*"
   ],
   "overrides": {
-    "@duckdb/duckdb-wasm": "1.32.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "@types/react": "19.2.7",

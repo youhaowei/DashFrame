@@ -8,9 +8,7 @@
  * Backings: `NativeDuckDBEngine` (`@dashframe/engine-server`) runs DuckDB in
  * the server process, and `WorkspaceQueryEngine` (same package) runs it behind
  * the sandboxed hosted worker. They are backings of one interface, not sibling
- * APIs. The DuckDB-WASM helpers in `@dashframe/engine-browser` are a separate
- * renderer fallback and do NOT implement this interface today; binding them as
- * a third backing is its own step.
+ * APIs.
  *
  * There is no Postgres `QueryEngine` and no shared `QueryPlanner` /
  * `QueryPushDownCapable` API in this package. Individual connectors may still

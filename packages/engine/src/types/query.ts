@@ -1,6 +1,5 @@
 /**
- * Query builder types - Abstract query operations.
- * These types are used by QueryBuilder implementations.
+ * Query builder types — abstract filter, sort, join, and aggregation shapes.
  */
 
 /**

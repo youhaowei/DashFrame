@@ -102,10 +102,8 @@ interface VisualizationSetupProps {
 /**
  * VisualizationSetup - Wires up the visualization system.
  *
- * The connector comes from `ChartEngineProvider` — the rung the host bound.
- * Today both hosts bind the server rung unconditionally and inject a connector
- * onto it; the DuckDB-WASM backup rung is opted into at `VisualizationProvider`
- * by handing it a `db` + `connection`, never selected here and never by surface.
+ * The connector comes from `ChartEngineProvider`. Both hosts inject a Mosaic
+ * connector onto the server DuckDB engine.
  *
  * ## Error surfaces
  *
@@ -131,12 +129,11 @@ interface VisualizationSetupProps {
  * ## Provider Hierarchy
  *
  * ```
- * ChartEngineProvider (Mosaic connector onto the reachable server engine)
- *     └── DuckDBProvider (server query adapter for table/pagination)
- *         └── VisualizationSetup
- *               └── VisualizationProvider (native connector → Mosaic coordinator)
- *                     └── RendererRegistration (registers vgplot)
- *                     └── children
+ * ChartEngineProvider (Mosaic connector onto the server engine)
+ *     └── VisualizationSetup
+ *           └── VisualizationProvider (connector → Mosaic coordinator)
+ *                 └── RendererRegistration (registers vgplot)
+ *                 └── children
  * ```
  */
 export function VisualizationSetup({ children }: VisualizationSetupProps) {
