@@ -124,6 +124,27 @@ describe("WorkbenchTabs keyboard", () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
+  it("keeps the tablist owning nothing but tabs", () => {
+    // Overflowing on purpose: it renders the finder, and Base UI only makes
+    // the viewport focusable once there is something to scroll. Both would
+    // otherwise sit inside the tablist, which may own only tabs.
+    setOverflow(1200, 400);
+    const { container } = render(
+      strip(tabsFor(["One", "Two", "Three"]), "canvas:data"),
+    );
+    expect(finder()).not.toBeNull();
+
+    const list = container.querySelector('[role="tablist"]');
+    expect(list?.contains(finder())).toBe(false);
+    const focusable = [
+      ...(list?.querySelectorAll<HTMLElement>("[tabindex]") ?? []),
+    ].filter((element) => element.tabIndex === 0);
+    expect(focusable.every((element) => element.role === "tab")).toBe(true);
+    expect(
+      list?.querySelector<HTMLElement>(".overscroll-contain")?.tabIndex,
+    ).toBe(-1);
+  });
+
   it("keeps the strip to a single tab stop", () => {
     render(strip(tabsFor(["One", "Two"]), "canvas:data"));
 

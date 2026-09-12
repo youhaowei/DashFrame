@@ -57,6 +57,14 @@ export interface OverlayScrollAreaProps {
   viewportClassName?: string;
   /** The scrolling element, for virtualizers and scroll measurement. */
   viewportRef?: Ref<HTMLDivElement>;
+  /**
+   * Overrides the viewport's own tab stop. Base UI makes an overflowing
+   * viewport focusable so a scrollable region is always keyboard-reachable;
+   * pass -1 where the content inside is reachable some other way. It has to
+   * be a prop: Base UI sets tabIndex during a render this component does not
+   * take part in, so writing it from an effect afterwards loses the race.
+   */
+  viewportTabIndex?: number;
   onScroll?: UIEventHandler<HTMLDivElement>;
   /**
    * Directions that get a scrollbar and edge fades. The viewport still
@@ -88,6 +96,7 @@ export function OverlayScrollArea({
   className,
   viewportClassName,
   viewportRef,
+  viewportTabIndex,
   onScroll,
   orientation = "vertical",
   topInset = 0,
@@ -108,6 +117,7 @@ export function OverlayScrollArea({
     >
       <ScrollArea.Viewport
         ref={viewportRef}
+        tabIndex={viewportTabIndex}
         onScroll={onScroll}
         className={cn("h-full min-h-0 overscroll-contain", viewportClassName)}
       >
