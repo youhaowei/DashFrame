@@ -117,7 +117,12 @@ export function OverlayScrollArea({
     >
       <ScrollArea.Viewport
         ref={viewportRef}
-        tabIndex={viewportTabIndex}
+        // Spread only when set: Base UI's mergeProps does not skip undefined,
+        // so forwarding it unconditionally would erase its own tab stop for
+        // every caller that never asked to opt out.
+        {...(viewportTabIndex === undefined
+          ? {}
+          : { tabIndex: viewportTabIndex })}
         onScroll={onScroll}
         className={cn("h-full min-h-0 overscroll-contain", viewportClassName)}
       >
