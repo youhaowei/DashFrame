@@ -17,11 +17,11 @@ test.describe("Chart Editing", () => {
 
     // Start from the data canvas and save one chart view.
     await expect(
-      page.getByRole("button", { name: "Data", exact: true }),
+      page.getByRole("tab", { name: "Data", exact: true }),
     ).toBeVisible({
       timeout: 30_000,
     });
-    await page.getByRole("button", { name: "Visualize" }).click();
+    await page.getByRole("tab", { name: "Chart", exact: true }).click();
     // `exact: true` disambiguates against the view switcher's other buttons —
     // "Horizontal bar" and "Hide sidebar" both contain "bar" as a substring,
     // which Playwright's default (non-exact) name matching would also match.
@@ -48,12 +48,16 @@ test.describe("Chart Editing", () => {
     // Saving wrote the chart's config (Product + sum(Quantity)) into the
     // insight, so the table view now runs query mode: 4 distinct products
     // grouped from the 5 source rows, dimension + metric = 2 fields.
-    await page.getByRole("button", { name: "Data", exact: true }).click();
+    // Saving opened the new chart's own tab; note its name before leaving it.
+    const savedChartName =
+      (await page.getByRole("tab", { selected: true }).textContent()) ?? "";
+    expect(savedChartName).not.toBe("");
+    await page.getByRole("tab", { name: "Data", exact: true }).click();
     await expect(page.getByText("4 rows • 2 fields")).toBeVisible();
 
-    // Visualize reopens the saved chart. Changing its type edits that chart in
-    // place: no "Save chart" offer and no second saved chart.
-    await page.getByRole("button", { name: "Visualize" }).click();
+    // Reopening the saved chart from its tab and changing its type edits that
+    // chart in place: no "Save chart" offer and no second saved chart.
+    await page.getByRole("tab", { name: savedChartName, exact: true }).click();
     for (const chartType of ["Line", "Area"]) {
       const tile = page.getByRole("button", { name: chartType, exact: true });
       await tile.click();
