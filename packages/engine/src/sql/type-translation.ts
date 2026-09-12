@@ -27,7 +27,7 @@ import type { ColumnType } from "@dashframe/types";
  *
  * Both producers — the renderer's `createArrowIPCBufferFromRows` and the
  * server's `duckdbColumnsToArrowIpc` — encode from this table, which is what
- * makes "the binary the data path serves matches what DuckDB-WASM ingests" a
+ * makes "the binary the data path serves matches what the renderer decodes" a
  * checkable statement rather than a comment. Names are `apache-arrow` type
  * constructor names; each producer maps a name to the constructor itself.
  *

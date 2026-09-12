@@ -19,8 +19,7 @@
   "dependencies": {
     "@dashframe/csv": "workspace:*",
     "@dashframe/json": "workspace:*",
-    "@dashframe/engine": "workspace:*",
-    "@dashframe/engine-browser": "workspace:*"
+    "@dashframe/engine": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.6.0",

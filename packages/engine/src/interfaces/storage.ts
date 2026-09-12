@@ -4,9 +4,7 @@ import type { UUID } from "@dashframe/types";
  * DataFrameStorage interface - Persistence for DataFrame binary data.
  *
  * Implementations handle storing and retrieving Arrow IPC buffers:
- * - IndexedDBStorage (engine-browser) - Browser IndexedDB
- * - S3Storage (engine-server) - AWS S3
- * - FileStorage (engine-server) - Local filesystem
+ * - FileDataFrameStorage (engine-server) - project-owned files
  */
 export interface DataFrameStorage {
   /**

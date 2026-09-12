@@ -3,7 +3,7 @@
  *
  * Abstract engine interfaces for DashFrame computation.
  * This package defines contracts that can be implemented for different runtimes:
- * - @dashframe/engine-browser: DuckDB-WASM helpers + IndexedDB (browser)
+ * - @dashframe/engine-browser: Arrow encode helpers for local file ingest
  * - @dashframe/engine-server: NativeDuckDBEngine (server)
  *
  * Re-exports @dashframe/types for convenience.

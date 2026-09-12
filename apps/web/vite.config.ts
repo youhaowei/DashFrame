@@ -14,13 +14,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const appSrcDir = path.resolve(__dirname, "../../packages/app/src");
 const appRoutesDir = path.resolve(appSrcDir, "routes");
 
-// DuckDB-WASM requires SharedArrayBuffer, which needs cross-origin isolation
-// (COOP/COEP). Carries the CSP + security headers from the prior Next config
-// across to:
+// Carries the CSP + security headers from the prior Next config across to:
 //   - Vite's dev + preview servers (middleware)
 //   - Static deployments (emits `_headers` for CloudFlare Pages / Netlify
 //     and `vercel.json` for Vercel during `vp build` so the production
-//     dist/ ships with the same CSP + COOP/COEP)
+//     dist/ ships with the same CSP)
 // Also emits `_redirects` for SPA-history fallback so deep links don't 404
 // on a static host that doesn't auto-fallback to index.html.
 // Takes the resolved env so the CSP allowlist picks up
@@ -28,13 +26,9 @@ const appRoutesDir = path.resolve(appSrcDir, "routes");
 function securityHeadersPlugin(
   env: Record<string, string | undefined>,
 ): Plugin {
-  const headerPairs: Array<readonly [string, string]> = [
-    ...getSecurityHeaders(env).map(
-      (h) => [h.key, h.value] as readonly [string, string],
-    ),
-    ["Cross-Origin-Opener-Policy", "same-origin"] as const,
-    ["Cross-Origin-Embedder-Policy", "require-corp"] as const,
-  ];
+  const headerPairs: Array<readonly [string, string]> = getSecurityHeaders(
+    env,
+  ).map((h) => [h.key, h.value] as const);
   const apply = (res: { setHeader: (k: string, v: string) => void }) => {
     for (const [k, v] of headerPairs) res.setHeader(k, v);
   };

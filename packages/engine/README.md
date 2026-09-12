@@ -15,10 +15,10 @@ The engine package defines runtime-agnostic interfaces:
 | Interface          | Real implementation today                                                    |
 | ------------------ | ---------------------------------------------------------------------------- |
 | `QueryEngine`      | `NativeDuckDBEngine` and `WorkspaceQueryEngine` (`@dashframe/engine-server`) |
-| `DataFrameStorage` | Project files for server snapshots; retained IndexedDB implementation        |
-| `DataFrame`        | Server query results; retained `BrowserDataFrame` implementation             |
+| `DataFrameStorage` | Project files for server snapshots                                           |
+| `DataFrame`        | Server query results (file-backed Arrow)                                     |
 
-Remote imports and refreshes use **server-side native DuckDB** (`NativeDuckDBEngine`) and durable project-file snapshots for both desktop and web. Local-file import still uses the legacy browser/IndexedDB path until the required server-ingestion follow-up lands. There is no selectable WASM mode or fallback.
+Remote imports, refreshes, and chart queries use **server-side native DuckDB**. Local-file import parses in the browser, encodes Arrow, and ingests on the host. There is no DuckDB-WASM path.
 
 This package has no shared `QueryPlanner` / push-down API. Connectors may still run remote queries themselves (e.g. Postgres table-reference fetches push LIMIT/OFFSET server-side); that is connector-local, not a cross-engine planner.
 
@@ -162,4 +162,4 @@ import type {
 ## Implementations
 
 - **`@dashframe/engine-server`** — primary: native DuckDB in the server process (`NativeDuckDBEngine`) plus the Arrow IPC data path over it
-- **`@dashframe/engine-browser`** — retained DuckDB-WASM, IndexedDB, and BrowserDataFrame implementation; local-file import still depends on it pending server ingestion
+- **`@dashframe/engine-browser`** — Arrow IPC encode for local CSV/JSON ingest

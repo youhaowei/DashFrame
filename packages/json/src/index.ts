@@ -1,17 +1,12 @@
-import type {
-  ColumnType,
-  Field,
-  SourceSchema,
-  UUID,
-} from "@dashframe/engine-browser";
+import type { ColumnType, Field, SourceSchema, UUID } from "@dashframe/engine";
 import {
-  createArrowIPCBufferFromRows,
   createFieldsFromColumns,
   createSourceSchema,
   detectPrimaryKeyColumn,
   inferPrimitiveColumnType,
   parsePrimitiveValueByType,
-} from "@dashframe/engine-browser";
+} from "@dashframe/engine";
+import { createArrowIPCBufferFromRows } from "@dashframe/engine-browser";
 import {
   extractKeys,
   flattenObjectArray,

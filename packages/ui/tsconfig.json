@@ -2,9 +2,6 @@
   "extends": "../../tsconfig.base.json",
   "include": ["src/**/*", ".storybook/**/*"],
   "compilerOptions": {
-    "paths": {
-      "@dashframe/engine-browser": ["../engine-browser/src"]
-    },
     "declaration": true,
     "declarationMap": true,
     "outDir": "dist",

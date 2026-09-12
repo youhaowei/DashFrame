@@ -1,7 +1,6 @@
 {
   "type": "module",
   "dependencies": {
-    "@dashframe/engine-browser": "workspace:*",
     "@dashframe/types": "workspace:*",
     "@wystack/ui-core": "workspace:*",
     "@wystack/ui-react": "workspace:*",

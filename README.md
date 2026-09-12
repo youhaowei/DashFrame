@@ -30,7 +30,7 @@ packages/
   convex-backend/   # Native Convex schema, queries, and mutations
   convex-local/     # Pinned local backend provisioning and process ownership
   engine/           # Abstract engine interfaces (TS-only)
-  engine-browser/   # DuckDB-WASM implementation
+  engine-browser/   # Browser Arrow helpers for local file ingest
   engine-server/    # Native DuckDB implementation
   server-core/      # Server runtime shared by apps/server and the Electron main
   connector-local/  # Local file (CSV/JSON) connector

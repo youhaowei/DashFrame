@@ -20,11 +20,9 @@ import {
 } from "@dashframe/visualization";
 
 // 1. Wrap your app with VisualizationProvider
-function App() {
-  const db = useDuckDB(); // Your DuckDB-WASM instance
-
+function App({ connector }) {
   return (
-    <VisualizationProvider db={db}>
+    <VisualizationProvider connector={connector}>
       <VisualizationSetup>
         <MyCharts />
       </VisualizationSetup>
@@ -187,7 +185,6 @@ registerRenderer(myRenderer);
 
 - `@dashframe/types` - Shared type contracts
 - `@uwdata/vgplot` - Mosaic visualization library
-- `@duckdb/duckdb-wasm` - DuckDB WebAssembly
 - `react` - React 18+
 
 ## Design Decisions

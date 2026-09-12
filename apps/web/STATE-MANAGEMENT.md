@@ -23,23 +23,23 @@ DataSource → DataTable → Field/Metric
 
 **Client-side only:**
 
-- **`DataFrame`** - Class with storage reference (metadata in localStorage, data in IndexedDB)
-- **`QueryBuilder`** - SQL execution engine (loads data into DuckDB on-demand)
+- Chart SQL is composed by Mosaic and posted to the host Arrow path.
+- Local file ingest encodes Arrow in the browser and uploads it to the host.
 
 ## State Split: Storage Locations
 
-| Data               | Location               | Reason                              |
-| ------------------ | ---------------------- | ----------------------------------- |
-| DataSources        | Dexie (IndexedDB)      | User-owned, local-first             |
-| DataTables         | Dexie (IndexedDB)      | Separate table with FK              |
-| Fields/Metrics     | Dexie (IndexedDB)      | Nested in DataTables                |
-| Insights           | Dexie (IndexedDB)      | Query configurations                |
-| Visualizations     | Dexie (IndexedDB)      | vgplot specs                        |
-| DataFrame metadata | Dexie (IndexedDB)      | Small entries (id, name, rowCount)  |
-| DataFrame data     | IndexedDB (idb-keyval) | Arrow IPC binary data               |
-| Active entity      | URL params             | Shareable, browser history          |
-| UI state           | React useState         | Ephemeral, component-local          |
-| DuckDB tables      | Memory                 | Loaded on-demand from Arrow buffers |
+| Data               | Location          | Reason                              |
+| ------------------ | ----------------- | ----------------------------------- |
+| DataSources        | Dexie (IndexedDB) | User-owned, local-first             |
+| DataTables         | Dexie (IndexedDB) | Separate table with FK              |
+| Fields/Metrics     | Dexie (IndexedDB) | Nested in DataTables                |
+| Insights           | Dexie (IndexedDB) | Query configurations                |
+| Visualizations     | Dexie (IndexedDB) | vgplot specs                        |
+| DataFrame metadata | Convex            | Pointers to host files              |
+| DataFrame data     | Host files        | Arrow IPC snapshots                 |
+| Active entity      | URL params        | Shareable, browser history          |
+| UI state           | React useState    | Ephemeral, component-local          |
+| DuckDB tables      | Memory            | Loaded on-demand from Arrow buffers |
 
 **Important**: DataFrame binary data is stored in IndexedDB as Arrow IPC format via `idb-keyval`. This avoids the 5-10MB localStorage quota limit.
 

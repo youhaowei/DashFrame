@@ -1,12 +1,12 @@
-import type { Field, SourceSchema, UUID } from "@dashframe/engine-browser";
+import type { Field, SourceSchema, UUID } from "@dashframe/engine";
 import {
-  createArrowIPCBufferFromRows,
   createFieldsFromColumns,
   createSourceSchema,
   detectPrimaryKeyColumn,
   inferStringColumnType,
   parseStringValueByType,
-} from "@dashframe/engine-browser";
+} from "@dashframe/engine";
+import { createArrowIPCBufferFromRows } from "@dashframe/engine-browser";
 
 /**
  * Represents CSV data as an array of string arrays.

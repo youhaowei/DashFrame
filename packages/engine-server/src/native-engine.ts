@@ -5,9 +5,7 @@
  * (desktop loopback today; headless `serve` + web-via-server is the same
  * class). Desktop and web share this implementation so the data plane stays
  * consistent. Its sibling backing is `WorkspaceQueryEngine` (query-sandbox.ts),
- * which runs DuckDB behind a confined worker for the hosted surface; the
- * DuckDB-WASM helpers in `@dashframe/engine-browser` are a renderer fallback
- * and implement no `QueryEngine` today.
+ * which runs DuckDB behind a confined worker for the hosted surface.
  *
  * Electron main and headless `serve` both construct this engine and mount the
  * Arrow data path over it.
@@ -15,8 +13,8 @@
  * Results leave as Arrow IPC bytes (`queryArrow` buffered, `queryArrowBatches`
  * chunked) — the payload the dedicated data path streams. Arrow
  * encoding is delegated to `apache-arrow` rather than DuckDB's Arrow extension,
- * so the binary format matches what clients ingest (including the WASM backup
- * path) and stays in one well-exercised library. Callers that want JSON rows
+ * so the binary format matches what clients ingest and stays in one
+ * well-exercised library. Callers that want JSON rows
  * decode the same bytes in transport with `arrowIpcToJsonRows`.
  *
  * `registerArrowTable` accepts an Arrow IPC stream buffer, decodes it with
