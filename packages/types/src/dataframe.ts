@@ -34,8 +34,9 @@ export interface DataFrameJSON {
  * This interface represents a dataset but does NOT contain the actual data.
  * Instead, it knows WHERE to find the data and provides methods to access it.
  *
- * Implementations live on the host. Frames are file-backed Arrow snapshots;
- * DuckDB never stores the canonical copy.
+ * New frames are host file-backed Arrow snapshots. DuckDB does not store the
+ * canonical copy. The storage union still names historical locations
+ * (`indexeddb`, `s3`, `r2`) for persisted metadata.
  */
 export interface DataFrame {
   readonly id: UUID;
