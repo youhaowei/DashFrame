@@ -80,10 +80,12 @@ function MyCharts() {
 
 ### VisualizationProvider
 
-Wraps your application to provide the Mosaic coordinator connected to DuckDB.
+Wraps your application to provide the Mosaic coordinator on the server engine.
 
 ```tsx
-<VisualizationProvider db={duckDbInstance}>{children}</VisualizationProvider>
+<VisualizationProvider connector={serverConnector}>
+  {children}
+</VisualizationProvider>
 ```
 
 ### useVisualization

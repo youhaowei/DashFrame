@@ -28,20 +28,20 @@ DataSource → DataTable → Field/Metric
 
 ## State Split: Storage Locations
 
-| Data               | Location          | Reason                              |
-| ------------------ | ----------------- | ----------------------------------- |
-| DataSources        | Dexie (IndexedDB) | User-owned, local-first             |
-| DataTables         | Dexie (IndexedDB) | Separate table with FK              |
-| Fields/Metrics     | Dexie (IndexedDB) | Nested in DataTables                |
-| Insights           | Dexie (IndexedDB) | Query configurations                |
-| Visualizations     | Dexie (IndexedDB) | vgplot specs                        |
-| DataFrame metadata | Convex            | Pointers to host files              |
-| DataFrame data     | Host files        | Arrow IPC snapshots                 |
-| Active entity      | URL params        | Shareable, browser history          |
-| UI state           | React useState    | Ephemeral, component-local          |
-| DuckDB tables      | Memory            | Loaded on-demand from Arrow buffers |
+| Data               | Location          | Reason                                |
+| ------------------ | ----------------- | ------------------------------------- |
+| DataSources        | Dexie (IndexedDB) | User-owned, local-first               |
+| DataTables         | Dexie (IndexedDB) | Separate table with FK                |
+| Fields/Metrics     | Dexie (IndexedDB) | Nested in DataTables                  |
+| Insights           | Dexie (IndexedDB) | Query configurations                  |
+| Visualizations     | Dexie (IndexedDB) | vgplot specs                          |
+| DataFrame metadata | Convex            | Pointers to host files                |
+| DataFrame data     | Host files        | Arrow IPC snapshots                   |
+| Active entity      | URL params        | Shareable, browser history            |
+| UI state           | React useState    | Ephemeral, component-local            |
+| DuckDB tables      | Host process      | Server native engine, not the browser |
 
-**Important**: DataFrame binary data is stored in IndexedDB as Arrow IPC format via `idb-keyval`. This avoids the 5-10MB localStorage quota limit.
+**Important**: DataFrame binary data is stored as Arrow IPC files on the host. The browser does not keep a DuckDB or IndexedDB copy of frames.
 
 ## Dexie Query Patterns
 
@@ -159,24 +159,19 @@ Phase 3: Query
 ## Persistence
 
 ```
-Dexie (IndexedDB):
-  dataSources, dataTables, insights, visualizations, dashboards
+Convex:
+  dataSources, dataTables, insights, visualizations, dashboards (metadata)
 
-idb-keyval (IndexedDB):
-  dashframe:arrow:*  (Arrow IPC binary data - actual DataFrame content)
+Host files:
+  {uuid}.arrow  (Arrow IPC snapshots)
 ```
 
 **Storage Model:**
 
-- Entity data in Dexie (structured, indexed, reactive)
-- Arrow IPC in idb-keyval (binary blobs, keyed by DataFrame ID)
-- DuckDB tables for source data (loaded from Arrow IPC on-demand)
-- Query results render directly to vgplot (no storage)
-
-**Key Optimization:** Query results (joins, filters, aggregations) are never stored. vgplot renders directly from DuckDB query execution.
-
-**Future Enhancement - Parquet Compression:**
-Currently using Arrow IPC for fast zero-copy loading. For large datasets, Parquet would reduce IndexedDB storage by 2-5x through columnar compression. Trade-off: decompression overhead on each page load.
+- Artifact metadata in Convex
+- Arrow IPC on the host, keyed by DataFrame ID
+- DuckDB tables in the host process, registered from those files
+- Chart queries go to the server Mosaic connector; vgplot does not run DuckDB in the browser
 
 ## Action-Based Flow Architecture
 
