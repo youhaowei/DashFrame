@@ -25,6 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@wystack/ui-react";
+import { fieldIdToColumnAlias } from "@dashframe/engine";
 import { Sigma } from "lucide-react";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { metricColumnNameForSave } from "./metric-formula";
@@ -43,10 +44,31 @@ const AGGREGATIONS: Array<{ value: AggregationType; label: string }> = [
   { value: "count_distinct", label: "Count distinct" },
 ];
 
-function metricDescription(metric: InsightMetric): string {
-  return metric.aggregation === "count" && !metric.columnName
-    ? "count"
-    : `${metric.aggregation} · ${metric.columnName ?? ""}`;
+type MetricField = { id: string; columnName?: string; name: string };
+
+// A metric's columnName is either the field's own column or, for metrics
+// pinned from a chart suggestion, the internal field_<uuid> alias — which must
+// never reach the screen. Match both, as VisualizationConfigPanel does.
+function findMetricField(
+  fields: readonly MetricField[],
+  columnName: string | undefined,
+): MetricField | undefined {
+  if (!columnName) return undefined;
+  return fields.find(
+    (field) =>
+      field.columnName === columnName ||
+      fieldIdToColumnAlias(field.id) === columnName,
+  );
+}
+
+function metricDescription(
+  metric: InsightMetric,
+  fields: readonly MetricField[],
+): string {
+  if (metric.aggregation === "count" && !metric.columnName) return "count";
+  const fieldName =
+    findMetricField(fields, metric.columnName)?.name ?? metric.columnName ?? "";
+  return `${metric.aggregation} · ${fieldName}`;
 }
 
 function autoMetricName(
@@ -161,7 +183,7 @@ function MetricEditor({
             >
               <span className="block truncate font-medium">{metric.name}</span>
               <span className="block truncate text-[11px] leading-4 text-neutral-fg-subtle">
-                {metricDescription(metric)}
+                {metricDescription(metric, fields)}
               </span>
             </button>
           }
@@ -229,8 +251,7 @@ function MetricEditor({
             <SelectTrigger aria-label="Column" className="min-w-0 flex-1">
               <SelectValue placeholder={needsField ? "Column" : "All rows"}>
                 {columnName
-                  ? (fields.find((field) => field.columnName === columnName)
-                      ?.name ?? columnName)
+                  ? (findMetricField(fields, columnName)?.name ?? columnName)
                   : undefined}
               </SelectValue>
             </SelectTrigger>
