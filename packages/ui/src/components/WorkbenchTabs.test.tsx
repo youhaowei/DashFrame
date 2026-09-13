@@ -182,6 +182,23 @@ describe("WorkbenchTabs keyboard", () => {
     expect(focusable.every((element) => element.role === "tab")).toBe(true);
   });
 
+  it("moves the tab stop to whichever tab was focused last", () => {
+    // Activation is manual, so focus and selection diverge while arrowing.
+    // The stop has to follow focus, or tabbing back into the strip returns to
+    // the selected tab instead of where the user left off.
+    render(strip(tabsFor(["One", "Two"]), "canvas:data"));
+
+    const dataTab = screen.getByRole("tab", { name: /Data/ });
+    dataTab.focus();
+    fireEvent.keyDown(dataTab, { key: "ArrowRight" });
+
+    const stops = screen
+      .getAllByRole("tab")
+      .filter((tab) => tab.tabIndex === 0);
+    expect(stops).toHaveLength(1);
+    expect(stops[0]?.dataset.tabId).toBe("canvas:viz:0");
+  });
+
   it("keeps the strip to a single tab stop", () => {
     render(strip(tabsFor(["One", "Two"]), "canvas:data"));
 

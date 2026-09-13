@@ -62,16 +62,39 @@ function prefersReducedMotion(): boolean {
   );
 }
 
+/**
+ * The strip's single Tab stop follows focus rather than selection: activation
+ * is manual, so the two differ while arrowing, and tabbing back into the strip
+ * has to return where the user left it. It falls back to the selected tab when
+ * the remembered one is gone — a chart can be deleted while focus sits on its
+ * tab — so the strip always has exactly one stop.
+ */
+function resolveTabStop(
+  tabs: WorkbenchTabItem[],
+  focusedId: string | null,
+  activeId: string,
+): string | undefined {
+  const has = (id: string | null) => tabs.some((tab) => tab.id === id);
+  if (has(focusedId) && focusedId !== null) return focusedId;
+  if (has(activeId)) return activeId;
+  return tabs[0]?.id;
+}
+
 function TabButton({
   tab,
   active,
+  tabStop,
   panelId,
   onSelect,
+  onFocus,
 }: {
   tab: WorkbenchTabItem;
   active: boolean;
+  /** Whether this tab is the strip's single Tab stop. */
+  tabStop: boolean;
   panelId?: string;
   onSelect: (id: string) => void;
+  onFocus: (id: string) => void;
 }) {
   return (
     <button
@@ -81,9 +104,10 @@ function TabButton({
       aria-controls={panelId}
       // Roving tabindex: the strip is a single Tab stop, and the arrow keys
       // move between tabs inside it.
-      tabIndex={active ? 0 : -1}
+      tabIndex={tabStop ? 0 : -1}
       data-tab-id={tab.id}
       onClick={() => onSelect(tab.id)}
+      onFocus={() => onFocus(tab.id)}
       // The dot is decorative, so the unsaved state rides on the description
       // instead — folding it into the accessible name would rename the tab.
       title={tab.unsaved ? `${tab.label} — not saved` : tab.label}
@@ -128,6 +152,9 @@ export function WorkbenchTabs({
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [overflowing, setOverflowing] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
+  const [focusedId, setFocusedId] = useState<string | null>(null);
+
+  const tabStopId = resolveTabStop(tabs, focusedId, activeId);
 
   const start = tabs.filter((tab) => tab.pinned === "start");
   const end = tabs.filter((tab) => tab.pinned === "end");
@@ -225,8 +252,10 @@ export function WorkbenchTabs({
             key={tab.id}
             tab={tab}
             active={tab.id === activeId}
+            tabStop={tab.id === tabStopId}
             panelId={panelId}
             onSelect={onSelect}
+            onFocus={setFocusedId}
           />
         ))}
         <OverlayScrollArea
@@ -246,8 +275,10 @@ export function WorkbenchTabs({
                 key={tab.id}
                 tab={tab}
                 active={tab.id === activeId}
+                tabStop={tab.id === tabStopId}
                 panelId={panelId}
                 onSelect={onSelect}
+                onFocus={setFocusedId}
               />
             ))}
           </div>
@@ -257,8 +288,10 @@ export function WorkbenchTabs({
             key={tab.id}
             tab={tab}
             active={tab.id === activeId}
+            tabStop={tab.id === tabStopId}
             panelId={panelId}
             onSelect={onSelect}
+            onFocus={setFocusedId}
           />
         ))}
       </div>
