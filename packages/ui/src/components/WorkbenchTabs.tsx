@@ -53,6 +53,15 @@ const OVERFLOW_SLACK = 8;
 
 const ARROW_KEYS = ["ArrowRight", "ArrowLeft", "Home", "End"];
 
+// Read per call rather than once: the preference can change while the app is
+// open, and a viewer who turns motion off mid-session means it immediately.
+function prefersReducedMotion(): boolean {
+  return (
+    typeof globalThis.matchMedia === "function" &&
+    globalThis.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+
 function TabButton({
   tab,
   active,
@@ -161,7 +170,9 @@ export function WorkbenchTabs({
     match?.scrollIntoView({
       inline: "nearest",
       block: "nearest",
-      behavior: smooth ? "smooth" : "auto",
+      // Scripted scrolling is animation too, so it follows the same
+      // reduced-motion rule the CSS transitions on these tabs do.
+      behavior: smooth && !prefersReducedMotion() ? "smooth" : "auto",
     });
   }, []);
 

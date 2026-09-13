@@ -6,7 +6,7 @@ import { WorkbenchTabs, type WorkbenchTabItem } from "./WorkbenchTabs";
 // jsdom has no layout, so the strip is exactly as wide as these say it is.
 let scrollWidth = 0;
 let clientWidth = 0;
-let scrolled: Element[] = [];
+let scrolled: { target: Element; options?: ScrollIntoViewOptions }[] = [];
 
 function setOverflow(content: number, visible: number) {
   scrollWidth = content;
@@ -39,9 +39,23 @@ function strip(
 
 const finder = () => screen.queryByRole("button", { name: "Find a chart" });
 
+function stubReducedMotion(reduce: boolean) {
+  vi.stubGlobal(
+    "matchMedia",
+    (query: string) =>
+      ({
+        matches: reduce && query.includes("prefers-reduced-motion"),
+        media: query,
+        addEventListener() {},
+        removeEventListener() {},
+      }) as unknown as MediaQueryList,
+  );
+}
+
 beforeEach(() => {
   setOverflow(0, 0);
   scrolled = [];
+  stubReducedMotion(false);
   vi.stubGlobal(
     "ResizeObserver",
     class {
@@ -58,8 +72,14 @@ beforeEach(() => {
     configurable: true,
     get: () => clientWidth,
   });
-  Element.prototype.scrollIntoView = vi.fn(function (this: Element) {
-    scrolled.push(this);
+  Element.prototype.scrollIntoView = vi.fn(function (
+    this: Element,
+    options?: boolean | ScrollIntoViewOptions,
+  ) {
+    scrolled.push({
+      target: this,
+      options: typeof options === "object" ? options : undefined,
+    });
   });
 });
 
@@ -104,7 +124,27 @@ describe("WorkbenchTabs active tab", () => {
 
     rerender(strip(tabs, "canvas:viz:2"));
 
-    expect(scrolled).toContain(screen.getByRole("tab", { name: /Three/ }));
+    const reveal = scrolled.find(
+      (entry) => entry.target === screen.getByRole("tab", { name: /Three/ }),
+    );
+    expect(reveal).toBeDefined();
+    expect(reveal?.options?.behavior).toBe("smooth");
+  });
+
+  it("does not animate the reveal when the viewer asks for less motion", () => {
+    // Scripted scrolling is animation: DESIGN.md's reduced-motion rule covers
+    // it, not only the CSS transitions on the tabs.
+    stubReducedMotion(true);
+    const tabs = tabsFor(["One", "Two", "Three"]);
+    const { rerender } = render(strip(tabs, "canvas:data"));
+    scrolled = [];
+
+    rerender(strip(tabs, "canvas:viz:2"));
+
+    const reveal = scrolled.find(
+      (entry) => entry.target === screen.getByRole("tab", { name: /Three/ }),
+    );
+    expect(reveal?.options?.behavior).toBe("auto");
   });
 });
 
