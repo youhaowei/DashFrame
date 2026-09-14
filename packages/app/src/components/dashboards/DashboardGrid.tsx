@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { DashboardItem } from "./DashboardItem";
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
+const EDIT_BREAKPOINTS = { lg: 0 };
 
 interface DashboardGridProps {
   dashboard: Dashboard;
@@ -160,7 +161,14 @@ export function DashboardGrid({
     <ResponsiveGridLayout
       className="layout"
       layouts={layouts}
-      breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 }}
+      // Editing always arranges the canonical 12-column layout. The attached
+      // item pane narrows the canvas, and falling to a smaller breakpoint
+      // would restack the items and switch drag and resize off.
+      breakpoints={
+        isEditable
+          ? EDIT_BREAKPOINTS
+          : { lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 }
+      }
       cols={{ lg: 12, md: 10, sm: 6, xs: 4, xxs: 2 }}
       rowHeight={60}
       isDraggable={isEditable && activeBreakpoint === "lg"}
