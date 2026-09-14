@@ -348,75 +348,68 @@ function failed(
   };
 }
 
+const SNAPSHOT_BUDGET_MESSAGE =
+  "The snapshot exceeded its transfer or storage budget.";
+
+/** Named host failures. Unknown provider text falls through to the caller fallback. */
+const NAMED_FETCH_FAILURES: Record<
+  string,
+  { message: string; retryable?: true }
+> = {
+  SOURCE_RESULT_TOO_LARGE: {
+    message:
+      "The data exceeds this host's byte budget. Narrow the source report and retry.",
+  },
+  FETCH_BUSY: {
+    message: "Another snapshot is being materialized. Retry when it finishes.",
+    retryable: true,
+  },
+  FETCH_DEADLINE_EXCEEDED: {
+    message: "The snapshot exceeded its time budget.",
+    retryable: true,
+  },
+  FETCH_BATCH_BYTES_EXCEEDED: { message: SNAPSHOT_BUDGET_MESSAGE },
+  FETCH_BYTE_BUDGET_EXCEEDED: { message: SNAPSHOT_BUDGET_MESSAGE },
+  FETCH_STORAGE_BUDGET_EXCEEDED: { message: SNAPSHOT_BUDGET_MESSAGE },
+  SOURCE_VALUE_UNSUPPORTED: {
+    message:
+      "The source contains a value that cannot be represented in a snapshot.",
+  },
+  SOURCE_SCHEMA_CHANGED: {
+    message: "The source schema changed and the Insight needs review.",
+  },
+  SOURCE_NOT_REFRESHABLE: {
+    message: "This persisted source cannot be refreshed.",
+  },
+  TARGET_NOT_READY: {
+    message:
+      "The requested data isn't ready. Check that its sources and tables exist.",
+  },
+  FETCH_COMPILE_FAILED: {
+    message:
+      "This insight couldn't be compiled. Its source table may not have data yet.",
+  },
+};
+
 export function toFetchFailure(
   error: unknown,
   fallback: string,
 ): InsightFetchResult {
   const sourceCode = error instanceof Error ? error.message : "";
-  const streamingFailures: Record<string, string> = {
-    SOURCE_RESULT_TOO_LARGE:
-      "The data exceeds this host's byte budget. Narrow the source report and retry.",
-  };
+  const named = Object.hasOwn(NAMED_FETCH_FAILURES, sourceCode)
+    ? NAMED_FETCH_FAILURES[sourceCode]
+    : undefined;
   const code =
-    RUNTIME_FAILURE_CODES.has(sourceCode) ||
-    Object.hasOwn(streamingFailures, sourceCode) ||
-    [
-      "FETCH_BUSY",
-      "FETCH_BATCH_BYTES_EXCEEDED",
-      "FETCH_BYTE_BUDGET_EXCEEDED",
-      "FETCH_STORAGE_BUDGET_EXCEEDED",
-      "FETCH_DEADLINE_EXCEEDED",
-    ].includes(sourceCode) ||
-    sourceCode === "SOURCE_SCHEMA_CHANGED" ||
-    sourceCode === "SOURCE_VALUE_UNSUPPORTED" ||
-    sourceCode === "SOURCE_NOT_REFRESHABLE" ||
-    sourceCode === "TARGET_NOT_READY"
-      ? sourceCode
-      : fallback;
+    RUNTIME_FAILURE_CODES.has(sourceCode) || named ? sourceCode : fallback;
   let result: InsightFetchResult;
-  if (Object.hasOwn(streamingFailures, code))
-    result = failed(code, streamingFailures[code]!);
-  else if (code === "FETCH_BUSY")
-    result = failed(
-      code,
-      "Another snapshot is being materialized. Retry when it finishes.",
-      true,
-    );
-  else if (code === "FETCH_DEADLINE_EXCEEDED")
-    result = failed(code, "The snapshot exceeded its time budget.", true);
-  else if (
-    [
-      "FETCH_BATCH_BYTES_EXCEEDED",
-      "FETCH_BYTE_BUDGET_EXCEEDED",
-      "FETCH_STORAGE_BUDGET_EXCEEDED",
-    ].includes(code)
-  )
-    result = failed(
-      code,
-      "The snapshot exceeded its transfer or storage budget.",
-    );
-  else if (code === "SOURCE_VALUE_UNSUPPORTED")
-    result = failed(
-      code,
-      "The source contains a value that cannot be represented in a snapshot.",
-    );
-  else if (code === "SOURCE_SCHEMA_CHANGED")
-    result = failed(
-      code,
-      "The source schema changed and the Insight needs review.",
-    );
-  else if (code === "SOURCE_NOT_REFRESHABLE")
-    result = failed(code, "This persisted source cannot be refreshed.");
-  else if (code === "TARGET_NOT_READY")
-    result = failed(code, "The requested data target is not ready yet.", true);
-  else
-    result = failed(
-      code,
-      code.startsWith("RUNTIME_")
-        ? "The requested Insight runtime controls are invalid."
-        : "Live data could not be fetched.",
-      fallback === "FETCH_EXECUTION_FAILED",
-    );
+  if (named) {
+    result = failed(code, named.message, named.retryable === true);
+  } else {
+    const message = code.startsWith("RUNTIME_")
+      ? "The requested Insight runtime controls are invalid."
+      : "Live data could not be fetched.";
+    result = failed(code, message, fallback === "FETCH_EXECUTION_FAILED");
+  }
   const sourceGenerations = trustedPublishedSourceGenerations(error);
   if (result.status === "failed" && sourceGenerations)
     result.sourceGenerations = sourceGenerations;
