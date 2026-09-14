@@ -270,6 +270,9 @@ rule choices.
 - Every suppression needs its reason:
   `oxlint-disable-next-line <rule> -- <why>`. Never use a blanket file-level
   disable.
+- The external `check:disable-directive-policy` gate rejects blanket disables
+  and suppression of `dashframe/require-disable-reason` itself, because lint
+  rules cannot report through earlier directives that disable them.
 - Turning off a rule requires a nearby config comment stating what it flagged
   and why that result was wrong for this codebase.
 

@@ -50,16 +50,14 @@ describe("Google connector OAuth provider", () => {
     ).toThrow(/DASHFRAME_OAUTH_REDIRECT_BASE/);
     expect(
       resolveOAuthRedirectUri(
-        // Loopback HTTP is the installed-app OAuth contract under test.
-        // oxlint-disable-next-line sonarjs/no-clear-text-protocols
+        // oxlint-disable-next-line sonarjs/no-clear-text-protocols -- plain HTTP is the non-loopback input this override path is tested against
         "http://0.0.0.0:4000/api",
         "https://dashframe.example/api",
       ),
     ).toBe("https://dashframe.example/api/connectors/oauth/callback");
     expect(
       resolveOAuthRedirectUri(
-        // Loopback HTTP is the installed-app OAuth contract under test.
-        // oxlint-disable-next-line sonarjs/no-clear-text-protocols
+        // oxlint-disable-next-line sonarjs/no-clear-text-protocols -- plain HTTP is the non-loopback input this override path is tested against
         "http://0.0.0.0:4000/api",
         "https://dashframe.example",
       ),
