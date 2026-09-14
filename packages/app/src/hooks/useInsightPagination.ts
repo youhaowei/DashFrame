@@ -268,10 +268,12 @@ export function useInsightPagination({
   const activeMaterialization = useRef<{
     requestIdentity: string;
     sourceRevision: string;
+    retryGeneration: number;
   } | null>(null);
   const pendingMaterialization = useRef<{
     requestIdentity: string;
     sourceRevision: string;
+    retryGeneration: number;
   } | null>(null);
   const completedPublication = useRef<{
     requestIdentity: string;
@@ -324,6 +326,7 @@ export function useInsightPagination({
       pendingMaterialization.current = {
         requestIdentity,
         sourceRevision,
+        retryGeneration: sourceRetry,
       };
       return;
     }
@@ -369,7 +372,11 @@ export function useInsightPagination({
       });
       return;
     }
-    const activeRequest = { requestIdentity, sourceRevision };
+    const activeRequest = {
+      requestIdentity,
+      sourceRevision,
+      retryGeneration: sourceRetry,
+    };
     validResult.current = null;
     activeMaterialization.current = activeRequest;
     pendingMaterialization.current = null;
@@ -522,7 +529,8 @@ export function useInsightPagination({
         );
         const pendingRequiresRetry = Boolean(
           pending &&
-          (pending.requestIdentity !== started.requestIdentity ||
+          (pending.retryGeneration !== started.retryGeneration ||
+            pending.requestIdentity !== started.requestIdentity ||
             (pending.sourceRevision !== started.sourceRevision &&
               !ownsPendingSourceRevision &&
               !recognizesPendingSourceRevision)),
@@ -608,6 +616,13 @@ export function useInsightPagination({
     [dataTables, insight, insights, schema],
   );
 
+  const retry = () => {
+    // Explicit retries supersede a completed materialization's publication
+    // proof. Subscription updates should still use that proof automatically.
+    completedPublication.current = null;
+    setSourceRetry((value) => value + 1);
+  };
+
   return {
     dataFrameId,
     fetchData,
@@ -626,5 +641,6 @@ export function useInsightPagination({
       schema.map((column) => [column.id, column.type as ColumnType]),
     ),
     resolvedFields,
+    retry,
   };
 }

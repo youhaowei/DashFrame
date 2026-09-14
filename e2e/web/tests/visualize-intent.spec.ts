@@ -28,9 +28,16 @@ test("auto-pins a chart when landing with visualize intent", async ({
 
   // The pinned metric carries the field's display name, not the raw
   // UUID column alias.
-  const metricsSection = page.getByRole("button", { name: "Metrics 1" });
+  // Sections open by default; clicking an open one would collapse it.
+  const metricsSection = page.getByRole("button", { name: /^Metrics\b/ });
   await expect(metricsSection).toBeVisible();
-  await metricsSection.click();
+  if ((await metricsSection.getAttribute("aria-expanded")) !== "true") {
+    await metricsSection.click();
+  }
+  await expect(metricsSection).toHaveAttribute("aria-expanded", "true");
+  await expect(
+    page.getByRole("button", { name: "Edit sum(Quantity)" }),
+  ).toBeVisible();
   await expect(page.getByText("sum(Quantity)").first()).toBeVisible();
   await expect(page.getByText(/field_[0-9a-f]{8}/).first()).not.toBeVisible();
 });

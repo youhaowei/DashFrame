@@ -8,6 +8,7 @@ import {
 import { reorderVisibleMetrics } from "@/lib/insights/reorder-visible-metrics";
 import { useWebMCPPageStore } from "@/lib/stores/webmcp-page-store";
 import { api } from "@dashframe/convex-backend/api";
+import { metricIdToColumnAlias } from "@dashframe/engine";
 import type {
   Command,
   DataTable,
@@ -22,60 +23,76 @@ import {
   buildVisualizationUpdateCommands,
   cmd,
 } from "@dashframe/types";
-import { InputField } from "@dashframe/ui";
+import {
+  OverlayScrollArea,
+  WorkbenchJumpBar,
+  WorkbenchPaneHeader,
+  WorkbenchPaneSection,
+  useWorkbenchPaneSections,
+} from "@dashframe/ui";
 
-import { Badge, Panel, cn } from "@wystack/ui-react";
 import {
   ArrowUpDown,
   Columns3,
+  Eye,
   ListFilter,
   Sigma,
-  SlidersHorizontal,
-  Workflow,
+  Table2,
 } from "lucide-react";
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { toast } from "sonner";
 import { DataModelSection } from "../sections/DataModelSection";
 import {
   DeleteConfirmDialog,
   findVisualizationsUsingField,
   findVisualizationsUsingMetric,
+  type UsageStatus,
   removeFromEncoding,
   type DeleteItemType,
 } from "./DeleteConfirmDialog";
-import { FieldRenameDialog } from "./FieldRenameDialog";
 import { FieldsSection } from "./FieldsSection";
 import {
   applyFilterSave,
   stripFilterClientMetadata,
   withFilterIds,
 } from "./filter-id";
-import { FilterEditDialog } from "./FilterEditDialog";
-import { FiltersSection, type FilterWithId } from "./FiltersSection";
-import { InsightFieldEditorModal } from "./InsightFieldEditorModal";
-import { InsightMetricEditorModal } from "./InsightMetricEditorModal";
-import { MetricEditDialog } from "./MetricEditDialog";
+import {
+  FiltersSection,
+  type FilterWithId,
+  type RuntimeFilterControl,
+} from "./FiltersSection";
 import { MetricsSection } from "./MetricsSection";
-import { pruneRuntimeControls } from "./runtime-controls";
-import { RuntimeControlsSection } from "./RuntimeControlsSection";
+import { pruneRuntimeControls, stableValueSignature } from "./runtime-controls";
 import { SortSection } from "./SortSection";
 
 interface InsightConfigPanelProps {
   insight: Insight;
   dataTable: DataTable;
   allDataTables: DataTable[];
-  name: string;
-  onNameChange: (name: string) => void;
   reportId?: string;
+  /** Labels for result columns, keyed by column alias. */
+  columnDisplayNames?: Readonly<Record<string, string>>;
+  /** Coordinates dependency-sensitive removals with chart writes. */
+  getVisualizationWriteStatus?: () => {
+    pending: boolean;
+    generation: number;
+  };
 }
 
 /**
- * InsightConfigPanel - Left panel for configuring insight fields and metrics
+ * InsightConfigPanel - Sectioned workbench pane for configuring an insight.
  *
  * Features:
- * - Editable insight name in header
- * - Grouped sections for Fields (dimensions) and Metrics (aggregations)
+ * - Tables, fields, metrics, filters, sort, and viewer-control sections
  * - Drag-and-drop reordering via @dnd-kit
- * - Add/edit/remove functionality via dialog modals
+ * - Anchored popover editors that preserve pending saves
  */
 /** State for the delete confirmation dialog (minimal state, affected visualizations computed reactively) */
 interface DeleteDialogState {
@@ -96,88 +113,116 @@ export async function removeFilterThroughCommands(
   commit: (input: { commands: Command[] }) => Promise<unknown>,
   insight: Insight,
   filterId: string,
+  writeRuntimeControls = insight.runtimeControls !== undefined,
 ): Promise<void> {
   const filters = stripFilterClientMetadata(
     withFilterIds(insight.filters).filter((filter) => filter._id !== filterId),
   );
+  const runtimeControls = pruneRuntimeControls(
+    insight.runtimeControls,
+    filters,
+    [
+      ...(insight.selectedFields ?? []),
+      ...(insight.metrics ?? []).map((metric) => metric.id),
+    ],
+  );
   await commit({
-    commands: [cmd("SetInsightFilter", { id: insight.id, filters })],
+    commands: [
+      cmd("SetInsightFilter", { id: insight.id, filters }),
+      ...(writeRuntimeControls
+        ? [
+            cmd("SetInsightRuntimeControls", {
+              id: insight.id,
+              runtimeControls,
+            }),
+          ]
+        : []),
+    ],
   });
 }
 
 type ConfigSection =
-  | "model"
+  | "tables"
   | "fields"
   | "metrics"
   | "filters"
   | "sort"
-  | "runtime";
+  | "viewer";
 
-interface ConfigSectionButtonProps {
-  active: boolean;
-  count: number;
-  icon: ReactNode;
+const CONFIG_SECTIONS: Array<{
+  id: ConfigSection;
   label: string;
-  onClick: () => void;
-}
-
-function ConfigSectionButton({
-  active,
-  count,
-  icon,
-  label,
-  onClick,
-}: ConfigSectionButtonProps) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "flex h-9 min-w-0 w-full items-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors",
-        "focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none",
-        active
-          ? "bg-neutral-bg-emphasis text-neutral-fg shadow-sm"
-          : "text-neutral-fg-subtle hover:bg-neutral-bg-muted hover:text-neutral-fg",
-      )}
-      aria-pressed={active}
-      title={label}
-    >
-      {icon}
-      <span className="min-w-0 flex-1 truncate text-left">{label}</span>
-      <Badge
-        variant="soft"
-        className="h-4 min-w-4 px-1 text-[10px] leading-none tabular-nums"
-      >
-        {count}
-      </Badge>
-    </button>
-  );
-}
+  icon: typeof Table2;
+}> = [
+  { id: "tables", label: "Tables", icon: Table2 },
+  { id: "fields", label: "Fields", icon: Columns3 },
+  { id: "metrics", label: "Metrics", icon: Sigma },
+  { id: "filters", label: "Filters", icon: ListFilter },
+  { id: "sort", label: "Sort", icon: ArrowUpDown },
+  { id: "viewer", label: "Viewer controls", icon: Eye },
+];
+const CONFIG_SECTION_IDS: ConfigSection[] = CONFIG_SECTIONS.map(
+  (section) => section.id,
+);
 
 export function InsightConfigPanel({
   insight,
   dataTable,
   allDataTables,
-  name,
-  onNameChange,
   reportId,
+  columnDisplayNames,
+  getVisualizationWriteStatus = () => ({ pending: false, generation: 0 }),
 }: InsightConfigPanelProps) {
-  const [activeSection, setActiveSection] = useState<ConfigSection>("model");
-  // Modal states
-  const [isFieldEditorOpen, setIsFieldEditorOpen] = useState(false);
-  const [isMetricEditorOpen, setIsMetricEditorOpen] = useState(false);
-  const [fieldToRename, setFieldToRename] = useState<CombinedField | null>(
-    null,
-  );
-  const [metricToEdit, setMetricToEdit] = useState<InsightMetric | null>(null);
-  /** null = closed; FilterWithId = edit; "new" = add */
-  const [filterToEdit, setFilterToEdit] = useState<FilterWithId | "new" | null>(
-    null,
-  );
+  const {
+    openSections,
+    allCollapsed,
+    setSectionOpen,
+    jumpToSection,
+    toggleAll,
+    registerSection,
+  } = useWorkbenchPaneSections(CONFIG_SECTION_IDS);
   const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState>(
     initialDeleteDialogState,
   );
   const [processingVizId, setProcessingVizId] = useState<string | null>(null);
+  const [localRuntimeControls, setLocalRuntimeControls] = useState(
+    insight.runtimeControls,
+  );
+  const runtimeControlsRef = useRef(insight.runtimeControls);
+  // The latest server value, including echoes ignored while a newer write is
+  // pending. A failed write rolls back to this, not the value it started from.
+  const echoedRuntimeControlsRef = useRef(insight.runtimeControls);
+  const pendingRuntimeControlsSignatureRef = useRef<string | null>(null);
+  const runtimeControlsSignature = stableValueSignature(
+    insight.runtimeControls ?? null,
+  );
+  useEffect(() => {
+    echoedRuntimeControlsRef.current = insight.runtimeControls;
+    if (
+      pendingRuntimeControlsSignatureRef.current === null ||
+      pendingRuntimeControlsSignatureRef.current === runtimeControlsSignature
+    ) {
+      runtimeControlsRef.current = insight.runtimeControls;
+      setLocalRuntimeControls(insight.runtimeControls);
+      pendingRuntimeControlsSignatureRef.current = null;
+    }
+  }, [insight.runtimeControls, runtimeControlsSignature]);
+  const stageRuntimeControls = useCallback(
+    (runtimeControls: InsightRuntimeDeclaration | undefined) => {
+      const signature = stableValueSignature(runtimeControls ?? null);
+      runtimeControlsRef.current = runtimeControls;
+      setLocalRuntimeControls(runtimeControls);
+      pendingRuntimeControlsSignatureRef.current = signature;
+      return signature;
+    },
+    [],
+  );
+  const rollbackRuntimeControls = useCallback((signature: string) => {
+    if (pendingRuntimeControlsSignatureRef.current !== signature) return;
+    runtimeControlsRef.current = echoedRuntimeControlsRef.current;
+    setLocalRuntimeControls(echoedRuntimeControlsRef.current);
+    pendingRuntimeControlsSignatureRef.current = null;
+  }, []);
   const updateWebMCPInsight = useWebMCPPageStore(
     (state) => state.updateInsight,
   );
@@ -212,7 +257,11 @@ export function InsightConfigPanel({
     [commitBatch],
   );
   // Get visualizations for this insight to check dependencies
-  const { data: insightVisualizations = [] } = queryStatus(
+  const {
+    data: insightVisualizations = [],
+    isLoading: visualizationsLoading,
+    isError: visualizationsError,
+  } = queryStatus(
     useQuery({
       query: api.app.listVisualizations,
       args: { insightId: insight.id },
@@ -244,10 +293,9 @@ export function InsightConfigPanel({
 
   // Fields that can actually back a filter predicate — excludes dropped right
   // join-keys and ambiguous duplicate column names that the SQL builder cannot
-  // resolve. Offered in the FilterEditDialog picker so a saved filter always
-  // produces a working predicate. (FiltersSection still receives the full
-  // combinedFields, so an existing filter on an excluded field renders by name
-  // rather than as a stale reference.)
+  // resolve. Offered in the filter popover picker so a saved filter always
+  // produces a working predicate. FiltersSection also receives combinedFields
+  // so excluded or stale selections retain their display treatment.
   const filterableFields = useMemo(
     () => computeFilterableFields(combinedFields, insight.joins),
     [combinedFields, insight.joins],
@@ -287,7 +335,8 @@ export function InsightConfigPanel({
   );
 
   const handleRuntimeControlsChange = useCallback(
-    (runtimeControls: InsightRuntimeDeclaration | undefined) => {
+    async (runtimeControls: InsightRuntimeDeclaration | undefined) => {
+      const nextSignature = stageRuntimeControls(runtimeControls);
       const commands = runtimeControls
         ? buildInsightUpdateCommands(insight.id, insight, { runtimeControls })
         : [
@@ -296,9 +345,16 @@ export function InsightConfigPanel({
               runtimeControls: undefined,
             }),
           ];
-      return commitBatch({ commands }).then(() => undefined);
+      try {
+        await commitBatch({ commands });
+        return true;
+      } catch {
+        rollbackRuntimeControls(nextSignature);
+        toast.error("Failed to update viewer controls");
+        return false;
+      }
     },
-    [commitBatch, insight],
+    [commitBatch, insight, rollbackRuntimeControls, stageRuntimeControls],
   );
 
   /**
@@ -306,7 +362,7 @@ export function InsightConfigPanel({
    * matching an in-flight edit back to its predicate on save.
    *
    * `_id` is sourced from the filter's persisted `id` (generated on add by
-   * FilterEditDialog and the API write boundary, then preserved across
+   * the filter popover and the API write boundary, then preserved across
    * persistence round-trips). This survives a subscription firing mid-edit — a
    * concurrent reorder no longer shifts the id, so handleSaveFilter cannot
    * misroute the save to the wrong filter.
@@ -331,37 +387,75 @@ export function InsightConfigPanel({
     [insight.id, updateInsight, updateWebMCPInsight],
   );
 
+  const latestInsightRef = useRef(insight);
+  useEffect(() => {
+    latestInsightRef.current = insight;
+  }, [insight]);
+
   // --- Field handlers ---
-  const handleFieldsReorder = useCallback(
-    (newOrder: string[]) => {
-      updateInsight(insight.id, { selectedFields: newOrder });
+  // Full selected-field lists share one queue. Each add, reorder, or removal
+  // composes from the last successful write until its subscription echo.
+  const succeededSelectedFieldsRef = useRef<UUID[] | null>(null);
+  const selectedFieldWriteQueueRef = useRef<Promise<unknown>>(
+    Promise.resolve(),
+  );
+  useEffect(() => {
+    succeededSelectedFieldsRef.current = null;
+  }, [insight.selectedFields]);
+  const writeSelectedFields = useCallback(
+    (
+      compose: (base: UUID[]) => UUID[],
+      extraCommands: (current: Insight, next: UUID[]) => Command[] = () => [],
+    ) => {
+      const write = selectedFieldWriteQueueRef.current.then(async () => {
+        const current = latestInsightRef.current;
+        const base = succeededSelectedFieldsRef.current ?? [
+          ...(current.selectedFields ?? []),
+        ];
+        const next = compose(base);
+        const commands = [
+          ...buildInsightUpdateCommands(
+            current.id,
+            { ...current, selectedFields: base },
+            { selectedFields: next },
+          ),
+          ...extraCommands(current, next),
+        ];
+        if (commands.length === 0) return;
+        await commitBatch({ commands });
+        succeededSelectedFieldsRef.current = next;
+      });
+      selectedFieldWriteQueueRef.current = write.catch(() => {});
+      return write;
     },
-    [insight.id, updateInsight],
+    [commitBatch],
   );
 
-  const handleRemoveField = useCallback(
-    (fieldId: string) => {
-      // Find the field to get its name
-      const field = combinedFields.find((f) => f.id === fieldId);
-      if (!field) return;
-
-      // Open delete confirmation dialog (affected visualizations computed reactively)
-      setDeleteDialog({
-        isOpen: true,
-        itemId: fieldId,
-        itemName: field.displayName,
-        itemType: "field",
+  const handleFieldsReorder = useCallback(
+    (newOrder: string[]) => {
+      void writeSelectedFields((fields) => {
+        const surviving = new Set(fields);
+        const seen = new Set<string>();
+        const reorderedSurvivors = newOrder.flatMap((id) => {
+          if (!surviving.has(id as UUID) || seen.has(id)) return [];
+          seen.add(id);
+          return [id as UUID];
+        });
+        return [...reorderedSurvivors, ...fields.filter((id) => !seen.has(id))];
       });
     },
-    [combinedFields],
+    [writeSelectedFields],
   );
 
   const handleAddField = useCallback(
     (fieldId: string) => {
-      const updated = [...(insight.selectedFields ?? []), fieldId];
-      updateInsight(insight.id, { selectedFields: updated });
+      void writeSelectedFields((fields) =>
+        fields.includes(fieldId as UUID)
+          ? fields
+          : [...fields, fieldId as UUID],
+      );
     },
-    [insight.id, insight.selectedFields, updateInsight],
+    [writeSelectedFields],
   );
 
   const handleRenameField = useCallback(
@@ -382,83 +476,250 @@ export function InsightConfigPanel({
   );
 
   // --- Metric handlers ---
-  const handleMetricsReorder = useCallback(
-    (newOrder: InsightMetric[]) => {
-      updateInsight(insight.id, {
-        metrics: reorderVisibleMetrics(insight.metrics ?? [], newOrder),
+  // Metric popovers save independently. Writes run one at a time, and each
+  // composes when it starts against the last successful list, so a save never
+  // drops an earlier one and a failed save never lingers in a later diff base.
+  // A successful write whose echo may not have rendered yet.
+  const succeededMetricsRef = useRef<InsightMetric[] | null>(null);
+  const metricWriteQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+  useEffect(() => {
+    succeededMetricsRef.current = null;
+  }, [insight.metrics]);
+  const writeMetrics = useCallback(
+    (
+      compose: (base: InsightMetric[]) => InsightMetric[],
+      extraCommands: (next: InsightMetric[]) => Command[] = () => [],
+    ) => {
+      const write = metricWriteQueueRef.current.then(async () => {
+        const current = latestInsightRef.current;
+        const base = succeededMetricsRef.current ?? current.metrics ?? [];
+        const next = compose(base);
+        const commands = [
+          ...buildInsightUpdateCommands(
+            current.id,
+            { ...current, metrics: base },
+            { metrics: next },
+          ),
+          ...extraCommands(next),
+        ];
+        if (commands.length === 0) return;
+        await commitBatch({ commands });
+        succeededMetricsRef.current = next;
       });
+      metricWriteQueueRef.current = write.catch(() => {});
+      return write;
     },
-    [insight.id, insight.metrics, updateInsight],
+    [commitBatch],
   );
 
-  const handleRemoveMetric = useCallback(
-    (metricId: string) => {
-      // Find the metric to get its name
-      const metric = (insight.metrics ?? []).find((m) => m.id === metricId);
-      if (!metric) return;
-
-      // Open delete confirmation dialog (affected visualizations computed reactively)
-      setDeleteDialog({
-        isOpen: true,
-        itemId: metricId,
-        itemName: metric.name,
-        itemType: "metric",
-      });
+  const handleMetricsReorder = useCallback(
+    (newOrder: InsightMetric[]) => {
+      void writeMetrics((metrics) => reorderVisibleMetrics(metrics, newOrder));
     },
-    [insight.metrics],
+    [writeMetrics],
   );
 
   const handleAddMetric = useCallback(
-    async (metric: InsightMetric) => {
-      const updated = [...(insight.metrics ?? []), metric];
-      await updateInsight(insight.id, { metrics: updated });
-    },
-    [insight.id, insight.metrics, updateInsight],
+    (metric: InsightMetric) => writeMetrics((metrics) => [...metrics, metric]),
+    [writeMetrics],
   );
 
   const handleEditMetric = useCallback(
-    async (updatedMetric: InsightMetric) => {
-      const updated = (insight.metrics ?? []).map((m) =>
-        m.id === updatedMetric.id ? updatedMetric : m,
-      );
-      await updateInsight(insight.id, { metrics: updated });
-    },
-    [insight.id, insight.metrics, updateInsight],
+    (updatedMetric: InsightMetric) =>
+      writeMetrics((metrics) => {
+        if (!metrics.some((metric) => metric.id === updatedMetric.id)) {
+          throw new Error("Metric no longer exists");
+        }
+        return metrics.map((metric) =>
+          metric.id === updatedMetric.id ? updatedMetric : metric,
+        );
+      }),
+    [writeMetrics],
   );
 
   // --- Filter handlers ---
+  // Filter popovers can save independently. Serialize their full-list writes
+  // and compose each one from the last successful list until its echo renders.
+  const succeededFiltersRef = useRef<Insight["filters"] | null>(null);
+  const filterWriteQueueRef = useRef<Promise<unknown> | null>(null);
+  useEffect(() => {
+    succeededFiltersRef.current = null;
+  }, [insight.filters]);
+  const writeFilters = useCallback(
+    (
+      run: (
+        baseFilters: NonNullable<Insight["filters"]>,
+        current: Insight,
+      ) => Promise<NonNullable<Insight["filters"]>>,
+    ) => {
+      const execute = async () => {
+        const current = latestInsightRef.current;
+        const baseFilters =
+          succeededFiltersRef.current ?? current.filters ?? [];
+        const nextFilters = await run(baseFilters, current);
+        succeededFiltersRef.current = nextFilters;
+      };
+      const previous = filterWriteQueueRef.current;
+      // Start the first write synchronously so its ordering relative to viewer
+      // control edits matches the user's event order. Later filter mutations
+      // compose after the prior one succeeds or fails.
+      const write = previous ? previous.then(execute) : execute();
+      const tail = write.catch(() => {});
+      filterWriteQueueRef.current = tail;
+      tail
+        .then(() => {
+          if (filterWriteQueueRef.current === tail) {
+            filterWriteQueueRef.current = null;
+          }
+        })
+        .catch(() => {});
+      return write;
+    },
+    [],
+  );
   const handleFiltersReorder = useCallback(
     (reordered: FilterWithId[]) => {
-      const pendingFilters = stripFilterClientMetadata(reordered);
-      updateWebMCPInsight(insight.id, { pendingFilters });
-      updateInsight(insight.id, { filters: pendingFilters }).finally(() => {
-        const live = useWebMCPPageStore.getState().insight;
-        if (
-          live?.insightId === insight.id &&
-          live.pendingFilters === pendingFilters
-        ) {
-          updateWebMCPInsight(insight.id, { pendingFilters: undefined });
+      writeFilters(async (baseFilters, current) => {
+        const baseWithIds = withFilterIds(baseFilters);
+        const byId = new Map(baseWithIds.map((filter) => [filter._id, filter]));
+        const reorderedIds = new Set<string>();
+        const reorderedSurvivors = reordered.flatMap((filter) => {
+          const survivor = byId.get(filter._id);
+          if (!survivor || reorderedIds.has(filter._id)) return [];
+          reorderedIds.add(filter._id);
+          return [survivor];
+        });
+        const pendingFilters = stripFilterClientMetadata([
+          ...reorderedSurvivors,
+          ...baseWithIds.filter((filter) => !reorderedIds.has(filter._id)),
+        ]);
+        updateWebMCPInsight(current.id, { pendingFilters });
+        try {
+          await updateInsight(current.id, { filters: pendingFilters });
+          return pendingFilters;
+        } finally {
+          const live = useWebMCPPageStore.getState().insight;
+          if (
+            live?.insightId === current.id &&
+            live.pendingFilters === pendingFilters
+          ) {
+            updateWebMCPInsight(current.id, { pendingFilters: undefined });
+          }
         }
-      });
+      }).catch(() => {});
     },
-    [insight.id, updateInsight, updateWebMCPInsight],
+    [updateInsight, updateWebMCPInsight, writeFilters],
   );
 
   const handleRemoveFilter = useCallback(
     (filterId: string) => {
-      void removeFilterThroughCommands(commitBatch, insight, filterId);
+      writeFilters(async (baseFilters, current) => {
+        const baseRuntimeControls = runtimeControlsRef.current;
+        const filters = stripFilterClientMetadata(
+          withFilterIds(baseFilters).filter(
+            (filter) => filter._id !== filterId,
+          ),
+        );
+        const nextRuntimeControls = pruneRuntimeControls(
+          baseRuntimeControls,
+          filters,
+          [
+            ...(current.selectedFields ?? []),
+            ...(current.metrics ?? []).map((metric) => metric.id),
+          ],
+        );
+        const writesRuntimeControls =
+          pendingRuntimeControlsSignatureRef.current !== null ||
+          stableValueSignature(nextRuntimeControls) !==
+            stableValueSignature(current.runtimeControls);
+        const signature = writesRuntimeControls
+          ? stageRuntimeControls(nextRuntimeControls)
+          : null;
+        try {
+          await removeFilterThroughCommands(
+            commitBatch,
+            {
+              ...current,
+              filters: baseFilters,
+              runtimeControls: baseRuntimeControls,
+            },
+            filterId,
+            writesRuntimeControls,
+          );
+          return filters;
+        } catch (error) {
+          if (signature) rollbackRuntimeControls(signature);
+          throw error;
+        }
+      }).catch(() => {});
     },
-    [commitBatch, insight],
+    [commitBatch, rollbackRuntimeControls, stageRuntimeControls, writeFilters],
   );
 
   const handleSaveFilter = useCallback(
-    async (saved: FilterWithId) => {
-      const updated = applyFilterSave(filtersWithIds, saved);
-      await updateInsight(insight.id, {
-        filters: stripFilterClientMetadata(updated),
+    (saved: FilterWithId, runtimeControl: RuntimeFilterControl | undefined) => {
+      return writeFilters(async (baseFilters, current) => {
+        const updated = applyFilterSave(withFilterIds(baseFilters), saved);
+        const nextFilters = stripFilterClientMetadata(updated);
+        const baseRuntimeControls = runtimeControlsRef.current;
+        const controls = [...(baseRuntimeControls?.filters ?? [])];
+        const controlIndex = controls.findIndex(
+          (control) => control.filterId === saved.id,
+        );
+        if (runtimeControl && controlIndex >= 0) {
+          controls[controlIndex] = runtimeControl;
+        } else if (runtimeControl) {
+          controls.push(runtimeControl);
+        } else if (controlIndex >= 0) {
+          controls.splice(controlIndex, 1);
+        }
+        const runtimeControls: InsightRuntimeDeclaration = {
+          ...baseRuntimeControls,
+          filters: controls.length > 0 ? controls : undefined,
+        };
+        const nextRuntimeControls =
+          runtimeControls.filters ||
+          runtimeControls.sort ||
+          runtimeControls.limit
+            ? runtimeControls
+            : undefined;
+        const updates: Partial<Omit<Insight, "id" | "createdAt">> = {
+          filters: nextFilters,
+        };
+        const writesRuntimeControls =
+          stableValueSignature(nextRuntimeControls) !==
+          stableValueSignature(baseRuntimeControls);
+        if (writesRuntimeControls) {
+          updates.runtimeControls = nextRuntimeControls;
+        }
+        const nextSignature = stableValueSignature(nextRuntimeControls ?? null);
+        if (writesRuntimeControls) {
+          stageRuntimeControls(nextRuntimeControls);
+        }
+        const commands = buildInsightUpdateCommands(
+          current.id,
+          {
+            ...current,
+            filters: baseFilters,
+            runtimeControls: baseRuntimeControls,
+          },
+          updates,
+        );
+        try {
+          await commitBatch({ commands });
+          return nextFilters;
+        } catch (error) {
+          if (
+            writesRuntimeControls &&
+            pendingRuntimeControlsSignatureRef.current === nextSignature
+          ) {
+            rollbackRuntimeControls(nextSignature);
+          }
+          throw error;
+        }
       });
     },
-    [insight.id, filtersWithIds, updateInsight],
+    [commitBatch, rollbackRuntimeControls, stageRuntimeControls, writeFilters],
   );
 
   const handleFilterDraftChange = useCallback(
@@ -468,7 +729,7 @@ export function InsightConfigPanel({
         return;
       }
       const pending =
-        filterToEdit === "new"
+        draft._id === "__new__"
           ? [...filtersWithIds, draft]
           : filtersWithIds.map((filter) =>
               filter._id === draft._id ? draft : filter,
@@ -477,7 +738,7 @@ export function InsightConfigPanel({
         pendingFilters: stripFilterClientMetadata(pending),
       });
     },
-    [filterToEdit, filtersWithIds, insight.id, updateWebMCPInsight],
+    [filtersWithIds, insight.id, updateWebMCPInsight],
   );
 
   // --- Delete dialog handlers ---
@@ -532,224 +793,397 @@ export function InsightConfigPanel({
     [removeVisualizationMutation],
   );
 
-  const handleConfirmDelete = useCallback(() => {
-    if (deleteDialog.itemType === "field") {
-      const updated = (insight.selectedFields ?? []).filter(
-        (id) => id !== deleteDialog.itemId,
-      );
-      updateInsight(insight.id, {
-        selectedFields: updated,
-        runtimeControls: pruneRuntimeControls(
-          insight.runtimeControls,
-          insight.filters ?? [],
-          [...updated, ...(insight.metrics ?? []).map((metric) => metric.id)],
-        ),
+  const removeConfigItem = useCallback(
+    (
+      itemType: DeleteDialogState["itemType"],
+      itemId: string,
+      requestedWriteGeneration = getVisualizationWriteStatus().generation,
+    ) => {
+      if (getVisualizationWriteStatus().pending) {
+        toast.error(
+          "Wait for the chart update to finish before removing this item",
+        );
+        return;
+      }
+      if (itemType === "field") {
+        let signature: string | null = null;
+        writeSelectedFields(
+          (fields) => {
+            const writeStatus = getVisualizationWriteStatus();
+            if (
+              writeStatus.pending ||
+              writeStatus.generation !== requestedWriteGeneration
+            ) {
+              throw new Error("Visualization update still pending");
+            }
+            return fields.filter((id) => id !== itemId);
+          },
+          (current, fields) => {
+            const nextRuntimeControls = pruneRuntimeControls(
+              runtimeControlsRef.current,
+              current.filters ?? [],
+              [
+                ...fields,
+                ...(current.metrics ?? []).map((metric) => metric.id),
+              ],
+            );
+            if (
+              pendingRuntimeControlsSignatureRef.current === null &&
+              stableValueSignature(nextRuntimeControls) ===
+                stableValueSignature(echoedRuntimeControlsRef.current)
+            ) {
+              return [];
+            }
+            signature = stageRuntimeControls(nextRuntimeControls);
+            return [
+              cmd("SetInsightRuntimeControls", {
+                id: current.id,
+                runtimeControls: nextRuntimeControls,
+              }),
+            ];
+          },
+        ).catch(() => {
+          if (signature) rollbackRuntimeControls(signature);
+        });
+      } else {
+        // Prune viewer controls when the queued removal runs, so it builds on
+        // any viewer-control save made while earlier metric writes were pending.
+        let signature: string | null = null;
+        writeMetrics(
+          (metrics) => {
+            const writeStatus = getVisualizationWriteStatus();
+            if (
+              writeStatus.pending ||
+              writeStatus.generation !== requestedWriteGeneration
+            ) {
+              throw new Error("Visualization update still pending");
+            }
+            return metrics.filter((metric) => metric.id !== itemId);
+          },
+          (metrics) => {
+            const current = latestInsightRef.current;
+            const nextRuntimeControls = pruneRuntimeControls(
+              runtimeControlsRef.current,
+              current.filters ?? [],
+              [
+                ...(current.selectedFields ?? []),
+                ...metrics.map((metric) => metric.id),
+              ],
+            );
+            if (
+              pendingRuntimeControlsSignatureRef.current === null &&
+              stableValueSignature(nextRuntimeControls) ===
+                stableValueSignature(echoedRuntimeControlsRef.current)
+            ) {
+              return [];
+            }
+            signature = stageRuntimeControls(nextRuntimeControls);
+            return [
+              cmd("SetInsightRuntimeControls", {
+                id: current.id,
+                runtimeControls: nextRuntimeControls,
+              }),
+            ];
+          },
+        ).catch(() => {
+          if (signature) rollbackRuntimeControls(signature);
+        });
+      }
+    },
+    [
+      rollbackRuntimeControls,
+      stageRuntimeControls,
+      writeMetrics,
+      writeSelectedFields,
+      getVisualizationWriteStatus,
+    ],
+  );
+
+  const handleConfirmDelete = useCallback(
+    () => removeConfigItem(deleteDialog.itemType, deleteDialog.itemId),
+    [deleteDialog.itemId, deleteDialog.itemType, removeConfigItem],
+  );
+
+  // Removing a field or metric no saved chart uses applies immediately; it
+  // still prunes any viewer controls tied to the item. Confirm when a chart
+  // depends on it, or when the chart list hasn't loaded and that is unknown.
+  const visualizationsKnown = !visualizationsLoading && !visualizationsError;
+  let usageStatus: UsageStatus = "known";
+  if (visualizationsLoading) usageStatus = "loading";
+  else if (visualizationsError) usageStatus = "error";
+  const handleRemoveField = useCallback(
+    (fieldId: string) => {
+      const writeStatus = getVisualizationWriteStatus();
+      if (writeStatus.pending) {
+        toast.error(
+          "Wait for the chart update to finish before removing this field",
+        );
+        return;
+      }
+      const field = combinedFields.find((f) => f.id === fieldId);
+      if (!field) return;
+      if (
+        visualizationsKnown &&
+        findVisualizationsUsingField(fieldId, insightVisualizations).length ===
+          0
+      ) {
+        removeConfigItem("field", fieldId, writeStatus.generation);
+        return;
+      }
+      setDeleteDialog({
+        isOpen: true,
+        itemId: fieldId,
+        itemName: field.displayName,
+        itemType: "field",
       });
-    } else {
-      const updated = (insight.metrics ?? []).filter(
-        (m) => m.id !== deleteDialog.itemId,
-      );
-      updateInsight(insight.id, {
-        metrics: updated,
-        runtimeControls: pruneRuntimeControls(
-          insight.runtimeControls,
-          insight.filters ?? [],
-          [
-            ...(insight.selectedFields ?? []),
-            ...updated.map((metric) => metric.id),
-          ],
-        ),
+    },
+    [
+      combinedFields,
+      insightVisualizations,
+      removeConfigItem,
+      visualizationsKnown,
+      getVisualizationWriteStatus,
+    ],
+  );
+
+  const handleRemoveMetric = useCallback(
+    (metricId: string) => {
+      const writeStatus = getVisualizationWriteStatus();
+      if (writeStatus.pending) {
+        toast.error(
+          "Wait for the chart update to finish before removing this metric",
+        );
+        return;
+      }
+      const metric = (insight.metrics ?? []).find((m) => m.id === metricId);
+      if (!metric) return;
+      if (
+        visualizationsKnown &&
+        findVisualizationsUsingMetric(metricId, insightVisualizations)
+          .length === 0
+      ) {
+        removeConfigItem("metric", metricId, writeStatus.generation);
+        return;
+      }
+      setDeleteDialog({
+        isOpen: true,
+        itemId: metricId,
+        itemName: metric.name,
+        itemType: "metric",
       });
-    }
-  }, [
-    deleteDialog.itemType,
-    deleteDialog.itemId,
-    insight.id,
-    insight.selectedFields,
-    insight.metrics,
-    insight.filters,
-    insight.runtimeControls,
-    updateInsight,
-  ]);
+    },
+    [
+      insight.metrics,
+      insightVisualizations,
+      removeConfigItem,
+      visualizationsKnown,
+      getVisualizationWriteStatus,
+    ],
+  );
+
+  const resultLabelById = new Map(
+    runtimeResultFields.map((field) => [field.id, field.label]),
+  );
+  const filterLabelById = new Map(
+    filtersWithIds.flatMap((filter) =>
+      filter.id
+        ? [
+            [
+              filter.id,
+              combinedFields.find(
+                (field) => (field.columnName ?? field.name) === filter.field,
+              )?.displayName ?? filter.field,
+            ] as const,
+          ]
+        : [],
+    ),
+  );
+  const viewerControls = [
+    ...(localRuntimeControls?.filters ?? []).map((control) => ({
+      label: control.label,
+      target: `${filterLabelById.get(control.filterId) ?? "Filter"} filter`,
+    })),
+    ...(localRuntimeControls?.sort
+      ? [
+          {
+            label: "Sort",
+            target: localRuntimeControls.sort.allowedFieldIds
+              .map((id) => resultLabelById.get(id) ?? id)
+              .join(", "),
+          },
+        ]
+      : []),
+    ...(localRuntimeControls?.limit
+      ? [
+          {
+            label: "Limit",
+            target: `${localRuntimeControls.limit.min}–${localRuntimeControls.limit.max} rows`,
+          },
+        ]
+      : []),
+  ];
+  const summaries: Record<ConfigSection, string> = {
+    tables: [
+      dataTable.name,
+      ...(insight.joins ?? []).map(
+        (join) =>
+          allDataTables.find((table) => table.id === join.rightTableId)?.name ??
+          "Unknown table",
+      ),
+    ].join(", "),
+    fields:
+      selectedFields.map((field) => field.displayName).join(", ") || "None",
+    metrics: visibleMetrics.map((metric) => metric.name).join(", ") || "None",
+    filters:
+      filtersWithIds
+        .map(
+          (filter) =>
+            combinedFields.find(
+              (field) => (field.columnName ?? field.name) === filter.field,
+            )?.displayName ?? filter.field,
+        )
+        .join(", ") || "None",
+    sort:
+      sorts
+        .map((sort) => {
+          const field = selectedFields.find(
+            (candidate) =>
+              (candidate.columnName ?? candidate.name) === sort.field,
+          );
+          const metric = visibleMetrics.find(
+            (candidate) => metricIdToColumnAlias(candidate.id) === sort.field,
+          );
+          return `${field?.displayName ?? metric?.name ?? sort.field} ${sort.direction}`;
+        })
+        .join(", ") || "None",
+    viewer: viewerControls.map((control) => control.label).join(", ") || "None",
+  };
+  const renderSection = (id: ConfigSection, children: ReactNode) => {
+    const section = CONFIG_SECTIONS.find((item) => item.id === id)!;
+    return (
+      <WorkbenchPaneSection
+        key={id}
+        ref={registerSection(id)}
+        title={section.label}
+        icon={section.icon}
+        open={openSections[id]}
+        summary={summaries[id]}
+        onOpenChange={(open) => setSectionOpen(id, open)}
+      >
+        {children}
+      </WorkbenchPaneSection>
+    );
+  };
 
   return (
-    <Panel
-      header={
-        <div>
-          <div className="p-4 pb-3">
-            <InputField
-              label="Name"
-              value={name}
-              onChange={onNameChange}
-              placeholder="Insight name"
-              className="text-lg font-semibold"
-            />
-          </div>
-          <div
-            className="grid grid-cols-2 gap-1 px-2 pb-2"
-            aria-label="Data model sections"
-          >
-            <ConfigSectionButton
-              active={activeSection === "model"}
-              count={(insight.joins?.length ?? 0) + 1}
-              icon={<Workflow className="h-3.5 w-3.5" />}
-              label="Model"
-              onClick={() => setActiveSection("model")}
-            />
-            <ConfigSectionButton
-              active={activeSection === "fields"}
-              count={selectedFields.length}
-              icon={<Columns3 className="h-3.5 w-3.5" />}
-              label="Fields"
-              onClick={() => setActiveSection("fields")}
-            />
-            <ConfigSectionButton
-              active={activeSection === "metrics"}
-              count={visibleMetrics.length}
-              icon={<Sigma className="h-3.5 w-3.5" />}
-              label="Metrics"
-              onClick={() => setActiveSection("metrics")}
-            />
-            <ConfigSectionButton
-              active={activeSection === "filters"}
-              count={filtersWithIds.length}
-              icon={<ListFilter className="h-3.5 w-3.5" />}
-              label="Filters"
-              onClick={() => setActiveSection("filters")}
-            />
-            <ConfigSectionButton
-              active={activeSection === "sort"}
-              count={sorts.length}
-              icon={<ArrowUpDown className="h-3.5 w-3.5" />}
-              label="Sort"
-              onClick={() => setActiveSection("sort")}
-            />
-            <ConfigSectionButton
-              active={activeSection === "runtime"}
-              count={
-                (insight.runtimeControls?.filters?.length ?? 0) +
-                (insight.runtimeControls?.sort ? 1 : 0) +
-                (insight.runtimeControls?.limit ? 1 : 0)
-              }
-              icon={<SlidersHorizontal className="h-3.5 w-3.5" />}
-              label="Runtime"
-              onClick={() => setActiveSection("runtime")}
-            />
-          </div>
-        </div>
-      }
-    >
-      <div>
-        {activeSection === "model" && (
-          <div className="p-4">
+    <div className="flex h-full flex-col bg-neutral-bg text-xs">
+      <WorkbenchPaneHeader title="Insight">
+        <WorkbenchJumpBar
+          items={CONFIG_SECTIONS}
+          onJump={(id) => jumpToSection(id as ConfigSection)}
+          allCollapsed={allCollapsed}
+          onToggleAll={toggleAll}
+        />
+      </WorkbenchPaneHeader>
+      <OverlayScrollArea className="min-h-0 flex-1">
+        <div className="px-3 pb-3">
+          {renderSection(
+            "tables",
             <DataModelSection
               insight={insight}
               dataTable={dataTable}
               allDataTables={allDataTables}
-              combinedFieldCount={combinedFields.length}
-              compact
               reportId={reportId}
-            />
-          </div>
-        )}
-        {activeSection === "fields" && (
-          <FieldsSection
-            selectedFields={selectedFields}
-            baseTableId={dataTable.id}
-            onReorder={handleFieldsReorder}
-            onRemove={handleRemoveField}
-            onRenameClick={setFieldToRename}
-            onAddClick={() => setIsFieldEditorOpen(true)}
-            embedded
-          />
-        )}
-        {activeSection === "metrics" && (
-          <MetricsSection
-            metrics={visibleMetrics}
-            onReorder={handleMetricsReorder}
-            onRemove={handleRemoveMetric}
-            onEditClick={setMetricToEdit}
-            onAddClick={() => setIsMetricEditorOpen(true)}
-            embedded
-          />
-        )}
-        {activeSection === "filters" && (
-          <FiltersSection
-            filters={filtersWithIds}
-            combinedFields={combinedFields}
-            onReorder={handleFiltersReorder}
-            onRemove={handleRemoveFilter}
-            onEditClick={setFilterToEdit}
-            onAddClick={() => setFilterToEdit("new")}
-            embedded
-          />
-        )}
-        {activeSection === "sort" && (
-          <SortSection
-            sorts={sorts}
-            fields={selectedFields}
-            metrics={visibleMetrics}
-            onChange={handleSortsChange}
-          />
-        )}
-        {activeSection === "runtime" && (
-          <RuntimeControlsSection
-            declaration={insight.runtimeControls}
-            filters={insight.filters ?? []}
-            resultFields={runtimeResultFields}
-            onChange={handleRuntimeControlsChange}
-          />
-        )}
-      </div>
-
-      <InsightFieldEditorModal
-        isOpen={isFieldEditorOpen}
-        onOpenChange={setIsFieldEditorOpen}
-        availableFields={availableFields}
-        baseTableId={dataTable.id}
-        onSelect={handleAddField}
-      />
-      <InsightMetricEditorModal
-        isOpen={isMetricEditorOpen}
-        onOpenChange={setIsMetricEditorOpen}
-        dataTable={dataTable}
-        onSave={handleAddMetric}
-      />
-      <FieldRenameDialog
-        field={fieldToRename}
-        tableName={
-          fieldToRename
-            ? allDataTables.find((t) => t.id === fieldToRename.sourceTableId)
-                ?.name
-            : undefined
-        }
-        onOpenChange={(open) => !open && setFieldToRename(null)}
-        onSave={handleRenameField}
-      />
-      <MetricEditDialog
-        metric={metricToEdit}
-        dataTable={dataTable}
-        onOpenChange={(open) => !open && setMetricToEdit(null)}
-        onSave={handleEditMetric}
-      />
-      <FilterEditDialog
-        filter={filterToEdit}
-        combinedFields={filterableFields}
-        onOpenChange={(open) => !open && setFilterToEdit(null)}
-        onSave={handleSaveFilter}
-        onDraftChange={handleFilterDraftChange}
-      />
+            />,
+          )}
+          {renderSection(
+            "fields",
+            <FieldsSection
+              selectedFields={selectedFields}
+              availableFields={availableFields}
+              tables={[
+                dataTable,
+                ...allDataTables.filter((table) => table.id !== dataTable.id),
+              ]}
+              baseTableId={dataTable.id}
+              onReorder={handleFieldsReorder}
+              onRemove={handleRemoveField}
+              onRename={handleRenameField}
+              onAdd={handleAddField}
+            />,
+          )}
+          {renderSection(
+            "metrics",
+            <MetricsSection
+              metrics={visibleMetrics}
+              dataTable={dataTable}
+              columnDisplayNames={columnDisplayNames}
+              onReorder={handleMetricsReorder}
+              onRemove={handleRemoveMetric}
+              onAdd={handleAddMetric}
+              onEdit={handleEditMetric}
+            />,
+          )}
+          {renderSection(
+            "filters",
+            <FiltersSection
+              filters={filtersWithIds}
+              combinedFields={filterableFields}
+              displayFields={combinedFields}
+              runtimeControls={localRuntimeControls}
+              onReorder={handleFiltersReorder}
+              onRemove={handleRemoveFilter}
+              onSave={handleSaveFilter}
+              onDraftChange={handleFilterDraftChange}
+            />,
+          )}
+          {renderSection(
+            "sort",
+            <SortSection
+              sorts={sorts}
+              fields={selectedFields}
+              metrics={visibleMetrics}
+              runtimeControls={localRuntimeControls}
+              onChange={handleSortsChange}
+              onRuntimeChange={handleRuntimeControlsChange}
+            />,
+          )}
+          {renderSection(
+            "viewer",
+            viewerControls.length > 0 ? (
+              <dl className="space-y-1 px-1">
+                {viewerControls.map((control) => (
+                  <div
+                    key={`${control.label}:${control.target}`}
+                    className="flex gap-3"
+                  >
+                    <dt className="min-w-0 flex-1 truncate font-medium">
+                      {control.label}
+                    </dt>
+                    <dd className="min-w-0 flex-1 truncate text-right text-neutral-fg-subtle">
+                      {control.target}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            ) : (
+              <p className="px-1 text-neutral-fg-subtle">Nothing exposed.</p>
+            ),
+          )}
+        </div>
+      </OverlayScrollArea>
       <DeleteConfirmDialog
         isOpen={deleteDialog.isOpen}
         itemName={deleteDialog.itemName}
         itemType={deleteDialog.itemType}
         affectedVisualizations={affectedVisualizations}
+        usageStatus={usageStatus}
         processingVizId={processingVizId}
         onClose={handleCloseDeleteDialog}
         onRemoveFromVisualization={handleRemoveFromVisualization}
         onDeleteVisualization={handleDeleteVisualization}
         onDelete={handleConfirmDelete}
       />
-    </Panel>
+    </div>
   );
 }

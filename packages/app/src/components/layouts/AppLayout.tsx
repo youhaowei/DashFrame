@@ -19,7 +19,7 @@ type AppLayoutBaseProps = {
 
 type AppLayoutHeaderProps =
   | {
-      /** Complete header override. Cannot be combined with breadcrumbs or headerContent; its perf marker is the generic `layout:page`. */
+      /** Complete header override; pass `null` to render no header. Cannot be combined with breadcrumbs or headerContent; its perf marker is the generic `layout:page`. */
       pageHeader: ReactNode;
       breadcrumbs?: never;
       headerContent?: never;
@@ -81,7 +81,10 @@ export function AppLayout({
       )}
     >
       {/* Sticky Header */}
-      {pageHeader ?? (
+      {/* `null` opts out of the header; `undefined` renders the default. */}
+      {pageHeader !== undefined ? (
+        pageHeader
+      ) : (
         <header className="sticky top-0 z-10 shrink-0 border-b bg-neutral-bg/90 backdrop-blur-sm">
           <div className="container mx-auto px-8 py-4">
             <div className="flex items-center justify-between gap-6">

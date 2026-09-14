@@ -21,6 +21,8 @@ interface SelectOption {
 
 interface SelectProps {
   label?: string;
+  /** Accessible name for the trigger when the visual label is elsewhere. */
+  ariaLabel?: string;
   /** Optional React node to render alongside the label (e.g., warning badges, help icons) */
   labelAddon?: React.ReactNode;
   value: string;
@@ -29,19 +31,26 @@ interface SelectProps {
   placeholder?: string;
   className?: string;
   onClear?: () => void;
+  /** Render an unselected trigger as an empty dashed slot. */
+  emptyDashed?: boolean;
+  disabled?: boolean;
   /** Error message to display below the field */
   error?: string;
 }
 
 export function Select({
   label,
+  ariaLabel,
   labelAddon,
   value,
   onChange,
   options,
   placeholder = "Select an option...",
   className,
+  onClear,
   error,
+  emptyDashed = false,
+  disabled = false,
 }: SelectProps) {
   const selectedOption = options.find((option) => option.value === value);
   const items = options.map((option) => ({
@@ -50,26 +59,45 @@ export function Select({
   }));
 
   return (
-    <Field className={className}>
+    <Field className={cn("min-w-0", className)}>
       {(label || labelAddon) && (
         <div className="flex items-center justify-between gap-2">
           {label && <FieldLabel>{label}</FieldLabel>}
-          {labelAddon}
+          <span className="flex items-center gap-1.5">
+            {onClear && value && !disabled && (
+              <button
+                type="button"
+                aria-label={`Clear ${label ?? ariaLabel ?? "selection"}`}
+                className="rounded-sm text-[11px] text-neutral-fg-subtle underline-offset-2 hover:text-neutral-fg hover:underline focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none"
+                onClick={onClear}
+              >
+                Clear
+              </button>
+            )}
+            {labelAddon}
+          </span>
         </div>
       )}
       <SelectPrimitive
         items={items}
         value={value}
+        disabled={disabled}
         onValueChange={(v) => onChange(typeof v === "string" ? v : "")}
       >
         <SelectTrigger
+          aria-label={ariaLabel ?? label}
           className={cn(
-            "w-full",
+            "min-w-0 w-full",
+            emptyDashed && !value && "border-dashed",
             error && "border-palette-danger focus:ring-palette-danger",
           )}
         >
-          <SelectValue placeholder={placeholder}>
-            {selectedOption?.label}
+          <SelectValue placeholder={placeholder} className="min-w-0 truncate">
+            {selectedOption ? (
+              <span className="block min-w-0 truncate">
+                {selectedOption.label}
+              </span>
+            ) : undefined}
           </SelectValue>
         </SelectTrigger>
         <SelectContent>

@@ -71,6 +71,8 @@ function matchColumnToField(
 interface AxisSelectFieldProps {
   /** Field label displayed above the select */
   label: string;
+  /** Prevent edits until the result analysis used for type inference is ready. */
+  disabled?: boolean;
   /** Currently selected value */
   value: string;
   /** Callback when selection changes */
@@ -81,6 +83,8 @@ interface AxisSelectFieldProps {
   className?: string;
   /** Callback for clear button */
   onClear?: () => void;
+  /** Render an unselected trigger as an empty dashed slot. */
+  emptyDashed?: boolean;
   /** Which axis this select controls */
   axis: "x" | "y";
   /** Current chart type - used for constraint logic */
@@ -91,10 +95,12 @@ interface AxisSelectFieldProps {
   compiledInsight: CompiledInsight;
   /** Available fields for display labels, including metric source columns */
   availableFields?: Field[];
+  /** Source fields used only to name metrics; they are never selectable. */
+  metricLabelFields?: Field[];
   /** Raw data frame columns used when the insight has no selected dimensions */
   availableColumns?: DataFrameColumn[];
   /** Display labels keyed by generated SQL column alias */
-  columnDisplayNames?: Record<string, string>;
+  columnDisplayNames?: Readonly<Record<string, string>>;
   /** The column selected for the other axis - used to detect same-column warnings */
   otherAxisColumn?: string;
   /** Callback to swap X and Y axis values - shown when selecting the other axis's column */
@@ -116,16 +122,19 @@ interface AxisSelectFieldProps {
  */
 export function AxisSelectField({
   label,
+  disabled = false,
   value,
   onChange,
   placeholder = "Select column...",
   className,
   onClear,
+  emptyDashed = false,
   axis,
   chartType,
   columnAnalysis,
   compiledInsight,
   availableFields,
+  metricLabelFields,
   availableColumns,
   columnDisplayNames,
   otherAxisColumn,
@@ -185,7 +194,11 @@ export function AxisSelectField({
     // Add metrics using metric:<uuid> encoding format
     compiledInsight.metrics.forEach((metric) => {
       addOption({
-        label: getMetricDisplayLabel(metric, selectableFields),
+        label: getMetricDisplayLabel(
+          metric,
+          metricLabelFields ?? selectableFields,
+          columnDisplayNames,
+        ),
         value: metricEncoding(metric.id as UUID),
       });
     });
@@ -243,6 +256,7 @@ export function AxisSelectField({
     columnDisplayNames,
     compiledInsight,
     selectableFields,
+    metricLabelFields,
   ]);
 
   // Build mapping from storage encoding (field:<uuid>) to SQL alias (field_<uuid>)
@@ -606,6 +620,7 @@ export function AxisSelectField({
   return (
     <SelectField
       label={semanticLabel}
+      ariaLabel={semanticLabel}
       labelAddon={labelAddon}
       value={value}
       onChange={handleChange}
@@ -613,6 +628,8 @@ export function AxisSelectField({
       placeholder={placeholder}
       className={className}
       onClear={onClear}
+      emptyDashed={emptyDashed}
+      disabled={disabled}
       error={validationError ?? undefined}
     />
   );

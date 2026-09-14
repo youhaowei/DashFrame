@@ -3,19 +3,19 @@ import { queryStatus } from "@/data/query-status";
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { VisualizationPreview } from "@/components/visualizations/VisualizationPreview";
 import { visualizationDetailLink } from "@/components/visualizations/visualization-navigation";
+import { getVisualizationTypeChange } from "@/components/visualizations/visualization-type-change";
 import {
   resolveInsightSourceDataTable,
   useInsightPagination,
 } from "@/hooks/useInsightPagination";
-import { useInsightView } from "@/hooks/useInsightView";
 import { formatCellValue } from "@/lib/cell-formatter";
+import { buildInsightColumnDisplayNames } from "@/lib/insight-column-display-names";
 import { resolveInsightAuthoringTable } from "@/lib/insights/compute-combined-fields";
 import {
   useConfirmDialogStore,
   type ConfirmDialogConfig,
 } from "@/lib/stores/confirm-dialog-store";
 import {
-  canvasViewsEqual,
   sanitizeInsightCanvasView,
   TABLE_CANVAS_VIEW,
   useInsightCanvasStore,
@@ -24,46 +24,63 @@ import {
 import { useWebMCPPageStore } from "@/lib/stores/webmcp-page-store";
 import type { Insight as LocalInsight } from "@/lib/stores/types";
 import { analyzeFrameSample } from "@/lib/visualizations/analyze-frame-sample";
+import { validateEncoding } from "@/lib/visualizations/encoding-enforcer";
 import {
   suggestByChartType,
   type ChartSuggestion,
 } from "@/lib/visualizations/suggest-charts";
 import { api } from "@dashframe/convex-backend/api";
 import {
+  buildInsightAvailableFields,
   extractUUIDFromColumnAlias,
   fieldIdToColumnAlias,
 } from "@dashframe/engine";
 import type {
   ChartEncoding,
   ColumnAnalysis,
+  CompiledInsight,
+  DataTable,
   CommandPayloads,
   Field,
   Insight,
   InsightMetric,
   UUID,
   VegaLiteSpec,
+  Visualization,
   VisualizationEncoding,
   VisualizationType,
 } from "@dashframe/types";
 import {
   buildInsightUpdateCommands,
-  CHART_TYPE_METADATA,
+  buildVisualizationUpdateCommands,
   cmd,
   fieldEncoding,
   metricEncoding,
 } from "@dashframe/types";
 import {
-  CHART_ICONS,
   ControlTooltip,
   VirtualTable,
   type VirtualTableColumnConfig,
 } from "@dashframe/ui";
 import { Chart } from "@dashframe/visualization";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 
-import { Button, cn } from "@wystack/ui-react";
+import {
+  Button,
+  ButtonPrimitive,
+  cn,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@wystack/ui-react";
 import {
   DashboardIcon,
+  MoreIcon,
+  PanelLeftCloseIcon,
+  PanelLeftOpenIcon,
+  PanelRightCloseIcon,
+  PanelRightOpenIcon,
   PlusIcon,
   SparklesIcon,
   TableIcon,
@@ -79,6 +96,10 @@ import {
 import { toast } from "sonner";
 import { InsightConfigPanel } from "./config-panel";
 import { NotFoundView } from "./NotFoundView";
+import {
+  INSIGHT_CANVAS_CHART_TYPES,
+  VisualizationConfigPanel,
+} from "./VisualizationConfigPanel";
 
 export function requestSavedVisualizationDeletion(
   confirm: (config: ConfirmDialogConfig) => void,
@@ -133,6 +154,87 @@ export function canAttemptVisualizeIntent(input: {
     input.hasDataFrame &&
     input.isChartViewReady
   );
+}
+
+export function shouldMaterializeChartSuggestion(input: {
+  activeView: InsightCanvasView;
+  visualizeIntent: boolean;
+  hasVisualization: boolean;
+  visualModeRequested: boolean;
+}): boolean {
+  return (
+    input.activeView.kind === "chart" ||
+    input.visualModeRequested ||
+    (input.visualizeIntent && !input.hasVisualization)
+  );
+}
+
+export function buildInsightModelMetadata(
+  insight: Insight,
+  authoringTable: DataTable | undefined,
+  allDataTables: DataTable[],
+) {
+  if (!authoringTable) return { fields: [], columnDisplayNames: {} };
+  const joinedTables = new Map<UUID, DataTable>();
+  for (const join of insight.joins ?? []) {
+    const joined = allDataTables.find(
+      (candidate) => candidate.id === join.rightTableId,
+    );
+    if (joined) joinedTables.set(joined.id, joined);
+  }
+  const fields =
+    buildInsightAvailableFields(authoringTable, joinedTables, insight) ?? [];
+  return {
+    fields,
+    columnDisplayNames: buildInsightColumnDisplayNames(insight, fields, {
+      baseTable: authoringTable,
+      joinedTables,
+    }),
+  };
+}
+
+export const MAX_DOT_ROW_COUNT = 10_000;
+
+/** One rendered result supplies every saved-chart encoding input. */
+export function useInsightEncodingMetadata(insight: Insight, enabled: boolean) {
+  return useInsightPagination({
+    insight,
+    showModelPreview: false,
+    enabled,
+  });
+}
+
+export function canChangeSavedVisualizationType(input: {
+  visualization: Pick<Visualization, "visualizationType" | "encoding">;
+  chartType: VisualizationType;
+  encodingsReady: boolean;
+  encodingRowCount: number;
+  encodingColumnAnalysis: ColumnAnalysis[];
+  compiledInsight: CompiledInsight;
+}): boolean {
+  const {
+    visualization,
+    chartType,
+    encodingsReady,
+    encodingRowCount,
+    encodingColumnAnalysis,
+    compiledInsight,
+  } = input;
+  if (chartType === visualization.visualizationType) return true;
+  if (chartType === "dot" && encodingRowCount > MAX_DOT_ROW_COUNT) {
+    return false;
+  }
+  if (!encodingsReady) return false;
+  const updates = getVisualizationTypeChange(visualization, chartType);
+  const encoding = updates?.encoding ?? visualization.encoding ?? {};
+  if (!encoding.x || !encoding.y) return false;
+  const errors = validateEncoding(
+    encoding,
+    chartType,
+    encodingColumnAnalysis,
+    compiledInsight,
+  );
+  return !errors.x && !errors.y;
 }
 
 export function resolveVisualModeTarget(input: {
@@ -542,30 +644,28 @@ function convertToVisualizationEncoding(
   return result;
 }
 
-const CANVAS_CHART_TYPES: VisualizationType[] = [
-  "barY",
-  "barX",
-  "line",
-  "areaY",
-  "dot",
-  "hexbin",
-  "heatmap",
-  "raster",
-];
-
-function getCanvasViewKey(view: InsightCanvasView): string {
-  if (view.kind === "chart") return `chart:${view.chartType}`;
-  if (view.kind === "visualization")
-    return `visualization:${view.visualizationId}`;
-  return "table";
-}
-
 function chartView(chartType: VisualizationType): InsightCanvasView {
   return { kind: "chart", chartType };
 }
 
 function visualizationView(visualizationId: string): InsightCanvasView {
   return { kind: "visualization", visualizationId };
+}
+
+function resolveVisualizationPaneState(
+  activeView: InsightCanvasView,
+  activeVisualizationType: VisualizationType | undefined,
+  paneOpen: boolean,
+) {
+  const available = activeView.kind !== "table";
+  return {
+    available,
+    attached: available && paneOpen,
+    chartType:
+      activeView.kind === "chart"
+        ? activeView.chartType
+        : (activeVisualizationType ?? "barY"),
+  };
 }
 
 function getVisualizationEncodingSignature(
@@ -582,7 +682,19 @@ function getVisualizationEncodingSignature(
   ].join("|");
 }
 
-function InsightResultTable({ insight }: { insight: Insight }) {
+type InsightPaginationResult = ReturnType<typeof useInsightPagination>;
+
+export function InsightResultTable({
+  result,
+  collapsed = false,
+  onToggleCollapsed,
+  className,
+}: {
+  result: InsightPaginationResult;
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
+  className?: string;
+}) {
   const {
     fetchData,
     totalCount,
@@ -590,10 +702,7 @@ function InsightResultTable({ insight }: { insight: Insight }) {
     isReady,
     columnDisplayNames,
     columnTypeMap,
-  } = useInsightPagination({
-    insight,
-    showModelPreview: false,
-  });
+  } = result;
 
   const columnConfigs = useMemo((): VirtualTableColumnConfig[] => {
     return Object.entries(columnDisplayNames).map(([id, label]) => {
@@ -609,24 +718,46 @@ function InsightResultTable({ insight }: { insight: Insight }) {
     });
   }, [columnDisplayNames, columnTypeMap]);
 
+  const summary = isReady
+    ? `${(totalCount || 0).toLocaleString()} rows • ${(fieldCount || 0).toLocaleString()} fields`
+    : "Loading data...";
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex h-10 shrink-0 items-center gap-3 px-4 text-sm text-neutral-fg-subtle">
-        {isReady
-          ? `${(totalCount || 0).toLocaleString()} rows • ${(fieldCount || 0).toLocaleString()} fields`
-          : "Loading data..."}
+    <div className={cn("flex min-h-0 flex-col", className)}>
+      <div className="flex h-8 shrink-0 items-center justify-between gap-3 px-2 text-xs text-neutral-fg-subtle">
+        <span className="truncate">{summary}</span>
+        {onToggleCollapsed && (
+          <button
+            type="button"
+            onClick={onToggleCollapsed}
+            aria-expanded={!collapsed}
+            aria-label={collapsed ? "Show result table" : "Hide result table"}
+            className="shrink-0 rounded-sm px-1 underline-offset-2 transition-colors hover:text-neutral-fg hover:underline focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none"
+          >
+            {collapsed ? "Show" : "Hide"}
+          </button>
+        )}
       </div>
-      <div className="min-h-0 flex-1 px-4 pb-4">
+      <div
+        className={cn(
+          "relative min-h-0 flex-1 transition-opacity duration-300 motion-reduce:transition-none",
+          collapsed && "opacity-0",
+        )}
+        inert={collapsed}
+        aria-hidden={collapsed}
+      >
         {/* Mount only when the pagination hook is ready (per its contract):
-            mounting earlier lets the initial fetch race the hook's own
-            init-driven fetchData identity changes. */}
+              mounting earlier lets the initial fetch race the hook's own
+              init-driven fetchData identity changes. */}
         {isReady && (
-          <VirtualTable
-            onFetchData={fetchData}
-            columnConfigs={columnConfigs}
-            height={520}
-            compact
-          />
+          <div className="absolute inset-0">
+            <VirtualTable
+              onFetchData={fetchData}
+              columnConfigs={columnConfigs}
+              height="100%"
+              compact
+            />
+          </div>
         )}
       </div>
     </div>
@@ -635,14 +766,12 @@ function InsightResultTable({ insight }: { insight: Insight }) {
 
 function CanvasViewButton({
   active,
-  muted = false,
   icon,
   label,
   description,
   onClick,
 }: {
   active: boolean;
-  muted?: boolean;
   icon: ReactNode;
   label: string;
   description: string;
@@ -655,18 +784,116 @@ function CanvasViewButton({
         onClick={onClick}
         aria-pressed={active}
         className={cn(
-          "flex h-8 max-w-44 items-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors",
+          "flex h-7 max-w-44 items-center gap-1.5 rounded-sm px-2 text-xs font-medium transition-colors",
           "focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none",
           active
-            ? "bg-neutral-bg-emphasis text-neutral-fg shadow-sm"
+            ? "bg-neutral-bg text-neutral-fg shadow-sm"
             : "text-neutral-fg-subtle hover:bg-neutral-bg-muted hover:text-neutral-fg",
-          muted && !active && "opacity-60",
         )}
       >
         <span className="shrink-0">{icon}</span>
-        <span className="truncate">{label}</span>
+        <span className="truncate @max-3xl:sr-only">{label}</span>
       </button>
     </ControlTooltip>
+  );
+}
+
+function getViewStatus(
+  view: InsightCanvasView,
+  savedChartName: string | undefined,
+): string | undefined {
+  if (view.kind === "chart") return "Preview, not saved";
+  if (view.kind === "visualization") return savedChartName;
+  return undefined;
+}
+
+function InsightMoreActionsMenu({
+  onInspectDataFrames,
+  savedChart,
+  onDuplicateChart,
+  onDeleteChart,
+}: {
+  onInspectDataFrames: () => void;
+  savedChart?: { id: UUID; name: string };
+  onDuplicateChart: (id: UUID) => void;
+  onDeleteChart: (id: UUID, name: string) => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <ButtonPrimitive
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label="More actions"
+            title="More actions"
+            className="h-8 w-8 shrink-0"
+          >
+            <MoreIcon aria-hidden />
+          </ButtonPrimitive>
+        }
+      />
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onClick={onInspectDataFrames}>
+          Inspect data frames
+        </DropdownMenuItem>
+        {savedChart && (
+          <>
+            <DropdownMenuItem onClick={() => onDuplicateChart(savedChart.id)}>
+              Duplicate chart
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="text-palette-danger"
+              onClick={() => onDeleteChart(savedChart.id, savedChart.name)}
+            >
+              Delete chart
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/**
+ * Sunken well for the work canvas. Chart views lift the chart onto a raised
+ * card above the result table; the data view shows the table alone.
+ */
+function InsightCanvasWell({
+  result,
+  showChart,
+  children,
+}: {
+  result: InsightPaginationResult;
+  showChart: boolean;
+  children: ReactNode;
+}) {
+  const [resultCollapsed, setResultCollapsed] = useState(false);
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[var(--surface-radius)] bg-neutral-bg-muted p-2 shadow-inner dark:bg-neutral-bg-dim">
+      {showChart ? (
+        <>
+          <div className="min-h-0 flex-[1_1_68%] overflow-hidden rounded-[var(--surface-radius)] bg-neutral-bg p-3 shadow-[var(--surface-shadow)] dark:bg-neutral-bg-subtle">
+            {children}
+          </div>
+          <InsightResultTable
+            result={result}
+            collapsed={resultCollapsed}
+            onToggleCollapsed={() =>
+              setResultCollapsed((collapsed) => !collapsed)
+            }
+            // The strip stays visible while the body fades out and its space shrinks.
+            className={cn(
+              "overflow-hidden pt-1 transition-[flex-grow,flex-basis] duration-300 ease-out motion-reduce:transition-none",
+              resultCollapsed ? "flex-[0_0_2.25rem]" : "flex-[1_1_32%]",
+            )}
+          />
+        </>
+      ) : (
+        <InsightResultTable result={result} className="flex-1" />
+      )}
+    </div>
   );
 }
 
@@ -705,15 +932,13 @@ function EphemeralChartCanvas({
   }
 
   return (
-    <div className="h-full px-4 pb-4">
-      <Chart
-        tableName={tableName}
-        visualizationType={suggestion.chartType}
-        encoding={suggestion.encoding}
-        height={520}
-        className="h-full w-full"
-      />
-    </div>
+    <Chart
+      tableName={tableName}
+      visualizationType={suggestion.chartType}
+      encoding={suggestion.encoding}
+      height="container"
+      className="h-full w-full"
+    />
   );
 }
 
@@ -766,12 +991,46 @@ export function InsightView({
   const saveTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
 
   const [suggestionSeed, setSuggestionSeed] = useState(0);
+  const [insightPaneOpen, setInsightPaneOpen] = useState(true);
+  const [visualizationPaneOpen, setVisualizationPaneOpen] = useState(true);
+  const visualizationWriteStatusRef = useRef({
+    pending: false,
+    generation: 0,
+  });
+  const handleVisualizationWritePendingChange = useCallback(
+    (pending: boolean) => {
+      const current = visualizationWriteStatusRef.current;
+      visualizationWriteStatusRef.current = {
+        pending,
+        generation:
+          pending && !current.pending
+            ? current.generation + 1
+            : current.generation,
+      };
+    },
+    [],
+  );
+  const getVisualizationWriteStatus = useCallback(
+    () => visualizationWriteStatusRef.current,
+    [],
+  );
   const [visualModeRequestedFor, setVisualModeRequestedFor] = useState<
     string | null
   >(null);
 
   // Mutations — artifact writes go through commitBatch (one batch per user edit).
   const commitBatch = useMutation(api.app.commitBatch);
+  const updateVisualization = useCallback(
+    async (args: {
+      id: UUID;
+      updates: Parameters<typeof buildVisualizationUpdateCommands>[1];
+    }) => {
+      const commands = buildVisualizationUpdateCommands(args.id, args.updates);
+      if (commands.length === 0) return;
+      await commitBatch({ commands });
+    },
+    [commitBatch],
+  );
   const createVisualizationLocal = useCallback(
     async (input: Omit<CommandPayloads["CreateVisualization"], "id">) => {
       const id = crypto.randomUUID() as UUID;
@@ -854,25 +1113,49 @@ export function InsightView({
     () => resolveInsightAuthoringTable(insight, allDataTables, allInsights),
     [allDataTables, allInsights, insight],
   );
+  const {
+    fields: modelResolvedFields,
+    columnDisplayNames: modelColumnDisplayNames,
+  } = useMemo(
+    () => buildInsightModelMetadata(insight, authoringTable, allDataTables),
+    [allDataTables, authoringTable, insight],
+  );
 
-  // Get DuckDB view/table name for chart rendering
-  // For insights with joins, creates a view with joined data
-  // For simple insights, returns the base table name
-  const { isReady: isChartViewReady } = useInsightView(insight);
+  const insightVisualizations = useMemo(
+    () => allVisualizations.filter((v) => v.insightId === insightId),
+    [allVisualizations, insightId],
+  );
+  const pinnedVisualizationIds = useMemo(
+    () => new Set(insightVisualizations.map((viz) => viz.id)),
+    [insightVisualizations],
+  );
+  const activeView = useMemo(
+    () =>
+      sanitizeInsightCanvasView(persistedActiveView, pinnedVisualizationIds),
+    [persistedActiveView, pinnedVisualizationIds],
+  );
   const chartSuggestionInsight = useMemo(
     () => buildChartSuggestionInsight(insight),
     [insight],
   );
+  const chartSuggestionResult = useInsightPagination({
+    insight: chartSuggestionInsight,
+    showModelPreview: true,
+    enabled: shouldMaterializeChartSuggestion({
+      activeView,
+      visualizeIntent,
+      hasVisualization: insightVisualizations.length > 0,
+      visualModeRequested: visualModeRequestedFor === insightId,
+    }),
+  });
   const {
     dataFrameId: chartSuggestionFrameId,
     isReady: areChartSuggestionsReady,
+    columnDisplayNames: chartSuggestionColumnDisplayNames,
     schema: chartSuggestionSchema,
     sampleRows: chartSuggestionRows,
     totalCount: chartSuggestionRowCount,
-  } = useInsightPagination({
-    insight: chartSuggestionInsight,
-    showModelPreview: true,
-  });
+  } = chartSuggestionResult;
   const columnAnalysis = useMemo<ColumnAnalysis[]>(
     () =>
       areChartSuggestionsReady
@@ -889,27 +1172,50 @@ export function InsightView({
       chartSuggestionSchema,
     ],
   );
-
-  // Get visualizations for this insight
-  const insightVisualizations = useMemo(
-    () => allVisualizations.filter((v) => v.insightId === insightId),
-    [allVisualizations, insightId],
-  );
-  const pinnedVisualizationIds = useMemo(
-    () => new Set(insightVisualizations.map((viz) => viz.id)),
-    [insightVisualizations],
-  );
-  const activeView = useMemo(
-    () =>
-      sanitizeInsightCanvasView(persistedActiveView, pinnedVisualizationIds),
-    [persistedActiveView, pinnedVisualizationIds],
-  );
   const activeVisualization =
     activeView.kind === "visualization"
       ? insightVisualizations.find(
           (viz) => viz.id === activeView.visualizationId,
         )
       : undefined;
+  const savedInsightResult = useInsightEncodingMetadata(
+    insight,
+    activeView.kind !== "chart",
+  );
+  const {
+    columns: encodingColumns,
+    columnDisplayNames: encodingRenderedColumnDisplayNames,
+    resolvedFields: encodingResolvedFields,
+    schema: encodingSchema,
+    sampleRows: encodingRows,
+    totalCount: encodingRowCount,
+    isReady: areEncodingsReady,
+    error: encodingResultError,
+    retry: retryEncodingResult,
+  } = savedInsightResult;
+  const encodingColumnDisplayNames = useMemo(() => {
+    const displayNames = {
+      ...modelColumnDisplayNames,
+      ...chartSuggestionColumnDisplayNames,
+      ...encodingRenderedColumnDisplayNames,
+    };
+    for (const column of encodingColumns) {
+      displayNames[column.name] ??= column.name;
+    }
+    return displayNames;
+  }, [
+    chartSuggestionColumnDisplayNames,
+    encodingColumns,
+    encodingRenderedColumnDisplayNames,
+    modelColumnDisplayNames,
+  ]);
+  const encodingColumnAnalysis = useMemo<ColumnAnalysis[]>(
+    () =>
+      areEncodingsReady
+        ? analyzeFrameSample(encodingSchema, encodingRows, encodingRowCount)
+        : [],
+    [areEncodingsReady, encodingRowCount, encodingRows, encodingSchema],
+  );
 
   // No write-back of the sanitized view into the store: right after a pin,
   // the persisted selection can reference a visualization the list hasn't
@@ -955,6 +1261,26 @@ export function InsightView({
     return map;
   }, [authoringTable, insight.joins, allDataTables]);
 
+  const encodingAvailableFields = useMemo(() => {
+    const fields = new Map<string, Field>();
+    for (const field of encodingResolvedFields) fields.set(field.id, field);
+    return [...fields.values()];
+  }, [encodingResolvedFields]);
+  const compiledInsightForEncodings = useMemo<CompiledInsight>(() => {
+    const fieldsById = new Map(
+      encodingAvailableFields.map((field) => [field.id, field]),
+    );
+    return {
+      id: insight.id,
+      name: insight.name,
+      dimensions: insight.selectedFields
+        .map((fieldId) => fieldsById.get(fieldId))
+        .filter((field): field is Field => Boolean(field)),
+      metrics: insight.metrics ?? [],
+      filters: insight.filters,
+      sorts: insight.sorts,
+    };
+  }, [encodingAvailableFields, insight]);
   // Get existing field and metric column names from insight configuration
   // Includes fields from both base table AND joined tables
   const existingFieldNames = useMemo(() => {
@@ -1032,7 +1358,7 @@ export function InsightView({
       return suggestions;
     }
 
-    for (const chartType of CANVAS_CHART_TYPES) {
+    for (const chartType of INSIGHT_CANVAS_CHART_TYPES) {
       const suggestion = suggestByChartType(
         insightForSuggestions,
         columnAnalysis,
@@ -1054,9 +1380,49 @@ export function InsightView({
     existingFieldNames,
     suggestionSeed,
   ]);
+  // Also checked against the pending encoding when a type change is written,
+  // since the set below reflects only the last echoed visualization.
+  const canChangeChartType = useCallback(
+    (
+      visualization: Pick<Visualization, "visualizationType" | "encoding">,
+      chartType: VisualizationType,
+    ) =>
+      canChangeSavedVisualizationType({
+        visualization,
+        chartType,
+        encodingsReady: areEncodingsReady,
+        encodingRowCount,
+        encodingColumnAnalysis,
+        compiledInsight: compiledInsightForEncodings,
+      }),
+    [
+      areEncodingsReady,
+      compiledInsightForEncodings,
+      encodingColumnAnalysis,
+      encodingRowCount,
+    ],
+  );
+  const availableVisualizationTypes = useMemo(() => {
+    if (!activeVisualization) {
+      return new Set(chartSuggestionsByType.keys());
+    }
+    if (!areEncodingsReady) {
+      return new Set([activeVisualization.visualizationType]);
+    }
+    return new Set(
+      INSIGHT_CANVAS_CHART_TYPES.filter((chartType) =>
+        canChangeChartType(activeVisualization, chartType),
+      ),
+    );
+  }, [
+    activeVisualization,
+    areEncodingsReady,
+    canChangeChartType,
+    chartSuggestionsByType,
+  ]);
 
   const firstChartSuggestion = useMemo(() => {
-    for (const chartType of CANVAS_CHART_TYPES) {
+    for (const chartType of INSIGHT_CANVAS_CHART_TYPES) {
       const suggestion = chartSuggestionsByType.get(chartType);
       if (suggestion) return suggestion;
     }
@@ -1092,7 +1458,11 @@ export function InsightView({
 
   const pinChartSuggestion = useCallback(
     async (suggestion: ChartSuggestion): Promise<UUID | null> => {
-      if (!dataTable?.dataFrameId || !authoringTable || !isChartViewReady)
+      if (
+        !dataTable?.dataFrameId ||
+        !authoringTable ||
+        !areChartSuggestionsReady
+      )
         return null;
 
       // Parse encoding to extract dimensions and metrics
@@ -1226,7 +1596,7 @@ export function InsightView({
       dataTable,
       authoringTable,
       allDataTables,
-      isChartViewReady,
+      areChartSuggestionsReady,
       parseAggregateExpression,
       insight,
       commitBatch,
@@ -1251,7 +1621,7 @@ export function InsightView({
         hasVisualization: insightVisualizations.length > 0,
         hasSuggestion: firstChartSuggestion !== null,
         hasDataFrame: Boolean(dataTable?.dataFrameId),
-        isChartViewReady,
+        isChartViewReady: areChartSuggestionsReady,
       })
     ) {
       return;
@@ -1268,7 +1638,7 @@ export function InsightView({
     dataTable?.dataFrameId,
     insightId,
     insightVisualizations.length,
-    isChartViewReady,
+    areChartSuggestionsReady,
     pinChartSuggestion,
     visualizeIntent,
   ]);
@@ -1448,24 +1818,18 @@ export function InsightView({
     visualModeRequestedFor,
   ]);
 
-  let activeViewLabel = "Data result";
-  if (activeView.kind === "chart") {
-    activeViewLabel = CHART_TYPE_METADATA[activeView.chartType].displayName;
-  } else if (activeView.kind === "visualization") {
-    activeViewLabel = activeVisualization?.name ?? "Saved chart";
-  }
-  let activeViewDescription = "Rows produced by the current data model";
-  if (activeView.kind === "chart") {
-    activeViewDescription = "Chart preview — changes are not saved";
-  } else if (activeView.kind === "visualization") {
-    activeViewDescription = "Saved chart — reusable in dashboards";
-  }
+  const viewStatus = getViewStatus(activeView, activeVisualization?.name);
   const canPinActiveChart =
     activeView.kind === "chart" && activeChartSuggestion !== undefined;
   const canAddActiveViewToDashboard =
     (activeView.kind === "visualization" ||
       (activeView.kind === "chart" && activeChartSuggestion !== undefined)) &&
     addToReportTarget.kind !== "pending";
+  const visualizationPane = resolveVisualizationPaneState(
+    activeView,
+    activeVisualization?.visualizationType,
+    visualizationPaneOpen,
+  );
 
   // Data table not found - check after all hooks are called
   if (!dataTable || !authoringTable) {
@@ -1473,165 +1837,164 @@ export function InsightView({
   }
 
   return (
-    <AppLayout
-      breadcrumbs={[
-        { label: "Questions", to: "/insights" },
-        { label: localName || "Untitled" },
-      ]}
-      leftPanel={
-        <InsightConfigPanel
-          insight={insight}
-          dataTable={authoringTable}
-          allDataTables={allDataTables}
-          name={localName}
-          onNameChange={handleNameChange}
-          reportId={reportId}
-        />
-      }
-    >
+    <AppLayout pageHeader={null} childrenClassName="overflow-hidden">
       <div
         data-dashframe-insight-id={insightId}
-        className="container mx-auto flex h-full max-w-7xl flex-col gap-4 px-6 py-6"
+        className="flex h-full min-w-0 overflow-hidden"
       >
-        <section className="flex min-h-[620px] flex-1 flex-col overflow-hidden rounded-[var(--surface-radius)] bg-neutral-bg/90 shadow-[var(--surface-shadow)]">
-          <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 px-4 py-3">
-            <div className="flex min-w-0 items-center gap-3">
-              <div className="flex shrink-0 rounded-lg bg-neutral-bg-muted p-1">
-                <CanvasViewButton
-                  active={activeView.kind === "table"}
-                  icon={<TableIcon className="h-3.5 w-3.5" />}
-                  label="Data"
-                  description="View the rows produced by the current data model."
-                  onClick={() => {
-                    setVisualModeRequestedFor(null);
-                    handleSetActiveView(TABLE_CANVAS_VIEW);
-                  }}
-                />
-                <CanvasViewButton
-                  active={activeView.kind !== "table"}
-                  icon={<SparklesIcon className="h-3.5 w-3.5" />}
-                  label="Visualize"
-                  description="Explore chart types before saving a chart."
-                  onClick={handleSelectVisualMode}
-                />
-              </div>
-              <div className="min-w-0">
-                <h2 className="truncate text-sm font-semibold text-neutral-fg">
-                  {activeViewLabel}
-                </h2>
-                <p className="truncate text-xs text-neutral-fg-subtle">
-                  {activeViewDescription}
-                </p>
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                size="sm"
-                variant="ghost"
-                icon={TableIcon}
-                label="Inspect data frames"
-                onClick={() => navigate({ to: "/data-frames" })}
+        <aside
+          inert={!insightPaneOpen}
+          aria-hidden={!insightPaneOpen}
+          className={cn(
+            // Shrinkable, so on a narrow window the panes give way before the
+            // canvas does: its header holds the only controls that collapse them.
+            "h-full min-w-0 overflow-hidden transition-[width] duration-200 motion-reduce:transition-none",
+            insightPaneOpen ? "w-64" : "w-0",
+          )}
+        >
+          <div className="h-full w-64">
+            <InsightConfigPanel
+              insight={insight}
+              dataTable={authoringTable}
+              allDataTables={allDataTables}
+              reportId={reportId}
+              columnDisplayNames={modelColumnDisplayNames}
+              getVisualizationWriteStatus={getVisualizationWriteStatus}
+            />
+          </div>
+        </aside>
+
+        <section className="flex min-w-[min(18rem,100%)] flex-1 flex-col gap-2 overflow-hidden px-1.5 py-2">
+          {/* Collapses by the header's own width: view labels below 48rem,
+              breadcrumb below 42rem, action labels below 36rem. Under ~23rem
+              (both panes open on a small window) it scrolls rather than clip. */}
+          <header className="@container flex h-10 shrink-0 items-center gap-1.5 overflow-x-auto px-1 whitespace-nowrap [scrollbar-width:thin] [&>*]:shrink-0 [&>input]:shrink">
+            <Button
+              size="sm"
+              variant="ghost"
+              icon={insightPaneOpen ? PanelLeftCloseIcon : PanelLeftOpenIcon}
+              iconOnly
+              label={
+                insightPaneOpen
+                  ? "Collapse Insight pane"
+                  : "Expand Insight pane"
+              }
+              onClick={() => setInsightPaneOpen((open) => !open)}
+            />
+            <Link
+              to="/insights"
+              className="shrink-0 rounded-sm px-1 @max-2xl:hidden text-xs text-neutral-fg-subtle transition-colors hover:text-neutral-fg focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none"
+            >
+              Insights
+            </Link>
+            <span
+              aria-hidden
+              className="shrink-0 text-xs text-neutral-fg-subtle @max-2xl:hidden"
+            >
+              ›
+            </span>
+            <label className="sr-only" htmlFor="insight-name">
+              Insight name
+            </label>
+            <input
+              id="insight-name"
+              value={localName}
+              onChange={(event) => handleNameChange(event.target.value)}
+              placeholder="Untitled insight"
+              className="min-w-16 flex-1 truncate rounded-sm bg-transparent px-1 py-0.5 text-sm font-semibold text-neutral-fg outline-none placeholder:text-neutral-fg-subtle focus-visible:ring-2 focus-visible:ring-palette-primary"
+            />
+            {viewStatus && (
+              <span className="hidden max-w-48 min-w-0 truncate text-xs text-neutral-fg-subtle @min-3xl:inline">
+                {viewStatus}
+              </span>
+            )}
+            <div className="flex shrink-0 rounded-md bg-neutral-bg-muted p-0.5">
+              <CanvasViewButton
+                active={activeView.kind === "table"}
+                icon={<TableIcon className="h-3.5 w-3.5" />}
+                label="Data"
+                description="View the rows produced by the current data model."
+                onClick={() => {
+                  setVisualModeRequestedFor(null);
+                  handleSetActiveView(TABLE_CANVAS_VIEW);
+                }}
               />
-              {canPinActiveChart && (
-                <ControlTooltip
+              <CanvasViewButton
+                active={activeView.kind !== "table"}
+                icon={<SparklesIcon className="h-3.5 w-3.5" />}
+                label="Visualize"
+                description="Chart the rows produced by the current data model."
+                onClick={handleSelectVisualMode}
+              />
+            </div>
+            {canPinActiveChart && (
+              <ControlTooltip
+                label="Save chart"
+                description="Keep this chart as a reusable view for dashboards."
+              >
+                <Button
+                  size="sm"
+                  variant="outline"
                   label="Save chart"
-                  description="Keep this chart as a reusable view for dashboards."
+                  onClick={handlePinActiveChart}
                 >
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    icon={PlusIcon}
-                    label="Save chart"
-                    onClick={handlePinActiveChart}
-                  />
-                </ControlTooltip>
-              )}
+                  <PlusIcon aria-hidden />
+                  <span className="@max-xl:sr-only">Save chart</span>
+                </Button>
+              </ControlTooltip>
+            )}
+            <ControlTooltip
+              label="Add to report"
+              description="Place this view on a report."
+            >
               <Button
                 size="sm"
-                variant="outline"
-                icon={DashboardIcon}
                 label="Add to report"
                 onClick={handleAddActiveViewToDashboard}
                 disabled={!canAddActiveViewToDashboard}
+              >
+                <DashboardIcon aria-hidden />
+                <span className="@max-xl:sr-only">Add to report</span>
+              </Button>
+            </ControlTooltip>
+            <InsightMoreActionsMenu
+              onInspectDataFrames={() => navigate({ to: "/data-frames" })}
+              savedChart={
+                activeView.kind === "visualization"
+                  ? activeVisualization
+                  : undefined
+              }
+              onDuplicateChart={handleDuplicateVisualization}
+              onDeleteChart={handleDeleteVisualization}
+            />
+            {visualizationPane.available && (
+              <Button
+                size="sm"
+                variant="ghost"
+                icon={
+                  visualizationPane.attached
+                    ? PanelRightCloseIcon
+                    : PanelRightOpenIcon
+                }
+                iconOnly
+                label={
+                  visualizationPane.attached
+                    ? "Collapse Visualization pane"
+                    : "Expand Visualization pane"
+                }
+                onClick={() => setVisualizationPaneOpen((open) => !open)}
               />
-              {activeView.kind === "visualization" && activeVisualization && (
-                <>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    label="Duplicate"
-                    onClick={() =>
-                      handleDuplicateVisualization(activeVisualization.id)
-                    }
-                  />
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    color="danger"
-                    label="Delete"
-                    onClick={() =>
-                      handleDeleteVisualization(
-                        activeVisualization.id,
-                        activeVisualization.name,
-                      )
-                    }
-                  />
-                </>
-              )}
-            </div>
-          </div>
-
-          {activeView.kind !== "table" && (
-            <div className="flex shrink-0 flex-wrap items-center gap-1 border-t border-neutral-border/50 px-4 py-3">
-              <span className="mr-1 text-xs font-medium text-neutral-fg-subtle">
-                Chart
-              </span>
-              {CANVAS_CHART_TYPES.map((chartType) => {
-                const ChartIcon = CHART_ICONS[chartType];
-                const chartAvailable = chartSuggestionsByType.has(chartType);
-                const view = chartView(chartType);
-                return (
-                  <CanvasViewButton
-                    key={getCanvasViewKey(view)}
-                    active={canvasViewsEqual(activeView, view)}
-                    muted={!chartAvailable}
-                    icon={<ChartIcon size={14} />}
-                    label={CHART_TYPE_METADATA[chartType].displayName}
-                    description={
-                      chartAvailable
-                        ? CHART_TYPE_METADATA[chartType].description
-                        : "No suitable fields are available for this chart type."
-                    }
-                    onClick={() => handleSetActiveView(view)}
-                  />
-                );
-              })}
-              {insightVisualizations.length > 0 && (
-                <span className="ml-2 border-l border-neutral-border/60 pl-3 text-xs font-medium text-neutral-fg-subtle">
-                  Saved
-                </span>
-              )}
-              {insightVisualizations.map((visualization) => {
-                const view = visualizationView(visualization.id);
-                const ChartIcon = CHART_ICONS[visualization.visualizationType];
-                return (
-                  <CanvasViewButton
-                    key={getCanvasViewKey(view)}
-                    active={canvasViewsEqual(activeView, view)}
-                    icon={<ChartIcon size={14} />}
-                    label={visualization.name}
-                    description="Saved chart — reusable in dashboards."
-                    onClick={() => handleSetActiveView(view)}
-                  />
-                );
-              })}
-            </div>
-          )}
-
-          <div className="min-h-0 flex-1">
-            {activeView.kind === "table" && (
-              <InsightResultTable insight={insight} />
             )}
+          </header>
+
+          <InsightCanvasWell
+            result={
+              activeView.kind === "chart"
+                ? chartSuggestionResult
+                : savedInsightResult
+            }
+            showChart={activeView.kind !== "table"}
+          >
             {activeView.kind === "chart" && (
               <EphemeralChartCanvas
                 tableName={chartSuggestionFrameId ?? undefined}
@@ -1641,15 +2004,65 @@ export function InsightView({
               />
             )}
             {activeView.kind === "visualization" && activeVisualization && (
-              <div className="h-full px-4 pb-4">
-                <VisualizationPreview
-                  visualization={activeVisualization}
-                  height={520}
-                />
-              </div>
+              <VisualizationPreview
+                visualization={activeVisualization}
+                height="container"
+                materialization={{
+                  insight,
+                  dataTable: authoringTable,
+                  dataFrameId: savedInsightResult.dataFrameId,
+                  isReady: savedInsightResult.isReady,
+                  error: savedInsightResult.error,
+                  resolvedFields: savedInsightResult.resolvedFields,
+                }}
+              />
             )}
-          </div>
+          </InsightCanvasWell>
         </section>
+
+        <aside
+          inert={!visualizationPane.attached}
+          aria-hidden={!visualizationPane.attached}
+          className={cn(
+            "h-full min-w-0 overflow-hidden transition-[width] duration-200 motion-reduce:transition-none",
+            visualizationPane.attached ? "w-60" : "w-0",
+          )}
+        >
+          <div className="h-full w-60 min-w-0">
+            <VisualizationConfigPanel
+              activeChartType={visualizationPane.chartType}
+              availableChartTypes={availableVisualizationTypes}
+              canChangeChartType={canChangeChartType}
+              activeSuggestionEncoding={activeChartSuggestion?.encoding}
+              activeVisualization={activeVisualization}
+              visualizations={insightVisualizations}
+              compiledInsight={compiledInsightForEncodings}
+              dataTable={authoringTable}
+              availableFields={encodingAvailableFields}
+              metricLabelFields={modelResolvedFields}
+              availableColumns={encodingColumns.map((column) => ({
+                name: column.name,
+                type: column.type ?? "unknown",
+              }))}
+              columnDisplayNames={encodingColumnDisplayNames}
+              columnAnalysis={encodingColumnAnalysis}
+              encodingsError={Boolean(encodingResultError)}
+              onRetryEncodings={() => {
+                retryEncodingResult();
+              }}
+              onPendingVisualizationChange={
+                handleVisualizationWritePendingChange
+              }
+              onSelectChartType={(chartType) =>
+                handleSetActiveView(chartView(chartType))
+              }
+              onSelectVisualization={(visualizationId) =>
+                handleSetActiveView(visualizationView(visualizationId))
+              }
+              updateVisualization={updateVisualization}
+            />
+          </div>
+        </aside>
       </div>
     </AppLayout>
   );

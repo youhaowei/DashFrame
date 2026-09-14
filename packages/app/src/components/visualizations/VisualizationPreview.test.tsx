@@ -103,6 +103,34 @@ function setDataReady() {
   mockUseDataTables.mockReturnValue({ data: [dataTable] });
 }
 
+it("renders from a supplied materialization without starting preview hooks", () => {
+  mockUseInsight.mockClear();
+  mockUseDataTables.mockClear();
+  mockUseInsightView.mockClear();
+  mockUseInsightPagination.mockClear();
+  mockResolveEncoding.mockReturnValueOnce({ x: "field_f1" });
+
+  render(
+    <VisualizationPreview
+      visualization={visualization}
+      materialization={{
+        insight,
+        dataTable,
+        dataFrameId: "frame-shared",
+        isReady: true,
+        error: null,
+        resolvedFields: [],
+      }}
+    />,
+  );
+
+  expect(mockUseInsight).not.toHaveBeenCalled();
+  expect(mockUseDataTables).not.toHaveBeenCalled();
+  expect(mockUseInsightView).not.toHaveBeenCalled();
+  expect(mockUseInsightPagination).not.toHaveBeenCalled();
+  expect(screen.getByTestId("chart")).toBeTruthy();
+});
+
 // ── (a) Loading — spinner while insight or view not ready ────────────────────
 
 describe("VisualizationPreview — (a) loading branch", () => {

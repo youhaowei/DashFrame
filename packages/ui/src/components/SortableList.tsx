@@ -58,6 +58,13 @@ export interface SortableListItem {
   preview?: React.ReactNode;
   /** Height of the preview section in pixels */
   previewHeight?: number;
+  /** Prevent this item from being dragged while retaining it in the list. */
+  disabled?: boolean;
+}
+
+export interface SortableRenderControls {
+  dragHandle: React.ReactNode;
+  isDragging: boolean;
 }
 
 export interface SortableListProps<
@@ -74,9 +81,15 @@ export interface SortableListProps<
    * When provided, renders custom content instead of ItemCard.
    * The drag handle is automatically added.
    */
-  renderItem?: (item: T, index: number) => React.ReactNode;
+  renderItem?: (
+    item: T,
+    index: number,
+    controls: SortableRenderControls,
+  ) => React.ReactNode;
   /** Additional CSS classes for each sortable item wrapper */
   itemClassName?: string;
+  /** Let renderItem own the complete visual container and drag-handle placement. */
+  unstyledItems?: boolean;
 }
 
 /**
@@ -137,8 +150,15 @@ export interface SortableListProps<
 function renderDragOverlayContent<T extends SortableListItem>(
   activeItem: T | null | undefined,
   items: T[],
-  renderItem: ((item: T, index: number) => React.ReactNode) | undefined,
+  renderItem:
+    | ((
+        item: T,
+        index: number,
+        controls: SortableRenderControls,
+      ) => React.ReactNode)
+    | undefined,
   renderIcon: (icon: ListItem["icon"]) => React.ReactNode,
+  unstyled: boolean,
   itemClassName?: string,
 ): React.ReactNode {
   if (!activeItem) {
@@ -146,6 +166,16 @@ function renderDragOverlayContent<T extends SortableListItem>(
   }
 
   if (renderItem) {
+    if (unstyled) {
+      return (
+        <div className={itemClassName}>
+          {renderItem(activeItem, items.indexOf(activeItem), {
+            dragHandle: null,
+            isDragging: true,
+          })}
+        </div>
+      );
+    }
     return (
       <div
         className={cn(
@@ -154,7 +184,10 @@ function renderDragOverlayContent<T extends SortableListItem>(
         )}
       >
         <DragHandleVerticalIcon className="h-4 w-4 shrink-0 text-neutral-fg-subtle" />
-        {renderItem(activeItem, items.indexOf(activeItem))}
+        {renderItem(activeItem, items.indexOf(activeItem), {
+          dragHandle: null,
+          isDragging: true,
+        })}
       </div>
     );
   }
@@ -186,6 +219,7 @@ export function SortableList<T extends SortableListItem>({
   emptyIcon,
   renderItem,
   itemClassName,
+  unstyledItems = false,
 }: SortableListProps<T>) {
   const [activeId, setActiveId] = useState<string | null>(null);
 
@@ -306,6 +340,7 @@ export function SortableList<T extends SortableListItem>({
                   renderItem={renderItem}
                   onSelect={onSelect}
                   itemClassName={itemClassName}
+                  unstyled={unstyledItems}
                 />
               ))}
             </div>
@@ -326,6 +361,7 @@ export function SortableList<T extends SortableListItem>({
                 renderItem={renderItem}
                 onSelect={onSelect}
                 itemClassName={itemClassName}
+                unstyled={unstyledItems}
               />
             ))}
           </div>
@@ -358,6 +394,7 @@ export function SortableList<T extends SortableListItem>({
                   style={{ width: `${itemWidth}px` }}
                   className="shrink-0"
                   itemClassName={itemClassName}
+                  unstyled={unstyledItems}
                 />
               ))}
             </div>
@@ -382,6 +419,7 @@ export function SortableList<T extends SortableListItem>({
                 renderItem={renderItem}
                 onSelect={onSelect}
                 itemClassName={itemClassName}
+                unstyled={unstyledItems}
               />
             ))}
           </div>
@@ -395,6 +433,7 @@ export function SortableList<T extends SortableListItem>({
           items,
           renderItem,
           renderIcon,
+          unstyledItems,
           itemClassName,
         )}
       </DragOverlay>
@@ -406,11 +445,16 @@ interface SortableItemProps<T extends SortableListItem> {
   item: T;
   index: number;
   renderIcon: (icon: ListItem["icon"]) => React.ReactNode;
-  renderItem?: (item: T, index: number) => React.ReactNode;
+  renderItem?: (
+    item: T,
+    index: number,
+    controls: SortableRenderControls,
+  ) => React.ReactNode;
   onSelect?: (id: string) => void;
   className?: string;
   style?: React.CSSProperties;
   itemClassName?: string;
+  unstyled?: boolean;
 }
 
 function SortableItem<T extends SortableListItem>({
@@ -422,6 +466,7 @@ function SortableItem<T extends SortableListItem>({
   className,
   style,
   itemClassName,
+  unstyled = false,
 }: SortableItemProps<T>) {
   const {
     attributes,
@@ -430,7 +475,13 @@ function SortableItem<T extends SortableListItem>({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: item.id });
+  } = useSortable({
+    id: item.id,
+    disabled: {
+      draggable: Boolean(item.disabled),
+      droppable: false,
+    },
+  });
 
   const sortableStyle: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
@@ -441,6 +492,28 @@ function SortableItem<T extends SortableListItem>({
   // Custom renderItem mode - simpler inline layout with drag handle
   // Note: min-w-0 is essential for truncate to work in flex children
   if (renderItem) {
+    const dragHandle = item.disabled ? null : (
+      <button
+        type="button"
+        className="shrink-0 cursor-grab text-neutral-fg-subtle hover:text-neutral-fg active:cursor-grabbing focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none"
+        aria-label="Drag to reorder"
+        {...attributes}
+        {...listeners}
+      >
+        <DragHandleVerticalIcon className="h-3.5 w-3.5" />
+      </button>
+    );
+    if (unstyled) {
+      return (
+        <div
+          ref={setNodeRef}
+          style={sortableStyle}
+          className={cn(isDragging && "opacity-50", className, itemClassName)}
+        >
+          {renderItem(item, index, { dragHandle, isDragging })}
+        </div>
+      );
+    }
     return (
       <div
         ref={setNodeRef}
@@ -453,18 +526,10 @@ function SortableItem<T extends SortableListItem>({
         )}
       >
         {/* Drag handle */}
-        <button
-          type="button"
-          className="shrink-0 cursor-grab text-neutral-fg-subtle hover:text-neutral-fg active:cursor-grabbing"
-          aria-label="Drag to reorder"
-          {...attributes}
-          {...listeners}
-        >
-          <DragHandleVerticalIcon className="h-4 w-4" />
-        </button>
+        {dragHandle}
 
         {/* Custom content */}
-        {renderItem(item, index)}
+        {renderItem(item, index, { dragHandle, isDragging })}
       </div>
     );
   }

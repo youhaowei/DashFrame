@@ -47,9 +47,21 @@ describe("getMetricDisplayLabel", () => {
     );
   });
 
+  test("prefers an instance-aware display name over the canonical field", () => {
+    const fields = [field("abc-123", "Revenue", "revenue_usd")];
+    expect(
+      getMetricDisplayLabel(metric("sum", "field_abc_123_j1"), fields, {
+        field_abc_123_j1: "Revenue (approved_by)",
+      }),
+    ).toBe("Sum of Revenue (approved_by)");
+  });
+
   test("falls back to aggregation-only when column resolves to a generated alias and no field matches", () => {
-    // Hex-only suffix matches the /^field_[0-9a-f_]+$/i regex
+    // Generated aliases may be canonical or repeat-join instance-qualified.
     expect(getMetricDisplayLabel(metric("sum", "field_deadbeef"), [])).toBe(
+      "Sum",
+    );
+    expect(getMetricDisplayLabel(metric("sum", "field_deadbeef_j1"), [])).toBe(
       "Sum",
     );
   });
@@ -73,6 +85,8 @@ describe("isGeneratedColumnLabel", () => {
     expect(isGeneratedColumnLabel("field_abc_123")).toBe(true);
     expect(isGeneratedColumnLabel("metric_def_456")).toBe(true);
     expect(isGeneratedColumnLabel("FIELD_ABC_123")).toBe(true);
+    expect(isGeneratedColumnLabel("field_abc_123_j1")).toBe(true);
+    expect(isGeneratedColumnLabel("metric_def_456_j2")).toBe(true);
   });
 
   test("does not match user-visible labels (even if they share the prefix)", () => {

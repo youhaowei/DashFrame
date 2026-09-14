@@ -4,7 +4,13 @@ import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
 import { api } from "@dashframe/convex-backend/api";
 import { resolveEncodingToResultFrame } from "@dashframe/engine";
-import type { ChartEncoding, Insight, Visualization } from "@dashframe/types";
+import type {
+  ChartEncoding,
+  DataTable,
+  Field,
+  Insight,
+  Visualization,
+} from "@dashframe/types";
 import { Chart } from "@dashframe/visualization";
 
 import { Spinner } from "@wystack/ui-react";
@@ -29,6 +35,15 @@ interface VisualizationPreviewProps {
   height?: number | "container";
   /** Fallback element to show when data can't be loaded */
   fallback?: React.ReactNode;
+  /** Reuse a parent materialization when the preview sits beside its table. */
+  materialization?: {
+    insight: Insight;
+    dataTable?: DataTable;
+    dataFrameId: string | null;
+    isReady: boolean;
+    error: string | null;
+    resolvedFields: Field[];
+  };
 }
 
 /**
@@ -51,7 +66,20 @@ export function VisualizationPreview(props: VisualizationPreviewProps) {
     <VisualizationErrorBoundary
       resetKey={`${props.visualization.id}:${props.visualization.updatedAt ?? ""}`}
     >
-      <VisualizationPreviewContent {...props} />
+      {props.materialization ? (
+        <ResolvedVisualizationPreview
+          {...props}
+          insight={props.materialization.insight}
+          dataTable={props.materialization.dataTable}
+          instanceAwareFields={props.materialization.resolvedFields}
+          viewName={props.materialization.dataFrameId}
+          isReady={props.materialization.isReady}
+          error={props.materialization.error}
+          isLoadingInsight={false}
+        />
+      ) : (
+        <VisualizationPreviewContent {...props} />
+      )}
     </VisualizationErrorBoundary>
   );
 }
@@ -105,6 +133,42 @@ function VisualizationPreviewContent({
     enabled: !!insightForView,
   });
 
+  return (
+    <ResolvedVisualizationPreview
+      visualization={visualization}
+      height={height}
+      fallback={fallback}
+      insight={insight}
+      dataTable={dataTable}
+      instanceAwareFields={instanceAwareFields}
+      viewName={viewName}
+      isReady={isReady}
+      error={error}
+      isLoadingInsight={isLoadingInsight}
+    />
+  );
+}
+
+function ResolvedVisualizationPreview({
+  visualization,
+  height = PREVIEW_HEIGHT,
+  fallback = null,
+  insight,
+  dataTable,
+  instanceAwareFields,
+  viewName,
+  isReady,
+  error,
+  isLoadingInsight,
+}: Pick<VisualizationPreviewProps, "visualization" | "height" | "fallback"> & {
+  insight: Insight | null | undefined;
+  dataTable: DataTable | undefined;
+  instanceAwareFields: Field[];
+  viewName: string | null;
+  isReady: boolean;
+  error: string | null;
+  isLoadingInsight: boolean;
+}) {
   // Resolve encoding against the saved Insight's materialized result frame.
   // - field:<uuid> → column name (e.g., "Product")
   // - metric:<uuid> → computed result alias (e.g., "metric_<uuid>")
