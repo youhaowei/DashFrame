@@ -66,6 +66,22 @@ and how each was resolved:
 Everything else adopted had zero findings; the rules are there for the code
 that has not been written yet.
 
+One rule is home-grown, in `scripts/oxlint-plugin-dashframe.mjs`:
+`dashframe/require-disable-reason`. Every `oxlint-disable*` (or
+`eslint-disable*`) directive must name the rules it silences and give a
+reason after `--`. A disable is a bypass of the gate; the reason turns it
+into something a reviewer can judge instead of trust. The first pass found
+20 directives without one: four were dead (the `scripts/**` override already
+turns their rule off) and were deleted, and the rest had their justification
+either on the line above or nowhere, now folded into the directive. A bare
+`/* oxlint-disable */` is caught by `unicorn/no-abusive-eslint-disable` while
+that rule remains active. Oxlint applies earlier suppressions before plugin
+reports, however, so one directive can disable that rule before a later blanket
+disable, and a directive can name `dashframe/require-disable-reason` itself.
+`check:disable-directive-policy` therefore parses comments in every linted,
+tracked first-party source file and rejects blanket disables and exact
+`dashframe/require-disable-reason` rule tokens outside oxlint.
+
 Explicit `off` entries, each with its reason in the config: the classic-runtime
 `react/react-in-jsx-scope` (2761), oxlint's own `react-hooks/*` (13 false
 positives on `.use()` methods; the eslint-plugin-react-hooks jsPlugin is
@@ -175,4 +191,6 @@ them; nothing else is relaxed there.
 6. **Structural rules in `convex-backend` and `types`.** See Coverage.
 7. **Unused disable directives.** Add
    `--report-unused-disable-directives` to the package lint scripts once
-   they are unified; the count today is zero.
+   they are unified. Four unused directives were found by hand in
+   `scripts/ai-changeset.mjs` while adding `require-disable-reason`; the
+   flag would have found them.

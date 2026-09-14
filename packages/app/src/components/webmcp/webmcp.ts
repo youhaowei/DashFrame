@@ -92,8 +92,7 @@ export function useWebMCPTools(tools: readonly WebMCPToolDefinition[]): void {
           options?: WebMCPToolExecutionOptions,
         ) => executeCurrentTool(toolsRef, descriptor.name, input, options),
       })),
-    // Executors stay live through toolsRef; only descriptor changes register.
-    // oxlint-disable-next-line react-hooks-js/exhaustive-deps
+    // oxlint-disable-next-line react-hooks-js/exhaustive-deps -- executors stay live through toolsRef; only descriptor changes register
     [key],
   );
 

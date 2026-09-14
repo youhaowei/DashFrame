@@ -110,8 +110,7 @@ export function ShellRails({ shellWidth }: ShellRailsProps) {
 
   useEffect(() => {
     if (contextAutoCollapsedState === nextContextAutoCollapsed) return;
-    // Hysteresis follows ResizeObserver measurements; the state transition is the buffer.
-    // oxlint-disable-next-line react-hooks-js/set-state-in-effect
+    // oxlint-disable-next-line react-hooks-js/set-state-in-effect -- hysteresis follows ResizeObserver measurements; the state transition is the buffer
     setContextAutoCollapsed(nextContextAutoCollapsed);
   }, [contextAutoCollapsedState, nextContextAutoCollapsed]);
 
@@ -136,8 +135,7 @@ export function ShellRails({ shellWidth }: ShellRailsProps) {
 
   useEffect(() => {
     if (assistantNarrowedState === nextAssistantNarrowed) return;
-    // Hysteresis follows ResizeObserver measurements; the state transition is the buffer.
-    // oxlint-disable-next-line react-hooks-js/set-state-in-effect
+    // oxlint-disable-next-line react-hooks-js/set-state-in-effect -- hysteresis follows ResizeObserver measurements; the state transition is the buffer
     setAssistantNarrowed(nextAssistantNarrowed);
   }, [assistantNarrowedState, nextAssistantNarrowed]);
 
