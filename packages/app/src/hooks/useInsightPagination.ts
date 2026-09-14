@@ -608,6 +608,13 @@ export function useInsightPagination({
     [dataTables, insight, insights, schema],
   );
 
+  const retry = () => {
+    // Explicit retries supersede a completed materialization's publication
+    // proof. Subscription updates should still use that proof automatically.
+    completedPublication.current = null;
+    setSourceRetry((value) => value + 1);
+  };
+
   return {
     dataFrameId,
     fetchData,
@@ -626,6 +633,6 @@ export function useInsightPagination({
       schema.map((column) => [column.id, column.type as ColumnType]),
     ),
     resolvedFields,
-    retry: () => setSourceRetry((value) => value + 1),
+    retry,
   };
 }
