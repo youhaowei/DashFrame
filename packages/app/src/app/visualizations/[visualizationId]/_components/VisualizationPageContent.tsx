@@ -5,7 +5,6 @@ import { AppLayout } from "@/components/layouts/AppLayout";
 import { useContextPanelSection } from "@/components/shell/context-panel-outlet";
 import { AxisSelectField } from "@/components/visualizations/AxisSelectField";
 import { useVisualizationEncodingChange } from "@/components/visualizations/useVisualizationEncodingChange";
-import { getVisualizationTypeChange } from "@/components/visualizations/visualization-type-change";
 import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
 import { visualizationSourceQuestionLink } from "@/components/visualizations/visualization-navigation";
 import {
@@ -412,12 +411,18 @@ export default function VisualizationPageContent({
     });
   };
 
-  const handleEncodingChange = useVisualizationEncodingChange({
-    visualization,
-    dataTable,
-    columnAnalysis,
-    updateVisualization: updateVisualizationMutation,
-  });
+  const handleEncodingUpdateError = useCallback(
+    () => toast.error("Failed to update chart encodings"),
+    [],
+  );
+  const { changeEncoding: handleEncodingChange, changeType } =
+    useVisualizationEncodingChange({
+      visualization,
+      dataTable,
+      columnAnalysis,
+      updateVisualization: updateVisualizationMutation,
+      onUpdateError: handleEncodingUpdateError,
+    });
 
   // Handle visualization type change
   // Auto-swaps axes when switching between barY and barX
@@ -425,14 +430,9 @@ export default function VisualizationPageContent({
     async (type: string) => {
       const newType = type as VisualizationType;
       if (!visualization) return;
-      const updates = getVisualizationTypeChange(visualization, newType);
-      if (!updates) return;
-      await updateVisualizationMutation({
-        id: visualizationId as UUID,
-        updates,
-      });
+      await changeType(newType);
     },
-    [updateVisualizationMutation, visualization, visualizationId],
+    [changeType, visualization],
   );
 
   const hasNumericColumns = dataFrame?.columns?.some(
@@ -510,25 +510,21 @@ export default function VisualizationPageContent({
       y: currentEncoding.x,
       xType: currentEncoding.yType,
       yType: currentEncoding.xType,
+      xTransform: currentEncoding.yTransform,
+      yTransform: currentEncoding.xTransform,
     };
 
     const newChartType = getSwappedChartType(visualization.visualizationType);
 
     if (newChartType !== visualization.visualizationType) {
-      await updateVisualizationMutation({
-        id: visualizationId as UUID,
-        updates: {
-          visualizationType: newChartType,
-          encoding: newEncoding,
-        },
-      });
+      await changeType(newChartType);
     } else {
       await updateVisualizationMutation({
         id: visualizationId as UUID,
         updates: { encoding: newEncoding },
       });
     }
-  }, [updateVisualizationMutation, visualization, visualizationId]);
+  }, [changeType, updateVisualizationMutation, visualization, visualizationId]);
 
   const canSwap = visualization
     ? isSwapAllowed(visualization.visualizationType)

@@ -123,6 +123,19 @@ function filterEditLabel(displayName: string, viewersCanChange: boolean) {
   }`;
 }
 
+function hasDuplicateRuntimeControlKey(
+  viewerEditable: boolean,
+  key: string,
+  otherControlKeys: ReadonlySet<string>,
+): boolean {
+  const normalizedKey = key.trim();
+  return (
+    viewerEditable &&
+    normalizedKey !== "" &&
+    otherControlKeys.has(normalizedKey)
+  );
+}
+
 export function formatFilterValue(filter: InsightFilter): string {
   if (filter.operator === "between") {
     const value = filter.value as InsightFilterBetweenValue | undefined;
@@ -139,6 +152,7 @@ function FilterEditor({
   fields,
   displayFields,
   control,
+  otherControlKeys,
   dragHandle,
   onSave,
   onRemove,
@@ -148,6 +162,7 @@ function FilterEditor({
   fields: CombinedField[];
   displayFields: CombinedField[];
   control?: RuntimeFilterControl;
+  otherControlKeys: ReadonlySet<string>;
   dragHandle?: ReactNode;
   onSave: (
     filter: FilterWithId,
@@ -213,6 +228,11 @@ function FilterEditor({
     [betweenHigh, betweenLow, field, inputType, operator, scalarValue],
   );
   const isValid = isFilterDraftValid(draft);
+  const duplicateControlKey = hasDuplicateRuntimeControlKey(
+    viewerEditable,
+    key,
+    otherControlKeys,
+  );
   const operatorLabel =
     OPERATOR_OPTIONS.find((item) => item.value === filter?.operator)?.label ??
     filter?.operator;
@@ -491,11 +511,17 @@ function FilterEditor({
                   Generated on save
                 </p>
               )}
+              {duplicateControlKey && (
+                <p className="text-[11px] text-palette-danger">
+                  Control keys must be unique.
+                </p>
+              )}
             </div>
             <div className="flex gap-4">
               <label className="flex cursor-pointer items-center gap-2 text-xs">
                 <WorkbenchCheckbox
                   checked={required}
+                  disabled={allowClear}
                   onCheckedChange={(checked) => setRequired(checked === true)}
                 />
                 Required
@@ -503,6 +529,7 @@ function FilterEditor({
               <label className="flex cursor-pointer items-center gap-2 text-xs">
                 <WorkbenchCheckbox
                   checked={allowClear}
+                  disabled={required}
                   onCheckedChange={(checked) => setAllowClear(checked === true)}
                 />
                 Allow clear
@@ -515,7 +542,10 @@ function FilterEditor({
             label="Done"
             size="sm"
             loading={isSaving}
-            disabled={!isValid || (viewerEditable && !label.trim())}
+            disabled={
+              !isValid ||
+              (viewerEditable && (!label.trim() || duplicateControlKey))
+            }
             onClick={() => void save()}
           />
         </div>
@@ -582,6 +612,15 @@ export function FiltersSection({
                   ? controlsByFilter.get(item.filter.id)
                   : undefined
               }
+              otherControlKeys={
+                new Set(
+                  (runtimeControls?.filters ?? [])
+                    .filter(
+                      (candidate) => candidate.filterId !== item.filter.id,
+                    )
+                    .map((candidate) => candidate.key),
+                )
+              }
               dragHandle={dragHandle}
               onSave={onSave}
               onRemove={() => onRemove(item.id)}
@@ -593,6 +632,11 @@ export function FiltersSection({
       <FilterEditor
         fields={combinedFields}
         displayFields={displayFields}
+        otherControlKeys={
+          new Set(
+            (runtimeControls?.filters ?? []).map((control) => control.key),
+          )
+        }
         onSave={onSave}
         onDraftChange={onDraftChange}
       />

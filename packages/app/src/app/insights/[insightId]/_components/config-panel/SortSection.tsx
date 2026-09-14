@@ -318,11 +318,13 @@ export function SortSection({
             />
             <CommandList>
               <CommandEmpty>No result columns available.</CommandEmpty>
-              {(["Fields", "Metrics"] as const).map((group) => (
-                <CommandGroup key={group} heading={group}>
-                  {unusedOptions
-                    .filter((option) => option.group === group)
-                    .map((option) => (
+              {(["Fields", "Metrics"] as const).map((group) => {
+                const groupOptions = unusedOptions.filter(
+                  (option) => option.group === group,
+                );
+                return groupOptions.length > 0 ? (
+                  <CommandGroup key={group} heading={group}>
+                    {groupOptions.map((option) => (
                       <CommandItem
                         key={option.value}
                         value={option.value}
@@ -339,8 +341,9 @@ export function SortSection({
                         <span>{option.label}</span>
                       </CommandItem>
                     ))}
-                </CommandGroup>
-              ))}
+                  </CommandGroup>
+                ) : null;
+              })}
             </CommandList>
           </Command>
         </PopoverContent>

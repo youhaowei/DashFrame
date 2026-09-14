@@ -721,6 +721,9 @@ function getEncodingValidator(
     case "areaY":
       return channel === "x" ? validateLineAreaX : validateLineAreaY;
     case "dot":
+    case "hexbin":
+    case "heatmap":
+    case "raster":
       return validateScatterAxis;
     default:
       // Fallback: check valid format only

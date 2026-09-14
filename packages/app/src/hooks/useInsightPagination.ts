@@ -626,5 +626,6 @@ export function useInsightPagination({
       schema.map((column) => [column.id, column.type as ColumnType]),
     ),
     resolvedFields,
+    retry: () => setSourceRetry((value) => value + 1),
   };
 }

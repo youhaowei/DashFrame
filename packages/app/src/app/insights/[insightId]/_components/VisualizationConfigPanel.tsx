@@ -1,6 +1,5 @@
 import { AxisSelectField } from "@/components/visualizations/AxisSelectField";
 import { useVisualizationEncodingChange } from "@/components/visualizations/useVisualizationEncodingChange";
-import { getVisualizationTypeChange } from "@/components/visualizations/visualization-type-change";
 import {
   extractColumnAliasComponents,
   fieldIdToColumnAlias,
@@ -34,7 +33,7 @@ import {
 } from "@dashframe/ui";
 import { Button, Tooltip, cn } from "@wystack/ui-react";
 import { BarChart3, Bookmark, Crosshair } from "lucide-react";
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { toast } from "sonner";
 
 const VISUALIZATION_SECTION_IDS = [
@@ -70,9 +69,12 @@ interface VisualizationConfigPanelProps {
   compiledInsight: CompiledInsight;
   dataTable: DataTable;
   availableFields: Field[];
+  metricLabelFields?: Field[];
   availableColumns: DataFrameColumn[];
   columnDisplayNames: Record<string, string>;
   columnAnalysis: ColumnAnalysis[];
+  encodingsError?: boolean;
+  onRetryEncodings?: () => void;
   onSelectChartType: (chartType: VisualizationType) => void;
   onSelectVisualization: (visualizationId: UUID) => void;
   updateVisualization: (args: {
@@ -222,28 +224,27 @@ function UnsavedEncodings({
 function SavedEncodings({
   visualization,
   compiledInsight,
-  dataTable,
   availableFields,
+  metricLabelFields,
   availableColumns,
   columnDisplayNames,
   columnAnalysis,
-  updateVisualization,
+  onEncodingChange,
 }: Pick<
   VisualizationConfigPanelProps,
   | "compiledInsight"
-  | "dataTable"
   | "availableFields"
+  | "metricLabelFields"
   | "availableColumns"
   | "columnDisplayNames"
   | "columnAnalysis"
-  | "updateVisualization"
-> & { visualization: Visualization }) {
-  const handleEncodingChange = useVisualizationEncodingChange({
-    visualization,
-    dataTable,
-    columnAnalysis,
-    updateVisualization,
-  });
+> & {
+  visualization: Visualization;
+  onEncodingChange: (
+    field: "x" | "y" | "color" | "size",
+    value: string,
+  ) => void;
+}) {
   const encodingsReady = columnAnalysis.length > 0;
   const options = useMemo(() => {
     const result: Array<{ label: string; value: string }> =
@@ -267,13 +268,17 @@ function SavedEncodings({
     }
     result.push(
       ...compiledInsight.metrics.map((metric) => ({
-        label: getMetricDisplayLabel(metric, availableFields),
+        label: getMetricDisplayLabel(
+          metric,
+          metricLabelFields ?? availableFields,
+        ),
         value: metricEncoding(metric.id),
       })),
     );
     return result;
   }, [
     availableFields,
+    metricLabelFields,
     columnDisplayNames,
     compiledInsight.dimensions,
     compiledInsight.metrics,
@@ -287,28 +292,32 @@ function SavedEncodings({
             <SelectField
               label="Color"
               value={visualization.encoding?.color || ""}
-              onChange={(value) => handleEncodingChange("color", value)}
+              onChange={(value) => onEncodingChange("color", value)}
+              onClear={() => onEncodingChange("color", "")}
               options={options}
               placeholder="None"
               emptyDashed
               disabled={!encodingsReady}
             />
-            <SelectField
-              label="Size"
-              value={visualization.encoding?.size || ""}
-              onChange={(value) => handleEncodingChange("size", value)}
-              options={options}
-              placeholder="None"
-              emptyDashed
-              disabled={!encodingsReady}
-            />
+            {visualization.visualizationType === "dot" && (
+              <SelectField
+                label="Size"
+                value={visualization.encoding?.size || ""}
+                onChange={(value) => onEncodingChange("size", value)}
+                onClear={() => onEncodingChange("size", "")}
+                options={options}
+                placeholder="None"
+                emptyDashed
+                disabled={!encodingsReady}
+              />
+            )}
           </>
         }
         y={
           <AxisSelectField
             label="Y"
             value={visualization.encoding?.y || ""}
-            onChange={(value) => handleEncodingChange("y", value)}
+            onChange={(value) => onEncodingChange("y", value)}
             placeholder="None"
             emptyDashed
             disabled={!encodingsReady}
@@ -317,6 +326,7 @@ function SavedEncodings({
             columnAnalysis={columnAnalysis}
             compiledInsight={compiledInsight}
             availableFields={availableFields}
+            metricLabelFields={metricLabelFields}
             availableColumns={availableColumns}
             columnDisplayNames={columnDisplayNames}
             otherAxisColumn={visualization.encoding?.x}
@@ -326,7 +336,7 @@ function SavedEncodings({
           <AxisSelectField
             label="X"
             value={visualization.encoding?.x || ""}
-            onChange={(value) => handleEncodingChange("x", value)}
+            onChange={(value) => onEncodingChange("x", value)}
             placeholder="None"
             emptyDashed
             disabled={!encodingsReady}
@@ -335,6 +345,7 @@ function SavedEncodings({
             columnAnalysis={columnAnalysis}
             compiledInsight={compiledInsight}
             availableFields={availableFields}
+            metricLabelFields={metricLabelFields}
             availableColumns={availableColumns}
             columnDisplayNames={columnDisplayNames}
             otherAxisColumn={visualization.encoding?.y}
@@ -359,9 +370,12 @@ export function VisualizationConfigPanel({
   compiledInsight,
   dataTable,
   availableFields,
+  metricLabelFields,
   availableColumns,
   columnDisplayNames,
   columnAnalysis,
+  encodingsError = false,
+  onRetryEncodings,
   onSelectChartType,
   onSelectVisualization,
   updateVisualization,
@@ -374,6 +388,25 @@ export function VisualizationConfigPanel({
     toggleAll,
     registerSection,
   } = useWorkbenchPaneSections(VISUALIZATION_SECTION_IDS);
+  const handleEncodingUpdateError = useCallback(
+    () => toast.error("Failed to update chart encodings"),
+    [],
+  );
+  const { changeEncoding, changeType } = useVisualizationEncodingChange({
+    visualization: activeVisualization,
+    dataTable,
+    columnAnalysis,
+    updateVisualization,
+    onUpdateError: handleEncodingUpdateError,
+  });
+  const handleEncodingChange = (
+    field: "x" | "y" | "color" | "size",
+    value: string,
+  ) => {
+    changeEncoding(field, value).catch(() =>
+      toast.error("Failed to update chart encodings"),
+    );
+  };
   const selectedMetadata = CHART_TYPE_METADATA[activeChartType];
   const handleChartTypeChange = (chartType: VisualizationType) => {
     if (!availableChartTypes.has(chartType)) return;
@@ -381,9 +414,7 @@ export function VisualizationConfigPanel({
       onSelectChartType(chartType);
       return;
     }
-    const updates = getVisualizationTypeChange(activeVisualization, chartType);
-    if (!updates) return;
-    updateVisualization({ id: activeVisualization.id, updates }).catch(() =>
+    changeType(chartType).catch(() =>
       toast.error("Failed to update chart type"),
     );
   };
@@ -408,6 +439,44 @@ export function VisualizationConfigPanel({
       </WorkbenchPaneSection>
     );
   };
+  let encodingContent: React.ReactNode;
+  if (activeVisualization && encodingsError) {
+    encodingContent = (
+      <div className="space-y-2 text-[11px] leading-4 text-neutral-fg-subtle">
+        <p>Couldn't load encoding options.</p>
+        {onRetryEncodings && (
+          <Button
+            label="Retry"
+            size="sm"
+            variant="outline"
+            onClick={onRetryEncodings}
+          />
+        )}
+      </div>
+    );
+  } else if (activeVisualization) {
+    encodingContent = (
+      <SavedEncodings
+        visualization={activeVisualization}
+        compiledInsight={compiledInsight}
+        availableFields={availableFields}
+        metricLabelFields={metricLabelFields}
+        availableColumns={availableColumns}
+        columnDisplayNames={columnDisplayNames}
+        columnAnalysis={columnAnalysis}
+        onEncodingChange={handleEncodingChange}
+      />
+    );
+  } else {
+    encodingContent = (
+      <UnsavedEncodings
+        encoding={activeSuggestionEncoding}
+        fields={availableFields}
+        metrics={compiledInsight.metrics}
+        columnDisplayNames={columnDisplayNames}
+      />
+    );
+  }
 
   return (
     <div className="flex h-full min-w-0 flex-col bg-neutral-bg text-xs">
@@ -475,25 +544,7 @@ export function VisualizationConfigPanel({
           {renderSection(
             "encodings",
             activeVisualization ? "Editable" : "Read-only",
-            activeVisualization ? (
-              <SavedEncodings
-                visualization={activeVisualization}
-                compiledInsight={compiledInsight}
-                dataTable={dataTable}
-                availableFields={availableFields}
-                availableColumns={availableColumns}
-                columnDisplayNames={columnDisplayNames}
-                columnAnalysis={columnAnalysis}
-                updateVisualization={updateVisualization}
-              />
-            ) : (
-              <UnsavedEncodings
-                encoding={activeSuggestionEncoding}
-                fields={availableFields}
-                metrics={compiledInsight.metrics}
-                columnDisplayNames={columnDisplayNames}
-              />
-            ),
+            encodingContent,
           )}
           {renderSection(
             "saved-charts",

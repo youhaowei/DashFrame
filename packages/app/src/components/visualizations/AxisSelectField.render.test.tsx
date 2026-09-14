@@ -456,3 +456,53 @@ it("retains the selected metric encoding and label when analysis also supplies i
   );
   expect(capturedOptions.some((option) => option.value === alias)).toBe(false);
 });
+
+it("uses non-selectable source fields to disambiguate metric labels", () => {
+  const metricId = "11111111-1111-4111-8111-111111111111" as UUID;
+  render(
+    <AxisSelectField
+      label="Y Axis"
+      value={metricEncoding(metricId)}
+      onChange={vi.fn()}
+      axis="y"
+      chartType="barY"
+      columnAnalysis={[]}
+      availableFields={[]}
+      metricLabelFields={[
+        {
+          id: "22222222-2222-4222-8222-222222222222" as UUID,
+          tableId: ORDERS_TABLE_ID,
+          name: "Revenue",
+          columnName: "revenue",
+          type: "number",
+        },
+      ]}
+      compiledInsight={{
+        ...baseCompiledInsight,
+        dimensions: [],
+        metrics: [
+          {
+            id: metricId,
+            name: "Total revenue",
+            aggregation: "sum",
+            columnName: "revenue",
+          },
+        ],
+      }}
+    />,
+  );
+
+  expect(capturedOptions).toContainEqual(
+    expect.objectContaining({
+      value: metricEncoding(metricId),
+      label: "Sum of Revenue",
+    }),
+  );
+  expect(
+    capturedOptions.some(
+      (option) =>
+        option.value ===
+        fieldEncoding("22222222-2222-4222-8222-222222222222" as UUID),
+    ),
+  ).toBe(false);
+});

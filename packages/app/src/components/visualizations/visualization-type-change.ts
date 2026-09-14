@@ -31,6 +31,8 @@ export function getVisualizationTypeChange(
       y: visualization.encoding.x,
       xType: visualization.encoding.yType,
       yType: visualization.encoding.xType,
+      xTransform: visualization.encoding.yTransform,
+      yTransform: visualization.encoding.xTransform,
     },
   };
 }

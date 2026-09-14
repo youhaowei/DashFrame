@@ -463,7 +463,13 @@ function SortableItem<T extends SortableListItem>({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: item.id, disabled: item.disabled });
+  } = useSortable({
+    id: item.id,
+    disabled: {
+      draggable: Boolean(item.disabled),
+      droppable: false,
+    },
+  });
 
   const sortableStyle: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
@@ -490,7 +496,7 @@ function SortableItem<T extends SortableListItem>({
         <div
           ref={setNodeRef}
           style={sortableStyle}
-          className={cn(isDragging && "opacity-50", className)}
+          className={cn(isDragging && "opacity-50", className, itemClassName)}
         >
           {renderItem(item, index, { dragHandle, isDragging })}
         </div>

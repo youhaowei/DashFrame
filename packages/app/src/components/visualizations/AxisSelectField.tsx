@@ -95,6 +95,8 @@ interface AxisSelectFieldProps {
   compiledInsight: CompiledInsight;
   /** Available fields for display labels, including metric source columns */
   availableFields?: Field[];
+  /** Source fields used only to name metrics; they are never selectable. */
+  metricLabelFields?: Field[];
   /** Raw data frame columns used when the insight has no selected dimensions */
   availableColumns?: DataFrameColumn[];
   /** Display labels keyed by generated SQL column alias */
@@ -132,6 +134,7 @@ export function AxisSelectField({
   columnAnalysis,
   compiledInsight,
   availableFields,
+  metricLabelFields,
   availableColumns,
   columnDisplayNames,
   otherAxisColumn,
@@ -191,7 +194,10 @@ export function AxisSelectField({
     // Add metrics using metric:<uuid> encoding format
     compiledInsight.metrics.forEach((metric) => {
       addOption({
-        label: getMetricDisplayLabel(metric, selectableFields),
+        label: getMetricDisplayLabel(
+          metric,
+          metricLabelFields ?? selectableFields,
+        ),
         value: metricEncoding(metric.id as UUID),
       });
     });
@@ -249,6 +255,7 @@ export function AxisSelectField({
     columnDisplayNames,
     compiledInsight,
     selectableFields,
+    metricLabelFields,
   ]);
 
   // Build mapping from storage encoding (field:<uuid>) to SQL alias (field_<uuid>)

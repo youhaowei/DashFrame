@@ -175,6 +175,34 @@ describe("VisualizationConfigPanel", () => {
     expect(screen.getByText("Loading encoding options…")).toBeTruthy();
   });
 
+  it("shows a retry action when encoding options fail to load", () => {
+    const retry = vi.fn();
+    render(
+      <VisualizationConfigPanel
+        activeChartType="barY"
+        availableChartTypes={new Set(["barY"])}
+        activeVisualization={visualization}
+        visualizations={[visualization]}
+        compiledInsight={compiledInsight}
+        dataTable={table}
+        availableFields={[field]}
+        availableColumns={[]}
+        columnDisplayNames={{}}
+        columnAnalysis={[]}
+        encodingsError
+        onRetryEncodings={retry}
+        onSelectChartType={vi.fn()}
+        onSelectVisualization={vi.fn()}
+        updateVisualization={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Couldn't load encoding options.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(retry).toHaveBeenCalledOnce();
+    expect(screen.queryByText("Loading encoding options…")).toBeNull();
+  });
+
   it("updates a saved visualization type without leaving the saved view", async () => {
     const onSelectChartType = vi.fn();
     const updateVisualization = vi.fn().mockResolvedValue(undefined);

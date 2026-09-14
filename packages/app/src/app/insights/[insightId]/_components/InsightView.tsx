@@ -3,6 +3,7 @@ import { queryStatus } from "@/data/query-status";
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { VisualizationPreview } from "@/components/visualizations/VisualizationPreview";
 import { visualizationDetailLink } from "@/components/visualizations/visualization-navigation";
+import { getVisualizationTypeChange } from "@/components/visualizations/visualization-type-change";
 import {
   resolveInsightSourceDataTable,
   useInsightPagination,
@@ -23,6 +24,7 @@ import {
 import { useWebMCPPageStore } from "@/lib/stores/webmcp-page-store";
 import type { Insight as LocalInsight } from "@/lib/stores/types";
 import { analyzeFrameSample } from "@/lib/visualizations/analyze-frame-sample";
+import { validateEncoding } from "@/lib/visualizations/encoding-enforcer";
 import {
   suggestByChartType,
   type ChartSuggestion,
@@ -1044,14 +1046,35 @@ export function InsightView({
       chartSuggestionSchema,
     ],
   );
+  const insightVisualizations = useMemo(
+    () => allVisualizations.filter((v) => v.insightId === insightId),
+    [allVisualizations, insightId],
+  );
+  const pinnedVisualizationIds = useMemo(
+    () => new Set(insightVisualizations.map((viz) => viz.id)),
+    [insightVisualizations],
+  );
+  const activeView = useMemo(
+    () =>
+      sanitizeInsightCanvasView(persistedActiveView, pinnedVisualizationIds),
+    [persistedActiveView, pinnedVisualizationIds],
+  );
+  const activeVisualization =
+    activeView.kind === "visualization"
+      ? insightVisualizations.find(
+          (viz) => viz.id === activeView.visualizationId,
+        )
+      : undefined;
   const {
     columns: encodingModelColumns,
     columnDisplayNames: encodingModelColumnDisplayNames,
     resolvedFields: encodingResolvedFields,
+    error: encodingModelError,
+    retry: retryEncodingModel,
   } = useInsightPagination({
     insight,
     showModelPreview: true,
-    enabled: persistedActiveView?.kind === "visualization",
+    enabled: activeView.kind === "visualization",
   });
   const {
     columnDisplayNames: encodingRenderedColumnDisplayNames,
@@ -1059,10 +1082,12 @@ export function InsightView({
     sampleRows: encodingRows,
     totalCount: encodingRowCount,
     isReady: areEncodingsReady,
+    error: encodingResultError,
+    retry: retryEncodingResult,
   } = useInsightPagination({
     insight,
     showModelPreview: false,
-    enabled: persistedActiveView?.kind === "visualization",
+    enabled: activeView.kind === "visualization",
   });
   const encodingColumnDisplayNames = useMemo(() => {
     const displayNames = {
@@ -1091,27 +1116,6 @@ export function InsightView({
         : [],
     [areEncodingsReady, encodingRowCount, encodingRows, encodingSchema],
   );
-
-  // Get visualizations for this insight
-  const insightVisualizations = useMemo(
-    () => allVisualizations.filter((v) => v.insightId === insightId),
-    [allVisualizations, insightId],
-  );
-  const pinnedVisualizationIds = useMemo(
-    () => new Set(insightVisualizations.map((viz) => viz.id)),
-    [insightVisualizations],
-  );
-  const activeView = useMemo(
-    () =>
-      sanitizeInsightCanvasView(persistedActiveView, pinnedVisualizationIds),
-    [persistedActiveView, pinnedVisualizationIds],
-  );
-  const activeVisualization =
-    activeView.kind === "visualization"
-      ? insightVisualizations.find(
-          (viz) => viz.id === activeView.visualizationId,
-        )
-      : undefined;
 
   // No write-back of the sanitized view into the store: right after a pin,
   // the persisted selection can reference a visualization the list hasn't
@@ -1159,10 +1163,9 @@ export function InsightView({
 
   const encodingAvailableFields = useMemo(() => {
     const fields = new Map<string, Field>();
-    for (const field of Object.values(fieldMap)) fields.set(field.id, field);
     for (const field of encodingResolvedFields) fields.set(field.id, field);
     return [...fields.values()];
-  }, [encodingResolvedFields, fieldMap]);
+  }, [encodingResolvedFields]);
   const compiledInsightForEncodings = useMemo<CompiledInsight>(() => {
     const fieldsById = new Map(
       encodingAvailableFields.map((field) => [field.id, field]),
@@ -1178,7 +1181,6 @@ export function InsightView({
       sorts: insight.sorts,
     };
   }, [encodingAvailableFields, insight]);
-
   // Get existing field and metric column names from insight configuration
   // Includes fields from both base table AND joined tables
   const existingFieldNames = useMemo(() => {
@@ -1277,6 +1279,39 @@ export function InsightView({
     fieldMap,
     existingFieldNames,
     suggestionSeed,
+  ]);
+  const availableVisualizationTypes = useMemo(() => {
+    if (!activeVisualization) {
+      return new Set(chartSuggestionsByType.keys());
+    }
+    if (!areEncodingsReady) {
+      return new Set([activeVisualization.visualizationType]);
+    }
+    return new Set(
+      INSIGHT_CANVAS_CHART_TYPES.filter((chartType) => {
+        if (chartType === activeVisualization.visualizationType) return true;
+        const updates = getVisualizationTypeChange(
+          activeVisualization,
+          chartType,
+        );
+        const encoding =
+          updates?.encoding ?? activeVisualization.encoding ?? {};
+        if (!encoding.x || !encoding.y) return false;
+        const errors = validateEncoding(
+          encoding,
+          chartType,
+          encodingColumnAnalysis,
+          compiledInsightForEncodings,
+        );
+        return !errors.x && !errors.y;
+      }),
+    );
+  }, [
+    activeVisualization,
+    areEncodingsReady,
+    chartSuggestionsByType,
+    compiledInsightForEncodings,
+    encodingColumnAnalysis,
   ]);
 
   const firstChartSuggestion = useMemo(() => {
@@ -1702,7 +1737,7 @@ export function InsightView({
           className={cn(
             // Shrinkable, so on a narrow window the panes give way before the
             // canvas does: its header holds the only controls that collapse them.
-            "h-full min-w-0 overflow-hidden transition-[width] duration-200",
+            "h-full min-w-0 overflow-hidden transition-[width] duration-200 motion-reduce:transition-none",
             insightPaneOpen ? "w-64" : "w-0",
           )}
         >
@@ -1757,7 +1792,7 @@ export function InsightView({
               className="min-w-16 flex-1 truncate rounded-sm bg-transparent px-1 py-0.5 text-sm font-semibold text-neutral-fg outline-none placeholder:text-neutral-fg-subtle focus-visible:ring-2 focus-visible:ring-palette-primary"
             />
             {viewStatus && (
-              <span className="hidden max-w-48 min-w-0 truncate text-xs text-neutral-fg-subtle 2xl:inline">
+              <span className="hidden max-w-48 min-w-0 truncate text-xs text-neutral-fg-subtle @min-3xl:inline">
                 {viewStatus}
               </span>
             )}
@@ -1865,26 +1900,34 @@ export function InsightView({
           inert={!visualizationPane.attached}
           aria-hidden={!visualizationPane.attached}
           className={cn(
-            "h-full min-w-0 overflow-hidden transition-[width] duration-200",
+            "h-full min-w-0 overflow-hidden transition-[width] duration-200 motion-reduce:transition-none",
             visualizationPane.attached ? "w-60" : "w-0",
           )}
         >
           <div className="h-full w-60 min-w-0">
             <VisualizationConfigPanel
               activeChartType={visualizationPane.chartType}
-              availableChartTypes={new Set(chartSuggestionsByType.keys())}
+              availableChartTypes={availableVisualizationTypes}
               activeSuggestionEncoding={activeChartSuggestion?.encoding}
               activeVisualization={activeVisualization}
               visualizations={insightVisualizations}
               compiledInsight={compiledInsightForEncodings}
               dataTable={authoringTable}
               availableFields={encodingAvailableFields}
+              metricLabelFields={Object.values(fieldMap)}
               availableColumns={encodingModelColumns.map((column) => ({
                 name: column.name,
                 type: column.type ?? "unknown",
               }))}
               columnDisplayNames={encodingColumnDisplayNames}
               columnAnalysis={encodingColumnAnalysis}
+              encodingsError={Boolean(
+                encodingModelError || encodingResultError,
+              )}
+              onRetryEncodings={() => {
+                retryEncodingModel();
+                retryEncodingResult();
+              }}
               onSelectChartType={(chartType) =>
                 handleSetActiveView(chartView(chartType))
               }

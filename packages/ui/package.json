@@ -26,6 +26,7 @@
     "@vitest/browser-playwright": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "playwright": "^1.57.0",
+    "jsdom": "^26.1.0",
     "postcss": "8.5.6",
     "remark-gfm": "^4.0.1",
     "storybook": "^10.1.11",

@@ -8,6 +8,7 @@ import {
 import { reorderVisibleMetrics } from "@/lib/insights/reorder-visible-metrics";
 import { useWebMCPPageStore } from "@/lib/stores/webmcp-page-store";
 import { api } from "@dashframe/convex-backend/api";
+import { metricIdToColumnAlias } from "@dashframe/engine";
 import type {
   Command,
   DataTable,
@@ -38,7 +39,14 @@ import {
   Sigma,
   Table2,
 } from "lucide-react";
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { toast } from "sonner";
 import { DataModelSection } from "../sections/DataModelSection";
 import {
@@ -170,6 +178,24 @@ export function InsightConfigPanel({
     initialDeleteDialogState,
   );
   const [processingVizId, setProcessingVizId] = useState<string | null>(null);
+  const [localRuntimeControls, setLocalRuntimeControls] = useState(
+    insight.runtimeControls,
+  );
+  const runtimeControlsRef = useRef(insight.runtimeControls);
+  const pendingRuntimeControlsSignatureRef = useRef<string | null>(null);
+  const runtimeControlsSignature = stableValueSignature(
+    insight.runtimeControls ?? null,
+  );
+  useEffect(() => {
+    if (
+      pendingRuntimeControlsSignatureRef.current === null ||
+      pendingRuntimeControlsSignatureRef.current === runtimeControlsSignature
+    ) {
+      runtimeControlsRef.current = insight.runtimeControls;
+      setLocalRuntimeControls(insight.runtimeControls);
+      pendingRuntimeControlsSignatureRef.current = null;
+    }
+  }, [insight.runtimeControls, runtimeControlsSignature]);
   const updateWebMCPInsight = useWebMCPPageStore(
     (state) => state.updateInsight,
   );
@@ -283,6 +309,10 @@ export function InsightConfigPanel({
 
   const handleRuntimeControlsChange = useCallback(
     async (runtimeControls: InsightRuntimeDeclaration | undefined) => {
+      const nextSignature = stableValueSignature(runtimeControls ?? null);
+      runtimeControlsRef.current = runtimeControls;
+      setLocalRuntimeControls(runtimeControls);
+      pendingRuntimeControlsSignatureRef.current = nextSignature;
       const commands = runtimeControls
         ? buildInsightUpdateCommands(insight.id, insight, { runtimeControls })
         : [
@@ -295,6 +325,11 @@ export function InsightConfigPanel({
         await commitBatch({ commands });
         return true;
       } catch {
+        if (pendingRuntimeControlsSignatureRef.current === nextSignature) {
+          runtimeControlsRef.current = insight.runtimeControls;
+          setLocalRuntimeControls(insight.runtimeControls);
+          pendingRuntimeControlsSignatureRef.current = null;
+        }
         toast.error("Failed to update viewer controls");
         return false;
       }
@@ -424,7 +459,8 @@ export function InsightConfigPanel({
       runtimeControl: RuntimeFilterControl | undefined,
     ) => {
       const updated = applyFilterSave(filtersWithIds, saved);
-      const controls = [...(insight.runtimeControls?.filters ?? [])];
+      const baseRuntimeControls = runtimeControlsRef.current;
+      const controls = [...(baseRuntimeControls?.filters ?? [])];
       const controlIndex = controls.findIndex(
         (control) => control.filterId === saved.id,
       );
@@ -436,7 +472,7 @@ export function InsightConfigPanel({
         controls.splice(controlIndex, 1);
       }
       const runtimeControls: InsightRuntimeDeclaration = {
-        ...insight.runtimeControls,
+        ...baseRuntimeControls,
         filters: controls.length > 0 ? controls : undefined,
       };
       const nextRuntimeControls =
@@ -446,13 +482,31 @@ export function InsightConfigPanel({
       const updates: Partial<Omit<Insight, "id" | "createdAt">> = {
         filters: stripFilterClientMetadata(updated),
       };
-      if (
+      const writesRuntimeControls =
         stableValueSignature(nextRuntimeControls) !==
-        stableValueSignature(insight.runtimeControls)
-      ) {
+        stableValueSignature(baseRuntimeControls);
+      if (writesRuntimeControls) {
         updates.runtimeControls = nextRuntimeControls;
       }
-      await updateInsight(insight.id, updates);
+      const nextSignature = stableValueSignature(nextRuntimeControls ?? null);
+      if (writesRuntimeControls) {
+        runtimeControlsRef.current = nextRuntimeControls;
+        setLocalRuntimeControls(nextRuntimeControls);
+        pendingRuntimeControlsSignatureRef.current = nextSignature;
+      }
+      try {
+        await updateInsight(insight.id, updates);
+      } catch (error) {
+        if (
+          writesRuntimeControls &&
+          pendingRuntimeControlsSignatureRef.current === nextSignature
+        ) {
+          runtimeControlsRef.current = insight.runtimeControls;
+          setLocalRuntimeControls(insight.runtimeControls);
+          pendingRuntimeControlsSignatureRef.current = null;
+        }
+        throw error;
+      }
     },
     [filtersWithIds, insight.id, insight.runtimeControls, updateInsight],
   );
@@ -651,25 +705,25 @@ export function InsightConfigPanel({
     ),
   );
   const viewerControls = [
-    ...(insight.runtimeControls?.filters ?? []).map((control) => ({
+    ...(localRuntimeControls?.filters ?? []).map((control) => ({
       label: control.label,
       target: `${filterLabelById.get(control.filterId) ?? "Filter"} filter`,
     })),
-    ...(insight.runtimeControls?.sort
+    ...(localRuntimeControls?.sort
       ? [
           {
             label: "Sort",
-            target: insight.runtimeControls.sort.allowedFieldIds
+            target: localRuntimeControls.sort.allowedFieldIds
               .map((id) => resultLabelById.get(id) ?? id)
               .join(", "),
           },
         ]
       : []),
-    ...(insight.runtimeControls?.limit
+    ...(localRuntimeControls?.limit
       ? [
           {
             label: "Limit",
-            target: `${insight.runtimeControls.limit.min}–${insight.runtimeControls.limit.max} rows`,
+            target: `${localRuntimeControls.limit.min}–${localRuntimeControls.limit.max} rows`,
           },
         ]
       : []),
@@ -703,7 +757,7 @@ export function InsightConfigPanel({
               (candidate.columnName ?? candidate.name) === sort.field,
           );
           const metric = visibleMetrics.find(
-            (candidate) => `metric_${candidate.id}` === sort.field,
+            (candidate) => metricIdToColumnAlias(candidate.id) === sort.field,
           );
           return `${field?.displayName ?? metric?.name ?? sort.field} ${sort.direction}`;
         })
@@ -782,7 +836,7 @@ export function InsightConfigPanel({
               filters={filtersWithIds}
               combinedFields={filterableFields}
               displayFields={combinedFields}
-              runtimeControls={insight.runtimeControls}
+              runtimeControls={localRuntimeControls}
               onReorder={handleFiltersReorder}
               onRemove={handleRemoveFilter}
               onSave={handleSaveFilter}
@@ -795,7 +849,7 @@ export function InsightConfigPanel({
               sorts={sorts}
               fields={selectedFields}
               metrics={visibleMetrics}
-              runtimeControls={insight.runtimeControls}
+              runtimeControls={localRuntimeControls}
               onChange={handleSortsChange}
               onRuntimeChange={handleRuntimeControlsChange}
             />,

@@ -56,6 +56,95 @@ describe("FiltersSection", () => {
     });
   });
 
+  it("blocks duplicate viewer-control keys before saving", () => {
+    const filters = [
+      {
+        id: "region-filter",
+        _id: "region-filter",
+        field: "region",
+        operator: "eq" as const,
+        value: "US",
+      },
+      {
+        id: "market-filter",
+        _id: "market-filter",
+        field: "region",
+        operator: "ne" as const,
+        value: "EU",
+      },
+    ];
+    render(
+      <FiltersSection
+        filters={filters}
+        combinedFields={[field]}
+        runtimeControls={{
+          filters: [
+            { filterId: "region-filter", key: "region", label: "Region" },
+            { filterId: "market-filter", key: "market", label: "Market" },
+          ],
+        }}
+        onReorder={vi.fn()}
+        onRemove={vi.fn()}
+        onSave={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getAllByRole("button", {
+        name: "Edit filter Region, viewers can change",
+      })[0]!,
+    );
+    fireEvent.change(screen.getByLabelText("Control key"), {
+      target: { value: "market" },
+    });
+
+    expect(screen.getByText("Control keys must be unique.")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Done" }).hasAttribute("disabled"),
+    ).toBe(true);
+  });
+
+  it("keeps required and allow-clear mutually exclusive", () => {
+    const filter = {
+      id: "filter-id",
+      _id: "filter-id",
+      field: "region",
+      operator: "eq" as const,
+      value: "US",
+    };
+    render(
+      <FiltersSection
+        filters={[filter]}
+        combinedFields={[field]}
+        runtimeControls={{
+          filters: [{ filterId: "filter-id", key: "region", label: "Region" }],
+        }}
+        onReorder={vi.fn()}
+        onRemove={vi.fn()}
+        onSave={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Edit filter Region, viewers can change",
+      }),
+    );
+    fireEvent.click(screen.getByRole("checkbox", { name: "Required" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Allow clear" }));
+
+    expect(
+      screen
+        .getByRole("checkbox", { name: "Required" })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
+    expect(
+      screen
+        .getByRole("checkbox", { name: "Allow clear" })
+        .getAttribute("aria-checked"),
+    ).toBe("false");
+  });
+
   it("shows the operator label and field display name", () => {
     render(
       <FiltersSection
