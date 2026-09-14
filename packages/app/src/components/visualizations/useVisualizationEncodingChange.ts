@@ -36,6 +36,8 @@ interface UseVisualizationEncodingChangeOptions {
     };
   }) => Promise<unknown>;
   onUpdateError?: () => void;
+  /** Reports pending state synchronously so sibling dependency checks can block. */
+  onPendingChange?: (pending: boolean) => void;
   /**
    * Rejects a type change that is invalid for the pending visualization, which
    * can differ from the rendered one until a queued write echoes.
@@ -86,6 +88,7 @@ export function useVisualizationEncodingChange({
   compiledInsight,
   updateVisualization,
   onUpdateError,
+  onPendingChange,
   canChangeType,
 }: UseVisualizationEncodingChangeOptions) {
   const resolveAnalysisAlias = useCallback(
@@ -119,13 +122,10 @@ export function useVisualizationEncodingChange({
   const writeSequenceRef = useRef(0);
   const [renderedPendingVisualizations, setRenderedPendingVisualizations] =
     useState(() => new Map<UUID, PendingVisualization>());
-  const refreshPendingVisualization = useCallback(
-    () =>
-      setRenderedPendingVisualizations(
-        new Map(pendingVisualizationsRef.current),
-      ),
-    [],
-  );
+  const refreshPendingVisualization = useCallback(() => {
+    const pending = new Map(pendingVisualizationsRef.current);
+    setRenderedPendingVisualizations(pending);
+  }, []);
   useEffect(() => {
     // Convex resolves a mutation only once subscriptions reflect it, so any
     // prop rendered after a success already contains it — and may carry newer
@@ -159,6 +159,7 @@ export function useVisualizationEncodingChange({
       },
     ) => {
       pendingVisualizationsRef.current.set(next.id, next);
+      onPendingChange?.(true);
       refreshPendingVisualization();
       inFlightWritesRef.current.set(
         next.id,
@@ -191,9 +192,14 @@ export function useVisualizationEncodingChange({
         const inFlight = (inFlightWritesRef.current.get(next.id) ?? 1) - 1;
         if (inFlight === 0) inFlightWritesRef.current.delete(next.id);
         else inFlightWritesRef.current.set(next.id, inFlight);
+        if (
+          [...inFlightWritesRef.current.values()].every((count) => count === 0)
+        ) {
+          onPendingChange?.(false);
+        }
       }
     },
-    [refreshPendingVisualization, updateVisualization],
+    [onPendingChange, refreshPendingVisualization, updateVisualization],
   );
 
   useEffect(() => {

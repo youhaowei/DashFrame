@@ -152,10 +152,12 @@ export function SortSection({
   const unusedOptions = options.filter(
     (option) => !sorts.some((sort) => sort.field === option.value),
   );
-  const sortableItems: SortableSort[] = sorts.map((sort) => ({
-    id: sort.field,
-    sort,
-  }));
+  const sortOccurrences = new Map<string, number>();
+  const sortableItems: SortableSort[] = sorts.map((sort) => {
+    const occurrence = sortOccurrences.get(sort.field) ?? 0;
+    sortOccurrences.set(sort.field, occurrence + 1);
+    return { id: JSON.stringify([sort.field, occurrence]), sort };
+  });
   const handleReorder = useCallback(
     (items: SortableSort[]) => onChange(items.map((item) => item.sort)),
     [onChange],
@@ -310,7 +312,11 @@ export function SortSection({
             </WorkbenchAddRow>
           }
         />
-        <PopoverContent align="start" className="w-72 p-0">
+        <PopoverContent
+          align="start"
+          className="w-72 p-0"
+          aria-label="Add sort"
+        >
           <Command label="Add sort">
             <CommandInput
               placeholder="Search result columns…"

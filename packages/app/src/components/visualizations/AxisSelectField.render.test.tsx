@@ -506,3 +506,86 @@ it("uses non-selectable source fields to disambiguate metric labels", () => {
     ),
   ).toBe(false);
 });
+
+it("uses an instance-aware display name for a metric source alias", () => {
+  const metricId = "11111111-1111-4111-8111-111111111111" as UUID;
+  const sourceAlias = "field_22222222_2222_4222_8222_222222222222_j1";
+  render(
+    <AxisSelectField
+      label="Y Axis"
+      value={metricEncoding(metricId)}
+      onChange={vi.fn()}
+      axis="y"
+      chartType="barY"
+      columnAnalysis={[]}
+      availableFields={[]}
+      metricLabelFields={[
+        {
+          id: "22222222-2222-4222-8222-222222222222" as UUID,
+          tableId: ORDERS_TABLE_ID,
+          name: "Revenue",
+          columnName: "revenue",
+          type: "number",
+        },
+      ]}
+      columnDisplayNames={{ [sourceAlias]: "Revenue (approved_by)" }}
+      compiledInsight={{
+        ...baseCompiledInsight,
+        dimensions: [],
+        metrics: [
+          {
+            id: metricId,
+            name: "Total revenue",
+            aggregation: "sum",
+            columnName: sourceAlias,
+          },
+        ],
+      }}
+    />,
+  );
+
+  expect(capturedOptions).toContainEqual(
+    expect.objectContaining({
+      value: metricEncoding(metricId),
+      label: "Sum of Revenue (approved_by)",
+    }),
+  );
+});
+
+it("does not expose a repeat-join alias when its display name is unavailable", () => {
+  const metricId = "11111111-1111-4111-8111-111111111111" as UUID;
+  const sourceAlias = "field_22222222_2222_4222_8222_222222222222_j1";
+  render(
+    <AxisSelectField
+      label="Y Axis"
+      value={metricEncoding(metricId)}
+      onChange={vi.fn()}
+      axis="y"
+      chartType="barY"
+      columnAnalysis={[]}
+      availableFields={[]}
+      compiledInsight={{
+        ...baseCompiledInsight,
+        dimensions: [],
+        metrics: [
+          {
+            id: metricId,
+            name: "Total revenue",
+            aggregation: "sum",
+            columnName: sourceAlias,
+          },
+        ],
+      }}
+    />,
+  );
+
+  expect(capturedOptions).toContainEqual(
+    expect.objectContaining({
+      value: metricEncoding(metricId),
+      label: "Sum",
+    }),
+  );
+  expect(
+    capturedOptions.some((option) => option.label.includes(sourceAlias)),
+  ).toBe(false);
+});

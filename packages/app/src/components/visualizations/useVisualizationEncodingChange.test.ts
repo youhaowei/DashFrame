@@ -84,6 +84,42 @@ function renderEncodingHook(
 }
 
 describe("useVisualizationEncodingChange", () => {
+  it("reports pending writes synchronously through settlement", async () => {
+    let resolveWrite: (() => void) | undefined;
+    const updateVisualization = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveWrite = resolve;
+        }),
+    );
+    const onPendingChange = vi.fn();
+    const { result } = renderHook(() =>
+      useVisualizationEncodingChange({
+        visualization: {
+          id: visualizationId,
+          visualizationType: "dot",
+          encoding: { y: "revenue" },
+        },
+        dataTable: { fields: [] },
+        columnAnalysis: [],
+        updateVisualization,
+        onPendingChange,
+      }),
+    );
+
+    let write: Promise<void> | undefined;
+    act(() => {
+      write = result.current.changeEncoding("color", "region");
+    });
+    expect(onPendingChange).toHaveBeenLastCalledWith(true);
+
+    await act(async () => {
+      resolveWrite?.();
+      await write;
+    });
+    expect(onPendingChange).toHaveBeenLastCalledWith(false);
+  });
+
   it.each([
     {
       initialType: "barY" as const,

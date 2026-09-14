@@ -84,11 +84,19 @@ function metricDescription(
   columnDisplayNames: ColumnDisplayNames,
 ): string {
   if (metric.aggregation === "count" && !metric.columnName) return "count";
+  const resolved = metricFieldLabel(
+    metric.columnName,
+    fields,
+    columnDisplayNames,
+  );
   const fieldName =
-    metricFieldLabel(metric.columnName, fields, columnDisplayNames) ??
-    metric.columnName ??
-    "";
-  return `${metric.aggregation} · ${fieldName}`;
+    resolved ??
+    (isGeneratedColumnLabel(metric.columnName)
+      ? ""
+      : (metric.columnName ?? ""));
+  return fieldName
+    ? `${metric.aggregation} · ${fieldName}`
+    : metric.aggregation;
 }
 
 function autoMetricName(

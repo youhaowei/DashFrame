@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { InsightRuntimeDeclaration } from "@dashframe/types";
+import * as ui from "@dashframe/ui";
 import { SortSection } from "./SortSection";
 
 const field = {
@@ -62,6 +63,34 @@ describe("SortSection", () => {
     ).toBe(true);
   });
 
+  it("renders and reorders duplicate sort fields as distinct entries", () => {
+    const sortableList = vi.spyOn(ui, "SortableList");
+    const onChange = vi.fn();
+    const sorts = [
+      { field: "created_at", direction: "asc" as const },
+      { field: "created_at", direction: "desc" as const },
+    ];
+    render(
+      <SortSection
+        sorts={sorts}
+        fields={[field]}
+        metrics={[]}
+        onChange={onChange}
+        onRuntimeChange={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getAllByRole("button", { name: "Remove sort Created at" }),
+    ).toHaveLength(2);
+    const props = sortableList.mock.calls.at(-1)?.[0];
+    expect(props).toBeDefined();
+    if (!props) throw new Error("SortableList did not render");
+    expect(new Set(props.items.map((item) => item.id)).size).toBe(2);
+    act(() => props.onReorder([...props.items].reverse()));
+    expect(onChange).toHaveBeenCalledWith([sorts[1], sorts[0]]);
+    sortableList.mockRestore();
+  });
+
   it("selects an add-sort command", async () => {
     const user = userEvent.setup({ delay: null });
     const onChange = vi.fn();
@@ -75,6 +104,9 @@ describe("SortSection", () => {
       />,
     );
     await user.click(screen.getByRole("button", { name: "Add sort" }));
+    expect(
+      await screen.findByRole("dialog", { name: "Add sort" }),
+    ).toBeTruthy();
     await user.click(await screen.findByRole("option", { name: /Created at/ }));
     expect(onChange).toHaveBeenCalledWith([
       { field: "created_at", direction: "asc" },

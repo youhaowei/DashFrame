@@ -100,7 +100,7 @@ interface AxisSelectFieldProps {
   /** Raw data frame columns used when the insight has no selected dimensions */
   availableColumns?: DataFrameColumn[];
   /** Display labels keyed by generated SQL column alias */
-  columnDisplayNames?: Record<string, string>;
+  columnDisplayNames?: Readonly<Record<string, string>>;
   /** The column selected for the other axis - used to detect same-column warnings */
   otherAxisColumn?: string;
   /** Callback to swap X and Y axis values - shown when selecting the other axis's column */
@@ -197,6 +197,7 @@ export function AxisSelectField({
         label: getMetricDisplayLabel(
           metric,
           metricLabelFields ?? selectableFields,
+          columnDisplayNames,
         ),
         value: metricEncoding(metric.id as UUID),
       });

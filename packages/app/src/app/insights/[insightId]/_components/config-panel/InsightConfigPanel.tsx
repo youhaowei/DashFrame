@@ -79,6 +79,11 @@ interface InsightConfigPanelProps {
   reportId?: string;
   /** Labels for result columns, keyed by column alias. */
   columnDisplayNames?: Readonly<Record<string, string>>;
+  /** Coordinates dependency-sensitive removals with chart writes. */
+  getVisualizationWriteStatus?: () => {
+    pending: boolean;
+    generation: number;
+  };
 }
 
 /**
@@ -166,6 +171,7 @@ export function InsightConfigPanel({
   allDataTables,
   reportId,
   columnDisplayNames,
+  getVisualizationWriteStatus = () => ({ pending: false, generation: 0 }),
 }: InsightConfigPanelProps) {
   const {
     openSections,
@@ -381,20 +387,75 @@ export function InsightConfigPanel({
     [insight.id, updateInsight, updateWebMCPInsight],
   );
 
+  const latestInsightRef = useRef(insight);
+  useEffect(() => {
+    latestInsightRef.current = insight;
+  }, [insight]);
+
   // --- Field handlers ---
+  // Full selected-field lists share one queue. Each add, reorder, or removal
+  // composes from the last successful write until its subscription echo.
+  const succeededSelectedFieldsRef = useRef<UUID[] | null>(null);
+  const selectedFieldWriteQueueRef = useRef<Promise<unknown>>(
+    Promise.resolve(),
+  );
+  useEffect(() => {
+    succeededSelectedFieldsRef.current = null;
+  }, [insight.selectedFields]);
+  const writeSelectedFields = useCallback(
+    (
+      compose: (base: UUID[]) => UUID[],
+      extraCommands: (current: Insight, next: UUID[]) => Command[] = () => [],
+    ) => {
+      const write = selectedFieldWriteQueueRef.current.then(async () => {
+        const current = latestInsightRef.current;
+        const base = succeededSelectedFieldsRef.current ?? [
+          ...(current.selectedFields ?? []),
+        ];
+        const next = compose(base);
+        const commands = [
+          ...buildInsightUpdateCommands(
+            current.id,
+            { ...current, selectedFields: base },
+            { selectedFields: next },
+          ),
+          ...extraCommands(current, next),
+        ];
+        if (commands.length === 0) return;
+        await commitBatch({ commands });
+        succeededSelectedFieldsRef.current = next;
+      });
+      selectedFieldWriteQueueRef.current = write.catch(() => {});
+      return write;
+    },
+    [commitBatch],
+  );
+
   const handleFieldsReorder = useCallback(
     (newOrder: string[]) => {
-      updateInsight(insight.id, { selectedFields: newOrder });
+      void writeSelectedFields((fields) => {
+        const surviving = new Set(fields);
+        const seen = new Set<string>();
+        const reorderedSurvivors = newOrder.flatMap((id) => {
+          if (!surviving.has(id as UUID) || seen.has(id)) return [];
+          seen.add(id);
+          return [id as UUID];
+        });
+        return [...reorderedSurvivors, ...fields.filter((id) => !seen.has(id))];
+      });
     },
-    [insight.id, updateInsight],
+    [writeSelectedFields],
   );
 
   const handleAddField = useCallback(
     (fieldId: string) => {
-      const updated = [...(insight.selectedFields ?? []), fieldId];
-      updateInsight(insight.id, { selectedFields: updated });
+      void writeSelectedFields((fields) =>
+        fields.includes(fieldId as UUID)
+          ? fields
+          : [...fields, fieldId as UUID],
+      );
     },
-    [insight.id, insight.selectedFields, updateInsight],
+    [writeSelectedFields],
   );
 
   const handleRenameField = useCallback(
@@ -418,13 +479,9 @@ export function InsightConfigPanel({
   // Metric popovers save independently. Writes run one at a time, and each
   // composes when it starts against the last successful list, so a save never
   // drops an earlier one and a failed save never lingers in a later diff base.
-  const latestInsightRef = useRef(insight);
   // A successful write whose echo may not have rendered yet.
   const succeededMetricsRef = useRef<InsightMetric[] | null>(null);
   const metricWriteQueueRef = useRef<Promise<unknown>>(Promise.resolve());
-  useEffect(() => {
-    latestInsightRef.current = insight;
-  }, [insight]);
   useEffect(() => {
     succeededMetricsRef.current = null;
   }, [insight.metrics]);
@@ -737,36 +794,55 @@ export function InsightConfigPanel({
   );
 
   const removeConfigItem = useCallback(
-    (itemType: DeleteDialogState["itemType"], itemId: string) => {
-      const baseRuntimeControls = runtimeControlsRef.current;
+    (
+      itemType: DeleteDialogState["itemType"],
+      itemId: string,
+      requestedWriteGeneration = getVisualizationWriteStatus().generation,
+    ) => {
+      if (getVisualizationWriteStatus().pending) {
+        toast.error(
+          "Wait for the chart update to finish before removing this item",
+        );
+        return;
+      }
       if (itemType === "field") {
-        const updated = (insight.selectedFields ?? []).filter(
-          (id) => id !== itemId,
-        );
-        const nextRuntimeControls = pruneRuntimeControls(
-          baseRuntimeControls,
-          insight.filters ?? [],
-          [...updated, ...(insight.metrics ?? []).map((metric) => metric.id)],
-        );
-        const writesRuntimeControls =
-          pendingRuntimeControlsSignatureRef.current !== null ||
-          stableValueSignature(nextRuntimeControls) !==
-            stableValueSignature(insight.runtimeControls);
-        const signature = writesRuntimeControls
-          ? stageRuntimeControls(nextRuntimeControls)
-          : null;
-        const commands = buildInsightUpdateCommands(insight.id, insight, {
-          selectedFields: updated,
-        });
-        if (writesRuntimeControls) {
-          commands.push(
-            cmd("SetInsightRuntimeControls", {
-              id: insight.id,
-              runtimeControls: nextRuntimeControls,
-            }),
-          );
-        }
-        commitBatch({ commands }).catch(() => {
+        let signature: string | null = null;
+        writeSelectedFields(
+          (fields) => {
+            const writeStatus = getVisualizationWriteStatus();
+            if (
+              writeStatus.pending ||
+              writeStatus.generation !== requestedWriteGeneration
+            ) {
+              throw new Error("Visualization update still pending");
+            }
+            return fields.filter((id) => id !== itemId);
+          },
+          (current, fields) => {
+            const nextRuntimeControls = pruneRuntimeControls(
+              runtimeControlsRef.current,
+              current.filters ?? [],
+              [
+                ...fields,
+                ...(current.metrics ?? []).map((metric) => metric.id),
+              ],
+            );
+            if (
+              pendingRuntimeControlsSignatureRef.current === null &&
+              stableValueSignature(nextRuntimeControls) ===
+                stableValueSignature(echoedRuntimeControlsRef.current)
+            ) {
+              return [];
+            }
+            signature = stageRuntimeControls(nextRuntimeControls);
+            return [
+              cmd("SetInsightRuntimeControls", {
+                id: current.id,
+                runtimeControls: nextRuntimeControls,
+              }),
+            ];
+          },
+        ).catch(() => {
           if (signature) rollbackRuntimeControls(signature);
         });
       } else {
@@ -774,7 +850,16 @@ export function InsightConfigPanel({
         // any viewer-control save made while earlier metric writes were pending.
         let signature: string | null = null;
         writeMetrics(
-          (metrics) => metrics.filter((metric) => metric.id !== itemId),
+          (metrics) => {
+            const writeStatus = getVisualizationWriteStatus();
+            if (
+              writeStatus.pending ||
+              writeStatus.generation !== requestedWriteGeneration
+            ) {
+              throw new Error("Visualization update still pending");
+            }
+            return metrics.filter((metric) => metric.id !== itemId);
+          },
           (metrics) => {
             const current = latestInsightRef.current;
             const nextRuntimeControls = pruneRuntimeControls(
@@ -806,11 +891,11 @@ export function InsightConfigPanel({
       }
     },
     [
-      commitBatch,
-      insight,
       rollbackRuntimeControls,
       stageRuntimeControls,
       writeMetrics,
+      writeSelectedFields,
+      getVisualizationWriteStatus,
     ],
   );
 
@@ -828,6 +913,13 @@ export function InsightConfigPanel({
   else if (visualizationsError) usageStatus = "error";
   const handleRemoveField = useCallback(
     (fieldId: string) => {
+      const writeStatus = getVisualizationWriteStatus();
+      if (writeStatus.pending) {
+        toast.error(
+          "Wait for the chart update to finish before removing this field",
+        );
+        return;
+      }
       const field = combinedFields.find((f) => f.id === fieldId);
       if (!field) return;
       if (
@@ -835,7 +927,7 @@ export function InsightConfigPanel({
         findVisualizationsUsingField(fieldId, insightVisualizations).length ===
           0
       ) {
-        removeConfigItem("field", fieldId);
+        removeConfigItem("field", fieldId, writeStatus.generation);
         return;
       }
       setDeleteDialog({
@@ -850,11 +942,19 @@ export function InsightConfigPanel({
       insightVisualizations,
       removeConfigItem,
       visualizationsKnown,
+      getVisualizationWriteStatus,
     ],
   );
 
   const handleRemoveMetric = useCallback(
     (metricId: string) => {
+      const writeStatus = getVisualizationWriteStatus();
+      if (writeStatus.pending) {
+        toast.error(
+          "Wait for the chart update to finish before removing this metric",
+        );
+        return;
+      }
       const metric = (insight.metrics ?? []).find((m) => m.id === metricId);
       if (!metric) return;
       if (
@@ -862,7 +962,7 @@ export function InsightConfigPanel({
         findVisualizationsUsingMetric(metricId, insightVisualizations)
           .length === 0
       ) {
-        removeConfigItem("metric", metricId);
+        removeConfigItem("metric", metricId, writeStatus.generation);
         return;
       }
       setDeleteDialog({
@@ -877,6 +977,7 @@ export function InsightConfigPanel({
       insightVisualizations,
       removeConfigItem,
       visualizationsKnown,
+      getVisualizationWriteStatus,
     ],
   );
 

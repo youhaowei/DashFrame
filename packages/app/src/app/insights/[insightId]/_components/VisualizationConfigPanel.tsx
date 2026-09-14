@@ -80,6 +80,7 @@ interface VisualizationConfigPanelProps {
   columnAnalysis: ColumnAnalysis[];
   encodingsError?: boolean;
   onRetryEncodings?: () => void;
+  onPendingVisualizationChange?: (pending: boolean) => void;
   onSelectChartType: (chartType: VisualizationType) => void;
   onSelectVisualization: (visualizationId: UUID) => void;
   updateVisualization: (args: {
@@ -165,7 +166,7 @@ export function getUnsavedEncodingLabel(
         )),
   );
   return metric
-    ? getMetricDisplayLabel(metric, fields)
+    ? getMetricDisplayLabel(metric, fields, columnDisplayNames)
     : `${formatAggregationLabel(aggregation)} of ${fieldLabel}`;
 }
 
@@ -276,6 +277,7 @@ function SavedEncodings({
         label: getMetricDisplayLabel(
           metric,
           metricLabelFields ?? availableFields,
+          columnDisplayNames,
         ),
         value: metricEncoding(metric.id),
       })),
@@ -382,6 +384,7 @@ export function VisualizationConfigPanel({
   columnAnalysis,
   encodingsError = false,
   onRetryEncodings,
+  onPendingVisualizationChange,
   onSelectChartType,
   onSelectVisualization,
   updateVisualization,
@@ -406,6 +409,7 @@ export function VisualizationConfigPanel({
       compiledInsight,
       updateVisualization,
       onUpdateError: handleEncodingUpdateError,
+      onPendingChange: onPendingVisualizationChange,
       canChangeType: canChangeChartType,
     });
   const handleEncodingChange = (

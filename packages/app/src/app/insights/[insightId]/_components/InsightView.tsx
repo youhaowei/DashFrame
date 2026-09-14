@@ -8,8 +8,8 @@ import {
   resolveInsightSourceDataTable,
   useInsightPagination,
 } from "@/hooks/useInsightPagination";
-import { useInsightView } from "@/hooks/useInsightView";
 import { formatCellValue } from "@/lib/cell-formatter";
+import { buildInsightColumnDisplayNames } from "@/lib/insight-column-display-names";
 import { resolveInsightAuthoringTable } from "@/lib/insights/compute-combined-fields";
 import {
   useConfirmDialogStore,
@@ -31,6 +31,7 @@ import {
 } from "@/lib/visualizations/suggest-charts";
 import { api } from "@dashframe/convex-backend/api";
 import {
+  buildInsightAvailableFields,
   extractUUIDFromColumnAlias,
   fieldIdToColumnAlias,
 } from "@dashframe/engine";
@@ -38,6 +39,7 @@ import type {
   ChartEncoding,
   ColumnAnalysis,
   CompiledInsight,
+  DataTable,
   CommandPayloads,
   Field,
   Insight,
@@ -152,6 +154,43 @@ export function canAttemptVisualizeIntent(input: {
     input.hasDataFrame &&
     input.isChartViewReady
   );
+}
+
+export function shouldMaterializeChartSuggestion(input: {
+  activeView: InsightCanvasView;
+  visualizeIntent: boolean;
+  hasVisualization: boolean;
+  visualModeRequested: boolean;
+}): boolean {
+  return (
+    input.activeView.kind === "chart" ||
+    input.visualModeRequested ||
+    (input.visualizeIntent && !input.hasVisualization)
+  );
+}
+
+export function buildInsightModelMetadata(
+  insight: Insight,
+  authoringTable: DataTable | undefined,
+  allDataTables: DataTable[],
+) {
+  if (!authoringTable) return { fields: [], columnDisplayNames: {} };
+  const joinedTables = new Map<UUID, DataTable>();
+  for (const join of insight.joins ?? []) {
+    const joined = allDataTables.find(
+      (candidate) => candidate.id === join.rightTableId,
+    );
+    if (joined) joinedTables.set(joined.id, joined);
+  }
+  const fields =
+    buildInsightAvailableFields(authoringTable, joinedTables, insight) ?? [];
+  return {
+    fields,
+    columnDisplayNames: buildInsightColumnDisplayNames(insight, fields, {
+      baseTable: authoringTable,
+      joinedTables,
+    }),
+  };
 }
 
 export const MAX_DOT_ROW_COUNT = 10_000;
@@ -643,13 +682,15 @@ function getVisualizationEncodingSignature(
   ].join("|");
 }
 
-function InsightResultTable({
-  insight,
+type InsightPaginationResult = ReturnType<typeof useInsightPagination>;
+
+export function InsightResultTable({
+  result,
   collapsed = false,
   onToggleCollapsed,
   className,
 }: {
-  insight: Insight;
+  result: InsightPaginationResult;
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
   className?: string;
@@ -661,10 +702,7 @@ function InsightResultTable({
     isReady,
     columnDisplayNames,
     columnTypeMap,
-  } = useInsightPagination({
-    insight,
-    showModelPreview: false,
-  });
+  } = result;
 
   const columnConfigs = useMemo((): VirtualTableColumnConfig[] => {
     return Object.entries(columnDisplayNames).map(([id, label]) => {
@@ -823,11 +861,11 @@ function InsightMoreActionsMenu({
  * card above the result table; the data view shows the table alone.
  */
 function InsightCanvasWell({
-  insight,
+  result,
   showChart,
   children,
 }: {
-  insight: Insight;
+  result: InsightPaginationResult;
   showChart: boolean;
   children: ReactNode;
 }) {
@@ -840,7 +878,7 @@ function InsightCanvasWell({
             {children}
           </div>
           <InsightResultTable
-            insight={insight}
+            result={result}
             collapsed={resultCollapsed}
             onToggleCollapsed={() =>
               setResultCollapsed((collapsed) => !collapsed)
@@ -853,7 +891,7 @@ function InsightCanvasWell({
           />
         </>
       ) : (
-        <InsightResultTable insight={insight} className="flex-1" />
+        <InsightResultTable result={result} className="flex-1" />
       )}
     </div>
   );
@@ -955,6 +993,27 @@ export function InsightView({
   const [suggestionSeed, setSuggestionSeed] = useState(0);
   const [insightPaneOpen, setInsightPaneOpen] = useState(true);
   const [visualizationPaneOpen, setVisualizationPaneOpen] = useState(true);
+  const visualizationWriteStatusRef = useRef({
+    pending: false,
+    generation: 0,
+  });
+  const handleVisualizationWritePendingChange = useCallback(
+    (pending: boolean) => {
+      const current = visualizationWriteStatusRef.current;
+      visualizationWriteStatusRef.current = {
+        pending,
+        generation:
+          pending && !current.pending
+            ? current.generation + 1
+            : current.generation,
+      };
+    },
+    [],
+  );
+  const getVisualizationWriteStatus = useCallback(
+    () => visualizationWriteStatusRef.current,
+    [],
+  );
   const [visualModeRequestedFor, setVisualModeRequestedFor] = useState<
     string | null
   >(null);
@@ -1054,15 +1113,41 @@ export function InsightView({
     () => resolveInsightAuthoringTable(insight, allDataTables, allInsights),
     [allDataTables, allInsights, insight],
   );
+  const {
+    fields: modelResolvedFields,
+    columnDisplayNames: modelColumnDisplayNames,
+  } = useMemo(
+    () => buildInsightModelMetadata(insight, authoringTable, allDataTables),
+    [allDataTables, authoringTable, insight],
+  );
 
-  // Get DuckDB view/table name for chart rendering
-  // For insights with joins, creates a view with joined data
-  // For simple insights, returns the base table name
-  const { isReady: isChartViewReady } = useInsightView(insight);
+  const insightVisualizations = useMemo(
+    () => allVisualizations.filter((v) => v.insightId === insightId),
+    [allVisualizations, insightId],
+  );
+  const pinnedVisualizationIds = useMemo(
+    () => new Set(insightVisualizations.map((viz) => viz.id)),
+    [insightVisualizations],
+  );
+  const activeView = useMemo(
+    () =>
+      sanitizeInsightCanvasView(persistedActiveView, pinnedVisualizationIds),
+    [persistedActiveView, pinnedVisualizationIds],
+  );
   const chartSuggestionInsight = useMemo(
     () => buildChartSuggestionInsight(insight),
     [insight],
   );
+  const chartSuggestionResult = useInsightPagination({
+    insight: chartSuggestionInsight,
+    showModelPreview: true,
+    enabled: shouldMaterializeChartSuggestion({
+      activeView,
+      visualizeIntent,
+      hasVisualization: insightVisualizations.length > 0,
+      visualModeRequested: visualModeRequestedFor === insightId,
+    }),
+  });
   const {
     dataFrameId: chartSuggestionFrameId,
     isReady: areChartSuggestionsReady,
@@ -1070,10 +1155,7 @@ export function InsightView({
     schema: chartSuggestionSchema,
     sampleRows: chartSuggestionRows,
     totalCount: chartSuggestionRowCount,
-  } = useInsightPagination({
-    insight: chartSuggestionInsight,
-    showModelPreview: true,
-  });
+  } = chartSuggestionResult;
   const columnAnalysis = useMemo<ColumnAnalysis[]>(
     () =>
       areChartSuggestionsReady
@@ -1090,25 +1172,16 @@ export function InsightView({
       chartSuggestionSchema,
     ],
   );
-  const insightVisualizations = useMemo(
-    () => allVisualizations.filter((v) => v.insightId === insightId),
-    [allVisualizations, insightId],
-  );
-  const pinnedVisualizationIds = useMemo(
-    () => new Set(insightVisualizations.map((viz) => viz.id)),
-    [insightVisualizations],
-  );
-  const activeView = useMemo(
-    () =>
-      sanitizeInsightCanvasView(persistedActiveView, pinnedVisualizationIds),
-    [persistedActiveView, pinnedVisualizationIds],
-  );
   const activeVisualization =
     activeView.kind === "visualization"
       ? insightVisualizations.find(
           (viz) => viz.id === activeView.visualizationId,
         )
       : undefined;
+  const savedInsightResult = useInsightEncodingMetadata(
+    insight,
+    activeView.kind !== "chart",
+  );
   const {
     columns: encodingColumns,
     columnDisplayNames: encodingRenderedColumnDisplayNames,
@@ -1119,9 +1192,10 @@ export function InsightView({
     isReady: areEncodingsReady,
     error: encodingResultError,
     retry: retryEncodingResult,
-  } = useInsightEncodingMetadata(insight, activeView.kind === "visualization");
+  } = savedInsightResult;
   const encodingColumnDisplayNames = useMemo(() => {
     const displayNames = {
+      ...modelColumnDisplayNames,
       ...chartSuggestionColumnDisplayNames,
       ...encodingRenderedColumnDisplayNames,
     };
@@ -1133,6 +1207,7 @@ export function InsightView({
     chartSuggestionColumnDisplayNames,
     encodingColumns,
     encodingRenderedColumnDisplayNames,
+    modelColumnDisplayNames,
   ]);
   const encodingColumnAnalysis = useMemo<ColumnAnalysis[]>(
     () =>
@@ -1383,7 +1458,11 @@ export function InsightView({
 
   const pinChartSuggestion = useCallback(
     async (suggestion: ChartSuggestion): Promise<UUID | null> => {
-      if (!dataTable?.dataFrameId || !authoringTable || !isChartViewReady)
+      if (
+        !dataTable?.dataFrameId ||
+        !authoringTable ||
+        !areChartSuggestionsReady
+      )
         return null;
 
       // Parse encoding to extract dimensions and metrics
@@ -1517,7 +1596,7 @@ export function InsightView({
       dataTable,
       authoringTable,
       allDataTables,
-      isChartViewReady,
+      areChartSuggestionsReady,
       parseAggregateExpression,
       insight,
       commitBatch,
@@ -1542,7 +1621,7 @@ export function InsightView({
         hasVisualization: insightVisualizations.length > 0,
         hasSuggestion: firstChartSuggestion !== null,
         hasDataFrame: Boolean(dataTable?.dataFrameId),
-        isChartViewReady,
+        isChartViewReady: areChartSuggestionsReady,
       })
     ) {
       return;
@@ -1559,7 +1638,7 @@ export function InsightView({
     dataTable?.dataFrameId,
     insightId,
     insightVisualizations.length,
-    isChartViewReady,
+    areChartSuggestionsReady,
     pinChartSuggestion,
     visualizeIntent,
   ]);
@@ -1779,7 +1858,8 @@ export function InsightView({
               dataTable={authoringTable}
               allDataTables={allDataTables}
               reportId={reportId}
-              columnDisplayNames={chartSuggestionColumnDisplayNames}
+              columnDisplayNames={modelColumnDisplayNames}
+              getVisualizationWriteStatus={getVisualizationWriteStatus}
             />
           </div>
         </aside>
@@ -1908,7 +1988,11 @@ export function InsightView({
           </header>
 
           <InsightCanvasWell
-            insight={insight}
+            result={
+              activeView.kind === "chart"
+                ? chartSuggestionResult
+                : savedInsightResult
+            }
             showChart={activeView.kind !== "table"}
           >
             {activeView.kind === "chart" && (
@@ -1923,6 +2007,14 @@ export function InsightView({
               <VisualizationPreview
                 visualization={activeVisualization}
                 height="container"
+                materialization={{
+                  insight,
+                  dataTable: authoringTable,
+                  dataFrameId: savedInsightResult.dataFrameId,
+                  isReady: savedInsightResult.isReady,
+                  error: savedInsightResult.error,
+                  resolvedFields: savedInsightResult.resolvedFields,
+                }}
               />
             )}
           </InsightCanvasWell>
@@ -1947,7 +2039,7 @@ export function InsightView({
               compiledInsight={compiledInsightForEncodings}
               dataTable={authoringTable}
               availableFields={encodingAvailableFields}
-              metricLabelFields={Object.values(fieldMap)}
+              metricLabelFields={modelResolvedFields}
               availableColumns={encodingColumns.map((column) => ({
                 name: column.name,
                 type: column.type ?? "unknown",
@@ -1958,6 +2050,9 @@ export function InsightView({
               onRetryEncodings={() => {
                 retryEncodingResult();
               }}
+              onPendingVisualizationChange={
+                handleVisualizationWritePendingChange
+              }
               onSelectChartType={(chartType) =>
                 handleSetActiveView(chartView(chartType))
               }
