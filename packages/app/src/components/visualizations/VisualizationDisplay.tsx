@@ -25,12 +25,53 @@ import { Chart, useVisualization } from "@dashframe/visualization";
 
 import { ErrorState, Spinner, Surface, Toggle } from "@wystack/ui-react";
 import { ChartIcon, LayersIcon, TableIcon } from "@wystack/ui-react/icons";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EngineUnavailableState } from "./EngineUnavailableState";
 import { VisualizationErrorBoundary } from "./VisualizationErrorBoundary";
 
 // Minimum visible rows needed to enable "Show Both" mode
 const MIN_VISIBLE_ROWS_FOR_BOTH = 5;
+
+/**
+ * How many table rows fit under the chart in this cell, or null until the cell
+ * has been measured. Attach `containerRef` to the cell and `headerRef` to its
+ * header.
+ */
+function useTableRowsThatFit() {
+  const [visibleRows, setVisibleRows] = useState<number | null>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
+  // Measure the cell whenever its container mounts or resizes. A callback ref
+  // rather than an effect: the container only renders once the chart is
+  // ready, which can be after the data is, and an effect that ran before it
+  // mounted would never measure the cell at all.
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const containerRef = useCallback((container: HTMLDivElement | null) => {
+    resizeObserverRef.current?.disconnect();
+    resizeObserverRef.current = null;
+    if (!container) return;
+    const observer = new ResizeObserver(() => {
+      const containerHeight = container.clientHeight;
+      if (containerHeight < 100) return; // Layout not ready
+      const headerHeight = headerRef.current?.offsetHeight || 60;
+      const contentPadding = 20; // mt-3 + gap
+      // Table gets max 40% of the available content area
+      const maxTableHeight = Math.floor(
+        (containerHeight - headerHeight - contentPadding) * 0.4,
+      );
+      const rowHeight = 36;
+      const tableHeaderHeight = 40;
+      setVisibleRows(
+        Math.max(
+          0,
+          Math.floor((maxTableHeight - tableHeaderHeight) / rowHeight),
+        ),
+      );
+    });
+    observer.observe(container);
+    resizeObserverRef.current = observer;
+  }, []);
+  return { containerRef, headerRef, visibleRows };
+}
 
 type DashboardRuntimeResolution = {
   runtime?: InsightRuntimeInput;
@@ -179,10 +220,8 @@ function VisualizationDisplayContent({
 
   // Use effect to detect mounting (avoids hydration mismatch)
   const [isMounted, setIsMounted] = useState(false);
-  const [visibleRows, setVisibleRows] = useState<number>(10);
-  const [activeTab, setActiveTab] = useState<string>("both");
-  const containerRef = useRef<HTMLDivElement>(null);
-  const headerRef = useRef<HTMLDivElement>(null);
+  const { containerRef, headerRef, visibleRows } = useTableRowsThatFit();
+  const [chosenTab, setActiveTab] = useState<string>("both");
 
   // Set mounted state after hydration
   useEffect(() => {
@@ -260,55 +299,6 @@ function VisualizationDisplayContent({
     enabled: Boolean(insight && !dashboardRuntime.error),
     runtime: dashboardRuntime.runtime,
   });
-
-  // Helper to calculate visible rows from container dimensions
-  const calculateVisibleRows = () => {
-    if (!containerRef.current || !headerRef.current) return null;
-    const containerHeight = containerRef.current.clientHeight;
-    if (containerHeight < 100) return null; // Layout not ready
-
-    const headerHeight = headerRef.current.offsetHeight || 60;
-    const contentPadding = 20; // mt-3 + gap
-
-    // Table gets max 40% of the available content area
-    const availableContentHeight =
-      containerHeight - headerHeight - contentPadding;
-    const maxTableHeight = Math.floor(availableContentHeight * 0.4);
-
-    const rowHeight = 36;
-    const tableHeaderHeight = 40;
-    return Math.max(
-      0,
-      Math.floor((maxTableHeight - tableHeaderHeight) / rowHeight),
-    );
-  };
-
-  // Watch container size changes to detect available space for "Show Both" mode
-  const isDataReady = !!activeViz && isPaginationReady;
-
-  // Immediate measurement on layout (before paint) to set correct initial tab
-  useLayoutEffect(() => {
-    if (!isDataReady) return;
-    const rows = calculateVisibleRows();
-    if (rows !== null) {
-      requestAnimationFrame(() => setVisibleRows(rows));
-    }
-  }, [isDataReady]);
-
-  // Continue watching for resize changes
-  useEffect(() => {
-    if (!containerRef.current || !isDataReady) return;
-
-    const observer = new ResizeObserver(() => {
-      const rows = calculateVisibleRows();
-      if (rows !== null) {
-        requestAnimationFrame(() => setVisibleRows(rows));
-      }
-    });
-
-    observer.observe(containerRef.current);
-    return () => observer.disconnect();
-  }, [isDataReady]);
 
   // Get table name for chart rendering from insight view
   // The insight view is created by useInsightView and includes all joined columns with UUID aliases
@@ -464,23 +454,14 @@ function VisualizationDisplayContent({
   ]);
 
   // Check if there's enough space to show both views
-  const canShowBoth = visibleRows >= MIN_VISIBLE_ROWS_FOR_BOTH;
+  const canShowBoth =
+    visibleRows !== null && visibleRows >= MIN_VISIBLE_ROWS_FOR_BOTH;
   const bothTooltip = canShowBoth
     ? "Show chart and table simultaneously"
-    : `Not enough space (${visibleRows} visible rows). Need at least ${MIN_VISIBLE_ROWS_FOR_BOTH} rows.`;
-
-  // Automatically switch to "chart" when space becomes insufficient
-  const previousCanShowBothRef = useRef(canShowBoth);
-  useEffect(() => {
-    const prevCanShowBoth = previousCanShowBothRef.current;
-
-    // Only react to canShowBoth changing from true to false
-    if (prevCanShowBoth && !canShowBoth && activeTab === "both") {
-      requestAnimationFrame(() => setActiveTab("chart"));
-    }
-
-    previousCanShowBothRef.current = canShowBoth;
-  }, [canShowBoth, activeTab]);
+    : `Not enough space (${visibleRows ?? 0} visible rows). Need at least ${MIN_VISIBLE_ROWS_FOR_BOTH} rows.`;
+  // "Both" falls back to the chart wherever the table wouldn't fit, so the
+  // same cell size always shows the same view.
+  const activeTab = chosenTab === "both" && !canShowBoth ? "chart" : chosenTab;
 
   // Whole-engine-down: show the persistent inline affordance where the chart
   // would render. This takes precedence over loading/per-chart states — when
