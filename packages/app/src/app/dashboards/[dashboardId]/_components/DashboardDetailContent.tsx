@@ -476,6 +476,8 @@ function useReportDraftActions({
     }
     isLeavingRef.current = true;
     try {
+      // No review expectations: `settle()` just drained this page's writes,
+      // so the log being published is the one the author sees.
       await publishDraft({ draftId: pendingDraftId });
     } catch (error) {
       isLeavingRef.current = false;
