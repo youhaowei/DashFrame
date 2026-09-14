@@ -13,7 +13,11 @@ import { DashboardItem } from "./DashboardItem";
 import { useReportWrite } from "./report-write";
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
-const EDIT_BREAKPOINTS = { lg: 0 };
+// View and edit share one set of breakpoints so the editor previews exactly
+// what readers see: the saved 12-column layout at every desktop width, with
+// the attached item pane only narrowing it. Only a phone-width canvas stacks.
+const BREAKPOINTS = { lg: 480, xxs: 0 };
+const COLS = { lg: 12, xxs: 2 };
 
 interface DashboardGridProps {
   dashboard: Dashboard;
@@ -40,7 +44,6 @@ export function DashboardGrid({
   const [activeBreakpoint, setActiveBreakpoint] = useState("lg");
 
   const layouts = useMemo(() => {
-    // Base layout from stored positions (designed for lg: 12 cols)
     const lgLayout = dashboard.items.map((item) => ({
       i: item.id,
       x: item.x,
@@ -50,43 +53,9 @@ export function DashboardGrid({
       minW: 2,
       minH: 2,
     }));
-
-    // Scale layouts for smaller breakpoints to prevent overflow
-    // md: 10 cols - slight scale down
-    const mdLayout = lgLayout.map((item) => ({
-      ...item,
-      x: Math.min(item.x, 10 - Math.min(item.w, 10)),
-      w: Math.min(item.w, 10),
-    }));
-
-    // sm: 6 cols - items stack more vertically
-    const smLayout = lgLayout.map((item) => ({
-      ...item,
-      x: 0,
-      w: Math.min(item.w, 6),
-    }));
-
-    // xs: 4 cols - full width items
-    const xsLayout = lgLayout.map((item) => ({
-      ...item,
-      x: 0,
-      w: Math.min(item.w, 4),
-    }));
-
-    // xxs: 2 cols - single column stacked layout
-    const xxsLayout = lgLayout.map((item) => ({
-      ...item,
-      x: 0,
-      w: 2,
-    }));
-
-    return {
-      lg: lgLayout,
-      md: mdLayout,
-      sm: smLayout,
-      xs: xsLayout,
-      xxs: xxsLayout,
-    };
+    // Phone-width canvases stack every item in one column.
+    const xxsLayout = lgLayout.map((item) => ({ ...item, x: 0, w: 2 }));
+    return { lg: lgLayout, xxs: xxsLayout };
   }, [dashboard.items]);
 
   const persistCanonicalLayout = useCallback(
@@ -157,15 +126,8 @@ export function DashboardGrid({
     <ResponsiveGridLayout
       className="layout"
       layouts={layouts}
-      // Editing always arranges the canonical 12-column layout. The attached
-      // item pane narrows the canvas, and falling to a smaller breakpoint
-      // would restack the items and switch drag and resize off.
-      breakpoints={
-        isEditable
-          ? EDIT_BREAKPOINTS
-          : { lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 }
-      }
-      cols={{ lg: 12, md: 10, sm: 6, xs: 4, xxs: 2 }}
+      breakpoints={BREAKPOINTS}
+      cols={COLS}
       rowHeight={60}
       isDraggable={isEditable && activeBreakpoint === "lg"}
       isResizable={isEditable && activeBreakpoint === "lg"}

@@ -79,7 +79,7 @@ describe("DashboardGrid canonical layout persistence", () => {
     act(() => {
       expect(mocks.gridProps).toBeDefined();
       (mocks.gridProps!.onBreakpointChange as (breakpoint: string) => void)(
-        "xs",
+        "xxs",
       );
     });
     act(() => {
