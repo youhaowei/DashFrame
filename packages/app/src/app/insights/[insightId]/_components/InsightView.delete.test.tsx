@@ -25,6 +25,7 @@ import {
   resolveNewChartTarget,
   resolvePendingNewChartTarget,
   shouldMaterializeChartSuggestion,
+  shouldClearSavedDraft,
 } from "./InsightView";
 
 describe("buildInsightModelMetadata", () => {
@@ -318,6 +319,32 @@ describe("resolveNewChartTarget", () => {
         firstSuggestedChartType: "line",
       }),
     ).toEqual({ kind: "chart", chartType: "line" });
+  });
+});
+
+describe("shouldClearSavedDraft", () => {
+  it("clears only the draft that finished saving successfully", () => {
+    expect(
+      shouldClearSavedDraft({
+        savedVisualizationId: null,
+        savedChartType: "line",
+        currentDraftChartType: "line",
+      }),
+    ).toBe(false);
+    expect(
+      shouldClearSavedDraft({
+        savedVisualizationId: "visualization-1",
+        savedChartType: "line",
+        currentDraftChartType: "area",
+      }),
+    ).toBe(false);
+    expect(
+      shouldClearSavedDraft({
+        savedVisualizationId: "visualization-1",
+        savedChartType: "line",
+        currentDraftChartType: "line",
+      }),
+    ).toBe(true);
   });
 });
 

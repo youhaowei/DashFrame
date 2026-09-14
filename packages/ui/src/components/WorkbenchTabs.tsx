@@ -224,6 +224,8 @@ export function WorkbenchTabs({
 
   const handleKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
     if (!ARROW_KEYS.includes(event.key)) return;
+    // Preserve browser and assistive-technology shortcuts such as Alt+Left.
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
     const strip = stripRef.current;
     if (!strip) return;
     const focusable = [
@@ -349,7 +351,13 @@ export function WorkbenchTabs({
                       {tab.icon && <span className="shrink-0">{tab.icon}</span>}
                       <span className="truncate">{tab.label}</span>
                       {tab.unsaved && (
-                        <span className="ml-auto size-1.5 shrink-0 rounded-full bg-palette-primary" />
+                        <>
+                          <span className="sr-only">Not saved</span>
+                          <span
+                            aria-hidden
+                            className="ml-auto size-1.5 shrink-0 rounded-full bg-palette-primary"
+                          />
+                        </>
                       )}
                     </CommandItem>
                   ))}

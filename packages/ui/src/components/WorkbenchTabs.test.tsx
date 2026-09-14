@@ -181,6 +181,20 @@ describe("WorkbenchTabs keyboard", () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
+  it("leaves modified arrow shortcuts to the browser", () => {
+    render(strip(tabsFor(["One", "Two"]), "canvas:data"));
+
+    const dataTab = screen.getByRole("tab", { name: /Data/ });
+    dataTab.focus();
+    const allowed = fireEvent.keyDown(dataTab, {
+      key: "ArrowLeft",
+      altKey: true,
+    });
+
+    expect(allowed).toBe(true);
+    expect(document.activeElement).toBe(dataTab);
+  });
+
   it("keeps the tablist owning nothing but tabs", () => {
     // Overflowing on purpose: it renders the finder, and Base UI only makes
     // the viewport focusable once there is something to scroll. Both would
@@ -224,5 +238,30 @@ describe("WorkbenchTabs keyboard", () => {
       .filter((tab) => tab.tabIndex === 0);
     expect(stops).toHaveLength(1);
     expect(stops[0]?.dataset.tabId).toBe("canvas:data");
+  });
+});
+
+describe("WorkbenchTabs finder", () => {
+  it("names an unsaved result without relying on its status color", () => {
+    setOverflow(1200, 400);
+    render(
+      strip(
+        [
+          { id: "canvas:data", label: "Data", pinned: "start" },
+          {
+            id: "canvas:draft",
+            label: "Untitled chart",
+            pinned: "end",
+            unsaved: true,
+          },
+        ],
+        "canvas:data",
+      ),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Find a chart" }));
+    expect(
+      screen.getByRole("option", { name: "Untitled chart Not saved" }),
+    ).toBeDefined();
   });
 });

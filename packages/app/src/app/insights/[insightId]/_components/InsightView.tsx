@@ -264,6 +264,17 @@ export function resolvePendingNewChartTarget(input: {
   return resolveNewChartTarget(input);
 }
 
+export function shouldClearSavedDraft(input: {
+  savedVisualizationId: string | null;
+  savedChartType: VisualizationType;
+  currentDraftChartType?: VisualizationType;
+}): boolean {
+  return (
+    input.savedVisualizationId !== null &&
+    input.currentDraftChartType === input.savedChartType
+  );
+}
+
 export type AddToReportTarget<T> =
   | { kind: "pending" }
   | { kind: "query-error" }
@@ -1645,10 +1656,27 @@ export function InsightView({
   ]);
 
   const handlePinActiveChart = useCallback(async () => {
-    if (!activeChartSuggestion) return;
+    if (!activeChartSuggestion || activeView.kind !== "chart") return;
+    const savedChartType = activeView.chartType;
     try {
-      await pinChartSuggestion(activeChartSuggestion);
-      clearDraftChartType(insightId);
+      const savedVisualizationId = await pinChartSuggestion(
+        activeChartSuggestion,
+      );
+      if (!savedVisualizationId) {
+        toast.error("Chart is still loading");
+        return;
+      }
+      const currentDraftChartType =
+        useInsightCanvasStore.getState().draftChartTypeByInsight[insightId];
+      if (
+        shouldClearSavedDraft({
+          savedVisualizationId,
+          savedChartType,
+          currentDraftChartType,
+        })
+      ) {
+        clearDraftChartType(insightId);
+      }
       toast.success("Chart saved");
     } catch (error) {
       console.error("[InsightView] Save failed:", error);
@@ -1656,6 +1684,7 @@ export function InsightView({
     }
   }, [
     activeChartSuggestion,
+    activeView,
     clearDraftChartType,
     insightId,
     pinChartSuggestion,
