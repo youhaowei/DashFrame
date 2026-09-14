@@ -13,7 +13,10 @@ import { cmd } from "@dashframe/types";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-const { commitBatch } = vi.hoisted(() => ({ commitBatch: vi.fn() }));
+const { commitBatch, metricEditError } = vi.hoisted(() => ({
+  commitBatch: vi.fn(),
+  metricEditError: vi.fn(),
+}));
 
 const tableId = "10000000-0000-4000-8000-000000000002" as UUID;
 const revenue: InsightMetric = {
@@ -84,6 +87,14 @@ vi.mock("./MetricsSection", () => ({
       <button
         type="button"
         onClick={() =>
+          onEdit({ ...margin, name: "Gross margin" }).catch(metricEditError)
+        }
+      >
+        Rename margin
+      </button>
+      <button
+        type="button"
+        onClick={() =>
           onEdit({ ...revenue, name: "Net revenue" }).catch(() => {})
         }
       >
@@ -143,6 +154,7 @@ function deferred() {
 describe("InsightConfigPanel metric saves", () => {
   beforeEach(() => {
     commitBatch.mockReset();
+    metricEditError.mockReset();
   });
 
   it("keeps an earlier metric edit when another metric rebuilds the list", async () => {
@@ -297,5 +309,22 @@ describe("InsightConfigPanel metric saves", () => {
     expect(commitBatch.mock.calls[2][0].commands).toEqual([
       cmd("RemoveMetric", { nodeId: insight.id, metricId: margin.id }),
     ]);
+  });
+
+  it("rejects an edit queued after the metric was removed", async () => {
+    const removal = deferred();
+    commitBatch.mockImplementationOnce(() => removal.promise);
+    renderPanel({ ...insight, metrics: [revenue, orders, margin] });
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove margin" }));
+    fireEvent.click(screen.getByRole("button", { name: "Rename margin" }));
+    await waitFor(() => expect(commitBatch).toHaveBeenCalledOnce());
+    removal.resolve();
+
+    await waitFor(() => expect(metricEditError).toHaveBeenCalledOnce());
+    expect(metricEditError).toHaveBeenCalledWith(
+      new Error("Metric no longer exists"),
+    );
+    expect(commitBatch).toHaveBeenCalledOnce();
   });
 });

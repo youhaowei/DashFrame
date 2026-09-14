@@ -627,6 +627,9 @@ function isMetricAllowedOnChannel(
     case "areaY":
       return channel === "y"; // Y axis only
     case "dot":
+    case "hexbin":
+    case "heatmap":
+    case "raster":
       return true; // Both axes allow metrics
     default:
       return false;
@@ -656,6 +659,9 @@ function getColumnValidatorFunction(
         ? isValidLineAreaX
         : () => isValidLineAreaY({} as ColumnAnalysis); // Y axis only allows metrics
     case "dot":
+    case "hexbin":
+    case "heatmap":
+    case "raster":
       return isValidScatterAxis;
     default:
       // Fallback: allow anything that's not blocked

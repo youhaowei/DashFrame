@@ -1,6 +1,11 @@
+import { metricIdToColumnAlias } from "@dashframe/engine";
 import { describe, expect, it } from "vite-plus/test";
 
-import { isColumnValidForChannel, validateEncoding } from "./encoding-enforcer";
+import {
+  getValidColumnsForChannel,
+  isColumnValidForChannel,
+  validateEncoding,
+} from "./encoding-enforcer";
 
 /**
  * The enforcer runs during RENDER, in the visualization page's `encodingErrors`
@@ -64,6 +69,27 @@ describe("encoding enforcer — density charts", () => {
       expect(
         isColumnValidForChannel("amount", "x", chartType, ANALYSIS).suitable,
       ).toBe(true);
+    },
+  );
+
+  it.each(["hexbin", "heatmap", "raster"] as const)(
+    "offers only scatter-compatible fields and metrics for %s",
+    (chartType) => {
+      const metricId = "10000000-0000-4000-8000-000000000001";
+      const compiledInsight = {
+        metrics: [{ id: metricId }],
+      } as never;
+
+      for (const channel of ["x", "y"] as const) {
+        expect(
+          getValidColumnsForChannel(
+            channel,
+            chartType,
+            ANALYSIS,
+            compiledInsight,
+          ),
+        ).toEqual(["amount", metricIdToColumnAlias(metricId)]);
+      }
     },
   );
 });

@@ -16,12 +16,65 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import {
   buildChartSuggestionInsight,
   canAttemptVisualizeIntent,
+  canChangeSavedVisualizationType,
+  MAX_DOT_ROW_COUNT,
   requestSavedVisualizationDeletion,
   resolveAddToReportTarget,
   resolveSuggestionDimensionFieldIds,
   resolvePendingVisualModeTarget,
   resolveVisualModeTarget,
 } from "./InsightView";
+
+describe("canChangeSavedVisualizationType", () => {
+  const numericAnalysis = [
+    { columnName: "amount", dataType: "DOUBLE", semantic: "numerical" },
+    { columnName: "quantity", dataType: "DOUBLE", semantic: "numerical" },
+  ] as never;
+  const compiledInsight = { metrics: [], dimensions: [] } as never;
+  const densityVisualization = {
+    visualizationType: "hexbin" as const,
+    encoding: { x: "amount", y: "quantity" },
+  };
+
+  it("allows Dot at 10000 rows and blocks it above the raw-point limit", () => {
+    const common = {
+      visualization: densityVisualization,
+      chartType: "dot" as const,
+      encodingsReady: true,
+      encodingColumnAnalysis: numericAnalysis,
+      compiledInsight,
+    };
+
+    expect(
+      canChangeSavedVisualizationType({
+        ...common,
+        encodingRowCount: MAX_DOT_ROW_COUNT,
+      }),
+    ).toBe(true);
+    expect(
+      canChangeSavedVisualizationType({
+        ...common,
+        encodingRowCount: MAX_DOT_ROW_COUNT + 1,
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps the current Dot visualization available above the limit", () => {
+    expect(
+      canChangeSavedVisualizationType({
+        visualization: {
+          ...densityVisualization,
+          visualizationType: "dot",
+        },
+        chartType: "dot",
+        encodingsReady: true,
+        encodingRowCount: MAX_DOT_ROW_COUNT + 1,
+        encodingColumnAnalysis: numericAnalysis,
+        compiledInsight,
+      }),
+    ).toBe(true);
+  });
+});
 
 describe("resolveSuggestionDimensionFieldIds", () => {
   it("preserves repeat-join identity in the persisted SelectFields command", () => {

@@ -469,9 +469,14 @@ export function InsightConfigPanel({
 
   const handleEditMetric = useCallback(
     (updatedMetric: InsightMetric) =>
-      writeMetrics((metrics) =>
-        metrics.map((m) => (m.id === updatedMetric.id ? updatedMetric : m)),
-      ),
+      writeMetrics((metrics) => {
+        if (!metrics.some((metric) => metric.id === updatedMetric.id)) {
+          throw new Error("Metric no longer exists");
+        }
+        return metrics.map((metric) =>
+          metric.id === updatedMetric.id ? updatedMetric : metric,
+        );
+      }),
     [writeMetrics],
   );
 
