@@ -13,6 +13,12 @@ import { getVisualizationTypeChange } from "./visualization-type-change";
 
 export type VisualizationEncodingField = "x" | "y" | "color" | "size";
 
+type PendingVisualization = {
+  id: UUID;
+  visualizationType: VisualizationType;
+  encoding: VisualizationEncoding | undefined;
+};
+
 interface UseVisualizationEncodingChangeOptions {
   visualization:
     | Pick<Visualization, "id" | "encoding" | "visualizationType">
@@ -96,27 +102,26 @@ export function useVisualizationEncodingChange({
   // Every visualization edit composes against the latest local state until
   // Convex echoes it. This includes bar-orientation changes, which update the
   // type and swap the encoding in one write.
-  const pendingVisualizationRef = useRef<{
-    id: UUID;
-    visualizationType: VisualizationType;
-    encoding: VisualizationEncoding | undefined;
-  } | null>(null);
-  const inFlightWritesRef = useRef(0);
+  const pendingVisualizationsRef = useRef(
+    new Map<UUID, PendingVisualization>(),
+  );
+  const inFlightWritesRef = useRef(new Map<UUID, number>());
   // The latest write that succeeded but may not have rendered yet. A newer
   // write that fails falls back to this rather than the prop, which can still
   // lack the successful change.
-  const succeededVisualizationRef = useRef<{
-    sequence: number;
-    state: NonNullable<typeof pendingVisualizationRef.current>;
-  } | null>(null);
+  const succeededVisualizationsRef = useRef(
+    new Map<UUID, { sequence: number; state: PendingVisualization }>(),
+  );
   const writeSequenceRef = useRef(0);
   useEffect(() => {
     // Convex resolves a mutation only once subscriptions reflect it, so any
     // prop rendered after a success already contains it — and may carry newer
     // changes the stored snapshot would overwrite.
-    succeededVisualizationRef.current = null;
-    if (inFlightWritesRef.current === 0) {
-      pendingVisualizationRef.current = null;
+    const visualizationId = visualization?.id;
+    if (!visualizationId) return;
+    succeededVisualizationsRef.current.delete(visualizationId);
+    if ((inFlightWritesRef.current.get(visualizationId) ?? 0) === 0) {
+      pendingVisualizationsRef.current.delete(visualizationId);
     }
   }, [
     visualization?.id,
@@ -136,26 +141,37 @@ export function useVisualizationEncodingChange({
         encoding?: VisualizationEncoding;
       },
     ) => {
-      pendingVisualizationRef.current = next;
-      inFlightWritesRef.current += 1;
+      pendingVisualizationsRef.current.set(next.id, next);
+      inFlightWritesRef.current.set(
+        next.id,
+        (inFlightWritesRef.current.get(next.id) ?? 0) + 1,
+      );
       const sequence = ++writeSequenceRef.current;
       try {
         await updateVisualization({ id: next.id, updates });
-        const succeeded = succeededVisualizationRef.current;
+        const succeeded = succeededVisualizationsRef.current.get(next.id);
         if (!succeeded || succeeded.sequence < sequence) {
-          succeededVisualizationRef.current = { sequence, state: next };
+          succeededVisualizationsRef.current.set(next.id, {
+            sequence,
+            state: next,
+          });
         }
       } catch (error) {
         // Only the newest write owns the pending state; an older failure is
         // already folded into the writes built on top of it.
-        if (pendingVisualizationRef.current === next) {
-          const succeeded = succeededVisualizationRef.current;
-          pendingVisualizationRef.current =
-            succeeded?.state.id === next.id ? succeeded.state : null;
+        if (pendingVisualizationsRef.current.get(next.id) === next) {
+          const succeeded = succeededVisualizationsRef.current.get(next.id);
+          if (succeeded) {
+            pendingVisualizationsRef.current.set(next.id, succeeded.state);
+          } else {
+            pendingVisualizationsRef.current.delete(next.id);
+          }
         }
         throw error;
       } finally {
-        inFlightWritesRef.current -= 1;
+        const inFlight = (inFlightWritesRef.current.get(next.id) ?? 1) - 1;
+        if (inFlight === 0) inFlightWritesRef.current.delete(next.id);
+        else inFlightWritesRef.current.set(next.id, inFlight);
       }
     },
     [updateVisualization],
@@ -164,7 +180,7 @@ export function useVisualizationEncodingChange({
   useEffect(() => {
     if (!visualization || columnAnalysis.length === 0) return;
 
-    const pending = pendingVisualizationRef.current;
+    const pending = pendingVisualizationsRef.current.get(visualization.id);
     const baseEncoding =
       pending?.id === visualization.id
         ? pending.encoding
@@ -219,7 +235,7 @@ export function useVisualizationEncodingChange({
     async (field: VisualizationEncodingField, value: string) => {
       if (!visualization) return;
 
-      const pending = pendingVisualizationRef.current;
+      const pending = pendingVisualizationsRef.current.get(visualization.id);
       const baseEncoding =
         pending?.id === visualization.id
           ? pending.encoding
@@ -274,7 +290,7 @@ export function useVisualizationEncodingChange({
   const changeType = useCallback(
     async (nextType: VisualizationType) => {
       if (!visualization) return;
-      const pending = pendingVisualizationRef.current;
+      const pending = pendingVisualizationsRef.current.get(visualization.id);
       const current =
         pending?.id === visualization.id
           ? pending

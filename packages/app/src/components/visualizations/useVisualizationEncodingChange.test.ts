@@ -37,6 +37,50 @@ function renderEncodingHook(
 }
 
 describe("useVisualizationEncodingChange", () => {
+  it("keeps each visualization's pending encoding across an A-B-A switch", async () => {
+    const visualizationA = "viz-a" as UUID;
+    const visualizationB = "viz-b" as UUID;
+    const updateVisualization = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise<void>(() => {}))
+      .mockImplementationOnce(() => new Promise<void>(() => {}))
+      .mockResolvedValue(undefined);
+    const { result, rerender } = renderHook(
+      ({ id, encoding }: { id: UUID; encoding: VisualizationEncoding }) =>
+        useVisualizationEncodingChange({
+          visualization: { id, visualizationType: "dot", encoding },
+          dataTable: { fields: [] },
+          columnAnalysis: [],
+          updateVisualization,
+        }),
+      {
+        initialProps: {
+          id: visualizationA,
+          encoding: { y: "revenue" },
+        },
+      },
+    );
+
+    act(() => {
+      result.current.changeEncoding("color", "region").catch(() => {});
+    });
+    rerender({ id: visualizationB, encoding: { y: "profit" } });
+    act(() => {
+      result.current.changeEncoding("color", "channel").catch(() => {});
+    });
+    rerender({ id: visualizationA, encoding: { y: "revenue" } });
+    await act(async () => {
+      await result.current.changeEncoding("size", "orders");
+    });
+
+    expect(updateVisualization).toHaveBeenLastCalledWith({
+      id: visualizationA,
+      updates: {
+        encoding: { y: "revenue", color: "region", size: "orders" },
+      },
+    });
+  });
+
   it("keeps a bar orientation swap when an encoding edit lands before its echo", async () => {
     let resolveTypeChange: (() => void) | undefined;
     const updateVisualization = vi

@@ -58,6 +58,7 @@ vi.mock("./FiltersSection", () => ({
   FiltersSection: ({
     onSave,
     onRemove,
+    onReorder,
   }: {
     onSave: (
       filter: {
@@ -70,10 +71,45 @@ vi.mock("./FiltersSection", () => ({
       control: { filterId: string; key: string; label: string },
     ) => Promise<void>;
     onRemove: (filterId: string) => void;
+    onReorder: (
+      filters: Array<{
+        id: string;
+        _id: string;
+        field: string;
+        operator: "eq";
+        value: string;
+      }>,
+    ) => void;
   }) => (
     <>
       <button type="button" onClick={() => onRemove("region")}>
         Remove first viewer filter
+      </button>
+      <button type="button" onClick={() => onRemove("period")}>
+        Remove second viewer filter
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          onReorder([
+            {
+              id: "period",
+              _id: "period",
+              field: "period",
+              operator: "eq",
+              value: "Q1",
+            },
+            {
+              id: "region",
+              _id: "region",
+              field: "region",
+              operator: "eq",
+              value: "EMEA",
+            },
+          ])
+        }
+      >
+        Reorder filters
       </button>
       <button
         type="button"
@@ -186,6 +222,229 @@ describe("InsightConfigPanel filter saves", () => {
             { filterId: "period", key: "period", label: "Period" },
           ],
         },
+      },
+    });
+  });
+
+  it("keeps the first rapid filter save when the second starts before its echo", async () => {
+    let resolveFirst: (() => void) | undefined;
+    commitBatch
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveFirst = resolve;
+          }),
+      )
+      .mockResolvedValue({});
+    render(
+      <InsightConfigPanel
+        insight={insight}
+        dataTable={table}
+        allDataTables={[table]}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save unchanged viewer filter" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save second viewer filter" }),
+    );
+    await waitFor(() => expect(commitBatch).toHaveBeenCalledOnce());
+    resolveFirst?.();
+
+    await waitFor(() => expect(commitBatch).toHaveBeenCalledTimes(2));
+    expect(commitBatch.mock.calls[1][0].commands).toContainEqual({
+      path: "setInsightFilter",
+      args: {
+        id: insight.id,
+        filters: [
+          {
+            id: "region",
+            field: "region",
+            operator: "eq",
+            value: "APAC",
+          },
+          {
+            id: "period",
+            field: "period",
+            operator: "eq",
+            value: "Q2",
+          },
+        ],
+      },
+    });
+  });
+
+  it("keeps a pending filter save when removing another filter before its echo", async () => {
+    let resolveFirst: (() => void) | undefined;
+    commitBatch
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveFirst = resolve;
+          }),
+      )
+      .mockResolvedValue({});
+    render(
+      <InsightConfigPanel
+        insight={insight}
+        dataTable={table}
+        allDataTables={[table]}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save unchanged viewer filter" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove second viewer filter" }),
+    );
+    await waitFor(() => expect(commitBatch).toHaveBeenCalledOnce());
+    resolveFirst?.();
+
+    await waitFor(() => expect(commitBatch).toHaveBeenCalledTimes(2));
+    expect(commitBatch.mock.calls[1][0].commands).toContainEqual({
+      path: "setInsightFilter",
+      args: {
+        id: insight.id,
+        filters: [
+          {
+            id: "region",
+            field: "region",
+            operator: "eq",
+            value: "APAC",
+          },
+        ],
+      },
+    });
+  });
+
+  it("keeps a pending filter save when reordering before its echo", async () => {
+    let resolveFirst: (() => void) | undefined;
+    commitBatch
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveFirst = resolve;
+          }),
+      )
+      .mockResolvedValue({});
+    render(
+      <InsightConfigPanel
+        insight={insight}
+        dataTable={table}
+        allDataTables={[table]}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save unchanged viewer filter" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Reorder filters" }));
+    await waitFor(() => expect(commitBatch).toHaveBeenCalledOnce());
+    resolveFirst?.();
+
+    await waitFor(() => expect(commitBatch).toHaveBeenCalledTimes(2));
+    expect(commitBatch.mock.calls[1][0].commands).toContainEqual({
+      path: "setInsightFilter",
+      args: {
+        id: insight.id,
+        filters: [
+          { id: "period", field: "period", operator: "eq", value: "Q1" },
+          {
+            id: "region",
+            field: "region",
+            operator: "eq",
+            value: "APAC",
+          },
+        ],
+      },
+    });
+  });
+
+  it("removes from the echoed list after an earlier filter save fails", async () => {
+    let rejectFirst: ((error: Error) => void) | undefined;
+    commitBatch
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((_resolve, reject) => {
+            rejectFirst = reject;
+          }),
+      )
+      .mockResolvedValue({});
+    render(
+      <InsightConfigPanel
+        insight={insight}
+        dataTable={table}
+        allDataTables={[table]}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save unchanged viewer filter" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove second viewer filter" }),
+    );
+    await waitFor(() => expect(commitBatch).toHaveBeenCalledOnce());
+    rejectFirst?.(new Error("write failed"));
+
+    await waitFor(() => expect(commitBatch).toHaveBeenCalledTimes(2));
+    expect(commitBatch.mock.calls[1][0].commands).toContainEqual({
+      path: "setInsightFilter",
+      args: {
+        id: insight.id,
+        filters: [
+          {
+            id: "region",
+            field: "region",
+            operator: "eq",
+            value: "EMEA",
+          },
+        ],
+      },
+    });
+  });
+
+  it("does not resurrect a removed filter when a stale reorder follows", async () => {
+    let resolveFirst: (() => void) | undefined;
+    commitBatch
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveFirst = resolve;
+          }),
+      )
+      .mockResolvedValue({});
+    render(
+      <InsightConfigPanel
+        insight={insight}
+        dataTable={table}
+        allDataTables={[table]}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove second viewer filter" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Reorder filters" }));
+    await waitFor(() => expect(commitBatch).toHaveBeenCalledOnce());
+    resolveFirst?.();
+
+    await waitFor(() => expect(commitBatch).toHaveBeenCalledTimes(2));
+    expect(commitBatch.mock.calls[1][0].commands).toContainEqual({
+      path: "setInsightFilter",
+      args: {
+        id: insight.id,
+        filters: [
+          {
+            id: "region",
+            field: "region",
+            operator: "eq",
+            value: "EMEA",
+          },
+        ],
       },
     });
   });

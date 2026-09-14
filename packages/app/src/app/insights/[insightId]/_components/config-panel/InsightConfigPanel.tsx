@@ -476,120 +476,188 @@ export function InsightConfigPanel({
   );
 
   // --- Filter handlers ---
+  // Filter popovers can save independently. Serialize their full-list writes
+  // and compose each one from the last successful list until its echo renders.
+  const succeededFiltersRef = useRef<Insight["filters"] | null>(null);
+  const filterWriteQueueRef = useRef<Promise<unknown> | null>(null);
+  useEffect(() => {
+    succeededFiltersRef.current = null;
+  }, [insight.filters]);
+  const writeFilters = useCallback(
+    (
+      run: (
+        baseFilters: NonNullable<Insight["filters"]>,
+        current: Insight,
+      ) => Promise<NonNullable<Insight["filters"]>>,
+    ) => {
+      const execute = async () => {
+        const current = latestInsightRef.current;
+        const baseFilters =
+          succeededFiltersRef.current ?? current.filters ?? [];
+        const nextFilters = await run(baseFilters, current);
+        succeededFiltersRef.current = nextFilters;
+      };
+      const previous = filterWriteQueueRef.current;
+      // Start the first write synchronously so its ordering relative to viewer
+      // control edits matches the user's event order. Later filter mutations
+      // compose after the prior one succeeds or fails.
+      const write = previous ? previous.then(execute) : execute();
+      const tail = write.catch(() => {});
+      filterWriteQueueRef.current = tail;
+      tail
+        .then(() => {
+          if (filterWriteQueueRef.current === tail) {
+            filterWriteQueueRef.current = null;
+          }
+        })
+        .catch(() => {});
+      return write;
+    },
+    [],
+  );
   const handleFiltersReorder = useCallback(
     (reordered: FilterWithId[]) => {
-      const pendingFilters = stripFilterClientMetadata(reordered);
-      updateWebMCPInsight(insight.id, { pendingFilters });
-      updateInsight(insight.id, { filters: pendingFilters }).finally(() => {
-        const live = useWebMCPPageStore.getState().insight;
-        if (
-          live?.insightId === insight.id &&
-          live.pendingFilters === pendingFilters
-        ) {
-          updateWebMCPInsight(insight.id, { pendingFilters: undefined });
+      writeFilters(async (baseFilters, current) => {
+        const baseWithIds = withFilterIds(baseFilters);
+        const byId = new Map(baseWithIds.map((filter) => [filter._id, filter]));
+        const reorderedIds = new Set<string>();
+        const reorderedSurvivors = reordered.flatMap((filter) => {
+          const survivor = byId.get(filter._id);
+          if (!survivor || reorderedIds.has(filter._id)) return [];
+          reorderedIds.add(filter._id);
+          return [survivor];
+        });
+        const pendingFilters = stripFilterClientMetadata([
+          ...reorderedSurvivors,
+          ...baseWithIds.filter((filter) => !reorderedIds.has(filter._id)),
+        ]);
+        updateWebMCPInsight(current.id, { pendingFilters });
+        try {
+          await updateInsight(current.id, { filters: pendingFilters });
+          return pendingFilters;
+        } finally {
+          const live = useWebMCPPageStore.getState().insight;
+          if (
+            live?.insightId === current.id &&
+            live.pendingFilters === pendingFilters
+          ) {
+            updateWebMCPInsight(current.id, { pendingFilters: undefined });
+          }
         }
-      });
+      }).catch(() => {});
     },
-    [insight.id, updateInsight, updateWebMCPInsight],
+    [updateInsight, updateWebMCPInsight, writeFilters],
   );
 
   const handleRemoveFilter = useCallback(
     (filterId: string) => {
-      const baseRuntimeControls = runtimeControlsRef.current;
-      const filters = stripFilterClientMetadata(
-        filtersWithIds.filter((filter) => filter._id !== filterId),
-      );
-      const nextRuntimeControls = pruneRuntimeControls(
-        baseRuntimeControls,
-        filters,
-        [
-          ...(insight.selectedFields ?? []),
-          ...(insight.metrics ?? []).map((metric) => metric.id),
-        ],
-      );
-      const writesRuntimeControls =
-        pendingRuntimeControlsSignatureRef.current !== null ||
-        stableValueSignature(nextRuntimeControls) !==
-          stableValueSignature(insight.runtimeControls);
-      const signature = writesRuntimeControls
-        ? stageRuntimeControls(nextRuntimeControls)
-        : null;
-      removeFilterThroughCommands(
-        commitBatch,
-        { ...insight, runtimeControls: baseRuntimeControls },
-        filterId,
-        writesRuntimeControls,
-      ).catch(() => {
-        if (signature) rollbackRuntimeControls(signature);
-      });
+      writeFilters(async (baseFilters, current) => {
+        const baseRuntimeControls = runtimeControlsRef.current;
+        const filters = stripFilterClientMetadata(
+          withFilterIds(baseFilters).filter(
+            (filter) => filter._id !== filterId,
+          ),
+        );
+        const nextRuntimeControls = pruneRuntimeControls(
+          baseRuntimeControls,
+          filters,
+          [
+            ...(current.selectedFields ?? []),
+            ...(current.metrics ?? []).map((metric) => metric.id),
+          ],
+        );
+        const writesRuntimeControls =
+          pendingRuntimeControlsSignatureRef.current !== null ||
+          stableValueSignature(nextRuntimeControls) !==
+            stableValueSignature(current.runtimeControls);
+        const signature = writesRuntimeControls
+          ? stageRuntimeControls(nextRuntimeControls)
+          : null;
+        try {
+          await removeFilterThroughCommands(
+            commitBatch,
+            {
+              ...current,
+              filters: baseFilters,
+              runtimeControls: baseRuntimeControls,
+            },
+            filterId,
+            writesRuntimeControls,
+          );
+          return filters;
+        } catch (error) {
+          if (signature) rollbackRuntimeControls(signature);
+          throw error;
+        }
+      }).catch(() => {});
     },
-    [
-      commitBatch,
-      filtersWithIds,
-      insight,
-      rollbackRuntimeControls,
-      stageRuntimeControls,
-    ],
+    [commitBatch, rollbackRuntimeControls, stageRuntimeControls, writeFilters],
   );
 
   const handleSaveFilter = useCallback(
-    async (
-      saved: FilterWithId,
-      runtimeControl: RuntimeFilterControl | undefined,
-    ) => {
-      const updated = applyFilterSave(filtersWithIds, saved);
-      const baseRuntimeControls = runtimeControlsRef.current;
-      const controls = [...(baseRuntimeControls?.filters ?? [])];
-      const controlIndex = controls.findIndex(
-        (control) => control.filterId === saved.id,
-      );
-      if (runtimeControl && controlIndex >= 0) {
-        controls[controlIndex] = runtimeControl;
-      } else if (runtimeControl) {
-        controls.push(runtimeControl);
-      } else if (controlIndex >= 0) {
-        controls.splice(controlIndex, 1);
-      }
-      const runtimeControls: InsightRuntimeDeclaration = {
-        ...baseRuntimeControls,
-        filters: controls.length > 0 ? controls : undefined,
-      };
-      const nextRuntimeControls =
-        runtimeControls.filters || runtimeControls.sort || runtimeControls.limit
-          ? runtimeControls
-          : undefined;
-      const updates: Partial<Omit<Insight, "id" | "createdAt">> = {
-        filters: stripFilterClientMetadata(updated),
-      };
-      const writesRuntimeControls =
-        stableValueSignature(nextRuntimeControls) !==
-        stableValueSignature(baseRuntimeControls);
-      if (writesRuntimeControls) {
-        updates.runtimeControls = nextRuntimeControls;
-      }
-      const nextSignature = stableValueSignature(nextRuntimeControls ?? null);
-      if (writesRuntimeControls) {
-        stageRuntimeControls(nextRuntimeControls);
-      }
-      try {
-        await updateInsight(insight.id, updates);
-      } catch (error) {
-        if (
-          writesRuntimeControls &&
-          pendingRuntimeControlsSignatureRef.current === nextSignature
-        ) {
-          rollbackRuntimeControls(nextSignature);
+    (saved: FilterWithId, runtimeControl: RuntimeFilterControl | undefined) => {
+      return writeFilters(async (baseFilters, current) => {
+        const updated = applyFilterSave(withFilterIds(baseFilters), saved);
+        const nextFilters = stripFilterClientMetadata(updated);
+        const baseRuntimeControls = runtimeControlsRef.current;
+        const controls = [...(baseRuntimeControls?.filters ?? [])];
+        const controlIndex = controls.findIndex(
+          (control) => control.filterId === saved.id,
+        );
+        if (runtimeControl && controlIndex >= 0) {
+          controls[controlIndex] = runtimeControl;
+        } else if (runtimeControl) {
+          controls.push(runtimeControl);
+        } else if (controlIndex >= 0) {
+          controls.splice(controlIndex, 1);
         }
-        throw error;
-      }
+        const runtimeControls: InsightRuntimeDeclaration = {
+          ...baseRuntimeControls,
+          filters: controls.length > 0 ? controls : undefined,
+        };
+        const nextRuntimeControls =
+          runtimeControls.filters ||
+          runtimeControls.sort ||
+          runtimeControls.limit
+            ? runtimeControls
+            : undefined;
+        const updates: Partial<Omit<Insight, "id" | "createdAt">> = {
+          filters: nextFilters,
+        };
+        const writesRuntimeControls =
+          stableValueSignature(nextRuntimeControls) !==
+          stableValueSignature(baseRuntimeControls);
+        if (writesRuntimeControls) {
+          updates.runtimeControls = nextRuntimeControls;
+        }
+        const nextSignature = stableValueSignature(nextRuntimeControls ?? null);
+        if (writesRuntimeControls) {
+          stageRuntimeControls(nextRuntimeControls);
+        }
+        const commands = buildInsightUpdateCommands(
+          current.id,
+          {
+            ...current,
+            filters: baseFilters,
+            runtimeControls: baseRuntimeControls,
+          },
+          updates,
+        );
+        try {
+          await commitBatch({ commands });
+          return nextFilters;
+        } catch (error) {
+          if (
+            writesRuntimeControls &&
+            pendingRuntimeControlsSignatureRef.current === nextSignature
+          ) {
+            rollbackRuntimeControls(nextSignature);
+          }
+          throw error;
+        }
+      });
     },
-    [
-      filtersWithIds,
-      insight.id,
-      rollbackRuntimeControls,
-      stageRuntimeControls,
-      updateInsight,
-    ],
+    [commitBatch, rollbackRuntimeControls, stageRuntimeControls, writeFilters],
   );
 
   const handleFilterDraftChange = useCallback(

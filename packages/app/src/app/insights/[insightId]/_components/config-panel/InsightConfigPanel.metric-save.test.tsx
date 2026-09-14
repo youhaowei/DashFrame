@@ -269,4 +269,33 @@ describe("InsightConfigPanel metric saves", () => {
       }),
     ]);
   });
+
+  it("retains a failed metric removal and emits a real removal when retried", async () => {
+    const first = deferred();
+    commitBatch
+      .mockImplementationOnce(() => first.promise)
+      .mockResolvedValue({});
+    renderPanel({ ...insight, metrics: [revenue, orders, margin] });
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove margin" }));
+    await waitFor(() => expect(commitBatch).toHaveBeenCalledOnce());
+    first.reject(new Error("write failed"));
+    fireEvent.click(screen.getByRole("button", { name: "Rename revenue" }));
+
+    await waitFor(() => expect(commitBatch).toHaveBeenCalledTimes(2));
+    const { id: _id, ...updates } = { ...revenue, name: "Net revenue" };
+    expect(commitBatch.mock.calls[1][0].commands).toEqual([
+      cmd("UpdateMetric", {
+        nodeId: insight.id,
+        metricId: revenue.id,
+        updates,
+      }),
+    ]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove margin" }));
+    await waitFor(() => expect(commitBatch).toHaveBeenCalledTimes(3));
+    expect(commitBatch.mock.calls[2][0].commands).toEqual([
+      cmd("RemoveMetric", { nodeId: insight.id, metricId: margin.id }),
+    ]);
+  });
 });
