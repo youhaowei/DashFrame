@@ -11,9 +11,9 @@ import schema from "../convex/schema";
 
 const modules = import.meta.glob("../convex/**/*.ts");
 type MutationName = {
-  [K in keyof typeof api.app]: (typeof api.app)[K] extends FunctionReference<"mutation">
-    ? K
-    : never;
+  [
+    K in keyof typeof api.app
+  ]: (typeof api.app)[K] extends FunctionReference<"mutation"> ? K : never;
 }[keyof typeof api.app];
 const draftId = "00000000-0000-4000-8000-000000000001";
 const cases = {

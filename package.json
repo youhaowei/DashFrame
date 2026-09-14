@@ -5,6 +5,9 @@
   "type": "module",
   "license": "AGPL-3.0-only",
   "packageManager": "bun@1.4.2",
+  "engines": {
+    "node": "^20.19.0 || ^22.18.0 || >=24.11.0"
+  },
   "workspaces": [
     "apps/*",
     "packages/*",
@@ -45,6 +48,7 @@
     "test:e2e:ci": "turbo test:e2e:ci",
     "test:e2e:ui": "bun run --filter @dashframe/web-e2e test:ui",
     "typecheck": "turbo typecheck",
+    "check:node-version": "node scripts/check-node-version.mjs",
     "check:ticket-refs": "node scripts/check-no-ticket-refs.mjs",
     "check:wystack-domain-nouns": "node scripts/check-wystack-domain-nouns.mjs",
     "check:apply-commands-boundary": "node scripts/check-apply-commands-boundary.mjs",
@@ -86,10 +90,10 @@
     "convex": "^1.29.3"
   },
   "catalog": {
-    "@vitest/browser-playwright": "4.1.10",
-    "@vitest/coverage-v8": "4.1.10",
-    "vite": "npm:@voidzero-dev/vite-plus-core@0.2.9",
-    "vitest": "4.1.10",
-    "vite-plus": "0.2.9"
+    "@vitest/browser-playwright": "4.1.11",
+    "@vitest/coverage-v8": "4.1.11",
+    "vite": "npm:@voidzero-dev/vite-plus-core@0.3.2",
+    "vitest": "4.1.11",
+    "vite-plus": "0.3.2"
   }
 }

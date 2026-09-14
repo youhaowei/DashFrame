@@ -61,6 +61,9 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Check Node version
+        run: node scripts/check-node-version.mjs
+
       - name: Format check
         run: |
           bun format:check || (bun format && git diff && exit 1)
@@ -83,6 +86,9 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Check Node version
+        run: node scripts/check-node-version.mjs
 
       # `bun check` already runs check:ticket-refs as its first link; a separate
       # earlier step only added another way for a cheap guard to mask lint,
@@ -109,6 +115,9 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Check Node version
+        run: node scripts/check-node-version.mjs
 
       # The web E2E target runs a production `vp build`, which resolves
       # @wystack/* via their `import`/`default` conditions → `dist/*.js`. Those

@@ -21,6 +21,7 @@
 import { spawnSync } from "node:child_process";
 
 const CHECKS = [
+  "check:node-version",
   "check:ticket-refs",
   "check:wystack-domain-nouns",
   "check:apply-commands-boundary",

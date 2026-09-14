@@ -7,7 +7,9 @@ Convex owns artifact metadata, drafts, and subscriptions; the host owns
 sessions, connectors, secrets, and DuckDB access.
 
 Use Bun (`bun@1.4.2`) and Turborepo. `bun` is already on `PATH`; its install
-location varies by machine.
+location varies by machine. Vite+ needs Node 20.19+ (the range is in the root
+`package.json` `engines` field and `.node-version`); an older Node installs
+fine and then fails every `vp` command at startup.
 
 ## Authority and data sharing
 
