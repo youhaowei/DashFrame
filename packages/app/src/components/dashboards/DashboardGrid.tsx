@@ -1,6 +1,4 @@
-import { useMutation } from "convex/react";
 import { computeItemOverrides } from "@/lib/dashboards/controls";
-import { api } from "@dashframe/convex-backend/api";
 import type {
   Dashboard,
   DashboardItemOverrides,
@@ -12,6 +10,7 @@ import { useCallback, useMemo, useState } from "react";
 import { Responsive, WidthProvider, type Layout } from "react-grid-layout";
 import { toast } from "sonner";
 import { DashboardItem } from "./DashboardItem";
+import { useReportWrite } from "./report-write";
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
 const EDIT_BREAKPOINTS = { lg: 0 };
@@ -37,10 +36,7 @@ export function DashboardGrid({
   selectedItemId,
   onSelectItem,
 }: DashboardGridProps) {
-  // Destructure the stable `mutateAsync` — the `useMutation` result object is a
-  // fresh reference every render, so depending on it would defeat the
-  // `onLayoutChange` memoization. `mutateAsync` is referentially stable.
-  const commitBatch = useMutation(api.app.commitBatch);
+  const writeReport = useReportWrite();
   const [activeBreakpoint, setActiveBreakpoint] = useState("lg");
 
   const layouts = useMemo(() => {
@@ -122,13 +118,13 @@ export function DashboardGrid({
         ];
       });
       if (commands.length > 0) {
-        commitBatch({ commands }).catch((error: unknown) => {
+        writeReport({ commands }).catch((error: unknown) => {
           console.error("Failed to save dashboard layout:", error);
           toast.error("Failed to save dashboard layout");
         });
       }
     },
-    [activeBreakpoint, commitBatch, dashboard.id, dashboard.items, isEditable],
+    [activeBreakpoint, writeReport, dashboard.id, dashboard.items, isEditable],
   );
 
   // Pre-compute effective overrides for every item.  Merges the item's own

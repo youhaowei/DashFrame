@@ -1,6 +1,4 @@
-import { useMutation } from "convex/react";
 import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
-import { api } from "@dashframe/convex-backend/api";
 import {
   type DashboardControl,
   type DashboardItemOverrides,
@@ -15,6 +13,7 @@ import { DeleteIcon, DragHandleIcon } from "@wystack/ui-react/icons";
 import { toast } from "sonner";
 import { MarkdownWidget } from "./MarkdownWidget";
 import { OverridePopover } from "./OverridePopover";
+import { useReportWrite } from "./report-write";
 
 interface DashboardItemProps {
   item: DashboardItemType;
@@ -61,11 +60,11 @@ export function DashboardItem({
   onTouchEnd,
   ...props
 }: DashboardItemProps) {
-  const commitBatch = useMutation(api.app.commitBatch);
+  const writeReport = useReportWrite();
 
   const handleRemove = async () => {
     try {
-      await commitBatch({
+      await writeReport({
         commands: [
           cmd("RemoveDashboardItem", {
             dashboardId: dashboardId as UUID,

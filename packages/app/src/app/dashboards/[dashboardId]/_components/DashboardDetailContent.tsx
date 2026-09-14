@@ -8,6 +8,11 @@ import { DashboardControlBar } from "@/components/dashboards/DashboardControlBar
 import { DashboardGrid } from "@/components/dashboards/DashboardGrid";
 import { ReportItemPane } from "@/components/dashboards/ReportItemPane";
 import {
+  useReportDraft,
+  useReportWrite,
+} from "@/components/dashboards/report-write";
+import { draftLifecycleErrorDescription } from "@/components/preview-diff/user-facing-errors";
+import {
   resolveInsightAvailableFields,
   type CombinedField,
 } from "@/lib/insights/compute-combined-fields";
@@ -15,7 +20,11 @@ import { useWebMCPPageStore } from "@/lib/stores/webmcp-page-store";
 import { api } from "@dashframe/convex-backend/api";
 import {
   cmd,
+  type Dashboard,
   type DashboardItemType,
+  type DataTable,
+  type Insight,
+  type Visualization,
   type InsightFilter,
   type UUID,
 } from "@dashframe/types";
@@ -41,38 +50,32 @@ import {
   FileIcon,
   PlusIcon,
 } from "@wystack/ui-react/icons";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 interface DashboardDetailContentProps {
   dashboardId: string;
-}
-
-export function reportQuestionLink(questionId: string, reportId: string) {
-  return {
-    to: `/insights/${questionId}`,
-    search: { reportId },
-  } as const;
-}
-
-export function reportSavedViewLink(savedViewId: string, reportId: string) {
-  return {
-    to: `/visualizations/${savedViewId}`,
-    search: { reportId },
-  } as const;
+  /**
+   * `view` reads the published report. `edit` is the workbench: it reads the
+   * report through `draftId` and must sit inside a `ReportDraftProvider`.
+   */
+  mode: "view" | "edit";
+  draftId?: string;
 }
 
 export default function DashboardDetailContent({
   dashboardId,
+  mode,
+  draftId,
 }: DashboardDetailContentProps) {
   const navigate = useNavigate();
+  const isEditable = mode === "edit";
 
   const {
-    data: dashboards = [],
+    dashboard,
     isLoading,
-    isFetching,
     isError: dashboardsLoadError,
-  } = queryStatus(useQuery({ query: api.app.listDashboards, args: {} }));
+  } = useReportRead(dashboardId, draftId);
   const {
     data: visualizations = [],
     isLoading: visualizationsLoading,
@@ -86,13 +89,8 @@ export default function DashboardDetailContent({
   const { data: dataTables = [] } = queryStatus(
     useQuery({ query: api.app.listDataTables, args: {} }),
   );
-  const commitBatch = useMutation(api.app.commitBatch);
+  const writeReport = useReportWrite();
 
-  // Find the dashboard
-  const dashboard = useMemo(
-    () => dashboards.find((d) => d.id === dashboardId),
-    [dashboards, dashboardId],
-  );
   const questionMetadataAvailable = !insightsLoading && !insightsLoadError;
 
   // Bind the assistant to this dashboard (cleared on unmount).
@@ -130,37 +128,12 @@ export default function DashboardDetailContent({
   // Build fieldsByName map from all data tables referenced by the dashboard's
   // visualizations/insights.  Used by DashboardControlBar to detect field type
   // so the correct input (text/number/date) is rendered per control.
-  const fieldsByName = useMemo<Map<string, CombinedField>>(() => {
-    const map = new Map<string, CombinedField>();
-    if (!dashboard) return map;
-
-    const vizIds = new Set(
-      dashboard.items
-        .filter((i) => i.type === "visualization")
-        .map((i) => i.visualizationId)
-        .filter(Boolean),
-    );
-    const insightIds = new Set(
-      visualizations.filter((v) => vizIds.has(v.id)).map((v) => v.insightId),
-    );
-    for (const insight of insights.filter((candidate) =>
-      insightIds.has(candidate.id),
-    )) {
-      const fields = resolveInsightAvailableFields(
-        insight,
-        dataTables,
-        insights,
-      );
-      for (const field of fields) {
-        const key = field.columnName ?? field.name;
-        if (!map.has(key)) map.set(key, field);
-      }
-    }
-    return map;
-  }, [dashboard, visualizations, insights, dataTables]);
+  const fieldsByName = useMemo(
+    () => reportFieldsByName(dashboard, visualizations, insights, dataTables),
+    [dashboard, visualizations, insights, dataTables],
+  );
 
   // ── Local UI state ────────────────────────────────────────────────────────
-  const [isEditable, setIsEditable] = useState(false);
   const [isCreateQuestionOpen, setIsCreateQuestionOpen] = useState(false);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isAddPending, setIsAddPending] = useState(false);
@@ -186,19 +159,19 @@ export default function DashboardDetailContent({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [isPaneOpen]);
 
-  // Redirect if not found — but only once any in-flight fetch has settled.
-  // Guard on isFetching as well as isLoading: TanStack Query sets isLoading=false
-  // when stale cached data exists even while a background refetch runs.  Without
-  // the isFetching guard, navigating to /dashboards/<id> right after creation
-  // sees stale cache → isLoading=false, dashboard=undefined → instant redirect
-  // before the mutation invalidation re-fetch completes.
+  // Redirect if not found, once the read has settled.
   useEffect(() => {
-    if (!isLoading && !isFetching && !dashboardsLoadError && !dashboard) {
+    if (!isLoading && !dashboardsLoadError && !dashboard) {
       navigate({ to: "/dashboards" });
     }
-  }, [isLoading, isFetching, dashboardsLoadError, dashboard, navigate]);
+  }, [isLoading, dashboardsLoadError, dashboard, navigate]);
 
-  if (dashboardsLoadError || visualizationsLoadError) {
+  const { publish, discard } = useReportDraftActions({
+    dashboardId,
+    draftReadFailed: Boolean(draftId && dashboardsLoadError),
+  });
+
+  if ((dashboardsLoadError && !draftId) || visualizationsLoadError) {
     return (
       <div className="flex h-full items-center justify-center px-6 text-center">
         <div>
@@ -214,7 +187,7 @@ export default function DashboardDetailContent({
   }
 
   // Show loading state until we have the dashboard (or any fetch is in progress)
-  if (isLoading || isFetching || visualizationsLoading || !dashboard) {
+  if (visualizationsLoading || !dashboard) {
     return (
       <div className="flex h-full items-center justify-center">
         <p className="text-sm text-neutral-fg-subtle">Loading report...</p>
@@ -236,26 +209,11 @@ export default function DashboardDetailContent({
 
     setIsAddPending(true);
     try {
-      await commitBatch({
+      await writeReport({
         commands: [
           cmd("AddDashboardItem", {
             dashboardId: dashboardId as UUID,
-            item: {
-              id: crypto.randomUUID() as UUID,
-              type: addType,
-              x: 0,
-              y: bottomY,
-              width: addType === "visualization" ? 6 : 4,
-              height: addType === "visualization" ? 6 : 4,
-              visualizationId:
-                addType === "visualization"
-                  ? (selectedVizId as UUID)
-                  : undefined,
-              content:
-                addType === "markdown"
-                  ? "## New Text Widget\n\nEdit this text..."
-                  : undefined,
-            },
+            item: newReportItem(addType, selectedVizId as UUID, bottomY),
           }),
         ],
       });
@@ -287,33 +245,14 @@ export default function DashboardDetailContent({
           />
         }
         actions={
-          <>
-            {isEditable ? (
-              <Button
-                icon={CheckIcon}
-                label="Done editing"
-                onClick={() => {
-                  setIsEditable(false);
-                  closePane();
-                }}
-              />
-            ) : (
-              <Button
-                variant="outline"
-                icon={EditIcon}
-                label="Edit report"
-                onClick={() => setIsEditable(true)}
-              />
-            )}
-            {isEditable && (
-              <Button
-                color="secondary"
-                icon={PlusIcon}
-                label="Add item"
-                onClick={() => setIsAddOpen(true)}
-              />
-            )}
-          </>
+          <ReportHeaderActions
+            dashboardId={dashboardId}
+            mode={mode}
+            draftId={draftId}
+            onAddItem={() => setIsAddOpen(true)}
+            onPublish={publish}
+            onDiscard={discard}
+          />
         }
       />
 
@@ -361,10 +300,14 @@ export default function DashboardDetailContent({
                   <Button
                     icon={PlusIcon}
                     label="Add item"
-                    onClick={() => {
-                      setIsEditable(true);
-                      setIsAddOpen(true);
-                    }}
+                    onClick={() =>
+                      isEditable
+                        ? setIsAddOpen(true)
+                        : navigate({
+                            to: "/dashboards/$dashboardId/edit",
+                            params: { dashboardId },
+                          })
+                    }
                   />
                 </div>
               </div>
@@ -493,4 +436,220 @@ export default function DashboardDetailContent({
       </Dialog>
     </div>
   );
+}
+
+/** Publish and discard for the edit page's draft, and recovery from a stale one. */
+function useReportDraftActions({
+  dashboardId,
+  draftReadFailed,
+}: {
+  dashboardId: string;
+  draftReadFailed: boolean;
+}) {
+  const navigate = useNavigate();
+  const reportDraft = useReportDraft();
+  const publishDraft = useMutation(api.app.publishDraft);
+  const discardDraft = useMutation(api.app.discardDraft);
+
+  // A draft in the URL that was published or discarded elsewhere can't be
+  // read. Start over from the published report instead of showing an error.
+  // Publishing or discarding here ends the draft too, so that path is skipped.
+  const isLeavingRef = useRef(false);
+  useEffect(() => {
+    if (!draftReadFailed || isLeavingRef.current) return;
+    toast.error("That draft is no longer available");
+    navigate({
+      to: "/dashboards/$dashboardId/edit",
+      params: { dashboardId },
+      replace: true,
+    });
+  }, [dashboardId, draftReadFailed, navigate]);
+
+  const leaveEditor = () =>
+    navigate({ to: "/dashboards/$dashboardId", params: { dashboardId } });
+
+  const publish = async () => {
+    const pendingDraftId = await reportDraft?.settle();
+    if (!pendingDraftId) {
+      leaveEditor();
+      return;
+    }
+    isLeavingRef.current = true;
+    try {
+      await publishDraft({ draftId: pendingDraftId });
+    } catch (error) {
+      isLeavingRef.current = false;
+      toast.error("Couldn't publish the report", {
+        description: draftLifecycleErrorDescription(error),
+        action: {
+          label: "Review",
+          onClick: () =>
+            navigate({
+              to: "/drafts/$draftId",
+              params: { draftId: pendingDraftId },
+            }),
+        },
+      });
+      return;
+    }
+    toast.success("Report published");
+    leaveEditor();
+  };
+
+  const discard = async () => {
+    const pendingDraftId = await reportDraft?.settle();
+    if (!pendingDraftId) {
+      leaveEditor();
+      return;
+    }
+    isLeavingRef.current = true;
+    try {
+      await discardDraft({ draftId: pendingDraftId });
+    } catch (error) {
+      isLeavingRef.current = false;
+      toast.error("Couldn't discard the changes", {
+        description: draftLifecycleErrorDescription(error),
+      });
+      return;
+    }
+    leaveEditor();
+  };
+
+  return { publish, discard };
+}
+
+function newReportItem(
+  type: DashboardItemType,
+  visualizationId: UUID,
+  y: number,
+) {
+  return type === "visualization"
+    ? {
+        id: crypto.randomUUID() as UUID,
+        type,
+        x: 0,
+        y,
+        width: 6,
+        height: 6,
+        visualizationId,
+      }
+    : {
+        id: crypto.randomUUID() as UUID,
+        type,
+        x: 0,
+        y,
+        width: 4,
+        height: 4,
+        content: "## New Text Widget\n\nEdit this text...",
+      };
+}
+
+function ReportHeaderActions({
+  dashboardId,
+  mode,
+  draftId,
+  onAddItem,
+  onPublish,
+  onDiscard,
+}: {
+  dashboardId: string;
+  mode: "view" | "edit";
+  draftId: string | undefined;
+  onAddItem: () => void;
+  onPublish: () => void;
+  onDiscard: () => void;
+}) {
+  const navigate = useNavigate();
+  if (mode === "view") {
+    return (
+      <Button
+        variant="outline"
+        icon={EditIcon}
+        label="Edit report"
+        onClick={() =>
+          navigate({
+            to: "/dashboards/$dashboardId/edit",
+            params: { dashboardId },
+          })
+        }
+      />
+    );
+  }
+  return (
+    <>
+      <Button
+        color="secondary"
+        icon={PlusIcon}
+        label="Add item"
+        onClick={onAddItem}
+      />
+      {draftId && (
+        <>
+          <Button
+            variant="ghost"
+            label="Review changes"
+            onClick={() =>
+              navigate({ to: "/drafts/$draftId", params: { draftId } })
+            }
+          />
+          <Button variant="outline" label="Discard" onClick={onDiscard} />
+        </>
+      )}
+      <Button
+        icon={CheckIcon}
+        label={draftId ? "Publish" : "Done"}
+        onClick={onPublish}
+      />
+    </>
+  );
+}
+
+function reportFieldsByName(
+  dashboard: Dashboard | undefined,
+  visualizations: readonly Visualization[],
+  insights: Insight[],
+  dataTables: DataTable[],
+): Map<string, CombinedField> {
+  const map = new Map<string, CombinedField>();
+  if (!dashboard) return map;
+
+  const vizIds = new Set(
+    dashboard.items
+      .filter((i) => i.type === "visualization")
+      .map((i) => i.visualizationId)
+      .filter(Boolean),
+  );
+  const insightIds = new Set(
+    visualizations.filter((v) => vizIds.has(v.id)).map((v) => v.insightId),
+  );
+  for (const insight of insights.filter((candidate) =>
+    insightIds.has(candidate.id),
+  )) {
+    const fields = resolveInsightAvailableFields(insight, dataTables, insights);
+    for (const field of fields) {
+      const key = field.columnName ?? field.name;
+      if (!map.has(key)) map.set(key, field);
+    }
+  }
+  return map;
+}
+
+/** The report, read through the edit page's draft when there is one. */
+function useReportRead(dashboardId: string, draftId: string | undefined) {
+  const { data, isLoading, isError } = queryStatus(
+    useQuery({
+      query: api.app.listDashboards,
+      args: draftId ? { draftId } : {},
+    }),
+  );
+  const found = data?.find((candidate) => candidate.id === dashboardId);
+  // The first edit moves the read onto the new draft. Keep showing the last
+  // loaded report while that read starts, so the canvas doesn't unmount.
+  const [lastDashboard, setLastDashboard] = useState(found);
+  if (found && found !== lastDashboard) setLastDashboard(found);
+  return {
+    dashboard: found ?? (isLoading ? lastDashboard : undefined),
+    isLoading,
+    isError,
+  };
 }

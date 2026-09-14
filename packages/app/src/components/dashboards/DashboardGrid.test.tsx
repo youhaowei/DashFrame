@@ -10,10 +10,9 @@ const mocks = vi.hoisted(() => ({
   updateItems: vi.fn(async () => {}),
 }));
 
-// Partial-mock the WyStack client: keep `createApi` (so `api` builds real
-// refs) and replace only `useMutation`. This consumer uses a single mutation
-// (`api.commitBatch`), so the mock ignores the ref and always returns
-// the same `mutateAsync` spy.
+// Partial-mock the Convex client: keep the real refs and replace only
+// `useMutation`. The grid writes through the report draft provider, whose one
+// mutation (`draftBatch`) is this `mutateAsync` spy.
 vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
   useMutation: nativeMutationMock(() => ({ mutateAsync: mocks.updateItems })),
@@ -35,6 +34,7 @@ vi.mock("./DashboardItem", () => ({
 }));
 
 import { DashboardGrid } from "./DashboardGrid";
+import { ReportDraftProvider } from "./report-write";
 
 const dashboard = {
   id: "dashboard",
@@ -68,8 +68,12 @@ describe("DashboardGrid canonical layout persistence", () => {
     mocks.updateItems.mockClear();
   });
 
-  it("ignores responsive projections and batches an intentional desktop edit", () => {
-    render(<DashboardGrid dashboard={dashboard} isEditable />);
+  it("ignores responsive projections and batches an intentional desktop edit into the draft", async () => {
+    render(
+      <ReportDraftProvider draftId="draft-1" onDraftCreated={() => {}}>
+        <DashboardGrid dashboard={dashboard} isEditable />
+      </ReportDraftProvider>,
+    );
     expect(mocks.gridProps?.onLayoutChange).toBeUndefined();
 
     act(() => {
@@ -100,7 +104,11 @@ describe("DashboardGrid canonical layout persistence", () => {
       ]);
     });
 
+    await vi.waitFor(() => expect(mocks.updateItems).toHaveBeenCalled());
+    // Only the desktop edit wrote; the responsive projection did not.
+    expect(mocks.updateItems).toHaveBeenCalledTimes(1);
     expect(mocks.updateItems).toHaveBeenCalledWith({
+      draftId: "draft-1",
       commands: [
         {
           path: "updateDashboardItemCmd",

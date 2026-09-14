@@ -10,7 +10,7 @@
  * A text item shows its markdown source, saved on blur.
  */
 
-import { useQuery_experimental as useQuery, useMutation } from "convex/react";
+import { useQuery_experimental as useQuery } from "convex/react";
 import {
   INSIGHT_CANVAS_CHART_TYPES,
   VisualizationConfigPanel,
@@ -40,6 +40,7 @@ import { CloseIcon, DeleteIcon } from "@wystack/ui-react/icons";
 import { Type } from "lucide-react";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
+import { useReportWrite } from "./report-write";
 
 interface ReportItemPaneProps {
   item: DashboardItem;
@@ -52,11 +53,11 @@ export function ReportItemPane({
   dashboard,
   onClose,
 }: ReportItemPaneProps) {
-  const commitBatch = useMutation(api.app.commitBatch);
+  const writeReport = useReportWrite();
 
   const handleRemove = async () => {
     try {
-      await commitBatch({
+      await writeReport({
         commands: [
           cmd("RemoveDashboardItem", {
             dashboardId: dashboard.id,
@@ -124,7 +125,7 @@ function TextItemPane({
   item: DashboardItem;
   dashboardId: UUID;
 }) {
-  const commitBatch = useMutation(api.app.commitBatch);
+  const writeReport = useReportWrite();
   const content = item.content ?? "";
   // Local draft so typing doesn't fire a mutation per keystroke; commits on
   // blur. A saved change arriving from elsewhere replaces the draft.
@@ -138,7 +139,7 @@ function TextItemPane({
   const commit = async () => {
     if (draft === content) return;
     try {
-      await commitBatch({
+      await writeReport({
         commands: [
           cmd("UpdateDashboardItem", {
             dashboardId,
@@ -253,7 +254,7 @@ function ChartConfig({
   authoringTable: DataTable;
   insightVisualizations: Visualization[];
 }) {
-  const commitBatch = useMutation(api.app.commitBatch);
+  const writeReport = useReportWrite();
   const override = item.overrides?.visualization;
   const effectiveVisualization = useMemo(
     () =>
@@ -299,7 +300,7 @@ function ChartConfig({
       const matchesSaved =
         next.visualizationType === savedVisualization.visualizationType &&
         sameEncoding(next.encoding, savedVisualization.encoding);
-      return commitBatch({
+      return writeReport({
         commands: [
           cmd("PatchDashboardItemOverride", {
             dashboardId,
@@ -310,7 +311,7 @@ function ChartConfig({
       });
     },
     [
-      commitBatch,
+      writeReport,
       dashboardId,
       effectiveVisualization,
       item.id,
@@ -320,7 +321,7 @@ function ChartConfig({
 
   const handleSelectVisualization = (visualizationId: UUID) => {
     if (visualizationId === item.visualizationId) return;
-    commitBatch({
+    writeReport({
       commands: [
         cmd("PatchDashboardItemOverride", {
           dashboardId,
@@ -337,7 +338,7 @@ function ChartConfig({
   };
 
   const resetToSaved = () => {
-    commitBatch({
+    writeReport({
       commands: [
         cmd("PatchDashboardItemOverride", {
           dashboardId,
@@ -392,7 +393,7 @@ function ChartConfig({
           <Link
             to="/insights/$insightId"
             params={{ insightId: insight.id }}
-            search={{ reportId: dashboardId }}
+            search={{ reportId: dashboardId, visualize: false }}
             className="rounded-sm px-1 font-medium text-neutral-fg underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none"
           >
             Open insight

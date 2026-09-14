@@ -1,4 +1,4 @@
-import { useQuery_experimental as useQuery, useMutation } from "convex/react";
+import { useQuery_experimental as useQuery } from "convex/react";
 import { queryStatus } from "@/data/query-status";
 /**
  * Per-cell override popover — anchored to the cell, opened by the customize button.
@@ -9,7 +9,7 @@ import { queryStatus } from "@/data/query-status";
  *
  * Mutations:
  * - Filter / sort / limit overrides → server-applied intent patches
- * - Bind to control → `SetDashboardControls` through `commitBatch` (replace whole array)
+ * - Bind to control → `SetDashboardControls` through `writeReport` (replace whole array)
  * - Unbind         → the same command, removing item.id from boundInstances
  *
  * Fields shown = union of:
@@ -59,6 +59,7 @@ import {
   withDeclaredFilterId,
 } from "./override-field-row-utils";
 import { OverrideFieldRow } from "./OverrideFieldRow";
+import { useReportWrite } from "./report-write";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -272,7 +273,7 @@ export function OverridePopover({
   dashboardId,
   controls,
 }: OverridePopoverProps) {
-  const commitBatch = useMutation(api.app.commitBatch);
+  const writeReport = useReportWrite();
 
   // Self-fetch visualization → insight → data table (same pattern as VisualizationDisplay).
   const { data: visualizations = [] } = queryStatus(
@@ -360,7 +361,7 @@ export function OverridePopover({
   // ---------------------------------------------------------------------------
 
   function persistOverride(patch: DashboardItemOverridePatch) {
-    commitBatch({
+    writeReport({
       commands: [
         cmd("PatchDashboardItemOverride", {
           dashboardId: dashboardId as UUID,
@@ -439,7 +440,7 @@ export function OverridePopover({
         : c,
     );
     try {
-      await commitBatch({
+      await writeReport({
         commands: [
           cmd("SetDashboardControls", {
             dashboardId: dashboardId as UUID,
@@ -463,7 +464,7 @@ export function OverridePopover({
         : c,
     );
     try {
-      await commitBatch({
+      await writeReport({
         commands: [
           cmd("SetDashboardControls", {
             dashboardId: dashboardId as UUID,

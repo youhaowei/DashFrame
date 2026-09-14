@@ -7,5 +7,5 @@ export const Route = createFileRoute("/dashboards/$dashboardId")({
 
 function DashboardDetailRoute() {
   const { dashboardId } = Route.useParams();
-  return <DashboardDetailContent dashboardId={dashboardId} />;
+  return <DashboardDetailContent dashboardId={dashboardId} mode="view" />;
 }

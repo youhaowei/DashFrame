@@ -21,6 +21,7 @@ import { Route as InsightsInsightIdRouteImport } from './../../../packages/app/s
 import { Route as DataSourcesSourceIdRouteImport } from './../../../packages/app/src/routes/data-sources/$sourceId'
 import { Route as DashboardsDashboardIdRouteImport } from './../../../packages/app/src/routes/dashboards/$dashboardId'
 import { Route as DraftsDraftIdIndexRouteImport } from './../../../packages/app/src/routes/drafts/$draftId.index'
+import { Route as DashboardsDashboardIdEditRouteImport } from './../../../packages/app/src/routes/dashboards/$dashboardId_.edit'
 import { Route as InsightsInsightIdJoinTableIdRouteImport } from './../../../packages/app/src/routes/insights/$insightId_.join.$tableId'
 
 const DataFramesRoute = DataFramesRouteImport.update({
@@ -84,6 +85,12 @@ const DraftsDraftIdIndexRoute = DraftsDraftIdIndexRouteImport.update({
   path: '/drafts/$draftId/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DashboardsDashboardIdEditRoute =
+  DashboardsDashboardIdEditRouteImport.update({
+    id: '/dashboards/$dashboardId_/edit',
+    path: '/dashboards/$dashboardId/edit',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const InsightsInsightIdJoinTableIdRoute =
   InsightsInsightIdJoinTableIdRouteImport.update({
     id: '/insights/$insightId_/join/$tableId',
@@ -103,6 +110,7 @@ export interface FileRoutesByFullPath {
   '/drafts/': typeof DraftsIndexRoute
   '/insights/': typeof InsightsIndexRoute
   '/visualizations/': typeof VisualizationsIndexRoute
+  '/dashboards/$dashboardId/edit': typeof DashboardsDashboardIdEditRoute
   '/drafts/$draftId/': typeof DraftsDraftIdIndexRoute
   '/insights/$insightId/join/$tableId': typeof InsightsInsightIdJoinTableIdRoute
 }
@@ -118,6 +126,7 @@ export interface FileRoutesByTo {
   '/drafts': typeof DraftsIndexRoute
   '/insights': typeof InsightsIndexRoute
   '/visualizations': typeof VisualizationsIndexRoute
+  '/dashboards/$dashboardId/edit': typeof DashboardsDashboardIdEditRoute
   '/drafts/$draftId': typeof DraftsDraftIdIndexRoute
   '/insights/$insightId/join/$tableId': typeof InsightsInsightIdJoinTableIdRoute
 }
@@ -134,6 +143,7 @@ export interface FileRoutesById {
   '/drafts/': typeof DraftsIndexRoute
   '/insights/': typeof InsightsIndexRoute
   '/visualizations/': typeof VisualizationsIndexRoute
+  '/dashboards/$dashboardId_/edit': typeof DashboardsDashboardIdEditRoute
   '/drafts/$draftId/': typeof DraftsDraftIdIndexRoute
   '/insights/$insightId_/join/$tableId': typeof InsightsInsightIdJoinTableIdRoute
 }
@@ -151,6 +161,7 @@ export interface FileRouteTypes {
     | '/drafts/'
     | '/insights/'
     | '/visualizations/'
+    | '/dashboards/$dashboardId/edit'
     | '/drafts/$draftId/'
     | '/insights/$insightId/join/$tableId'
   fileRoutesByTo: FileRoutesByTo
@@ -166,6 +177,7 @@ export interface FileRouteTypes {
     | '/drafts'
     | '/insights'
     | '/visualizations'
+    | '/dashboards/$dashboardId/edit'
     | '/drafts/$draftId'
     | '/insights/$insightId/join/$tableId'
   id:
@@ -181,6 +193,7 @@ export interface FileRouteTypes {
     | '/drafts/'
     | '/insights/'
     | '/visualizations/'
+    | '/dashboards/$dashboardId_/edit'
     | '/drafts/$draftId/'
     | '/insights/$insightId_/join/$tableId'
   fileRoutesById: FileRoutesById
@@ -197,6 +210,7 @@ export interface RootRouteChildren {
   DraftsIndexRoute: typeof DraftsIndexRoute
   InsightsIndexRoute: typeof InsightsIndexRoute
   VisualizationsIndexRoute: typeof VisualizationsIndexRoute
+  DashboardsDashboardIdEditRoute: typeof DashboardsDashboardIdEditRoute
   DraftsDraftIdIndexRoute: typeof DraftsDraftIdIndexRoute
   InsightsInsightIdJoinTableIdRoute: typeof InsightsInsightIdJoinTableIdRoute
 }
@@ -287,6 +301,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DraftsDraftIdIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/dashboards/$dashboardId_/edit': {
+      id: '/dashboards/$dashboardId_/edit'
+      path: '/dashboards/$dashboardId/edit'
+      fullPath: '/dashboards/$dashboardId/edit'
+      preLoaderRoute: typeof DashboardsDashboardIdEditRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/insights/$insightId_/join/$tableId': {
       id: '/insights/$insightId_/join/$tableId'
       path: '/insights/$insightId/join/$tableId'
@@ -309,6 +330,7 @@ const rootRouteChildren: RootRouteChildren = {
   DraftsIndexRoute: DraftsIndexRoute,
   InsightsIndexRoute: InsightsIndexRoute,
   VisualizationsIndexRoute: VisualizationsIndexRoute,
+  DashboardsDashboardIdEditRoute: DashboardsDashboardIdEditRoute,
   DraftsDraftIdIndexRoute: DraftsDraftIdIndexRoute,
   InsightsInsightIdJoinTableIdRoute: InsightsInsightIdJoinTableIdRoute,
 }
