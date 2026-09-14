@@ -51,6 +51,7 @@ import {
   ChartIcon,
   CheckIcon,
   EditIcon,
+  EyeIcon,
   FileIcon,
   PlusIcon,
 } from "@wystack/ui-react/icons";
@@ -74,6 +75,10 @@ export default function DashboardDetailContent({
 }: DashboardDetailContentProps) {
   const navigate = useNavigate();
   const isEditable = mode === "edit";
+  // Preview shows the draft as a reader sees it: no pane, no editing chrome,
+  // charts at full size. Editing shrinks the report beside its panes.
+  const [isPreviewing, setIsPreviewing] = useState(false);
+  const canArrange = isEditable && !isPreviewing;
 
   const {
     dashboard,
@@ -206,7 +211,7 @@ export default function DashboardDetailContent({
   }
 
   const paneItem = dashboard.items.find((item) => item.id === paneItemId);
-  const showPane = isEditable && isPaneOpen && paneItem !== undefined;
+  const showPane = canArrange && isPaneOpen && paneItem !== undefined;
 
   const handleAddItem = async () => {
     // Compute the bottom of the current layout so the new widget is appended
@@ -259,6 +264,8 @@ export default function DashboardDetailContent({
             dashboardId={dashboardId}
             mode={mode}
             draftId={draftId}
+            isPreviewing={isPreviewing}
+            onTogglePreview={() => setIsPreviewing((previewing) => !previewing)}
             onAddItem={() => setIsAddOpen(true)}
             onPublish={publish}
             onDiscard={discard}
@@ -326,7 +333,7 @@ export default function DashboardDetailContent({
               <ReaderWidthFrame readerWidth={readerWidth} scale={canvasScale}>
                 <DashboardGrid
                   dashboard={dashboard}
-                  isEditable={isEditable}
+                  isEditable={canArrange}
                   controlTransientValues={controlTransientValues}
                   selectedItemId={isPaneOpen ? paneItem?.id : null}
                   onSelectItem={selectItem}
@@ -565,6 +572,8 @@ function ReportHeaderActions({
   dashboardId,
   mode,
   draftId,
+  isPreviewing,
+  onTogglePreview,
   onAddItem,
   onPublish,
   onDiscard,
@@ -572,6 +581,8 @@ function ReportHeaderActions({
   dashboardId: string;
   mode: "view" | "edit";
   draftId: string | undefined;
+  isPreviewing: boolean;
+  onTogglePreview: () => void;
   onAddItem: () => void;
   onPublish: () => void;
   onDiscard: () => void;
@@ -595,11 +606,19 @@ function ReportHeaderActions({
   return (
     <>
       <Button
-        color="secondary"
-        icon={PlusIcon}
-        label="Add item"
-        onClick={onAddItem}
+        variant="outline"
+        icon={isPreviewing ? EditIcon : EyeIcon}
+        label={isPreviewing ? "Back to editing" : "Preview"}
+        onClick={onTogglePreview}
       />
+      {!isPreviewing && (
+        <Button
+          color="secondary"
+          icon={PlusIcon}
+          label="Add item"
+          onClick={onAddItem}
+        />
+      )}
       {draftId && (
         <>
           <Button
