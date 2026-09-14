@@ -1695,8 +1695,19 @@ export function InsightView({
       if (activeView.kind === "visualization")
         return activeView.visualizationId;
       if (activeView.kind === "chart" && activeChartSuggestion) {
+        const savedChartType = activeView.chartType;
         const visualizationId = await pinChartSuggestion(activeChartSuggestion);
-        if (visualizationId) clearDraftChartType(insightId);
+        const currentDraftChartType =
+          useInsightCanvasStore.getState().draftChartTypeByInsight[insightId];
+        if (
+          shouldClearSavedDraft({
+            savedVisualizationId: visualizationId,
+            savedChartType,
+            currentDraftChartType,
+          })
+        ) {
+          clearDraftChartType(insightId);
+        }
         return visualizationId;
       }
       return null;
