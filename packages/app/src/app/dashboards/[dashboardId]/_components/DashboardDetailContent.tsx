@@ -6,6 +6,10 @@ import { useQuery_experimental as useQuery, useMutation } from "convex/react";
 import { useBindArtifact } from "@/components/assistant/artifact-context";
 import { DashboardControlBar } from "@/components/dashboards/DashboardControlBar";
 import { DashboardGrid } from "@/components/dashboards/DashboardGrid";
+import {
+  ReaderWidthFrame,
+  useReaderWidthScale,
+} from "@/components/dashboards/ReaderWidthFrame";
 import { ReportItemPane } from "@/components/dashboards/ReportItemPane";
 import {
   useReportDraft,
@@ -143,6 +147,12 @@ export default function DashboardDetailContent({
   // transition collapses real content instead of an empty column.
   const [paneItemId, setPaneItemId] = useState<string | null>(null);
   const [isPaneOpen, setIsPaneOpen] = useState(false);
+  const {
+    setCanvas,
+    setPane,
+    readerWidth,
+    scale: canvasScale,
+  } = useReaderWidthScale();
 
   const selectItem = (itemId: string) => {
     setPaneItemId(itemId);
@@ -271,6 +281,7 @@ export default function DashboardDetailContent({
 
           {/* Grid Content — a click outside every item closes the pane. */}
           <div
+            ref={setCanvas}
             className="flex-1 overflow-y-auto bg-neutral-bg-muted/10 p-6"
             onClick={(event) => {
               if (
@@ -312,18 +323,22 @@ export default function DashboardDetailContent({
                 </div>
               </div>
             ) : (
-              <DashboardGrid
-                dashboard={dashboard}
-                isEditable={isEditable}
-                controlTransientValues={controlTransientValues}
-                selectedItemId={isPaneOpen ? paneItem?.id : null}
-                onSelectItem={selectItem}
-              />
+              <ReaderWidthFrame readerWidth={readerWidth} scale={canvasScale}>
+                <DashboardGrid
+                  dashboard={dashboard}
+                  isEditable={isEditable}
+                  controlTransientValues={controlTransientValues}
+                  selectedItemId={isPaneOpen ? paneItem?.id : null}
+                  onSelectItem={selectItem}
+                  transformScale={canvasScale}
+                />
+              </ReaderWidthFrame>
             )}
           </div>
         </div>
 
         <aside
+          ref={setPane}
           aria-label="Report item"
           inert={!showPane}
           aria-hidden={!showPane}

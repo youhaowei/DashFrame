@@ -31,6 +31,8 @@ interface DashboardGridProps {
   /** Item open in the report item pane, if any. */
   selectedItemId?: string | null;
   onSelectItem?: (itemId: string) => void;
+  /** Visual scale applied around the grid, so drags track the pointer. */
+  transformScale?: number;
 }
 
 export function DashboardGrid({
@@ -39,6 +41,7 @@ export function DashboardGrid({
   controlTransientValues,
   selectedItemId,
   onSelectItem,
+  transformScale = 1,
 }: DashboardGridProps) {
   const writeReport = useReportWrite();
   const [activeBreakpoint, setActiveBreakpoint] = useState("lg");
@@ -128,6 +131,7 @@ export function DashboardGrid({
       layouts={layouts}
       breakpoints={BREAKPOINTS}
       cols={COLS}
+      transformScale={transformScale}
       rowHeight={60}
       isDraggable={isEditable && activeBreakpoint === "lg"}
       isResizable={isEditable && activeBreakpoint === "lg"}
