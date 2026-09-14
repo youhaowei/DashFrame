@@ -1577,7 +1577,6 @@ export function InsightView({
       );
 
       if (matchingVisualization) {
-        setDraftChart(null);
         handleSetActiveView(visualizationView(matchingVisualization.id));
         return matchingVisualization.id;
       }
@@ -1590,7 +1589,6 @@ export function InsightView({
         encoding: visualizationEncoding,
       });
 
-      setDraftChart(null);
       handleSetActiveView(visualizationView(vizId));
       return vizId;
     },
@@ -1649,6 +1647,7 @@ export function InsightView({
     if (!activeChartSuggestion) return;
     try {
       await pinChartSuggestion(activeChartSuggestion);
+      setDraftChart(null);
       toast.success("Chart saved");
     } catch (error) {
       console.error("[InsightView] Save failed:", error);
@@ -1661,7 +1660,9 @@ export function InsightView({
       if (activeView.kind === "visualization")
         return activeView.visualizationId;
       if (activeView.kind === "chart" && activeChartSuggestion) {
-        return pinChartSuggestion(activeChartSuggestion);
+        const visualizationId = await pinChartSuggestion(activeChartSuggestion);
+        if (visualizationId) setDraftChart(null);
+        return visualizationId;
       }
       return null;
     }, [activeChartSuggestion, activeView, pinChartSuggestion]);
