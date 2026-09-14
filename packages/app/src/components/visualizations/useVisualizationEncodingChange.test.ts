@@ -228,6 +228,45 @@ describe("useVisualizationEncodingChange", () => {
     });
   });
 
+  it("validates a type change against the pending encoding", async () => {
+    const updateVisualization = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise<void>(() => {}))
+      .mockResolvedValue(undefined);
+    const canChangeType = vi.fn().mockReturnValue(false);
+    const { result } = renderHook(() =>
+      useVisualizationEncodingChange({
+        visualization: {
+          id: visualizationId,
+          visualizationType: "barY",
+          encoding: { x: "month", y: "revenue" },
+        },
+        dataTable: { fields: [] },
+        columnAnalysis: [],
+        updateVisualization,
+        canChangeType: (visualization, nextType) =>
+          nextType === "barX" || canChangeType(visualization, nextType),
+      }),
+    );
+
+    let barWrite: Promise<void> | undefined;
+    await act(async () => {
+      barWrite = result.current.changeType("barX");
+      await result.current.changeType("line");
+    });
+    expect(barWrite).toBeInstanceOf(Promise);
+
+    expect(canChangeType).toHaveBeenCalledWith(
+      {
+        id: visualizationId,
+        visualizationType: "barX",
+        encoding: expect.objectContaining({ x: "revenue", y: "month" }),
+      },
+      "line",
+    );
+    expect(updateVisualization).toHaveBeenCalledOnce();
+  });
+
   it("builds on the refreshed encoding once writes have settled", async () => {
     const updateVisualization = vi.fn().mockResolvedValue(undefined);
     const { result, rerender } = renderEncodingHook(

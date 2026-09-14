@@ -45,6 +45,7 @@ import type {
   InsightMetric,
   UUID,
   VegaLiteSpec,
+  Visualization,
   VisualizationEncoding,
   VisualizationType,
 } from "@dashframe/types";
@@ -1280,6 +1281,28 @@ export function InsightView({
     existingFieldNames,
     suggestionSeed,
   ]);
+  // Also checked against the pending encoding when a type change is written,
+  // since the set below reflects only the last echoed visualization.
+  const canChangeChartType = useCallback(
+    (
+      visualization: Pick<Visualization, "visualizationType" | "encoding">,
+      chartType: VisualizationType,
+    ) => {
+      if (chartType === visualization.visualizationType) return true;
+      if (!areEncodingsReady) return false;
+      const updates = getVisualizationTypeChange(visualization, chartType);
+      const encoding = updates?.encoding ?? visualization.encoding ?? {};
+      if (!encoding.x || !encoding.y) return false;
+      const errors = validateEncoding(
+        encoding,
+        chartType,
+        encodingColumnAnalysis,
+        compiledInsightForEncodings,
+      );
+      return !errors.x && !errors.y;
+    },
+    [areEncodingsReady, compiledInsightForEncodings, encodingColumnAnalysis],
+  );
   const availableVisualizationTypes = useMemo(() => {
     if (!activeVisualization) {
       return new Set(chartSuggestionsByType.keys());
@@ -1288,30 +1311,15 @@ export function InsightView({
       return new Set([activeVisualization.visualizationType]);
     }
     return new Set(
-      INSIGHT_CANVAS_CHART_TYPES.filter((chartType) => {
-        if (chartType === activeVisualization.visualizationType) return true;
-        const updates = getVisualizationTypeChange(
-          activeVisualization,
-          chartType,
-        );
-        const encoding =
-          updates?.encoding ?? activeVisualization.encoding ?? {};
-        if (!encoding.x || !encoding.y) return false;
-        const errors = validateEncoding(
-          encoding,
-          chartType,
-          encodingColumnAnalysis,
-          compiledInsightForEncodings,
-        );
-        return !errors.x && !errors.y;
-      }),
+      INSIGHT_CANVAS_CHART_TYPES.filter((chartType) =>
+        canChangeChartType(activeVisualization, chartType),
+      ),
     );
   }, [
     activeVisualization,
     areEncodingsReady,
+    canChangeChartType,
     chartSuggestionsByType,
-    compiledInsightForEncodings,
-    encodingColumnAnalysis,
   ]);
 
   const firstChartSuggestion = useMemo(() => {
@@ -1908,6 +1916,7 @@ export function InsightView({
             <VisualizationConfigPanel
               activeChartType={visualizationPane.chartType}
               availableChartTypes={availableVisualizationTypes}
+              canChangeChartType={canChangeChartType}
               activeSuggestionEncoding={activeChartSuggestion?.encoding}
               activeVisualization={activeVisualization}
               visualizations={insightVisualizations}

@@ -27,6 +27,14 @@ interface UseVisualizationEncodingChangeOptions {
     };
   }) => Promise<unknown>;
   onUpdateError?: () => void;
+  /**
+   * Rejects a type change that is invalid for the pending visualization, which
+   * can differ from the rendered one until a queued write echoes.
+   */
+  canChangeType?: (
+    visualization: Pick<Visualization, "visualizationType" | "encoding">,
+    nextType: VisualizationType,
+  ) => boolean;
 }
 
 function inferAxisType(
@@ -68,6 +76,7 @@ export function useVisualizationEncodingChange({
   columnAnalysis,
   updateVisualization,
   onUpdateError,
+  canChangeType,
 }: UseVisualizationEncodingChangeOptions) {
   const resolveAnalysisAlias = useCallback(
     (value: string) => {
@@ -274,6 +283,7 @@ export function useVisualizationEncodingChange({
               visualizationType: visualization.visualizationType,
               encoding: visualization.encoding,
             };
+      if (canChangeType && !canChangeType(current, nextType)) return;
       const updates = getVisualizationTypeChange(current, nextType);
       if (!updates) return;
       const next = {
@@ -288,7 +298,7 @@ export function useVisualizationEncodingChange({
           : {}),
       });
     },
-    [commitVisualizationChange, visualization],
+    [canChangeType, commitVisualizationChange, visualization],
   );
 
   return { changeEncoding, changeType };

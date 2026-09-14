@@ -183,11 +183,15 @@ export function InsightConfigPanel({
     insight.runtimeControls,
   );
   const runtimeControlsRef = useRef(insight.runtimeControls);
+  // The latest server value, including echoes ignored while a newer write is
+  // pending. A failed write rolls back to this, not the value it started from.
+  const echoedRuntimeControlsRef = useRef(insight.runtimeControls);
   const pendingRuntimeControlsSignatureRef = useRef<string | null>(null);
   const runtimeControlsSignature = stableValueSignature(
     insight.runtimeControls ?? null,
   );
   useEffect(() => {
+    echoedRuntimeControlsRef.current = insight.runtimeControls;
     if (
       pendingRuntimeControlsSignatureRef.current === null ||
       pendingRuntimeControlsSignatureRef.current === runtimeControlsSignature
@@ -207,15 +211,12 @@ export function InsightConfigPanel({
     },
     [],
   );
-  const rollbackRuntimeControls = useCallback(
-    (signature: string) => {
-      if (pendingRuntimeControlsSignatureRef.current !== signature) return;
-      runtimeControlsRef.current = insight.runtimeControls;
-      setLocalRuntimeControls(insight.runtimeControls);
-      pendingRuntimeControlsSignatureRef.current = null;
-    },
-    [insight.runtimeControls],
-  );
+  const rollbackRuntimeControls = useCallback((signature: string) => {
+    if (pendingRuntimeControlsSignatureRef.current !== signature) return;
+    runtimeControlsRef.current = echoedRuntimeControlsRef.current;
+    setLocalRuntimeControls(echoedRuntimeControlsRef.current);
+    pendingRuntimeControlsSignatureRef.current = null;
+  }, []);
   const updateWebMCPInsight = useWebMCPPageStore(
     (state) => state.updateInsight,
   );
@@ -414,31 +415,74 @@ export function InsightConfigPanel({
   );
 
   // --- Metric handlers ---
+  // Metric popovers save independently, so each write composes against the
+  // newest queued metric list instead of a render that may lack an earlier save.
+  const pendingMetricsRef = useRef<InsightMetric[] | null>(null);
+  const inFlightMetricWritesRef = useRef(0);
+  // The newest successful write whose echo may not have rendered yet; a newer
+  // failed write falls back to it rather than the stale prop.
+  const succeededMetricsRef = useRef<{
+    sequence: number;
+    metrics: InsightMetric[];
+  } | null>(null);
+  const metricWriteSequenceRef = useRef(0);
+  useEffect(() => {
+    succeededMetricsRef.current = null;
+    if (inFlightMetricWritesRef.current === 0) {
+      pendingMetricsRef.current = null;
+    }
+  }, [insight.metrics]);
+  const writeMetrics = useCallback(
+    async (compose: (base: InsightMetric[]) => InsightMetric[]) => {
+      const base = pendingMetricsRef.current ?? insight.metrics ?? [];
+      const next = compose(base);
+      // Diff against the queued list so an earlier pending save is not resent.
+      const commands = buildInsightUpdateCommands(
+        insight.id,
+        { ...insight, metrics: base },
+        { metrics: next },
+      );
+      if (commands.length === 0) return;
+      pendingMetricsRef.current = next;
+      inFlightMetricWritesRef.current += 1;
+      const sequence = ++metricWriteSequenceRef.current;
+      try {
+        await commitBatch({ commands });
+        const succeeded = succeededMetricsRef.current;
+        if (!succeeded || succeeded.sequence < sequence) {
+          succeededMetricsRef.current = { sequence, metrics: next };
+        }
+      } catch (error) {
+        if (pendingMetricsRef.current === next) {
+          pendingMetricsRef.current =
+            succeededMetricsRef.current?.metrics ?? null;
+        }
+        throw error;
+      } finally {
+        inFlightMetricWritesRef.current -= 1;
+      }
+    },
+    [commitBatch, insight],
+  );
+
   const handleMetricsReorder = useCallback(
     (newOrder: InsightMetric[]) => {
-      updateInsight(insight.id, {
-        metrics: reorderVisibleMetrics(insight.metrics ?? [], newOrder),
-      });
+      void writeMetrics((metrics) => reorderVisibleMetrics(metrics, newOrder));
     },
-    [insight.id, insight.metrics, updateInsight],
+    [writeMetrics],
   );
 
   const handleAddMetric = useCallback(
-    async (metric: InsightMetric) => {
-      const updated = [...(insight.metrics ?? []), metric];
-      await updateInsight(insight.id, { metrics: updated });
-    },
-    [insight.id, insight.metrics, updateInsight],
+    (metric: InsightMetric) => writeMetrics((metrics) => [...metrics, metric]),
+    [writeMetrics],
   );
 
   const handleEditMetric = useCallback(
-    async (updatedMetric: InsightMetric) => {
-      const updated = (insight.metrics ?? []).map((m) =>
-        m.id === updatedMetric.id ? updatedMetric : m,
-      );
-      await updateInsight(insight.id, { metrics: updated });
-    },
-    [insight.id, insight.metrics, updateInsight],
+    (updatedMetric: InsightMetric) =>
+      writeMetrics((metrics) =>
+        metrics.map((m) => (m.id === updatedMetric.id ? updatedMetric : m)),
+      ),
+    [writeMetrics],
   );
 
   // --- Filter handlers ---

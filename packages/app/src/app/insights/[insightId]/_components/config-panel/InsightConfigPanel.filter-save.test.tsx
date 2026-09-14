@@ -279,6 +279,83 @@ describe("InsightConfigPanel filter saves", () => {
     resolveFirst?.();
   });
 
+  it("rolls a failed viewer-control write back to the latest echoed value", async () => {
+    let resolveFirst: (() => void) | undefined;
+    let rejectSecond: ((error: Error) => void) | undefined;
+    commitBatch
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveFirst = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((_resolve, reject) => {
+            rejectSecond = reject;
+          }),
+      )
+      .mockResolvedValue({});
+    const { rerender } = render(
+      <InsightConfigPanel
+        insight={insight}
+        dataTable={table}
+        allDataTables={[table]}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save second viewer filter" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save viewer controls" }),
+    );
+    await waitFor(() => expect(commitBatch).toHaveBeenCalledTimes(2));
+    resolveFirst?.();
+    rerender(
+      <InsightConfigPanel
+        insight={{
+          ...insight,
+          filters: [
+            { id: "region", field: "region", operator: "eq", value: "EMEA" },
+            { id: "period", field: "period", operator: "eq", value: "Q2" },
+          ],
+          runtimeControls: {
+            filters: [
+              { filterId: "region", key: "region", label: "Region" },
+              { filterId: "period", key: "period", label: "Period" },
+            ],
+          },
+        }}
+        dataTable={table}
+        allDataTables={[table]}
+      />,
+    );
+    rejectSecond?.(new Error("write failed"));
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith(
+        "Failed to update viewer controls",
+      ),
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Edit first viewer filter" }),
+    );
+    await waitFor(() => expect(commitBatch).toHaveBeenCalledTimes(3));
+    expect(commitBatch.mock.calls[2][0].commands).toContainEqual({
+      path: "setInsightRuntimeControls",
+      args: {
+        id: insight.id,
+        runtimeControls: {
+          filters: [
+            { filterId: "region", key: "region", label: "Sales region" },
+            { filterId: "period", key: "period", label: "Period" },
+          ],
+        },
+      },
+    });
+  });
+
   it("does not write runtime controls when their declaration is unchanged", async () => {
     render(
       <InsightConfigPanel

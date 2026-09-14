@@ -63,6 +63,11 @@ export const INSIGHT_CANVAS_CHART_TYPES: VisualizationType[] = [
 interface VisualizationConfigPanelProps {
   activeChartType: VisualizationType;
   availableChartTypes: ReadonlySet<VisualizationType>;
+  /** Validates a type change against the visualization's pending state. */
+  canChangeChartType?: (
+    visualization: Pick<Visualization, "visualizationType" | "encoding">,
+    chartType: VisualizationType,
+  ) => boolean;
   activeSuggestionEncoding?: ChartEncoding;
   activeVisualization?: Visualization;
   visualizations: Visualization[];
@@ -364,6 +369,7 @@ function SavedEncodings({
 export function VisualizationConfigPanel({
   activeChartType,
   availableChartTypes,
+  canChangeChartType,
   activeSuggestionEncoding,
   activeVisualization,
   visualizations,
@@ -398,6 +404,7 @@ export function VisualizationConfigPanel({
     columnAnalysis,
     updateVisualization,
     onUpdateError: handleEncodingUpdateError,
+    canChangeType: canChangeChartType,
   });
   const handleEncodingChange = (
     field: "x" | "y" | "color" | "size",
