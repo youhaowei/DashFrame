@@ -101,10 +101,12 @@ export default defineConfig({
       // the overrides below) are the authoritative hook linters.
       "react-hooks/rules-of-hooks": "off",
       "react-hooks/exhaustive-deps": "off",
-      // The native port of the React Compiler diagnostic for TanStack Virtual in
-      // VirtualTable.tsx. The react-hooks-js `incompatible-library` warning on
-      // the same line is the one kept visible on purpose (see the policy note
-      // above); this copy would only fail the gate for the same reminder.
+      // Same reason: the native port of the React Compiler `incompatible-library`
+      // diagnostic (new to `correctness` in oxlint 1.79) fires wherever the
+      // react-hooks-js copy does, on every TanStack call site. That copy is the
+      // authoritative one and is kept visible as a warning on purpose (see the
+      // policy note above), so this duplicate would only fail the gate for the
+      // same reminder.
       "react/incompatible-library": "off",
       // Flags a value import next to an `import type` from the same module,
       // which verbatimModuleSyntax requires. `import/no-duplicates` below
