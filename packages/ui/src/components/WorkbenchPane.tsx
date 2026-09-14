@@ -244,7 +244,7 @@ export function WorkbenchChip({
             {title}
           </span>
           {description && (
-            <span className="block truncate text-[11px] leading-4 text-neutral-fg-subtle group-hover:text-neutral-fg-muted group-focus-within:text-neutral-fg-muted group-data-[open]:text-neutral-fg-muted">
+            <span className="block truncate text-[11px] leading-4 text-neutral-fg-subtle group-hover:text-neutral-fg group-focus-within:text-neutral-fg group-data-[open]:text-neutral-fg">
               {description}
             </span>
           )}

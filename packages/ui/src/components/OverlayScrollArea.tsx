@@ -119,8 +119,18 @@ export function OverlayScrollArea({
             <OverlayScrollbar
               // In "both", stop short of the horizontal bar so the two tracks
               // don't overlap in the corner.
-              className={cn("my-1 mr-0.5", horizontal && "mb-2.5")}
-              style={topInset ? { marginTop: topInset + 4 } : undefined}
+              className={cn(
+                "my-1 mr-0.5",
+                horizontal && "mb-2.5",
+                topInset && "mt-(--overlay-scrollbar-top-inset)",
+              )}
+              style={
+                topInset
+                  ? ({
+                      "--overlay-scrollbar-top-inset": `${topInset + 4}px`,
+                    } as CSSProperties)
+                  : undefined
+              }
             />
           )}
           <div

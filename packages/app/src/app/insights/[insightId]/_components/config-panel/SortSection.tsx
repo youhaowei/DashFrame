@@ -107,7 +107,7 @@ function ViewerLimitFields({
           />
         </div>
       </div>
-      {error && <p className="text-[11px] text-danger-fg">{error}</p>}
+      {error && <p className="text-[11px] text-palette-danger">{error}</p>}
     </div>
   );
 }
