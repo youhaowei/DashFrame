@@ -69,6 +69,8 @@ interface InsightConfigPanelProps {
   dataTable: DataTable;
   allDataTables: DataTable[];
   reportId?: string;
+  /** Labels for result columns, keyed by column alias. */
+  columnDisplayNames?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -154,6 +156,7 @@ export function InsightConfigPanel({
   dataTable,
   allDataTables,
   reportId,
+  columnDisplayNames,
 }: InsightConfigPanelProps) {
   const {
     openSections,
@@ -766,6 +769,7 @@ export function InsightConfigPanel({
             <MetricsSection
               metrics={visibleMetrics}
               dataTable={dataTable}
+              columnDisplayNames={columnDisplayNames}
               onReorder={handleMetricsReorder}
               onRemove={handleRemoveMetric}
               onAdd={handleAddMetric}
