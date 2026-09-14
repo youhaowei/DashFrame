@@ -89,7 +89,21 @@ test.describe("Chart Editing", () => {
       page.getByRole("button", { name: "Line", exact: true }),
     ).toHaveAttribute("aria-pressed", "true");
 
+    // The active draft view is persisted. Reloading remounts the workbench,
+    // so the tab has to be reconstructed before it can be kept while inactive.
+    await page.reload();
+    await expect(
+      page.getByRole("tab", { name: "Untitled chart", exact: true }),
+    ).toHaveAttribute("aria-selected", "true");
+    await expect(
+      page.getByRole("button", { name: "Line", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+
     await page.getByRole("tab", { name: "Data", exact: true }).click();
+    await page.reload();
+    await expect(
+      page.getByRole("tab", { name: "Data", exact: true }),
+    ).toHaveAttribute("aria-selected", "true");
     const draftTab = page.getByRole("tab", {
       name: "Untitled chart",
       exact: true,

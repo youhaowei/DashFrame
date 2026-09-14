@@ -922,7 +922,7 @@ function EphemeralChartCanvas({
 /**
  * InsightView - Unified view for insight page
  *
- * Single-page layout (no tabs) with modular sections:
+ * Single-page workbench with canvas tabs and modular sections:
  * - Data sources
  * - Data preview
  * - Configuration (fields, metrics)
@@ -994,10 +994,6 @@ export function InsightView({
   const [newChartRequestedFor, setNewChartRequestedFor] = useState<
     string | null
   >(null);
-  const [draftChart, setDraftChart] = useState<{
-    insightId: string;
-    chartType: VisualizationType;
-  } | null>(null);
 
   // Mutations — artifact writes go through commitBatch (one batch per user edit).
   const commitBatch = useMutation(api.app.commitBatch);
@@ -1083,7 +1079,14 @@ export function InsightView({
   const persistedActiveView = useInsightCanvasStore(
     (s) => s.activeViewByInsight[insightId],
   );
+  const draftChartType = useInsightCanvasStore(
+    (s) => s.draftChartTypeByInsight[insightId],
+  );
   const setPersistedActiveView = useInsightCanvasStore((s) => s.setActiveView);
+  const setDraftChartType = useInsightCanvasStore((s) => s.setDraftChartType);
+  const clearDraftChartType = useInsightCanvasStore(
+    (s) => s.clearDraftChartType,
+  );
 
   // The root table provides source-frame prerequisites; authoring uses the immediate output.
   const dataTable = useMemo(
@@ -1210,15 +1213,13 @@ export function InsightView({
     [insightId, setPersistedActiveView],
   );
 
-  const draftChartType =
-    draftChart?.insightId === insightId ? draftChart.chartType : undefined;
   const openDraftChart = useCallback(
     (chartType: VisualizationType) => {
       setNewChartRequestedFor(null);
-      setDraftChart({ insightId, chartType });
+      setDraftChartType(insightId, chartType);
       handleSetActiveView(chartView(chartType));
     },
-    [handleSetActiveView, insightId],
+    [handleSetActiveView, insightId, setDraftChartType],
   );
 
   const handleSelectVisualization = useCallback(
@@ -1647,13 +1648,18 @@ export function InsightView({
     if (!activeChartSuggestion) return;
     try {
       await pinChartSuggestion(activeChartSuggestion);
-      setDraftChart(null);
+      clearDraftChartType(insightId);
       toast.success("Chart saved");
     } catch (error) {
       console.error("[InsightView] Save failed:", error);
       toast.error("Couldn't save the chart");
     }
-  }, [activeChartSuggestion, pinChartSuggestion]);
+  }, [
+    activeChartSuggestion,
+    clearDraftChartType,
+    insightId,
+    pinChartSuggestion,
+  ]);
 
   const ensureActiveVisualization =
     useCallback(async (): Promise<UUID | null> => {
@@ -1661,11 +1667,17 @@ export function InsightView({
         return activeView.visualizationId;
       if (activeView.kind === "chart" && activeChartSuggestion) {
         const visualizationId = await pinChartSuggestion(activeChartSuggestion);
-        if (visualizationId) setDraftChart(null);
+        if (visualizationId) clearDraftChartType(insightId);
         return visualizationId;
       }
       return null;
-    }, [activeChartSuggestion, activeView, pinChartSuggestion]);
+    }, [
+      activeChartSuggestion,
+      activeView,
+      clearDraftChartType,
+      insightId,
+      pinChartSuggestion,
+    ]);
 
   const addToReportTarget = resolveAddToReportTarget({
     reportId,

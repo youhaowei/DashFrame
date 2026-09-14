@@ -9,7 +9,10 @@ export type InsightCanvasView =
 
 interface InsightCanvasState {
   activeViewByInsight: Record<string, InsightCanvasView>;
+  draftChartTypeByInsight: Record<string, VisualizationType>;
   setActiveView: (insightId: string, view: InsightCanvasView) => void;
+  setDraftChartType: (insightId: string, chartType: VisualizationType) => void;
+  clearDraftChartType: (insightId: string) => void;
   clearActiveView: (insightId: string) => void;
 }
 
@@ -68,10 +71,44 @@ export function sanitizeInsightCanvasView(
   return view ?? TABLE_CANVAS_VIEW;
 }
 
+function mergePersistedInsightCanvasState(
+  persistedState: unknown,
+  currentState: InsightCanvasState,
+): InsightCanvasState {
+  const persisted =
+    typeof persistedState === "object" && persistedState !== null
+      ? (persistedState as Partial<InsightCanvasState>)
+      : {};
+  const activeViewByInsight = persisted.activeViewByInsight ?? {};
+  const draftChartTypeByInsight = {
+    ...persisted.draftChartTypeByInsight,
+  };
+
+  // Before drafts had their own persisted map, an active chart view was the
+  // only record of an unsaved draft. Preserve those drafts while hydrating the
+  // legacy shape, before selecting Data can replace the active view.
+  for (const [insightId, view] of Object.entries(activeViewByInsight)) {
+    if (
+      view.kind === "chart" &&
+      draftChartTypeByInsight[insightId] === undefined
+    ) {
+      draftChartTypeByInsight[insightId] = view.chartType;
+    }
+  }
+
+  return {
+    ...currentState,
+    ...persisted,
+    activeViewByInsight,
+    draftChartTypeByInsight,
+  };
+}
+
 export const useInsightCanvasStore = create<InsightCanvasState>()(
   persist(
     (set) => ({
       activeViewByInsight: {},
+      draftChartTypeByInsight: {},
       setActiveView: (insightId, view) =>
         set((state) => ({
           activeViewByInsight: {
@@ -79,17 +116,36 @@ export const useInsightCanvasStore = create<InsightCanvasState>()(
             [insightId]: view,
           },
         })),
+      setDraftChartType: (insightId, chartType) =>
+        set((state) => ({
+          draftChartTypeByInsight: {
+            ...state.draftChartTypeByInsight,
+            [insightId]: chartType,
+          },
+        })),
+      clearDraftChartType: (insightId) =>
+        set((state) => {
+          const next = { ...state.draftChartTypeByInsight };
+          delete next[insightId];
+          return { draftChartTypeByInsight: next };
+        }),
       clearActiveView: (insightId) =>
         set((state) => {
-          const next = { ...state.activeViewByInsight };
-          delete next[insightId];
-          return { activeViewByInsight: next };
+          const activeViews = { ...state.activeViewByInsight };
+          const draftChartTypes = { ...state.draftChartTypeByInsight };
+          delete activeViews[insightId];
+          delete draftChartTypes[insightId];
+          return {
+            activeViewByInsight: activeViews,
+            draftChartTypeByInsight: draftChartTypes,
+          };
         }),
     }),
     {
       name: "dashframe:insight-canvas",
       storage: createJSONStorage(() => safeLocalStorage),
       skipHydration: true,
+      merge: mergePersistedInsightCanvasState,
     },
   ),
 );
