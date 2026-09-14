@@ -25,7 +25,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@wystack/ui-react";
-import { fieldIdToColumnAlias } from "@dashframe/engine";
+import {
+  fieldIdToColumnAlias,
+  isGeneratedColumnLabel,
+} from "@dashframe/engine";
 import { Sigma } from "lucide-react";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { metricColumnNameForSave } from "./metric-formula";
@@ -45,29 +48,40 @@ const AGGREGATIONS: Array<{ value: AggregationType; label: string }> = [
 ];
 
 type MetricField = { id: string; columnName?: string; name: string };
+type ColumnDisplayNames = Readonly<Record<string, string>>;
 
 // A metric's columnName is either the field's own column or, for metrics
-// pinned from a chart suggestion, the internal field_<uuid> alias — which must
-// never reach the screen. Match both, as VisualizationConfigPanel does.
-function findMetricField(
-  fields: readonly MetricField[],
+// pinned from a chart suggestion, the internal field_<uuid>[_jN] alias — which
+// must never reach the screen. Base fields match by either form, as
+// VisualizationConfigPanel does. Anything else (a joined field, or one joined
+// more than once) is named by the suggestion model's column display names,
+// which resolve join instances the same way the SQL that assigned them does.
+export function metricFieldLabel(
   columnName: string | undefined,
-): MetricField | undefined {
+  fields: readonly MetricField[],
+  columnDisplayNames: ColumnDisplayNames,
+): string | undefined {
   if (!columnName) return undefined;
-  return fields.find(
-    (field) =>
-      field.columnName === columnName ||
-      fieldIdToColumnAlias(field.id) === columnName,
+  const field = fields.find(
+    (candidate) =>
+      candidate.columnName === columnName ||
+      fieldIdToColumnAlias(candidate.id) === columnName,
   );
+  if (field) return field.name;
+  const label = columnDisplayNames[columnName];
+  return label && !isGeneratedColumnLabel(label) ? label : undefined;
 }
 
 function metricDescription(
   metric: InsightMetric,
   fields: readonly MetricField[],
+  columnDisplayNames: ColumnDisplayNames,
 ): string {
   if (metric.aggregation === "count" && !metric.columnName) return "count";
   const fieldName =
-    findMetricField(fields, metric.columnName)?.name ?? metric.columnName ?? "";
+    metricFieldLabel(metric.columnName, fields, columnDisplayNames) ??
+    metric.columnName ??
+    "";
   return `${metric.aggregation} · ${fieldName}`;
 }
 
@@ -95,12 +109,15 @@ function autoMetricName(
 function MetricEditor({
   metric,
   dataTable,
+  columnDisplayNames = {},
   dragHandle,
   onSave,
   onRemove,
 }: {
   metric?: InsightMetric;
   dataTable: DataTable;
+  /** Result column labels, used only to name a metric's column. */
+  columnDisplayNames?: ColumnDisplayNames;
   dragHandle?: ReactNode;
   onSave: (metric: InsightMetric) => Promise<void> | void;
   onRemove?: () => void;
@@ -183,7 +200,7 @@ function MetricEditor({
             >
               <span className="block truncate font-medium">{metric.name}</span>
               <span className="block truncate text-[11px] leading-4 text-neutral-fg-subtle">
-                {metricDescription(metric, fields)}
+                {metricDescription(metric, fields, columnDisplayNames)}
               </span>
             </button>
           }
@@ -251,7 +268,8 @@ function MetricEditor({
             <SelectTrigger aria-label="Column" className="min-w-0 flex-1">
               <SelectValue placeholder={needsField ? "Column" : "All rows"}>
                 {columnName
-                  ? (findMetricField(fields, columnName)?.name ?? columnName)
+                  ? (metricFieldLabel(columnName, fields, columnDisplayNames) ??
+                    columnName)
                   : undefined}
               </SelectValue>
             </SelectTrigger>
@@ -307,6 +325,7 @@ function MetricEditor({
 export function MetricsSection({
   metrics,
   dataTable,
+  columnDisplayNames = {},
   onReorder,
   onRemove,
   onAdd,
@@ -314,6 +333,7 @@ export function MetricsSection({
 }: {
   metrics: InsightMetric[];
   dataTable: DataTable;
+  columnDisplayNames?: ColumnDisplayNames;
   onReorder: (metrics: InsightMetric[]) => void;
   onRemove: (metricId: string) => void;
   onAdd: (metric: InsightMetric) => Promise<void> | void;
@@ -339,6 +359,7 @@ export function MetricsSection({
             <MetricEditor
               metric={item.metric}
               dataTable={dataTable}
+              columnDisplayNames={columnDisplayNames}
               dragHandle={dragHandle}
               onSave={onEdit}
               onRemove={() => onRemove(item.id)}
@@ -346,7 +367,11 @@ export function MetricsSection({
           )}
         />
       )}
-      <MetricEditor dataTable={dataTable} onSave={onAdd} />
+      <MetricEditor
+        dataTable={dataTable}
+        columnDisplayNames={columnDisplayNames}
+        onSave={onAdd}
+      />
     </div>
   );
 }

@@ -111,6 +111,12 @@ export function filterFieldDisplayName(
   return findField(fields, value)?.displayName ?? value;
 }
 
+// Names the editor popover, which is a dialog: without it a screen reader
+// announces only "dialog" before a run of selects and inputs.
+function filterDialogLabel(editing: boolean) {
+  return editing ? "Edit filter" : "Add filter";
+}
+
 function filterEditLabel(displayName: string, viewersCanChange: boolean) {
   return `Edit filter ${displayName}${
     viewersCanChange ? ", viewers can change" : ""
@@ -350,7 +356,11 @@ function FilterEditor({
       }}
     >
       {trigger}
-      <PopoverContent align="start" className="w-80 space-y-3">
+      <PopoverContent
+        aria-label={filterDialogLabel(Boolean(filter))}
+        align="start"
+        className="w-80 space-y-3"
+      >
         {error && (
           <Alert color="danger">
             <AlertDescription>{error}</AlertDescription>

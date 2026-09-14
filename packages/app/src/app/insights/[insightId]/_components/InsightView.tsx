@@ -1700,7 +1700,9 @@ export function InsightView({
           inert={!insightPaneOpen}
           aria-hidden={!insightPaneOpen}
           className={cn(
-            "h-full shrink-0 overflow-hidden transition-[width] duration-200",
+            // Shrinkable, so on a narrow window the panes give way before the
+            // canvas does: its header holds the only controls that collapse them.
+            "h-full min-w-0 overflow-hidden transition-[width] duration-200",
             insightPaneOpen ? "w-64" : "w-0",
           )}
         >
@@ -1710,11 +1712,12 @@ export function InsightView({
               dataTable={authoringTable}
               allDataTables={allDataTables}
               reportId={reportId}
+              columnDisplayNames={chartSuggestionColumnDisplayNames}
             />
           </div>
         </aside>
 
-        <section className="flex min-w-0 flex-1 flex-col gap-2 overflow-hidden px-1.5 py-2">
+        <section className="flex min-w-[min(18rem,100%)] flex-1 flex-col gap-2 overflow-hidden px-1.5 py-2">
           {/* Collapses by the header's own width: view labels below 48rem,
               breadcrumb below 42rem, action labels below 36rem. Under ~23rem
               (both panes open on a small window) it scrolls rather than clip. */}
@@ -1862,7 +1865,7 @@ export function InsightView({
           inert={!visualizationPane.attached}
           aria-hidden={!visualizationPane.attached}
           className={cn(
-            "h-full min-w-0 shrink-0 overflow-hidden transition-[width] duration-200",
+            "h-full min-w-0 overflow-hidden transition-[width] duration-200",
             visualizationPane.attached ? "w-60" : "w-0",
           )}
         >
