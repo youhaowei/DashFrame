@@ -3,8 +3,7 @@ import path from "node:path";
 import { defineConfig } from "vite-plus";
 
 export default defineConfig({
-  // Cast to any due to Vite version mismatch between @vitejs/plugin-react and the test runner
-  // oxlint-disable-next-line typescript/no-explicit-any
+  // oxlint-disable-next-line typescript/no-explicit-any -- Vite version mismatch between @vitejs/plugin-react and the test runner
   plugins: [react() as any],
   test: {
     environment: "jsdom",

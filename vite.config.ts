@@ -428,6 +428,9 @@ export default defineConfig({
         },
       ],
       "dashframe/credential-class-literals": "error",
+      // A disable directive is a bypass; every one names its rule(s) and says
+      // why, so the bypass can be reviewed instead of trusted.
+      "dashframe/require-disable-reason": "error",
       "no-restricted-imports": [
         "error",
         {

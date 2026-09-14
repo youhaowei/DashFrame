@@ -1,4 +1,4 @@
-/* oxlint-disable sonarjs/cognitive-complexity */
+/* oxlint-disable sonarjs/cognitive-complexity -- the suggestion heuristics are one ranked decision table; splitting it would hide the ranking order */
 import {
   applyDateTransformToSql,
   extractColumnAliasComponents,

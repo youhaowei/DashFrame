@@ -103,9 +103,7 @@ export function AddConnectionPanel({
     return catalog
       .map((entry) => getConnectorById(entry.id))
       .filter((c): c is AnyConnector => c !== undefined);
-    // registryVersion isn't read in the body above — it's a trigger-only
-    // dependency so this recomputes once the registry hydrates after mount.
-    // oxlint-disable-next-line react-hooks-js/exhaustive-deps
+    // oxlint-disable-next-line react-hooks-js/exhaustive-deps -- registryVersion is a trigger-only dependency: not read above, but it recomputes once the registry hydrates after mount
   }, [catalog, registryVersion]);
 
   // The connector the reader picked, if it is still in the catalog. A stale id

@@ -112,7 +112,6 @@ function generateChangesetName() {
 function getStagedDiff() {
   try {
     // First check if there are staged changes
-    // oxlint-disable-next-line sonarjs/no-os-command-from-path
     const stagedFiles = execSync("git diff --cached --name-only", {
       encoding: "utf-8",
       cwd: rootDir,
@@ -120,7 +119,6 @@ function getStagedDiff() {
 
     if (!stagedFiles) {
       // Fall back to unstaged changes
-      // oxlint-disable-next-line sonarjs/no-os-command-from-path
       const unstagedFiles = execSync("git diff --name-only", {
         encoding: "utf-8",
         cwd: rootDir,
@@ -134,7 +132,6 @@ function getStagedDiff() {
 
       console.log("ℹ️  No staged changes found, using unstaged changes");
       return {
-        // oxlint-disable-next-line sonarjs/no-os-command-from-path
         diff: execSync("git diff", { encoding: "utf-8", cwd: rootDir }),
         files: unstagedFiles.split("\n"),
         isStaged: false,
@@ -142,7 +139,6 @@ function getStagedDiff() {
     }
 
     return {
-      // oxlint-disable-next-line sonarjs/no-os-command-from-path
       diff: execSync("git diff --cached", { encoding: "utf-8", cwd: rootDir }),
       files: stagedFiles.split("\n"),
       isStaged: true,

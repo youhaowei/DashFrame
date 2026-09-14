@@ -308,7 +308,7 @@ export const ManyItems: Story = {
         label: `Data Source ${i + 1}`,
         active: i === 0,
         badge: i % 2 === 0 ? "PostgreSQL" : "MySQL",
-        // oxlint-disable-next-line sonarjs/pseudo-random
+        // oxlint-disable-next-line sonarjs/pseudo-random -- story fixture data, nothing security-sensitive
         metadata: `${Math.floor(Math.random() * 50) + 1} tables`,
         icon: DatabaseIcon,
       })),
