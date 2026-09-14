@@ -17,7 +17,7 @@ function renderBootstrapError(error: unknown) {
   if (!container) return;
 
   createRoot(container).render(
-    <div role="alert" className="p-6 text-sm text-red-700">
+    <div role="alert" className="p-6 text-sm text-palette-danger">
       DashFrame failed to start. Check the local server connection and reload.
     </div>,
   );
