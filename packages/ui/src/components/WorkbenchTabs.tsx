@@ -50,6 +50,7 @@ export interface WorkbenchTabsProps {
 
 // Slack the overflow test so a sub-pixel layout never flickers the control.
 const OVERFLOW_SLACK = 8;
+const FINDER_GAP_PX = 4;
 
 const ARROW_KEYS = ["ArrowRight", "ArrowLeft", "Home", "End"];
 
@@ -150,6 +151,7 @@ export function WorkbenchTabs({
 }: WorkbenchTabsProps) {
   const stripRef = useRef<HTMLDivElement | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  const finderRef = useRef<HTMLDivElement | null>(null);
   const [overflowing, setOverflowing] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
   const [focusedId, setFocusedId] = useState<string | null>(null);
@@ -163,9 +165,19 @@ export function WorkbenchTabs({
   const measure = useCallback(() => {
     const viewport = viewportRef.current;
     if (!viewport) return;
-    setOverflowing(
-      viewport.scrollWidth - viewport.clientWidth > OVERFLOW_SLACK,
-    );
+    setOverflowing((finderVisible) => {
+      // Once shown, the finder takes width away from the viewport. Add that
+      // width back when asking whether the tabs would fit without it, or the
+      // finder can keep itself visible after a chart is deleted or the window
+      // widens just enough for the tabs alone.
+      const finderFootprint = finderVisible
+        ? (finderRef.current?.offsetWidth ?? 0) + FINDER_GAP_PX
+        : 0;
+      return (
+        viewport.scrollWidth - (viewport.clientWidth + finderFootprint) >
+        OVERFLOW_SLACK
+      );
+    });
   }, []);
 
   // A ResizeObserver catches the pane narrowing, and nothing else: the track is
@@ -296,54 +308,56 @@ export function WorkbenchTabs({
         ))}
       </div>
       {overflowing && (
-        <Popover open={findOpen} onOpenChange={setFindOpen}>
-          <PopoverTrigger
-            render={
-              <button
-                type="button"
-                aria-label={findLabel}
-                title={findLabel}
-                className={cn(
-                  "flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium",
-                  "text-neutral-fg-subtle transition-colors duration-150 motion-reduce:transition-none",
-                  "hover:bg-neutral-bg-muted/60 hover:text-neutral-fg",
-                  "focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none",
-                )}
-              >
-                <SearchIcon aria-hidden className="size-3.5" />
-                <span>{findLabel}</span>
-              </button>
-            }
-          />
-          <PopoverContent align="end" className="w-64 p-0">
-            <Command label={label}>
-              <CommandInput placeholder={`${findLabel}…`} />
-              <CommandList>
-                <CommandEmpty>{findEmptyLabel}</CommandEmpty>
-                {tabs.map((tab) => (
-                  <CommandItem
-                    key={tab.id}
-                    // Ids, not labels: two charts over the same columns get the
-                    // same name, and matching items by name would highlight
-                    // both and open whichever came first.
-                    value={tab.id}
-                    keywords={[tab.label]}
-                    onSelect={() => {
-                      setFindOpen(false);
-                      onSelect(tab.id);
-                    }}
-                  >
-                    {tab.icon && <span className="shrink-0">{tab.icon}</span>}
-                    <span className="truncate">{tab.label}</span>
-                    {tab.unsaved && (
-                      <span className="ml-auto size-1.5 shrink-0 rounded-full bg-palette-primary" />
-                    )}
-                  </CommandItem>
-                ))}
-              </CommandList>
-            </Command>
-          </PopoverContent>
-        </Popover>
+        <div ref={finderRef} className="shrink-0">
+          <Popover open={findOpen} onOpenChange={setFindOpen}>
+            <PopoverTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label={findLabel}
+                  title={findLabel}
+                  className={cn(
+                    "flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium",
+                    "text-neutral-fg-subtle transition-colors duration-150 motion-reduce:transition-none",
+                    "hover:bg-neutral-bg-muted/60 hover:text-neutral-fg",
+                    "focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none",
+                  )}
+                >
+                  <SearchIcon aria-hidden className="size-3.5" />
+                  <span>{findLabel}</span>
+                </button>
+              }
+            />
+            <PopoverContent align="end" className="w-64 p-0">
+              <Command label={label}>
+                <CommandInput placeholder={`${findLabel}…`} />
+                <CommandList>
+                  <CommandEmpty>{findEmptyLabel}</CommandEmpty>
+                  {tabs.map((tab) => (
+                    <CommandItem
+                      key={tab.id}
+                      // Ids, not labels: two charts over the same columns get the
+                      // same name, and matching items by name would highlight
+                      // both and open whichever came first.
+                      value={tab.id}
+                      keywords={[tab.label]}
+                      onSelect={() => {
+                        setFindOpen(false);
+                        onSelect(tab.id);
+                      }}
+                    >
+                      {tab.icon && <span className="shrink-0">{tab.icon}</span>}
+                      <span className="truncate">{tab.label}</span>
+                      {tab.unsaved && (
+                        <span className="ml-auto size-1.5 shrink-0 rounded-full bg-palette-primary" />
+                      )}
+                    </CommandItem>
+                  ))}
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
+        </div>
       )}
     </div>
   );

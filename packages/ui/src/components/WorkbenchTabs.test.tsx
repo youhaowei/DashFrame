@@ -72,6 +72,10 @@ beforeEach(() => {
     configurable: true,
     get: () => clientWidth,
   });
+  Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
+    configurable: true,
+    get: () => 70,
+  });
   Element.prototype.scrollIntoView = vi.fn(function (
     this: Element,
     options?: boolean | ScrollIntoViewOptions,
@@ -110,6 +114,19 @@ describe("WorkbenchTabs overflow", () => {
 
     setOverflow(200, 400);
     rerender(strip(tabsFor(["One"]), "canvas:data"));
+    expect(finder()).toBeNull();
+  });
+
+  it("does not let the finder keep itself visible", () => {
+    const tabs = tabsFor(["One", "Two", "Three"]);
+    setOverflow(410, 400);
+    const { rerender } = render(strip(tabs, "canvas:data"));
+    expect(finder()).not.toBeNull();
+
+    // Showing the 70px finder shrinks the viewport, but the 410px tab strip
+    // would fit again if that finder disappeared (340 + 70 + the 4px gap).
+    setOverflow(410, 340);
+    rerender(strip([...tabs], "canvas:data"));
     expect(finder()).toBeNull();
   });
 });
