@@ -82,6 +82,47 @@ describe("useInsightPagination", () => {
     expect(result.current.sampleRows).toEqual([{ value: 3 }]);
   });
 
+  it("replaces an invalidated in-flight materialization after retry", async () => {
+    let resolveFirst:
+      | ((value: { status: "ready"; dataFrameId: string }) => void)
+      | undefined;
+    client.mutate
+      .mockImplementationOnce(
+        () =>
+          new Promise<{ status: "ready"; dataFrameId: string }>((resolve) => {
+            resolveFirst = resolve;
+          }),
+      )
+      .mockResolvedValueOnce({
+        status: "ready",
+        dataFrameId: "frame-after-retry",
+      });
+    queryDataFrame.mockResolvedValue({
+      status: "ready",
+      schema: [],
+      rows: [{ value: 7 }],
+      totalCount: 1,
+      page: {},
+    });
+    const { result } = renderHook(() => useInsightPagination({ insight }));
+    await waitFor(() => expect(client.mutate).toHaveBeenCalledOnce());
+
+    act(() => result.current.retry());
+    await act(async () => {
+      resolveFirst?.({ status: "ready", dataFrameId: "obsolete-frame" });
+    });
+
+    await waitFor(() => expect(client.mutate).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(result.current.isReady).toBe(true));
+    expect(result.current.dataFrameId).toBe("frame-after-retry");
+    expect(result.current.sampleRows).toEqual([{ value: 7 }]);
+    expect(queryDataFrame).toHaveBeenCalledOnce();
+    expect(queryDataFrame).toHaveBeenCalledWith("frame-after-retry", {
+      offset: 0,
+      limit: 100,
+    });
+  });
+
   it("runs saved insights with declared runtime controls then queries the returned handle", async () => {
     client.mutate.mockResolvedValue({
       status: "ready",
