@@ -13,7 +13,7 @@ import { describe, expect, it } from "vite-plus/test";
  *    value-imported `RemoteApiConnector` from the `@dashframe/engine-browser`
  *    barrel. That name is runtime-neutral and defined in `@dashframe/engine`,
  *    but engine-browser has no subpath exports, so the import pulled the whole
- *    barrel — IndexedDB storage and DuckDB-WASM — into main.js. `idb-keyval` is
+ *    barrel into main.js. `idb-keyval` is
  *    externalized by the build and undeclared in @dashframe/desktop, so Electron
  *    died on load. Guarded by "pulls in no browser-only code".
  *

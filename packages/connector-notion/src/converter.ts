@@ -185,8 +185,7 @@ export function extractPropertyValue(property: PropertyValue): unknown {
 
 /**
  * Result of converting Notion data to a plain data format.
- * Includes rows, columns, and Arrow IPC buffer for client-side DataFrame creation.
- * Note: DataFrame instance creation happens on the client (requires IndexedDB).
+ * Includes rows, columns, and Arrow IPC bytes for host-side DataFrame ingest.
  */
 export interface NotionConversionResult {
   /** Raw row data */
@@ -203,8 +202,7 @@ export interface NotionConversionResult {
 
 /**
  * Convert Notion query response to plain data format.
- * Returns rows, columns, and Arrow IPC buffer for client-side DataFrame creation.
- * Note: DataFrame instance creation should happen on the client (requires IndexedDB).
+ * Returns rows, columns, and Arrow IPC bytes for host-side DataFrame ingest.
  */
 export function convertNotionToDataFrame(
   response: QueryDatabaseResponse,

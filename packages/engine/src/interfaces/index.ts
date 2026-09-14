@@ -1,10 +1,5 @@
 // DataFrame interface and types
-export type {
-  DataFrame,
-  DataFrameFactory,
-  DataFrameJSON,
-  DataFrameStorageLocation,
-} from "./dataframe";
+export type { DataFrameJSON, DataFrameStorageLocation } from "./dataframe";
 
 // Storage interface
 export type { DataFrameStorage } from "./storage";

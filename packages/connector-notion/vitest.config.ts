@@ -27,10 +27,6 @@ export default defineConfig({
   resolve: {
     alias: {
       "@dashframe/engine": path.resolve(__dirname, "../engine/src"),
-      "@dashframe/engine-browser": path.resolve(
-        __dirname,
-        "../engine-browser/src",
-      ),
     },
   },
 });

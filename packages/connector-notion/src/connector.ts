@@ -12,11 +12,7 @@
  */
 
 // Imported from the runtime-neutral engine, NOT @dashframe/engine-browser.
-// engine-browser has no subpath exports, so a value import of it pulls the
-// whole browser barrel — IndexedDB storage and DuckDB-WASM — into whatever
-// bundles this connector. That includes the Electron main process, which is
-// Node and cannot resolve them. RemoteApiConnector is defined in
-// @dashframe/engine and touches no browser API, so take it from the source.
+// RemoteApiConnector is defined in @dashframe/engine and touches no browser API.
 import {
   RemoteApiConnector,
   type ConnectorQueryResult,
@@ -117,10 +113,9 @@ export class NotionConnector extends RemoteApiConnector {
    * Resolves the API key via `this.auth` — no credential argument. Runs
    * server-side (Notion API has CORS restrictions and the credential resolves
    * server-side). Returns the raw Arrow IPC buffer (base64) + field ids +
-   * field definitions — NOT a live `DataFrame`. The renderer materializes the
-   * browser `DataFrame` from this result after it crosses the IPC boundary.
-   * This keeps `query()` free of any browser dependency (IndexedDB), so it is
-   * callable from a Node server handler.
+   * field definitions. The host persists the bytes as a file-backed DataFrame
+   * after they cross the transport boundary. Keeping `query()` free of browser
+   * dependencies makes it callable from a Node server handler.
    *
    * @param databaseId - Notion database ID to query
    * @param tableId - UUID for the resulting DataTable
@@ -152,7 +147,7 @@ export class NotionConnector extends RemoteApiConnector {
       });
 
       // Step 4: Convert to a serializable result (raw Arrow buffer + ids).
-      // No DataFrame is constructed here — the renderer materializes it.
+      // No DataFrame is constructed here — the host ingests the Arrow bytes.
       const conversionResult = convertNotionToDataFrame(response, fields);
 
       return {

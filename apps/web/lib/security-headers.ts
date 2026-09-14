@@ -7,7 +7,7 @@
  *
  * The Content Security Policy (CSP) is carefully configured to support DashFrame's
  * technical requirements while maintaining strong security:
- * - DuckDB-WASM execution (blob: workers, jsdelivr CDN, wasm-unsafe-eval)
+ * - Apache Arrow (unsafe-eval for schema codegen)
  * - PostHog analytics integration (configurable via environment variable)
  * - Vega-Lite/vgplot visualization rendering (SVG/Canvas content)
  * - Next.js inline scripts and styles (framework requirement)
@@ -139,30 +139,9 @@ export function getSecurityHeaders(
      *   Security note: Needed for Next.js framework, but limits XSS protection.
      *   Mitigated by other security layers (input sanitization, escaping).
      *
-     * - 'unsafe-eval': Required for Apache Arrow library (used by DuckDB for data serialization)
+     * - 'unsafe-eval': Required for Apache Arrow (used for local file ingest)
      *   Why needed: Apache Arrow internally uses new Function() for schema handling and
      *   code generation. Without this, file uploads fail with EvalError in production.
-     *   Security note: This does weaken XSS protection, but is required for core functionality.
-     *   Mitigated by: strict input sanitization, no user-generated script execution,
-     *   and other CSP directives that limit attack surface.
-     *
-     * - 'wasm-unsafe-eval': Required for WebAssembly instantiation (DuckDB-WASM)
-     *   Why needed: WASM compilation requires compile/instantiate APIs that CSP
-     *   blocks by default. This directive specifically allows WASM while still
-     *   blocking JavaScript eval().
-     *   Security note: More secure than 'unsafe-eval' as it only affects WASM.
-     *
-     * - blob:: Required for DuckDB worker scripts created from Blob URLs
-     *   Why needed: DuckDB-WASM uses createWorkerFromCDN() which creates Web Workers
-     *   from blob: URLs. The worker script is downloaded from CDN, converted to a Blob,
-     *   and instantiated as a worker. This pattern avoids CORS issues and allows
-     *   dynamic worker creation.
-     *   Reference: @duckdb/duckdb-wasm createWorkerFromCDN implementation
-     *
-     * - cdn.jsdelivr.net: DuckDB WASM bundles and dependencies from jsDelivr CDN
-     *   Why needed: DuckDB's WASM files (duckdb-mvp.wasm, duckdb-eh.wasm) are loaded
-     *   from jsDelivr CDN for better performance and caching. The library doesn't
-     *   bundle WASM files directly.
      *
      * - PostHog hosts: Analytics SDK loading
      *   Why needed: PostHog JavaScript SDK must be loaded from PostHog servers.
@@ -171,10 +150,7 @@ export function getSecurityHeaders(
     [
       "script-src 'self'",
       "'unsafe-inline'", // Next.js inline scripts
-      "'unsafe-eval'", // Apache Arrow library requires this (uses dynamic code generation for schema handling)
-      "'wasm-unsafe-eval'", // DuckDB WASM
-      "blob:",
-      "https://cdn.jsdelivr.net",
+      "'unsafe-eval'", // Apache Arrow schema codegen
       ...postHogHosts, // PostHog analytics hosts
     ]
       .filter(Boolean)
@@ -196,39 +172,21 @@ export function getSecurityHeaders(
      * worker-src: Controls Web Worker and Service Worker sources
      *
      * - 'self': Allow workers from same origin
-     *
-     * - blob:: Required for DuckDB workers created via Blob URLs
-     *   Why needed: DuckDB-WASM's createWorkerFromCDN() creates workers from blob: URLs.
-     *   The worker script is fetched from CDN, converted to a Blob object, then
-     *   instantiated using new Worker(URL.createObjectURL(blob)). This allows
-     *   loading workers from external CDNs without CORS issues.
      */
-    "worker-src 'self' blob:",
+    "worker-src 'self'",
 
     /**
      * connect-src: Controls fetch/XHR/WebSocket/EventSource connections
      *
      * Governs which servers the application can connect to for data exchange.
      *
-     * - 'self': Allow connections to same origin (Next.js API routes, tRPC endpoints)
-     *
-     * - blob:: Required for DuckDB worker communication
-     *   Why needed: Workers created from blob: URLs communicate with the main thread
-     *   via MessageChannel/postMessage. The worker URL itself is a blob: URL.
-     *
-     * - cdn.jsdelivr.net: DuckDB WASM module loading
-     *   Why needed: DuckDB's WASM bundles are fetched from jsDelivr CDN at runtime.
+     * - 'self': Allow connections to same origin (API, host)
      *
      * - PostHog hosts: Analytics event tracking
      *   Why needed: PostHog SDK sends analytics events to PostHog servers via fetch/XHR.
      *   Supports custom NEXT_PUBLIC_POSTHOG_HOST for self-hosted deployments.
      */
-    [
-      "connect-src 'self' blob: https://cdn.jsdelivr.net",
-      ...postHogHosts,
-      hostOrigin,
-      hostWsOrigin,
-    ]
+    ["connect-src 'self'", ...postHogHosts, hostOrigin, hostWsOrigin]
       .filter(Boolean)
       .join(" "),
 

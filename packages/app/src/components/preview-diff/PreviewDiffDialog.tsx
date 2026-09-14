@@ -3,14 +3,12 @@
  *
  * Wraps PreviewDiffRenderer in a dialog that:
  *   1. Accepts a PreviewDiff (metadata-only from the server).
- *   2. Fills compute slots lazily via usePreviewComputeFill (client-side DuckDB).
- *   3. Renders immediately with metadata; compute fills progressively per node.
+ *   2. Passes that metadata through usePreviewComputeFill.
+ *   3. Renders the metadata immediately without speculative row computation.
  *   4. Optionally shows Publish / Discard actions when callbacks are supplied.
  *
- * SPLIT-TIER: this component owns the compute-fill boundary. It takes a
- * `PreviewDiff` with `compute: undefined` on all direct nodes and hands the
- * filled diff to `PreviewDiffRenderer` as compute resolves. No server round-trip
- * for row data — all compute is local DuckDB.
+ * The compute-fill hook is intentionally a synchronous metadata passthrough:
+ * speculative row computation would reintroduce a browser DuckDB data plane.
  *
  * ACTION CALLBACKS: `onPublish` and `onDiscard` are optional. When absent the
  * dialog is read-only (preview only). When present a footer renders with
@@ -62,8 +60,8 @@ interface PreviewDiffDialogProps {
 }
 
 /**
- * Preview-open surface: shows the diff immediately with metadata; fills compute
- * (rowCounts + head rows) lazily via local DuckDB as each node resolves.
+ * Preview-open surface: shows the server-provided metadata immediately without
+ * computing speculative rows in the browser.
  */
 export function PreviewDiffDialog({
   diff,
@@ -78,10 +76,8 @@ export function PreviewDiffDialog({
   const [isDiscarding, setIsDiscarding] = useState(false);
   const isBusy = isPublishing || isDiscarding;
 
-  // Fill compute slots lazily — runs entirely client-side, no server RPC.
-  // Gate on `open`: a closed (hidden) dialog must not kick DuckDB compute work.
-  // Passing null when closed also flips the hook's effect-cleanup cancellation,
-  // freeing the single DuckDB-WASM worker.
+  // Pass metadata through only while the dialog is open. The hook performs no
+  // asynchronous work, so closing the dialog simply passes null.
   const { diff: filledDiff } = usePreviewComputeFill(open ? diff : null);
 
   const hasActions = onPublish !== undefined || onDiscard !== undefined;

@@ -832,9 +832,8 @@ export class PostgresConnector extends RemoteApiConnector {
    * connect()) or a user-supplied SELECT statement. User-supplied SQL is
    * validated by the Layer 2 allowlist before hitting the wire.
    *
-   * Returns Arrow IPC bytes (base64) + fieldIds + fields — NOT a live DataFrame.
-   * The renderer materializes the browser DataFrame from arrowBuffer after it
-   * crosses the IPC boundary.
+   * Returns Arrow IPC bytes (base64) + fieldIds + fields. The host persists the
+   * bytes as a file-backed DataFrame after they cross the transport boundary.
    *
    * Credentials are resolved via `this.auth` — no credential argument.
    */

@@ -51,7 +51,7 @@ export async function fetchNotionDatabaseSchema(
 /**
  * Main converter: Fetch data from Notion database and convert to plain data format.
  * Returns NotionConversionResult with rows, columns, Arrow buffer, and metadata.
- * Note: DataFrame instance creation should happen on the client (requires IndexedDB).
+ * The host persists the returned Arrow buffer as a file-backed DataFrame.
  */
 export async function notionToDataFrame(
   config: NotionConfig,
@@ -88,7 +88,7 @@ export async function notionToDataFrame(
 /**
  * Fetch sample data (limited rows) from Notion database.
  * Returns NotionConversionResult with rows, columns, Arrow buffer, and metadata.
- * Note: DataFrame instance creation should happen on the client (requires IndexedDB).
+ * The host persists the returned Arrow buffer as a file-backed DataFrame.
  */
 export async function notionToDataFrameSample(
   config: NotionConfig,

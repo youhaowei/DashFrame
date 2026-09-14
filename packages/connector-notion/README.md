@@ -177,7 +177,7 @@ export const notionRouter = router({
   fetchData: publicProcedure
     .input(z.object({ apiKey: z.string(), databaseId: z.string() }))
     .mutation(async ({ input }) => {
-      // Return raw data for client-side DataFrame creation
+      // Return Arrow bytes for host-side DataFrame ingest
       return notionToDataFrame({ ...input }, fields);
     }),
 });
@@ -213,5 +213,5 @@ export { mapNotionTypeToColumnType, extractPropertyValue } from "./converter";
 ## See Also
 
 - `@dashframe/engine` - Connector base classes (`RemoteApiConnector`)
-- `@dashframe/engine-browser` - DataFrame implementation
+- `@dashframe/engine-browser` - Arrow encoding for local file ingest
 - `@dashframe/connector-local` - Local file connector (CSV/JSON)

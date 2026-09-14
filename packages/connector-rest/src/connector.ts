@@ -13,8 +13,7 @@
  * - Unsupported pagination strategies are logged as declarative-ceiling gaps
  *   for the v0.4 code-plugin tier.
  * - Output: Arrow IPC bytes (base64) + fieldIds + fields — serializable over
- *   IPC. The renderer materializes a browser DataFrame from arrowBuffer after
- *   it crosses the IPC boundary.
+ *   IPC. The host persists the bytes as a file-backed DataFrame.
  */
 
 import type {
@@ -844,9 +843,8 @@ export class RestConnector extends RemoteApiConnector {
   /**
    * Fetch all pages from the REST endpoint and return a serializable result.
    *
-   * Returns Arrow IPC bytes (base64) + fieldIds + fields — NOT a live DataFrame.
-   * The renderer materializes the browser DataFrame from arrowBuffer after it
-   * crosses the IPC boundary.
+   * Returns Arrow IPC bytes (base64) + fieldIds + fields. The host persists the
+   * bytes as a file-backed DataFrame after they cross the transport boundary.
    *
    * Credentials are resolved via `this.auth` — no credential argument.
    */

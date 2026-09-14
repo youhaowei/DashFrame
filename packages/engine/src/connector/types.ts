@@ -115,11 +115,9 @@ export interface QueryOptions {
  * Serializable by design: `query()` runs server-side (remote APIs have CORS
  * restrictions and credentials must resolve server-side), so the result must
  * cross the IPC boundary as plain JSON. It carries the raw Arrow IPC buffer
- * (base64) plus field ids and field definitions — NOT a live `DataFrame`.
- * The renderer materializes a browser `DataFrame` from `arrowBuffer` +
- * `fieldIds` after receiving the result. Constructing a `DataFrame` in the
- * connector would bind `query()` to a browser environment (IndexedDB) and
- * make it uncallable from a Node server handler.
+ * (base64) plus field ids and field definitions. The host persists those bytes
+ * as an immutable file-backed DataFrame after the result crosses the transport
+ * boundary. Keeping this connector result plain makes it callable from Node.
  */
 export interface ConnectorQueryResult {
   /** Arrow IPC buffer, base64-encoded for JSON transport. */

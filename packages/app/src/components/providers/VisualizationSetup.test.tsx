@@ -43,25 +43,6 @@ vi.mock("./ChartEngineProvider", () => ({
   useChartEngine: () => mockUseChartEngine(),
 }));
 
-const { mockInitDuckDB, mockUseDuckDBContext } = vi.hoisted(() => {
-  const initDuckDB = vi.fn();
-  return {
-    mockInitDuckDB: initDuckDB,
-    mockUseDuckDBContext: vi.fn().mockReturnValue({
-      db: {},
-      connection: {},
-      isInitialized: true,
-      isLoading: false,
-      error: null,
-      initDuckDB,
-    }),
-  };
-});
-
-vi.mock("./DuckDBProvider", () => ({
-  useDuckDBContext: () => mockUseDuckDBContext(),
-}));
-
 // VisualizationProvider: stub that just renders children. The boundary test
 // makes useVisualization throw to simulate a setup-component render crash.
 const { mockUseVisualization } = vi.hoisted(() => ({
@@ -104,14 +85,6 @@ describe("VisualizationSetup — error routing (issue #96)", () => {
       connector: null,
       engineError: null,
       uploadArrowTable: null,
-    });
-    mockUseDuckDBContext.mockReturnValue({
-      db: {},
-      connection: {},
-      isInitialized: true,
-      isLoading: false,
-      error: null,
-      initDuckDB: mockInitDuckDB,
     });
     mockUseVisualization.mockReturnValue({
       error: null,
