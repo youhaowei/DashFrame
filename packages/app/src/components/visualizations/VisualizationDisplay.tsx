@@ -201,10 +201,17 @@ function VisualizationDisplayContent({
   );
 
   // Get the visualization
+  const visualizationOverride = overrides?.visualization;
   const activeViz = useMemo((): Visualization | null => {
     if (!visualizationId) return null;
-    return visualizations.find((v) => v.id === visualizationId) ?? null;
-  }, [visualizationId, visualizations]);
+    const saved = visualizations.find((v) => v.id === visualizationId);
+    if (!saved) return null;
+    // A report item's chart-config override replaces the saved chart type and
+    // encodings for this cell only.
+    return visualizationOverride
+      ? { ...saved, ...visualizationOverride }
+      : saved;
+  }, [visualizationOverride, visualizationId, visualizations]);
 
   // Get insight for the visualization
   const insight = useMemo(() => {

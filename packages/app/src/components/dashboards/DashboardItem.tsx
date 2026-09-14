@@ -2,6 +2,7 @@ import { useMutation } from "convex/react";
 import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
 import { api } from "@dashframe/convex-backend/api";
 import {
+  type DashboardControl,
   type DashboardItemOverrides,
   type DashboardItem as DashboardItemType,
   cmd,
@@ -13,6 +14,7 @@ import { Button, cn, Surface } from "@wystack/ui-react";
 import { DeleteIcon, DragHandleIcon } from "@wystack/ui-react/icons";
 import { toast } from "sonner";
 import { MarkdownWidget } from "./MarkdownWidget";
+import { OverridePopover } from "./OverridePopover";
 
 interface DashboardItemProps {
   item: DashboardItemType;
@@ -29,6 +31,11 @@ interface DashboardItemProps {
    * When absent, the item's own saved `overrides` are used as before.
    */
   effectiveOverrides?: DashboardItemOverrides;
+  /**
+   * Dashboard-level controls passed down from DashboardGrid.  Used by the
+   * OverridePopover to derive field-bound state and offer bind/unbind affordances.
+   */
+  controls?: DashboardControl[];
   className?: string;
   // Props passed by react-grid-layout
   style?: React.CSSProperties;
@@ -46,6 +53,7 @@ export function DashboardItem({
   isSelected = false,
   onSelect,
   effectiveOverrides,
+  controls = [],
   className,
   style,
   onMouseDown,
@@ -150,6 +158,25 @@ export function DashboardItem({
             onMouseDown={(e) => e.stopPropagation()}
             className="absolute inset-0 z-20 cursor-pointer rounded-[inherit] focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none focus-visible:ring-inset"
           />
+        )}
+
+        {/* Runtime overrides (filters, sort, limit) live on the chart they
+            change — editor-mode only, since they persist. Sits above the
+            select overlay so it stays reachable. */}
+        {item.type === "visualization" && isEditable && (
+          <div
+            className={cn(
+              "absolute right-2 bottom-2 z-30 transition-opacity",
+              groupHoverAndFocusWithinReveal,
+            )}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <OverridePopover
+              item={item}
+              dashboardId={dashboardId}
+              controls={controls}
+            />
+          </div>
         )}
       </Surface>
     </div>

@@ -9,6 +9,7 @@
 import type {
   DashboardControl,
   DashboardItemOverridePatch,
+  DashboardItemVisualizationOverride,
 } from "./dashboards";
 import type { Field, SourceSchema } from "./field";
 import type {
@@ -127,6 +128,7 @@ export interface DashboardItemOverridesInput {
   filters?: DashboardItemFilterOverride[];
   sorts?: { field: string; direction: "asc" | "desc" }[];
   limit?: number;
+  visualization?: DashboardItemVisualizationOverride;
 }
 
 /** A Dashboard item as supplied in AddDashboardItem / SetDashboardLayout. */

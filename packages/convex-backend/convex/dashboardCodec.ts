@@ -27,11 +27,19 @@ const insightSortSchema = z
   })
   .passthrough();
 
+const visualizationOverrideSchema = z
+  .object({
+    visualizationType: z.string().min(1),
+    encoding: z.record(z.string(), z.unknown()).optional(),
+  })
+  .passthrough();
+
 const storedDashboardItemOverridesSchema = z
   .object({
     filters: z.array(insightFilterOverrideSchema).optional(),
     sorts: z.array(insightSortSchema).optional(),
     limit: z.number().finite().positive().optional(),
+    visualization: visualizationOverrideSchema.optional(),
   })
   .passthrough();
 

@@ -3522,6 +3522,42 @@ describe("existing command behavior on native Convex", () => {
       ),
     ).rejects.toThrow();
   });
+  it("stores a chart-config override beside runtime overrides and clears it alone", async () => {
+    const { dashId, sourceItemId: itemId } = await makeDashWithVizItem();
+    const visualization = {
+      visualizationType: "barX" as const,
+      encoding: { x: "metric:m1", y: "field:f1" },
+    };
+    await commit(
+      cmd("PatchDashboardItemOverride", {
+        dashboardId: dashId,
+        itemId,
+        patch: { kind: "limit", value: 10 },
+      }),
+      cmd("PatchDashboardItemOverride", {
+        dashboardId: dashId,
+        itemId,
+        patch: { kind: "visualization", value: visualization } as never,
+      }),
+    );
+    const overridesOf = async () =>
+      (
+        (await dashboardsById(dashId))[0]!.layout as {
+          id: string;
+          overrides?: unknown;
+        }[]
+      ).find((candidate) => candidate.id === itemId)?.overrides;
+    expect(await overridesOf()).toEqual({ limit: 10, visualization });
+
+    await commit(
+      cmd("PatchDashboardItemOverride", {
+        dashboardId: dashId,
+        itemId,
+        patch: { kind: "visualization", value: null },
+      }),
+    );
+    expect(await overridesOf()).toEqual({ limit: 10 });
+  });
   it("normalizes cleared and empty override intents to no override bag", async () => {
     const { dashId, sourceItemId: itemId } = await makeDashWithVizItem();
     await commit(

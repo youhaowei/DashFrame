@@ -208,6 +208,7 @@ export function DashboardGrid({
             isSelected={item.id === selectedItemId}
             onSelect={onSelectItem}
             effectiveOverrides={effectiveOverridesMap.get(item.id)}
+            controls={dashboard.controls ?? []}
           />
         </div>
       ))}

@@ -1,5 +1,9 @@
 import type { InsightFilter, InsightSort } from "./insights";
 import type { UUID } from "./uuid";
+import type {
+  VisualizationEncoding,
+  VisualizationType,
+} from "./visualizations";
 
 // ============================================================================
 // Dashboard Types
@@ -25,6 +29,12 @@ export type DashboardItemType = "visualization" | "markdown";
  * the coalesce function in the engine is two-layer (`insight ⊕ effectiveCellOverride`)
  * so a control can write into this slot without a resolution-layer change.
  */
+/** A report item's own chart type and encodings, in place of the saved chart's. */
+export interface DashboardItemVisualizationOverride {
+  visualizationType: VisualizationType;
+  encoding?: VisualizationEncoding;
+}
+
 export interface DashboardItemOverrides {
   /**
    * Per-field filter overrides.  Each entry either pins a value (normal
@@ -36,6 +46,12 @@ export interface DashboardItemOverrides {
   sorts?: InsightSort[];
   /** Row-limit override — replaces the insight's limit when present. */
   limit?: number;
+  /**
+   * Chart-config override — replaces the saved visualization's chart type and
+   * encodings on this item only. Encodings reference the insight's existing
+   * fields and metrics, so the query's output columns are unchanged.
+   */
+  visualization?: DashboardItemVisualizationOverride;
 }
 
 /**
@@ -179,4 +195,8 @@ export type DashboardItemOverridePatch =
       value: InsightFilterOverride | null;
     }
   | { kind: "sorts"; value: InsightSort[] | null }
-  | { kind: "limit"; value: number | null };
+  | { kind: "limit"; value: number | null }
+  | {
+      kind: "visualization";
+      value: DashboardItemVisualizationOverride | null;
+    };

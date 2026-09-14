@@ -840,6 +840,9 @@ async function dashboardCommand(
         filters.push(value);
       }
       overrides.filters = filters;
+    } else if (patch.kind === "visualization") {
+      if (patch.value === null) delete overrides.visualization;
+      else overrides.visualization = record(patch.value);
     } else if (patch.kind === "sorts" || patch.kind === "limit") {
       if (patch.value === null) delete overrides[patch.kind];
       else overrides[patch.kind] = patch.value!;

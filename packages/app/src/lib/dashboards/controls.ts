@@ -150,6 +150,7 @@ export function computeItemOverrides(
   }
 
   return {
+    ...item.overrides,
     filters: effectiveFilters.length > 0 ? effectiveFilters : undefined,
     sorts: item.overrides?.sorts,
     limit: item.overrides?.limit,

@@ -2,8 +2,11 @@ import { useQuery_experimental as useQuery, useMutation } from "convex/react";
 import { queryStatus } from "@/data/query-status";
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { VisualizationPreview } from "@/components/visualizations/VisualizationPreview";
+import {
+  savedChartTypeOptions,
+  useSavedChartEncodingOptions,
+} from "@/components/visualizations/useSavedChartEncodingOptions";
 import { visualizationDetailLink } from "@/components/visualizations/visualization-navigation";
-import { getVisualizationTypeChange } from "@/components/visualizations/visualization-type-change";
 import {
   resolveInsightSourceDataTable,
   useInsightPagination,
@@ -24,7 +27,6 @@ import {
 import { useWebMCPPageStore } from "@/lib/stores/webmcp-page-store";
 import type { Insight as LocalInsight } from "@/lib/stores/types";
 import { analyzeFrameSample } from "@/lib/visualizations/analyze-frame-sample";
-import { validateEncoding } from "@/lib/visualizations/encoding-enforcer";
 import {
   suggestByChartType,
   type ChartSuggestion,
@@ -33,12 +35,10 @@ import { api } from "@dashframe/convex-backend/api";
 import {
   extractUUIDFromColumnAlias,
   fieldIdToColumnAlias,
-  isGeneratedColumnLabel,
 } from "@dashframe/engine";
 import type {
   ChartEncoding,
   ColumnAnalysis,
-  CompiledInsight,
   CommandPayloads,
   Field,
   Insight,
@@ -1067,55 +1067,18 @@ export function InsightView({
       : undefined;
   const {
     columns: encodingModelColumns,
-    columnDisplayNames: encodingModelColumnDisplayNames,
-    resolvedFields: encodingResolvedFields,
-    error: encodingModelError,
-    retry: retryEncodingModel,
-  } = useInsightPagination({
-    insight,
-    showModelPreview: true,
-    enabled: activeView.kind === "visualization",
-  });
-  const {
-    columnDisplayNames: encodingRenderedColumnDisplayNames,
-    schema: encodingSchema,
-    sampleRows: encodingRows,
-    totalCount: encodingRowCount,
+    columnDisplayNames: encodingColumnDisplayNames,
+    columnAnalysis: encodingColumnAnalysis,
+    availableFields: encodingAvailableFields,
+    compiledInsight: compiledInsightForEncodings,
     isReady: areEncodingsReady,
-    error: encodingResultError,
-    retry: retryEncodingResult,
-  } = useInsightPagination({
+    error: encodingsError,
+    retry: retryEncodings,
+  } = useSavedChartEncodingOptions({
     insight,
-    showModelPreview: false,
     enabled: activeView.kind === "visualization",
+    baseColumnDisplayNames: chartSuggestionColumnDisplayNames,
   });
-  const encodingColumnDisplayNames = useMemo(() => {
-    const displayNames = {
-      ...chartSuggestionColumnDisplayNames,
-      ...encodingModelColumnDisplayNames,
-    };
-    for (const column of encodingModelColumns) {
-      const renderedLabel = encodingRenderedColumnDisplayNames[column.name];
-      if (renderedLabel && !isGeneratedColumnLabel(renderedLabel)) {
-        displayNames[column.name] = renderedLabel;
-        continue;
-      }
-      displayNames[column.name] ??= column.name;
-    }
-    return displayNames;
-  }, [
-    chartSuggestionColumnDisplayNames,
-    encodingModelColumnDisplayNames,
-    encodingModelColumns,
-    encodingRenderedColumnDisplayNames,
-  ]);
-  const encodingColumnAnalysis = useMemo<ColumnAnalysis[]>(
-    () =>
-      areEncodingsReady
-        ? analyzeFrameSample(encodingSchema, encodingRows, encodingRowCount)
-        : [],
-    [areEncodingsReady, encodingRowCount, encodingRows, encodingSchema],
-  );
 
   // No write-back of the sanitized view into the store: right after a pin,
   // the persisted selection can reference a visualization the list hasn't
@@ -1161,26 +1124,6 @@ export function InsightView({
     return map;
   }, [authoringTable, insight.joins, allDataTables]);
 
-  const encodingAvailableFields = useMemo(() => {
-    const fields = new Map<string, Field>();
-    for (const field of encodingResolvedFields) fields.set(field.id, field);
-    return [...fields.values()];
-  }, [encodingResolvedFields]);
-  const compiledInsightForEncodings = useMemo<CompiledInsight>(() => {
-    const fieldsById = new Map(
-      encodingAvailableFields.map((field) => [field.id, field]),
-    );
-    return {
-      id: insight.id,
-      name: insight.name,
-      dimensions: insight.selectedFields
-        .map((fieldId) => fieldsById.get(fieldId))
-        .filter((field): field is Field => Boolean(field)),
-      metrics: insight.metrics ?? [],
-      filters: insight.filters,
-      sorts: insight.sorts,
-    };
-  }, [encodingAvailableFields, insight]);
   // Get existing field and metric column names from insight configuration
   // Includes fields from both base table AND joined tables
   const existingFieldNames = useMemo(() => {
@@ -1284,27 +1227,12 @@ export function InsightView({
     if (!activeVisualization) {
       return new Set(chartSuggestionsByType.keys());
     }
-    if (!areEncodingsReady) {
-      return new Set([activeVisualization.visualizationType]);
-    }
-    return new Set(
-      INSIGHT_CANVAS_CHART_TYPES.filter((chartType) => {
-        if (chartType === activeVisualization.visualizationType) return true;
-        const updates = getVisualizationTypeChange(
-          activeVisualization,
-          chartType,
-        );
-        const encoding =
-          updates?.encoding ?? activeVisualization.encoding ?? {};
-        if (!encoding.x || !encoding.y) return false;
-        const errors = validateEncoding(
-          encoding,
-          chartType,
-          encodingColumnAnalysis,
-          compiledInsightForEncodings,
-        );
-        return !errors.x && !errors.y;
-      }),
+    return savedChartTypeOptions(
+      activeVisualization,
+      INSIGHT_CANVAS_CHART_TYPES,
+      areEncodingsReady,
+      encodingColumnAnalysis,
+      compiledInsightForEncodings,
     );
   }, [
     activeVisualization,
@@ -1921,13 +1849,8 @@ export function InsightView({
               }))}
               columnDisplayNames={encodingColumnDisplayNames}
               columnAnalysis={encodingColumnAnalysis}
-              encodingsError={Boolean(
-                encodingModelError || encodingResultError,
-              )}
-              onRetryEncodings={() => {
-                retryEncodingModel();
-                retryEncodingResult();
-              }}
+              encodingsError={encodingsError}
+              onRetryEncodings={retryEncodings}
               onSelectChartType={(chartType) =>
                 handleSetActiveView(chartView(chartType))
               }

@@ -386,7 +386,7 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
         "{ visualizationId?, content?, x?, y?, width?, height? } (id, type, and overrides are not editable here)",
     },
     notes:
-      "Rejects a missing itemId. Use PatchDashboardItemOverride for filter, sort, or limit changes.",
+      "Rejects a missing itemId. Use PatchDashboardItemOverride for filter, sort, limit, or chart-config changes.",
   },
   {
     name: "SetDashboardLayout",
@@ -406,12 +406,12 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
     name: "PatchDashboardItemOverride",
     group: "dashboard",
     summary:
-      "Apply one filter, sort, or limit override intent to a dashboard item.",
+      "Apply one filter, sort, limit, or chart-config override intent to a dashboard item.",
     args: {
       dashboardId: "UUID",
       itemId: "UUID",
       patch:
-        "{ kind:'filter', field, value } | { kind:'sorts', value } | { kind:'limit', value }",
+        "{ kind:'filter', field, value } | { kind:'sorts', value } | { kind:'limit', value } | { kind:'visualization', value: { visualizationType, encoding? } }",
     },
     notes:
       "Null clears the selected override without replacing sibling overrides.",
