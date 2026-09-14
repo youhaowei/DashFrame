@@ -550,9 +550,8 @@ export function VirtualTable({
       >
         {/* Header */}
         <div
-          className="sticky top-0 z-10 border-b border-neutral-border bg-neutral-bg-muted"
+          className="sticky top-0 z-10 grid border-b border-neutral-border bg-neutral-bg-muted"
           style={{
-            display: "grid",
             gridTemplateColumns,
             minWidth: "max-content",
           }}
@@ -616,11 +615,10 @@ export function VirtualTable({
               return (
                 <div
                   key={virtualRow.index}
-                  className="absolute border-b border-neutral-border"
+                  className="absolute grid border-b border-neutral-border"
                   style={{
                     height: `${virtualRow.size}px`,
                     transform: `translateY(${virtualRow.start}px)`,
-                    display: "grid",
                     gridTemplateColumns,
                     width: "100%",
                     minWidth: "fit-content",
@@ -646,11 +644,10 @@ export function VirtualTable({
             return (
               <div
                 key={virtualRow.index}
-                className="group absolute border-b border-neutral-border"
+                className="group absolute grid border-b border-neutral-border"
                 style={{
                   height: `${virtualRow.size}px`,
                   transform: `translateY(${virtualRow.start}px)`,
-                  display: "grid",
                   gridTemplateColumns,
                   width: "100%",
                   minWidth: "fit-content",

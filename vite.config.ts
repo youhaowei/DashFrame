@@ -58,6 +58,7 @@ export default defineConfig({
         name: "react-hooks-js",
         specifier: "eslint-plugin-react-hooks",
       },
+      "@shadcn/lint",
     ],
     // Lint policy (see docs/audits/lint-guardrails-evaluation-2026-09-07.md):
     // oxlint's `correctness` category is on for every enabled plugin, and the
@@ -78,6 +79,11 @@ export default defineConfig({
       react: {
         version: "999.999.999",
       },
+      // Component recognition for @shadcn/lint: the stdui design system and
+      // the local extensions package.
+      shadcn: {
+        componentImports: ["^@wystack/ui-react(/|$)", "^@dashframe/ui(/|$)"],
+      },
     },
     ignorePatterns: [
       "node_modules/**",
@@ -92,6 +98,55 @@ export default defineConfig({
       "libs/**",
     ],
     rules: {
+      // --- Design-system guardrails (@shadcn/lint, measured 2026-09-14) ------
+      // See docs/audits/shadcn-lint-evaluation-2026-09-14.md for the counts
+      // behind each decision. The plugin discovers the stdui theme through
+      // packages/ui/components.json, so token classes are known to it.
+      // A class that is not a declared theme colour generates no CSS; every
+      // finding on main was a misspelled token.
+      "shadcn/no-raw-colors": "error",
+      // Non-Tailwind selectors owned by other systems: react-grid-layout's
+      // drag handle and Electron's titlebar drag region.
+      "shadcn/no-unknown-classes": [
+        "error",
+        { allow: ["grid-drag-handle", "titlebar-drag-region"] },
+      ],
+      // Geometry that is computed at runtime (virtualizer rows, chart
+      // dimensions, drag transforms, prop-driven gaps) stays inline; every
+      // other property belongs in a class.
+      "shadcn/no-inline-styles": [
+        "error",
+        {
+          allow: [
+            "width",
+            "height",
+            "min-width",
+            "min-height",
+            "max-width",
+            "max-height",
+            "transform",
+            "transition",
+            "top",
+            "left",
+            "gap",
+            "flex-basis",
+            "grid-template-columns",
+          ],
+        },
+      ],
+      // 67 findings with `var(--token)` values allowed; 33 are `text-[10px]`
+      // and `text-[11px]` for dense table text, which is a missing stdui type
+      // token rather than 33 local fixes. Revisit once stdui ships it.
+      "shadcn/no-arbitrary-values": "off",
+      // 329 findings with only `layout` allowed, 44 with spacing, typography
+      // and colour allowed too. The clusters (`text-xs` on select items,
+      // `text-neutral-fg-subtle` on labels, `text-palette-danger` on buttons)
+      // are stdui variants that do not exist yet; adopt after they land.
+      "shadcn/no-restyle": "off",
+      // All four findings are patterns the rule cannot express: class
+      // constants imported from another module and a forwarded prop that is
+      // not named `className`. Not worth four suppressions.
+      "shadcn/require-static-classes": "off",
       // --- Native rules disabled on purpose ---------------------------------
       // The classic-runtime rule; every renderer here uses the automatic JSX
       // runtime, so `React` need not be in scope.

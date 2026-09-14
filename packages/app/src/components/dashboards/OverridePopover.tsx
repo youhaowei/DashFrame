@@ -96,7 +96,7 @@ function SortOverrideRow({
         <div className="flex flex-1 flex-col gap-0.5">
           <span className="text-xs font-medium text-neutral-fg">Sort</span>
           {!isPinned && current && (
-            <span className="text-xs text-neutral-fg-disabled">
+            <span className="text-xs text-neutral-fg-subtle">
               default: {current.field} {current.direction}
             </span>
           )}
@@ -214,7 +214,7 @@ function LimitOverrideRow({
         <div className="flex flex-1 flex-col gap-0.5">
           <span className="text-xs font-medium text-neutral-fg">Limit</span>
           {!isPinned && insightLimit !== undefined && (
-            <span className="text-xs text-neutral-fg-disabled">
+            <span className="text-xs text-neutral-fg-subtle">
               default: {insightLimit} rows
             </span>
           )}

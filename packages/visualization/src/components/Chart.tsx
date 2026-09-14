@@ -342,8 +342,8 @@ export function Chart({
         className,
       )}
       style={{
-        ...(width !== "container" && { width }),
-        ...(height !== "container" && { height }),
+        width: width === "container" ? undefined : width,
+        height: height === "container" ? undefined : height,
       }}
     >
       <Spinner size="lg" className="text-muted-foreground" />
@@ -364,9 +364,9 @@ export function Chart({
     // Renderers are registered but this type isn't supported - show fallback
     return (
       fallback ?? (
-        <div className={className} style={{ padding: 16, textAlign: "center" }}>
+        <div className={cn("p-4 text-center", className)}>
           <p>No renderer for: {visualizationType}</p>
-          <p style={{ fontSize: "0.875rem", opacity: 0.7 }}>
+          <p className="text-sm opacity-70">
             Register a renderer with registerRenderer()
           </p>
         </div>
@@ -386,13 +386,14 @@ export function Chart({
     <div
       ref={containerRef}
       data-testid="visualization-chart"
-      className={className}
+      className={cn(
+        "min-h-0 overflow-hidden",
+        preview && "pointer-events-none",
+        className,
+      )}
       style={{
         width: width === "container" ? "100%" : width,
         height: height === "container" ? "100%" : height,
-        minHeight: 0,
-        overflow: "hidden",
-        pointerEvents: preview ? "none" : "auto",
       }}
     />
   );

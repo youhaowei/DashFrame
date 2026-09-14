@@ -320,7 +320,7 @@ export function OverrideFieldRow({
 
           {/* State-specific value/info line */}
           {state.type === "inherit" && state.insightFilter && (
-            <span className="truncate text-xs text-neutral-fg-disabled">
+            <span className="truncate text-xs text-neutral-fg-subtle">
               default: {formatOperator(state.insightFilter.operator)}{" "}
               {formatFilterValue(state.insightFilter)}
             </span>
@@ -336,12 +336,12 @@ export function OverrideFieldRow({
             </button>
           )}
           {state.type === "cleared" && (
-            <span className="text-xs text-neutral-fg-disabled">
+            <span className="text-xs text-neutral-fg-subtle">
               showing all (cleared)
             </span>
           )}
           {state.type === "bound" && (
-            <span className="text-xs text-neutral-fg-disabled">
+            <span className="text-xs text-neutral-fg-subtle">
               ← {state.control.label ?? state.control.field}
               {state.dormantFilter && (
                 <span className="ml-1 opacity-60">
