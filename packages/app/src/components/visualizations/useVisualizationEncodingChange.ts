@@ -93,7 +93,19 @@ export function useVisualizationEncodingChange({
     encoding: VisualizationEncoding | undefined;
   } | null>(null);
   const inFlightWritesRef = useRef(0);
+  // The latest write that succeeded but may not have rendered yet. A newer
+  // write that fails falls back to this rather than the prop, which can still
+  // lack the successful change.
+  const succeededVisualizationRef = useRef<{
+    sequence: number;
+    state: NonNullable<typeof pendingVisualizationRef.current>;
+  } | null>(null);
+  const writeSequenceRef = useRef(0);
   useEffect(() => {
+    // Convex resolves a mutation only once subscriptions reflect it, so any
+    // prop rendered after a success already contains it — and may carry newer
+    // changes the stored snapshot would overwrite.
+    succeededVisualizationRef.current = null;
     if (inFlightWritesRef.current === 0) {
       pendingVisualizationRef.current = null;
     }
@@ -117,11 +129,20 @@ export function useVisualizationEncodingChange({
     ) => {
       pendingVisualizationRef.current = next;
       inFlightWritesRef.current += 1;
+      const sequence = ++writeSequenceRef.current;
       try {
         await updateVisualization({ id: next.id, updates });
+        const succeeded = succeededVisualizationRef.current;
+        if (!succeeded || succeeded.sequence < sequence) {
+          succeededVisualizationRef.current = { sequence, state: next };
+        }
       } catch (error) {
+        // Only the newest write owns the pending state; an older failure is
+        // already folded into the writes built on top of it.
         if (pendingVisualizationRef.current === next) {
-          pendingVisualizationRef.current = null;
+          const succeeded = succeededVisualizationRef.current;
+          pendingVisualizationRef.current =
+            succeeded?.state.id === next.id ? succeeded.state : null;
         }
         throw error;
       } finally {
