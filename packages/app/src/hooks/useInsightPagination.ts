@@ -268,10 +268,12 @@ export function useInsightPagination({
   const activeMaterialization = useRef<{
     requestIdentity: string;
     sourceRevision: string;
+    retryGeneration: number;
   } | null>(null);
   const pendingMaterialization = useRef<{
     requestIdentity: string;
     sourceRevision: string;
+    retryGeneration: number;
   } | null>(null);
   const completedPublication = useRef<{
     requestIdentity: string;
@@ -324,6 +326,7 @@ export function useInsightPagination({
       pendingMaterialization.current = {
         requestIdentity,
         sourceRevision,
+        retryGeneration: sourceRetry,
       };
       return;
     }
@@ -369,7 +372,11 @@ export function useInsightPagination({
       });
       return;
     }
-    const activeRequest = { requestIdentity, sourceRevision };
+    const activeRequest = {
+      requestIdentity,
+      sourceRevision,
+      retryGeneration: sourceRetry,
+    };
     validResult.current = null;
     activeMaterialization.current = activeRequest;
     pendingMaterialization.current = null;
@@ -522,7 +529,8 @@ export function useInsightPagination({
         );
         const pendingRequiresRetry = Boolean(
           pending &&
-          (pending.requestIdentity !== started.requestIdentity ||
+          (pending.retryGeneration !== started.retryGeneration ||
+            pending.requestIdentity !== started.requestIdentity ||
             (pending.sourceRevision !== started.sourceRevision &&
               !ownsPendingSourceRevision &&
               !recognizesPendingSourceRevision)),
