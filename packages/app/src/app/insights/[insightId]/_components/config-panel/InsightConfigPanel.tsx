@@ -415,54 +415,44 @@ export function InsightConfigPanel({
   );
 
   // --- Metric handlers ---
-  // Metric popovers save independently, so each write composes against the
-  // newest queued metric list instead of a render that may lack an earlier save.
-  const pendingMetricsRef = useRef<InsightMetric[] | null>(null);
-  const inFlightMetricWritesRef = useRef(0);
-  // The newest successful write whose echo may not have rendered yet; a newer
-  // failed write falls back to it rather than the stale prop.
-  const succeededMetricsRef = useRef<{
-    sequence: number;
-    metrics: InsightMetric[];
-  } | null>(null);
-  const metricWriteSequenceRef = useRef(0);
+  // Metric popovers save independently. Writes run one at a time, and each
+  // composes when it starts against the last successful list, so a save never
+  // drops an earlier one and a failed save never lingers in a later diff base.
+  const latestInsightRef = useRef(insight);
+  // A successful write whose echo may not have rendered yet.
+  const succeededMetricsRef = useRef<InsightMetric[] | null>(null);
+  const metricWriteQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+  useEffect(() => {
+    latestInsightRef.current = insight;
+  }, [insight]);
   useEffect(() => {
     succeededMetricsRef.current = null;
-    if (inFlightMetricWritesRef.current === 0) {
-      pendingMetricsRef.current = null;
-    }
   }, [insight.metrics]);
   const writeMetrics = useCallback(
-    async (compose: (base: InsightMetric[]) => InsightMetric[]) => {
-      const base = pendingMetricsRef.current ?? insight.metrics ?? [];
-      const next = compose(base);
-      // Diff against the queued list so an earlier pending save is not resent.
-      const commands = buildInsightUpdateCommands(
-        insight.id,
-        { ...insight, metrics: base },
-        { metrics: next },
-      );
-      if (commands.length === 0) return;
-      pendingMetricsRef.current = next;
-      inFlightMetricWritesRef.current += 1;
-      const sequence = ++metricWriteSequenceRef.current;
-      try {
+    (
+      compose: (base: InsightMetric[]) => InsightMetric[],
+      extraCommands: (next: InsightMetric[]) => Command[] = () => [],
+    ) => {
+      const write = metricWriteQueueRef.current.then(async () => {
+        const current = latestInsightRef.current;
+        const base = succeededMetricsRef.current ?? current.metrics ?? [];
+        const next = compose(base);
+        const commands = [
+          ...buildInsightUpdateCommands(
+            current.id,
+            { ...current, metrics: base },
+            { metrics: next },
+          ),
+          ...extraCommands(next),
+        ];
+        if (commands.length === 0) return;
         await commitBatch({ commands });
-        const succeeded = succeededMetricsRef.current;
-        if (!succeeded || succeeded.sequence < sequence) {
-          succeededMetricsRef.current = { sequence, metrics: next };
-        }
-      } catch (error) {
-        if (pendingMetricsRef.current === next) {
-          pendingMetricsRef.current =
-            succeededMetricsRef.current?.metrics ?? null;
-        }
-        throw error;
-      } finally {
-        inFlightMetricWritesRef.current -= 1;
-      }
+        succeededMetricsRef.current = next;
+      });
+      metricWriteQueueRef.current = write.catch(() => {});
+      return write;
     },
-    [commitBatch, insight],
+    [commitBatch],
   );
 
   const handleMetricsReorder = useCallback(
@@ -707,39 +697,48 @@ export function InsightConfigPanel({
           if (signature) rollbackRuntimeControls(signature);
         });
       } else {
-        const updated = (insight.metrics ?? []).filter((m) => m.id !== itemId);
-        const nextRuntimeControls = pruneRuntimeControls(
-          baseRuntimeControls,
-          insight.filters ?? [],
-          [
-            ...(insight.selectedFields ?? []),
-            ...updated.map((metric) => metric.id),
-          ],
-        );
-        const writesRuntimeControls =
-          pendingRuntimeControlsSignatureRef.current !== null ||
-          stableValueSignature(nextRuntimeControls) !==
-            stableValueSignature(insight.runtimeControls);
-        const signature = writesRuntimeControls
-          ? stageRuntimeControls(nextRuntimeControls)
-          : null;
-        const commands = buildInsightUpdateCommands(insight.id, insight, {
-          metrics: updated,
-        });
-        if (writesRuntimeControls) {
-          commands.push(
-            cmd("SetInsightRuntimeControls", {
-              id: insight.id,
-              runtimeControls: nextRuntimeControls,
-            }),
-          );
-        }
-        commitBatch({ commands }).catch(() => {
+        // Prune viewer controls when the queued removal runs, so it builds on
+        // any viewer-control save made while earlier metric writes were pending.
+        let signature: string | null = null;
+        writeMetrics(
+          (metrics) => metrics.filter((metric) => metric.id !== itemId),
+          (metrics) => {
+            const current = latestInsightRef.current;
+            const nextRuntimeControls = pruneRuntimeControls(
+              runtimeControlsRef.current,
+              current.filters ?? [],
+              [
+                ...(current.selectedFields ?? []),
+                ...metrics.map((metric) => metric.id),
+              ],
+            );
+            if (
+              pendingRuntimeControlsSignatureRef.current === null &&
+              stableValueSignature(nextRuntimeControls) ===
+                stableValueSignature(echoedRuntimeControlsRef.current)
+            ) {
+              return [];
+            }
+            signature = stageRuntimeControls(nextRuntimeControls);
+            return [
+              cmd("SetInsightRuntimeControls", {
+                id: current.id,
+                runtimeControls: nextRuntimeControls,
+              }),
+            ];
+          },
+        ).catch(() => {
           if (signature) rollbackRuntimeControls(signature);
         });
       }
     },
-    [commitBatch, insight, rollbackRuntimeControls, stageRuntimeControls],
+    [
+      commitBatch,
+      insight,
+      rollbackRuntimeControls,
+      stageRuntimeControls,
+      writeMetrics,
+    ],
   );
 
   const handleConfirmDelete = useCallback(
