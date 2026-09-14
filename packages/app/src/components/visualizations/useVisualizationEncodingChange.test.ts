@@ -164,6 +164,70 @@ describe("useVisualizationEncodingChange", () => {
     });
   });
 
+  it("keeps a successful edit awaiting its echo when a newer write fails", async () => {
+    const updateVisualization = vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("write failed"))
+      .mockResolvedValue(undefined);
+    const { result } = renderEncodingHook(
+      { y: "revenue" },
+      updateVisualization,
+    );
+
+    await act(async () => {
+      await result.current.changeEncoding("color", "channel");
+      await expect(
+        result.current.changeEncoding("size", "orders"),
+      ).rejects.toThrow("write failed");
+      await result.current.changeEncoding("x", "month");
+    });
+
+    expect(updateVisualization).toHaveBeenLastCalledWith({
+      id: visualizationId,
+      updates: {
+        encoding: { y: "revenue", color: "channel", x: "month" },
+      },
+    });
+  });
+
+  it("builds on a newer render, not the saved snapshot, when a later write fails", async () => {
+    let rejectSecond: ((error: Error) => void) | undefined;
+    const updateVisualization = vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((_resolve, reject) => {
+            rejectSecond = reject;
+          }),
+      )
+      .mockResolvedValue(undefined);
+    const { result, rerender } = renderEncodingHook(
+      { y: "revenue" },
+      updateVisualization,
+    );
+
+    let secondWrite: Promise<void> | undefined;
+    await act(async () => {
+      await result.current.changeEncoding("color", "channel");
+      secondWrite = result.current.changeEncoding("size", "orders");
+    });
+    rerender({ current: { y: "profit", color: "channel" } });
+    await act(async () => {
+      rejectSecond?.(new Error("write failed"));
+      await expect(secondWrite).rejects.toThrow("write failed");
+      await result.current.changeEncoding("x", "month");
+    });
+
+    expect(updateVisualization).toHaveBeenLastCalledWith({
+      id: visualizationId,
+      updates: {
+        encoding: { y: "profit", color: "channel", x: "month" },
+      },
+    });
+  });
+
   it("builds on the refreshed encoding once writes have settled", async () => {
     const updateVisualization = vi.fn().mockResolvedValue(undefined);
     const { result, rerender } = renderEncodingHook(
