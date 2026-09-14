@@ -79,7 +79,7 @@ export function DeleteConfirmDialog({
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <AlertCircleIcon className="h-5 w-5 text-amber-500" />
+            <AlertCircleIcon className="h-5 w-5 text-palette-warning" />
             Delete {itemType}
           </DialogTitle>
           <DialogDescription>
