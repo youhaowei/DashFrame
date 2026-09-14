@@ -91,6 +91,7 @@ test.describe("compound-insight field/metric editing", () => {
     await expect(
       page.getByRole("button", { name: "Add field", exact: true }),
     ).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole("button", { name: /^Remove / })).toHaveCount(0);
   });
 
   /** Add a field by name via the Add field popover and confirm persistence. */
@@ -121,7 +122,7 @@ test.describe("compound-insight field/metric editing", () => {
       dialog.getByRole("textbox", { name: "Name", exact: true }),
     ).toHaveValue("Count");
 
-    await dialog.getByRole("button", { name: "Add metric" }).click();
+    await dialog.getByRole("button", { name: "Add", exact: true }).click();
     await expect(dialog).not.toBeVisible({ timeout: 5_000 });
     await expectMetricSaved(page, "Count", true);
   }
@@ -174,9 +175,7 @@ test.describe("compound-insight field/metric editing", () => {
   }) => {
     await openSection(page, "Metrics");
     // Initial: no metric chips, only the add row.
-    await expect(page.getByRole("button", { name: "Edit Count" })).toHaveCount(
-      0,
-    );
+    await expect(page.getByRole("button", { name: /^Edit / })).toHaveCount(0);
 
     await addCountMetric(page);
 

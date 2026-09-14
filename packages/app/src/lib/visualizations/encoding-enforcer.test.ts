@@ -14,8 +14,8 @@ import { isColumnValidForChannel, validateEncoding } from "./encoding-enforcer";
  * malformed value rather than trust its declared `string` type.
  */
 const ANALYSIS = [
-  { columnName: "region", dataType: "VARCHAR", semanticType: "categorical" },
-  { columnName: "amount", dataType: "DOUBLE", semanticType: "numeric" },
+  { columnName: "region", dataType: "VARCHAR", semantic: "categorical" },
+  { columnName: "amount", dataType: "DOUBLE", semantic: "numerical" },
 ] as never;
 
 describe("encoding enforcer — malformed stored values", () => {
@@ -52,4 +52,18 @@ describe("encoding enforcer — malformed stored values", () => {
     const errors = validateEncoding({ y: "region" }, "barY", ANALYSIS);
     expect(errors.y).toBeTruthy();
   });
+});
+
+describe("encoding enforcer — density charts", () => {
+  it.each(["hexbin", "heatmap", "raster"] as const)(
+    "rejects a categorical axis for %s",
+    (chartType) => {
+      expect(
+        isColumnValidForChannel("region", "x", chartType, ANALYSIS).suitable,
+      ).toBe(false);
+      expect(
+        isColumnValidForChannel("amount", "x", chartType, ANALYSIS).suitable,
+      ).toBe(true);
+    },
+  );
 });

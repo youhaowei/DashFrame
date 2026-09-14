@@ -46,7 +46,11 @@ export function useWorkbenchPaneSections<const T extends string>(
     requestAnimationFrame(() =>
       sectionRefs.current[id]?.scrollIntoView({
         block: "start",
-        behavior: "smooth",
+        behavior:
+          window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ===
+          true
+            ? "auto"
+            : "smooth",
       }),
     );
   }, []);
@@ -113,7 +117,7 @@ export const WorkbenchPaneSection = forwardRef<
               <ChevronDownIcon
                 aria-hidden
                 className={cn(
-                  "h-3.5 w-3.5 shrink-0 text-neutral-fg-subtle transition-transform",
+                  "h-3.5 w-3.5 shrink-0 text-neutral-fg-subtle transition-transform motion-reduce:transition-none",
                   !open && "-rotate-90",
                   open && "ml-auto",
                 )}

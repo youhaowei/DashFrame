@@ -5,20 +5,28 @@ import type {
   UUID,
   Visualization,
   VisualizationEncoding,
+  VisualizationType,
 } from "@dashframe/types";
 import { parseEncoding } from "@dashframe/types";
 import { useCallback, useEffect, useRef } from "react";
+import { getVisualizationTypeChange } from "./visualization-type-change";
 
 export type VisualizationEncodingField = "x" | "y" | "color" | "size";
 
 interface UseVisualizationEncodingChangeOptions {
-  visualization: Pick<Visualization, "id" | "encoding"> | undefined;
+  visualization:
+    | Pick<Visualization, "id" | "encoding" | "visualizationType">
+    | undefined;
   dataTable: Pick<DataTable, "fields"> | undefined;
   columnAnalysis: ColumnAnalysis[];
   updateVisualization: (args: {
     id: UUID;
-    updates: { encoding: VisualizationEncoding };
+    updates: {
+      visualizationType?: VisualizationType;
+      encoding?: VisualizationEncoding;
+    };
   }) => Promise<unknown>;
+  onUpdateError?: () => void;
 }
 
 function inferAxisType(
@@ -59,6 +67,7 @@ export function useVisualizationEncodingChange({
   dataTable,
   columnAnalysis,
   updateVisualization,
+  onUpdateError,
 }: UseVisualizationEncodingChangeOptions) {
   const resolveAnalysisAlias = useCallback(
     (value: string) => {
@@ -75,11 +84,63 @@ export function useVisualizationEncodingChange({
     [dataTable?.fields],
   );
 
+  // Every visualization edit composes against the latest local state until
+  // Convex echoes it. This includes bar-orientation changes, which update the
+  // type and swap the encoding in one write.
+  const pendingVisualizationRef = useRef<{
+    id: UUID;
+    visualizationType: VisualizationType;
+    encoding: VisualizationEncoding | undefined;
+  } | null>(null);
+  const inFlightWritesRef = useRef(0);
+  useEffect(() => {
+    if (inFlightWritesRef.current === 0) {
+      pendingVisualizationRef.current = null;
+    }
+  }, [
+    visualization?.id,
+    visualization?.visualizationType,
+    visualization?.encoding,
+  ]);
+
+  const commitVisualizationChange = useCallback(
+    async (
+      next: {
+        id: UUID;
+        visualizationType: VisualizationType;
+        encoding: VisualizationEncoding | undefined;
+      },
+      updates: {
+        visualizationType?: VisualizationType;
+        encoding?: VisualizationEncoding;
+      },
+    ) => {
+      pendingVisualizationRef.current = next;
+      inFlightWritesRef.current += 1;
+      try {
+        await updateVisualization({ id: next.id, updates });
+      } catch (error) {
+        if (pendingVisualizationRef.current === next) {
+          pendingVisualizationRef.current = null;
+        }
+        throw error;
+      } finally {
+        inFlightWritesRef.current -= 1;
+      }
+    },
+    [updateVisualization],
+  );
+
   useEffect(() => {
     if (!visualization || columnAnalysis.length === 0) return;
 
+    const pending = pendingVisualizationRef.current;
+    const baseEncoding =
+      pending?.id === visualization.id
+        ? pending.encoding
+        : visualization.encoding;
     const nextEncoding: VisualizationEncoding = {
-      ...visualization.encoding,
+      ...baseEncoding,
     };
     let changed = false;
 
@@ -101,46 +162,53 @@ export function useVisualizationEncodingChange({
     clearInvalidDateTransform("y");
 
     if (changed) {
-      void updateVisualization({
+      const next = {
         id: visualization.id,
-        updates: { encoding: nextEncoding },
-      });
+        visualizationType:
+          pending?.id === visualization.id
+            ? pending.visualizationType
+            : visualization.visualizationType,
+        encoding: nextEncoding,
+      };
+      commitVisualizationChange(next, {
+        encoding: nextEncoding,
+        ...(next.visualizationType !== visualization.visualizationType
+          ? { visualizationType: next.visualizationType }
+          : {}),
+      }).catch(() => onUpdateError?.());
     }
   }, [
     columnAnalysis,
+    commitVisualizationChange,
+    onUpdateError,
     resolveAnalysisAlias,
-    updateVisualization,
     visualization,
   ]);
 
-  // Edits made before the subscription echoes the previous write must build
-  // on that write, not on the stale prop, or the later write drops the earlier
-  // channel. Hold the latest local encoding until the prop changes while no
-  // writes are in flight.
-  const pendingEncodingRef = useRef<{
-    id: UUID;
-    encoding: VisualizationEncoding | undefined;
-  } | null>(null);
-  const inFlightWritesRef = useRef(0);
-  useEffect(() => {
-    if (inFlightWritesRef.current === 0) pendingEncodingRef.current = null;
-  }, [visualization?.id, visualization?.encoding]);
-
-  return useCallback(
+  const changeEncoding = useCallback(
     async (field: VisualizationEncodingField, value: string) => {
       if (!visualization) return;
 
-      const pending = pendingEncodingRef.current;
+      const pending = pendingVisualizationRef.current;
       const baseEncoding =
         pending?.id === visualization.id
           ? pending.encoding
           : visualization.encoding;
-      const nextEncoding: VisualizationEncoding = {
-        ...baseEncoding,
-        [field]: value,
-      };
+      const nextEncoding: VisualizationEncoding = value
+        ? { ...baseEncoding, [field]: value }
+        : { ...baseEncoding };
+      if (!value) {
+        delete nextEncoding[field];
+        if (field === "x") {
+          delete nextEncoding.xType;
+          delete nextEncoding.xTransform;
+        } else if (field === "y") {
+          delete nextEncoding.yType;
+          delete nextEncoding.yTransform;
+        }
+      }
 
-      if (isAxisField(field)) {
+      if (value && isAxisField(field)) {
         applyAxisAnalysis(
           nextEncoding,
           field,
@@ -150,26 +218,57 @@ export function useVisualizationEncodingChange({
         );
       }
 
-      pendingEncodingRef.current = {
+      const next = {
         id: visualization.id,
+        visualizationType:
+          pending?.id === visualization.id
+            ? pending.visualizationType
+            : visualization.visualizationType,
         encoding: nextEncoding,
       };
-      inFlightWritesRef.current += 1;
-      try {
-        await updateVisualization({
-          id: visualization.id,
-          updates: { encoding: nextEncoding },
-        });
-      } catch (error) {
-        // A later edit may already own pending; only drop what this write set.
-        if (pendingEncodingRef.current?.encoding === nextEncoding) {
-          pendingEncodingRef.current = null;
-        }
-        throw error;
-      } finally {
-        inFlightWritesRef.current -= 1;
-      }
+      await commitVisualizationChange(next, {
+        encoding: nextEncoding,
+        ...(next.visualizationType !== visualization.visualizationType
+          ? { visualizationType: next.visualizationType }
+          : {}),
+      });
     },
-    [columnAnalysis, resolveAnalysisAlias, updateVisualization, visualization],
+    [
+      columnAnalysis,
+      commitVisualizationChange,
+      resolveAnalysisAlias,
+      visualization,
+    ],
   );
+
+  const changeType = useCallback(
+    async (nextType: VisualizationType) => {
+      if (!visualization) return;
+      const pending = pendingVisualizationRef.current;
+      const current =
+        pending?.id === visualization.id
+          ? pending
+          : {
+              id: visualization.id,
+              visualizationType: visualization.visualizationType,
+              encoding: visualization.encoding,
+            };
+      const updates = getVisualizationTypeChange(current, nextType);
+      if (!updates) return;
+      const next = {
+        ...current,
+        visualizationType: updates.visualizationType,
+        encoding: updates.encoding ?? current.encoding,
+      };
+      await commitVisualizationChange(next, {
+        ...updates,
+        ...(updates.encoding === undefined && pending?.id === visualization.id
+          ? { encoding: current.encoding }
+          : {}),
+      });
+    },
+    [commitVisualizationChange, visualization],
+  );
+
+  return { changeEncoding, changeType };
 }

@@ -1,4 +1,8 @@
-import type { UUID, VisualizationEncoding } from "@dashframe/types";
+import type {
+  UUID,
+  VisualizationEncoding,
+  VisualizationType,
+} from "@dashframe/types";
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vite-plus/test";
 
@@ -10,13 +14,20 @@ function renderEncodingHook(
   encoding: VisualizationEncoding,
   updateVisualization: (args: {
     id: UUID;
-    updates: { encoding: VisualizationEncoding };
+    updates: {
+      encoding?: VisualizationEncoding;
+      visualizationType?: VisualizationType;
+    };
   }) => Promise<unknown>,
 ) {
   return renderHook(
     ({ current }: { current: VisualizationEncoding }) =>
       useVisualizationEncodingChange({
-        visualization: { id: visualizationId, encoding: current },
+        visualization: {
+          id: visualizationId,
+          visualizationType: "barY",
+          encoding: current,
+        },
         dataTable: { fields: [] },
         columnAnalysis: [],
         updateVisualization,
@@ -26,6 +37,56 @@ function renderEncodingHook(
 }
 
 describe("useVisualizationEncodingChange", () => {
+  it("keeps a bar orientation swap when an encoding edit lands before its echo", async () => {
+    let resolveTypeChange: (() => void) | undefined;
+    const updateVisualization = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveTypeChange = resolve;
+          }),
+      )
+      .mockResolvedValue(undefined);
+    const { result } = renderEncodingHook(
+      {
+        x: "month",
+        y: "revenue",
+        xTransform: {
+          type: "date",
+          transform: { kind: "temporal", aggregation: "month" },
+        },
+      },
+      updateVisualization,
+    );
+
+    let typeWrite: Promise<void> | undefined;
+    await act(async () => {
+      typeWrite = result.current.changeType("barX");
+      await result.current.changeEncoding("color", "region");
+    });
+
+    expect(updateVisualization).toHaveBeenNthCalledWith(2, {
+      id: visualizationId,
+      updates: {
+        visualizationType: "barX",
+        encoding: {
+          x: "revenue",
+          y: "month",
+          yTransform: {
+            type: "date",
+            transform: { kind: "temporal", aggregation: "month" },
+          },
+          color: "region",
+        },
+      },
+    });
+    await act(async () => {
+      resolveTypeChange?.();
+      await typeWrite;
+    });
+  });
+
   it("keeps an earlier channel when a second edit lands before the first write echoes", async () => {
     let resolveFirst: (() => void) | undefined;
     const updateVisualization = vi
@@ -44,8 +105,8 @@ describe("useVisualizationEncodingChange", () => {
 
     let firstWrite: Promise<void> | undefined;
     await act(async () => {
-      firstWrite = result.current("color", "channel");
-      await result.current("size", "orders");
+      firstWrite = result.current.changeEncoding("color", "channel");
+      await result.current.changeEncoding("size", "orders");
     });
 
     expect(updateVisualization).toHaveBeenNthCalledWith(2, {
@@ -80,14 +141,14 @@ describe("useVisualizationEncodingChange", () => {
 
     let firstWrite: Promise<void> | undefined;
     await act(async () => {
-      firstWrite = result.current("x", "month");
+      firstWrite = result.current.changeEncoding("x", "month");
       // Never settles: this write stays in flight for the rest of the test.
-      result.current("color", "channel").catch(() => {});
+      result.current.changeEncoding("color", "channel").catch(() => {});
       rejectFirst?.(new Error("write failed"));
       await expect(firstWrite).rejects.toThrow("write failed");
     });
     await act(async () => {
-      await result.current("size", "orders");
+      await result.current.changeEncoding("size", "orders");
     });
 
     expect(updateVisualization).toHaveBeenLastCalledWith({
@@ -111,11 +172,11 @@ describe("useVisualizationEncodingChange", () => {
     );
 
     await act(async () => {
-      await result.current("color", "channel");
+      await result.current.changeEncoding("color", "channel");
     });
     rerender({ current: { y: "orders", color: "region" } });
     await act(async () => {
-      await result.current("size", "count");
+      await result.current.changeEncoding("size", "count");
     });
 
     expect(updateVisualization).toHaveBeenLastCalledWith({

@@ -50,6 +50,12 @@ const AGGREGATIONS: Array<{ value: AggregationType; label: string }> = [
 type MetricField = { id: string; columnName?: string; name: string };
 type ColumnDisplayNames = Readonly<Record<string, string>>;
 
+function isNumericMetricField(field: { type: string }): boolean {
+  return ["number", "integer", "float", "decimal"].includes(
+    field.type.toLowerCase(),
+  );
+}
+
 // A metric's columnName is either the field's own column or, for metrics
 // pinned from a chart suggestion, the internal field_<uuid>[_jN] alias — which
 // must never reach the screen. Base fields match by either form, as
@@ -141,11 +147,7 @@ function MetricEditor({
   );
   const filteredFields =
     aggregation === "sum" || aggregation === "avg"
-      ? fields.filter((field) =>
-          ["number", "integer", "float", "decimal"].includes(
-            field.type.toLowerCase(),
-          ),
-        )
+      ? fields.filter(isNumericMetricField)
       : fields;
   const name = nameEdited
     ? nameDraft
@@ -241,7 +243,16 @@ function MetricEditor({
             onValueChange={(value) => {
               const next = value as AggregationType;
               setAggregation(next);
-              if (next === "count") setColumnName("");
+              const nextFields =
+                next === "sum" || next === "avg"
+                  ? fields.filter(isNumericMetricField)
+                  : fields;
+              if (
+                next === "count" ||
+                !nextFields.some((field) => field.columnName === columnName)
+              ) {
+                setColumnName("");
+              }
             }}
           >
             <SelectTrigger aria-label="Aggregation" className="w-32">
@@ -302,7 +313,7 @@ function MetricEditor({
             onClick={close}
           />
           <Button
-            label={metric ? "Save" : "Add metric"}
+            label={metric ? "Save" : "Add"}
             size="sm"
             loading={isSaving}
             disabled={

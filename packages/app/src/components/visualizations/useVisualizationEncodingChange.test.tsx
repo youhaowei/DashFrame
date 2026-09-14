@@ -14,8 +14,12 @@ const fieldId = "22222222-2222-4222-8222-222222222222" as UUID;
 const tableId = "33333333-3333-4333-8333-333333333333" as UUID;
 const fieldAlias = "field_22222222_2222_4222_8222_222222222222";
 
-const visualization: Pick<Visualization, "id" | "encoding"> = {
+const visualization: Pick<
+  Visualization,
+  "id" | "encoding" | "visualizationType"
+> = {
   id: visualizationId,
+  visualizationType: "barY",
   encoding: { y: "metric:existing" },
 };
 const dataTable: Pick<DataTable, "fields"> = {
@@ -49,7 +53,7 @@ function EncodingHarness({
 }: {
   updateVisualization: ReturnType<typeof vi.fn>;
 }) {
-  const changeEncoding = useVisualizationEncodingChange({
+  const { changeEncoding } = useVisualizationEncodingChange({
     visualization,
     dataTable,
     columnAnalysis: analysis,

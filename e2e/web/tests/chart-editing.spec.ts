@@ -54,7 +54,10 @@ test.describe("Chart Editing", () => {
     // Visualize reopens the saved chart. Changing its type edits that chart in
     // place: no "Save chart" offer and no second saved chart.
     await page.getByRole("button", { name: "Visualize" }).click();
-    for (const chartType of ["Line", "Area"]) {
+    // The saved encoding is category + metric, so only chart types compatible
+    // with that result are offered. Switching bar orientation exercises the
+    // persisted type and encoding swap in both directions.
+    for (const chartType of ["Horizontal bar", "Bar"]) {
       const tile = page.getByRole("button", { name: chartType, exact: true });
       await tile.click();
       await expect(tile).toHaveAttribute("aria-pressed", "true");

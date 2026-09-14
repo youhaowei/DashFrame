@@ -29,11 +29,19 @@ vi.mock("./SortSection", () => ({
   SortSection: ({
     onRuntimeChange,
   }: {
-    onRuntimeChange: (value: { limit: { min: number; max: number } }) => void;
+    onRuntimeChange: (value: {
+      filters: Array<{ filterId: string; key: string; label: string }>;
+      limit: { min: number; max: number };
+    }) => void;
   }) => (
     <button
       type="button"
-      onClick={() => onRuntimeChange({ limit: { min: 1, max: 100 } })}
+      onClick={() =>
+        onRuntimeChange({
+          filters: [{ filterId: "region", key: "region", label: "Region" }],
+          limit: { min: 1, max: 100 },
+        })
+      }
     >
       Save viewer controls
     </button>
@@ -175,6 +183,48 @@ describe("InsightConfigPanel filter saves", () => {
         },
       },
     });
+  });
+
+  it("preserves a viewer-control edit while saving a filter before its echo", async () => {
+    let resolveFirst: (() => void) | undefined;
+    commitBatch
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveFirst = resolve;
+          }),
+      )
+      .mockResolvedValueOnce({});
+    render(
+      <InsightConfigPanel
+        insight={insight}
+        dataTable={table}
+        allDataTables={[table]}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save viewer controls" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save second viewer filter" }),
+    );
+
+    await waitFor(() => expect(commitBatch).toHaveBeenCalledTimes(2));
+    expect(commitBatch.mock.calls[1][0].commands).toContainEqual({
+      path: "setInsightRuntimeControls",
+      args: {
+        id: insight.id,
+        runtimeControls: {
+          filters: [
+            { filterId: "region", key: "region", label: "Region" },
+            { filterId: "period", key: "period", label: "Period" },
+          ],
+          limit: { min: 1, max: 100 },
+        },
+      },
+    });
+    resolveFirst?.();
   });
 
   it("does not write runtime controls when their declaration is unchanged", async () => {

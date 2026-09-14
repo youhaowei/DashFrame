@@ -73,9 +73,7 @@ describe("insight config popover saves", () => {
   it("keeps the add-metric popover open and reports a rejected save", async () => {
     render(metrics(rejectedSave));
     fireEvent.click(screen.getByRole("button", { name: "Add metric" }));
-    const submit = screen
-      .getAllByRole("button", { name: "Add metric" })
-      .at(-1)!;
+    const submit = screen.getByRole("button", { name: "Add" });
     fireEvent.click(submit);
     expect(
       await screen.findByText("Failed to save metric: write failed"),
@@ -301,7 +299,7 @@ describe("insight config popover saves", () => {
   });
 
   it("ignores Escape while an add-metric save is in flight", async () => {
-    let release = () => undefined;
+    let release: () => void = () => undefined;
     const onSave = vi.fn(
       () =>
         new Promise<void>((resolve) => {
@@ -310,9 +308,7 @@ describe("insight config popover saves", () => {
     );
     render(metrics(onSave));
     fireEvent.click(screen.getByRole("button", { name: "Add metric" }));
-    fireEvent.click(
-      screen.getAllByRole("button", { name: "Add metric" }).at(-1)!,
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
     await waitFor(() => expect(onSave).toHaveBeenCalled());
     fireEvent.keyDown(document.activeElement ?? document.body, {
       key: "Escape",
@@ -326,7 +322,7 @@ describe("insight config popover saves", () => {
   });
 
   it("ignores Escape while an edit-metric save is in flight", async () => {
-    let release = () => undefined;
+    let release: () => void = () => undefined;
     const onSave = vi.fn(
       () =>
         new Promise<void>((resolve) => {
@@ -350,7 +346,7 @@ describe("insight config popover saves", () => {
   });
 
   it("ignores Escape while a filter save is in flight", async () => {
-    let release = () => undefined;
+    let release: () => void = () => undefined;
     const onSave = vi.fn(
       () =>
         new Promise<void>((resolve) => {
@@ -382,7 +378,7 @@ describe("insight config popover saves", () => {
   });
 
   it("ignores Escape while a field rename is in flight", async () => {
-    let release = () => undefined;
+    let release: () => void = () => undefined;
     const onRename = vi.fn(
       () =>
         new Promise<void>((resolve) => {
@@ -431,6 +427,43 @@ describe("insight config popover saves", () => {
     await user.click(screen.getByLabelText("Aggregation"));
     await user.click(await screen.findByRole("option", { name: "Sum" }));
     expect(screen.getByLabelText("Column").textContent).toContain("Column");
+  }, 10_000);
+
+  it("clears a nonnumeric column when switching to a numeric aggregation", async () => {
+    const user = userEvent.setup({ delay: null });
+    const mixedTable = {
+      ...table,
+      fields: [
+        ...table.fields!,
+        { id: "field-2", name: "Region", columnName: "region", type: "text" },
+      ],
+    } as DataTable;
+    const regionMetric = {
+      ...metric,
+      id: "metric-region",
+      name: "First region",
+      columnName: "region",
+      aggregation: "min",
+    } as InsightMetric;
+    render(
+      <MetricsSection
+        metrics={[regionMetric]}
+        dataTable={mixedTable}
+        onReorder={vi.fn()}
+        onRemove={vi.fn()}
+        onAdd={vi.fn()}
+        onEdit={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Edit First region" }));
+    await user.click(screen.getByLabelText("Aggregation"));
+    await user.click(await screen.findByRole("option", { name: "Sum" }));
+
+    expect(screen.getByLabelText("Column").textContent).toContain("Column");
+    expect(
+      screen.getByRole("button", { name: "Save" }).hasAttribute("disabled"),
+    ).toBe(true);
   }, 10_000);
 
   it("repairs a stored count metric that still carries a column", async () => {

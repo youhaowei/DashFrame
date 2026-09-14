@@ -47,6 +47,7 @@ export function Select({
   options,
   placeholder = "Select an option...",
   className,
+  onClear,
   error,
   emptyDashed = false,
   disabled = false,
@@ -62,7 +63,19 @@ export function Select({
       {(label || labelAddon) && (
         <div className="flex items-center justify-between gap-2">
           {label && <FieldLabel>{label}</FieldLabel>}
-          {labelAddon}
+          <span className="flex items-center gap-1.5">
+            {onClear && value && !disabled && (
+              <button
+                type="button"
+                aria-label={`Clear ${label ?? ariaLabel ?? "selection"}`}
+                className="rounded-sm text-[11px] text-neutral-fg-subtle underline-offset-2 hover:text-neutral-fg hover:underline focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none"
+                onClick={onClear}
+              >
+                Clear
+              </button>
+            )}
+            {labelAddon}
+          </span>
         </div>
       )}
       <SelectPrimitive
@@ -72,7 +85,7 @@ export function Select({
         onValueChange={(v) => onChange(typeof v === "string" ? v : "")}
       >
         <SelectTrigger
-          aria-label={ariaLabel}
+          aria-label={ariaLabel ?? label}
           className={cn(
             "min-w-0 w-full",
             emptyDashed && !value && "border-dashed",
