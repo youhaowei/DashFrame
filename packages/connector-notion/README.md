@@ -177,7 +177,7 @@ export const notionRouter = router({
   fetchData: publicProcedure
     .input(z.object({ apiKey: z.string(), databaseId: z.string() }))
     .mutation(async ({ input }) => {
-      // Return raw data for client-side DataFrame creation
+      // Return Arrow bytes for host-side DataFrame ingest
       return notionToDataFrame({ ...input }, fields);
     }),
 });

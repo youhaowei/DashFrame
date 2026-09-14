@@ -32,9 +32,7 @@ export {
 } from "./table-replacement";
 
 export type {
-  DataFrame,
   DataFrameData,
-  DataFrameFactory,
   DataFrameJSON,
   DataFrameRow,
   DataFrameStorageLocation,

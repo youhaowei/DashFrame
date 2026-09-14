@@ -17,8 +17,6 @@ export * from "@dashframe/types";
 // ============================================================================
 
 export type {
-  DataFrame,
-  DataFrameFactory,
   DataFrameJSON,
   // Storage
   DataFrameStorage,

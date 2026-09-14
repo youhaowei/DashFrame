@@ -18,7 +18,8 @@ export type DataFrameStorageLocation =
 /**
  * DataFrame JSON representation for persistence.
  * Contains only metadata needed to reconstruct the DataFrame.
- * This is the return type of DataFrame.toJSON().
+ * Historical storage variants remain in this serialized contract so existing
+ * Convex rows can still decode. New frames are always host file-backed.
  */
 export interface DataFrameJSON {
   id: UUID;
@@ -27,48 +28,6 @@ export interface DataFrameJSON {
   primaryKey?: string | string[];
   createdAt: number;
 }
-
-/**
- * DataFrame interface - Lightweight reference with explicit storage location.
- *
- * This interface represents a dataset but does NOT contain the actual data.
- * Instead, it knows WHERE to find the data and provides methods to access it.
- *
- * New frames are host file-backed Arrow snapshots. DuckDB does not store the
- * canonical copy. The storage union still names historical locations
- * (`indexeddb`, `s3`, `r2`) for persisted metadata.
- */
-export interface DataFrame {
-  readonly id: UUID;
-  readonly storage: DataFrameStorageLocation;
-  readonly fieldIds: UUID[];
-  readonly primaryKey?: string | string[];
-  readonly createdAt: number;
-
-  /** Serialize DataFrame for storage. */
-  toJSON(): DataFrameJSON;
-
-  /** Get storage type for UI/display purposes. */
-  getStorageType(): string;
-}
-
-/**
- * Factory function type for creating DataFrames.
- */
-export type DataFrameFactory = {
-  /** Create DataFrame from Arrow buffer with automatic storage. */
-  create(
-    arrowBuffer: Uint8Array,
-    fieldIds: UUID[],
-    options?: {
-      storageType?: "indexeddb" | "s3" | "r2";
-      primaryKey?: string | string[];
-    },
-  ): Promise<DataFrame>;
-
-  /** Deserialize DataFrame from storage. */
-  fromJSON(data: DataFrameJSON): DataFrame;
-};
 
 // ============================================================================
 // DataFrame Data Types (in-memory representations)

@@ -156,11 +156,9 @@
         "@uwdata/vgplot": "^0.21.1",
         "@wystack/ui-core": "workspace:*",
         "@wystack/ui-react": "workspace:*",
-        "apache-arrow": "^21.1.0",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
         "dompurify": "^3.2.4",
-        "idb-keyval": "^6.2.2",
         "immer": "^11.0.1",
         "papaparse": "5.5.3",
         "posthog-js": "^1.298.1",
@@ -441,12 +439,10 @@
         "@uwdata/vgplot": "^0.21.1",
         "@wystack/ui-core": "workspace:*",
         "@wystack/ui-react": "workspace:*",
-        "apache-arrow": "^21.1.0",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
         "convex": "1.37.0",
         "dompurify": "^3.2.4",
-        "idb-keyval": "^6.2.2",
         "immer": "^11.0.1",
         "lucide-react": "^0.563.0",
         "papaparse": "5.5.3",
@@ -2648,8 +2644,6 @@
     "husky": ["husky@9.1.7", "", { "bin": { "husky": "bin.js" } }, "sha512-5gs5ytaNjBrh5Ow3zrvdUUY+0VxIuWVL4i9irt6friV+BqdCfmV11CQTWMiBYWHbXhco+J1kHfTOUkePhCDvMA=="],
 
     "iconv-lite": ["iconv-lite@0.7.2", "", { "dependencies": { "safer-buffer": ">= 2.1.2 < 3.0.0" } }, "sha512-im9DjEDQ55s9fL4EYzOAv0yMqmMBSZp6G0VvFyTMPKWxiSBHUj9NW/qqLmXUwXrrM7AvqSlTCfvqRb0cM8yYqw=="],
-
-    "idb-keyval": ["idb-keyval@6.2.2", "", {}, "sha512-yjD9nARJ/jb1g+CvD0tlhUHOrJ9Sy0P8T9MF3YaLlHnSRpwPfpTX0XIvpmw3gAJUmEu3FiICLBDPXVwyEvrleg=="],
 
     "ignore": ["ignore@7.0.5", "", {}, "sha512-Hs59xBNfUIunMFgWAbGX5cq6893IbWg4KnrjbYwX3tx0ztorVgTDA6B2sxf8ejHJ4wz8BqGUMYlnzNBer5NvGg=="],
 

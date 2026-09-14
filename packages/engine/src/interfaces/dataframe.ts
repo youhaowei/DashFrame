@@ -1,12 +1,7 @@
 /**
- * DataFrame types - Re-exported from @dashframe/types
+ * Persisted DataFrame metadata types - re-exported from @dashframe/types.
  *
- * These types were moved to types as DataFrame is a core domain entity.
- * Re-exported here for backward compatibility.
+ * These serialized types are core domain contracts. Runtime storage is owned
+ * by the host rather than a DataFrame class.
  */
-export type {
-  DataFrame,
-  DataFrameFactory,
-  DataFrameJSON,
-  DataFrameStorageLocation,
-} from "@dashframe/types";
+export type { DataFrameJSON, DataFrameStorageLocation } from "@dashframe/types";

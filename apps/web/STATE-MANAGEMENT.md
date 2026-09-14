@@ -14,7 +14,7 @@ DataSource → DataTable → Field/Metric
                                ↘ Visualization
 ```
 
-**Entities (stored in Dexie/IndexedDB):**
+**Entities (stored in Convex):**
 
 - **`DataSource`** - Connection/credentials (Local, Notion, PostgreSQL)
 - **`DataTable`** - Table/file representation with schema
@@ -30,22 +30,22 @@ DataSource → DataTable → Field/Metric
 
 ## State Split: Storage Locations
 
-| Data               | Location          | Reason                                |
-| ------------------ | ----------------- | ------------------------------------- |
-| DataSources        | Dexie (IndexedDB) | User-owned, local-first               |
-| DataTables         | Dexie (IndexedDB) | Separate table with FK                |
-| Fields/Metrics     | Dexie (IndexedDB) | Nested in DataTables                  |
-| Insights           | Dexie (IndexedDB) | Query configurations                  |
-| Visualizations     | Dexie (IndexedDB) | vgplot specs                          |
-| DataFrame metadata | Convex            | Pointers to host files                |
-| DataFrame data     | Host files        | Arrow IPC snapshots                   |
-| Active entity      | URL params        | Shareable, browser history            |
-| UI state           | React useState    | Ephemeral, component-local            |
-| DuckDB tables      | Host process      | Server native engine, not the browser |
+| Data               | Location       | Reason                                |
+| ------------------ | -------------- | ------------------------------------- |
+| DataSources        | Convex         | Connector configuration metadata      |
+| DataTables         | Convex         | Artifact metadata and schema          |
+| Fields/Metrics     | Convex         | Nested in artifact definitions        |
+| Insights           | Convex         | Query configurations                  |
+| Visualizations     | Convex         | vgplot specs                          |
+| DataFrame metadata | Convex         | Pointers to host files                |
+| DataFrame data     | Host files     | Arrow IPC snapshots                   |
+| Active entity      | URL params     | Shareable, browser history            |
+| UI state           | React useState | Ephemeral, component-local            |
+| DuckDB tables      | Host process   | Server native engine, not the browser |
 
 **Important**: DataFrame binary data is stored as Arrow IPC files on the host. The browser does not keep a DuckDB or IndexedDB copy of frames.
 
-## Dexie Query Patterns
+## Convex Query Patterns
 
 ```typescript
 // Reactive hooks from @/data
@@ -62,29 +62,13 @@ if (!sources?.length) return <EmptyState />;
 
 ## Stores
 
-| Store                 | Status     | Purpose                                          |
-| --------------------- | ---------- | ------------------------------------------------ |
-| `@/data`              | **Active** | Entity persistence (DataSources, Insights, etc.) |
-| `dataframes-store.ts` | **Legacy** | DataFrame metadata (migrating to Dexie)          |
-
-**Class Serialization Pattern:**
-
-Stores hold plain serializable objects, classes reconstructed on retrieval:
-
-```typescript
-// Store holds plain objects
-dataFrames: Map<UUID, DataFrameSerialization>
-
-// Reconstruct class on retrieval
-get(id: UUID): DataFrame {
-  const data = this.dataFrames.get(id);
-  return data ? DataFrame.fromJSON(data) : undefined;
-}
-```
+| Store    | Status     | Purpose                                           |
+| -------- | ---------- | ------------------------------------------------- |
+| `@/data` | **Active** | Convex-backed artifacts (sources, insights, etc.) |
 
 ## Key Design Decisions
 
-- **Dexie for persistence** - Reactive hooks, automatic IndexedDB sync
+- **Convex for persistence** - Reactive artifact queries and mutations
 - **Route-based navigation** - Active entity from URL, not store state
 - **Schema separation** - sourceSchema (discovered) vs fields (user-defined)
 - **UUID-based field references** - Formulas use UUIDs, enabling renames

@@ -16,7 +16,7 @@ The engine package defines runtime-agnostic interfaces:
 | ------------------ | ---------------------------------------------------------------------------- |
 | `QueryEngine`      | `NativeDuckDBEngine` and `WorkspaceQueryEngine` (`@dashframe/engine-server`) |
 | `DataFrameStorage` | Project files for server snapshots                                           |
-| `DataFrame`        | Server query results (file-backed Arrow)                                     |
+| `DataFrameJSON`    | Persisted metadata for server-owned, file-backed Arrow results               |
 
 Remote imports, refreshes, and chart queries use **server-side native DuckDB**. Local-file import parses in the browser, encodes Arrow, and ingests on the host. There is no DuckDB-WASM path.
 
@@ -29,7 +29,7 @@ This package has no shared `QueryPlanner` / push-down API. Connectors may still 
 ```typescript
 import type {
   QueryEngine,
-  DataFrame,
+  DataFrameJSON,
   DataFrameStorage,
 } from "@dashframe/engine";
 
@@ -103,21 +103,19 @@ interface DataFrameStorage {
 }
 ```
 
-### DataFrame
+### DataFrame metadata
 
-Lightweight storage reference — metadata and location, not the row data itself
-(defined in `@dashframe/types`, re-exported here):
+`DataFrameJSON` is the persisted metadata contract. New frames point to host
+files; historical location variants remain decodable until their rows are
+migrated:
 
 ```typescript
-interface DataFrame {
-  readonly id: UUID;
-  readonly storage: DataFrameStorageLocation;
-  readonly fieldIds: UUID[];
-  readonly primaryKey?: string | string[];
-  readonly createdAt: number;
-
-  toJSON(): DataFrameJSON;
-  getStorageType(): string;
+interface DataFrameJSON {
+  id: UUID;
+  storage: DataFrameStorageLocation;
+  fieldIds: UUID[];
+  primaryKey?: string | string[];
+  createdAt: number;
 }
 ```
 

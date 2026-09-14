@@ -33,7 +33,7 @@ vi.mock("./client", () => ({
 
 // NOTE: query() no longer constructs a DataFrame — it returns a serializable
 // result (arrowBuffer + fieldIds + fields). No engine-browser mock is needed;
-// the method is Node-safe by design (the renderer materializes the DataFrame).
+// the method is Node-safe by design (the host ingests the Arrow bytes).
 
 // ---------------------------------------------------------------------------
 // Helpers: build a SecretVault + TestBackend + mint a bound resolver
@@ -286,7 +286,7 @@ describe("NotionConnector — bound resolver (capability attenuation)", () => {
     const connector = makeNotionConnector(spyingResolver);
     const controller = new AbortController();
     // Clients are mocked; getDatabaseSchema → [], queryDatabase → { results: [] }.
-    // query() runs entirely in Node (no DataFrame.create / IndexedDB).
+    // query() runs entirely in Node with no browser storage dependency.
     const result = await connector.query(
       "db-id",
       crypto.randomUUID() as Parameters<typeof connector.query>[1],
@@ -302,8 +302,8 @@ describe("NotionConnector — bound resolver (capability attenuation)", () => {
     expect(typeof result.arrowBuffer).toBe("string");
     expect(Array.isArray(result.fieldIds)).toBe(true);
     expect(Array.isArray(result.fields)).toBe(true);
-    // rowCount accompanies the serializable result so the renderer can register
-    // DataFrame metadata without re-reading the (server-side) Arrow buffer.
+    // rowCount accompanies the serializable result so the host can register
+    // DataFrame metadata without re-reading the Arrow buffer.
     expect(typeof result.rowCount).toBe("number");
     expect(result).not.toHaveProperty("dataFrame");
     expect(vi.mocked(createNotionClient)).toHaveBeenCalledWith(
