@@ -25,6 +25,6 @@
   "devDependencies": {
     "convex-test": "^0.0.41",
     "typescript": "5.7.2",
-    "vitest": "^3.2.4"
+    "vitest": "catalog:"
   }
 }

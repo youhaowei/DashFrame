@@ -6,7 +6,7 @@ import {
   ConvexReactClient,
   Unauthenticated,
 } from "convex/react";
-import { useCallback, type FC, type ReactNode } from "react";
+import type { FC, ReactNode } from "react";
 
 export interface AppRuntimeConfig {
   url: string;
@@ -102,11 +102,12 @@ export function createAppRuntime(config: AppRuntimeConfig): AppRuntime {
 
   function useHostAuth() {
     // Convex owns token refresh and calls this again before the JWT expires.
-    const fetchToken = useCallback(fetchAccessToken, []);
+    // fetchAccessToken is created once per runtime by the enclosing factory, so
+    // it is already a stable reference and needs no memoization.
     return {
       isLoading: false,
       isAuthenticated: true,
-      fetchAccessToken: fetchToken,
+      fetchAccessToken,
     };
   }
 
