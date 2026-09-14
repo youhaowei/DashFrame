@@ -43,6 +43,12 @@ export {
 } from "./components/WorkbenchPane";
 
 export {
+  WorkbenchTabs,
+  type WorkbenchTabItem,
+  type WorkbenchTabsProps,
+} from "./components/WorkbenchTabs";
+
+export {
   JoinTypeIcon,
   getJoinTypeDescription,
   getJoinTypeLabel,
