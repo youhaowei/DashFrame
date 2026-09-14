@@ -53,6 +53,11 @@ jobs:
           # step could reach.
           persist-credentials: false
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -75,6 +80,11 @@ jobs:
         with:
           submodules: recursive
           persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -101,6 +111,11 @@ jobs:
         with:
           submodules: recursive
           persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2

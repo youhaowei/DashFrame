@@ -5,6 +5,9 @@
   "type": "module",
   "license": "AGPL-3.0-only",
   "packageManager": "bun@1.4.2",
+  "engines": {
+    "node": "^20.19.0 || ^22.18.0 || >=24.11.0"
+  },
   "workspaces": [
     "apps/*",
     "packages/*",

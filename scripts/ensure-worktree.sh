@@ -31,6 +31,33 @@
 
 set -eu
 
+# Vite+ (the lint, test, and build runner) needs Node 20.19+; an older runtime
+# installs fine and then fails every `vp` command at startup. Fail here, where
+# the message is clear, rather than at the first gate. Keep in sync with the
+# root package.json `engines.node` range and `.node-version`.
+require_node_version() {
+  if ! command -v node >/dev/null 2>&1; then
+    echo "ERROR [ensure-worktree]: Node.js 20.19+ is required (see .node-version); none found on PATH." >&2
+    exit 1
+  fi
+  _rnv_version=$(node --version 2>/dev/null | sed 's/^v//')
+  _rnv_major=$(printf '%s' "$_rnv_version" | cut -d. -f1)
+  _rnv_minor=$(printf '%s' "$_rnv_version" | cut -d. -f2)
+  _rnv_ok=1
+  case "$_rnv_major" in
+    20) [ "$_rnv_minor" -ge 19 ] || _rnv_ok=0 ;;
+    22) [ "$_rnv_minor" -ge 18 ] || _rnv_ok=0 ;;
+    23) _rnv_ok=0 ;;
+    24) [ "$_rnv_minor" -ge 11 ] || _rnv_ok=0 ;;
+    *) [ "$_rnv_major" -gt 24 ] || _rnv_ok=0 ;;
+  esac
+  if [ "$_rnv_ok" -ne 1 ]; then
+    echo "ERROR [ensure-worktree]: Node.js $_rnv_version is on PATH, but Vite+ needs ^20.19.0 || ^22.18.0 || >=24.11.0 (see .node-version)." >&2
+    exit 1
+  fi
+}
+require_node_version
+
 # assert_main_checkout_unchanged <repo_root> <head_before> <branch_before>
 # Fail closed if provisioning the new worktree mutated the main checkout's
 # HEAD or current branch out from under whoever else is using it.
