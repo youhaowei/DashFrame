@@ -247,7 +247,7 @@ export function canChangeSavedVisualizationType(input: {
 export function resolveNewChartTarget(input: {
   suggestionsReady: boolean;
   firstSuggestedChartType?: VisualizationType;
-}): InsightCanvasView | null {
+}): Extract<InsightCanvasView, { kind: "chart" }> | null {
   if (!input.suggestionsReady) return null;
   return input.firstSuggestedChartType
     ? chartView(input.firstSuggestedChartType)
@@ -259,7 +259,7 @@ export function resolvePendingNewChartTarget(input: {
   currentInsightId: string;
   suggestionsReady: boolean;
   firstSuggestedChartType?: VisualizationType;
-}): InsightCanvasView | null {
+}): Extract<InsightCanvasView, { kind: "chart" }> | null {
   if (input.requestedInsightId !== input.currentInsightId) return null;
   return resolveNewChartTarget(input);
 }
@@ -657,7 +657,9 @@ function canvasViewTabId(view: InsightCanvasView): string {
   return `${VIZ_TAB_PREFIX}${view.visualizationId}`;
 }
 
-function chartView(chartType: VisualizationType): InsightCanvasView {
+function chartView(
+  chartType: VisualizationType,
+): Extract<InsightCanvasView, { kind: "chart" }> {
   return { kind: "chart", chartType };
 }
 
@@ -992,6 +994,10 @@ export function InsightView({
   const [newChartRequestedFor, setNewChartRequestedFor] = useState<
     string | null
   >(null);
+  const [draftChart, setDraftChart] = useState<{
+    insightId: string;
+    chartType: VisualizationType;
+  } | null>(null);
 
   // Mutations — artifact writes go through commitBatch (one batch per user edit).
   const commitBatch = useMutation(api.app.commitBatch);
@@ -1202,6 +1208,25 @@ export function InsightView({
       setPersistedActiveView(insightId, view);
     },
     [insightId, setPersistedActiveView],
+  );
+
+  const draftChartType =
+    draftChart?.insightId === insightId ? draftChart.chartType : undefined;
+  const openDraftChart = useCallback(
+    (chartType: VisualizationType) => {
+      setNewChartRequestedFor(null);
+      setDraftChart({ insightId, chartType });
+      handleSetActiveView(chartView(chartType));
+    },
+    [handleSetActiveView, insightId],
+  );
+
+  const handleSelectVisualization = useCallback(
+    (visualizationId: string) => {
+      setNewChartRequestedFor(null);
+      handleSetActiveView(visualizationView(visualizationId));
+    },
+    [handleSetActiveView],
   );
 
   // Build field map for suggestions
@@ -1552,6 +1577,7 @@ export function InsightView({
       );
 
       if (matchingVisualization) {
+        setDraftChart(null);
         handleSetActiveView(visualizationView(matchingVisualization.id));
         return matchingVisualization.id;
       }
@@ -1564,6 +1590,7 @@ export function InsightView({
         encoding: visualizationEncoding,
       });
 
+      setDraftChart(null);
       handleSetActiveView(visualizationView(vizId));
       return vizId;
     },
@@ -1747,18 +1774,23 @@ export function InsightView({
   const handleSelectNewChart = useCallback(() => {
     // The draft already occupies the slot; selecting it just reopens it.
     if (activeView.kind === "chart") return;
+    if (draftChartType) {
+      openDraftChart(draftChartType);
+      return;
+    }
     const target = resolveNewChartTarget({
       suggestionsReady: areChartSuggestionsReady,
       firstSuggestedChartType: firstChartSuggestion?.chartType,
     });
-    if (target) handleSetActiveView(target);
+    if (target) openDraftChart(target.chartType);
     else setNewChartRequestedFor(insightId);
   }, [
     activeView.kind,
     areChartSuggestionsReady,
+    draftChartType,
     firstChartSuggestion,
-    handleSetActiveView,
     insightId,
+    openDraftChart,
   ]);
 
   // A new-chart request made before the suggestions finish computing opens the
@@ -1776,7 +1808,7 @@ export function InsightView({
     queueMicrotask(() => {
       if (cancelled) return;
       setNewChartRequestedFor(null);
-      if (target) handleSetActiveView(target);
+      if (target) openDraftChart(target.chartType);
     });
     return () => {
       cancelled = true;
@@ -1784,9 +1816,9 @@ export function InsightView({
   }, [
     areChartSuggestionsReady,
     firstChartSuggestion,
-    handleSetActiveView,
     insightId,
     newChartRequestedFor,
+    openDraftChart,
   ]);
 
   const canvasTabs = useMemo<WorkbenchTabItem[]>(() => {
@@ -1808,10 +1840,9 @@ export function InsightView({
     ];
     // One unsaved slot: dashed while it is an invitation, the draft itself
     // once a chart is open in it.
-    const DraftIcon =
-      activeView.kind === "chart" ? CHART_ICONS[activeView.chartType] : null;
+    const DraftIcon = draftChartType ? CHART_ICONS[draftChartType] : null;
     tabs.push(
-      activeView.kind === "chart" && DraftIcon
+      draftChartType && DraftIcon
         ? {
             id: DRAFT_TAB_ID,
             label: "Untitled chart",
@@ -1828,7 +1859,7 @@ export function InsightView({
           },
     );
     return tabs;
-  }, [activeView, insightVisualizations]);
+  }, [draftChartType, insightVisualizations]);
 
   const activeTabId = canvasViewTabId(activeView);
 
@@ -1844,12 +1875,9 @@ export function InsightView({
         return;
       }
       if (!tabId.startsWith(VIZ_TAB_PREFIX)) return;
-      setNewChartRequestedFor(null);
-      handleSetActiveView(
-        visualizationView(tabId.slice(VIZ_TAB_PREFIX.length)),
-      );
+      handleSelectVisualization(tabId.slice(VIZ_TAB_PREFIX.length));
     },
-    [handleSelectNewChart, handleSetActiveView],
+    [handleSelectNewChart, handleSelectVisualization, handleSetActiveView],
   );
 
   const canPinActiveChart =
@@ -2073,12 +2101,8 @@ export function InsightView({
               onPendingVisualizationChange={
                 handleVisualizationWritePendingChange
               }
-              onSelectChartType={(chartType) =>
-                handleSetActiveView(chartView(chartType))
-              }
-              onSelectVisualization={(visualizationId) =>
-                handleSetActiveView(visualizationView(visualizationId))
-              }
+              onSelectChartType={openDraftChart}
+              onSelectVisualization={handleSelectVisualization}
               updateVisualization={updateVisualization}
             />
           </div>

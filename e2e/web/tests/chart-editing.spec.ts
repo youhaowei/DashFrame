@@ -76,4 +76,32 @@ test.describe("Chart Editing", () => {
     await savedCharts.click();
     await expect(savedCharts).toHaveAccessibleName(/1 saved/);
   });
+
+  test("keeps an unsaved chart when switching canvas tabs", async ({
+    page,
+    waitForChart,
+  }) => {
+    await waitForChart();
+
+    await page.getByRole("tab", { name: "Chart", exact: true }).click();
+    await page.getByRole("button", { name: "Line", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: "Line", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+
+    await page.getByRole("tab", { name: "Data", exact: true }).click();
+    const draftTab = page.getByRole("tab", {
+      name: "Untitled chart",
+      exact: true,
+    });
+    await expect(draftTab).toBeVisible();
+    await draftTab.click();
+
+    await expect(
+      page.getByRole("button", { name: "Line", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+    await expect(
+      page.getByRole("button", { name: "Save chart" }),
+    ).toBeVisible();
+  });
 });
