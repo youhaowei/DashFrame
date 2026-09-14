@@ -398,14 +398,16 @@ export function VisualizationConfigPanel({
     () => toast.error("Failed to update chart encodings"),
     [],
   );
-  const { changeEncoding, changeType } = useVisualizationEncodingChange({
-    visualization: activeVisualization,
-    dataTable,
-    columnAnalysis,
-    updateVisualization,
-    onUpdateError: handleEncodingUpdateError,
-    canChangeType: canChangeChartType,
-  });
+  const { changeEncoding, changeType, effectiveVisualization } =
+    useVisualizationEncodingChange({
+      visualization: activeVisualization,
+      dataTable,
+      columnAnalysis,
+      compiledInsight,
+      updateVisualization,
+      onUpdateError: handleEncodingUpdateError,
+      canChangeType: canChangeChartType,
+    });
   const handleEncodingChange = (
     field: "x" | "y" | "color" | "size",
     value: string,
@@ -461,10 +463,10 @@ export function VisualizationConfigPanel({
         )}
       </div>
     );
-  } else if (activeVisualization) {
+  } else if (activeVisualization && effectiveVisualization) {
     encodingContent = (
       <SavedEncodings
-        visualization={activeVisualization}
+        visualization={{ ...activeVisualization, ...effectiveVisualization }}
         compiledInsight={compiledInsight}
         availableFields={availableFields}
         metricLabelFields={metricLabelFields}

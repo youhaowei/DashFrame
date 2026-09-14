@@ -1,6 +1,7 @@
 import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
 import type {
   ColumnAnalysis,
+  CompiledInsight,
   DataTable,
   UUID,
   Visualization,
@@ -8,7 +9,8 @@ import type {
   VisualizationType,
 } from "@dashframe/types";
 import { parseEncoding } from "@dashframe/types";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { isColumnValidForChannel } from "@/lib/visualizations/encoding-enforcer";
 import { getVisualizationTypeChange } from "./visualization-type-change";
 
 export type VisualizationEncodingField = "x" | "y" | "color" | "size";
@@ -25,6 +27,7 @@ interface UseVisualizationEncodingChangeOptions {
     | undefined;
   dataTable: Pick<DataTable, "fields"> | undefined;
   columnAnalysis: ColumnAnalysis[];
+  compiledInsight?: CompiledInsight;
   updateVisualization: (args: {
     id: UUID;
     updates: {
@@ -80,6 +83,7 @@ export function useVisualizationEncodingChange({
   visualization,
   dataTable,
   columnAnalysis,
+  compiledInsight,
   updateVisualization,
   onUpdateError,
   canChangeType,
@@ -113,6 +117,15 @@ export function useVisualizationEncodingChange({
     new Map<UUID, { sequence: number; state: PendingVisualization }>(),
   );
   const writeSequenceRef = useRef(0);
+  const [renderedPendingVisualizations, setRenderedPendingVisualizations] =
+    useState(() => new Map<UUID, PendingVisualization>());
+  const refreshPendingVisualization = useCallback(
+    () =>
+      setRenderedPendingVisualizations(
+        new Map(pendingVisualizationsRef.current),
+      ),
+    [],
+  );
   useEffect(() => {
     // Convex resolves a mutation only once subscriptions reflect it, so any
     // prop rendered after a success already contains it — and may carry newer
@@ -120,10 +133,14 @@ export function useVisualizationEncodingChange({
     const visualizationId = visualization?.id;
     if (!visualizationId) return;
     succeededVisualizationsRef.current.delete(visualizationId);
-    if ((inFlightWritesRef.current.get(visualizationId) ?? 0) === 0) {
-      pendingVisualizationsRef.current.delete(visualizationId);
+    if (
+      (inFlightWritesRef.current.get(visualizationId) ?? 0) === 0 &&
+      pendingVisualizationsRef.current.delete(visualizationId)
+    ) {
+      refreshPendingVisualization();
     }
   }, [
+    refreshPendingVisualization,
     visualization?.id,
     visualization?.visualizationType,
     visualization?.encoding,
@@ -142,6 +159,7 @@ export function useVisualizationEncodingChange({
       },
     ) => {
       pendingVisualizationsRef.current.set(next.id, next);
+      refreshPendingVisualization();
       inFlightWritesRef.current.set(
         next.id,
         (inFlightWritesRef.current.get(next.id) ?? 0) + 1,
@@ -166,6 +184,7 @@ export function useVisualizationEncodingChange({
           } else {
             pendingVisualizationsRef.current.delete(next.id);
           }
+          refreshPendingVisualization();
         }
         throw error;
       } finally {
@@ -174,7 +193,7 @@ export function useVisualizationEncodingChange({
         else inFlightWritesRef.current.set(next.id, inFlight);
       }
     },
-    [updateVisualization],
+    [refreshPendingVisualization, updateVisualization],
   );
 
   useEffect(() => {
@@ -236,6 +255,25 @@ export function useVisualizationEncodingChange({
       if (!visualization) return;
 
       const pending = pendingVisualizationsRef.current.get(visualization.id);
+      const visualizationType =
+        pending?.id === visualization.id
+          ? pending.visualizationType
+          : visualization.visualizationType;
+      if (
+        value &&
+        isAxisField(field) &&
+        columnAnalysis.length > 0 &&
+        compiledInsight &&
+        !isColumnValidForChannel(
+          value,
+          field,
+          visualizationType,
+          columnAnalysis,
+          compiledInsight,
+        ).suitable
+      ) {
+        return;
+      }
       const baseEncoding =
         pending?.id === visualization.id
           ? pending.encoding
@@ -266,10 +304,7 @@ export function useVisualizationEncodingChange({
 
       const next = {
         id: visualization.id,
-        visualizationType:
-          pending?.id === visualization.id
-            ? pending.visualizationType
-            : visualization.visualizationType,
+        visualizationType: visualizationType,
         encoding: nextEncoding,
       };
       await commitVisualizationChange(next, {
@@ -281,6 +316,7 @@ export function useVisualizationEncodingChange({
     },
     [
       columnAnalysis,
+      compiledInsight,
       commitVisualizationChange,
       resolveAnalysisAlias,
       visualization,
@@ -317,5 +353,13 @@ export function useVisualizationEncodingChange({
     [canChangeType, commitVisualizationChange, visualization],
   );
 
-  return { changeEncoding, changeType };
+  const pendingVisualization = visualization
+    ? renderedPendingVisualizations.get(visualization.id)
+    : undefined;
+  const effectiveVisualization =
+    visualization && pendingVisualization
+      ? { ...visualization, ...pendingVisualization }
+      : visualization;
+
+  return { changeEncoding, changeType, effectiveVisualization };
 }

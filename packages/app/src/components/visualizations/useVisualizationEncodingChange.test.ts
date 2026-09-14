@@ -1,14 +1,61 @@
 import type {
+  ColumnAnalysis,
+  CompiledInsight,
+  DataTable,
   UUID,
   VisualizationEncoding,
   VisualizationType,
 } from "@dashframe/types";
+import { fieldEncoding, metricEncoding } from "@dashframe/types";
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { useVisualizationEncodingChange } from "./useVisualizationEncodingChange";
 
 const visualizationId = "viz-1" as UUID;
+const dimensionId = "22222222-2222-4222-8222-222222222222" as UUID;
+const metricId = "33333333-3333-4333-8333-333333333333" as UUID;
+const tableId = "44444444-4444-4444-8444-444444444444" as UUID;
+const dimensionAlias = "field_22222222_2222_4222_8222_222222222222";
+const validationTable = {
+  fields: [
+    {
+      id: dimensionId,
+      tableId,
+      name: "Region",
+      columnName: "region",
+      type: "string",
+    },
+  ],
+} as Pick<DataTable, "fields">;
+const validationInsight = {
+  id: "55555555-5555-4555-8555-555555555555" as UUID,
+  name: "Orders by region",
+  dimensions: validationTable.fields,
+  metrics: [
+    {
+      id: metricId,
+      name: "Total orders",
+      sourceTable: tableId,
+      columnName: "orders",
+      aggregation: "sum",
+    },
+  ],
+  filters: [],
+  sorts: [],
+} as CompiledInsight;
+const validationAnalysis: ColumnAnalysis[] = [
+  {
+    columnName: dimensionAlias,
+    fieldId: dimensionId,
+    dataType: "string",
+    semantic: "categorical",
+    cardinality: 5,
+    uniqueness: 0.25,
+    nullCount: 0,
+    sampleValues: ["APAC", "EMEA"],
+  },
+];
 
 function renderEncodingHook(
   encoding: VisualizationEncoding,
@@ -37,6 +84,96 @@ function renderEncodingHook(
 }
 
 describe("useVisualizationEncodingChange", () => {
+  it.each([
+    {
+      initialType: "barY" as const,
+      nextType: "barX" as const,
+      initialEncoding: {
+        x: fieldEncoding(dimensionId),
+        y: metricEncoding(metricId),
+      },
+      channel: "x" as const,
+      invalidValue: fieldEncoding(dimensionId),
+      validValue: metricEncoding(metricId),
+      repairChannel: "y" as const,
+      repairValue: fieldEncoding(dimensionId),
+    },
+    {
+      initialType: "barX" as const,
+      nextType: "barY" as const,
+      initialEncoding: {
+        x: metricEncoding(metricId),
+        y: fieldEncoding(dimensionId),
+      },
+      channel: "y" as const,
+      invalidValue: fieldEncoding(dimensionId),
+      validValue: metricEncoding(metricId),
+      repairChannel: "x" as const,
+      repairValue: fieldEncoding(dimensionId),
+    },
+  ])(
+    "validates $channel edits against a pending $nextType orientation without blocking repairs",
+    async ({
+      initialType,
+      nextType,
+      initialEncoding,
+      channel,
+      invalidValue,
+      validValue,
+      repairChannel,
+      repairValue,
+    }) => {
+      let resolveTypeChange: (() => void) | undefined;
+      const updateVisualization = vi
+        .fn()
+        .mockImplementationOnce(
+          () =>
+            new Promise<void>((resolve) => {
+              resolveTypeChange = resolve;
+            }),
+        )
+        .mockResolvedValue(undefined);
+      const { result } = renderHook(() =>
+        useVisualizationEncodingChange({
+          visualization: {
+            id: visualizationId,
+            visualizationType: initialType,
+            encoding: initialEncoding,
+          },
+          dataTable: validationTable,
+          columnAnalysis: validationAnalysis,
+          compiledInsight: validationInsight,
+          updateVisualization,
+        }),
+      );
+
+      let typeWrite: Promise<void> | undefined;
+      await act(async () => {
+        typeWrite = result.current.changeType(nextType);
+      });
+      await act(async () => {
+        await result.current.changeEncoding(channel, invalidValue);
+      });
+      expect(updateVisualization).toHaveBeenCalledOnce();
+
+      await act(async () => {
+        await result.current.changeEncoding(channel, validValue);
+        await result.current.changeEncoding(channel, "");
+        await result.current.changeEncoding(repairChannel, repairValue);
+      });
+      expect(updateVisualization).toHaveBeenCalledTimes(4);
+      expect(updateVisualization).toHaveBeenLastCalledWith({
+        id: visualizationId,
+        updates: expect.objectContaining({ visualizationType: nextType }),
+      });
+
+      await act(async () => {
+        resolveTypeChange?.();
+        await typeWrite;
+      });
+    },
+  );
+
   it("keeps each visualization's pending encoding across an A-B-A switch", async () => {
     const visualizationA = "viz-a" as UUID;
     const visualizationB = "viz-b" as UUID;

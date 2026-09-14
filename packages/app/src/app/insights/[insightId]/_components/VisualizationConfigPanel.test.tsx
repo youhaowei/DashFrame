@@ -6,24 +6,29 @@ import type {
   UUID,
   Visualization,
 } from "@dashframe/types";
-import { fieldEncoding } from "@dashframe/types";
+import { fieldEncoding, metricEncoding } from "@dashframe/types";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 vi.mock("@/components/visualizations/AxisSelectField", () => ({
   AxisSelectField: ({
     axis,
+    chartType,
+    compiledInsight,
     onChange,
     disabled,
   }: {
     axis: "x" | "y";
+    chartType: Visualization["visualizationType"];
+    compiledInsight: CompiledInsight;
     onChange: (value: string) => void;
     disabled?: boolean;
   }) => (
     <button
       type="button"
+      data-chart-type={chartType}
       disabled={disabled}
-      onClick={() => onChange(fieldEncoding(fieldId))}
+      onClick={() => onChange(fieldEncoding(compiledInsight.dimensions[0].id))}
     >
       Set {axis.toUpperCase()} encoding
     </button>
@@ -36,7 +41,10 @@ const visualizationId = "11111111-1111-4111-8111-111111111111" as UUID;
 const insightId = "22222222-2222-4222-8222-222222222222" as UUID;
 const tableId = "33333333-3333-4333-8333-333333333333" as UUID;
 const fieldId = "44444444-4444-4444-8444-444444444444" as UUID;
+const metricId = "55555555-5555-4555-8555-555555555555" as UUID;
+const dimensionId = "66666666-6666-4666-8666-666666666666" as UUID;
 const fieldAlias = "field_44444444_4444_4444_8444_444444444444";
+const dimensionAlias = "field_66666666_6666_4666_8666_666666666666";
 const field: Field = {
   id: fieldId,
   tableId,
@@ -115,12 +123,16 @@ describe("VisualizationConfigPanel", () => {
 
   it("writes a saved visualization encoding through the shared hook", async () => {
     const updateVisualization = vi.fn().mockResolvedValue(undefined);
+    const dotVisualization = {
+      ...visualization,
+      visualizationType: "dot" as const,
+    };
     render(
       <VisualizationConfigPanel
-        activeChartType="barY"
-        availableChartTypes={new Set(["barY"])}
-        activeVisualization={visualization}
-        visualizations={[visualization]}
+        activeChartType="dot"
+        availableChartTypes={new Set(["dot"])}
+        activeVisualization={dotVisualization}
+        visualizations={[dotVisualization]}
         compiledInsight={compiledInsight}
         dataTable={table}
         availableFields={[field]}
@@ -146,6 +158,103 @@ describe("VisualizationConfigPanel", () => {
         },
       }),
     );
+  });
+
+  it("uses a pending bar orientation when editing an axis before its echo", async () => {
+    let resolveTypeChange: (() => void) | undefined;
+    const updateVisualization = vi.fn().mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveTypeChange = resolve;
+        }),
+    );
+    const dimension = {
+      id: dimensionId,
+      tableId,
+      name: "Region",
+      columnName: "region",
+      type: "string" as const,
+    };
+    const insightWithMetric = {
+      ...compiledInsight,
+      dimensions: [dimension],
+      metrics: [
+        {
+          id: metricId,
+          name: "Total revenue",
+          sourceTable: tableId,
+          columnName: "revenue",
+          aggregation: "sum" as const,
+        },
+      ],
+    };
+    const barVisualization = {
+      ...visualization,
+      encoding: {
+        x: fieldEncoding(dimensionId),
+        y: metricEncoding(metricId),
+      },
+    };
+    render(
+      <VisualizationConfigPanel
+        activeChartType="barY"
+        availableChartTypes={new Set(["barY", "barX"])}
+        activeVisualization={barVisualization}
+        visualizations={[barVisualization]}
+        compiledInsight={insightWithMetric}
+        dataTable={{ ...table, fields: [field, dimension] }}
+        availableFields={[field, dimension]}
+        availableColumns={[
+          { name: fieldAlias, type: "number" },
+          { name: dimensionAlias, type: "string" },
+        ]}
+        columnDisplayNames={{
+          [fieldAlias]: "Revenue",
+          [dimensionAlias]: "Region",
+        }}
+        columnAnalysis={[
+          ...analysis,
+          {
+            columnName: dimensionAlias,
+            fieldId: dimensionId,
+            dataType: "string",
+            semantic: "categorical",
+            cardinality: 5,
+            uniqueness: 0.25,
+            nullCount: 0,
+            sampleValues: ["APAC", "EMEA"],
+          },
+        ]}
+        onSelectChartType={vi.fn()}
+        onSelectVisualization={vi.fn()}
+        updateVisualization={updateVisualization}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Horizontal bar", exact: true }),
+    );
+    const xPicker = screen.getByRole("button", { name: "Set X encoding" });
+    await waitFor(() =>
+      expect(xPicker.getAttribute("data-chart-type")).toBe("barX"),
+    );
+
+    // The stale rendered barY would offer this dimension for X. The pending
+    // barX requires a metric there, so the mutation boundary must reject it.
+    fireEvent.click(xPicker);
+    expect(updateVisualization).toHaveBeenCalledOnce();
+    expect(updateVisualization).toHaveBeenCalledWith({
+      id: visualizationId,
+      updates: {
+        visualizationType: "barX",
+        encoding: {
+          x: metricEncoding(metricId),
+          y: fieldEncoding(dimensionId),
+        },
+      },
+    });
+
+    resolveTypeChange?.();
   });
 
   it("keeps saved encoding controls disabled until analysis is ready", () => {

@@ -420,6 +420,7 @@ export default function VisualizationPageContent({
       visualization,
       dataTable,
       columnAnalysis,
+      compiledInsight: compiledInsightForValidation,
       updateVisualization: updateVisualizationMutation,
       onUpdateError: handleEncodingUpdateError,
     });
