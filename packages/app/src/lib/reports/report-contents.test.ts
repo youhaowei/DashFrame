@@ -1,6 +1,7 @@
 import type { Dashboard, Insight, Visualization } from "@dashframe/types";
 import { describe, expect, it } from "vite-plus/test";
 import {
+  formatSavedViewType,
   indexReportContents,
   reportQuestionListState,
   resolveReportContents,
@@ -87,5 +88,12 @@ describe("resolveReportContents", () => {
     expect(contents.questionIds).toEqual(["question-1"]);
     expect(contents.questions).toEqual([]);
     expect(reportQuestionListState(contents)).toBe("unavailable");
+  });
+});
+
+describe("formatSavedViewType", () => {
+  it("falls back for persisted chart types outside the current metadata set", () => {
+    expect(formatSavedViewType("barX")).toBe("Horizontal bar");
+    expect(formatSavedViewType("legacy-pie")).toBe("Saved view");
   });
 });

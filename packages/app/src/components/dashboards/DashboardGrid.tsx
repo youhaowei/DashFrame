@@ -24,12 +24,17 @@ interface DashboardGridProps {
    * the saved dashboard.  Absent → use saved defaults only.
    */
   controlTransientValues?: Map<string, InsightFilter["value"]>;
+  /** Item open in the report item pane, if any. */
+  selectedItemId?: string | null;
+  onSelectItem?: (itemId: string) => void;
 }
 
 export function DashboardGrid({
   dashboard,
   isEditable,
   controlTransientValues,
+  selectedItemId,
+  onSelectItem,
 }: DashboardGridProps) {
   // Destructure the stable `mutateAsync` — the `useMutation` result object is a
   // fresh reference every render, so depending on it would defeat the
@@ -192,8 +197,9 @@ export function DashboardGrid({
             item={item}
             dashboardId={dashboard.id}
             isEditable={isEditable}
+            isSelected={item.id === selectedItemId}
+            onSelect={onSelectItem}
             effectiveOverrides={effectiveOverridesMap.get(item.id)}
-            controls={dashboard.controls ?? []}
           />
         </div>
       ))}

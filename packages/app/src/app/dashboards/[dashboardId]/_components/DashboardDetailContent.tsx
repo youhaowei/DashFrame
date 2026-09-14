@@ -1,29 +1,20 @@
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 import { ArtifactPageHeader } from "@/components/artifacts/ArtifactPageHeader";
-import {
-  ArtifactCard,
-  ArtifactGrid,
-} from "@/components/artifacts/ArtifactCollection";
 import { queryStatus } from "@/data/query-status";
 import { Breadcrumb } from "@dashframe/ui";
 import { useQuery_experimental as useQuery, useMutation } from "convex/react";
 import { useBindArtifact } from "@/components/assistant/artifact-context";
 import { DashboardControlBar } from "@/components/dashboards/DashboardControlBar";
 import { DashboardGrid } from "@/components/dashboards/DashboardGrid";
+import { ReportItemPane } from "@/components/dashboards/ReportItemPane";
 import {
   resolveInsightAvailableFields,
   type CombinedField,
 } from "@/lib/insights/compute-combined-fields";
-import {
-  indexReportContents,
-  reportQuestionListState,
-  resolveReportContents,
-} from "@/lib/reports/report-contents";
 import { useWebMCPPageStore } from "@/lib/stores/webmcp-page-store";
 import { api } from "@dashframe/convex-backend/api";
 import {
   cmd,
-  CHART_TYPE_METADATA,
   type DashboardItemType,
   type InsightFilter,
   type UUID,
@@ -41,6 +32,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  cn,
 } from "@wystack/ui-react";
 import {
   ChartIcon,
@@ -54,20 +46,6 @@ import { toast } from "sonner";
 
 interface DashboardDetailContentProps {
   dashboardId: string;
-}
-
-export function formatReportContentsCount(
-  questionCount: number,
-  savedViewCount: number,
-): string {
-  return `${questionCount} question${questionCount === 1 ? "" : "s"} · ${savedViewCount} saved view${savedViewCount === 1 ? "" : "s"}`;
-}
-
-export function formatSavedViewType(visualizationType: string): string {
-  return Object.hasOwn(CHART_TYPE_METADATA, visualizationType)
-    ? CHART_TYPE_METADATA[visualizationType as keyof typeof CHART_TYPE_METADATA]
-        .displayName
-    : "Saved view";
 }
 
 export function reportQuestionLink(questionId: string, reportId: string) {
@@ -115,17 +93,6 @@ export default function DashboardDetailContent({
     () => dashboards.find((d) => d.id === dashboardId),
     [dashboards, dashboardId],
   );
-  const reportContents = useMemo(
-    () =>
-      dashboard
-        ? resolveReportContents(
-            dashboard,
-            indexReportContents(visualizations, insights),
-          )
-        : { savedViews: [], questionIds: [], questions: [] },
-    [dashboard, insights, visualizations],
-  );
-  const questionListState = reportQuestionListState(reportContents);
   const questionMetadataAvailable = !insightsLoading && !insightsLoadError;
 
   // Bind the assistant to this dashboard (cleared on unmount).
@@ -199,6 +166,25 @@ export default function DashboardDetailContent({
   const [isAddPending, setIsAddPending] = useState(false);
   const [addType, setAddType] = useState<DashboardItemType>("visualization");
   const [selectedVizId, setSelectedVizId] = useState<string>("");
+  // The pane keeps rendering its last item while it closes, so the width
+  // transition collapses real content instead of an empty column.
+  const [paneItemId, setPaneItemId] = useState<string | null>(null);
+  const [isPaneOpen, setIsPaneOpen] = useState(false);
+
+  const selectItem = (itemId: string) => {
+    setPaneItemId(itemId);
+    setIsPaneOpen(true);
+  };
+  const closePane = () => setIsPaneOpen(false);
+
+  useEffect(() => {
+    if (!isPaneOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsPaneOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isPaneOpen]);
 
   // Redirect if not found — but only once any in-flight fetch has settled.
   // Guard on isFetching as well as isLoading: TanStack Query sets isLoading=false
@@ -235,6 +221,9 @@ export default function DashboardDetailContent({
       </div>
     );
   }
+
+  const paneItem = dashboard.items.find((item) => item.id === paneItemId);
+  const showPane = isEditable && isPaneOpen && paneItem !== undefined;
 
   const handleAddItem = async () => {
     // Compute the bottom of the current layout so the new widget is appended
@@ -288,10 +277,6 @@ export default function DashboardDetailContent({
     <div className="flex h-full flex-col">
       <ArtifactPageHeader
         title={dashboard.name}
-        description={formatReportContentsCount(
-          reportContents.questionIds.length,
-          reportContents.savedViews.length,
-        )}
         navigation={
           <Breadcrumb
             LinkComponent={Link}
@@ -307,7 +292,10 @@ export default function DashboardDetailContent({
               <Button
                 icon={CheckIcon}
                 label="Done editing"
-                onClick={() => setIsEditable(false)}
+                onClick={() => {
+                  setIsEditable(false);
+                  closePane();
+                }}
               />
             ) : (
               <Button
@@ -329,114 +317,89 @@ export default function DashboardDetailContent({
         }
       />
 
-      <div className="max-h-[42vh] shrink-0 space-y-6 overflow-y-auto bg-neutral-bg px-4 py-5 sm:px-6">
-        <section
-          aria-labelledby="report-questions-heading"
-          className="space-y-3"
-        >
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <h2
-                id="report-questions-heading"
-                className="text-sm font-semibold text-neutral-fg"
-              >
-                Questions ({reportContents.questionIds.length})
-              </h2>
-              <p className="mt-1 text-xs text-neutral-fg-subtle">
-                Questions used by saved views on this report.
-              </p>
-            </div>
-            <Link
-              to="/insights"
-              className="text-xs font-medium text-palette-primary hover:underline"
-            >
-              View all questions
-            </Link>
-          </div>
-          {reportContents.questions.length > 0 ? (
-            <ArtifactGrid>
-              {reportContents.questions.map((question) => {
-                const savedViewCount = reportContents.savedViews.filter(
-                  (view) => view.insightId === question.id,
-                ).length;
-                return (
-                  <ArtifactCard
-                    key={question.id}
-                    headingLevel={3}
-                    {...reportQuestionLink(question.id, dashboardId)}
-                    name={question.name}
-                    icon={<FileIcon className="h-5 w-5" />}
-                    metadata={`${savedViewCount} saved view${savedViewCount === 1 ? "" : "s"} in this report`}
-                  />
-                );
-              })}
-            </ArtifactGrid>
-          ) : null}
-          {questionListState === "unavailable" ? (
-            <p className="text-sm text-neutral-fg-subtle">
-              Some question details are unavailable.
-            </p>
-          ) : null}
-          {questionListState === "empty" ? (
-            <div className="space-y-3">
-              <p className="text-sm text-neutral-fg-subtle">
-                No questions yet. Start with your data, then add a saved view to
-                this report.
-              </p>
-              <Button
-                label="Create first question"
-                icon={PlusIcon}
-                onClick={() => setIsCreateQuestionOpen(true)}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          {/* Control Bar — only rendered when the dashboard has controls */}
+          {questionMetadataAvailable &&
+            (dashboard.controls ?? []).length > 0 && (
+              <DashboardControlBar
+                controls={dashboard.controls!}
+                fieldsByName={fieldsByName}
+                transientValues={controlTransientValues}
+                onTransientChange={setControlTransientValues}
               />
-            </div>
-          ) : null}
-        </section>
+            )}
 
-        <section aria-labelledby="report-views-heading" className="space-y-3">
-          <h2
-            id="report-views-heading"
-            className="text-sm font-semibold text-neutral-fg"
+          {/* Grid Content — a click outside every item closes the pane. */}
+          <div
+            className="flex-1 overflow-y-auto bg-neutral-bg-muted/10 p-6"
+            onClick={(event) => {
+              if (
+                !(event.target as HTMLElement).closest(
+                  "[data-dashframe-widget-id]",
+                )
+              ) {
+                closePane();
+              }
+            }}
           >
-            Saved views ({reportContents.savedViews.length})
-          </h2>
-          {reportContents.savedViews.length > 0 ? (
-            <ArtifactGrid>
-              {reportContents.savedViews.map((view) => (
-                <ArtifactCard
-                  key={view.id}
-                  headingLevel={3}
-                  {...reportSavedViewLink(view.id, dashboardId)}
-                  name={view.name}
-                  icon={<ChartIcon className="h-5 w-5" />}
-                  metadata={formatSavedViewType(view.visualizationType)}
-                />
-              ))}
-            </ArtifactGrid>
-          ) : (
-            <p className="text-sm text-neutral-fg-subtle">
-              No saved views are on this report yet.
-            </p>
+            {dashboard.items.length === 0 ? (
+              <div className="mx-auto flex max-w-sm flex-col items-center gap-3 py-24 text-center">
+                <h2 className="text-sm font-semibold text-neutral-fg">
+                  Put something on this report
+                </h2>
+                <p className="text-sm text-neutral-fg-subtle">
+                  Ask a question of your data, or add a chart you already saved.
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    icon={PlusIcon}
+                    label="Create question"
+                    onClick={() => setIsCreateQuestionOpen(true)}
+                  />
+                  <Button
+                    icon={PlusIcon}
+                    label="Add item"
+                    onClick={() => {
+                      setIsEditable(true);
+                      setIsAddOpen(true);
+                    }}
+                  />
+                </div>
+              </div>
+            ) : (
+              <DashboardGrid
+                dashboard={dashboard}
+                isEditable={isEditable}
+                controlTransientValues={controlTransientValues}
+                selectedItemId={isPaneOpen ? paneItem?.id : null}
+                onSelectItem={selectItem}
+              />
+            )}
+          </div>
+        </div>
+
+        <aside
+          aria-label="Report item"
+          inert={!showPane}
+          aria-hidden={!showPane}
+          className={cn(
+            "h-full min-w-0 shrink-0 overflow-hidden transition-[width] duration-200 motion-reduce:transition-none",
+            showPane ? "w-72" : "w-0",
           )}
-        </section>
-      </div>
-
-      {/* Control Bar — only rendered when the dashboard has controls */}
-      {questionMetadataAvailable && (dashboard.controls ?? []).length > 0 && (
-        <DashboardControlBar
-          controls={dashboard.controls!}
-          fieldsByName={fieldsByName}
-          transientValues={controlTransientValues}
-          onTransientChange={setControlTransientValues}
-        />
-      )}
-
-      {/* Grid Content */}
-      <div className="flex-1 overflow-y-auto bg-neutral-bg-muted/10 p-6">
-        <DashboardGrid
-          dashboard={dashboard}
-          isEditable={isEditable}
-          controlTransientValues={controlTransientValues}
-        />
+        >
+          <div className="h-full w-72">
+            {paneItem && (
+              <ReportItemPane
+                key={paneItem.id}
+                item={paneItem}
+                dashboard={dashboard}
+                onClose={closePane}
+              />
+            )}
+          </div>
+        </aside>
       </div>
 
       <CreateVisualizationModal

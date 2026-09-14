@@ -1,4 +1,16 @@
-import type { Dashboard, Insight, Visualization } from "@dashframe/types";
+import {
+  CHART_TYPE_METADATA,
+  type Dashboard,
+  type Insight,
+  type Visualization,
+} from "@dashframe/types";
+
+export function formatSavedViewType(visualizationType: string): string {
+  return Object.hasOwn(CHART_TYPE_METADATA, visualizationType)
+    ? CHART_TYPE_METADATA[visualizationType as keyof typeof CHART_TYPE_METADATA]
+        .displayName
+    : "Saved view";
+}
 
 export function indexReportContents(
   visualizations: readonly Visualization[],

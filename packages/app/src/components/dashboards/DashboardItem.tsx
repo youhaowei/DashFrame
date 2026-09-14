@@ -2,7 +2,6 @@ import { useMutation } from "convex/react";
 import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
 import { api } from "@dashframe/convex-backend/api";
 import {
-  type DashboardControl,
   type DashboardItemOverrides,
   type DashboardItem as DashboardItemType,
   cmd,
@@ -11,16 +10,18 @@ import {
 import { groupHoverAndFocusWithinReveal } from "@dashframe/ui";
 
 import { Button, cn, Surface } from "@wystack/ui-react";
-import { DeleteIcon, DragHandleIcon, EditIcon } from "@wystack/ui-react/icons";
-import { useState } from "react";
+import { DeleteIcon, DragHandleIcon } from "@wystack/ui-react/icons";
 import { toast } from "sonner";
 import { MarkdownWidget } from "./MarkdownWidget";
-import { OverridePopover } from "./OverridePopover";
 
 interface DashboardItemProps {
   item: DashboardItemType;
   dashboardId: string;
   isEditable: boolean;
+  /** True when this item is the one open in the report item pane. */
+  isSelected?: boolean;
+  /** Selects this item for the report item pane. Editor-mode only. */
+  onSelect?: (itemId: string) => void;
   /**
    * Effective overrides for this cell, produced by merging the item's saved
    * `overrides` with any active dashboard controls.  When present this
@@ -28,11 +29,6 @@ interface DashboardItemProps {
    * When absent, the item's own saved `overrides` are used as before.
    */
   effectiveOverrides?: DashboardItemOverrides;
-  /**
-   * Dashboard-level controls passed down from DashboardGrid.  Used by the
-   * OverridePopover to derive field-bound state and offer bind/unbind affordances.
-   */
-  controls?: DashboardControl[];
   className?: string;
   // Props passed by react-grid-layout
   style?: React.CSSProperties;
@@ -41,12 +37,15 @@ interface DashboardItemProps {
   onTouchEnd?: React.TouchEventHandler;
 }
 
+function noop() {}
+
 export function DashboardItem({
   item,
   dashboardId,
   isEditable,
+  isSelected = false,
+  onSelect,
   effectiveOverrides,
-  controls = [],
   className,
   style,
   onMouseDown,
@@ -54,9 +53,7 @@ export function DashboardItem({
   onTouchEnd,
   ...props
 }: DashboardItemProps) {
-  const [isEditingContent, setIsEditingContent] = useState(false);
   const commitBatch = useMutation(api.app.commitBatch);
-  const [isSavingContent, setIsSavingContent] = useState(false);
 
   const handleRemove = async () => {
     try {
@@ -71,28 +68,6 @@ export function DashboardItem({
     } catch {
       toast.error("Couldn't remove the widget");
     }
-  };
-
-  const handleSaveContent = async (content: string) => {
-    setIsSavingContent(true);
-    try {
-      await commitBatch({
-        commands: [
-          cmd("UpdateDashboardItem", {
-            dashboardId: dashboardId as UUID,
-            itemId: item.id,
-            updates: { content },
-          }),
-        ],
-      });
-    } catch {
-      // Keep the editor open on failure so the user's text isn't lost.
-      toast.error("Couldn't save the widget");
-      return;
-    } finally {
-      setIsSavingContent(false);
-    }
-    setIsEditingContent(false);
   };
 
   return (
@@ -123,17 +98,6 @@ export function DashboardItem({
             className="flex items-center gap-1"
             onMouseDown={(e) => e.stopPropagation()}
           >
-            {item.type === "markdown" && (
-              <Button
-                label="Edit content"
-                variant="ghost"
-                size="sm"
-                className="h-6 w-6 hover:bg-neutral-bg/80"
-                onClick={() => setIsEditingContent(true)}
-              >
-                <EditIcon className="h-3.5 w-3.5" />
-              </Button>
-            )}
             <Button
               label="Remove item"
               variant="ghost"
@@ -149,16 +113,19 @@ export function DashboardItem({
 
       <Surface
         elevation="raised"
-        className="relative z-10 flex h-full flex-col overflow-hidden"
+        className={cn(
+          "relative z-10 flex h-full flex-col overflow-hidden ring-palette-primary transition-shadow duration-150 motion-reduce:transition-none",
+          isSelected && "ring-2",
+        )}
       >
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {item.type === "markdown" ? (
+            // Text is edited in the report item pane; the cell renders it.
             <MarkdownWidget
               content={item.content || ""}
-              isEditing={isEditingContent}
-              onSave={handleSaveContent}
-              onCancel={() => setIsEditingContent(false)}
-              isSaving={isSavingContent}
+              isEditing={false}
+              onSave={noop}
+              onCancel={noop}
             />
           ) : (
             <div className="h-full w-full">
@@ -170,24 +137,19 @@ export function DashboardItem({
           )}
         </div>
 
-        {/* Customize button + override badge — visualization cells only, editor-mode only.
-            Hidden from non-editors: the underlying commitBatch commands persist
-            changes, which is not the intended v0.3 viewer scope.
-            Visible on hover or focus within, anchored bottom-right inside the surface. */}
-        {item.type === "visualization" && isEditable && (
-          <div
-            className={cn(
-              "absolute right-2 bottom-2 z-20 transition-opacity",
-              groupHoverAndFocusWithinReveal,
-            )}
+        {/* In editor mode the whole cell selects the item for the pane, and
+            the chart underneath stays inert so a click never lands on it. */}
+        {isEditable && onSelect && (
+          <button
+            type="button"
+            aria-label={
+              item.type === "markdown" ? "Select text item" : "Select chart"
+            }
+            aria-pressed={isSelected}
+            onClick={() => onSelect(item.id)}
             onMouseDown={(e) => e.stopPropagation()}
-          >
-            <OverridePopover
-              item={item}
-              dashboardId={dashboardId}
-              controls={controls}
-            />
-          </div>
+            className="absolute inset-0 z-20 cursor-pointer rounded-[inherit] focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none focus-visible:ring-inset"
+          />
         )}
       </Surface>
     </div>
