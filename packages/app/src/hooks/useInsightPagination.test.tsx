@@ -902,6 +902,9 @@ describe("useInsightPagination", () => {
     await act(async () => Promise.resolve());
     expect(client.mutate).toHaveBeenCalledTimes(1);
 
+    act(() => result.current.retry());
+    await waitFor(() => expect(client.mutate).toHaveBeenCalledTimes(2));
+
     tables = [
       {
         ...tables[0]!,
@@ -911,7 +914,7 @@ describe("useInsightPagination", () => {
       },
     ];
     rerender();
-    await waitFor(() => expect(client.mutate).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(client.mutate).toHaveBeenCalledTimes(3));
   });
   it.each(["reject", "failed", "page-failed"])(
     "retries an unreadable %s consumer after a sibling publication",

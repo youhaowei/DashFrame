@@ -57,6 +57,7 @@ vi.mock("./DeleteConfirmDialog", () => ({
 vi.mock("./FiltersSection", () => ({
   FiltersSection: ({
     onSave,
+    onRemove,
   }: {
     onSave: (
       filter: {
@@ -68,8 +69,12 @@ vi.mock("./FiltersSection", () => ({
       },
       control: { filterId: string; key: string; label: string },
     ) => Promise<void>;
+    onRemove: (filterId: string) => void;
   }) => (
     <>
+      <button type="button" onClick={() => onRemove("region")}>
+        Remove first viewer filter
+      </button>
       <button
         type="button"
         onClick={() =>
@@ -220,6 +225,53 @@ describe("InsightConfigPanel filter saves", () => {
             { filterId: "region", key: "region", label: "Region" },
             { filterId: "period", key: "period", label: "Period" },
           ],
+          limit: { min: 1, max: 100 },
+        },
+      },
+    });
+    resolveFirst?.();
+  });
+
+  it("preserves a pending limit while removing its filter before the echo", async () => {
+    let resolveFirst: (() => void) | undefined;
+    commitBatch
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveFirst = resolve;
+          }),
+      )
+      .mockResolvedValueOnce({});
+    render(
+      <InsightConfigPanel
+        insight={insight}
+        dataTable={table}
+        allDataTables={[table]}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save viewer controls" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove first viewer filter" }),
+    );
+
+    await waitFor(() => expect(commitBatch).toHaveBeenCalledTimes(2));
+    expect(commitBatch.mock.calls[1][0].commands).toContainEqual({
+      path: "setInsightFilter",
+      args: {
+        id: insight.id,
+        filters: [
+          { id: "period", field: "period", operator: "eq", value: "Q1" },
+        ],
+      },
+    });
+    expect(commitBatch.mock.calls[1][0].commands).toContainEqual({
+      path: "setInsightRuntimeControls",
+      args: {
+        id: insight.id,
+        runtimeControls: {
           limit: { min: 1, max: 100 },
         },
       },

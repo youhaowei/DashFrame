@@ -108,6 +108,7 @@ export async function removeFilterThroughCommands(
   commit: (input: { commands: Command[] }) => Promise<unknown>,
   insight: Insight,
   filterId: string,
+  writeRuntimeControls = insight.runtimeControls !== undefined,
 ): Promise<void> {
   const filters = stripFilterClientMetadata(
     withFilterIds(insight.filters).filter((filter) => filter._id !== filterId),
@@ -123,7 +124,7 @@ export async function removeFilterThroughCommands(
   await commit({
     commands: [
       cmd("SetInsightFilter", { id: insight.id, filters }),
-      ...(insight.runtimeControls
+      ...(writeRuntimeControls
         ? [
             cmd("SetInsightRuntimeControls", {
               id: insight.id,
@@ -196,6 +197,25 @@ export function InsightConfigPanel({
       pendingRuntimeControlsSignatureRef.current = null;
     }
   }, [insight.runtimeControls, runtimeControlsSignature]);
+  const stageRuntimeControls = useCallback(
+    (runtimeControls: InsightRuntimeDeclaration | undefined) => {
+      const signature = stableValueSignature(runtimeControls ?? null);
+      runtimeControlsRef.current = runtimeControls;
+      setLocalRuntimeControls(runtimeControls);
+      pendingRuntimeControlsSignatureRef.current = signature;
+      return signature;
+    },
+    [],
+  );
+  const rollbackRuntimeControls = useCallback(
+    (signature: string) => {
+      if (pendingRuntimeControlsSignatureRef.current !== signature) return;
+      runtimeControlsRef.current = insight.runtimeControls;
+      setLocalRuntimeControls(insight.runtimeControls);
+      pendingRuntimeControlsSignatureRef.current = null;
+    },
+    [insight.runtimeControls],
+  );
   const updateWebMCPInsight = useWebMCPPageStore(
     (state) => state.updateInsight,
   );
@@ -309,10 +329,7 @@ export function InsightConfigPanel({
 
   const handleRuntimeControlsChange = useCallback(
     async (runtimeControls: InsightRuntimeDeclaration | undefined) => {
-      const nextSignature = stableValueSignature(runtimeControls ?? null);
-      runtimeControlsRef.current = runtimeControls;
-      setLocalRuntimeControls(runtimeControls);
-      pendingRuntimeControlsSignatureRef.current = nextSignature;
+      const nextSignature = stageRuntimeControls(runtimeControls);
       const commands = runtimeControls
         ? buildInsightUpdateCommands(insight.id, insight, { runtimeControls })
         : [
@@ -325,16 +342,12 @@ export function InsightConfigPanel({
         await commitBatch({ commands });
         return true;
       } catch {
-        if (pendingRuntimeControlsSignatureRef.current === nextSignature) {
-          runtimeControlsRef.current = insight.runtimeControls;
-          setLocalRuntimeControls(insight.runtimeControls);
-          pendingRuntimeControlsSignatureRef.current = null;
-        }
+        rollbackRuntimeControls(nextSignature);
         toast.error("Failed to update viewer controls");
         return false;
       }
     },
-    [commitBatch, insight],
+    [commitBatch, insight, rollbackRuntimeControls, stageRuntimeControls],
   );
 
   /**
@@ -448,9 +461,41 @@ export function InsightConfigPanel({
 
   const handleRemoveFilter = useCallback(
     (filterId: string) => {
-      void removeFilterThroughCommands(commitBatch, insight, filterId);
+      const baseRuntimeControls = runtimeControlsRef.current;
+      const filters = stripFilterClientMetadata(
+        filtersWithIds.filter((filter) => filter._id !== filterId),
+      );
+      const nextRuntimeControls = pruneRuntimeControls(
+        baseRuntimeControls,
+        filters,
+        [
+          ...(insight.selectedFields ?? []),
+          ...(insight.metrics ?? []).map((metric) => metric.id),
+        ],
+      );
+      const writesRuntimeControls =
+        pendingRuntimeControlsSignatureRef.current !== null ||
+        stableValueSignature(nextRuntimeControls) !==
+          stableValueSignature(insight.runtimeControls);
+      const signature = writesRuntimeControls
+        ? stageRuntimeControls(nextRuntimeControls)
+        : null;
+      removeFilterThroughCommands(
+        commitBatch,
+        { ...insight, runtimeControls: baseRuntimeControls },
+        filterId,
+        writesRuntimeControls,
+      ).catch(() => {
+        if (signature) rollbackRuntimeControls(signature);
+      });
     },
-    [commitBatch, insight],
+    [
+      commitBatch,
+      filtersWithIds,
+      insight,
+      rollbackRuntimeControls,
+      stageRuntimeControls,
+    ],
   );
 
   const handleSaveFilter = useCallback(
@@ -490,9 +535,7 @@ export function InsightConfigPanel({
       }
       const nextSignature = stableValueSignature(nextRuntimeControls ?? null);
       if (writesRuntimeControls) {
-        runtimeControlsRef.current = nextRuntimeControls;
-        setLocalRuntimeControls(nextRuntimeControls);
-        pendingRuntimeControlsSignatureRef.current = nextSignature;
+        stageRuntimeControls(nextRuntimeControls);
       }
       try {
         await updateInsight(insight.id, updates);
@@ -501,14 +544,18 @@ export function InsightConfigPanel({
           writesRuntimeControls &&
           pendingRuntimeControlsSignatureRef.current === nextSignature
         ) {
-          runtimeControlsRef.current = insight.runtimeControls;
-          setLocalRuntimeControls(insight.runtimeControls);
-          pendingRuntimeControlsSignatureRef.current = null;
+          rollbackRuntimeControls(nextSignature);
         }
         throw error;
       }
     },
-    [filtersWithIds, insight.id, insight.runtimeControls, updateInsight],
+    [
+      filtersWithIds,
+      insight.id,
+      rollbackRuntimeControls,
+      stageRuntimeControls,
+      updateInsight,
+    ],
   );
 
   const handleFilterDraftChange = useCallback(
@@ -584,41 +631,71 @@ export function InsightConfigPanel({
 
   const removeConfigItem = useCallback(
     (itemType: DeleteDialogState["itemType"], itemId: string) => {
+      const baseRuntimeControls = runtimeControlsRef.current;
       if (itemType === "field") {
         const updated = (insight.selectedFields ?? []).filter(
           (id) => id !== itemId,
         );
-        updateInsight(insight.id, {
+        const nextRuntimeControls = pruneRuntimeControls(
+          baseRuntimeControls,
+          insight.filters ?? [],
+          [...updated, ...(insight.metrics ?? []).map((metric) => metric.id)],
+        );
+        const writesRuntimeControls =
+          pendingRuntimeControlsSignatureRef.current !== null ||
+          stableValueSignature(nextRuntimeControls) !==
+            stableValueSignature(insight.runtimeControls);
+        const signature = writesRuntimeControls
+          ? stageRuntimeControls(nextRuntimeControls)
+          : null;
+        const commands = buildInsightUpdateCommands(insight.id, insight, {
           selectedFields: updated,
-          runtimeControls: pruneRuntimeControls(
-            insight.runtimeControls,
-            insight.filters ?? [],
-            [...updated, ...(insight.metrics ?? []).map((metric) => metric.id)],
-          ),
+        });
+        if (writesRuntimeControls) {
+          commands.push(
+            cmd("SetInsightRuntimeControls", {
+              id: insight.id,
+              runtimeControls: nextRuntimeControls,
+            }),
+          );
+        }
+        commitBatch({ commands }).catch(() => {
+          if (signature) rollbackRuntimeControls(signature);
         });
       } else {
         const updated = (insight.metrics ?? []).filter((m) => m.id !== itemId);
-        updateInsight(insight.id, {
+        const nextRuntimeControls = pruneRuntimeControls(
+          baseRuntimeControls,
+          insight.filters ?? [],
+          [
+            ...(insight.selectedFields ?? []),
+            ...updated.map((metric) => metric.id),
+          ],
+        );
+        const writesRuntimeControls =
+          pendingRuntimeControlsSignatureRef.current !== null ||
+          stableValueSignature(nextRuntimeControls) !==
+            stableValueSignature(insight.runtimeControls);
+        const signature = writesRuntimeControls
+          ? stageRuntimeControls(nextRuntimeControls)
+          : null;
+        const commands = buildInsightUpdateCommands(insight.id, insight, {
           metrics: updated,
-          runtimeControls: pruneRuntimeControls(
-            insight.runtimeControls,
-            insight.filters ?? [],
-            [
-              ...(insight.selectedFields ?? []),
-              ...updated.map((metric) => metric.id),
-            ],
-          ),
+        });
+        if (writesRuntimeControls) {
+          commands.push(
+            cmd("SetInsightRuntimeControls", {
+              id: insight.id,
+              runtimeControls: nextRuntimeControls,
+            }),
+          );
+        }
+        commitBatch({ commands }).catch(() => {
+          if (signature) rollbackRuntimeControls(signature);
         });
       }
     },
-    [
-      insight.id,
-      insight.selectedFields,
-      insight.metrics,
-      insight.filters,
-      insight.runtimeControls,
-      updateInsight,
-    ],
+    [commitBatch, insight, rollbackRuntimeControls, stageRuntimeControls],
   );
 
   const handleConfirmDelete = useCallback(
