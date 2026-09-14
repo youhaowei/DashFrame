@@ -21,11 +21,6 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: .node-version
-
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -33,6 +28,9 @@ jobs:
 
       - name: Install Dependencies
         run: bun install --frozen-lockfile
+
+      - name: Check Node version
+        run: node scripts/check-node-version.mjs
 
       - name: Create Version PR
         uses: changesets/action@v1

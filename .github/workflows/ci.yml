@@ -53,11 +53,6 @@ jobs:
           # step could reach.
           persist-credentials: false
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: .node-version
-
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -65,6 +60,9 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Check Node version
+        run: node scripts/check-node-version.mjs
 
       - name: Format check
         run: |
@@ -81,11 +79,6 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: .node-version
-
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -93,6 +86,9 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Check Node version
+        run: node scripts/check-node-version.mjs
 
       # `bun check` already runs check:ticket-refs as its first link; a separate
       # earlier step only added another way for a cheap guard to mask lint,
@@ -112,11 +108,6 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: .node-version
-
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -124,6 +115,9 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Check Node version
+        run: node scripts/check-node-version.mjs
 
       # The web E2E target runs a production `vp build`, which resolves
       # @wystack/* via their `import`/`default` conditions → `dist/*.js`. Those
