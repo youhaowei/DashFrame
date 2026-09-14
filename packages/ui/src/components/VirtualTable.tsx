@@ -524,10 +524,20 @@ export function VirtualTable({
     return sortedStaticRows[index] ?? null;
   };
 
+  const heightValue = typeof height === "number" ? `${height}px` : height;
+
   return (
     <div
-      className={cn("relative flex flex-col", className)}
-      style={{ height, maxHeight: height }}
+      className={cn(
+        "relative flex max-h-(--virtual-table-height) flex-col",
+        className,
+      )}
+      style={
+        {
+          height: heightValue,
+          "--virtual-table-height": heightValue,
+        } as React.CSSProperties
+      }
     >
       {/* Loading indicator with animated spinner */}
       {isLoading && (
@@ -550,11 +560,8 @@ export function VirtualTable({
       >
         {/* Header */}
         <div
-          className="sticky top-0 z-10 grid border-b border-neutral-border bg-neutral-bg-muted"
-          style={{
-            gridTemplateColumns,
-            minWidth: "max-content",
-          }}
+          className="sticky top-0 z-10 grid min-w-max border-b border-neutral-border bg-neutral-bg-muted"
+          style={{ gridTemplateColumns }}
         >
           {visibleColumns.map((col) => {
             const config = configMap.get(col.name);
@@ -601,11 +608,8 @@ export function VirtualTable({
 
         {/* Body */}
         <div
-          className="relative bg-neutral-bg"
-          style={{
-            height: `${rowVirtualizer.getTotalSize()}px`,
-            minWidth: "max-content",
-          }}
+          className="relative min-w-max bg-neutral-bg"
+          style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
         >
           {rowVirtualizer.getVirtualItems().map((virtualRow) => {
             const rowData = getRowData(virtualRow.index);
@@ -615,13 +619,11 @@ export function VirtualTable({
               return (
                 <div
                   key={virtualRow.index}
-                  className="absolute grid border-b border-neutral-border"
+                  className="absolute grid w-full min-w-fit border-b border-neutral-border"
                   style={{
                     height: `${virtualRow.size}px`,
                     transform: `translateY(${virtualRow.start}px)`,
                     gridTemplateColumns,
-                    width: "100%",
-                    minWidth: "fit-content",
                   }}
                 >
                   {visibleColumns.map((col) => (
@@ -644,13 +646,11 @@ export function VirtualTable({
             return (
               <div
                 key={virtualRow.index}
-                className="group absolute grid border-b border-neutral-border"
+                className="group absolute grid w-full min-w-fit border-b border-neutral-border"
                 style={{
                   height: `${virtualRow.size}px`,
                   transform: `translateY(${virtualRow.start}px)`,
                   gridTemplateColumns,
-                  width: "100%",
-                  minWidth: "fit-content",
                 }}
               >
                 {visibleColumns.map((col) => {

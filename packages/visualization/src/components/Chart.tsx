@@ -332,21 +332,26 @@ export function Chart({
     providerInitializing, // Re-render once the provider's engine is ready
   ]);
 
+  // One sizing convention for the loading box and the rendered box: the
+  // loading box is what useContainerDimensions measures, so it must fill the
+  // same space the chart is finally drawn into.
+  const containerStyle = {
+    width: width === "container" ? "100%" : width,
+    height: height === "container" ? "100%" : height,
+  };
+
   // Shared loading state component with spinner
   const renderLoading = () => (
     <div
       ref={containerRef}
       data-testid="visualization-chart"
       className={cn(
-        "bg-muted/30 flex min-h-0 items-center justify-center overflow-hidden",
+        "flex min-h-0 items-center justify-center overflow-hidden bg-neutral-bg-muted/30",
         className,
       )}
-      style={{
-        width: width === "container" ? undefined : width,
-        height: height === "container" ? undefined : height,
-      }}
+      style={containerStyle}
     >
-      <Spinner size="lg" className="text-muted-foreground" />
+      <Spinner size="lg" className="text-neutral-fg-subtle" />
     </div>
   );
 
@@ -388,13 +393,10 @@ export function Chart({
       data-testid="visualization-chart"
       className={cn(
         "min-h-0 overflow-hidden",
-        preview && "pointer-events-none",
+        preview ? "pointer-events-none" : "pointer-events-auto",
         className,
       )}
-      style={{
-        width: width === "container" ? "100%" : width,
-        height: height === "container" ? "100%" : height,
-      }}
+      style={containerStyle}
     />
   );
 }
