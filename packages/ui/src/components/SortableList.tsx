@@ -288,8 +288,10 @@ export function SortableList<T extends SortableListItem>({
       >
         {orientation === "vertical" && maxSizeValue && (
           <ScrollArea
-            className={cn("w-full", className)}
-            style={{ maxHeight: maxSizeValue }}
+            className={cn("max-h-(--sortable-max-size) w-full", className)}
+            style={
+              { "--sortable-max-size": maxSizeValue } as React.CSSProperties
+            }
           >
             <div
               className="flex max-w-full min-w-0 flex-col"
@@ -331,8 +333,18 @@ export function SortableList<T extends SortableListItem>({
 
         {orientation === "horizontal" && (
           <ScrollArea
-            className={cn("w-full", className)}
-            style={maxSizeValue ? { maxWidth: maxSizeValue } : undefined}
+            className={cn(
+              "w-full",
+              maxSizeValue && "max-w-(--sortable-max-size)",
+              className,
+            )}
+            style={
+              maxSizeValue
+                ? ({
+                    "--sortable-max-size": maxSizeValue,
+                  } as React.CSSProperties)
+                : undefined
+            }
           >
             <div className="flex flex-row pb-3" style={{ gap: `${gap}px` }}>
               {items.map((item, index) => (

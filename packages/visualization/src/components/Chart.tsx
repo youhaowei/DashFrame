@@ -332,21 +332,26 @@ export function Chart({
     providerInitializing, // Re-render once the provider's engine is ready
   ]);
 
+  // One sizing convention for the loading box and the rendered box: the
+  // loading box is what useContainerDimensions measures, so it must fill the
+  // same space the chart is finally drawn into.
+  const containerStyle = {
+    width: width === "container" ? "100%" : width,
+    height: height === "container" ? "100%" : height,
+  };
+
   // Shared loading state component with spinner
   const renderLoading = () => (
     <div
       ref={containerRef}
       data-testid="visualization-chart"
       className={cn(
-        "bg-muted/30 flex min-h-0 items-center justify-center overflow-hidden",
+        "flex min-h-0 items-center justify-center overflow-hidden bg-neutral-bg-muted/30",
         className,
       )}
-      style={{
-        ...(width !== "container" && { width }),
-        ...(height !== "container" && { height }),
-      }}
+      style={containerStyle}
     >
-      <Spinner size="lg" className="text-muted-foreground" />
+      <Spinner size="lg" className="text-neutral-fg-subtle" />
     </div>
   );
 
@@ -364,9 +369,9 @@ export function Chart({
     // Renderers are registered but this type isn't supported - show fallback
     return (
       fallback ?? (
-        <div className={className} style={{ padding: 16, textAlign: "center" }}>
+        <div className={cn("p-4 text-center", className)}>
           <p>No renderer for: {visualizationType}</p>
-          <p style={{ fontSize: "0.875rem", opacity: 0.7 }}>
+          <p className="text-sm opacity-70">
             Register a renderer with registerRenderer()
           </p>
         </div>
@@ -386,14 +391,12 @@ export function Chart({
     <div
       ref={containerRef}
       data-testid="visualization-chart"
-      className={className}
-      style={{
-        width: width === "container" ? "100%" : width,
-        height: height === "container" ? "100%" : height,
-        minHeight: 0,
-        overflow: "hidden",
-        pointerEvents: preview ? "none" : "auto",
-      }}
+      className={cn(
+        "min-h-0 overflow-hidden",
+        preview ? "pointer-events-none" : "pointer-events-auto",
+        className,
+      )}
+      style={containerStyle}
     />
   );
 }

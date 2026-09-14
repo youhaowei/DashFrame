@@ -676,7 +676,7 @@ export function DataPickerContent({
             <SectionList title="Choose data to import">
               <div className="space-y-2">
                 {error && (
-                  <p role="alert" className="text-sm text-danger-fg">
+                  <p role="alert" className="text-sm text-palette-danger">
                     {error}
                   </p>
                 )}

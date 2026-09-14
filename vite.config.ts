@@ -78,6 +78,11 @@ export default defineConfig({
       react: {
         version: "999.999.999",
       },
+      // Component recognition for @shadcn/lint: the stdui design system and
+      // the local extensions package.
+      shadcn: {
+        componentImports: ["^@wystack/ui-react(/|$)", "^@dashframe/ui(/|$)"],
+      },
     },
     ignorePatterns: [
       "node_modules/**",
@@ -471,6 +476,54 @@ export default defineConfig({
       "vite-plus/prefer-vite-plus-imports": "error",
     },
     overrides: [
+      {
+        // --- Design-system guardrails (@shadcn/lint, measured 2026-09-14) ----
+        // Scoped to the packages that render JSX so the other twenty lint
+        // processes do not load the plugin or compile the Tailwind theme.
+        // See docs/audits/shadcn-lint-evaluation-2026-09-14.md for the counts
+        // behind each decision. The plugin resolves the theme per package
+        // through that package's components.json (packages/ui owns the
+        // canonical one; the others point at its stylesheet), so token
+        // classes are known to it. Rules not listed here (no-restyle,
+        // no-arbitrary-values, require-static-classes) are deferred with
+        // their measurements in the audit; jsPlugin rules are off unless named.
+        files: [
+          "packages/app/**/*.tsx",
+          "packages/ui/**/*.tsx",
+          "packages/visualization/**/*.tsx",
+          "apps/renderer/**/*.tsx",
+          "apps/web/**/*.tsx",
+        ],
+        jsPlugins: ["@shadcn/lint"],
+        rules: {
+          // A class that is not a declared theme colour generates no CSS;
+          // every finding on main was a misspelled or shadcn-default token.
+          "shadcn/no-raw-colors": "error",
+          // Non-Tailwind selectors owned by other systems: react-grid-layout's
+          // drag handle and Electron's titlebar drag region.
+          "shadcn/no-unknown-classes": [
+            "error",
+            { allow: ["grid-drag-handle", "titlebar-drag-region"] },
+          ],
+          // Geometry computed at runtime (virtualizer rows, chart dimensions,
+          // dnd-kit transforms, prop-driven gaps) stays inline; every other
+          // property belongs in a class, or in a CSS custom property that a
+          // class reads (custom properties pass by default).
+          "shadcn/no-inline-styles": [
+            "error",
+            {
+              allow: [
+                "width",
+                "height",
+                "transform",
+                "transition",
+                "gap",
+                "grid-template-columns",
+              ],
+            },
+          ],
+        },
+      },
       {
         // Every package that renders React components gets the real hook
         // linter, not only the app shell.

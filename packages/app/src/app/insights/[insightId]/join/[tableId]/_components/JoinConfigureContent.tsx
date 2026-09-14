@@ -864,10 +864,7 @@ export default function JoinConfigureContent({
                       </span>
                     </div>
                   </div>
-                  <div
-                    className="overflow-hidden rounded-xl border border-neutral-border/60"
-                    style={{ maxHeight: 300 }}
-                  >
+                  <div className="max-h-75 overflow-hidden rounded-xl border border-neutral-border/60">
                     <VirtualTable
                       rows={previewResult.rows}
                       columns={previewResult.columns}
@@ -951,7 +948,7 @@ function TablePreviewSection({
           Click a column header to select it for joining
         </p>
       </div>
-      <div style={{ height: 260 }} className="overflow-hidden">
+      <div className="h-65 overflow-hidden">
         {!isReady ? (
           <div className="flex h-40 items-center justify-center text-neutral-fg-subtle">
             <div className="flex flex-col items-center gap-2">
