@@ -25,9 +25,14 @@ exposes, and can never expose what the question fixed.
 
 Three combinations are legal on an item:
 
-- **hidden + fixed** — the default. Most filters are query hygiene (exclude
-  nulls, exclude test data, scope to completed orders) and are part of what the
-  chart means rather than something a reader acts on.
+- **hidden + fixed** — the default, and hidden means the reader is told nothing:
+  not the value, not a count, not that any filter exists. Most filters are query
+  hygiene (exclude nulls, exclude test data, scope to completed orders) and are
+  part of what the chart means rather than something a reader acts on — and a
+  filter can be worse than noise. `Customer is Acme Corp` names a customer;
+  `Region is not LATAM` can name a market being exited. A filter value is
+  potentially confidential, so exposing one is an act of disclosure by the
+  author and can only be deliberate.
 - **visible + fixed** — a filter that is part of the chart's claim, shown but
   not negotiable.
 - **visible + changeable** — a knob for the reader. Changes are session-local
@@ -56,11 +61,18 @@ Both are on the page side by side. B follows the house rule that chips are flat
 and fields are wells, which is why a changeable filter is drawn as a well and an
 unset one as a dashed well.
 
-The **filtered mark** is the compromise on default-hidden: a chart with hidden
-filters carries one small count in its header, and the list appears on hover or
-focus. Power BI and Superset both ship a mark like this by default; Looker
-Studio and Mode hide chart-level filters from viewers entirely. Turn it off in
-the top bar to compare.
+Every exposed control names its field. A bare value says nothing: `EMEA` could
+be a region, an office, or an owner. The naming differs by shape because a fact
+and a control are read differently — the chip reads as a sentence
+(`Region is EMEA`), the well pairs a quiet field label with its value
+(`Region  EMEA`), which is also the shape the report control bar uses.
+
+**A passive "this chart is filtered" mark was prototyped and rejected.** Power BI
+and Superset both ship one by default — a count on the visual, the list on hover.
+It was dropped because a count still discloses: it says a filter exists and
+invites a question that cannot be answered, and the list leaks values outright.
+This puts the product with Looker Studio and Mode, which hide chart-level filters
+from viewers entirely.
 
 ## 2 · Report trust line (`trust.html`)
 
@@ -72,14 +84,17 @@ condition, with the author getting the cause and the reader the consequence.
 Publishing a broken report is not blocked. The author is allowed to leave it
 broken; the reader is owed the fact.
 
+Reader-facing text never echoes a field name or a filter value — not in the
+line, not on the broken tile. The author's version names the cause because the
+author is cleared to see it; the reader's version names only the consequence.
+That split is a confidentiality rule, not a vocabulary preference.
+
 ## What to try
 
 - On `controls.html`, compare the two **visible + fixed** tiles and pick a
   shape. That is the decision this prototype exists for.
-- Switch **Filtered mark** off and decide whether the default-hidden tile is
-  now too quiet, or correctly quiet.
-- Set **Width · Narrow**. Three short filters is the practical ceiling for a
-  tile-width control line; a fourth, or one long value, runs out of room. The
+- Set **Width · Narrow**. Naming the field roughly doubles a control's width,
+  so two is the practical ceiling for a tile-width line and the third clips. The
   overflow rule is not designed yet.
 - On `trust.html`, read the broken condition as Reader then Author.
 

@@ -4,38 +4,13 @@
 // item; the fourth (hidden + changeable) is only ever produced by a
 // report-level control absorbing the item's knob.
 
-import { CARET, FUNNEL, chart, h, shell } from "./shared.js";
+import { CARET, chart, h, shell } from "./shared.js";
 
-const state = { narrow: false, mark: true };
+const state = { narrow: false };
 
 const SALES = [42, 58, 35, 71, 49, 63, 38];
 
-function markEl(count, filters) {
-  const wrap = h(
-    `<span class="mark" tabindex="0" role="button" aria-label="${count} filters applied">${FUNNEL}${count}</span>`,
-  );
-  let pop = null;
-  const show = () => {
-    if (pop) return;
-    pop = h(
-      `<div class="pop"><div class="pop-title">Filtered by</div><ul>${filters
-        .map((filter) => `<li>${filter}</li>`)
-        .join("")}</ul></div>`,
-    );
-    wrap.closest(".tile").append(pop);
-  };
-  const hide = () => {
-    pop?.remove();
-    pop = null;
-  };
-  wrap.onmouseenter = show;
-  wrap.onmouseleave = hide;
-  wrap.onfocus = show;
-  wrap.onblur = hide;
-  return wrap;
-}
-
-function tile({ title, line = [], filters = [], highlight = -1 }) {
+function tile({ title, line = [], highlight = -1 }) {
   const element = h(`<div class="tile">
     <div class="tile-head">
       <span class="tile-title">${title}</span>
@@ -44,9 +19,6 @@ function tile({ title, line = [], filters = [], highlight = -1 }) {
     <div class="tile-body">${chart(SALES, { highlight })}</div>
   </div>`);
 
-  if (state.mark && filters.length > 0) {
-    element.querySelector(".tile-head").append(markEl(filters.length, filters));
-  }
   if (line.length > 0) {
     const lineEl = h(`<div class="line"></div>`);
     for (const item of line) lineEl.append(item);
@@ -55,34 +27,41 @@ function tile({ title, line = [], filters = [], highlight = -1 }) {
   return element;
 }
 
+// A value on its own ("EMEA") says nothing about what it filters. Every
+// exposed control names its field; only the shape of the naming differs,
+// because a fact and a control are read differently.
+
 /** Variant A — the same well as a changeable control, disabled. */
-function disabledWell(label) {
+function disabledWell(field, value) {
   return h(
-    `<span class="well" disabled aria-disabled="true" title="Region">${label}${CARET}</span>`,
+    `<span class="well" disabled aria-disabled="true"><span class="field">${field}</span><span class="value">${value}</span>${CARET}</span>`,
   );
 }
 
-/** Variant B — a flat chip. A fact about the chart, not a control. */
-function readonlyChip(label) {
-  return h(`<span class="chip" title="Region">${label}</span>`);
+/** Variant B — a flat chip, read as a sentence. A fact, not a control. */
+function readonlyChip(field, verb, value) {
+  return h(
+    `<span class="chip"><span class="field">${field} ${verb}</span><span class="value">${value}</span></span>`,
+  );
 }
 
 /** A changeable control: a well the reader can open. */
-function liveWell(label, options) {
+function liveWell(field, options) {
   const well = h(
-    `<button type="button" class="well" title="Region">${label}${CARET}</button>`,
+    `<button type="button" class="well"><span class="field">${field}</span><span class="value">${options[0]}</span>${CARET}</button>`,
   );
   well.onclick = () => {
-    const current = well.firstChild.textContent;
-    const next = options[(options.indexOf(current) + 1) % options.length];
-    well.firstChild.textContent = next;
+    const value = well.querySelector(".value");
+    const index = options.indexOf(value.textContent);
+    value.textContent = options[(index + 1) % options.length];
   };
   return well;
 }
 
-function unsetWell(label) {
+/** A changeable control with no value yet. Dashed means choose. */
+function unsetWell(field) {
   return h(
-    `<button type="button" class="well unset">${label}${CARET}</button>`,
+    `<button type="button" class="well unset"><span class="field">${field}</span><span class="value">Any</span>${CARET}</button>`,
   );
 }
 
@@ -104,17 +83,9 @@ function render(page) {
 
   grid.append(
     wrap(
-      `<b>hidden + fixed</b> — the default. Six filters are applied and none of them are on the face. The mark is the only route to them.`,
+      `<b>hidden + fixed</b> — the default. Six filters are applied and the reader is told nothing: no values, no count, no hint that any exist. A filter value can be confidential.`,
       tile({
         title: "Revenue",
-        filters: [
-          "Status is Completed",
-          "Region is EMEA",
-          "Channel is not Internal",
-          "Amount is not null",
-          "Order date in last 12 months",
-          "Top 7 by revenue",
-        ],
       }),
     ),
   );
@@ -125,14 +96,9 @@ function render(page) {
       tile({
         title: "Revenue",
         line: [
-          disabledWell("EMEA"),
-          disabledWell("Last 12 months"),
-          disabledWell("Enterprise"),
-        ],
-        filters: [
-          "Region is EMEA",
-          "Order date in last 12 months",
-          "Segment is Enterprise",
+          disabledWell("Region", "EMEA"),
+          disabledWell("Date", "Last 12 months"),
+          disabledWell("Segment", "Enterprise"),
         ],
       }),
     ),
@@ -144,14 +110,9 @@ function render(page) {
       tile({
         title: "Revenue",
         line: [
-          readonlyChip("EMEA"),
-          readonlyChip("Last 12 months"),
-          readonlyChip("Enterprise"),
-        ],
-        filters: [
-          "Region is EMEA",
-          "Order date in last 12 months",
-          "Segment is Enterprise",
+          readonlyChip("Region", "is", "EMEA"),
+          readonlyChip("Date", "in", "last 12 months"),
+          readonlyChip("Segment", "is", "Enterprise"),
         ],
       }),
     ),
@@ -163,10 +124,9 @@ function render(page) {
       tile({
         title: "Revenue",
         line: [
-          liveWell("EMEA", ["EMEA", "APAC", "Americas", "All regions"]),
+          liveWell("Region", ["EMEA", "APAC", "Americas", "All regions"]),
           unsetWell("Segment"),
         ],
-        filters: ["Region is EMEA"],
         highlight: 3,
       }),
     ),
@@ -187,12 +147,8 @@ function render(page) {
 
   const controlBar = h(`<div class="line" style="padding-bottom:14px"></div>`);
   controlBar.append(
-    liveWell("EMEA", ["EMEA", "APAC", "Americas", "All regions"]),
-    liveWell("Last 12 months", [
-      "Last 12 months",
-      "Last quarter",
-      "Year to date",
-    ]),
+    liveWell("Region", ["EMEA", "APAC", "Americas", "All regions"]),
+    liveWell("Date", ["Last 12 months", "Last quarter", "Year to date"]),
   );
   page.append(controlBar);
 
@@ -200,7 +156,7 @@ function render(page) {
   grid2.append(
     wrap(
       `Bound to the Region control above. No knob of its own.`,
-      tile({ title: "Revenue", filters: ["Region is EMEA (report control)"] }),
+      tile({ title: "Revenue" }),
     ),
   );
   grid2.append(
@@ -208,7 +164,6 @@ function render(page) {
       `Not bound. Its own filters stay hidden.`,
       tile({
         title: "Orders",
-        filters: ["Status is Completed", "Amount is not null"],
         highlight: 5,
       }),
     ),
@@ -226,18 +181,6 @@ const { page } = shell("Filter exposure", [
     ],
     onChange: (value) => {
       state.narrow = value;
-      render(page);
-    },
-  },
-  {
-    label: "Filtered mark",
-    value: true,
-    options: [
-      { label: "On", value: true },
-      { label: "Off", value: false },
-    ],
-    onChange: (value) => {
-      state.mark = value;
       render(page);
     },
   },

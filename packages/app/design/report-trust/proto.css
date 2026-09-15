@@ -151,26 +151,7 @@ button[aria-pressed="true"] {
   font-weight: 600;
 }
 
-/* ------------------------------------------------------------ mark/line -- */
-
-/* The quiet "this chart is filtered" mark. Detail on demand, never a list. */
-.mark {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 20px;
-  padding: 0 7px;
-  border-radius: 999px;
-  font-size: 10.5px;
-  font-weight: 600;
-  background: var(--neutral-bg-muted);
-  color: var(--neutral-fg-subtle);
-  cursor: default;
-}
-.mark svg {
-  width: 10px;
-  height: 10px;
-}
+/* ----------------------------------------------------------------- line -- */
 
 /* A control line under the title. Holds visible filters, in either shape. */
 .line {
@@ -185,10 +166,27 @@ button[aria-pressed="true"] {
   overflow: hidden;
 }
 
+/* The field name is always present; the value is what carries the weight. */
+.chip .field,
+.well .field {
+  color: var(--neutral-fg-subtle);
+  font-weight: 500;
+}
+.chip .value,
+.well .value {
+  color: var(--neutral-fg);
+  font-weight: 600;
+}
+.well[disabled] .value,
+.well.unset .value {
+  color: var(--neutral-fg-subtle);
+}
+
 /* Variant B, and the shape a fact takes: flat, no affordance. */
 .chip {
   display: inline-flex;
   align-items: center;
+  gap: 4px;
   height: 22px;
   padding: 0 9px;
   border-radius: 999px;
@@ -344,32 +342,4 @@ button[aria-pressed="true"] {
 }
 .section:first-child {
   padding-top: 0;
-}
-
-/* ------------------------------------------------------------- popover --- */
-
-.pop {
-  position: absolute;
-  top: 34px;
-  right: 12px;
-  z-index: 5;
-  min-width: 190px;
-  padding: 9px 11px;
-  border-radius: 9px;
-  background: var(--neutral-bg);
-  box-shadow: var(--surface-shadow);
-  font-size: 11.5px;
-  line-height: 1.7;
-  color: var(--neutral-fg-subtle);
-}
-.pop .pop-title {
-  margin-bottom: 3px;
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-.pop ul {
-  margin: 0;
-  padding-left: 14px;
 }

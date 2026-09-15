@@ -9,9 +9,7 @@ export function h(html) {
 
 const CARET = `<svg class="caret" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M3 4.5 6 7.5 9 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
-const FUNNEL = `<svg viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M1.5 2h9L7 6.2V10L5 9V6.2L1.5 2Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>`;
-
-export { CARET, FUNNEL };
+export { CARET };
 
 /** A bar chart drawn from theme tokens. Not the app's renderer. */
 export function chart(values, { highlight = -1 } = {}) {

@@ -62,8 +62,9 @@ function tile(title, values) {
 }
 
 function brokenTile() {
-  // The reader is told the item is broken, not why. "This filter isn't
-  // declared by the Insight" is the author's vocabulary.
+  // The reader is told the item is broken, not why. Reader-facing text never
+  // echoes a field name or a filter value: a filter can be confidential, and a
+  // failure is not a reason to disclose one.
   const why =
     state.audience === "author"
       ? "The Region filter isn't offered by the question behind this chart. Remove it, or add it to the question."
