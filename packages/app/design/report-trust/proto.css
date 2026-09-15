@@ -449,3 +449,41 @@ button[aria-pressed="true"] {
   margin: 0;
   padding-left: 14px;
 }
+
+/* ------------------------------------------------------- per-tile state -- */
+
+/* Freshness belongs to the tile: quiet when ordinary, loud when not. */
+.tile-foot {
+  padding-top: 8px;
+  font-size: 10.5px;
+  color: var(--neutral-fg-subtle);
+}
+.tile-foot.warn {
+  color: color-mix(in oklab, var(--palette-warning) 78%, var(--neutral-fg));
+  font-weight: 600;
+}
+.tile-foot.bad {
+  color: color-mix(in oklab, var(--palette-danger) 78%, var(--neutral-fg));
+  font-weight: 600;
+}
+
+.skeleton {
+  width: 100%;
+  border-radius: 6px;
+  background: var(--neutral-bg-muted);
+  animation: pulse 1600ms ease-in-out infinite;
+}
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}
