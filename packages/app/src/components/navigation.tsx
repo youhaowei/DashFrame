@@ -1,6 +1,7 @@
 import { useQuery_experimental as useQuery } from "convex/react";
 import { queryStatus } from "@/data/query-status";
 import { AccessCredentialsDialog } from "@/components/access-credentials/AccessCredentialsDialog";
+import { DashFrameLogo } from "@/components/DashFrameLogo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useAccessCapabilities } from "@/data";
 import { clearAllData } from "@/lib/data-access/data-frames";
@@ -31,7 +32,6 @@ import {
 } from "@wystack/ui-react";
 import {
   type LucideIcon,
-  ChartIcon,
   CloseIcon,
   DatabaseIcon,
   DeleteIcon,
@@ -115,9 +115,7 @@ function SidebarContent({
             to="/dashboards"
             className="flex items-center gap-2 transition-colors hover:text-palette-primary"
           >
-            <span className="flex size-6 items-center justify-center rounded-md bg-palette-primary/10 text-palette-primary">
-              <ChartIcon className="h-4 w-4" />
-            </span>
+            <DashFrameLogo className="size-6 shrink-0" />
             <span className="text-sm font-semibold tracking-tight">
               DashFrame
             </span>
