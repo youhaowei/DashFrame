@@ -343,44 +343,6 @@ button[aria-pressed="true"] {
 
 /* ------------------------------------------------- exposed-control styles -- */
 
-/* Plain text: a caption under the title, no container at all. */
-.run {
-  font-size: 11.5px;
-  white-space: nowrap;
-}
-.run + .run::before {
-  content: "·";
-  margin: 0 5px;
-  color: var(--neutral-fg-subtle);
-}
-.run .field {
-  color: var(--neutral-fg-subtle);
-}
-.run .value {
-  color: var(--neutral-fg);
-  font-weight: 600;
-}
-
-/* Label + value: the well's pairing without the box. */
-.pair {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 5px;
-  font-size: 11.5px;
-  white-space: nowrap;
-}
-.pair + .pair {
-  margin-left: 10px;
-}
-.pair .field {
-  color: var(--neutral-fg-subtle);
-  font-weight: 500;
-}
-.pair .value {
-  color: var(--neutral-fg);
-  font-weight: 600;
-}
-
 /* One chip holding every setting. */
 .chip.group {
   gap: 5px;
@@ -486,4 +448,71 @@ button[aria-pressed="true"] {
   .skeleton {
     animation: none;
   }
+}
+
+/* ------------------------------------------------------- authored chips -- */
+
+/* Label and value in their own halves, divided rather than punctuated. */
+.chip.divided .field {
+  margin: -0.5px 0;
+  padding: 3px 7px 3px 0;
+  border-right: 1px solid var(--neutral-border-subtle);
+}
+.chip.divided {
+  padding-left: 9px;
+}
+
+/* ----------------------------------------------------------- authoring -- */
+
+.authoring {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.page.narrow .authoring {
+  grid-template-columns: minmax(0, 1fr);
+}
+.pane {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--neutral-bg);
+  box-shadow: var(--shadow-sm);
+}
+.pane-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pane-field {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--neutral-fg-subtle);
+}
+.pane-label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--neutral-fg-subtle);
+}
+.pane-input {
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--surface-inset);
+  box-shadow: inset 0 0 0 1px var(--neutral-border-subtle);
+  color: var(--neutral-fg);
+  font: inherit;
+  font-size: 12px;
+}
+.pane-input:focus-visible {
+  outline: 2px solid var(--palette-primary);
+  outline-offset: 1px;
 }

@@ -80,32 +80,41 @@ invites a question that cannot be answered, and the list leaks values outright.
 This puts the product with Looker Studio and Mode, which hide chart-level filters
 from viewers entirely.
 
-## 2 · Style and overflow (`styles.html`)
+## 2 · Control style and authoring (`styles.html`)
 
-Four ways to draw an exposed control, and four things to do when a tile has more
-than fit. The **Settings** control in the top bar takes the count from 1 to 6;
-**Width** narrows the page to tile width.
+The chip is the shape. What it says is the author's.
 
-Styles:
+A runtime control already carries a `label` —
+`InsightRuntimeDeclaration.filters[].label`, which `DashboardControlBar` reads
+as `control.label ?? control.field` — so the tile shows what the author wrote,
+not a sentence derived from the field and its operator. Derived text is both
+verbose (`Date in last 12 months`) and wrong as often as not: only the author
+knows that `Channel is not Partner` is better read as "Direct only". A derived
+sentence also cannot survive a negation without stating it, which is how the
+earlier label-and-value style got `Channel Partner` exactly backwards.
 
-- **Sentence chip** — a flat chip read as a statement (`Region is EMEA`). Most
-  legible, widest, and the only one that carries the operator naturally.
-- **Plain text** — no container at all, a caption under the title. Lightest, and
-  the least likely to be mistaken for a control.
-- **Label + value** — the well's two-tone pairing without the box. Scans as a
-  list of fields, but it drops the operator: `Channel is not Partner` reads as
-  `Channel Partner`, which is wrong rather than merely terse.
-- **One chip** — every setting in a single container. Cheapest per setting, and
-  the first to run out of room as a whole, because it cannot break.
+Four chip styles, switched from the top bar:
 
-Overflow:
+- **Label + value** — two tones in one chip, the label quiet and the value
+  strong. An unlabelled control is just its value, which is the shortest a chip
+  gets and is how a limit should read (`Top 10`).
+- **Colon** — the same pairing punctuated. Needs the label to be present.
+- **Divided** — label and value in their own halves. Easiest to scan down a
+  column, widest per chip.
+- **Derived sentence** — what the tile would say with no authored label, kept
+  only as the thing to compare against.
+
+The **Authoring** section is the item pane in the workbench: type a label and
+the tile beside it changes. Clearing a label falls back to the value alone.
+
+Overflow, using whichever style is selected:
 
 - **Truncate** — show what fits, then `+N` opening the rest. The chart keeps its
   height; the reader has to click.
 - **Wrap** — everything stays readable and the chart loses a row of height for
-  each extra line. At six settings on a narrow tile this is three rows.
+  each extra line.
 - **Summarise** — one chip with a count, the list on click. Constant width at any
-  number. A count over _exposed_ settings is fair: the author already chose to
+  number. A count over _exposed_ controls is fair: the author already chose to
   disclose them, which is what separates this from the mark rejected above.
 - **Scroll** — one sideways-scrolling line. Cheap, and what is off-screen is easy
   to miss.
@@ -129,8 +138,10 @@ That split is a confidentiality rule, not a vocabulary preference.
 
 - On `controls.html`, compare the two **visible + fixed** tiles and pick a
   shape. That is the decision this prototype exists for.
-- On `styles.html`, set **Settings · 6** and **Width · Narrow**, and decide how
-  much tile height an exposed control line may cost.
+- On `styles.html`, pick a chip style, then type labels in the **Authoring**
+  pane and watch the tile. Clear the limit's label.
+- Then set **Settings · 6** and **Width · Narrow**, and decide how much tile
+  height an exposed control line may cost.
 - Set **Width · Narrow**. Naming the field roughly doubles a control's width,
   so two is the practical ceiling for a tile-width line and the third clips. The
   overflow rule is not designed yet.
