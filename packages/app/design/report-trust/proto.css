@@ -1,0 +1,375 @@
+@import "../../src/globals.css";
+
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  height: 100%;
+}
+body {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--surface-base);
+  color: var(--neutral-fg);
+  font-family:
+    system-ui,
+    -apple-system,
+    sans-serif;
+  font-size: 13px;
+}
+
+/* ---------------------------------------------------------------- shell -- */
+
+.bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--neutral-bg);
+  box-shadow: var(--shadow-sm);
+  z-index: 2;
+}
+.bar .spacer {
+  flex: 1;
+}
+.bar .label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--neutral-fg-subtle);
+}
+.stage {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 28px;
+  display: flex;
+  justify-content: center;
+}
+.page {
+  width: 100%;
+  max-width: 1040px;
+  transition: max-width 200ms;
+}
+.page.narrow {
+  max-width: 380px;
+}
+
+button {
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 550;
+  cursor: pointer;
+  border: 0;
+  border-radius: 7px;
+  background: var(--neutral-bg-muted);
+  color: var(--neutral-fg);
+  padding: 6px 11px;
+  transition:
+    background-color 150ms,
+    color 150ms;
+}
+button:hover {
+  background: var(--neutral-bg-emphasis);
+}
+button:focus-visible {
+  outline: 2px solid var(--palette-primary);
+  outline-offset: 2px;
+}
+button[aria-pressed="true"] {
+  background: var(--palette-primary);
+  color: var(--palette-primary-fg);
+}
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+  }
+}
+
+/* ----------------------------------------------------------------- grid -- */
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.page.narrow .grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* ----------------------------------------------------------------- tile -- */
+
+.tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 240px;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--neutral-bg-subtle);
+}
+.tile-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+}
+.tile-title {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tile-head .spacer {
+  flex: 1;
+}
+.tile-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: stretch;
+  padding-top: 8px;
+}
+.tile-body svg {
+  width: 100%;
+  height: 100%;
+}
+.tile-note {
+  margin-top: 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--neutral-fg-subtle);
+}
+.tile-note b {
+  color: var(--neutral-fg);
+  font-weight: 600;
+}
+
+/* ------------------------------------------------------------ mark/line -- */
+
+/* The quiet "this chart is filtered" mark. Detail on demand, never a list. */
+.mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  background: var(--neutral-bg-muted);
+  color: var(--neutral-fg-subtle);
+  cursor: default;
+}
+.mark svg {
+  width: 10px;
+  height: 10px;
+}
+
+/* A control line under the title. Holds visible filters, in either shape. */
+.line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding-top: 8px;
+}
+.page.narrow .line {
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+/* Variant B, and the shape a fact takes: flat, no affordance. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  background: var(--neutral-bg-muted);
+  color: var(--neutral-fg-subtle);
+  white-space: nowrap;
+}
+
+/* The shape a value control takes: a well. */
+.well {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 7px;
+  font-size: 11.5px;
+  font-weight: 550;
+  background: var(--surface-inset);
+  color: var(--neutral-fg);
+  box-shadow: inset 0 0 0 1px var(--neutral-border-subtle);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: box-shadow 150ms;
+}
+.well:hover {
+  box-shadow: inset 0 0 0 1px var(--neutral-border);
+}
+.well:focus-visible {
+  outline: 2px solid var(--palette-primary);
+  outline-offset: 1px;
+}
+/* Variant A: the same well, disabled. */
+.well[disabled] {
+  cursor: not-allowed;
+  opacity: 0.55;
+  color: var(--neutral-fg-subtle);
+}
+.well .caret {
+  width: 9px;
+  height: 9px;
+  opacity: 0.6;
+}
+.well.unset {
+  box-shadow: inset 0 0 0 1px transparent;
+  background: none;
+  border: 1px dashed var(--neutral-border);
+  color: var(--neutral-fg-subtle);
+}
+.overflow {
+  font-size: 11.5px;
+  color: var(--neutral-fg-subtle);
+  white-space: nowrap;
+}
+
+/* ----------------------------------------------------- report trust line -- */
+
+.report-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding-bottom: 14px;
+}
+.report-title {
+  font-size: 19px;
+  font-weight: 640;
+}
+
+.trust {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 16px;
+  padding: 9px 12px;
+  border-radius: 9px;
+  font-size: 12.5px;
+  background: var(--neutral-bg-muted);
+  color: var(--neutral-fg-subtle);
+}
+.trust.warn {
+  background: color-mix(in oklab, var(--palette-warning) 14%, transparent);
+  color: var(--neutral-fg);
+}
+.trust.bad {
+  background: color-mix(in oklab, var(--palette-danger) 13%, transparent);
+  color: var(--neutral-fg);
+}
+.trust .dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.55;
+}
+.trust .spacer {
+  flex: 1;
+}
+.trust button.link {
+  background: none;
+  padding: 0;
+  font-size: 12px;
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.trust button.link:hover {
+  background: none;
+}
+
+/* ----------------------------------------------------------- broken tile -- */
+
+.tile.broken {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 5px;
+  background: var(--neutral-bg-subtle);
+  box-shadow: inset 0 0 0 1px
+    color-mix(in oklab, var(--palette-danger) 40%, transparent);
+}
+.broken-title {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.broken-why {
+  max-width: 34ch;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--neutral-fg-subtle);
+}
+
+/* ----------------------------------------------------------- annotation -- */
+
+.caption {
+  padding: 0 2px 6px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--neutral-fg-subtle);
+}
+.caption b {
+  color: var(--neutral-fg);
+  font-weight: 620;
+}
+.section {
+  padding: 22px 2px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--neutral-fg-subtle);
+}
+.section:first-child {
+  padding-top: 0;
+}
+
+/* ------------------------------------------------------------- popover --- */
+
+.pop {
+  position: absolute;
+  top: 34px;
+  right: 12px;
+  z-index: 5;
+  min-width: 190px;
+  padding: 9px 11px;
+  border-radius: 9px;
+  background: var(--neutral-bg);
+  box-shadow: var(--surface-shadow);
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--neutral-fg-subtle);
+}
+.pop .pop-title {
+  margin-bottom: 3px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.pop ul {
+  margin: 0;
+  padding-left: 14px;
+}
