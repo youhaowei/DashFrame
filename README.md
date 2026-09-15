@@ -64,8 +64,7 @@ bun run test      # run all tests
 and `libs/stdui` git submodules and builds the `@wystack/*` packages the app
 depends on. Provision Convex once before running either surface. Startup uses the
 verified cached binary without downloading or registering a cloud deployment.
-New projects store metadata in `.convex/`; existing WyStack/PGlite projects are
-not migrated. See [local runtime details](packages/convex-local/README.md).
+Projects store metadata in `.convex/`. See [local runtime details](packages/convex-local/README.md).
 
 Metadata deletion and credential rotation record host cleanup in the same Convex
 transaction. The host checks remaining references before deleting Arrow files,

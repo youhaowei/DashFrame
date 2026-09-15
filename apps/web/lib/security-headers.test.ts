@@ -156,7 +156,7 @@ describe("Security Headers", () => {
 
     it("should include ws: DashFrame host in connect-src when VITE_DASHFRAME_URL uses http:", () => {
       // Browser CSP treats ws:/wss: as distinct from http:/https:.  Both must be
-      // present so WebSocket connections to the WyStack server are allowed.
+      // present so WebSocket connections to the DashFrame host are allowed.
       const headers = getSecurityHeaders({
         VITE_DASHFRAME_URL: "http://127.0.0.1:4100/api",
       });

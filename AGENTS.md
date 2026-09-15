@@ -356,8 +356,7 @@ Open `http://127.0.0.1:3000/`. Vite proxies `/api`, native Convex WebSockets,
 and `/data` to the host. Use `dev:direct`, not the Portless wrapper at
 `bun run dev`.
 
-The server opens `~/.DashFrame/web-project`; it does not migrate older
-WyStack/PGlite projects. Host-local data defaults to `~/.DashFrame/data` and
+The server opens `~/.DashFrame/web-project`. Host-local data defaults to `~/.DashFrame/data` and
 must remain outside the project directory. Override it with `--data-dir` or
 `DASHFRAME_DATA_DIR`. Named credentials require `DASHFRAME_SECRET_KEY` (a
 base64-encoded 32-byte key) or `DASHFRAME_SECRET_KEY_FILE`. Without one, the

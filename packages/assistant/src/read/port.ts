@@ -17,7 +17,7 @@
  * apps/server/src/functions/app-artifacts.ts + dashboards.ts), against the
  * DRAFT-OVERLAY view so the assistant perceives its own in-progress draft edits.
  * So the assistant defines this PORT, and the HOST (apps/server) binds it to a
- * draft-scoped WyStack app: every `query()` call routes through
+ * draft-scoped reader: every `query()` call routes through
  * `app.runHandler(path, args, tracked, { draftId })` — the withDraftSeam read
  * path. The assistant never sees the DB, the draftId wiring, or the canonical-vs-
  * draft choice; the host owns that and hands back a reader already scoped to the

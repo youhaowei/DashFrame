@@ -1,14 +1,14 @@
 /**
  * Transport: the dedicated Arrow IPC data path.
  *
- * WyStack RPC carries metadata only; Arrow/binary rides this separate HTTP
+ * Convex carries metadata only; Arrow/binary rides this separate HTTP
  * endpoint — the hard boundary from the Data Path & Transport spec (D3). On
- * Electron this is mounted on the same loopback host as the WyStack server but
+ * Electron this is mounted on the same loopback host as the DashFrame host but
  * is a distinct route that streams `application/vnd.apache.arrow.stream` bytes,
- * never WyStack frames.
+ * never metadata frames.
  *
  * Auth reuses the loopback bearer token (the same per-launch token that
- * protects WyStack HTTP/WS — PRs #47/#49). A request with no/invalid token is
+ * protects the host HTTP/WS — PRs #47/#49). A request with no/invalid token is
  * rejected before any query runs.
  *
  * Every route is addressed by frame id. There is no route that takes raw SQL
@@ -61,7 +61,7 @@ export interface ArrowDataPathOptions {
    * Per-launch loopback bearer token (plaintext). When set, every request must
    * carry `Authorization: Bearer <token>`. When unset, the path is open
    * (loopback `dashframe serve` without `--token`) — the same policy as the
-   * WyStack server's optional auth.
+   * host server's optional auth.
    *
    * Mutually exclusive with `authRef` + `vault`. Kept for backward compat
    * (existing tests and `dashframe serve`).
