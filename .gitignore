@@ -68,7 +68,8 @@ coverage
 
 # Local agent workspace state
 .wystack/
-.wystack.*
+.wystack.*.bak
+.wystack.*.bak/
 .codex-cockpit/
 
 # Screenshot output — never committed (AGENTS.md: capture to /tmp).
