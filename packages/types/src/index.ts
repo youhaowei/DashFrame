@@ -160,6 +160,7 @@ export type {
   Dashboard,
   DashboardControl,
   DashboardItem,
+  DashboardItemDisplay,
   DashboardItemOverridePatch,
   DashboardItemOverrides,
   DashboardItemPatch,

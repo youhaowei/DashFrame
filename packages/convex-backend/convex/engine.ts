@@ -809,13 +809,26 @@ async function dashboardCommand(
     const i = itemAt(),
       old = items[i]!,
       updates = record(a.updates);
-    const allowed = ["visualizationId", "content", "x", "y", "width", "height"];
+    const allowed = [
+      "visualizationId",
+      "content",
+      "x",
+      "y",
+      "width",
+      "height",
+      "display",
+    ];
     if (
       Object.keys(updates).some(
         (k) => !allowed.includes(k) && k !== "id" && k !== "type",
       )
     )
       throw new Error("Unsupported dashboard update");
+    if (
+      updates.display !== undefined &&
+      !["chart", "table", "both"].includes(updates.display as string)
+    )
+      throw new Error("Unsupported item display");
     items[i] = {
       ...old,
       ...Object.fromEntries(

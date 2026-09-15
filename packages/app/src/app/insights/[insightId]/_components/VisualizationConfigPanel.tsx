@@ -33,7 +33,7 @@ import {
 } from "@dashframe/ui";
 import { Button, Tooltip, cn } from "@wystack/ui-react";
 import { BarChart3, Bookmark, Crosshair } from "lucide-react";
-import { useCallback, useMemo } from "react";
+import { type ReactNode, useCallback, useMemo } from "react";
 import { toast } from "sonner";
 
 const VISUALIZATION_SECTION_IDS = [
@@ -83,6 +83,8 @@ interface VisualizationConfigPanelProps {
       Pick<Visualization, "visualizationType" | "encoding" | "spec">
     >;
   }) => Promise<unknown>;
+  /** Sections the caller adds above the chart's own, e.g. a report item's. */
+  leadingSections?: ReactNode;
 }
 
 function ReadOnlySlot({
@@ -379,6 +381,7 @@ export function VisualizationConfigPanel({
   onSelectChartType,
   onSelectVisualization,
   updateVisualization,
+  leadingSections,
 }: VisualizationConfigPanelProps) {
   const {
     openSections,
@@ -490,6 +493,7 @@ export function VisualizationConfigPanel({
       </WorkbenchPaneHeader>
       <OverlayScrollArea className="min-h-0 flex-1">
         <div className="px-3 pb-3">
+          {leadingSections}
           {renderSection(
             "chart-type",
             selectedMetadata.displayName,

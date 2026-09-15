@@ -26,6 +26,7 @@ import {
   cmd,
   type Dashboard,
   type DashboardItem,
+  type DashboardItemDisplay,
   type DataTable,
   type Insight,
   type UUID,
@@ -33,11 +34,16 @@ import {
   type VisualizationEncoding,
   type VisualizationType,
 } from "@dashframe/types";
-import { WorkbenchPaneHeader } from "@dashframe/ui";
+import { WorkbenchPaneHeader, WorkbenchPaneSection } from "@dashframe/ui";
 import { Link } from "@tanstack/react-router";
-import { Button } from "@wystack/ui-react";
-import { DeleteIcon } from "@wystack/ui-react/icons";
-import { Type } from "lucide-react";
+import { Button, Toggle } from "@wystack/ui-react";
+import {
+  ChartIcon,
+  DeleteIcon,
+  LayersIcon,
+  TableIcon,
+} from "@wystack/ui-react/icons";
+import { PanelTop, Type } from "lucide-react";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { useReportWrite } from "./report-write";
@@ -328,6 +334,19 @@ function ChartConfig({
     }).catch(() => toast.error("Couldn't switch the chart"));
   };
 
+  const setDisplay = (display: DashboardItemDisplay) => {
+    if (display === (item.display ?? "chart")) return;
+    writeReport({
+      commands: [
+        cmd("UpdateDashboardItem", {
+          dashboardId,
+          itemId: item.id,
+          updates: { display },
+        }),
+      ],
+    }).catch(() => toast.error("Couldn't change what the item shows"));
+  };
+
   const resetToSaved = () => {
     writeReport({
       commands: [
@@ -364,6 +383,12 @@ function ChartConfig({
           onSelectChartType={() => {}}
           onSelectVisualization={handleSelectVisualization}
           updateVisualization={updateVisualization}
+          leadingSections={
+            <ItemDisplaySection
+              display={item.display ?? "chart"}
+              onChange={setDisplay}
+            />
+          }
         />
       </div>
       <div className="shrink-0 space-y-1.5 border-t border-neutral-border/60 px-3 pt-2.5 text-[11px] leading-4 text-neutral-fg-subtle">
@@ -392,5 +417,63 @@ function ChartConfig({
         </div>
       </div>
     </>
+  );
+}
+
+const DISPLAY_LABELS: Record<DashboardItemDisplay, string> = {
+  chart: "Chart",
+  table: "Table",
+  both: "Chart and table",
+};
+
+/** What the item shows readers: the chart, its data, or both. */
+function ItemDisplaySection({
+  display,
+  onChange,
+}: {
+  display: DashboardItemDisplay;
+  onChange: (display: DashboardItemDisplay) => void;
+}) {
+  const [open, setOpen] = useState(true);
+  return (
+    <WorkbenchPaneSection
+      title="Show"
+      icon={PanelTop}
+      open={open}
+      summary={DISPLAY_LABELS[display]}
+      onOpenChange={setOpen}
+    >
+      <div className="flex flex-col gap-1.5 px-1.5">
+        <Toggle
+          variant="outline"
+          size="sm"
+          value={display}
+          onValueChange={(value) => onChange(value as DashboardItemDisplay)}
+          className="w-full [&>*]:flex-1"
+          options={[
+            {
+              value: "chart",
+              icon: <ChartIcon className="h-3.5 w-3.5" />,
+              label: "Chart",
+            },
+            {
+              value: "table",
+              icon: <TableIcon className="h-3.5 w-3.5" />,
+              label: "Table",
+            },
+            {
+              value: "both",
+              icon: <LayersIcon className="h-3.5 w-3.5" />,
+              label: "Both",
+            },
+          ]}
+        />
+        {display === "both" && (
+          <p className="text-[11px] leading-4 text-neutral-fg-subtle">
+            The table shows once the item is tall enough for it.
+          </p>
+        )}
+      </div>
+    </WorkbenchPaneSection>
   );
 }

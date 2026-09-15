@@ -125,6 +125,9 @@ export interface DashboardControl {
 /**
  * Dashboard item - A positioned widget on a dashboard.
  */
+/** What a chart item shows on the report: its chart, its data, or both. */
+export type DashboardItemDisplay = "chart" | "table" | "both";
+
 export interface DashboardItem {
   id: UUID;
   type: DashboardItemType;
@@ -136,6 +139,8 @@ export interface DashboardItem {
   /** Grid size */
   width: number;
   height: number;
+  /** What a chart item shows. Absent = the chart alone. */
+  display?: DashboardItemDisplay;
   /**
    * Per-cell param overrides applied on top of the insight's defaults at compile
    * time.  Absent = no overrides (the cell renders with the insight's defaults).

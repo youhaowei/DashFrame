@@ -53,6 +53,7 @@ const storedDashboardItemSchema = z
     y: z.number(),
     width: z.number(),
     height: z.number(),
+    display: z.enum(["chart", "table", "both"]).optional(),
     overrides: storedDashboardItemOverridesSchema.optional(),
   })
   .passthrough();

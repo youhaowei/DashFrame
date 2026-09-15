@@ -139,6 +139,9 @@ export function DashboardItem({
               <VisualizationDisplay
                 visualizationId={item.visualizationId}
                 overrides={effectiveOverrides ?? item.overrides}
+                chrome="tile"
+                display={item.display}
+                showTileMenu={!isEditable}
               />
             </div>
           )}

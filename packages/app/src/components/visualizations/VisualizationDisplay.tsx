@@ -13,6 +13,7 @@ import {
 } from "@dashframe/engine";
 import type {
   ChartEncoding,
+  DashboardItemDisplay,
   DashboardItemOverrides,
   DataTable,
   Insight,
@@ -20,11 +21,31 @@ import type {
   Visualization,
 } from "@dashframe/types";
 import { parseEncoding } from "@dashframe/types";
-import { VirtualTable, type VirtualTableColumnConfig } from "@dashframe/ui";
+import {
+  groupHoverAndFocusWithinReveal,
+  VirtualTable,
+  type VirtualTableColumnConfig,
+} from "@dashframe/ui";
 import { Chart, useVisualization } from "@dashframe/visualization";
 
-import { ErrorState, Spinner, Surface, Toggle } from "@wystack/ui-react";
-import { ChartIcon, LayersIcon, TableIcon } from "@wystack/ui-react/icons";
+import {
+  ButtonPrimitive,
+  cn,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  ErrorState,
+  Spinner,
+  Surface,
+  Toggle,
+} from "@wystack/ui-react";
+import {
+  ChartIcon,
+  LayersIcon,
+  MoreIcon,
+  TableIcon,
+} from "@wystack/ui-react/icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EngineUnavailableState } from "./EngineUnavailableState";
 import { VisualizationErrorBoundary } from "./VisualizationErrorBoundary";
@@ -204,12 +225,26 @@ interface VisualizationDisplayProps {
    * behaviour, satisfying the no-override no-regression constraint).
    */
   overrides?: DashboardItemOverrides;
+  /**
+   * `page` is the chart's own page: name, row and column counts, and a
+   * Chart/Table/Both switch. `tile` is a report item: the name and the chart,
+   * showing what the author chose in `display`.
+   */
+  chrome?: "page" | "tile";
+  /** What a tile shows. Ignored on a page, where the reader switches. */
+  display?: DashboardItemDisplay;
+  /** Gives a tile a menu for looking at the data behind its chart. */
+  showTileMenu?: boolean;
 }
 
 function VisualizationDisplayContent({
   visualizationId,
   overrides,
+  chrome = "page",
+  display = "chart",
+  showTileMenu = false,
 }: VisualizationDisplayProps) {
+  const isTile = chrome === "tile";
   // Whole-engine-down signals. `engineError` is the native bootstrap failure
   // (connector never came up); `visualizationError` is the provider failing to
   // initialize its Mosaic coordinator. Both mean the same thing to the user —
@@ -222,6 +257,8 @@ function VisualizationDisplayContent({
   const [isMounted, setIsMounted] = useState(false);
   const { containerRef, headerRef, visibleRows } = useTableRowsThatFit();
   const [chosenTab, setActiveTab] = useState<string>("both");
+  // A reader looking at a tile's data, in place of what the author chose.
+  const [isViewingData, setIsViewingData] = useState(false);
 
   // Set mounted state after hydration
   useEffect(() => {
@@ -461,7 +498,10 @@ function VisualizationDisplayContent({
     : `Not enough space (${visibleRows ?? 0} visible rows). Need at least ${MIN_VISIBLE_ROWS_FOR_BOTH} rows.`;
   // "Both" falls back to the chart wherever the table wouldn't fit, so the
   // same cell size always shows the same view.
-  const activeTab = chosenTab === "both" && !canShowBoth ? "chart" : chosenTab;
+  const activeTab = resolveActiveTab({
+    requested: isTile ? tileTab(isViewingData, display) : chosenTab,
+    canShowBoth,
+  });
 
   // Whole-engine-down: show the persistent inline affordance where the chart
   // would render. This takes precedence over loading/per-chart states — when
@@ -513,24 +553,7 @@ function VisualizationDisplayContent({
     !isPaginationReady;
 
   if (!isMounted || isWaitingForData) {
-    return (
-      <div className="flex h-full w-full items-center justify-center px-6">
-        <Surface
-          elevation="inset"
-          className="w-full max-w-lg rounded-3xl p-10 text-center"
-        >
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-palette-primary/10 text-palette-primary">
-            <Spinner size="lg" />
-          </div>
-          <p className="text-lg font-semibold text-neutral-fg">
-            Loading visualization...
-          </p>
-          <p className="mt-2 text-sm text-neutral-fg-subtle">
-            Please wait while the data is being loaded.
-          </p>
-        </Surface>
-      </div>
-    );
+    return <LoadingState compact={isTile} />;
   }
 
   // No visualization selected
@@ -556,115 +579,301 @@ function VisualizationDisplayContent({
     );
   }
 
-  // Unified toggle view with Chart, Table, and Both options
   return (
     <div ref={containerRef} className="flex h-full flex-col">
-      <div
-        ref={headerRef}
-        className="border-b border-neutral-border/60 px-4 py-2"
-      >
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <p className="text-xl font-semibold text-neutral-fg">
-              {activeViz.name}
-            </p>
-            <div className="flex items-center gap-2">
-              <p className="text-sm text-neutral-fg-subtle">
-                {totalCount.toLocaleString()} rows • {columns.length} columns
-              </p>
-              {colorDisplayName && (
-                <span className="rounded-full bg-neutral-bg-muted px-2 py-0.5 text-xs text-neutral-fg-subtle">
-                  Color: {colorDisplayName}
-                </span>
-              )}
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <Toggle
-              variant="outline"
-              size="sm"
-              value={activeTab}
-              onValueChange={setActiveTab}
-              className="shrink-0"
-              options={[
-                {
-                  value: "chart",
-                  icon: <ChartIcon className="h-3.5 w-3.5" />,
-                  label: "Chart",
-                },
-                {
-                  value: "table",
-                  icon: <TableIcon className="h-3.5 w-3.5" />,
-                  label: "Table",
-                },
-                {
-                  value: "both",
-                  icon: <LayersIcon className="h-3.5 w-3.5" />,
-                  label: "Both",
-                  disabled: !canShowBoth,
-                  tooltip: bothTooltip,
-                },
-              ]}
-            />
-          </div>
-        </div>
-      </div>
-
-      {activeTab === "chart" && tableName && (
-        <div className="mt-3 min-h-0 flex-1 overflow-hidden px-4 pb-8">
-          <Chart
-            tableName={tableName}
-            visualizationType={activeViz.visualizationType}
-            encoding={resolvedEncoding}
-            className="h-full w-full"
-          />
-        </div>
+      {isTile ? (
+        <TileHeader
+          ref={headerRef}
+          name={activeViz.name}
+          isViewingData={isViewingData}
+          onViewingDataChange={showTileMenu && setIsViewingData}
+        />
+      ) : (
+        <PageHeader
+          ref={headerRef}
+          name={activeViz.name}
+          rowCount={totalCount}
+          columnCount={columns.length}
+          colorDisplayName={colorDisplayName}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          canShowBoth={canShowBoth}
+          bothTooltip={bothTooltip}
+        />
       )}
-
-      {activeTab === "table" && (
-        <div className="mt-3 flex min-h-0 flex-1 flex-col px-4">
-          <Surface
-            elevation="inset"
-            className="flex min-h-0 flex-1 flex-col p-4"
-          >
-            <VirtualTable
-              columns={columns}
-              onFetchData={fetchData}
-              columnConfigs={columnConfigs}
-              height="100%"
-              className="flex-1"
-            />
-          </Surface>
-        </div>
-      )}
-
-      {activeTab === "both" && tableName && (
-        <div className="mt-3 flex min-h-0 flex-1 flex-col overflow-hidden">
-          {/* Chart takes 60% of space */}
-          <div className="h-[60%] min-h-[200px] overflow-hidden px-4 pb-4">
+      <VisualizationBody
+        chrome={chrome}
+        activeTab={activeTab}
+        chart={
+          tableName && (
             <Chart
               tableName={tableName}
               visualizationType={activeViz.visualizationType}
               encoding={resolvedEncoding}
               className="h-full w-full"
             />
-          </div>
-          {/* Table capped at 40% of space */}
-          <div className="flex h-[40%] max-h-[40%] min-h-0 flex-col overflow-hidden px-4">
-            <Surface
-              elevation="inset"
-              className="flex min-h-0 flex-1 flex-col p-4"
-            >
-              <VirtualTable
-                columns={columns}
-                onFetchData={fetchData}
-                columnConfigs={columnConfigs}
-                height="100%"
-                className="flex-1"
-              />
-            </Surface>
+          )
+        }
+        table={
+          <VirtualTable
+            columns={columns}
+            onFetchData={fetchData}
+            columnConfigs={columnConfigs}
+            height="100%"
+            className="flex-1"
+          />
+        }
+      />
+    </div>
+  );
+}
+
+function tileTab(isViewingData: boolean, display: DashboardItemDisplay) {
+  return isViewingData ? "table" : display;
+}
+
+/** "Both" falls back to the chart wherever the table wouldn't fit. */
+function resolveActiveTab({
+  requested,
+  canShowBoth,
+}: {
+  requested: string;
+  canShowBoth: boolean;
+}) {
+  return requested === "both" && !canShowBoth ? "chart" : requested;
+}
+
+function LoadingState({ compact }: { compact: boolean }) {
+  if (compact) {
+    return (
+      <div className="flex h-full w-full items-center justify-center">
+        <Spinner aria-label="Loading chart" />
+      </div>
+    );
+  }
+  return (
+    <div className="flex h-full w-full items-center justify-center px-6">
+      <Surface
+        elevation="inset"
+        className="w-full max-w-lg rounded-3xl p-10 text-center"
+      >
+        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-palette-primary/10 text-palette-primary">
+          <Spinner size="lg" />
+        </div>
+        <p className="text-lg font-semibold text-neutral-fg">
+          Loading visualization...
+        </p>
+        <p className="mt-2 text-sm text-neutral-fg-subtle">
+          Please wait while the data is being loaded.
+        </p>
+      </Surface>
+    </div>
+  );
+}
+
+/** The chart's own page header: counts and the Chart/Table/Both switch. */
+function PageHeader({
+  ref,
+  name,
+  rowCount,
+  columnCount,
+  colorDisplayName,
+  activeTab,
+  onTabChange,
+  canShowBoth,
+  bothTooltip,
+}: {
+  ref: React.Ref<HTMLDivElement>;
+  name: string;
+  rowCount: number;
+  columnCount: number;
+  colorDisplayName: string | null | undefined;
+  activeTab: string;
+  onTabChange: (tab: string) => void;
+  canShowBoth: boolean;
+  bothTooltip: string;
+}) {
+  return (
+    <div ref={ref} className="border-b border-neutral-border/60 px-4 py-2">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <p className="text-xl font-semibold text-neutral-fg">{name}</p>
+          <div className="flex items-center gap-2">
+            <p className="text-sm text-neutral-fg-subtle">
+              {rowCount.toLocaleString()} rows • {columnCount} columns
+            </p>
+            {colorDisplayName && (
+              <span className="rounded-full bg-neutral-bg-muted px-2 py-0.5 text-xs text-neutral-fg-subtle">
+                Color: {colorDisplayName}
+              </span>
+            )}
           </div>
         </div>
+        <div className="flex items-center gap-3">
+          <Toggle
+            variant="outline"
+            size="sm"
+            value={activeTab}
+            onValueChange={onTabChange}
+            className="shrink-0"
+            options={[
+              {
+                value: "chart",
+                icon: <ChartIcon className="h-3.5 w-3.5" />,
+                label: "Chart",
+              },
+              {
+                value: "table",
+                icon: <TableIcon className="h-3.5 w-3.5" />,
+                label: "Table",
+              },
+              {
+                value: "both",
+                icon: <LayersIcon className="h-3.5 w-3.5" />,
+                label: "Both",
+                disabled: !canShowBoth,
+                tooltip: bothTooltip,
+              },
+            ]}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The chart, its table, or both stacked. A tile's table sits flat in the tile
+ * and hugs its edges; the page insets its own.
+ */
+function VisualizationBody({
+  chrome,
+  activeTab,
+  chart,
+  table,
+}: {
+  chrome: "page" | "tile";
+  activeTab: string;
+  /** Empty until the chart's data view is ready. */
+  chart: React.ReactNode;
+  table: React.ReactNode;
+}) {
+  const isTile = chrome === "tile";
+  const gutter = isTile ? "px-3 pb-3" : "mt-3 px-4";
+  const tablePanel = isTile ? (
+    table
+  ) : (
+    <Surface elevation="inset" className="flex min-h-0 flex-1 flex-col p-4">
+      {table}
+    </Surface>
+  );
+
+  if (activeTab === "table") {
+    return (
+      <div className={cn("flex min-h-0 flex-1 flex-col", gutter)}>
+        {tablePanel}
+      </div>
+    );
+  }
+  if (!chart) return null;
+  if (activeTab === "chart") {
+    return (
+      <div
+        className={cn(
+          "min-h-0 flex-1 overflow-hidden",
+          gutter,
+          !isTile && "pb-8",
+        )}
+      >
+        {chart}
+      </div>
+    );
+  }
+  return (
+    <div
+      className={cn(
+        "flex min-h-0 flex-1 flex-col overflow-hidden",
+        !isTile && "mt-3",
+      )}
+    >
+      {/* Chart takes 60% of space */}
+      <div
+        className={cn(
+          "h-[60%] min-h-[200px] overflow-hidden pb-4",
+          isTile ? "px-3" : "px-4",
+        )}
+      >
+        {chart}
+      </div>
+      {/* Table capped at 40% of space */}
+      <div
+        className={cn(
+          "flex h-[40%] max-h-[40%] min-h-0 flex-col overflow-hidden",
+          isTile ? "px-3 pb-3" : "px-4",
+        )}
+      >
+        {tablePanel}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A report tile's header: the chart's name, and for readers a menu to look at
+ * the data behind it.
+ */
+function TileHeader({
+  ref,
+  name,
+  isViewingData,
+  onViewingDataChange,
+}: {
+  ref: React.Ref<HTMLDivElement>;
+  name: string;
+  isViewingData: boolean;
+  /** `false` leaves out the menu. */
+  onViewingDataChange: ((viewing: boolean) => void) | false;
+}) {
+  return (
+    <div
+      ref={ref}
+      className="flex h-10 shrink-0 items-center justify-between gap-2 pr-1.5 pl-3"
+    >
+      <p className="min-w-0 truncate text-sm font-semibold text-neutral-fg">
+        {name}
+      </p>
+      {onViewingDataChange && (
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <ButtonPrimitive
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label="Chart options"
+                title="Chart options"
+                className={cn(
+                  "size-7 shrink-0 transition-opacity data-[popup-open]:opacity-100 motion-reduce:transition-none",
+                  groupHoverAndFocusWithinReveal,
+                )}
+              >
+                <MoreIcon aria-hidden />
+              </ButtonPrimitive>
+            }
+          />
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              onClick={() => onViewingDataChange(!isViewingData)}
+            >
+              {isViewingData ? (
+                <ChartIcon aria-hidden />
+              ) : (
+                <TableIcon aria-hidden />
+              )}
+              {isViewingData ? "Back to chart" : "View data"}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       )}
     </div>
   );

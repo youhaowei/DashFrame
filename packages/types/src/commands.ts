@@ -141,6 +141,7 @@ export interface DashboardItemInput {
   y: number;
   width: number;
   height: number;
+  display?: "chart" | "table" | "both";
   overrides?: DashboardItemOverridesInput;
 }
 

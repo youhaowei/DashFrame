@@ -3372,6 +3372,47 @@ describe("existing command behavior on native Convex", () => {
     expect(layout[0]?.content).toBe("Updated");
     expect(layout[0]?.x).toBe(2);
   });
+  it("stores what a chart item displays and rejects unknown modes", async () => {
+    const dashId = id();
+    const itemId = id();
+    await commit(
+      cmd("CreateDashboard", { id: dashId, name: "D" }),
+      cmd("AddDashboardItem", {
+        dashboardId: dashId,
+        item: {
+          id: itemId,
+          type: "markdown",
+          content: "Note",
+          x: 0,
+          y: 0,
+          width: 4,
+          height: 4,
+        },
+      }),
+    );
+
+    await commit(
+      cmd("UpdateDashboardItem", {
+        dashboardId: dashId,
+        itemId,
+        updates: { display: "both" },
+      }),
+    );
+    const rows = await dashboardsById(dashId);
+    expect((rows[0]!.layout as Record<string, unknown>[])[0]).toMatchObject({
+      display: "both",
+    });
+
+    await expect(
+      commit(
+        cmd("UpdateDashboardItem", {
+          dashboardId: dashId,
+          itemId,
+          updates: { display: "grid" } as never,
+        }),
+      ),
+    ).rejects.toThrow();
+  });
   it("preserves a newer item edit when a layout update commits afterward", async () => {
     const dashId = id();
     const itemId = id();
