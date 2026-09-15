@@ -8,6 +8,7 @@ import {
 } from "@wystack/ui-react/icons";
 
 import { AppBreadcrumbs } from "./app-breadcrumbs";
+import { CHROME_ICON_BUTTON_CLASS } from "./shell/layout-constants";
 import { AssistantToggle } from "./assistant/AssistantToggle";
 
 /** Width reserved for the macOS traffic lights when the title bar is hidden. */
@@ -57,7 +58,7 @@ export function AppTopBar() {
             label={leftNavOpen ? "Hide sidebar" : "Show sidebar"}
             tooltip={leftNavOpen ? "Hide sidebar" : "Show sidebar"}
             onClick={toggleLeftNav}
-            className="hidden h-7 w-7 text-neutral-fg-subtle hover:text-neutral-fg lg:flex"
+            className={cn("hidden lg:flex", CHROME_ICON_BUTTON_CLASS)}
           />
           <AppBreadcrumbs />
         </div>

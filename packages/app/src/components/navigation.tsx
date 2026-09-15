@@ -108,13 +108,14 @@ function SidebarContent({
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <div className="px-3 py-3">
-        <div className="flex items-center justify-between gap-3">
+      {/* Same height as the top bar, so the logo sits on the breadcrumb's line. */}
+      <div className="px-3">
+        <div className="flex h-10 items-center justify-between gap-3">
           <Link
             to="/dashboards"
-            className="flex items-center gap-2.5 transition-colors hover:text-palette-primary"
+            className="flex items-center gap-2 transition-colors hover:text-palette-primary"
           >
-            <span className="flex size-8 items-center justify-center rounded-xl bg-palette-primary/10 text-palette-primary">
+            <span className="flex size-6 items-center justify-center rounded-md bg-palette-primary/10 text-palette-primary">
               <ChartIcon className="h-4 w-4" />
             </span>
             <span className="text-sm font-semibold tracking-tight">

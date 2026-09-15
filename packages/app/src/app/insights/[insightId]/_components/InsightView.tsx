@@ -63,6 +63,7 @@ import {
 import { Chart } from "@dashframe/visualization";
 import { useNavigate } from "@tanstack/react-router";
 import { useAppBreadcrumbs } from "@/components/app-breadcrumbs";
+import { CHROME_ICON_BUTTON_CLASS } from "@/components/shell/layout-constants";
 
 import {
   Button,
@@ -1701,6 +1702,7 @@ export function InsightView({
                   : "Expand Insight pane"
               }
               onClick={() => setInsightPaneOpen((open) => !open)}
+              className={CHROME_ICON_BUTTON_CLASS}
             />
             <label className="sr-only" htmlFor="insight-name">
               Insight name
@@ -1792,6 +1794,7 @@ export function InsightView({
                     : "Expand Visualization pane"
                 }
                 onClick={() => setVisualizationPaneOpen((open) => !open)}
+                className={CHROME_ICON_BUTTON_CLASS}
               />
             )}
           </header>

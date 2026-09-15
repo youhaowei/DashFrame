@@ -3,6 +3,7 @@ import { ArtifactPageHeader } from "@/components/artifacts/ArtifactPageHeader";
 import { queryStatus } from "@/data/query-status";
 import { ControlTooltip } from "@dashframe/ui";
 import { useAppBreadcrumbs } from "@/components/app-breadcrumbs";
+import { CHROME_ICON_BUTTON_CLASS } from "@/components/shell/layout-constants";
 import { useQuery_experimental as useQuery, useMutation } from "convex/react";
 import { useBindArtifact } from "@/components/assistant/artifact-context";
 import { DashboardControlBar } from "@/components/dashboards/DashboardControlBar";
@@ -708,6 +709,7 @@ function ReportEditorHeader({
           iconOnly
           label={reportPaneOpen ? "Collapse Report pane" : "Expand Report pane"}
           onClick={onToggleReportPane}
+          className={CHROME_ICON_BUTTON_CLASS}
         />
       )}
       <div className="flex-1" />
@@ -774,6 +776,7 @@ function ReportEditorHeader({
           iconOnly
           label={itemPane.attached ? "Collapse Item pane" : "Expand Item pane"}
           onClick={itemPane.onToggle}
+          className={CHROME_ICON_BUTTON_CLASS}
         />
       )}
     </ReportWorkbenchHeader>
