@@ -7,9 +7,10 @@ import { useBindArtifact } from "@/components/assistant/artifact-context";
 import { DashboardControlBar } from "@/components/dashboards/DashboardControlBar";
 import { DashboardGrid } from "@/components/dashboards/DashboardGrid";
 import {
-  ReaderWidthFrame,
-  useReaderWidthScale,
-} from "@/components/dashboards/ReaderWidthFrame";
+  ReportFrame,
+  useReportFrame,
+} from "@/components/dashboards/ReportFrame";
+import { ReportFrameToolbar } from "@/components/dashboards/ReportFrameToolbar";
 import { ReportItemPane } from "@/components/dashboards/ReportItemPane";
 import {
   useReportDraft,
@@ -155,9 +156,15 @@ export default function DashboardDetailContent({
   const {
     setCanvas,
     setPane,
-    readerWidth,
+    width: layoutWidth,
     scale: canvasScale,
-  } = useReaderWidthScale();
+    holdScale,
+    frameWidth,
+    frameZoom,
+    setFrameWidth,
+    setFrameZoom,
+    resizeFrame,
+  } = useEditorFrame(canArrange);
 
   const selectItem = (itemId: string) => {
     setPaneItemId(itemId);
@@ -286,10 +293,21 @@ export default function DashboardDetailContent({
               />
             )}
 
+          {canArrange && dashboard.items.length > 0 && (
+            <ReportFrameToolbar
+              width={layoutWidth}
+              scale={canvasScale}
+              chosenWidth={frameWidth}
+              zoom={frameZoom}
+              onWidthChange={setFrameWidth}
+              onZoomChange={setFrameZoom}
+            />
+          )}
+
           {/* Grid Content — a click outside every item closes the pane. */}
           <div
             ref={setCanvas}
-            className="flex-1 overflow-y-auto bg-neutral-bg-muted/10 p-6"
+            className="flex-1 overflow-auto bg-neutral-bg-muted/10 p-6"
             onClick={(event) => {
               if (
                 !(event.target as HTMLElement).closest(
@@ -330,7 +348,12 @@ export default function DashboardDetailContent({
                 </div>
               </div>
             ) : (
-              <ReaderWidthFrame readerWidth={readerWidth} scale={canvasScale}>
+              <ReportFrame
+                width={layoutWidth}
+                scale={canvasScale}
+                onResize={resizeFrame}
+                onResizingChange={holdScale}
+              >
                 <DashboardGrid
                   dashboard={dashboard}
                   isEditable={canArrange}
@@ -339,7 +362,7 @@ export default function DashboardDetailContent({
                   onSelectItem={selectItem}
                   transformScale={canvasScale}
                 />
-              </ReaderWidthFrame>
+              </ReportFrame>
             )}
           </div>
         </div>
@@ -566,6 +589,27 @@ function newReportItem(
         height: 4,
         content: "## New Text Widget\n\nEdit this text...",
       };
+}
+
+/**
+ * The frame width and zoom are editor-only: viewing and previewing always lay
+ * the report out at the reader's width in this window, at full size.
+ */
+function useEditorFrame(canArrange: boolean) {
+  const [frameWidth, setFrameWidth] = useState<number | null>(null);
+  const [frameZoom, setFrameZoom] = useState<number | null>(null);
+  const frame = useReportFrame({
+    width: canArrange ? frameWidth : null,
+    zoom: canArrange ? frameZoom : null,
+  });
+  return {
+    ...frame,
+    frameWidth,
+    frameZoom,
+    setFrameWidth,
+    setFrameZoom,
+    resizeFrame: canArrange ? setFrameWidth : undefined,
+  };
 }
 
 function ReportHeaderActions({

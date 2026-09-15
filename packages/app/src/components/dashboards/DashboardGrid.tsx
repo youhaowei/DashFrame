@@ -14,9 +14,11 @@ import { useReportWrite } from "./report-write";
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
 // View and edit share one set of breakpoints so the editor previews exactly
-// what readers see: the saved 12-column layout at every desktop width, with
-// the attached item pane only narrowing it. Only a phone-width canvas stacks.
+// what readers see: the saved 12-column layout at every desktop width, laid
+// out at the frame's width and scaled to fit. Only a phone width stacks.
 const BREAKPOINTS = { lg: 480, xxs: 0 };
+/** Below this width the report stacks its items and can't be arranged. */
+export const REPORT_STACK_BELOW = BREAKPOINTS.lg;
 const COLS = { lg: 12, xxs: 2 };
 
 interface DashboardGridProps {
