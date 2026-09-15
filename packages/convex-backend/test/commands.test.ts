@@ -3372,7 +3372,7 @@ describe("existing command behavior on native Convex", () => {
     expect(layout[0]?.content).toBe("Updated");
     expect(layout[0]?.x).toBe(2);
   });
-  it("stores what a chart item displays and rejects unknown modes", async () => {
+  it("stores what an item displays and rejects unknown modes", async () => {
     const dashId = id();
     const itemId = id();
     await commit(

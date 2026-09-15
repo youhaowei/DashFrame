@@ -586,7 +586,10 @@ function VisualizationDisplayContent({
           ref={headerRef}
           name={activeViz.name}
           isViewingData={isViewingData}
-          onViewingDataChange={showTileMenu && setIsViewingData}
+          // A tile that already shows its table has no data to reveal.
+          onViewingDataChange={
+            showTileMenu && display !== "table" && setIsViewingData
+          }
         />
       ) : (
         <PageHeader
@@ -870,7 +873,7 @@ function TileHeader({
               ) : (
                 <TableIcon aria-hidden />
               )}
-              {isViewingData ? "Back to chart" : "View data"}
+              {isViewingData ? "Show chart" : "View data"}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

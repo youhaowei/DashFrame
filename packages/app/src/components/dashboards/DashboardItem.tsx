@@ -6,7 +6,7 @@ import {
   cmd,
   type UUID,
 } from "@dashframe/types";
-import { Button, cn } from "@wystack/ui-react";
+import { ButtonPrimitive, cn } from "@wystack/ui-react";
 import { DeleteIcon, DragHandleIcon } from "@wystack/ui-react/icons";
 import { toast } from "sonner";
 import { MarkdownWidget } from "./MarkdownWidget";
@@ -158,16 +158,17 @@ export function DashboardItem({
                   controls={controls}
                 />
               )}
-              <Button
-                label="Remove item"
-                aria-label="Remove item"
+              <ButtonPrimitive
+                type="button"
                 variant="ghost"
-                size="sm"
+                size="icon"
+                aria-label="Remove item"
+                title="Remove item"
                 className="h-6 w-6 text-palette-danger hover:bg-palette-danger/10 hover:text-palette-danger"
                 onClick={handleRemove}
               >
-                <DeleteIcon className="h-3.5 w-3.5" />
-              </Button>
+                <DeleteIcon className="h-3.5 w-3.5" aria-hidden />
+              </ButtonPrimitive>
             </div>
           </div>
         )}
