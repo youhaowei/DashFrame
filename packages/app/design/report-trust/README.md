@@ -8,13 +8,19 @@ Nothing persists; reload to reset.
 bunx vp dev --config packages/app/design/report-trust/preview.config.ts
 ```
 
-Open `http://127.0.0.1:4385/controls.html` or `.../trust.html`; the bar at the
-top switches states and theme.
+Open `http://127.0.0.1:4385/controls.html`, `.../styles.html`, or
+`.../trust.html`; the bar at the top switches states and theme.
 
 ## The model these draw
 
-A runtime control (a filter, a sort, a limit) on a report item has two
-independent properties:
+A runtime control on a report item has two independent properties. A control is
+not always a filter: `InsightRuntimeDeclaration` declares three kinds — any
+number of filters, one sort, one limit — and they read differently and matter
+differently. A limit is the one most likely to change what a reader concludes
+(`Top 10` hides the tail) and the least likely to be confidential, so the case
+for hiding it by default is the weakest of the three.
+
+The two properties:
 
 - **visible** — whether the reader sees it at all.
 - **changeable** — whether anything can change its value.
@@ -74,7 +80,37 @@ invites a question that cannot be answered, and the list leaks values outright.
 This puts the product with Looker Studio and Mode, which hide chart-level filters
 from viewers entirely.
 
-## 2 · Report trust line (`trust.html`)
+## 2 · Style and overflow (`styles.html`)
+
+Four ways to draw an exposed control, and four things to do when a tile has more
+than fit. The **Settings** control in the top bar takes the count from 1 to 6;
+**Width** narrows the page to tile width.
+
+Styles:
+
+- **Sentence chip** — a flat chip read as a statement (`Region is EMEA`). Most
+  legible, widest, and the only one that carries the operator naturally.
+- **Plain text** — no container at all, a caption under the title. Lightest, and
+  the least likely to be mistaken for a control.
+- **Label + value** — the well's two-tone pairing without the box. Scans as a
+  list of fields, but it drops the operator: `Channel is not Partner` reads as
+  `Channel Partner`, which is wrong rather than merely terse.
+- **One chip** — every setting in a single container. Cheapest per setting, and
+  the first to run out of room as a whole, because it cannot break.
+
+Overflow:
+
+- **Truncate** — show what fits, then `+N` opening the rest. The chart keeps its
+  height; the reader has to click.
+- **Wrap** — everything stays readable and the chart loses a row of height for
+  each extra line. At six settings on a narrow tile this is three rows.
+- **Summarise** — one chip with a count, the list on click. Constant width at any
+  number. A count over _exposed_ settings is fair: the author already chose to
+  disclose them, which is what separates this from the mark rejected above.
+- **Scroll** — one sideways-scrolling line. Cheap, and what is off-screen is easy
+  to miss.
+
+## 3 · Report trust line (`trust.html`)
 
 One line above the numbers, carrying three conditions: how current the data is,
 a refresh that failed (old _because something broke_, not old on purpose), and
@@ -93,6 +129,8 @@ That split is a confidentiality rule, not a vocabulary preference.
 
 - On `controls.html`, compare the two **visible + fixed** tiles and pick a
   shape. That is the decision this prototype exists for.
+- On `styles.html`, set **Settings · 6** and **Width · Narrow**, and decide how
+  much tile height an exposed control line may cost.
 - Set **Width · Narrow**. Naming the field roughly doubles a control's width,
   so two is the practical ceiling for a tile-width line and the third clips. The
   overflow rule is not designed yet.
@@ -101,5 +139,7 @@ That split is a confidentiality rule, not a vocabulary preference.
 ## Prototype-only choices
 
 - Charts are SVG drawn from theme tokens, not the app's chart renderer.
+- Sort and limit are drawn with placeholder phrasing (`Sorted by Revenue, high
+to low`, `Top 10`); the wording is not settled.
 - The report control bar is two wells with no binding UI behind them.
 - Overflow of the control line is deliberately left unhandled.

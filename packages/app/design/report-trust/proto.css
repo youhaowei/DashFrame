@@ -157,13 +157,10 @@ button[aria-pressed="true"] {
 .line {
   display: flex;
   flex-wrap: wrap;
+  min-width: 0;
   align-items: center;
   gap: 6px;
   padding-top: 8px;
-}
-.page.narrow .line {
-  flex-wrap: nowrap;
-  overflow: hidden;
 }
 
 /* The field name is always present; the value is what carries the weight. */
@@ -342,4 +339,113 @@ button[aria-pressed="true"] {
 }
 .section:first-child {
   padding-top: 0;
+}
+
+/* ------------------------------------------------- exposed-control styles -- */
+
+/* Plain text: a caption under the title, no container at all. */
+.run {
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.run + .run::before {
+  content: "·";
+  margin: 0 5px;
+  color: var(--neutral-fg-subtle);
+}
+.run .field {
+  color: var(--neutral-fg-subtle);
+}
+.run .value {
+  color: var(--neutral-fg);
+  font-weight: 600;
+}
+
+/* Label + value: the well's pairing without the box. */
+.pair {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.pair + .pair {
+  margin-left: 10px;
+}
+.pair .field {
+  color: var(--neutral-fg-subtle);
+  font-weight: 500;
+}
+.pair .value {
+  color: var(--neutral-fg);
+  font-weight: 600;
+}
+
+/* One chip holding every setting. */
+.chip.group {
+  gap: 5px;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.chip .sep {
+  opacity: 0.45;
+}
+.chip.pressable {
+  height: 22px;
+  border: 0;
+  cursor: pointer;
+}
+
+/* Overflow strategies. */
+.line.wrap {
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.line.truncate,
+.line.summary {
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+.line.scroll {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.more {
+  flex: 0 0 auto;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  background: var(--neutral-bg-muted);
+  color: var(--neutral-fg-subtle);
+}
+
+/* Detail on demand for a truncated or summarised line. */
+.pop {
+  position: absolute;
+  top: 60px;
+  left: 12px;
+  z-index: 5;
+  min-width: 190px;
+  padding: 9px 11px;
+  border-radius: 9px;
+  background: var(--neutral-bg);
+  box-shadow: var(--surface-shadow);
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--neutral-fg-subtle);
+}
+.pop .pop-title {
+  margin-bottom: 3px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.pop ul {
+  margin: 0;
+  padding-left: 14px;
 }
