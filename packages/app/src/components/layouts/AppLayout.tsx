@@ -1,6 +1,8 @@
 import { useRenderPerf } from "@/lib/perf";
-import { Breadcrumb, type BreadcrumbItem } from "@dashframe/ui";
-import { Link } from "@tanstack/react-router";
+import {
+  useAppBreadcrumbs,
+  type AppBreadcrumb,
+} from "@/components/app-breadcrumbs";
 import { cn } from "@wystack/ui-react";
 import type { ReactNode } from "react";
 
@@ -26,8 +28,8 @@ type AppLayoutHeaderProps =
     }
   | {
       pageHeader?: undefined;
-      /** Breadcrumb navigation items rendered by AppLayout. */
-      breadcrumbs?: BreadcrumbItem[];
+      /** Where the page sits, shown in the app bar. */
+      breadcrumbs?: AppBreadcrumb[];
       /** Optional header content rendered after breadcrumbs. */
       headerContent?: ReactNode;
     };
@@ -72,6 +74,22 @@ export function AppLayout({
   useRenderPerf(
     `layout:${breadcrumbs?.map((b) => b.label).join("/") ?? "page"}`,
   );
+  useAppBreadcrumbs(breadcrumbs ?? null);
+
+  // `null` opts out of the header; otherwise it holds `headerContent`.
+  // Breadcrumbs show in the app bar, not here.
+  let header: ReactNode = pageHeader;
+  if (pageHeader === undefined) {
+    header = headerContent ? (
+      <header className="sticky top-0 z-10 shrink-0 border-b bg-neutral-bg/90 backdrop-blur-sm">
+        <div className="container mx-auto px-8 py-4">
+          <div className="flex items-center justify-between gap-6">
+            <div className="flex-1">{headerContent}</div>
+          </div>
+        </div>
+      </header>
+    ) : null;
+  }
 
   return (
     <div
@@ -81,24 +99,7 @@ export function AppLayout({
       )}
     >
       {/* Sticky Header */}
-      {/* `null` opts out of the header; `undefined` renders the default. */}
-      {pageHeader !== undefined ? (
-        pageHeader
-      ) : (
-        <header className="sticky top-0 z-10 shrink-0 border-b bg-neutral-bg/90 backdrop-blur-sm">
-          <div className="container mx-auto px-8 py-4">
-            <div className="flex items-center justify-between gap-6">
-              {/* Breadcrumb navigation */}
-              {breadcrumbs && breadcrumbs.length > 0 && (
-                <Breadcrumb LinkComponent={Link} items={breadcrumbs} />
-              )}
-
-              {/* Additional header content */}
-              {headerContent && <div className="flex-1">{headerContent}</div>}
-            </div>
-          </div>
-        </header>
-      )}
+      {header}
 
       {/* Main Layout Body */}
       <div className="flex min-h-0 flex-1 overflow-hidden">

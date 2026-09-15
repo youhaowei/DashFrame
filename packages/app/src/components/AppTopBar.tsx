@@ -7,6 +7,7 @@ import {
   PanelLeftOpenIcon,
 } from "@wystack/ui-react/icons";
 
+import { AppBreadcrumbs } from "./app-breadcrumbs";
 import { AssistantToggle } from "./assistant/AssistantToggle";
 
 /** Width reserved for the macOS traffic lights when the title bar is hidden. */
@@ -36,7 +37,7 @@ export function AppTopBar() {
       className="titlebar-drag-region shrink-0 px-[var(--surface-inset)]"
       height={40}
       left={
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2">
           {macDesktop && (
             <div
               className="shrink-0"
@@ -56,6 +57,7 @@ export function AppTopBar() {
             onClick={toggleLeftNav}
             className="hidden h-7 w-7 text-neutral-fg-subtle hover:text-neutral-fg lg:flex"
           />
+          <AppBreadcrumbs />
         </div>
       }
       right={

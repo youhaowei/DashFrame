@@ -27,8 +27,9 @@ import {
   getFieldSensitivity,
   suggestSensitivityReasons,
 } from "@dashframe/types";
-import { Breadcrumb, VirtualTable } from "@dashframe/ui";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { VirtualTable } from "@dashframe/ui";
+import { useAppBreadcrumbs } from "@/components/app-breadcrumbs";
+import { useNavigate } from "@tanstack/react-router";
 
 import {
   Badge,
@@ -225,6 +226,14 @@ export default function DataSourcePageContent({
 
   // Use source name directly - mutations update database which triggers re-render
   const sourceName = dataSource?.name ?? "";
+  useAppBreadcrumbs(
+    dataSource
+      ? [
+          { label: "Data Sources", to: "/data-sources" },
+          { label: sourceName || "Untitled Source" },
+        ]
+      : null,
+  );
   const connector = dataSource ? getConnectorById(dataSource.type) : null;
 
   // Bind the assistant to this data source so its sidebar is contextual to what
@@ -427,15 +436,6 @@ export default function DataSourcePageContent({
                   </PopoverContent>
                 </Popover>
               </>
-            }
-            navigation={
-              <Breadcrumb
-                LinkComponent={Link}
-                items={[
-                  { label: "Data Sources", to: "/data-sources" },
-                  { label: sourceName || "Untitled Source" },
-                ]}
-              />
             }
           >
             <ArtifactSwitcher

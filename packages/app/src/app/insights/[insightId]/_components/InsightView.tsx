@@ -61,7 +61,8 @@ import {
   type VirtualTableColumnConfig,
 } from "@dashframe/ui";
 import { Chart } from "@dashframe/visualization";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
+import { useAppBreadcrumbs } from "@/components/app-breadcrumbs";
 
 import {
   Button,
@@ -884,6 +885,10 @@ export function InsightView({
 
   // Local state for insight name (prevents re-renders on typing)
   const [localName, setLocalName] = useState(insight.name);
+  useAppBreadcrumbs([
+    { label: "Insights", to: "/insights" },
+    { label: localName || "Untitled insight" },
+  ]);
   const setWebMCPInsight = useWebMCPPageStore((state) => state.setInsight);
   const updateWebMCPInsight = useWebMCPPageStore(
     (state) => state.updateInsight,
@@ -1682,7 +1687,7 @@ export function InsightView({
 
         <section className="flex min-w-[min(18rem,100%)] flex-1 flex-col gap-2 overflow-hidden px-1.5 py-2">
           {/* Collapses by the header's own width: view labels below 48rem,
-              breadcrumb below 42rem, action labels below 36rem. Under ~23rem
+              action labels below 36rem. Under ~23rem
               (both panes open on a small window) it scrolls rather than clip. */}
           <header className="@container flex h-10 shrink-0 items-center gap-1.5 overflow-x-auto px-1 whitespace-nowrap [scrollbar-width:thin] [&>*]:shrink-0 [&>input]:shrink">
             <Button
@@ -1697,18 +1702,6 @@ export function InsightView({
               }
               onClick={() => setInsightPaneOpen((open) => !open)}
             />
-            <Link
-              to="/insights"
-              className="shrink-0 rounded-sm px-1 @max-2xl:hidden text-xs text-neutral-fg-subtle transition-colors hover:text-neutral-fg focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none"
-            >
-              Insights
-            </Link>
-            <span
-              aria-hidden
-              className="shrink-0 text-xs text-neutral-fg-subtle @max-2xl:hidden"
-            >
-              ›
-            </span>
             <label className="sr-only" htmlFor="insight-name">
               Insight name
             </label>

@@ -1,7 +1,8 @@
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 import { ArtifactPageHeader } from "@/components/artifacts/ArtifactPageHeader";
 import { queryStatus } from "@/data/query-status";
-import { Breadcrumb, ControlTooltip } from "@dashframe/ui";
+import { ControlTooltip } from "@dashframe/ui";
+import { useAppBreadcrumbs } from "@/components/app-breadcrumbs";
 import { useQuery_experimental as useQuery, useMutation } from "convex/react";
 import { useBindArtifact } from "@/components/assistant/artifact-context";
 import { DashboardControlBar } from "@/components/dashboards/DashboardControlBar";
@@ -39,7 +40,7 @@ import {
   type InsightFilter,
   type UUID,
 } from "@dashframe/types";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import {
   Button,
   ButtonPrimitive,
@@ -130,6 +131,14 @@ export default function DashboardDetailContent({
           : null,
       [dashboard, dashboardId],
     ),
+  );
+  useAppBreadcrumbs(
+    dashboard
+      ? [
+          { label: "Reports", to: "/dashboards" },
+          { label: dashboard.name || "Untitled report" },
+        ]
+      : null,
   );
 
   // ── Controls ─────────────────────────────────────────────────────────────
@@ -265,7 +274,6 @@ export default function DashboardDetailContent({
         <ReportWorkbenchLayout
           header={
             <ReportEditorHeader
-              name={dashboard.name}
               draftId={draftId}
               isPreviewing={isPreviewing}
               onTogglePreview={() =>
@@ -327,15 +335,6 @@ export default function DashboardDetailContent({
         <div className="flex h-full flex-col">
           <ArtifactPageHeader
             title={dashboard.name}
-            navigation={
-              <Breadcrumb
-                LinkComponent={Link}
-                items={[
-                  { label: "Reports", to: "/dashboards" },
-                  { label: dashboard.name },
-                ]}
-              />
-            }
             actions={
               <Button
                 variant="outline"
@@ -673,7 +672,6 @@ function useEditorFrame(canArrange: boolean) {
 }
 
 function ReportEditorHeader({
-  name,
   draftId,
   isPreviewing,
   onTogglePreview,
@@ -685,7 +683,6 @@ function ReportEditorHeader({
   itemPane,
   frameControls,
 }: {
-  name: string;
   draftId: string | undefined;
   isPreviewing: boolean;
   onTogglePreview: () => void;
@@ -713,21 +710,7 @@ function ReportEditorHeader({
           onClick={onToggleReportPane}
         />
       )}
-      <Link
-        to="/dashboards"
-        className="shrink-0 rounded-sm px-1 text-xs text-neutral-fg-subtle transition-colors hover:text-neutral-fg focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none @max-2xl:hidden"
-      >
-        Reports
-      </Link>
-      <span
-        aria-hidden
-        className="shrink-0 text-xs text-neutral-fg-subtle @max-2xl:hidden"
-      >
-        ›
-      </span>
-      <h1 className="min-w-16 shrink! flex-1 truncate px-1 text-sm font-semibold text-neutral-fg">
-        {name}
-      </h1>
+      <div className="flex-1" />
       {status && (
         <span className="hidden max-w-48 min-w-0 truncate text-xs text-neutral-fg-subtle @min-5xl:inline">
           {status}

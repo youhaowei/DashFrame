@@ -66,8 +66,8 @@ export function ReportWorkbenchLayout({
 
 /**
  * Collapses by its own width: status and width readout below 64rem, action
- * labels below 48rem, breadcrumb and frame controls below 42rem. Under that it
- * scrolls rather than clip.
+ * labels below 48rem, frame controls below 42rem. Under that it scrolls rather
+ * than clip. The breadcrumb lives in the app bar.
  */
 export function ReportWorkbenchHeader({ children }: { children: ReactNode }) {
   return (
