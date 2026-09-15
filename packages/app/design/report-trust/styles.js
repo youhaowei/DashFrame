@@ -11,39 +11,71 @@
 
 import { chart, h, shell } from "./shared.js";
 
-const state = { style: "twotone", count: 3, narrow: false };
+const state = { style: "twotone", icon: "none", count: 3, narrow: false };
 
 const SALES = [42, 58, 35, 71, 49, 63, 38];
+
+// Glyphs for the three kinds a runtime control can be. Hand-drawn here: the
+// design system has no funnel — ArrowUpDownIcon and ListIcon are the closest —
+// so adopting a filter icon is a change to stdui, not a change to this app.
+const GLYPH = {
+  filter: `<svg class="glyph" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M1.5 2h9L7 6.2V10L5 9V6.2L1.5 2Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>`,
+  sort: `<svg class="glyph" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M3.5 2v8M3.5 10 1.8 8.3M3.5 10l1.7-1.7M8.5 10V2M8.5 2 6.8 3.7M8.5 2l1.7 1.7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  limit: `<svg class="glyph" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M2 3h8M2 6h8M2 9h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>`,
+};
+
+/** The glyph a chip carries, if any, under the current icon setting. */
+function glyphFor(control) {
+  if (state.icon === "none") return "";
+  return GLYPH[control.kind] ?? "";
+}
+
+/** The label a chip shows: dropped entirely when an icon stands in for it. */
+function labelFor(control) {
+  if (state.icon === "replace") return "";
+  return control.label;
+}
 
 // A runtime control is not always a filter: an Insight declares any number of
 // filters, one sort and one limit. All three take an authored label.
 const CONTROLS = [
   {
+    kind: "filter",
     label: "Region",
     value: "EMEA",
     field: "Region",
     derived: "Region is EMEA",
   },
   {
+    kind: "sort",
     label: "Ranked by",
     value: "Revenue",
     field: "Sort",
     derived: "Sorted by Revenue, high to low",
   },
-  { label: "", value: "Top 10", field: "Limit", derived: "Top 10" },
   {
+    kind: "limit",
+    label: "",
+    value: "Top 10",
+    field: "Limit",
+    derived: "Top 10",
+  },
+  {
+    kind: "filter",
     label: "Period",
     value: "Last 12 months",
     field: "Date",
     derived: "Date in last 12 months",
   },
   {
+    kind: "filter",
     label: "Direct only",
     value: "Yes",
     field: "Channel",
     derived: "Channel is not Partner",
   },
   {
+    kind: "filter",
     label: "Segment",
     value: "Enterprise",
     field: "Segment",
@@ -61,7 +93,7 @@ const STYLES = {
     note: "Two tones in one chip, the label quiet and the value strong. An unlabelled control is just its value, which is the shortest a chip gets.",
     render: (c) =>
       h(
-        `<span class="chip">${c.label ? `<span class="field">${c.label}</span>` : ""}<span class="value">${c.value}</span></span>`,
+        `<span class="chip">${glyphFor(c)}${labelFor(c) ? `<span class="field">${labelFor(c)}</span>` : ""}<span class="value">${c.value}</span></span>`,
       ),
   },
   colon: {
@@ -69,7 +101,7 @@ const STYLES = {
     note: "The same pairing punctuated. Reads as a key and a value, and needs the label to be present.",
     render: (c) =>
       h(
-        `<span class="chip">${c.label ? `<span class="field">${c.label}:</span>` : ""}<span class="value">${c.value}</span></span>`,
+        `<span class="chip">${glyphFor(c)}${labelFor(c) ? `<span class="field">${labelFor(c)}:</span>` : ""}<span class="value">${c.value}</span></span>`,
       ),
   },
   divided: {
@@ -77,7 +109,7 @@ const STYLES = {
     note: "Label and value in their own halves. Easiest to scan down a column of chips, widest per chip.",
     render: (c) =>
       h(
-        `<span class="chip divided">${c.label ? `<span class="field">${c.label}</span>` : ""}<span class="value">${c.value}</span></span>`,
+        `<span class="chip divided">${glyphFor(c)}${labelFor(c) ? `<span class="field">${labelFor(c)}</span>` : ""}<span class="value">${c.value}</span></span>`,
       ),
   },
   derived: {
@@ -260,6 +292,19 @@ const { page } = shell("Control styles", [
     })),
     onChange: (value) => {
       state.style = value;
+      render(page);
+    },
+  },
+  {
+    label: "Icon",
+    value: "none",
+    options: [
+      { label: "None", value: "none" },
+      { label: "Kind", value: "kind" },
+      { label: "Instead of label", value: "replace" },
+    ],
+    onChange: (value) => {
+      state.icon = value;
       render(page);
     },
   },

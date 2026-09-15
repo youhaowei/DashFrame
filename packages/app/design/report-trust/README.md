@@ -104,6 +104,23 @@ Four chip styles, switched from the top bar:
 - **Derived sentence** — what the tile would say with no authored label, kept
   only as the thing to compare against.
 
+**Icon** is a separate axis, applied to whichever style is selected:
+
+- **None** — words only.
+- **Kind** — a glyph naming what kind of control it is: filter, sort, or limit.
+  It distinguishes a sort chip from a filter chip without spending a word, which
+  is the one thing the label cannot do, since the label is about the subject and
+  not the mechanism.
+- **Instead of label** — the glyph replaces the author's label. This is the cheap
+  option and it does not survive contact: `Direct only  Yes` becomes a funnel and
+  `Yes`, and `Region  EMEA` becomes a funnel and `EMEA`. The glyph says _that_
+  the chart is filtered, never _by what_, which is the same failure as the
+  rejected count.
+
+Note the design system has no funnel — `ArrowUpDownIcon` and `ListIcon` are the
+closest it offers — so adopting a filter glyph is a change to `libs/stdui`, with
+its own repo and its own gate, not a change to this app.
+
 The **Authoring** section is the item pane in the workbench: type a label and
 the tile beside it changes. Clearing a label falls back to the value alone.
 
@@ -140,6 +157,8 @@ That split is a confidentiality rule, not a vocabulary preference.
   shape. That is the decision this prototype exists for.
 - On `styles.html`, pick a chip style, then type labels in the **Authoring**
   pane and watch the tile. Clear the limit's label.
+- Set **Icon · Instead of label** at 6 settings and read the chips aloud. That
+  is the argument against it.
 - Then set **Settings · 6** and **Width · Narrow**, and decide how much tile
   height an exposed control line may cost.
 - Set **Width · Narrow**. Naming the field roughly doubles a control's width,

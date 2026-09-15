@@ -516,3 +516,14 @@ button[aria-pressed="true"] {
   outline: 2px solid var(--palette-primary);
   outline-offset: 1px;
 }
+
+/* A glyph naming the kind of control a chip is: filter, sort, or limit. */
+.glyph {
+  width: 11px;
+  height: 11px;
+  flex: 0 0 auto;
+  color: var(--neutral-fg-subtle);
+}
+.chip.divided .glyph {
+  margin-right: 1px;
+}
