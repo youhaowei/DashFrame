@@ -36,7 +36,6 @@ packages/
   connector-local/  # Local file (CSV/JSON) connector
   connector-notion/ # Notion API connector
   connector-postgres/ # Postgres connector
-  connector-rest/   # REST connector
   visualization/    # Chart rendering system
   ui/               # App-local UI primitives
 libs/

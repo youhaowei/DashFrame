@@ -548,22 +548,6 @@
         "vitest": "catalog:",
       },
     },
-    "packages/connector-rest": {
-      "name": "@dashframe/connector-rest",
-      "version": "0.1.0",
-      "dependencies": {
-        "@dashframe/engine": "workspace:*",
-        "@wystack/secret-vault": "workspace:*",
-        "apache-arrow": "^21.1.0",
-        "ipaddr.js": "2.4.0",
-      },
-      "devDependencies": {
-        "@vitest/coverage-v8": "catalog:",
-        "typescript": "^5.6.0",
-        "vite-plus": "catalog:",
-        "vitest": "catalog:",
-      },
-    },
     "packages/convex-backend": {
       "name": "@dashframe/convex-backend",
       "version": "0.0.0",
@@ -973,8 +957,6 @@
     "@dashframe/connector-notion": ["@dashframe/connector-notion@workspace:packages/connector-notion"],
 
     "@dashframe/connector-postgres": ["@dashframe/connector-postgres@workspace:packages/connector-postgres"],
-
-    "@dashframe/connector-rest": ["@dashframe/connector-rest@workspace:packages/connector-rest"],
 
     "@dashframe/convex-backend": ["@dashframe/convex-backend@workspace:packages/convex-backend"],
 
@@ -3805,8 +3787,6 @@
     "@dashframe/connector-notion/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
     "@dashframe/connector-postgres/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
-
-    "@dashframe/connector-rest/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
     "@dashframe/csv/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 

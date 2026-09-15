@@ -14,7 +14,7 @@ export default defineConfig({
   resolve: {
     alias: {
       // Resolve the credential-ref guard's shape predicate from source so the
-      // unit tests do not depend on a built wystack dist (mirrors connector-rest).
+      // unit tests do not depend on a built wystack dist.
       // ESM-safe base (this package is type:module; no __dirname at runtime).
       "@wystack/secret-vault": resolve(
         configDir,

@@ -24,7 +24,7 @@ The CLI will prompt you:
 
 ### 2. Choosing Version Bump Type
 
-**Library Packages** (`@dashframe/app`, `@dashframe/assistant`, `@dashframe/types`, `@dashframe/engine`, `@dashframe/engine-browser`, `@dashframe/csv`, `@dashframe/json`, `@dashframe/connector-ga4`, `@dashframe/connector-local`, `@dashframe/connector-notion`, `@dashframe/connector-postgres`, `@dashframe/connector-rest`, `@dashframe/visualization`, `@dashframe/ui`):
+**Library Packages** (`@dashframe/app`, `@dashframe/assistant`, `@dashframe/types`, `@dashframe/engine`, `@dashframe/engine-browser`, `@dashframe/csv`, `@dashframe/json`, `@dashframe/connector-ga4`, `@dashframe/connector-local`, `@dashframe/connector-notion`, `@dashframe/connector-postgres`, `@dashframe/visualization`, `@dashframe/ui`):
 
 **While in v0.x (pre-stable):**
 
