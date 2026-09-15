@@ -20,7 +20,8 @@ export function ReportSettingsPane({
   transientValues,
   onTransientChange,
 }: {
-  controls: DashboardControl[];
+  /** `null` while field types load, so the pane doesn't claim there are none. */
+  controls: DashboardControl[] | null;
   fieldsByName: Map<string, CombinedField>;
   transientValues: Map<string, InsightFilter["value"]>;
   onTransientChange: (next: Map<string, InsightFilter["value"]>) => void;
@@ -36,14 +37,15 @@ export function ReportSettingsPane({
             title="Filters"
             icon={ListFilter}
             open={filtersOpen}
-            summary={controls.length === 0 ? "None" : String(controls.length)}
+            summary={controlsSummary(controls)}
             onOpenChange={setFiltersOpen}
           >
-            {controls.length === 0 ? (
+            {controls?.length === 0 && (
               <p className="px-1.5 text-neutral-fg-subtle">
                 This report has no filters.
               </p>
-            ) : (
+            )}
+            {controls && controls.length > 0 && (
               <div className="flex flex-col gap-2 px-1.5">
                 <DashboardControlBar
                   orientation="vertical"
@@ -62,4 +64,9 @@ export function ReportSettingsPane({
       </OverlayScrollArea>
     </div>
   );
+}
+
+function controlsSummary(controls: DashboardControl[] | null) {
+  if (controls === null) return "";
+  return controls.length === 0 ? "None" : String(controls.length);
 }

@@ -100,7 +100,7 @@ export function ReportFrameControls({
         </SelectContent>
       </Select>
       <span
-        className="px-1 text-xs text-neutral-fg-subtle tabular-nums @max-3xl:hidden"
+        className="px-1 text-xs text-neutral-fg-subtle tabular-nums @max-5xl:hidden"
         aria-live="polite"
       >
         {Math.round(width)}px

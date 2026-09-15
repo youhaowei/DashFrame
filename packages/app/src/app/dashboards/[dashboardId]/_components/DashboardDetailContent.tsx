@@ -221,7 +221,9 @@ export default function DashboardDetailContent({
   const paneItem = dashboard.items.find((item) => item.id === paneItemId);
   const showPane = canArrange && isPaneOpen && paneItem !== undefined;
   // Field types come from the insights, so wait for them before showing inputs.
-  const controls = questionMetadataAvailable ? (dashboard.controls ?? []) : [];
+  const controls = questionMetadataAvailable
+    ? (dashboard.controls ?? [])
+    : null;
 
   const canvas = (
     <ReportCanvasWell setCanvas={frame.setCanvas} onBackgroundClick={closePane}>
@@ -352,7 +354,7 @@ export default function DashboardDetailContent({
               report lays out at the width the editor previews. */}
           <div className="flex min-h-0 flex-1 flex-col gap-2 px-1.5 py-2">
             <DashboardControlBar
-              controls={controls}
+              controls={controls ?? []}
               fieldsByName={fieldsByName}
               transientValues={controlTransientValues}
               onTransientChange={setControlTransientValues}
@@ -727,7 +729,7 @@ function ReportEditorHeader({
         {name}
       </h1>
       {status && (
-        <span className="hidden max-w-48 min-w-0 truncate text-xs text-neutral-fg-subtle @min-3xl:inline">
+        <span className="hidden max-w-48 min-w-0 truncate text-xs text-neutral-fg-subtle @min-5xl:inline">
           {status}
         </span>
       )}
