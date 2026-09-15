@@ -14,9 +14,10 @@ import { AssistantToggle } from "./assistant/AssistantToggle";
 const TRAFFIC_LIGHT_SPACER_PX = 64;
 
 /**
- * Full-width window top bar — the macOS title-bar replacement. Spans above both
- * the nav and the content, holds the left-nav and appearance-panel toggles, and
- * (in the Electron renderer) acts as the draggable region.
+ * Window top bar — the macOS title-bar replacement. Sits above the content,
+ * beside the full-height nav; holds the left-nav and appearance-panel toggles
+ * and the page breadcrumb, and (in the Electron renderer) acts as the
+ * draggable region.
  *
  * The drag behaviour is supplied by the `titlebar-drag-region` class, whose
  * `-webkit-app-region` rules live in a raw <style> in the Electron host's
@@ -34,13 +35,14 @@ export function AppTopBar() {
 
   return (
     <TopBar
-      className="titlebar-drag-region shrink-0 px-[var(--surface-inset)]"
+      className="titlebar-drag-region shrink-0"
       height={40}
       left={
         <div className="flex min-w-0 items-center gap-2">
+          {/* The traffic lights sit over the nav while it's open. */}
           {macDesktop && (
             <div
-              className="shrink-0"
+              className={cn("shrink-0", leftNavOpen && "min-[1024px]:hidden")}
               style={{ width: TRAFFIC_LIGHT_SPACER_PX }}
               aria-hidden
             />

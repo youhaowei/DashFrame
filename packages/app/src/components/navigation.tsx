@@ -8,6 +8,7 @@ import { reloadRootWithFreshWorkspaceState } from "@/lib/clear-all-data-navigati
 import { PerfHud } from "@/lib/perf";
 import { useToastStore } from "@/lib/stores";
 import { useAssistantStore } from "@/lib/stores/assistant-store";
+import { usePlatform } from "@/lib/platform";
 import { useShellStore } from "@/lib/stores/shell-store";
 import { api } from "@dashframe/convex-backend/api";
 import { Link, useLocation } from "@tanstack/react-router";
@@ -237,6 +238,7 @@ export function Navigation() {
     accessCapabilities.data?.canManageCredentials === true;
 
   const leftNavOpen = useShellStore((s) => s.leftNavOpen);
+  const { isElectron, isMacOS } = usePlatform();
 
   const { showError, showSuccess } = useToastStore();
 
@@ -261,7 +263,8 @@ export function Navigation() {
     <>
       {/* Desktop nav — a flat left Dock (surface={false}): window chrome on the
           canvas, not a floating card, so the Stage stays the primary surface.
-          Visibility is driven from the top-bar toggle via the shell store. */}
+          It runs the full window height beside the top bar. Visibility is
+          driven from the top-bar toggle via the shell store. */}
       <Dock
         side="left"
         open={leftNavOpen}
@@ -274,6 +277,10 @@ export function Navigation() {
           className="flex h-full flex-col"
           style={{ width: DESKTOP_NAV_WIDTH }}
         >
+          {/* Room for the macOS traffic lights, draggable like the top bar. */}
+          {isElectron && isMacOS && (
+            <div className="titlebar-drag-region h-10 shrink-0" aria-hidden />
+          )}
           <SidebarContent
             pendingDraftCount={draftCount}
             onClearData={() => setShowClearConfirm(true)}
