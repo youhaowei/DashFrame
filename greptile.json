@@ -2,7 +2,7 @@
   "files": [
     {
       "path": "PRODUCT.md",
-      "description": "What DashFrame is, its commitments (local-first, per-field sensitivity classification \u2014 no shipped import review or at-rest gate yet \u2014 immediate, truthful) and non-goals. Load before judging whether a feature or element belongs."
+      "description": "What DashFrame is, its commitments (local-first, per-field sensitivity classification — no shipped import review or at-rest gate yet — immediate, truthful) and non-goals. Load before judging whether a feature or element belongs."
     },
     {
       "path": "DESIGN.md",
@@ -30,7 +30,7 @@
         ]
       },
       {
-        "content": "DESTRUCTIVE-RECOVERY rule (invariant). Any path that quarantines, deletes, or overwrites a user's local project or data directory must require POSITIVE evidence of the specific failure it recovers from \u2014 never infer it from a broad error signal. Fail toward preserving data: when corruption cannot be positively confirmed, surface the error instead of destroying user data.",
+        "content": "DESTRUCTIVE-RECOVERY rule (invariant). Any path that quarantines, deletes, or overwrites a user's local project or data directory must require POSITIVE evidence of the specific failure it recovers from — never infer it from a broad error signal. Fail toward preserving data: when corruption cannot be positively confirmed, surface the error instead of destroying user data.",
         "scope": [
           "packages/server-core/**",
           "apps/server/**",
