@@ -253,6 +253,7 @@ export default function DashboardDetailContent({
         <ReportFrame
           width={frame.width}
           scale={frame.scale}
+          outlined={canArrange && frame.frameWidth !== null}
           onResize={frame.resizeFrame}
           onResizingChange={frame.holdScale}
         >

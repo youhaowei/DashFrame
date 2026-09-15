@@ -16,6 +16,7 @@ import {
   type PointerEvent,
   type ReactNode,
 } from "react";
+import { cn } from "@wystack/ui-react";
 
 export const MIN_FRAME_WIDTH = 320;
 export const MAX_FRAME_WIDTH = 2560;
@@ -88,12 +89,15 @@ export function useReportFrame({
 export function ReportFrame({
   width,
   scale,
+  outlined = false,
   onResize,
   onResizingChange,
   children,
 }: {
   width: number;
   scale: number;
+  /** Draws the page's edge, for a width other than the reader's. */
+  outlined?: boolean;
   /** Shows a draggable edge that sets the width. Omit when not editing. */
   onResize?: (width: number) => void;
   onResizingChange?: (resizing: boolean) => void;
@@ -143,10 +147,11 @@ export function ReportFrame({
     <div className={width > 0 ? "relative mx-auto w-fit" : "relative"}>
       {/* A transform doesn't change layout size, so the frame takes the
           scaled size and clips the unscaled box that would otherwise scroll. */}
-      {/* The report is a raised page in the canvas well, so a narrow width
-          shows where it ends. */}
       <div
-        className="overflow-clip rounded-[var(--surface-radius)] bg-neutral-bg shadow-[var(--surface-shadow)] dark:bg-neutral-bg-subtle"
+        className={cn(
+          "overflow-clip rounded-[var(--surface-radius)] ring-neutral-border transition-shadow duration-150 motion-reduce:transition-none",
+          outlined && "ring-1",
+        )}
         style={{
           width: width > 0 ? width * scale : undefined,
           height: contentHeight === null ? undefined : contentHeight * scale,

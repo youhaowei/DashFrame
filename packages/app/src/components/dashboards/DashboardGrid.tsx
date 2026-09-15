@@ -57,11 +57,13 @@ export function DashboardGrid({
       h: item.height,
       minW: 2,
       minH: 2,
+      // Only the selected tile shows a resize handle.
+      isResizable: item.id === selectedItemId,
     }));
     // Phone-width canvases stack every item in one column.
     const xxsLayout = lgLayout.map((item) => ({ ...item, x: 0, w: 2 }));
     return { lg: lgLayout, xxs: xxsLayout };
-  }, [dashboard.items]);
+  }, [dashboard.items, selectedItemId]);
 
   const persistCanonicalLayout = useCallback(
     (currentLayout: Layout[]) => {
@@ -144,10 +146,12 @@ export function DashboardGrid({
       margin={[16, 16]}
       resizeHandle={
         isEditable ? (
-          <div className="absolute -right-2 -bottom-2 z-50 flex h-6 w-6 cursor-se-resize items-center justify-center text-neutral-fg-subtle/40 transition-colors hover:text-neutral-fg-subtle">
+          // react-grid-layout marks items that can't resize; the stock rule
+          // that hides their handle expects its own class name, not ours.
+          <div className="absolute right-0 bottom-0 z-50 flex h-5 w-5 cursor-se-resize items-center justify-center text-palette-primary [.react-resizable-hide>&]:hidden">
             <svg
-              width="24"
-              height="24"
+              width="14"
+              height="14"
               viewBox="0 0 24 24"
               fill="none"
               xmlns="http://www.w3.org/2000/svg"

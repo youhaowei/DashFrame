@@ -65,9 +65,9 @@ export function ReportWorkbenchLayout({
 }
 
 /**
- * Collapses by its own width: status and width readout below 64rem, action
- * labels below 48rem, frame controls below 42rem. Under that it scrolls rather
- * than clip. The breadcrumb lives in the app bar.
+ * Collapses by its own width: status below 64rem, action labels below 48rem,
+ * the View menu below 42rem. Under that it scrolls rather than clip. The
+ * breadcrumb lives in the app bar.
  */
 export function ReportWorkbenchHeader({ children }: { children: ReactNode }) {
   return (
@@ -78,8 +78,8 @@ export function ReportWorkbenchHeader({ children }: { children: ReactNode }) {
 }
 
 /**
- * Sunken well the report page sits in. The view page uses it too, so both lay
- * the report out at the same width.
+ * The scrolling area the report page sits in. The view page uses it too, so
+ * both lay the report out at the same width.
  */
 export function ReportCanvasWell({
   setCanvas,
@@ -99,7 +99,7 @@ export function ReportCanvasWell({
   return (
     <div
       ref={setCanvas}
-      className="min-h-0 flex-1 overflow-auto rounded-[var(--surface-radius)] bg-neutral-bg-muted p-6 shadow-inner dark:bg-neutral-bg-dim"
+      className="min-h-0 flex-1 overflow-auto p-6"
       onClick={handleClick}
     >
       {children}

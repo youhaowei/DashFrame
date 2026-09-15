@@ -1,10 +1,15 @@
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  ButtonPrimitive,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
 } from "@wystack/ui-react";
+import { ChevronDownIcon } from "@wystack/ui-react/icons";
 import { REPORT_STACK_BELOW } from "./DashboardGrid";
 
 const WIDTHS = [
@@ -22,12 +27,12 @@ const ZOOMS = [
   { value: "1", label: "100%" },
 ];
 
-const TRIGGER_CLASS = "h-7 w-auto gap-1.5 px-2 text-xs";
+const LABEL_CLASS = "text-[11px] font-medium text-neutral-fg-subtle";
 
 /**
- * Picks the width the editor lays the report out at, and how far it zooms.
- * `null` means "the reader's width in this window" and "fit the canvas".
- * Sized for the workbench's canvas header.
+ * One "View" menu for the width the editor lays the report out at and how far
+ * it zooms. `null` means "the reader's width in this window" and "fit the
+ * canvas". Sized for the workbench's canvas header.
  */
 export function ReportFrameControls({
   width,
@@ -44,68 +49,68 @@ export function ReportFrameControls({
   onWidthChange: (width: number | null) => void;
   onZoomChange: (zoom: number | null) => void;
 }) {
-  const zooms = [
-    { value: "fit", label: `Fit · ${Math.round(scale * 100)}%` },
-    ...ZOOMS,
-  ];
+  const percent = `${Math.round(scale * 100)}%`;
 
   return (
-    // Gives way first when both panes squeeze the header: collapsing a pane
-    // brings it back.
-    <div className="flex shrink-0 items-center gap-1 @max-2xl:hidden">
-      <Select
-        items={WIDTHS}
-        value={chosenWidth === null ? "window" : String(chosenWidth)}
-        onValueChange={(value) =>
-          onWidthChange(!value || value === "window" ? null : Number(value))
+    <DropdownMenu>
+      {/* Gives way first when both panes squeeze the header: collapsing a
+          pane brings it back. */}
+      <DropdownMenuTrigger
+        render={
+          <ButtonPrimitive
+            type="button"
+            variant="ghost"
+            size="sm"
+            aria-label={`View: ${Math.round(width)}px at ${percent}`}
+            className="h-7 shrink-0 gap-1 px-2 text-xs @max-2xl:hidden"
+          >
+            View
+            <span className="text-neutral-fg-subtle tabular-nums">
+              {percent}
+            </span>
+            <ChevronDownIcon aria-hidden className="size-3.5" />
+          </ButtonPrimitive>
         }
-      >
-        <SelectTrigger
-          size="sm"
-          variant="ghost"
-          aria-label="Report width"
-          className={TRIGGER_CLASS}
-        >
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {WIDTHS.map((option) => (
-            <SelectItem key={option.value} value={option.value}>
-              {option.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      <Select
-        items={zooms}
-        value={zoom === null ? "fit" : String(zoom)}
-        onValueChange={(value) =>
-          onZoomChange(!value || value === "fit" ? null : Number(value))
-        }
-      >
-        <SelectTrigger
-          size="sm"
-          variant="ghost"
-          aria-label="Zoom"
-          className={TRIGGER_CLASS}
-        >
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {zooms.map((option) => (
-            <SelectItem key={option.value} value={option.value}>
-              {option.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      <span
-        className="px-1 text-xs text-neutral-fg-subtle tabular-nums @max-5xl:hidden"
-        aria-live="polite"
-      >
-        {Math.round(width)}px
-        {width < REPORT_STACK_BELOW && " · stacked"}
-      </span>
-    </div>
+      />
+      <DropdownMenuContent align="end" className="min-w-52">
+        <DropdownMenuGroup>
+          <DropdownMenuLabel className={LABEL_CLASS}>
+            Width · {Math.round(width)}px
+            {width < REPORT_STACK_BELOW && ", stacked"}
+          </DropdownMenuLabel>
+          <DropdownMenuRadioGroup
+            value={chosenWidth === null ? "window" : String(chosenWidth)}
+            onValueChange={(value: string) =>
+              onWidthChange(value === "window" ? null : Number(value))
+            }
+          >
+            {WIDTHS.map((option) => (
+              <DropdownMenuRadioItem key={option.value} value={option.value}>
+                {option.label}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuGroup>
+          <DropdownMenuLabel className={LABEL_CLASS}>Zoom</DropdownMenuLabel>
+          <DropdownMenuRadioGroup
+            value={zoom === null ? "fit" : String(zoom)}
+            onValueChange={(value: string) =>
+              onZoomChange(value === "fit" ? null : Number(value))
+            }
+          >
+            <DropdownMenuRadioItem value="fit">
+              Fit to canvas
+            </DropdownMenuRadioItem>
+            {ZOOMS.map((option) => (
+              <DropdownMenuRadioItem key={option.value} value={option.value}>
+                {option.label}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
