@@ -36,7 +36,7 @@ import {
 import { WorkbenchPaneHeader } from "@dashframe/ui";
 import { Link } from "@tanstack/react-router";
 import { Button } from "@wystack/ui-react";
-import { CloseIcon, DeleteIcon } from "@wystack/ui-react/icons";
+import { DeleteIcon } from "@wystack/ui-react/icons";
 import { Type } from "lucide-react";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
@@ -72,7 +72,7 @@ export function ReportItemPane({
   };
 
   return (
-    <div className="relative flex h-full min-w-0 flex-col bg-neutral-bg text-xs">
+    <div className="flex h-full min-w-0 flex-col bg-neutral-bg text-xs">
       {item.type === "markdown" ? (
         <TextItemPane item={item} dashboardId={dashboard.id} />
       ) : (
@@ -90,15 +90,6 @@ export function ReportItemPane({
           Remove from report
         </Button>
       </div>
-      <Button
-        size="sm"
-        variant="ghost"
-        icon={CloseIcon}
-        iconOnly
-        label="Close pane"
-        onClick={onClose}
-        className="absolute top-2 right-2 h-7 w-7"
-      />
     </div>
   );
 }

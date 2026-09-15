@@ -1,7 +1,7 @@
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 import { ArtifactPageHeader } from "@/components/artifacts/ArtifactPageHeader";
 import { queryStatus } from "@/data/query-status";
-import { Breadcrumb } from "@dashframe/ui";
+import { Breadcrumb, ControlTooltip } from "@dashframe/ui";
 import { useQuery_experimental as useQuery, useMutation } from "convex/react";
 import { useBindArtifact } from "@/components/assistant/artifact-context";
 import { DashboardControlBar } from "@/components/dashboards/DashboardControlBar";
@@ -10,8 +10,14 @@ import {
   ReportFrame,
   useReportFrame,
 } from "@/components/dashboards/ReportFrame";
-import { ReportFrameToolbar } from "@/components/dashboards/ReportFrameToolbar";
+import { ReportFrameControls } from "@/components/dashboards/ReportFrameControls";
 import { ReportItemPane } from "@/components/dashboards/ReportItemPane";
+import { ReportSettingsPane } from "@/components/dashboards/ReportSettingsPane";
+import {
+  ReportCanvasWell,
+  ReportWorkbenchHeader,
+  ReportWorkbenchLayout,
+} from "@/components/dashboards/ReportWorkbenchLayout";
 import {
   useReportDraft,
   useReportWrite,
@@ -36,17 +42,21 @@ import {
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
   Button,
+  ButtonPrimitive,
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
   Label,
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-  cn,
 } from "@wystack/ui-react";
 import {
   ChartIcon,
@@ -54,9 +64,14 @@ import {
   EditIcon,
   EyeIcon,
   FileIcon,
+  MoreIcon,
+  PanelLeftCloseIcon,
+  PanelLeftOpenIcon,
+  PanelRightCloseIcon,
+  PanelRightOpenIcon,
   PlusIcon,
 } from "@wystack/ui-react/icons";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 interface DashboardDetailContentProps {
@@ -76,7 +91,7 @@ export default function DashboardDetailContent({
 }: DashboardDetailContentProps) {
   const navigate = useNavigate();
   const isEditable = mode === "edit";
-  // Preview shows the draft as a reader sees it: no pane, no editing chrome,
+  // Preview shows the draft as a reader sees it: no panes, no editing chrome,
   // charts at full size. Editing shrinks the report beside its panes.
   const [isPreviewing, setIsPreviewing] = useState(false);
   const canArrange = isEditable && !isPreviewing;
@@ -99,7 +114,6 @@ export default function DashboardDetailContent({
   const { data: dataTables = [] } = queryStatus(
     useQuery({ query: api.app.listDataTables, args: {} }),
   );
-  const writeReport = useReportWrite();
 
   const questionMetadataAvailable = !insightsLoading && !insightsLoadError;
 
@@ -146,25 +160,12 @@ export default function DashboardDetailContent({
   // ── Local UI state ────────────────────────────────────────────────────────
   const [isCreateQuestionOpen, setIsCreateQuestionOpen] = useState(false);
   const [isAddOpen, setIsAddOpen] = useState(false);
-  const [isAddPending, setIsAddPending] = useState(false);
-  const [addType, setAddType] = useState<DashboardItemType>("visualization");
-  const [selectedVizId, setSelectedVizId] = useState<string>("");
-  // The pane keeps rendering its last item while it closes, so the width
+  const [isReportPaneOpen, setIsReportPaneOpen] = useState(true);
+  // The item pane keeps rendering its last item while it closes, so the width
   // transition collapses real content instead of an empty column.
   const [paneItemId, setPaneItemId] = useState<string | null>(null);
   const [isPaneOpen, setIsPaneOpen] = useState(false);
-  const {
-    setCanvas,
-    setPane,
-    width: layoutWidth,
-    scale: canvasScale,
-    holdScale,
-    frameWidth,
-    frameZoom,
-    setFrameWidth,
-    setFrameZoom,
-    resizeFrame,
-  } = useEditorFrame(canArrange);
+  const frame = useEditorFrame(canArrange);
 
   const selectItem = (itemId: string) => {
     setPaneItemId(itemId);
@@ -219,6 +220,208 @@ export default function DashboardDetailContent({
 
   const paneItem = dashboard.items.find((item) => item.id === paneItemId);
   const showPane = canArrange && isPaneOpen && paneItem !== undefined;
+  // Field types come from the insights, so wait for them before showing inputs.
+  const controls = questionMetadataAvailable ? (dashboard.controls ?? []) : [];
+
+  const canvas = (
+    <ReportCanvasWell setCanvas={frame.setCanvas} onBackgroundClick={closePane}>
+      {dashboard.items.length === 0 ? (
+        <EmptyReport
+          onCreateQuestion={() => setIsCreateQuestionOpen(true)}
+          onAddItem={() =>
+            isEditable
+              ? setIsAddOpen(true)
+              : navigate({
+                  to: "/dashboards/$dashboardId/edit",
+                  params: { dashboardId },
+                })
+          }
+        />
+      ) : (
+        <ReportFrame
+          width={frame.width}
+          scale={frame.scale}
+          onResize={frame.resizeFrame}
+          onResizingChange={frame.holdScale}
+        >
+          <DashboardGrid
+            dashboard={dashboard}
+            isEditable={canArrange}
+            controlTransientValues={controlTransientValues}
+            selectedItemId={isPaneOpen ? paneItem?.id : null}
+            onSelectItem={selectItem}
+            transformScale={frame.scale}
+          />
+        </ReportFrame>
+      )}
+    </ReportCanvasWell>
+  );
+
+  return (
+    <>
+      {isEditable ? (
+        <ReportWorkbenchLayout
+          header={
+            <ReportEditorHeader
+              name={dashboard.name}
+              draftId={draftId}
+              isPreviewing={isPreviewing}
+              onTogglePreview={() =>
+                setIsPreviewing((previewing) => !previewing)
+              }
+              onAddItem={() => setIsAddOpen(true)}
+              onPublish={publish}
+              onDiscard={discard}
+              reportPaneOpen={isReportPaneOpen}
+              onToggleReportPane={() => setIsReportPaneOpen((open) => !open)}
+              itemPane={
+                paneItem === undefined
+                  ? null
+                  : {
+                      attached: showPane,
+                      onToggle: () => setIsPaneOpen((open) => !open),
+                    }
+              }
+              frameControls={
+                dashboard.items.length > 0 && (
+                  <ReportFrameControls
+                    width={frame.width}
+                    scale={frame.scale}
+                    chosenWidth={frame.frameWidth}
+                    zoom={frame.frameZoom}
+                    onWidthChange={frame.setFrameWidth}
+                    onZoomChange={frame.setFrameZoom}
+                  />
+                )
+              }
+            />
+          }
+          leftPane={
+            <ReportSettingsPane
+              controls={controls}
+              fieldsByName={fieldsByName}
+              transientValues={controlTransientValues}
+              onTransientChange={setControlTransientValues}
+            />
+          }
+          leftOpen={canArrange && isReportPaneOpen}
+          setLeftPane={frame.setLeftPane}
+          rightPane={
+            paneItem && (
+              <ReportItemPane
+                key={paneItem.id}
+                item={paneItem}
+                dashboard={dashboard}
+                onClose={closePane}
+              />
+            )
+          }
+          rightOpen={showPane}
+          setRightPane={frame.setRightPane}
+        >
+          {canvas}
+        </ReportWorkbenchLayout>
+      ) : (
+        <div className="flex h-full flex-col">
+          <ArtifactPageHeader
+            title={dashboard.name}
+            navigation={
+              <Breadcrumb
+                LinkComponent={Link}
+                items={[
+                  { label: "Reports", to: "/dashboards" },
+                  { label: dashboard.name },
+                ]}
+              />
+            }
+            actions={
+              <Button
+                variant="outline"
+                icon={EditIcon}
+                label="Edit report"
+                onClick={() =>
+                  navigate({
+                    to: "/dashboards/$dashboardId/edit",
+                    params: { dashboardId },
+                  })
+                }
+              />
+            }
+          />
+          {/* Same horizontal chrome as the workbench's canvas section, so the
+              report lays out at the width the editor previews. */}
+          <div className="flex min-h-0 flex-1 flex-col gap-2 px-1.5 py-2">
+            <DashboardControlBar
+              controls={controls}
+              fieldsByName={fieldsByName}
+              transientValues={controlTransientValues}
+              onTransientChange={setControlTransientValues}
+              className="border-b-0 px-3 py-2"
+            />
+            {canvas}
+          </div>
+        </div>
+      )}
+
+      <CreateVisualizationModal
+        isOpen={isCreateQuestionOpen}
+        onClose={() => setIsCreateQuestionOpen(false)}
+        title="Create question"
+        reportId={dashboardId}
+      />
+      <AddReportItemDialog
+        open={isAddOpen}
+        onOpenChange={setIsAddOpen}
+        dashboard={dashboard}
+        visualizations={visualizations}
+      />
+    </>
+  );
+}
+
+function EmptyReport({
+  onCreateQuestion,
+  onAddItem,
+}: {
+  onCreateQuestion: () => void;
+  onAddItem: () => void;
+}) {
+  return (
+    <div className="mx-auto flex max-w-sm flex-col items-center gap-3 py-24 text-center">
+      <h2 className="text-sm font-semibold text-neutral-fg">
+        Put something on this report
+      </h2>
+      <p className="text-sm text-neutral-fg-subtle">
+        Ask a question of your data, or add a chart you already saved.
+      </p>
+      <div className="flex gap-2">
+        <Button
+          variant="outline"
+          icon={PlusIcon}
+          label="Create question"
+          onClick={onCreateQuestion}
+        />
+        <Button icon={PlusIcon} label="Add item" onClick={onAddItem} />
+      </div>
+    </div>
+  );
+}
+
+function AddReportItemDialog({
+  open,
+  onOpenChange,
+  dashboard,
+  visualizations,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  dashboard: Dashboard;
+  visualizations: readonly Visualization[];
+}) {
+  const writeReport = useReportWrite();
+  const [isAddPending, setIsAddPending] = useState(false);
+  const [addType, setAddType] = useState<DashboardItemType>("visualization");
+  const [selectedVizId, setSelectedVizId] = useState<string>("");
 
   const handleAddItem = async () => {
     // Compute the bottom of the current layout so the new widget is appended
@@ -234,7 +437,7 @@ export default function DashboardDetailContent({
       await writeReport({
         commands: [
           cmd("AddDashboardItem", {
-            dashboardId: dashboardId as UUID,
+            dashboardId: dashboard.id,
             item: newReportItem(addType, selectedVizId as UUID, bottomY),
           }),
         ],
@@ -248,238 +451,93 @@ export default function DashboardDetailContent({
       setIsAddPending(false);
     }
 
-    setIsAddOpen(false);
+    onOpenChange(false);
     setAddType("visualization");
     setSelectedVizId("");
   };
 
   return (
-    <div className="flex h-full flex-col">
-      <ArtifactPageHeader
-        title={dashboard.name}
-        navigation={
-          <Breadcrumb
-            LinkComponent={Link}
-            items={[
-              { label: "Reports", to: "/dashboards" },
-              { label: dashboard.name },
-            ]}
-          />
-        }
-        actions={
-          <ReportHeaderActions
-            dashboardId={dashboardId}
-            mode={mode}
-            draftId={draftId}
-            isPreviewing={isPreviewing}
-            onTogglePreview={() => setIsPreviewing((previewing) => !previewing)}
-            onAddItem={() => setIsAddOpen(true)}
-            onPublish={publish}
-            onDiscard={discard}
-          />
-        }
-      />
-
-      <div className="flex min-h-0 flex-1 overflow-hidden">
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          {/* Control Bar — only rendered when the dashboard has controls */}
-          {questionMetadataAvailable &&
-            (dashboard.controls ?? []).length > 0 && (
-              <DashboardControlBar
-                controls={dashboard.controls!}
-                fieldsByName={fieldsByName}
-                transientValues={controlTransientValues}
-                onTransientChange={setControlTransientValues}
-              />
-            )}
-
-          {canArrange && dashboard.items.length > 0 && (
-            <ReportFrameToolbar
-              width={layoutWidth}
-              scale={canvasScale}
-              chosenWidth={frameWidth}
-              zoom={frameZoom}
-              onWidthChange={setFrameWidth}
-              onZoomChange={setFrameZoom}
-            />
-          )}
-
-          {/* Grid Content — a click outside every item closes the pane. */}
-          <div
-            ref={setCanvas}
-            className="flex-1 overflow-auto bg-neutral-bg-muted/10 p-6"
-            onClick={(event) => {
-              if (
-                !(event.target as HTMLElement).closest(
-                  "[data-dashframe-widget-id]",
-                )
-              ) {
-                closePane();
-              }
-            }}
-          >
-            {dashboard.items.length === 0 ? (
-              <div className="mx-auto flex max-w-sm flex-col items-center gap-3 py-24 text-center">
-                <h2 className="text-sm font-semibold text-neutral-fg">
-                  Put something on this report
-                </h2>
-                <p className="text-sm text-neutral-fg-subtle">
-                  Ask a question of your data, or add a chart you already saved.
-                </p>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    icon={PlusIcon}
-                    label="Create question"
-                    onClick={() => setIsCreateQuestionOpen(true)}
-                  />
-                  <Button
-                    icon={PlusIcon}
-                    label="Add item"
-                    onClick={() =>
-                      isEditable
-                        ? setIsAddOpen(true)
-                        : navigate({
-                            to: "/dashboards/$dashboardId/edit",
-                            params: { dashboardId },
-                          })
-                    }
-                  />
-                </div>
-              </div>
-            ) : (
-              <ReportFrame
-                width={layoutWidth}
-                scale={canvasScale}
-                onResize={resizeFrame}
-                onResizingChange={holdScale}
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Add report item</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-4">
+          <div className="space-y-2">
+            <Label>Item type</Label>
+            <div className="grid grid-cols-2 gap-4">
+              <div
+                className={`cursor-pointer rounded-lg border p-4 transition-all ${
+                  addType === "visualization"
+                    ? "border-palette-primary bg-palette-primary/5 ring-1 ring-palette-primary"
+                    : "hover:border-palette-primary/50"
+                }`}
+                onClick={() => setAddType("visualization")}
               >
-                <DashboardGrid
-                  dashboard={dashboard}
-                  isEditable={canArrange}
-                  controlTransientValues={controlTransientValues}
-                  selectedItemId={isPaneOpen ? paneItem?.id : null}
-                  onSelectItem={selectItem}
-                  transformScale={canvasScale}
-                />
-              </ReportFrame>
-            )}
-          </div>
-        </div>
-
-        <aside
-          ref={setPane}
-          aria-label="Report item"
-          inert={!showPane}
-          aria-hidden={!showPane}
-          className={cn(
-            "h-full min-w-0 shrink-0 overflow-hidden transition-[width] duration-200 motion-reduce:transition-none",
-            showPane ? "w-72" : "w-0",
-          )}
-        >
-          <div className="h-full w-72">
-            {paneItem && (
-              <ReportItemPane
-                key={paneItem.id}
-                item={paneItem}
-                dashboard={dashboard}
-                onClose={closePane}
-              />
-            )}
-          </div>
-        </aside>
-      </div>
-
-      <CreateVisualizationModal
-        isOpen={isCreateQuestionOpen}
-        onClose={() => setIsCreateQuestionOpen(false)}
-        title="Create question"
-        reportId={dashboardId}
-      />
-
-      {/* Add Widget Dialog */}
-      <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Add report item</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>Item type</Label>
-              <div className="grid grid-cols-2 gap-4">
-                <div
-                  className={`cursor-pointer rounded-lg border p-4 transition-all ${
-                    addType === "visualization"
-                      ? "border-palette-primary bg-palette-primary/5 ring-1 ring-palette-primary"
-                      : "hover:border-palette-primary/50"
-                  }`}
-                  onClick={() => setAddType("visualization")}
-                >
-                  <div className="mb-2 flex items-center gap-2 font-medium">
-                    <ChartIcon className="h-4 w-4" />
-                    Saved view
-                  </div>
-                  <p className="text-xs text-neutral-fg-subtle">
-                    Add an existing saved chart
-                  </p>
+                <div className="mb-2 flex items-center gap-2 font-medium">
+                  <ChartIcon className="h-4 w-4" />
+                  Saved view
                 </div>
-                <div
-                  className={`cursor-pointer rounded-lg border p-4 transition-all ${
-                    addType === "markdown"
-                      ? "border-palette-primary bg-palette-primary/5 ring-1 ring-palette-primary"
-                      : "hover:border-palette-primary/50"
-                  }`}
-                  onClick={() => setAddType("markdown")}
-                >
-                  <div className="mb-2 flex items-center gap-2 font-medium">
-                    <FileIcon className="h-4 w-4" />
-                    Text / Markdown
-                  </div>
-                  <p className="text-xs text-neutral-fg-subtle">
-                    Add rich text, notes, or headers
-                  </p>
+                <p className="text-xs text-neutral-fg-subtle">
+                  Add an existing saved chart
+                </p>
+              </div>
+              <div
+                className={`cursor-pointer rounded-lg border p-4 transition-all ${
+                  addType === "markdown"
+                    ? "border-palette-primary bg-palette-primary/5 ring-1 ring-palette-primary"
+                    : "hover:border-palette-primary/50"
+                }`}
+                onClick={() => setAddType("markdown")}
+              >
+                <div className="mb-2 flex items-center gap-2 font-medium">
+                  <FileIcon className="h-4 w-4" />
+                  Text / Markdown
                 </div>
+                <p className="text-xs text-neutral-fg-subtle">
+                  Add rich text, notes, or headers
+                </p>
               </div>
             </div>
+          </div>
 
-            {addType === "visualization" && (
-              <div className="space-y-2">
-                <Label>Select saved view</Label>
-                <Select
-                  value={selectedVizId}
-                  onValueChange={(v) => setSelectedVizId(v ?? "")}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Choose a saved view..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {visualizations.map((viz) => (
-                      <SelectItem key={viz.id} value={viz.id}>
-                        {viz.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button
-              variant="outline"
-              label="Cancel"
-              onClick={() => setIsAddOpen(false)}
-            />
-            <Button
-              label="Add item"
-              onClick={handleAddItem}
-              disabled={
-                isAddPending || (addType === "visualization" && !selectedVizId)
-              }
-            />
-          </div>
-        </DialogContent>
-      </Dialog>
-    </div>
+          {addType === "visualization" && (
+            <div className="space-y-2">
+              <Label>Select saved view</Label>
+              <Select
+                value={selectedVizId}
+                onValueChange={(v) => setSelectedVizId(v ?? "")}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Choose a saved view..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {visualizations.map((viz) => (
+                    <SelectItem key={viz.id} value={viz.id}>
+                      {viz.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button
+            variant="outline"
+            label="Cancel"
+            onClick={() => onOpenChange(false)}
+          />
+          <Button
+            label="Add item"
+            onClick={handleAddItem}
+            disabled={
+              isAddPending || (addType === "visualization" && !selectedVizId)
+            }
+          />
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -612,75 +670,170 @@ function useEditorFrame(canArrange: boolean) {
   };
 }
 
-function ReportHeaderActions({
-  dashboardId,
-  mode,
+function ReportEditorHeader({
+  name,
   draftId,
   isPreviewing,
   onTogglePreview,
   onAddItem,
   onPublish,
   onDiscard,
+  reportPaneOpen,
+  onToggleReportPane,
+  itemPane,
+  frameControls,
 }: {
-  dashboardId: string;
-  mode: "view" | "edit";
+  name: string;
   draftId: string | undefined;
   isPreviewing: boolean;
   onTogglePreview: () => void;
   onAddItem: () => void;
   onPublish: () => void;
   onDiscard: () => void;
+  reportPaneOpen: boolean;
+  onToggleReportPane: () => void;
+  /** The item pane's toggle, once an item has been selected. */
+  itemPane: { attached: boolean; onToggle: () => void } | null;
+  frameControls: ReactNode;
 }) {
-  const navigate = useNavigate();
-  if (mode === "view") {
-    return (
-      <Button
-        variant="outline"
-        icon={EditIcon}
-        label="Edit report"
-        onClick={() =>
-          navigate({
-            to: "/dashboards/$dashboardId/edit",
-            params: { dashboardId },
-          })
-        }
-      />
-    );
-  }
+  const status = isPreviewing
+    ? "Previewing as a reader"
+    : draftId && "Unpublished changes";
   return (
-    <>
-      <Button
-        variant="outline"
-        icon={isPreviewing ? EditIcon : EyeIcon}
-        label={isPreviewing ? "Back to editing" : "Preview"}
-        onClick={onTogglePreview}
-      />
+    <ReportWorkbenchHeader>
       {!isPreviewing && (
         <Button
-          color="secondary"
-          icon={PlusIcon}
-          label="Add item"
-          onClick={onAddItem}
+          size="sm"
+          variant="ghost"
+          icon={reportPaneOpen ? PanelLeftCloseIcon : PanelLeftOpenIcon}
+          iconOnly
+          label={reportPaneOpen ? "Collapse Report pane" : "Expand Report pane"}
+          onClick={onToggleReportPane}
         />
       )}
-      {draftId && (
-        <>
-          <Button
-            variant="ghost"
-            label="Review changes"
-            onClick={() =>
-              navigate({ to: "/drafts/$draftId", params: { draftId } })
-            }
-          />
-          <Button variant="outline" label="Discard" onClick={onDiscard} />
-        </>
+      <Link
+        to="/dashboards"
+        className="shrink-0 rounded-sm px-1 text-xs text-neutral-fg-subtle transition-colors hover:text-neutral-fg focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none @max-2xl:hidden"
+      >
+        Reports
+      </Link>
+      <span
+        aria-hidden
+        className="shrink-0 text-xs text-neutral-fg-subtle @max-2xl:hidden"
+      >
+        ›
+      </span>
+      <h1 className="min-w-16 shrink! flex-1 truncate px-1 text-sm font-semibold text-neutral-fg">
+        {name}
+      </h1>
+      {status && (
+        <span className="hidden max-w-48 min-w-0 truncate text-xs text-neutral-fg-subtle @min-3xl:inline">
+          {status}
+        </span>
       )}
-      <Button
-        icon={CheckIcon}
+      {!isPreviewing && frameControls}
+      <ControlTooltip
+        label={isPreviewing ? "Back to editing" : "Preview"}
+        description={
+          isPreviewing ? undefined : "See the report as readers will."
+        }
+      >
+        <Button
+          size="sm"
+          variant="outline"
+          label={isPreviewing ? "Back to editing" : "Preview"}
+          onClick={onTogglePreview}
+        >
+          {isPreviewing ? <EditIcon aria-hidden /> : <EyeIcon aria-hidden />}
+          <span className="@max-3xl:sr-only">
+            {isPreviewing ? "Back to editing" : "Preview"}
+          </span>
+        </Button>
+      </ControlTooltip>
+      {!isPreviewing && (
+        <ControlTooltip label="Add item" description="Place a chart or text.">
+          <Button
+            size="sm"
+            variant="outline"
+            label="Add item"
+            onClick={onAddItem}
+          >
+            <PlusIcon aria-hidden />
+            <span className="@max-3xl:sr-only">Add item</span>
+          </Button>
+        </ControlTooltip>
+      )}
+      <ReportDraftMenu draftId={draftId} onDiscard={onDiscard} />
+      <ControlTooltip
         label={draftId ? "Publish" : "Done"}
-        onClick={onPublish}
+        description={
+          draftId ? "Readers see these changes once published." : undefined
+        }
+      >
+        <Button
+          size="sm"
+          label={draftId ? "Publish" : "Done"}
+          onClick={onPublish}
+        >
+          <CheckIcon aria-hidden />
+          <span className="@max-xl:sr-only">
+            {draftId ? "Publish" : "Done"}
+          </span>
+        </Button>
+      </ControlTooltip>
+      {!isPreviewing && itemPane && (
+        <Button
+          size="sm"
+          variant="ghost"
+          icon={itemPane.attached ? PanelRightCloseIcon : PanelRightOpenIcon}
+          iconOnly
+          label={itemPane.attached ? "Collapse Item pane" : "Expand Item pane"}
+          onClick={itemPane.onToggle}
+        />
+      )}
+    </ReportWorkbenchHeader>
+  );
+}
+
+/** Review and discard for an unpublished draft. */
+function ReportDraftMenu({
+  draftId,
+  onDiscard,
+}: {
+  draftId: string | undefined;
+  onDiscard: () => void;
+}) {
+  const navigate = useNavigate();
+  if (!draftId) return null;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <ButtonPrimitive
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label="More actions"
+            title="More actions"
+            className="h-8 w-8 shrink-0"
+          >
+            <MoreIcon aria-hidden />
+          </ButtonPrimitive>
+        }
       />
-    </>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem
+          onClick={() =>
+            navigate({ to: "/drafts/$draftId", params: { draftId } })
+          }
+        >
+          Review changes
+        </DropdownMenuItem>
+        <DropdownMenuItem className="text-palette-danger" onClick={onDiscard}>
+          Discard changes
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

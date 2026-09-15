@@ -49,6 +49,8 @@ export interface DashboardControlBarProps {
   transientValues: Map<string, InsightFilter["value"]>;
   /** Called when the viewer changes a control value. */
   onTransientChange: (next: Map<string, InsightFilter["value"]>) => void;
+  /** `vertical` stacks labelled inputs for a workbench pane. */
+  orientation?: "horizontal" | "vertical";
   className?: string;
 }
 
@@ -68,9 +70,30 @@ export function DashboardControlBar({
   fieldsByName,
   transientValues,
   onTransientChange,
+  orientation = "horizontal",
   className,
 }: DashboardControlBarProps) {
   if (controls.length === 0) return null;
+
+  if (orientation === "vertical") {
+    return (
+      <div
+        className={cn("flex flex-col gap-3", className)}
+        aria-label="Dashboard controls"
+      >
+        {controls.map((control) => (
+          <ControlInput
+            key={control.id}
+            control={control}
+            fieldsByName={fieldsByName}
+            transientValues={transientValues}
+            onTransientChange={onTransientChange}
+            stacked
+          />
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -117,6 +140,8 @@ interface ControlInputProps {
   fieldsByName: Map<string, CombinedField>;
   transientValues: Map<string, InsightFilter["value"]>;
   onTransientChange: (next: Map<string, InsightFilter["value"]>) => void;
+  /** Label above a full-width input, instead of beside it. */
+  stacked?: boolean;
 }
 
 function ControlInput({
@@ -124,6 +149,7 @@ function ControlInput({
   fieldsByName,
   transientValues,
   onTransientChange,
+  stacked = false,
 }: ControlInputProps) {
   const field = fieldsByName.get(control.field);
   const inputType: FilterInputType = field
@@ -150,7 +176,9 @@ function ControlInput({
   };
 
   return (
-    <div className="flex items-center gap-2">
+    <div
+      className={stacked ? "flex flex-col gap-1.5" : "flex items-center gap-2"}
+    >
       <Label
         htmlFor={`control-${control.id}`}
         className="shrink-0 text-xs text-neutral-fg-subtle"
@@ -163,7 +191,7 @@ function ControlInput({
         value={displayValue}
         onChange={handleChange}
         placeholder={`Filter ${label}…`}
-        className="h-7 w-36 text-sm"
+        className={cn("h-7 text-sm", stacked ? "w-full" : "w-36")}
         aria-label={`Control: ${label}`}
       />
     </div>

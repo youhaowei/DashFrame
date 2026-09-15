@@ -9,7 +9,6 @@
  * see. Authors can pick another width to check how the report reflows there.
  */
 
-import { cn } from "@wystack/ui-react";
 import {
   useEffect,
   useState,
@@ -25,8 +24,9 @@ const clampWidth = (width: number) =>
   Math.round(Math.min(MAX_FRAME_WIDTH, Math.max(MIN_FRAME_WIDTH, width)));
 
 /**
- * Measures the canvas and the pane beside it. Pass `setCanvas` as the ref of
- * the scrolling canvas and `setPane` as the ref of the attached pane.
+ * Measures the canvas and the panes beside it. Pass `setCanvas` as the ref of
+ * the scrolling canvas, and `setLeftPane` / `setRightPane` as the refs of the
+ * workbench panes.
  *
  * `width: null` lays out at the reader's width in this window; `zoom: null`
  * scales the frame down to fit the canvas.
@@ -39,7 +39,8 @@ export function useReportFrame({
   zoom: number | null;
 }) {
   const [canvas, setCanvas] = useState<HTMLElement | null>(null);
-  const [pane, setPane] = useState<HTMLElement | null>(null);
+  const [leftPane, setLeftPane] = useState<HTMLElement | null>(null);
+  const [rightPane, setRightPane] = useState<HTMLElement | null>(null);
   const [measured, setMeasured] = useState({ canvasWidth: 0, readerWidth: 0 });
   // Held while the frame edge is dragged, so the frame doesn't rescale under
   // the pointer as its width changes.
@@ -53,14 +54,19 @@ export function useReportFrame({
         Number.parseFloat(style.paddingLeft) +
         Number.parseFloat(style.paddingRight);
       const canvasWidth = canvas.clientWidth - padding;
-      const readerWidth = canvasWidth + (pane?.offsetWidth ?? 0);
+      // The view page has no panes, so its canvas takes their width too.
+      const readerWidth =
+        canvasWidth +
+        (leftPane?.offsetWidth ?? 0) +
+        (rightPane?.offsetWidth ?? 0);
       if (canvasWidth <= 0 || readerWidth <= 0) return;
       setMeasured({ canvasWidth, readerWidth });
     });
     observer.observe(canvas);
-    if (pane) observer.observe(pane);
+    if (leftPane) observer.observe(leftPane);
+    if (rightPane) observer.observe(rightPane);
     return () => observer.disconnect();
-  }, [canvas, pane]);
+  }, [canvas, leftPane, rightPane]);
 
   const width = chosenWidth ?? measured.readerWidth;
   const fit =
@@ -71,7 +77,8 @@ export function useReportFrame({
 
   return {
     setCanvas,
-    setPane,
+    setLeftPane,
+    setRightPane,
     width,
     scale,
     holdScale: (held: boolean) => setHeldScale(held ? scale : null),
@@ -136,14 +143,10 @@ export function ReportFrame({
     <div className={width > 0 ? "relative mx-auto w-fit" : "relative"}>
       {/* A transform doesn't change layout size, so the frame takes the
           scaled size and clips the unscaled box that would otherwise scroll. */}
+      {/* The report is a raised page in the canvas well, so a narrow width
+          shows where it ends. */}
       <div
-        className={cn(
-          "overflow-clip",
-          // While editing, the frame reads as a page so a narrow width shows
-          // where the report ends.
-          onResize &&
-            "rounded-[var(--inner-radius)] bg-neutral-bg shadow-[var(--surface-shadow)]",
-        )}
+        className="overflow-clip rounded-[var(--surface-radius)] bg-neutral-bg shadow-[var(--surface-shadow)] dark:bg-neutral-bg-subtle"
         style={{
           width: width > 0 ? width * scale : undefined,
           height: contentHeight === null ? undefined : contentHeight * scale,
