@@ -26,8 +26,14 @@ const state = {
 // without a pin lives behind its category button. Hidden controls are absent
 // from this list entirely — the reader is never told they exist.
 const MODEL = {
-  sort: { label: "Sort", value: "Revenue, high to low", pin: true, changeable: true },
-  limit: { label: "Rows", value: "Top 10", pin: false, changeable: true },
+  sort: {
+    label: "Sort",
+    value: "Revenue, high to low",
+    keys: ["Revenue, high to low"],
+    pin: true,
+    changeable: true,
+  },
+  limit: { label: "Rows", value: "10", pin: false, changeable: true },
   filters: [
     { label: "Region", value: "EMEA", pin: true, changeable: true },
     { label: "Segment", value: "Enterprise", pin: true, changeable: false },
@@ -79,6 +85,51 @@ function well(label, value, onTurn, { bare = false, kind } = {}) {
     `<button type="button" class="well">${mark}${name}<span class="value">${shown}</span>${CARET}</button>`,
   );
   element.onclick = () => onTurn(label);
+  return element;
+}
+
+/**
+ * A non-filter control on the face: glyph, no container.
+ *
+ * Sort and limit are the marked kinds, so they are drawn flat like their
+ * category button rather than as a pill — the pill is what says "filter". They
+ * are still controls, so a changeable one is a real button with hover, focus,
+ * and a caret; a fixed one is the same shape, inert and without one.
+ *
+ * **Sort shows no value.** An order is a mechanism, not a claim the chart
+ * makes: a reader does not need "Revenue, high to low" spelled out to read the
+ * bars, because the bars already show it. It is the glyph alone, plus a count
+ * when the sort carries more than one key — the only case where the face
+ * cannot be inferred from the chart. The keys are in the popover.
+ *
+ * **A limit shows its number, bare.** A limit hides the tail, which changes
+ * what a reader concludes and cannot be recovered by looking at the chart — so
+ * unlike a sort it has to be on the face. `Top` is the kind word the glyph
+ * already carries, so it goes the way `Sort` and `Rows` did: `≡ 10`.
+ *
+ * A limit's number is a VALUE and a sort's is a COUNT, so they are not drawn
+ * alike: the limit is a bare bold numeral, the sort's key count a tag. Same
+ * digits, different claim.
+ */
+function flat(member, kind, onTurn) {
+  const shown = turned.get(member.label) ?? member.value;
+  const set = turned.has(member.label);
+  const keys = member.keys?.length ?? 0;
+  const body =
+    kind === "Sort"
+      ? keys > 1
+        ? `<span class="count">${keys}</span>`
+        : ""
+      : `<span class="value">${shown}</span>`;
+  if (!member.changeable) {
+    return h(
+      `<span class="flat" aria-disabled="true" aria-label="${kind}">${GLYPH[kind]}${body}</span>`,
+    );
+  }
+  const element = h(
+    `<button type="button" class="flat${set ? " set" : ""}" aria-label="${kind}">${GLYPH[kind]}${body}${CARET}</button>`,
+  );
+  element.onclick = () => onTurn(member.label);
   return element;
 }
 
@@ -136,12 +187,6 @@ function categoryPopover(kind, members, onTurn) {
   return pop;
 }
 
-function separator() {
-  if (state.separator === "rule") return h(`<span class="rule"></span>`);
-  if (state.separator === "gap") return h(`<span class="gap"></span>`);
-  return null; // "none" — one flat line, which is what the branch shipped.
-}
-
 function buildLine(rerender, model = MODEL) {
   const line = h(`<div class="line wrap"></div>`);
 
@@ -172,28 +217,22 @@ function buildLine(rerender, model = MODEL) {
   const group = (kind, members) => {
     const parts = [];
     for (const member of members.filter((m) => m.pin)) {
-      // A sort or limit leads with its glyph and drops its kind word; a
-      // filter keeps its field name and takes no mark.
+      // A sort or limit leads with its glyph, drops its kind word, and is
+      // drawn flat — the pill belongs to filters. A filter keeps its field
+      // name, takes no mark, and keeps its pill.
       const isFilter = kind === "Filter";
+      const turn = (label) => {
+        const current = turned.get(label) ?? member.value;
+        if (current === member.value) turned.set(label, "Changed by reader");
+        else turned.delete(label);
+        rerender();
+      };
       parts.push(
-        member.changeable
-          ? well(
-              member.label,
-              member.value,
-              (label) => {
-                const current = turned.get(label) ?? member.value;
-                if (current === member.value)
-                  turned.set(label, "Changed by reader");
-                else turned.delete(label);
-                rerender();
-              },
-              { kind, bare: !isFilter },
-            )
-          : chip(
-              isFilter ? member.label : "",
-              turned.get(member.label) ?? member.value,
-              kind,
-            ),
+        isFilter
+          ? member.changeable
+            ? well(member.label, member.value, turn, { kind })
+            : chip(member.label, turned.get(member.label) ?? member.value, kind)
+          : flat(member, kind, turn),
       );
     }
     const unpinned = members.filter((m) => !m.pin);
@@ -209,19 +248,17 @@ function buildLine(rerender, model = MODEL) {
       // cost — the shape groups stop being fixed-width.
       for (const member of unpinned) {
         const isFilter = kind === "Filter";
+        const turn = (label) => {
+          if (turned.has(label)) turned.delete(label);
+          else turned.set(label, "Changed by reader");
+          rerender();
+        };
         parts.push(
-          member.changeable
-            ? well(
-                member.label,
-                member.value,
-                (label) => {
-                  if (turned.has(label)) turned.delete(label);
-                  else turned.set(label, "Changed by reader");
-                  rerender();
-                },
-                { kind, bare: !isFilter },
-              )
-            : chip(isFilter ? member.label : "", member.value, kind),
+          isFilter
+            ? member.changeable
+              ? well(member.label, member.value, turn, { kind })
+              : chip(member.label, member.value, kind)
+            : flat(member, kind, turn),
         );
       }
     }
@@ -233,22 +270,41 @@ function buildLine(rerender, model = MODEL) {
   const filters = group("Filter", model.filters);
 
   const order =
-    state.order === "shape-first"
-      ? [sort, rows, filters]
-      : state.order === "limit-first"
-        ? [rows, sort, filters]
-        : [filters, sort, rows];
+    state.order === "filters-first"
+      ? [filters, sort, rows]
+      : state.order === "shape-first"
+        ? [sort, rows, filters]
+        : [rows, sort, filters];
 
-  let first = true;
+  // Pills left, glyphs right. A pill carries a value the reader reads as part
+  // of the chart's claim; a glyph is a way in. Splitting them by alignment is
+  // what a Notion toolbar does, and it separates the two kinds of thing more
+  // firmly than a gap between three same-looking groups ever did.
+  const pills = [];
+  const glyphs = [];
   for (const parts of order) {
-    if (parts.length === 0) continue;
-    if (!first) {
-      const sep = separator();
-      if (sep) line.append(sep);
+    for (const part of parts) {
+      const element = part.classList.contains("pop-wrap")
+        ? part.firstElementChild
+        : part;
+      (element.classList.contains("chip") || element.classList.contains("well")
+        ? pills
+        : glyphs
+      ).push(part);
     }
-    for (const part of parts) line.append(part);
-    first = false;
   }
+
+  for (const pill of pills) line.append(pill);
+  line.append(h(`<span class="spacer"></span>`));
+  const cluster = h(`<span class="glyphs"></span>`);
+  for (const glyph of glyphs) {
+    const sep =
+      state.separator === "rule" ? h(`<span class="rule"></span>`) : null;
+    if (sep && cluster.childElementCount > 0) cluster.append(sep);
+    cluster.append(glyph);
+  }
+  if (glyphs.length > 0) line.append(cluster);
+
   document.addEventListener("click", () => {
     const pop = line.querySelector(".cat-pop");
     if (!pop) return;

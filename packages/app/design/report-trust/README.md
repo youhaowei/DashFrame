@@ -157,7 +157,7 @@ giving it the same shape puts it inside the line it is meant to stand outside
 of. Flat is what separates the categories from the filter pills, which means
 the gap between groups no longer has to carry that distinction on its own.
 
-The one exception is the count, which *is* a value: a bare numeral beside a
+The one exception is the count, which _is_ a value: a bare numeral beside a
 glyph reads as part of the glyph, so the count keeps a small tag. A control the
 reader has turned shows as colour on the glyph itself rather than as a tinted
 pill.
@@ -207,9 +207,18 @@ once: Region and Period are pinned _and_ changeable, so they pin as wells with a
 caret; Segment is pinned and fixed, so it pins as a chip. Pinned means "on the
 face"; changeable decides whether the face is a knob or a fact.
 
-**Decided: filter, then sort, then limit.** That is the order the chart is
-built in — which rows are included, how they are ordered, how many are kept —
-and it is the order a reader asks about them.
+**Decided: pills left, glyphs right.** The line is two clusters, not three
+groups in a row. Value-carrying pills — the pinned filters — sit left; the
+category glyphs group together and right-align, the way a Notion toolbar keeps
+its content left and its Filter and Sort buttons right. A pill carries
+something a reader reads as part of the chart's claim; a glyph is a way in.
+Alignment separates those two kinds of thing far more firmly than a gap between
+three same-looking groups did, which is most of what the separator axis was
+trying to buy.
+
+**Within the glyph cluster the order is filter, then sort, then limit.** That is
+the order the chart is built in — which rows are included, how they are ordered,
+how many are kept — and it is the order a reader asks about them.
 
 This reverses the earlier call. Group order was first prototyped with sort and
 limit paired as one "shape" group, and **leading** won: shape first, then
@@ -260,7 +269,7 @@ A Notion database toolbar reads this way — Filter and Sort are buttons you ope
 not chips you decode — and that is the reference this page is testing.
 
 Open **Filter**. The two exposed-but-unpinned filters are in there with their
-own knobs; turning one marks the button as set. The two *hidden* filters are in
+own knobs; turning one marks the button as set. The two _hidden_ filters are in
 none of it: not a chip, not a row in the popover, not a number on the button.
 
 Four axes, switched from the top bar, are the decisions this page exists to
