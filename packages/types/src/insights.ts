@@ -123,12 +123,23 @@ export interface InsightRuntimeDeclaration {
   filters?: Array<{
     key: string;
     filterId: string;
+    /** The author's words for this control; shown to readers as written. */
     label: string;
     required?: boolean;
     allowClear?: boolean;
+    /**
+     * Ceiling on whether a reader may change the value. Absent means `true`.
+     * A report may tighten this to `false` on one item; it can never loosen it.
+     */
+    changeable?: boolean;
   }>;
-  sort?: { allowedFieldIds: UUID[]; maxKeys: number };
-  limit?: { min: number; max: number };
+  sort?: {
+    label?: string;
+    allowedFieldIds: UUID[];
+    maxKeys: number;
+    changeable?: boolean;
+  };
+  limit?: { label?: string; min: number; max: number; changeable?: boolean };
 }
 
 /** Values that an invocation may supply for a saved runtime declaration. */

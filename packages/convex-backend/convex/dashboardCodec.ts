@@ -35,6 +35,20 @@ const storedDashboardItemOverridesSchema = z
   })
   .passthrough();
 
+// A report tightens an Insight's ceiling, never loosens it: `changeable` is
+// either absent or exactly `false`.
+const storedDashboardItemControlSchema = z
+  .object({
+    visibility: z.enum(["hidden", "visible", "pinned"]),
+    changeable: z
+      .boolean()
+      .optional()
+      .refine((value) => value !== true, {
+        message: "a report cannot loosen an Insight's changeable ceiling",
+      }),
+  })
+  .strict();
+
 const storedDashboardItemSchema = z
   .object({
     id: z.string(),
@@ -46,6 +60,9 @@ const storedDashboardItemSchema = z
     width: z.number(),
     height: z.number(),
     overrides: storedDashboardItemOverridesSchema.optional(),
+    controls: z
+      .record(z.string().min(1), storedDashboardItemControlSchema)
+      .optional(),
   })
   .passthrough();
 

@@ -293,10 +293,11 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
     args: {
       id: "UUID",
       runtimeControls:
-        "InsightRuntimeDeclaration | undefined (saved filter ids, allowed result sort fields, bounded limit)",
+        "InsightRuntimeDeclaration | undefined ({ filters?: { key, filterId, label, changeable?, required?, allowClear? }[], sort?: { label?, allowedFieldIds, maxKeys, changeable? }, limit?: { label?, min, max, changeable? } })",
     },
     notes:
-      "Filter controls change values only; sort fields and limits must target the saved Insight definition.",
+      "Filter controls change values only; sort fields and limits must target the saved Insight definition. " +
+      "label is what a reader sees. changeable (default true) is the ceiling on whether a reader may change the value; a report item can only tighten it.",
   },
   {
     name: "AddJoin",
@@ -368,11 +369,12 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
     summary: "Place a viz panel or markdown block on a dashboard.",
     args: {
       dashboardId: "UUID",
-      item: "{ id, type:'visualization'|'markdown', visualizationId?|content?, x,y,width,height, overrides?: DashboardItemOverridesInput }",
+      item: "{ id, type:'visualization'|'markdown', visualizationId?|content?, x,y,width,height, overrides?: DashboardItemOverridesInput, controls?: Record<key, { visibility:'hidden'|'visible'|'pinned', changeable?: false }> }",
     },
     notes:
       "Rejects a duplicate item id. " +
       "overrides is optional — omit for a plain panel; supply to pin filters/sorts/limit at the item level. " +
+      "controls decides what a reader is told about the Insight's declared runtime controls, keyed by the declaration key or 'sort' / 'limit'; absent = hidden. changeable: false tightens the Insight's ceiling; true is rejected. " +
       "Use FanOutDashboardItems to batch-create N items with distinct field-value pins.",
   },
   {
@@ -383,7 +385,7 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
       dashboardId: "UUID",
       itemId: "UUID",
       updates:
-        "{ visualizationId?, content?, x?, y?, width?, height? } (id, type, and overrides are not editable here)",
+        "{ visualizationId?, content?, x?, y?, width?, height?, controls? } (id, type, and overrides are not editable here; controls replaces the whole disclosure map)",
     },
     notes:
       "Rejects a missing itemId. Use PatchDashboardItemOverride for filter, sort, or limit changes.",
