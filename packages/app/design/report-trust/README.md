@@ -143,34 +143,48 @@ its own repo and its own gate, not a change to this app.
 The **Authoring** section is the item pane in the workbench: type a label and
 the tile beside it changes. Clearing a label falls back to the value alone.
 
-The **Collapsed** section draws the one chip standing for everything exposed but
-not pinned, three ways:
+**Decided: filter, sort, and limit are three separate categories**, not one pool
+and not a two-way split between "shape" and filters. The control line is three
+groups in a fixed order, and the group a chip sits in is what says which kind of
+control it is.
 
-- **Count** — `+3`. Shortest, and says nothing about what is behind it.
-- **Worded** — `and 3 more`. Reads as a sentence next to the pinned chips, and
-  is the widest.
-- **Kinds** — one glyph per kind in the group, then the count. Says what sort of
-  thing is behind it without naming any values, which keeps it compatible with
-  the confidentiality rule.
+That settles four things at once.
 
-The **Placement** section shows the reader's tile with both properties in
-play at once: Region and Period are pinned _and_ changeable, so they pin as
-wells with a caret; Segment is pinned and fixed, so it pins as a chip. Pinned
-means "on the face"; changeable decides whether the face is a knob or a fact.
+**No per-chip kind glyph.** The group already names the kind, so spending a
+glyph on every chip to repeat it is waste. **Icon · none.** This also means the
+design system does not need a funnel, so `libs/stdui` is untouched — the change
+that was the most expensive option is now not required at all.
 
-Sort and limit never pool with the filters. They are drawn as their own group
-in one of three places, and the narrow width decides:
+**Only filters can overflow.** `InsightRuntimeDeclaration` declares any number of
+filters but exactly one sort and exactly one limit, so the sort and limit groups
+hold at most one chip each and can never collapse. Overflow is the filter group's
+problem alone, which is what makes it tractable: the two fixed-width groups lead,
+and the filters take what remains.
 
-- **Leading** — shape first (`Ranked by Revenue · Top 10`), then the filters.
-  On a wrap the shape group stays on the first row as a unit. **Chosen.**
-- **Trailing** — filters first, shape last. After a collapsed `+1` the shape
-  reads as part of the group it is not in.
-- **Split** — filters left, shape right. Fine at width; on a wrap the right
-  group drops to its own row, right-aligned, and the pairing with the chart is
-  lost.
+**The collapsed chip is a count.** `+3`, and it always means three more filters,
+because a mixed group is no longer possible. **Worded** (`and 3 more`) is the
+widest form of the thing whose whole job is to be narrow. **Kinds** — a glyph per
+kind, then the count — existed to disambiguate a mixed group and has nothing left
+to say about a group that is all one kind. A count over _exposed_ controls stays
+fair game: the author already chose to disclose them, which is what separates
+this chip from the passive mark rejected above.
 
-A count over _exposed_ controls is fair game: the author already chose to
-disclose them, which is what separates this chip from the mark rejected above.
+**The wording sheds its kind word.** A chip does not restate what its group
+already establishes. Sort is the author's label and the direction, not `Sorted
+by Revenue, high to low`. Limit is `Top 10`, not `Rows 10`. This is the same
+terseness that dropped the copula from a fixed chip.
+
+The **Placement** section shows the reader's tile with both properties in play at
+once: Region and Period are pinned _and_ changeable, so they pin as wells with a
+caret; Segment is pinned and fixed, so it pins as a chip. Pinned means "on the
+face"; changeable decides whether the face is a knob or a fact.
+
+Group order was prototyped three ways with sort and limit still paired as one
+"shape" group, and **leading** was chosen: shape first, then filters, so that on
+a wrap the fixed-width groups stay together on the first row. Splitting shape
+into two categories keeps that property — sort, limit, then filters — but the
+order of sort against limit is not yet settled, and neither is what separates
+one group from the next on screen.
 
 ## 3 · Report trust line (`trust.html`)
 
@@ -189,21 +203,29 @@ That split is a confidentiality rule, not a vocabulary preference.
 
 ## What to try
 
-- On `controls.html`, compare the two **visible + fixed** tiles and pick a
-  shape. That is the decision this prototype exists for.
-- On `styles.html`, pick a chip style, then type labels in the **Authoring**
-  pane and watch the tile. Clear the limit's label.
-- Switch **Icon** between **Non-filters** and **Lone filter too** at 1 setting,
-  then at 6. The difference is only the one-filter case, and it is the question
-  of whether a chip may change appearance because a sibling appeared.
-- Toggle **Visible** and **Pinned** in the authoring pane and watch chips move
-  between the face and the collapsed chip.
-- Then set **Settings · 6** and **Width · Narrow**. The tile shows the same
-  three pinned chips at both widths, which is the point.
-- Set **Width · Narrow**. Naming the field roughly doubles a control's width,
-  so two is the practical ceiling for a tile-width line and the third clips. The
-  overflow rule is not designed yet.
-- On `trust.html`, read the broken condition as Reader then Author.
+The decisions above are made; the page is now the record of how, and the place to
+check a change against them.
+
+- On `controls.html`, read the **visible + fixed** chip against the **visible +
+  changeable** well. Shape is the only thing separating a fact from a knob, so
+  that pair is the one to protect in any restyle.
+- On `styles.html`, type labels in the **Authoring** pane and watch the tile.
+  Clear the limit's label and confirm it falls back to its value alone.
+- Set **Settings · 6** and **Width · Narrow**. The same pinned chips appear at
+  both widths, which is the point of pinning over truncation.
+- Then read the filter group at **Narrow**. Naming the field roughly doubles a
+  control's width, so two is the practical ceiling and the third clips — that is
+  the open overflow question, and it is now the filter group's alone.
+- On `trust.html`, read the broken condition as Reader, then as Author.
+
+## Still open
+
+- **Group order** — sort before limit, or limit before sort.
+- **Group separation** — what divides one category from the next: a gap, a rule,
+  or a quieter treatment on one of them. Nothing is drawn for this yet; the
+  prototype still pairs sort and limit as one group.
+- **Filter overflow** — what the item pane tells an author who pins more than
+  fits, now that overflow can only happen in the filter group.
 
 ## Prototype-only choices
 
