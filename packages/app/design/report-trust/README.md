@@ -182,12 +182,21 @@ it, so the line cannot overflow because a reader's window is narrow — it can o
 overflow because an author pinned more than fits, which was already the stated
 principle and is now the only way it happens.
 
-**The count is the whole category, not the remainder.** `▽ 4` means four
-exposed filters on this chart, whether two of them are pinned beside it or none
-are. Counting only what is hidden behind the button breaks the moment the glyph
-sits next to its own pills: `▽ 2` beside two pills reads as a label for those
-two. Counting the category is unambiguous wherever the glyph sits — it heads the
-group, and the number is how big the group is.
+**What says the glyph opens is the `OPENS` axis**, and the count is one of
+three answers rather than the assumed one:
+
+- **Caret** — the same caret a well uses, so "this opens" has one mark across
+  the whole tile. Says nothing else, and needs no rule about when a number is
+  informative. Three glyph-and-caret pairs in a row is its cost.
+- **Count** — `▽ 4`, which also says how big the category is. Only informative
+  for filters, since a declaration carries one sort and one limit, so it
+  reintroduces the per-kind special case the categories removed.
+- **Nothing** — the bare glyph, relying on hover and cursor.
+
+If a count is used it must be **the whole category, not the remainder**: `▽ 4`
+means four exposed filters whether two are pinned beside it or none are.
+Counting only what is hidden breaks the moment the glyph sits next to its own
+pills — `▽ 2` beside two pills reads as a label for those two.
 
 The confidentiality rule is unchanged and sits on the button: it may reflect
 only **exposed** controls. A hidden filter must not widen it, appear in it, or

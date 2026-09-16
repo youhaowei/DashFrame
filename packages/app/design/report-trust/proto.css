@@ -797,3 +797,19 @@ button[aria-pressed="true"] {
 .line > .pop-wrap:first-child {
   margin-right: 2px;
 }
+
+/* A caret on a category button is the same mark a well uses for "opens",
+   sized down to sit with a glyph rather than a value. */
+.cat .caret {
+  width: 10px;
+  height: 10px;
+  opacity: 0.45;
+  transition: opacity 160ms ease;
+}
+.cat:hover .caret,
+.cat[aria-expanded="true"] .caret {
+  opacity: 0.9;
+}
+.cat.set .caret {
+  opacity: 1;
+}

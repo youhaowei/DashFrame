@@ -17,7 +17,7 @@ const state = {
   order: "filters-first",
   filterAt: "right",
   button: "glyph",
-  count: true,
+  affordance: "caret",
   scope: "all",
   narrow: false,
 };
@@ -157,11 +157,19 @@ function categoryButton(kind, members, onOpen, exposedTotal) {
   // sort and one limit, so those buttons would read "1" forever: a tag that
   // never varies is furniture. Sort is the arguable case, since a sort may
   // carry up to maxKeys fields, but this model has one.
+  // What tells a reader this glyph opens? A caret says it plainly and says
+  // nothing else — the same caret a well uses, so "openable" has one mark
+  // across the tile. A count says how many as well, at the price of a second
+  // shape and of being informative for filters only.
   const informative = exposed > 1;
-  const countTag =
-    state.count && informative ? `<span class="count">${exposed}</span>` : "";
+  const affordance =
+    state.affordance === "caret"
+      ? CARET
+      : state.affordance === "count" && informative
+        ? `<span class="count">${exposed}</span>`
+        : "";
   const button = h(
-    `<button type="button" class="cat${set ? " set" : ""}" aria-expanded="false" aria-label="${kind}">${inner}${countTag}</button>`,
+    `<button type="button" class="cat${set ? " set" : ""}" aria-expanded="false" aria-label="${kind}">${inner}${affordance}</button>`,
   );
   button.onclick = (event) => {
     event.stopPropagation();
@@ -432,14 +440,15 @@ const { page } = shell("CATEGORIES", [
     },
   },
   {
-    label: "COUNT",
-    value: state.count,
+    label: "OPENS",
+    value: state.affordance,
     options: [
-      { label: "Tag", value: true },
-      { label: "None", value: false },
+      { label: "Caret", value: "caret" },
+      { label: "Count", value: "count" },
+      { label: "Nothing", value: "none" },
     ],
     onChange: (value) => {
-      state.count = value;
+      state.affordance = value;
       render(page);
     },
   },
