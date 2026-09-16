@@ -328,10 +328,16 @@ a pinned sort has no value to put in a pill — an order is a mechanism the bars
 already display — so a sort pill would be a glyph wearing a pill's clothes. Sort
 and limit always live behind the door.
 
-**Everything else exposed sits behind one control button.** The three categories
-do not disappear; they move inside the popover as headings, where there is room
-for them. Instead of three glyphs competing on a tile line, the tile carries its
-pinned facts and one way in.
+**Everything else exposed sits behind one control button, seated on the title
+line.** The three categories do not disappear; they move inside the popover as
+headings, where there is room for them.
+
+Putting the door beside the title rather than among the pills is what makes the
+rule clean: **the title line carries the tile's own controls, the control line
+carries only facts.** Every pill on that line is something the chart is
+claiming; nothing on it is a way in. A tile with nothing pinned then has no
+control line at all — just a title, its door, and the chart — rather than an
+empty row of padding under the heading.
 
 The **DOOR** axis offers two marks. A **sliders** glyph says "things you can
 change here". An **ellipsis** is the cheaper option and collides: an ellipsis

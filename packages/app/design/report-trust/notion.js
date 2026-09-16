@@ -319,7 +319,7 @@ function buildLine(rerender, model = MODEL) {
     line.append(pillColumn);
 
     if (behind.length > 0) {
-      const wrap = h(`<span class="pop-wrap glyphs"></span>`);
+      const wrap = h(`<span class="pop-wrap door"></span>`);
       const anySet = behind.some(([, ms]) =>
         ms.some((m) => turned.has(m.label)),
       );
@@ -368,7 +368,12 @@ function buildLine(rerender, model = MODEL) {
         wrap.append(pop);
       };
       wrap.append(door);
-      line.append(wrap);
+      // The door is a tile-level control, so it is seated in the tile header
+      // beside the title rather than in the control line. The control line
+      // then carries facts only: every pill on it is something the chart is
+      // claiming, and nothing on it is a way in.
+      line.dataset.hasDoor = "true";
+      line.doorElement = wrap;
     }
     document.addEventListener("click", () => {
       const pop = line.querySelector(".cat-pop");
@@ -455,7 +460,14 @@ function tile(rerender, { title = "Revenue", model = MODEL } = {}) {
     <div class="tile-body">${chart(SALES, { highlight: 3 })}</div>
     <div class="tile-foot">Updated 4 minutes ago</div>
   </div>`);
-  element.querySelector(".tile-head").after(buildLine(rerender, model));
+  const line = buildLine(rerender, model);
+  const head = element.querySelector(".tile-head");
+  if (line.doorElement) head.append(line.doorElement);
+  // A line with no pills left on it is not a line. Drop it rather than leave
+  // an empty row of padding under the title.
+  if (line.querySelector(".pills")?.childElementCount || !line.doorElement) {
+    head.after(line);
+  }
   return element;
 }
 

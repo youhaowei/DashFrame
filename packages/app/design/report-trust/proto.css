@@ -900,3 +900,10 @@ button[aria-pressed="true"] {
 .flat[aria-disabled="true"] {
   padding: 0 2px;
 }
+
+/* The control door sits on the title line: a tile-level control belongs with
+   the tile's own furniture, not among the facts the chart is claiming. */
+.tile-head .door {
+  flex: 0 0 auto;
+  margin-left: 6px;
+}
