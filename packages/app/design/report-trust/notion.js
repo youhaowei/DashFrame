@@ -16,7 +16,8 @@ const SALES = [42, 58, 35, 71, 49, 63, 38];
 const state = {
   order: "filters-first",
   separator: "gap",
-  button: "word",
+  button: "glyph",
+  count: true,
   scope: "all",
   narrow: false,
 };
@@ -81,13 +82,18 @@ function categoryButton(kind, members, onOpen) {
       : state.button === "word"
         ? kind
         : `${GLYPH[kind]}<span>${kind}</span>`;
-  // A count reflects only EXPOSED controls. A hidden one must never widen it.
-  const count =
-    state.button === "count" && exposed > 1
-      ? `<span class="count">${exposed}</span>`
-      : "";
+  // A count reflects only EXPOSED controls — what is behind this button. A
+  // hidden control must never widen it, appear in it, or raise it.
+  //
+  // It is only ever informative for filters. A declaration carries exactly one
+  // sort and one limit, so those buttons would read "1" forever: a tag that
+  // never varies is furniture. Sort is the arguable case, since a sort may
+  // carry up to maxKeys fields, but this model has one.
+  const informative = exposed > 1;
+  const countTag =
+    state.count && informative ? `<span class="count">${exposed}</span>` : "";
   const button = h(
-    `<button type="button" class="cat${set ? " set" : ""}" aria-expanded="false" aria-label="${kind}">${inner}${count}</button>`,
+    `<button type="button" class="cat${set ? " set" : ""}" aria-expanded="false" aria-label="${kind}">${inner}${countTag}</button>`,
   );
   button.onclick = (event) => {
     event.stopPropagation();
@@ -126,7 +132,7 @@ function separator() {
   return null; // "none" — one flat line, which is what the branch shipped.
 }
 
-function buildLine(rerender) {
+function buildLine(rerender, model = MODEL) {
   const line = h(`<div class="line wrap"></div>`);
 
   const openPopover = (button, kind, members) => {
@@ -193,9 +199,9 @@ function buildLine(rerender) {
     return parts;
   };
 
-  const sort = group("Sort", [MODEL.sort]);
-  const rows = group("Rows", [MODEL.limit]);
-  const filters = group("Filter", MODEL.filters);
+  const sort = group("Sort", [model.sort]);
+  const rows = group("Rows", [model.limit]);
+  const filters = group("Filter", model.filters);
 
   const order =
     state.order === "shape-first"
@@ -224,18 +230,29 @@ function buildLine(rerender) {
   return line;
 }
 
-function tile(rerender) {
+function tile(rerender, { title = "Revenue", model = MODEL } = {}) {
   const element = h(`<div class="tile">
     <div class="tile-head">
-      <span class="tile-title">Revenue</span>
+      <span class="tile-title">${title}</span>
       <span class="spacer"></span>
     </div>
     <div class="tile-body">${chart(SALES, { highlight: 3 })}</div>
     <div class="tile-foot">Updated 4 minutes ago</div>
   </div>`);
-  element.querySelector(".tile-head").after(buildLine(rerender));
+  element.querySelector(".tile-head").after(buildLine(rerender, model));
   return element;
 }
+
+/**
+ * Nothing pinned: every exposed control sits behind its category. This is the
+ * case that shows all three buttons at once, and the one where a count tag has
+ * to justify itself on a sort and a limit that can only ever hold one.
+ */
+const NOTHING_PINNED = {
+  sort: { ...MODEL.sort, pin: false },
+  limit: { ...MODEL.limit, pin: false },
+  filters: MODEL.filters.map((f) => ({ ...f, pin: false })),
+};
 
 function note(html) {
   return h(`<p class="tile-note">${html}</p>`);
@@ -255,6 +272,16 @@ function render(page) {
   const grid = h(`<div class="grid"></div>`);
   grid.append(tile(rerender));
   page.append(grid);
+
+  page.append(
+    h(`<div class="section">Nothing pinned — all three categories</div>`),
+    note(
+      `The same chart with every exposed control behind its category. Three buttons, and the count tag only appears on <b>Filter</b>: a declaration carries exactly one sort and one limit, so a tag on those would read "1" forever.`,
+    ),
+  );
+  const grid2 = h(`<div class="grid"></div>`);
+  grid2.append(tile(rerender, { title: "Revenue", model: NOTHING_PINNED }));
+  page.append(grid2);
 
   page.append(
     h(`<div class="section">What the author hid</div>`),
@@ -295,13 +322,24 @@ const { page } = shell("CATEGORIES", [
     label: "BUTTON",
     value: state.button,
     options: [
-      { label: "Word", value: "word" },
       { label: "Glyph", value: "glyph" },
+      { label: "Word", value: "word" },
       { label: "Both", value: "both" },
-      { label: "Word + count", value: "count" },
     ],
     onChange: (value) => {
       state.button = value;
+      render(page);
+    },
+  },
+  {
+    label: "COUNT",
+    value: state.count,
+    options: [
+      { label: "Tag", value: true },
+      { label: "None", value: false },
+    ],
+    onChange: (value) => {
+      state.count = value;
       render(page);
     },
   },
