@@ -14,7 +14,7 @@ import { CARET, chart, h, shell } from "./shared.js";
 const SALES = [42, 58, 35, 71, 49, 63, 38];
 
 const state = {
-  order: "shape-first",
+  order: "filters-first",
   separator: "gap",
   button: "word",
   scope: "all",
@@ -269,9 +269,9 @@ const { page } = shell("CATEGORIES", [
     label: "ORDER",
     value: state.order,
     options: [
+      { label: "Filter · Sort · Rows", value: "filters-first" },
       { label: "Sort · Rows · Filter", value: "shape-first" },
       { label: "Rows · Sort · Filter", value: "limit-first" },
-      { label: "Filter first", value: "filters-first" },
     ],
     onChange: (value) => {
       state.order = value;

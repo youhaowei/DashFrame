@@ -191,12 +191,18 @@ once: Region and Period are pinned _and_ changeable, so they pin as wells with a
 caret; Segment is pinned and fixed, so it pins as a chip. Pinned means "on the
 face"; changeable decides whether the face is a knob or a fact.
 
-Group order was prototyped three ways with sort and limit still paired as one
-"shape" group, and **leading** was chosen: shape first, then filters, so that on
-a wrap the fixed-width groups stay together on the first row. Splitting shape
-into two categories keeps that property — sort, limit, then filters — but the
-order of sort against limit is not yet settled, and neither is what separates
-one group from the next on screen.
+**Decided: filter, then sort, then limit.** That is the order the chart is
+built in — which rows are included, how they are ordered, how many are kept —
+and it is the order a reader asks about them.
+
+This reverses the earlier call. Group order was first prototyped with sort and
+limit paired as one "shape" group, and **leading** won: shape first, then
+filters, because after a collapsed `+1` a trailing shape group read as part of
+the filter group it was not in. That objection died with the collapsed chip.
+There is no remainder chip any more, so nothing trails the filters that could be
+mistaken for one — each category ends in its own button or in nothing.
+
+What separates one group from the next on screen is still open.
 
 ## 3 · Report trust line (`trust.html`)
 
