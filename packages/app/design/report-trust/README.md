@@ -74,23 +74,22 @@ what keeps an invisible knob from silently changing a number.
 The three legal cells as tiles, then the report-level control that produces the
 fourth.
 
-The open question is the middle one. **visible + fixed** can be drawn two ways:
+**Decided: B · read-only, and terse.** A **visible + fixed** control is a flat
+chip; **A · disabled** is rejected. A greyed-out well announces "a control you
+can't use", which invites a reader to ask why not and leaves a dead target on
+the tile. A flat chip announces a fact about the chart and suggests nothing.
+This follows the house rule that chips are flat and fields are wells, which is
+why a changeable filter is a well and an unset one a dashed well.
 
-- **A · disabled** — the same well a changeable control uses, greyed out. It
-  announces "a control you can't use", so a reader asks why not, and it leaves
-  the tab order.
-- **B · read-only** — a flat chip. It announces "a fact about this chart", and
-  nothing suggests it could have been otherwise.
+The chip does **not** read as a sentence. `Region is EMEA` and `Date in last 12
+months` spend two words on grammar the shape already carries; drop the copula
+and write `Region EMEA`, `Date Last 12 months`. The label stays quiet, the value
+strong.
 
-Both are on the page side by side. B follows the house rule that chips are flat
-and fields are wells, which is why a changeable filter is drawn as a well and an
-unset one as a dashed well.
-
-Every exposed control names its field. A bare value says nothing: `EMEA` could
-be a region, an office, or an owner. The naming differs by shape because a fact
-and a control are read differently — the chip reads as a sentence
-(`Region is EMEA`), the well pairs a quiet field label with its value
-(`Region  EMEA`), which is also the shape the report control bar uses.
+Every exposed control still names its field — a bare value says nothing, since
+`EMEA` could be a region, an office, or an owner. Fact and control therefore
+carry the same words, and only the shape separates them: a flat chip is a fact,
+a well is a knob. That is the distinction doing the work, not the phrasing.
 
 **A passive "this chart is filtered" mark was prototyped and rejected.** Power BI
 and Superset both ship one by default — a count on the visual, the list on hover.
@@ -112,16 +111,17 @@ knows that `Channel is not Partner` is better read as "Direct only". A derived
 sentence also cannot survive a negation without stating it, which is how the
 earlier label-and-value style got `Channel Partner` exactly backwards.
 
-Four chip styles, switched from the top bar:
+**Decided: Label + value.** Two tones in one chip, the label quiet and the value
+strong. An unlabelled control is just its value, which is the shortest a chip
+gets and is how a limit should read (`Top 10`). The three rejected alternatives
+stay switchable on the page as the comparison that produced the call:
 
-- **Label + value** — two tones in one chip, the label quiet and the value
-  strong. An unlabelled control is just its value, which is the shortest a chip
-  gets and is how a limit should read (`Top 10`).
-- **Colon** — the same pairing punctuated. Needs the label to be present.
+- **Colon** — the same pairing punctuated. Spends a character on what the two
+  tones already separate, and needs the label to be present.
 - **Divided** — label and value in their own halves. Easiest to scan down a
-  column, widest per chip.
-- **Derived sentence** — what the tile would say with no authored label, kept
-  only as the thing to compare against.
+  column, but the widest per chip, and width is the scarce thing on a tile.
+- **Derived sentence** — what the tile would say with no authored label. Kept
+  only as the thing to compare against; see above for why derived text loses.
 
 **Icon** is a separate axis, applied to whichever style is selected:
 
