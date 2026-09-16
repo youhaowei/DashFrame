@@ -9,9 +9,14 @@
 // only the author knows that `Channel is not Partner` is better read as
 // "Direct only".
 
-import { chart, h, shell } from "./shared.js";
+import { CARET, chart, h, shell } from "./shared.js";
 
-const state = { style: "twotone", icon: "none", count: 3, narrow: false };
+const state = {
+  style: "twotone",
+  icon: "none",
+  count: 3,
+  narrow: false,
+};
 
 const SALES = [42, 58, 35, 71, 49, 63, 38];
 
@@ -48,6 +53,8 @@ const CONTROLS = [
   {
     kind: "filter",
     pinned: true,
+    changeable: true,
+    options: ["EMEA", "Americas", "APAC"],
     label: "Region",
     value: "EMEA",
     field: "Region",
@@ -56,6 +63,8 @@ const CONTROLS = [
   {
     kind: "sort",
     pinned: false,
+    changeable: true,
+    options: ["Revenue", "Margin", "Orders"],
     label: "Ranked by",
     value: "Revenue",
     field: "Sort",
@@ -72,6 +81,8 @@ const CONTROLS = [
   {
     kind: "filter",
     pinned: true,
+    changeable: true,
+    options: ["Last 12 months", "Last quarter", "Year to date"],
     label: "Period",
     value: "Last 12 months",
     field: "Date",
@@ -87,7 +98,7 @@ const CONTROLS = [
   },
   {
     kind: "filter",
-    pinned: false,
+    pinned: true,
     label: "Segment",
     value: "Enterprise",
     field: "Segment",
@@ -129,6 +140,23 @@ const STYLES = {
     note: "What the tile would say with no authored label: field plus operator plus value. Kept here as the thing to compare against.",
     render: (c) =>
       h(`<span class="chip"><span class="value">${c.derived}</span></span>`),
+  },
+};
+
+/* ----------------------------------------------------------- placement -- */
+
+const PLACEMENTS = {
+  leading: {
+    name: "Leading",
+    note: 'Shape first, then the filters. Reads as "top 10 by revenue, of these rows". Wraps cleanly: the shape stays on the first row.',
+  },
+  trailing: {
+    name: "Trailing",
+    note: 'Filters first, shape last. Reads as "of these rows, top 10 by revenue". After a collapsed chip the shape can look like part of the group.',
+  },
+  split: {
+    name: "Split",
+    note: "Filters left, shape right. Clear at width; on a wrap the right group drops to its own row and the pairing is lost.",
   },
 };
 
@@ -176,31 +204,77 @@ function showList(tile, title, controls) {
   );
 }
 
+/* ------------------------------------------------------------------ knob -- */
+
+/**
+ * A pinned control the reader may change. Same words as the chip, drawn as a
+ * well with a caret, because the ordinary reason to pin a control is to hand
+ * the reader its knob. Visible and changeable stay independent: a fixed
+ * control pins as a chip, a changeable one pins as a well.
+ */
+function knob(control, all) {
+  const well = h(
+    `<button type="button" class="well">${glyphFor(control, all)}${control.label ? `<span class="field">${control.label}</span>` : ""}<span class="value">${control.value}</span>${CARET}</button>`,
+  );
+  well.onclick = () => {
+    const options = control.options ?? [control.value];
+    const index = options.indexOf(control.value);
+    control.value = options[(index + 1) % options.length];
+    well.querySelector(".value").textContent = control.value;
+  };
+  return well;
+}
+
+function face(control, all, style) {
+  return control.changeable
+    ? knob(control, all)
+    : STYLES[style].render(control, all);
+}
+
 /* -------------------------------------------------------------- render -- */
 
-function tile(controls, { style, collapsed = "count" }) {
+function tile(controls, { style, collapsed = "count", placement = null }) {
   const element = h(`<div class="tile">
     <div class="tile-head"><span class="tile-title">Revenue</span></div>
     <div class="tile-body">${chart(SALES)}</div>
   </div>`);
 
+  // Sort and limit are not filters and never pool with them. With a
+  // placement they form their own group; without one they sit in the line
+  // like any other pinned control (the earlier sections).
+  const isShape = (control) => placement && control.kind !== "filter";
+  const shape = controls.filter(isShape);
+  const filters = controls.filter((control) => !isShape(control));
+
   // Pinned controls are on the face because the author put them there. What is
   // merely visible collapses into one chip, whatever the width — the reader
   // sees the same thing on a phone and on a wall display.
-  const pinned = controls.filter((control) => control.pinned);
-  const rest = controls.filter((control) => !control.pinned);
+  const pinned = filters.filter((control) => control.pinned);
+  const rest = filters.filter((control) => !control.pinned);
 
   const line = h(`<div class="line"></div>`);
+  const filterGroup = h(`<span class="group"></span>`);
   for (const control of pinned) {
-    line.append(STYLES[style].render(control, controls));
+    filterGroup.append(face(control, controls, style));
   }
   if (rest.length > 0) {
     const chip = h(
       `<button type="button" class="chip pressable collapsed">${COLLAPSED[collapsed].render(rest)}</button>`,
     );
     chip.onclick = () => showList(element, "Also applied", rest);
-    line.append(chip);
+    filterGroup.append(chip);
   }
+
+  const shapeGroup = h(`<span class="group shape"></span>`);
+  for (const control of shape) {
+    shapeGroup.append(face(control, controls, style));
+  }
+
+  if (placement === "leading") line.append(shapeGroup, filterGroup);
+  else if (placement === "trailing") line.append(filterGroup, shapeGroup);
+  else if (placement === "split")
+    line.append(filterGroup, h(`<span class="spacer"></span>`), shapeGroup);
+  else line.append(filterGroup);
 
   element.querySelector(".tile-head").after(line);
   return element;
@@ -286,6 +360,23 @@ function render(page) {
   refresh();
   authoring.append(pane, preview);
   page.append(authoring);
+
+  page.append(
+    section(
+      "Placement · sort and limit are not filters",
+      "Region and Period are pinned and changeable, so they pin as wells; Segment is pinned and fixed, so it pins as a chip. Sort and limit sit apart from the filters in one of three places. Switch to Narrow to see which placement survives a wrap.",
+    ),
+  );
+  const placementGrid = h(`<div class="grid"></div>`);
+  for (const [key, note] of Object.entries(PLACEMENTS)) {
+    const cell = h(`<div></div>`);
+    cell.append(
+      h(`<div class="caption"><b>${note.name}</b> — ${note.note}</div>`),
+      tile(CONTROLS, { style: state.style, placement: key }),
+    );
+    placementGrid.append(cell);
+  }
+  page.append(placementGrid);
 
   page.append(
     section(

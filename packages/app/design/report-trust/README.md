@@ -149,6 +149,22 @@ not pinned, three ways:
   thing is behind it without naming any values, which keeps it compatible with
   the confidentiality rule.
 
+The **Placement** section shows the reader's tile with both properties in
+play at once: Region and Period are pinned _and_ changeable, so they pin as
+wells with a caret; Segment is pinned and fixed, so it pins as a chip. Pinned
+means "on the face"; changeable decides whether the face is a knob or a fact.
+
+Sort and limit never pool with the filters. They are drawn as their own group
+in one of three places, and the narrow width decides:
+
+- **Leading** — shape first (`Ranked by Revenue · Top 10`), then the filters.
+  On a wrap the shape group stays on the first row as a unit. **Chosen.**
+- **Trailing** — filters first, shape last. After a collapsed `+1` the shape
+  reads as part of the group it is not in.
+- **Split** — filters left, shape right. Fine at width; on a wrap the right
+  group drops to its own row, right-aligned, and the pairing with the chart is
+  lost.
+
 A count over _exposed_ controls is fair game: the author already chose to
 disclose them, which is what separates this chip from the mark rejected above.
 

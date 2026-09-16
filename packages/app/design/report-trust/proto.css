@@ -560,3 +560,19 @@ button[aria-pressed="true"] {
   background: var(--palette-primary);
   color: var(--palette-primary-fg);
 }
+
+/* Groups inside a control line: filters together, sort and limit together. */
+.line .group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  min-width: 0;
+}
+.line .spacer {
+  flex: 1;
+}
+.chip .glyph + .field,
+.well .glyph + .field {
+  margin-left: 2px;
+}
