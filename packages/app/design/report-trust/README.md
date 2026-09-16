@@ -155,19 +155,30 @@ glyph on every chip to repeat it is waste. **Icon · none.** This also means the
 design system does not need a funnel, so `libs/stdui` is untouched — the change
 that was the most expensive option is now not required at all.
 
-**Only filters can overflow.** `InsightRuntimeDeclaration` declares any number of
-filters but exactly one sort and exactly one limit, so the sort and limit groups
-hold at most one chip each and can never collapse. Overflow is the filter group's
-problem alone, which is what makes it tractable: the two fixed-width groups lead,
-and the filters take what remains.
+**Only the filter group is ever more than one chip.**
+`InsightRuntimeDeclaration` declares any number of filters but exactly one sort
+and exactly one limit, so those two groups hold at most one chip each. Whatever
+the filter group needs — a button, a count, a ceiling — is its own concern and
+does not have to generalise.
 
-**The collapsed chip is a count.** `+3`, and it always means three more filters,
-because a mixed group is no longer possible. **Worded** (`and 3 more`) is the
-widest form of the thing whose whole job is to be narrow. **Kinds** — a glyph per
-kind, then the count — existed to disambiguate a mixed group and has nothing left
-to say about a group that is all one kind. A count over _exposed_ controls stays
-fair game: the author already chose to disclose them, which is what separates
-this chip from the passive mark rejected above.
+**The collapsed chip becomes a filter button.** Not a `+3` chip standing in for
+the overflow — an actual control the reader opens. **Pinned filters are always on
+the chart**, at every width. **Visible filters appear when the reader clicks the
+filter button.** All three of the prototyped collapsed forms are dropped: `+3`,
+`and 3 more`, and the per-kind glyph were three ways to label a remainder, and a
+remainder is the wrong idea. Visible-but-unpinned is not overflow the layout
+happened to produce; it is a disclosure the author chose, and it deserves a
+control rather than a label.
+
+This is also what makes the face stable. Only pinned controls are ever drawn on
+it, so the line cannot overflow because a reader's window is narrow — it can only
+overflow because an author pinned more than fits, which was already the stated
+principle and is now the only way it happens.
+
+The confidentiality rule is unchanged and now sits on the button: it may reflect
+only **exposed** controls. A hidden filter must not widen it, appear in it, or
+raise a count on it. A button that betrays the existence of a filter the author
+chose to hide is the passive mark rejected above, wearing a different shape.
 
 **The wording sheds its kind word.** A chip does not restate what its group
 already establishes. Sort is the author's label and the direction, not `Sorted
@@ -224,8 +235,19 @@ check a change against them.
 - **Group separation** — what divides one category from the next: a gap, a rule,
   or a quieter treatment on one of them. Nothing is drawn for this yet; the
   prototype still pairs sort and limit as one group.
-- **Filter overflow** — what the item pane tells an author who pins more than
-  fits, now that overflow can only happen in the filter group.
+- **Over-pinning** — what the item pane tells an author who pins more filters
+  than fit. The face can no longer overflow on its own, so this is the only
+  remaining overflow case, and it is an authoring-time warning rather than a
+  layout rule.
+- **The filter button's form** — glyph, word, or glyph plus a count of exposed
+  filters. A funnel would be the obvious glyph and the design system has none
+  (`ArrowUpDownIcon` and `ListIcon` are the closest), so this is the one place a
+  `libs/stdui` addition is still on the table — now for a single button rather
+  than every chip.
+- **Visible-but-unpinned sort and limit** — a filter button is the filter
+  group's affordance. Whether a sort or limit set to visible rather than pinned
+  goes behind the same button, gets its own, or is simply not a legal
+  combination is not yet decided.
 
 ## Prototype-only choices
 
