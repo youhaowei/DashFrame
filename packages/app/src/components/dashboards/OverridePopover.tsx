@@ -20,10 +20,17 @@ import { queryStatus } from "@/data/query-status";
  */
 
 import { resolveInsightAvailableFields } from "@/lib/insights/compute-combined-fields";
+import {
+  LIMIT_CONTROL_KEY,
+  SORT_CONTROL_KEY,
+  withItemControl,
+} from "@/lib/dashboards/item-controls";
 import { api } from "@dashframe/convex-backend/api";
 import {
   type DashboardControl,
   type DashboardItem,
+  type DashboardItemControl,
+  type DashboardItemControlVisibility,
   type DashboardItemOverridePatch,
   type InsightFilter,
   type InsightFilterOverride,
@@ -35,6 +42,7 @@ import {
 import {
   Badge,
   Button,
+  Checkbox,
   Input,
   Popover,
   PopoverContent,
@@ -46,6 +54,7 @@ import {
   SelectTrigger,
   SelectValue,
   Separator,
+  Toggle,
   cn,
 } from "@wystack/ui-react";
 import { SettingsIcon } from "@wystack/ui-react/icons";
@@ -264,6 +273,74 @@ function LimitOverrideRow({
 }
 
 // ---------------------------------------------------------------------------
+// Readers see — disclosure per declared runtime control
+// ---------------------------------------------------------------------------
+
+const VISIBILITY_OPTIONS: {
+  value: DashboardItemControlVisibility;
+  label: string;
+}[] = [
+  { value: "hidden", label: "Hidden" },
+  { value: "visible", label: "Visible" },
+  { value: "pinned", label: "Pinned" },
+];
+
+/**
+ * One declared control of the item's Insight, as the author decides what a
+ * reader is told. Hidden is the default. "Readers can change" only appears
+ * when the Insight allows it, and can only be turned off here: a report
+ * tightens the ceiling, never loosens it. A key a report-level control owns
+ * for this item is not the tile's to disclose.
+ */
+function DisclosureRow({
+  name,
+  entry,
+  ceilingChangeable,
+  boundByReport,
+  onChange,
+}: {
+  name: string;
+  entry: DashboardItemControl | undefined;
+  ceilingChangeable: boolean;
+  boundByReport: boolean;
+  onChange: (patch: Partial<DashboardItemControl>) => void;
+}) {
+  const visibility = entry?.visibility ?? "hidden";
+  return (
+    <div className="flex flex-col gap-1.5 py-1.5">
+      <span className="text-xs font-medium text-neutral-fg">{name}</span>
+      {boundByReport ? (
+        <span className="text-xs text-neutral-fg-subtle">
+          Set by the report control
+        </span>
+      ) : (
+        <>
+          <Toggle
+            size="sm"
+            variant="outline"
+            value={visibility}
+            onValueChange={(next) => onChange({ visibility: next })}
+            options={VISIBILITY_OPTIONS}
+          />
+          {ceilingChangeable && visibility !== "hidden" && (
+            <label className="flex cursor-pointer items-center gap-2 text-xs text-neutral-fg-subtle">
+              <Checkbox
+                checked={entry?.changeable !== false}
+                onCheckedChange={(checked) =>
+                  onChange({ changeable: checked ? undefined : false })
+                }
+                aria-label={`Readers can change ${name}`}
+              />
+              Readers can change
+            </label>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -476,6 +553,55 @@ export function OverridePopover({
     }
   }
 
+  function handleDisclosure(key: string, patch: Partial<DashboardItemControl>) {
+    commitBatch({
+      commands: [
+        cmd("UpdateDashboardItem", {
+          dashboardId: dashboardId as UUID,
+          itemId: item.id,
+          updates: { controls: withItemControl(item.controls, key, patch) },
+        }),
+      ],
+    }).catch((error: unknown) => {
+      console.error("Failed to save what readers see:", error);
+      toast.error("Couldn't save what readers see");
+    });
+  }
+
+  // Declared runtime controls, in tile order: sort, limit, then filters.
+  const declared = useMemo(() => {
+    const declaration = insight?.runtimeControls;
+    if (!declaration) return [];
+    const rows: {
+      key: string;
+      name: string;
+      ceilingChangeable: boolean;
+      field?: string;
+    }[] = [];
+    if (declaration.sort)
+      rows.push({
+        key: SORT_CONTROL_KEY,
+        name: declaration.sort.label || "Sort",
+        ceilingChangeable: declaration.sort.changeable !== false,
+      });
+    if (declaration.limit)
+      rows.push({
+        key: LIMIT_CONTROL_KEY,
+        name: declaration.limit.label || "Limit",
+        ceilingChangeable: declaration.limit.changeable !== false,
+      });
+    for (const control of declaration.filters ?? []) {
+      const saved = insight?.filters?.find((f) => f.id === control.filterId);
+      rows.push({
+        key: control.key,
+        name: control.label || saved?.field || control.key,
+        ceilingChangeable: control.changeable !== false,
+        field: saved?.field,
+      });
+    }
+    return rows;
+  }, [insight?.runtimeControls, insight?.filters]);
+
   // Available field names for the sort row.
   const availableFieldNames = useMemo(
     () => combinedFields.map((field) => field.columnName ?? field.name),
@@ -564,6 +690,28 @@ export function OverridePopover({
                     />
                   );
                 })}
+                <Separator className="my-2" />
+              </>
+            )}
+
+            {declared.length > 0 && (
+              <>
+                <p className="mb-1 text-xs font-medium text-neutral-fg-subtle uppercase tracking-wide">
+                  Readers see
+                </p>
+                {declared.map((row) => (
+                  <DisclosureRow
+                    key={row.key}
+                    name={row.name}
+                    entry={item.controls?.[row.key]}
+                    ceilingChangeable={row.ceilingChangeable}
+                    boundByReport={
+                      row.field !== undefined &&
+                      boundControls.some((c) => c.field === row.field)
+                    }
+                    onChange={(patch) => handleDisclosure(row.key, patch)}
+                  />
+                ))}
                 <Separator className="my-2" />
               </>
             )}

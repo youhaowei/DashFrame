@@ -204,6 +204,9 @@ function FilterEditor({
   );
   const [required, setRequired] = useState(control?.required ?? false);
   const [allowClear, setAllowClear] = useState(control?.allowClear ?? false);
+  const [readerChangeable, setReaderChangeable] = useState(
+    control?.changeable !== false,
+  );
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { setPending, isPending } = useSaveDismissGuard();
@@ -267,6 +270,7 @@ function FilterEditor({
     setKey(control?.key ?? (initial.id ? `filter-${initial.id}` : ""));
     setRequired(control?.required ?? false);
     setAllowClear(control?.allowClear ?? false);
+    setReaderChangeable(control?.changeable !== false);
     setDirty(false);
     setError(null);
   };
@@ -294,6 +298,7 @@ function FilterEditor({
             label: label || selectedField?.displayName || field,
             required: required || undefined,
             allowClear: allowClear || undefined,
+            changeable: readerChangeable ? undefined : false,
           }
         : undefined;
       await onSave(saved, savedControl);
@@ -517,6 +522,15 @@ function FilterEditor({
                 </p>
               )}
             </div>
+            <label className="flex cursor-pointer items-center gap-2 text-xs">
+              <WorkbenchCheckbox
+                checked={readerChangeable}
+                onCheckedChange={(checked) =>
+                  setReaderChangeable(checked === true)
+                }
+              />
+              Readers can change the value
+            </label>
             <div className="flex gap-4">
               <label className="flex cursor-pointer items-center gap-2 text-xs">
                 <WorkbenchCheckbox

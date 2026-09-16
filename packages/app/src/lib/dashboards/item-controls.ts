@@ -20,6 +20,7 @@
 import type {
   DashboardControl,
   DashboardItem,
+  DashboardItemControl,
   DashboardItemOverrides,
   Insight,
   InsightFilter,
@@ -225,6 +226,31 @@ export function resolveItemControls(
   }
   out.push(...filterControls(full, declaration.filters ?? []));
   return out;
+}
+
+/**
+ * The author's next disclosure map after one edit. A `hidden` entry with no
+ * tightening is the default and is stored as absence, so the map only ever
+ * names what differs from "the reader is not told".
+ */
+export function withItemControl(
+  controls: DashboardItem["controls"],
+  key: string,
+  patch: Partial<DashboardItemControl>,
+): Record<string, DashboardItemControl> {
+  const next: Record<string, DashboardItemControl> = { ...controls };
+  const merged: DashboardItemControl = {
+    visibility: patch.visibility ?? next[key]?.visibility ?? "hidden",
+  };
+  const changeable =
+    "changeable" in patch ? patch.changeable : next[key]?.changeable;
+  if (changeable === false) merged.changeable = false;
+  if (merged.visibility === "hidden" && merged.changeable === undefined) {
+    delete next[key];
+  } else {
+    next[key] = merged;
+  }
+  return next;
 }
 
 /** Whether the reader has anything at all to see for this item. */
