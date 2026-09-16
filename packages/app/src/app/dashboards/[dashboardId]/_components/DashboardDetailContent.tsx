@@ -11,7 +11,7 @@ import { useBindArtifact } from "@/components/assistant/artifact-context";
 import { DashboardControlBar } from "@/components/dashboards/DashboardControlBar";
 import { DashboardGrid } from "@/components/dashboards/DashboardGrid";
 import type { VisualizationTileState } from "@/components/visualizations/VisualizationDisplay";
-import { mergeTransientItemOverrides } from "@/lib/dashboards/controls";
+import { applyReaderPatch } from "@/lib/dashboards/controls";
 import {
   resolveInsightAvailableFields,
   type CombinedField,
@@ -192,10 +192,7 @@ export default function DashboardDetailContent({
       setReaderState((current) => {
         const same = current.dashboardId === dashboardId;
         const overrides = new Map(same ? current.overrides : undefined);
-        overrides.set(
-          itemId,
-          mergeTransientItemOverrides(overrides.get(itemId), patch) ?? {},
-        );
+        overrides.set(itemId, applyReaderPatch(overrides.get(itemId), patch));
         return {
           dashboardId,
           overrides,

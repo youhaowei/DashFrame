@@ -30,16 +30,28 @@ import {
   cn,
 } from "@wystack/ui-react";
 import { ChevronDownIcon } from "@wystack/ui-react/icons";
-import type { ChangeEvent } from "react";
+import { useState, type ChangeEvent, type KeyboardEvent } from "react";
 
 export type ControlInputType = "text" | "number" | "date";
+
+/**
+ * One field the sort knob may pick. `value` is the field or metric id the
+ * Insight declared; `aliases` are the other names the same column goes by in
+ * a saved or overridden sort (column name, metric alias), so the knob can
+ * recognise the current sort whichever spelling it arrived in.
+ */
+export interface SortOption {
+  value: string;
+  label: string;
+  aliases?: readonly string[];
+}
 
 export interface DashboardItemControlsProps {
   controls: readonly ExposedItemControl[];
   /** Input type for a filter knob, from the field's column type. */
   inputTypeFor: (control: ExposedItemControl) => ControlInputType;
   /** Fields the sort knob may pick from, in the Insight's declared order. */
-  sortOptions: readonly { value: string; label: string }[];
+  sortOptions: readonly SortOption[];
   limitBounds?: { min: number; max: number };
   /** Absent = every control is a fact, whatever it declares. */
   onChange?: (patch: DashboardItemOverrides) => void;
@@ -182,6 +194,142 @@ function Knob({
 // Editors — one per kind. Each emits a partial override for its own key only.
 // ---------------------------------------------------------------------------
 
+const DIRECTION_ITEMS = [
+  { value: "desc", label: "High to low" },
+  { value: "asc", label: "Low to high" },
+];
+
+/** The declared option the current sort names, under any of its spellings. */
+export function resolveSortOption(
+  options: readonly SortOption[],
+  field: string | undefined,
+): SortOption | undefined {
+  if (!field) return undefined;
+  return options.find(
+    (option) => option.value === field || option.aliases?.includes(field),
+  );
+}
+
+function SortEditor({
+  control,
+  sortOptions,
+  onChange,
+}: {
+  control: ExposedItemControl;
+  sortOptions: readonly SortOption[];
+  onChange: (patch: DashboardItemOverrides) => void;
+}) {
+  const current: InsightSort | undefined = control.sort;
+  // No silent substitution: a sort the Insight does not allow the reader to
+  // pick shows as unselected, and flipping the direction alone changes
+  // nothing until a field is chosen.
+  const field = resolveSortOption(sortOptions, current?.field)?.value ?? "";
+  const direction = current?.direction ?? "desc";
+  return (
+    <div className="flex items-center gap-1.5">
+      <Select
+        value={field}
+        items={sortOptions.map((option) => ({
+          value: option.value,
+          label: option.label,
+        }))}
+        onValueChange={(next) => {
+          if (next) onChange({ sorts: [{ field: next, direction }] });
+        }}
+      >
+        <SelectTrigger size="sm" aria-label="Sort by" className="text-xs">
+          <SelectValue placeholder="Field" />
+        </SelectTrigger>
+        <SelectContent>
+          {sortOptions.map((option) => (
+            <SelectItem
+              key={option.value}
+              value={option.value}
+              className="text-xs"
+            >
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Select
+        value={direction}
+        items={DIRECTION_ITEMS}
+        disabled={field === ""}
+        onValueChange={(next) => {
+          if (field && (next === "asc" || next === "desc"))
+            onChange({ sorts: [{ field, direction: next }] });
+        }}
+      >
+        <SelectTrigger size="sm" aria-label="Direction" className="text-xs">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="desc" className="text-xs">
+            High to low
+          </SelectItem>
+          <SelectItem value="asc" className="text-xs">
+            Low to high
+          </SelectItem>
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
+/**
+ * Committed on blur or Enter, never per keystroke, so typing "50" does not
+ * get clamped at "5". An emptied box clears the reader's limit and the tile
+ * goes back to all rows.
+ */
+function LimitEditor({
+  control,
+  bounds,
+  onChange,
+}: {
+  control: ExposedItemControl;
+  bounds?: { min: number; max: number };
+  onChange: (patch: DashboardItemOverrides) => void;
+}) {
+  const [draft, setDraft] = useState(
+    control.limit === undefined ? "" : String(control.limit),
+  );
+  const commit = () => {
+    if (draft.trim() === "") {
+      if (control.limit !== undefined) onChange({ limit: undefined });
+      return;
+    }
+    const next = Number(draft);
+    if (!Number.isFinite(next)) {
+      setDraft(control.limit === undefined ? "" : String(control.limit));
+      return;
+    }
+    const min = bounds?.min ?? 1;
+    const max = bounds?.max ?? Number.POSITIVE_INFINITY;
+    const clamped = Math.min(max, Math.max(min, Math.trunc(next)));
+    setDraft(String(clamped));
+    if (clamped !== control.limit) onChange({ limit: clamped });
+  };
+  return (
+    <Input
+      type="number"
+      min={bounds?.min}
+      max={bounds?.max}
+      value={draft}
+      placeholder="All"
+      aria-label={control.label || "Limit"}
+      className="h-7 w-24 text-xs"
+      onChange={(event: ChangeEvent<HTMLInputElement>) =>
+        setDraft(event.target.value)
+      }
+      onBlur={commit}
+      onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
+        if (event.key === "Enter") commit();
+      }}
+    />
+  );
+}
+
 function displayValue(value: unknown): string {
   if (Array.isArray(value)) return value.join(", ");
   if (value === null || value === undefined) return "";
@@ -197,82 +345,30 @@ function ControlEditor({
 }: {
   control: ExposedItemControl;
   inputType: ControlInputType;
-  sortOptions: readonly { value: string; label: string }[];
+  sortOptions: readonly SortOption[];
   limitBounds?: { min: number; max: number };
   onChange: (patch: DashboardItemOverrides) => void;
 }) {
   if (control.kind === "sort") {
-    const current: InsightSort | undefined = control.sort;
-    const field =
-      sortOptions.find((option) => option.value === current?.field)?.value ??
-      sortOptions[0]?.value ??
-      "";
-    const direction = current?.direction ?? "desc";
     return (
-      <div className="flex items-center gap-1.5">
-        <Select
-          value={field}
-          onValueChange={(next) => {
-            if (next) onChange({ sorts: [{ field: next, direction }] });
-          }}
-        >
-          <SelectTrigger size="sm" aria-label="Sort by" className="text-xs">
-            <SelectValue placeholder="Field" />
-          </SelectTrigger>
-          <SelectContent>
-            {sortOptions.map((option) => (
-              <SelectItem
-                key={option.value}
-                value={option.value}
-                className="text-xs"
-              >
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select
-          value={direction}
-          onValueChange={(next) => {
-            if (next === "asc" || next === "desc")
-              onChange({ sorts: [{ field, direction: next }] });
-          }}
-        >
-          <SelectTrigger size="sm" aria-label="Direction" className="text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="desc" className="text-xs">
-              High to low
-            </SelectItem>
-            <SelectItem value="asc" className="text-xs">
-              Low to high
-            </SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
+      <SortEditor
+        control={control}
+        sortOptions={sortOptions}
+        onChange={onChange}
+      />
     );
   }
 
   if (control.kind === "limit") {
     return (
-      <Input
-        type="number"
-        min={limitBounds?.min}
-        max={limitBounds?.max}
-        value={control.limit ?? ""}
-        placeholder="All"
-        aria-label={control.label || "Limit"}
-        className="h-7 w-24 text-xs"
-        onChange={(event: ChangeEvent<HTMLInputElement>) => {
-          const raw = event.target.value;
-          if (raw === "") return;
-          const next = Number(raw);
-          if (!Number.isFinite(next)) return;
-          const min = limitBounds?.min ?? 1;
-          const max = limitBounds?.max ?? Number.POSITIVE_INFINITY;
-          onChange({ limit: Math.min(max, Math.max(min, Math.trunc(next))) });
-        }}
+      <LimitEditor
+        // Remount when the effective limit changes from outside the box (a
+        // report control, a cleared override) so the draft never disagrees
+        // with the tile.
+        key={String(control.limit)}
+        control={control}
+        bounds={limitBounds}
+        onChange={onChange}
       />
     );
   }
@@ -286,7 +382,7 @@ function ControlEditor({
     <Input
       type={inputType}
       value={display}
-      aria-label={control.label || filter.field}
+      aria-label={control.label || control.valueText}
       className="h-7 w-full text-xs"
       onChange={(event: ChangeEvent<HTMLInputElement>) => {
         const raw = event.target.value;

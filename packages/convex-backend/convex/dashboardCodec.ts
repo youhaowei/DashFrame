@@ -60,9 +60,14 @@ const storedDashboardItemSchema = z
     width: z.number(),
     height: z.number(),
     overrides: storedDashboardItemOverridesSchema.optional(),
+    // An empty map means nothing is disclosed, which is also what absence
+    // means, so it is stored as absence on every write path.
     controls: z
       .record(z.string().min(1), storedDashboardItemControlSchema)
-      .optional(),
+      .optional()
+      .transform((value) =>
+        value && Object.keys(value).length > 0 ? value : undefined,
+      ),
   })
   .passthrough();
 

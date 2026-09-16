@@ -833,12 +833,6 @@ async function dashboardCommand(
       id: old.id!,
       type: old.type!,
     };
-    // `controls` is replaced whole; an empty map means nothing is disclosed.
-    if (
-      items[i]!.controls !== undefined &&
-      Object.keys(record(items[i]!.controls)).length === 0
-    )
-      delete items[i]!.controls;
   }
   if (p === "patchDashboardItemOverrideCmd") {
     const item = items[itemAt()]!,
