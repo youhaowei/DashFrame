@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
+  formatBrokenTilesLine,
   formatReportContentsCount,
   formatSavedViewType,
   reportQuestionLink,
@@ -38,5 +39,21 @@ describe("reportSavedViewLink", () => {
       to: "/visualizations/view-1",
       search: { reportId: "report-b" },
     });
+  });
+});
+
+describe("formatBrokenTilesLine", () => {
+  it("says nothing unless a tile cannot be shown at all", () => {
+    expect(formatBrokenTilesLine([], "reader")).toBeNull();
+    expect(formatBrokenTilesLine([], "author")).toBeNull();
+  });
+
+  it("gives the reader the count and the author the names", () => {
+    expect(formatBrokenTilesLine(["Revenue"], "reader")).toBe(
+      "1 chart can't be shown right now",
+    );
+    expect(formatBrokenTilesLine(["Revenue", "Orders"], "author")).toBe(
+      "2 charts can't be shown right now: Revenue, Orders",
+    );
   });
 });

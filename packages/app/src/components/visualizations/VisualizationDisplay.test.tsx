@@ -9,6 +9,7 @@ import type { Insight, Visualization } from "@dashframe/types";
 import { render } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import {
+  formatUpdatedAgo,
   resolveDashboardRuntime,
   VisualizationDisplay,
 } from "./VisualizationDisplay";
@@ -242,5 +243,19 @@ describe("VisualizationDisplay — declared runtime controls", () => {
     ).toEqual({
       error: "This dashboard filter is not declared by the Insight.",
     });
+  });
+});
+
+describe("formatUpdatedAgo", () => {
+  it("reads as a relative time in the tile foot", () => {
+    const now = Date.UTC(2026, 8, 15, 12, 0, 0);
+    expect(formatUpdatedAgo(now - 20_000, now)).toBe("Updated just now");
+    expect(formatUpdatedAgo(now - 5 * 60_000, now)).toMatch(/^Updated .*5 min/);
+    expect(formatUpdatedAgo(now - 3 * 3_600_000, now)).toMatch(
+      /^Updated .*3 h/,
+    );
+    expect(formatUpdatedAgo(now - 2 * 86_400_000, now)).toMatch(
+      /^Updated .*2 days/,
+    );
   });
 });
