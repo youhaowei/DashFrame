@@ -112,6 +112,56 @@ function ViewerLimitFields({
   );
 }
 
+/**
+ * The words a reader sees for a sort or limit control, and whether the reader
+ * may change its value. Committed on blur or Enter so typing does not fire a
+ * write per keystroke.
+ */
+function RuntimeControlWords({
+  idPrefix,
+  label,
+  changeable,
+  onCommit,
+}: {
+  idPrefix: string;
+  label: string | undefined;
+  changeable: boolean | undefined;
+  onCommit: (next: { label?: string; changeable?: boolean }) => void;
+}) {
+  const [draft, setDraft] = useState(label ?? "");
+  const commitLabel = () => {
+    const next = draft.trim();
+    if (next === (label ?? "")) return;
+    onCommit({ label: next || undefined });
+  };
+  return (
+    <div className="space-y-2 pl-1">
+      <div className="space-y-1">
+        <Label htmlFor={`${idPrefix}-label`}>Shown to viewers as</Label>
+        <Input
+          id={`${idPrefix}-label`}
+          value={draft}
+          placeholder="No label"
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={commitLabel}
+          onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
+            if (event.key === "Enter") commitLabel();
+          }}
+        />
+      </div>
+      <label className="flex cursor-pointer items-center gap-2 text-xs text-neutral-fg-subtle">
+        <WorkbenchCheckbox
+          checked={changeable !== false}
+          onCheckedChange={(next) =>
+            onCommit({ changeable: next === true ? undefined : false })
+          }
+        />
+        Readers can change the value
+      </label>
+    </div>
+  );
+}
+
 export function SortSection({
   sorts,
   fields,
@@ -239,7 +289,11 @@ export function SortSection({
         ...latest,
         sort:
           allowedFieldIds.length > 0
-            ? { allowedFieldIds, maxKeys: latest?.sort?.maxKeys ?? 1 }
+            ? {
+                ...latest?.sort,
+                allowedFieldIds,
+                maxKeys: latest?.sort?.maxKeys ?? 1,
+              }
             : undefined,
       };
     });
@@ -392,6 +446,22 @@ export function SortSection({
                 </label>
               );
             })}
+            {runtimeDraft?.sort && (
+              <RuntimeControlWords
+                idPrefix="viewer-sort"
+                key={`${runtimeDraft.sort.label ?? ""}:${String(runtimeDraft.sort.changeable)}`}
+                label={runtimeDraft.sort.label}
+                changeable={runtimeDraft.sort.changeable}
+                onCommit={(next) =>
+                  updateRuntime((current) => ({
+                    ...current,
+                    sort: current?.sort
+                      ? { ...current.sort, ...next }
+                      : undefined,
+                  }))
+                }
+              />
+            )}
           </div>
         )}
         <label className="flex cursor-pointer items-center justify-between gap-3 text-xs">
@@ -407,13 +477,32 @@ export function SortSection({
           />
         </label>
         {runtimeDraft?.limit && (
-          <ViewerLimitFields
-            key={`${runtimeDraft.limit.min}:${runtimeDraft.limit.max}`}
-            limit={runtimeDraft.limit}
-            onCommit={(limit) =>
-              updateRuntime((current) => ({ ...current, limit }))
-            }
-          />
+          <>
+            <ViewerLimitFields
+              key={`${runtimeDraft.limit.min}:${runtimeDraft.limit.max}`}
+              limit={runtimeDraft.limit}
+              onCommit={(limit) =>
+                updateRuntime((current) => ({
+                  ...current,
+                  limit: { ...current?.limit, ...limit },
+                }))
+              }
+            />
+            <RuntimeControlWords
+              idPrefix="viewer-limit"
+              key={`${runtimeDraft.limit.label ?? ""}:${String(runtimeDraft.limit.changeable)}`}
+              label={runtimeDraft.limit.label}
+              changeable={runtimeDraft.limit.changeable}
+              onCommit={(next) =>
+                updateRuntime((current) => ({
+                  ...current,
+                  limit: current?.limit
+                    ? { ...current.limit, ...next }
+                    : undefined,
+                }))
+              }
+            />
+          </>
         )}
       </div>
     </div>

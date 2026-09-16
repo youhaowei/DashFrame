@@ -11,7 +11,7 @@
 
 import type { DashboardControl, Insight, UUID } from "@dashframe/types";
 import { describe, expect, it } from "vite-plus/test";
-import { resolveItemControls } from "./item-controls";
+import { resolveItemControls, withItemControl } from "./item-controls";
 
 const insight: Pick<Insight, "filters" | "sorts" | "runtimeControls"> = {
   filters: [
@@ -164,5 +164,48 @@ describe("resolveItemControls", () => {
       effectiveOverrides: undefined,
     });
     expect(controls).toEqual([]);
+  });
+});
+
+describe("withItemControl", () => {
+  it("stores only what differs from hidden-and-as-declared", () => {
+    expect(
+      withItemControl(undefined, "region", { visibility: "pinned" }),
+    ).toEqual({
+      region: { visibility: "pinned" },
+    });
+    expect(
+      withItemControl({ region: { visibility: "pinned" } }, "region", {
+        visibility: "hidden",
+      }),
+    ).toEqual({});
+    expect(withItemControl(undefined, "sort", { changeable: false })).toEqual({
+      sort: { visibility: "hidden", changeable: false },
+    });
+  });
+
+  it("keeps the other keys and the tightening across a visibility change", () => {
+    expect(
+      withItemControl(
+        {
+          region: { visibility: "visible", changeable: false },
+          limit: { visibility: "pinned" },
+        },
+        "region",
+        { visibility: "pinned" },
+      ),
+    ).toEqual({
+      region: { visibility: "pinned", changeable: false },
+      limit: { visibility: "pinned" },
+    });
+    expect(
+      withItemControl(
+        { region: { visibility: "pinned", changeable: false } },
+        "region",
+        {
+          changeable: undefined,
+        },
+      ),
+    ).toEqual({ region: { visibility: "pinned" } });
   });
 });

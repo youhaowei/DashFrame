@@ -56,6 +56,44 @@ describe("FiltersSection", () => {
     });
   });
 
+  it("tightens the ceiling when readers may see but not change a filter", async () => {
+    const onSave = vi.fn();
+    const filter = {
+      id: "filter-id",
+      _id: "filter-id",
+      field: "region",
+      operator: "eq",
+      value: "US",
+    } satisfies FilterWithId;
+    render(
+      <FiltersSection
+        filters={[filter]}
+        combinedFields={[field]}
+        onReorder={vi.fn()}
+        onRemove={vi.fn()}
+        onSave={onSave}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit filter Region" }));
+    fireEvent.click(
+      await screen.findByRole("checkbox", { name: "Viewers can change" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("checkbox", {
+        name: "Readers can change the value",
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "filter-id" }),
+        expect.objectContaining({ filterId: "filter-id", changeable: false }),
+      );
+    });
+  });
+
   it("blocks duplicate viewer-control keys before saving", () => {
     const filters = [
       {

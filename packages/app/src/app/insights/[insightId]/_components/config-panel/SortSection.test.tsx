@@ -134,6 +134,37 @@ describe("SortSection", () => {
     });
   });
 
+  it("writes the reader-facing words and the changeable ceiling on a declared sort", () => {
+    const onRuntimeChange = vi.fn();
+    render(
+      <SortSection
+        sorts={[]}
+        fields={[field]}
+        metrics={[]}
+        runtimeControls={{ sort: { allowedFieldIds: [field.id], maxKeys: 1 } }}
+        onChange={vi.fn()}
+        onRuntimeChange={onRuntimeChange}
+      />,
+    );
+    const label = screen.getByLabelText("Shown to viewers as");
+    fireEvent.change(label, { target: { value: "Ranked by" } });
+    fireEvent.blur(label);
+    expect(onRuntimeChange).toHaveBeenLastCalledWith({
+      sort: { allowedFieldIds: [field.id], maxKeys: 1, label: "Ranked by" },
+    });
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Readers can change the value" }),
+    );
+    expect(onRuntimeChange).toHaveBeenLastCalledWith({
+      sort: {
+        allowedFieldIds: [field.id],
+        maxKeys: 1,
+        label: "Ranked by",
+        changeable: false,
+      },
+    });
+  });
+
   it("keeps an empty enabled sort local when another control changes", () => {
     const onRuntimeChange = vi.fn();
     const view = render(
