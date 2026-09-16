@@ -24,16 +24,22 @@ const GLYPH = {
   limit: `<svg class="glyph" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M2 3h8M2 6h8M2 9h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>`,
 };
 
-/** The glyph a chip carries, if any, under the current icon setting. */
-function glyphFor(control) {
+/**
+ * The glyph a chip carries, if any. A filter is the ordinary kind, so repeating
+ * a funnel down a line of them is noise; the glyph earns its place marking what
+ * is *not* a filter. Two readings of that, and they disagree on one case: a
+ * tile holding exactly one filter.
+ */
+function glyphFor(control, controls) {
   if (state.icon === "none") return "";
-  return GLYPH[control.kind] ?? "";
-}
-
-/** The label a chip shows: dropped entirely when an icon stands in for it. */
-function labelFor(control) {
-  if (state.icon === "replace") return "";
-  return control.label;
+  const glyph = GLYPH[control.kind] ?? "";
+  if (control.kind !== "filter") return glyph;
+  if (state.icon === "exceptions") return "";
+  if (state.icon === "repeats") {
+    const filters = controls.filter((c) => c.kind === "filter").length;
+    return filters > 1 ? "" : glyph;
+  }
+  return glyph;
 }
 
 // A runtime control is not always a filter: an Insight declares any number of
@@ -91,25 +97,25 @@ const STYLES = {
   twotone: {
     name: "Label + value",
     note: "Two tones in one chip, the label quiet and the value strong. An unlabelled control is just its value, which is the shortest a chip gets.",
-    render: (c) =>
+    render: (c, all) =>
       h(
-        `<span class="chip">${glyphFor(c)}${labelFor(c) ? `<span class="field">${labelFor(c)}</span>` : ""}<span class="value">${c.value}</span></span>`,
+        `<span class="chip">${glyphFor(c, all)}${c.label ? `<span class="field">${c.label}</span>` : ""}<span class="value">${c.value}</span></span>`,
       ),
   },
   colon: {
     name: "Colon",
     note: "The same pairing punctuated. Reads as a key and a value, and needs the label to be present.",
-    render: (c) =>
+    render: (c, all) =>
       h(
-        `<span class="chip">${glyphFor(c)}${labelFor(c) ? `<span class="field">${labelFor(c)}:</span>` : ""}<span class="value">${c.value}</span></span>`,
+        `<span class="chip">${glyphFor(c, all)}${c.label ? `<span class="field">${c.label}:</span>` : ""}<span class="value">${c.value}</span></span>`,
       ),
   },
   divided: {
     name: "Divided",
     note: "Label and value in their own halves. Easiest to scan down a column of chips, widest per chip.",
-    render: (c) =>
+    render: (c, all) =>
       h(
-        `<span class="chip divided">${glyphFor(c)}${labelFor(c) ? `<span class="field">${labelFor(c)}</span>` : ""}<span class="value">${c.value}</span></span>`,
+        `<span class="chip divided">${glyphFor(c, all)}${c.label ? `<span class="field">${c.label}</span>` : ""}<span class="value">${c.value}</span></span>`,
       ),
   },
   derived: {
@@ -194,7 +200,8 @@ function tile(controls, { style, overflow }) {
     chip.onclick = () => showList(element, "Applied", controls);
     line.append(chip);
   } else {
-    for (const control of controls) line.append(STYLES[style].render(control));
+    for (const control of controls)
+      line.append(STYLES[style].render(control, controls));
   }
 
   element.querySelector(".tile-head").after(line);
@@ -300,8 +307,9 @@ const { page } = shell("Control styles", [
     value: "none",
     options: [
       { label: "None", value: "none" },
-      { label: "Kind", value: "kind" },
-      { label: "Instead of label", value: "replace" },
+      { label: "Every kind", value: "kind" },
+      { label: "Non-filters", value: "exceptions" },
+      { label: "Lone filter too", value: "repeats" },
     ],
     onChange: (value) => {
       state.icon = value;

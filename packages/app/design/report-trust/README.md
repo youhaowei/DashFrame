@@ -157,8 +157,9 @@ That split is a confidentiality rule, not a vocabulary preference.
   shape. That is the decision this prototype exists for.
 - On `styles.html`, pick a chip style, then type labels in the **Authoring**
   pane and watch the tile. Clear the limit's label.
-- Set **Icon · Instead of label** at 6 settings and read the chips aloud. That
-  is the argument against it.
+- Switch **Icon** between **Non-filters** and **Lone filter too** at 1 setting,
+  then at 6. The difference is only the one-filter case, and it is the question
+  of whether a chip may change appearance because a sibling appeared.
 - Then set **Settings · 6** and **Width · Narrow**, and decide how much tile
   height an exposed control line may cost.
 - Set **Width · Narrow**. Naming the field roughly doubles a control's width,
