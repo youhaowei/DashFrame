@@ -52,8 +52,22 @@ away. This is the largest departure — it makes the report a thing you publish 
 than a board you arrange, and it implies markdown items become first-class structure
 rather than another widget type.
 
-## Not yet decided
+## Decided
 
-The direction is the director's call. A and B share a grid model and can be
-sequenced (A first, B later); C is a different product thesis and should not be
-started as a refinement of the other two.
+**A · Canvas.** The viewer is tiles — flexible, and clean. The Questions and Saved
+views catalogs are deleted; the grid starts at the top of the page. Provenance
+moves onto the widget, where it names the question one click from the chart it
+describes instead of restating it as a card.
+
+Tiles stay fluid: the grid reflows, and the editor handles sizes with a single
+Frame (see `../report-canvas/README.md`). Nothing about the viewer is fixed to a
+width.
+
+Clean is the constraint that decides the tile's contents. A tile carries the
+chart and what a reader needs to trust it — nothing that exists to reassure the
+author. A row-and-column count is authoring telemetry. A chart/table/both toggle
+is a workbench control. Neither belongs on a reader's tile.
+
+B's contextual inspector remains the authoring direction and is additive — it
+shares this grid model, so it can follow without rework. C is a different product
+thesis and is not being pursued as a refinement of it.
