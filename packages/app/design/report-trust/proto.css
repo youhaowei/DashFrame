@@ -593,7 +593,7 @@ button[aria-pressed="true"] {
   align-items: center;
   gap: 5px;
   height: 24px;
-  padding: 0 9px;
+  padding: 0 6px;
   border: 0;
   border-radius: 999px;
   background: transparent;
@@ -718,7 +718,7 @@ button[aria-pressed="true"] {
   align-items: center;
   gap: 5px;
   height: 24px;
-  padding: 0 9px;
+  padding: 0 6px;
   border: 0;
   border-radius: 999px;
   background: transparent;
@@ -853,4 +853,50 @@ button[aria-pressed="true"] {
 .line .glyphs {
   align-self: flex-start;
   margin-left: 0;
+}
+
+/* Spacing between glyph controls.
+
+   A ghost pill already carries 6px of padding on each side, so a gap adds to
+   it: at 10px the two read as 22px of air and the cluster falls apart. Sit
+   them almost flush and let the hover pills define the rhythm — the same way a
+   toolbar of icon buttons does. */
+.line .glyphs {
+  gap: 2px;
+}
+/* A filter glyph leading its pills belongs to them, so it sits closer than the
+   pill-to-pill gap, pulling back most of the padding it brought with it. */
+.line .pills > .pop-wrap:first-child,
+.line .pills > .cat:first-child {
+  margin-right: -2px;
+}
+/* The two columns need less air than the pills do between themselves. */
+.line:has(.pills) {
+  gap: 6px;
+}
+
+/* Tighter still. A ghost button is a glyph and a hint, not a labelled control:
+   at 6px padding and a 5px inner gap it was as wide as a short pill, which is
+   the opposite of what an icon button is for. Pull the padding in, close the
+   gap between glyph and caret, and let the hover pill be snug rather than
+   generous. */
+.cat,
+.flat {
+  padding: 0 4px;
+  gap: 2px;
+}
+.cat .caret,
+.flat .caret {
+  width: 9px;
+  height: 9px;
+}
+.cat > .glyph,
+.flat > .glyph {
+  width: 11px;
+  height: 11px;
+}
+/* A fixed non-filter has no caret and no hover, so it needs no padding at all
+   beyond keeping it off its neighbour. */
+.flat[aria-disabled="true"] {
+  padding: 0 2px;
 }

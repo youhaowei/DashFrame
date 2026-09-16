@@ -167,6 +167,15 @@ Having a pill again gives **set** somewhere to live: a control the reader has
 turned tints its ghost pill and colours its glyph, so the state survives when
 the pointer leaves.
 
+**It is sized as an icon button, not a short pill.** A ghost button carries its
+own padding, so a gap between two of them adds to that padding and the pair
+reads as far more air than either was given: at 6px padding and a 10px gap the
+cluster fell apart. The working numbers are 4px padding, a 2px inner gap
+between glyph and caret, and 2px between buttons — about 30px wide against a
+pill's 100 to 130. They sit nearly flush and the hover pills define the rhythm,
+the way a toolbar of icon buttons does. A filter glyph leading its pills pulls
+back tighter still, because it belongs to them.
+
 **Only the filter group is ever more than one chip.**
 `InsightRuntimeDeclaration` declares any number of filters but exactly one sort
 and exactly one limit, so those two groups hold at most one chip each. Whatever
