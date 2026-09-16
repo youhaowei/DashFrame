@@ -34,6 +34,7 @@ import {
   listTablesInSchema,
   makePostgresConnector,
   pgOidToColumnType,
+  unmappedOidsAsText,
 } from "./connector.js";
 import type { PostgresConnectorConfig } from "./types.js";
 
@@ -570,11 +571,11 @@ describe("AC5 — Arrow output shape matches registry contract", () => {
     expect(byName["score"]).toBe("number");
   });
 
-  it("unmapped OID on zero-row result falls back to 'unknown' without throwing", async () => {
-    // When pgFields lists a column with an OID that pgOidToColumnType doesn't map
-    // (e.g. jsonb OID 3802, uuid OID 2950), and there are no rows to run value
-    // inference, inferColumnType must return "unknown" cleanly without throwing.
-    // The Arrow buffer must still be valid (empty column, schema preserved).
+  it("types an unmapped OID on a zero-row result as 'string'", async () => {
+    // An OID that pgOidToColumnType doesn't map (e.g. jsonb 3802) is delivered
+    // as raw PostgreSQL text by createClient, so it is a string column. With no
+    // rows to inspect, the OID metadata alone must still yield "string" — the
+    // same answer queryBatches gives, so prepare and stream agree.
     const pgFields: PgFieldDef[] = [
       { name: "payload", dataTypeID: 3802 }, // jsonb — not in OID map
     ];
@@ -589,11 +590,12 @@ describe("AC5 — Arrow output shape matches registry contract", () => {
     expect(result.rowCount).toBe(0);
     expect(result.fields).toHaveLength(1);
     const field = result.fields.find((f) => f.name === "payload");
-    expect(field?.type).toBe("unknown");
+    expect(field?.type).toBe("string");
     // Arrow buffer must still be valid with 1 column (schema preserved)
     const bytes = Uint8Array.from(Buffer.from(result.arrowBuffer, "base64"));
     const table = tableFromIPC(bytes);
     expect(table.schema.fields).toHaveLength(1);
+    expect(table.schema.fields[0]?.type.toString()).toBe("Utf8");
   });
 
   it("returns correct rowCount for connect() listing tables", async () => {
@@ -969,7 +971,9 @@ describe("queryBatches PostgreSQL cursor", () => {
     ]);
   });
 
-  it("keeps legacy query inference and enum serialization unchanged", async () => {
+  it("types an enum OID as 'string' on the query path too, losslessly", async () => {
+    // Value inference would read "true" and call the column boolean, which
+    // disagrees with the string the stream produces for the same enum column.
     const enumFields: PgFieldDef[] = [{ name: "status", dataTypeID: 16_384 }];
     const client = makeSpyClient(
       [{ status: "true" }, { status: "pending" }],
@@ -979,7 +983,7 @@ describe("queryBatches PostgreSQL cursor", () => {
 
     const result = await connector.query("public.jobs", crypto.randomUUID());
 
-    expect(result.fields[0]?.type).toBe("boolean");
+    expect(result.fields[0]?.type).toBe("string");
     const arrow = tableFromIPC(Buffer.from(result.arrowBuffer, "base64"));
     expect([0, 1].map((index) => arrow.getChild("status")?.get(index))).toEqual(
       ["true", "pending"],
@@ -1716,5 +1720,171 @@ describe("NUMERIC/BIGINT coercion: field-type and Arrow value-type must agree", 
     const arrowId = table.getChildAt(0)?.get(0);
     expect(typeof arrowId).toBe("string");
     expect(arrowId).toBe(bigIntId);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Unmapped OIDs (arrays, json/jsonb, enums, user-defined types)
+// ---------------------------------------------------------------------------
+
+describe("unmapped OIDs arrive as text and type identically on both paths", () => {
+  /** A client whose FETCH returns `rows` once, then drains the cursor. */
+  function fetchOnceClient(
+    rows: Record<string, unknown>[],
+    fields: PgFieldDef[],
+  ): PgClientLike {
+    let served = false;
+    const spy = vi.fn((arg: string | PgQueryConfig) => {
+      if (!callText(arg).toUpperCase().startsWith("FETCH"))
+        return Promise.resolve({ rows: [], fields: [] });
+      const batch = served ? [] : rows;
+      served = true;
+      return Promise.resolve({ rows: batch, fields });
+    });
+    return {
+      query: spy as unknown as PgClientLike["query"],
+      end: vi.fn().mockResolvedValue(undefined),
+    };
+  }
+
+  /** Field types plus the physical Arrow types of a connector result. */
+  function shapeOf(result: {
+    arrowBuffer: string;
+    fields: { name: string; type: string }[];
+  }) {
+    const arrow = tableFromIPC(Buffer.from(result.arrowBuffer, "base64"));
+    return {
+      fieldTypes: result.fields.map((field) => [field.name, field.type]),
+      arrowTypes: arrow.schema.fields.map((field) => [
+        field.name,
+        field.type.toString(),
+      ]),
+    };
+  }
+
+  // text[] (1009) and jsonb (3802) reach the connector as the raw PostgreSQL
+  // text form once createClient stops node-postgres from parsing them.
+  const unmappedFields: PgFieldDef[] = [
+    { name: "tags", dataTypeID: 1009 },
+    { name: "meta", dataTypeID: 3802 },
+  ];
+
+  it.each([
+    ["populated", [{ tags: "{a,b}", meta: '{"k": 1}' }]],
+    ["NULL-only", [{ tags: null, meta: null }]],
+  ])(
+    "query() and queryBatches() agree on a %s unmapped-OID column",
+    async (_label, rows) => {
+      const tableId = crypto.randomUUID();
+
+      const previewConnector = makeTestConnector(
+        noopDsnResolver,
+        baseConfig,
+        makeSpyClient(rows, unmappedFields),
+      );
+      const preview = await previewConnector.query("public.orders", tableId);
+
+      const streamConnector = makeTestConnector(
+        noopDsnResolver,
+        baseConfig,
+        fetchOnceClient(rows, unmappedFields),
+      );
+      const batches = [];
+      for await (const batch of streamConnector.queryBatches(
+        "public.orders",
+        tableId,
+        { batchRows: 10 },
+      )) {
+        batches.push(batch);
+      }
+
+      expect(shapeOf(preview)).toEqual({
+        fieldTypes: [
+          ["tags", "string"],
+          ["meta", "string"],
+        ],
+        arrowTypes: [
+          ["tags", "Utf8"],
+          ["meta", "Utf8"],
+        ],
+      });
+      expect(shapeOf(batches[0]!)).toEqual(shapeOf(preview));
+      // The persisted-schema signature streamPostgresBinding compares.
+      const signature = (result: {
+        fields: { name: string; type: string }[];
+      }) => JSON.stringify(result.fields.map((f) => [f.name, f.type]));
+      expect(signature(batches[0]!)).toBe(signature(preview));
+    },
+  );
+
+  it("round-trips the raw PostgreSQL text of an array and a jsonb value", async () => {
+    const rows = [{ tags: "{a,b}", meta: '{"k": 1}' }];
+    const connector = makeTestConnector(
+      noopDsnResolver,
+      baseConfig,
+      makeSpyClient(rows, unmappedFields),
+    );
+
+    const result = await connector.query("public.orders", crypto.randomUUID());
+
+    const arrow = tableFromIPC(Buffer.from(result.arrowBuffer, "base64"));
+    expect(arrow.getChild("tags")?.get(0)).toBe("{a,b}");
+    expect(arrow.getChild("meta")?.get(0)).toBe('{"k": 1}');
+  });
+
+  it("still infers from values when pg supplies no column metadata", async () => {
+    // Legacy call sites and spy clients without field descriptors keep the
+    // value-inference fallback (real pg always supplies field descriptors).
+    // Inference reads String(value), so the JS value must still match the type
+    // it produces — serialization has always been strict on the stream path and
+    // is now strict here too.
+    const connector = makeTestConnector(
+      noopDsnResolver,
+      baseConfig,
+      makeSpyClient([{ n: 42, flag: true }]),
+    );
+
+    const result = await connector.query(
+      "SELECT * FROM legacy",
+      crypto.randomUUID(),
+    );
+
+    expect(result.fields.map((field) => [field.name, field.type])).toEqual([
+      ["n", "number"],
+      ["flag", "boolean"],
+    ]);
+  });
+});
+
+describe("unmappedOidsAsText", () => {
+  const defaults = {
+    getTypeParser: vi.fn(
+      (oid: number) => (value: string) => `parsed:${oid}:${value}`,
+    ),
+  };
+
+  beforeEach(() => {
+    defaults.getTypeParser.mockClear();
+  });
+
+  it("delegates every OID the connector maps to node-postgres' parser", () => {
+    const types = unmappedOidsAsText(defaults);
+    for (const oid of [
+      16, 18, 20, 21, 23, 25, 700, 701, 1042, 1043, 1082, 1114, 1184, 1700,
+    ]) {
+      expect(pgOidToColumnType(oid)).toBeDefined();
+      expect(types.getTypeParser(oid, "text")("v")).toBe(`parsed:${oid}:v`);
+    }
+    expect(defaults.getTypeParser).toHaveBeenCalledTimes(14);
+  });
+
+  it("returns the raw wire text for an unmapped OID without consulting pg", () => {
+    const types = unmappedOidsAsText(defaults);
+    // text[] (1009), int[] (1007), jsonb (3802), json (114), uuid (2950).
+    for (const oid of [1009, 1007, 3802, 114, 2950, 16_384]) {
+      expect(pgOidToColumnType(oid)).toBeUndefined();
+      expect(types.getTypeParser(oid, "text")('{"k": 1}')).toBe('{"k": 1}');
+    }
+    expect(defaults.getTypeParser).not.toHaveBeenCalled();
   });
 });

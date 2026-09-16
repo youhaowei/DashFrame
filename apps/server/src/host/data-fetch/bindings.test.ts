@@ -7,6 +7,10 @@ import {
 } from "apache-arrow";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { MAX_LOCAL_ARROW_BYTES } from "@dashframe/types";
+import {
+  PostgresConnector,
+  type PgClientLike,
+} from "@dashframe/connector-postgres";
 
 const { ga4ConnectorFor, notionConnectorFor, postgresConnectorFor } =
   vi.hoisted(() => ({
@@ -556,6 +560,98 @@ describe("PostgreSQL streaming binding", () => {
     expect(pulls).toBe(1);
     await expect(iterator.next()).rejects.toThrow("SOURCE_SCHEMA_CHANGED");
     expect(query).not.toHaveBeenCalled();
+  });
+
+  it("agrees with prepare's persisted schema for an unmapped-OID column", async () => {
+    // Regression: prepareRemoteDataTable persists the fields the connector's
+    // query() returns, and streamPostgresBinding rejects the stream when the
+    // batch fields disagree. An array/json/enum column (an OID the connector
+    // does not map) must produce the same field type on both paths, or every
+    // fetch of that table fails with SOURCE_SCHEMA_CHANGED.
+    const tableId = "table-1" as never;
+    const pgFields = [
+      { name: "tags", dataTypeID: 1009 }, // text[]
+      { name: "meta", dataTypeID: 3802 }, // jsonb
+    ];
+    // All-NULL rows are the worst case: there is no value to infer from.
+    const rows = [{ tags: null, meta: null }];
+    const pgClient = (onFetch: () => Record<string, unknown>[]) =>
+      ({
+        query: (arg: unknown) => {
+          const text =
+            typeof arg === "string" ? arg : (arg as { text: string }).text;
+          return Promise.resolve(
+            text.toUpperCase().startsWith("FETCH") ||
+              text.toUpperCase().startsWith("SELECT")
+              ? { rows: onFetch(), fields: pgFields }
+              : { rows: [], fields: [] },
+          );
+        },
+        end: () => Promise.resolve(),
+      }) as unknown as PgClientLike;
+
+    class StubConnector extends PostgresConnector {
+      #client: PgClientLike;
+      constructor(client: PgClientLike) {
+        super((use) => use("postgres://stub"), {});
+        this.#client = client;
+      }
+      protected override createClient(): Promise<PgClientLike> {
+        return Promise.resolve(this.#client);
+      }
+    }
+
+    // What prepareRemoteDataTable would persist.
+    const prepared = await new StubConnector(pgClient(() => rows)).query(
+      "public.orders",
+      tableId,
+      { pagination: { offset: 0, limit: 1 } },
+    );
+
+    let served = false;
+    const streamConnector = new StubConnector(
+      pgClient(() => {
+        const batch = served ? [] : rows;
+        served = true;
+        return batch;
+      }),
+    );
+    postgresConnectorFor.mockResolvedValue(streamConnector);
+    const binding = {
+      connectorKind: "postgres",
+      sourceBindingVersion: "v1",
+      dataSourceId: "source-1",
+      table: {
+        ...table,
+        id: tableId,
+        table: "public.orders",
+        fields: prepared.fields,
+      },
+    };
+
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of streamPostgresBinding(
+      context({ table }),
+      binding as never,
+    )) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toHaveLength(1);
+    const streamed = tableFromIPC(Buffer.from(chunks[0]!));
+    expect(prepared.fields.map((field) => field.type)).toEqual([
+      "string",
+      "string",
+    ]);
+    expect(
+      streamed.schema.fields.map((field) => [
+        field.name,
+        field.type.toString(),
+      ]),
+    ).toEqual([
+      ["tags", "Utf8"],
+      ["meta", "Utf8"],
+    ]);
   });
 
   it("forwards cancellation and closes a producer when its consumer stops", async () => {
