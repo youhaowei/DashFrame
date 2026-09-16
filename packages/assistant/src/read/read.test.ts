@@ -71,8 +71,8 @@ const FIELD_REGION: Field = {
 
 const SRC: DataSource = {
   id: "src1",
-  type: "rest",
-  name: "Orders API",
+  type: "notion",
+  name: "Orders DB",
   config: {} as DataSource["config"],
   createdAt: 0,
 };

@@ -1235,7 +1235,7 @@ describe("MCP route", () => {
               type: "CreateDataSource",
               args: {
                 id: crypto.randomUUID(),
-                type: "rest",
+                type: "notion",
                 name: "Credentialed source",
                 apiKey: plaintextKey,
               },
