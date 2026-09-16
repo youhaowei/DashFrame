@@ -47,10 +47,20 @@ const GLYPH = {
   Rows: `<svg class="glyph" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M1.5 3h9M1.5 6h9M1.5 9h5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>`,
 };
 
-/** A fact: flat chip, terse, no copula. Label quiet, value strong. */
-function chip(label, value) {
+/**
+ * A fact: flat chip, terse, no copula. Label quiet, value strong.
+ *
+ * `kind` marks what is NOT a filter. A filter is the ordinary runtime control,
+ * so a funnel down a line of them is noise; a sort and a limit are the
+ * exceptions and lead with their glyph instead of a kind word. That keeps
+ * `Sort` and `Rows` out of the text, which is the same word the category
+ * grouping already establishes.
+ */
+function chip(label, value, kind) {
+  const mark = kind && kind !== "Filter" ? GLYPH[kind] : "";
+  const name = label ? `<span class="field">${label}</span>` : "";
   return h(
-    `<span class="chip"><span class="field">${label}</span><span class="value">${value}</span></span>`,
+    `<span class="chip">${mark}${name}<span class="value">${value}</span></span>`,
   );
 }
 
@@ -61,13 +71,13 @@ function chip(label, value) {
  * its value — repeating the label there is the verbosity the chip decision
  * removed from the face.
  */
-function well(label, value, onTurn, { bare = false } = {}) {
+function well(label, value, onTurn, { bare = false, kind } = {}) {
   const shown = turned.get(label) ?? value;
+  const mark = kind && kind !== "Filter" ? GLYPH[kind] : "";
   const name = bare ? "" : `<span class="field">${label}</span>`;
   const element = h(
-    `<button type="button" class="well"><span class="value">${shown}</span>${CARET}</button>`,
+    `<button type="button" class="well">${mark}${name}<span class="value">${shown}</span>${CARET}</button>`,
   );
-  if (name) element.prepend(h(name));
   element.onclick = () => onTurn(label);
   return element;
 }
@@ -162,15 +172,28 @@ function buildLine(rerender, model = MODEL) {
   const group = (kind, members) => {
     const parts = [];
     for (const member of members.filter((m) => m.pin)) {
+      // A sort or limit leads with its glyph and drops its kind word; a
+      // filter keeps its field name and takes no mark.
+      const isFilter = kind === "Filter";
       parts.push(
         member.changeable
-          ? well(member.label, member.value, (label) => {
-              const current = turned.get(label) ?? member.value;
-              if (current === member.value) turned.set(label, "Changed by reader");
-              else turned.delete(label);
-              rerender();
-            })
-          : chip(member.label, turned.get(member.label) ?? member.value),
+          ? well(
+              member.label,
+              member.value,
+              (label) => {
+                const current = turned.get(label) ?? member.value;
+                if (current === member.value)
+                  turned.set(label, "Changed by reader");
+                else turned.delete(label);
+                rerender();
+              },
+              { kind, bare: !isFilter },
+            )
+          : chip(
+              isFilter ? member.label : "",
+              turned.get(member.label) ?? member.value,
+              kind,
+            ),
       );
     }
     const unpinned = members.filter((m) => !m.pin);
@@ -185,14 +208,20 @@ function buildLine(rerender, model = MODEL) {
       // falls back onto the face. This is the "filters only" case showing its
       // cost — the shape groups stop being fixed-width.
       for (const member of unpinned) {
+        const isFilter = kind === "Filter";
         parts.push(
           member.changeable
-            ? well(member.label, member.value, (label) => {
-                if (turned.has(label)) turned.delete(label);
-                else turned.set(label, "Changed by reader");
-                rerender();
-              })
-            : chip(member.label, member.value),
+            ? well(
+                member.label,
+                member.value,
+                (label) => {
+                  if (turned.has(label)) turned.delete(label);
+                  else turned.set(label, "Changed by reader");
+                  rerender();
+                },
+                { kind, bare: !isFilter },
+              )
+            : chip(isFilter ? member.label : "", member.value, kind),
         );
       }
     }

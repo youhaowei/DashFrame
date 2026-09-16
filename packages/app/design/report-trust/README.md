@@ -181,10 +181,20 @@ only **exposed** controls. A hidden filter must not widen it, appear in it, or
 raise a count on it. A button that betrays the existence of a filter the author
 chose to hide is the passive mark rejected above, wearing a different shape.
 
-**The wording sheds its kind word.** A chip does not restate what its group
-already establishes. Sort is the author's label and the direction, not `Sorted
-by Revenue, high to low`. Limit is `Top 10`, not `Rows 10`. This is the same
-terseness that dropped the copula from a fixed chip.
+**The wording sheds its kind word, and a glyph marks the exception.** A chip
+does not restate what its group already establishes, so a pinned sort is not
+`Sort Revenue, high to low` and a pinned limit is not `Rows 10`. But a pinned
+control has no category button to carry its kind, and with filters leading and
+varying in number, position alone cannot: the sort's place in the line moves.
+
+So the earlier rule applies unchanged — **a filter is the ordinary runtime
+control and takes no mark; the glyph earns its place marking what is not a
+filter.** A pinned sort leads with its glyph and drops the word, a pinned limit
+the same, and a pinned filter keeps its field name and stays bare. The face
+reads `Region EMEA`, `⇅ Revenue, high to low`, `≡ Top 10`.
+
+This is the same glyph the category button uses, so a reader meets each kind's
+mark in one place whether it is pinned or behind a button.
 
 The **Placement** section shows the reader's tile with both properties in play at
 once: Region and Period are pinned _and_ changeable, so they pin as wells with a

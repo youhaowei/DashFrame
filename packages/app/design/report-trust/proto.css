@@ -667,3 +667,13 @@ button[aria-pressed="true"] {
   position: relative;
   display: inline-flex;
 }
+
+/* A kind glyph leading a chip or well: same size and weight as in a button,
+   quiet enough that the value still reads first. */
+.chip > .glyph,
+.well > .glyph {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  opacity: 0.62;
+}
