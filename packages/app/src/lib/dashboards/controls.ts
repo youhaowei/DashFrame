@@ -191,3 +191,41 @@ export function resolveControlValue(
     ? transientValues.get(control.id)
     : control.defaultValue;
 }
+
+// ---------------------------------------------------------------------------
+// Reader-local item overrides
+// ---------------------------------------------------------------------------
+
+/**
+ * Layer a reader's view-local changes for one item on top of its effective
+ * overrides. The reader's value wins per key: a filter replaces the entry for
+ * its field, and a sort or limit replaces the whole slot. Nothing here is
+ * written back to the dashboard.
+ */
+export function mergeTransientItemOverrides(
+  base: DashboardItemOverrides | undefined,
+  transient: DashboardItemOverrides | undefined,
+): DashboardItemOverrides | undefined {
+  if (!transient) return base;
+  const transientFields = new Set(
+    (transient.filters ?? []).map((filter) => filter.field),
+  );
+  const filters = [
+    ...(base?.filters ?? []).filter(
+      (filter) => !transientFields.has(filter.field),
+    ),
+    ...(transient.filters ?? []),
+  ];
+  const merged: DashboardItemOverrides = {
+    filters: filters.length > 0 ? filters : undefined,
+    sorts: transient.sorts ?? base?.sorts,
+    limit: transient.limit ?? base?.limit,
+  };
+  if (
+    merged.filters === undefined &&
+    merged.sorts === undefined &&
+    merged.limit === undefined
+  )
+    return undefined;
+  return merged;
+}

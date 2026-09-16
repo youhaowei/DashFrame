@@ -21,6 +21,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   computeItemOverrides,
   isControlEligible,
+  mergeTransientItemOverrides,
   resolveControlValue,
   setTransientValue,
 } from "./controls";
@@ -391,5 +392,39 @@ describe("viewer-transient: control turn does not mutate saved dashboard", () =>
     const empty = new Map<string, unknown>();
 
     expect(resolveControlValue(control, empty)).toBe("EU");
+  });
+});
+
+describe("mergeTransientItemOverrides", () => {
+  it("lets the reader's value win per key and leaves the rest of the base", () => {
+    expect(
+      mergeTransientItemOverrides(
+        {
+          filters: [
+            { field: "region", operator: "eq", value: "EMEA" },
+            { field: "segment", operator: "eq", value: "SMB" },
+          ],
+          sorts: [{ field: "revenue", direction: "desc" }],
+          limit: 10,
+        },
+        {
+          filters: [{ field: "region", operator: "eq", value: "APAC" }],
+          limit: 5,
+        },
+      ),
+    ).toEqual({
+      filters: [
+        { field: "segment", operator: "eq", value: "SMB" },
+        { field: "region", operator: "eq", value: "APAC" },
+      ],
+      sorts: [{ field: "revenue", direction: "desc" }],
+      limit: 5,
+    });
+  });
+
+  it("returns the base untouched when the reader changed nothing", () => {
+    const base = { limit: 3 };
+    expect(mergeTransientItemOverrides(base, undefined)).toBe(base);
+    expect(mergeTransientItemOverrides(undefined, undefined)).toBeUndefined();
   });
 });

@@ -1,10 +1,15 @@
 import { useMutation } from "convex/react";
-import { computeItemOverrides } from "@/lib/dashboards/controls";
+import {
+  computeItemOverrides,
+  mergeTransientItemOverrides,
+} from "@/lib/dashboards/controls";
+import type { VisualizationTileState } from "@/components/visualizations/VisualizationDisplay";
 import { api } from "@dashframe/convex-backend/api";
 import type {
   Dashboard,
   DashboardItemOverrides,
   InsightFilter,
+  UUID,
 } from "@dashframe/types";
 import { cmd } from "@dashframe/types";
 
@@ -24,12 +29,22 @@ interface DashboardGridProps {
    * the saved dashboard.  Absent → use saved defaults only.
    */
   controlTransientValues?: Map<string, InsightFilter["value"]>;
+  /**
+   * View-local changes a reader made through a tile's own knobs, per item.
+   * Layered on top of the saved and report-control overrides; never persisted.
+   */
+  itemTransientOverrides?: Map<UUID, DashboardItemOverrides>;
+  onReaderChange?: (itemId: UUID, patch: DashboardItemOverrides) => void;
+  onTileStateChange?: (itemId: UUID, state: VisualizationTileState) => void;
 }
 
 export function DashboardGrid({
   dashboard,
   isEditable,
   controlTransientValues,
+  itemTransientOverrides,
+  onReaderChange,
+  onTileStateChange,
 }: DashboardGridProps) {
   // Destructure the stable `mutateAsync` — the `useMutation` result object is a
   // fresh reference every render, so depending on it would defeat the
@@ -146,10 +161,21 @@ export function DashboardGrid({
       } else {
         effective = item.overrides;
       }
-      map.set(item.id, effective);
+      map.set(
+        item.id,
+        mergeTransientItemOverrides(
+          effective,
+          itemTransientOverrides?.get(item.id),
+        ),
+      );
     }
     return map;
-  }, [dashboard.controls, dashboard.items, controlTransientValues]);
+  }, [
+    dashboard.controls,
+    dashboard.items,
+    controlTransientValues,
+    itemTransientOverrides,
+  ]);
 
   return (
     <ResponsiveGridLayout
@@ -193,6 +219,8 @@ export function DashboardGrid({
             isEditable={isEditable}
             effectiveOverrides={effectiveOverridesMap.get(item.id)}
             controls={dashboard.controls ?? []}
+            onReaderChange={onReaderChange}
+            onStateChange={onTileStateChange}
           />
         </div>
       ))}

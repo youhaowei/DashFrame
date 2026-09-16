@@ -30,8 +30,14 @@ vi.mock("react-grid-layout", () => ({
   },
 }));
 
+const itemProps = vi.hoisted(() => ({
+  byId: new Map<string, Record<string, unknown>>(),
+}));
 vi.mock("./DashboardItem", () => ({
-  DashboardItem: () => <div>item</div>,
+  DashboardItem: (props: { item: { id: string } }) => {
+    itemProps.byId.set(props.item.id, props as Record<string, unknown>);
+    return <div>item</div>;
+  },
 }));
 
 import { DashboardGrid } from "./DashboardGrid";
@@ -120,5 +126,71 @@ describe("DashboardGrid canonical layout persistence", () => {
         },
       ],
     });
+  });
+});
+
+describe("DashboardGrid reader-local item overrides", () => {
+  beforeEach(() => {
+    itemProps.byId.clear();
+    mocks.updateItems.mockClear();
+  });
+
+  it("layers a reader's knob turn on the cell's effective overrides without persisting", () => {
+    const withOverrides = {
+      ...dashboard,
+      items: [
+        {
+          id: "chart",
+          type: "visualization" as const,
+          visualizationId: "viz",
+          x: 0,
+          y: 0,
+          width: 4,
+          height: 4,
+          overrides: {
+            filters: [
+              {
+                id: "f-region",
+                field: "region",
+                operator: "eq" as const,
+                value: "EMEA",
+              },
+            ],
+            limit: 10,
+          },
+        },
+      ],
+    };
+    render(
+      <DashboardGrid
+        dashboard={withOverrides}
+        isEditable={false}
+        itemTransientOverrides={
+          new Map([
+            [
+              "chart",
+              {
+                filters: [
+                  {
+                    id: "f-region",
+                    field: "region",
+                    operator: "eq" as const,
+                    value: "APAC",
+                  },
+                ],
+              },
+            ],
+          ])
+        }
+      />,
+    );
+    expect(itemProps.byId.get("chart")?.effectiveOverrides).toEqual({
+      filters: [
+        { id: "f-region", field: "region", operator: "eq", value: "APAC" },
+      ],
+      sorts: undefined,
+      limit: 10,
+    });
+    expect(mocks.updateItems).not.toHaveBeenCalled();
   });
 });
