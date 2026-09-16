@@ -152,8 +152,8 @@ export const DRAFT_SAFE_COMMANDS = new Set([
  * NOTE the gate's reject is field-AGNOSTIC (see {@link assertNoCallerSuppliedRefs})
  * — it does not rely on this field list. The typed fields here only document the
  * plaintext-capture lifecycle; the reject scans the whole args, because a connector
- * config carries ref-shaped slots beyond these (e.g. a REST source's
- * `extra.authRef`) that must be guarded too.
+ * config carries ref-shaped slots beyond these (any nested `extra.*` value) that
+ * must be guarded too.
  */
 export const CREDENTIAL_COMMAND_ARG_FIELDS: Readonly<
   Record<string, ReadonlyArray<"apiKey" | "connectionString">>

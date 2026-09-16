@@ -66,14 +66,13 @@ convex/.env.local
 coverage
 .turbo/
 
-# WyStack Agent Kit workspace (.wystack.json is tracked; the rest is local state)
+# Local agent workspace state
 .wystack/
 .wystack.*.bak
 .wystack.*.bak/
 .codex-cockpit/
 
-# Shell capture output — never committed. The script defaults to a temp dir;
-# this guards against an OUT_DIR=docs/screenshots run dirtying the tree.
+# Screenshot output — never committed (AGENTS.md: capture to /tmp).
 docs/screenshots/
 
 # Local agent/session scratch — release notes, one-off scripts, tool captures.

@@ -74,20 +74,20 @@ export interface CommandGuideEntry {
 export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
   // --- Connector (data-source authoring) ---
   //
-  // A connector KIND (file, notion, rest, postgres) is first-party shipped code.
-  // A connector CONFIG is per-source declarative data in DataSource.config — the
-  // pair below authors that config. A REST source, for example, is a DataSource
-  // of type "rest" whose config holds { endpoint, method, authRef, pagination,
-  // rowPath, fieldMap }; no new connector kind is registered.
+  // A connector KIND ("local", "notion", "postgres", "googleAnalytics") is
+  // first-party shipped code. A connector CONFIG is per-source declarative data
+  // in DataSource.config — the pair below authors that config. A Notion source,
+  // for example, is a DataSource of type "notion" whose config holds
+  // { databaseId, selectedPropertyIds }; no new connector kind is registered.
   //
   // ASSISTANT SCOPE: `CreateDataSource` and `SetDataSourceConfig` ARE draft-safe —
   // the assistant may author data sources. Credentials must be supplied as raw
   // PLAINTEXT: the draft path stores them in the vault (capture-before-log) and
   // releases at the publish/discard transition. NEVER pass a vault ref
-  // (`secret:<uuid>`) in ANY field — including nested connector config such as a
-  // REST source's `extra.authRef` — it is REJECTED (the assistant cannot adopt a
-  // secret it does not own). `GetOrCreateDataSource` stays human-only (legacy
-  // coarse create, no capture-before-log path).
+  // (`secret:<uuid>`) in ANY field — including nested connector config under
+  // `extra` — it is REJECTED (the assistant cannot adopt a secret it does not
+  // own). `GetOrCreateDataSource` stays human-only (legacy coarse create, no
+  // capture-before-log path).
   {
     name: "GetOrCreateDataSource",
     group: "connector",
@@ -111,8 +111,8 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
     notes:
       "Draft-safe. Supply credentials as raw PLAINTEXT — the draft path stores " +
       "them in the vault and never echoes them back on read; a ref-shaped value " +
-      'is rejected. For a REST source: type "rest", then SetDataSourceConfig ' +
-      "writes the endpoint config.",
+      'is rejected. For a Notion source: type "notion", then SetDataSourceConfig ' +
+      "writes the database config.",
   },
   {
     name: "SetDataSourceConfig",
@@ -122,18 +122,16 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
       id: "UUID",
       "apiKey?": "plaintext secret (never a vault ref)",
       "connectionString?": "plaintext secret (never a vault ref)",
-      "extra?": "non-credential connector config (e.g. REST endpoint settings)",
+      "extra?": "non-credential connector config (e.g. Notion databaseId)",
     },
     notes:
       "Draft-safe. Supply credentials as raw PLAINTEXT. `extra` carries the " +
       "declarative connector config and must NOT contain apiKey/connectionString " +
-      "(rejected — use the typed fields). REST config shape: { endpoint, method, " +
-      "authRef, pagination (offset|cursor|page-number|link-header), rowPath, " +
-      "fieldMap }. Do NOT supply a vault ref in any field, including " +
-      "`extra.authRef` — caller-supplied refs are rejected; an authenticated REST " +
-      "source's credential is set through the credential write path, not by " +
-      "referencing an existing secret. The REST connector also rejects a " +
-      "private/internal endpoint host (SSRF guard).",
+      "(rejected — use the typed fields). Notion config shape: { databaseId, " +
+      "selectedPropertyIds }. Do NOT supply a vault ref in any field — " +
+      "caller-supplied refs are rejected; an authenticated source's credential is " +
+      "set through the credential write path, not by referencing an existing " +
+      "secret.",
   },
   // --- DataTable ---
   {

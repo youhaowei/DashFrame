@@ -81,7 +81,7 @@ never progress payloads. No new public job protocol or progress UI is introduced
 - Notion: existing buffered fallback accumulates 100-row provider pages. The
   installed SDK defaults to 60 seconds per request, with no total acquisition
   deadline in that adapter. Follow-up: provider cursor pages with stable schema,
-  bounded retries and cancellation. REST/local imports remain unchanged. Buffered
+  bounded retries and cancellation. Local imports remain unchanged. Buffered
   fallback I/O can outlast the new operation deadline; it is rejected at the next
   budget check and never published as a partial result.
 - Hosted: the sandbox landed in PR #396 while this branch was being reviewed.

@@ -7,7 +7,7 @@
  * or plaintext in scope (enforced by type).
  *
  * NOTE: Notion API has CORS restrictions. connect() and query() must be called
- * through a server-side handler (WyStack mutation / tRPC route). The connector
+ * through a server-side handler (a host API route). The connector
  * factory lives in the server layer and binds the resolver before construction.
  */
 

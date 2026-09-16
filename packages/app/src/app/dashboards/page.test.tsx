@@ -33,7 +33,7 @@ const { mockCommit, mockUseQuery } = vi.hoisted(() => ({
   mockUseQuery: vi.fn(),
 }));
 
-// Partial-mock the WyStack client: keep `createApi` real (so `api` builds real
+// Partial-mock the Convex client: keep `createApi` real (so `api` builds real
 // refs) and replace the hooks.
 vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),

@@ -3,9 +3,9 @@
 Measured 2026-09-07 against `origin/main` at `4cdde3b3` with Vite+ 0.2.9
 (oxlint 1.73.0, `@oxlint/plugins` 1.73.0). This is the record behind the lint
 policy in `vite.config.ts`: what was measured, what was adopted, what was
-rejected and why, and what is left for later. It supersedes
-`anti-slop-rule-evaluation.md`, which evaluated one third-party rule set; this
-pass evaluated everything the linter already ships.
+rejected and why, and what is left for later. It supersedes an earlier
+evaluation of one third-party rule set; this pass evaluated everything the
+linter already ships.
 
 ## Why
 

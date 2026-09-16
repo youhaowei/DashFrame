@@ -13,7 +13,7 @@
  * Backend registration name: `dashframe-encrypted-file`. That name is
  * persisted in vault mappings and must NEVER change once secrets may exist
  * under it. Namespaced under `dashframe-` because the blob format (`DFSB`
- * magic) is DashFrame-specific — a future WyStack-provided backend with a
+ * magic) is DashFrame-specific — a future shared secret-vault backend with a
  * different envelope must not be able to collide on the same registration
  * name.
  *

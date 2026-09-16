@@ -44,7 +44,6 @@ const PACKAGE_PATHS = {
   "packages/connector-local": "@dashframe/connector-local",
   "packages/connector-notion": "@dashframe/connector-notion",
   "packages/connector-postgres": "@dashframe/connector-postgres",
-  "packages/connector-rest": "@dashframe/connector-rest",
   "packages/visualization": "@dashframe/visualization",
   "packages/ui": "@dashframe/ui",
 };

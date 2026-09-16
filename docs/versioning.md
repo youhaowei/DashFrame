@@ -27,7 +27,6 @@ Library packages follow [Semantic Versioning 2.0.0](https://semver.org/):
 - `@dashframe/connector-local`
 - `@dashframe/connector-notion`
 - `@dashframe/connector-postgres`
-- `@dashframe/connector-rest`
 - `@dashframe/visualization`
 - `@dashframe/ui`
 

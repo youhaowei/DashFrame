@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
   updateItems: vi.fn(async () => {}),
 }));
 
-// Partial-mock the WyStack client: keep `createApi` (so `api` builds real
+// Partial-mock the Convex client: keep `createApi` (so `api` builds real
 // refs) and replace only `useMutation`. This consumer uses a single mutation
 // (`api.commitBatch`), so the mock ignores the ref and always returns
 // the same `mutateAsync` spy.

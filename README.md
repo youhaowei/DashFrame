@@ -13,7 +13,7 @@ DashFrame is a local-first business intelligence tool focused on the data → ch
 - **WyStack** (`libs/wystack`) — shared identity and secret-vault support; **stdui** (`libs/stdui`) — the `@wystack/ui-*` design system (both git submodules)
 - **Bun** for package management and runtime, **Turborepo** for workspace orchestration
 - **Tailwind CSS v4**, **Vega-Lite** for declarative chart rendering
-- Connectors for CSV, Notion, Postgres, and REST sources
+- Connectors for CSV/JSON, Notion, Postgres, and GA4 sources
 
 ## Project Layout
 
@@ -36,7 +36,6 @@ packages/
   connector-local/  # Local file (CSV/JSON) connector
   connector-notion/ # Notion API connector
   connector-postgres/ # Postgres connector
-  connector-rest/   # REST connector
   visualization/    # Chart rendering system
   ui/               # App-local UI primitives
 libs/
@@ -65,8 +64,7 @@ bun run test      # run all tests
 and `libs/stdui` git submodules and builds the `@wystack/*` packages the app
 depends on. Provision Convex once before running either surface. Startup uses the
 verified cached binary without downloading or registering a cloud deployment.
-New projects store metadata in `.convex/`; existing WyStack/PGlite projects are
-not migrated. See [local runtime details](packages/convex-local/README.md).
+Projects store metadata in `.convex/`. See [local runtime details](packages/convex-local/README.md).
 
 Metadata deletion and credential rotation record host cleanup in the same Convex
 transaction. The host checks remaining references before deleting Arrow files,
@@ -172,7 +170,7 @@ DashFrame supports importing data directly from Notion databases:
 - ✅ **Query engine** over DuckDB — native in the host process both surfaces query through
 - ✅ Route-based shell — `/data-sources`, `/insights`, `/visualizations`, `/dashboards`
 - ✅ Data → Vega-Lite charts
-- ✅ Connectors for CSV/JSON, Notion, Postgres, and REST sources
+- ✅ Connectors for CSV/JSON, Notion, Postgres, and GA4 sources
 
 ## Roadmap
 

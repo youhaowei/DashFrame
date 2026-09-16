@@ -8,7 +8,7 @@
 #     runs in the FOREGROUND through the existing portless-shim, unchanged.
 #   - The desktop app is a native Electron window, not an iframe-able URL. It
 #     runs in the BACKGROUND via `bun run dev` (which builds the
-#     wystack→server-core→server→main chain, starts its own renderer Vite
+#     server-core→server→main chain, starts its own renderer Vite
 #     server on :5173, and launches Electron). It pops as its own window.
 #
 # Lifecycle: dev's own dev.mjs installs SIGTERM handlers that kill its
