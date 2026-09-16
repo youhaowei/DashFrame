@@ -197,10 +197,37 @@ export function resolveControlValue(
 // ---------------------------------------------------------------------------
 
 /**
+ * Fold one knob turn into the reader's accumulated view-local overrides for
+ * an item. Unlike `mergeTransientItemOverrides`, this keeps every slot the
+ * reader has touched as an own key — including a slot cleared to `undefined`
+ * — because that own key is what later tells the render merge to drop the
+ * base value instead of inheriting it.
+ */
+export function applyReaderPatch(
+  current: DashboardItemOverrides | undefined,
+  patch: DashboardItemOverrides,
+): DashboardItemOverrides {
+  const next: DashboardItemOverrides = { ...current };
+  if (patch.filters) {
+    const patched = new Set(patch.filters.map((filter) => filter.field));
+    next.filters = [
+      ...(current?.filters ?? []).filter(
+        (filter) => !patched.has(filter.field),
+      ),
+      ...patch.filters,
+    ];
+  }
+  if (Object.hasOwn(patch, "sorts")) next.sorts = patch.sorts;
+  if (Object.hasOwn(patch, "limit")) next.limit = patch.limit;
+  return next;
+}
+
+/**
  * Layer a reader's view-local changes for one item on top of its effective
  * overrides. The reader's value wins per key: a filter replaces the entry for
- * its field, and a sort or limit replaces the whole slot. Nothing here is
- * written back to the dashboard.
+ * its field, and a sort or limit replaces the whole slot. A slot the reader
+ * set to `undefined` (an own key) clears it; an absent key inherits. Nothing
+ * here is written back to the dashboard.
  */
 export function mergeTransientItemOverrides(
   base: DashboardItemOverrides | undefined,
@@ -218,8 +245,8 @@ export function mergeTransientItemOverrides(
   ];
   const merged: DashboardItemOverrides = {
     filters: filters.length > 0 ? filters : undefined,
-    sorts: transient.sorts ?? base?.sorts,
-    limit: transient.limit ?? base?.limit,
+    sorts: Object.hasOwn(transient, "sorts") ? transient.sorts : base?.sorts,
+    limit: Object.hasOwn(transient, "limit") ? transient.limit : base?.limit,
   };
   if (
     merged.filters === undefined &&

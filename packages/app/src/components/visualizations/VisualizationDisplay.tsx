@@ -71,7 +71,11 @@ export function formatUpdatedAgo(fetchedAt: number, now: number): string {
   return `Updated ${formatter.format(Math.round(seconds / 86400), "day")}`;
 }
 
-/** The tile's state, from the same facts that decide which branch renders. */
+/**
+ * The tile's state, from the same facts that decide which branch renders. A
+ * render throw is caught above this component by the error boundary, which
+ * reports `broken` on its own.
+ */
 export function deriveTileState(facts: {
   isMounted: boolean;
   broken: boolean;
@@ -232,6 +236,9 @@ export function VisualizationDisplay(props: VisualizationDisplayProps) {
   return (
     <VisualizationErrorBoundary
       resetKey={`${props.visualizationId ?? ""}:${active?.updatedAt ?? ""}`}
+      onError={
+        props.onStateChange ? () => props.onStateChange!("broken") : undefined
+      }
     >
       <VisualizationDisplayContent {...props} />
     </VisualizationErrorBoundary>
@@ -379,13 +386,25 @@ function VisualizationDisplayContent({
     return insight.runtimeControls.sort.allowedFieldIds.map((id) => {
       const field = availableFields.find((candidate) => candidate.id === id);
       const metric = insight.metrics.find((candidate) => candidate.id === id);
-      return { value: id, label: field?.displayName ?? metric?.name ?? id };
+      const aliases = [
+        field?.columnName,
+        field?.name,
+        metric?.name,
+        metric?.columnName,
+      ].filter((alias): alias is string => Boolean(alias));
+      return {
+        value: id,
+        label: field?.displayName ?? metric?.name ?? id,
+        aliases,
+      };
     });
   }, [insight, availableFields]);
   const exposedControls = useMemo<ExposedItemControl[]>(() => {
     if (!insight || !itemContext) return [];
     const labelFor = (name: string) => {
-      const byId = sortOptions.find((option) => option.value === name);
+      const byId = sortOptions.find(
+        (option) => option.value === name || option.aliases.includes(name),
+      );
       if (byId) return byId.label;
       const field = availableFields.find(
         (candidate) => (candidate.columnName ?? candidate.name) === name,

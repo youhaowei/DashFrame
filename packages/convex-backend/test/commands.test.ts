@@ -3472,6 +3472,40 @@ describe("existing command behavior on native Convex", () => {
     )[0]!;
     expect(item.controls).toBeUndefined();
   });
+  it("reserves the sort and limit keys for the sort and limit controls", async () => {
+    const { tableId } = await makeTable();
+    const insightId = id();
+    await commit(
+      cmd("CreateInsight", {
+        id: insightId,
+        name: "Reserved",
+        source: { sourceType: "dataTable", sourceId: tableId },
+      }),
+      cmd("SetInsightFilter", {
+        id: insightId,
+        filters: [
+          {
+            id: "region-filter",
+            field: "region",
+            operator: "eq",
+            value: { kind: "value", v: "EMEA" },
+          },
+        ],
+      }),
+    );
+    await expect(
+      commit(
+        cmd("SetInsightRuntimeControls", {
+          id: insightId,
+          runtimeControls: {
+            filters: [
+              { key: "limit", filterId: "region-filter", label: "Region" },
+            ],
+          },
+        }),
+      ),
+    ).rejects.toThrow(/reserved/);
+  });
   it("rejects a report loosening an Insight's changeable ceiling", async () => {
     const { dashId, sourceItemId: itemId } = await makeDashWithVizItem();
 

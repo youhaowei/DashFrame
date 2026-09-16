@@ -72,6 +72,9 @@ export const insightSourceSchema = z.object({
   sourceId: z.string(),
 });
 
+/** Item-level disclosure is one map; these keys name the sort and limit slots. */
+const RESERVED_CONTROL_KEYS = new Set(["sort", "limit"]);
+
 export const runtimeControlsSchema = z
   .object({
     filters: z
@@ -87,6 +90,10 @@ export const runtimeControlsSchema = z
           })
           .refine((control) => !(control.required && control.allowClear), {
             message: "a required runtime filter cannot allow clearing",
+          })
+          .refine((control) => !RESERVED_CONTROL_KEYS.has(control.key), {
+            message:
+              "runtime filter keys 'sort' and 'limit' are reserved for the sort and limit controls",
           }),
       )
       .refine(
