@@ -13,7 +13,7 @@ DashFrame is a local-first business intelligence tool focused on the data → ch
 - **WyStack** (`libs/wystack`) — shared identity and secret-vault support; **stdui** (`libs/stdui`) — the `@wystack/ui-*` design system (both git submodules)
 - **Bun** for package management and runtime, **Turborepo** for workspace orchestration
 - **Tailwind CSS v4**, **Vega-Lite** for declarative chart rendering
-- Connectors for CSV, Notion, Postgres, and REST sources
+- Connectors for CSV/JSON, Notion, Postgres, and GA4 sources
 
 ## Project Layout
 
@@ -170,7 +170,7 @@ DashFrame supports importing data directly from Notion databases:
 - ✅ **Query engine** over DuckDB — native in the host process both surfaces query through
 - ✅ Route-based shell — `/data-sources`, `/insights`, `/visualizations`, `/dashboards`
 - ✅ Data → Vega-Lite charts
-- ✅ Connectors for CSV/JSON, Notion, Postgres, and REST sources
+- ✅ Connectors for CSV/JSON, Notion, Postgres, and GA4 sources
 
 ## Roadmap
 
