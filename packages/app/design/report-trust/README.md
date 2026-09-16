@@ -13,6 +13,10 @@ Open `http://127.0.0.1:4385/controls.html`, `.../styles.html`, or
 
 ## The model these draw
 
+The decided model is written up as the spec "DashFrame v0.3 Report Viewer
+(Runtime Control Disclosure)" in the project wiki; this file keeps the
+prototype-level reasoning and each rejected alternative.
+
 A runtime control on a report item has two independent properties. A control is
 not always a filter: `InsightRuntimeDeclaration` declares three kinds — any
 number of filters, one sort, one limit — and they read differently and matter
