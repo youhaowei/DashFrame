@@ -319,6 +319,32 @@ settle:
   only** to see the cost: an unpinned sort or limit has nowhere to go, so it
   falls back onto the face and the shape groups stop being fixed-width.
 
+## 5 · One door instead of three (`notion.html`, DISCLOSURE)
+
+A second disclosure shape, switchable against the category buttons.
+
+**Pills on the face are pinned filters only.** Nothing mechanical is pinnable:
+a pinned sort has no value to put in a pill — an order is a mechanism the bars
+already display — so a sort pill would be a glyph wearing a pill's clothes. Sort
+and limit always live behind the door.
+
+**Everything else exposed sits behind one control button.** The three categories
+do not disappear; they move inside the popover as headings, where there is room
+for them. Instead of three glyphs competing on a tile line, the tile carries its
+pinned facts and one way in.
+
+The **DOOR** axis offers two marks. A **sliders** glyph says "things you can
+change here". An **ellipsis** is the cheaper option and collides: an ellipsis
+beside a chart already means the tile's own menu — edit, duplicate, remove — so
+using it for the reader's knobs makes one glyph mean two different things
+depending on who is looking.
+
+What this trades away is advertisement. `▽ 4` at least said filters exist and
+are yours to move; one unlabelled glyph says only that something is behind it.
+The counter-argument is that pinning is exactly the author's tool for surfacing
+what matters, so anything behind the door is secondary by the author's own
+decision.
+
 ## Still open
 
 - **Group order** — sort before limit, or limit before sort.

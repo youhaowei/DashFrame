@@ -18,6 +18,8 @@ const state = {
   filterAt: "right",
   button: "glyph",
   affordance: "caret",
+  door: "categories",
+  doorGlyph: "sliders",
   scope: "all",
   narrow: false,
 };
@@ -44,6 +46,14 @@ const MODEL = {
 
 // Reader turns, session-local. Keyed by label; never written anywhere.
 const turned = new Map();
+
+const DOOR_GLYPH = {
+  // A dedicated control mark, not the tile's own menu. An ellipsis beside a
+  // chart reads as author actions — edit, duplicate, remove — so using it for
+  // the reader's knobs makes one glyph mean two things by audience.
+  sliders: `<svg class="glyph" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M1.5 3.5h9M1.5 8.5h9" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><circle cx="4.5" cy="3.5" r="1.4" fill="var(--neutral-bg)" stroke="currentColor" stroke-width="1.2"/><circle cx="7.5" cy="8.5" r="1.4" fill="var(--neutral-bg)" stroke="currentColor" stroke-width="1.2"/></svg>`,
+  ellipsis: `<svg class="glyph" viewBox="0 0 12 12" fill="none" aria-hidden="true"><circle cx="2.5" cy="6" r="1" fill="currentColor"/><circle cx="6" cy="6" r="1" fill="currentColor"/><circle cx="9.5" cy="6" r="1" fill="currentColor"/></svg>`,
+};
 
 const GLYPH = {
   // The design system has no funnel. These stand in so the axis can be judged;
@@ -280,6 +290,96 @@ function buildLine(rerender, model = MODEL) {
     return parts;
   };
 
+  // ONE DOOR. Pills on the face are pinned filters only; a pinned sort or
+  // limit has no value to put in a pill, so nothing mechanical is pinnable.
+  // Everything else exposed lives behind a single control button, grouped by
+  // category inside the popover where there is room for headings.
+  if (state.door === "one") {
+    const pinnedFilters = model.filters.filter((f) => f.pin);
+    const behind = [
+      ["Filter", model.filters.filter((f) => !f.pin)],
+      ["Sort", [model.sort]],
+      ["Rows", [model.limit]],
+    ].filter(([, members]) => members.length > 0);
+
+    const pillColumn = h(`<span class="pills"></span>`);
+    for (const member of pinnedFilters) {
+      pillColumn.append(
+        member.changeable
+          ? well(member.label, member.value, (label) => {
+              const current = turned.get(label) ?? member.value;
+              if (current === member.value)
+                turned.set(label, "Changed by reader");
+              else turned.delete(label);
+              rerender();
+            })
+          : chip(member.label, turned.get(member.label) ?? member.value),
+      );
+    }
+    line.append(pillColumn);
+
+    if (behind.length > 0) {
+      const wrap = h(`<span class="pop-wrap glyphs"></span>`);
+      const anySet = behind.some(([, ms]) =>
+        ms.some((m) => turned.has(m.label)),
+      );
+      const door = h(
+        `<button type="button" class="cat${anySet ? " set" : ""}" aria-expanded="false" aria-label="Controls">${DOOR_GLYPH[state.doorGlyph ?? "sliders"]}</button>`,
+      );
+      door.onclick = (event) => {
+        event.stopPropagation();
+        const open = wrap.querySelector(".cat-pop");
+        if (open) {
+          open.remove();
+          door.setAttribute("aria-expanded", "false");
+          return;
+        }
+        const pop = h(`<div class="pop cat-pop"></div>`);
+        for (const [kind, members] of behind) {
+          pop.append(h(`<div class="pop-title">${kind}</div>`));
+          for (const member of members) {
+            const row = h(`<div class="row"></div>`);
+            row.append(h(`<span class="field">${member.label}</span>`));
+            row.append(
+              member.changeable
+                ? well(
+                    member.label,
+                    member.value,
+                    (label) => {
+                      const m = members.find((x) => x.label === label);
+                      if (turned.has(label)) turned.delete(label);
+                      else turned.set(label, "Changed by reader");
+                      void m;
+                      rerender();
+                    },
+                    { bare: true },
+                  )
+                : h(
+                    `<span class="chip"><span class="value">${turned.get(member.label) ?? member.value}</span></span>`,
+                  ),
+            );
+            pop.append(row);
+          }
+        }
+        pop.append(
+          h(`<div class="foot">Changes last for this visit only.</div>`),
+        );
+        door.setAttribute("aria-expanded", "true");
+        wrap.append(pop);
+      };
+      wrap.append(door);
+      line.append(wrap);
+    }
+    document.addEventListener("click", () => {
+      const pop = line.querySelector(".cat-pop");
+      if (!pop) return;
+      pop.remove();
+      for (const b of line.querySelectorAll(".cat"))
+        b.setAttribute("aria-expanded", "false");
+    });
+    return line;
+  }
+
   const sort = group("Sort", [model.sort]);
   const rows = group("Rows", [model.limit]);
   const filters = group("Filter", model.filters);
@@ -418,6 +518,30 @@ const { page } = shell("CATEGORIES", [
     ],
     onChange: (value) => {
       state.order = value;
+      render(page);
+    },
+  },
+  {
+    label: "DISCLOSURE",
+    value: state.door,
+    options: [
+      { label: "Category buttons", value: "categories" },
+      { label: "One door", value: "one" },
+    ],
+    onChange: (value) => {
+      state.door = value;
+      render(page);
+    },
+  },
+  {
+    label: "DOOR",
+    value: state.doorGlyph,
+    options: [
+      { label: "Sliders", value: "sliders" },
+      { label: "Ellipsis", value: "ellipsis" },
+    ],
+    onChange: (value) => {
+      state.doorGlyph = value;
       render(page);
     },
   },
