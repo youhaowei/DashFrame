@@ -527,3 +527,36 @@ button[aria-pressed="true"] {
 .chip.divided .glyph {
   margin-right: 1px;
 }
+
+/* --------------------------------------------------- pinned vs collapsed -- */
+
+/* The one chip standing for everything exposed but not pinned. */
+.chip.collapsed {
+  gap: 4px;
+  color: var(--neutral-fg-subtle);
+}
+.chip.collapsed:hover {
+  background: var(--neutral-bg-emphasis);
+}
+.chip.collapsed .glyph {
+  margin-right: -1px;
+}
+
+.pane-pins {
+  display: flex;
+  gap: 4px;
+  padding-top: 2px;
+}
+.pin {
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 550;
+  background: var(--neutral-bg-muted);
+  color: var(--neutral-fg-subtle);
+}
+.pin[aria-pressed="true"] {
+  background: var(--palette-primary);
+  color: var(--palette-primary-fg);
+}

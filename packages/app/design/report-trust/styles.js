@@ -47,6 +47,7 @@ function glyphFor(control, controls) {
 const CONTROLS = [
   {
     kind: "filter",
+    pinned: true,
     label: "Region",
     value: "EMEA",
     field: "Region",
@@ -54,6 +55,7 @@ const CONTROLS = [
   },
   {
     kind: "sort",
+    pinned: false,
     label: "Ranked by",
     value: "Revenue",
     field: "Sort",
@@ -61,6 +63,7 @@ const CONTROLS = [
   },
   {
     kind: "limit",
+    pinned: true,
     label: "",
     value: "Top 10",
     field: "Limit",
@@ -68,6 +71,7 @@ const CONTROLS = [
   },
   {
     kind: "filter",
+    pinned: true,
     label: "Period",
     value: "Last 12 months",
     field: "Date",
@@ -75,6 +79,7 @@ const CONTROLS = [
   },
   {
     kind: "filter",
+    pinned: false,
     label: "Direct only",
     value: "Yes",
     field: "Channel",
@@ -82,6 +87,7 @@ const CONTROLS = [
   },
   {
     kind: "filter",
+    pinned: false,
     label: "Segment",
     value: "Enterprise",
     field: "Segment",
@@ -126,29 +132,34 @@ const STYLES = {
   },
 };
 
-/* ------------------------------------------------------------ overflow -- */
+/* ----------------------------------------------------------- collapsed -- */
 
-/** Hide what doesn't fit on one line and append a +N that reveals the rest. */
-function truncate(line, controls) {
-  requestAnimationFrame(() => {
-    const items = [...line.querySelectorAll(":scope > *")];
-    const more = h(`<button type="button" class="more"></button>`);
-    line.append(more);
-    let hidden = 0;
-    for (let index = items.length - 1; index >= 0; index -= 1) {
-      if (line.scrollWidth <= line.clientWidth) break;
-      items[index].hidden = true;
-      hidden += 1;
-    }
-    if (hidden === 0) {
-      more.remove();
-      return;
-    }
-    more.textContent = `+${hidden}`;
-    const rest = controls.slice(controls.length - hidden);
-    more.onclick = () => showList(line.closest(".tile"), "Also applied", rest);
-  });
-}
+/**
+ * The collapsed group: everything the author exposed but did not pin. Drawn
+ * three ways, because the only question left is how a reader is invited to
+ * open it.
+ */
+const COLLAPSED = {
+  count: {
+    name: "Count",
+    note: "How many are behind it, and nothing else. Shortest, and says nothing about what they are.",
+    render: (rest) => `<span class="value">+${rest.length}</span>`,
+  },
+  worded: {
+    name: "Worded",
+    note: "Names what the group is. Widest, and the only one that reads as a sentence next to the pinned chips.",
+    render: (rest) =>
+      `<span class="field">and</span><span class="value">${rest.length} more</span>`,
+  },
+  kinds: {
+    name: "Kinds",
+    note: "One glyph per kind hidden in the group, then the count. Says what sort of thing is behind it without naming values.",
+    render: (rest) => {
+      const kinds = [...new Set(rest.map((c) => c.kind))];
+      return `${kinds.map((kind) => GLYPH[kind]).join("")}<span class="value">${rest.length}</span>`;
+    },
+  },
+};
 
 function showList(tile, title, controls) {
   const open = tile.querySelector(".pop");
@@ -165,47 +176,33 @@ function showList(tile, title, controls) {
   );
 }
 
-const OVERFLOW = {
-  truncate: {
-    name: "Truncate",
-    note: "Show what fits, then +N. The chart keeps its height; the reader has to click for the rest.",
-  },
-  wrap: {
-    name: "Wrap",
-    note: "Every control stays readable, and the chart loses a row of height for each extra line.",
-  },
-  summary: {
-    name: "Summarise",
-    note: "One chip with the count, the list on click. Constant width at any number.",
-  },
-  scroll: {
-    name: "Scroll",
-    note: "One line that scrolls sideways. Cheap to build, and what is off-screen is easy to miss.",
-  },
-};
-
 /* -------------------------------------------------------------- render -- */
 
-function tile(controls, { style, overflow }) {
+function tile(controls, { style, collapsed = "count" }) {
   const element = h(`<div class="tile">
     <div class="tile-head"><span class="tile-title">Revenue</span></div>
     <div class="tile-body">${chart(SALES)}</div>
   </div>`);
 
-  const line = h(`<div class="line ${overflow}"></div>`);
-  if (overflow === "summary") {
+  // Pinned controls are on the face because the author put them there. What is
+  // merely visible collapses into one chip, whatever the width — the reader
+  // sees the same thing on a phone and on a wall display.
+  const pinned = controls.filter((control) => control.pinned);
+  const rest = controls.filter((control) => !control.pinned);
+
+  const line = h(`<div class="line"></div>`);
+  for (const control of pinned) {
+    line.append(STYLES[style].render(control, controls));
+  }
+  if (rest.length > 0) {
     const chip = h(
-      `<button type="button" class="chip pressable"><span class="field">Showing</span><span class="value">${controls.length} settings</span></button>`,
+      `<button type="button" class="chip pressable collapsed">${COLLAPSED[collapsed].render(rest)}</button>`,
     );
-    chip.onclick = () => showList(element, "Applied", controls);
+    chip.onclick = () => showList(element, "Also applied", rest);
     line.append(chip);
-  } else {
-    for (const control of controls)
-      line.append(STYLES[style].render(control, controls));
   }
 
   element.querySelector(".tile-head").after(line);
-  if (overflow === "truncate") truncate(line, controls);
   return element;
 }
 
@@ -216,11 +213,32 @@ function authorRow(control, onChange) {
     <label class="pane-label">Label
       <input class="pane-input" value="${control.label}" placeholder="No label" />
     </label>
+    <div class="pane-pins"></div>
   </div>`);
   row.querySelector("input").oninput = (event) => {
     control.label = event.target.value;
     onChange();
   };
+
+  // Visible and pinned are the same decision at two strengths: both are on the
+  // tile, only one is on its face.
+  const pins = row.querySelector(".pane-pins");
+  for (const [value, label] of [
+    [false, "Visible"],
+    [true, "Pinned"],
+  ]) {
+    const button = h(
+      `<button type="button" class="pin" aria-pressed="${control.pinned === value}">${label}</button>`,
+    );
+    button.onclick = () => {
+      control.pinned = value;
+      for (const sibling of pins.children) {
+        sibling.setAttribute("aria-pressed", String(sibling === button));
+      }
+      onChange();
+    };
+    pins.append(button);
+  }
   return row;
 }
 
@@ -246,7 +264,7 @@ function render(page) {
     const cell = h(`<div></div>`);
     cell.append(
       h(`<div class="caption"><b>${style.name}</b> — ${style.note}</div>`),
-      tile(active(), { style: key, overflow: "wrap" }),
+      tile(active(), { style: key }),
     );
     styleGrid.append(cell);
   }
@@ -255,16 +273,14 @@ function render(page) {
   page.append(
     section(
       "Authoring · where the words come from",
-      "The item pane in the workbench. Type a label and the tile above it changes. Clear one to see the control fall back to its value alone — which is often enough, and is how a limit should read.",
+      "The item pane in the workbench. Type a label, and pin what a reader should see without asking. Pinned controls are always on the face; merely visible ones collapse into one chip at every width. Clear a label to see a control fall back to its value alone.",
     ),
   );
   const authoring = h(`<div class="authoring"></div>`);
   const preview = h(`<div class="authoring-preview"></div>`);
   const pane = h(`<div class="pane"></div>`);
   const refresh = () => {
-    preview.replaceChildren(
-      tile(active(), { style: state.style, overflow: "wrap" }),
-    );
+    preview.replaceChildren(tile(active(), { style: state.style }));
   };
   for (const control of active()) pane.append(authorRow(control, refresh));
   refresh();
@@ -273,20 +289,20 @@ function render(page) {
 
   page.append(
     section(
-      "Overflow · when they don't fit",
-      "The chosen style at the current width and count. Turn the count up to 6 and narrow the page to push each strategy past its limit.",
+      "Collapsed · what the reader is invited to open",
+      "Everything the author exposed but did not pin, in one chip. Three ways to draw it. Click one to see what is behind it.",
     ),
   );
-  const overflowGrid = h(`<div class="grid"></div>`);
-  for (const [key, mode] of Object.entries(OVERFLOW)) {
+  const collapsedGrid = h(`<div class="grid"></div>`);
+  for (const [key, mode] of Object.entries(COLLAPSED)) {
     const cell = h(`<div></div>`);
     cell.append(
       h(`<div class="caption"><b>${mode.name}</b> — ${mode.note}</div>`),
-      tile(active(), { style: state.style, overflow: key }),
+      tile(active(), { style: state.style, collapsed: key }),
     );
-    overflowGrid.append(cell);
+    collapsedGrid.append(cell);
   }
-  page.append(overflowGrid);
+  page.append(collapsedGrid);
 }
 
 const { page } = shell("Control styles", [

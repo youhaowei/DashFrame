@@ -20,6 +20,17 @@ differently. A limit is the one most likely to change what a reader concludes
 (`Top 10` hides the tail) and the least likely to be confidential, so the case
 for hiding it by default is the weakest of the three.
 
+Visibility itself has two strengths. **Pinned** is on the face of the tile,
+always, at every width. **Visible** is on the tile but collapsed into a single
+chip the reader can open. Both are disclosed — the difference is only whether
+the reader has to ask.
+
+That replaces overflow as a layout problem with an authoring decision. A
+truncation rule drops whatever happens not to fit, which means the same report
+shows different things on a laptop and a phone and the author cannot know what
+a reader saw. Pinning is deterministic and width-independent: the author says
+what matters, and it is what a reader sees first, everywhere.
+
 The two properties:
 
 - **visible** — whether the reader sees it at all.
@@ -30,6 +41,10 @@ item may only tighten that, never loosen it. A report can hide what the question
 exposes, and can never expose what the question fixed.
 
 Three combinations are legal on an item:
+
+(An author who pins more than fits is still overflowing, but it is now their
+doing and the item pane can say so, rather than a rule silently choosing for
+them.)
 
 - **hidden + fixed** — the default, and hidden means the reader is told nothing:
   not the value, not a count, not that any filter exists. Most filters are query
@@ -124,17 +139,18 @@ its own repo and its own gate, not a change to this app.
 The **Authoring** section is the item pane in the workbench: type a label and
 the tile beside it changes. Clearing a label falls back to the value alone.
 
-Overflow, using whichever style is selected:
+The **Collapsed** section draws the one chip standing for everything exposed but
+not pinned, three ways:
 
-- **Truncate** — show what fits, then `+N` opening the rest. The chart keeps its
-  height; the reader has to click.
-- **Wrap** — everything stays readable and the chart loses a row of height for
-  each extra line.
-- **Summarise** — one chip with a count, the list on click. Constant width at any
-  number. A count over _exposed_ controls is fair: the author already chose to
-  disclose them, which is what separates this from the mark rejected above.
-- **Scroll** — one sideways-scrolling line. Cheap, and what is off-screen is easy
-  to miss.
+- **Count** — `+3`. Shortest, and says nothing about what is behind it.
+- **Worded** — `and 3 more`. Reads as a sentence next to the pinned chips, and
+  is the widest.
+- **Kinds** — one glyph per kind in the group, then the count. Says what sort of
+  thing is behind it without naming any values, which keeps it compatible with
+  the confidentiality rule.
+
+A count over _exposed_ controls is fair game: the author already chose to
+disclose them, which is what separates this chip from the mark rejected above.
 
 ## 3 · Report trust line (`trust.html`)
 
@@ -160,8 +176,10 @@ That split is a confidentiality rule, not a vocabulary preference.
 - Switch **Icon** between **Non-filters** and **Lone filter too** at 1 setting,
   then at 6. The difference is only the one-filter case, and it is the question
   of whether a chip may change appearance because a sibling appeared.
-- Then set **Settings · 6** and **Width · Narrow**, and decide how much tile
-  height an exposed control line may cost.
+- Toggle **Visible** and **Pinned** in the authoring pane and watch chips move
+  between the face and the collapsed chip.
+- Then set **Settings · 6** and **Width · Narrow**. The tile shows the same
+  three pinned chips at both widths, which is the point.
 - Set **Width · Narrow**. Naming the field roughly doubles a control's width,
   so two is the practical ceiling for a tile-width line and the third clips. The
   overflow rule is not designed yet.
