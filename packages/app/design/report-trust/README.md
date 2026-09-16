@@ -151,16 +151,21 @@ control it is.
 
 That settles four things at once.
 
-**A category button is flat, and carries no pill.** A chip and a well are both
-containers that say "this is a value". A category button is not a value, so
-giving it the same shape puts it inside the line it is meant to stand outside
-of. Flat is what separates the categories from the filter pills, which means
-the gap between groups no longer has to carry that distinction on its own.
+**A category button is a ghost pill:** the geometry of a pill, none of its
+fill. Borderless and transparent at rest, so it reads flat and does not compete
+with the filter pills that carry values; the pill appears on hover and while
+open.
 
-The one exception is the count, which _is_ a value: a bare numeral beside a
-glyph reads as part of the glyph, so the count keeps a small tag. A control the
-reader has turned shows as colour on the glyph itself rather than as a tinted
-pill.
+Dropping the shape entirely was tried first and gives up too much. The hit
+target shrinks to the glyph, the press has nowhere to land, and the control
+stops aligning with the chips beside it. Keeping the geometry and dropping only
+the fill separates the two kinds of thing without making the glyph a worse
+button — a border would put it back in the line of values, but a background
+that appears on hover only ever says "this is a control".
+
+Having a pill again gives **set** somewhere to live: a control the reader has
+turned tints its ghost pill and colours its glyph, so the state survives when
+the pointer leaves.
 
 **Only the filter group is ever more than one chip.**
 `InsightRuntimeDeclaration` declares any number of filters but exactly one sort
@@ -223,8 +228,13 @@ once: Region and Period are pinned _and_ changeable, so they pin as wells with a
 caret; Segment is pinned and fixed, so it pins as a chip. Pinned means "on the
 face"; changeable decides whether the face is a knob or a fact.
 
-**Decided: pills left, glyphs right.** The line is two clusters, not three
-groups in a row. Value-carrying pills — the pinned filters — sit left; the
+**Decided: pills left, glyphs right — as two columns, not one wrapping flow.**
+The pills wrap among themselves on the left; the glyph cluster is its own
+column and holds the top right, never joining their wrap. Sharing one flow puts
+the cluster wherever the wrap happens to leave it, beside whichever pill ends
+the last row, which reads as a relationship that is not there.
+
+The line is two clusters, not three groups in a row. Value-carrying pills — the pinned filters — sit left; the
 category glyphs group together and right-align, the way a Notion toolbar keeps
 its content left and its Filter and Sort buttons right. A pill carries
 something a reader reads as part of the chart's claim; a glyph is a way in.

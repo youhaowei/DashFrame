@@ -582,32 +582,33 @@ button[aria-pressed="true"] {
 /* A category button names a kind: Filter, Sort, Rows. Quiet when the reader
    has nothing set, and carrying its state when they do. Notion's toolbar
    reads this way — the kind is a button you open, not a chip you decode. */
-/* Flat, with no pill of its own. A chip and a well are both containers that
-   say "this is a value"; a category button is not a value, and giving it the
-   same shape puts it in the line it is supposed to stand outside of. Treatment
-   separates the categories from the filter pills, so the gap does not have to
-   carry that alone. */
+/* A ghost pill: the geometry of a pill, none of its fill.
+   At rest it reads flat, so it does not compete with the filter pills that
+   carry values. On hover and while open the pill appears, which keeps the hit
+   target the same size as a chip's and gives the press somewhere to land. A
+   border would put it back in the line of values; a background on hover only
+   says "this is a control" without claiming to be one of them. */
 .cat {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   height: 24px;
-  padding: 0 2px;
+  padding: 0 9px;
   border: 0;
-  border-radius: 0;
-  background: none;
+  border-radius: 999px;
+  background: transparent;
   color: var(--neutral-fg-subtle);
   font: inherit;
   font-size: 11.5px;
   font-weight: 600;
   cursor: pointer;
   transition:
-    color 160ms ease,
-    opacity 160ms ease;
+    background 160ms ease,
+    color 160ms ease;
 }
 .cat:hover,
 .cat[aria-expanded="true"] {
-  background: none;
+  background: var(--neutral-bg-muted);
   color: var(--neutral-fg);
 }
 .cat:focus-visible {
@@ -615,10 +616,22 @@ button[aria-pressed="true"] {
   outline-offset: 3px;
   border-radius: 4px;
 }
-/* Set means the reader has moved it off the author's value. With no pill to
-   tint, that reads as colour on the glyph itself. */
+/* Set means the reader has moved it off the author's value: colour on the
+   glyph, and the ghost pill tinted so the state survives without a hover. */
 .cat.set {
+  background: color-mix(in oklab, var(--palette-primary) 10%, transparent);
   color: var(--palette-primary);
+}
+.cat.set:hover,
+.cat.set[aria-expanded="true"] {
+  background: color-mix(in oklab, var(--palette-primary) 18%, transparent);
+  color: var(--palette-primary);
+}
+.flat.set {
+  background: color-mix(in oklab, var(--palette-primary) 10%, transparent);
+}
+.flat.set:hover {
+  background: color-mix(in oklab, var(--palette-primary) 18%, transparent);
 }
 .cat.set .glyph {
   opacity: 1;
@@ -705,17 +718,25 @@ button[aria-pressed="true"] {
   align-items: center;
   gap: 5px;
   height: 24px;
-  padding: 0 2px;
+  padding: 0 9px;
   border: 0;
-  border-radius: 0;
-  background: none;
+  border-radius: 999px;
+  background: transparent;
   color: var(--neutral-fg);
   font: inherit;
   font-size: 11.5px;
   cursor: pointer;
   transition:
-    color 160ms ease,
-    opacity 160ms ease;
+    background 160ms ease,
+    color 160ms ease;
+}
+.flat:hover,
+.flat[aria-expanded="true"] {
+  background: var(--neutral-bg-muted);
+}
+/* A fixed non-filter is a fact, so it never lights up. */
+.flat[aria-disabled="true"]:hover {
+  background: transparent;
 }
 .flat .value {
   font-weight: 600;
@@ -812,4 +833,24 @@ button[aria-pressed="true"] {
 }
 .cat.set .caret {
   opacity: 1;
+}
+
+/* The control line is two columns: pills wrap on the left, the glyph cluster
+   holds the top right and never joins their wrap. */
+.line:has(.pills) {
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  gap: 10px;
+}
+.line .pills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.line .glyphs {
+  align-self: flex-start;
+  margin-left: 0;
 }

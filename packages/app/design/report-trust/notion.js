@@ -321,9 +321,16 @@ function buildLine(rerender, model = MODEL) {
   // mechanisms right. At the BEGINNING it leads the pills it owns — the pills
   // are filters and the glyph opens more of them — and the right cluster then
   // holds only the mechanisms that have no pills of their own.
-  if (state.filterAt === "left" && filterGlyph) line.append(filterGlyph);
-  for (const pill of pills) line.append(pill);
-  line.append(h(`<span class="spacer"></span>`));
+  // Two columns, not one wrapping flow. The pills wrap among themselves on the
+  // left; the glyph cluster is its own column and stays at the top right. In
+  // one shared flow the cluster lands wherever the wrap happens to leave it —
+  // beside whichever pill ends the last row — which reads as a relationship
+  // that is not there.
+  const pillColumn = h(`<span class="pills"></span>`);
+  if (state.filterAt === "left" && filterGlyph) pillColumn.append(filterGlyph);
+  for (const pill of pills) pillColumn.append(pill);
+  line.append(pillColumn);
+
   const cluster = h(`<span class="glyphs"></span>`);
   if (state.filterAt === "right" && filterGlyph) cluster.append(filterGlyph);
   for (const glyph of glyphs) cluster.append(glyph);
