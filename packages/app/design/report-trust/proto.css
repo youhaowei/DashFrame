@@ -576,3 +576,94 @@ button[aria-pressed="true"] {
 .well .glyph + .field {
   margin-left: 2px;
 }
+
+/* ------------------------------------------- category buttons (notion) -- */
+
+/* A category button names a kind: Filter, Sort, Rows. Quiet when the reader
+   has nothing set, and carrying its state when they do. Notion's toolbar
+   reads this way — the kind is a button you open, not a chip you decode. */
+.cat {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--neutral-fg-subtle);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    color 160ms ease;
+}
+.cat:hover {
+  background: var(--neutral-bg-muted);
+  color: var(--neutral-fg);
+}
+.cat[aria-expanded="true"] {
+  background: var(--neutral-bg-muted);
+  color: var(--neutral-fg);
+}
+/* Set means the reader has moved it off the author's value. */
+.cat.set {
+  background: color-mix(in oklab, var(--palette-primary) 12%, transparent);
+  color: color-mix(in oklab, var(--palette-primary) 82%, var(--neutral-fg));
+}
+.cat .count {
+  min-width: 15px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--neutral-bg);
+  font-size: 10.5px;
+  text-align: center;
+}
+.cat .glyph {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+}
+
+/* The separator between one category group and the next. */
+.line .rule {
+  width: 1px;
+  height: 14px;
+  flex: 0 0 auto;
+  background: var(--neutral-border-subtle);
+}
+.line .gap {
+  width: 14px;
+  flex: 0 0 auto;
+}
+
+/* A category popover: the controls of one kind, opened from its button. */
+.pop.cat-pop {
+  top: auto;
+  left: auto;
+  min-width: 212px;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+.pop.cat-pop .row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: space-between;
+}
+.pop.cat-pop .row .field {
+  font-size: 11.5px;
+  color: var(--neutral-fg-subtle);
+}
+.pop.cat-pop .foot {
+  padding-top: 2px;
+  font-size: 10.5px;
+  color: var(--neutral-fg-subtle);
+}
+.pop-wrap {
+  position: relative;
+  display: inline-flex;
+}

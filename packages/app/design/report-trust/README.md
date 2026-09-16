@@ -8,8 +8,9 @@ Nothing persists; reload to reset.
 bunx vp dev --config packages/app/design/report-trust/preview.config.ts
 ```
 
-Open `http://127.0.0.1:4385/controls.html`, `.../styles.html`, or
-`.../trust.html`; the bar at the top switches states and theme.
+Open `http://127.0.0.1:4385/controls.html`, `.../styles.html`,
+`.../trust.html`, or `.../notion.html`; the bar at the top switches states and
+theme.
 
 ## The model these draw
 
@@ -228,6 +229,29 @@ check a change against them.
   control's width, so two is the practical ceiling and the third clips — that is
   the open overflow question, and it is now the filter group's alone.
 - On `trust.html`, read the broken condition as Reader, then as Author.
+
+## 4 · Categories as buttons (`notion.html`)
+
+The decided model drawn as it would actually be built: three categories, pinned
+controls on the face, and everything else exposed behind its category's button.
+A Notion database toolbar reads this way — Filter and Sort are buttons you open,
+not chips you decode — and that is the reference this page is testing.
+
+Open **Filter**. The two exposed-but-unpinned filters are in there with their
+own knobs; turning one marks the button as set. The two *hidden* filters are in
+none of it: not a chip, not a row in the popover, not a number on the button.
+
+Four axes, switched from the top bar, are the decisions this page exists to
+settle:
+
+- **Order** — sort, rows, filter; or rows, sort, filter; or filters first.
+- **Separator** — a gap, a rule, or nothing. **None** is what the implementation
+  branch shipped, and it is the state where a sort is indistinguishable from a
+  filter.
+- **Button** — word, glyph, both, or word plus a count of exposed controls.
+- **Buttons for** — all three categories, or filters only. Switch to **filters
+  only** to see the cost: an unpinned sort or limit has nowhere to go, so it
+  falls back onto the face and the shape groups stop being fixed-width.
 
 ## Still open
 
