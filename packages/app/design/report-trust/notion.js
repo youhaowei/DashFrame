@@ -15,7 +15,7 @@ const SALES = [42, 58, 35, 71, 49, 63, 38];
 
 const state = {
   order: "filters-first",
-  separator: "gap",
+  filterAt: "right",
   button: "glyph",
   count: true,
   scope: "all",
@@ -134,8 +134,8 @@ function flat(member, kind, onTurn) {
 }
 
 /** A category button. Its form is the axis under test. */
-function categoryButton(kind, members, onOpen) {
-  const exposed = members.length;
+function categoryButton(kind, members, onOpen, exposedTotal) {
+  const exposed = exposedTotal ?? members.length;
   const set = members.some((m) => turned.has(m.label));
   const inner =
     state.button === "glyph"
@@ -143,8 +143,15 @@ function categoryButton(kind, members, onOpen) {
       : state.button === "word"
         ? kind
         : `${GLYPH[kind]}<span>${kind}</span>`;
-  // A count reflects only EXPOSED controls — what is behind this button. A
-  // hidden control must never widen it, appear in it, or raise it.
+  // The count is EVERY exposed control of this kind, not just the ones behind
+  // the button. Counting only what is hidden reads as a count of what is shown
+  // the moment the glyph sits beside its own pills — "2" next to two pills
+  // looks like it labels them. Counting the whole group is unambiguous in both
+  // placements: the glyph heads the category, and the number is how big the
+  // category is.
+  //
+  // A hidden control is still not in it. It must never widen the count, appear
+  // in the popover, or raise the tag — that is the rule the button carries.
   //
   // It is only ever informative for filters. A declaration carries exactly one
   // sort and one limit, so those buttons would read "1" forever: a tag that
@@ -240,7 +247,7 @@ function buildLine(rerender, model = MODEL) {
       unpinned.length > 0 && (state.scope === "all" || kind === "Filter");
     if (wantsButton) {
       const wrap = h(`<span class="pop-wrap"></span>`);
-      wrap.append(categoryButton(kind, unpinned, openPopover));
+      wrap.append(categoryButton(kind, unpinned, openPopover, members.length));
       parts.push(wrap);
     } else {
       // No button for this kind: an unpinned control has nowhere to go, so it
@@ -282,28 +289,37 @@ function buildLine(rerender, model = MODEL) {
   // firmly than a gap between three same-looking groups ever did.
   const pills = [];
   const glyphs = [];
+  let filterGlyph = null;
   for (const parts of order) {
     for (const part of parts) {
       const element = part.classList.contains("pop-wrap")
         ? part.firstElementChild
         : part;
-      (element.classList.contains("chip") || element.classList.contains("well")
-        ? pills
-        : glyphs
-      ).push(part);
+      if (
+        element.classList.contains("chip") ||
+        element.classList.contains("well")
+      ) {
+        pills.push(part);
+      } else if (element.getAttribute("aria-label") === "Filter") {
+        filterGlyph = part;
+      } else {
+        glyphs.push(part);
+      }
     }
   }
 
+  // Where the filter glyph goes is the question. On the RIGHT it joins the
+  // other ways-in, and the clusters split cleanly by kind: values left,
+  // mechanisms right. At the BEGINNING it leads the pills it owns — the pills
+  // are filters and the glyph opens more of them — and the right cluster then
+  // holds only the mechanisms that have no pills of their own.
+  if (state.filterAt === "left" && filterGlyph) line.append(filterGlyph);
   for (const pill of pills) line.append(pill);
   line.append(h(`<span class="spacer"></span>`));
   const cluster = h(`<span class="glyphs"></span>`);
-  for (const glyph of glyphs) {
-    const sep =
-      state.separator === "rule" ? h(`<span class="rule"></span>`) : null;
-    if (sep && cluster.childElementCount > 0) cluster.append(sep);
-    cluster.append(glyph);
-  }
-  if (glyphs.length > 0) line.append(cluster);
+  if (state.filterAt === "right" && filterGlyph) cluster.append(filterGlyph);
+  for (const glyph of glyphs) cluster.append(glyph);
+  if (cluster.childElementCount > 0) line.append(cluster);
 
   document.addEventListener("click", () => {
     const pop = line.querySelector(".cat-pop");
@@ -391,15 +407,14 @@ const { page } = shell("CATEGORIES", [
     },
   },
   {
-    label: "SEPARATOR",
-    value: state.separator,
+    label: "FILTER GLYPH",
+    value: state.filterAt,
     options: [
-      { label: "Gap", value: "gap" },
-      { label: "Rule", value: "rule" },
-      { label: "None", value: "none" },
+      { label: "With the others", value: "right" },
+      { label: "Leading its pills", value: "left" },
     ],
     onChange: (value) => {
-      state.separator = value;
+      state.filterAt = value;
       render(page);
     },
   },

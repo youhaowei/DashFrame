@@ -182,9 +182,16 @@ it, so the line cannot overflow because a reader's window is narrow — it can o
 overflow because an author pinned more than fits, which was already the stated
 principle and is now the only way it happens.
 
-The confidentiality rule is unchanged and now sits on the button: it may reflect
+**The count is the whole category, not the remainder.** `▽ 4` means four
+exposed filters on this chart, whether two of them are pinned beside it or none
+are. Counting only what is hidden behind the button breaks the moment the glyph
+sits next to its own pills: `▽ 2` beside two pills reads as a label for those
+two. Counting the category is unambiguous wherever the glyph sits — it heads the
+group, and the number is how big the group is.
+
+The confidentiality rule is unchanged and sits on the button: it may reflect
 only **exposed** controls. A hidden filter must not widen it, appear in it, or
-raise a count on it. A button that betrays the existence of a filter the author
+raise the count. A button that betrays the existence of a filter the author
 chose to hide is the passive mark rejected above, wearing a different shape.
 
 **The wording sheds its kind word, and a glyph marks the exception.** A chip

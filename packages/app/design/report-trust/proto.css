@@ -791,3 +791,9 @@ button[aria-pressed="true"] {
 .line .glyphs .rule {
   margin: 0 -2px;
 }
+
+/* A filter glyph leading its pills sits tighter to them than the right
+   cluster's spacing, because it belongs to them rather than to the mechanisms. */
+.line > .pop-wrap:first-child {
+  margin-right: 2px;
+}
