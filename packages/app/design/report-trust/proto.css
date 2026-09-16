@@ -582,44 +582,62 @@ button[aria-pressed="true"] {
 /* A category button names a kind: Filter, Sort, Rows. Quiet when the reader
    has nothing set, and carrying its state when they do. Notion's toolbar
    reads this way — the kind is a button you open, not a chip you decode. */
+/* Flat, with no pill of its own. A chip and a well are both containers that
+   say "this is a value"; a category button is not a value, and giving it the
+   same shape puts it in the line it is supposed to stand outside of. Treatment
+   separates the categories from the filter pills, so the gap does not have to
+   carry that alone. */
 .cat {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   height: 24px;
-  padding: 0 9px;
+  padding: 0 2px;
   border: 0;
-  border-radius: 999px;
-  background: transparent;
+  border-radius: 0;
+  background: none;
   color: var(--neutral-fg-subtle);
   font: inherit;
   font-size: 11.5px;
   font-weight: 600;
   cursor: pointer;
   transition:
-    background 160ms ease,
-    color 160ms ease;
+    color 160ms ease,
+    opacity 160ms ease;
 }
-.cat:hover {
-  background: var(--neutral-bg-muted);
-  color: var(--neutral-fg);
-}
+.cat:hover,
 .cat[aria-expanded="true"] {
-  background: var(--neutral-bg-muted);
+  background: none;
   color: var(--neutral-fg);
 }
-/* Set means the reader has moved it off the author's value. */
-.cat.set {
-  background: color-mix(in oklab, var(--palette-primary) 12%, transparent);
-  color: color-mix(in oklab, var(--palette-primary) 82%, var(--neutral-fg));
+.cat:focus-visible {
+  outline: 2px solid var(--palette-primary);
+  outline-offset: 3px;
+  border-radius: 4px;
 }
+/* Set means the reader has moved it off the author's value. With no pill to
+   tint, that reads as colour on the glyph itself. */
+.cat.set {
+  color: var(--palette-primary);
+}
+.cat.set .glyph {
+  opacity: 1;
+}
+/* The count is the one thing that keeps a container: it is a value, and a bare
+   numeral beside a glyph reads as part of it. */
 .cat .count {
-  min-width: 15px;
-  padding: 0 4px;
+  min-width: 16px;
+  padding: 1px 5px;
   border-radius: 999px;
-  background: var(--neutral-bg);
+  background: var(--neutral-bg-muted);
+  color: var(--neutral-fg-subtle);
   font-size: 10.5px;
+  font-weight: 600;
   text-align: center;
+}
+.cat.set .count {
+  background: color-mix(in oklab, var(--palette-primary) 16%, transparent);
+  color: color-mix(in oklab, var(--palette-primary) 85%, var(--neutral-fg));
 }
 .cat .glyph {
   width: 12px;

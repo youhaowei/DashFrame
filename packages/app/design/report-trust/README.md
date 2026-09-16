@@ -151,10 +151,16 @@ control it is.
 
 That settles four things at once.
 
-**No per-chip kind glyph.** The group already names the kind, so spending a
-glyph on every chip to repeat it is waste. **Icon · none.** This also means the
-design system does not need a funnel, so `libs/stdui` is untouched — the change
-that was the most expensive option is now not required at all.
+**A category button is flat, and carries no pill.** A chip and a well are both
+containers that say "this is a value". A category button is not a value, so
+giving it the same shape puts it inside the line it is meant to stand outside
+of. Flat is what separates the categories from the filter pills, which means
+the gap between groups no longer has to carry that distinction on its own.
+
+The one exception is the count, which *is* a value: a bare numeral beside a
+glyph reads as part of the glyph, so the count keeps a small tag. A control the
+reader has turned shows as colour on the glyph itself rather than as a tinted
+pill.
 
 **Only the filter group is ever more than one chip.**
 `InsightRuntimeDeclaration` declares any number of filters but exactly one sort
