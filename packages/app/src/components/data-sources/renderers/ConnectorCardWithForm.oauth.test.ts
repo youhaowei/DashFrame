@@ -6,16 +6,21 @@ import type {
   RemoteApiConnector,
 } from "@dashframe/engine";
 
-const { cardState, execute, mutate } = vi.hoisted(() => ({
+const { cardState, execute, mutate, openUrl } = vi.hoisted(() => ({
   cardState: {
     onConnect: undefined as (() => Promise<void>) | undefined,
     onFileSelect: undefined as ((file: File) => Promise<void>) | undefined,
   },
   execute: vi.fn(),
   mutate: vi.fn(),
+  openUrl: vi.fn(),
 }));
 
-vi.mock("@/data/host", () => ({ requestHost: mutate }));
+vi.mock("@/data/host", async (importOriginal) => ({
+  HostOperationError: (await importOriginal<typeof import("@/data/host")>())
+    .HostOperationError,
+  requestHost: mutate,
+}));
 vi.mock("@/hooks/useConnectorForm", () => ({
   useConnectorForm: () => ({
     form: { Field: () => null },
@@ -26,7 +31,8 @@ vi.mock("@/hooks/useConnectorForm", () => ({
   }),
 }));
 vi.mock("@/lib/oauth-authorization-target", () => ({
-  createOAuthAuthorizationTarget: () => null,
+  OAuthPopupBlockedError: class extends Error {},
+  openOAuthAuthorizationUrl: openUrl,
 }));
 vi.mock("./ConnectorCard", () => ({
   ConnectorCard: ({
@@ -42,10 +48,7 @@ vi.mock("./ConnectorCard", () => ({
   },
 }));
 
-import {
-  ConnectorCardWithForm,
-  rejectOAuthSetupWithoutAuthorizationUrl,
-} from "./ConnectorCardWithForm";
+import { ConnectorCardWithForm } from "./ConnectorCardWithForm";
 
 const oauthConnector = {
   id: "googleAnalytics",
@@ -61,7 +64,7 @@ const fileConnector = {
   authKind: "none",
 } as FileSourceConnector;
 
-describe("rejectOAuthSetupWithoutAuthorizationUrl", () => {
+describe("ConnectorCardWithForm OAuth setup", () => {
   beforeEach(() => {
     cardState.onConnect = undefined;
     cardState.onFileSelect = undefined;
@@ -75,6 +78,8 @@ describe("rejectOAuthSetupWithoutAuthorizationUrl", () => {
     });
     mutate.mockReset();
     mutate.mockResolvedValue(undefined);
+    openUrl.mockReset();
+    openUrl.mockResolvedValue(undefined);
   });
 
   it("holds onboarding before OAuth setup and releases it when setup fails", async () => {
@@ -213,27 +218,156 @@ describe("rejectOAuthSetupWithoutAuthorizationUrl", () => {
     });
   });
 
-  it("cancels the issued setup session before reporting the missing URL", async () => {
-    const close = vi.fn();
-
-    await expect(
-      rejectOAuthSetupWithoutAuthorizationUrl("session-1", {
-        kind: "popup",
-        open: vi.fn(),
-        close,
+  function renderOAuthCard(unavailableReason?: string) {
+    const onActivityChange = vi.fn(() => true);
+    render(
+      createElement(ConnectorCardWithForm, {
+        connector: oauthConnector,
+        onFileSelect: vi.fn(),
+        onConnect: vi.fn(),
+        onOAuthConnect: vi.fn(),
+        onActivityChange,
+        unavailableReason,
       }),
-    ).rejects.toThrow("Google authorization URL was not issued");
+    );
+    return { onActivityChange };
+  }
 
-    expect(mutate).toHaveBeenCalledOnce();
-    expect(mutate.mock.calls[0]?.[1]).toEqual({ sessionId: "session-1" });
-    expect(close).toHaveBeenCalledOnce();
+  it("does not start setup or open anything when the server cannot start OAuth", async () => {
+    const { onActivityChange } = renderOAuthCard(
+      "Google sign-in isn't set up on this server.",
+    );
+
+    await act(async () => {
+      await cardState.onConnect?.();
+    });
+
+    expect(onActivityChange).not.toHaveBeenCalled();
+    expect(mutate).not.toHaveBeenCalled();
+    expect(openUrl).not.toHaveBeenCalled();
   });
 
-  it("preserves the primary error when cancellation fails", async () => {
-    mutate.mockRejectedValue(new Error("cleanup failed"));
+  async function setupErrorMessage(cause: unknown) {
+    mutate.mockRejectedValue(cause);
+    let shown: string | undefined;
+    execute.mockImplementation(
+      async (
+        action: () => Promise<unknown>,
+        options?: { errorMessage?: (error: unknown) => string | undefined },
+      ) => {
+        try {
+          return await action();
+        } catch (error) {
+          shown = options?.errorMessage?.(error);
+          return null;
+        }
+      },
+    );
+    renderOAuthCard();
+    await act(async () => {
+      await cardState.onConnect?.();
+    });
+    return shown;
+  }
 
-    await expect(
-      rejectOAuthSetupWithoutAuthorizationUrl("session-2", null),
-    ).rejects.toThrow("Google authorization URL was not issued");
+  it("shows the server's reason when it rejects setup", async () => {
+    const { HostOperationError } = await import("@/data/host");
+    expect(
+      await setupErrorMessage(
+        new HostOperationError(
+          "Google Analytics OAuth is not configured",
+          undefined,
+          undefined,
+          true,
+        ),
+      ),
+    ).toBe("Google Analytics OAuth is not configured");
+  });
+
+  it("keeps generic copy for network failures", async () => {
+    expect(
+      await setupErrorMessage(new TypeError("Failed to fetch")),
+    ).toBeUndefined();
+  });
+
+  it("opens nothing when setup fails to start", async () => {
+    mutate.mockRejectedValue(
+      new Error("Google Analytics OAuth is not configured"),
+    );
+    renderOAuthCard();
+
+    await act(async () => {
+      await cardState.onConnect?.();
+    });
+
+    expect(openUrl).not.toHaveBeenCalled();
+  });
+
+  it("opens the authorization URL only after the server issues it", async () => {
+    const order: string[] = [];
+    mutate.mockImplementation(async (operation: string) => {
+      order.push(operation);
+      if (operation === "startConnectorSetup") {
+        return {
+          sessionId: "session-1",
+          authorizeUrl: "https://accounts.google.com/auth",
+        };
+      }
+      return { state: "awaiting-user-auth" };
+    });
+    openUrl.mockImplementation(async (url: string) => {
+      order.push(`open:${url}`);
+    });
+    renderOAuthCard();
+
+    const connecting = cardState.onConnect?.();
+    await act(async () => {
+      await vi.waitFor(() => expect(openUrl).toHaveBeenCalled());
+    });
+
+    expect(order.slice(0, 2)).toEqual([
+      "startConnectorSetup",
+      "open:https://accounts.google.com/auth",
+    ]);
+    expect(connecting).toBeInstanceOf(Promise);
+  });
+
+  it("cancels the issued session when no authorization URL comes back", async () => {
+    mutate.mockImplementation(async (operation: string) =>
+      operation === "startConnectorSetup"
+        ? { sessionId: "session-1" }
+        : undefined,
+    );
+    renderOAuthCard();
+
+    await act(async () => {
+      await cardState.onConnect?.();
+    });
+
+    expect(openUrl).not.toHaveBeenCalled();
+    expect(mutate).toHaveBeenLastCalledWith("cancelConnectorSetup", {
+      sessionId: "session-1",
+    });
+  });
+
+  it("cancels the issued session when the popup is blocked", async () => {
+    mutate.mockImplementation(async (operation: string) =>
+      operation === "startConnectorSetup"
+        ? {
+            sessionId: "session-2",
+            authorizeUrl: "https://accounts.google.com/auth",
+          }
+        : undefined,
+    );
+    openUrl.mockRejectedValue(new Error("blocked"));
+    renderOAuthCard();
+
+    await act(async () => {
+      await cardState.onConnect?.();
+    });
+
+    expect(mutate).toHaveBeenLastCalledWith("cancelConnectorSetup", {
+      sessionId: "session-2",
+    });
   });
 });

@@ -1,6 +1,9 @@
-import { requestHost } from "@/data/host";
+import { HostOperationError, requestHost } from "@/data/host";
 import { useConnectorForm } from "@/hooks/useConnectorForm";
-import { createOAuthAuthorizationTarget } from "@/lib/oauth-authorization-target";
+import {
+  OAuthPopupBlockedError,
+  openOAuthAuthorizationUrl,
+} from "@/lib/oauth-authorization-target";
 import {
   isFileConnector,
   isRemoteApiConnector,
@@ -40,6 +43,8 @@ interface ConnectorCardWithFormProps {
   expanded?: boolean;
   /** Toggle handler for the disclosure header. */
   onToggle?: () => void;
+  /** Why this server cannot start setup for the connector, if it cannot. */
+  unavailableReason?: string;
 }
 
 const POLL_INTERVAL_MS = 2_000;
@@ -85,8 +90,8 @@ async function settleOAuthPoll(
     return true;
   }
   if (current.state === "failed" || current.state === "expired") {
-    throw new Error(
-      current.failureMessage ?? "Google authorization did not complete",
+    throw new OAuthSetupError(
+      current.failureMessage ?? "Google sign-in didn't finish. Try again.",
     );
   }
   return false;
@@ -117,13 +122,38 @@ async function pollOAuthCompletion(
   throw new Error("Google authorization timed out");
 }
 
-export async function rejectOAuthSetupWithoutAuthorizationUrl(
-  sessionId: string,
-  authorizationTarget: ReturnType<typeof createOAuthAuthorizationTarget>,
-): Promise<never> {
+/** An OAuth setup failure whose message is written for the person connecting. */
+class OAuthSetupError extends Error {}
+
+/**
+ * Only messages meant for people reach the card: the server's own setup
+ * rejection, a blocked popup, or the session's recorded failure. Network and
+ * parse failures keep the generic copy.
+ */
+function oauthSetupErrorMessage(error: unknown): string | undefined {
+  if (
+    error instanceof OAuthSetupError ||
+    error instanceof OAuthPopupBlockedError
+  )
+    return error.message;
+  return undefined;
+}
+
+async function startSetup(connector: RemoteApiConnector) {
+  try {
+    return await requestHost("startConnectorSetup", {
+      connectorId: connector.id,
+      requestedName: connector.name,
+    });
+  } catch (error) {
+    if (error instanceof HostOperationError && error.serverMessage)
+      throw new OAuthSetupError(error.message);
+    throw error;
+  }
+}
+
+async function cancelSetup(sessionId: string): Promise<void> {
   await requestHost("cancelConnectorSetup", { sessionId }).catch(() => {});
-  authorizationTarget?.close();
-  throw new Error("Google authorization URL was not issued");
 }
 
 async function runOAuthSetup(
@@ -131,38 +161,19 @@ async function runOAuthSetup(
   onOAuthConnect: ConnectorCardWithFormProps["onOAuthConnect"],
   token: PollToken,
 ): Promise<void> {
-  const authorizationTarget = createOAuthAuthorizationTarget();
-  let session: { sessionId: string; authorizeUrl?: string };
-  try {
-    session = await requestHost("startConnectorSetup", {
-      connectorId: connector.id,
-      requestedName: connector.name,
-    });
-  } catch (error) {
-    authorizationTarget?.close();
-    throw error;
-  }
+  // Nothing opens until the server has issued an authorization URL: a failed
+  // start surfaces its own message instead of stranding a blank window.
+  const session = await startSetup(connector);
   if (!session.authorizeUrl) {
-    return rejectOAuthSetupWithoutAuthorizationUrl(
-      session.sessionId,
-      authorizationTarget,
-    );
-  }
-  if (!authorizationTarget) {
-    await requestHost("cancelConnectorSetup", {
-      sessionId: session.sessionId,
-    });
-    throw new Error(
-      "Google sign-in was blocked. Allow popups for DashFrame and try again.",
+    await cancelSetup(session.sessionId);
+    throw new OAuthSetupError(
+      "Couldn't start Google sign-in. Try again in a moment.",
     );
   }
   try {
-    await authorizationTarget.open(session.authorizeUrl);
+    await openOAuthAuthorizationUrl(session.authorizeUrl);
   } catch (error) {
-    await requestHost("cancelConnectorSetup", {
-      sessionId: session.sessionId,
-    }).catch(() => {});
-    authorizationTarget.close();
+    await cancelSetup(session.sessionId);
     throw error;
   }
   await pollOAuthCompletion(
@@ -198,6 +209,7 @@ export function ConnectorCardWithForm({
   onActivityChange,
   expanded,
   onToggle,
+  unavailableReason,
 }: ConnectorCardWithFormProps) {
   // Hook called at component top level - safe!
   const { form, formFields, execute, isSubmitting, submitError } =
@@ -252,14 +264,16 @@ export function ConnectorCardWithForm({
       );
       return;
     }
+    if (unavailableReason) return;
     if (onActivityChange?.(true) === false) return;
     if (connector.authKind === "oauth") {
       const token = pollToken.current;
       token.cancelled = false;
       token.activityHeld = true;
       token.activityTransferred = false;
-      const result = await execute(() =>
-        runOAuthSetup(connector, onOAuthConnect, token),
+      const result = await execute(
+        () => runOAuthSetup(connector, onOAuthConnect, token),
+        { errorMessage: oauthSetupErrorMessage },
       );
       token.activityHeld = false;
       if (result === null && !token.activityTransferred) {
@@ -288,6 +302,7 @@ export function ConnectorCardWithForm({
       onConnect={handleConnect}
       isLoading={isSubmitting}
       submitError={submitError}
+      unavailableReason={unavailableReason}
     >
       {/* Render TanStack Form fields */}
       {formFields.map((fieldDef) => (

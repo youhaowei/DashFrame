@@ -1,7 +1,9 @@
 import { localFileConnector } from "@dashframe/connector-local";
+import type { ConnectorCatalogEntry } from "@dashframe/types";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  getConnectorCatalog,
   getConnectorCatalogEntries,
   LOCAL_CATALOG_ENTRY,
 } from "./connector-catalog";
@@ -36,5 +38,53 @@ describe("connector catalog OAuth metadata", () => {
       authKind: "oauth",
       formFields: [],
     });
+  });
+});
+
+describe("connector catalog OAuth availability", () => {
+  const googleAnalytics = (entries: ConnectorCatalogEntry[]) =>
+    entries.find(({ id }) => id === "googleAnalytics");
+
+  it("marks Google Analytics unavailable when no OAuth client is configured", async () => {
+    const entries = await getConnectorCatalog({
+      getServerEndpoint: () => "http://127.0.0.1:4000",
+    });
+
+    expect(googleAnalytics(entries)?.unavailableReason).toMatch(
+      /Google sign-in isn't set up on this server/,
+    );
+    for (const entry of entries.filter(({ authKind }) => authKind !== "oauth"))
+      expect(entry).not.toHaveProperty("unavailableReason");
+  });
+
+  it("leaves Google Analytics available when an OAuth client is configured", async () => {
+    const entries = await getConnectorCatalog({
+      googleOAuth: { clientId: "client", clientSecret: "secret" },
+      getServerEndpoint: () => "http://127.0.0.1:4000",
+    });
+
+    expect(googleAnalytics(entries)).not.toHaveProperty("unavailableReason");
+  });
+
+  it("marks Google Analytics unavailable on a public host with no redirect base", async () => {
+    const googleOAuth = { clientId: "client", clientSecret: "secret" };
+    const getServerEndpoint = () => "https://dashframe.example";
+
+    expect(
+      googleAnalytics(
+        await getConnectorCatalog({ googleOAuth, getServerEndpoint }),
+      )?.unavailableReason,
+    ).toMatch(/DASHFRAME_OAUTH_REDIRECT_BASE/);
+    expect(
+      googleAnalytics(
+        await getConnectorCatalog({
+          googleOAuth: {
+            ...googleOAuth,
+            redirectBase: "https://dashframe.example",
+          },
+          getServerEndpoint,
+        }),
+      ),
+    ).not.toHaveProperty("unavailableReason");
   });
 });
