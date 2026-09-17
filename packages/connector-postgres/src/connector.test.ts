@@ -1397,7 +1397,7 @@ describe("reserved column names (Arrow safety)", () => {
     const spyClient = makeSpyClient(rows);
     const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
 
-    // Must not throw (unfiltered, these crash tableFromArrays).
+    // Must not throw (unfiltered, these crash Arrow column building).
     const result = await connector.query(
       "SELECT * FROM weird",
       crypto.randomUUID(),

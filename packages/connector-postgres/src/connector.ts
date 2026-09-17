@@ -254,6 +254,7 @@ const DANGEROUS_COLUMN_NAMES = new Set([
  *   OID 701 float8      → JS number    → String(1.5) → Number ok     "number" ✓
  *   OID 18  char        → JS string    → OID "string" is stable      ✓
  *   OID 25  text        → JS string    → OID "string" is stable      ✓
+ *   OID 1042 bpchar     → JS string    → OID "string" is stable      ✓
  *   OID 1043 varchar    → JS string    → OID "string" is stable      ✓
  *   OID 1082 date       → JS Date      → String(date) parseable      "date"  ✓
  *   OID 1114 timestamp  → JS Date      → String(date) parseable      "date"  ✓
