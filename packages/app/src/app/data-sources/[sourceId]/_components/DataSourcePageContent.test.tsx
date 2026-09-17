@@ -57,12 +57,19 @@ const { mockCreateInsightFromTable } = vi.hoisted(() => ({
   mockCreateInsightFromTable: vi.fn(),
 }));
 
+const { mockUseDataFrames, mockUseDataFrameData, mockReloadPreview } =
+  vi.hoisted(() => ({
+    mockUseDataFrames: vi.fn(),
+    mockUseDataFrameData: vi.fn(),
+    mockReloadPreview: vi.fn(),
+  }));
+
 vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
   useQuery_experimental: nativeQueryMock((ref: { _path: string }) => {
     if (ref._path === "listDataSources") return mockUseDataSources();
     if (ref._path === "listDataTables") return mockUseDataTables();
-    if (ref._path === "listDataFrames") return { data: [] };
+    if (ref._path === "listDataFrames") return mockUseDataFrames();
     throw new Error(`Unexpected query: ${ref._path}`);
   }),
   useMutation: nativeMutationMock((ref: { _path: string }) => {
@@ -76,7 +83,7 @@ vi.mock("@/data/host", () => ({
   useHostQuery: hostQueryMock((ref: { _path: string }) => {
     if (ref._path === "listDataSources") return mockUseDataSources();
     if (ref._path === "listDataTables") return mockUseDataTables();
-    if (ref._path === "listDataFrames") return { data: [] };
+    if (ref._path === "listDataFrames") return mockUseDataFrames();
     throw new Error(`Unexpected query: ${ref._path}`);
   }),
   useHostMutation: hostMutationMock((ref: { _path: string }) => {
@@ -99,7 +106,7 @@ vi.mock("@/components/assistant/artifact-context", () => ({
 }));
 
 vi.mock("@/hooks/useDataFrameData", () => ({
-  useDataFrameData: () => ({ data: null, isLoading: false }),
+  useDataFrameData: () => mockUseDataFrameData(),
 }));
 
 vi.mock("@/lib/connectors/registry", () => ({
@@ -164,7 +171,9 @@ vi.mock("@tanstack/react-router", () => ({
 
 vi.mock("@dashframe/ui", () => ({
   Breadcrumb: () => null,
-  VirtualTable: () => null,
+  VirtualTable: ({ rows }: { rows: unknown[] }) => (
+    <div data-testid="virtual-table" data-rows={rows.length} />
+  ),
 }));
 
 vi.mock("@/components/artifacts/ArtifactSwitcher", () => ({
@@ -384,6 +393,51 @@ function openRenameSource() {
   return screen.getByDisplayValue("My Database");
 }
 
+// ── Data-preview fixtures ─────────────────────────────────────────────────────
+
+const FRAME_ID = "frame-1" as import("@dashframe/types").UUID;
+
+/**
+ * The real `useDataFrameData` always returns all four fields. Building the stub
+ * through this helper keeps `error` and `reload` present, so a test can never
+ * silently exercise a shape the hook does not produce.
+ */
+function previewResult(overrides: {
+  data?: { rows: unknown[]; columns: unknown[] } | null;
+  isLoading?: boolean;
+  error?: string | null;
+}) {
+  return {
+    data: overrides.data ?? null,
+    isLoading: overrides.isLoading ?? false,
+    error: overrides.error ?? null,
+    entry: undefined,
+    reload: mockReloadPreview,
+  };
+}
+
+/** Render with a selected table whose DataFrame exists, so the preview card shows. */
+function renderWithPreviewCard() {
+  mockUseDataSources.mockReturnValue({
+    data: [DATA_SOURCE],
+    isLoading: false,
+  });
+  mockUseDataTables.mockReturnValue({
+    data: [
+      {
+        id: "table-orders",
+        name: "Orders",
+        dataSourceId: SOURCE_ID,
+        dataFrameId: FRAME_ID,
+        fields: [],
+        metrics: [],
+      },
+    ],
+  });
+  mockUseDataFrames.mockReturnValue({ data: [{ id: FRAME_ID }] });
+  return render(<DataSourcePageContent sourceId={SOURCE_ID} />);
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe("DataSourcePageContent — loading state contract", () => {
@@ -397,6 +451,8 @@ describe("DataSourcePageContent — loading state contract", () => {
       tablesWritten: [],
     });
     mockUseDataTables.mockReturnValue({ data: [] });
+    mockUseDataFrames.mockReturnValue({ data: [] });
+    mockUseDataFrameData.mockReturnValue(previewResult({}));
   });
 
   it("shows loading while the data-sources query is fetching and then shows content — never 'not found'", async () => {
@@ -798,6 +854,63 @@ describe("DataSourcePageContent — loading state contract", () => {
 // Contract: two analysis columns for the same base field but different join
 // instances (field_<uuid>_j0 and field_<uuid>_j1) must occupy DISTINCT map
 // entries. j1 must never overwrite j0.
+
+describe("DataSourcePageContent — data preview states", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useConfirmDialogStore.getState().close();
+    mockUseDataFrames.mockReturnValue({ data: [] });
+    mockUseDataFrameData.mockReturnValue(previewResult({}));
+  });
+
+  it("shows the loading state while the preview page is in flight", () => {
+    mockUseDataFrameData.mockReturnValue(previewResult({ isLoading: true }));
+    renderWithPreviewCard();
+
+    screen.getByText("Loading data...");
+    expect(screen.queryByText("No data available")).toBeNull();
+    expect(screen.queryByText("Couldn't load the preview")).toBeNull();
+  });
+
+  it("shows a distinct error state with a retry control when the preview fails", () => {
+    mockUseDataFrameData.mockReturnValue(
+      previewResult({ error: "connection reset" }),
+    );
+    renderWithPreviewCard();
+
+    // The regression: a failed load previously fell through to the genuine
+    // empty state, so the user saw "No data available" for a broken request.
+    screen.getByText("Couldn't load the preview");
+    expect(screen.queryByText("No data available")).toBeNull();
+    expect(screen.queryByText("Loading data...")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(mockReloadPreview).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the empty state only for a successful zero-row result", () => {
+    mockUseDataFrameData.mockReturnValue(
+      previewResult({ data: { rows: [], columns: [{ name: "id" }] } }),
+    );
+    renderWithPreviewCard();
+
+    screen.getByText("No data available");
+    expect(screen.queryByTestId("virtual-table")).toBeNull();
+    expect(screen.queryByText("Couldn't load the preview")).toBeNull();
+  });
+
+  it("renders the table for a successful non-empty result", () => {
+    mockUseDataFrameData.mockReturnValue(
+      previewResult({ data: { rows: [{ id: 1 }], columns: [{ name: "id" }] } }),
+    );
+    renderWithPreviewCard();
+
+    expect(screen.getByTestId("virtual-table").getAttribute("data-rows")).toBe(
+      "1",
+    );
+    expect(screen.queryByText("No data available")).toBeNull();
+  });
+});
 
 describe("buildAnalysisByFieldId — repeat-join identity", () => {
   // Repeat-join fixtures:
