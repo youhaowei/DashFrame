@@ -69,9 +69,8 @@ export function DataSourceSelector({
 
   // Both subscriptions gate the list. The per-source counts come from
   // `listDataTables`; before its first successful load it defaults to `[]`, so
-  // every source would read "0 tables". Keying off `isPending` /
-  // `isLoadingError` rather than `isError` keeps a transient refetch failure on
-  // already-loaded data from replacing the list with a full-surface error.
+  // every source would read "0 tables". An error in either subscription shows
+  // the error state.
   const isLoading = sourcesPending || tablesPending;
   const hasLoadError = sourcesLoadError || tablesLoadError;
 
