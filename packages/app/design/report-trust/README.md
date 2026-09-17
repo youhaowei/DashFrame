@@ -48,8 +48,8 @@ exposes, and can never expose what the question fixed.
 Three combinations are legal on an item:
 
 (An author who pins more than fits is still overflowing, but it is now their
-doing and the item pane can say so, rather than a rule silently choosing for
-them.)
+doing and theirs to judge on their own tile, rather than a rule silently
+choosing for them.)
 
 - **hidden + fixed** — the default, and hidden means the reader is told nothing:
   not the value, not a count, not that any filter exists. Most filters are query
@@ -369,14 +369,15 @@ decision.
 
 ## Still open
 
-- **Group order in the popover** — sort before limit, or limit before sort.
-  Filter leads either way.
-- **Group separation in the popover** — what divides one category from the
-  next: a gap, a rule, or nothing beyond the glyph headings.
-- **Over-pinning** — what the item pane tells an author who pins more filters
-  than fit. The face can no longer overflow on its own, so this is the only
-  remaining overflow case, and it is an authoring-time warning rather than a
-  layout rule.
+Nothing on control disclosure. The last three were called:
+
+- **Group order in the popover: filter, sort, rows.** The order the chart is
+  built in — which rows are included, how they are ordered, how many are kept.
+- **Group separation in the popover: nothing drawn.** Each group already opens
+  with its glyph and name; a rule between four rows would be clutter.
+- **Over-pinning: the editor's decision, with no warning.** An author who pins
+  more filters than fit sees the result on their own tile and owns it. The item
+  pane does not warn, cap, or count.
 
 Closed by the one-door call: a **visible-but-unpinned sort or limit** goes
 behind the door, and since nothing mechanical is pinnable that is the only
