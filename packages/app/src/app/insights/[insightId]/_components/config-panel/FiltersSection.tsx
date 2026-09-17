@@ -486,7 +486,7 @@ function FilterEditor({
               }
             }}
           />
-          Viewers can change
+          Reports can show this filter
         </label>
         {viewerEditable && (
           <div className="space-y-3 border-t border-neutral-border/60 pt-3">
@@ -529,7 +529,7 @@ function FilterEditor({
                   setReaderChangeable(checked === true)
                 }
               />
-              Readers can change the value
+              Viewers can change the value
             </label>
             <div className="flex gap-4">
               <label className="flex cursor-pointer items-center gap-2 text-xs">

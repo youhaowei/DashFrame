@@ -42,8 +42,8 @@ interface DashboardItemProps {
   controls?: DashboardControl[];
   /** A reader turned one of this item's disclosed knobs. View-local. */
   onReaderChange?: (itemId: UUID, patch: DashboardItemOverrides) => void;
-  /** The reader has turned something on this tile during this visit. */
-  readerChanged?: boolean;
+  /** What the reader has turned on this tile during this visit. */
+  readerPatch?: DashboardItemOverrides;
   /** This tile's state, for the report-level roll-up. */
   onStateChange?: (itemId: UUID, state: VisualizationTileState) => void;
   className?: string;
@@ -61,7 +61,7 @@ export function DashboardItem({
   effectiveOverrides,
   controls = [],
   onReaderChange,
-  readerChanged = false,
+  readerPatch,
   onStateChange,
   className,
   style,
@@ -79,9 +79,9 @@ export function DashboardItem({
       onReaderChange: onReaderChange
         ? (patch: DashboardItemOverrides) => onReaderChange(item.id, patch)
         : undefined,
-      readerChanged,
+      readerPatch,
     }),
-    [item, controls, onReaderChange, readerChanged],
+    [item, controls, onReaderChange, readerPatch],
   );
   const handleStateChange = useCallback(
     (state: VisualizationTileState) => onStateChange?.(item.id, state),

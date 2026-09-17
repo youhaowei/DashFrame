@@ -226,7 +226,7 @@ export function DashboardGrid({
             }
             controls={dashboard.controls ?? []}
             onReaderChange={onReaderChange}
-            readerChanged={itemTransientOverrides?.has(item.id) ?? false}
+            readerPatch={itemTransientOverrides?.get(item.id)}
             onStateChange={onTileStateChange}
           />
         </div>

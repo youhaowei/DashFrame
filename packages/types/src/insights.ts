@@ -128,8 +128,10 @@ export interface InsightRuntimeDeclaration {
     required?: boolean;
     allowClear?: boolean;
     /**
-     * Ceiling on whether a reader may change the value. Absent means `true`.
+     * Ceiling on whether a report gives a reader a knob. Absent means `true`.
      * A report may tighten this to `false` on one item; it can never loosen it.
+     * A report author's own saved override is not a reader change and is
+     * still allowed.
      */
     changeable?: boolean;
   }>;

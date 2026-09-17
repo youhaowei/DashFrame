@@ -119,6 +119,7 @@ export function TileControlLine({
   if (pinned.length === 0) return null;
   return (
     <div
+      role="group"
       className={cn("flex flex-wrap items-center gap-1.5", className)}
       aria-label="Chart filters"
     >
@@ -155,6 +156,17 @@ function doorPlacement(tile: Element): DoorPlacement {
   return { side: "bottom", align: "end" };
 }
 
+/** Whether the reader's changes this visit include this control. */
+function turnedBy(
+  patch: DashboardItemOverrides | undefined,
+  control: ExposedItemControl,
+): boolean {
+  if (!patch) return false;
+  if (control.kind === "sort") return Object.hasOwn(patch, "sorts");
+  if (control.kind === "limit") return Object.hasOwn(patch, "limit");
+  return patch.filters?.some((f) => f.id === control.filter?.id) ?? false;
+}
+
 const KIND_ORDER: readonly ItemControlKind[] = ["filter", "sort", "limit"];
 const KIND_HEADING: Record<
   ItemControlKind,
@@ -166,19 +178,20 @@ const KIND_HEADING: Record<
 };
 
 /**
- * The one door: everything the author exposed but did not pin. `isSet` tints
+ * The one door: everything the author exposed but did not pin. `readerPatch` tints
  * the button once the reader has turned something, so the state survives
  * when the popover closes.
  */
 export function TileControlsDoor({
   controls,
-  isSet = false,
+  readerPatch,
   ...context
-}: TileControlsProps & { isSet?: boolean }) {
+}: TileControlsProps & { readerPatch?: DashboardItemOverrides }) {
   const trigger = useRef<HTMLButtonElement>(null);
   const [placement, setPlacement] = useState<DoorPlacement>(BESIDE_RIGHT);
   const behind = controls.filter((control) => !control.pinned);
   if (behind.length === 0) return null;
+  const isSet = behind.some((control) => turnedBy(readerPatch, control));
   const canChange =
     context.onChange !== undefined && behind.some((c) => c.changeable);
 
@@ -323,7 +336,7 @@ function Knob({
     <Popover>
       <PopoverTrigger
         data-control-kind={control.kind}
-        className="inline-flex max-w-full cursor-pointer items-center gap-1 rounded-md border border-neutral-border bg-neutral-bg px-2 py-0.5 text-xs leading-5 transition-colors hover:bg-neutral-bg-subtle focus-visible:ring-2 focus-visible:ring-neutral-ring focus-visible:outline-none"
+        className="inline-flex max-w-full cursor-pointer items-center gap-1 rounded-md border border-neutral-border bg-neutral-bg px-2 py-0.5 text-xs leading-5 transition-colors duration-150 hover:bg-neutral-bg-subtle motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-neutral-ring focus-visible:outline-none"
         aria-label={`Change ${control.label || control.valueText}`}
       >
         <Words control={control} />
@@ -535,8 +548,13 @@ function ControlEditor({
   );
 }
 
-function coerce(raw: string, inputType: ControlInputType): unknown {
-  if (inputType !== "number") return raw;
+/**
+ * What the reader typed, as the kind of value the saved filter holds. The
+ * host refuses a value whose kind differs from the saved literal's, so that
+ * literal decides, not the column's type.
+ */
+function coerce(raw: string, like: unknown): unknown {
+  if (typeof like !== "number") return raw;
   const n = Number(raw);
   return Number.isFinite(n) ? n : raw;
 }
@@ -576,6 +594,7 @@ function FilterEditor({
   const current = control.override?.cleared
     ? ""
     : filterLiteral(control.override?.value ?? filter.value);
+  const savedLiteral = filterLiteral(filter.value);
 
   if (filter.operator === "between") {
     return (
@@ -585,6 +604,7 @@ function FilterEditor({
         key={JSON.stringify(current)}
         label={control.label || filter.field}
         range={current}
+        like={filterLiteral((savedLiteral as { low?: unknown } | null)?.low)}
         inputType={inputType}
         onCommit={emit}
         onClear={clear}
@@ -598,7 +618,7 @@ function FilterEditor({
         key={JSON.stringify(current)}
         label={control.label || filter.field}
         values={Array.isArray(current) ? current : []}
-        inputType={inputType}
+        like={Array.isArray(savedLiteral) ? savedLiteral[0] : undefined}
         onCommit={emit}
         onClear={clear}
       />
@@ -606,15 +626,55 @@ function FilterEditor({
   }
 
   return (
+    <ScalarEditor
+      key={displayValue(current)}
+      label={control.label || control.valueText}
+      value={displayValue(current)}
+      like={savedLiteral}
+      inputType={inputType}
+      onCommit={emit}
+      onClear={clear}
+    />
+  );
+}
+
+/**
+ * A single-value knob. Kept as a draft and committed on blur or Enter: each
+ * commit re-queries the chart, and a half-typed number ("0.") is not a value.
+ */
+function ScalarEditor({
+  label,
+  value,
+  like,
+  inputType,
+  onCommit,
+  onClear,
+}: {
+  label: string;
+  value: string;
+  like: unknown;
+  inputType: ControlInputType;
+  onCommit: (value: unknown) => void;
+  onClear: () => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  const commit = () => {
+    if (draft === value) return;
+    if (draft.trim() === "") onClear();
+    else onCommit(coerce(draft, like));
+  };
+  return (
     <Input
       type={inputType}
-      value={displayValue(current)}
-      aria-label={control.label || control.valueText}
+      value={draft}
+      aria-label={label}
       className="h-7 w-full text-xs"
-      onChange={(event: ChangeEvent<HTMLInputElement>) => {
-        const raw = event.target.value;
-        if (raw.trim() === "") clear();
-        else emit(coerce(raw, inputType));
+      onChange={(event: ChangeEvent<HTMLInputElement>) =>
+        setDraft(event.target.value)
+      }
+      onBlur={commit}
+      onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
+        if (event.key === "Enter") commit();
       }}
     />
   );
@@ -624,18 +684,18 @@ function FilterEditor({
  * An `in` knob: comma-separated values in a text box, whatever the column's
  * type, since a number box cannot hold a comma. Kept as a draft and parsed on
  * blur or Enter, because parsing per keystroke eats the comma the reader just
- * typed. Each value is coerced to the column's type.
+ * typed. Each value is coerced to the kind the saved list holds.
  */
 function ListEditor({
   label,
   values,
-  inputType,
+  like,
   onCommit,
   onClear,
 }: {
   label: string;
   values: readonly unknown[];
-  inputType: ControlInputType;
+  like: unknown;
   onCommit: (value: unknown[]) => void;
   onClear: () => void;
 }) {
@@ -645,7 +705,7 @@ function ListEditor({
       .split(",")
       .map((part) => part.trim())
       .filter(Boolean)
-      .map((part) => coerce(part, inputType));
+      .map((part) => coerce(part, like));
     if (parsed.length === 0) onClear();
     else onCommit(parsed);
   };
@@ -674,12 +734,14 @@ function ListEditor({
 function RangeEditor({
   label,
   range,
+  like,
   inputType,
   onCommit,
   onClear,
 }: {
   label: string;
   range: unknown;
+  like: unknown;
   inputType: ControlInputType;
   onCommit: (value: { low: unknown; high: unknown }) => void;
   onClear: () => void;
@@ -693,7 +755,7 @@ function RangeEditor({
   const commit = () => {
     if (low.trim() === "" && high.trim() === "") return onClear();
     if (low.trim() === "" || high.trim() === "") return;
-    onCommit({ low: coerce(low, inputType), high: coerce(high, inputType) });
+    onCommit({ low: coerce(low, like), high: coerce(high, like) });
   };
   const box = (
     value: string,

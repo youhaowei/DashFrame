@@ -123,12 +123,16 @@ describe("TileControlsDoor", () => {
     fireEvent.click(screen.getByRole("button", { name: "Chart controls" }));
     const knob = () => screen.getByLabelText("Min quantity");
 
+    // A draft until committed: every commit re-queries the chart.
     fireEvent.change(knob(), { target: { value: "5" } });
+    expect(onChange).not.toHaveBeenCalled();
+    fireEvent.blur(knob());
     expect(onChange).toHaveBeenLastCalledWith({
       filters: [{ id: "f-min", field: "quantity", operator: "gte", value: 5 }],
     });
 
     fireEvent.change(knob(), { target: { value: "" } });
+    fireEvent.blur(knob());
     expect(onChange).toHaveBeenLastCalledWith({
       filters: [expect.objectContaining({ id: "f-min", cleared: true })],
     });
@@ -142,7 +146,48 @@ describe("TileControlsDoor", () => {
       />,
     );
     fireEvent.change(knob(), { target: { value: "" } });
+    fireEvent.blur(knob());
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("sends the kind of value the saved filter holds, whatever the column lookup said", () => {
+    const onChange = vi.fn();
+    render(
+      <TileControlsDoor
+        {...context}
+        inputTypeFor={() => "text"}
+        controls={[minQuantity]}
+        onChange={onChange}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Chart controls" }));
+    const knob = screen.getByLabelText("Min quantity");
+    fireEvent.change(knob, { target: { value: "7" } });
+    fireEvent.keyDown(knob, { key: "Enter" });
+    expect(onChange).toHaveBeenLastCalledWith({
+      filters: [expect.objectContaining({ id: "f-min", value: 7 })],
+    });
+  });
+
+  it("is tinted by a change to something it holds, not by a pinned knob", () => {
+    const door = () => screen.getByRole("button", { name: "Chart controls" });
+    const { rerender } = render(
+      <TileControlsDoor
+        {...context}
+        controls={[region, minQuantity]}
+        readerPatch={{ filters: [{ ...region.filter!, value: "APAC" }] }}
+      />,
+    );
+    expect(door().className).not.toContain("text-palette-primary");
+
+    rerender(
+      <TileControlsDoor
+        {...context}
+        controls={[region, minQuantity]}
+        readerPatch={{ filters: [{ ...minQuantity.filter!, value: 4 }] }}
+      />,
+    );
+    expect(door().className).toContain("text-palette-primary");
   });
 
   it("lets a reader type a list, comma and all, and coerces it on commit", () => {

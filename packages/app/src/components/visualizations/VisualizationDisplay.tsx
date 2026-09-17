@@ -266,8 +266,8 @@ export interface VisualizationItemContext {
   dashboardControls: readonly DashboardControl[];
   /** A reader turned a knob. View-local; never persisted. */
   onReaderChange?: (patch: DashboardItemOverrides) => void;
-  /** The reader has turned something on this tile during this visit. */
-  readerChanged?: boolean;
+  /** What the reader has turned on this tile during this visit. */
+  readerPatch?: DashboardItemOverrides;
 }
 
 interface VisualizationDisplayProps {
@@ -611,7 +611,7 @@ function VisualizationDisplayContent({
     insight,
     reportId,
     controls: tileControls,
-    readerChanged: itemContext?.readerChanged,
+    readerPatch: itemContext?.readerPatch,
   });
   const framed = (body: React.ReactNode) =>
     tileHeader ? (
@@ -671,10 +671,10 @@ function VisualizationDisplayContent({
   // so spinning or surfacing a per-chart error would be misleading. The user
   // gets a Reload button (the actual fix) instead of instruction-as-homework.
   if (isMounted && engineUnavailable) {
-    return (
+    return framed(
       <div className="flex h-full w-full items-center justify-center px-6">
         <EngineUnavailableState className="w-full max-w-lg" />
-      </div>
+      </div>,
     );
   }
 
@@ -1041,13 +1041,13 @@ function tileChrome({
   insight,
   reportId,
   controls,
-  readerChanged,
+  readerPatch,
 }: {
   visualization: Visualization | null;
   insight: Insight | null | undefined;
   reportId: string | undefined;
   controls: ReturnType<typeof useTileControls>;
-  readerChanged: boolean | undefined;
+  readerPatch: DashboardItemOverrides | undefined;
 }) {
   if (!visualization) return null;
   return (
@@ -1056,7 +1056,7 @@ function tileChrome({
         name={visualization.name}
         insight={insight}
         reportId={reportId}
-        door={<TileControlsDoor {...controls} isSet={readerChanged} />}
+        door={<TileControlsDoor {...controls} readerPatch={readerPatch} />}
       />
       <TileControlLine className="mt-2" {...controls} />
     </>

@@ -273,7 +273,7 @@ function LimitOverrideRow({
 }
 
 // ---------------------------------------------------------------------------
-// Readers see — disclosure per declared runtime control
+// Viewers see — disclosure per declared runtime control
 // ---------------------------------------------------------------------------
 
 const VISIBILITY_OPTIONS: {
@@ -292,7 +292,7 @@ const UNPINNABLE_OPTIONS = VISIBILITY_OPTIONS.filter(
 
 /**
  * One declared control of the item's Insight, as the author decides what a
- * reader is told. Hidden is the default. "Readers can change" only appears
+ * reader is told. Hidden is the default. "Viewers can change" only appears
  * when the Insight allows it, and can only be turned off here: a report
  * tightens the ceiling, never loosens it. A key a report-level control owns
  * for this item is not the tile's to disclose.
@@ -336,9 +336,9 @@ function DisclosureRow({
                 onCheckedChange={(checked) =>
                   onChange({ changeable: checked ? undefined : false })
                 }
-                aria-label={`Readers can change ${name}`}
+                aria-label={`Viewers can change ${name}`}
               />
-              Readers can change
+              Viewers can change
             </label>
           )}
         </>
@@ -586,8 +586,8 @@ export function OverridePopover({
       ],
     })
       .catch((error: unknown) => {
-        console.error("Failed to save what readers see:", error);
-        toast.error("Couldn't save what readers see");
+        console.error("Failed to save what viewers see:", error);
+        toast.error("Couldn't save what viewers see");
       })
       .finally(() => {
         disclosuresInFlight.current -= 1;
@@ -724,7 +724,7 @@ export function OverridePopover({
             {declared.length > 0 && (
               <>
                 <p className="mb-1 text-xs font-medium text-neutral-fg-subtle">
-                  Readers see
+                  Viewers see
                 </p>
                 {declared.map((row) => (
                   <DisclosureRow

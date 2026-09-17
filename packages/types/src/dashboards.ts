@@ -110,7 +110,7 @@ export interface DashboardControl {
  * How one runtime control is disclosed to a reader of the report.
  *
  * - `hidden`  — the reader is not told the control exists: no value, no count.
- * - `visible` — disclosed, collapsed behind the tile's "more" chip.
+ * - `visible` — disclosed behind the tile's control button.
  * - `pinned`  — disclosed on the tile face.
  */
 export type DashboardItemControlVisibility = "hidden" | "visible" | "pinned";
@@ -121,8 +121,10 @@ export type DashboardItemControlVisibility = "hidden" | "visible" | "pinned";
  * Keyed by the declaration `key` for filters, and by the reserved keys `sort`
  * and `limit`. An absent entry means hidden, and changeable as the Insight
  * declared. `changeable` may only be `false`: a report tightens the Insight's
- * ceiling, never loosens it, so a reader can never change what the Insight's
- * author fixed. A key bound by a report-level `DashboardControl` is not drawn
+ * ceiling, never loosens it, so the report never hands a reader a knob the
+ * Insight's author withheld. This governs what the report draws; the host
+ * cannot tell a reader's value from a report author's saved override, so it
+ * checks declaration, type, and range, not `changeable`. A key bound by a report-level `DashboardControl` is not drawn
  * on the tile at all — its knob lives on the report bar.
  *
  * `pinned` puts a filter on the tile face; `visible` puts a control behind

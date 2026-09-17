@@ -38,7 +38,9 @@ describe("FiltersSection", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Edit filter Region" }));
     fireEvent.click(
-      await screen.findByRole("checkbox", { name: "Viewers can change" }),
+      await screen.findByRole("checkbox", {
+        name: "Reports can show this filter",
+      }),
     );
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
 
@@ -77,11 +79,13 @@ describe("FiltersSection", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Edit filter Region" }));
     fireEvent.click(
-      await screen.findByRole("checkbox", { name: "Viewers can change" }),
+      await screen.findByRole("checkbox", {
+        name: "Reports can show this filter",
+      }),
     );
     fireEvent.click(
       await screen.findByRole("checkbox", {
-        name: "Readers can change the value",
+        name: "Viewers can change the value",
       }),
     );
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
@@ -239,7 +243,7 @@ describe("FiltersSection", () => {
         name: "Edit filter Region, viewers can change",
       }),
     ).toBeTruthy();
-    expect(screen.queryByLabelText("Viewers can change")).toBeNull();
+    expect(screen.queryByLabelText("Reports can show this filter")).toBeNull();
   });
 
   it("follows the selected field label until the viewer label is edited", async () => {
@@ -266,7 +270,7 @@ describe("FiltersSection", () => {
       await screen.findByRole("option", { name: "Customer city" }),
     );
     await user.click(
-      screen.getByRole("checkbox", { name: "Viewers can change" }),
+      screen.getByRole("checkbox", { name: "Reports can show this filter" }),
     );
     expect(
       (screen.getByLabelText("Shown to viewers as") as HTMLInputElement).value,
@@ -297,7 +301,7 @@ describe("FiltersSection", () => {
       target: { value: "US" },
     });
     fireEvent.click(
-      screen.getByRole("checkbox", { name: "Viewers can change" }),
+      screen.getByRole("checkbox", { name: "Reports can show this filter" }),
     );
     expect(
       (screen.getByLabelText("Control key") as HTMLInputElement).value,

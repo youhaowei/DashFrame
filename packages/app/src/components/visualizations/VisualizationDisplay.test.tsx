@@ -6,7 +6,7 @@ import {
 } from "@/test/native-query-fixture";
 /** VisualizationDisplay saved execution and declared runtime-control coverage. */
 import type { Insight, Visualization } from "@dashframe/types";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   formatUpdatedAgo,
@@ -72,7 +72,8 @@ vi.mock("@/data/host", () => ({
   useHostMutation: hostMutationMock(() => ({ mutateAsync: vi.fn() })),
 }));
 
-vi.mock("@dashframe/engine", () => ({
+vi.mock("@dashframe/engine", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@dashframe/engine")>()),
   resolveEncodingToResultFrame: vi.fn().mockReturnValue({}),
   getMetricDisplayLabel: vi.fn().mockReturnValue(""),
 }));
@@ -92,7 +93,8 @@ vi.mock("@dashframe/visualization", () => ({
   useVisualization: vi.fn().mockReturnValue({ error: null }),
 }));
 
-vi.mock("@wystack/ui-react", () => ({
+vi.mock("@wystack/ui-react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@wystack/ui-react")>()),
   ErrorState: () => null,
   Spinner: () => null,
   Surface: ({ children }: { children: React.ReactNode }) => children,
@@ -118,16 +120,6 @@ vi.mock("@tanstack/react-router", () => ({
       {children}
     </a>
   ),
-}));
-
-vi.mock("@wystack/ui-react/icons", () => ({
-  ArrowUpDownIcon: () => null,
-  ChartIcon: () => null,
-  ControlsIcon: () => null,
-  FilterIcon: () => null,
-  ListIcon: () => null,
-  LayersIcon: () => null,
-  TableIcon: () => null,
 }));
 
 vi.mock("./EngineUnavailableState", () => ({
@@ -338,6 +330,61 @@ describe("VisualizationDisplay — report tile", () => {
     const source = await screen.findByRole("link", { name: insight.name });
     expect(source.getAttribute("href")).toBe(`/insights/${insight.id}`);
     expect(source.getAttribute("data-report-id")).toBe("report-a");
+  });
+});
+
+describe("VisualizationDisplay — tile controls", () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    vi.clearAllMocks();
+    cleanup();
+    setupCommonMocks();
+  });
+
+  it("keeps an open control popover through the reload its own change causes", async () => {
+    const itemContext = {
+      item: {
+        id: "item-1",
+        controls: { status: { visibility: "visible" } },
+      },
+      dashboardControls: [],
+      onReaderChange: vi.fn(),
+    } as never;
+    // Fresh props each time: the display is memoized and would skip the render.
+    const tile = () => (
+      <VisualizationDisplay
+        visualizationId="viz-1"
+        reportId="report-a"
+        itemContext={{ ...(itemContext as object) } as never}
+      />
+    );
+    const { rerender } = render(tile());
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Chart controls" }),
+    );
+    expect(screen.getByRole("dialog")).toBeTruthy();
+
+    mockUseInsightPagination.mockReturnValue({
+      fetchData: vi.fn(),
+      totalCount: 0,
+      columns: [],
+      resolvedFields: [],
+      isReady: false,
+      columnDisplayNames: {},
+    });
+    rerender(tile());
+    expect(screen.getByRole("dialog")).toBeTruthy();
+
+    mockUseChartEngine.mockReturnValue({ engineError: new Error("down") });
+    rerender(tile());
+    expect(screen.getByRole("dialog")).toBeTruthy();
   });
 });
 

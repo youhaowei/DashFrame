@@ -156,7 +156,7 @@ function RuntimeControlWords({
             onCommit({ changeable: next === true ? undefined : false })
           }
         />
-        Readers can change the value
+        Viewers can change the value
       </label>
     </div>
   );
@@ -411,7 +411,7 @@ export function SortSection({
 
       <div className="space-y-2 border-t border-neutral-border/60 pt-2">
         <label className="flex cursor-pointer items-center justify-between gap-3 text-xs">
-          <span>Viewers can change sort</span>
+          <span>Reports can show the sort</span>
           <WorkbenchSwitch
             checked={sortEnabled}
             onCheckedChange={(checked) => {
@@ -465,7 +465,7 @@ export function SortSection({
           </div>
         )}
         <label className="flex cursor-pointer items-center justify-between gap-3 text-xs">
-          <span>Viewers can set a limit</span>
+          <span>Reports can show the row limit</span>
           <WorkbenchSwitch
             checked={Boolean(runtimeDraft?.limit)}
             onCheckedChange={(checked) =>
