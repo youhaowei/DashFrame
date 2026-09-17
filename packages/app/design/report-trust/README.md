@@ -137,9 +137,12 @@ stay switchable on the page as the comparison that produced the call:
   the chart is filtered, never _by what_, which is the same failure as the
   rejected count.
 
-Note the design system has no funnel — `ArrowUpDownIcon` and `ListIcon` are the
-closest it offers — so adopting a filter glyph is a change to `libs/stdui`, with
-its own repo and its own gate, not a change to this app.
+Note the design system does not yet export a funnel — `ArrowUpDownIcon` and
+`ListIcon` are the closest it offers. `libs/stdui` re-exports lucide-react
+through a curated allowlist (`packages/ui-react/src/icons.tsx`), and lucide
+already ships `funnel`, `list-filter` and `arrow-down-wide-narrow`, so adopting
+one is a two-line allowlist addition: still a `libs/stdui` change with its own
+repo and gate, but not icon design.
 
 The **Authoring** section is the item pane in the workbench: type a label and
 the tile beside it changes. Clearing a label falls back to the value alone.
@@ -362,10 +365,10 @@ decision.
   remaining overflow case, and it is an authoring-time warning rather than a
   layout rule.
 - **The filter button's form** — glyph, word, or glyph plus a count of exposed
-  filters. A funnel would be the obvious glyph and the design system has none
-  (`ArrowUpDownIcon` and `ListIcon` are the closest), so this is the one place a
-  `libs/stdui` addition is still on the table — now for a single button rather
-  than every chip.
+  filters. A funnel would be the obvious glyph; lucide ships `funnel` and
+  `list-filter`, so it is an allowlist addition in `libs/stdui` rather than new
+  icon design (see section 2) — and now for a single button rather than every
+  chip.
 - **Visible-but-unpinned sort and limit** — a filter button is the filter
   group's affordance. Whether a sort or limit set to visible rather than pinned
   goes behind the same button, gets its own, or is simply not a legal
