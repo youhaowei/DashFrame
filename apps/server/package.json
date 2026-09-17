@@ -12,10 +12,6 @@
       "bun": "./src/app.ts",
       "default": "./src/app.ts"
     },
-    "./assistant-host": {
-      "bun": "./src/assistant-host.ts",
-      "default": "./src/assistant-host.ts"
-    },
     "./dashboard-item-updates": {
       "bun": "./src/functions/dashboard-item-updates.ts",
       "default": "./src/functions/dashboard-item-updates.ts"
