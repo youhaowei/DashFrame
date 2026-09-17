@@ -46,7 +46,7 @@ Model: `InsightFilter`
 
 ### Viewer controls
 
-Values a dashboard viewer may change through exposed field-filter controls. The insight runtime declaration defines allowed filters, sort, and limit, but the shipped dashboard viewer UI exposes only filter values. Sort and limit are author-owned item overrides available in edit mode.
+Values a dashboard viewer may change through the controls an author exposes. The insight runtime declaration defines allowed filters, sort, and limit. Each dashboard item decides which of them a viewer is told about and may change: a filter can be pinned to the tile face, and everything else the author exposes opens from the tile's control button. A viewer's change lasts for the visit and is never saved.
 
 Model: `DashboardControl` (viewer inputs), `InsightRuntimeDeclaration` (allowed runtime inputs)
 
