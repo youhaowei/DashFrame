@@ -1,9 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import {
-  OAuthPopupBlockedError,
-  openOAuthAuthorizationUrl,
-} from "./oauth-authorization-target";
+import { openOAuthAuthorizationUrl } from "./oauth-authorization-target";
 
 const AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 
@@ -44,17 +41,15 @@ describe("openOAuthAuthorizationUrl", () => {
     const popup = { opener: window } as unknown as Window;
     const windowOpen = vi.spyOn(window, "open").mockReturnValue(popup);
 
-    await openOAuthAuthorizationUrl(AUTHORIZE_URL);
+    await expect(openOAuthAuthorizationUrl(AUTHORIZE_URL)).resolves.toBe(true);
 
     expect(windowOpen).toHaveBeenCalledExactlyOnceWith(AUTHORIZE_URL, "_blank");
     expect(popup.opener).toBeNull();
   });
 
-  it("reports a blocked web popup", async () => {
+  it("reports when the browser hands back no window", async () => {
     vi.spyOn(window, "open").mockReturnValue(null);
 
-    await expect(openOAuthAuthorizationUrl(AUTHORIZE_URL)).rejects.toThrow(
-      OAuthPopupBlockedError,
-    );
+    await expect(openOAuthAuthorizationUrl(AUTHORIZE_URL)).resolves.toBe(false);
   });
 });

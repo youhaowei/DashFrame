@@ -59,6 +59,31 @@ describe("connector OAuth browser routes", () => {
     });
   });
 
+  it("links back to the new source only when the server says where its app shows one", async () => {
+    const execute = vi.fn(async () => ({
+      state: "connected",
+      dataSourceId: "source-1",
+    }));
+    const hono = new Hono();
+    hono.get("/with-app", (c) =>
+      handleConnectorOAuthCallback(
+        c,
+        fakeApp(execute),
+        (id) => `/data-sources/${id}`,
+      ),
+    );
+    hono.get("/without-app", (c) =>
+      handleConnectorOAuthCallback(c, fakeApp(execute)),
+    );
+
+    expect(
+      await (await hono.request("/with-app?state=s&code=c")).text(),
+    ).toContain('<a href="/data-sources/source-1">');
+    expect(
+      await (await hono.request("/without-app?state=s&code=c")).text(),
+    ).not.toContain("<a ");
+  });
+
   it("returns only the minimal public resume DTO", async () => {
     const result = {
       sessionId: crypto.randomUUID(),
