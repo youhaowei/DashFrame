@@ -65,7 +65,6 @@ import {
   Table,
   TimestampMillisecond,
   Utf8,
-  tableFromArrays,
   tableToIPC,
   vectorFromArray,
   type DataType,
@@ -213,7 +212,7 @@ export async function listTablesInSchema(
 // ---------------------------------------------------------------------------
 
 /**
- * Column names that must never reach `apache-arrow`'s `tableFromArrays`: they
+ * Column names that must never reach `apache-arrow`'s column maps: they
  * corrupt Arrow's column iteration. Verified against apache-arrow 21.1.0: a
  * `__proto__` column does NOT throw — it silently makes Arrow drop the sibling
  * real columns from the built table (e.g. `{__proto__:[…], id:[…]}` → schema
@@ -255,11 +254,17 @@ const DANGEROUS_COLUMN_NAMES = new Set([
  *   OID 701 float8      → JS number    → String(1.5) → Number ok     "number" ✓
  *   OID 18  char        → JS string    → OID "string" is stable      ✓
  *   OID 25  text        → JS string    → OID "string" is stable      ✓
+ *   OID 1042 bpchar     → JS string    → OID "string" is stable      ✓
  *   OID 1043 varchar    → JS string    → OID "string" is stable      ✓
  *   OID 1082 date       → JS Date      → String(date) parseable      "date"  ✓
  *   OID 1114 timestamp  → JS Date      → String(date) parseable      "date"  ✓
  *   OID 1184 timestamptz→ JS Date      → String(date) parseable      "date"  ✓
  *   OID 1700 NUMERIC    → JS string    → already string              ✓ (precision)
+ *
+ * Every OID absent from this switch is delivered as raw PostgreSQL text by
+ * `unmappedOidsAsText` and typed `string` whenever pg column metadata is
+ * available — arrays, json/jsonb, enums, ranges, and user-defined types
+ * included. See `inferColumnType`.
  */
 export function pgOidToColumnType(
   dataTypeID: number,
@@ -310,6 +315,40 @@ export function pgOidToColumnType(
     default:
       return undefined;
   }
+}
+
+/** The subset of node-postgres' `types` module this connector depends on. */
+export interface PgTypeParsers {
+  getTypeParser(oid: number, format?: unknown): (value: string) => unknown;
+}
+
+/**
+ * Wrap node-postgres' type-parser registry so that ONLY the OIDs in
+ * {@link pgOidToColumnType} keep their default JS parser; every other OID is
+ * delivered as the raw text PostgreSQL sent on the wire.
+ *
+ * Why: node-postgres eagerly parses arrays (`text[]` → JS array), `json`/`jsonb`
+ * (→ JS object), ranges, and other composite types into JS values that this
+ * connector has no ColumnType for. Those values then reach Arrow serialization
+ * and either throw (`SOURCE_VALUE_UNSUPPORTED`, or Arrow failing to infer a
+ * Vector type) or silently disagree with the inferred field type.
+ * Delivering unmapped OIDs as text makes them ordinary `string` columns —
+ * `{a,b}` for a `text[]`, `{"k": 1}` for a `jsonb` — which round-trips
+ * losslessly through Arrow Utf8 and DuckDB VARCHAR.
+ *
+ * Mapped OIDs are untouched, so int8/NUMERIC keep node-postgres' precision-safe
+ * string parsing and bool/date/timestamp keep their native JS values.
+ */
+export function unmappedOidsAsText(defaults: PgTypeParsers): PgTypeParsers {
+  return {
+    getTypeParser(oid, format) {
+      if (pgOidToColumnType(oid) !== undefined)
+        return defaults.getTypeParser(oid, format);
+      // Identity. This connector never requests binary results, so the wire
+      // value handed to a text parser is always the raw PostgreSQL string.
+      return (value: string) => value;
+    },
+  };
 }
 
 /**
@@ -368,11 +407,13 @@ function columnNamesFromRows(rows: Record<string, unknown>[]): string[] {
  * Priority:
  *   1. OID-based type via `pgOidToColumnType` (highest priority — handles
  *      empty-result and precision-sensitive types like BIGINT/NUMERIC).
- *   2. In streaming mode, string for an unmapped OID. Text-backed PostgreSQL
- *      extension and user-defined types must not be guessed from one batch's
- *      first value, and non-string payloads fail during serialization.
+ *   2. `string` for an unmapped OID whenever pg column metadata is present.
+ *      `createClient` delivers every unmapped OID as raw PostgreSQL text, so
+ *      `string` is the value's actual type. Guessing from one row's first value
+ *      would make the preview and the stream disagree on the same column.
  *   3. Value-based inference via `inferStringColumnType` on the first non-null
- *      row value (legacy preview behavior, or when metadata is absent).
+ *      row value — only when pg column metadata is absent (legacy call sites
+ *      and spy clients that supply rows without field descriptors).
  */
 function inferColumnType(
   name: string,
@@ -554,6 +595,7 @@ export class PostgresConnector extends RemoteApiConnector {
     const client = new pg.Client({
       connectionString: dsn,
       connectionTimeoutMillis: 30_000,
+      types: unmappedOidsAsText(pg.types),
     });
     // Socket failure rejects the active connect/query promise, but pg also
     // emits the same failure on Client. EventEmitter treats an unhandled
@@ -916,28 +958,16 @@ export class PostgresConnector extends RemoteApiConnector {
 
       // Infer fields from rows + pg column metadata.
       // pgFields is the authoritative column list (handles empty results and
-      // OID-based type overrides for NUMERIC/BIGINT precision).
-      const fields = inferFieldsFromRows(slicedRows, tableId, pgFields);
+      // OID-based type overrides for NUMERIC/BIGINT precision). `true` matches
+      // queryBatches: with metadata in hand an unmapped OID is text, so preview
+      // and stream derive the same field types for the same table.
+      const fields = inferFieldsFromRows(slicedRows, tableId, pgFields, true);
 
-      // Build Arrow column arrays from the inferred field set.
-      const columnArrays: Record<string, unknown[]> = Object.create(
-        null,
-      ) as Record<string, unknown[]>;
-      for (const field of fields) {
-        const colName = field.columnName ?? field.name;
-        columnArrays[colName] = slicedRows.map((r) => r[colName] ?? null);
-      }
-
-      const arrowTable = tableFromArrays(columnArrays);
-      const ipcBuffer = tableToIPC(arrowTable);
-      const base64 = Buffer.from(ipcBuffer).toString("base64");
-
-      return {
-        arrowBuffer: base64,
-        fieldIds: fields.map((f) => f.id),
-        fields,
-        rowCount: slicedRows.length,
-      };
+      // Serialize through the same explicitly-typed Arrow builder the streaming
+      // path uses, so a column's physical Arrow type follows its field type
+      // rather than the values that happen to be in this window (an all-NULL
+      // window would otherwise produce a Null vector instead of Utf8).
+      return serializeBatch(slicedRows, fields);
     });
   }
 }
