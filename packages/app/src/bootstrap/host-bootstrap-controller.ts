@@ -244,7 +244,12 @@ export function startHostBootstrap<TConfig, TRuntime extends ClientRuntime>(
         await publishUnavailable(attempt, result.error);
         return;
       }
-      await releaseRuntime();
+      await releaseRuntime().catch((closeError: unknown) => {
+        console.error(
+          "Failed to close the previous runtime after access resolved:",
+          closeError,
+        );
+      });
       if (!isCurrent(attempt)) return;
       switch (result.status) {
         case "signed-out":
