@@ -240,10 +240,12 @@ export default function DataSourcePageContent({
     : null;
 
   // Load a bounded preview page through the host queryDataFrame operation.
-  const { data: previewData, isLoading: isLoadingPreview } = useDataFrameData(
-    tableDetails?.dataTable?.dataFrameId,
-    { limit: 50 },
-  );
+  const {
+    data: previewData,
+    isLoading: isLoadingPreview,
+    error: previewError,
+    reload: reloadPreview,
+  } = useDataFrameData(tableDetails?.dataTable?.dataFrameId, { limit: 50 });
 
   // Handle name change - directly update database, triggers re-render via hook
   const handleNameChange = async (newName: string) => {
@@ -645,7 +647,33 @@ export default function DataSourcePageContent({
                         );
                       }
 
-                      if (previewData) {
+                      // A failed load is not an empty table. Checked before
+                      // `previewData` because the hook clears rows on failure,
+                      // which would otherwise read as a genuine zero-row result.
+                      if (previewError) {
+                        return (
+                          <div className="flex h-40 flex-col items-center justify-center gap-2 text-center">
+                            <p className="text-sm font-medium text-neutral-fg">
+                              Couldn&apos;t load the preview
+                            </p>
+                            <p className="text-sm text-neutral-fg-subtle">
+                              Something went wrong. Check your connection and
+                              try again.
+                            </p>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              label="Try again"
+                              onClick={reloadPreview}
+                            />
+                          </div>
+                        );
+                      }
+
+                      // A successful load with zero rows falls through to the
+                      // empty state below rather than rendering a header-only
+                      // table.
+                      if (previewData && previewData.rows.length > 0) {
                         return (
                           <VirtualTable
                             rows={previewData.rows}
