@@ -230,6 +230,42 @@ describe("browser bootstrap controller", () => {
     },
   );
 
+  it("keeps the new runtime when closing the replaced one fails", async () => {
+    const closeFailure = new Error("cleanup failed");
+    const logError = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const lookup = vi
+        .fn<(signal: AbortSignal) => Promise<HostAccessResult<Config>>>()
+        .mockResolvedValueOnce({ status: "admitted", config: config() })
+        .mockResolvedValue({
+          status: "admitted",
+          config: config({ endpoint: "https://second.test" }),
+        });
+      const test = harness(lookup);
+      await vi.waitFor(() =>
+        expect(test.views.at(-1)?.status).toBe("admitted"),
+      );
+      const replaced = test.runtimes[0];
+      if (!replaced) throw new Error("missing runtime");
+      vi.spyOn(replaced, "close").mockRejectedValue(closeFailure);
+
+      await test.controller.revalidate();
+
+      expect(test.views.at(-1)?.status).toBe("admitted");
+      expect(test.runtimes).toHaveLength(2);
+      expect(test.runtimes[1]?.close).not.toHaveBeenCalled();
+      expect(logError).toHaveBeenCalledExactlyOnceWith(
+        expect.any(String),
+        closeFailure,
+      );
+      await expect(test.controller.teardown()).rejects.toMatchObject({
+        errors: [closeFailure],
+      });
+    } finally {
+      logError.mockRestore();
+    }
+  });
+
   it("quietly retains a healthy runtime when revalidation returns the same config", async () => {
     const test = harness(async () => ({
       status: "admitted",
