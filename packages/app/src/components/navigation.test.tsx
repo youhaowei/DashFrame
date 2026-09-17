@@ -138,8 +138,10 @@ vi.mock("@wystack/ui-react/icons", () => ({
   MenuIcon: () => null,
   SettingsIcon: () => null,
   SparklesIcon: () => null,
+  UserIcon: () => null,
 }));
 
+import { SignOutProvider } from "@/bootstrap/sign-out";
 import { Navigation } from "./navigation";
 
 describe("Navigation", () => {
@@ -204,5 +206,21 @@ describe("Navigation", () => {
 
     await waitFor(() => expect(mockClearAllData).toHaveBeenCalledOnce());
     expect(mockReloadRoot).toHaveBeenCalledOnce();
+  });
+
+  it("offers sign out in the settings menu only when the host has accounts", () => {
+    const onSignOut = vi.fn();
+    const { unmount } = render(<Navigation />);
+    expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
+    unmount();
+
+    render(
+      <SignOutProvider onSignOut={onSignOut}>
+        <Navigation />
+      </SignOutProvider>,
+    );
+    fireEvent.click(screen.getAllByRole("button", { name: "Sign out" })[0]!);
+
+    expect(onSignOut).toHaveBeenCalledOnce();
   });
 });

@@ -2,6 +2,7 @@ import { useQuery_experimental as useQuery } from "convex/react";
 import { queryStatus } from "@/data/query-status";
 import { AccessCredentialsDialog } from "@/components/access-credentials/AccessCredentialsDialog";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { useSignOut } from "@/bootstrap/sign-out";
 import { useAccessCapabilities } from "@/data";
 import { clearAllData } from "@/lib/data-access/data-frames";
 import { reloadRootWithFreshWorkspaceState } from "@/lib/clear-all-data-navigation";
@@ -40,6 +41,7 @@ import {
   MenuIcon,
   SettingsIcon,
   SparklesIcon,
+  UserIcon,
 } from "@wystack/ui-react/icons";
 import { type ReactNode, useEffect, useState } from "react";
 
@@ -84,6 +86,7 @@ interface SidebarContentProps {
   onClearData?: () => void;
   onAssistantProviders?: () => void;
   onAccessCredentials?: () => void;
+  onSignOut?: () => void;
   onNavigate?: () => void;
   /**
    * Extra rows for the footer, below Settings/Open source — dev tooling like
@@ -98,6 +101,7 @@ function SidebarContent({
   onClearData,
   onAssistantProviders,
   onAccessCredentials,
+  onSignOut,
   onNavigate,
   footerSlot,
   pendingDraftCount,
@@ -206,6 +210,12 @@ function SidebarContent({
               <DeleteIcon className="mr-2 h-4 w-4" />
               Clear all data
             </DropdownMenuItem>
+            {onSignOut ? (
+              <DropdownMenuItem onClick={onSignOut}>
+                <UserIcon className="mr-2 h-4 w-4" />
+                Sign out
+              </DropdownMenuItem>
+            ) : null}
           </DropdownMenuContent>
         </DropdownMenu>
         <a
@@ -230,6 +240,7 @@ export function Navigation() {
   const [showAccessCredentials, setShowAccessCredentials] = useState(false);
   const setAssistantSetupOpen = useAssistantStore((s) => s.setSetupOpen);
   const accessCapabilities = useAccessCapabilities();
+  const signOut = useSignOut();
   const { data: draftCount = 0 } = queryStatus(
     useQuery({ query: api.app.listDraftCount, args: {} }),
   );
@@ -283,6 +294,7 @@ export function Navigation() {
                 ? () => setShowAccessCredentials(true)
                 : undefined
             }
+            onSignOut={signOut}
             footerSlot={<PerfHud />}
           />
         </div>
@@ -326,6 +338,7 @@ export function Navigation() {
                     ? () => setShowAccessCredentials(true)
                     : undefined
                 }
+                onSignOut={signOut}
               />
             </div>
           </div>
