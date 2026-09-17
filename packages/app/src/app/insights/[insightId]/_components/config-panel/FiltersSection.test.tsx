@@ -39,7 +39,7 @@ describe("FiltersSection", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit filter Region" }));
     fireEvent.click(
       await screen.findByRole("checkbox", {
-        name: "Reports can show this filter",
+        name: "Offer this filter to viewers",
       }),
     );
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
@@ -80,7 +80,7 @@ describe("FiltersSection", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit filter Region" }));
     fireEvent.click(
       await screen.findByRole("checkbox", {
-        name: "Reports can show this filter",
+        name: "Offer this filter to viewers",
       }),
     );
     fireEvent.click(
@@ -243,7 +243,7 @@ describe("FiltersSection", () => {
         name: "Edit filter Region, viewers can change",
       }),
     ).toBeTruthy();
-    expect(screen.queryByLabelText("Reports can show this filter")).toBeNull();
+    expect(screen.queryByLabelText("Offer this filter to viewers")).toBeNull();
   });
 
   it("follows the selected field label until the viewer label is edited", async () => {
@@ -270,7 +270,7 @@ describe("FiltersSection", () => {
       await screen.findByRole("option", { name: "Customer city" }),
     );
     await user.click(
-      screen.getByRole("checkbox", { name: "Reports can show this filter" }),
+      screen.getByRole("checkbox", { name: "Offer this filter to viewers" }),
     );
     expect(
       (screen.getByLabelText("Shown to viewers as") as HTMLInputElement).value,
@@ -301,7 +301,7 @@ describe("FiltersSection", () => {
       target: { value: "US" },
     });
     fireEvent.click(
-      screen.getByRole("checkbox", { name: "Reports can show this filter" }),
+      screen.getByRole("checkbox", { name: "Offer this filter to viewers" }),
     );
     expect(
       (screen.getByLabelText("Control key") as HTMLInputElement).value,

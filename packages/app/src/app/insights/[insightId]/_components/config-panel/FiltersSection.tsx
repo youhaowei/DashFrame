@@ -486,7 +486,7 @@ function FilterEditor({
               }
             }}
           />
-          Reports can show this filter
+          Offer this filter to viewers
         </label>
         {viewerEditable && (
           <div className="space-y-3 border-t border-neutral-border/60 pt-3">

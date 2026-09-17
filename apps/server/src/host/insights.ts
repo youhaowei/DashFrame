@@ -112,8 +112,11 @@ export const insightSourceSchema = z.object({
   sourceId: z.string(),
 });
 
-// Mirrors the runtime declaration in the Convex insight codec; a key added
-// there and not here is silently stripped from every Insight the host reads.
+// Mirrors the runtime declaration in the Convex insight codec, and the two
+// must change together. A key added there to a filter, sort, or limit and not
+// here is silently stripped from every Insight the host reads; a new
+// top-level key is worse, because this object is strict and the host then
+// fails to read any Insight that carries it.
 export const runtimeControlsSchema = z
   .object({
     filters: z

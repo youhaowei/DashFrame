@@ -148,6 +148,8 @@ describe("TileControlsDoor", () => {
     fireEvent.change(knob(), { target: { value: "" } });
     fireEvent.blur(knob());
     expect(onChange).not.toHaveBeenCalled();
+    // A refused clear puts the value back rather than sitting empty.
+    expect((knob() as HTMLInputElement).value).toBe("2");
   });
 
   it("sends the kind of value the saved filter holds, whatever the column lookup said", () => {
@@ -210,6 +212,10 @@ describe("TileControlsDoor", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Chart controls" }));
     const knob = screen.getByLabelText("Sizes") as HTMLInputElement;
+
+    // In and out without typing is not a change.
+    fireEvent.blur(knob);
+    expect(onChange).not.toHaveBeenCalled();
 
     fireEvent.change(knob, { target: { value: "2," } });
     expect(knob.value).toBe("2,");

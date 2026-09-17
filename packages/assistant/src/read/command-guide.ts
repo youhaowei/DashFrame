@@ -297,7 +297,7 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
     },
     notes:
       "Filter controls change values only; sort fields and limits must target the saved Insight definition. " +
-      "label is what a reader sees. changeable (default true) is the ceiling on whether a reader may change the value; a report item can only tighten it.",
+      "label is what a viewer sees. changeable (default true) is the ceiling on whether a dashboard item gives a viewer a knob for the value; an item can only tighten it. It does not restrict an author's saved item overrides.",
   },
   {
     name: "AddJoin",
@@ -374,7 +374,7 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
     notes:
       "Rejects a duplicate item id. " +
       "overrides is optional — omit for a plain panel; supply to pin filters/sorts/limit at the item level. " +
-      "controls decides what a reader is told about the Insight's declared runtime controls, keyed by the declaration key or 'sort' / 'limit'; absent = hidden. 'pinned' puts a filter on the tile face and 'visible' puts a control behind the tile's control button; 'sort' and 'limit' cannot be pinned. changeable: false tightens the Insight's ceiling; true is rejected. " +
+      "controls decides what a viewer is told about the Insight's declared runtime controls, keyed by the declaration key or 'sort' / 'limit'; absent = hidden. 'pinned' puts a filter on the tile face and 'visible' puts a control behind the tile's control button; 'sort' and 'limit' cannot be pinned. changeable: false tightens the Insight's ceiling; true is rejected. " +
       "Use FanOutDashboardItems to batch-create N items with distinct field-value pins.",
   },
   {

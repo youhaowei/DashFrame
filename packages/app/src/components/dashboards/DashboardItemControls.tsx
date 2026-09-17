@@ -587,9 +587,11 @@ function FilterEditor({
         },
       ],
     });
+  /** False when the Insight forbids clearing; the knob then puts its value back. */
   const clear = () => {
-    if (control.allowClear)
-      onChange({ filters: [{ ...filter, cleared: true }] });
+    if (!control.allowClear) return false;
+    onChange({ filters: [{ ...filter, cleared: true }] });
+    return true;
   };
   const current = control.override?.cleared
     ? ""
@@ -655,13 +657,13 @@ function ScalarEditor({
   like: unknown;
   inputType: ControlInputType;
   onCommit: (value: unknown) => void;
-  onClear: () => void;
+  onClear: () => boolean;
 }) {
   const [draft, setDraft] = useState(value);
   const commit = () => {
     if (draft === value) return;
-    if (draft.trim() === "") onClear();
-    else onCommit(coerce(draft, like));
+    if (draft.trim() !== "") onCommit(coerce(draft, like));
+    else if (!onClear()) setDraft(value);
   };
   return (
     <Input
@@ -697,17 +699,19 @@ function ListEditor({
   values: readonly unknown[];
   like: unknown;
   onCommit: (value: unknown[]) => void;
-  onClear: () => void;
+  onClear: () => boolean;
 }) {
-  const [draft, setDraft] = useState(values.join(", "));
+  const saved = values.join(", ");
+  const [draft, setDraft] = useState(saved);
   const commit = () => {
+    if (draft === saved) return;
     const parsed = draft
       .split(",")
       .map((part) => part.trim())
       .filter(Boolean)
       .map((part) => coerce(part, like));
-    if (parsed.length === 0) onClear();
-    else onCommit(parsed);
+    if (parsed.length > 0) onCommit(parsed);
+    else if (!onClear()) setDraft(saved);
   };
   return (
     <Input
@@ -744,16 +748,25 @@ function RangeEditor({
   like: unknown;
   inputType: ControlInputType;
   onCommit: (value: { low: unknown; high: unknown }) => void;
-  onClear: () => void;
+  onClear: () => boolean;
 }) {
   const saved =
     range !== null && typeof range === "object"
       ? (range as { low?: unknown; high?: unknown })
       : {};
-  const [low, setLow] = useState(displayValue(filterLiteral(saved.low)));
-  const [high, setHigh] = useState(displayValue(filterLiteral(saved.high)));
+  const savedLow = displayValue(filterLiteral(saved.low));
+  const savedHigh = displayValue(filterLiteral(saved.high));
+  const [low, setLow] = useState(savedLow);
+  const [high, setHigh] = useState(savedHigh);
   const commit = () => {
-    if (low.trim() === "" && high.trim() === "") return onClear();
+    if (low === savedLow && high === savedHigh) return;
+    if (low.trim() === "" && high.trim() === "") {
+      if (!onClear()) {
+        setLow(savedLow);
+        setHigh(savedHigh);
+      }
+      return;
+    }
     if (low.trim() === "" || high.trim() === "") return;
     onCommit({ low: coerce(low, like), high: coerce(high, like) });
   };

@@ -411,7 +411,7 @@ export function SortSection({
 
       <div className="space-y-2 border-t border-neutral-border/60 pt-2">
         <label className="flex cursor-pointer items-center justify-between gap-3 text-xs">
-          <span>Reports can show the sort</span>
+          <span>Offer the sort to viewers</span>
           <WorkbenchSwitch
             checked={sortEnabled}
             onCheckedChange={(checked) => {
@@ -465,7 +465,7 @@ export function SortSection({
           </div>
         )}
         <label className="flex cursor-pointer items-center justify-between gap-3 text-xs">
-          <span>Reports can show the row limit</span>
+          <span>Offer the row limit to viewers</span>
           <WorkbenchSwitch
             checked={Boolean(runtimeDraft?.limit)}
             onCheckedChange={(checked) =>
