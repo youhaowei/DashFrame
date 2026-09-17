@@ -1,4 +1,4 @@
-import { requestHost } from "@/data/host";
+import { HostOperationError, requestHost } from "@/data/host";
 import { useQuery_experimental as useQuery } from "convex/react";
 import { queryStatus } from "@/data/query-status";
 import { queryDataFrame } from "@/lib/data-access/data-frames";
@@ -36,6 +36,16 @@ import {
   isAutomaticSourcePublication,
   isSelfPublishedSourceRevision,
 } from "./source-publication-revision";
+
+/**
+ * The host writes its failure text for people; anything else (a dropped
+ * connection, a thrown exception) is not fit to show.
+ */
+function fetchFailureMessage(cause: unknown): string {
+  return cause instanceof HostOperationError && cause.serverMessage
+    ? cause.message
+    : "Live data could not be fetched.";
+}
 
 export { isSelfPublishedSourceRevision } from "./source-publication-revision";
 
@@ -443,9 +453,7 @@ export function useInsightPagination({
             setSchema([]);
             setSampleRows([]);
             setFieldCount(0);
-            setError(
-              cause instanceof Error ? cause.message : "Failed to read Insight",
-            );
+            setError(fetchFailureMessage(cause));
             setIsReady(false);
             return;
           }
@@ -493,9 +501,7 @@ export function useInsightPagination({
           setSchema([]);
           setSampleRows([]);
           setFieldCount(0);
-          setError(
-            cause instanceof Error ? cause.message : "Failed to run Insight",
-          );
+          setError(fetchFailureMessage(cause));
           setIsReady(false);
         },
       )

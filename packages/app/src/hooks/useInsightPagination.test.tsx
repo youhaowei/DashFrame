@@ -1,6 +1,7 @@
 import { nativeQueryMock, hostQueryMock } from "@/test/native-query-fixture";
 import type { DataTable, Insight, UUID } from "@dashframe/types";
 import { act, renderHook, waitFor } from "@testing-library/react";
+import { HostOperationError } from "@/data/host";
 import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import {
@@ -26,7 +27,9 @@ vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
   useQuery_experimental: nativeQueryMock(useQuery),
 }));
-vi.mock("@/data/host", () => ({
+vi.mock("@/data/host", async (importOriginal) => ({
+  HostOperationError: (await importOriginal<typeof import("@/data/host")>())
+    .HostOperationError,
   requestHost: (operation: string, args: unknown) =>
     client.mutate({ _path: operation }, args),
   useHostQuery: hostQueryMock(useQuery),
@@ -284,13 +287,29 @@ describe("useInsightPagination", () => {
       status: "ready",
       dataFrameId: "frame-1",
     });
-    queryDataFrame.mockRejectedValue(new Error("Frame disappeared"));
+    queryDataFrame.mockRejectedValue(
+      new HostOperationError("Frame disappeared", undefined, undefined, true),
+    );
 
     const { result } = renderHook(() => useInsightPagination({ insight }));
 
     await waitFor(() => expect(result.current.error).toBe("Frame disappeared"));
     expect(result.current.isReady).toBe(false);
     expect(result.current.dataFrameId).toBeNull();
+  });
+
+  it("does not show a raw exception message to the user", async () => {
+    client.mutate.mockResolvedValue({
+      status: "ready",
+      dataFrameId: "frame-1",
+    });
+    queryDataFrame.mockRejectedValue(new TypeError("Failed to fetch"));
+
+    const { result } = renderHook(() => useInsightPagination({ insight }));
+
+    await waitFor(() =>
+      expect(result.current.error).toBe("Live data could not be fetched."),
+    );
   });
 
   it("discards a page that resolves after the Insight generation changes", async () => {
