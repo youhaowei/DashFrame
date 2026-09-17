@@ -143,6 +143,27 @@ function flat(member, kind, onTurn) {
   return element;
 }
 
+/**
+ * Opening the door dims the rest of the page and lights this tile. The tile
+ * stays lit because its chart is the feedback for the change the reader is
+ * making; dimming it would hide the only thing that tells them the knob
+ * worked.
+ */
+function setDoorOpen(line, open) {
+  const tile = line.closest(".tile");
+  const page = line.closest(".page");
+  if (!tile || !page) return;
+  tile.classList.toggle("focused", open);
+  page.classList.toggle("dim", open);
+  if (!open) {
+    tile.classList.remove("flip");
+    return;
+  }
+  // Flip to the tile's left edge when the popover would leave the viewport.
+  const room = window.innerWidth - tile.getBoundingClientRect().right;
+  tile.classList.toggle("flip", room < 240);
+}
+
 /** A category button. Its form is the axis under test. */
 function categoryButton(kind, members, onOpen, exposedTotal) {
   const exposed = exposedTotal ?? members.length;
@@ -221,7 +242,10 @@ function buildLine(rerender, model = MODEL) {
     for (const b of line.querySelectorAll(".cat"))
       b.setAttribute("aria-expanded", "false");
     existing?.remove();
-    if (wasMine) return;
+    if (wasMine) {
+      setDoorOpen(line, false);
+      return;
+    }
     const pop = categoryPopover(kind, members, (label) => {
       const member = members.find((m) => m.label === label);
       const options = [member.value, "— any —", "Changed by reader"];
@@ -234,6 +258,7 @@ function buildLine(rerender, model = MODEL) {
     pop.dataset.kind = kind;
     button.setAttribute("aria-expanded", "true");
     button.parentElement.append(pop);
+    setDoorOpen(line, true);
   };
 
   // One category becomes: its pinned controls drawn on the face, then a button
@@ -332,6 +357,7 @@ function buildLine(rerender, model = MODEL) {
         if (open) {
           open.remove();
           door.setAttribute("aria-expanded", "false");
+          setDoorOpen(line, false);
           return;
         }
         const pop = h(`<div class="pop cat-pop"></div>`);
@@ -366,6 +392,7 @@ function buildLine(rerender, model = MODEL) {
         );
         door.setAttribute("aria-expanded", "true");
         wrap.append(pop);
+        setDoorOpen(line, true);
       };
       wrap.append(door);
       // The door is a tile-level control, so it is seated in the tile header
@@ -381,6 +408,7 @@ function buildLine(rerender, model = MODEL) {
       pop.remove();
       for (const b of line.querySelectorAll(".cat"))
         b.setAttribute("aria-expanded", "false");
+      setDoorOpen(line, false);
     });
     return line;
   }
@@ -447,6 +475,7 @@ function buildLine(rerender, model = MODEL) {
     pop.remove();
     for (const b of line.querySelectorAll(".cat"))
       b.setAttribute("aria-expanded", "false");
+    setDoorOpen(line, false);
   });
   return line;
 }

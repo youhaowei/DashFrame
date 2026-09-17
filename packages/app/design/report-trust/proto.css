@@ -907,3 +907,55 @@ button[aria-pressed="true"] {
   flex: 0 0 auto;
   margin-left: 6px;
 }
+
+/* ------------------------------------------- opening the control door -- */
+
+/* The popover opens BESIDE the tile, not over it. A reader turning a knob is
+   watching the chart change; covering the chart with the thing that changes it
+   hides the only feedback there is. It sits outside the tile's right edge and
+   flips to the left edge when there is no room there. */
+.tile .cat-pop {
+  top: 8px;
+  left: calc(100% + 10px);
+  right: auto;
+  z-index: 20;
+}
+.tile.flip .cat-pop {
+  left: auto;
+  right: calc(100% + 10px);
+}
+/* Last resort at narrow widths: under the title line, still clear of the
+   chart, which starts below the control line. */
+.page.narrow .tile .cat-pop {
+  top: 34px;
+  left: auto;
+  right: 8px;
+}
+
+/* Everything else recedes while the door is open — the other tiles, the
+   commentary, the section headings. The focused tile stays fully lit, because
+   its chart is what the reader is about to change and the change is live. */
+.page.dim .section,
+.page.dim .tile-note,
+.page.dim .tile:not(.focused) {
+  opacity: 0.32;
+  transition: opacity 180ms ease;
+}
+.page .section,
+.page .tile-note,
+.page .tile {
+  transition: opacity 180ms ease;
+}
+.tile.focused {
+  z-index: 10;
+}
+@media (prefers-reduced-motion: reduce) {
+  .page.dim .section,
+  .page.dim .tile-note,
+  .page.dim .tile:not(.focused),
+  .page .section,
+  .page .tile-note,
+  .page .tile {
+    transition: none;
+  }
+}
