@@ -20,8 +20,11 @@ function secureHtml(
     "Content-Security-Policy",
     "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
   );
+  const linkHtml = link
+    ? `<p><a href="${link.href}">${link.label}</a></p>`
+    : "";
   return c.html(
-    `<!doctype html><html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><title>${title}</title><style>body{font:16px system-ui;max-width:36rem;margin:12vh auto;padding:0 1.5rem;color:#171717}h1{font-size:1.5rem}</style></head><body><h1>${title}</h1><p>${message}</p>${link ? `<p><a href="${link.href}">${link.label}</a></p>` : ""}</body></html>`,
+    `<!doctype html><html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><title>${title}</title><style>body{font:16px system-ui;max-width:36rem;margin:12vh auto;padding:0 1.5rem;color:#171717}h1{font-size:1.5rem}</style></head><body><h1>${title}</h1><p>${message}</p>${linkHtml}</body></html>`,
     status as 200,
   );
 }

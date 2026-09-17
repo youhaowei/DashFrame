@@ -369,7 +369,8 @@ describe("ConnectorCardWithForm OAuth setup", () => {
 
     // act flushes the card's re-render only once its callback returns.
     await act(async () => {
-      void cardState.onConnect?.();
+      // Not awaited: the setup keeps polling until the sign-in finishes.
+      cardState.onConnect?.().catch(() => {});
       await vi.waitFor(() => expect(openUrl).toHaveBeenCalled());
     });
 
