@@ -121,6 +121,7 @@ vi.mock("@wystack/ui-react", () => ({
       {children}
     </button>
   ),
+  DropdownMenuSeparator: () => <hr />,
   DropdownMenuTrigger: ({ render: trigger }: { render: React.ReactNode }) => (
     <>{trigger}</>
   ),
@@ -219,8 +220,15 @@ describe("Navigation", () => {
         <Navigation />
       </SignOutProvider>,
     );
-    fireEvent.click(screen.getAllByRole("button", { name: "Sign out" })[0]!);
-
+    fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
     expect(onSignOut).toHaveBeenCalledOnce();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open menu" }));
+    fireEvent.click(
+      within(screen.getByTestId("mobile-drawer")).getByRole("button", {
+        name: "Sign out",
+      }),
+    );
+    expect(onSignOut).toHaveBeenCalledTimes(2);
   });
 });

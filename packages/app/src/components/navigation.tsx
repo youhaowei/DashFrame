@@ -26,6 +26,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
   cn,
 } from "@wystack/ui-react";
@@ -211,10 +212,13 @@ function SidebarContent({
               Clear all data
             </DropdownMenuItem>
             {onSignOut ? (
-              <DropdownMenuItem onClick={onSignOut}>
-                <UserIcon className="mr-2 h-4 w-4" />
-                Sign out
-              </DropdownMenuItem>
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={onSignOut}>
+                  <UserIcon className="mr-2 h-4 w-4" />
+                  Sign out
+                </DropdownMenuItem>
+              </>
             ) : null}
           </DropdownMenuContent>
         </DropdownMenu>
