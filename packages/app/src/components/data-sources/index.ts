@@ -1,5 +1,6 @@
 // Data source components
 export { AddConnectionPanel } from "./AddConnectionPanel";
+export { AddDataSourceModal } from "./AddDataSourceModal";
 export { DataPickerContent } from "./DataPickerContent";
 export { DataPickerModal } from "./DataPickerModal";
 export { DataSourceControls } from "./DataSourceControls";
