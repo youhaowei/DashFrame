@@ -835,13 +835,11 @@ export function InsightResultTable({
 }
 
 function InsightMoreActionsMenu({
-  onInspectDataFrames,
   savedChart,
   onDuplicateChart,
   onDeleteChart,
 }: {
-  onInspectDataFrames: () => void;
-  savedChart?: { id: UUID; name: string };
+  savedChart: { id: UUID; name: string };
   onDuplicateChart: (id: UUID) => void;
   onDeleteChart: (id: UUID, name: string) => void;
 }) {
@@ -862,22 +860,15 @@ function InsightMoreActionsMenu({
         }
       />
       <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={onInspectDataFrames}>
-          Inspect data frames
+        <DropdownMenuItem onClick={() => onDuplicateChart(savedChart.id)}>
+          Duplicate chart
         </DropdownMenuItem>
-        {savedChart && (
-          <>
-            <DropdownMenuItem onClick={() => onDuplicateChart(savedChart.id)}>
-              Duplicate chart
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className="text-palette-danger"
-              onClick={() => onDeleteChart(savedChart.id, savedChart.name)}
-            >
-              Delete chart
-            </DropdownMenuItem>
-          </>
-        )}
+        <DropdownMenuItem
+          className="text-palette-danger"
+          onClick={() => onDeleteChart(savedChart.id, savedChart.name)}
+        >
+          Delete chart
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -2107,16 +2098,13 @@ export function InsightView({
                 <span className="@max-xl:sr-only">Add to report</span>
               </Button>
             </ControlTooltip>
-            <InsightMoreActionsMenu
-              onInspectDataFrames={() => navigate({ to: "/data-frames" })}
-              savedChart={
-                activeView.kind === "visualization"
-                  ? activeVisualization
-                  : undefined
-              }
-              onDuplicateChart={handleDuplicateVisualization}
-              onDeleteChart={handleDeleteVisualization}
-            />
+            {activeView.kind === "visualization" && activeVisualization && (
+              <InsightMoreActionsMenu
+                savedChart={activeVisualization}
+                onDuplicateChart={handleDuplicateVisualization}
+                onDeleteChart={handleDeleteVisualization}
+              />
+            )}
             {visualizationPane.available && (
               <Button
                 size="sm"
