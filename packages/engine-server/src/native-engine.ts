@@ -813,8 +813,9 @@ export class NativeDuckDBEngine implements QueryEngine {
         } finally {
           // The Arrow reader only closes its source once it starts yielding
           // batches. A registration that fails earlier would otherwise leave a
-          // file-backed source suspended with its handle open.
-          await bytes.return();
+          // file-backed source suspended with its handle open. Not awaited: a
+          // non-cooperative provider must not hold the connection lease.
+          bytes.return().catch(() => undefined);
         }
       },
       { signal, lockTable: name },

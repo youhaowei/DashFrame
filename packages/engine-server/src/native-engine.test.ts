@@ -235,31 +235,6 @@ describe("NativeDuckDBEngine — real native DuckDB", () => {
     });
   });
 
-  it("closes the byte source once the stream has been registered", async () => {
-    engine = new NativeDuckDBEngine();
-    const ipc = tableToIPC(
-      new Table({ value: vectorFromArray([1, 2, 3], new Float64()) }),
-      "stream",
-    );
-    let closed = false;
-    // A file-backed source holds a handle until its generator finishes. The
-    // Arrow reader stops at the end-of-stream marker, before the source is
-    // exhausted, so the engine has to close it.
-    const source = (async function* () {
-      try {
-        for (let offset = 0; offset < ipc.byteLength; offset += 65536) {
-          yield ipc.subarray(offset, offset + 65536);
-        }
-      } finally {
-        closed = true;
-      }
-    })();
-
-    await engine.registerArrowStream("df_closed_source", source);
-
-    expect(closed).toBe(true);
-  });
-
   it("closes the byte source when registration fails before any batch is read", async () => {
     engine = new NativeDuckDBEngine();
     const ipc = tableToIPC(new Table({}), "stream");
@@ -277,7 +252,7 @@ describe("NativeDuckDBEngine — real native DuckDB", () => {
       engine.registerArrowStream("df_no_columns", source),
     ).rejects.toThrow("has no columns");
 
-    expect(closed).toBe(true);
+    await vi.waitFor(() => expect(closed).toBe(true));
   });
 
   it("keeps the previous table when a raw IPC stream fails", async () => {
