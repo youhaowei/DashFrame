@@ -1,10 +1,6 @@
-import type { Dashboard, Insight, Visualization } from "@dashframe/types";
+import type { Dashboard, Visualization } from "@dashframe/types";
 import { describe, expect, it } from "vite-plus/test";
-import {
-  indexReportContents,
-  reportQuestionListState,
-  resolveReportContents,
-} from "./report-contents";
+import { indexReportContents, resolveReportContents } from "./report-contents";
 
 const report = {
   id: "report-1",
@@ -56,15 +52,11 @@ const visualizations = [
   { id: "view-2", name: "Segments", insightId: "question-1" },
 ] as Visualization[];
 
-const insights = [
-  { id: "question-1", name: "Where is revenue growing?" },
-] as Insight[];
-
 describe("resolveReportContents", () => {
   it("deduplicates widgets and preserves their first report order", () => {
     const contents = resolveReportContents(
       report,
-      indexReportContents(visualizations, insights),
+      indexReportContents(visualizations),
     );
 
     expect(contents.savedViews.map((view) => view.id)).toEqual([
@@ -72,20 +64,5 @@ describe("resolveReportContents", () => {
       "view-1",
     ]);
     expect(contents.questionIds).toEqual(["question-1"]);
-    expect(contents.questions.map((question) => question.id)).toEqual([
-      "question-1",
-    ]);
-    expect(reportQuestionListState(contents)).toBe("available");
-  });
-
-  it("keeps a factual question count when the Insight row is unavailable", () => {
-    const contents = resolveReportContents(
-      report,
-      indexReportContents(visualizations, []),
-    );
-
-    expect(contents.questionIds).toEqual(["question-1"]);
-    expect(contents.questions).toEqual([]);
-    expect(reportQuestionListState(contents)).toBe("unavailable");
   });
 });

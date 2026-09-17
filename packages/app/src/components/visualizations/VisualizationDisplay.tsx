@@ -22,6 +22,7 @@ import type {
 import { parseEncoding } from "@dashframe/types";
 import { VirtualTable, type VirtualTableColumnConfig } from "@dashframe/ui";
 import { Chart, useVisualization } from "@dashframe/visualization";
+import { Link } from "@tanstack/react-router";
 
 import { ErrorState, Spinner, Surface, Toggle } from "@wystack/ui-react";
 import { ChartIcon, LayersIcon, TableIcon } from "@wystack/ui-react/icons";
@@ -163,11 +164,19 @@ interface VisualizationDisplayProps {
    * behaviour, satisfying the no-override no-regression constraint).
    */
   overrides?: DashboardItemOverrides;
+  /**
+   * Set when this is a tile on a report. A tile carries the chart and what a
+   * reader needs to trust it: its title and the question it came from. The
+   * row and column count and the chart/table switch are workbench controls
+   * and stay off it.
+   */
+  reportId?: string;
 }
 
 function VisualizationDisplayContent({
   visualizationId,
   overrides,
+  reportId,
 }: VisualizationDisplayProps) {
   // Whole-engine-down signals. `engineError` is the native bootstrap failure
   // (connector never came up); `visualizationError` is the provider failing to
@@ -457,6 +466,9 @@ function VisualizationDisplayContent({
   ]);
 
   // Check if there's enough space to show both views
+  const isTile = reportId !== undefined;
+  // A tile is its chart; the table is a workbench view.
+  const view = isTile ? "chart" : activeTab;
   const canShowBoth = visibleRows >= MIN_VISIBLE_ROWS_FOR_BOTH;
   const bothTooltip = canShowBoth
     ? "Show chart and table simultaneously"
@@ -575,54 +587,62 @@ function VisualizationDisplayContent({
         ref={headerRef}
         className="border-b border-neutral-border/60 px-4 py-2"
       >
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <p className="text-xl font-semibold text-neutral-fg">
-              {activeViz.name}
-            </p>
-            <div className="flex items-center gap-2">
-              <p className="text-sm text-neutral-fg-subtle">
-                {totalCount.toLocaleString()} rows • {columns.length} columns
+        {isTile ? (
+          <TileHeader
+            name={activeViz.name}
+            insight={insight}
+            reportId={reportId}
+          />
+        ) : (
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <p className="text-xl font-semibold text-neutral-fg">
+                {activeViz.name}
               </p>
-              {colorDisplayName && (
-                <span className="rounded-full bg-neutral-bg-muted px-2 py-0.5 text-xs text-neutral-fg-subtle">
-                  Color: {colorDisplayName}
-                </span>
-              )}
+              <div className="flex items-center gap-2">
+                <p className="text-sm text-neutral-fg-subtle">
+                  {totalCount.toLocaleString()} rows • {columns.length} columns
+                </p>
+                {colorDisplayName && (
+                  <span className="rounded-full bg-neutral-bg-muted px-2 py-0.5 text-xs text-neutral-fg-subtle">
+                    Color: {colorDisplayName}
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <Toggle
+                variant="outline"
+                size="sm"
+                value={activeTab}
+                onValueChange={setActiveTab}
+                className="shrink-0"
+                options={[
+                  {
+                    value: "chart",
+                    icon: <ChartIcon className="h-3.5 w-3.5" />,
+                    label: "Chart",
+                  },
+                  {
+                    value: "table",
+                    icon: <TableIcon className="h-3.5 w-3.5" />,
+                    label: "Table",
+                  },
+                  {
+                    value: "both",
+                    icon: <LayersIcon className="h-3.5 w-3.5" />,
+                    label: "Both",
+                    disabled: !canShowBoth,
+                    tooltip: bothTooltip,
+                  },
+                ]}
+              />
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <Toggle
-              variant="outline"
-              size="sm"
-              value={activeTab}
-              onValueChange={setActiveTab}
-              className="shrink-0"
-              options={[
-                {
-                  value: "chart",
-                  icon: <ChartIcon className="h-3.5 w-3.5" />,
-                  label: "Chart",
-                },
-                {
-                  value: "table",
-                  icon: <TableIcon className="h-3.5 w-3.5" />,
-                  label: "Table",
-                },
-                {
-                  value: "both",
-                  icon: <LayersIcon className="h-3.5 w-3.5" />,
-                  label: "Both",
-                  disabled: !canShowBoth,
-                  tooltip: bothTooltip,
-                },
-              ]}
-            />
-          </div>
-        </div>
+        )}
       </div>
 
-      {activeTab === "chart" && tableName && (
+      {view === "chart" && tableName && (
         <div className="mt-3 min-h-0 flex-1 overflow-hidden px-4 pb-8">
           <Chart
             tableName={tableName}
@@ -633,7 +653,7 @@ function VisualizationDisplayContent({
         </div>
       )}
 
-      {activeTab === "table" && (
+      {view === "table" && (
         <div className="mt-3 flex min-h-0 flex-1 flex-col px-4">
           <Surface
             elevation="inset"
@@ -650,7 +670,7 @@ function VisualizationDisplayContent({
         </div>
       )}
 
-      {activeTab === "both" && tableName && (
+      {view === "both" && tableName && (
         <div className="mt-3 flex min-h-0 flex-1 flex-col overflow-hidden">
           {/* Chart takes 60% of space */}
           <div className="h-[60%] min-h-[200px] overflow-hidden px-4 pb-4">
@@ -677,6 +697,36 @@ function VisualizationDisplayContent({
             </Surface>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+/** A report tile's heading: the view's name and the question it came from. */
+function TileHeader({
+  name,
+  insight,
+  reportId,
+}: {
+  name: string;
+  insight: Insight | null | undefined;
+  reportId: string | undefined;
+}) {
+  return (
+    <div className="min-w-0">
+      <p className="truncate text-sm font-semibold text-neutral-fg">{name}</p>
+      {insight && (
+        <p className="truncate text-xs text-neutral-fg-subtle">
+          from{" "}
+          <Link
+            to="/insights/$insightId"
+            params={{ insightId: insight.id }}
+            search={{ reportId, visualize: false }}
+            className="text-neutral-fg-subtle underline-offset-2 transition-colors duration-150 hover:text-neutral-fg hover:underline motion-reduce:transition-none"
+          >
+            {insight.name}
+          </Link>
+        </p>
       )}
     </div>
   );

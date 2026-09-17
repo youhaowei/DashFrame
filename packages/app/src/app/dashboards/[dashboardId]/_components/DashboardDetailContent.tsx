@@ -1,9 +1,6 @@
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
+import { ArtifactEmptyState } from "@/components/artifacts/ArtifactCollection";
 import { ArtifactPageHeader } from "@/components/artifacts/ArtifactPageHeader";
-import {
-  ArtifactCard,
-  ArtifactGrid,
-} from "@/components/artifacts/ArtifactCollection";
 import { queryStatus } from "@/data/query-status";
 import { Breadcrumb } from "@dashframe/ui";
 import { useQuery_experimental as useQuery, useMutation } from "convex/react";
@@ -16,14 +13,12 @@ import {
 } from "@/lib/insights/compute-combined-fields";
 import {
   indexReportContents,
-  reportQuestionListState,
   resolveReportContents,
 } from "@/lib/reports/report-contents";
 import { useWebMCPPageStore } from "@/lib/stores/webmcp-page-store";
 import { api } from "@dashframe/convex-backend/api";
 import {
   cmd,
-  CHART_TYPE_METADATA,
   type DashboardItemType,
   type InsightFilter,
   type UUID,
@@ -63,27 +58,6 @@ export function formatReportContentsCount(
   return `${questionCount} question${questionCount === 1 ? "" : "s"} · ${savedViewCount} saved view${savedViewCount === 1 ? "" : "s"}`;
 }
 
-export function formatSavedViewType(visualizationType: string): string {
-  return Object.hasOwn(CHART_TYPE_METADATA, visualizationType)
-    ? CHART_TYPE_METADATA[visualizationType as keyof typeof CHART_TYPE_METADATA]
-        .displayName
-    : "Saved view";
-}
-
-export function reportQuestionLink(questionId: string, reportId: string) {
-  return {
-    to: `/insights/${questionId}`,
-    search: { reportId },
-  } as const;
-}
-
-export function reportSavedViewLink(savedViewId: string, reportId: string) {
-  return {
-    to: `/visualizations/${savedViewId}`,
-    search: { reportId },
-  } as const;
-}
-
 export default function DashboardDetailContent({
   dashboardId,
 }: DashboardDetailContentProps) {
@@ -118,14 +92,10 @@ export default function DashboardDetailContent({
   const reportContents = useMemo(
     () =>
       dashboard
-        ? resolveReportContents(
-            dashboard,
-            indexReportContents(visualizations, insights),
-          )
-        : { savedViews: [], questionIds: [], questions: [] },
-    [dashboard, insights, visualizations],
+        ? resolveReportContents(dashboard, indexReportContents(visualizations))
+        : { savedViews: [], questionIds: [] },
+    [dashboard, visualizations],
   );
-  const questionListState = reportQuestionListState(reportContents);
   const questionMetadataAvailable = !insightsLoading && !insightsLoadError;
 
   // Bind the assistant to this dashboard (cleared on unmount).
@@ -288,10 +258,14 @@ export default function DashboardDetailContent({
     <div className="flex h-full flex-col">
       <ArtifactPageHeader
         title={dashboard.name}
-        description={formatReportContentsCount(
-          reportContents.questionIds.length,
-          reportContents.savedViews.length,
-        )}
+        description={
+          dashboard.items.length === 0
+            ? "Nothing on it yet"
+            : formatReportContentsCount(
+                reportContents.questionIds.length,
+                reportContents.savedViews.length,
+              )
+        }
         navigation={
           <Breadcrumb
             LinkComponent={Link}
@@ -317,108 +291,15 @@ export default function DashboardDetailContent({
                 onClick={() => setIsEditable(true)}
               />
             )}
-            {isEditable && (
-              <Button
-                color="secondary"
-                icon={PlusIcon}
-                label="Add item"
-                onClick={() => setIsAddOpen(true)}
-              />
-            )}
+            <Button
+              color="secondary"
+              icon={PlusIcon}
+              label="Add item"
+              onClick={() => setIsAddOpen(true)}
+            />
           </>
         }
       />
-
-      <div className="max-h-[42vh] shrink-0 space-y-6 overflow-y-auto bg-neutral-bg px-4 py-5 sm:px-6">
-        <section
-          aria-labelledby="report-questions-heading"
-          className="space-y-3"
-        >
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <h2
-                id="report-questions-heading"
-                className="text-sm font-semibold text-neutral-fg"
-              >
-                Questions ({reportContents.questionIds.length})
-              </h2>
-              <p className="mt-1 text-xs text-neutral-fg-subtle">
-                Questions used by saved views on this report.
-              </p>
-            </div>
-            <Link
-              to="/insights"
-              className="text-xs font-medium text-palette-primary hover:underline"
-            >
-              View all questions
-            </Link>
-          </div>
-          {reportContents.questions.length > 0 ? (
-            <ArtifactGrid>
-              {reportContents.questions.map((question) => {
-                const savedViewCount = reportContents.savedViews.filter(
-                  (view) => view.insightId === question.id,
-                ).length;
-                return (
-                  <ArtifactCard
-                    key={question.id}
-                    headingLevel={3}
-                    {...reportQuestionLink(question.id, dashboardId)}
-                    name={question.name}
-                    icon={<FileIcon className="h-5 w-5" />}
-                    metadata={`${savedViewCount} saved view${savedViewCount === 1 ? "" : "s"} in this report`}
-                  />
-                );
-              })}
-            </ArtifactGrid>
-          ) : null}
-          {questionListState === "unavailable" ? (
-            <p className="text-sm text-neutral-fg-subtle">
-              Some question details are unavailable.
-            </p>
-          ) : null}
-          {questionListState === "empty" ? (
-            <div className="space-y-3">
-              <p className="text-sm text-neutral-fg-subtle">
-                No questions yet. Start with your data, then add a saved view to
-                this report.
-              </p>
-              <Button
-                label="Create first question"
-                icon={PlusIcon}
-                onClick={() => setIsCreateQuestionOpen(true)}
-              />
-            </div>
-          ) : null}
-        </section>
-
-        <section aria-labelledby="report-views-heading" className="space-y-3">
-          <h2
-            id="report-views-heading"
-            className="text-sm font-semibold text-neutral-fg"
-          >
-            Saved views ({reportContents.savedViews.length})
-          </h2>
-          {reportContents.savedViews.length > 0 ? (
-            <ArtifactGrid>
-              {reportContents.savedViews.map((view) => (
-                <ArtifactCard
-                  key={view.id}
-                  headingLevel={3}
-                  {...reportSavedViewLink(view.id, dashboardId)}
-                  name={view.name}
-                  icon={<ChartIcon className="h-5 w-5" />}
-                  metadata={formatSavedViewType(view.visualizationType)}
-                />
-              ))}
-            </ArtifactGrid>
-          ) : (
-            <p className="text-sm text-neutral-fg-subtle">
-              No saved views are on this report yet.
-            </p>
-          )}
-        </section>
-      </div>
 
       {/* Control Bar — only rendered when the dashboard has controls */}
       {questionMetadataAvailable && (dashboard.controls ?? []).length > 0 && (
@@ -430,13 +311,37 @@ export default function DashboardDetailContent({
         />
       )}
 
-      {/* Grid Content */}
+      {/* The report is the grid. An empty report is one invitation, not a
+          set of zero counts. */}
       <div className="flex-1 overflow-y-auto bg-neutral-bg-muted/10 p-6">
-        <DashboardGrid
-          dashboard={dashboard}
-          isEditable={isEditable}
-          controlTransientValues={controlTransientValues}
-        />
+        {dashboard.items.length === 0 ? (
+          <div className="flex h-full items-center justify-center">
+            <ArtifactEmptyState
+              title="Put something on this report"
+              description="Ask a question of your data and add the answer here, or add a view you already saved."
+              action={
+                <div className="flex flex-wrap justify-center gap-2">
+                  <Button
+                    label="Ask a question"
+                    icon={PlusIcon}
+                    onClick={() => setIsCreateQuestionOpen(true)}
+                  />
+                  <Button
+                    variant="outline"
+                    label="Add a saved view"
+                    onClick={() => setIsAddOpen(true)}
+                  />
+                </div>
+              }
+            />
+          </div>
+        ) : (
+          <DashboardGrid
+            dashboard={dashboard}
+            isEditable={isEditable}
+            controlTransientValues={controlTransientValues}
+          />
+        )}
       </div>
 
       <CreateVisualizationModal
