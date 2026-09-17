@@ -28,7 +28,7 @@ The surface recipe:
 - **Panel shape:** `rounded-[var(--surface-radius)]`; gaps and outer margins use `var(--surface-inset)`.
 - **Panel fill and shadow:** `bg-neutral-bg/90 saturate-[1.2] shadow-[var(--surface-shadow)]`, with no border.
 
-Nav, artifact, and assistant each occupy one panel. Panels own height; page content uses `h-full`, never `h-screen` or `min-h-screen`. Use tokens for colours, radii, and shadows, with no raw colour values in styles or class names. Keep the neutral scale chroma-free; tint belongs to the surface system.
+Nav, artifact, and page-scoped context panel each occupy one panel. Panels own height; page content uses `h-full`, never `h-screen` or `min-h-screen`. Use tokens for colours, radii, and shadows, with no raw colour values in styles or class names. Keep the neutral scale chroma-free; tint belongs to the surface system.
 
 Web and Electron share the same UI. Express capability differences through providers/context, not `isElectron` branches in components.
 
@@ -98,7 +98,7 @@ Before adding an element, name the user question or action, why this is the righ
 
 ## Accessibility and copy
 
-Target WCAG AA. Keep all controls keyboard-reachable, including sidebar controls and assistant ⌘J summon/dismiss. Pair status colours with icons or labels. Respect `prefers-reduced-motion`; guard animation-frame work in non-visual runtimes.
+Target WCAG AA. Keep all controls keyboard-reachable, including sidebar controls. Pair status colours with icons or labels. Respect `prefers-reduced-motion`; guard animation-frame work in non-visual runtimes.
 
 Translate runtime errors into plain language with a recovery action; never expose WASM errors or stack traces in dialogs. Voice follows [PRODUCT.md](PRODUCT.md) — a working instrument, not a document. Reserve brand expression and marketing metadata for the marketing site.
 

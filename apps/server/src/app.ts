@@ -27,7 +27,6 @@ import { mountConvexProxy } from "./host/convex-proxy";
 import { HostBatchOutcomeUnknownError } from "./host/commands";
 import { HostResourceCleanup } from "./host/resource-cleanup";
 import { closeHostServer } from "./host/server-lifecycle";
-import { handleAssistantRunRequest } from "./assistant-run-route";
 import { createMcpRoute, type McpMode } from "./mcp/route";
 import {
   handleConnectorOAuthCallback,
@@ -332,14 +331,6 @@ export async function createDashframeServer(
             : { authToken: options.authToken }),
         }),
       );
-    app.post("/assistant/run", (c) =>
-      handleAssistantRunRequest(c, {
-        app: application,
-        metadata,
-        vault: options.vault,
-        resolveContext,
-      }),
-    );
     const mcp = createMcpRoute({
       app: application,
       mode: options.mcpMode,

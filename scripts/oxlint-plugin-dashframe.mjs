@@ -1,8 +1,4 @@
-const credentialClassValues = new Set([
-  "assistant-provider",
-  "connector-key",
-  "serve-token",
-]);
+const credentialClassValues = new Set(["connector-key", "serve-token"]);
 
 // A disable directive: `oxlint-disable`, `oxlint-disable-next-line`,
 // `oxlint-disable-line` (and the eslint- spellings oxlint also honors).

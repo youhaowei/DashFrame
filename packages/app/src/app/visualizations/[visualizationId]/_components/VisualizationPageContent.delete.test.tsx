@@ -16,9 +16,6 @@ const { mockNavigate, mockPagination, mockCommitBatch, mockToastError } =
     mockToastError: vi.fn(),
   }));
 
-vi.mock("@/components/assistant/artifact-context", () => ({
-  useBindArtifact: () => undefined,
-}));
 vi.mock("@/components/layouts/AppLayout", () => ({
   AppLayout: ({
     children,

@@ -7,7 +7,6 @@ import {
 import { queryStatus } from "@/data/query-status";
 import { Breadcrumb } from "@dashframe/ui";
 import { useQuery_experimental as useQuery, useMutation } from "convex/react";
-import { useBindArtifact } from "@/components/assistant/artifact-context";
 import { DashboardControlBar } from "@/components/dashboards/DashboardControlBar";
 import { DashboardGrid } from "@/components/dashboards/DashboardGrid";
 import {
@@ -127,21 +126,6 @@ export default function DashboardDetailContent({
   );
   const questionListState = reportQuestionListState(reportContents);
   const questionMetadataAvailable = !insightsLoading && !insightsLoadError;
-
-  // Bind the assistant to this dashboard (cleared on unmount).
-  useBindArtifact(
-    useMemo(
-      () =>
-        dashboard
-          ? {
-              kind: "dashboard" as const,
-              id: dashboardId,
-              title: dashboard.name || "Untitled dashboard",
-            }
-          : null,
-      [dashboard, dashboardId],
-    ),
-  );
 
   // ── Controls ─────────────────────────────────────────────────────────────
   // View-local transient values for dashboard controls.  A viewer (or author)

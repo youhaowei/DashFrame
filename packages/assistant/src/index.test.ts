@@ -47,9 +47,4 @@ describe("pi dependency smoke", () => {
     const { Agent } = await import("@earendil-works/pi-agent-core");
     expect(Agent).toBeDefined();
   }, 30_000);
-
-  it("imports getModel from @earendil-works/pi-ai", async () => {
-    const { getModel } = await import("@earendil-works/pi-ai");
-    expect(getModel).toBeDefined();
-  }, 30_000);
 });

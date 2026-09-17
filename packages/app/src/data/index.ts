@@ -7,14 +7,6 @@ export {
 } from "./runtime";
 
 export {
-  parseAssistantSseChunk,
-  runAssistantPrompt,
-  type AssistantRunRequest,
-  type AssistantSidebarEvent,
-  type RunAssistantPromptOptions,
-} from "./assistant-run";
-
-export {
   useAccessCapabilities,
   useAccessConnectionInfo,
   useAccessCredentialMutations,

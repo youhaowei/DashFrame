@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { expect, it, vi } from "vite-plus/test";
+import { expect, it } from "vite-plus/test";
 import { ConvexHttpClient } from "convex/browser";
 import { api, internal } from "@dashframe/convex-backend/api";
 import { startLocalConvex, type LocalConvex } from "@dashframe/convex-local";
@@ -25,11 +25,6 @@ import {
   markVerifying,
   sweep,
 } from "../connector-setup/session-store";
-import {
-  saveAssistantProviderConfig,
-  removeAssistantProviderConfig,
-  startAssistantOAuthLogin,
-} from "./assistant-providers";
 import { createHostedAdmissionService } from "./hosted-admission-service";
 import { createHostedServerSurface } from "../hosted";
 import { NativeDuckDBEngine } from "@dashframe/engine-server";
@@ -39,7 +34,6 @@ import { createHostedApplication } from "./hosted-application";
 import { createHostedServiceAccess } from "./hosted-service-access";
 import { bindHostedMetadata } from "./bound-hosted-metadata";
 import { HostResourceCleanup } from "./resource-cleanup";
-import { createHostedProviderMetadata } from "./hosted-convex-provider-metadata";
 import { createHostedSourceMetadata } from "./hosted-convex-source-operations";
 
 const runtimeIssuer = "https://runtime.metadata-test.invalid";
@@ -620,27 +614,7 @@ it(
         ),
       ).toBe(true);
 
-      const providerRefA = await vaultA.store("provider-a", {
-          class: CREDENTIAL_CLASS.AssistantProvider,
-        }),
-        providerRefB = await vaultB.store("provider-b", {
-          class: CREDENTIAL_CLASS.AssistantProvider,
-        });
-      const providerMetadata = (
-        claims: Record<string, string>,
-        credentialVault: SecretVault,
-      ) =>
-        createHostedProviderMetadata({
-          deploymentUrl: backend!.url,
-          allowInsecureLoopbackForTests: true,
-          credentialVault,
-          getToken: async () => token(runtime, claims),
-        });
-      const providersA = providerMetadata(
-          userClaims("a", workspaces[0]!),
-          vaultA,
-        ),
-        providersB = providerMetadata(userClaims("b", workspaces[1]!), vaultB);
+      const sessionsSource = metadata(userClaims("a", workspaces[0]!), vaultA);
       const sessionDirectory = path.join(directory, "workspace-a-sessions");
       const sessionDocument = createHostedConnectorSessionDocument(
         sessionDirectory,
@@ -651,17 +625,17 @@ it(
         document: sessionDocument,
         ownerSubject: "a",
         getDataSourceKind: async (id) =>
-          (await providersA.getDataSource(id))?.kind ?? null,
+          (await sessionsSource.getDataSource(id))?.kind ?? null,
       });
       const sessionsB = createHostedConnectorSessionStore({
         document: sessionDocument,
         ownerSubject: "b",
         getDataSourceKind: async (id) =>
-          (await providersB.getDataSource(id))?.kind ?? null,
+          (await b.getDataSource(id))?.kind ?? null,
       });
       const boundMetadata = bindHostedMetadata({
         principal: { kind: "user", userId: "a" },
-        metadata: providersA,
+        metadata: a,
         connectorSetup: sessionsA,
         credentialOwnership: {
           revoke: async () => {
@@ -762,7 +736,6 @@ it(
         },
         tokens: applicationTokens,
       });
-      const ownerContext = hostedApplication.context;
       const credentialSourceId = crypto.randomUUID();
       await a.commitBatch([
         cmd("CreateDataSource", {
@@ -782,27 +755,7 @@ it(
           }),
         );
       const serviceCleanupRef = await vaultA.store("service-cleanup", {
-        class: CREDENTIAL_CLASS.AssistantProvider,
-      });
-      const serviceCleanupRow = {
-        id: crypto.randomUUID(),
-        providerId: "openai",
-        displayLabel: "Service cleanup fixture",
-        authKind: "api-key" as const,
-        baseUrl: "https://api.openai.com/v1",
-        credentialRef: serviceCleanupRef,
-        defaultModel: "gpt-5",
-        isDefault: false,
-        createdAt: 1,
-        updatedAt: 1,
-      };
-      await providersA.saveAssistantProviderConfig({
-        row: serviceCleanupRow,
-        expected: null,
-      });
-      await providersA.removeAssistantProviderConfig({
-        id: serviceCleanupRow.id,
-        expected: serviceCleanupRow,
+        class: CREDENTIAL_CLASS.ConnectorKey,
       });
       const serviceHostedApplication = createHostedApplication({
         deploymentUrl: backend.url,
@@ -1139,109 +1092,6 @@ it(
           .forPrincipal({ kind: "user", userId: "b" })
           .execute("getDataTable", { id: tableId }),
       ).rejects.toThrow("FORBIDDEN");
-      const hostedProviderInput = {
-        providerId: "openai",
-        displayLabel: "Hosted owner provider",
-        authKind: "api-key" as const,
-        credential: "synthetic-workspace-provider-key",
-        defaultModel: "gpt-5",
-      };
-      const storeCredential = vi.spyOn(vaultA, "store");
-      const storesBeforeUnsafeUrl = storeCredential.mock.calls.length;
-      await expect(
-        saveAssistantProviderConfig(ownerContext, {
-          input: {
-            ...hostedProviderInput,
-            baseUrl: "https://169.254.169.254/latest",
-          },
-        }),
-      ).rejects.toThrow("Invalid provider base URL");
-      expect(storeCredential).toHaveBeenCalledTimes(storesBeforeUnsafeUrl);
-      await expect(
-        saveAssistantProviderConfig(ownerContext, {
-          input: {
-            ...hostedProviderInput,
-            baseUrl: "http://public.example.com/v1",
-          },
-        }),
-      ).rejects.toThrow("must use HTTPS");
-      expect(storeCredential).toHaveBeenCalledTimes(storesBeforeUnsafeUrl);
-      await expect(
-        saveAssistantProviderConfig(
-          { ...ownerContext, principal: { kind: "user", userId: "b" } },
-          { input: hostedProviderInput },
-        ),
-      ).rejects.toThrow("FORBIDDEN");
-      await expect(
-        saveAssistantProviderConfig(ownerContext, {
-          input: { ...hostedProviderInput, authKind: "oauth" },
-        }),
-      ).rejects.toThrow("Use an API key");
-      await expect(
-        startAssistantOAuthLogin(ownerContext, { id: crypto.randomUUID() }),
-      ).rejects.toThrow("Use an API key");
-      const ownedProvider = await saveAssistantProviderConfig(ownerContext, {
-        input: hostedProviderInput,
-      });
-      const ownedRow = await providersA.getAssistantProviderConfig(
-        ownedProvider.id,
-      );
-      expect(ownedRow?.credentialRef).toMatch(/^secret:/);
-      expect(JSON.stringify(ownedRow)).not.toContain(
-        hostedProviderInput.credential,
-      );
-      expect(
-        await providersB.getAssistantProviderConfig(ownedProvider.id),
-      ).toBeNull();
-      await removeAssistantProviderConfig(ownerContext, {
-        id: ownedProvider.id,
-      });
-      expect(
-        await providersA.getAssistantProviderConfig(ownedProvider.id),
-      ).toBeNull();
-      const providerRow = {
-        id: crypto.randomUUID(),
-        providerId: "openai",
-        displayLabel: "OpenAI",
-        authKind: "api-key" as const,
-        baseUrl: "https://api.openai.com/v1",
-        credentialRef: providerRefA,
-        defaultModel: "gpt-5",
-        isDefault: true,
-        createdAt: 1,
-        updatedAt: 1,
-      };
-      await expect(
-        providersA.saveAssistantProviderConfig({
-          row: { ...providerRow, credentialRef: providerRefB },
-          expected: null,
-        }),
-      ).rejects.toThrow("unavailable in this workspace");
-      expect(
-        await providersA.saveAssistantProviderConfig({
-          row: providerRow,
-          expected: null,
-        }),
-      ).toEqual(providerRow);
-      expect(await providersA.listAssistantProviderConfigs()).toEqual([
-        providerRow,
-      ]);
-      expect(
-        await providersB.getAssistantProviderConfig(providerRow.id),
-      ).toBeNull();
-      await expect(
-        providerMetadata(
-          {
-            sub: "service:credential-a",
-            credentialId: "credential-a",
-            principalKind: "service",
-            authority: "host",
-            purpose: "host-metadata",
-            workspaceId: workspaces[0]!,
-          },
-          vaultA,
-        ).listAssistantProviderConfigs(),
-      ).rejects.toThrow();
       await expect(service.commitBatch([])).rejects.toThrow();
       await backend.internalClient.mutation(internal.host.revokeCredential, {
         workspaceId: workspaces[0]!,
@@ -1256,7 +1106,6 @@ it(
         403,
       );
       expect(httpAllocations).toBe(allocationsBeforeRevokedRequest);
-      await expect(providersA.listAssistantProviderConfigs()).rejects.toThrow();
       await expect(a.clearAllData()).rejects.toThrow();
       await expect(a.listCleanup(paging)).rejects.toThrow();
       await expect(

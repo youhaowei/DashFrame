@@ -1,0 +1,41 @@
+export const DRAFT_SAFE_COMMANDS = new Set([
+  "CreateDataSource",
+  "SetDataSourceConfig",
+  "CreateDataTable",
+  "SetDataTableSchema",
+  "RefreshDataTable",
+  "AddField",
+  "UpdateField",
+  "RemoveField",
+  "AddMetric",
+  "UpdateMetric",
+  "RemoveMetric",
+  "CreateInsight",
+  "SetInsightSource",
+  "SelectFields",
+  "SetInsightFilter",
+  "SetInsightSort",
+  "SetInsightRuntimeControls",
+  "AddJoin",
+  "UpdateJoin",
+  "RemoveJoin",
+  "CreateVisualization",
+  "SetChartType",
+  "SetChartEncoding",
+  "CreateDashboard",
+  "AddDashboardItem",
+  "UpdateDashboardItem",
+  "SetDashboardLayout",
+  "RemoveDashboardItem",
+  "PatchDashboardItemOverride",
+  "SetDashboardControls",
+  "FanOutDashboardItems",
+  "RenameNode",
+]);
+
+export const CREDENTIAL_COMMAND_ARG_FIELDS: Readonly<
+  Record<string, ReadonlyArray<"apiKey" | "connectionString">>
+> = {
+  CreateDataSource: ["apiKey", "connectionString"],
+  SetDataSourceConfig: ["apiKey", "connectionString"],
+};

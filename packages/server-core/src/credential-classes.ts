@@ -4,5 +4,4 @@ import type { CredentialClass } from "@wystack/secret-vault";
 export const CREDENTIAL_CLASS = {
   ConnectorKey: "connector-key",
   ServeToken: "serve-token",
-  AssistantProvider: "assistant-provider",
 } as const satisfies Record<string, CredentialClass>;

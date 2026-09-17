@@ -1,9 +1,6 @@
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 
 import {
-  ASSISTANT_RAIL_DEFAULT_WIDTH,
-  ASSISTANT_RAIL_MAX_WIDTH,
-  ASSISTANT_RAIL_MIN_WIDTH,
   CONTEXT_PANEL_DEFAULT_WIDTH,
   CONTEXT_PANEL_MAX_WIDTH,
   CONTEXT_PANEL_MIN_WIDTH,
@@ -17,7 +14,6 @@ describe("useShellStore — shell rails", () => {
       leftNavOpen: true,
       contextAppearanceOpen: false,
       contextPanelWidth: CONTEXT_PANEL_DEFAULT_WIDTH,
-      assistantRailWidth: ASSISTANT_RAIL_DEFAULT_WIDTH,
     });
   });
 
@@ -32,19 +28,6 @@ describe("useShellStore — shell rails", () => {
     );
     useShellStore.getState().setContextPanelWidth(360);
     expect(useShellStore.getState().contextPanelWidth).toBe(360);
-  });
-
-  it("clamps assistant rail width to its bounds", () => {
-    useShellStore.getState().setAssistantRailWidth(10_000);
-    expect(useShellStore.getState().assistantRailWidth).toBe(
-      ASSISTANT_RAIL_MAX_WIDTH,
-    );
-    useShellStore.getState().setAssistantRailWidth(0);
-    expect(useShellStore.getState().assistantRailWidth).toBe(
-      ASSISTANT_RAIL_MIN_WIDTH,
-    );
-    useShellStore.getState().setAssistantRailWidth(420);
-    expect(useShellStore.getState().assistantRailWidth).toBe(420);
   });
 
   it("toggles the appearance section without touching other rails", () => {

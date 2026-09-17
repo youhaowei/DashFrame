@@ -602,43 +602,6 @@ it("queues staged refs removed by draft revision and protects refs shared by can
   });
   expect(await claim("secret", ref)).not.toBeNull();
 });
-it("queues provider rotation and removal while keeping the replacement credential live", async () => {
-  const ref = secret(),
-    next = secret(),
-    row = {
-      id: uuid(),
-      providerId: "openai",
-      displayLabel: "Test",
-      authKind: "api-key" as const,
-      baseUrl: null,
-      credentialRef: ref,
-      defaultModel: "model",
-      isDefault: true,
-      createdAt: 1,
-      updatedAt: 1,
-    };
-  await t.mutation(internal.host.saveAssistantProviderConfig, {
-    workspaceId: "w",
-    row,
-    expected: null,
-  });
-  const updated = { ...row, credentialRef: next, updatedAt: 2 };
-  await t.mutation(internal.host.saveAssistantProviderConfig, {
-    workspaceId: "w",
-    row: updated,
-    expected: row,
-  });
-  expect(await claim("secret", ref)).not.toBeNull();
-  expect((await list()).page.some((job) => job.resourceId === next)).toBe(
-    false,
-  );
-  await t.mutation(internal.host.removeAssistantProviderConfig, {
-    workspaceId: "w",
-    id: row.id,
-    expected: updated,
-  });
-  expect(await claim("secret", next)).not.toBeNull();
-});
 it("does not let a revoked service execute a prepared draft while allowing cancellation", async () => {
   const args = batch({
     mode: "draft",

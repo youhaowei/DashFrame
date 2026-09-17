@@ -1,19 +1,13 @@
-import { useHostQuery } from "@/data/host";
-
 import { Dock, cn } from "@wystack/ui-react";
 import { ThemePanel } from "@wystack/ui-react/views";
 import { useEffect, useState } from "react";
 
-import { useAssistantStore } from "@/lib/stores/assistant-store";
 import {
-  ASSISTANT_RAIL_MAX_WIDTH,
-  ASSISTANT_RAIL_MIN_WIDTH,
   CONTEXT_PANEL_MAX_WIDTH,
   CONTEXT_PANEL_MIN_WIDTH,
   useShellStore,
 } from "@/lib/stores/shell-store";
 
-import { AssistantSidebar } from "../assistant/AssistantSidebar";
 import {
   type ContextPanelSection,
   useContextPanelSections,
@@ -37,24 +31,19 @@ function getStageWidth({
   shellWidth,
   navWidth,
   contextWidth,
-  assistantWidth,
   contextOpen,
-  assistantOpen,
   openSiblings,
 }: {
   shellWidth: number;
   navWidth: number;
   contextWidth: number;
-  assistantWidth: number;
   contextOpen: boolean;
-  assistantOpen: boolean;
   openSiblings: number;
 }): number {
   if (shellWidth <= 0) return Number.POSITIVE_INFINITY;
 
   let width = shellWidth - navWidth - gapWidth(openSiblings);
   if (contextOpen) width -= contextWidth;
-  if (assistantOpen) width -= assistantWidth;
   return width;
 }
 
@@ -71,18 +60,11 @@ interface ShellRailsProps {
 export function ShellRails({ shellWidth }: ShellRailsProps) {
   const sections = useContextPanelSections();
   const [contextAutoCollapsedState, setContextAutoCollapsed] = useState(false);
-  const [assistantNarrowedState, setAssistantNarrowed] = useState(false);
   const leftNavOpen = useShellStore((s) => s.leftNavOpen);
   const appearanceOpen = useShellStore((s) => s.contextAppearanceOpen);
   const setAppearanceOpen = useShellStore((s) => s.setContextAppearanceOpen);
   const contextWidth = useShellStore((s) => s.contextPanelWidth);
   const setContextWidth = useShellStore((s) => s.setContextPanelWidth);
-  const assistantWidth = useShellStore((s) => s.assistantRailWidth);
-  const setAssistantWidth = useShellStore((s) => s.setAssistantRailWidth);
-  const assistantIntentOpen = useAssistantStore((s) => s.isOpen);
-  const assistantConfigs = useHostQuery("listAssistantProviderConfigs");
-  const assistantAvailable = (assistantConfigs.data?.length ?? 0) > 0;
-  const assistantOpen = assistantIntentOpen && assistantAvailable;
 
   const contextIntentOpen = appearanceOpen || sections.length > 0;
   const desktopNavInFlow = leftNavOpen && shellWidth >= DESKTOP_NAV_BREAKPOINT;
@@ -90,15 +72,12 @@ export function ShellRails({ shellWidth }: ShellRailsProps) {
   const openWithContext = countOpenSiblings(
     desktopNavInFlow,
     contextIntentOpen,
-    assistantOpen,
   );
   const stageWidthWithContext = getStageWidth({
     shellWidth,
     navWidth,
     contextWidth,
-    assistantWidth,
     contextOpen: contextIntentOpen,
-    assistantOpen,
     openSiblings: openWithContext,
   });
 
@@ -113,36 +92,6 @@ export function ShellRails({ shellWidth }: ShellRailsProps) {
     // oxlint-disable-next-line react-hooks-js/set-state-in-effect -- hysteresis follows ResizeObserver measurements; the state transition is the buffer
     setContextAutoCollapsed(nextContextAutoCollapsed);
   }, [contextAutoCollapsedState, nextContextAutoCollapsed]);
-
-  const openAfterContext = countOpenSiblings(
-    desktopNavInFlow,
-    contextOpen,
-    assistantOpen,
-  );
-  const stageWidthAfterContext = getStageWidth({
-    shellWidth,
-    navWidth,
-    contextWidth,
-    assistantWidth,
-    contextOpen,
-    assistantOpen,
-    openSiblings: openAfterContext,
-  });
-  const nextAssistantNarrowed =
-    assistantOpen && assistantWidth > ASSISTANT_RAIL_MIN_WIDTH
-      ? getRailPressureState(assistantNarrowedState, stageWidthAfterContext)
-      : false;
-
-  useEffect(() => {
-    if (assistantNarrowedState === nextAssistantNarrowed) return;
-    // oxlint-disable-next-line react-hooks-js/set-state-in-effect -- hysteresis follows ResizeObserver measurements; the state transition is the buffer
-    setAssistantNarrowed(nextAssistantNarrowed);
-  }, [assistantNarrowedState, nextAssistantNarrowed]);
-
-  let renderedAssistantWidth = assistantWidth;
-  if (nextAssistantNarrowed) {
-    renderedAssistantWidth = ASSISTANT_RAIL_MIN_WIDTH;
-  }
 
   return (
     <>
@@ -162,19 +111,6 @@ export function ShellRails({ shellWidth }: ShellRailsProps) {
           onCloseAppearance={() => setAppearanceOpen(false)}
           compact={contextMerged}
         />
-      </Dock>
-
-      <Dock
-        side="right"
-        open={assistantOpen}
-        width={renderedAssistantWidth}
-        resizable
-        onResize={setAssistantWidth}
-        minExtent={ASSISTANT_RAIL_MIN_WIDTH}
-        maxExtent={ASSISTANT_RAIL_MAX_WIDTH}
-        aria-label="Assistant"
-      >
-        {assistantAvailable ? <AssistantSidebar /> : null}
       </Dock>
     </>
   );

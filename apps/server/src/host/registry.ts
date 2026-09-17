@@ -4,7 +4,6 @@ import type { HostContext } from "./context";
 import { requireUser } from "./context";
 import { executeHostCommandBatch } from "./commands";
 import * as access from "./access-credentials";
-import * as providers from "./assistant-providers";
 import * as connectors from "./connectors";
 import * as setup from "./connector-setup";
 import { getConnectorCatalog } from "./connector-catalog";
@@ -119,27 +118,6 @@ export const hostOperations = {
   listNotionDatabases: operation(sourceId, connectors.listNotionDatabases),
   listPostgresTables: operation(sourceId, connectors.listPostgresTables),
   listGa4Properties: operation(sourceId, connectors.listGa4Properties),
-  listAssistantProviderCatalog: operation(
-    empty,
-    providers.listAssistantProviderCatalog,
-  ),
-  listAssistantProviderConfigs: operation(
-    empty,
-    providers.listAssistantProviderConfigs,
-  ),
-  saveAssistantProviderConfig: operation(
-    z.object({ input: providers.saveInputSchema }).strict(),
-    providers.saveAssistantProviderConfig,
-  ),
-  removeAssistantProviderConfig: operation(
-    id,
-    providers.removeAssistantProviderConfig,
-  ),
-  setAssistantDefaultModel: operation(
-    z.object({ input: providers.setDefaultModelSchema }).strict(),
-    providers.setAssistantDefaultModel,
-  ),
-  startAssistantOAuthLogin: operation(id, providers.startAssistantOAuthLogin),
   getAccessCapabilities: operation(empty, access.getAccessCapabilities),
   getAccessConnectionInfo: operation(empty, access.getAccessConnectionInfo),
   listAccessCredentials: operation(empty, access.listAccessCredentials),

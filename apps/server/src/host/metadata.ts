@@ -11,19 +11,6 @@ import type { Field, Command } from "@dashframe/types";
 import type { Principal } from "@wystack/identity";
 import type { ConnectorSetupStore } from "../connector-setup/session-store";
 
-export interface AssistantProviderConfigRow {
-  id: string;
-  providerId: string;
-  displayLabel: string;
-  authKind: "api-key" | "local" | "oauth";
-  baseUrl: string | null;
-  credentialRef: string | null;
-  defaultModel: string;
-  isDefault: boolean;
-  createdAt: number;
-  updatedAt: number;
-}
-
 export class ImportPublicationRejectedError extends Error {
   constructor(message: string, options?: ErrorOptions) {
     super(message, options);
@@ -164,18 +151,6 @@ export interface HostMetadata {
     table: string;
     fields: Field[];
   }): Promise<Field[]>;
-  listAssistantProviderConfigs(): Promise<AssistantProviderConfigRow[]>;
-  getAssistantProviderConfig(
-    id: string,
-  ): Promise<AssistantProviderConfigRow | null>;
-  saveAssistantProviderConfig(input: {
-    row: AssistantProviderConfigRow;
-    expected: AssistantProviderConfigRow | null;
-  }): Promise<AssistantProviderConfigRow>;
-  removeAssistantProviderConfig(input: {
-    id: string;
-    expected: AssistantProviderConfigRow;
-  }): Promise<void>;
 }
 
 /** Recovery records available only to the local administrative backend. */

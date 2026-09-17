@@ -12,8 +12,8 @@ export type Resource = typeof cleanupResource.type;
 const secretPattern = /^secret:[0-9a-f-]{36}$/i;
 const key = (r: Resource) => `${r.kind}:${r.resourceId}`;
 // Finds secret references in stored rows so cleanup cannot reclaim live data.
-// credentialRef appears only here because saveAssistantProviderConfig writes it
-// directly to stored assistant provider configs, never through the command path.
+// credentialRef appears only here because hostBatches wraps staged refs in
+// { credentialRef } rows for this scanner; connector commands never carry it.
 const STORED_RESOURCE_CREDENTIAL_SLOTS = [
   "apiKey",
   "connectionString",
